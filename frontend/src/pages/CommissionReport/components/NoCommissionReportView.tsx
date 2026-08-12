@@ -1,9 +1,10 @@
-import React, { useState } from "react";
-import { CirclePlus, Layers } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import { CirclePlus, Layers, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { NewTrackerModal } from "./NewTrackerModal";
 import { useCommissionMasters } from "../hooks/useCommissionMasters";
+import { useUserData } from "@/hooks/useUserData";
 
 interface NoCommissionReportViewProps {
     projectId: string;
@@ -17,6 +18,18 @@ export const NoCommissionReportView: React.FC<NoCommissionReportViewProps> = ({
     onTrackerCreated
 }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const { role, user_id } = useUserData();
+
+    // Creating a Commission Report is ADMIN-ONLY. Every other role still reaches
+    // this tab (so they can see the report once it exists) but gets a message
+    // instead of the create button. `role` is the literal "Loading" while the
+    // Nirmaan Users doc is in flight -- gate on it so a non-admin never sees the
+    // button flash. UX gate only; the doctype permissions are the real boundary.
+    const roleResolved = role !== "Loading" && role !== "Error";
+    const isAdmin = useMemo(
+        () => user_id === "Administrator" || role === "Nirmaan Admin Profile",
+        [role, user_id]
+    );
 
     // Fetch necessary data for the modal
     const { projectOptions, projects, categoryData, mutateMasters } = useCommissionMasters();
@@ -69,30 +82,42 @@ export const NoCommissionReportView: React.FC<NoCommissionReportViewProps> = ({
                             </ul>
                         </div>
 
-                        {/* CTA Button */}
-                        <Button
-                            onClick={() => setIsModalOpen(true)}
-                            size="lg"
-                            className="text-base px-8 py-6 h-auto"
-                        >
-                            <CirclePlus className="h-5 w-5 mr-2" />
-                            
-                        </Button>
+                        {/* CTA Button -- ADMIN ONLY; everyone else gets the notice below. */}
+                        {roleResolved && (isAdmin ? (
+                            <Button
+                                onClick={() => setIsModalOpen(true)}
+                                size="lg"
+                                className="text-base px-8 py-6 h-auto"
+                            >
+                                <CirclePlus className="h-5 w-5 mr-2" />
+                                Create Commission Report
+                            </Button>
+                        ) : (
+                            <div className="flex items-start gap-3 w-full max-w-md rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                                <Lock className="h-4 w-4 mt-0.5 shrink-0 text-amber-600" />
+                                <p className="text-sm text-amber-800">
+                                    Only an <span className="font-semibold">Admin</span> can create a Commission Report.
+                                    Please contact an Admin to set one up for this project.
+                                </p>
+                            </div>
+                        ))}
                     </CardContent>
                 </Card>
             </div>
 
-            {/* Modal */}
-            <NewTrackerModal
-                isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
-                projectOptions={projectOptions}
-                projects={projects}
-                categoryData={categoryData}
-                preSelectedProjectId={projectId}
-                preSelectedProjectName={projectName}
-                onSuccess={handleSuccess}
-            />
+            {/* Modal -- mounted for admins only, so a non-admin has no way to open it. */}
+            {isAdmin && (
+                <NewTrackerModal
+                    isOpen={isModalOpen}
+                    onClose={() => setIsModalOpen(false)}
+                    projectOptions={projectOptions}
+                    projects={projects}
+                    categoryData={categoryData}
+                    preSelectedProjectId={projectId}
+                    preSelectedProjectName={projectName}
+                    onSuccess={handleSuccess}
+                />
+            )}
         </>
     );
 };
