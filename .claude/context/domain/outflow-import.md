@@ -45,6 +45,8 @@ pick one ad-hoc; ask.
 | **Splitting a Project Payment in two** (PS-1) | `services/payment_split.py` (`split_payment`; `split_and_approve` is a thin wrapper) — SHARED with the CEO partial approval | fork it for the second caller. ONE concept, ONE owner (ADR-0010 B1): two copies of the sum invariant and the PO-term surgery would drift, and the symptom is a PO whose terms stopped adding up, months later, with no way to tell which copy wrote it. **Every parameter defaults to the CEO behaviour**, which is what makes `test_payment_split`'s 26 original tests the proof that generalising it changed nothing |
 | **What makes two staged transfers THE SAME transfer** (D3) | `services/outflow_import/duplicates.py` (`row_identity`, `dates_agree`, `RowIdentity`) — pure | key a duplicate check on anything else. THREE readers: the cross-batch lookup (`candidates.find_earlier_batches_for_rows`), the in-file repeat check in `upload._stage_batch`, and the parser's `_duplicate_transfer_ids`. They used to key on `transfer_id` independently; a key that differed between them would let one call two rows duplicates while another called them distinct, on the same file. ⚠️ It is **NOT** the `Outflow Row Match` unique constraint — that stays `(transfer_id, target_doctype, target_name)` and is the money guarantee; this is about WORK, and may be more discriminating |
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
+| **Where a settled/matched record's link GOES** (E3) | `frontend/.../outflow-import/outflowTableModel.ts` (`settlementLink`, `orderPaymentsHref`) + `review._payment_order_names` / `_with_order_names` server-side | build a payments URL at a render site, or render one through a raw `<a href>`. A payment links to its ORDER (`/project-payments/<id>` with `/` escaped as `&=`) because that is what the app's other twelve call sites do; `paymentHref`'s search-param scheme is the FALLBACK only. ⚠️ The router carries a `basename` (`VITE_BASE_NAME`: `""` dev, `'frontend'` prod), so an anchor resolves to the SERVER ROOT and 404s in production while working in dev |
+| **The record's date, and which date it IS** (E2) | `frontend/.../outflow-import/outflowTableModel.ts` (`recordDateParts`, `RECORD_DATE_LABELS`) | render an approval/updated distinction inline. `recordSortDate` merges the two for ORDERING only -- an ordering claims nothing about meaning; a LABEL does |
 | **Why a picked record cannot be settled** (D1) | `frontend/.../outflow-import/outflowTableModel.ts` (`settleBlocker`, `settleBlockText`, `SettleBlockReason`) | write the refusal prose at a render site. The dialog used ONE fixed paragraph for every blocked pick and three of its claims went stale without anything failing — the worst told the reviewer to settle a TDS deduction "in the payments screen" after slice TD made that route live here |
 | Browsable approved records (hand-linking) | `api/outflow_import/review.search_settleable_records` (+ `_search_one_ledger`, `_rank_browse_records`, `_browse_cap`) | reuse `get_row_candidates` for browsing — that is the MATCHER's output, and when the matcher finds nothing it is empty, which is exactly when hand-linking is needed. Since N1 it returns the WHOLE approved pool by default and `limit` is a safety ceiling, not a page size |
 | What counts as "decided" on the screen | `frontend/src/pages/outflow-import/outflowTableModel.ts` (`isConfirmable`) | gate a confirm button on its own predicate — the dialog and the bulk bar both read this one |
@@ -1331,6 +1333,95 @@ the missing-date fallback, an unchanged re-upload) and are regression guards, no
 
 ---
 
+## Three more, and the production link defect (slices E1–E3, 2026-08-12)
+
+### E1 — the screen opens on ALL TIME
+
+`outflowPeriod.DEFAULT_PERIOD` is now `null`. ⚠️ **This REVERSES the 2026-08-09 worklist ruling**,
+and the reasoning it reverses is kept in the code rather than deleted, because it was not wrong —
+it was a trade decided the other way. The old default (`last 30 days`) was justified by first-paint
+cost and by burying a fresh statement under settled history; **both costs are now accepted**,
+because a reviewer looking for an older transfer was shown nothing with no reason to suspect a date
+filter.
+
+⚠️ **The first paint now scales with the whole table.** If that bites, the fix is paging or a
+server-side cap — **not** quietly reinstating a default period. An invisible filter is
+indistinguishable from missing data, which is the whole reason this changed.
+
+`activeFilterCount` still excludes the period, but for the reason that always mattered more (it has
+its own always-visible control), not the one that expired (it is always set).
+
+### E2 — `Approval Date`, as a badge over the date
+
+The column was headed `Approved` and the cell read `approved 12-Jul-2026` — the qualifier a
+lowercase word mid-cell, in the same weight as the date. `recordDateLabel` is replaced by
+`recordDateParts`, returning `{kind, date}`; the cell renders an **Approved** (solid) or **Updated**
+(muted outline) badge above the full date.
+
+⚠️ **The rule is unchanged and this makes it LOUDER.** Only `Project Payments` carries an approval
+date; both expense ledgers contribute a modification timestamp. Under a column now headed *Approval
+Date*, the badge is what stops that reading as an approval on two thirds of the list.
+`recordSortDate` still merges the two for ORDERING, which claims nothing about meaning.
+
+### E3 — the payment and expense links did not work in production
+
+**Two defects, one confirmed as production-only.**
+
+**① A raw `<a href>` cannot survive the router's basename.** `App.tsx` sets
+`basename: /${VITE_BASE_NAME}` — `""` in `.env`, `'frontend'` in `.env.production`. React Router
+prepends it; a raw anchor does not, so `/project-payments` resolved to the **server root** and 404'd
+in production while working perfectly in dev. `ApprovedRecordsPanel` was the one outflow site doing
+this. ⚠️ **Anything navigating in-app from this feature must go through the router.** (One other
+raw internal anchor exists in the app — `TDSRepository/components/TdsCreateForm.tsx` — deliberately
+left alone, out of scope.)
+
+**② The feature had invented its own link scheme.** `paymentHref` pre-seeds the payments TABLE's
+search params with the payment name, and only lands correctly while **four** things agree: the tab
+name, the url-sync key format, `name` being a searchable field, and the table reading the seeded
+params before overwriting them. Its own docstring already recorded that it *"fails SILENTLY by
+landing on an unfiltered table"*.
+
+**The fix is the app's own convention.** Twelve call sites across reports, approved quotations,
+invoices and the payments screen navigate to `/project-payments/<PO-or-SR id>` with slashes escaped
+as `&=`; `OrderPaymentSummary` reverses that with `id.replace(/&=/g, "/")`. `settlementLink` now
+takes an optional order and builds that route (`orderPaymentsHref`).
+
+⚠️ **THE TRADE, STATED:** the order route lands on the PO/SR page listing that document's payments,
+**not** on the individual payment row. Less precise than what the old scheme *promised* — more
+precise than what it *delivered*. `paymentHref` remains the FALLBACK when no order is known, so a
+payload predating the field keeps its link rather than losing it.
+
+**The row payload had to grow the order id.** Matches, related payments and the stored suggestion
+all travel as `(doctype, name)` pairs naming the PAYMENT, so `review._payment_order_names` +
+`_with_order_names` stamp `order_name` onto the two lists and `suggested_order_name` onto the row —
+**one lookup for all three**, at BOTH `get_batch_rows` and `get_outflow_rows`. ⚠️ **Both reads or
+neither**: the master table is where most of these links are clicked, and enriching only the batch
+view would leave the route working in one place and not the other, which is harder to diagnose than
+it not working at all.
+
+⚠️ **EXPENSES ARE STRUCTURALLY LIST-ONLY, and that is not an omission.** `PE_SEARCHABLE_FIELDS` and
+`NPE_SEARCHABLE_FIELDS` cover description, comment, type, vendor, amount — never the record id — and
+there is no `/expense/:id` route. Also **`document_name` holds the expense TYPE on both expense
+ledgers**, so an order id passed there would be a category name; `settlementLink` never routes an
+expense to the payments route whatever it is handed.
+
+⚠️ **A SECOND, UNFIXED CAUSE IS ON RECORD.** `paymentHref`'s docstring documents that a COLD LOAD
+bounces: opening any of these links in a fresh tab redirects to `/` because the app navigates before
+auth resolves. That hits `<Link>` sites too, is not addressed here, and is the next suspect if links
+still fail.
+
+### ⚠️ All three slices' tests were checked against a reverted implementation
+
+Every pre-existing test passed unchanged after each change — the `settleBlocker` fixtures carry no
+`target_doctype`, the fixture payments carry no `document_name`, and the `activeFilterCount` test
+was passing `DEFAULT_PERIOD`, which became `null` and is skipped by the null guard before the period
+rule is ever reached. **A test that passes before and after is evidence of neither.** The
+change-detecting tests were run against a temporarily reverted implementation and confirmed RED
+(3 frontend, 2 backend + 1 error) before being accepted, and the `activeFilterCount` test was
+rewritten to use a real period value instead of the default.
+
+---
+
 ## Known limits, accepted with numbers
 
 - **TDS payments will not MATCH** — the matcher is untouched and a deduction-sized gap reaches no
@@ -1377,9 +1468,9 @@ the missing-date fallback, an unchanged re-upload) and are regression guards, no
 | Suite | How |
 |---|---|
 | pure services (13 modules, **449** tests) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed (441 before D3, 409 before PS) |
-| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` — `test_upload` **31** (25 before D3), `test_review` **143** (137 before N3), `test_expenses` **31**, `test_settle_payment` **54** (39 after PS, 25 before), `test_approved` **16** |
+| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` — `test_upload` **31** (25 before D3), `test_review` **148** (143 before E3, 137 before N3), `test_expenses` **31**, `test_settle_payment` **54** (39 after PS, 25 before), `test_approved` **16** |
 | the SHARED split (CEO + partial settlement) | `… --module nirmaan_stack.api.payments.test_payment_split` — **31** (26 before PS-1; those 26 are the proof the CEO path is unchanged) |
-| frontend | `yarn test` (vitest, `node` environment — pure helpers only). **305** across this feature (287 before D1/D2, 267 before N2); **2,492** repo-wide. |
+| frontend | `yarn test` (vitest, `node` environment — pure helpers only). **316** across this feature (305 before E1-E3, 287 before D1/D2, 267 before N2); **2,503** repo-wide. ⚠️ `POAdjustment/writeOffControl.test.ts` has a PRE-EXISTING flake unrelated to this feature -- one case `await import`s the very large `SheetPricingPage` and trips vitest's 5s default on a loaded machine; it passes at `--testTimeout=60000`. |
 
 ⚠️ **A TEST THAT PASSES BEFORE AND AFTER A BEHAVIOUR CHANGE IS EVIDENCE OF NEITHER.** Every
 pre-existing `test_upload` test stayed green when the duplicate key widened at D3, because none of
