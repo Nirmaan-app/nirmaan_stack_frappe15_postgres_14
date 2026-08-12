@@ -68,6 +68,8 @@ SELECTED-ROW RUNS (only_rows + the carry-forward write). Plain-English coverage:
     byte-identical, on both a complete and a halted pass                              -> test_81
 """
 
+import base64
+import collections
 import copy
 import json
 import os
@@ -129,7 +131,10 @@ class TestRateMaster(FrappeTestCase):
         # SLICE 3: BoQ Rate Master Retirement joins the purge. The loader now records a retirement
         # row per declared entry, and both E-ALL fixtures (v12 and the current asset) declare some --
         # so without this every run of this suite would leave synthetic rows behind in the LIVE DB.
+        # SLICE 4: BoQ Rate Master Snapshot joins the purge for the same reason -- the export test
+        # writes one per scratch discipline, and this suite runs against the LIVE site DB.
         for disc in cls._disciplines:
+            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
             for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item",
                        "BoQ Rate Master Retirement"):
                 for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
@@ -959,6 +964,223 @@ class TestRateMaster(FrappeTestCase):
 
         # cable_tray loaded ACTIVE and stayed active -- the recorded row changed nothing
         self.assertEqual(self._active_items(disc, kind="cable_tray"), 450)
+
+    # ── SLICE 4: the asset export + snapshots ────────────────────────────────────────────
+    # Plain-English coverage summary (test -> changed behaviour):
+    #   24g  the export ROUND-TRIPS -- exporting a discipline and loading the result into a fresh
+    #        one reproduces every axis (items per kind, identity, rates, provenance, item_uid,
+    #        config blobs, goldens, the retirement entries). This is the slice's real gate; the
+    #        mint gate cannot see below `kind:<k>` and proves nothing about item fidelity.
+    #   24h  two consecutive exports are BYTE-IDENTICAL, so the file is a stable artefact and a
+    #        re-export produces no spurious diff.
+    #   24i  BLOB-VERBATIM (the negative half): a config carrying a key nothing knows about
+    #        survives the export untouched. This is what stops a fixed-schema export silently
+    #        dropping the 21st key the day someone adds one.
+    #   24j  retirement lists come from the TABLE (slice 3), not a file header -- and a discipline
+    #        with no retirement rows exports two EMPTY lists rather than inheriting anything.
+    #   24k  a snapshot is written per export, and the prune keeps the newest 10 per discipline.
+    #   24l  the endpoint refuses a non-admin, and writes NOTHING when it refuses.
+
+    def _export_scratch(self, source_disc=None):
+        """Export a discipline and return (payload, text). Defaults to a freshly loaded scratch."""
+        from nirmaan_stack.services.boq_rate_master import exporter
+        return exporter.export_asset_text(source_disc)
+
+    def test_24g_the_export_round_trips_every_axis(self):
+        """SLICE 4 -- the export is proven by ROUND TRIP, not by assertion.
+
+        Export a loaded discipline, load the result into a SECOND scratch discipline, and compare
+        the two axis by axis. Row identity (name / import_batch / timestamps) regenerates by
+        design and is deliberately not compared; `item_uid` IS compared, because that is the
+        durable identity slice 2 added precisely so it survives a mint."""
+        from nirmaan_stack.services.boq_rate_master import exporter, retirement
+
+        src = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(src))
+
+        payload, _text = exporter.export_asset_text(src)
+        dst = self._new_disc()
+        payload2 = json.loads(json.dumps(payload))
+        payload2["discipline"] = dst
+        r = loader.load_rate_master(payload=payload2)
+        self.assertEqual(r["items_total"], 1382)
+        self.assertEqual(r["configs_loaded"], 12)
+
+        def rows(d):
+            return frappe.get_all(
+                "BoQ Rate Master Item", filters={"discipline": d, "active": 1},
+                fields=["kind", "brand", "unit", "attributes", "rates",
+                        "source_sheet", "source_row", "item_uid"])
+
+        def full(x):
+            return json.dumps([x["kind"], x["brand"], x["unit"], _obj(x["attributes"]),
+                               _obj(x["rates"]), x["source_sheet"], x["source_row"],
+                               x["item_uid"]], sort_keys=True, separators=(",", ":"))
+
+        a, b = rows(src), rows(dst)
+        # items per kind
+        self.assertEqual(collections.Counter(x["kind"] for x in a),
+                         collections.Counter(x["kind"] for x in b))
+        # the full tuple covers identity, rates, provenance AND item_uid in one comparison
+        self.assertEqual(collections.Counter(full(x) for x in a),
+                         collections.Counter(full(x) for x in b))
+        self.assertEqual({x["item_uid"] for x in a}, {x["item_uid"] for x in b})
+        self.assertTrue(all(x["item_uid"] for x in b), "every round-tripped row keeps a uid")
+
+        # config blobs, deep -- discipline aside, which the loader stamps per import
+        def cfgs(d):
+            out = {}
+            for c in frappe.get_all("BoQ Rate Category Config",
+                                    filters={"discipline": d, "active": 1},
+                                    fields=["category_id", "config"]):
+                blob = dict(_obj(c["config"]))
+                blob.pop("discipline", None)
+                out[c["category_id"]] = json.dumps(blob, sort_keys=True, separators=(",", ":"))
+            return out
+        self.assertEqual(cfgs(src), cfgs(dst))
+
+        # the four retirement entries survive the round trip
+        self.assertEqual(retirement.get_retirement_lists(dst),
+                         retirement.get_retirement_lists(src))
+
+    def test_24h_two_consecutive_exports_are_byte_identical(self):
+        """SLICE 4 -- the export is a STABLE artefact.
+
+        Nothing in the payload is a timestamp, a batch id or a hash, and ordering is deterministic
+        (kind then item_uid; category_id), so re-exporting an unchanged database must produce the
+        same bytes. If it did not, every export would show a spurious diff and the file could never
+        be trusted as evidence that the asset matches the DB."""
+        from nirmaan_stack.services.boq_rate_master import exporter
+
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+        _, first = exporter.export_asset_text(disc)
+        _, second = exporter.export_asset_text(disc)
+        self.assertEqual(first, second)
+        self.assertTrue(first.endswith("\n"))
+
+    def test_24i_an_unknown_config_key_round_trips_untouched(self):
+        """SLICE 4 NEGATIVE half -- THE BLOB-VERBATIM PROOF.
+
+        No two configs share a key set, 15 keys have no screen control and 8 reach the AI prompt,
+        so an export that enumerated known keys would silently drop the 21st the day someone added
+        one -- and `_validate_config`'s allowlist has already had to widen six times. A key nothing
+        in the codebase knows about must survive an export untouched."""
+        from nirmaan_stack.services.boq_rate_master import exporter
+
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+        cfg_name = frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": disc, "category_id": "earthing", "active": 1}, "name")
+        blob = _obj(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"))
+        blob["a_key_nothing_knows_about"] = {"nested": [1, 2, {"deep": True}], "why": "verbatim"}
+        frappe.db.set_value("BoQ Rate Category Config", cfg_name, "config",
+                            json.dumps(blob), update_modified=False)
+        frappe.db.commit()
+
+        payload, _ = exporter.export_asset_text(disc)
+        exported = next(c for c in payload["category_configs"] if c["category_id"] == "earthing")
+        self.assertIn("a_key_nothing_knows_about", exported)
+        self.assertEqual(exported["a_key_nothing_knows_about"],
+                         {"nested": [1, 2, {"deep": True}], "why": "verbatim"})
+        # and it survives a re-import, which is the half that actually matters
+        dst = self._new_disc()
+        payload["discipline"] = dst
+        loader.load_rate_master(payload=payload)
+        stored = _obj(frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": dst, "category_id": "earthing", "active": 1}, "config"))
+        self.assertEqual(stored["a_key_nothing_knows_about"],
+                         {"nested": [1, 2, {"deep": True}], "why": "verbatim"})
+
+    def test_24j_retirement_lists_come_from_the_table_not_a_file_header(self):
+        """SLICE 4 -- retirement is read through slice 3's table, never carried forward from the
+        previous asset. A discipline with no retirement rows must export two EMPTY lists: if the
+        export inherited a header, a fresh discipline would claim retirements it never made."""
+        from nirmaan_stack.services.boq_rate_master import exporter, retirement
+
+        disc = self._new_disc()
+        # load WITHOUT retirement declarations, so nothing is recorded
+        payload_in = self._merged_payload(disc)
+        payload_in["retired_kinds"] = []
+        payload_in["retired_category_ids"] = []
+        loader.load_rate_master(payload=payload_in)
+        out, _ = exporter.export_asset_text(disc)
+        self.assertEqual(out["retired_kinds"], [])
+        self.assertEqual(out["retired_category_ids"], [])
+
+        # record one directly in the table -- the export must now surface it
+        retirement.record_retirements(disc, ["ups_per_kva"], ["ups"])
+        frappe.db.commit()
+        out2, _ = exporter.export_asset_text(disc)
+        self.assertEqual(out2["retired_kinds"], ["ups_per_kva"])
+        self.assertEqual(out2["retired_category_ids"], ["ups"])
+
+    def test_24k_a_snapshot_is_written_and_the_prune_keeps_ten(self):
+        """SLICE 4 -- every export is retained, newest 10 per discipline (owner-ruled).
+
+        Also pins that `version` is NOT reused after a prune: it is (max existing) + 1, so a
+        version number identifies one snapshot for the life of the site even once its row is gone."""
+        from nirmaan_stack.services.boq_rate_master import exporter
+
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+
+        versions = []
+        for _ in range(12):
+            payload, text = exporter.export_asset_text(disc)
+            name = exporter.write_snapshot(disc, text, payload)
+            versions.append(frappe.db.get_value(exporter.SNAPSHOT_DOCTYPE, name, "version"))
+        frappe.db.commit()
+
+        self.assertEqual(versions, list(range(1, 13)))          # monotonic, never reused
+        kept = frappe.get_all(exporter.SNAPSHOT_DOCTYPE, filters={"discipline": disc},
+                              fields=["version"], order_by="version asc")
+        self.assertEqual(len(kept), exporter.KEEP_SNAPSHOTS)
+        self.assertEqual([k["version"] for k in kept], list(range(3, 13)))  # 1 and 2 pruned
+
+        newest = frappe.get_all(exporter.SNAPSHOT_DOCTYPE, filters={"discipline": disc},
+                                fields=["payload", "item_count", "config_count", "taken_by",
+                                        "import_batch"],
+                                order_by="version desc", limit=1)[0]
+        self.assertEqual(newest["item_count"], 1382)
+        self.assertEqual(newest["config_count"], 12)
+        self.assertTrue(newest["taken_by"])
+        self.assertTrue(newest["import_batch"].startswith("rmbulk-"))
+        # the payload is stored VERBATIM -- byte-for-byte what the export produced
+        _, text_now = exporter.export_asset_text(disc)
+        self.assertEqual(newest["payload"], text_now)
+
+    def test_24l_the_export_endpoint_refuses_a_non_admin_and_writes_nothing(self):
+        """SLICE 4 NEGATIVE half -- the endpoint is admin-gated.
+
+        The shape is cloned from export_priced_workbook, whose gate is bare login-only; that gate
+        is deliberately NOT cloned, because an export hands over the whole priced catalog. A refusal
+        must also write no snapshot."""
+        from nirmaan_stack.services.boq_rate_master import exporter
+
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+        before = frappe.db.count(exporter.SNAPSHOT_DOCTYPE, {"discipline": disc})
+
+        original = frappe.session.user
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.export_rate_master_asset(discipline=disc)
+        finally:
+            frappe.set_user(original)
+        self.assertEqual(frappe.db.count(exporter.SNAPSHOT_DOCTYPE, {"discipline": disc}), before)
+
+        # POSITIVE twin: as admin it returns a downloadable file AND writes exactly one snapshot
+        res = rate_master.export_rate_master_asset(discipline=disc)
+        self.assertEqual(res["content_type"], "application/json")
+        self.assertTrue(res["filename"].endswith(".json"))
+        self.assertEqual(res["item_count"], 1382)
+        decoded = base64.b64decode(res["content_base64"]).decode("utf-8")
+        self.assertEqual(json.loads(decoded)["discipline"], disc)
+        self.assertEqual(frappe.db.count(exporter.SNAPSHOT_DOCTYPE, {"discipline": disc}), before + 1)
 
     def test_25_eall_retired_scope_deactivated_on_replace(self):
         disc = self._new_disc()

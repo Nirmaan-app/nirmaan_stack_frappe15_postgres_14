@@ -1906,3 +1906,55 @@ def update_rate_config(name=None, config=None):
     doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED (track_changes -> Version diff)
     frappe.db.commit()
     return {"ok": True, "config": cfg}
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════
+# SLICE 4: THE ASSET EXPORT. The database is the source of truth; the asset is now
+# BOOTSTRAP-AND-SNAPSHOT only. Running this export is what keeps a re-import safe -- the
+# file provably matches the DB, so a load can only replay what is already there.
+#
+# Shape cloned from export_writeback.export_priced_workbook (whitelisted POST returning
+# {filename, content_type, content_base64}, which the client turns into a Blob download).
+# ⚠️ ITS PERMISSION GATE IS DELIBERATELY *NOT* CLONED: that endpoint is bare login-only.
+# This one gates on the EXISTING _require_rate_admin (pricing._is_nirmaan_admin), matching
+# the RM-4a/4b writes, because an export hands the whole priced catalog to whoever calls it.
+#
+# ⚠️ A WEB REQUEST CANNOT WRITE INTO THE REPO, and nothing here tries. The file is returned
+# for download and retained as a snapshot row; committing it to git stays a human act.
+# ══════════════════════════════════════════════════════════════════════════════════════
+import base64  # noqa: E402
+
+from nirmaan_stack.services.boq_rate_master import exporter  # noqa: E402
+
+
+@frappe.whitelist(methods=["POST"])
+def export_rate_master_asset(discipline=None):
+    """ADMIN-ONLY: serialise the live catalog for a discipline into a loader-ready asset,
+    retain it as a snapshot, and return the file for download.
+
+    Returns {filename, content_type, content_base64, discipline, item_count, config_count,
+    retired_kinds, retired_category_ids, snapshot, snapshot_version, pruned}.
+    URL: .../rate_master.export_rate_master_asset
+    """
+    _require_rate_admin()  # BEFORE any read or write
+    if not discipline:
+        frappe.throw("discipline is required.", title="Missing field: discipline")
+
+    payload, text = exporter.export_asset_text(discipline)
+    snapshot = exporter.write_snapshot(discipline, text, payload)
+    frappe.db.commit()
+
+    version = frappe.db.get_value(exporter.SNAPSHOT_DOCTYPE, snapshot, "version")
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "_", discipline).strip("_").lower() or "discipline"
+    return {
+        "filename": f"rate_master_{slug}_v{version}.json",
+        "content_type": "application/json",
+        "content_base64": base64.b64encode(text.encode("utf-8")).decode("ascii"),
+        "discipline": payload["discipline"],
+        "item_count": len(payload["items"]),
+        "config_count": len(payload["category_configs"]),
+        "retired_kinds": payload["retired_kinds"],
+        "retired_category_ids": payload["retired_category_ids"],
+        "snapshot": snapshot,
+        "snapshot_version": version,
+    }

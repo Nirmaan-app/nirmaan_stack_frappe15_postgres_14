@@ -1,0 +1,140 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "BRMS-.YY.-.#####",
+ "creation": "2026-08-13 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "discipline",
+  "version",
+  "payload_section",
+  "payload",
+  "provenance_section",
+  "taken_at",
+  "taken_by",
+  "import_batch",
+  "item_count",
+  "config_count"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "description": "The engine/discipline this snapshot covers (e.g. 'Electrical'). Retention is per-discipline: the newest 10 are kept.",
+   "fieldname": "discipline",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Discipline",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "Monotonic per discipline, starting at 1. Assigned at write time as (max existing for this discipline) + 1; it is NOT reused after a prune, so a version number always identifies one snapshot for the life of the site.",
+   "fieldname": "version",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Version"
+  },
+  {
+   "fieldname": "payload_section",
+   "fieldtype": "Section Break",
+   "label": "Payload"
+  },
+  {
+   "description": "The whole loader-ready asset, EXACTLY as the export handed it to the user. LONG TEXT, not JSON, and that is deliberate: the payload is an opaque serialised artefact whose value is byte-fidelity (a snapshot exists to be restored), so Frappe must never hydrate and re-serialise it. It also sidesteps the list-valued-JSON wall that forces Pricing Workbook Version's prune to use a raw frappe.db.delete.",
+   "fieldname": "payload",
+   "fieldtype": "Long Text",
+   "label": "Payload"
+  },
+  {
+   "fieldname": "provenance_section",
+   "fieldtype": "Section Break",
+   "label": "Provenance"
+  },
+  {
+   "description": "When the export was taken.",
+   "fieldname": "taken_at",
+   "fieldtype": "Datetime",
+   "label": "Taken At"
+  },
+  {
+   "description": "The session user who took the export (admin-gated).",
+   "fieldname": "taken_by",
+   "fieldtype": "Data",
+   "label": "Taken By"
+  },
+  {
+   "description": "The import_batch the exported rows belonged to -- the join back to the catalog rows this snapshot describes. Blank if the discipline held no active rows.",
+   "fieldname": "import_batch",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Import Batch",
+   "search_index": 1
+  },
+  {
+   "description": "Item count in the payload -- a cheap integrity check that does not require parsing it.",
+   "fieldname": "item_count",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Item Count"
+  },
+  {
+   "description": "Config count in the payload -- the second half of the same cheap integrity check.",
+   "fieldname": "config_count",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Config Count"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-08-13 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Rate Master Snapshot",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}
