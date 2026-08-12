@@ -28205,3 +28205,193 @@ it. Worth remembering -- a passing test suite says nothing about what the runnin
 **v1** (`admins@nirmaan.app`) -- the first snapshot ever on this site. That is slice EXPORT's designed
 retention firing on a genuine admin export, so it is correct product data rather than cert debris, and
 it was left in place. Everything else in the cert was read-only.
+
+---
+
+## Build slice CSV-UPLOAD -- the round trip closes (2026-08-13)
+
+Slice 5 shipped the download; this ships the upload. **It is the FIRST slice that writes to the live
+catalog from a file a human edited** -- everything before it was additive or read-only -- so the shape
+of the interaction, not just the code, is the safety feature.
+
+### The upsert semantics (owner-ruled, exact)
+
+  * a row whose `item_uid` MATCHES an active item -> **REPLACES** it
+  * a row with a **BLANK** `item_uid` -> **ADDED**, minting a fresh `rmi-` uid
+  * an active item **ABSENT from the file** -> **LEFT UNTOUCHED**
+
+That last line is the safety property of the whole feature: a partial upload can never delete
+anything. Edit three rows, upload three rows, nothing else moves. It is also the reason **the upload
+is NOT routed through `loader.py`**, and this is not a stylistic preference -- `_deactivate_scope`
+computes its supersede set from the payload's **KINDS**, so a `replace=True` carrying three cable rows
+would deactivate all 292 of them. The importer computes its supersede set from the file's **matched
+UIDS** instead. Same law, different scope, and the difference is exactly what makes absent items safe.
+
+**Freeze-and-supersede is intact and is what makes "replace" safe.** A matched row is never mutated in
+place: its document is flipped `active = 0` (RETAINED) and a NEW document is inserted carrying the
+SAME `item_uid`. That is precisely the identity model slice 2 shipped for -- many rows share one uid,
+unique only among `active = 1`. Proven live: after the cert apply, `rmi-cert00000001` had an active
+row at 200.0 on the `csvup-` batch and an inactive row at 100.0 on the seed batch.
+
+**A uid present in the file but matching no active item is an ERROR, named** -- never an insert. It
+means a stale file or a hand-typed id, and inserting it would mint the silent duplicate `item_uid`
+exists to prevent.
+
+**Mode detection is the presence of the `category` column, and the mode is INFORMATIONAL.** Items
+carry no category (a category is derived from an item's `kind`), so the upsert is uid-keyed and
+mode-independent -- the same rows in either shape produce the same result. Mode B's `category` value
+is validated against the kind's real category and a mismatch is refused rather than silently
+discarded.
+
+### Two steps, never one
+
+`preview_rate_master_csv` is READ-ONLY; `apply_rate_master_csv` is the only writer and **re-builds the
+plan from the live catalog** rather than trusting anything posted back, so a doctored plan cannot be
+applied. The preview's `digest` fingerprints the decision AND the rows it was computed from; a stale
+one is REFUSED ("the catalog changed since this file was previewed"). An unrelated edit elsewhere is
+deliberately NOT in the fingerprint -- it must not block a correct upload.
+
+**The snapshot is slice 4's mechanism, taken BEFORE any write, in the SAME transaction.** That is the
+rollback path. `apply_plan` never commits; the endpoint's single `frappe.db.commit()` is the only one,
+which is what makes the whole thing all-or-nothing -- and it means **the snapshot can never exist for
+an upload that did not land**. A plan with nothing to apply writes no snapshot: there is nothing to
+roll back to, and one would evict a real snapshot from the keep-10.
+
+### The preview thresholds (owner-ruled)
+
+Headline counts: **rates changed - items added - rows unchanged - errors**, plus an honest fifth
+`other changes` shown ONLY when non-zero (a row that moved in some way other than a rate is none of
+the four, and folding it into one would mislabel it).
+
+**EXPANDED BY DEFAULT: every new item, and any rate move of 10% or more IN EITHER DIRECTION.** Both
+directions matter and they fail differently: 26,100 typed for 2,610 is invisible in a count, and 261
+for 2,610 quotes catastrophically low -- so the threshold is on the ABSOLUTE move. A move a percentage
+cannot describe (a rate appearing, disappearing, or leaving zero) is major too: an uncomputable
+percentage is not the same as a change that does not matter. Everything else collapses behind a count
+and opens in one click -- **collapsing is about attention, not access.**
+
+### Excel mangling -- the preview is the defence, not a repair pass
+
+Measured on the live catalog, all of these are one Excel round trip from being rewritten: `16/20A`
+(rating), `6A/16A 3-Pin Socket` (item), `70 x 6 MM Earth Strip` (type), `100x50mm` (size),
+`3 Pin / 2P+E` (pole), `IP44/54 - Splash Proof` (enclosure), and a description carrying U+2010 hyphens
+and a bullet.
+
+**Nothing is silently repaired.** Changed-ness is decided by comparing the value that WOULD BE STORED
+against the value that IS stored, **type-strictly** (`json.dumps`, so a stored `2.0` and a typed `2`
+are told apart) -- never by comparing display text. That is what stops a mangled value slipping
+through as "unchanged". A value we cannot read (`1,234.50`, a currency symbol) is REJECTED BY NAME
+rather than helpfully fixed; a refusal is the loudest possible surfacing. The DELIBERATE exception is
+a numerically identical float flattened from `2.0` to `2` -- the same stored number, so no change.
+
+Encoding is surfaced, not guessed: `utf-8-sig` first (our own export), falling back to `cp1252` (what
+Excel writes for plain "CSV"), with the encoding actually used reported in the plan and warned about
+on screen.
+
+**Blank cells: one rule, two representations.** A blank cell means "empty or absent", and where the
+stored value is ALREADY empty or absent nothing changes -- which is what makes an unedited round trip
+a genuine no-op (measured: one live attribute holds `""` and two live rates hold `null`; all three
+survive). Clearing a real value differs by space because the DATA does: a cleared ATTRIBUTE is REMOVED
+(no live null convention), a cleared RATE becomes `None` (there is one).
+
+**The attribute space is DECLARED ∪ OBSERVED**, unlike the RM-4a item endpoints. Three live keys
+(`family`, `location`, `pricing_mode`) are carried by real items and declared by no config, so a
+declared-only space would reject a faithful round trip of those rows. Measured: the attribute and rate
+key spaces are DISJOINT, and a name in both is refused outright -- the export emits one column per
+name, so the FILE would be ambiguous, and an import cannot repair an export that cannot represent
+the data.
+
+### Files
+
+| File | Change |
+|---|---|
+| `services/boq_rate_master/csv_importer.py` | NEW, 744 lines -- parse, classify, plan, apply |
+| `api/boq/rate_master.py` | +95 -- `preview_rate_master_csv` / `apply_rate_master_csv` |
+| `api/boq/test_rate_master.py` | +640 -- 16 new tests (116 -> 132) |
+| `frontend/.../rateMasterUpload.ts` | NEW, 192 lines -- pure helpers + the copy |
+| `frontend/.../rateMasterUpload.test.ts` | NEW, 216 lines -- 23 vitest cases |
+| `frontend/.../RateMasterUploadDialog.tsx` | NEW, 320 lines -- the preview surface |
+| `frontend/.../RateMasterDataViewer.tsx` | +22 -- the upload group in the dashed panel |
+| `frontend/.../RateMasterPage.tsx` | +38 -- the two SDK calls |
+
+⚠️ **`csv_importer.py` is 744 lines, over the app's ~500-line split guideline, and is left whole
+deliberately.** Roughly 300 of those lines are the module docstring and inline rationale rather than
+code. The one natural seam is `build_plan` / `apply_plan` -- and those two are exactly what must never
+drift, since the apply re-derives the plan and writes `change["_payload"]` straight out of it. Keeping
+them in one file is what makes "one computation, two readers" visible at a glance. Flagged rather than
+hidden; revisit if a third concern lands here.
+
+### Tests
+
+`test_rate_master` **116 -> 132**, all green. The strongest is **test_87**: downloading a category and
+uploading it back UNEDITED reports zero changes and zero errors. It is one assertion but it proves the
+blank-cell rules, the type-strict comparison and the value coercion all agree with what `csv_exporter`
+emitted -- if it failed, every real preview would be buried in noise and the 10% rule would be
+useless.
+
+Positive: 87 round-trip no-op - 88 one rate edit, rest untouched, supersede shape - 89 blank uid adds
+with a fresh uid and honest provenance - 90 partial file leaves absent items active - 91 both modes
+parse - 92 the >=10% rule in both directions plus the uncomputable case - 93 the snapshot holds the
+PRE-upload rate. Negative: 94 non-admin refused on BOTH endpoints - 95 unknown uid rejected by name -
+96 one malformed row rejects the whole file - **96b the transactional guarantee itself** (a failure
+mid-write rolls back the writes AND the snapshot) - 97 the preview writes nothing - 98 Excel mangling
+surfaces as a change, with the flattened-float exception - 99 a stale digest refuses - 100 header and
+duplicate problems each named - 101 `classify_columns` pure, ambiguous column refused.
+
+vitest **2329 -> 2352** (23 new), same one pre-existing failure. tsc: zero errors in the touched
+subtree. `vite build` exit 0.
+
+### Cert -- GREEN, and the CSRF finding
+
+Full ritual in order: bench killed by explicit PID and restarted (the first :8000 request took ~40 s
+cold-starting -- *listening but slow*, not wedged, and the difference was checked rather than assumed);
+Vite killed PID-targeted (the `pgrep -af vite` listing contained CC's own shell self-matching, which was
+excluded by hand) and restarted; browser de-staled over **CDP** -- site data cleared EXCLUDING cookies
+with `sid` verified surviving, service workers unregistered, every app tab closed, a fresh tab, bare
+root first then the deep route.
+
+**Bundle marker was code-derived:** exported symbols of the NEW module (`splitChanges`,
+`headlineCounts`, `canApply`, `planIsNoOp`, `fileToBase64`) resolved through the page's own module
+graph and were checked to BEHAVE, not merely exist. A data marker could not serve -- the upload
+surface IS the observation under test.
+
+**LIVE, READ-ONLY (the highest-value observation):** a real *This category* button click downloaded the
+588-row wiring CSV; it was edited OUTSIDE the app (+25%, -20%, +4%, a trailing-space attribute mangle,
+one blank-uid row) and fed back through the real file input. The dialog reported **3 rates changed - 1
+items added - 1 other changes - 584 rows unchanged - 0 errors**, expanded exactly three (the +25%, the
+-20% and the new item, the new item showing `source_sheet -> CSV upload` / `source_row -> 589`), and
+collapsed two behind *2 smaller changes* -- **the whitespace mangle among them, surfaced as a change
+rather than slipping through as unchanged.** Then walked away without confirming, and the database was
+verified byte-unchanged: 1382 active, original batch, all four touched values at their original
+readings, **zero `csvup-` rows anywhere**.
+
+**SYNTHETIC, FULL CYCLE:** a throwaway discipline `CERT_S6_THROWAWAY` (6 items) took download -> edit
+to a PARTIAL 3-row file -> preview -> apply. A deliberately stale digest was refused (417) before the
+real one applied 2 rows; the edited item gained an active row at 200.0 on a `csvup-` batch with its
+prior row RETAINED inactive at 100.0, the blank-uid row minted `rmi-bf4ad02ccb21`, **the four absent
+items stayed active on the seed batch with original values**, and snapshot `BRMS-26-00116` v1 held the
+PRE-upload 100.0. Two malformed files were refused whole (417, nothing written) -- one on a cell-count
+mismatch, one on `'1,234.50' is not a number`. Sessionless calls to BOTH endpoints returned 403
+PermissionError against the running server. The discipline was purged and **zero residual** confirmed,
+with live Electrical byte-identical to its pre-cert state.
+
+**⚠️ AN ENVIRONMENT FINDING WORTH KEEPING: `window.csrf_token` is ALWAYS undefined on :8080.**
+`frontend/index.html` sets it in the same inline block as `frappe.boot = {{ boot }}`; Vite serves the
+RAW template, so that line is a JavaScript syntax error and the WHOLE block -- csrf token included --
+never executes. Frappe normally lets this pass because `validate_csrf_token` returns early when the
+session has **no stored token**; opening the Frappe desk at :8000 stores one, and from that moment
+every POST from :8080 fails with an opaque 400 `CSRFTokenError` ("Invalid Request"). That is the
+"CSRF desync on :8080" the runbook names, and this is its mechanism. The cert recovered the session's
+real token via the proxied `/app` route (`/app` is proxied to :8000 by `proxyOptions.ts`) and set
+`window.csrf_token` on the page -- reinstating exactly what the Jinja-rendered `frontend.html` would
+have provided. **This is an environment accommodation, not a product change, and no product code
+depends on it.**
+
+### Interim config procedure (owner ruling 2026-08-13)
+
+Until a config authoring surface exists, a config change is made by **exporting the asset, editing it,
+and reloading**. **STANDING RULE: NEVER LOAD AN ASSET THAT WAS NOT EXPORTED MINUTES EARLIER.** A load
+is `replace=True` and supersedes everything in scope, so a stale file wipes every change made since it
+was exported; and any asset older than the `item_uid` slice carries no `item_uid`, so loading one
+would BLANK every id -- which breaks this slice's round trip outright, since a blank uid reads as
+"add this item".

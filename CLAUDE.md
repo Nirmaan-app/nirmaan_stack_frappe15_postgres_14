@@ -888,6 +888,58 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   the identity rather than minting a new one; the loader carries `item_uid` through at both insert
   sites exactly as it carries `brand`/`unit`. A legacy asset carrying no uid still loads, with the
   field left BLANK — never a fabricated value.
+- **⚠️ THE CSV UPLOAD UPSERT IS UID-KEYED, AND ABSENT ITEMS ARE LEFT UNTOUCHED (owner-locked).**
+  `services/boq_rate_master/csv_importer.py` reads back the CSV `csv_exporter` emits: a row whose
+  `item_uid` MATCHES an active item **REPLACES** it, a row with a **BLANK** `item_uid` is **ADDED**
+  with a freshly minted uid, and **an active item ABSENT from the file is LEFT UNTOUCHED**. That last
+  is the safety property of the whole feature — a partial upload can never delete anything. A uid
+  present in the file but matching NO active item is an **ERROR named in the preview**, never an
+  insert: it means a stale file or a hand-typed id, and inserting it would mint the silent duplicate
+  `item_uid` exists to prevent. **⚠️ THE UPLOAD MUST NEVER BE ROUTED THROUGH `loader.py`** — a
+  `replace=True` supersedes an entire SCOPE (every active row whose KIND is in the payload) and would
+  wipe every item the file omitted. **Freeze-and-supersede is intact and is what makes "replace"
+  safe:** a matched row is not mutated in place; its document is flipped `active = 0` (RETAINED) and a
+  NEW document is inserted carrying the SAME uid. The only difference from the loader is the SCOPE of
+  the supersede — matched UIDS, not payload KINDS — which is precisely why absent items cannot be
+  touched. The MODE (`category` vs the `category`-column-bearing `all`) is INFORMATIONAL: items carry
+  no category, so the upsert is mode-independent and both shapes give the same result.
+- **⚠️ THE UPLOAD IS TWO STEPS, AND A SNAPSHOT IS WRITTEN BEFORE ANY WRITE (owner-locked).**
+  `preview_rate_master_csv` is READ-ONLY (it opens no transaction and is safe to run against live
+  data); `apply_rate_master_csv` is the only writer and **RE-BUILDS the plan from the live catalog**
+  rather than trusting anything posted back, so a doctored plan cannot be applied. The preview's
+  `digest` fingerprints the decision AND the rows it was computed from, and a stale one is REFUSED —
+  the honest answer when the catalog moved between the two steps; an unrelated edit elsewhere is
+  deliberately NOT in the fingerprint. The apply takes a slice-4 **SNAPSHOT FIRST, in the SAME
+  transaction** — that is the rollback path, and `apply_plan` never commits, so the endpoint's single
+  `frappe.db.commit()` makes the whole thing ALL-OR-NOTHING: a malformed row rejects the WHOLE file,
+  and the snapshot can never exist for an upload that did not land. A plan with nothing to apply
+  writes no snapshot (nothing to roll back to, and it would evict a real one from the keep-10).
+- **⚠️ THE PREVIEW IS THE DEFENCE AGAINST EXCEL, AND NOTHING IS SILENTLY REPAIRED (owner-locked).**
+  Expanded by default: **every new item, and every rate move of 10% or more IN EITHER DIRECTION**
+  (₹26,100 for ₹2,610 is invisible in a count; ₹261 for ₹2,610 quotes catastrophically low — so the
+  threshold is on the ABSOLUTE move). A move a percentage cannot describe — a rate appearing,
+  disappearing, or leaving zero — counts as major too. Everything else collapses behind a count and is
+  one click from open: **collapsing is about attention, not access.** Changed-ness is decided by
+  comparing the value that WOULD BE STORED against the value that IS stored, **type-strictly**
+  (`json.dumps`, so a stored `2.0` and a typed `2` are told apart), never by comparing display text —
+  which is what stops a mangled value slipping through as "unchanged". A value we cannot read
+  (`1,234.50`, a currency symbol) is REJECTED BY NAME rather than "helpfully" fixed. **A blank cell
+  means "empty or absent", and where the stored value is ALREADY empty or absent nothing changes** —
+  which is what makes an unedited download/upload round trip a genuine no-op; a cleared ATTRIBUTE is
+  REMOVED (attributes have no live null convention) while a cleared RATE becomes `None` (they do).
+- **⚠️ THE UPLOAD'S ATTRIBUTE SPACE IS DECLARED ∪ OBSERVED, UNLIKE THE RM-4a ITEM ENDPOINTS.** Three
+  live keys (`family`, `location`, `pricing_mode`) are carried by real items and declared by NO
+  config, so a declared-only space would reject a faithful round trip of those rows;
+  `update_rate_master_item` / `create_rate_master_item` validate against the declared set alone and
+  would indeed refuse them. Measured: the attribute and rate key spaces are DISJOINT, and a name in
+  both is refused outright — the export emits ONE column per name, so the FILE would be ambiguous and
+  an import cannot repair an export that cannot represent the data.
+- **⚠️ INTERIM CONFIG PROCEDURE (owner ruling 2026-08-13, until a config authoring surface exists):**
+  a config change is made by **exporting the asset, editing it, and reloading it**. **STANDING RULE:
+  NEVER LOAD AN ASSET THAT WAS NOT EXPORTED MINUTES EARLIER.** A load is `replace=True` and supersedes
+  everything in scope, so a stale file wipes every change made since it was exported; and any asset
+  older than the `item_uid` slice carries no `item_uid`, so loading one would BLANK every id — which
+  breaks the CSV round trip outright, since a blank uid reads as "add this item".
 - **⚠️ A TEST IS UPDATED TO MATCH A RULING, NEVER A RULING TO MATCH A TEST (owner-locked).** An
   asset-pinned test that disagrees with the live asset is asserting the shape a ruling REPLACED — i.e.
   a defect — so the assertion moves and carries an INLINE COMMENT naming the ruling it now encodes and

@@ -1375,6 +1375,31 @@ in the plan doc.
   most-specific-first and strips the `frappe.exceptions.X:` prefix. It shipped once as
   `(e as {message?})?.message ?? "…"`, which rendered a real stale-worker `AttributeError` as the
   entirely uninformative "There was an error." — never reintroduce a generic catch-all here.
+- **THE UPLOAD SURFACE IS UPLOAD → PREVIEW → CONFIRM → APPLY, AND NEVER ONE STEP (owner-locked).**
+  `RateMasterUploadDialog.tsx` sits IN the same dashed panel as the downloads, immediately after
+  *Download to edit*, because it is the SECOND HALF of that one action — download, edit, upload.
+  Pairing it with the *backup* group instead would attach it to the file nothing reads back, which is
+  the exact confusion the purpose-based grouping exists to prevent. **THE DIALOG DECIDES NOTHING:**
+  the server computes the whole plan (what changed, what is major, what is an error) and this only
+  RENDERS it. A second client-side copy of the 10% rule or of the upsert semantics would be free to
+  disagree with the write that actually happens — the one failure a preview must never have — so
+  `splitChanges` reads the server's `major` flag and never re-derives the threshold.
+- **THE FILE IS SENT AS BASE64 BYTES, NOT AS TEXT.** Reading it as text forces a decode in the
+  browser, which silently picks UTF-8 and would mangle the cp1252 file Excel produces when the user
+  chooses plain "CSV" rather than "CSV UTF-8". Sending bytes lets the SERVER report which encoding it
+  actually read, and the dialog surfaces that as a warning — surfacing the problem instead of
+  guessing at it. The bytes are held in a ref so **APPLY sends exactly what was PREVIEWED**; re-reading
+  the file on confirm would let a file changed on disk in between be applied against the wrong preview.
+- **HEADLINE COUNTS ARE THE OWNER'S FOUR, PLUS AN HONEST FIFTH ONLY WHEN NON-ZERO.** `rates changed ·
+  items added · rows unchanged · errors` are the named four; `other changes` appears ONLY when a row
+  moved in some way other than a rate (an attribute Excel rewrote, a renamed kind). Such a row is none
+  of the four, and folding it into one of them would MISLABEL it — an honest extra count beats a wrong
+  one, and it stays out of sight on the ordinary rate-edit upload. **Expanded by default: every new
+  item and every rate move of ≥10% IN EITHER DIRECTION; everything else collapses behind a count that
+  opens in one click.** Errors block Apply absolutely — the apply is all-or-nothing, so a partly-good
+  file is not partly appliable. The copy (`rateMasterUpload.UPLOAD_COPY`) is single-sourced like
+  `DOWNLOAD_COPY` and must keep naming the two facts that make confirming safe: **absent items are
+  left untouched**, and **a snapshot is saved first so this can be rolled back.**
 - **`ratePipelineInterpreter.ts` is THE single compute source (owner-locked) -- a PURE TS module with NO
   React imports.** It executes the stored pipeline step vocabulary (`match_master_row`,
   `apply_effective_multiplier` with conditions, `scale`, `component`, `component_band`, `sum_components`,
