@@ -1161,26 +1161,16 @@ class TestRateMaster(FrappeTestCase):
     # These are the C1 BEFORE-pins: they assert the CURRENT behaviour and are proven green against the
     # unchanged state, then UPDATED IN THIS SAME SLICE, so the diff shows exactly what changed.
 
-    # ⚠️ DELIBERATELY STILL HISTORICAL -- and this is a FINDING, not an oversight (merge slice,
-    # 2026-08-13). This pin was meant to track the current asset ("bump with the rebuild") and had
-    # drifted to v22. Repointing it at CURRENT_EALL_ASSET was attempted in the merge slice and
-    # FAILS THREE TESTS, because they asserted a v22-era shape that TWO OWNER RULINGS have since
-    # superseded -- v30 is byte-identical to v29 on both points, so the merge changed nothing here:
+    # SLICE 1b (owner-ruled 2026-08-13): this pin now follows the ONE constant, closing the last of
+    # the four "current-asset" pins that had each drifted to a different version.
     #
-    #   test_38 / test_40  `blank_item.disables_when_none == ["blank_qty"]`
-    #       v22 ['blank_qty'] -> v29/v30 ABSENT. Removed by the BLANKER-BIND ruling: once blank_item
-    #       stopped driving the price, its disables_when_none was greying out the newly EDITABLE
-    #       blank_qty on every row where extraction answered "None".
-    #   test_41            back_box `ref.item == "@plate_item"`
-    #       v22 @plate_item -> v29/v30 @box_item. The back box takes the selected plate's module
-    #       COUNT re-fitted on its OWN (shorter) ladder, never the plate's LABEL -- copying the
-    #       label asked the catalog for a box that does not exist and made the whole row unpriceable.
-    #
-    # So these three tests currently assert the PRE-RULING shape, i.e. two defects. Updating them is
-    # an owner call (they encode owner-locked rulings) and is OUT OF SCOPE for a merge slice, which
-    # must not silently rewrite a guard. Until that ruling, the pin stays explicit and this comment
-    # is the record. The OTHER three current pins DID collapse to CURRENT_EALL_ASSET.
-    _ASSET = "rate_master_electrical_all_v22.json"
+    # It had sat on v22 for two mints, and repointing it exposed THREE tests asserting a v22-era
+    # shape that TWO OWNER RULINGS have since superseded. The assertions were UPDATED to the
+    # post-ruling shape -- the tests were already wrong, and the merge changed nothing here (v29 and
+    # v30 are byte-identical on both points). Each updated assertion carries an inline comment naming
+    # the ruling it now encodes. FOUR tests read this pin; test_37 (routing / ownership) was
+    # unaffected and passes on the current asset unchanged.
+    _ASSET = CURRENT_EALL_ASSET
 
     def _asset_payload(self, discipline):
         path = _asset_path(self._ASSET)
@@ -1247,7 +1237,18 @@ class TestRateMaster(FrappeTestCase):
             self.assertEqual(d["values_from"]["kind"], "switch_socket_item")
             self.assertEqual(d["values_from"]["where"]["family"], family)
             qty = slot.replace("_item", "_qty")
-            self.assertIn(qty, d["disables_when_none"])
+            # SLICE 1b: `blank_item` is the ONE slot that no longer disables its quantity, and the
+            # asymmetry IS the BLANKER-BIND ruling (2026-08-10). The blanker is inferred from the
+            # EFFECTIVE module count, never selected by extraction -- so `blank_item` stopped driving
+            # the price while `blank_qty` became EDITABLE again (seeded with the computed count, and
+            # arbitrated against the plate's spare capacity). A dead dropdown was therefore greying
+            # out the one field that had just started to matter, on every row where extraction
+            # answered "None". This asserted the PRE-ruling shape; the live shape is the absence.
+            if slot == "blank_item":
+                self.assertIsNone(d.get("disables_when_none"),
+                                  "blank_item must NOT disable blank_qty -- BLANKER-BIND")
+            else:
+                self.assertIn(qty, d["disables_when_none"])
             self.assertEqual(defs[qty]["type"], "number")
             # POSITIVE: each slot resolves a NON-EMPTY catalog from the live master rows
             self.assertTrue(extraction.values_from_catalog(disc, d["values_from"]))
@@ -1258,11 +1259,20 @@ class TestRateMaster(FrappeTestCase):
 
         self.assertEqual(defs["back_box"]["values"], ["Yes", "No"])
         self.assertEqual(defs["colour"]["type"], "choice")
-        # the qty defaults ship; C2: NO colour default and NO rules this slice
         self.assertEqual(cfg["extraction_defaults"]["switch_qty"], 1.0)
         self.assertTrue(cfg.get("extraction_none_guidance"))
-        self.assertNotIn("colour", cfg["extraction_defaults"])
-        self.assertFalse(cfg.get("rules"))                     # C2: no rules, before or after
+        # SLICE 1b: the two assertions below said "C2: NO colour default and NO rules THIS SLICE" --
+        # a SCOPE statement about C2, which later slices then superseded, not a standing rule.
+        # `colour: "White"` was added to extraction_defaults on BOTH categories at v23 (recorded as
+        # "S4 is NOT a rule" -- it is a default, not estimator guidance), and the S1/S2/S3 switch
+        # rules landed in the same era. Asserting their absence pinned a scope boundary that had
+        # already moved, so both now assert the live shape.
+        self.assertEqual(cfg["extraction_defaults"]["colour"], "White")
+        self.assertTrue(cfg.get("rules"))
+        # RULING 4 (same era): blank_qty was REMOVED from extraction_defaults on both categories --
+        # a fabricated default and a computed count must not both be live. If module_fit does not
+        # run, blanks are ABSENT, not 1.
+        self.assertNotIn("blank_qty", cfg["extraction_defaults"])
 
     def test_39_switches_sockets_goldens_live(self):
         """The GOLDEN pin, read from the LIVE production config (not a synthetic load) -- these are the
@@ -1342,12 +1352,19 @@ class TestRateMaster(FrappeTestCase):
         b = defs["blank_item"]
         self.assertEqual(b["type"], "choice")
         self.assertTrue(b["allow_none"])
-        self.assertEqual(b["disables_when_none"], ["blank_qty"])
+        # SLICE 1b -- BLANKER-BIND ruling (2026-08-10). Was `["blank_qty"]`. The blanker is now
+        # INFERRED from the EFFECTIVE module count and never selected by extraction, so `blank_item`
+        # no longer drives the price while `blank_qty` became EDITABLE again. Leaving the disable in
+        # place meant a dead dropdown greyed out the newly-live quantity on every "None" row.
+        self.assertIsNone(b.get("disables_when_none"))
         self.assertIsNone(b.get("values"))                      # NEGATIVE: never a static list
         self.assertEqual(b["values_from"]["kind"], "switch_socket_item")
         self.assertEqual(b["values_from"]["where"]["family"], "Switch")
         self.assertEqual(defs["blank_qty"]["type"], "number")
-        self.assertEqual(cfg["extraction_defaults"]["blank_qty"], 1.0)
+        # SLICE 1b -- same ruling, second half. `blank_qty` carried an extraction default of 1.0 back
+        # when the model chose the blanker; the pipeline now COMPUTES the count, so an injected
+        # default would be a STATED value competing with the computation. It is correctly absent.
+        self.assertNotIn("blank_qty", cfg.get("extraction_defaults") or {})
         # POSITIVE: the live catalog behind the slot resolves, and contains the one blanker
         cat = extraction.values_from_catalog(disc, b["values_from"])
         self.assertIn("1M Blanker", cat)
@@ -1360,8 +1377,14 @@ class TestRateMaster(FrappeTestCase):
             self.assertEqual(len(blanks), 1, f"{pid} must carry exactly one blank line")
             self.assertTrue(blanks[0]["none_skips"])
             self.assertEqual(blanks[0]["ref"]["family"], "Switch")
-            self.assertEqual(blanks[0]["ref"]["item"], "@blank_item")
-            self.assertEqual(blanks[0]["qty"], {"from_attr": "blank_qty"})
+            # SLICE 1b -- BLANKER-BIND ruling, the binding half. Was `@blank_item` + a
+            # `{from_attr: blank_qty}` quantity, i.e. the model picked the item AND stated the count.
+            # A POSITIVE effective count now prices `1M Blanker` whatever extraction returned, and a
+            # ZERO count binds the None sentinel so the line reads as deliberately absent. The item
+            # therefore comes from the FIT (`@blank_fit_item`, bound like a ladder rung) and the
+            # quantity from `{from_fit: blank_count}` -- the pipeline computes both.
+            self.assertEqual(blanks[0]["ref"]["item"], "@blank_fit_item")
+            self.assertEqual(blanks[0]["qty"], {"from_fit": "blank_count"})
             # NEGATIVE: point_wiring rounds to UNITS -- a tens roundup here would be the wrong category's
             for stage in blanks[0]["rate_stages"]:
                 self.assertNotEqual(stage.get("round"), -1)
@@ -1392,11 +1415,18 @@ class TestRateMaster(FrappeTestCase):
             disables = defs["plate_item"]["disables_when_none"]
             self.assertNotIn("back_box", disables, f"{cid}: a None plate must NOT grey out the box")
             self.assertIn("plate_qty", disables, f"{cid}: invariant either way")
-            # the back_box component binding is NOT part of this fix -- box module = the plate's module
-            # when a plate exists; the no-plate fallback needs the module computation and is slice 2.
+            # SLICE 1b -- the back-box RE-FIT ruling. This comment used to say the binding was "NOT
+            # part of this fix ... and is slice 2"; slice 2 SHIPPED and changed it, so both the
+            # comment and the assertion were stale.
+            #
+            # The box takes the SELECTED plate's module COUNT, re-fitted on its OWN ladder -- never
+            # the plate's LABEL. The box ladder is SHORTER than the plate ladder (no 9M, no 16M), so
+            # a 9M plate pairs with a 12M box and a 16M plate with an 18M box. Copying the label
+            # (`@plate_item`) asked the catalog for a box that does not exist and made the WHOLE ROW
+            # unpriceable -- a live defect before slice 2 part 2, and what this now guards against.
             step = next(s for s in cfg["pipelines"][pipeline_id]["steps"]
                         if s.get("step") == "component_ref" and s.get("name") == "back_box")
-            self.assertEqual(step["ref"]["item"], "@plate_item")
+            self.assertEqual(step["ref"]["item"], "@box_item")
 
     def test_42_point_wiring_goldens_hold(self):
         """pw1 and pw2 must be UNMOVED: both state a 3M plate with 3 modules occupied, so their blank
