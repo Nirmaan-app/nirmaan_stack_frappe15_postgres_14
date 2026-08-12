@@ -20,6 +20,7 @@ from nirmaan_stack.api.invoices._auto_approve import (
     evaluate_auto_approve_eligibility,
 )
 from nirmaan_stack.api.invoices._item_billing_sync import recompute_po_invoice_qty
+from nirmaan_stack.services.role_profiles import is_nirmaan_admin as _is_nirmaan_admin
 
 
 @frappe.whitelist()
@@ -153,10 +154,13 @@ def update_invoice_data(
                 # invoice's mapping). The child rows are fully regenerated; the audit
                 # snapshot is refreshed to match. invoice_qty resyncs via the
                 # recompute call (line ~244) before commit.
-                _admin_can_rebuild = (
-                    frappe.session.user == "Administrator"
-                    or "Nirmaan Admin Profile" in frappe.get_roles(frappe.session.user)
-                )
+                #
+                # Admin is resolved by ROLE PROFILE (see `_is_nirmaan_admin`). The
+                # previous `"Nirmaan Admin Profile" in frappe.get_roles(...)` check
+                # matched nobody, so an admin's corrected mapping was SILENTLY
+                # DISCARDED on an Approved invoice: the save succeeded, the toast
+                # said "updated", and the old mapping stayed.
+                _admin_can_rebuild = _is_nirmaan_admin(frappe.session.user)
                 if rebuild_line_mappings and (vendor_invoice.status == "Pending" or _admin_can_rebuild):
                     # Use .set() (NOT direct attribute assignment) so the dict rows are
                     # converted into child documents — a raw list of dicts left on the
@@ -517,11 +521,7 @@ def delete_invoice_entry(docname: str, date_key: str = None, isSR: bool = False,
     # transaction so the message reaches the client instead of being wrapped into the
     # generic 400 by the except block below.
     if frappe.db.get_value("Vendor Invoices", vendor_invoice_name, "status") == "Approved":
-        is_admin = (
-            frappe.session.user == "Administrator"
-            or "Nirmaan Admin Profile" in frappe.get_roles(frappe.session.user)
-        )
-        if not is_admin:
+        if not _is_nirmaan_admin(frappe.session.user):
             # Return (don't throw) a status object so the frontend's `status !== 200`
             # branch surfaces THIS exact message in its "Deletion Failed" toast. A
             # frappe.throw would reach the SDK as a generic error string (the real
