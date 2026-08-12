@@ -767,6 +767,59 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   leave `rateMasterRegistry.ts` in the SAME change.** The list the picker renders comes from the
   registry; retiring the config alone leaves the category on offer and renders
   "No active config found for …" when it is chosen.
+- **⚠️ THE ASSET IS EXPORTED FROM THE DATABASE — `services/boq_rate_master/exporter.py`
+  (owner-locked).** The DB is the source of truth and the asset is BOOTSTRAP-AND-SNAPSHOT only.
+  Running the export is what keeps a re-import safe: the file provably matches the DB, so a load can
+  only replay what is already there. `build_asset(discipline)` returns the dict `_load_multi`
+  consumes; `serialize_asset` is the ONE serialisation (`indent=1`, `ensure_ascii=False`, **no
+  `sort_keys`** — ordering is deterministic by construction and re-sorting would reorder the verbatim
+  blobs). **Two exports of an unchanged database are BYTE-IDENTICAL** — nothing in the payload is a
+  timestamp, a batch id or a hash.
+- **⭐ CONFIG BLOBS ARE EMITTED VERBATIM — never enumerate keys, never rebuild, never filter
+  (owner-locked).** No two configs share a key set, 15 keys have NO screen control and 8 reach the AI
+  prompt, so a fixed-schema export would silently drop the 21st key the day someone adds one — and
+  `_validate_config`'s allowlist has already had to widen six times, so that day comes. `attributes`
+  and `rates` are emitted whole for the same reason. Pinned by a test that plants a key nothing in the
+  codebase knows about and proves it survives export AND re-import.
+- **WHAT THE EXPORT EMITS AND DROPS.** Per item, exactly 7 keys in order: `kind`, `brand`, `unit`,
+  `attributes`, `rates`, `source`, `item_uid` — ⚠️ `source` MUST be a dict on every item or
+  `_validate_items` throws. Top level: `discipline`, `items`, `category_configs`, `goldens`,
+  `source_workbook`, `retired_kinds`, `retired_category_ids`. **NEVER emitted:** `name`,
+  `import_batch`, `creation`, `modified`, `owner`, `active` — row identity regenerates on every
+  import by design, which is exactly why `item_uid` exists and IS emitted. **Deliberately dropped as
+  archaeology (owner-ruled, do NOT preserve or merge from the previous file):** `sha256_prefix`,
+  `extracted_at`, `provenance`, `excluded_categories`, `slice_note`, `merged_from`, and `source.col`
+  on the 27 db_shell items.
+- **⚠️ RETIREMENT COMES FROM THE TABLE, NEVER A FILE HEADER.** `retired_kinds` /
+  `retired_category_ids` are read through `retirement.get_retirement_lists`. A discipline with no
+  retirement rows exports two EMPTY lists — inheriting a header would make a fresh discipline claim
+  retirements it never made.
+- **⚠️ `source_row` IS ALWAYS EMITTED, INCLUDING 0.** The 27 db_shell items hold `source_row = 0` in
+  the database and 0 is what the database says; omitting it to reproduce the old asset's absent `row`
+  would be the export inventing an absence, and it would conflate a genuine row 0 with "no row" —
+  which matters because `create_rate_master_item` stamps `source_row = 0` on every manually created
+  item. It is also the option with no special case, so byte-stability comes for free.
+- **⚠️ A RE-EXPORT LEGITIMATELY DIFFERS FROM THE PREVIOUS ASSET IN TWO WAYS, AND NEITHER IS A
+  DEFECT.** Verbatim blobs GAIN `discipline` on 11 configs and `goldens` on `switches_sockets`,
+  because the loader stamps both at ingest and the export reproduces what is stored. Expect exactly
+  that; anything else is a real difference and must be classified.
+- **⚠️ THE MINT GATE CANNOT VALIDATE THIS EXPORT.** Its atom vocabulary is `kind:<k>` — blind below
+  the kind level (it missed a dropped item in slice 1 and a per-item key in slice 2). Run it (#187),
+  but **the ROUND TRIP is the real gate**: export, load into a scratch discipline, compare axis by
+  axis including `item_uid` and the retirement entries.
+- **`BoQ Rate Master Snapshot` retains every export — KEEP THE NEWEST 10 PER DISCIPLINE
+  (owner-ruled), pruned on write.** `payload` is **Long Text, not JSON**, deliberately: a snapshot
+  exists to be RESTORED, so byte-fidelity of the stored text is the point and Frappe must never
+  hydrate and re-serialise it — which also sidesteps the list-valued-JSON wall that forces
+  `Pricing Workbook Version`'s prune to use a raw `frappe.db.delete`. `version` is `(max existing) + 1`
+  and is **never reused after a prune**, so a version number identifies one snapshot for the life of
+  the site. `track_changes: 0` — a snapshot is already immutable evidence.
+- **⚠️ THE EXPORT ENDPOINT IS ADMIN-GATED, UNLIKE THE SHAPE IT CLONES.**
+  `rate_master.export_rate_master_asset` copies `export_priced_workbook`'s
+  `{filename, content_type, content_base64}` download shape but **NOT its bare login-only gate** — it
+  uses the existing `_require_rate_admin` (`pricing._is_nirmaan_admin`), because an export hands over
+  the whole priced catalog. **A web request cannot write into the repo and nothing tries**; the file
+  is returned for download and retained as a snapshot, and committing it stays a human act.
 - **⚠️ RETIREMENT STATE LIVES IN `BoQ Rate Master Retirement`, BECAUSE IT CANNOT BE DERIVED
   (owner-locked).** One row per retired thing: `discipline` + `scope_type` (`kind` | `category`) +
   `scope_value`, with OPTIONAL `retired_at` / `retired_by` / `reason`. `retired_kinds` and

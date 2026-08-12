@@ -27943,3 +27943,139 @@ empty lists for an unknown discipline; idempotence on re-run; the live Electrica
    configs) and the suite returned to its single known failure. **The suite's teardown now also purges
    `BoQ Rate Master Retirement`**, since both E-ALL fixtures declare retirements and would otherwise
    leave rows behind on every run.
+
+## Build slice EXPORT -- the asset export + snapshots (2026-08-13)
+
+Branch `feature/boq-pricing-helper`. The database is the source of truth; the asset is
+BOOTSTRAP-AND-SNAPSHOT only. **Running this export is what keeps a re-import safe** -- the file
+provably matches the DB, so a load can only replay what is already there.
+
+### ⚠️ MIGRATE-CARRYING
+
+**`BoQ Rate Master Snapshot` is a new doctype and table. Anyone pulling this branch must run
+`bench --site localhost migrate`.** `patches.txt` untouched; no patch entry needed.
+
+**Route: the doctype JSON was written BY HAND and applied with `bench migrate`** -- standing
+practice, no deviation. The DocType API route was not used.
+
+### Part 1 -- the serialiser (`services/boq_rate_master/exporter.py`)
+
+⭐ **THE GOVERNING INVARIANT: config blobs emitted VERBATIM.** Never enumerate keys, never rebuild,
+never filter. No two configs share a key set (`db_switchgear` 13 keys, `junction_box_raceway` 6,
+`wiring_cabling` uniquely carries `discipline`); 15 keys have no screen control and 8 reach the AI
+prompt. A fixed-schema export would silently drop the 21st key the day someone adds one, and
+`_validate_config`'s allowlist has already had to widen six times. `attributes` and `rates` ride
+through whole for the same reason.
+
+**Emitted per item -- exactly 7 keys in order:** `kind`, `brand`, `unit`, `attributes`, `rates`,
+`source`, `item_uid`. ⚠️ `_validate_items` REQUIRES `source` to be a dict on every item.
+
+**Emitted top level:** `discipline`, `items`, `category_configs`, `goldens`, `source_workbook`, and
+`retired_kinds` / `retired_category_ids` **from the retirement TABLE (slice 3), never a file header**.
+
+**Never emitted:** `name`, `import_batch`, `creation`, `modified`, `owner`, `active`.
+
+**Deliberately dropped (owner-ruled archaeology):** `sha256_prefix`, `extracted_at`, `provenance`,
+`excluded_categories`, `slice_note`, `merged_from`, and `source.col` on the 27 db_shell items.
+
+**`source_row` convention: ALWAYS emitted, including 0.** The 27 db_shell items hold `source_row = 0`
+in the DB and 0 is what the DB says. Omitting it to reproduce the old asset's absent `row` would be
+the export inventing an absence, and would conflate a genuine row 0 with "no row" -- which matters
+because `create_rate_master_item` stamps `source_row = 0` on every manually created item. It is also
+the option with no special case, so byte-stability comes free.
+
+**Byte-stability by construction:** `indent=1`, `ensure_ascii=False`, **no `sort_keys`** (ordering is
+already deterministic -- kind then item_uid, category_id -- and re-sorting would reorder the verbatim
+blobs). Nothing in the payload is a timestamp, batch id or hash.
+
+⚠️ **Expected, not a defect:** `_canonicalize_attributes` uppercases `material` / `insulation` at
+ingest, so export -> import -> export is stable but original -> import -> export is not byte-faithful
+to an original carrying non-canonical casing.
+
+### Part 2 -- `BoQ Rate Master Snapshot`
+
+Modelled on `Pricing Workbook Version`, with two departures learned from that doctype's scars:
+
+- **`payload` is LONG TEXT, not JSON.** A snapshot exists to be RESTORED, so byte-fidelity of the
+  stored text is the point and Frappe must never hydrate and re-serialise it. It also sidesteps the
+  list-valued-JSON wall that forces that module's prune to use a raw `frappe.db.delete`.
+- **`track_changes: 0`** -- a snapshot is already immutable evidence; a Version row per snapshot
+  would double the storage of the largest column in the app for nothing.
+
+⚠️ **RETENTION: keep the newest 10 per discipline (owner-ruled), pruned on write.** `version` is
+`(max existing) + 1` and is **never reused after a prune**, so a version number identifies one
+snapshot for the life of the site even once its row is gone.
+
+### Part 3 -- the endpoint
+
+`rate_master.export_rate_master_asset(discipline)` -- whitelisted POST returning
+`{filename, content_type, content_base64, ...}`, the shape `export_priced_workbook` uses.
+
+⚠️ **Its permission gate is deliberately NOT cloned.** That endpoint is bare login-only; this one
+gates on the existing `_require_rate_admin` (`pricing._is_nirmaan_admin`), matching the RM-4a/4b
+writes, because an export hands over the whole priced catalog.
+
+⚠️ **A web request cannot write into the repo and nothing tries.** The file is returned for download
+and retained as a snapshot; committing it stays a human act.
+
+### THE VERIFICATION -- proven by round trip, not assertion
+
+Export live -> load into a SCRATCH discipline -> compare axis by axis. **Never against live
+Electrical data.**
+
+| Axis | Result |
+|---|---|
+| items per kind | **identical** -- 15 kinds, 1,382 both sides |
+| identity multiset (kind, brand, attributes) | **identical** -- 0 only-live, 0 only-scratch |
+| rates + brand/unit/source_sheet/source_row + **item_uid** (full tuple) | **identical** -- 0 / 0 |
+| item_uid set | **identical** -- 1,382 uids |
+| config blobs, deep | **identical** (discipline stamp aside) -- 12 configs |
+| goldens | **identical** -- 11 categories |
+| the four retirement entries | **reproduced** |
+
+**Two consecutive exports BYTE-IDENTICAL: confirmed.** ⚠️ The first comparison appeared to fail by 72
+bytes; that was the check, not the export -- it replaced the discipline string with `count=1` while
+the loader stamps it into each config blob too. Re-run properly: the scratch discipline appears
+**13 times** (1 top-level + 12 blobs), delta **13 x 7 = 91 bytes exactly as predicted**, and after
+normalising every occurrence the files are **byte-identical**. Re-exporting LIVE twice is byte-identical
+with no normalisation at all.
+
+**Export vs committed v30, every difference classified:**
+
+| Class | Difference |
+|---|---|
+| **(a) owner-ruled drop** | 6 top-level keys gone: `sha256_prefix`, `extracted_at`, `provenance`, `excluded_categories`, `slice_note`, `merged_from` |
+| **(a) owner-ruled drop / declared convention** | 27 db_shell items differ on `source_row` **only** -- `null` -> `0`. Verified precisely: 0 keys only-in-v30, 0 only-in-new, and the only differing pair is `(None, 0)` x 27. `source.col` dropped by ruling. |
+| **(b) DB changed since import** | none |
+| **(c) export defect** | **none** |
+| expected loader stamping | 11 configs GAIN `discipline`; `switches_sockets` GAINS `goldens` -- exactly as predicted |
+
+### Gates
+
+- **`bench migrate`: CLEAN** -- zero errors, zero tracebacks, no pending patches this time.
+- ⚠️ **MINT GATE: 11 undeclared removals -- and all 11 are the owner-ruled archaeology**: the 6
+  dropped top-level keys plus the 5 `excl:` entries that cascade from dropping `excluded_categories`.
+  **No item, config-key, golden, kind or retirement atom was lost.** Notably `retkind:` / `retcat:`
+  do NOT appear, which independently confirms the export reproduced the retirement declarations from
+  the table. ⚠️ **A gate PASS would not have proved item fidelity anyway** -- its atom vocabulary is
+  `kind:<k>`, blind below the kind level. The round trip is the real gate.
+  ⚠️ The gate also **crashes on an operand outside the repo** (`git log` returns 128), so it was run
+  with the export placed transiently inside the repo and removed immediately.
+- `test_rate_master` **105 -> 111**; `test_rate_suggest` and `test_extraction_coercion` unchanged;
+  vitest unchanged.
+
+### Backwards compatibility -- confirmed
+
+`loader.py` and `_deactivate_scope` are **untouched this slice**. Existing assets still load (the
+v12/v17 historical fixtures and the legacy-no-uid test all still pass). Nothing that consumed the
+catalog before behaves differently -- the export is purely additive: a new module, a new doctype, and
+a new endpoint that nothing calls yet.
+
+### Cert -- MEASURED, because nothing renders
+
+`grep` over `frontend/src` finds **zero** references to `export_rate_master_asset` or the snapshot
+doctype. 30 checks green: doctype shape (including `payload` Long Text and `track_changes 0`),
+`KEEP_SNAPSHOTS == 10`, the admin gate called first, the endpoint writing nothing into the repo, the
+export's key set, byte-stability, the endpoint round trip on **synthetic data only** with the snapshot
+payload byte-identical to the download, the prune keeping the newest 10, live Electrical untouched,
+and **zero residual** after cleanup.
