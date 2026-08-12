@@ -13,10 +13,24 @@ module could not touch `Project Payments`, `PO Payment Terms` or a Procurement O
 on 2026-08-06. It now settles all three ledgers, and `settle_payment` is the reversal.
 
 WHAT DID NOT CHANGE, and it is where the safety now lives: this module only ever writes the LAST
-RUNG of a ladder somebody else already climbed. It cannot approve. It cannot create a payment --
-"create a new entry" is expenses-only, because a `Project Payment` is born from a PO or SR request.
-And nothing settles without a per-row human confirmation. If a future change lets this import
-approve something, that is the invariant breaking, not a feature.
+RUNG of a ladder somebody else already climbed. It cannot approve. And nothing settles without a
+per-row human confirmation. If a future change lets this import approve something, that is the
+invariant breaking, not a feature.
+
+⚠️ THE SENTENCE "IT CANNOT CREATE A PAYMENT" WAS NARROWED AT SLICE PS (owner ruling R2, 2026-08-12),
+and the narrowing is worth stating precisely because the old wording is quoted elsewhere in this
+repo. `api/outflow_import/expenses.settle_row_partial` splits an approved `Project Payments` record
+into a half the bank actually paid and a balance that stays approved -- which DOES insert a payment
+document. The invariant it must not break is not "no payment document is ever created"; it is:
+
+    THIS IMPORT NEVER APPROVES, AND NEVER INCREASES WHAT IS SANCTIONED.
+
+A split re-partitions an existing sanction. The two halves sum EXACTLY to the original, both come
+out `Approved` because the money already was, and the balance inherits the original's
+`document_type` / `document_name` / `project` / `vendor` / `approval_date` -- it is the same request,
+recorded in two rows. What remains forbidden is unchanged: this module cannot move anything INTO
+`Approved`, and "create a new entry" is still expenses-only, because a `Project Payment` is born
+from a PO or SR request and nothing here may originate one.
 
 NO REQUEST CONTEXT. The actor is passed IN rather than read from `frappe.session`, so this stays a
 service the api layer drives (ADR-0010: api -> service is the one legal direction). DB writes here
@@ -86,7 +100,11 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 from nirmaan_stack.services.outflow_import.ledgers import (
     PROJECT_EXPENSE_DOCTYPE as PROJECT_EXPENSE,
 )
-from nirmaan_stack.services.outflow_import.amounts import amounts_match, rewrite_amount
+from nirmaan_stack.services.outflow_import.amounts import (
+    amounts_match,
+    rewrite_amount,
+    to_decimal,
+)
 from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE
 from nirmaan_stack.services.outflow_import.ledgers import (
     SETTLEABLE_STATUSES,
@@ -185,6 +203,15 @@ class SettleResult:
     created: bool
     original_amount: Decimal | None = None
 
+    tds_written: Decimal | None = None
+    """The deduction recorded, or `None` when this was an ordinary settle (slice TD).
+
+    ⚠️ SEPARATE FROM `amount`, WHICH IS UNCHANGED ON A DEDUCTION SETTLE. A caller reporting "what
+    did this write" needs both numbers: the record still says what was invoiced, and this says what
+    the bank withheld. Folding the deduction into `amount` is exactly the destruction the write path
+    refuses to do.
+    """
+
     @property
     def amount_changed(self) -> bool:
         """Whether this settlement rewrote the record's amount."""
@@ -265,6 +292,24 @@ def format_amount_for(doctype: str, amount: Decimal):
             return str(int(normalized))
         return format(normalized, "f")
     return float(amount)
+
+
+def format_tds(value: Decimal) -> float:
+    """Format a TDS figure the way `Project Payments.tds` is already stored (slice TD).
+
+    ⚠️ A SEPARATE FUNCTION FROM `format_amount_for`, DELIBERATELY. That one keys on the DOCTYPE and
+    would return the right thing here only by coincidence -- it is about `amount`, a real Currency
+    column, while `tds` on the same doctype is a **Data** column holding a stringified number. Two
+    fields, two column types, one doctype; reusing the amount formatter would read as intentional
+    and be accidental.
+
+    ⚠️ IT MATCHES `api/payments/project_payments._fulfil_payment` EXACTLY, which does
+    `pay.tds = flt(args.get("tds") or 0)` -- a float, which Frappe stores as `'1000.0'`. The live
+    column holds both `'1000.0'` and `'1000'` because two writers over the years disagreed; this
+    path must not add a THIRD shape. `flt()` returns a float, so `float()` is the same value by the
+    same route.
+    """
+    return float(value)
 
 
 def _assert_type_scope(doctype: str, expense_type: str) -> None:
@@ -419,7 +464,11 @@ def settle_existing_expense(
 
 
 def settle_payment(
-    row, target_name: str, actor: str, statement_file_url: str | None = None
+    row,
+    target_name: str,
+    actor: str,
+    statement_file_url: str | None = None,
+    tds: Decimal | None = None,
 ) -> SettleResult:
     """Mark an already-APPROVED `Project Payments` record `Paid` from a bank row (slice V2).
 
@@ -443,10 +492,26 @@ def settle_payment(
          be settled here at all -- the bank sends `amount - tds`, thousands out, which no window
          reaches -- the accepted cost of deferring the tolerance pass (Q11). Those rows stay
          `Unmatched` and go through the existing screen (Q12).
-      4. NO TDS IS EVER WRITTEN, and X1 does not change this. `tds` is recorded at fulfilment by a
-         human who knows the deduction; this import does not know it and must not invent one.
-         Rewriting `amount` to the bank figure is NOT a way of recording a deduction -- it cannot
-         be, since anything TDS-sized was refused two lines earlier.
+      4. ⚠️ TDS IS WRITTEN ONLY WHEN THE CALLER PASSES ONE (slice TD, owner ruling 2026-08-12).
+         This REVERSES the flat "NO TDS IS EVER WRITTEN" that stood here, and the reversal is
+         narrow. The rule that survives is the one that mattered: **this import does not INVENT a
+         deduction.** What it may now do, in one measured case, is DERIVE one -- `tds = amount -
+         bank`, forced by arithmetic, on a `Service Requests` payment whose shortfall lands in the
+         0.95-2.05% band that 584 of 671 real deductions occupy -- and only after a person has said
+         in so many words that this is a deduction rather than a part payment.
+
+         `tds=None` is the ordinary settle and is BYTE-IDENTICAL to before: the amount window
+         applies to `amount` itself, `rewrite_amount` runs, and nothing touches `tds`.
+
+         ⚠️ THE WINDOW IS NOT WIDENED FOR THIS -- IT IS POINTED AT THE RIGHT NUMBER. With a `tds`
+         the assertion becomes `|amount - tds - bank| <= AMOUNT_TOLERANCE`, because `amount - tds`
+         is what the bank was expected to move. Widening the window itself, or skipping the
+         assertion, is the thing that must never happen: it gates every write on all three ledgers.
+
+         ⚠️ AND THE AMOUNT IS LEFT ALONE. `rewrite_amount` is skipped entirely on this path. X1's
+         rule ("the record takes the bank's figure") is about a record that should EQUAL the
+         transfer; here the record is deliberately larger, by exactly the withholding, and
+         overwriting it would destroy the invoiced figure the deduction is computed from.
 
     THE UTR GUARD IS KEPT AS-IS (owner ruling Q4). It refuses a reference already sitting on
     another payment, which would throw on the second payment of a fan-out group -- and fan-out is
@@ -458,7 +523,7 @@ def settle_payment(
     """
     bank_amount = normalize_amount(getattr(row, "amount", 0))
     reference = (getattr(row, "bank_reference_no", "") or "").strip()
-    current = _lock_and_assert_payment_settleable(target_name, bank_amount)
+    current = _lock_and_assert_payment_settleable(target_name, bank_amount, tds=tds)
     if reference:
         _assert_reference_is_free(reference, target_name)
 
@@ -473,16 +538,28 @@ def settle_payment(
     if payment_date:
         doc.payment_date = payment_date
 
-    # X1: the payment takes the amount the bank actually moved, in either direction. `current` was
-    # proven inside the settle window under the row lock a few lines up, so the gap here is at most
-    # Rs 5 and is rounding, not a deduction. `update_parent_amount_paid` SUMS the paid payments
-    # rather than incrementing, so the PO's `amount_paid` picks this up on its own -- inside this
-    # same transaction, since that hook's commit is suppressed for this path.
     written = current
-    exact = rewrite_amount(current, bank_amount)
-    if exact is not None:
-        doc.amount = format_amount_for(PAYMENT_DOCTYPE, exact)
-        written = exact
+    if tds is None:
+        # X1: the payment takes the amount the bank actually moved, in either direction. `current`
+        # was proven inside the settle window under the row lock a few lines up, so the gap here is
+        # at most Rs 5 and is rounding, not a deduction. `update_parent_amount_paid` SUMS the paid
+        # payments rather than incrementing, so the PO's `amount_paid` picks this up on its own --
+        # inside this same transaction, since that hook's commit is suppressed for this path.
+        exact = rewrite_amount(current, bank_amount)
+        if exact is not None:
+            doc.amount = format_amount_for(PAYMENT_DOCTYPE, exact)
+            written = exact
+    else:
+        # ⚠️ THE AMOUNT IS DELIBERATELY UNTOUCHED. The record is larger than the transfer by exactly
+        # the withholding, and that is the point of it: `bank = amount - tds` is the relation the
+        # whole ledger reads, and `_fulfil_payment` keeps it the same way. Rewriting `amount` to the
+        # bank figure would destroy the invoiced number the deduction was computed from and leave a
+        # `tds` describing a gap that no longer exists.
+        #
+        # ⚠️ `update_parent_amount_paid` SUMS `amount`, NOT `amount - tds`, so the parent records the
+        # full approved figure as paid. That is what the manual fulfil path already does; it is
+        # carried over unchanged and is not a decision made here.
+        doc.tds = format_tds(tds)
 
     apply_statement_attachment(doc, statement_file_url)
 
@@ -504,14 +581,23 @@ def settle_payment(
         amount=written,
         created=False,
         original_amount=current,
+        tds_written=tds,
     )
 
 
-def _lock_and_assert_payment_settleable(name: str, bank_amount: Decimal) -> Decimal:
+def _lock_and_assert_payment_settleable(
+    name: str, bank_amount: Decimal, tds: Decimal | None = None
+) -> Decimal:
     """Re-read the payment UNDER A ROW LOCK and re-assert everything the reviewer saw.
 
     ⚠️ `for_update=True` WITHOUT `cache=True`, for the reason in the module docstring: a cached
     read takes no lock and this whole guard becomes decorative.
+
+    ⚠️ `tds` DOES NOT RELAX THE WINDOW, IT CORRECTS WHAT THE WINDOW IS COMPARED AGAINST (slice TD).
+    An ordinary settle expects the bank to have moved `amount`; a deduction settle expects it to
+    have moved `amount - tds`. Both are held to the SAME `AMOUNT_TOLERANCE`. Anyone tempted to widen
+    the tolerance so a TDS gap "fits" is about to break every write on all three ledgers -- that is
+    the number `amounts.py` exists to keep in one place.
     """
     current = frappe.db.get_value(
         PAYMENT_DOCTYPE, name, ["status", "amount"], as_dict=True, for_update=True
@@ -538,12 +624,24 @@ def _lock_and_assert_payment_settleable(name: str, bank_amount: Decimal) -> Deci
 
     amount = normalize_amount(current.get("amount"))
     # ⚠️ THE SAME WINDOW THE MATCHER USES -- see `amounts.py`. It absorbs bank rounding and small
-    # charges; it CANNOT reach a TDS deduction, which is thousands, and must not be widened to.
-    if not amounts_match(amount, bank_amount):
+    # charges. Without a `tds` it CANNOT reach a deduction, which is thousands, and must not be
+    # widened to; WITH one, the expected figure is `amount - tds` and the window is unchanged.
+    expected = amount if tds is None else amount - to_decimal(tds)
+    if not amounts_match(expected, bank_amount):
+        if tds is None:
+            frappe.throw(
+                f"{name} is for {amount} but {bank_amount} left the bank, a difference of "
+                f"{abs(amount - bank_amount)}. "
+                f"A deduction such as TDS looks like this; settle it in the payments screen.",
+                AmountMismatchError,
+                title="Amounts differ",
+            )
+        # A deduction settle that does not reconcile: the caller derived `tds` from this very
+        # transfer, so reaching here means the payment changed under the reviewer between the screen
+        # and the lock. Say that, rather than repeating the TDS advice they have already taken.
         frappe.throw(
-            f"{name} is for {amount} but {bank_amount} left the bank, a difference of "
-            f"{abs(amount - bank_amount)}. "
-            f"A deduction such as TDS looks like this; settle it in the payments screen.",
+            f"{name} is for {amount} and a deduction of {to_decimal(tds)} would leave {expected}, "
+            f"but {bank_amount} left the bank. The payment changed while this was being decided.",
             AmountMismatchError,
             title="Amounts differ",
         )
