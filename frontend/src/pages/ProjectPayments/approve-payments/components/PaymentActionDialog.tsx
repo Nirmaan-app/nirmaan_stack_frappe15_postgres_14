@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     AlertDialog,
     AlertDialogCancel,
@@ -9,12 +9,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useToast } from "@/components/ui/use-toast";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments"; // Assuming type path
-import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { TailSpin } from 'react-loader-spinner';
 import { DIALOG_ACTION_TYPES, DialogActionType } from '../constants';
+import { computeSplit, isAmountKeystroke, isSplittable } from '../paymentSplit';
 
 interface PaymentActionDialogProps {
     isOpen: boolean;
@@ -24,6 +24,14 @@ interface PaymentActionDialogProps {
     vendorName?: string; // Pass pre-fetched vendor name
     onSubmit: (actionType: DialogActionType, amount: number) => Promise<void>; // onSubmit now handles the async logic
     isLoading: boolean; // Loading state passed from parent
+    /**
+     * Let the approver approve LESS than was requested (the CEO gate).
+     *
+     * The balance is never discarded — the backend splits the payment, leaving the difference as
+     * its own pending payment plus its own PO term row. The dialog says so explicitly, because
+     * "approve 3 of 5" reads like "reject 2" unless the screen states otherwise.
+     */
+    allowPartial?: boolean;
 }
 
 export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
@@ -34,9 +42,17 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     vendorName = "the vendor", // Default text
     onSubmit,
     isLoading,
+    allowPartial = false,
 }) => {
     const [amountInput, setAmountInput] = useState<string>("");
-    const { toast } = useToast();
+
+    const requestedAmount = parseNumber(paymentData?.amount);
+    // `isSplittable` is what keeps a REFUND approvable. A negative payment (a credit raised after
+    // a negative-rate amendment) cannot be split, and showing the amount box on one leaves the
+    // Confirm button permanently disabled. Unsplittable => the plain full-approve confirmation,
+    // byte-identical to the pre-partial-approval behaviour.
+    const isPartialApprove =
+        allowPartial && type === DIALOG_ACTION_TYPES.APPROVE && isSplittable(requestedAmount);
 
     // Reset amount input when payment data changes or dialog opens/closes
     useEffect(() => {
@@ -47,36 +63,42 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
         }
     }, [paymentData, isOpen]); // Depend on isOpen to reset on reopen
 
+    // All the boundary rules live in the pure helper so they can be tested — there is no DOM
+    // test environment in this repo, so anything decided inline here would be untestable.
+    const split = useMemo(
+        () => computeSplit(requestedAmount, amountInput),
+        [requestedAmount, amountInput]
+    );
+
     const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        // Allow only numbers and a single decimal point
-        const value = e.target.value;
-        if (/^\d*\.?\d*$/.test(value) || value === "") {
-            setAmountInput(value);
+        if (isAmountKeystroke(e.target.value)) {
+            setAmountInput(e.target.value);
         }
     };
 
     const handleConfirm = useCallback(async () => {
         if (!paymentData) return;
+        if (isPartialApprove && !split.valid) return;
 
-        const finalAmount = type === DIALOG_ACTION_TYPES.EDIT ? parseNumber(amountInput) : parseNumber(paymentData.amount);
-
-        if (type === DIALOG_ACTION_TYPES.EDIT && (isNaN(finalAmount) || finalAmount <= 0)) {
-            toast({
-                title: "Invalid Amount",
-                description: "Please enter a valid positive amount.",
-                variant: "destructive",
-            });
-            return;
-        }
-
-        // Call the onSubmit prop which contains the updateDoc logic
-        await onSubmit(type, finalAmount);
+        // Non-partial paths send the untouched requested amount, exactly as before.
+        await onSubmit(type, isPartialApprove ? split.approved : requestedAmount);
         // Parent component will handle closing the dialog via onOpenChange after successful submission if needed
 
-    }, [paymentData, type, amountInput, onSubmit, toast]);
+    }, [paymentData, type, isPartialApprove, split, requestedAmount, onSubmit]);
 
     const renderTitle = () => {
         if (!paymentData) return null;
+
+        if (isPartialApprove) {
+            // The amount is editable here, so the title must NOT assert it — the figure being
+            // approved is whatever is in the box, and it is shown next to the box.
+            return (
+                <>
+                    Approve payment to <span className="font-semibold">{vendorName}</span> for{' '}
+                    <i>#{paymentData.document_name}</i>
+                </>
+            );
+        }
 
         switch (type) {
             case DIALOG_ACTION_TYPES.APPROVE:
@@ -89,8 +111,6 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                         <i>#{paymentData.document_name}</i>?
                     </>
                 );
-            case DIALOG_ACTION_TYPES.EDIT:
-                return "Edit & Approve Payment";
             default:
                 return "Confirm Action";
         }
@@ -105,24 +125,48 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                     </AlertDialogTitle>
                 </AlertDialogHeader>
 
-                {type === DIALOG_ACTION_TYPES.EDIT && paymentData && (
-                    <div className="grid grid-cols-3 gap-4 items-start ">
-                        <label htmlFor="amount" className="text-sm font-medium text-right col-span-1">
-                            Amount:
-                        </label>
-                        <div className="col-span-2">
+                {isPartialApprove && paymentData && (
+                    <div className="space-y-3">
+                        <div className="flex items-baseline justify-between text-sm">
+                            <span className="text-muted-foreground">Requested</span>
+                            <span className="font-medium tabular-nums">
+                                {formatToRoundedIndianRupee(requestedAmount)}
+                            </span>
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <label htmlFor="approved-amount" className="text-sm font-medium">
+                                Approving now
+                            </label>
                             <Input
-                                id="amount"
+                                id="approved-amount"
                                 type="text" // Use text to allow decimal input easily, validation handles numeric check
                                 inputMode="decimal" // Hint for mobile keyboards
                                 onChange={handleAmountChange}
                                 value={amountInput}
-                                className="h-9"
+                                className="h-9 text-right tabular-nums"
                                 disabled={isLoading}
+                                aria-invalid={!split.valid}
+                                aria-describedby="approved-amount-help"
                             />
-                             <p className="text-xs mt-1.5 text-gray-600">
-                                For: <span className="font-medium">{vendorName}</span>
-                                <br/>Ref: <i>#{paymentData.document_name}</i>
+                            <p id="approved-amount-help" className="text-xs">
+                                {!split.valid ? (
+                                    <span className="text-destructive">{split.reason}</span>
+                                ) : split.isPartial ? (
+                                    <span className="text-amber-700 dark:text-amber-400">
+                                        The balance of{' '}
+                                        <span className="font-semibold tabular-nums">
+                                            {formatToRoundedIndianRupee(split.remainder)}
+                                        </span>{' '}
+                                        stays pending as a new payment, and is added to{' '}
+                                        <i>#{paymentData.document_name}</i> as a separate payment term.
+                                        Nothing is written off.
+                                    </span>
+                                ) : (
+                                    <span className="text-muted-foreground">
+                                        Approving the full requested amount.
+                                    </span>
+                                )}
                             </p>
                         </div>
                     </div>
@@ -137,10 +181,12 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                         <>
                             <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
                             <Button
-                                disabled={isLoading || (type === DIALOG_ACTION_TYPES.EDIT && !amountInput)}
+                                disabled={isLoading || (isPartialApprove && !split.valid)}
                                 onClick={handleConfirm}
                             >
-                                Confirm {type === DIALOG_ACTION_TYPES.EDIT ? 'and Approve' : type}
+                                {isPartialApprove && split.valid && split.isPartial
+                                    ? `Approve ${formatToRoundedIndianRupee(split.approved)}`
+                                    : `Confirm ${type}`}
                             </Button>
                         </>
                     )}

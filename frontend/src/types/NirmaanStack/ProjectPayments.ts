@@ -27,6 +27,18 @@ export interface ProjectPayments{
 	/**	TDS : Data	*/
 	tds?: number
 	payment_date?: string
-	approval_date?: string	
+	approval_date?: string
 	status: string
+	/**	CEO Approval Date : Date	*/
+	ceo_approval_date?: string
+	/**	Auto Approved : Check	*/
+	auto_approved?: 0 | 1
+	/**
+	 * Split From : Link - Project Payments (read-only)
+	 *
+	 * Set ONLY on the balance half of a partial CEO approval — the payment this one was split
+	 * off from. Blank on every ordinary payment, so its presence IS the "this is a carried-forward
+	 * balance" signal.
+	 */
+	split_from?: string
 }

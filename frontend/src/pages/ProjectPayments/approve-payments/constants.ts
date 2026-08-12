@@ -17,10 +17,17 @@ export const PAYMENT_STATUS = {
   PAID: "Paid" as const,
 };
 
+// There is deliberately NO "edit" action here any more.
+//
+// It used to exist and was UNREACHABLE — no button ever opened it — and what it did was shrink a
+// payment's amount in place, silently discarding the difference. That is the exact outcome the
+// partial-approval split was built to prevent: the vendor is still owed the balance, but no
+// document would say so. Amount editing now lives on the APPROVE action (see
+// `PaymentActionDialog`'s `allowPartial`), which splits rather than truncates. Do not reintroduce
+// a second way to change an amount.
 export const DIALOG_ACTION_TYPES = {
   APPROVE: "approve" as const,
   REJECT: "reject" as const,
-  EDIT: "edit" as const,
 };
 
 // You can define types based on these constants

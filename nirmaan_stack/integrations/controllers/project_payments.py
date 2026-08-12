@@ -23,6 +23,13 @@ def _find_and_update_po_term(payment_doc, new_status, clear_link=False):
         # Bulk endpoint owns the PO row lock and syncs terms once per group.
         return
 
+    if payment_doc.flags.get("split_approval"):
+        # Partial CEO approval (services/payment_split.py) already holds the PO
+        # row lock and writes BOTH term rows — the shrunk original and the new
+        # balance row — in one save. Re-loading the PO here would either raise a
+        # TimestampMismatchError or silently overwrite those rows.
+        return
+
     if payment_doc.document_type != "Procurement Orders":
         return
 
@@ -151,6 +158,16 @@ def after_insert(doc, method):
     if doc.flags.from_adjustment:
         return
 
+    # The remainder half of a partial CEO approval (services/payment_split.py).
+    # Two reasons, and the first is a correctness bug rather than a preference:
+    # the fan-out below commits per recipient, which would end the split's
+    # savepoint isolation and leave a half-written split un-rollbackable. The
+    # second is that the message would be wrong — this is not a new request
+    # awaiting approval, it is the balance of one the CEO just acted on, and it
+    # is already sitting in the CEO's own queue.
+    if doc.flags.get("split_child"):
+        return
+
     # Auto-approved small payment: it was inserted already in "Approved", so the
     # CEO Pending → Approved transition that normally alerts accountants never
     # fires. Emit that note here + an admin record note, and skip the misleading
@@ -272,6 +289,11 @@ def on_update(doc, method):
         # CEO has approved → notify accountants that the payment is ready to fulfil.
         if doc.flags.get("bulk_approval"):
             # Bulk endpoint emits one summary notification per accountant per project.
+            return
+        if doc.flags.get("split_approval"):
+            # Partial CEO approval: the notification is NOT dropped — the endpoint
+            # emits it after its commit. Emitting it here would commit mid-savepoint
+            # and announce an approval that a later failure could still roll back.
             return
         _notify_accountants_payment_ready(doc)
 
