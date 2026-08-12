@@ -15,7 +15,8 @@ in `tearDownClass`; the purge is scoped to rows this suite created and never tou
 
 import unittest
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
+from decimal import Decimal
 
 import frappe
 
@@ -239,6 +240,110 @@ class TestDuplicateGuard(unittest.TestCase):
         self._stage(_parsed_in_a_fresh_transfer_namespace())
         second = self._stage(_parsed_in_a_fresh_transfer_namespace())
         self.assertIsNotNone(second.overlaps_batch)
+
+    # --- the widened key (slice D3) -----------------------------------------------------------
+    #
+    # ⚠️ EVERY TEST ABOVE PASSED UNCHANGED WHEN THE KEY WIDENED, AND THAT IS WHY THESE EXIST.
+    # A suite that cannot tell the old behaviour from the new one is not evidence of either. Each
+    # test below re-stages a statement with ONE axis of the identity altered, and each would fail
+    # against the pre-D3 `transfer_id`-only key.
+
+    def _statuses(self, batch):
+        return {
+            r["row_status"]
+            for r in frappe.get_all(
+                ROW_DOCTYPE, filters={"import_batch": batch.name}, fields=["row_status"]
+            )
+        }
+
+    def test_the_SAME_transfer_id_at_a_DIFFERENT_amount_is_new_work(self):
+        # ⚠️ THE HEADLINE BEHAVIOUR CHANGE. Pre-D3 this second batch was skipped wholesale as a
+        # duplicate; the amounts never entered the question. A different amount is a different
+        # fact, so the row now imports and a reviewer gets to see it.
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        self._stage(parsed)
+
+        shifted = replace(
+            parsed,
+            rows=tuple(replace(r, amount=r.amount + Decimal("1")) for r in parsed.rows),
+        )
+        second = self._stage(shifted)
+        self.assertIn("Pending match run", self._statuses(second))
+
+    def test_the_SAME_transfer_id_on_a_DIFFERENT_DAY_is_new_work(self):
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        self._stage(parsed)
+
+        moved = replace(
+            parsed,
+            rows=tuple(
+                replace(r, added_on=(r.added_on + timedelta(days=1)) if r.added_on else None)
+                for r in parsed.rows
+            ),
+        )
+        second = self._stage(moved)
+        self.assertIn("Pending match run", self._statuses(second))
+
+    def test_a_DIFFERENT_CLOCK_TIME_on_the_same_day_is_still_a_duplicate(self):
+        # ⚠️ THE DATE, NOT THE DATETIME. `added_on` is a Datetime and two exports of one transfer
+        # can carry different times; comparing the full timestamp would make every re-export look
+        # like new work, which is the failure this half of the rule prevents.
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        first = self._stage(parsed)
+
+        later = replace(
+            parsed,
+            rows=tuple(
+                replace(r, added_on=(r.added_on + timedelta(hours=3)) if r.added_on else None)
+                for r in parsed.rows
+            ),
+        )
+        second = self._stage(later)
+        self.assertEqual(self._statuses(second), {"Skipped"})
+        rows = frappe.get_all(
+            ROW_DOCTYPE, filters={"import_batch": second.name}, fields=["skip_reason"]
+        )
+        self.assertTrue(all(first.name in (r["skip_reason"] or "") for r in rows))
+
+    def test_an_UNREADABLE_date_falls_back_to_id_plus_amount_and_still_skips(self):
+        # ⚠️ THE SILENT-DOUBLE-IMPORT GUARD (owner ruling). The parser stages a row whose Added On
+        # it could not read; under SQL `NULL = NULL` semantics such a sheet would stop being
+        # recognised on re-upload and import a SECOND time with nothing to show for it.
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        undated = replace(parsed, rows=tuple(replace(r, added_on=None) for r in parsed.rows))
+        first = self._stage(undated)
+        second = self._stage(undated)
+        self.assertEqual(self._statuses(second), {"Skipped"})
+
+        # ...and it holds in the MIXED direction too: a dated re-upload of an undated batch.
+        third = self._stage(parsed)
+        self.assertEqual(self._statuses(third), {"Skipped"})
+        self.assertTrue(
+            all(
+                first.name in (r["skip_reason"] or "")
+                for r in frappe.get_all(
+                    ROW_DOCTYPE, filters={"import_batch": third.name}, fields=["skip_reason"]
+                )
+            )
+        )
+
+    def test_the_amount_comparison_is_EXACT_to_the_paisa(self):
+        # No tolerance here, deliberately: `AMOUNT_TOLERANCE` is the SETTLE window and at Rs 5 two
+        # genuinely different Rs 3 transfers would collapse into one identity.
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        self._stage(parsed)
+        nudged = replace(
+            parsed,
+            rows=tuple(replace(r, amount=r.amount + Decimal("0.01")) for r in parsed.rows),
+        )
+        self.assertIn("Pending match run", self._statuses(self._stage(nudged)))
+
+    def test_an_UNCHANGED_re_upload_is_still_skipped_wholesale(self):
+        # The widening must not cost the ordinary case. Same id, same amount, same date -> the
+        # behaviour every earlier test in this class asserts.
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        self._stage(parsed)
+        self.assertEqual(self._statuses(self._stage(parsed)), {"Skipped"})
 
 
 class TestAccessGate(unittest.TestCase):
