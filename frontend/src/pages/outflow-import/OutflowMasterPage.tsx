@@ -428,7 +428,11 @@ export const OutflowMasterPage = () => {
     }, [runMatch, filterArgs, refreshAll]);
 
     const handleImported = useCallback(
-        async (_batch: string, statementPeriod?: { from?: string | null; to?: string | null }) => {
+        async (
+            _batch: string,
+            statementPeriod?: { from?: string | null; to?: string | null },
+            source?: string
+        ) => {
             /**
              * ⚠️ THE SCREEN MOVES TO THE STATEMENT THAT WAS JUST IMPORTED (slice P1), and it has to.
              * A statement is routinely uploaded weeks after the transfers in it moved, so a fresh
@@ -453,9 +457,23 @@ export const OutflowMasterPage = () => {
                     ? { operator: "Between", value: [from.split(/[ T]/)[0], to.split(/[ T]/)[0]] }
                     : null
             );
+
+            /**
+             * ⚠️ A CASHBOOK IMPORT LANDS ON THE TAB THAT HOLDS IT (owner ruling Q22).
+             *
+             * Every Cashbook row ends `Settled` — it created a record rather than finding one — and
+             * the default tab is Not-Matched, which is the WORKLIST. So the screen would refresh,
+             * immediately after creating a hundred expenses, to an empty table. That reads as an
+             * import that did nothing, which is the exact opposite of what happened.
+             *
+             * Cashfree keeps the default: its rows arrive needing a person, so the worklist IS
+             * where they belong and moving somebody away from it would hide their work.
+             */
+            if (source === "Cashbook") setTab("matched");
+
             await refreshAll();
         },
-        [refreshAll, setPeriod]
+        [refreshAll, setPeriod, setTab]
     );
 
     return (

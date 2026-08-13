@@ -149,6 +149,8 @@ export interface OutflowImportRow {
      * and count on it without a join.
      */
     settlement_origin?: string;
+    /** Denormalised from the batch, so the table can filter by source without a join. */
+    source?: string;
     /**
      * Which import staged this row.
      *

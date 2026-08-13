@@ -101,6 +101,13 @@ describe("columns", () => {
         // ⚠️ "Import" JOINED AT X3 and it only makes sense from X3 on: the batch screen showed one
         // import, so naming it in every row would have been noise. The master table spans every
         // import, and "which statement was this?" becomes a real question the moment it does.
+        //
+        // ⚠️ "Source" JOINED WHEN CASHBOOK DID, and this pin was updated deliberately rather than
+        // worked around. Two things forced it. A hidden column has no header, and in this table a
+        // funnel lives IN a header -- so hiding it would have shipped a filter nobody could reach,
+        // which is not what was asked for. And the two sources do not merely differ in origin:
+        // a Cashfree row SETTLES a record somebody approved, a Cashbook row CREATED one. Mixed in
+        // an unlabelled table they read as though they behave alike, and they do not.
         const shown = OUTFLOW_COLUMNS.filter((c) => !c.hiddenByDefault).map((c) => c.title);
         expect(shown).toEqual([
             "Payment Date",
@@ -111,6 +118,7 @@ describe("columns", () => {
             "Status",
             "Outcome",
             "Import",
+            "Source",
         ]);
     });
 

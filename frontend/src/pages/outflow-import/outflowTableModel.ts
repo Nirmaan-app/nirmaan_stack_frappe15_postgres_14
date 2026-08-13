@@ -120,6 +120,11 @@ export const OUTFLOW_COLUMNS: OutflowColumn[] = [
     // Blank on every unsettled row, which is correct -- an open transfer has no settlement yet, so
     // it has no origin. The facet's own "(blank)" entry is what selects them.
     { id: "settlement_origin", title: "Settled via", get: (r) => r.settlement_origin ?? "", filter: "facet", hiddenByDefault: true, width: "170px" },
+    // Visible by default, unlike the other late additions: with two sources the question "is this
+    // a bank transfer or a petty-cash spend?" changes what a row even MEANS -- one settles a
+    // record somebody approved, the other created one. A hidden column would leave the two mixed
+    // in a table that reads as though they behave alike.
+    { id: "source", title: "Source", get: (r) => r.source ?? "", filter: "facet", width: "120px" },
     { id: "bank_account", title: "Bank a/c", get: (r) => r.bank_account ?? "", filter: "facet", mono: true, hiddenByDefault: true, width: "120px" },
     { id: "ifsc", title: "IFSC", get: (r) => r.ifsc ?? "", filter: "facet", mono: true, hiddenByDefault: true, width: "120px" },
     { id: "time", title: "Time", get: (r) => timeOnly(r.added_on), filter: "facet", mono: true, hiddenByDefault: true, width: "84px" },
@@ -385,6 +390,7 @@ export const SERVER_FACET_COLUMNS: readonly string[] = [
     "bank_account",
     "ifsc",
     "import_batch",
+    "source",
     // ⚠️ A FACET NEEDS THREE LISTS, AND MISSING THIS ONE FAILS SILENTLY (slice Q1). Declaring
     // `filter: "facet"` in OUTFLOW_COLUMNS draws the funnel; adding the column to
     // `review._FACET_COLUMNS` lets the server apply it; and ONLY this list decides whether the

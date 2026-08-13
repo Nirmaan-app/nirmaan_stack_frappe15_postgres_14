@@ -1627,6 +1627,13 @@ _FACET_COLUMNS = {
     # disagree. Blank on every unsettled row, which is honest -- an open transfer has no settlement
     # to have an origin.
     "settlement_origin": "r.settlement_origin",
+    # ⚠️ THE ROW'S OWN COPY, NOT `b.source` THROUGH THE JOIN, for the reason two entries above:
+    # `_row_filters` builds single-table clauses shared by the page query, its count, the tab
+    # counts, the facet values and the summary, and not all of those carry the batch join. A
+    # denormalised column keeps every one of them working with no new query. It is written at
+    # staging by both sources, and `v3_0.backfill_outflow_row_source` fills the rows that predate
+    # the field -- without which the funnel would draw itself over 1,043 blanks.
+    "source": "r.source",
     # ⚠️ `added_on` WAS REMOVED AT P1 AND MUST NOT COME BACK. The payment date is a DATE FILTER now
     # (`date_from` / `date_to`, applied in `_row_filters`), which is the one shape a facet cannot
     # serve: an IN list over distinct days grows without limit as the table does, and cannot express
@@ -1730,7 +1737,7 @@ def get_outflow_rows(
                -- changed only the first -- so the "Settled via" column rendered an em dash on all
                -- 849 settled rows while the summary beside it reported 843 auto-matched. Caught in
                -- the browser, by nothing else: every suite was green.
-               r.settlement_origin,
+               r.settlement_origin, r.source,
                b.original_filename AS import_filename,
                b.period_from       AS import_period_from,
                b.period_to         AS import_period_to
