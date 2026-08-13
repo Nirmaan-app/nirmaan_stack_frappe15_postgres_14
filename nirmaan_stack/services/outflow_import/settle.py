@@ -709,6 +709,8 @@ def create_expense_from_row(
     vendor: str | None = None,
     comment: str | None = None,
     statement_file_url: str | None = None,
+    payment_by: str | None = None,
+    payment_ref: str | None = None,
 ) -> SettleResult:
     """Create a new expense, already `Paid`, from a bank row that matched nothing.
 
@@ -741,7 +743,12 @@ def create_expense_from_row(
             "status": _PAID,
             "amount": format_amount_for(doctype, amount),
             "payment_date": getattr(row, "added_on_date", None),
-            "payment_ref": getattr(row, "bank_reference_no", "") or None,
+            # ⚠️ WHAT IDENTIFIES THIS PAYMENT AT THE OTHER END, WHICH IS NOT THE SAME FIELD ON
+            # EVERY SOURCE. A bank transfer is identified by its UTR and that stays the default. A
+            # petty-cash wallet issues no UTR at all -- its own transaction id is the only thing
+            # that will find the spend in the wallet's records -- so the caller names it. Leaving
+            # this blank on 115 rows would make every one of them unverifiable against the wallet.
+            "payment_ref": payment_ref or getattr(row, "bank_reference_no", "") or None,
             "description": description or _default_description(doctype, beneficiary, remarks),
             "comment": comment or None,
         }
@@ -755,7 +762,12 @@ def create_expense_from_row(
             )
         doc.projects = project
         doc.vendor = vendor or None
-        doc.payment_by = actor
+        # ⚠️ WHO SPENT IT, WHICH IS NOT ALWAYS WHO RECORDED IT. On a Cashfree settlement the two
+        # are the same person -- an accountant reconciling a transfer -- and `actor` stays the
+        # right default. A petty-cash wallet statement names the actual spender in its own `From`
+        # column, and writing the importer's name over 115 rows would claim one accountant made
+        # every purchase on the sheet. The caller passes it when the statement knows.
+        doc.payment_by = payment_by or actor
 
     # A brand-new expense has no proof of its own, so the blank-only rule always lets this land --
     # which is the point: a record created FROM a statement should carry that statement.
