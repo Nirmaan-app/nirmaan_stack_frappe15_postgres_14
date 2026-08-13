@@ -68,6 +68,9 @@ SELECTED-ROW RUNS (only_rows + the carry-forward write). Plain-English coverage:
     byte-identical, on both a complete and a halted pass                              -> test_81
 """
 
+import base64
+import collections
+import io
 import copy
 import json
 import os
@@ -79,7 +82,27 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.boq import rate_master
 from nirmaan_stack.services.boq_rate_master import extraction, loader
 
+# The UTF-8 BOM the CSV writer prepends so Excel renders non-ASCII correctly.
+BOM = "\ufeff"
+
 PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
+
+# THE current Electrical asset -- named ONCE, here, and nowhere else. Three separate "current"
+# pins had drifted independently (_ASSET on v22, _EALL_CURRENT on v27, an inline v29), which is
+# the exact C4 trap _EALL_CURRENT's own docstring warns about and had itself fallen into twice.
+# One constant is the whole point: a mint bumps this line and every current-asset test follows.
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v30.json"
+
+# The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
+# read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
+# _deactivate_prior is DISCIPLINE-WIDE -- is reachable only by a payload carrying the SINGULAR
+# `category_config` key, and the merged asset carries the LIST form. Repointing these tests at the
+# merged asset would delete the only coverage the dangerous path has.
+LEGACY_WIRING_ASSET = "rate_master_wiring_cabling_v3.json"
+
+
+def _asset_path(filename):
+    return os.path.join(os.path.dirname(loader.__file__), "data", filename)
 
 
 def _obj(value):
@@ -92,12 +115,15 @@ class TestRateMaster(FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        with open(loader.DEFAULT_DATA_FILE, "r", encoding="utf-8") as fh:
+        # The SINGULAR-shape fixture, read by explicit path. Until the 2026-08-13 merge this was
+        # loader.DEFAULT_DATA_FILE; that now points at the merged LIST-shape asset, and
+        # `_real_payload` below stamps `p["category_config"]["discipline"]`, so the ~30 tests built
+        # on it cover the single-config loader path specifically. See LEGACY_WIRING_ASSET.
+        with open(_asset_path(LEGACY_WIRING_ASSET), "r", encoding="utf-8") as fh:
             cls.raw = json.load(fh)
-        # EA-1/EA-1b: the all-categories (E-ALL) asset, loaded by path (DEFAULT_DATA_FILE stays wiring).
-        cls.eall_path = os.path.join(
-            os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v12.json"
-        )
+        # EA-1/EA-1b: a HISTORICAL E-ALL asset, pinned to v12 on purpose -- test_23 asserts that
+        # asset's own counts, so this must NOT follow CURRENT_EALL_ASSET.
+        cls.eall_path = _asset_path("rate_master_electrical_all_v12.json")
         with open(cls.eall_path, "r", encoding="utf-8") as fh:
             cls.eall = json.load(fh)
         cls._disciplines = set()
@@ -106,12 +132,20 @@ class TestRateMaster(FrappeTestCase):
     def tearDownClass(cls):
         # RM-4a: audited edits create Version docs (track_changes) in the live DB -- delete them for
         # the synthetic docs BEFORE the docs, so no orphan Versions and the live count returns to 0.
+        # SLICE 3: BoQ Rate Master Retirement joins the purge. The loader now records a retirement
+        # row per declared entry, and both E-ALL fixtures (v12 and the current asset) declare some --
+        # so without this every run of this suite would leave synthetic rows behind in the LIVE DB.
+        # SLICE 4: BoQ Rate Master Snapshot joins the purge for the same reason -- the export test
+        # writes one per scratch discipline, and this suite runs against the LIVE site DB.
         for disc in cls._disciplines:
-            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item"):
+            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item",
+                       "BoQ Rate Master Retirement"):
                 for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
                     frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
             frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
             frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
         frappe.db.commit()
         super().tearDownClass()
 
@@ -727,6 +761,578 @@ class TestRateMaster(FrappeTestCase):
             1,
         )
 
+    def _merged_payload(self, discipline):
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            p = json.load(fh)
+        p["discipline"] = discipline
+        return p
+
+    def test_24b_the_merged_asset_loads_as_one_batch_on_the_scoped_path(self):
+        """THE MERGE (2026-08-13). One asset, one batch, one loader path -- and the DANGEROUS path
+        is unreachable from it.
+
+        Until the merge the catalog needed TWO imports whose ORDER was load-bearing and undocumented:
+        the wiring asset carried the SINGULAR `category_config` key, which routes to
+        load_rate_master's single-config path, whose _deactivate_prior is DISCIPLINE-WIDE
+        (`... SET active = 0 WHERE discipline = %s`). Loading wiring second therefore deactivated
+        every E-ALL item -- which is exactly what happened on 2026-08-09 and had to be repaired by
+        re-importing E-ALL 37 seconds later.
+
+        This asserts the merged asset takes the LIST branch, so `_load_multi`'s SCOPED supersede is
+        what runs and the discipline-wide UPDATE is never reached. NEGATIVE HALF: the merged payload
+        must NOT carry `category_config`, because that key alone is what selects the wide path."""
+        disc = self._new_disc()
+        payload = self._merged_payload(disc)
+
+        # NEGATIVE: the singular key is absent -- this is what makes the wide path unreachable.
+        self.assertNotIn("category_config", payload)
+        self.assertIsInstance(payload["category_configs"], list)
+
+        r = loader.load_rate_master(payload=payload)
+        # ONE batch covers items AND configs -- previously two batches from two files.
+        self.assertEqual(r["items_total"], 1382)
+        self.assertEqual(r["configs_loaded"], 12)
+        self.assertEqual(len({r["batch"]}), 1)
+        self.assertTrue(r["batch"].startswith("rmbulk-"))
+
+        # wiring's kinds now arrive in the SAME batch as everything else
+        self.assertEqual(r["items_by_kind"]["cable"], 292)
+        self.assertEqual(r["items_by_kind"]["termination"], 296)
+        # and the ruled duplicate is gone: 137 -> 136 (owner ruling 2026-08-13, the 12133.0 @ row 14
+        # copy of TPN FLEXI DB 4 ROW 14M dropped, the 12881.0 @ row 17 copy kept)
+        self.assertEqual(r["items_by_kind"]["db_switchgear_item"], 136)
+        self.assertEqual(self._active_items(disc, kind="db_switchgear_item"), 136)
+
+        # wiring_cabling is a first-class member of the list now, and its FIVE goldens survived the
+        # effective merge (_load_multi lets the top-level dict win; the config's own copy agrees).
+        stored = _obj(frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": disc, "category_id": "wiring_cabling", "active": 1}, "config",
+        ))
+        self.assertEqual([g["id"] for g in stored["goldens"]], ["g1", "g2", "g3", "g4", "g5"])
+        # `item_kinds` is deliberately ABSENT on wiring_cabling -- its kinds derive from the
+        # pipelines' match_master_row, and adding one would change the stored config for no gain.
+        self.assertNotIn("item_kinds", stored)
+        self.assertEqual(extraction._config_kinds(stored), ["cable", "termination"])
+
+        # the retired scope carries through unchanged
+        self.assertEqual(payload["retired_kinds"], ["ups_per_kva", "ups_reference"])
+        self.assertEqual(payload["retired_category_ids"], ["ups", "switches_point"])
+
+    def test_24c_the_loader_carries_item_uid_through_from_the_asset(self):
+        """SLICE 2 -- the stable item uid survives an import.
+
+        Every import INSERTS fresh documents, so `name` is regenerated and cannot be a durable
+        identity: freeze-and-supersede RETAINS the superseded row, so its name stays OCCUPIED and a
+        new row reusing it would be a primary-key collision. `item_uid` is carried through from the
+        payload exactly like brand/unit, which is what lets a CSV round trip say "this row is that
+        row" across a mint.
+
+        Loaded into a SCRATCH discipline -- never against live Electrical data."""
+        disc = self._new_disc()
+        payload = self._merged_payload(disc)
+
+        # the asset itself must carry a uid on every item (the backfill stamps asset AND DB alike)
+        uids = [it.get("item_uid") for it in payload["items"]]
+        self.assertTrue(all(uids), "every asset item must carry an item_uid")
+        self.assertEqual(len(set(uids)), len(uids), "asset uids must be distinct")
+        self.assertTrue(all(u.startswith("rmi-") for u in uids))
+
+        loader.load_rate_master(payload=payload)
+
+        stored = frappe.get_all(
+            "BoQ Rate Master Item",
+            filters={"discipline": disc, "active": 1},
+            fields=["kind", "brand", "attributes", "item_uid"],
+        )
+        self.assertEqual(len(stored), 1382)
+        self.assertTrue(all((r["item_uid"] or "").startswith("rmi-") for r in stored),
+                        "every stored row must carry the uid the asset supplied")
+        self.assertEqual(len({r["item_uid"] for r in stored}), 1382)
+        # and it is the SAME uid on the SAME item -- keyed by (kind, brand, attributes), the tuple
+        # the backfill paired on. `brand` is load-bearing here: six lms_item pairs are identical on
+        # (kind, attributes) and differ ONLY by brand, at materially different prices.
+        def key(kind, brand, attrs):
+            return json.dumps([kind, brand, attrs], sort_keys=True, separators=(",", ":"))
+        want = {key(it["kind"].strip(), it.get("brand"),
+                    loader._canonicalize_attributes(it["attributes"])): it["item_uid"]
+                for it in payload["items"]}
+        got = {key(r["kind"], r["brand"], _obj(r["attributes"])): r["item_uid"] for r in stored}
+        self.assertEqual(len(want), 1382)
+        self.assertEqual(want, got, "uid must land on the item the asset assigned it to")
+
+    def test_24d_a_legacy_asset_without_uids_still_loads(self):
+        """SLICE 2 -- NEGATIVE half. v29 and earlier carry no `item_uid`, and `_validate_items` must
+        keep tolerating its absence rather than requiring it, or every historical-fixture test in
+        this suite would break. The loader reads it with .get(), so absence yields None.
+
+        Uses the v12 asset (the oldest one this suite pins) into a SCRATCH discipline."""
+        disc = self._new_disc()
+        legacy = self._eall_payload(disc)
+        self.assertTrue(all("item_uid" not in it for it in legacy["items"]),
+                        "the v12 fixture must genuinely carry no uid, or this proves nothing")
+
+        r = loader.load_rate_master(payload=legacy)      # must NOT raise
+        self.assertEqual(r["status"], "loaded")
+
+        stored = frappe.get_all("BoQ Rate Master Item",
+                                filters={"discipline": disc, "active": 1}, fields=["item_uid"])
+        self.assertTrue(stored)
+        self.assertTrue(all(not r["item_uid"] for r in stored),
+                        "a legacy asset must load with a BLANK uid, never a fabricated one")
+
+    def test_24e_the_loader_records_retirement_state_it_never_used_to_persist(self):
+        """SLICE 3 -- the retirement lists become a durable RECORD.
+
+        `retired_kinds` / `retired_category_ids` were the ONLY two loader inputs consumed to drive
+        behaviour and never persisted: the whole effect was `active = 0`, which is indistinguishable
+        from an ordinary supersede. Built from rows alone, an export would drop them.
+
+        ⚠️ PAYLOAD IS THE INSTRUCTION, TABLE IS THE RECORD -- the NEGATIVE half below pins that the
+        deactivation still reads the payload, never this table.
+
+        Loaded into a SCRATCH discipline; never against live Electrical data."""
+        from nirmaan_stack.services.boq_rate_master import retirement
+
+        disc = self._new_disc()
+        payload = self._merged_payload(disc)
+        self.assertEqual(payload["retired_kinds"], ["ups_per_kva", "ups_reference"])
+        self.assertEqual(payload["retired_category_ids"], ["ups", "switches_point"])
+
+        # nothing recorded for a discipline that has never been loaded
+        self.assertEqual(
+            retirement.get_retirement_lists(disc),
+            {"retired_kinds": [], "retired_category_ids": []},
+        )
+
+        r = loader.load_rate_master(payload=payload)
+
+        # the summary reports what it recorded, and the read function returns the asset's own shape
+        self.assertEqual(len(r["retirements_recorded"]["created"]), 4)
+        self.assertEqual(r["retirements_recorded"]["existing"], [])
+        self.assertEqual(
+            retirement.get_retirement_lists(disc),
+            {"retired_kinds": ["ups_per_kva", "ups_reference"],
+             "retired_category_ids": ["switches_point", "ups"]},
+        )
+
+        # ⚠️ provenance stays EMPTY -- the loader never knew when/who/why, and a field asserting a
+        # precision it does not have is worse than an empty one.
+        for row in frappe.get_all(retirement.RETIREMENT_DOCTYPE, filters={"discipline": disc},
+                                  fields=["retired_at", "retired_by", "reason"]):
+            self.assertIsNone(row["retired_at"])
+            self.assertFalse(row["retired_by"])
+            self.assertFalse(row["reason"])
+
+        # IDEMPOTENT: a second load records nothing new
+        r2 = loader.load_rate_master(payload=self._merged_payload(disc), replace=True)
+        self.assertEqual(r2["retirements_recorded"]["created"], [])
+        self.assertEqual(len(r2["retirements_recorded"]["existing"]), 4)
+        self.assertEqual(
+            frappe.db.count(retirement.RETIREMENT_DOCTYPE, {"discipline": disc}), 4
+        )
+
+        # UNIQUENESS IS STRUCTURAL: the tuple IS the primary key, so a duplicate cannot be inserted
+        # even bypassing record_retirements. Not a validate hook that could race or be skipped.
+        #
+        # ⚠️ SAVEPOINT IS LOAD-BEARING, not tidiness. A primary-key violation ABORTS the postgres
+        # transaction ("current transaction is aborted, commands ignored until end of transaction
+        # block"), so without rolling back to a savepoint every subsequent test in this class fails
+        # at its first write -- measured: 18 cascading errors plus tearDownClass.
+        frappe.db.savepoint("retirement_dup_probe")
+        with self.assertRaises(frappe.DuplicateEntryError):
+            frappe.get_doc({
+                "doctype": retirement.RETIREMENT_DOCTYPE, "discipline": disc,
+                "scope_type": "kind", "scope_value": "ups_per_kva",
+            }).insert(ignore_permissions=True)
+        frappe.db.rollback(save_point="retirement_dup_probe")
+
+    def test_24f_the_table_is_the_record_and_never_drives_deactivation(self):
+        """SLICE 3 NEGATIVE half -- the payload remains the instruction.
+
+        A retirement RECORDED for a discipline must NOT cause a later payload that no longer
+        declares it to deactivate anything. If the loader ever read this table to drive
+        `_deactivate_scope`, import behaviour would change -- explicitly out of scope."""
+        from nirmaan_stack.services.boq_rate_master import retirement
+
+        disc = self._new_disc()
+        # record a retirement for a kind that the E-ALL payload DOES carry, so if the table were
+        # ever consulted the load below would deactivate those rows.
+        retirement.record_retirements(disc, ["cable_tray"], [])
+        frappe.db.commit()
+        self.assertEqual(retirement.get_retirement_lists(disc)["retired_kinds"], ["cable_tray"])
+
+        payload = self._merged_payload(disc)
+        self.assertNotIn("cable_tray", payload["retired_kinds"])   # the payload does NOT retire it
+        loader.load_rate_master(payload=payload, replace=True)
+
+        # cable_tray loaded ACTIVE and stayed active -- the recorded row changed nothing
+        self.assertEqual(self._active_items(disc, kind="cable_tray"), 450)
+
+    # ── SLICE 4: the asset export + snapshots ────────────────────────────────────────────
+    # Plain-English coverage summary (test -> changed behaviour):
+    #   24g  the export ROUND-TRIPS -- exporting a discipline and loading the result into a fresh
+    #        one reproduces every axis (items per kind, identity, rates, provenance, item_uid,
+    #        config blobs, goldens, the retirement entries). This is the slice's real gate; the
+    #        mint gate cannot see below `kind:<k>` and proves nothing about item fidelity.
+    #   24h  two consecutive exports are BYTE-IDENTICAL, so the file is a stable artefact and a
+    #        re-export produces no spurious diff.
+    #   24i  BLOB-VERBATIM (the negative half): a config carrying a key nothing knows about
+    #        survives the export untouched. This is what stops a fixed-schema export silently
+    #        dropping the 21st key the day someone adds one.
+    #   24j  retirement lists come from the TABLE (slice 3), not a file header -- and a discipline
+    #        with no retirement rows exports two EMPTY lists rather than inheriting anything.
+    #   24k  a snapshot is written per export, and the prune keeps the newest 10 per discipline.
+    #   24l  the endpoint refuses a non-admin, and writes NOTHING when it refuses.
+
+    def _export_scratch(self, source_disc=None):
+        """Export a discipline and return (payload, text). Defaults to a freshly loaded scratch."""
+        from nirmaan_stack.services.boq_rate_master import exporter
+        return exporter.export_asset_text(source_disc)
+
+    def test_24g_the_export_round_trips_every_axis(self):
+        """SLICE 4 -- the export is proven by ROUND TRIP, not by assertion.
+
+        Export a loaded discipline, load the result into a SECOND scratch discipline, and compare
+        the two axis by axis. Row identity (name / import_batch / timestamps) regenerates by
+        design and is deliberately not compared; `item_uid` IS compared, because that is the
+        durable identity slice 2 added precisely so it survives a mint."""
+        from nirmaan_stack.services.boq_rate_master import exporter, retirement
+
+        src = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(src))
+
+        payload, _text = exporter.export_asset_text(src)
+        dst = self._new_disc()
+        payload2 = json.loads(json.dumps(payload))
+        payload2["discipline"] = dst
+        r = loader.load_rate_master(payload=payload2)
+        self.assertEqual(r["items_total"], 1382)
+        self.assertEqual(r["configs_loaded"], 12)
+
+        def rows(d):
+            return frappe.get_all(
+                "BoQ Rate Master Item", filters={"discipline": d, "active": 1},
+                fields=["kind", "brand", "unit", "attributes", "rates",
+                        "source_sheet", "source_row", "item_uid"])
+
+        def full(x):
+            return json.dumps([x["kind"], x["brand"], x["unit"], _obj(x["attributes"]),
+                               _obj(x["rates"]), x["source_sheet"], x["source_row"],
+                               x["item_uid"]], sort_keys=True, separators=(",", ":"))
+
+        a, b = rows(src), rows(dst)
+        # items per kind
+        self.assertEqual(collections.Counter(x["kind"] for x in a),
+                         collections.Counter(x["kind"] for x in b))
+        # the full tuple covers identity, rates, provenance AND item_uid in one comparison
+        self.assertEqual(collections.Counter(full(x) for x in a),
+                         collections.Counter(full(x) for x in b))
+        self.assertEqual({x["item_uid"] for x in a}, {x["item_uid"] for x in b})
+        self.assertTrue(all(x["item_uid"] for x in b), "every round-tripped row keeps a uid")
+
+        # config blobs, deep -- discipline aside, which the loader stamps per import
+        def cfgs(d):
+            out = {}
+            for c in frappe.get_all("BoQ Rate Category Config",
+                                    filters={"discipline": d, "active": 1},
+                                    fields=["category_id", "config"]):
+                blob = dict(_obj(c["config"]))
+                blob.pop("discipline", None)
+                out[c["category_id"]] = json.dumps(blob, sort_keys=True, separators=(",", ":"))
+            return out
+        self.assertEqual(cfgs(src), cfgs(dst))
+
+        # the four retirement entries survive the round trip
+        self.assertEqual(retirement.get_retirement_lists(dst),
+                         retirement.get_retirement_lists(src))
+
+    def test_24h_two_consecutive_exports_are_byte_identical(self):
+        """SLICE 4 -- the export is a STABLE artefact.
+
+        Nothing in the payload is a timestamp, a batch id or a hash, and ordering is deterministic
+        (kind then item_uid; category_id), so re-exporting an unchanged database must produce the
+        same bytes. If it did not, every export would show a spurious diff and the file could never
+        be trusted as evidence that the asset matches the DB."""
+        from nirmaan_stack.services.boq_rate_master import exporter
+
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+        _, first = exporter.export_asset_text(disc)
+        _, second = exporter.export_asset_text(disc)
+        self.assertEqual(first, second)
+        self.assertTrue(first.endswith("\n"))
+
+    def test_24i_an_unknown_config_key_round_trips_untouched(self):
+        """SLICE 4 NEGATIVE half -- THE BLOB-VERBATIM PROOF.
+
+        No two configs share a key set, 15 keys have no screen control and 8 reach the AI prompt,
+        so an export that enumerated known keys would silently drop the 21st the day someone added
+        one -- and `_validate_config`'s allowlist has already had to widen six times. A key nothing
+        in the codebase knows about must survive an export untouched."""
+        from nirmaan_stack.services.boq_rate_master import exporter
+
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+        cfg_name = frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": disc, "category_id": "earthing", "active": 1}, "name")
+        blob = _obj(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"))
+        blob["a_key_nothing_knows_about"] = {"nested": [1, 2, {"deep": True}], "why": "verbatim"}
+        frappe.db.set_value("BoQ Rate Category Config", cfg_name, "config",
+                            json.dumps(blob), update_modified=False)
+        frappe.db.commit()
+
+        payload, _ = exporter.export_asset_text(disc)
+        exported = next(c for c in payload["category_configs"] if c["category_id"] == "earthing")
+        self.assertIn("a_key_nothing_knows_about", exported)
+        self.assertEqual(exported["a_key_nothing_knows_about"],
+                         {"nested": [1, 2, {"deep": True}], "why": "verbatim"})
+        # and it survives a re-import, which is the half that actually matters
+        dst = self._new_disc()
+        payload["discipline"] = dst
+        loader.load_rate_master(payload=payload)
+        stored = _obj(frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": dst, "category_id": "earthing", "active": 1}, "config"))
+        self.assertEqual(stored["a_key_nothing_knows_about"],
+                         {"nested": [1, 2, {"deep": True}], "why": "verbatim"})
+
+    def test_24j_retirement_lists_come_from_the_table_not_a_file_header(self):
+        """SLICE 4 -- retirement is read through slice 3's table, never carried forward from the
+        previous asset. A discipline with no retirement rows must export two EMPTY lists: if the
+        export inherited a header, a fresh discipline would claim retirements it never made."""
+        from nirmaan_stack.services.boq_rate_master import exporter, retirement
+
+        disc = self._new_disc()
+        # load WITHOUT retirement declarations, so nothing is recorded
+        payload_in = self._merged_payload(disc)
+        payload_in["retired_kinds"] = []
+        payload_in["retired_category_ids"] = []
+        loader.load_rate_master(payload=payload_in)
+        out, _ = exporter.export_asset_text(disc)
+        self.assertEqual(out["retired_kinds"], [])
+        self.assertEqual(out["retired_category_ids"], [])
+
+        # record one directly in the table -- the export must now surface it
+        retirement.record_retirements(disc, ["ups_per_kva"], ["ups"])
+        frappe.db.commit()
+        out2, _ = exporter.export_asset_text(disc)
+        self.assertEqual(out2["retired_kinds"], ["ups_per_kva"])
+        self.assertEqual(out2["retired_category_ids"], ["ups"])
+
+    def test_24k_a_snapshot_is_written_and_the_prune_keeps_ten(self):
+        """SLICE 4 -- every export is retained, newest 10 per discipline (owner-ruled).
+
+        Also pins that `version` is NOT reused after a prune: it is (max existing) + 1, so a
+        version number identifies one snapshot for the life of the site even once its row is gone."""
+        from nirmaan_stack.services.boq_rate_master import exporter
+
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+
+        versions = []
+        for _ in range(12):
+            payload, text = exporter.export_asset_text(disc)
+            name = exporter.write_snapshot(disc, text, payload)
+            versions.append(frappe.db.get_value(exporter.SNAPSHOT_DOCTYPE, name, "version"))
+        frappe.db.commit()
+
+        self.assertEqual(versions, list(range(1, 13)))          # monotonic, never reused
+        kept = frappe.get_all(exporter.SNAPSHOT_DOCTYPE, filters={"discipline": disc},
+                              fields=["version"], order_by="version asc")
+        self.assertEqual(len(kept), exporter.KEEP_SNAPSHOTS)
+        self.assertEqual([k["version"] for k in kept], list(range(3, 13)))  # 1 and 2 pruned
+
+        newest = frappe.get_all(exporter.SNAPSHOT_DOCTYPE, filters={"discipline": disc},
+                                fields=["payload", "item_count", "config_count", "taken_by",
+                                        "import_batch"],
+                                order_by="version desc", limit=1)[0]
+        self.assertEqual(newest["item_count"], 1382)
+        self.assertEqual(newest["config_count"], 12)
+        self.assertTrue(newest["taken_by"])
+        self.assertTrue(newest["import_batch"].startswith("rmbulk-"))
+        # the payload is stored VERBATIM -- byte-for-byte what the export produced
+        _, text_now = exporter.export_asset_text(disc)
+        self.assertEqual(newest["payload"], text_now)
+
+    def test_24l_the_export_endpoint_refuses_a_non_admin_and_writes_nothing(self):
+        """SLICE 4 NEGATIVE half -- the endpoint is admin-gated.
+
+        The shape is cloned from export_priced_workbook, whose gate is bare login-only; that gate
+        is deliberately NOT cloned, because an export hands over the whole priced catalog. A refusal
+        must also write no snapshot."""
+        from nirmaan_stack.services.boq_rate_master import exporter
+
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+        before = frappe.db.count(exporter.SNAPSHOT_DOCTYPE, {"discipline": disc})
+
+        original = frappe.session.user
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.export_rate_master_asset(discipline=disc)
+        finally:
+            frappe.set_user(original)
+        self.assertEqual(frappe.db.count(exporter.SNAPSHOT_DOCTYPE, {"discipline": disc}), before)
+
+        # POSITIVE twin: as admin it returns a downloadable file AND writes exactly one snapshot
+        res = rate_master.export_rate_master_asset(discipline=disc)
+        self.assertEqual(res["content_type"], "application/json")
+        self.assertTrue(res["filename"].endswith(".json"))
+        self.assertEqual(res["item_count"], 1382)
+        decoded = base64.b64decode(res["content_base64"]).decode("utf-8")
+        self.assertEqual(json.loads(decoded)["discipline"], disc)
+        self.assertEqual(frappe.db.count(exporter.SNAPSHOT_DOCTYPE, {"discipline": disc}), before + 1)
+
+    # -- SLICE 5: the editable CSV download ----------------------------------------------
+    # Plain-English coverage summary (test -> changed behaviour):
+    #   24m  MODE A gives exactly ONE category's attribute + rate columns, and every row carries
+    #        item_uid -- without which the round trip is one-way and the upload cannot tell an edit
+    #        from a new item.
+    #   24n  MODE B gives the UNION of every category's keys plus a `category` column, so one file
+    #        covers the whole catalog. Sparse by construction.
+    #   24o  a value containing a comma or a quote survives CSV quoting intact, and values are
+    #        emitted AS STORED -- never reformatted to look tidier.
+    #   24p  NEGATIVE: a non-admin is refused before anything is read.
+    #   24q  NEGATIVE: a category with no items yields a HEADERS-ONLY template, not an error.
+
+    def test_24m_mode_a_gives_one_categorys_columns_with_item_uid(self):
+        """SLICE 5 MODE A -- narrow and directly editable.
+
+        Columns are exactly that category's attribute and rate keys as real named columns. EVERY row
+        carries item_uid: without it the upload cannot tell an edit from a new item."""
+        import csv as _csv
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+
+        text, headers, n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        self.assertEqual(n, 460)
+        self.assertEqual(headers,
+                         ["item_uid", "kind", "brand", "unit",
+                          "material", "thickness_mm", "tray_type", "width_mm",
+                          "cover_only_list", "install_rate", "with_cover_list", "without_cover_list",
+                          "source_sheet", "source_row"])
+        self.assertNotIn("core", headers)          # a wiring attribute must NOT appear
+        self.assertNotIn("category", headers)      # MODE A has no category column
+
+        rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
+        self.assertEqual(rows[0], headers)
+        self.assertEqual(len(rows) - 1, 460)
+        self.assertTrue(all(r[0].startswith("rmi-") for r in rows[1:]),
+                        "every row must carry item_uid")
+
+    def test_24n_mode_b_gives_the_union_plus_a_category_column(self):
+        """SLICE 5 MODE B -- one file, every category, the UNION of all keys.
+
+        Sparseness is inherent: a cable row has nothing to say about tray_type. What matters is that
+        the category is EXPLICIT per row, so a reader never has to infer it from a value."""
+        import csv as _csv
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+
+        text, headers, n = csv_exporter.build_all_categories_csv(disc)
+        self.assertEqual(n, 1382)
+        self.assertEqual(headers[:5], ["item_uid", "category", "kind", "brand", "unit"])
+        self.assertEqual(headers[-2:], ["source_sheet", "source_row"])
+        for k in ("tray_type", "core", "conduit_type", "colour", "description"):
+            self.assertIn(k, headers)
+        self.assertEqual(len(headers), 45)
+
+        rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
+        self.assertEqual(len(rows) - 1, 1382)
+        self.assertTrue(all(r[0].startswith("rmi-") for r in rows[1:]))
+        cats = {r[1] for r in rows[1:]}
+        self.assertIn("cabletray_raceway", cats)
+        self.assertIn("wiring_cabling", cats)
+        # a cable row is BLANK in the tray column -- sparse, not wrong
+        ti = headers.index("tray_type")
+        cable = next(r for r in rows[1:] if r[2] == "cable")
+        self.assertEqual(cable[ti], "")
+
+    def test_24o_a_comma_or_quote_survives_and_values_are_emitted_as_stored(self):
+        """SLICE 5 -- CSV quoting holds, and nothing is silently 'fixed'.
+
+        The file must round-trip what is in the DB. A value is emitted exactly as stored: a float
+        stays 2.0, a string keeps its spacing, and a comma or quote is quoted rather than stripped."""
+        import csv as _csv
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+        name = frappe.db.get_value("BoQ Rate Master Item",
+                                   {"discipline": disc, "kind": "junction_box", "active": 1}, "name")
+        nasty = 'A "quoted", comma value'
+        frappe.db.set_value("BoQ Rate Master Item", name, "attributes",
+                            json.dumps({"size": nasty}), update_modified=False)
+        frappe.db.commit()
+
+        text, headers, _ = csv_exporter.build_category_csv(disc, "junction_box_raceway")
+        rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
+        si = headers.index("size")
+        self.assertIn(nasty, [r[si] for r in rows[1:]])
+
+        # values as stored: a float keeps its .0 rather than being prettified to an int
+        text2, h2, _ = csv_exporter.build_category_csv(disc, "wiring_cabling")
+        rows2 = list(_csv.reader(io.StringIO(text2.lstrip(BOM))))
+        ci = h2.index("core")
+        self.assertTrue(any(v.endswith(".0") for v in [r[ci] for r in rows2[1:]]),
+                        "a stored float must be emitted as stored, not reformatted")
+
+    def test_24p_the_csv_endpoint_refuses_a_non_admin(self):
+        """SLICE 5 NEGATIVE -- an editable dump of the priced catalog is no less sensitive than the
+        asset, so it carries the SAME admin gate, checked before anything is read."""
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+        original = frappe.session.user
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.export_rate_master_csv(discipline=disc)
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.export_rate_master_csv(discipline=disc, category_id="earthing")
+        finally:
+            frappe.set_user(original)
+
+        # POSITIVE twin: as admin both modes return a decodable file
+        res = rate_master.export_rate_master_csv(discipline=disc, category_id="earthing")
+        self.assertEqual(res["content_type"], "text/csv")
+        self.assertEqual(res["mode"], "category")
+        self.assertTrue(res["filename"].endswith(".csv"))
+        self.assertIn("item_uid", base64.b64decode(res["content_base64"]).decode("utf-8"))
+        res_all = rate_master.export_rate_master_csv(discipline=disc)
+        self.assertEqual(res_all["mode"], "all")
+        self.assertEqual(res_all["column_count"], 45)
+        self.assertEqual(res_all["row_count"], 1382)
+
+    def test_24q_a_category_with_no_items_gives_headers_only_not_an_error(self):
+        """SLICE 5 NEGATIVE -- point_wiring is kind-less and owns no rows of its own. It must yield a
+        usable headers-only TEMPLATE (from the config's attribute definitions) rather than throwing,
+        so a user can still add rows for it."""
+        import csv as _csv
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+
+        text, headers, n = csv_exporter.build_category_csv(disc, "point_wiring")
+        self.assertEqual(n, 0)
+        rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
+        self.assertEqual(len(rows), 1, "headers only")
+        self.assertEqual(rows[0], headers)
+        self.assertIn("item_uid", headers)
+        # the template still names the category's own attributes, from its definitions
+        self.assertIn("circuit_length_m", headers)
+
+        # and an UNKNOWN category is a named error, not an empty file
+        with self.assertRaises(frappe.ValidationError):
+            csv_exporter.build_category_csv(disc, "no_such_category")
+
     def test_25_eall_retired_scope_deactivated_on_replace(self):
         disc = self._new_disc()
         # simulate a PRIOR batch that carried UPS (now retired by the Floor BOX correction): a
@@ -1083,12 +1689,19 @@ class TestRateMaster(FrappeTestCase):
     # These are the C1 BEFORE-pins: they assert the CURRENT behaviour and are proven green against the
     # unchanged state, then UPDATED IN THIS SAME SLICE, so the diff shows exactly what changed.
 
-    # SLICE 1a: bump with the rebuild. `cls.eall` stays pinned to v12 on purpose (test_23 asserts that
-    # asset's historical counts) -- the current asset is loaded by path, as test_31 does for v17.
-    _ASSET = "rate_master_electrical_all_v22.json"
+    # SLICE 1b (owner-ruled 2026-08-13): this pin now follows the ONE constant, closing the last of
+    # the four "current-asset" pins that had each drifted to a different version.
+    #
+    # It had sat on v22 for two mints, and repointing it exposed THREE tests asserting a v22-era
+    # shape that TWO OWNER RULINGS have since superseded. The assertions were UPDATED to the
+    # post-ruling shape -- the tests were already wrong, and the merge changed nothing here (v29 and
+    # v30 are byte-identical on both points). Each updated assertion carries an inline comment naming
+    # the ruling it now encodes. FOUR tests read this pin; test_37 (routing / ownership) was
+    # unaffected and passes on the current asset unchanged.
+    _ASSET = CURRENT_EALL_ASSET
 
     def _asset_payload(self, discipline):
-        path = os.path.join(os.path.dirname(loader.__file__), "data", self._ASSET)
+        path = _asset_path(self._ASSET)
         with open(path, "r", encoding="utf-8") as fh:
             payload = json.load(fh)
         payload["discipline"] = discipline
@@ -1152,7 +1765,18 @@ class TestRateMaster(FrappeTestCase):
             self.assertEqual(d["values_from"]["kind"], "switch_socket_item")
             self.assertEqual(d["values_from"]["where"]["family"], family)
             qty = slot.replace("_item", "_qty")
-            self.assertIn(qty, d["disables_when_none"])
+            # SLICE 1b: `blank_item` is the ONE slot that no longer disables its quantity, and the
+            # asymmetry IS the BLANKER-BIND ruling (2026-08-10). The blanker is inferred from the
+            # EFFECTIVE module count, never selected by extraction -- so `blank_item` stopped driving
+            # the price while `blank_qty` became EDITABLE again (seeded with the computed count, and
+            # arbitrated against the plate's spare capacity). A dead dropdown was therefore greying
+            # out the one field that had just started to matter, on every row where extraction
+            # answered "None". This asserted the PRE-ruling shape; the live shape is the absence.
+            if slot == "blank_item":
+                self.assertIsNone(d.get("disables_when_none"),
+                                  "blank_item must NOT disable blank_qty -- BLANKER-BIND")
+            else:
+                self.assertIn(qty, d["disables_when_none"])
             self.assertEqual(defs[qty]["type"], "number")
             # POSITIVE: each slot resolves a NON-EMPTY catalog from the live master rows
             self.assertTrue(extraction.values_from_catalog(disc, d["values_from"]))
@@ -1163,11 +1787,20 @@ class TestRateMaster(FrappeTestCase):
 
         self.assertEqual(defs["back_box"]["values"], ["Yes", "No"])
         self.assertEqual(defs["colour"]["type"], "choice")
-        # the qty defaults ship; C2: NO colour default and NO rules this slice
         self.assertEqual(cfg["extraction_defaults"]["switch_qty"], 1.0)
         self.assertTrue(cfg.get("extraction_none_guidance"))
-        self.assertNotIn("colour", cfg["extraction_defaults"])
-        self.assertFalse(cfg.get("rules"))                     # C2: no rules, before or after
+        # SLICE 1b: the two assertions below said "C2: NO colour default and NO rules THIS SLICE" --
+        # a SCOPE statement about C2, which later slices then superseded, not a standing rule.
+        # `colour: "White"` was added to extraction_defaults on BOTH categories at v23 (recorded as
+        # "S4 is NOT a rule" -- it is a default, not estimator guidance), and the S1/S2/S3 switch
+        # rules landed in the same era. Asserting their absence pinned a scope boundary that had
+        # already moved, so both now assert the live shape.
+        self.assertEqual(cfg["extraction_defaults"]["colour"], "White")
+        self.assertTrue(cfg.get("rules"))
+        # RULING 4 (same era): blank_qty was REMOVED from extraction_defaults on both categories --
+        # a fabricated default and a computed count must not both be live. If module_fit does not
+        # run, blanks are ABSENT, not 1.
+        self.assertNotIn("blank_qty", cfg["extraction_defaults"])
 
     def test_39_switches_sockets_goldens_live(self):
         """The GOLDEN pin, read from the LIVE production config (not a synthetic load) -- these are the
@@ -1247,12 +1880,19 @@ class TestRateMaster(FrappeTestCase):
         b = defs["blank_item"]
         self.assertEqual(b["type"], "choice")
         self.assertTrue(b["allow_none"])
-        self.assertEqual(b["disables_when_none"], ["blank_qty"])
+        # SLICE 1b -- BLANKER-BIND ruling (2026-08-10). Was `["blank_qty"]`. The blanker is now
+        # INFERRED from the EFFECTIVE module count and never selected by extraction, so `blank_item`
+        # no longer drives the price while `blank_qty` became EDITABLE again. Leaving the disable in
+        # place meant a dead dropdown greyed out the newly-live quantity on every "None" row.
+        self.assertIsNone(b.get("disables_when_none"))
         self.assertIsNone(b.get("values"))                      # NEGATIVE: never a static list
         self.assertEqual(b["values_from"]["kind"], "switch_socket_item")
         self.assertEqual(b["values_from"]["where"]["family"], "Switch")
         self.assertEqual(defs["blank_qty"]["type"], "number")
-        self.assertEqual(cfg["extraction_defaults"]["blank_qty"], 1.0)
+        # SLICE 1b -- same ruling, second half. `blank_qty` carried an extraction default of 1.0 back
+        # when the model chose the blanker; the pipeline now COMPUTES the count, so an injected
+        # default would be a STATED value competing with the computation. It is correctly absent.
+        self.assertNotIn("blank_qty", cfg.get("extraction_defaults") or {})
         # POSITIVE: the live catalog behind the slot resolves, and contains the one blanker
         cat = extraction.values_from_catalog(disc, b["values_from"])
         self.assertIn("1M Blanker", cat)
@@ -1265,8 +1905,14 @@ class TestRateMaster(FrappeTestCase):
             self.assertEqual(len(blanks), 1, f"{pid} must carry exactly one blank line")
             self.assertTrue(blanks[0]["none_skips"])
             self.assertEqual(blanks[0]["ref"]["family"], "Switch")
-            self.assertEqual(blanks[0]["ref"]["item"], "@blank_item")
-            self.assertEqual(blanks[0]["qty"], {"from_attr": "blank_qty"})
+            # SLICE 1b -- BLANKER-BIND ruling, the binding half. Was `@blank_item` + a
+            # `{from_attr: blank_qty}` quantity, i.e. the model picked the item AND stated the count.
+            # A POSITIVE effective count now prices `1M Blanker` whatever extraction returned, and a
+            # ZERO count binds the None sentinel so the line reads as deliberately absent. The item
+            # therefore comes from the FIT (`@blank_fit_item`, bound like a ladder rung) and the
+            # quantity from `{from_fit: blank_count}` -- the pipeline computes both.
+            self.assertEqual(blanks[0]["ref"]["item"], "@blank_fit_item")
+            self.assertEqual(blanks[0]["qty"], {"from_fit": "blank_count"})
             # NEGATIVE: point_wiring rounds to UNITS -- a tens roundup here would be the wrong category's
             for stage in blanks[0]["rate_stages"]:
                 self.assertNotEqual(stage.get("round"), -1)
@@ -1297,11 +1943,18 @@ class TestRateMaster(FrappeTestCase):
             disables = defs["plate_item"]["disables_when_none"]
             self.assertNotIn("back_box", disables, f"{cid}: a None plate must NOT grey out the box")
             self.assertIn("plate_qty", disables, f"{cid}: invariant either way")
-            # the back_box component binding is NOT part of this fix -- box module = the plate's module
-            # when a plate exists; the no-plate fallback needs the module computation and is slice 2.
+            # SLICE 1b -- the back-box RE-FIT ruling. This comment used to say the binding was "NOT
+            # part of this fix ... and is slice 2"; slice 2 SHIPPED and changed it, so both the
+            # comment and the assertion were stale.
+            #
+            # The box takes the SELECTED plate's module COUNT, re-fitted on its OWN ladder -- never
+            # the plate's LABEL. The box ladder is SHORTER than the plate ladder (no 9M, no 16M), so
+            # a 9M plate pairs with a 12M box and a 16M plate with an 18M box. Copying the label
+            # (`@plate_item`) asked the catalog for a box that does not exist and made the WHOLE ROW
+            # unpriceable -- a live defect before slice 2 part 2, and what this now guards against.
             step = next(s for s in cfg["pipelines"][pipeline_id]["steps"]
                         if s.get("step") == "component_ref" and s.get("name") == "back_box")
-            self.assertEqual(step["ref"]["item"], "@plate_item")
+            self.assertEqual(step["ref"]["item"], "@box_item")
 
     def test_42_point_wiring_goldens_hold(self):
         """pw1 and pw2 must be UNMOVED: both state a 3M plate with 3 modules occupied, so their blank
@@ -1541,16 +2194,15 @@ class TestRateMaster(FrappeTestCase):
         })
         rate_master._validate_config(cfg)  # must not raise
 
-    def test_92_the_shipped_v29_asset_validates_end_to_end(self):
+    def test_92_the_shipped_asset_validates_end_to_end(self):
         """POSITIVE, over the REAL asset rather than a probe. Every category in the shipped E-ALL
         payload must pass the validator -- the loader does NOT validate, so this suite is the only
-        place an un-savable config is caught before it reaches the editor."""
-        import json as _json, os as _os
-        path = _os.path.join(
-            _os.path.dirname(rate_master.__file__), "..", "..", "services", "boq_rate_master",
-            "data", "rate_master_electrical_all_v29.json",
-        )
-        with open(_os.path.abspath(path), encoding="utf-8") as fh:
+        place an un-savable config is caught before it reaches the editor.
+
+        Reads CURRENT_EALL_ASSET (was an inline v29 path -- one of the three "current" pins that
+        had each drifted to a different version). The name is version-free for the same reason."""
+        import json as _json
+        with open(_asset_path(CURRENT_EALL_ASSET), encoding="utf-8") as fh:
             payload = _json.load(fh)
         goldens = payload.get("goldens") or {}
         for cfg in payload["category_configs"]:
@@ -2114,10 +2766,15 @@ class TestRateMaster(FrappeTestCase):
     # The CURRENT E-ALL asset. Named ONCE, version-free at the call sites, because the pin below
     # guards whichever asset is live -- and it was silently left behind on v26 when v27 was minted,
     # which is precisely the C4 trap it exists to catch.
-    _EALL_CURRENT = "rate_master_electrical_all_v27.json"
+    #
+    # IT THEN FELL INTO THAT TRAP A SECOND TIME: it sat on v27 while v28 and v29 shipped, so three
+    # tests spent two mints validating a stale file. "Named once" was true only WITHIN this class,
+    # and two OTHER current pins existed elsewhere on two other versions. It now reads the ONE
+    # module-level CURRENT_EALL_ASSET, so a mint bumps a single line for the whole suite.
+    _EALL_CURRENT = CURRENT_EALL_ASSET
 
     def _current_eall_asset(self):
-        path = os.path.join(os.path.dirname(loader.__file__), "data", self._EALL_CURRENT)
+        path = _asset_path(self._EALL_CURRENT)
         with open(path, "r", encoding="utf-8") as fh:
             return json.load(fh)
 
@@ -2196,12 +2853,14 @@ class TestRateMaster(FrappeTestCase):
                         # NEGATIVE: supply (0.602) and BCS (0.4515) stay LINEAR
                         self.assertNotIn("mult_step_divisor", stg, "%s/%s" % (pid, st["name"]))
 
-        # ---- RULING 2, the wiring asset: cable install only ----
-        wpath = os.path.join(
-            os.path.dirname(loader.__file__), "data", "rate_master_wiring_cabling_v3.json"
-        )
-        with open(wpath, "r", encoding="utf-8") as fh:
-            wcfg = json.load(fh)["category_config"]
+        # ---- RULING 2, the wiring config: cable install only ----
+        # Read from the MERGED asset (2026-08-13). It used to read rate_master_wiring_cabling_v3.json
+        # directly; that file is retained on disk as a mint-gate operand but is no longer the live
+        # asset, so a pin left on it would guard a frozen artefact instead of what ships.
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            wcfg = next(
+                c for c in json.load(fh)["category_configs"] if c["category_id"] == "wiring_cabling"
+            )
         for pid, pl in wcfg["pipelines"].items():
             for st in pl["steps"]:
                 if st.get("step") != "scale":
@@ -2721,3 +3380,643 @@ class TestRateMaster(FrappeTestCase):
              mock.patch.object(rate_master, "_population_rows", return_value={1, 2, 3}):
             out2 = rate_master.get_active_suggestion_run(boq="B", sheet_name="S")
         self.assertIsNone(out2["partial_run"]["scope_pending_count"])
+
+    # ══════════════════════════════════════════════════════════════════════════════════════
+    # SLICE 6 -- THE CSV UPLOAD (preview -> confirm -> apply). The FIRST write path into the
+    # live catalog from a file a human edited.
+    #
+    # Plain-English coverage summary (test -> changed behaviour):
+    #   87   THE ROUND TRIP IS A NO-OP. Downloading a category and uploading it back UNEDITED
+    #        reports zero changes and zero errors. This is the single strongest property in the
+    #        slice: it proves the blank-cell rules, the type-strict comparison and the value
+    #        coercion all agree with what csv_exporter emitted -- one live attribute holds ""
+    #        and two live rates hold null, and none of them may show up as a spurious edit.
+    #   88   A rate edit updates exactly ONE item and leaves the rest untouched, keeping the
+    #        uid; freeze-and-supersede holds (the prior row is RETAINED at active=0).
+    #   89   A blank item_uid ADDS an item with a freshly minted `rmi-` uid and honest
+    #        provenance, rather than failing or silently matching something by content.
+    #   90   A PARTIAL file (two rows out of a whole category) leaves every absent item ACTIVE
+    #        and byte-unchanged -- the safety property of the entire feature.
+    #   91   MODE A and MODE B both parse, and the mode is DETECTED by the `category` column.
+    #        Both are no-ops when unedited; the upsert itself is uid-keyed and mode-independent.
+    #   92   A rate move of >=10% IN EITHER DIRECTION is flagged `major` (expanded by default),
+    #        a 5% move is not, and a move a percentage cannot describe (a rate appearing) is
+    #        major too. Every ADD is major.
+    #   93   The SNAPSHOT is written BEFORE the write and holds the PRE-upload rate -- which is
+    #        what makes it a rollback path rather than a receipt.
+    #   94   NEGATIVE: a non-admin is refused on BOTH endpoints, before anything is read.
+    #   95   NEGATIVE: an item_uid the catalog does not carry is REJECTED BY NAME, never
+    #        inserted -- a stale file must not mint a duplicate of a real item.
+    #   96   NEGATIVE: one malformed row rejects the WHOLE file; nothing is applied and no
+    #        snapshot is written.
+    #   96b  NEGATIVE (the transactional guarantee itself): a failure MID-WRITE leaves the
+    #        transaction uncommitted, so a rollback restores the catalog AND removes the
+    #        snapshot -- the snapshot can never exist for an upload that did not land.
+    #   97   NEGATIVE: THE PREVIEW WRITES NOTHING -- item rows, snapshots and every document
+    #        name are identical before and after previewing a heavily edited file.
+    #   98   NEGATIVE: Excel mangling appears as a CHANGE and never slips through as unchanged
+    #        (re-spacing, trailing whitespace, a date for `16/20A`), while a numerically
+    #        identical `2.0` -> `2` correctly stays unchanged.
+    #   99   NEGATIVE: a stale digest refuses the apply -- the honest answer when the catalog
+    #        moved between preview and confirm.
+    #   100  NEGATIVE: an unknown column, a missing item_uid column, a duplicated column and a
+    #        duplicated uid are each named, and a header problem stops the row pass rather than
+    #        deriving nonsense from mis-positioned cells.
+    #   101  classify_columns is PURE and refuses a name that is both an attribute and a rate
+    #        key -- the file would be ambiguous and the import cannot repair the export.
+
+    # ---- slice 6 helpers ----
+    def _csv_parts(self, text):
+        import csv as _csv
+        rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
+        return rows[0], rows[1:]
+
+    def _csv_text(self, headers, rows):
+        import csv as _csv
+        buf = io.StringIO()
+        w = _csv.writer(buf, lineterminator="\r\n")
+        w.writerow(headers)
+        for r in rows:
+            w.writerow(r)
+        return BOM + buf.getvalue()
+
+    def _loaded_disc(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+        return disc
+
+    def _picks_with(self, rows, idx, n=1):
+        """Indices of the first n rows carrying a VALUE in column idx.
+
+        The catalog is SPARSE by construction -- a tray row has nothing to say about most of the
+        union's rate keys -- so a positional pick lands on a blank as often as not, and editing a
+        blank cell tests the blank rule rather than the edit rule."""
+        picks = [i for i, r in enumerate(rows) if (r[idx] or "").strip() != ""]
+        self.assertGreaterEqual(len(picks), n, "fixture: not enough populated rows")
+        return picks[:n]
+
+    def _first_with(self, rows, idx):
+        return self._picks_with(rows, idx, 1)[0]
+
+    def _active_rows(self, disc):
+        return {
+            r["item_uid"]: r
+            for r in frappe.get_all(
+                "BoQ Rate Master Item", filters={"discipline": disc, "active": 1},
+                fields=["name", "item_uid", "kind", "brand", "unit", "attributes", "rates",
+                        "source_sheet", "source_row", "import_batch"])
+        }
+
+    # ---- slice 6 tests ----
+    def test_87_an_untouched_round_trip_changes_nothing(self):
+        """THE ROUND TRIP IS A NO-OP -- the property the whole upsert rests on.
+
+        If downloading and re-uploading an unedited file reported changes, every real preview would
+        be buried in noise and the >=10% rule would be useless. It holds only because a blank cell
+        means 'empty or absent' and is compared against the STORED value rather than re-derived:
+        one live attribute holds "" and two live rates hold null, and all three must survive."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+
+        disc = self._loaded_disc()
+        text, _headers, n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        plan = csv_importer.build_plan(disc, text)
+
+        self.assertEqual(plan["errors"], [])
+        self.assertEqual(plan["changes"], [])
+        self.assertEqual(plan["counts"]["unchanged"], n)
+        self.assertEqual(plan["counts"]["rates_changed"], 0)
+        self.assertEqual(plan["counts"]["items_added"], 0)
+        self.assertEqual(plan["counts"]["other_changed"], 0)
+        self.assertEqual(plan["mode"], "category")
+        self.assertEqual(plan["encoding"], "utf-8")
+
+        # ...and applying a no-op writes nothing at all -- not even a snapshot, since there is
+        # nothing to roll back to and one would evict a real snapshot from the keep-10.
+        before = frappe.db.count("BoQ Rate Master Item", {"discipline": disc})
+        res = csv_importer.apply_plan(disc, text)
+        self.assertEqual(res["applied"], 0)
+        self.assertIsNone(res["snapshot"])
+        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": disc}), before)
+
+    def test_88_a_rate_edit_updates_one_item_and_leaves_the_rest_untouched(self):
+        """POSITIVE: the ordinary case, and the freeze-and-supersede shape underneath it."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+
+        disc = self._loaded_disc()
+        text, _h, n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        headers, rows = self._csv_parts(text)
+        ri = headers.index("install_rate")
+        pick = self._first_with(rows, ri)
+        target_uid = rows[pick][0]
+        old_rate = float(rows[pick][ri])
+        rows[pick][ri] = str(old_rate * 2)
+        edited = self._csv_text(headers, rows)
+
+        before = self._active_rows(disc)
+        plan = csv_importer.build_plan(disc, edited)
+        self.assertEqual(plan["errors"], [])
+        self.assertEqual(len(plan["changes"]), 1)
+        self.assertEqual(plan["counts"]["rates_changed"], 1)
+        self.assertEqual(plan["counts"]["unchanged"], n - 1)
+        ch = plan["changes"][0]
+        self.assertEqual(ch["kind"], "update")
+        self.assertEqual(ch["item_uid"], target_uid)
+        self.assertTrue(ch["major"])                       # doubling is >= 10%
+        field = next(f for f in ch["fields"] if f["column"] == "install_rate")
+        self.assertEqual(field["space"], "rate")
+        self.assertEqual(field["pct"], 100.0)
+
+        res = csv_importer.apply_plan(disc, edited)
+        frappe.db.commit()
+        self.assertEqual((res["applied"], res["items_replaced"], res["items_added"]), (1, 1, 0))
+
+        after = self._active_rows(disc)
+        self.assertEqual(set(after), set(before))          # the uid set is unchanged
+        self.assertEqual(_obj(after[target_uid]["rates"])["install_rate"], old_rate * 2)
+        # FREEZE-AND-SUPERSEDE: a NEW document carries the uid; the prior one is RETAINED inactive.
+        self.assertNotEqual(after[target_uid]["name"], before[target_uid]["name"])
+        self.assertEqual(
+            frappe.db.get_value("BoQ Rate Master Item", before[target_uid]["name"], "active"), 0)
+        self.assertEqual(after[target_uid]["import_batch"], res["batch"])
+        self.assertTrue(res["batch"].startswith(csv_importer.BATCH_PREFIX))
+        # EVERY other item is the SAME DOCUMENT -- not rewritten, not re-inserted, not touched.
+        for uid, row in before.items():
+            if uid == target_uid:
+                continue
+            self.assertEqual(after[uid]["name"], row["name"])
+
+    def test_89_a_blank_uid_adds_an_item_with_a_fresh_uid(self):
+        """POSITIVE: 'blank id means add' -- the other half of why item_uid exists."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+
+        disc = self._loaded_disc()
+        text, _h, _n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        headers, rows = self._csv_parts(text)
+        new_row = list(rows[0])
+        new_row[0] = ""                                       # blank uid -> ADD
+        new_row[headers.index("width_mm")] = "999.0"
+        new_row[headers.index("source_sheet")] = ""
+        new_row[headers.index("source_row")] = ""
+        rows.append(new_row)
+        edited = self._csv_text(headers, rows)
+
+        plan = csv_importer.build_plan(disc, edited)
+        self.assertEqual(plan["errors"], [])
+        self.assertEqual(plan["counts"]["items_added"], 1)
+        self.assertEqual(len(plan["changes"]), 1)
+        self.assertTrue(plan["changes"][0]["major"], "every new item is expanded by default")
+
+        before_uids = set(self._active_rows(disc))
+        res = csv_importer.apply_plan(disc, edited)
+        frappe.db.commit()
+        self.assertEqual((res["items_added"], res["items_replaced"]), (1, 0))
+
+        after = self._active_rows(disc)
+        minted = set(after) - before_uids
+        self.assertEqual(len(minted), 1)
+        uid = minted.pop()
+        self.assertTrue(uid.startswith("rmi-"))
+        self.assertEqual(len(uid), len("rmi-") + 12)
+        row = after[uid]
+        self.assertEqual(_obj(row["attributes"])["width_mm"], 999.0)
+        # honest provenance rather than a copied source line
+        self.assertEqual(row["source_sheet"], csv_importer.DEFAULT_SOURCE_SHEET)
+        self.assertEqual(row["source_row"], len(rows))
+
+    def test_90_a_partial_file_leaves_absent_items_active(self):
+        """THE SAFETY PROPERTY: a partial upload can never delete anything.
+
+        This is the ONE behaviour that separates this write path from loader.replace=True, which
+        supersedes an entire scope and would deactivate all 458 rows the file omits."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+
+        disc = self._loaded_disc()
+        text, _h, n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        headers, rows = self._csv_parts(text)
+        ri = headers.index("install_rate")
+        keep = [list(rows[i]) for i in self._picks_with(rows, ri, 2)]
+        keep[0][ri] = str(float(keep[0][ri]) + 7)
+        partial = self._csv_text(headers, keep)
+
+        before = self._active_rows(disc)
+        self.assertGreater(len(before), 400)
+        plan = csv_importer.build_plan(disc, partial)
+        self.assertEqual(plan["errors"], [])
+        self.assertEqual(plan["row_count"], 2)
+        self.assertEqual(len(plan["changes"]), 1)
+
+        csv_importer.apply_plan(disc, partial)
+        frappe.db.commit()
+
+        after = self._active_rows(disc)
+        self.assertEqual(len(after), len(before), "not one absent item was deactivated")
+        touched = keep[0][0]
+        for uid, row in before.items():
+            if uid == touched:
+                continue
+            self.assertEqual(after[uid]["name"], row["name"])
+            self.assertEqual(_obj(after[uid]["rates"]), _obj(row["rates"]))
+            self.assertEqual(after[uid]["import_batch"], row["import_batch"])
+
+    def test_91_mode_a_and_mode_b_both_parse(self):
+        """POSITIVE: the mode is DETECTED by the `category` column and is informational only --
+        items carry no category, so the uid-keyed upsert is mode-independent."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+
+        disc = self._loaded_disc()
+        a_text, _ha, na = csv_exporter.build_category_csv(disc, "junction_box_raceway")
+        b_text, _hb, nb = csv_exporter.build_all_categories_csv(disc)
+
+        plan_a = csv_importer.build_plan(disc, a_text)
+        self.assertEqual(plan_a["mode"], "category")
+        self.assertNotIn("category", plan_a["columns"]["fixed"])
+        self.assertEqual((plan_a["errors"], plan_a["changes"]), ([], []))
+        self.assertEqual(plan_a["counts"]["unchanged"], na)
+
+        plan_b = csv_importer.build_plan(disc, b_text)
+        self.assertEqual(plan_b["mode"], "all")
+        self.assertIn("category", plan_b["columns"]["fixed"])
+        self.assertEqual((plan_b["errors"], plan_b["changes"]), ([], []))
+        self.assertEqual(plan_b["counts"]["unchanged"], nb)
+
+        # MODE B's category column is DERIVED from the kind and is never stored, so a value
+        # disagreeing with the kind is refused rather than silently discarded.
+        headers, rows = self._csv_parts(b_text)
+        cat_i = headers.index("category")
+        # ⚠️ pick a row that is NOT already wiring_cabling -- the file is ordered by kind, and
+        # `cable` sorts first, so rows[0] IS wiring_cabling and re-stating it is a no-op.
+        victim = next(r for r in rows if r[cat_i] not in ("", "wiring_cabling"))
+        victim[cat_i] = "wiring_cabling"
+        bad = csv_importer.build_plan(disc, self._csv_text(headers, rows))
+        self.assertTrue(any("does not match kind" in e["message"] for e in bad["errors"]))
+
+    def test_92_a_ten_percent_move_in_either_direction_is_major(self):
+        """POSITIVE: the expansion rule, exactly as ruled.
+
+        26,100 typed for 2,610 is invisible in a count and 261 for 2,610 quotes catastrophically
+        low -- BOTH directions matter, so the threshold is on the absolute move."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+
+        disc = self._loaded_disc()
+        text, _h, _n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        headers, rows = self._csv_parts(text)
+        ri = headers.index("install_rate")
+        ci = headers.index("cover_only_list")
+
+        picks = self._picks_with(rows, ri, 3)
+        up, down, small = (list(rows[i]) for i in picks)
+        up[ri] = str(float(up[ri]) * 1.10)          # exactly +10%
+        down[ri] = str(float(down[ri]) * 0.90)      # exactly -10%
+        small[ri] = str(float(small[ri]) * 1.05)    # +5%
+        ai = next(i for i, r in enumerate(rows) if r[ci] == "" and i not in picks)
+        appear = list(rows[ai])
+        appear[ci] = "12.5"                         # a rate APPEARING -- no percentage exists
+
+        plan = csv_importer.build_plan(disc, self._csv_text(headers, [up, down, small, appear]))
+        self.assertEqual(plan["errors"], [])
+        by_uid = {c["item_uid"]: c for c in plan["changes"]}
+        self.assertTrue(by_uid[up[0]]["major"])
+        self.assertTrue(by_uid[down[0]]["major"])
+        self.assertFalse(by_uid[small[0]]["major"], "a 5% move collapses behind a count")
+        self.assertTrue(by_uid[appear[0]]["major"], "a move a percentage cannot describe is major")
+
+        pct_up = next(f["pct"] for f in by_uid[up[0]]["fields"] if f["column"] == "install_rate")
+        pct_dn = next(f["pct"] for f in by_uid[down[0]]["fields"] if f["column"] == "install_rate")
+        self.assertAlmostEqual(pct_up, 10.0, places=2)
+        self.assertAlmostEqual(pct_dn, -10.0, places=2)
+        self.assertIsNone(next(f["pct"] for f in by_uid[appear[0]]["fields"]
+                               if f["column"] == "cover_only_list"))
+        # nothing about computing a preview writes
+        self.assertEqual(frappe.db.count("BoQ Rate Master Snapshot", {"discipline": disc}), 0)
+
+    def test_93_the_snapshot_is_written_before_the_write(self):
+        """POSITIVE: an upload with no snapshot behind it is unrecoverable, so the snapshot is
+        taken FIRST and must therefore hold the PRE-upload value."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+
+        disc = self._loaded_disc()
+        text, _h, _n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        headers, rows = self._csv_parts(text)
+        ri = headers.index("install_rate")
+        pick = self._first_with(rows, ri)
+        uid, old_rate = rows[pick][0], float(rows[pick][ri])
+        rows[pick][ri] = str(old_rate + 111)
+
+        self.assertEqual(frappe.db.count("BoQ Rate Master Snapshot", {"discipline": disc}), 0)
+        res = csv_importer.apply_plan(disc, self._csv_text(headers, rows))
+        frappe.db.commit()
+
+        self.assertIsNotNone(res["snapshot"])
+        snap = frappe.get_doc("BoQ Rate Master Snapshot", res["snapshot"])
+        self.assertEqual(snap.discipline, disc)
+        stored = json.loads(snap.payload)
+        item = next(i for i in stored["items"] if i["item_uid"] == uid)
+        self.assertEqual(item["rates"]["install_rate"], old_rate,
+                         "the snapshot must hold the PRE-upload rate -- it is the rollback path")
+        # ...while the live catalog holds the new one
+        self.assertEqual(_obj(self._active_rows(disc)[uid]["rates"])["install_rate"],
+                         old_rate + 111)
+
+    def test_94_both_upload_endpoints_refuse_a_non_admin(self):
+        """NEGATIVE: gate first, on BOTH. The preview is read-only but it renders the whole
+        catalog's deltas, so it is exactly as sensitive as the download it is paired with."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+
+        disc = self._loaded_disc()
+        text, _h, _n = csv_exporter.build_category_csv(disc, "junction_box_raceway")
+        b64 = base64.b64encode(text.encode("utf-8")).decode("ascii")
+
+        original = frappe.session.user
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.preview_rate_master_csv(discipline=disc, content_base64=b64)
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.apply_rate_master_csv(discipline=disc, content_base64=b64)
+        finally:
+            frappe.set_user(original)
+
+        # POSITIVE twin: as admin both are reachable, and the plan carries no internal payloads.
+        plan = rate_master.preview_rate_master_csv(discipline=disc, content_base64=b64)
+        self.assertEqual(plan["errors"], [])
+        self.assertEqual(plan["changes"], [])
+        self.assertIn("digest", plan)
+        res = rate_master.apply_rate_master_csv(discipline=disc, content_base64=b64,
+                                                expected_digest=plan["digest"])
+        self.assertEqual(res["applied"], 0)
+
+    def test_95_an_unknown_item_uid_is_rejected_by_name(self):
+        """NEGATIVE: a uid the catalog does not carry means a STALE FILE or a hand-typed id.
+        Inserting it would mint a silent duplicate of a real item -- the exact failure item_uid
+        exists to prevent -- so it is an error, named."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+
+        disc = self._loaded_disc()
+        text, _h, _n = csv_exporter.build_category_csv(disc, "junction_box_raceway")
+        headers, rows = self._csv_parts(text)
+        rows[0][0] = "rmi-deadbeefcafe"
+        bad = self._csv_text(headers, rows)
+
+        plan = csv_importer.build_plan(disc, bad)
+        self.assertTrue(any("rmi-deadbeefcafe" in e["message"] for e in plan["errors"]))
+        self.assertTrue(any("Unknown item_uid" in e["message"] for e in plan["errors"]))
+        self.assertEqual(plan["changes"], [], "an unknown uid is never treated as an insert")
+
+        before = frappe.db.count("BoQ Rate Master Item", {"discipline": disc})
+        with self.assertRaises(frappe.ValidationError):
+            csv_importer.apply_plan(disc, bad)
+        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": disc}), before)
+        self.assertEqual(frappe.db.count("BoQ Rate Master Snapshot", {"discipline": disc}), 0)
+
+    def test_96_a_malformed_row_rejects_the_whole_file(self):
+        """NEGATIVE: ALL-OR-NOTHING. Three good edits and one bad cell -- nothing is applied, and
+        no snapshot is written for an upload that never happened."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+
+        disc = self._loaded_disc()
+        text, _h, _n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        headers, rows = self._csv_parts(text)
+        ri = headers.index("install_rate")
+        picks = self._picks_with(rows, ri, 4)
+        for i in picks[:3]:
+            rows[i][ri] = str(float(rows[i][ri]) + 5)
+        rows[picks[3]][ri] = "1,234.50"   # Excel's thousands separator -- refused, never "repaired"
+        bad = self._csv_text(headers, rows)
+
+        plan = csv_importer.build_plan(disc, bad)
+        self.assertEqual(len(plan["errors"]), 1)
+        self.assertIn("1,234.50", plan["errors"][0]["message"])
+        self.assertEqual(len(plan["changes"]), 3, "the good rows are still described")
+
+        before = self._active_rows(disc)
+        with self.assertRaises(frappe.ValidationError):
+            csv_importer.apply_plan(disc, bad)
+        after = self._active_rows(disc)
+        for uid, row in before.items():
+            self.assertEqual(after[uid]["name"], row["name"])
+            self.assertEqual(_obj(after[uid]["rates"]), _obj(row["rates"]))
+        self.assertEqual(frappe.db.count("BoQ Rate Master Snapshot", {"discipline": disc}), 0)
+
+    def test_96b_a_failure_mid_write_leaves_nothing_behind(self):
+        """NEGATIVE -- THE TRANSACTIONAL GUARANTEE ITSELF, not merely the validation in front of it.
+
+        Every write rides the ONE transaction Frappe opens for the request, and apply_plan never
+        commits; the endpoint's single commit is the only one. A failure after the first insert
+        therefore leaves the whole thing uncommitted -- INCLUDING the snapshot, which can never
+        exist for an upload that did not land."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+
+        disc = self._loaded_disc()
+        text, _h, _n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        headers, rows = self._csv_parts(text)
+        ri = headers.index("install_rate")
+        for i in self._picks_with(rows, ri, 3):
+            rows[i][ri] = str(float(rows[i][ri]) + 5)
+        edited = self._csv_text(headers, rows)
+
+        before = self._active_rows(disc)
+        real_get_doc = frappe.get_doc
+        seen = {"n": 0}
+
+        def boom(*args, **kwargs):
+            d = args[0] if args else kwargs
+            if isinstance(d, dict) and d.get("doctype") == "BoQ Rate Master Item":
+                seen["n"] += 1
+                if seen["n"] == 2:
+                    raise RuntimeError("simulated failure mid-write")
+            return real_get_doc(*args, **kwargs)
+
+        with mock.patch.object(frappe, "get_doc", side_effect=boom):
+            with self.assertRaises(RuntimeError):
+                rate_master.apply_rate_master_csv(discipline=disc, csv_text=edited)
+        frappe.db.rollback()   # what Frappe does at request teardown when nothing committed
+
+        after = self._active_rows(disc)
+        self.assertEqual(set(after), set(before))
+        for uid, row in before.items():
+            self.assertEqual(after[uid]["name"], row["name"])
+            self.assertEqual(_obj(after[uid]["rates"]), _obj(row["rates"]))
+        self.assertEqual(frappe.db.count("BoQ Rate Master Snapshot", {"discipline": disc}), 0,
+                         "the snapshot rolled back with the writes it was taken for")
+
+    def test_97_the_preview_writes_nothing(self):
+        """NEGATIVE: the preview is READ-ONLY, and that is what makes it safe to run against live
+        data. Items, snapshots and every document name are identical afterwards."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+
+        disc = self._loaded_disc()
+        text, _h, _n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        headers, rows = self._csv_parts(text)
+        ri = headers.index("install_rate")
+        picks = [i for i, r in enumerate(rows) if (r[ri] or "").strip() != ""]
+        self.assertGreaterEqual(len(picks), 10, "fixture: too few populated rows to be 'heavy'")
+        for i in picks:
+            rows[i][ri] = str(float(rows[i][ri]) * 3)
+        added = list(rows[0])
+        added[0] = ""
+        rows.append(added)
+        heavily_edited = self._csv_text(headers, rows)
+
+        before_rows = self._active_rows(disc)
+        before_total = frappe.db.count("BoQ Rate Master Item", {"discipline": disc})
+        before_snaps = frappe.db.count("BoQ Rate Master Snapshot", {"discipline": disc})
+
+        plan = csv_importer.build_plan(disc, heavily_edited)
+        self.assertEqual(plan["counts"]["rates_changed"], len(picks))
+        self.assertEqual(plan["counts"]["items_added"], 1)
+
+        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": disc}),
+                         before_total)
+        self.assertEqual(frappe.db.count("BoQ Rate Master Snapshot", {"discipline": disc}),
+                         before_snaps)
+        after_rows = self._active_rows(disc)
+        self.assertEqual(set(after_rows), set(before_rows))
+        for uid, row in before_rows.items():
+            self.assertEqual(after_rows[uid]["name"], row["name"])
+            self.assertEqual(_obj(after_rows[uid]["rates"]), _obj(row["rates"]))
+
+    def test_98_excel_mangling_shows_as_a_change_never_as_unchanged(self):
+        """NEGATIVE -- THE CENTRAL DATA RISK. Nothing is silently repaired; the PREVIEW is the
+        defence, so every mangle must surface as a CHANGE.
+
+        The live catalog really does carry `16/20A`, `70 x 6 MM Earth Strip`, `100x50mm` and
+        `3 Pin / 2P+E`, all one Excel round trip from being rewritten. The deliberate exception is
+        a NUMERICALLY IDENTICAL float flattened from 2.0 to 2 -- same stored value, no change."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+
+        disc = self._loaded_disc()
+        text, _h, _n = csv_exporter.build_category_csv(disc, "earthing")
+        headers, rows = self._csv_parts(text)
+        ti = headers.index("type")
+        strip = next(r for r in rows if "70 x 6 MM" in r[ti])
+
+        mangled = list(strip)
+        mangled[ti] = strip[ti].replace("70 x 6 MM", "70x6MM")      # re-spacing
+        other = next(r for r in rows if r[0] != strip[0])
+        trailing = list(other)
+        trailing[ti] = other[ti] + " "                              # trailing whitespace
+        plan = csv_importer.build_plan(disc, self._csv_text(headers, [mangled, trailing]))
+        self.assertEqual(plan["errors"], [])
+        self.assertEqual(plan["counts"]["other_changed"], 2)
+        self.assertEqual(plan["counts"]["unchanged"], 0,
+                         "a mangled value must NEVER slip through as unchanged")
+        f = next(x for x in plan["changes"] if x["item_uid"] == mangled[0])["fields"][0]
+        self.assertEqual((f["space"], f["column"]), ("attribute", "type"))
+        self.assertIn("70 x 6 MM", f["old"])
+        self.assertIn("70x6MM", f["new"])
+
+        # a `16/20A` rating read back as a date is likewise a visible change
+        it_text, ih, _n2 = csv_exporter.build_category_csv(disc, "industrial_sockets")
+        _ih, irows = self._csv_parts(it_text)
+        gi = ih.index("rating")
+        hit = next(r for r in irows if r[gi] == "16/20A")
+        dated = list(hit)
+        dated[gi] = "2020-01-16"
+        p2 = csv_importer.build_plan(disc, self._csv_text(ih, [dated]))
+        self.assertEqual(p2["counts"]["unchanged"], 0)
+        self.assertEqual(len(p2["changes"]), 1)
+
+        # THE DELIBERATE EXCEPTION: a float flattened to an integer is the SAME stored number.
+        wt, wh, _n3 = csv_exporter.build_category_csv(disc, "wiring_cabling")
+        _wh, wrows = self._csv_parts(wt)
+        ci = wh.index("core")
+        flat = next(r for r in wrows if r[ci].endswith(".0"))
+        flattened = list(flat)
+        flattened[ci] = flat[ci][:-2]
+        p3 = csv_importer.build_plan(disc, self._csv_text(wh, [flattened]))
+        self.assertEqual((p3["counts"]["unchanged"], p3["changes"]), (1, []))
+
+    def test_99_a_stale_digest_refuses_the_apply(self):
+        """NEGATIVE: the answer to 'what if the DB moved between preview and apply'.
+
+        The apply re-derives the plan from the LIVE catalog and compares fingerprints. A row the
+        plan TOUCHES having moved underneath means the preview no longer describes what would
+        happen, so it refuses. An unrelated edit elsewhere is deliberately NOT in the fingerprint."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+
+        disc = self._loaded_disc()
+        text, _h, _n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        headers, rows = self._csv_parts(text)
+        ri = headers.index("install_rate")
+        pick = self._first_with(rows, ri)
+        rows[pick][ri] = str(float(rows[pick][ri]) + 9)
+        edited = self._csv_text(headers, rows)
+
+        plan = csv_importer.build_plan(disc, edited)
+        digest = plan["digest"]
+
+        # someone else edits the very row this upload touches
+        target = self._active_rows(disc)[rows[pick][0]]
+        rates = _obj(target["rates"])
+        rates["install_rate"] = 4242.0
+        frappe.db.set_value("BoQ Rate Master Item", target["name"], "rates",
+                            json.dumps(rates), update_modified=False)
+        frappe.db.commit()
+
+        before = self._active_rows(disc)
+        with self.assertRaises(frappe.ValidationError):
+            csv_importer.apply_plan(disc, edited, expected_digest=digest)
+        after = self._active_rows(disc)
+        self.assertEqual(after[rows[pick][0]]["name"], before[rows[pick][0]]["name"])
+        self.assertEqual(frappe.db.count("BoQ Rate Master Snapshot", {"discipline": disc}), 0)
+
+        # and the FRESH digest applies cleanly -- the refusal is about staleness, not the file
+        fresh = csv_importer.build_plan(disc, edited)
+        res = csv_importer.apply_plan(disc, edited, expected_digest=fresh["digest"])
+        frappe.db.commit()
+        self.assertEqual(res["applied"], 1)
+
+    def test_100_header_and_duplicate_problems_are_each_named(self):
+        """NEGATIVE: a column nobody can place is a file we cannot read. Guessing is how a typo
+        becomes a new attribute, so the row pass does not even start."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+
+        disc = self._loaded_disc()
+        text, _h, _n = csv_exporter.build_category_csv(disc, "junction_box_raceway")
+        headers, rows = self._csv_parts(text)
+
+        with_unknown = list(headers) + ["totally_made_up"]
+        plan = csv_importer.build_plan(disc, self._csv_text(with_unknown,
+                                                            [r + ["x"] for r in rows]))
+        self.assertTrue(any("totally_made_up" in e["message"] for e in plan["errors"]))
+        self.assertEqual(plan["changes"], [])
+        self.assertEqual(plan["counts"]["unchanged"], 0,
+                         "a header problem stops the pass rather than deriving nonsense")
+
+        no_uid = [h for h in headers if h != "item_uid"]
+        p2 = csv_importer.build_plan(disc, self._csv_text(no_uid, [r[1:] for r in rows]))
+        self.assertTrue(any("no 'item_uid' column" in e["message"] for e in p2["errors"]))
+
+        dup = [list(rows[0]), list(rows[0])]
+        p3 = csv_importer.build_plan(disc, self._csv_text(headers, dup))
+        self.assertTrue(any("appears twice" in e["message"] for e in p3["errors"]))
+
+        p4 = csv_importer.build_plan(disc, self._csv_text(headers + ["kind"],
+                                                          [r + ["x"] for r in rows]))
+        self.assertTrue(any("appears more than once" in e["message"] for e in p4["errors"]))
+
+    def test_101_classify_columns_is_pure_and_refuses_an_ambiguous_column(self):
+        """NEGATIVE + PURE: no database, no discipline -- just the header rules.
+
+        The attribute/rate collision is measured IMPOSSIBLE on the live catalog and must stay so:
+        the export emits ONE column per name, so a name meaning both makes the FILE ambiguous. The
+        import cannot repair an export that cannot represent the data, so it refuses."""
+        from nirmaan_stack.services.boq_rate_master import csv_importer
+
+        attrs, rates = {"material", "core"}, {"list_price"}
+        spec, errs = csv_importer.classify_columns(
+            ["item_uid", "kind", "brand", "unit", "material", "core", "list_price",
+             "source_sheet", "source_row"], attrs, rates)
+        self.assertEqual(errs, [])
+        self.assertEqual(spec["mode"], "category")
+        self.assertEqual(sorted(spec["attributes"]), ["core", "material"])
+        self.assertEqual(sorted(spec["rates"]), ["list_price"])
+
+        spec_b, errs_b = csv_importer.classify_columns(
+            ["item_uid", "category", "kind"], attrs, rates)
+        self.assertEqual(errs_b, [])
+        self.assertEqual(spec_b["mode"], "all")
+
+        _s, collide = csv_importer.classify_columns(
+            ["item_uid", "kind", "material"], {"material"}, {"material"})
+        self.assertTrue(any("both an attribute and a rate key" in e["message"] for e in collide))

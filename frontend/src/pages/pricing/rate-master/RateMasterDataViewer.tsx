@@ -6,7 +6,7 @@
 // by design -- this is an admin table, not the editor.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pencil, Trash2, Check, X, Plus, Filter } from "lucide-react";
+import { Pencil, Trash2, Check, X, Plus, Filter, Download, Archive } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { AttributeDefinition, RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
 import { parseFiniteInput } from "./rateMasterEdit";
+import { DOWNLOAD_COPY, downloadErrorMessage } from "./rateMasterDownload";
+import { RateMasterUploadDialog } from "./RateMasterUploadDialog";
+import type { UploadPlan, UploadResult } from "./rateMasterUpload";
 import {
   categoryItemKinds,
   isCategoryDataScopeEmpty,
@@ -75,6 +78,16 @@ interface Props {
     attributes: Record<string, string | number>; rates: Record<string, number | null>;
   }) => Promise<void>;
   onDeactivateItem?: (name: string) => Promise<void>;
+  // SLICE 5: the two download surfaces. The page owns the SDK calls and hands these down, exactly
+  // as it already does for save/create/deactivate -- the viewer stays free of frappe-react-sdk.
+  // `categoryId === null` means MODE B (every category in one file).
+  onDownloadCsv?: (categoryId: string | null) => Promise<void>;
+  onDownloadAsset?: () => Promise<void>;
+  // SLICE 6: the upload half of the round trip. Withheld (not disabled) for a non-admin, like
+  // every other write affordance here; the endpoints re-gate server-side, which is the boundary.
+  onPreviewCsv?: (contentBase64: string) => Promise<UploadPlan>;
+  onApplyCsv?: (contentBase64: string, expectedDigest: string) => Promise<UploadResult>;
+  onUploadApplied?: () => void;
 }
 
 type KindFilter = "all" | string;
@@ -86,7 +99,24 @@ function cellText(v: unknown): string {
 
 export function RateMasterDataViewer({
   items, config, disciplineLabel, categoryLabel, isAdmin, onSaveItem, onCreateItem, onDeactivateItem,
+  onDownloadCsv, onDownloadAsset, onPreviewCsv, onApplyCsv, onUploadApplied,
 }: Props) {
+  // SLICE 5: which download is in flight, so a slow one cannot be double-fired. One string rather
+  // than three booleans -- only one download can be running at a time by construction.
+  const [downloading, setDownloading] = useState<null | "cat" | "all" | "asset">(null);
+  const [downloadErr, setDownloadErr] = useState<string | null>(null);
+  const runDownload = async (which: "cat" | "all" | "asset", fn: () => Promise<void>) => {
+    setDownloading(which);
+    setDownloadErr(null);
+    try {
+      await fn();
+    } catch (e) {
+      // The server's OWN words, not "there was an error" -- see downloadErrorMessage for why.
+      setDownloadErr(downloadErrorMessage(e));
+    } finally {
+      setDownloading(null);
+    }
+  };
   const [kind, setKind] = useState<KindFilter>("all");
   const [search, setSearch] = useState("");
   const canEdit = !!isAdmin && !!onSaveItem;
@@ -363,6 +393,72 @@ export function RateMasterDataViewer({
 
   // EA-DIFF: kind-less category -> honest empty state (zero rows, no chips, no Add-row, a note). It
   // NEVER renders the all-items list. A category may legitimately own no data rows of its own.
+  // SLICE 5: bound once and rendered in BOTH branches. The kind-less-category early return
+  // below (point_wiring) must still offer the downloads -- MODE B covers every category, and a
+  // MODE A file for a category with no rows is a usable headers-only template, not an error.
+  // SLICE 5 -- THE TWO DOWNLOAD SURFACES.
+  // They are grouped by PURPOSE, not by file format, and that is the whole point of the layout: a
+  // user choosing between "CSV" and "JSON" is choosing an extension, not an intention. The failure
+  // this guards against is someone taking the backup, editing it, and finding nothing reads it
+  // back. Admin-only, HIDDEN not disabled, matching every other write affordance in this component
+  // -- and the endpoints re-gate server-side, which is the real boundary.
+  //
+  // NOTE: a `{/* ... */}` comment is JSX-CHILD syntax. Written here it parses as an empty object
+  // literal and silently swallows the element into a `{}` -- which is what it did, until tsc named
+  // it. Outside JSX children, comments are `//`.
+  // SLICE 6: the upload sits IN the same dashed panel as the downloads, immediately after the
+  // "Download to edit" group, because it is the SECOND HALF of that one action -- download, edit,
+  // upload. Putting it beside the backup group instead would pair it with the file nothing reads
+  // back, which is exactly the confusion the purpose-based grouping exists to prevent.
+  const downloadPanel = isAdmin && (onDownloadCsv || onDownloadAsset || onPreviewCsv) && (
+      <div className="flex flex-wrap items-start gap-6 rounded border border-dashed p-3">
+        {onDownloadCsv && (
+          <div className="space-y-1">
+            <div className="text-xs font-medium">{DOWNLOAD_COPY.editGroup}</div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm" variant="outline" disabled={downloading !== null}
+                onClick={() => void runDownload("cat", () => onDownloadCsv(config.category_id))}
+              >
+                <Download className="mr-1 h-3.5 w-3.5" />
+                {downloading === "cat" ? "Preparing..." : DOWNLOAD_COPY.editThisCategory}
+              </Button>
+              <Button
+                size="sm" variant="outline" disabled={downloading !== null}
+                onClick={() => void runDownload("all", () => onDownloadCsv(null))}
+              >
+                <Download className="mr-1 h-3.5 w-3.5" />
+                {downloading === "all" ? "Preparing..." : DOWNLOAD_COPY.editAllCategories}
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">{DOWNLOAD_COPY.editHint}</p>
+            <p className="text-[11px] text-muted-foreground">{DOWNLOAD_COPY.newRowHint}</p>
+          </div>
+        )}
+        {onPreviewCsv && onApplyCsv && (
+          <RateMasterUploadDialog
+            onPreview={onPreviewCsv}
+            onApply={onApplyCsv}
+            onApplied={onUploadApplied}
+          />
+        )}
+        {onDownloadAsset && (
+          <div className="space-y-1">
+            <div className="text-xs font-medium">{DOWNLOAD_COPY.backupGroup}</div>
+            <Button
+              size="sm" variant="ghost" className="border" disabled={downloading !== null}
+              onClick={() => void runDownload("asset", () => onDownloadAsset())}
+            >
+              <Archive className="mr-1 h-3.5 w-3.5" />
+              {downloading === "asset" ? "Preparing..." : DOWNLOAD_COPY.backupAsset}
+            </Button>
+            <p className="text-[11px] text-muted-foreground">{DOWNLOAD_COPY.backupHint}</p>
+          </div>
+        )}
+        {downloadErr && <p className="text-xs text-destructive">{downloadErr}</p>}
+      </div>
+    );
+
   if (emptyScope) {
     return (
       <div className="space-y-3">
@@ -373,6 +469,7 @@ export function RateMasterDataViewer({
         <div className="rounded border border-dashed p-6 text-sm text-muted-foreground">
           This category has no data rows of its own &mdash; its pricing derives from other categories&rsquo; items.
         </div>
+        {downloadPanel}
       </div>
     );
   }
@@ -414,6 +511,8 @@ export function RateMasterDataViewer({
           </Button>
         )}
       </div>
+
+      {downloadPanel}
 
       {/* table -- EA-1c change 3: native H-bar hidden (proxy below is the single bar).
           EA-2 rider 3: force the sticky header's top:0 with a scoped rule -- the Tailwind `top-0`

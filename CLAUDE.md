@@ -767,15 +767,236 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   leave `rateMasterRegistry.ts` in the SAME change.** The list the picker renders comes from the
   registry; retiring the config alone leaves the category on offer and renders
   "No active config found for …" when it is chosen.
+- **⚠️ THE ASSET IS EXPORTED FROM THE DATABASE — `services/boq_rate_master/exporter.py`
+  (owner-locked).** The DB is the source of truth and the asset is BOOTSTRAP-AND-SNAPSHOT only.
+  Running the export is what keeps a re-import safe: the file provably matches the DB, so a load can
+  only replay what is already there. `build_asset(discipline)` returns the dict `_load_multi`
+  consumes; `serialize_asset` is the ONE serialisation (`indent=1`, `ensure_ascii=False`, **no
+  `sort_keys`** — ordering is deterministic by construction and re-sorting would reorder the verbatim
+  blobs). **Two exports of an unchanged database are BYTE-IDENTICAL** — nothing in the payload is a
+  timestamp, a batch id or a hash.
+- **⭐ CONFIG BLOBS ARE EMITTED VERBATIM — never enumerate keys, never rebuild, never filter
+  (owner-locked).** No two configs share a key set, 15 keys have NO screen control and 8 reach the AI
+  prompt, so a fixed-schema export would silently drop the 21st key the day someone adds one — and
+  `_validate_config`'s allowlist has already had to widen six times, so that day comes. `attributes`
+  and `rates` are emitted whole for the same reason. Pinned by a test that plants a key nothing in the
+  codebase knows about and proves it survives export AND re-import.
+- **WHAT THE EXPORT EMITS AND DROPS.** Per item, exactly 7 keys in order: `kind`, `brand`, `unit`,
+  `attributes`, `rates`, `source`, `item_uid` — ⚠️ `source` MUST be a dict on every item or
+  `_validate_items` throws. Top level: `discipline`, `items`, `category_configs`, `goldens`,
+  `source_workbook`, `retired_kinds`, `retired_category_ids`. **NEVER emitted:** `name`,
+  `import_batch`, `creation`, `modified`, `owner`, `active` — row identity regenerates on every
+  import by design, which is exactly why `item_uid` exists and IS emitted. **Deliberately dropped as
+  archaeology (owner-ruled, do NOT preserve or merge from the previous file):** `sha256_prefix`,
+  `extracted_at`, `provenance`, `excluded_categories`, `slice_note`, `merged_from`, and `source.col`
+  on the 27 db_shell items.
+- **⚠️ RETIREMENT COMES FROM THE TABLE, NEVER A FILE HEADER.** `retired_kinds` /
+  `retired_category_ids` are read through `retirement.get_retirement_lists`. A discipline with no
+  retirement rows exports two EMPTY lists — inheriting a header would make a fresh discipline claim
+  retirements it never made.
+- **⚠️ `source_row` IS ALWAYS EMITTED, INCLUDING 0.** The 27 db_shell items hold `source_row = 0` in
+  the database and 0 is what the database says; omitting it to reproduce the old asset's absent `row`
+  would be the export inventing an absence, and it would conflate a genuine row 0 with "no row" —
+  which matters because `create_rate_master_item` stamps `source_row = 0` on every manually created
+  item. It is also the option with no special case, so byte-stability comes for free.
+- **⚠️ A RE-EXPORT LEGITIMATELY DIFFERS FROM THE PREVIOUS ASSET IN TWO WAYS, AND NEITHER IS A
+  DEFECT.** Verbatim blobs GAIN `discipline` on 11 configs and `goldens` on `switches_sockets`,
+  because the loader stamps both at ingest and the export reproduces what is stored. Expect exactly
+  that; anything else is a real difference and must be classified.
+- **⚠️ THE MINT GATE CANNOT VALIDATE THIS EXPORT.** Its atom vocabulary is `kind:<k>` — blind below
+  the kind level (it missed a dropped item in slice 1 and a per-item key in slice 2). Run it (#187),
+  but **the ROUND TRIP is the real gate**: export, load into a scratch discipline, compare axis by
+  axis including `item_uid` and the retirement entries.
+- **`BoQ Rate Master Snapshot` retains every export — KEEP THE NEWEST 10 PER DISCIPLINE
+  (owner-ruled), pruned on write.** `payload` is **Long Text, not JSON**, deliberately: a snapshot
+  exists to be RESTORED, so byte-fidelity of the stored text is the point and Frappe must never
+  hydrate and re-serialise it — which also sidesteps the list-valued-JSON wall that forces
+  `Pricing Workbook Version`'s prune to use a raw `frappe.db.delete`. `version` is `(max existing) + 1`
+  and is **never reused after a prune**, so a version number identifies one snapshot for the life of
+  the site. `track_changes: 0` — a snapshot is already immutable evidence.
+- **⚠️ THE EXPORT ENDPOINT IS ADMIN-GATED, UNLIKE THE SHAPE IT CLONES.**
+  `rate_master.export_rate_master_asset` copies `export_priced_workbook`'s
+  `{filename, content_type, content_base64}` download shape but **NOT its bare login-only gate** — it
+  uses the existing `_require_rate_admin` (`pricing._is_nirmaan_admin`), because an export hands over
+  the whole priced catalog. **A web request cannot write into the repo and nothing tries**; the file
+  is returned for download and retained as a snapshot, and committing it stays a human act.
+- **⚠️ RETIREMENT STATE LIVES IN `BoQ Rate Master Retirement`, BECAUSE IT CANNOT BE DERIVED
+  (owner-locked).** One row per retired thing: `discipline` + `scope_type` (`kind` | `category`) +
+  `scope_value`, with OPTIONAL `retired_at` / `retired_by` / `reason`. `retired_kinds` and
+  `retired_category_ids` are the ONLY two loader inputs consumed to drive behaviour and never
+  persisted — the whole effect is `active = 0`, which is **INDISTINGUISHABLE from an ordinary
+  supersede** — so an export built from rows alone would drop them silently.
+- **⚠️ THE DERIVATION "a kind/category with rows but none active" WAS MEASURED, MATCHED, AND
+  REJECTED.** It matches the known entries exactly on a populated database and is still unusable: it
+  returns **EMPTY on a fresh bootstrap database**, so the lists would vanish in precisely the case the
+  asset exists to serve. It is also coupled to history retention (archiving superseded rows would
+  silently shrink it) and cannot tell "deliberately retired" from "happens to have no active rows just
+  now". Do not reintroduce it.
+- **⚠️ PAYLOAD IS THE INSTRUCTION, TABLE IS THE RECORD.** `_load_multi` records a retirement as a
+  SIDE EFFECT of a payload declaring one (`retirement.record_retirements`, riding the loader's single
+  commit). **The table is NEVER read to drive deactivation** — `_deactivate_scope` still takes its
+  scope from the payload alone, and mixing the two would change import semantics. Pinned by a negative
+  test: a retirement recorded for a kind the payload does NOT retire must leave that kind active.
+- **⚠️ THE HAZARD THIS GUARDS IS REACHABLE, and it is `switches_point`.** Its config still exists in
+  the `v22` asset ON DISK: load v22, then load an export that has lost `retired_category_ids`, and it
+  stays **ORPHAN-ACTIVE** — active in the database, absent from the asset meant to define it. Three of
+  the four retired things cannot be re-activated by any asset on disk; that one can, with two commands.
+  Separately, the mint gate treats these lists as its **ONLY machine-readable retirement declaration**
+  (`retkind:` / `retcat:` atoms), so losing them makes every FUTURE retirement surface as an
+  undeclared, unexplained loss.
+- **⚠️ UNIQUENESS IS STRUCTURAL, NOT CHECKED.** `autoname` is
+  `format:{discipline}::{scope_type}::{scope_value}`, so the tuple IS the primary key and a duplicate
+  is a PK collision rather than a validation that could race or be skipped (the deterministic-PK
+  precedent the pricing lock already sets). **No unique index and no duplicate-checking validate hook
+  is needed, and none exists.** ⚠️ A PK violation ABORTS the postgres transaction, so any test probing
+  it must wrap the probe in a savepoint or every later statement in that transaction fails.
+- **⚠️ PROVENANCE IS DELIBERATELY EMPTY ON BACKFILLED ROWS.** The loader never recorded when, by whom
+  or why; the only signal is a batch `creation` timestamp, which is approximate. **A field asserting a
+  precision it does not have is worse than an empty one** — never back-infer `retired_at` /
+  `retired_by`.
+- **⚠️ KNOWN GAP (not fixed): the SINGULAR-config loader path ignores the retirement lists entirely.**
+  `retired_kinds` / `retired_category_ids` are read only inside `_load_multi`; `load_rate_master`'s
+  singular `category_config` branch never reads them and therefore never records them. No shipped
+  asset takes that branch, but the gap is real and is pinned by an assertion in the cert.
+- **⚠️ `item_uid` IS THE STABLE ITEM IDENTITY, AND `name` STRUCTURALLY CANNOT SERVE (owner-locked).**
+  `BoQ Rate Master Item.item_uid` (`Data`, `search_index`) is the durable handle a CSV round trip
+  (download -> edit -> upload) matches on — "matched ids replace, blank ids add" is undefined without
+  it, and content matching turns every rename into a silent duplicate. **`name` cannot be reused for
+  this:** every import INSERTS fresh documents, and freeze-and-supersede **RETAINS** the superseded
+  row, so its `name` stays OCCUPIED — a new row reusing it is a primary-key collision. A separate
+  field has no such constraint, and **MANY ROWS SHARING ONE UID IS THE POINT**: every historical
+  version of an item can carry the same uid.
+- **⚠️ THE UID IS STAMPED, NEVER CONTENT-DERIVED (owner-locked).** Form: `rmi-` + 12 lowercase hex
+  (16 chars — opaque, prefix-consistent with the module's `rmbulk-` / `manual-` provenance prefixes,
+  and short enough to sit in a CSV cell). **A content hash is EXCLUDED and the reason is decisive:**
+  the id would CHANGE when an attribute is edited, so an edited row would return carrying a different
+  id, be read as an insert, and leave the original active — a silent duplicate on every rename, which
+  is the exact failure the uid exists to prevent.
+- **⚠️ THE UID IS NOT UNIQUE ON THIS TABLE — do NOT add a UNIQUE constraint.** It is unique only among
+  `active = 1` rows; superseded rows legitimately share a uid with their successor, and that sharing is
+  what would make history traceable. The field carries a **plain btree `search_index` only**. A partial
+  unique index over `active = 1` is possible but is NOT applied.
+- **⚠️ THE BACKFILL IS ACTIVE-ROWS-ONLY, AND HISTORY IS DELIBERATELY EXCLUDED (owner-locked).** A
+  superseded row has **no reliable key to its successor** — the only handle is content, and content is
+  exactly what changes between versions, so a historical backfill could only ever be approximate.
+  `scripts/backfill_rate_master_item_uid.py` is a one-off maintenance script (NOT a patch — it seeds
+  data, it does not migrate structure), it is idempotent, and it **REFUSES and writes nothing unless
+  every active row pairs to EXACTLY ONE asset item** on `(kind, brand, attributes)`. **`brand` is
+  load-bearing in that tuple**: several `lms_item` pairs are identical on `(kind, attributes)` and
+  differ only by brand, at materially different prices, so pairing without it mis-assigns their uids.
+  **The asset and the DB are stamped in the same run with the same value**, so a re-import reproduces
+  the identity rather than minting a new one; the loader carries `item_uid` through at both insert
+  sites exactly as it carries `brand`/`unit`. A legacy asset carrying no uid still loads, with the
+  field left BLANK — never a fabricated value.
+- **⚠️ THE CSV UPLOAD UPSERT IS UID-KEYED, AND ABSENT ITEMS ARE LEFT UNTOUCHED (owner-locked).**
+  `services/boq_rate_master/csv_importer.py` reads back the CSV `csv_exporter` emits: a row whose
+  `item_uid` MATCHES an active item **REPLACES** it, a row with a **BLANK** `item_uid` is **ADDED**
+  with a freshly minted uid, and **an active item ABSENT from the file is LEFT UNTOUCHED**. That last
+  is the safety property of the whole feature — a partial upload can never delete anything. A uid
+  present in the file but matching NO active item is an **ERROR named in the preview**, never an
+  insert: it means a stale file or a hand-typed id, and inserting it would mint the silent duplicate
+  `item_uid` exists to prevent. **⚠️ THE UPLOAD MUST NEVER BE ROUTED THROUGH `loader.py`** — a
+  `replace=True` supersedes an entire SCOPE (every active row whose KIND is in the payload) and would
+  wipe every item the file omitted. **Freeze-and-supersede is intact and is what makes "replace"
+  safe:** a matched row is not mutated in place; its document is flipped `active = 0` (RETAINED) and a
+  NEW document is inserted carrying the SAME uid. The only difference from the loader is the SCOPE of
+  the supersede — matched UIDS, not payload KINDS — which is precisely why absent items cannot be
+  touched. The MODE (`category` vs the `category`-column-bearing `all`) is INFORMATIONAL: items carry
+  no category, so the upsert is mode-independent and both shapes give the same result.
+- **⚠️ THE UPLOAD IS TWO STEPS, AND A SNAPSHOT IS WRITTEN BEFORE ANY WRITE (owner-locked).**
+  `preview_rate_master_csv` is READ-ONLY (it opens no transaction and is safe to run against live
+  data); `apply_rate_master_csv` is the only writer and **RE-BUILDS the plan from the live catalog**
+  rather than trusting anything posted back, so a doctored plan cannot be applied. The preview's
+  `digest` fingerprints the decision AND the rows it was computed from, and a stale one is REFUSED —
+  the honest answer when the catalog moved between the two steps; an unrelated edit elsewhere is
+  deliberately NOT in the fingerprint. The apply takes a slice-4 **SNAPSHOT FIRST, in the SAME
+  transaction** — that is the rollback path, and `apply_plan` never commits, so the endpoint's single
+  `frappe.db.commit()` makes the whole thing ALL-OR-NOTHING: a malformed row rejects the WHOLE file,
+  and the snapshot can never exist for an upload that did not land. A plan with nothing to apply
+  writes no snapshot (nothing to roll back to, and it would evict a real one from the keep-10).
+- **⚠️ THE PREVIEW IS THE DEFENCE AGAINST EXCEL, AND NOTHING IS SILENTLY REPAIRED (owner-locked).**
+  Expanded by default: **every new item, and every rate move of 10% or more IN EITHER DIRECTION**
+  (₹26,100 for ₹2,610 is invisible in a count; ₹261 for ₹2,610 quotes catastrophically low — so the
+  threshold is on the ABSOLUTE move). A move a percentage cannot describe — a rate appearing,
+  disappearing, or leaving zero — counts as major too. Everything else collapses behind a count and is
+  one click from open: **collapsing is about attention, not access.** Changed-ness is decided by
+  comparing the value that WOULD BE STORED against the value that IS stored, **type-strictly**
+  (`json.dumps`, so a stored `2.0` and a typed `2` are told apart), never by comparing display text —
+  which is what stops a mangled value slipping through as "unchanged". A value we cannot read
+  (`1,234.50`, a currency symbol) is REJECTED BY NAME rather than "helpfully" fixed. **A blank cell
+  means "empty or absent", and where the stored value is ALREADY empty or absent nothing changes** —
+  which is what makes an unedited download/upload round trip a genuine no-op; a cleared ATTRIBUTE is
+  REMOVED (attributes have no live null convention) while a cleared RATE becomes `None` (they do).
+- **⚠️ THE UPLOAD'S ATTRIBUTE SPACE IS DECLARED ∪ OBSERVED, UNLIKE THE RM-4a ITEM ENDPOINTS.** Three
+  live keys (`family`, `location`, `pricing_mode`) are carried by real items and declared by NO
+  config, so a declared-only space would reject a faithful round trip of those rows;
+  `update_rate_master_item` / `create_rate_master_item` validate against the declared set alone and
+  would indeed refuse them. Measured: the attribute and rate key spaces are DISJOINT, and a name in
+  both is refused outright — the export emits ONE column per name, so the FILE would be ambiguous and
+  an import cannot repair an export that cannot represent the data.
+- **⚠️ INTERIM CONFIG PROCEDURE (owner ruling 2026-08-13, until a config authoring surface exists):**
+  a config change is made by **exporting the asset, editing it, and reloading it**. **STANDING RULE:
+  NEVER LOAD AN ASSET THAT WAS NOT EXPORTED MINUTES EARLIER.** A load is `replace=True` and supersedes
+  everything in scope, so a stale file wipes every change made since it was exported; and any asset
+  older than the `item_uid` slice carries no `item_uid`, so loading one would BLANK every id — which
+  breaks the CSV round trip outright, since a blank uid reads as "add this item".
+- **⚠️ A TEST IS UPDATED TO MATCH A RULING, NEVER A RULING TO MATCH A TEST (owner-locked).** An
+  asset-pinned test that disagrees with the live asset is asserting the shape a ruling REPLACED — i.e.
+  a defect — so the assertion moves and carries an INLINE COMMENT naming the ruling it now encodes and
+  why the old shape was wrong. **A test that silently changed its mind is worse than a stale one.**
+  Corollary: **every current-asset pin in `test_rate_master.py` reads the ONE module-level
+  `CURRENT_EALL_ASSET` constant.** Pins that are DELIBERATELY historical (`cls.eall`, the two v17 reads,
+  and `LEGACY_WIRING_ASSET`) name their version explicitly and must NOT follow it — `LEGACY_WIRING_ASSET`
+  in particular is the ONLY coverage the discipline-wide `_deactivate_prior` path has, because that path
+  is reachable only through the SINGULAR `category_config` key.
+- **⚠️ THERE IS ONE ELECTRICAL ASSET, AND THE SPLIT THAT PRECEDED IT WAS A LIVE HAZARD (merged
+  2026-08-13, owner ruling).** `rate_master_electrical_all_v30.json` carries **all 1,382 items and all
+  12 configs**, wiring included. The two-asset split was **SEQUENCING, NOT DESIGN** — wiring was built
+  first as a trial — and it must not be reintroduced "for safety". **THE REASON IT HAD TO GO: the two
+  assets took DIFFERENT loader paths with DIFFERENT supersede semantics.** The wiring asset carried the
+  **SINGULAR `category_config`** key, which routes to `load_rate_master`'s single-config path, whose
+  `_deactivate_prior` runs `UPDATE "tabBoQ Rate Master Item" SET active = 0 WHERE discipline = %s AND
+  active = 1` — **DISCIPLINE-WIDE**. Importing wiring with `replace=True` therefore deactivated **every
+  E-ALL item**, and the live catalog survived only on an **undocumented ordering rule** (wiring first,
+  E-ALL second). The batch timeline records it happening on 2026-08-09: E-ALL 22:20:33, wiring 22:20:43
+  wiping it, E-ALL re-loaded 22:21:20 to repair. **The merged asset uses the LIST form, so it takes
+  `_load_multi`'s SCOPED supersede and the discipline-wide `UPDATE` is never reached.** The singular
+  path still EXISTS in the loader and is still dangerous — it is simply no longer reachable from a
+  shipped asset, and `test_24b`'s negative half pins that (`category_config` must be ABSENT).
+- **⚠️ `rate_master_wiring_cabling_v3.json` STAYS ON DISK — do NOT delete it.** It is a mint-gate
+  **self-test operand** (`scripts/mint_completeness_check.py`, `do_history(WIRING)`, T4 — the wiring
+  asset is the only one-filename-many-commits asset, so it is the ONLY thing that exercises the history
+  walk), and it is the singular-shape fixture the ~30 single-config loader tests still need
+  (`test_rate_master.LEGACY_WIRING_ASSET`). It is a **retired artefact, not a live asset.**
+- **ONE ITEM WAS DROPPED AT THE MERGE, BY OWNER RULING (2026-08-13), AND NO DELETE PATH WAS ADDED.**
+  `db_switchgear_item` / `TPN FLEXI DB 4 ROW 14M (DOUBLE DOOR IP 43)` existed **twice** with two prices;
+  the **12,881 copy (source row 17) is KEPT**, the **12,133 copy (source row 14) is DROPPED**. It is
+  simply **absent from the asset** and is superseded naturally on import — this module has never had a
+  delete and the merge did not introduce one. Item count is therefore **1,382, not 1,383**. ⚠️ **The
+  mint gate CANNOT see this**: its item vocabulary is `kind:<k>`, so a dropped *individual item* is
+  below its resolution and it reported "No atoms disappeared". An `intentional_removals` entry is
+  therefore inapplicable — the gate never emits an atom string for it.
+- **Goldens at the merge:** wiring's five (`g1`–`g5`) are carried **BOTH** on the config **and** in the
+  top-level `goldens` dict — which is what **9 of the 11** pre-existing E-ALL configs already do.
+  `_load_multi` lets the top-level entry win and the two agree exactly, so `test_72`'s equality half
+  holds. ⚠️ **`CLAUDE.md`'s "top-level and NOWHERE ELSE" wording is STRONGER than the code**: the
+  overwrite fires **only when the top-level dict has an entry for that category**, so a config-level
+  copy with no top-level twin survives untouched. Code is authoritative.
+- **`wiring_cabling` deliberately carries NO `item_kinds`.** Its kinds derive from the pipelines'
+  `match_master_row` (`cable`, `termination`) and the derivation is byte-equal to a declared list, so
+  adding one is behaviour-neutral — but it would make the stored config differ from the live DB for no
+  gain. Left absent; `test_24b` pins both the absence and the derivation.
 - **Benchmark data (owner ruling):** the committed data asset is the **28-Jul benchmark workbook**
   (`rate_master_wiring_cabling_v3.json`) — the reference going forward, superseding the earlier 25-Jul
-  reference. A benchmark refresh is a `replace=True` re-import of a new asset (freeze-and-supersede: the
-  prior `rmbulk-` batch goes inactive, rows retained). NOTE: `loader.DEFAULT_DATA_FILE` is version-pinned
-  to the asset filename (a known wart flagged for a future de-pinning slice), so a rename forces a loader
-  edit in lockstep.
+  reference; **its content now lives inside the merged asset** (above). A benchmark refresh is a
+  `replace=True` re-import of a new asset (freeze-and-supersede: the prior `rmbulk-` batch goes inactive,
+  rows retained). NOTE: `loader.DEFAULT_DATA_FILE` is version-pinned to the asset filename (a known wart
+  flagged for a future de-pinning slice), so a rename forces a loader edit in lockstep.
 - **29-Jul truth-file cycle (EA-DIFF, owner-locked; the E-ALL benchmark of THAT cycle was
-  `rate_master_electrical_all_v12.json` — the CURRENT E-ALL asset is `rate_master_electrical_all_v22.json`,
-  sha256 prefix `f1344c1853614d75`; asset lineage v9->v12, v10/v11 skipped):** four
+  `rate_master_electrical_all_v12.json` — the CURRENT asset is the MERGED
+  `rate_master_electrical_all_v30.json`, sha256 prefix `63628d6a15a33796`; asset lineage v9->v12,
+  v10/v11 skipped. ⚠️ This line read `v22` / `f1344c1853614d75` until 2026-08-13 — SEVEN versions
+  behind, the doc twin of the stale test pins the merge slice found):** four
   data changes + two owner-ruled invariants. (1) **Synonyms** — a config may carry top-level `synonyms`
   `{attr_id:{variant:canonical}}` (conduit `{conduit_type:{GI:MS}}`); consumed TWICE (defence in depth) — the
   extraction prompt INJECTION (`extraction._extract_batch`, `.md` assets untouched) AND `_coerce_value`
