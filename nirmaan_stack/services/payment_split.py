@@ -1,6 +1,24 @@
 """
-Partial CEO approval — split one Project Payment into an approved half and a
-still-pending remainder.
+Split one Project Payment into a kept half and a carried-forward remainder.
+
+TWO CALLERS, ONE CONCEPT (generalised at slice PS-1)
+----------------------------------------------------
+  * ``api.payments.project_payments.ceo_approve_payment`` — PARTIAL CEO APPROVAL.
+    ``CEO Pending`` in; the kept half is Approved and the balance stays CEO Pending.
+  * ``api.outflow_import.expenses.settle_row_partial`` — PARTIAL SETTLEMENT from a
+    bank statement. ``Approved`` in; BOTH halves come out Approved, because the
+    money was already sanctioned and the import approves nothing.
+
+⚠️ THE SECOND CALLER MUST NOT FORK THIS MODULE, AND THAT IS AN ADR-0010 B1 RULE
+rather than a preference. "Split a payment, preserve the sum exactly, re-write the
+PO's terms" is ONE concept, so it gets ONE owning module. Two copies would put two
+implementations of the sum invariant and the term surgery on either side of the
+app, free to drift — and the drift would surface as a PO whose terms stopped adding
+up, months later, with no way to tell which copy wrote it.
+
+⚠️ EVERY PARAMETER BELOW DEFAULTS TO THE CEO BEHAVIOUR, so the 26 tests in
+``test_payment_split`` are the proof that generalising it changed nothing. If you
+add a parameter, give it a default that reproduces today and let those tests say so.
 
 WHY THIS EXISTS
 ---------------
@@ -71,10 +89,45 @@ BALANCE_LABEL_SUFFIX = " (Balance)"
 def split_and_approve(payment_name: str, approved_amount: float) -> dict:
     """Approve ``approved_amount`` of a CEO Pending payment; carry the rest forward.
 
-    Returns a dict describing what moved. Raises (rolling the savepoint back)
-    on any guard failure or write error — callers get all of it or none of it.
+    The ORIGINAL entry point, kept as a thin wrapper over ``split_payment`` so every
+    existing caller and every existing test is untouched by the PS-1 generalisation.
+    Its defaults ARE the CEO behaviour — see the module docstring.
     """
-    approved = flt(approved_amount)
+    return split_payment(payment_name, approved_amount)
+
+
+def split_payment(
+    payment_name: str,
+    keep_amount: float,
+    *,
+    expect_status: str = SOURCE_STATUS,
+    remainder_status: str = SOURCE_STATUS,
+    stamp_ceo_approval: bool = True,
+) -> dict:
+    """Keep ``keep_amount`` on this payment; carry the balance forward as a new one.
+
+    ``expect_status``
+        The status the payment must be in NOW, or the split is refused. ``CEO Pending``
+        for a partial approval; ``Approved`` for a partial settlement.
+    ``remainder_status``
+        What the balance half is created at. It also drives the balance PO TERM's
+        status, because the controller mirrors payment status to term status 1:1 —
+        one parameter for both is what stops the two drifting apart here.
+    ``stamp_ceo_approval``
+        Whether to write ``ceo_approval_date`` on the kept half. TRUE for a CEO
+        approval, because that IS the approval. ⚠️ FALSE for a partial settlement:
+        the CEO's date, if there is one, already sits on the record, and stamping
+        today's date would rewrite an approval fact to record a payment event.
+
+    ⚠️ THE KEPT HALF IS ALWAYS ``Approved`` AND IS DELIBERATELY NOT A PARAMETER. Both
+    callers agree on it, from opposite directions — the CEO is approving it now, and
+    the settlement's half was approved before the bank moved. A parameter here would
+    be an invitation to write a status no caller wants.
+
+    Returns a dict describing what moved. Raises (rolling the savepoint back) on any
+    guard failure or write error — callers get all of it or none of it.
+    """
+    approved = flt(keep_amount)
 
     # ── Lock the payment row before reading it ──────────────────────────────
     frappe.db.sql(
@@ -86,9 +139,15 @@ def split_and_approve(payment_name: str, approved_amount: float) -> dict:
     original = flt(pay.amount)
 
     # ── Guards (all before any write) ───────────────────────────────────────
-    if pay.status != SOURCE_STATUS:
+    # ⚠️ THE MESSAGE NAMES BOTH STATUSES rather than saying "awaiting CEO approval".
+    # With two callers expecting two different statuses, the old sentence would be a
+    # confident lie on half the paths. Nothing asserts this text — the CEO endpoint
+    # carries its own pre-check with its own wording, and this is the backstop.
+    if pay.status != expect_status:
         frappe.throw(
-            _("Payment is not awaiting CEO approval (current status: {0})").format(pay.status)
+            _("This payment is '{0}', not '{1}', so it cannot be split.").format(
+                pay.status, expect_status
+            )
         )
 
     # ⚠️ THIS GUARD IS ALSO WHAT KEEPS THE SAVEPOINT ISOLATED — do not demote it
@@ -120,16 +179,20 @@ def split_and_approve(payment_name: str, approved_amount: float) -> dict:
             )
         )
 
+    # ⚠️ THESE TWO SENTENCES DROPPED THE WORD "Approved" AT PS-1. A partial settlement
+    # keeps an amount without approving anything, so "approved amount" was wrong on
+    # that path. Both are backstops — each caller validates before it gets here — and
+    # neither is asserted by any test.
     if approved < MIN_SPLIT_AMOUNT:
         frappe.throw(
-            _("Approved amount must be at least {0}. To approve nothing, reject the payment instead.").format(
+            _("The amount kept must be at least {0}. To keep nothing, do not split at all.").format(
                 frappe.format_value(MIN_SPLIT_AMOUNT, "Currency")
             )
         )
 
     if approved > original:
         frappe.throw(
-            _("Approved amount cannot exceed the requested amount of {0}.").format(
+            _("The amount kept cannot exceed the payment's {0}.").format(
                 frappe.format_value(original, "Currency")
             )
         )
@@ -167,6 +230,13 @@ def split_and_approve(payment_name: str, approved_amount: float) -> dict:
         # falls under PAYMENT_AUTO_APPROVAL_THRESHOLD: that threshold is for
         # brand-new requests, and letting it fire here would allow a large
         # payment to be salami-sliced past the approval gate.
+        # ⚠️ `split_child` IS LOAD-BEARING ON BOTH PATHS, and the reason is sharper on
+        # the settlement one. `after_insert` has an `if doc.status == "Approved"`
+        # branch that fans out accountant + admin notifications and calls
+        # `frappe.db.commit()` PER RECIPIENT. A partial settlement inserts this
+        # remainder AS Approved, from inside the outflow import's per-row savepoint —
+        # so without this flag a commit lands mid-savepoint and "Confirm 8" can leave
+        # four rows written and four not, with nothing recording which.
         remainder_doc = frappe.new_doc("Project Payments")
         remainder_doc.update({
             "document_type": pay.document_type,
@@ -174,17 +244,24 @@ def split_and_approve(payment_name: str, approved_amount: float) -> dict:
             "project": pay.project,
             "vendor": pay.vendor,
             "amount": remainder,
-            "status": SOURCE_STATUS,
+            "status": remainder_status,
             "split_from": pay.name,
             "approval_date": pay.approval_date,
         })
         remainder_doc.flags.split_child = True
         remainder_doc.insert(ignore_permissions=True)
 
-        # ── 2. The original, trimmed and approved ───────────────────────────
+        # ── 2. The original, trimmed ────────────────────────────────────────
         pay.amount = approved
         pay.status = APPROVED_STATUS
-        pay.ceo_approval_date = nowdate()
+        if stamp_ceo_approval:
+            pay.ceo_approval_date = nowdate()
+        # ⚠️ SET ON BOTH PATHS, including the one where it is currently redundant. On a
+        # partial settlement the status does not change (Approved -> Approved), so
+        # `on_update` early-returns and `_find_and_update_po_term` never runs anyway.
+        # Relying on an early return in another function to keep this PO lock safe is
+        # agreement by coincidence — it survives exactly until someone makes that
+        # function fire on an amount change.
         pay.flags.split_approval = True
         pay.save(ignore_permissions=True)
 
@@ -197,6 +274,7 @@ def split_and_approve(payment_name: str, approved_amount: float) -> dict:
                 remainder_payment=remainder_doc.name,
                 approved=approved,
                 remainder=remainder,
+                remainder_term_status=remainder_status,
             )
             if term_synced:
                 po_doc.save(ignore_permissions=True)
@@ -231,13 +309,26 @@ def split_and_approve(payment_name: str, approved_amount: float) -> dict:
     }
 
 
-def _split_po_term(po_doc, original_payment, remainder_payment, approved, remainder) -> bool:
+def _split_po_term(
+    po_doc,
+    original_payment,
+    remainder_payment,
+    approved,
+    remainder,
+    remainder_term_status: str = SOURCE_STATUS,
+) -> bool:
     """Shrink the original term and append a balance term. In memory — caller saves.
 
     Returns True when a matching term was found and both edits were applied.
 
     The two amounts sum to what the single term held before, so the PO's
     "terms must add up to the PO total" check is untouched by construction.
+
+    ⚠️ ``remainder_term_status`` MIRRORS THE BALANCE PAYMENT'S STATUS, and the caller
+    passes one value for both on purpose — the controller's own contract is that a PO
+    term's status tracks its payment's 1:1, so letting these two be set independently
+    would be a way to break that invariant from inside the function that exists to
+    preserve it.
     """
     term = next(
         (t for t in (po_doc.get("payment_terms") or []) if t.project_payment == original_payment),
@@ -267,7 +358,7 @@ def _split_po_term(po_doc, original_payment, remainder_payment, approved, remain
         "due_date": term.due_date,
         "vendor": term.vendor,
         "project": term.project,
-        "term_status": SOURCE_STATUS,
+        "term_status": remainder_term_status,
         "project_payment": remainder_payment,
     })
     return True

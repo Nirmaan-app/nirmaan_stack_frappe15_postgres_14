@@ -38,7 +38,8 @@
   "skip_reason",
   "outcome_note",
   "decided_at",
-  "decided_by"
+  "decided_by",
+  "settlement_origin"
  ],
  "fields": [
   {
@@ -255,6 +256,15 @@
    "fieldname": "decided_by",
    "fieldtype": "Data",
    "label": "Decided By",
+   "read_only": 1
+  },
+  {
+   "description": "The same verdict as Outflow Row Match.settlement_origin, DENORMALISED onto the row so the review screen can filter and count on it without joining the match table -- the same reason auto_matched is stored rather than derived, and the same reason Outflow Import Batch carries counters. Blank until the row is settled. SAFETY RULE: written in the same frappe.db.set_value as row_status/decided_at/decided_by at the one settlement site, never on its own, so it cannot drift from the match record it mirrors. DISTINCT FROM auto_matched, which means only 'a suggestion existed' and says nothing about whether a person accepted it.",
+   "fieldname": "settlement_origin",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Settlement Origin",
+   "options": "\nSuggestion accepted\nSuggestion overridden\nNo suggestion",
    "read_only": 1
   }
  ],

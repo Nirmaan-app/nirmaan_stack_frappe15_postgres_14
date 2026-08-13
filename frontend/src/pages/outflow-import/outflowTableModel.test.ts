@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
-import { DEFAULT_PERIOD } from "./outflowPeriod";
 import {
     DEFAULT_HIDDEN_COLUMNS,
     DEFAULT_TAB,
@@ -16,8 +15,18 @@ import {
     RECORD_COLUMNS,
     activeFilterCount,
     amountVerdict,
+    candidateKeySet,
+    partialOffer,
+    deductionOffer,
+    deductionRefusalText,
+    TDS_BAND_MIN_PCT,
+    TDS_BAND_MAX_PCT,
+    INTENT_PART_PAYMENT,
+    INTENT_DEDUCTION,
+    matcherCandidateLine,
     confirmFunnel,
     describeFrappeError,
+    settleBlockText,
     settleBlocker,
     previewCounts,
     statementDebit,
@@ -37,7 +46,8 @@ import {
     type ConfirmableRow,
     ledgerLabel,
     parseRecordKey,
-    recordDateLabel,
+    RECORD_DATE_LABELS,
+    recordDateParts,
     recordKey,
     DEFAULT_PAGE_SIZE,
     SCOPE_FOR_TAB,
@@ -48,6 +58,7 @@ import {
     importOptionLabel,
     isConfirmable,
     orderBySuggestion,
+    orderPaymentsHref,
     rowSettlementLinks,
     seedDecisions,
     serverQuery,
@@ -103,10 +114,32 @@ describe("columns", () => {
         ]);
     });
 
-    it("ships bank a/c, IFSC and time hidden", () => {
+    it("ships settled-via, bank a/c, IFSC and time hidden", () => {
         // Real and occasionally needed; putting them in the default row costs every reader
         // horizontal space on every visit to serve a rare lookup.
-        expect(DEFAULT_HIDDEN_COLUMNS).toEqual(["bank_account", "ifsc", "time"]);
+        //
+        // ⚠️ `settlement_origin` JOINED THIS LIST AT SLICE Q1, DELIBERATELY. The owner asked for a
+        // FILTER and a summary number, not a column -- but in this table a filter IS a column
+        // header, because the funnel lives in the `<th>`. Hidden-by-default is the honest
+        // resolution: the table looks exactly as it did and the funnel is one click away in the
+        // column picker. The alternative -- a second filter path that bypasses OUTFLOW_COLUMNS --
+        // would break the single-builder guarantee that keeps the page, its count, the tabs and
+        // the summary from disagreeing.
+        expect(DEFAULT_HIDDEN_COLUMNS).toEqual([
+            "settlement_origin",
+            "bank_account",
+            "ifsc",
+            "time",
+        ]);
+    });
+
+    it("offers settled-via as a FACET, so the values come from the database", () => {
+        // The three origins are a closed vocabulary, but the facet is still the right shape: it is
+        // the one filter kind `_row_filters` already serves over the whole filtered table rather
+        // than over the loaded page.
+        const col = OUTFLOW_COLUMNS.find((c) => c.id === "settlement_origin")!;
+        expect(col.filter).toBe("facet");
+        expect(col.title).toBe("Settled via");
     });
 
     it("gives Outcome no filter, because it is a button and not text", () => {
@@ -487,7 +520,70 @@ describe("the bulk bar counts DECIDED rows, not selected ones", () => {
     });
 });
 
-describe("links to the record a row settles", () => {
+describe("links to the record a row settles — the app's own route (slice E3)", () => {
+    const ORDER = "PO/123/25-26";
+
+    it("sends a payment to its ORDER, the way the rest of the app does", () => {
+        // ⚠️ THE HEADLINE CHANGE. Twelve other call sites navigate to `/project-payments/<order>`;
+        // this feature had its own scheme, which only landed while four separate things agreed.
+        const link = settlementLink("Project Payments", "PAY-00105-038", true, ORDER)!;
+        expect(link.href).toBe("/project-payments/PO&=123&=25-26");
+        expect(link.exact).toBe(true);
+        // The LABEL stays the payment -- that is the record the row settled and what the reviewer
+        // recognises. Only the destination changed.
+        expect(link.label).toBe("PAY-00105-038");
+    });
+
+    it("escapes every slash as &=, because the reader reverses exactly that", () => {
+        // `OrderPaymentSummary` does `id.replace(/&=/g, "/")`. A different escape here would not
+        // fail loudly -- it would land on a route param that resolves to no document.
+        expect(orderPaymentsHref("PO/123/25-26")).toBe("/project-payments/PO&=123&=25-26");
+        expect(orderPaymentsHref("SR/9/25-26")).toBe("/project-payments/SR&=9&=25-26");
+        expect(orderPaymentsHref("NOSLASH")).toBe("/project-payments/NOSLASH");
+    });
+
+    it("carries a Service Request order as readily as a PO", () => {
+        // A quarter of payments are against an SR, and `OrderPaymentSummary` branches on the id
+        // prefix itself -- so this helper must not assume "PO".
+        expect(settlementLink("Project Payments", "PAY-1", true, "SR/9/25-26")!.href).toBe(
+            "/project-payments/SR&=9&=25-26"
+        );
+    });
+
+    it("the tooltip names the ORDER being opened, not a tab that no longer applies", () => {
+        const link = settlementLink("Project Payments", "PAY-1", true, ORDER)!;
+        expect(link.title).toContain(ORDER);
+        expect(link.title).not.toContain("Payments Done");
+    });
+
+    it("ignores the settled flag on the order route, which carries no status filter", () => {
+        const settled = settlementLink("Project Payments", "PAY-1", true, ORDER)!;
+        const open = settlementLink("Project Payments", "PAY-1", false, ORDER)!;
+        expect(settled.href).toBe(open.href);
+    });
+
+    it("⚠️ FALLS BACK rather than losing the link when no order is known", () => {
+        // A payload predating `order_name`, or a payment with no order at all. Blank and absent
+        // are the same answer: there is no order to open.
+        for (const missing of [undefined, null, "", "   "]) {
+            const link = settlementLink("Project Payments", "PAY-1", false, missing)!;
+            expect(link.href).toContain("tab=All+Payments");
+        }
+    });
+
+    it("never routes an EXPENSE to the payments route, whatever it is handed", () => {
+        // `document_name` holds the expense TYPE on both expense ledgers, so an order id passed
+        // here would be a category name, not a document.
+        expect(settlementLink("Project Expenses", "EXP-1", false, "Travel")!.href).toBe(
+            "/expense/project"
+        );
+        expect(settlementLink("Non Project Expenses", "NPE-1", false, "Travel")!.href).toBe(
+            "/expense/non-project"
+        );
+    });
+});
+
+describe("links to the record a row settles — the FALLBACK path, with no order known", () => {
     it("sends a SETTLED payment to Payments Done", () => {
         const link = settlementLink("Project Payments", "PAY-00105-038", true)!;
         expect(link.exact).toBe(true);
@@ -865,16 +961,44 @@ describe("the settleable-record table model", () => {
         // date; presenting its modification timestamp under the word "approved" would be a
         // confident lie on two thirds of the list.
         const format = (value: string) => `formatted(${value})`;
-        expect(recordDateLabel(payment, format)).toBe("approved formatted(2026-07-12 10:00:00)");
-        expect(recordDateLabel(expense, format)).toBe("updated formatted(2026-07-20 10:00:00)");
+        expect(recordDateParts(payment, format)).toEqual({
+            kind: "approved",
+            date: "formatted(2026-07-12 10:00:00)",
+        });
+        expect(recordDateParts(expense, format)).toEqual({
+            kind: "updated",
+            date: "formatted(2026-07-20 10:00:00)",
+        });
+    });
+
+    it("returns the KIND and the DATE separately, so the badge cannot be lost in the sentence", () => {
+        // ⚠️ SLICE E2. It used to return one string -- "approved 12-Jul-2026" -- under a column
+        // headed "Approved", so the qualifier was a lowercase word mid-cell in the same weight as
+        // the date. The parts render as a badge ABOVE the date. The rule is unchanged; the
+        // separation is what makes it visible.
+        const parts = recordDateParts(expense, (v) => v);
+        expect(parts?.kind).toBe("updated");
+        expect(parts?.date).not.toContain("updated");
+    });
+
+    it("gives every kind a badge word, so a new kind cannot render blank", () => {
+        for (const kind of ["approved", "updated"] as const) {
+            expect(RECORD_DATE_LABELS[kind]).toBeTruthy();
+        }
+        expect(RECORD_DATE_LABELS.approved).toBe("Approved");
+        expect(RECORD_DATE_LABELS.updated).toBe("Updated");
     });
 
     it("says nothing rather than inventing a date when the record has neither", () => {
-        expect(recordDateLabel({ approved_on: "", updated_on: "" }, (v) => v)).toBe("");
+        expect(recordDateParts({ approved_on: "", updated_on: "" }, (v) => v)).toBeNull();
     });
 
     it("prefers the approval date when a payment carries both", () => {
-        expect(recordDateLabel(payment, (v) => v)).toContain("approved");
+        expect(recordDateParts(payment, (v) => v)?.kind).toBe("approved");
+    });
+
+    it("the column is headed Approval Date", () => {
+        expect(RECORD_COLUMNS.find((c) => c.id === "date")?.title).toBe("Approval Date");
     });
 
     it("names each ledger in the singular, and passes an unknown one through unchanged", () => {
@@ -965,6 +1089,9 @@ describe("settleBlocker", () => {
         );
         expect(block).toEqual({
             kind: "amount_outside_window",
+            // The record is SMALLER than the transfer, and no doctype was sent -- so the direction
+            // reason, never the ledger one. See the fail-open case below.
+            reason: "bank_paid_more",
             recordName: "i87sop52n3",
             recordAmount: 26000,
             bankAmount: 245000,
@@ -995,6 +1122,109 @@ describe("settleBlocker", () => {
     it("does not block when nothing is picked", () => {
         expect(settleBlocker(null, 1000)).toBeNull();
         expect(settleBlocker(undefined, 1000)).toBeNull();
+    });
+});
+
+describe("settleBlockReason / settleBlockText — WHY this pick cannot be settled (D1)", () => {
+    const blocked = (over: Record<string, unknown>, bank: number) =>
+        settleBlocker({ name: "P", amount: 100, suggested: false, ...over }, bank)!;
+
+    it("names an overpayment when the bank moved more than the record is for", () => {
+        expect(blocked({ amount: 26000, target_doctype: "Project Payments" }, 245000).reason).toBe(
+            "bank_paid_more"
+        );
+        // The ledger does not change this one -- the direction is the useful fact either way.
+        expect(blocked({ amount: 26000, target_doctype: "Project Expenses" }, 245000).reason).toBe(
+            "bank_paid_more"
+        );
+    });
+
+    it("names the expense rule when a LARGER record is an expense", () => {
+        expect(blocked({ amount: 500000, target_doctype: "Project Expenses" }, 200000).reason).toBe(
+            "expense_exact_only"
+        );
+        expect(
+            blocked({ amount: 500000, target_doctype: "Non Project Expenses" }, 200000).reason
+        ).toBe("expense_exact_only");
+    });
+
+    it("falls back to the payment case for a LARGER payment", () => {
+        // Ordinarily this shape opens the two-answer partial dialog instead; it reaches the
+        // dead-end branch only with SHOW_PARTIAL_SETTLE off, and must still say something true.
+        expect(blocked({ amount: 500000, target_doctype: "Project Payments" }, 200000).reason).toBe(
+            "record_larger"
+        );
+    });
+
+    it("⚠️ NEVER READS AN ABSENT target_doctype AS AN EXPENSE", () => {
+        // The load-bearing fail-open, matching `suggested`'s. An older payload would otherwise be
+        // told "an expense can only be settled at its exact amount" about a payment -- confident,
+        // specific, and wrong.
+        expect(blocked({ amount: 500000 }, 200000).reason).toBe("record_larger");
+        expect(blocked({ amount: 500000, target_doctype: undefined }, 200000).reason).toBe(
+            "record_larger"
+        );
+    });
+
+    it("guards a non-positive amount BEFORE asking about direction", () => {
+        expect(blocked({ amount: 0 }, 200000).reason).toBe("not_positive");
+        expect(blocked({ amount: -500 }, 200000).reason).toBe("not_positive");
+        expect(blocked({ amount: 500000 }, 0).reason).toBe("not_positive");
+        expect(blocked({ amount: 500000 }, -200000).reason).toBe("not_positive");
+    });
+
+    it("gives every reason its own non-empty sentence, and none of them mention TDS", () => {
+        const reasons = [
+            blocked({ amount: 26000 }, 245000),
+            blocked({ amount: 500000, target_doctype: "Project Expenses" }, 200000),
+            blocked({ amount: 500000, target_doctype: "Project Payments" }, 200000),
+            blocked({ amount: 0 }, 200000),
+        ];
+        const texts = reasons.map(settleBlockText);
+        expect(new Set(texts).size).toBe(4);
+        for (const text of texts) expect(text.length).toBeGreaterThan(0);
+
+        // ⚠️ THE REGRESSION THIS SLICE EXISTS FOR. The old fixed paragraph told the reviewer to
+        // settle a TDS deduction "in the payments screen", and slice TD made that false without
+        // touching the sentence. It must not come back, in any of the four.
+        for (const text of texts) expect(text).not.toMatch(/TDS/i);
+        // `SHOW_CREATE_NEW_EXPENSE` is false, so that route is not on this dialog either.
+        for (const text of texts) expect(text).not.toMatch(/new expense/i);
+    });
+
+    it("carries no amounts, so the figures live in exactly one place on screen", () => {
+        // The dialog's first paragraph already prints the record, the bank figure and the
+        // difference. A number repeated here would be a second copy free to drift.
+        for (const block of [
+            blocked({ amount: 26000 }, 245000),
+            blocked({ amount: 500000, target_doctype: "Project Expenses" }, 200000),
+        ]) {
+            expect(settleBlockText(block)).not.toMatch(/\d/);
+        }
+    });
+
+    it("is empty for no block at all", () => {
+        expect(settleBlockText(null)).toBe("");
+        expect(settleBlockText(undefined)).toBe("");
+    });
+
+    it("⚠️ the LEDGER reason and partialOffer's ledger bail cover the same set", () => {
+        // These two read the same field for opposite purposes: `partialOffer` returns null on a
+        // non-payment ledger, and `settleBlockReason` prints the expense sentence for it. If they
+        // ever drifted apart the dialog would explain a refusal that had not happened, or offer a
+        // split the endpoint would reject. Sharing `PROJECT_PAYMENTS_DOCTYPE` is what holds it;
+        // this pins that it stays held.
+        const larger = { name: "P", amount: 500000, suggested: false as const };
+        for (const target_doctype of ["Project Expenses", "Non Project Expenses"]) {
+            expect(partialOffer({ ...larger, target_doctype }, 200000)).toBeNull();
+            expect(settleBlocker({ ...larger, target_doctype }, 200000)!.reason).toBe(
+                "expense_exact_only"
+            );
+        }
+        // And the payment ledger is the other way round on both.
+        const payment = { ...larger, target_doctype: "Project Payments" };
+        expect(partialOffer(payment, 200000)).not.toBeNull();
+        expect(settleBlocker(payment, 200000)!.reason).toBe("record_larger");
     });
 });
 
@@ -1563,6 +1793,50 @@ describe("the period column", () => {
     it("is not offered as a server FACET column, or the funnel would fetch dates to tick", () => {
         expect(SERVER_FACET_COLUMNS).not.toContain(PERIOD_COLUMN_ID);
     });
+
+    /**
+     * ⚠️ A KNOWN, PRE-EXISTING DEAD FUNNEL, NAMED SO THE INVARIANT BELOW CAN STILL BE ENFORCED.
+     *
+     * `time` renders `timeOnly(r.added_on)` -- a value DERIVED in the client. There is no `time`
+     * column on `Outflow Import Row`, so it appears in neither `SERVER_FACET_COLUMNS` nor the
+     * server's `_FACET_COLUMNS`, and ticking its funnel has never filtered anything. That is a
+     * defect, found by the check below rather than reported by a user; it is not fixable by adding
+     * it to a list (the server would have nothing to filter on) and fixing it properly -- faceting
+     * on an expression, or dropping the funnel -- is out of slice Q1's scope.
+     *
+     * Listing it here keeps the rule enforced for every OTHER column instead of deleting the rule
+     * because one case fails it. Anything added to this set needs the same kind of explanation.
+     */
+    const DEAD_FUNNELS = new Set(["time"]);
+
+    it("⚠️ EVERY facet column is ALSO in SERVER_FACET_COLUMNS, or its funnel does nothing", () => {
+        // THE BUG THIS EXISTS FOR (slice Q1, found in the browser): a facet needs THREE lists to
+        // work -- `filter: "facet"` here draws the funnel, `review._FACET_COLUMNS` lets the server
+        // apply it, and SERVER_FACET_COLUMNS decides whether the selection is ever SENT. Adding
+        // the first two and not the third produced a tick box that registered, showed
+        // "Clear filters (1)", and left the row set completely unchanged.
+        //
+        // No unit test could see that, because each list was internally consistent. This one
+        // compares them.
+        const funnelled = OUTFLOW_COLUMNS.filter((c) => c.filter === "facet").map((c) => c.id);
+        expect(funnelled.length).toBeGreaterThan(0);
+        for (const id of funnelled) {
+            if (DEAD_FUNNELS.has(id)) continue;
+            expect(SERVER_FACET_COLUMNS).toContain(id);
+        }
+    });
+
+    it("and nothing is sent that has no funnel to set it", () => {
+        // The other direction: a column the server would accept but the screen cannot express is
+        // dead weight, and `added_on` is the cautionary tale -- it sat here after P1 and was
+        // harmless only because `serverQuery`'s loop happened to skip a non-array value.
+        const funnelled = new Set(
+            OUTFLOW_COLUMNS.filter((c) => c.filter === "facet").map((c) => c.id)
+        );
+        for (const id of SERVER_FACET_COLUMNS) {
+            expect(funnelled.has(id)).toBe(true);
+        }
+    });
 });
 
 describe("isDateFilterValue", () => {
@@ -1576,21 +1850,35 @@ describe("isDateFilterValue", () => {
 });
 
 describe("activeFilterCount with a period", () => {
-    it("EXCLUDES the period, so the badge does not read '1' on every fresh session", () => {
-        // The period is always set (the screen opens on `last 30 days`) and has a large, always
-        // visible control of its own stating exactly what it is -- which is the thing a badge exists
-        // to substitute for.
-        expect(activeFilterCount({ [PERIOD_COLUMN_ID]: DEFAULT_PERIOD })).toBe(0);
+    // ⚠️ A REAL PERIOD, NEVER `DEFAULT_PERIOD`. The default became `null` on 2026-08-12, and
+    // `activeFilterCount` skips every null filter before it ever reaches the period rule -- so a
+    // test written against the default would pass whether the exclusion existed or not. It has to
+    // be a period that WOULD otherwise count.
+    const A_REAL_PERIOD = { operator: "Timespan", value: "last 30 days" } as const;
+
+    it("EXCLUDES the period, so the badge does not count the screen's own scope", () => {
+        // It has a large, always-visible control of its own stating exactly what it is -- which is
+        // the thing a badge exists to substitute for.
+        expect(activeFilterCount({ [PERIOD_COLUMN_ID]: A_REAL_PERIOD })).toBe(0);
     });
 
     it("still counts every other filter beside it", () => {
         expect(
             activeFilterCount({
-                [PERIOD_COLUMN_ID]: DEFAULT_PERIOD,
+                [PERIOD_COLUMN_ID]: A_REAL_PERIOD,
                 beneficiary_name: ["ACME"],
                 amount: { min: 100 },
             })
         ).toBe(2);
+    });
+
+    it("counts the SAME VALUE under a different column, so the exclusion is the COLUMN", () => {
+        // Proves the zero above comes from the period rule and not from the value's shape.
+        // ⚠️ `PERIOD_COLUMN_ID` IS `added_on` -- the Period control and the Payment Date column
+        // funnel are two editors of ONE filter -- so there is no second real date column to test
+        // against and this id is deliberately hypothetical. `activeFilterCount` is generic over
+        // column ids and does not validate them, which is exactly what makes the point provable.
+        expect(activeFilterCount({ some_other_column: A_REAL_PERIOD })).toBe(1);
     });
 });
 
@@ -1760,5 +2048,216 @@ describe("importOptionLabel dates", () => {
 
     it("still falls back to the id when there is neither a file nor a period", () => {
         expect(importOptionLabel({ name: "OFI-26-00289" })).toBe("OFI-26-00289");
+    });
+});
+
+describe("the candidates the match run could not separate (N3)", () => {
+    it("keys a candidate on BOTH halves, because a name is not unique across ledgers", () => {
+        // The live collision this prevents: a `Project Expenses` record and a `Project Payments`
+        // record are free to share a name, and marking the wrong one points a reviewer at a record
+        // the matcher never considered.
+        const keys = candidateKeySet([
+            { doctype: "Project Payments", name: "PAY-1" },
+            { doctype: "Project Expenses", name: "PAY-1" },
+        ]);
+        expect(keys.size).toBe(2);
+        expect(keys.has(recordKey({ target_doctype: "Project Payments", name: "PAY-1" }))).toBe(true);
+        expect(keys.has(recordKey({ target_doctype: "Project Expenses", name: "PAY-1" }))).toBe(true);
+    });
+
+    it("an absent list is an empty set, never a crash", () => {
+        // The dialog renders this while the fetch is still in flight, on every row it opens.
+        expect(candidateKeySet(undefined).size).toBe(0);
+        expect(candidateKeySet([]).size).toBe(0);
+    });
+
+    it("drops a half-formed candidate rather than minting a key that matches nothing", () => {
+        expect(candidateKeySet([{ doctype: "Project Payments", name: "" }]).size).toBe(0);
+        expect(candidateKeySet([{ doctype: "", name: "PAY-1" }]).size).toBe(0);
+    });
+
+    it("the line states what the match run FOUND, never what may be picked", () => {
+        // ⚠️ THE WORDING IS A GUARD. `get_row_candidates` re-runs the match live and skips the
+        // claim pass, so a marked record may already be held by another open row. Promising
+        // availability would surface as a confirm failing with AlreadyPaidError after the click.
+        const line = matcherCandidateLine(6);
+        expect(line).toContain("The match run found 6 records");
+        expect(line).not.toMatch(/can pick|may pick|available|choose from these/i);
+    });
+
+    it("stays silent below two, where there is nothing to choose between", () => {
+        expect(matcherCandidateLine(0)).toBe("");
+        expect(matcherCandidateLine(1)).toBe("");
+        expect(matcherCandidateLine(2)).not.toBe("");
+    });
+
+    // ⚠️ THE `suppressOutcomeNote` TEST WAS DELETED WITH THE FUNCTION (slice D2). It pinned that
+    // the stored `outcome_note` stood down exactly when this live line took over -- a rule that
+    // needed two printers on one screen to mean anything. `WhyThisSuggestion` was the other
+    // printer and is gone, so this line is now the only count the dialog shows and there is
+    // nothing left for a threshold to agree with.
+});
+
+describe("partialOffer — may this transfer pay part of this record? (PS)", () => {
+    const payment = (over: Record<string, unknown> = {}) => ({
+        target_doctype: "Project Payments",
+        amount: 500000,
+        ...over,
+    });
+
+    it("offers the split when the record is larger by more than the settle window", () => {
+        const offer = partialOffer(payment(), 200000);
+        expect(offer).not.toBeNull();
+        expect(offer!.keep).toBe(200000);
+        expect(offer!.remainder).toBe(300000);
+    });
+
+    it("the kept amount is the bank's own figure, never rounded", () => {
+        // The reviewer types nothing -- the bank already decided the amount. That is the biggest
+        // safety difference from the CEO split, and rounding here would quietly undo it.
+        const offer = partialOffer(payment({ amount: 18678.69 }), 12000.34);
+        expect(offer!.keep).toBe(12000.34);
+    });
+
+    it("refuses an expense, which has no balance to carry", () => {
+        for (const doctype of ["Project Expenses", "Non Project Expenses"]) {
+            expect(partialOffer(payment({ target_doctype: doctype }), 200000)).toBeNull();
+        }
+    });
+
+    it("refuses an overpayment, which is a different problem", () => {
+        // Carving the record up to match money it never covered would be a wrong answer, not a
+        // partial one.
+        expect(partialOffer(payment({ amount: 200000 }), 500000)).toBeNull();
+        expect(partialOffer(payment({ amount: 200000 }), 200000)).toBeNull();
+    });
+
+    it("refuses a gap inside the settle window, which Confirm already handles", () => {
+        expect(partialOffer(payment({ amount: 200005 }), 200000)).toBeNull();
+        expect(partialOffer(payment({ amount: 200005.01 }), 200000)).not.toBeNull();
+    });
+
+    it("refuses a refund or a zero", () => {
+        expect(partialOffer(payment({ amount: -50000 }), 10000)).toBeNull();
+        expect(partialOffer(payment({ amount: 50000 }), -10000)).toBeNull();
+        expect(partialOffer(payment({ amount: 0 }), 10000)).toBeNull();
+    });
+
+    it("refuses a missing record rather than throwing inside a dialog", () => {
+        expect(partialOffer(null, 200000)).toBeNull();
+        expect(partialOffer(undefined, 200000)).toBeNull();
+    });
+
+    it("flags a TDS-shaped shortfall WITHOUT refusing it", () => {
+        // ⚠️ THE LOAD-BEARING HALF. A 2% gap may genuinely be a 2% part payment, so the offer
+        // stands and the reviewer is merely asked to look twice. Wiring the hint to a refusal
+        // would convert a warning into a guess about money.
+        const offer = partialOffer(payment(), 490000);
+        expect(offer).not.toBeNull();
+        expect(offer!.impliedPct).toBeCloseTo(2, 6);
+        expect(offer!.tdsLike).toBe(true);
+    });
+
+    it("does not flag an ordinary part-payment fraction", () => {
+        const offer = partialOffer(payment(), 200000);
+        expect(offer!.tdsLike).toBe(false);
+    });
+
+    it("mirrors the server's gate, and the two intents are the server's strings", () => {
+        // A typo here posts an intent the endpoint rejects -- which is the safe direction, but the
+        // reviewer would see a refusal with no way to act on it.
+        expect(INTENT_PART_PAYMENT).toBe("part_payment");
+        expect(INTENT_DEDUCTION).toBe("deduction");
+    });
+});
+
+describe("deductionOffer — may the shortfall be recorded as TDS? (TD)", () => {
+    const service = (over: Record<string, unknown> = {}) => ({
+        target_doctype: "Project Payments",
+        amount: 100000,
+        document_type: "Service Requests",
+        ...over,
+    });
+    const shapeFor = (rec: any, bank: number) => partialOffer(rec, bank);
+
+    it("a 1% shortfall on a service payment is recordable", () => {
+        const rec = service();
+        const offer = deductionOffer(rec, shapeFor(rec, 99000));
+        expect(offer.eligible).toBe(true);
+        expect(offer.tds).toBe(1000);
+        expect(offer.impliedPct).toBeCloseTo(1, 6);
+    });
+
+    it("a 2% shortfall is recordable", () => {
+        const rec = service({ amount: 200000 });
+        expect(deductionOffer(rec, shapeFor(rec, 196000)).eligible).toBe(true);
+    });
+
+    it("a PO payment is refused, and the verdict SAYS SO rather than vanishing", () => {
+        // ⚠️ THE SAFETY ARGUMENT. If this returned null/absent the screen would hide the option, and
+        // a reviewer with a real 2% TDS on a materials PO would take "part payment" instead —
+        // creating an approved balance for money nobody owes.
+        const rec = service({ document_type: "Procurement Orders" });
+        const offer = deductionOffer(rec, shapeFor(rec, 98000));
+        expect(offer.eligible).toBe(false);
+        expect(offer.refusal).toBe("not_service");
+        expect(deductionRefusalText(offer)).toContain("service payments");
+    });
+
+    it("a rate outside the band is refused with its own reason", () => {
+        const rec = service();
+        for (const bank of [60000, 95000, 90000, 99900]) {
+            const offer = deductionOffer(rec, shapeFor(rec, bank));
+            expect(offer.eligible).toBe(false);
+            expect(offer.refusal).toBe("rate_out_of_band");
+        }
+        expect(deductionRefusalText(deductionOffer(rec, shapeFor(rec, 60000)))).toContain("1–2%");
+    });
+
+    it("the band edges are inclusive and mirror the server", () => {
+        const rec = service();
+        expect(deductionOffer(rec, shapeFor(rec, 99050)).eligible).toBe(true);   // 0.95%
+        expect(deductionOffer(rec, shapeFor(rec, 97950)).eligible).toBe(true);   // 2.05%
+        expect(deductionOffer(rec, shapeFor(rec, 99060)).eligible).toBe(false);  // 0.94%
+        expect(deductionOffer(rec, shapeFor(rec, 97940)).eligible).toBe(false);  // 2.06%
+        expect(TDS_BAND_MIN_PCT).toBe(0.95);
+        expect(TDS_BAND_MAX_PCT).toBe(2.05);
+    });
+
+    it("the upper edge survives float arithmetic that the server does in Decimal", () => {
+        // ⚠️ THIS CAUGHT A REAL DIVERGENCE. 2050/100000*100 is exactly 2.05 in Python's Decimal and
+        // 2.0500000000000003 in IEEE-754 — so a naive `> MAX` comparison greys out an option the
+        // server accepts, on the very boundary the band is defined by. The mirror must never be
+        // stricter than the server; see BAND_EDGE_EPSILON.
+        const rec = service();
+        expect((100000 - 97950) / 100000 * 100).toBeGreaterThan(2.05); // the float, stated plainly
+        expect(deductionOffer(rec, shapeFor(rec, 97950)).eligible).toBe(true);
+    });
+
+    it("no shape means no deduction, and no reason to show either", () => {
+        // The record is not larger than the transfer at all — the dialog is the pre-TD one.
+        expect(deductionOffer(service(), null).eligible).toBe(false);
+        expect(deductionOffer(service(), null).refusal).toBe("shape");
+    });
+
+    it("an expense can never carry a deduction", () => {
+        const rec = service({ target_doctype: "Project Expenses", document_type: "" });
+        expect(deductionOffer(rec, shapeFor(rec, 99000)).eligible).toBe(false);
+    });
+
+    it("a blank parent doctype is refused rather than assumed to be a service", () => {
+        const rec = service({ document_type: "" });
+        expect(deductionOffer(rec, shapeFor(rec, 99000)).refusal).toBe("not_service");
+    });
+
+    it("the derived TDS reconciles the transfer exactly", () => {
+        // ⚠️ `bank = amount - tds` is the relation the whole ledger reads. Deriving the figure —
+        // never typing it — is what keeps it true.
+        for (const [amount, bank] of [[100000, 99000], [715757, 701441.86], [200000, 196000]]) {
+            const rec = service({ amount });
+            const offer = deductionOffer(rec, shapeFor(rec, bank));
+            expect(offer.eligible).toBe(true);
+            expect(amount - offer.tds).toBeCloseTo(bank, 2);
+        }
     });
 });

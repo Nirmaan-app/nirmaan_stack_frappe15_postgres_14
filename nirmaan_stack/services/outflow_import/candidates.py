@@ -42,13 +42,19 @@ screen can never offer a record the write path would refuse, or the reverse.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Sequence
 
 import frappe
+from frappe.utils import getdate
 
 from nirmaan_stack.services.outflow_import.amounts import tolerance_bounds
+from nirmaan_stack.services.outflow_import.duplicates import (
+    RowIdentity,
+    dates_agree,
+    row_identity,
+)
 from nirmaan_stack.services.outflow_import.ledgers import (
     NON_PROJECT_EXPENSE_DOCTYPE,
     PAID,
@@ -68,7 +74,10 @@ __all__ = [
     "load_paid_payments_by_reference",
     "load_payments_by_amount",
     "load_expense_targets",
-    "find_earlier_batches_for_transfers",
+    # ⚠️ RENAMED FROM `find_earlier_batches_for_transfers` AT SLICE D3. It takes ROWS now, because
+    # duplicate identity is `(transfer_id, amount, date)` and a list of ids can no longer express
+    # the question. The old name is deliberately not kept as an alias -- see the function.
+    "find_earlier_batches_for_rows",
     "amount_window_sql",
     "PAYMENT_DOCTYPE",
     "PROJECT_EXPENSE_DOCTYPE",
@@ -341,17 +350,28 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
     return tuple(out)
 
 
-def find_earlier_batches_for_transfers(
-    transfer_ids: Sequence[str],
+def find_earlier_batches_for_rows(
+    rows: Sequence,
     exclude_batch: str | None = None,
     period_from: date | None = None,
     period_to: date | None = None,
-) -> dict[str, str]:
-    """Map transfer_id -> the earliest OTHER batch that already staged it.
+) -> dict[RowIdentity, str]:
+    """Map each row's `RowIdentity` -> the earliest OTHER batch that already staged that transfer.
 
     This is the precise duplicate guard. The batch-level Added-On overlap only warns; two exports
     can carry the same transfer without their periods overlapping at all, and can carry different
     transfers with periods that do.
+
+    ⚠️ IT TAKES ROWS, NOT TRANSFER IDS (slice D3), AND THE RENAME IS THE POINT. Identity is now
+    `(transfer_id, amount, date)` -- see `duplicates.row_identity` -- so a caller handing over a
+    list of ids can no longer ask this question at all. Leaving the old name and signature in place
+    would have let a caller keep passing ids and quietly get the OLD, looser answer.
+
+    ⚠️ THE SQL STILL NARROWS ON `transfer_id` ONLY, AND THE TRIPLE IS APPLIED IN PYTHON. That is
+    deliberate twice over: `transfer_id` is the indexed column and remains the cheap first cut, and
+    `amount` is a **Currency** column -- a float in Postgres -- so an `=` against it in SQL is the
+    binary-floating-point comparison that `normalize_amount` returning `Decimal` exists to avoid.
+    Both sides go through `normalize_amount` here, so the comparison is exact and symmetric.
 
     ⚠️ PERIOD NARROWING IS OPT-IN AND IS ERGONOMICS, NOT SAFETY (owner-directed, slice V3). Supply
     both dates and the search is restricted to batches whose recorded period overlaps this sheet's,
@@ -367,7 +387,7 @@ def find_earlier_batches_for_transfers(
     not have, and dropping it would turn "we could not date this batch" into "this batch contains
     nothing".
     """
-    wanted = sorted({t for t in transfer_ids if t})
+    wanted = sorted({row.transfer_id for row in rows if row.transfer_id})
     if not wanted:
         return {}
 
@@ -389,9 +409,9 @@ def find_earlier_batches_for_transfers(
         """
         params.extend([period_to, period_from])
 
-    rows = frappe.db.sql(
+    stored = frappe.db.sql(
         f"""
-        SELECT transfer_id, import_batch, creation
+        SELECT transfer_id, amount, added_on, import_batch, creation
         FROM "tabOutflow Import Row"
         WHERE transfer_id IN ({placeholders})
           {exclude_clause}
@@ -401,10 +421,46 @@ def find_earlier_batches_for_transfers(
         tuple(params),
         as_dict=True,
     )
-    seen: dict[str, str] = {}
-    for r in rows:
-        seen.setdefault(r["transfer_id"], r["import_batch"])
+
+    # Grouped by the two axes that must match EXACTLY, so the only per-row work left is the date
+    # rule -- which cannot be a dict lookup, because a missing date has to match a present one.
+    by_id_amount: dict[tuple[str, Decimal], list] = {}
+    for r in stored:
+        key = (r["transfer_id"], normalize_amount(r.get("amount")))
+        by_id_amount.setdefault(key, []).append(r)
+
+    seen: dict[RowIdentity, str] = {}
+    for row in rows:
+        if not row.transfer_id:
+            continue
+        identity = row_identity(row.transfer_id, row.amount, row.added_on_date)
+        if identity in seen:
+            continue
+        for r in by_id_amount.get((row.transfer_id, row.amount), ()):
+            if dates_agree(row.added_on_date, _stored_date(r.get("added_on"))):
+                # `stored` is already ordered by `creation ASC`, so the first agreeing row is the
+                # EARLIEST batch -- which is the one the message names.
+                seen[identity] = r["import_batch"]
+                break
     return seen
+
+
+def _stored_date(value) -> date | None:
+    """The DATE of a stored `added_on`, tolerating the shapes the DB layer hands back.
+
+    Frappe returns a Datetime column as `datetime`, but a raw SQL read can hand back a `date` or a
+    string depending on driver and column, and this comparison must not depend on which. A value it
+    cannot read becomes `None`, which `dates_agree` then treats as "cannot compare on this axis" --
+    the same fallback an unreadable Added On gets at parse time, and for the same reason.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    parsed = getdate(value) if value else None
+    return parsed or None
 
 
 def _decided_on(row: dict) -> date | None:

@@ -40,7 +40,9 @@ import {
     SCOPE_FOR_TAB,
     type DecisionOrigin,
     type OutflowTab,
+    type PartialIntent,
     type RowDecision,
+    type SettleableRecord,
     describeFrappeError,
     tabCountParts,
 } from "./outflowTableModel";
@@ -201,6 +203,13 @@ export const OutflowMasterPage = () => {
     const { call: callCreate } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.expenses.create_expense"
     );
+    // ⚠️ A SEPARATE ENDPOINT, AND THE SEPARATION IS THE GUARD (slice PS). The bulk confirm loops
+    // `settleOne`, which calls `settle_row`; a partial can only ever be reached from one reviewer
+    // answering one question about one row, which is what keeps it outside the settle window
+    // without widening it.
+    const { call: callSettlePartial } = useFrappePostCall(
+        "nirmaan_stack.api.outflow_import.expenses.settle_row_partial"
+    );
 
 
     /**
@@ -332,6 +341,36 @@ export const OutflowMasterPage = () => {
             setBusy(false);
         }
     }, [openRow, decisions, settleOne, refreshAll]);
+
+    /**
+     * Settle part of an approved payment and carry the balance forward (slice PS).
+     *
+     * ⚠️ IT SHARES `handleConfirmOne`'S ERROR HANDLING FOR THE SAME REASON THAT CATCH EXISTS. A
+     * refused partial must surface the server's own sentence in the footer, not vanish -- the
+     * silent-rejection defect the owner reported is exactly what an unhandled rejection here would
+     * recreate, one dialog deeper.
+     */
+    const handlePartialSettle = useCallback(
+        async (record: SettleableRecord, intent: PartialIntent) => {
+            if (!openRow) return;
+            setBusy(true);
+            setConfirmError(null);
+            try {
+                await callSettlePartial({
+                    row: openRow.name,
+                    target_name: record.name,
+                    intent,
+                });
+                setOpenRow(null);
+                await refreshAll();
+            } catch (err: any) {
+                setConfirmError(describeFrappeError(err, "The partial settle failed."));
+            } finally {
+                setBusy(false);
+            }
+        },
+        [openRow, callSettlePartial, refreshAll]
+    );
 
     /**
      * ⚠️ SEQUENTIAL, AND IT ACTS ONLY ON THE ROWS THE BAR COUNTED. Each call is its own
@@ -654,6 +693,7 @@ export const OutflowMasterPage = () => {
                 decision={openRow ? decisions.get(openRow.name) : undefined}
                 onChange={(decision) => openRow && setDecision(openRow.name, decision)}
                 onConfirm={handleConfirmOne}
+                onPartialSettle={handlePartialSettle}
                 onSkip={async (reason) => {
                     if (openRow) await handleSkip(openRow, reason);
                 }}

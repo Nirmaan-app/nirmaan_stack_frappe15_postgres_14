@@ -49,6 +49,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
+from nirmaan_stack.services.outflow_import.duplicates import row_identity
 from nirmaan_stack.services.outflow_import.normalize import (
     normalize_account,
     normalize_amount,
@@ -399,12 +400,28 @@ def _read_xlsx(content: bytes) -> tuple[list[str], list[dict]]:
 
 
 def _duplicate_transfer_ids(rows: list[RawRow]) -> tuple[str, ...]:
-    seen: set[str] = set()
+    """Transfer ids that appear MORE THAN ONCE AS THE SAME TRANSFER within this one statement.
+
+    ⚠️ IT REPEATS ON IDENTITY BUT REPORTS THE ID (slice D3). The two halves are deliberate:
+
+    * Repeats are counted on `(transfer_id, amount, date)`, because `_stage_batch` marks its
+      `duplicate_in_file` rows on exactly that key. Leaving this on `transfer_id` alone would let
+      the preview call two rows repeated while staging called them distinct -- the same file,
+      two answers.
+    * What comes BACK is still the transfer id, because `duplicate_transfer_ids` is an API payload
+      field typed `string[]` on the client. Returning tuples would be a wire change for a list
+      nothing currently renders.
+
+    A consequence worth being explicit about: one id carried twice at two DIFFERENT amounts is no
+    longer reported here, because those are now two different transfers that happen to share an id.
+    """
+    seen: set = set()
     repeated: list[str] = []
     for row in rows:
-        if row.transfer_id in seen and row.transfer_id not in repeated:
+        identity = row_identity(row.transfer_id, row.amount, row.added_on_date)
+        if identity in seen and row.transfer_id not in repeated:
             repeated.append(row.transfer_id)
-        seen.add(row.transfer_id)
+        seen.add(identity)
     return tuple(repeated)
 
 

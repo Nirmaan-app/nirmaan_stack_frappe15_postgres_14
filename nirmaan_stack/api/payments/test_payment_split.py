@@ -32,7 +32,7 @@ from frappe.utils import flt, nowdate
 
 from nirmaan_stack.api.payments.project_payments import ceo_approve_payment
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
-from nirmaan_stack.services.payment_split import split_and_approve
+from nirmaan_stack.services.payment_split import split_and_approve, split_payment
 
 PAYMENT = "Project Payments"
 PO = "Procurement Orders"
@@ -529,6 +529,106 @@ class TestSplitSideEffects(PaymentSplitFixture):
             [t.label for t in terms],
             ["Advance Payment", "Advance Payment (Balance)", "Advance Payment (Balance)"],
         )
+
+
+class TestTheDefaultsAreTheCeoBehaviour(PaymentSplitFixture):
+    """PS-1 generalised this module for a SECOND caller. These pin that it changed nothing.
+
+    ⚠️ THE WHOLE SAFETY ARGUMENT OF PS-1 IS "every parameter defaults to what the CEO path already
+    did", which makes the 26 tests around this one the proof. That argument is only checkable if
+    something asserts the two entry points are the same call — otherwise a later edit could change
+    a DEFAULT and every one of those tests would move with it, together, silently.
+    """
+
+    def test_split_payment_with_no_keywords_is_split_and_approve(self):
+        result = split_payment(self.payment, 60000)
+        frappe.db.commit()
+
+        kept = self._pay(self.payment)
+        rem = self._pay(self._remainder_of(self.payment)[0])
+        self.assertEqual(flt(kept.amount), 60000.0)
+        self.assertEqual(kept.status, "Approved")
+        self.assertEqual(str(kept.ceo_approval_date), nowdate())
+        self.assertEqual(rem.status, "CEO Pending")
+        self.assertIsNone(rem.ceo_approval_date)
+        self.assertEqual(result["remainder_amount"], 40000.0)
+
+    def test_the_settlement_parameter_set_leaves_both_halves_approved(self):
+        """The outflow caller's shape: `Approved` in, `Approved` out on BOTH halves.
+
+        ⚠️ `stamp_ceo_approval=False` IS THE LOAD-BEARING ONE. The kept half's
+        `ceo_approval_date` records when the CEO approved this money. A partial SETTLEMENT is a
+        payment event, not an approval, so stamping today's date there would overwrite an approval
+        fact with a bank fact -- and `ledgers.DECIDED_ON_SQL` reads exactly that column to decide
+        which record a later transfer was nearest to.
+        """
+        frappe.db.set_value(PAYMENT, self.payment, {"status": "Approved",
+                                                    "ceo_approval_date": "2026-01-05"},
+                            update_modified=False)
+        frappe.db.commit()
+
+        split_payment(
+            self.payment, 60000,
+            expect_status="Approved", remainder_status="Approved", stamp_ceo_approval=False,
+        )
+        frappe.db.commit()
+
+        kept = self._pay(self.payment)
+        rem = self._pay(self._remainder_of(self.payment)[0])
+        self.assertEqual(flt(kept.amount), 60000.0)
+        self.assertEqual(kept.status, "Approved")
+        self.assertEqual(str(kept.ceo_approval_date), "2026-01-05", "the CEO's date is not rewritten")
+        self.assertEqual(flt(rem.amount), 40000.0)
+        self.assertEqual(rem.status, "Approved", "already sanctioned money stays sanctioned")
+        self.assertEqual(rem.split_from, self.payment)
+
+    def test_the_balance_term_mirrors_the_balance_payment_on_both_paths(self):
+        """One parameter drives both, because the controller's contract is that they track 1:1."""
+        frappe.db.set_value(PAYMENT, self.payment, "status", "Approved", update_modified=False)
+        frappe.db.commit()
+
+        split_payment(
+            self.payment, 60000,
+            expect_status="Approved", remainder_status="Approved", stamp_ceo_approval=False,
+        )
+        frappe.db.commit()
+
+        original, balance = self._terms()
+        self.assertEqual(original.term_status, "Approved")
+        self.assertEqual(balance.term_status, "Approved")
+        self.assertAlmostEqual(
+            flt(original.amount) + flt(balance.amount), self.PO_TOTAL, places=2
+        )
+
+    def test_the_wrong_status_is_refused_against_whichever_status_was_expected(self):
+        """A CEO Pending payment is not partially SETTLEABLE, and an Approved one is not partially
+        APPROVABLE. One function, two expectations, and neither may leak into the other."""
+        with self.assertRaises(frappe.ValidationError):
+            split_payment(self.payment, 60000, expect_status="Approved")
+
+        frappe.db.set_value(PAYMENT, self.payment, "status", "Approved", update_modified=False)
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError):
+            split_payment(self.payment, 60000, expect_status="CEO Pending")
+
+        self.assertEqual(self._remainder_of(self.payment), [], "a refused split mints nothing")
+
+    def test_a_settlement_split_still_refuses_a_refund_and_a_sub_rupee_balance(self):
+        """The guards are not CEO-specific and must not become so. A negative payment is
+        meaningless to split from either direction."""
+        refund = self._insert_payment(-50000, status="Approved")
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError) as caught:
+            split_payment(refund, 10000, expect_status="Approved",
+                          remainder_status="Approved", stamp_ceo_approval=False)
+        self.assertIn("cannot be split", str(caught.exception))
+
+        frappe.db.set_value(PAYMENT, self.payment, "status", "Approved", update_modified=False)
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError):
+            split_payment(self.payment, self.PAY_AMOUNT - 0.4, expect_status="Approved",
+                          remainder_status="Approved", stamp_ceo_approval=False)
+        self.assertEqual(self._remainder_of(self.payment), [])
 
 
 class TestSplitOnServiceRequests(PaymentSplitFixture):

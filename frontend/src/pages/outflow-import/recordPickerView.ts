@@ -102,16 +102,17 @@ export const nextSortState = (
 /**
  * The record's date as a comparable `YYYY-MM-DD`, for SORTING AND FILTERING ONLY.
  *
- * ⚠️ THIS MERGES TWO DIFFERENT MEANINGS, AND `recordDateLabel` DELIBERATELY DOES NOT (owner
+ * ⚠️ THIS MERGES TWO DIFFERENT MEANINGS, AND `recordDateParts` DELIBERATELY DOES NOT (owner
  * decision Q4, 2026-08-11). Only `Project Payments` carries an approval date; neither expense
  * doctype has the field, an approver, or an approval step -- so an expense contributes its
  * last-modified timestamp instead. Ordering them together is what the owner asked for and is
  * defensible, because an ordering makes no claim about what a value MEANS.
  *
- * ⚠️ A DISPLAYED value is a different matter and the rule there is unchanged: the column still
- * reads "approved 12-Jul-2026" or "updated 12-Jul-2026" via `recordDateLabel`, because presenting a
- * modification under the word "approved" is a confident lie. If this function ever starts feeding a
- * LABEL, that ruling has been broken -- keep it on the comparison side.
+ * ⚠️ A DISPLAYED value is a different matter and the rule there is unchanged -- only louder since
+ * slice E2: the column carries an "Approved" or "Updated" BADGE above the date, via
+ * `recordDateParts`, because presenting a modification under the word "approved" is a confident
+ * lie. If this function ever starts feeding a LABEL, that ruling has been broken -- keep it on the
+ * comparison side.
  */
 export const recordSortDate = (
     record: Pick<SettleableRecord, "approved_on" | "updated_on">
@@ -307,6 +308,39 @@ export const hasActiveFilters = (filters: RecordFilters, sort: RecordSort | null
             filters.dateTo ||
             filters.text.trim()
     );
+
+/**
+ * Why this record sits where it sits, in the reviewer's words — or `""` to say nothing (slice N2).
+ *
+ * ⚠️ THE REASONS WERE ALWAYS ON THE WIRE AND NOTHING READ THEM. `similarity.py` computes them,
+ * `_rank_browse_records` attaches them to the record the screen already renders, and
+ * `SettleableRecord` declares them — and until N2 a grep across the whole frontend found no reader
+ * outside the type. So a record sat third in a ranked list with nothing on screen saying why, which
+ * is the state the module docstring in `similarity.py` describes as "a list people stop trusting".
+ *
+ * ⚠️ IT GOES SILENT UNDER AN EXPLICIT SORT, AND THAT IS THE POINT. `sort === null` IS the similarity
+ * ranking (see `nextSortState`); any other value means the reviewer has asked for amount or date
+ * order and got it. A "why it ranks here" caption printed over an order that is no longer the
+ * ranking would be explaining a list that is not on screen — worse than saying nothing, because it
+ * reads as authoritative.
+ *
+ * ⚠️ THE NUMERIC SCORE IS DELIBERATELY NOT SURFACED, here or anywhere. It is a weighted sum on an
+ * arbitrary scale, so a reviewer cannot calibrate `1.35` against `0.9` — and a number on a screen
+ * where money is confirmed invites being read as a confidence, which it is not. The sentences are
+ * the half a person can actually check.
+ *
+ * ⚠️ THE ORDER OF THE REASONS IS THE SERVER'S AND MUST NOT BE RE-SORTED. `score_record` appends
+ * them project → vendor → alias → amount, which is the owner's priority order; re-ordering them
+ * alphabetically (or by anything else) would quietly contradict the ranking they explain.
+ */
+export const reasonCaption = (
+    record: Pick<SettleableRecord, "similarity_reasons">,
+    sort: RecordSort | null
+): string => {
+    if (sort) return "";
+    const reasons = (record.similarity_reasons ?? []).filter((r) => Boolean(r && r.trim()));
+    return reasons.join(" · ");
+};
 
 /**
  * A parsed number for the amount bounds, or `null`.

@@ -33,6 +33,7 @@ import frappe
 
 from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
+    _payment_order_names,
     get_batch_rows,
     get_confirmable_rows,
     get_import_summary,
@@ -806,6 +807,256 @@ class TestReadEndpoints(OutflowReviewFixture):
         payload = get_row_candidates(row["name"])
         self.assertTrue(payload["payment_groups"])
         self.assertEqual(payload["payment_groups"][0]["targets"][0]["name"], self.pay_clean)
+
+    def test_the_new_candidate_key_is_purely_additive(self):
+        """N3 added `settleable_candidates`. Every key the screen already read must survive.
+
+        ⚠️ NOT A CEREMONY. `get_row_candidates` had no frontend caller between slices R1 and N3, so
+        nothing but this suite would notice a key quietly disappearing while the new one was added.
+        """
+        payload = get_row_candidates(self._rows_by_transfer_suffix()["0001"]["name"])
+        for key in ("row", "tier", "vendor_candidates", "vendor_ambiguous",
+                    "payment_groups", "expense_candidates", "settleable_candidates"):
+            self.assertIn(key, payload)
+
+    def test_a_single_candidate_comes_back_as_a_list_of_one(self):
+        """⚠️ NOT `[]`. The `< 2` threshold belongs to `_sweep_unresolved_to_mismatched`, which is
+        asking a different question. An endpoint that copied it would give this feature a second
+        place to change one rule."""
+        payload = get_row_candidates(self._rows_by_transfer_suffix()["0001"]["name"])
+        self.assertEqual(
+            payload["settleable_candidates"],
+            [{"doctype": "Project Payments", "name": self.pay_clean}],
+        )
+
+    def test_a_fan_out_offers_no_candidates_to_mark(self):
+        """⚠️ THE ABSTENTION IS INHERITED FROM OPTION B, NOT RESTATED HERE.
+
+        Row 0004 is one transfer covering TWO approved payments under one bank reference. That is a
+        genuine match with no single name to offer (ruling Q4), so it is not a set of comparable
+        alternatives -- and marking its two halves as "pick one of these" would invite settling half
+        the transfer. `_disambiguation_candidates` already refuses the whole set; this proves the
+        endpoint did not re-derive its way around that.
+        """
+        payload = get_row_candidates(self._rows_by_transfer_suffix()["0004"]["name"])
+        self.assertTrue(payload["payment_groups"][0]["is_fan_out"], "fixture precondition")
+        self.assertEqual(payload["settleable_candidates"], [])
+
+
+class TestTheOrderNameForLinking(OutflowReviewFixture):
+    """`order_name` on every payment link source (slice E3).
+
+    ⚠️ THIS CLASS EXISTS BECAUSE THE WHOLE SUITE PASSED UNCHANGED WHEN THE FIELD WAS ADDED. The
+    fixture inserts payments with NO `document_name` -- deliberately, since a real one would need a
+    real PO -- so every existing assertion runs down the FALLBACK path and could not see the new
+    key appear or disappear. These tests stamp an order onto a fixture payment first.
+
+    The screen links to `/project-payments/<order>` because that is what the other twelve call
+    sites in this app do; without this field the row table could not reach that route at all.
+    """
+
+    ORDER = "TEST-PO/OFL/25-26"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        match_batch(cls.batch.name)
+        # Raw SQL for the same reason the fixture inserts raw: `document_name` is a Dynamic Link,
+        # and going through the lifecycle would demand a real Procurement Order on the live DB.
+        frappe.db.sql(
+            """UPDATE "tabProject Payments" SET document_type = %s, document_name = %s
+               WHERE name = %s""",
+            ("Procurement Orders", cls.ORDER, cls.pay_clean),
+        )
+        frappe.db.commit()
+
+    def _row_0001(self, rows):
+        return next(r for r in rows if r["transfer_id"].endswith("0001"))
+
+    def test_the_suggestion_carries_its_order(self):
+        rows = get_batch_rows(self.batch.name)["rows"]
+        row = self._row_0001(rows)
+        self.assertEqual(row["suggested_name"], self.pay_clean, "fixture precondition")
+        self.assertEqual(row["suggested_order_name"], self.ORDER)
+
+    def test_the_master_table_carries_it_too(self):
+        """⚠️ BOTH READS OR NEITHER. The master table is where most of these links are clicked;
+        enriching only the batch view would leave the app's route working in one place and not the
+        other, which is harder to diagnose than it not working anywhere."""
+        rows = get_outflow_rows(scope="all", limit=200)["rows"]
+        row = self._row_0001(rows)
+        self.assertEqual(row["suggested_order_name"], self.ORDER)
+
+    def test_the_key_is_on_EVERY_row_and_blank_when_there_is_no_order(self):
+        """Blank is the honest answer and the client falls back on it. A missing KEY would make the
+        two reads structurally different and force every caller to test for its presence.
+
+        ⚠️ ASSERTED OVER THE ROWS WITH NO SUGGESTION, because `pay_clean` is the only payment this
+        fixture ever stores as one -- an earlier version of this test asked for a second suggested
+        payment carrying no order and there is none. Those rows are the blank case that matters:
+        the key must still be there.
+        """
+        rows = get_batch_rows(self.batch.name)["rows"]
+        for row in rows:
+            self.assertIn("suggested_order_name", row)
+
+        unsuggested = [r for r in rows if not (r.get("suggested_name") or "")]
+        self.assertTrue(unsuggested, "fixture precondition: rows with no suggestion at all")
+        self.assertTrue(all(r["suggested_order_name"] == "" for r in unsuggested))
+
+    def test_an_already_paid_related_payment_carries_its_order(self):
+        """The other link source on an open row -- a Skipped/Mismatched row's related payment."""
+        frappe.db.sql(
+            """UPDATE "tabProject Payments" SET document_type = %s, document_name = %s
+               WHERE name = %s""",
+            ("Procurement Orders", "TEST-PO/REL/25-26", self.pay_already),
+        )
+        frappe.db.commit()
+        rows = get_batch_rows(self.batch.name)["rows"]
+        related = [e for r in rows for e in (r.get("related_payments") or [])]
+        self.assertTrue(related, "fixture precondition: a row with a related paid payment")
+        stamped = [e for e in related if e["target_name"] == self.pay_already]
+        self.assertTrue(stamped)
+        self.assertTrue(all(e["order_name"] == "TEST-PO/REL/25-26" for e in stamped))
+
+    def test_BOTH_row_reads_actually_SHIP_settlement_origin(self):
+        """⚠️ THE BUG THE BROWSER WALK FOUND AND EVERY GREEN SUITE MISSED.
+
+        `_FACET_COLUMNS` governs FILTERING; the SELECT lists govern what a row CARRIES. Slice Q1
+        first changed only the former, so the "Settled via" column rendered an em dash on all 849
+        settled rows while the summary beside it correctly reported 843 auto-matched. Filtering
+        worked, the count worked, the data was right -- and the screen showed nothing.
+
+        Asserting the KEY is present is the point; a value assertion alone would pass on a payload
+        that omits it entirely, because `.get()` returns None either way.
+        """
+        for label, rows in (
+            ("get_batch_rows", get_batch_rows(self.batch.name)["rows"]),
+            ("get_outflow_rows", get_outflow_rows(scope="all", limit=200)["rows"]),
+        ):
+            self.assertTrue(rows, f"{label}: fixture precondition")
+            for row in rows:
+                self.assertIn("settlement_origin", row, f"{label} dropped the key")
+
+    def test_a_settled_row_carries_a_NON_BLANK_origin_end_to_end(self):
+        """The other half: present AND populated, through the real endpoint."""
+        settled = [
+            r for r in get_outflow_rows(scope="all", limit=200)["rows"]
+            if r["row_status"] == "Settled"
+        ]
+        if settled:
+            self.assertTrue(all((r["settlement_origin"] or "").strip() for r in settled))
+
+    def test_the_lookup_asks_for_nothing_when_there_are_no_payments(self):
+        """A pure guard on the helper: an empty ask must not build an `IN ()` clause."""
+        self.assertEqual(_payment_order_names([]), {})
+        self.assertEqual(_payment_order_names([None, "", "   "]), {})
+
+
+class TestTheCandidatesTheMatcherCouldNotSeparate(OutflowReviewFixture):
+    """N3: the row says "N records matched and nothing could separate them" -- WHICH N?
+
+    THE DEFECT THIS EXISTS FOR. `_sweep_unresolved_to_mismatched` writes that sentence and the
+    reviewer opens the row -- into a browse list of the WHOLE approved pool (measured between 322
+    and 1,164 records), with those N unmarked. "Open the row and pick which one it settled" pointed
+    at nothing, and re-finding them by eye is exactly the work the match run had already done.
+
+    ⚠️ THE FIXTURE IS BUILT TO DEFEAT EVERY OPTION-B RULE IN TURN, and each amount is chosen for
+    that. Two approved payments, same project, EQUIDISTANT from the bank amount (+/- Re 1):
+      * M1 project-in-remark  -- needs exactly ONE candidate on the named project; both are on it.
+      * M2 nearest-amount     -- needs one STRICTLY nearer; they are the same distance away.
+      * M3 interchangeable    -- needs the SAME amount; 6630.77 and 6632.77 differ.
+      * M4 nearest-date       -- both payments carry no approval date at all, so it is silent.
+    Take any one of those away and the row resolves, the sweep never runs, and this class goes
+    green while testing nothing.
+    """
+
+    BANK = 6631.77
+    NEAR_LOW = 6630.77
+    NEAR_HIGH = 6632.77
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.amb_project = f"TEST-OFP-{frappe.generate_hash(length=10)}"
+        cls.amb_project_name = f"Marlowfield{frappe.generate_hash(length=6)}"
+        frappe.db.sql(
+            """
+            INSERT INTO "tabProjects" (name, creation, modified, modified_by, owner, docstatus, idx,
+                                       project_name)
+            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s)
+            """,
+            (cls.amb_project, "Administrator", "Administrator", cls.amb_project_name),
+        )
+
+        from nirmaan_stack.services.outflow_import.normalize import normalize_account
+
+        cls.row_name = frappe.db.get_value(
+            ROW_DOCTYPE,
+            {"import_batch": cls.batch.name, "transfer_id": cls._row("0009").transfer_id},
+            "name",
+        )
+        frappe.db.set_value(
+            ROW_DOCTYPE,
+            cls.row_name,
+            {
+                "bank_account": "70000000009",
+                "normalized_account": normalize_account("70000000009"),
+                "ifsc": "TEST0009999",
+                "amount": cls.BANK,
+                "remarks": f"{cls.amb_project_name} materials",
+                # Tier 0 must not fire, or the reference decides and there is no ambiguity left.
+                "bank_reference_no": None,
+                "normalized_reference": None,
+            },
+            update_modified=False,
+        )
+        cls.pay_low = cls._insert_payment_row(
+            amount=cls.NEAR_LOW, status="Approved", utr="PO/AMB/00001/25-26",
+            payment_date=None, project=cls.amb_project,
+        )
+        cls.pay_high = cls._insert_payment_row(
+            amount=cls.NEAR_HIGH, status="Approved", utr="PO/AMB/00002/25-26",
+            payment_date=None, project=cls.amb_project,
+        )
+        frappe.db.commit()
+        match_batch(cls.batch.name)
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("Projects", {"name": cls.amb_project})
+        super().tearDownClass()
+
+    def test_the_precondition_the_row_really_was_swept_for_being_unseparable(self):
+        """⚠️ ASSERTED, NOT ASSUMED. If any Option-B rule started separating these two, the row
+        would carry a suggestion and the assertions below would be about a case that no longer
+        exists."""
+        after = frappe.db.get_value(
+            ROW_DOCTYPE, self.row_name, ["row_status", "outcome_note", "suggested_name"],
+            as_dict=True,
+        )
+        self.assertEqual(after.row_status, "Mismatched")
+        self.assertFalse((after.suggested_name or "").strip())
+        self.assertIn("nothing could separate them", after.outcome_note or "")
+
+    def test_the_endpoint_names_the_records_the_note_only_counted(self):
+        payload = get_row_candidates(self.row_name)
+        named = {(c["doctype"], c["name"]) for c in payload["settleable_candidates"]}
+        self.assertEqual(
+            named,
+            {("Project Payments", self.pay_low), ("Project Payments", self.pay_high)},
+        )
+
+    def test_the_count_the_note_states_is_the_count_the_screen_can_mark(self):
+        """⚠️ THE ONE-LIST GUARANTEE, AND IT IS THE WHOLE POINT OF THE SLICE.
+
+        The sentence was written from `_disambiguation_candidates` at match time and the marks are
+        read from it now. If the endpoint ever builds its own list, this is what goes red -- before
+        a reviewer is told "6 records matched" over a table marking four.
+        """
+        note = frappe.db.get_value(ROW_DOCTYPE, self.row_name, "outcome_note") or ""
+        payload = get_row_candidates(self.row_name)
+        self.assertIn(str(len(payload["settleable_candidates"])), note)
 
 
 class TestImportSummaryEndpoint(OutflowReviewFixture):

@@ -24,7 +24,12 @@ from nirmaan_stack.api.outflow_import.expenses import (
     get_expense_types,
     settle_expense,
 )
-from nirmaan_stack.api.outflow_import.review import MATCH_DOCTYPE
+from nirmaan_stack.api.outflow_import.review import MATCH_DOCTYPE, ROW_DOCTYPE
+from nirmaan_stack.services.outflow_import.status import (
+    ORIGIN_ACCEPTED,
+    ORIGIN_NO_SUGGESTION,
+    ORIGIN_OVERRIDDEN,
+)
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
 from nirmaan_stack.services.outflow_import.parser import parse_statement
 from nirmaan_stack.services.outflow_import.settle import (
@@ -208,6 +213,63 @@ class TestSettleExistingExpense(SettlementFixture):
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0]["match_kind"], "Settled")
         self.assertEqual(matches[0]["target_name"], expense)
+
+    def _origin_and_basis(self, row_name):
+        m = frappe.get_all(
+            MATCH_DOCTYPE, filters={"import_row": row_name},
+            fields=["settlement_origin", "match_basis"],
+        )[0]
+        stamped = frappe.db.get_value(ROW_DOCTYPE, row_name, "settlement_origin")
+        return m["settlement_origin"], m["match_basis"], stamped
+
+    def test_a_HAND_FOUND_settlement_says_so_on_both_tiers(self):
+        """⚠️ `match_basis` WAS HARDCODED TO "Manual" ON EVERY SETTLEMENT until slice Q1, so the
+        record meaning MONEY WAS WRITTEN claimed a person had found all 849 of them when the
+        machine had found 843. This fixture's rows carry no suggestion, so Manual is the TRUE
+        answer here -- which is exactly why the next test matters more than this one."""
+        row = self._next_settleable_row()
+        expense = self._make_expense(PROJECT_EXPENSE, row["amount"])
+        settle_expense(row["name"], PROJECT_EXPENSE, expense)
+
+        origin, basis, stamped = self._origin_and_basis(row["name"])
+        self.assertEqual(origin, ORIGIN_NO_SUGGESTION)
+        self.assertEqual(basis, "Manual")
+        self.assertEqual(stamped, ORIGIN_NO_SUGGESTION, "the row's copy must agree")
+
+    def test_ACCEPTING_the_matchers_pick_records_the_TIER_not_Manual(self):
+        """The case the old code got wrong on 843 of 849 rows."""
+        row = self._next_settleable_row()
+        expense = self._make_expense(PROJECT_EXPENSE, row["amount"])
+        frappe.db.set_value(ROW_DOCTYPE, row["name"], {
+            "suggested_doctype": PROJECT_EXPENSE,
+            "suggested_name": expense,
+            "match_basis": "account+IFSC",
+        }, update_modified=False)
+        frappe.db.commit()
+        settle_expense(row["name"], PROJECT_EXPENSE, expense)
+
+        origin, basis, stamped = self._origin_and_basis(row["name"])
+        self.assertEqual(origin, ORIGIN_ACCEPTED)
+        self.assertEqual(basis, "account+IFSC")
+        self.assertEqual(stamped, ORIGIN_ACCEPTED)
+
+    def test_OVERRIDING_the_matchers_pick_keeps_the_tier_and_says_overridden(self):
+        """⚠️ TWO DIFFERENT QUESTIONS SIDE BY SIDE. The matcher DID find something on a strong tier
+        and the reviewer still chose otherwise, so the tier stays `account+IFSC` while the origin
+        says overridden. Collapsing them would lose which of the two happened."""
+        row = self._next_settleable_row()
+        chosen = self._make_expense(PROJECT_EXPENSE, row["amount"])
+        frappe.db.set_value(ROW_DOCTYPE, row["name"], {
+            "suggested_doctype": PROJECT_EXPENSE,
+            "suggested_name": "SOMETHING-ELSE",
+            "match_basis": "account+IFSC",
+        }, update_modified=False)
+        frappe.db.commit()
+        settle_expense(row["name"], PROJECT_EXPENSE, chosen)
+
+        origin, basis, _ = self._origin_and_basis(row["name"])
+        self.assertEqual(origin, ORIGIN_OVERRIDDEN)
+        self.assertEqual(basis, "account+IFSC")
 
     def test_a_requested_non_project_expense_is_now_refused_too(self):
         """⚠️ THIS TEST WAS INVERTED AT V1, and the inversion is the owner's ruling Q3.

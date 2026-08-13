@@ -20,6 +20,10 @@ export interface DNDCItemRow {
   dcQty: number; // sum of DC item quantities for this PO+item
   difference: number; // dnQty - dcQty
   status: ReconcileStatus;
+  /** Ordered quantity not yet received, on a PO that is not already Delivered.
+   *  SEPARATE from `status` on purpose — an item can be delivery-pending AND missing a
+   *  challan, and the single-status model cannot hold both. Drives the Pending DN card. */
+  deliveryPending: boolean;
 }
 
 export interface DNDCPORow {
@@ -33,6 +37,11 @@ export interface DNDCPORow {
   itemsMatched: number;
   itemsTotal: number;
   reconcileStatus: ReconcileStatus;
+  /** ANY billable item on this PO is delivery-pending. Separate from `reconcileStatus`
+   *  because a PO can be both — PO/218 owes a delivery AND a challan, and the rollup can
+   *  only report one. This is what the Pending DN card counts, and what the table's
+   *  status filter and badge must ALSO read, or a PO the card counts is unfindable. */
+  hasDeliveryPending: boolean;
   items: DNDCItemRow[];
 }
 
@@ -250,15 +259,41 @@ export function useDNDCQuantityData(projectId: string | null) {
         const dnQty = itemData.dnQty;
         const difference = dnQty - dcQty;
 
+        // "Pending DN" — ordered quantity not yet received. It is carried as its OWN
+        // FLAG, not as a status, and that is load-bearing: an item can be short on
+        // delivery AND missing a challan at the same time (PO/218 on Nagarjuna Olive
+        // is), so making it a status let it STEAL the item from `no_dc_update` and drop
+        // that PO off the red card — 77 became 76 and stopped agreeing with the
+        // project's DC Pending tile. As a flag it adds a signal without removing one.
+        //
+        // The `Delivered` exclusion mirrors `predicates.is_dn_pending`: a fully
+        // delivered PO has no outstanding delivery obligation by definition. Without it
+        // this project reads 4 against the Overview tile's 2, and 28 vs 5 system-wide.
+        //
+        // Still simpler than that predicate, which also requires `is_dispatched = 1`
+        // and allows a 2.5% tolerance on fractional quantities. Measured on live data
+        // those two make no difference here; if this card ever disagrees with the tile,
+        // they are the first place to look.
+        const deliveryPending =
+          poStatusMap.get(poNumber) !== "Delivered" && itemData.orderedQty > dnQty;
+
+        // The three quantity verdicts are UNTOUCHED — every item keeps exactly the
+        // status it had before this flag existed.
         let status: ReconcileStatus;
-        if (dnQty === 0 && dcQty > 0) {
-          status = "pending_dn";
-        } else if (dcQty >= dnQty) {
+        if (dcQty >= dnQty) {
           status = "matched";
         } else if (dnQty > 0 && dcQty === 0) {
           status = "no_dc_update";
         } else {
           status = "mismatch";
+        }
+
+        // ...with ONE exception. An item with nothing on either side has no meaningful
+        // DC verdict — "matched" at 0 vs 0 is vacuous — and it is exactly the shape the
+        // zero-activity filter used to discard, which is why a PO dispatched with
+        // nothing received appeared nowhere in this report. Label it for what it is.
+        if (deliveryPending && dnQty === 0 && dcQty === 0) {
+          status = "pending_dn";
         }
 
         itemRows.push({
@@ -272,6 +307,7 @@ export function useDNDCQuantityData(projectId: string | null) {
           dcQty,
           difference,
           status,
+          deliveryPending,
         });
       }
 
@@ -293,13 +329,18 @@ export function useDNDCQuantityData(projectId: string | null) {
             dcQty: dcData.qty,
             difference: 0 - dcData.qty,
             status: "matched",
+            deliveryPending: false,
           });
         }
       }
 
-      // 9. Filter zero-activity items
+      // 9. Filter zero-activity items. A pending_dn line is EXEMPT: it has ordered
+      // quantity outstanding, so "nothing has happened here" is false even though both
+      // the DN and DC columns read 0. Without the exemption a PO dispatched with
+      // nothing received is discarded before any verdict runs and appears nowhere in
+      // the report at all — which is what used to happen.
       const activeItems = itemRows.filter(
-        (item) => !(item.dnQty === 0 && item.dcQty === 0)
+        (item) => !(item.dnQty === 0 && item.dcQty === 0) || item.deliveryPending
       );
 
       if (activeItems.length === 0) continue;
@@ -319,18 +360,26 @@ export function useDNDCQuantityData(projectId: string | null) {
 
       const hasMismatch = billableItems.some((i) => i.status === "mismatch");
       const hasNoDCUpdate = billableItems.some((i) => i.status === "no_dc_update");
-      const hasPendingDN = billableItems.some((i) => i.status === "pending_dn");
+      const hasDeliveryPending = billableItems.some((i) => i.deliveryPending);
+      // The FLAG, not the status. A PO whose delivery gap sits on an item that IS
+      // challaned carries no `pending_dn` STATUS anywhere (its items read "matched"
+      // against the DC), so a status-based test badged it Fully Matched while the
+      // Pending DN card counted it — the card and the badge disagreeing about the same
+      // row. PO/218 on Nagarjuna Olive is exactly that: 36 ordered, 12 received, the 12
+      // fully challaned. Ranked BELOW mismatch and no_dc_update, so it can only override
+      // "matched" — it never takes a PO off the No DC Update card.
 
       let reconcileStatus: ReconcileStatus;
       if (hasMismatch) {
         reconcileStatus = "mismatch";
       } else if (hasNoDCUpdate) {
         reconcileStatus = "no_dc_update";
-      } else if (hasPendingDN) {
+      } else if (hasDeliveryPending) {
         reconcileStatus = "pending_dn";
       } else {
         reconcileStatus = "matched";
       }
+
 
       resultRows.push({
         poNumber,
@@ -343,6 +392,7 @@ export function useDNDCQuantityData(projectId: string | null) {
         itemsMatched: matchedItems,
         itemsTotal: billableItems.length,
         reconcileStatus,
+        hasDeliveryPending,
         items: activeItems,
       });
     }
@@ -359,11 +409,16 @@ export function useDNDCQuantityData(projectId: string | null) {
           itemName: dcData.itemName,
           category: dcData.category,
           unit: dcData.unit,
+          // Pre-existing omission, surfaced once the summary began reading this field:
+          // DNDCItemRow requires billingStatus and this DC-only branch never set it.
+          // "Billable" matches the sibling orphan-item branch above.
+          billingStatus: "Billable",
           orderedQty: 0,
           dnQty: 0,
           dcQty: dcData.qty,
           difference: 0 - dcData.qty,
           status: "matched",
+          deliveryPending: false,
         });
       }
 
@@ -379,6 +434,8 @@ export function useDNDCQuantityData(projectId: string | null) {
 
       resultRows.push({
         poNumber,
+        // A DC-only PO has no PO items at all, so nothing can be delivery-pending.
+        hasDeliveryPending: false,
         vendorName: dcDoc?.vendor ?? "",
         billingStatus: poBillingMap.get(poNumber) ?? "",
         totalOrderedQty: 0,
@@ -400,7 +457,15 @@ export function useDNDCQuantityData(projectId: string | null) {
     const matchedPOs = billableRows.filter((r) => r.reconcileStatus === "matched").length;
     const mismatchPOs = billableRows.filter((r) => r.reconcileStatus === "mismatch").length;
     const noDCUpdatePOs = billableRows.filter((r) => r.reconcileStatus === "no_dc_update").length;
-    const pendingDNPOs = billableRows.filter((r) => r.reconcileStatus === "pending_dn").length;
+    // Counted from the ITEMS, not from `reconcileStatus`. A PO can owe both a delivery
+    // and a challan — PO/218 on Nagarjuna Olive does — and the rollup gives each PO one
+    // verdict, so counting by rollup would drop such a PO off this card (it ranks below
+    // no_dc_update). Ranking pending_dn higher instead would move it OFF "No DC Update",
+    // breaking that card's agreement with the project's DC Pending tile. So this card
+    // OVERLAPS the other three rather than partitioning with them, exactly as the
+    // Overview page shows DC Pending and DN Pending as two independent tiles.
+    // Consequence: the four cards no longer sum to the PO total.
+    const pendingDNPOs = billableRows.filter((r) => r.hasDeliveryPending).length;
 
     return {
       poRows: resultRows,
