@@ -211,10 +211,26 @@ export const ImportSummaryPanel = ({
                                     totals.failed_rows > 0 ? "successful " : ""
                                 }transfer${totals.total_rows === 1 ? "" : "s"}`}
                             />
+                            {/* ⚠️ THE SUB-LINE SAYS HOW MANY THE MATCHER FOUND (slice Q1), and
+                                until then nothing on this screen could answer it: every settlement
+                                record was stamped "Manual", so the money record claimed a person
+                                had found all of them when the machine had found 99%.
+
+                                It reports the AUTO half and lets the reader subtract, rather than
+                                printing both -- two numbers that must sum to `settled_rows` are two
+                                chances to disagree with it. Silent when nothing is settled, and
+                                when the count is absent (an older payload), so the tile degrades to
+                                exactly what it said before rather than reading "0 from a
+                                suggestion" on data that simply predates the field. */}
                             <Figure
                                 label="Settled"
                                 value={formatToRoundedIndianRupee(totals.settled_value)}
-                                sub={`${totals.settled_rows} recorded`}
+                                sub={
+                                    totals.settled_rows > 0 &&
+                                    totals.settled_from_suggestion != null
+                                        ? `${totals.settled_rows} recorded · ${totals.settled_from_suggestion} auto-matched`
+                                        : `${totals.settled_rows} recorded`
+                                }
                                 tone="emerald"
                             />
                             {/* ⚠️ THE ONE FIGURE THAT SAYS WHETHER THE WORK IS FINISHED. Counts

@@ -75,6 +75,7 @@ from nirmaan_stack.services.outflow_import.stacks import (
     stack_surplus_note,
 )
 from nirmaan_stack.services.outflow_import.status import (
+    ORIGIN_ACCEPTED,
     OPEN_ROW_STATUSES,
     settleable_candidates,
     ROW_ERROR,
@@ -1616,6 +1617,16 @@ _FACET_COLUMNS = {
     "bank_account": "r.bank_account",
     "ifsc": "r.ifsc",
     "import_batch": "r.import_batch",
+    # ⚠️ ONE LINE, AND EVERY CONSUMER INHERITS IT (slice Q1) -- the page query, its count, the tab
+    # counts, the facet values AND the summary all read `_row_filters`. That is the whole payoff of
+    # the shared builder, and the reason this needed no new query.
+    #
+    # It reads the row's DENORMALISED copy, not a join to `Outflow Row Match`. The copy exists for
+    # exactly this: a facet over a joined table would need an EXISTS subquery in a builder whose
+    # every other clause is single-table, and the two tiers are written in one call so they cannot
+    # disagree. Blank on every unsettled row, which is honest -- an open transfer has no settlement
+    # to have an origin.
+    "settlement_origin": "r.settlement_origin",
     # ⚠️ `added_on` WAS REMOVED AT P1 AND MUST NOT COME BACK. The payment date is a DATE FILTER now
     # (`date_from` / `date_to`, applied in `_row_filters`), which is the one shape a facet cannot
     # serve: an IN list over distinct days grows without limit as the table does, and cannot express
@@ -2502,12 +2513,16 @@ def get_outflow_summary(
                COALESCE(SUM(CASE WHEN COALESCE(r.suggested_name, '') <> ''
                                  THEN r.amount ELSE 0 END), 0)     AS suggested_value,
                COALESCE(SUM(CASE WHEN COALESCE(r.decided_by, '') = ''
-                                 THEN 1 ELSE 0 END), 0)            AS undecided_by_a_person
+                                 THEN 1 ELSE 0 END), 0)            AS undecided_by_a_person,
+               -- Settlements that took the matcher's own pick (slice Q1). Reads the row's
+               -- denormalised copy, so this stays ONE grouped query over ONE table.
+               COALESCE(SUM(CASE WHEN r.settlement_origin = %s
+                                 THEN 1 ELSE 0 END), 0)            AS from_suggestion
         FROM "tabOutflow Import Row" r
         {clause}
         GROUP BY r.row_status, UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s
         """,
-        (BANK_SUCCESS_STATUS,) + tuple(params) + (BANK_SUCCESS_STATUS,),
+        (BANK_SUCCESS_STATUS, ORIGIN_ACCEPTED) + tuple(params) + (BANK_SUCCESS_STATUS,),
         as_dict=True,
     )
 
@@ -2519,6 +2534,7 @@ def get_outflow_summary(
             with_suggestion=int(g["with_suggestion"] or 0),
             suggested_value=normalize_amount(g["suggested_value"]),
             failed=bool(g["failed"]),
+            from_suggestion=int(g["from_suggestion"] or 0),
         )
         for g in grouped
     )

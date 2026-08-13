@@ -110,6 +110,16 @@ export const OUTFLOW_COLUMNS: OutflowColumn[] = [
     // naming it in every row would have been noise. The master table spans every import, and
     // "which statement did this come from" becomes a real question the moment it does.
     { id: "import_batch", title: "Import", get: (r) => r.import_filename ?? r.import_batch ?? "", filter: "facet", width: "170px" },
+    // ⚠️ HIDDEN BY DEFAULT ON PURPOSE (slice Q1, owner: "filter + summary only"). In this table a
+    // FILTER IS A COLUMN HEADER -- the funnel lives in the `<th>` -- so there is no way to offer a
+    // facet without declaring a column. Hidden-by-default is the honest resolution: the table looks
+    // exactly as it did, and the funnel is one click away in the column picker. Do NOT add a second
+    // filter path to avoid the column; `_row_filters` being the single builder is what keeps the
+    // page, its count, the tabs and the summary from disagreeing.
+    //
+    // Blank on every unsettled row, which is correct -- an open transfer has no settlement yet, so
+    // it has no origin. The facet's own "(blank)" entry is what selects them.
+    { id: "settlement_origin", title: "Settled via", get: (r) => r.settlement_origin ?? "", filter: "facet", hiddenByDefault: true, width: "170px" },
     { id: "bank_account", title: "Bank a/c", get: (r) => r.bank_account ?? "", filter: "facet", mono: true, hiddenByDefault: true, width: "120px" },
     { id: "ifsc", title: "IFSC", get: (r) => r.ifsc ?? "", filter: "facet", mono: true, hiddenByDefault: true, width: "120px" },
     { id: "time", title: "Time", get: (r) => timeOnly(r.added_on), filter: "facet", mono: true, hiddenByDefault: true, width: "84px" },
@@ -556,6 +566,8 @@ export const summaryTiles = (totals: {
     matched_rows: number;
     mismatched_rows: number;
     settled_rows: number;
+    /** Of `settled_rows`, how many took the matcher's own pick (slice Q1). */
+    settled_from_suggestion?: number;
     skipped_rows: number;
     pending_rows: number;
     error_rows: number;

@@ -43,6 +43,7 @@ pick one ad-hoc; ask.
 | The settlement write | `services/outflow_import/settle.py` + the one orchestrator `api/outflow_import/expenses.settle_row` | write to a ledger from anywhere else in this feature |
 | **May a transfer pay PART of a record, or is the gap a DEDUCTION?** (PS + TD) | `services/outflow_import/partial_settle.py` (`partial_eligibility`, `deduction_eligibility`, `looks_like_tds`, `TDS_BAND_*`, `SERVICE_DOCTYPE`, `INTENT_*`) — pure. `deduction_eligibility` LAYERS on `partial_eligibility`; the shared shape half has one copy | let it reach the MATCHER. `matcher`, `disambiguate`, `status`, `stacks`, `claims` and `candidates` must not import it (pinned by a test). A partial sits OUTSIDE the ±₹5 settle window that gates every other write here; it is safe only because a person opens it on one specific row, and the moment the matcher can reach it that sentence stops being true. The frontend mirror `outflowTableModel.partialOffer` is a CONVENIENCE — the server re-asserts the whole gate under a row lock |
 | **Splitting a Project Payment in two** (PS-1) | `services/payment_split.py` (`split_payment`; `split_and_approve` is a thin wrapper) — SHARED with the CEO partial approval | fork it for the second caller. ONE concept, ONE owner (ADR-0010 B1): two copies of the sum invariant and the PO-term surgery would drift, and the symptom is a PO whose terms stopped adding up, months later, with no way to tell which copy wrote it. **Every parameter defaults to the CEO behaviour**, which is what makes `test_payment_split`'s 26 original tests the proof that generalising it changed nothing |
+| **Did a settlement take the machine's pick?** (Q1) | `services/outflow_import/status.py` (`settlement_origin`, `ORIGIN_*`) — pure | re-derive the accepted/overridden/no-suggestion test. THREE callers share it: the settle path, the summary aggregate, and the backfill patch. ⚠️ It is in `services/` because `api/expenses.py` imports `api/review.py`, so the reverse would be a cycle. ⚠️ NOT `auto_matched`, which means only "a suggestion existed" |
 | **What makes two staged transfers THE SAME transfer** (D3) | `services/outflow_import/duplicates.py` (`row_identity`, `dates_agree`, `RowIdentity`) — pure | key a duplicate check on anything else. THREE readers: the cross-batch lookup (`candidates.find_earlier_batches_for_rows`), the in-file repeat check in `upload._stage_batch`, and the parser's `_duplicate_transfer_ids`. They used to key on `transfer_id` independently; a key that differed between them would let one call two rows duplicates while another called them distinct, on the same file. ⚠️ It is **NOT** the `Outflow Row Match` unique constraint — that stays `(transfer_id, target_doctype, target_name)` and is the money guarantee; this is about WORK, and may be more discriminating |
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
 | **Where a settled/matched record's link GOES** (E3) | `frontend/.../outflow-import/outflowTableModel.ts` (`settlementLink`, `orderPaymentsHref`) + `review._payment_order_names` / `_with_order_names` server-side | build a payments URL at a render site, or render one through a raw `<a href>`. A payment links to its ORDER (`/project-payments/<id>` with `/` escaped as `&=`) because that is what the app's other twelve call sites do; `paymentHref`'s search-param scheme is the FALLBACK only. ⚠️ The router carries a `basename` (`VITE_BASE_NAME`: `""` dev, `'frontend'` prod), so an anchor resolves to the SERVER ROOT and 404s in production while working in dev |
@@ -1422,6 +1423,92 @@ rewritten to use a real period value instead of the default.
 
 ---
 
+## Which settlements the machine actually found (slice Q1, 2026-08-13)
+
+**The question could not be answered at all**, and three things stood in the way.
+
+### ⚠️ The money record claimed a human found everything
+
+`expenses._record_settlement` hardcoded `match_basis = "Manual"` on EVERY settlement. It was not
+merely lazy: **`Outflow Row Match.match_basis` was a Select whose options were
+`Bank reference / Vendor+amount+date / Manual`, and neither of the first two is a tier the matcher
+produces** — so `Manual` was the only value that would validate. Measured before the fix: **849
+settlements, all stamped `Manual`, of which 843 had been found by the machine.**
+
+The Select now carries the matcher's own vocabulary (`reference` / `account+IFSC` /
+`project in remark` / `Manual`) — the same one `Outflow Import Row.match_basis` has always used.
+
+### ⚠️ `auto_matched` does not mean "auto-matched"
+
+It is `1 if suggestion else 0` — **"this row HAS a suggestion"**, a fact about a proposal, not an
+outcome. It is test-pinned to track `suggested_name` exactly, and `suggested_name` is blanked on
+every re-run that no longer finds a single candidate. It was accurate on live data by luck (843,
+matching the derived count) because nobody had ever overridden a suggestion; the moment somebody
+does, it still reads 1. **It is untouched — renaming means a migration and Desk filters — and it is
+NOT the field to read.**
+
+### The new fact: `settlement_origin`
+
+Three values, on BOTH `Outflow Row Match` and (denormalised) `Outflow Import Row`:
+
+| Value | Means |
+|---|---|
+| `Suggestion accepted` | The matcher proposed this record; a person confirmed it unchanged |
+| `Suggestion overridden` | The matcher proposed a different record; the person chose this one |
+| `No suggestion` | The matcher offered nothing; the person found it |
+
+⚠️ **DELIBERATELY NOT CALLED "AUTO".** A human clicks confirm on every settlement this feature
+makes, so *accepted* is true where *automatic* would not be.
+
+⚠️ **A BLANK SUGGESTION IS NOT A MISMATCHED ONE.** A fan-out has no single suggestion by design and
+a row the matcher never touched has none either — both are "the person found it", a different fact
+from "the person disagreed with us". Collapsing them reports every hand-found settlement as a
+disagreement with a machine that never spoke.
+
+⚠️ **`match_basis` AND `settlement_origin` ARE TWO QUESTIONS SIDE BY SIDE** — *how was it found* and
+*did a person accept that*. A row can legitimately read `account+IFSC` + `Suggestion overridden`:
+the matcher found something on a strong tier and the reviewer still chose otherwise.
+
+**The verdict lives in `status.settlement_origin`** — pure, and shared by three callers (the settle
+path, the summary aggregate, the backfill patch). ⚠️ **It is in `services/` and had to be**:
+`api/expenses.py` imports from `api/review.py`, so `review.py` importing back for the summary's
+count would be a cycle. api → service is the one legal direction.
+
+### The 849 historical settlements were RECOVERED, not written off
+
+`patches/v3_0/backfill_outflow_settlement_origin.py`. ⚠️ **This was only possible because a match
+run touches OPEN rows only** (`WHERE row_status IN %(open)s`) and `Settled` is terminal — so a
+settled row keeps its `suggested_name` indefinitely. **Do not "tidy" the match run into clearing
+terminal rows.** Idempotent (only blank rows are touched), dry-run verified to reproduce the
+measured **843 / 6 / 0** split before writing, and it uses `set_value(update_modified=False)` so an
+audit does not read as though all 849 were edited today.
+
+### Surfacing it
+
+**Filter:** one line in `_FACET_COLUMNS`. Every consumer inherits it — page query, its count, the
+tab counts, the facet values AND the summary — because they all read `_row_filters`. That is the
+payoff of the shared builder, and it needed no new query.
+
+⚠️ **The column is HIDDEN BY DEFAULT because in this table a FILTER IS A COLUMN HEADER.** The owner
+asked for a filter and a summary number, not a column; the funnel lives in the `<th>`, so
+hidden-by-default is the honest resolution. **Do not add a second filter path to avoid the column** —
+the single builder is what stops the panel and the tabs disagreeing.
+
+**Summary:** `settled_from_suggestion` on the tally and the summary dict. ⚠️ **NOT `with_suggestion`**,
+which counts rows *carrying* a pick (only ever non-zero on `Matched`) — work waiting to be
+confirmed. A row moves from one to the other by being confirmed, so summing them double-counts the
+same transfer at two moments of its life. The hand-found count is the remainder and is deliberately
+**not** sent as its own key: two numbers that must sum to a third are two chances to disagree.
+
+Verified end to end on live data: summary **849 / 843 / 6**, facet filters to 843 and 6.
+
+### ⚠️ Migrate-carrying
+
+Two new fields plus a widened Select. Pullers need `bench --site localhost migrate`. The
+`patches.txt` wiring line is added EXTERNALLY by the maintainer, per this repo's convention.
+
+---
+
 ## Known limits, accepted with numbers
 
 - **TDS payments will not MATCH** — the matcher is untouched and a deduction-sized gap reaches no
@@ -1467,10 +1554,10 @@ rewritten to use a real period value instead of the default.
 
 | Suite | How |
 |---|---|
-| pure services (13 modules, **449** tests) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed (441 before D3, 409 before PS) |
-| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` — `test_upload` **31** (25 before D3), `test_review` **148** (143 before E3, 137 before N3), `test_expenses` **31**, `test_settle_payment` **54** (39 after PS, 25 before), `test_approved` **16** |
+| pure services (13 modules, **457** tests) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed (441 before D3, 409 before PS) |
+| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` — `test_expenses` **34** (31 before Q1), `test_upload` **31** (25 before D3), `test_review` **148** (143 before E3, 137 before N3), `test_expenses` **31**, `test_settle_payment` **54** (39 after PS, 25 before), `test_approved` **16** |
 | the SHARED split (CEO + partial settlement) | `… --module nirmaan_stack.api.payments.test_payment_split` — **31** (26 before PS-1; those 26 are the proof the CEO path is unchanged) |
-| frontend | `yarn test` (vitest, `node` environment — pure helpers only). **316** across this feature (305 before E1-E3, 287 before D1/D2, 267 before N2); **2,503** repo-wide. ⚠️ `POAdjustment/writeOffControl.test.ts` has a PRE-EXISTING flake unrelated to this feature -- one case `await import`s the very large `SheetPricingPage` and trips vitest's 5s default on a loaded machine; it passes at `--testTimeout=60000`. |
+| frontend | `yarn test` (vitest, `node` environment — pure helpers only). **317** across this feature (316 before Q1, 305 before E1-E3, 287 before D1/D2, 267 before N2); **2,503** repo-wide. ⚠️ `POAdjustment/writeOffControl.test.ts` has a PRE-EXISTING flake unrelated to this feature -- one case `await import`s the very large `SheetPricingPage` and trips vitest's 5s default on a loaded machine; it passes at `--testTimeout=60000`. |
 
 ⚠️ **A TEST THAT PASSES BEFORE AND AFTER A BEHAVIOUR CHANGE IS EVIDENCE OF NEITHER.** Every
 pre-existing `test_upload` test stayed green when the duplicate key widened at D3, because none of

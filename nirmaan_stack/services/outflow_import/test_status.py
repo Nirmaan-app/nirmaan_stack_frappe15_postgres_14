@@ -29,6 +29,10 @@ from nirmaan_stack.services.outflow_import.matcher import (
     VendorResolution,
 )
 from nirmaan_stack.services.outflow_import.status import (
+    ORIGIN_ACCEPTED,
+    ORIGIN_NO_SUGGESTION,
+    ORIGIN_OVERRIDDEN,
+    settlement_origin,
     BATCH_COMPLETED,
     BATCH_DRAFT,
     BATCH_IN_REVIEW,
@@ -849,3 +853,56 @@ class TestPurity(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSettlementOrigin(unittest.TestCase):
+    """The three-way verdict shared by the settle path and the backfill patch (slice Q1)."""
+
+    def test_the_matchers_pick_confirmed_unchanged_is_ACCEPTED(self):
+        self.assertEqual(settlement_origin("PAY-1", "PAY-1"), ORIGIN_ACCEPTED)
+
+    def test_a_different_record_is_OVERRIDDEN(self):
+        self.assertEqual(settlement_origin("PAY-1", "PAY-2"), ORIGIN_OVERRIDDEN)
+
+    def test_no_suggestion_is_ITS_OWN_ANSWER_not_an_override(self):
+        # ⚠️ THE DISTINCTION THAT MATTERS. A fan-out has no single suggestion by design and a row
+        # the matcher never touched has none either -- both are "the person found it", which is a
+        # different fact from "the person disagreed with us". Collapsing them would report every
+        # hand-found settlement as a disagreement with a machine that never spoke.
+        for blank in (None, "", "   "):
+            self.assertEqual(settlement_origin(blank, "PAY-1"), ORIGIN_NO_SUGGESTION)
+
+    def test_it_trims_before_comparing(self):
+        self.assertEqual(settlement_origin("  PAY-1 ", "PAY-1"), ORIGIN_ACCEPTED)
+
+    def test_the_three_values_are_the_doctype_Select_options(self):
+        # A value outside the Select silently fails to save on a Frappe insert.
+        self.assertEqual(
+            {ORIGIN_ACCEPTED, ORIGIN_OVERRIDDEN, ORIGIN_NO_SUGGESTION},
+            {"Suggestion accepted", "Suggestion overridden", "No suggestion"},
+        )
+
+
+class TestSettledFromSuggestionInTheSummary(unittest.TestCase):
+    def test_it_counts_only_SETTLED_tallies(self):
+        # ⚠️ NOT `with_suggestion`, WHICH COUNTS A DIFFERENT MOMENT. That one counts rows CARRYING a
+        # pick (only ever non-zero on `Matched`) -- work waiting to be confirmed. This counts
+        # settlements where a person confirmed that pick. A row moves from one to the other by being
+        # confirmed, so summing them double-counts the same transfer twice in its life.
+        summary = derive_import_summary([
+            StatusTally(status=ROW_SETTLED, count=10, from_suggestion=8),
+            StatusTally(status=ROW_MATCHED, count=5, with_suggestion=5, from_suggestion=99),
+        ])
+        self.assertEqual(summary["settled_rows"], 10)
+        self.assertEqual(summary["settled_from_suggestion"], 8)
+
+    def test_it_defaults_to_zero_so_an_unaware_caller_still_derives(self):
+        summary = derive_import_summary([StatusTally(status=ROW_SETTLED, count=3)])
+        self.assertEqual(summary["settled_from_suggestion"], 0)
+
+    def test_the_hand_found_count_is_the_remainder_and_is_not_sent_separately(self):
+        summary = derive_import_summary([
+            StatusTally(status=ROW_SETTLED, count=849, from_suggestion=843),
+        ])
+        self.assertEqual(summary["settled_rows"] - summary["settled_from_suggestion"], 6)
+        self.assertNotIn("settled_by_hand", summary)

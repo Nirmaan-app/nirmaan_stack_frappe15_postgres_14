@@ -92,7 +92,12 @@ from nirmaan_stack.services.outflow_import.settle import (
     settle_existing_expense,
     settle_payment,
 )
-from nirmaan_stack.services.outflow_import.status import ROW_SETTLED, ROW_SKIPPED
+from nirmaan_stack.services.outflow_import.status import (
+    ORIGIN_ACCEPTED,
+    ROW_SETTLED,
+    ROW_SKIPPED,
+    settlement_origin,
+)
 
 # The one status a partial settlement reads or writes. Both halves are Approved: the money was
 # already sanctioned, and this import re-partitions a sanction rather than creating one.
@@ -653,7 +658,16 @@ def _record_settlement(staged, doc, result, actor) -> None:
     same transfer settling the same expense twice -- from a re-upload, an overlapping export, or a
     double-clicked button. It is written BEFORE the row flips so a constraint violation aborts the
     settlement rather than leaving a Settled row with nothing behind it.
+
+    ⚠️ `match_basis` USED TO BE THE LITERAL "Manual", ON EVERY SETTLEMENT (fixed at slice Q1). It
+    was not merely lazy: the field's Select options were `Bank reference / Vendor+amount+date /
+    Manual`, which named no tier the matcher actually produces, so "Manual" was the only value that
+    would validate. The result was that the record meaning MONEY WAS WRITTEN claimed a person had
+    found every one of 849 settlements, when the machine had found 843 of them. The options are now
+    the matcher's own vocabulary and the tier is copied from the row, which has carried it all
+    along.
     """
+    origin = settlement_origin(doc.get("suggested_name"), result.name)
     match = frappe.new_doc(MATCH_DOCTYPE)
     match.update(
         {
@@ -664,7 +678,13 @@ def _record_settlement(staged, doc, result, actor) -> None:
             "target_name": result.name,
             "target_amount": float(result.amount),
             "match_kind": "Settled",
-            "match_basis": "Manual",
+            # The tier that FOUND the counterpart, or "Manual" when the matcher found nothing and
+            # the person went looking. ⚠️ Two DIFFERENT questions live side by side here -- this one
+            # is "how was it found", `settlement_origin` is "did a person accept that". A row can be
+            # `account+IFSC` + `Suggestion overridden`: the matcher found something on a strong
+            # tier and the reviewer still chose otherwise.
+            "match_basis": (doc.get("match_basis") or "").strip() or "Manual",
+            "settlement_origin": origin,
             "matched_at": frappe.utils.now_datetime(),
             "matched_by": actor,
         }
@@ -679,6 +699,10 @@ def _record_settlement(staged, doc, result, actor) -> None:
             "outcome_note": _settled_note(result),
             "decided_at": frappe.utils.now_datetime(),
             "decided_by": actor,
+            # ⚠️ DENORMALISED IN THE SAME CALL AS THE STATUS, never on its own -- the safety rule
+            # `auto_matched` already follows. It exists so the review screen can filter and count
+            # settlements by origin without joining the match table.
+            "settlement_origin": origin,
         },
         update_modified=False,
     )

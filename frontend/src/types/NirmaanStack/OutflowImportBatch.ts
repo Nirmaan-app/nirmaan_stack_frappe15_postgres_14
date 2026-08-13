@@ -141,6 +141,15 @@ export interface OutflowImportRow {
      */
     suggested_order_name?: string;
     /**
+     * Whether this settlement took the matcher's pick: "Suggestion accepted" / "Suggestion
+     * overridden" / "No suggestion". Blank until the row is settled (slice Q1).
+     *
+     * ⚠️ NOT `auto_matched`, which means only that a suggestion EXISTED and says nothing about
+     * whether a person accepted it. Denormalised from `Outflow Row Match` so the table can filter
+     * and count on it without a join.
+     */
+    settlement_origin?: string;
+    /**
      * Which import staged this row.
      *
      * ⚠️ `import_batch` HAS ALWAYS EXISTED ON THE DOCTYPE; what is new at X3 is that the SCREEN
@@ -246,6 +255,15 @@ export interface OutflowImportSummary {
         decided_percent: number;
         settled_rows: number;
         settled_value: number;
+        /**
+         * Of `settled_rows`, how many took the matcher's own pick (slice Q1).
+         *
+         * ⚠️ OPTIONAL, so an older payload renders the tile exactly as it did before rather than
+         * claiming "0 auto-matched" on data that simply predates the field. The hand-found count is
+         * `settled_rows - settled_from_suggestion` and is deliberately not sent: two numbers that
+         * must sum to a third are two chances to disagree with it.
+         */
+        settled_from_suggestion?: number;
         skipped_rows: number;
         skipped_value: number;
         matched_rows: number;

@@ -114,10 +114,32 @@ describe("columns", () => {
         ]);
     });
 
-    it("ships bank a/c, IFSC and time hidden", () => {
+    it("ships settled-via, bank a/c, IFSC and time hidden", () => {
         // Real and occasionally needed; putting them in the default row costs every reader
         // horizontal space on every visit to serve a rare lookup.
-        expect(DEFAULT_HIDDEN_COLUMNS).toEqual(["bank_account", "ifsc", "time"]);
+        //
+        // ⚠️ `settlement_origin` JOINED THIS LIST AT SLICE Q1, DELIBERATELY. The owner asked for a
+        // FILTER and a summary number, not a column -- but in this table a filter IS a column
+        // header, because the funnel lives in the `<th>`. Hidden-by-default is the honest
+        // resolution: the table looks exactly as it did and the funnel is one click away in the
+        // column picker. The alternative -- a second filter path that bypasses OUTFLOW_COLUMNS --
+        // would break the single-builder guarantee that keeps the page, its count, the tabs and
+        // the summary from disagreeing.
+        expect(DEFAULT_HIDDEN_COLUMNS).toEqual([
+            "settlement_origin",
+            "bank_account",
+            "ifsc",
+            "time",
+        ]);
+    });
+
+    it("offers settled-via as a FACET, so the values come from the database", () => {
+        // The three origins are a closed vocabulary, but the facet is still the right shape: it is
+        // the one filter kind `_row_filters` already serves over the whole filtered table rather
+        // than over the loaded page.
+        const col = OUTFLOW_COLUMNS.find((c) => c.id === "settlement_origin")!;
+        expect(col.filter).toBe("facet");
+        expect(col.title).toBe("Settled via");
     });
 
     it("gives Outcome no filter, because it is a button and not text", () => {
