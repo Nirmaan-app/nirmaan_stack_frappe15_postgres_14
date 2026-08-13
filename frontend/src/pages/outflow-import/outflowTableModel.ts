@@ -31,6 +31,53 @@ import type {
     OutflowRowsPage,
 } from "@/types/NirmaanStack/OutflowImportBatch";
 
+/**
+ * The reference this transfer is known by, whichever field the source puts it in.
+ *
+ * ⚠️ IT IS NOT ALWAYS A UTR, WHICH IS WHY THE COLUMN IS NO LONGER CALLED ONE (slice CF/S1). A bank
+ * transfer carries a `bank_reference_no` and that becomes the settled record's `payment_ref`. A
+ * petty-cash wallet issues no UTR at all -- its own `transfer_id` is the only value that will ever
+ * find the spend again in the wallet's records, and `create_expense_from_row` writes exactly that
+ * into `payment_ref` for a Cashbook row. So the column rendered EMPTY on every Cashbook row while
+ * the expense it created carried a reference: the screen was hiding the one fact that reconciles
+ * the two systems.
+ *
+ * The fallback is deliberately one-way. A Cashfree row always has a bank reference, so it is never
+ * reached there; nothing about the bank path changes.
+ */
+export function referenceValue(row: OutflowImportRow): string {
+    const bank = (row.bank_reference_no ?? "").trim();
+    if (bank) return bank;
+    return (row.transfer_id ?? "").trim();
+}
+
+/** Beyond this many characters a reference is shown by its tail. */
+export const REFERENCE_DISPLAY_MAX = 12;
+
+/**
+ * The reference as the table SHOWS it: the last 12 characters when it is longer (owner ruling).
+ *
+ * ⚠️ DISPLAY ONLY, AND BOTH HALVES OF THAT MATTER.
+ *
+ * (a) IT MUST NEVER REACH A STORED VALUE. `payment_ref` is what finds this payment at the other
+ *     end -- the Cashbook slice shipped 115 expenses with a blank reference once, and a truncated
+ *     one is the same defect wearing a value. Nothing in `settle.py` calls this.
+ *
+ * (b) IT MUST NEVER REACH `column.get`. That function feeds the sort, the funnels and
+ *     `get_outflow_facet_values`, so truncating there would mean pasting a full UTR into the search
+ *     box and finding nothing -- silently, because a search that matches no rows looks exactly like
+ *     a search with no results. `get` keeps the whole value; the cell keeps the whole value in its
+ *     `title`; only the visible text is short.
+ *
+ * A wallet id is long and front-loaded with a constant prefix, so the TAIL is the part that
+ * distinguishes two of them. Taking the head would show twelve identical characters.
+ */
+export function shortReference(text: string | null | undefined): string {
+    const value = (text ?? "").trim();
+    if (value.length <= REFERENCE_DISPLAY_MAX) return value;
+    return value.slice(-REFERENCE_DISPLAY_MAX);
+}
+
 /** Which ledger a row is being settled against, or a brand-new expense. */
 export type DecisionTarget =
     | "Project Payments"
@@ -98,7 +145,13 @@ export const OUTFLOW_COLUMNS: OutflowColumn[] = [
     { id: "beneficiary_name", title: "Beneficiary", get: (r) => r.beneficiary_name ?? "", filter: "facet", width: "230px" },
     { id: "amount", title: "Amount Paid", get: (r) => r.amount ?? 0, filter: "range", align: "right", width: "140px" },
     { id: "remarks", title: "Remarks", get: (r) => r.remarks ?? "", filter: "text", width: "230px" },
-    { id: "bank_reference_no", title: "Reference (UTR)", get: (r) => r.bank_reference_no ?? "", filter: "text", mono: true, width: "170px" },
+    // ⚠️ "Reference", NOT "Reference (UTR)" (owner ruling, slice CF/S1). A Cashbook row has no UTR
+    // and never will -- `referenceValue` falls back to the wallet's own transaction id, which is
+    // what that row's expense carries as its `payment_ref`. The Source column beside this one says
+    // which kind of reference the reader is looking at, so the header does not have to.
+    //
+    // ⚠️ `get` RETURNS THE WHOLE VALUE. The shortening is a render concern -- see `shortReference`.
+    { id: "bank_reference_no", title: "Reference", get: (r) => referenceValue(r), filter: "text", mono: true, width: "170px" },
     { id: "row_status", title: "Status", get: (r) => r.row_status ?? "", filter: "facet", width: "130px" },
     // The Outcome cell is a BUTTON, not text, so it neither sorts nor filters -- there is nothing
     // meaningful to order "open this dialog" by.
@@ -109,7 +162,14 @@ export const OUTFLOW_COLUMNS: OutflowColumn[] = [
     // ⚠️ NEW AT X3, AND IT ONLY MAKES SENSE FROM X3 ON. The batch screen showed one import, so
     // naming it in every row would have been noise. The master table spans every import, and
     // "which statement did this come from" becomes a real question the moment it does.
-    { id: "import_batch", title: "Import", get: (r) => r.import_filename ?? r.import_batch ?? "", filter: "facet", width: "170px" },
+    //
+    // ⚠️ HIDDEN BY DEFAULT SINCE CF/S1, NOT DELETED, AND THE DIFFERENCE IS THE FUNNEL. The owner
+    // asked for the column to go; deleting it would have taken the Import FACET with it, because in
+    // this table a filter IS a column header -- there is no way to offer one without declaring the
+    // other (the same constraint `settlement_origin` documents). The Import selector above the
+    // summary covers the common case, and the funnel stays one click away in the column picker. The
+    // table looks exactly as asked and no capability was cut in a refactor.
+    { id: "import_batch", title: "Import", get: (r) => r.import_filename ?? r.import_batch ?? "", filter: "facet", hiddenByDefault: true, width: "170px" },
     // ⚠️ HIDDEN BY DEFAULT ON PURPOSE (slice Q1, owner: "filter + summary only"). In this table a
     // FILTER IS A COLUMN HEADER -- the funnel lives in the `<th>` -- so there is no way to offer a
     // facet without declaring a column. Hidden-by-default is the honest resolution: the table looks
@@ -120,6 +180,11 @@ export const OUTFLOW_COLUMNS: OutflowColumn[] = [
     // Blank on every unsettled row, which is correct -- an open transfer has no settlement yet, so
     // it has no origin. The facet's own "(blank)" entry is what selects them.
     { id: "settlement_origin", title: "Settled via", get: (r) => r.settlement_origin ?? "", filter: "facet", hiddenByDefault: true, width: "170px" },
+    // Visible by default, unlike the other late additions: with two sources the question "is this
+    // a bank transfer or a petty-cash spend?" changes what a row even MEANS -- one settles a
+    // record somebody approved, the other created one. A hidden column would leave the two mixed
+    // in a table that reads as though they behave alike.
+    { id: "source", title: "Source", get: (r) => r.source ?? "", filter: "facet", width: "120px" },
     { id: "bank_account", title: "Bank a/c", get: (r) => r.bank_account ?? "", filter: "facet", mono: true, hiddenByDefault: true, width: "120px" },
     { id: "ifsc", title: "IFSC", get: (r) => r.ifsc ?? "", filter: "facet", mono: true, hiddenByDefault: true, width: "120px" },
     { id: "time", title: "Time", get: (r) => timeOnly(r.added_on), filter: "facet", mono: true, hiddenByDefault: true, width: "84px" },
@@ -350,9 +415,78 @@ export const isDateFilterValue = (
  * it either: a period is the scope somebody chose for the screen, not a narrowing they might have
  * forgotten leaving on.
  */
+/**
+ * The column whose filter IS the screen's source scope (slice CF/S2).
+ *
+ * ⚠️ ONE VALUE, TWO EDITORS — the `Source` control above the summary and this column's own funnel,
+ * exactly as `PERIOD_COLUMN_ID` already works. The two are NOT filters that compose: they select
+ * over one column, so they would AND together, and "Cashfree" chosen above with "Cashbook" ticked
+ * in the funnel selects NOTHING while neither control looks wrong. The page holds the value in
+ * `useOutflowSourceStore` and surfaces it here so the table header renders and edits it like any
+ * other funnel.
+ *
+ * ⚠️ THE STORED SHAPE IS THE FUNNEL'S, NOT THE SELECTOR'S — a `string[]`, because the funnel is a
+ * multi-select and the selector is not. Storing the selector's single value would make the funnel
+ * the lossy editor of the two: ticking both sources would have to collapse to something the
+ * dropdown can say, and the only honest thing it can say is "All", which is a different query.
+ */
+export const SOURCE_COLUMN_ID = "source";
+
+/** The two sources a row can come from. Mirrors the `Outflow Import Batch.source` Select. */
+export const SOURCE_OPTIONS: readonly string[] = ["Cashfree", "Cashbook"];
+
+/**
+ * What the Source dropdown displays for a given selection.
+ *
+ * ⚠️ `mixed` EXISTS BECAUSE "All" WOULD BE A LIE, and this screen has already shipped that defect
+ * once. A deep link left an invisible period applied while the control was hidden, and every number
+ * on the page was wrong with nothing able to reveal it. A dropdown reading "All imports" over a
+ * funnel holding two ticked sources is the same failure in a smaller frame: a control stating a
+ * scope that is not the one being queried.
+ *
+ * With exactly two sources, `mixed` and `all` select the same rows TODAY — but they are different
+ * statements, and the one the reader can act on is "your funnel has both ticked", not "everything".
+ */
+export type SourceSelectorValue = "all" | "mixed" | (string & {});
+
+export const sourceSelectorValue = (selection: readonly string[] | undefined): SourceSelectorValue => {
+    const chosen = (selection ?? []).filter((s) => s.trim().length > 0);
+    if (chosen.length === 0) return "all";
+    if (chosen.length === 1) return chosen[0];
+    return "mixed";
+};
+
+/**
+ * Which imports the Source scope leaves on offer in the Import selector.
+ *
+ * ⚠️ AN IMPORT WITH NO `source` SURVIVES EVERY SCOPE, on the same reasoning as the period's
+ * `IS NULL` clauses. `source` was backfilled onto rows (`v3_0.backfill_outflow_row_source`), but a
+ * batch predating the column — or one whose backfill has not run on this site — would otherwise
+ * vanish from the picker with no control on screen able to bring it back, while its transfers still
+ * needed settling. Showing it under every scope is noisy in the rare case; hiding it is silent in
+ * the dangerous one.
+ */
+export const importsForSource = <T extends { source?: string | null }>(
+    imports: readonly T[],
+    selection: readonly string[] | undefined
+): T[] => {
+    const chosen = (selection ?? []).filter((s) => s.trim().length > 0);
+    if (chosen.length === 0) return [...imports];
+    return imports.filter((option) => {
+        const source = (option.source ?? "").trim();
+        if (!source) return true;
+        return chosen.includes(source);
+    });
+};
+
 export const activeFilterCount = (filters: ColumnFilters): number =>
     Object.entries(filters).filter(([columnId, filter]) => {
         if (columnId === PERIOD_COLUMN_ID) return false;
+        // ⚠️ EXCLUDED FOR THE PERIOD'S REASON, NOT AS A SECOND SPECIAL CASE (slice CF/S2). Source is
+        // a scope with its own always-visible control stating exactly what it is — which is the
+        // thing a badge exists to substitute for — and "Clear filters" must not silently widen the
+        // screen back to every source, any more than it widens the period.
+        if (columnId === SOURCE_COLUMN_ID) return false;
         if (filter == null) return false;
         if (Array.isArray(filter)) return filter.length > 0;
         if (typeof filter === "string") return filter.trim().length > 0;
@@ -385,6 +519,7 @@ export const SERVER_FACET_COLUMNS: readonly string[] = [
     "bank_account",
     "ifsc",
     "import_batch",
+    "source",
     // ⚠️ A FACET NEEDS THREE LISTS, AND MISSING THIS ONE FAILS SILENTLY (slice Q1). Declaring
     // `filter: "facet"` in OUTFLOW_COLUMNS draws the funnel; adding the column to
     // `review._FACET_COLUMNS` lets the server apply it; and ONLY this list decides whether the
@@ -664,7 +799,45 @@ export interface SummaryImport {
     uploaded_at?: string;
     row_count: number;
     total_rows: number;
+    /** The derived batch status. `Completed` means every transfer is settled or skipped. */
+    status?: string;
+    /**
+     * Has this statement still got work in it? (slice CF/S5)
+     *
+     * ⚠️ THE SERVER DECIDES, AND THE CLIENT MUST NOT RE-DERIVE IT. `match_period` filters on this
+     * exact flag, so a second opinion here would let the caption promise a number the button does
+     * not act on — which is precisely the "button 688, table 893" defect, in the one place the
+     * screen is trying to state a scope honestly.
+     */
+    is_open?: boolean;
 }
+
+/** The statements "Re-run match" will actually touch — the finished ones are skipped (CF/S5). */
+export const openImports = (imports: readonly SummaryImport[]): SummaryImport[] =>
+    // ⚠️ `!== false`, NOT `=== true`. An older server does not send the flag, and a client reading
+    // its absence as "closed" would silently re-run nothing at all while reporting success.
+    imports.filter((b) => b.is_open !== false);
+
+/**
+ * The line under "Re-run match" naming how far it reaches (slice CF/S5).
+ *
+ * ⚠️ IT INHERITED A SAFETY JOB FROM TWO CONTROLS THAT WERE REMOVED IN THE SAME BREATH, and that is
+ * why it is not decoration. Until CF/S4 two things told a reviewer the re-run reaches past the
+ * period: the `(3 imports)` count on the button, and the filename list under the summary card. The
+ * owner asked for the count off the button, and the list moved behind the History icon. This
+ * sentence is now the ONLY pre-click statement of scope on the screen. If it goes, the overspill
+ * becomes something a reviewer discovers afterwards — which the P1 ruling exists to prevent.
+ *
+ * ⚠️ IT COUNTS OPEN IMPORTS ONLY. `match_period` skips `Completed` statements, so counting them
+ * here would name a set the button does not act on.
+ *
+ * Silent for a single import: one statement needs no warning that the action reaches one statement.
+ */
+export const rematchReachLabel = (imports: readonly SummaryImport[]): string => {
+    const open = openImports(imports);
+    if (open.length <= 1) return "";
+    return `Re-run reaches ${open.length} open imports.`;
+};
 
 /** "3 imports" / "1 import" / "" — the caption beside the period control. */
 export const importsCoveredLabel = (imports: readonly SummaryImport[]): string => {
@@ -686,8 +859,23 @@ export const importsCoveredLabel = (imports: readonly SummaryImport[]): string =
  * both numbers from the same query. Re-deriving it from `period_from`/`period_to` would be asking a
  * different question -- a batch's DECLARED period is not a fact about where its rows fall.
  */
-export const rematchWarning = (imports: readonly SummaryImport[]): string => {
-    if (!imports.length) return "No imports in this period.";
+export const rematchWarning = (allImports: readonly SummaryImport[]): string => {
+    if (!allImports.length) return "No imports in this period.";
+
+    // ⚠️ IT NAMES ONLY THE STATEMENTS THE BUTTON WILL TOUCH (slice CF/S5). `match_period` skips the
+    // `Completed` ones, so listing them here would describe an action wider than the one that runs
+    // -- the same failure as the count it replaced, pointing the other way.
+    const imports = openImports(allImports);
+    if (!imports.length) {
+        // ⚠️ THE SUBJECT IS CHOSEN, NOT PLURALISED (found in the CF/S7 browser walk). Interpolating
+        // the count and switching only the verb produced "all 1 statement has", which reads as
+        // broken text on a tooltip whose whole job is to explain why a control is disabled. The
+        // same trap `rematchWarning`'s "1 of them extend" hit below, in a new place.
+        const finished = allImports.length;
+        const subject =
+            finished === 1 ? "This statement has" : `All ${finished} statements have`;
+        return `Every import in view is finished — ${subject} every transfer settled or skipped, so there is nothing left to match.`;
+    }
 
     const straddling = imports.filter((b) => b.total_rows > b.row_count);
     const names = imports
@@ -741,6 +929,42 @@ export const importOptionLabel = (option: {
     if (file && period) return `${file} · ${period}`;
     return file || period || option.name;
 };
+
+/**
+ * The window a statement DECLARES it covers, on its own line (slice CF/S4).
+ *
+ * ⚠️ THE DECLARED PERIOD, NOT THE ONE ITS ROWS FELL IN, and the two do not coincide — there are
+ * three "periods" in this schema (see `_imports_in_scope`). In the History dialog that is the right
+ * one: the reader is identifying a FILE, and the file is the thing that declared it.
+ *
+ * A statement with no parseable period reads as an em dash rather than an empty cell, so a missing
+ * value is legible as missing instead of as a rendering fault.
+ */
+export const importPeriodLabel = (option: {
+    period_from?: string;
+    period_to?: string;
+}): string => {
+    const from = formatIfPresent(option.period_from);
+    const to = formatIfPresent(option.period_to);
+    if (from && to) return `${from} – ${to}`;
+    return from || to || "—";
+};
+
+/**
+ * How the History dialog reports one import's status.
+ *
+ * ⚠️ IT IS PRINTED ON EVERY ROW, INCLUDING THE COMPLETED ONES, AND THAT IS THE POINT (slice CF/S5).
+ * `Completed` decides whether "Re-run match" touches a statement, so "why was that one skipped?" is
+ * a question this dialog has to answer directly. Showing the word only when a statement is still
+ * open would make the answer an ABSENCE, which needs a legend to read.
+ *
+ * The tone follows the screen's existing chip vocabulary rather than inventing one: finished is
+ * quiet, outstanding work is amber, exactly as the summary panel's own chips read.
+ */
+export const importStatusTone = (status?: string): string =>
+    (status ?? "").trim() === "Completed"
+        ? "bg-muted text-muted-foreground"
+        : "bg-amber-50 text-amber-700";
 
 // --- confirm all matched (slice X5) --------------------------------------------------------------
 

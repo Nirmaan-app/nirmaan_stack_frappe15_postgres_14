@@ -296,6 +296,9 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str):
         doc.update(
             {
                 "import_batch": batch.name,
+                # Denormalised from the batch so the master table can filter by source without a
+                # join -- see `review._FACET_COLUMNS`.
+                "source": parsed.source,
                 "transfer_id": row.transfer_id,
                 "reference_id": row.reference_id,
                 "added_on": row.added_on,

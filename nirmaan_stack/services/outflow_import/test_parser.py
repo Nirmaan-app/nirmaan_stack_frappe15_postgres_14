@@ -44,6 +44,10 @@ def _by_transfer(result: ParseResult, suffix: str):
     raise AssertionError(f"no staged row ending {suffix!r}")
 
 
+def _cashbook() -> ParseResult:
+    return parse_statement(_load("cashbook_sample.csv"), source="Cashbook")
+
+
 class TestParseShape(unittest.TestCase):
     def test_cashfree_is_a_supported_source(self):
         self.assertIn("Cashfree", SUPPORTED_SOURCES)
@@ -294,6 +298,203 @@ class TestXlsx(unittest.TestCase):
         with self.assertRaises(StatementFormatError) as caught:
             parse_statement(buffer.getvalue(), source="Cashfree")
         self.assertIn("Missing column", str(caught.exception))
+
+
+class TestCashbookSource(unittest.TestCase):
+    """The petty-cash wallet statement (slice 1).
+
+    `cashbook_sample.csv` is fabricated on the same terms as the Cashfree fixture, and reproduces
+    every structural shape found in a real 137-row export: a spend whose Note says more than its
+    Remark, a spend with no free text at all, two spends identical but for their ids, a refused
+    spend, a spend with no debit figure, three movements that are not spends, one transfer missing
+    its id, and the six-row totals block the sheet ends with.
+    """
+
+    def test_cashbook_is_a_supported_source(self):
+        self.assertIn("Cashbook", SUPPORTED_SOURCES)
+
+    def test_every_row_carrying_a_transfer_id_is_staged(self):
+        # 17 rows in the fixture: 10 identifiable movements, 1 unidentifiable, 6 totals lines.
+        result = _cashbook()
+        self.assertEqual(len(result.rows), 10)
+        self.assertTrue(all(row.transfer_id for row in result.rows))
+
+    def test_the_kind_of_movement_is_recorded_verbatim(self):
+        result = _cashbook()
+        self.assertEqual(_by_transfer(result, "AAAAAA").row_kind, "Wallet Spend")
+        self.assertEqual(_by_transfer(result, "900001-0").row_kind, "VA → Wallet")
+        self.assertEqual(_by_transfer(result, "VALOAD-9000002").row_kind, "Bank → VA")
+        self.assertEqual(_by_transfer(result, "PTM9000003").row_kind, "Wallet Credit")
+
+    def test_a_top_up_is_staged_rather_than_filtered_out(self):
+        """The parser never filters -- deciding a top-up is not importable is downstream's job.
+
+        This is the same contract the FAILED Cashfree transfer defends, and it matters more here:
+        a top-up is not an error, it is simply not a spend, and the staged row is what makes the
+        eventual skip visible instead of an absence nobody can account for.
+        """
+        result = _cashbook()
+        self.assertIsNotNone(_by_transfer(result, "900001-0"))
+        self.assertIsNotNone(_by_transfer(result, "VALOAD-9000002"))
+
+    def test_a_refused_spend_is_staged_and_keeps_its_status(self):
+        row = _by_transfer(_cashbook(), "FFFFFF")
+        self.assertEqual(row.status_raw, "FAILED")
+        self.assertFalse(row.is_success)
+
+
+class TestCashbookRemarkJoin(unittest.TestCase):
+    """Remark and Note arrive as one string, because both feed the same matcher."""
+
+    def test_a_note_saying_more_than_its_remark_is_not_lost(self):
+        row = _by_transfer(_cashbook(), "BBBBBB")
+        self.assertEqual(row.remarks, "Pay to merchant - Printout charges beta site")
+
+    def test_a_blank_note_leaves_no_dangling_separator(self):
+        row = _by_transfer(_cashbook(), "AAAAAA")
+        self.assertEqual(row.remarks, "Transport charges alpha project")
+
+    def test_a_row_with_neither_reads_as_empty_not_as_a_separator(self):
+        row = _by_transfer(_cashbook(), "CCCCCC")
+        self.assertEqual(row.remarks, "")
+
+
+class TestCashbookTrailerRows(unittest.TestCase):
+    """The totals block must cost NOTHING, and an unidentifiable transfer must still be reported.
+
+    ⚠️ THESE TWO TESTS ARE A PAIR AND NEITHER IS SAFE ALONE. Suppressing the totals block by
+    dropping the warning outright would pass the first and break the second, and losing that
+    warning means a transfer we cannot identify disappears in silence.
+    """
+
+    def test_the_totals_block_produces_no_warnings(self):
+        result = _cashbook()
+        self.assertEqual(
+            [w for w in result.warnings if "no Transfer Id" in w],
+            ["Row 11 has no Transfer Id and was not staged."],
+        )
+
+    def test_a_transfer_with_an_amount_but_no_id_is_still_reported(self):
+        result = _cashbook()
+        self.assertTrue(any("Row 11" in w for w in result.warnings))
+
+    def test_no_totals_line_is_staged_as_a_transfer(self):
+        result = _cashbook()
+        self.assertFalse(any("Balance" in (row.beneficiary_name or "") for row in result.rows))
+
+
+class TestCashbookFigures(unittest.TestCase):
+    def test_the_date_is_read_without_the_time_beside_it(self):
+        """Owner ruling: `Date` is taken, `Time` is discarded, so a spend lands at midnight."""
+        row = _by_transfer(_cashbook(), "AAAAAA")
+        self.assertEqual(row.added_on, datetime(2026, 8, 1, 0, 0))
+        self.assertEqual(row.added_on_date, date(2026, 8, 1))
+
+    def test_period_spans_the_statement(self):
+        result = _cashbook()
+        self.assertEqual(result.period_from, date(2026, 8, 1))
+        self.assertEqual(result.period_to, date(2026, 8, 4))
+
+    def test_a_wallet_statement_carries_no_charges(self):
+        self.assertEqual(_cashbook().charges_amount, Decimal("0"))
+
+    def test_gross_sums_successful_debits_and_the_refused_spend_is_not_in_it(self):
+        # 180 + 70 + 6000 + 250 + 250; the FAILED 400 never left, and a credit is not a debit.
+        self.assertEqual(_cashbook().gross_amount, Decimal("6750"))
+
+    def test_a_spend_with_no_debit_figure_reads_as_zero_rather_than_failing_the_file(self):
+        row = _by_transfer(_cashbook(), "GGGGGG")
+        self.assertEqual(row.amount, Decimal("0"))
+        self.assertTrue(row.is_success)
+
+    def test_two_spends_alike_but_for_their_ids_are_not_called_duplicates(self):
+        """Identity is `(id, amount, date)`, and the ids differ -- so these are two real spends.
+
+        Measured on a real export: one such pair exists in 115 rows, two porter payments minutes
+        apart. Keying the check on anything coarser would silently merge them.
+        """
+        result = _cashbook()
+        self.assertEqual(result.duplicate_transfer_ids, ())
+
+    def test_who_spent_it_is_captured_separately_from_who_was_paid(self):
+        row = _by_transfer(_cashbook(), "AAAAAA")
+        self.assertEqual(row.added_by_raw, "Asha Menon")
+        self.assertEqual(row.beneficiary_name, "Testvendor Alpha")
+
+
+class TestCashbookWholeFileFailures(unittest.TestCase):
+    def test_a_statement_without_a_remark_column_is_refused(self):
+        """Remark is the ONLY signal this source carries for choosing a project or a type.
+
+        Without it the file would parse perfectly and book every row to a fallback -- a silent
+        loss, which is precisely what the required-column check exists to prevent.
+        """
+        with self.assertRaises(StatementFormatError) as caught:
+            parse_statement(_load("cashbook_no_remark.csv"), source="Cashbook")
+        self.assertIn("Remark", str(caught.exception))
+
+    def test_a_cashfree_statement_is_refused_as_cashbook(self):
+        with self.assertRaises(StatementFormatError) as caught:
+            parse_statement(_load("cashfree_sample.csv"), source="Cashbook")
+        self.assertIn("Missing column", str(caught.exception))
+
+
+class TestCashbookXlsx(unittest.TestCase):
+    def test_it_parses_to_exactly_the_same_rows_as_its_csv_twin(self):
+        from_csv = _cashbook()
+        from_xlsx = parse_statement(_load("cashbook_sample.xlsx"), source="Cashbook")
+        self.assertEqual(
+            [(r.transfer_id, r.amount, r.remarks, r.row_kind) for r in from_csv.rows],
+            [(r.transfer_id, r.amount, r.remarks, r.row_kind) for r in from_xlsx.rows],
+        )
+
+    def test_the_totals_block_is_dropped_from_the_workbook_too(self):
+        result = parse_statement(_load("cashbook_sample.xlsx"), source="Cashbook")
+        self.assertEqual(len(result.rows), 10)
+        self.assertEqual(len([w for w in result.warnings if "no Transfer Id" in w]), 1)
+
+
+class TestCashfreeIsUnaffected(unittest.TestCase):
+    """Slice 1 touched shared code. Cashfree must not have moved.
+
+    ⚠️ THE TRAILER RULE IS THE RISK HERE, and it is narrow by design: it suppresses a warning only
+    where a row has NO id, NO amount and NO status. The Cashfree fixture's unidentifiable row
+    carries an amount of 400 and a status of SUCCESS, so it stays reported -- which is the whole
+    reason the rule tests content rather than just emptiness.
+    """
+
+    def test_the_blank_transfer_id_row_is_still_warned_about(self):
+        result = _sample()
+        self.assertTrue(any("no Transfer Id" in w for w in result.warnings))
+
+    def test_row_kind_is_blank_on_a_source_that_does_not_declare_one(self):
+        self.assertTrue(all(row.row_kind == "" for row in _sample().rows))
+
+    def test_a_single_column_remark_is_unchanged_by_the_multi_column_map(self):
+        """A map naming ONE column must still read exactly that cell, unjoined and unstripped.
+
+        `raw()` gained a tuple branch; this pins that the string branch beneath it did not change
+        behaviour. It is the whole-fixture form of the assertion rather than a spot check, because
+        a join defect would be uniform and a single row could miss it.
+        """
+        self.assertEqual(
+            [row.remarks for row in _sample().rows],
+            [
+                "Sample Project materials",
+                "Sample Project Transportation Services",
+                "Sample Project Transportation Services",
+                "Sample Project HVAC Services",
+                "Sample Project HVAC Services",
+                "Sample Project materials",
+                "Sample Project materials",
+                "Sample Project materials supplied against multiple indents raised during the "
+                "month including consumables, fasteners and sundry site items delivered in "
+                "several tranches across the north and south blocks",
+                "Sample Project Room Rent",
+                "Sample Project materials",
+                "Sample Project materials",
+            ],
+        )
 
 
 if __name__ == "__main__":

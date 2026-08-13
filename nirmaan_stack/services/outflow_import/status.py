@@ -116,6 +116,7 @@ __all__ = [
     "BATCH_PARTIALLY_SETTLED",
     "BATCH_COMPLETED",
     "BATCH_STATUSES",
+    "batch_is_open",
     "RowOutcome",
     "Suggestion",
     "StatusTally",
@@ -554,6 +555,34 @@ def derive_batch_status(row_statuses: Iterable[str]) -> str:
     if terminal_rows:
         return BATCH_PARTIALLY_SETTLED
     return BATCH_IN_REVIEW
+
+
+def batch_is_open(status: str | None) -> bool:
+    """Has this statement still got work in it? (slice CF/S5)
+
+    ⚠️ THIS IS THE WHOLE OF "AUTO-CLOSE", AND IT REVERSES NOTHING. The 2026-08-10 ruling deleted
+    `close_batch` because it stamped `closed_at` / `closed_by` / `close_reason` and nothing read
+    them -- a control that writes three fields nobody consults is worse than no control, because
+    people reasonably assume it must do something. Those fields are still on the doctype, still
+    never written, and MUST STAY THAT WAY.
+
+    A batch closes ITSELF instead: `derive_batch_status` already returns `Completed` when no row is
+    open, and `_refresh_batch_rollup` runs on every settle and every skip. So there is no field to
+    add, no patch to write and no backfill -- a statement whose last transfer was settled a year ago
+    already reads `Completed` today.
+
+    ⚠️ EXCLUDING A COMPLETED BATCH FROM A RE-MATCH IS A COST FIX, NEVER A CORRECTNESS ONE, and
+    saying so is what stops somebody later "improving" it into something that skips real work.
+    `match_batch` already skips `_FROZEN_ROW_STATUSES` per row, so re-matching a finished statement
+    was ALWAYS a no-op -- it just walked every row to discover that. What this changes is the time
+    spent and the count reported, not the outcome.
+
+    ⚠️ AN UNKNOWN OR MISSING STATUS IS OPEN. A batch whose rollup has never run carries no status,
+    and treating that as finished would silently drop it from every re-match -- exactly the class of
+    invisible exclusion this feature keeps having to fix. Failing towards "still has work" costs one
+    wasted pass; failing the other way loses the work.
+    """
+    return (status or "").strip() != BATCH_COMPLETED
 
 
 # --- did a settlement take the machine's pick? (slice Q1) ----------------------------------------

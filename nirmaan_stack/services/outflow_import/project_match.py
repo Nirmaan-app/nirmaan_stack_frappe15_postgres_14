@@ -78,6 +78,7 @@ __all__ = [
     "GENERIC_PROJECT_TOKENS",
     "ProjectIndex",
     "build_project_index",
+    "alias_haystack",
     "comparable_tokens",
     "distinctive_tokens",
 ]
@@ -98,6 +99,19 @@ MIN_TOKEN_LENGTH = 3
 # by hand is maintenance that buys nothing and would suppress a genuinely single-city name.
 #
 # Singularised forms only, because `name_tokens` singularises before this set is consulted.
+# ⚠️ EVERY ENTRY BELOW EARNED ITS PLACE BY MEASUREMENT. `food`, `old` and `pro` were added
+# 2026-08-13 against a 115-row petty-cash statement, where free text is far looser than on a bank
+# export. `court` was proposed with them and REJECTED: it changed nothing at all (+0 matched, +0
+# ambiguous), because no remark says it. A word that buys nothing still costs a reader wondering
+# why it is here, and still suppresses a keyword that might one day matter.
+#
+#   food  +5 matched, -5 ambiguous. `VR Mall Food Court` owns it, so every "food expenses paytm
+#         project" was two projects at once and resolved to neither.
+#   pro   +1 matched, -1 ambiguous. `Adept Pro` owns it, and "pro" is how people abbreviate
+#         "project" mid-remark.
+#   old   -1 matched, ON PURPOSE. `Other Old Projects` owns it, so "new office to old" was being
+#         booked to a real project. A count of matches cannot tell a right match from a wrong one;
+#         this one was wrong.
 GENERIC_PROJECT_TOKENS = frozenset(
     {
         "block",
@@ -106,12 +120,15 @@ GENERIC_PROJECT_TOKENS = frozenset(
         "depot",
         "downtown",
         "floor",
+        "food",
         "main",
         "material",
         "new",
         "office",
+        "old",
         "phase",
         "plant",
+        "pro",
         "project",
         "site",
         "tower",
@@ -141,8 +158,18 @@ class ProjectIndex:
     names: Mapping[str, str] = field(default_factory=dict)
     """Project id -> display name, so a caller can say which project it recognised."""
 
+    aliases: Mapping[str, str] = field(default_factory=dict)
+    """Normalised alias phrase -> project id. STEP 1.5 reads this. Empty by default.
+
+    A hand-written statement that a phrase means a project, for the cases no rule over the master
+    can reach: a project known by a name it is not recorded under (`VR Mall` for
+    `VR Mall Food Court`), an initialism shorter than a token (`EY`), or a habitual misspelling
+    (`tekus`, `Qubest`). Every one of those is a fact about how people write, which is not
+    derivable from the project list, which is why it has to be curated rather than counted.
+    """
+
     def projects_mentioned(self, remarks: object) -> frozenset[str]:
-        """Every project this text could be naming, by either reading.
+        """Every project this text could be naming, by any reading.
 
         Reports more than one when the remark is genuinely ambiguous, so a caller can explain itself
         rather than silently seeing nothing. `sole_project` is what applies the rule.
@@ -150,6 +177,7 @@ class ProjectIndex:
         remark_tokens = comparable_tokens(remarks)
         return frozenset(
             {p for p, _ in self._whole_name_matches(remark_tokens)}
+            | self._alias_matches(remarks)
             | self._keyword_matches(remark_tokens)
         )
 
@@ -171,6 +199,15 @@ class ProjectIndex:
             # names fitting the remark is precisely when a weaker rule must not break the deadlock.
             return winners[0] if len(winners) == 1 else None
 
+        # STEP 1.5 -- a curated alias phrase. Between the two on purpose: somebody wrote it down
+        # deliberately, which beats a word that merely happens to be unique in the master; but a
+        # project's actual full name sitting in the remark is at least as specific, so step 1 keeps
+        # precedence. Two aliases naming two projects yields nothing, on the same terms as
+        # everywhere else here.
+        aliased = self._alias_matches(remarks)
+        if aliased:
+            return next(iter(aliased)) if len(aliased) == 1 else None
+
         # STEP 2 -- a keyword unique to one project. The loose reading, for abbreviated remarks.
         found = self._keyword_matches(remark_tokens)
         return next(iter(found)) if len(found) == 1 else None
@@ -187,12 +224,32 @@ class ProjectIndex:
         ⚠️ AN EMPTY TOKEN SET IS EXCLUDED. The empty set is a subset of everything, so a project
         whose name survives tokenising as nothing at all would otherwise match every remark ever
         typed -- and there are two such projects in the live master.
+
         """
         return [
             (project, tokens)
             for project, tokens in self.token_sets.items()
             if tokens and tokens <= remark_tokens
         ]
+
+    def _alias_matches(self, value: object) -> frozenset[str]:
+        """Projects named by a curated alias phrase appearing in this text.
+
+        ⚠️ AN ALIAS IS MATCHED AS A PHRASE, NOT AS TOKENS, AND THAT IS LOAD-BEARING. Running
+        `comparable_tokens` over "vr mall" yields `{mall}` -- "vr" is below `MIN_TOKEN_LENGTH` --
+        and `{mall}` is inside any remark mentioning `Wakefit - Airia Mall` too. The alias would
+        then quietly mean something its author never wrote. Phrase matching keeps the short word,
+        which is usually the whole point of the alias.
+
+        Word boundaries come from padding both sides with a space, so "ey" cannot match inside
+        "they" or "money".
+        """
+        haystack = alias_haystack(value)
+        if not haystack.strip():
+            return frozenset()
+        return frozenset(
+            project for phrase, project in self.aliases.items() if f" {phrase} " in haystack
+        )
 
     def _keyword_matches(self, remark_tokens: frozenset[str]) -> frozenset[str]:
         return frozenset(
@@ -202,12 +259,23 @@ class ProjectIndex:
         )
 
 
-def build_project_index(projects: Sequence[tuple[str, str]]) -> ProjectIndex:
-    """Index `(project_id, project_name)` pairs for both readings.
+def build_project_index(
+    projects: Sequence[tuple[str, str]],
+    aliases: Sequence[tuple[str, str]] = (),
+) -> ProjectIndex:
+    """Index `(project_id, project_name)` pairs for every reading, plus any curated aliases.
 
     A keyword claimed by two or more projects is dropped entirely -- not weighted down, not kept as a
     weak signal, not used as a tie-break. There is no scoring anywhere in this module, because tier
     2's other axis (the amount) is already the weak one and two weak axes do not make a strong pair.
+
+    `aliases` is `(phrase, project_id)`. It DEFAULTS TO EMPTY, so every existing caller keeps the
+    exact behaviour it had; a caller that has no curated list is not obliged to invent one.
+
+    ⚠️ AN ALIAS FOR AN UNKNOWN PROJECT IS DROPPED, NOT KEPT. The project list passed in is already
+    scoped by its caller -- to `Won` projects, say -- and an alias pointing outside that scope would
+    otherwise let a phrase match a project the caller has deliberately excluded. A phrase claimed by
+    two projects is dropped too, on exactly the terms a contested keyword is.
     """
     owners: dict[str, set[str]] = {}
     token_sets: dict[str, frozenset[str]] = {}
@@ -228,7 +296,41 @@ def build_project_index(projects: Sequence[tuple[str, str]]) -> ProjectIndex:
         for token, claimants in owners.items()
         if len(claimants) == 1
     }
-    return ProjectIndex(token_sets=token_sets, by_keyword=by_keyword, names=names)
+
+    claimed: dict[str, set[str]] = {}
+    for phrase, project_id in aliases:
+        normalized = alias_haystack(phrase).strip()
+        if not normalized or project_id not in names:
+            continue
+        claimed.setdefault(normalized, set()).add(project_id)
+    alias_map = {
+        phrase: next(iter(owner))
+        for phrase, owner in claimed.items()
+        if len(owner) == 1
+    }
+
+    return ProjectIndex(
+        token_sets=token_sets, by_keyword=by_keyword, names=names, aliases=alias_map
+    )
+
+
+def alias_haystack(value: object) -> str:
+    """Text reduced to space-separated lowercase words, padded so a phrase matches on boundaries.
+
+    Deliberately NOT `comparable_tokens`: this keeps short words and keeps ORDER, both of which an
+    alias depends on. Punctuation becomes a space so "VR-Mall" and "VR Mall" read alike.
+
+    ⚠️ PUBLIC BECAUSE IT HAS A SECOND READER, on exactly the terms `comparable_tokens` is public.
+    `Outflow Import Project Alias.validate` needs the same normalisation to warn that two phrases
+    collide -- and a private twin there would be a second definition of "when are two aliases the
+    same", free to drift. When it drifted, the symptom would be an alias the editor accepted and
+    the matcher then ignored.
+    """
+    if value is None:
+        return " "
+    lowered = str(value).casefold()
+    cleaned = "".join(char if char.isalnum() else " " for char in lowered)
+    return f" {' '.join(cleaned.split())} "
 
 
 def distinctive_tokens(index: ProjectIndex, project: str) -> frozenset[str]:

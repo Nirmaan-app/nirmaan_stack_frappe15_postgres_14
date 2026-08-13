@@ -101,7 +101,7 @@
    "fieldname": "match_basis",
    "fieldtype": "Select",
    "label": "Match Basis",
-   "options": "reference\naccount+IFSC\nproject in remark\nManual",
+   "options": "reference\naccount+IFSC\nproject in remark\nManual\ncashbook remark",
    "reqd": 1
   },
   {

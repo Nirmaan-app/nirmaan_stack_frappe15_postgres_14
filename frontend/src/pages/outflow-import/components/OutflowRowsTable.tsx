@@ -21,7 +21,9 @@ import {
     SERVER_SORT_COLUMNS,
     highlightSegments,
     isDateFilterValue,
+    referenceValue,
     rowSettlementLinks,
+    shortReference,
     type ColumnFilters,
     type DecisionOrigin,
     type OutflowColumn,
@@ -536,8 +538,21 @@ const Cell = ({
                 </span>
             );
 
-        case "bank_reference_no":
-            return <Highlight text={row.bank_reference_no} query={query} />;
+        case "bank_reference_no": {
+            // ⚠️ THE FULL VALUE STAYS REACHABLE, ON THE `title`. The visible text is the last 12
+            // characters of a long reference (owner ruling) -- but this is the value that
+            // reconciles a payment with the bank or the wallet, so it must never become
+            // unrecoverable from the screen. `referenceValue` is also what `column.get` returns, so
+            // the search box, the sort and the funnel all still see the whole string.
+            const full = referenceValue(row);
+            if (!full) return <>—</>;
+            const shown = shortReference(full);
+            return (
+                <span title={full}>
+                    <Highlight text={shown} query={query} />
+                </span>
+            );
+        }
 
         case "row_status":
             // ⚠️ `rowStatusLabel`, NOT the raw value. `Mismatched` reads on screen as "Needs a
