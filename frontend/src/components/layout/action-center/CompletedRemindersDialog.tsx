@@ -55,7 +55,7 @@ export function CompletedRemindersDialog({
       <DialogContent className="max-w-2xl p-0 overflow-hidden bg-white shadow-lg sm:rounded-xl">
         <DialogHeader className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
           <DialogTitle className="flex items-center text-base font-semibold text-gray-900">
-            Compliance History
+            Reminders History
             <span className="ml-3 inline-flex items-center rounded-md bg-white border border-gray-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-600 shadow-sm">
               Last 30 Records
             </span>
@@ -78,7 +78,7 @@ export function CompletedRemindersDialog({
                 <CheckCircle2 className="h-5 w-5 text-gray-300" />
               </div>
               <p className="text-sm font-medium text-gray-900">No records found</p>
-              <p className="mt-1 text-xs text-gray-500">Completed compliance tasks will appear here.</p>
+              <p className="mt-1 text-xs text-gray-500">Completed Reminders tasks will appear here.</p>
             </div>
           ) : (
             <div className="flex flex-col">

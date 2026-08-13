@@ -21,7 +21,7 @@ import { useDeliveryEdit } from "../../hooks/useDeliveryEdit";
 import { useDownloadDN } from "../../hooks/useDownloadDN";
 import { PivotTableHeader } from "./PivotTableHeader";
 import { PivotTableBody } from "./PivotTableBody";
-import { VendorDCDialog } from "../VendorDCDialog";
+import { VendorDCDialog, VendorDCOverrides } from "../VendorDCDialog";
 import { DeliveryPivotTableProps, DNColumn } from "./types";
 import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
 import { isCreatedToday } from "@/utils/FormatDate";
@@ -219,9 +219,9 @@ export function DeliveryPivotTable({
   }, [dnRecords,vendorDCOpen]);
 
 
-  const handleGenerateVendorDC = useCallback((modifiedItems: any[]) => {
+  const handleGenerateVendorDC = useCallback((modifiedItems: any[], vendorOverrides: VendorDCOverrides) => {
     if (selectedDnForDC) {
-        downloadVendorDC(selectedDnForDC.name, modifiedItems);
+        downloadVendorDC(selectedDnForDC.name, modifiedItems, vendorOverrides);
     }
     setVendorDCOpen(false);
   }, [selectedDnForDC, downloadVendorDC]);

@@ -1,6 +1,29 @@
 import frappe
 from frappe import _
 
+from nirmaan_stack.services.role_profiles import (
+    ADMIN_PROFILE,
+    PMO_EXECUTIVE_PROFILE,
+    has_role_profile,
+)
+
+# Admin + PMO may enable/disable a project module. These are ROLE PROFILE names,
+# resolved by `has_role_profile` — never by `frappe.get_roles()` alone, which
+# matched nobody and locked out every real Admin and PMO user.
+MODULE_CONTROL_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE)
+
+
+def _require_module_control_access(action: str) -> None:
+    """Admin/PMO gate for the module enable/disable endpoints."""
+    if has_role_profile(frappe.session.user, MODULE_CONTROL_PROFILES):
+        return
+
+    frappe.throw(
+        _("You are not authorized to {0} modules.").format(action),
+        frappe.PermissionError,
+    )
+
+
 @frappe.whitelist()
 def enable_module(project, module_type):
     """
@@ -14,9 +37,7 @@ def enable_module(project, module_type):
         frappe.throw(_("Project and Module Type are required."))
 
     # Check for permissions (Admin or PMO)
-    roles = frappe.get_roles(frappe.session.user)
-    if not ("Nirmaan Admin Profile" in roles or "Nirmaan PMO Executive Profile" in roles or frappe.session.user == "Administrator"):
-        frappe.throw(_("You are not authorized to enable modules."), frappe.PermissionError)
+    _require_module_control_access("enable")
 
     try:
         if module_type == 'dpr':
@@ -60,9 +81,7 @@ def disable_module(project, module_type):
         frappe.throw(_("Project and Module Type are required."))
 
     # Check for permissions (Admin or PMO)
-    roles = frappe.get_roles(frappe.session.user)
-    if not ("Nirmaan Admin Profile" in roles or "Nirmaan PMO Executive Profile" in roles or frappe.session.user == "Administrator"):
-        frappe.throw(_("You are not authorized to disable modules."), frappe.PermissionError)
+    _require_module_control_access("disable")
 
     from frappe.utils import today
 

@@ -19,7 +19,15 @@ Note the two distinct layers, they are NOT the same thing:
 
 Mirrored client-side by ``frontend/src/constants/roles.ts``; keep the two in sync.
 This layer is the enforcement boundary.
+
+The constants below are pure data. The RESOLVERS at the bottom
+(``get_role_profile`` / ``has_role_profile`` / ``is_nirmaan_admin``) read
+``frappe.db`` — a DB read, never request context: every one takes ``user`` as an
+argument and none of them touch ``frappe.session``, so they stay callable from
+``api/``, ``integrations/`` and a background job alike.
 """
+
+import frappe
 
 PROCUREMENT_EXECUTIVE_PROFILE = "Nirmaan Procurement Executive Profile"
 PROCUREMENT_LEAD_PROFILE = "Nirmaan Procurement Lead Profile"
@@ -65,3 +73,54 @@ PROCUREMENT_PROFILES = (
     MATERIAL_PROCUREMENT_EXECUTIVE_PROFILE,
     SERVICE_PROCUREMENT_EXECUTIVE_PROFILE,
 )
+
+ADMIN_PROFILE = "Nirmaan Admin Profile"
+PMO_EXECUTIVE_PROFILE = "Nirmaan PMO Executive Profile"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Resolvers — the ONE way a whitelisted endpoint answers "is this user X?".
+#
+# ⚠️ NEVER gate on `frappe.get_roles()` with a role-PROFILE name. `get_roles()`
+# returns the Roles a profile BUNDLES (System Manager, Nirmaan Project Lead, ...),
+# never the profile's own name, so such a check matches NOBODY — verified on the
+# live site: 7 users carry the "Nirmaan Admin Profile" role_profile and ZERO
+# carry a Role of that name. It fails SILENTLY and in whichever direction the
+# call site happens to lean: it locked every admin out of deleting an approved
+# invoice and out of enabling/disabling project modules, and (where the gate
+# forgot to raise) let every logged-in user into an admin-only endpoint.
+#
+# These mirror the frontend's `useUserData().role`, which is also the role
+# profile — so client and server agree by construction.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def get_role_profile(user: str) -> str | None:
+    """The user's `Nirmaan Users.role_profile`, or None when they have no row."""
+    if not user:
+        return None
+    return frappe.db.get_value("Nirmaan Users", user, "role_profile")
+
+
+def has_role_profile(user: str, profiles, *, superuser_passes: bool = True) -> bool:
+    """True when `user` holds any of `profiles` (an iterable of profile names).
+
+    `superuser_passes` (default True) mirrors every gate in this codebase, which
+    reads "Administrator OR ...". Pass False for a pure profile-membership test.
+
+    Also checks `frappe.get_roles()` as a SECOND chance, because some profile
+    names additionally exist as Roles on this site. That is defence in depth, not
+    the primary path — it must never be the only check (see the warning above).
+    """
+    if superuser_passes and user == "Administrator":
+        return True
+
+    allowed = set(profiles)
+    if get_role_profile(user) in allowed:
+        return True
+    return bool(allowed & set(frappe.get_roles(user)))
+
+
+def is_nirmaan_admin(user: str) -> bool:
+    """True for the Administrator superuser or a `Nirmaan Admin Profile` user."""
+    return has_role_profile(user, (ADMIN_PROFILE,))
