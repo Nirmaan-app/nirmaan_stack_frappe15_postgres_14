@@ -33,17 +33,34 @@ export interface WipMonthlyRow extends WipCompliance {
   active_start: string;   // earliest active entry (ISO)
   active_end: string;     // latest active exit (ISO) or "ongoing"
   stints: number;         // number of real active periods (expander shown when > 1)
-  // G4 — PO dispatch vs delivery (LIFETIME, month-independent):
-  dispatched_po: number;  // POs in Partially Dispatched / Dispatched / Partially Delivered / Delivered
-  total_dn: number;       // Delivery Note docs (returns excluded)
-  missing_dn: number;     // max(0, dispatched_po − total_dn)
-  // G5 — DC compliance (LIFETIME, month-independent):
-  total_dc: number;       // Delivery Challan docs (PO-parented)
-  // max(0, total_dn − DNs whose PO is Non-Billable − total_dc). A Non-Billable PO can
-  // never acquire a DC (the upload path rejects it), so those DNs are subtracted out.
-  // That subtrahend is deliberately NOT surfaced (owner: keep it implicit), so
-  // total_dn − total_dc will NOT equal missing_dc on screen.
-  missing_dc: number;
+  // G4 / G5 (LIFETIME, month-independent).
+  //
+  // MIND THE UNITS: `dispatched_po` / `total_dn` / `total_dc` count DOCUMENTS, while
+  // `missing_dn` / `missing_dc` count PURCHASE ORDERS. The columns therefore do NOT
+  // subtract into one another on screen, by design — that is the whole point of the
+  // change. They previously WERE subtractions (max(0, dispatched_po − total_dn) and
+  // max(0, total_dn − nonBillableDN − total_dc)), which is unsound because one PO
+  // carries any number of DNs: the raw value went negative on 56 (DN) and 12 (DC) of
+  // 93 live projects, and the clamp rendered that incoherence as a trustworthy zero.
+  // Both are now PO counts from api/reports/metrics.py, using the same predicates as
+  // the Action Centre — so a project's "Missing DC" here equals its "DC Pending" tile.
+  // ALL FIVE are restricted to BILLABLE POs. A Non-Billable PO can never acquire a
+  // Delivery Challan (the upload path rejects it), so it can never be compliant and
+  // never enters the missing_* figures — including it in the totals beside them made
+  // the two halves of a row describe different universes.
+  dispatched_po: number;  // POs in Partially Dispatched / Dispatched / Partially Delivered /
+                          // Delivered — ALL POs, Billable or not
+  dispatched_po_billable: number; // the Billable slice, shown only as a hover split
+  total_dn: number;       // Delivery Note DOCUMENTS, returns excluded — ALL POs, Billable
+                          // or not (owner ruling; deliberately unlike the rest of the block)
+  total_dn_billable: number; // the Billable slice, shown only as a hover split
+  // Billable POs with a dispatched item not yet fully received — the SAME rule as the
+  // project Overview tile's "DN Pending" tile, so the two surfaces always agree. NB it
+  // reads ORDERED vs RECEIVED on the PO items and never looks at Delivery Note
+  // documents; a PO whose status is already "Delivered" is excluded by the predicate.
+  missing_dn: number;
+  total_dc: number;       // Delivery Challan DOCUMENTS on a Billable PO (stubs included)
+  missing_dc: number;     // POs: Billable, delivered, with no non-stub Delivery Challan
   periods: WipPeriod[];
 }
 

@@ -41,6 +41,7 @@ import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { SimpleFacetedFilter } from "@/pages/projects/components/SimpleFacetedFilter";
 import { exportToCsv } from "@/utils/exportToCsv";
+import { urlStateManager } from "@/utils/urlStateManager";
 import { toast } from "@/components/ui/use-toast";
 import { useProjectAssignees } from "@/hooks/useProjectAssignees";
 import type { ProjectAssignee } from "@/hooks/useProjectAssignees";
@@ -399,9 +400,18 @@ function DNDCQuantityReportContent({
   const [billingFilter, setBillingFilter] = useState<Set<string>>(
     new Set(["Billable"])
   );
-  const [statusFilter, setStatusFilter] = useState<Set<string>>(
-    new Set(["mismatch", "no_dc_update", "pending_dn"])
-  );
+  // Seeded from `dndc_status` when present, so the Monthly WIP report's Missing DN /
+  // Missing DC counts can deep-link straight to the matching rows. Read ONCE as the
+  // initial value — after mount the user's own filter clicks own this state, and the
+  // stale param in the address bar is harmless.
+  const [statusFilter, setStatusFilter] = useState<Set<string>>(() => {
+    const fromUrl = urlStateManager.getParam("dndc_status");
+    if (fromUrl) {
+      const wanted = fromUrl.split(",").map((v) => v.trim()).filter(Boolean);
+      if (wanted.length) return new Set(wanted);
+    }
+    return new Set(["mismatch", "no_dc_update", "pending_dn"]);
+  });
 
   // --- Sort state ---
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
@@ -971,8 +981,9 @@ export default function DNDCQuantityReport({ projectId: propProjectId, projectNa
         <AlertDescription className="text-sm text-blue-800">
           Compares Delivery Note (DN) vs Delivery Challan (DC) quantities for
           POs with dispatch or delivery status. Flags mismatches where DN
-          exceeds DC, items with no DC update, and items with DCs but no DN
-          yet (Pending DN).
+          exceeds DC, items with no DC update, and items ordered but not yet
+          received (Pending DN). A PO can be counted under both Pending DN and
+          No DC Update, so the four cards do not add up to the PO total.
         </AlertDescription>
       </Alert>
 

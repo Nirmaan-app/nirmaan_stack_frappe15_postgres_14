@@ -291,3 +291,150 @@ Gurugram: 249 DN, 1 DC, Missing 184 — the 64 Non-Billable DNs are invisible). 
 - `Missing DC` subtracts Non-Billable DNs; the subtrahend stays **implicit** (no new column).
 - ITM-parented DNs stay in the `Missing DC` gap.
 - Project facet filter: client-side over the fetched rows, keyed on docname, cleared on month switch.
+
+---
+
+## 9 — `Missing DN` / `Missing DC` become PO counts; DN > DC gains a real DN verdict (2026-08-12)
+
+> **⚠️ SUPERSEDES §8.2 entirely.** The Non-Billable-DN subtrahend it documents is GONE, along
+> with the whole document-subtraction model both `missing_*` columns rested on. §7's G4/G5
+> semantics are superseded for those two columns only; every other column is untouched.
+
+### 9.1 Why the old arithmetic was unsound
+
+Both figures subtracted DOCUMENT counts to answer a per-PO question:
+
+```
+missing_dn = max(0, dispatched_po_count − delivery_note_count)
+missing_dc = max(0, delivery_note_count − non_billable_dn_count − dc_count)
+```
+
+A PO carries an unbounded number of DNs — **431 POs on live data carry more than one, contributing
+571 surplus documents** — so a PO with 3 DNs silently cancels two others that have none. Measured
+before the change:
+
+| | |
+|---|---|
+| `missing_dn` raw value NEGATIVE (clamped to 0) | **56 of 93 projects** |
+| `missing_dc` raw value NEGATIVE | 12 of 93 |
+| `missing_dn` non-zero anywhere | 2 projects — against 6 POs genuinely owing a note |
+| `missing_dc` EXACT vs the predicate | **34 of 85 projects (40%)**; worst +33 / −35 |
+
+The `max(0, …)` clamp rendered that incoherence as a clean, trustworthy zero. `missing_dc`
+additionally counted **322 stub Delivery-Challan rows** as filed challans (the Action-Item
+reconciler has always excluded them), which pushed several projects to 0 while they owed dozens:
+Air India Training Centre read **0 missing** against **35** real; Clutterbot's 38 challans were
+**all stubs**.
+
+### 9.2 The replacement — `api/reports/metrics.py` (NEW)
+
+`pending_counts_by_project()` returns `{project: {dc_pending, dn_pending}}`, computed by calling
+`services/action_items/predicates.py` — **the same predicates the Project Action Item reconciler
+uses**, so the WIP column and the project Overview tile agree BY CONSTRUCTION rather than by
+coincidence. Three bulk queries + a pure-Python pass; ~80–160 ms over 5047 POs / 19,848 items /
+93 projects.
+
+**Load-bearing SQL shape:** every query is raw SQL joining on the PO's status. It must NEVER become
+`frappe.get_all(..., filters={"parent": ["in", po_names]})` — Frappe runs `validate_generated_query`
+→ `sqlparse.parse()`, which raises `Maximum number of tokens exceeded (10000)` past a few thousand
+names. 5047 live POs today, so that form throws in prod and passes on any small dataset.
+
+**DN uses `is_dn_pending`, not a document-existence test (owner ruling).** An earlier revision
+carried a local `_is_dn_missing` ("dispatched, no DN document at all") because `is_dn_pending`
+early-returns on `status == "Delivered"` and 5037 of 5047 live POs are Delivered — pinning it near
+zero. The owner ruled the column must show the SAME NUMBER as the Overview tile, so the shared
+predicate won. **What that trades away, recorded so it is not rediscovered as a bug:** four POs
+(Cinepolis, KVN Prestige Trade Tower, Richa & Mekin Residency, STS Bangalore) carry a recorded
+`received_quantity` with NO delivery-note document. Their status is `Delivered`, so the predicate
+cannot see them. They are a data-integrity signal, not pending work — nobody can file the missing
+note, the delivery already happened.
+
+### 9.3 Billable scoping, then the owner's partial reversal
+
+The whole lifetime block was first scoped to Billable POs (owner: *"don't need non-billable po here
+for DC"*) — 1107 of 5047 POs and 261 of 1631 challans dropped out. **Then reversed for two columns
+only (2026-08-12):** `Disp PO` and `Total DN` count **Billable AND Non-Billable**, each surfacing
+its Billable slice (`dispatched_po_billable` / `total_dn_billable`) purely so the cell can show
+`N Billable · M Non-Billable` on hover. Nothing derives from those two fields.
+
+`Total DC` stays Billable-only, and **`Missing DN` / `Missing DC` MUST stay Billable-only** — a
+Non-Billable PO can never acquire a challan (the upload path rejects it), so counting one as
+non-compliant parks a row that can never clear and breaks agreement with the Overview tiles.
+
+⚠️ **Consequence, and it is the readability gap the Billable scoping was meant to close:** `Disp PO`
+is now a LARGER denominator than the two `missing_*` columns are measured against. The hover and the
+info dialog carry the explanation; the group header dropped its `(Billable)` suffix because it would
+be false for one of its three columns.
+
+### 9.4 New UI
+
+- **`WipFormulaDialog.tsx`** — an ⓘ button after Export opens a per-column reference: unit chip
+  (`days` / `reports` / `documents` / `POs`), source doctype, every filter, and the rule. It renders
+  ENTIRELY from `NUMERIC_COLUMNS` + `COLUMN_GROUPS`, so a rule change updates the table and the help
+  in one edit.
+- **`wipColumns.ts` (NEW)** — the column model moved out of the page. Extracted because the dialog
+  needs it and importing it back from `MonthlyWIPPage` created a cycle.
+- **`Missing DN` / `Missing DC` are deep links** — blue, external-link icon, underline on hover —
+  to `?page=projectdcmir&dcmir_tab=DN_DC&dcmir_parent=PO&dndc_status=<status>`. Only when the value
+  is non-zero. `DNDCQuantityReport` reads `dndc_status` ONCE to seed its Status filter.
+- **Header line** — title + count pill + right-aligned controls on one row, paragraph moved below.
+- **Tablet/mobile** — `min-w-[1100px]` on the table. The colgroup is PERCENTAGES under
+  `table-fixed`, so the table could never exceed its container and the wrapper's `overflow-x-auto`
+  never engaged; it just squeezed every column. The wrapper also became a bounded scroller
+  (`max-h-[70vh] overflow-auto`) so the sticky header has something to stick to.
+
+### 9.5 DN > DC report — `pending_dn` re-defined (`useDNDCQuantityData.ts`)
+
+The card's condition was `dnQty === 0 && dcQty > 0` — a challan recording quantity for an item with
+no delivery behind it. **System-wide exactly ONE item met it** (Test Project). It was not measuring
+a missing delivery note at all, while its name collided with the tile's "DN Pending" and WIP's
+"Missing DN" — three near-identical labels on three different measurements.
+
+It now means **ordered quantity not yet received**, matching the tile. Three parts, all needed:
+
+1. **`deliveryPending` is a FLAG on the item, not a status.** A PO can owe a delivery AND a challan
+   (`PO/218`), and as a status it STOLE the item from `no_dc_update`, dropping that PO off the red
+   card — No DC Update went 77 → 76 and stopped agreeing with the DC Pending tile.
+2. **`status !== "Delivered"` exclusion**, mirroring the predicate. Without it Nagarjuna Olive read
+   **4** against the tile's 2, and **28 vs 5** system-wide.
+3. **Zero-activity filter exempts flagged items.** A dispatched-but-undelivered line has BOTH
+   quantities at 0 — exactly the shape step 7 discards — so `PO/223` (338 dispatched units, nothing
+   received) appeared on no card and no row. The condition change ALONE would still have shown 0.
+
+The **rollup falls back on the FLAG**, ranked below `mismatch` and `no_dc_update` so it can only
+override `matched` — which is where a PO whose delivery gap sits on an already-challaned item was
+hiding (badged green with 24 units outstanding).
+
+⚠️ **Deliberately SIMPLER than `is_dn_pending`:** no `is_dispatched` gate, no 2.5% fractional
+tolerance. Measured — no difference on any project today. If this card ever disagrees with the tile,
+those two are the first place to look.
+
+### 9.6 Verification (2026-08-12)
+
+- **Backend 17/17** (`test_wip_monthly_report`); frontend `tsc` clean on every changed file.
+- **`missing_*` vs an INDEPENDENT recomputation from `predicates.py`: 0 rows differ.** 0 negative
+  values. `dispatched_po` / `total_dn` / `total_dc` verified identical to their raw `COUNT(*)`.
+- **WIP vs the project Overview tiles: 0 mismatches** on every non-suppressed project, both columns.
+- **DN > DC card vs the tile: same PO SET, not merely the same count**, on all 3 projects with a
+  non-zero value.
+- ⚠️ **The projection can be STALE.** Mid-session the tile read 1 where the predicate said 2 —
+  `is_dn_pending` returned True but the stored row was **nine days old**. The doc hook enqueues to
+  the `short` queue with `enqueue_after_commit=True`; with no worker processing it the job never
+  runs and the nightly sweep is the only backstop. **Verify against `_compute_desired`, never
+  against the stored table.**
+- ⚠️ **No browser verification.** No DOM environment in this repo — responsive and hover behaviour
+  are unverified by any test.
+
+### Decision log (2026-08-12)
+
+- `missing_dn` / `missing_dc` are PO counts from the shared predicates; the clamps are gone (a count
+  cannot be negative).
+- `missing_dn` uses `is_dn_pending` — same number as the Overview tile — accepting the loss of the
+  4 Delivered-with-no-DN-document POs.
+- `Disp PO` and `Total DN` count Billable + Non-Billable with a hover split; `Total DC` and both
+  `missing_*` stay Billable-only.
+- DN > DC `pending_dn` re-defined to ordered-vs-received; the old challan-ahead-of-delivery check is
+  retired (1 item system-wide, on a test project).
+- The DN > DC cards now OVERLAP rather than partition — a PO can be counted under both Pending DN
+  and No DC Update, so they do not sum to the PO total. Stated in the report's info banner.
+- ITM DN > DC report is UNCHANGED and still carries the old `pending_dn` rule.
