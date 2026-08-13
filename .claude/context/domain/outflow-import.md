@@ -55,6 +55,11 @@ pick one ad-hoc; ask.
 | What the screen ASKS for (X3) | `outflowTableModel.serverQuery` | build endpoint params at a call site. It owns the MEANING of a filter; SQL owns the application |
 | The screen's aggregate (X2, widened P1) | `services/outflow_import/status.py` (`derive_import_summary`, `StatusTally`) | count or sum the selected transfers anywhere else. The DB does the `GROUP BY`; this assembles. It is batch-agnostic and always was, which is why scoping it to a PERIOD needed no change here at all — only the WHERE clause moved |
 | The screen's PERIOD, and the `added_on` filter (P1) | `frontend/.../outflow-import/outflowPeriod.ts` + `useOutflowPeriodStore.ts` | hold a second date filter for this column. ⚠️ **ONE VALUE, TWO EDITORS** — the `Period` control above the summary and the `Payment Date` column funnel read and write the same store entry. Two filters over one column would AND together, so "Last 30 days" plus "Is 01-Jan" selects nothing while neither control looks wrong. It is a STORE and not page state because four surfaces need it and one (the Skipped dialog's own `useOutflowRows` instance) is not a child |
+| The screen's SOURCE scope (CF/S2) | `frontend/.../outflow-import/useOutflowSourceStore.ts` + `outflowTableModel.SOURCE_COLUMN_ID` | hold a second source filter for this column. ⚠️ **ONE VALUE, TWO EDITORS**, exactly as the period is — the `Source` control above the summary and the `Source` column funnel read and write the same store entry, so "Cashfree" above with "Cashbook" ticked below cannot AND into an empty screen. The stored shape is the FUNNEL's (`string[]`); the dropdown is the lossy editor and reads **Mixed** rather than "All" when the funnel holds both. Needed **no backend work at all** — `source` was already in `review._FACET_COLUMNS` and already on the row payload |
+| Which imports the picker offers (CF/S2) | `outflowTableModel.importsForSource` | filter the import list at a render site. ⚠️ An import with **no** `source` survives every scope, on the period's `IS NULL` reasoning: a batch predating the column would otherwise vanish from the picker with no control able to bring it back |
+| **Is a statement still worth re-matching?** (CF/S5) | `services/outflow_import/status.py` (`batch_is_open`) — pure | re-derive "finished". ⚠️ **THIS IS THE WHOLE OF "AUTO-CLOSE" AND IT REVERSES NOTHING** — see the ruling below. THREE readers: `match_period`'s filter, `_imports_in_scope`'s `is_open` flag, and (through that flag) the caption under the Re-run button. An unknown or missing status is **OPEN**, deliberately: failing towards "still has work" costs one wasted pass, failing the other way loses the work |
+| Which batch `match_period` matches FIRST (CF/S3) | `api/outflow_import/review._match_order` | borrow this order from a reading surface. ⚠️ **IT DECIDES WHERE A CONTESTED RECORD LANDS**, so it is not presentation — see the trap recorded below |
+| The reference a row is known by (CF/S1) | `outflowTableModel.referenceValue` / `shortReference` | truncate a reference anywhere a value is STORED or COMPARED. `referenceValue` falls back to the wallet's `transfer_id`; `shortReference` is **display only** and must never reach `column.get` (which feeds sort, funnels and facet values) or `settle.py` |
 | A timespan word -> two dates | `frontend/src/utils/dateFilterRange.ts` | resolve "last 30 days" at a call site. It MIRRORS Frappe's `get_timespan_date_range`, including the odd ones (`this month` ends TODAY; `last 6 months` is quarter-aligned), so the same label selects the same rows on this screen as on every DataTable screen. ⚠️ The reports' `datePresets` define the SAME WORDS differently (its "Last 30 days" is 29 days) — the two vocabularies must not be mixed |
 | The date filter CONTROL and its vocabulary | `components/data-table/dateFilterModel.ts` (pure) + `date-filter-popover.tsx` (the popover) | write a second date filter. `DataTableDateFilter` is now a thin TanStack binding over the same popover, so every screen offers one set of operators. Adding an operator or a timespan means teaching `dateFilterRange.ts` in the SAME change, or a control offers an option that silently filters nothing |
 | Seeding decisions from the match run | `outflowTableModel.ts` (`suggestedDecision`, `seedDecisions`, `decisionOrigin`) | pre-select inside a component; the dialog used to, and it could only fire once a row was already open |
@@ -608,6 +613,23 @@ thing — one master table across every import at `/bulk-import-outflow` — and
     re-matched **in full**. `get_outflow_summary().imports` carries each batch's `row_count` (in
     scope) beside `total_rows` (in the batch) so `rematchWarning` can state the overspill *before*
     the click. Do not "fix" this by narrowing the match; keep the warning honest.
+    - ⚠️ **`match_period` SORTS ITS OWN BATCH LIST, AND THE COUPLING IT REPLACED ALMOST SHIPPED A
+      SILENT DEFECT (CF/S3).** It used to call `_imports_in_scope` and `.reverse()` the result to
+      get oldest-first — borrowing its meaning from a PICKER'S sort order. That order decides where
+      a **contested record lands**: a record two imports both match goes to the earlier transfer
+      under `resolve_claims`' `(added_on, row name)` ordering, so the batch matched first places the
+      claim. When CF/S3 re-ordered that reader by `period_to` — a presentation change, asked for as
+      one — matching order would have changed with it, and **nothing would have failed anywhere.**
+      The rule now lives in `_match_order`, in full, separately tested. A batch with no
+      `uploaded_at` still sorts first (`DESC NULLS LAST` reversed is `ASC NULLS FIRST`); the unique
+      name breaks ties so query order never decides.
+    - ⚠️ **THE COUNT CAME OFF THE BUTTON AND THE FILENAME LIST WENT BEHIND AN ICON, IN THE SAME
+      CHANGE (CF/S4 + CF/S5), SO THE CAPTION IS NOW LOAD-BEARING.** Two things used to state this
+      action's reach. Both are gone, and `rematchReachLabel` ("Re-run reaches 3 open imports.")
+      is the ONLY pre-click statement of scope left on the screen. It counts **open** imports, since
+      `match_period` skips the finished ones — naming statements the button will not touch is the
+      same class of lie as "button 688, table 893", pointing the other way. If this line goes, the
+      overspill becomes something a reviewer discovers afterwards.
   - ⚠️ **"Confirm all matched" REFUSES a set too large to review rather than truncating it**
     (`_MAX_CONFIRMABLE`, 2000). The dialog is a SAFETY CONTROL that states what the button will
     write, including how many approved amounts it will REWRITE; a silent `LIMIT` would show a list
@@ -649,11 +671,56 @@ thing — one master table across every import at `/bulk-import-outflow` — and
     default `last 30 days` window — the page would refresh to a summary that does not mention it and
     a table that does not list it, which reads as a failed upload. `ImportStatementDialog.onImported`
     carries the period for exactly this.
-- **The import dialog runs the match itself** and closes only when it is done — there is no case
-  where somebody imports a statement and does not want it matched. A manual **Re-run match** stays
-  on the summary, because re-running is normal (payments get hand-ticked all day). ⚠️ If the upload
-  succeeds and the match then fails, that is reported as a MATCH failure — the rows *are* staged,
-  and saying "upload failed" would send someone to re-import a statement that is already in.
+- **The import dialog runs the match itself** — there is no case where somebody imports a statement
+  and does not want it matched. A manual **Re-run match** stays on the summary, because re-running is
+  normal (payments get hand-ticked all day). ⚠️ If the upload succeeds and the match then fails, that
+  is reported as a MATCH failure — the rows *are* staged, and saying "upload failed" would send
+  someone to re-import a statement that is already in.
+  - ⚠️ **IT NO LONGER CLOSES WHEN THE MATCH FINISHES (CF/S7).** It is a **4-step wizard** — Upload →
+    Check → Import & match → **Confirm** — and the owner's ruling was that one dialog must not close
+    so another can open. Cashbook keeps its own 3 steps (Upload → Review plan → Create); two step
+    lists, because the jobs are opposite and a shared list would need a step meaning nothing on one
+    side. The step is **DERIVED** from what the server has done (`importWizard.currentStepIndex`),
+    never held as a separate pointer that could describe something that did not happen.
+  - ⚠️ **STEP 4 IS DELIBERATELY UNFILTERED — every confirmable transfer, any import, any period**
+    (owner ruling). The reason to press Re-run after an upload is that a payment approved yesterday
+    belongs to an OLDER statement. A confirmable row is `Matched` **with a stored suggestion**, which
+    only exists inside an open batch, so "no filters" already IS the open-import set with no new
+    server concept. Two costs, accepted and designed for: an old unconfirmed statement appears there,
+    and `_MAX_CONFIRMABLE` (2,000) is reachable — the panel renders that refusal and sends the
+    reviewer to the summary, where the narrowing controls are.
+  - ⚠️ **A FAILED MATCH STAYS ON STEP 3.** Advancing would show an honestly empty confirm list for
+    entirely the wrong reason: *"nothing matched"* and *"the match never ran"* are different
+    sentences and only the second has a Re-run as its answer. The footer's Re-run is the fix and
+    there is deliberately no second copy in the body.
+  - **Back is possible between steps 1 and 2 only**, and the boundary is *has anything been written*
+    (`canStepBack`). From step 3 the rows are staged and "back" would offer a re-upload the
+    duplicate guard will refuse. **Finish later** is always available once they are — the step says
+    plainly that the transfers are already in.
+  - The dialog refuses to close while anything is writing, including the settle loop inside step 4:
+    that is the panel's own state, reported up through `onRunningChange`, because only a host knows
+    what its dismiss is.
+- **`ConfirmMatchedPanel` is the confirm tree; `ConfirmAllMatchedDialog` is a thin shell over it**
+  (CF/S6). The summary button and wizard step 4 render ONE implementation — two copies of a tree
+  that decides what a click WRITES (including how many approved amounts it rewrites) would be free
+  to disagree about exactly that. ⚠️ **This is NOT the extraction the Cashbook slice rejected**: that
+  one tried to share the tri-state TREE with `CashbookReviewTree`, and that finding stands. This
+  moved the whole panel out of its `<Dialog>` shell, intact, sharing nothing with that file.
+- **The History dialog holds the last 10 imports** (CF/S4), behind a clock icon beside *Import
+  statement*; it replaced the filename list at the foot of the summary card. Fed by the SAME
+  `list_imports` the picker reads, so the two can never disagree about what exists. Obeys the Source
+  scope, **ignores** the period (it lists FILES, and a file's period is a column in it). ⚠️ Its count
+  is `successful_rows`, never `total_rows`, because it sits beside `gross_amount` — which has
+  excluded bank-refused transfers since parse time. Two figures describing different populations on
+  one line is the Skipped-chip defect in a smaller frame.
+- **The `Reference` column is no longer "Reference (UTR)"** (CF/S1). It falls back to the wallet's
+  `transfer_id`, so a Cashbook row stops rendering blank while the expense it created carries a
+  reference. Shown as the **last 12 characters** when longer — ⚠️ **display only**: the stored
+  `payment_ref` keeps its full value (a truncated one is the blank-reference defect wearing a value),
+  and the shortening must never reach `column.get`, which feeds sort, funnels and facet values.
+- **The `Import` column is HIDDEN by default, not deleted** (CF/S1). In this table a filter IS a
+  column header, so deleting it would have taken the Import facet with it — a request about screen
+  width silently cutting the ability to filter by statement.
 - **"Confirm all matched" is CONFIRM, never APPROVE** (owner ruling 2026-08-09). This feature never
   approves anything; a button saying otherwise would tell an accountant they are approving payments.
   It acts only on `Matched` rows **carrying a stored suggestion** — a row that matched several
@@ -939,6 +1006,26 @@ returned by `get_import_summary` or `list_imports`.
 **Closing never converted open rows to `Skipped`** — a skip is a DECISION, and auto-skipping would
 have manufactured decisions nobody made. That reasoning outlives the feature and is why no future
 "finish this import" action may do it either.
+
+### ⚠️ "Auto-close" (CF/S5) is a READ of a derived status, and does NOT reopen the ruling above
+
+The owner asked for finished imports to stop being re-matched. That sounds like the deleted control
+and is not: **nothing is written.** `derive_batch_status` already returns `Completed` when a batch
+has no open rows, and `_refresh_batch_rollup` runs on **every settle and every skip** — so a batch
+closes itself, and a statement whose last transfer was settled a year ago already reads `Completed`
+today. No field, no patch, no backfill.
+
+- The one predicate is `status.batch_is_open`. `match_period` skips the closed ones; everything else
+  — the picker, the History dialog, every figure — still lists them. **Finished, not hidden.**
+- ⚠️ **`closed_at` / `closed_by` / `close_reason` MUST STAY UNWRITTEN.** They are still on the
+  doctype (dropping them would destroy the close history of every batch already closed). If a future
+  change makes auto-close a WRITE, that is the deleted control returning and it needs to be a
+  decision rather than a drift. Pinned by
+  `test_status::test_it_does_not_resurrect_the_deleted_close_fields`.
+- ⚠️ **IT IS A COST FIX, NEVER A CORRECTNESS ONE, and the distinction stops it being "improved" into
+  something that skips real work.** `match_batch` already skips `_FROZEN_ROW_STATUSES` row by row,
+  so re-matching a finished statement was ALWAYS a no-op — it just walked all 1,043 rows to find
+  that out, on every run, forever. What changed is the work done and the number reported.
 
 ---
 

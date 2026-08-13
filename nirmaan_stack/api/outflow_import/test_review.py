@@ -33,7 +33,9 @@ import frappe
 
 from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
+    _match_order,
     _payment_order_names,
+    list_imports,
     get_batch_rows,
     get_confirmable_rows,
     get_import_summary,
@@ -2626,6 +2628,47 @@ class TestMatchPeriod(OutflowReviewFixture):
         self.assertEqual(result["batches"], [])
         self.assertEqual(result["batches_matched"], 0)
 
+    def test_a_COMPLETED_statement_is_skipped(self):
+        """Auto-close (slice CF/S5), at the endpoint.
+
+        ⚠️ A COST FIX, NOT A BEHAVIOUR ONE, and the distinction is worth keeping. `match_batch`
+        already skips `_FROZEN_ROW_STATUSES` row by row, so a statement whose every transfer is
+        settled or skipped had nothing to match anyway -- it just walked all of them to find out.
+        What this changes is the work done and the count reported.
+
+        The status is set directly rather than by settling every row: `derive_batch_status` is
+        separately tested, this is about `match_period` reading it.
+        """
+        original = frappe.db.get_value(BATCH_DOCTYPE, self.batch.name, "status")
+        frappe.db.set_value(
+            BATCH_DOCTYPE, self.batch.name, "status", "Completed", update_modified=False
+        )
+        frappe.db.commit()
+        try:
+            result = match_period(batch=self.batch.name)
+            self.assertEqual(result["batches"], [])
+            self.assertEqual(result["batches_matched"], 0)
+        finally:
+            # ⚠️ RESTORE WHAT WAS THERE, never a hardcoded constant -- this suite runs against the
+            # LIVE development site.
+            frappe.db.set_value(
+                BATCH_DOCTYPE, self.batch.name, "status", original, update_modified=False
+            )
+            frappe.db.commit()
+
+    def test_the_summary_reports_which_statements_are_still_open(self):
+        """The caption under the button reads this flag, and `match_period` filters on it.
+
+        ⚠️ ONE FLAG FOR BOTH, so the number a reviewer reads before clicking and the set the click
+        acts on cannot disagree. Two computations of "which imports are open" is how a control comes
+        to promise one thing and do another.
+        """
+        summary = get_outflow_summary(batch=self.batch.name)
+        entry = next(b for b in summary["imports"] if b["name"] == self.batch.name)
+        self.assertIn("is_open", entry)
+        self.assertIn("status", entry)
+        self.assertTrue(entry["is_open"], "fixture precondition: this batch still has open rows")
+
 
 class TestTheConfirmableCap(OutflowReviewFixture):
     """`_MAX_CONFIRMABLE` -- the reviewability limit on "Confirm all matched" (slice P1)."""
@@ -2674,3 +2717,144 @@ class TestTheConfirmableCap(OutflowReviewFixture):
         # And with the real ceiling back, the same call succeeds -- the refusal is the cap, not the
         # query.
         self.assertIsInstance(get_confirmable_rows(batch=self.batch.name)["ready"], list)
+
+
+class TestTheImportReadingOrder(unittest.TestCase):
+    """`list_imports` -- the picker's order (slice CF/S3).
+
+    Bare batches, no rows: this endpoint reads the batch table alone, so staging transfers would add
+    nothing but coupling to the parser fixture.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.made = []
+        # Uploaded LATER but covering an EARLIER period -- the shape the ruling is about. Statements
+        # are routinely posted weeks after the money moved.
+        cls.march = cls._batch(period_to="2026-03-31", uploaded_at="2026-08-01 10:00:00")
+        cls.july = cls._batch(period_to="2026-07-31", uploaded_at="2026-07-01 10:00:00")
+        frappe.db.commit()
+
+    @classmethod
+    def _batch(cls, *, period_to, uploaded_at):
+        doc = frappe.new_doc(BATCH_DOCTYPE)
+        doc.source = "Cashfree"
+        doc.original_filename = f"order-test-{frappe.generate_hash(length=8)}.csv"
+        doc.period_from = "2026-01-01"
+        doc.period_to = period_to
+        doc.uploaded_at = uploaded_at
+        doc.uploaded_by = "Administrator"
+        doc.insert(ignore_permissions=True)
+        cls.made.append(doc.name)
+        return doc
+
+    @classmethod
+    def tearDownClass(cls):
+        for name in cls.made:
+            frappe.delete_doc(BATCH_DOCTYPE, name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def test_it_orders_by_the_statement_s_OWN_period_not_by_when_it_was_uploaded(self):
+        """The owner's ask, and the case that distinguishes the two keys.
+
+        Under the old `uploaded_at DESC` the March statement came FIRST purely because somebody got
+        to it later -- above a statement covering four months more recent transfers. The label a
+        reader scans for is the period.
+        """
+        order = [b["name"] for b in list_imports(limit=200)]
+        self.assertLess(order.index(self.july.name), order.index(self.march.name))
+
+    def test_it_carries_the_source_so_the_picker_can_be_narrowed(self):
+        rows = {b["name"]: b for b in list_imports(limit=200)}
+        self.assertEqual(rows[self.july.name]["source"], "Cashfree")
+
+    def test_a_batch_with_no_rows_still_appears_at_zero(self):
+        """⚠️ `LEFT JOIN`, NOT `JOIN` (slice CF/S4).
+
+        An import that staged nothing is exactly the one somebody opens a history to find. Dropping
+        it would make that failure invisible on the only screen that lists imports as imports -- and
+        these fixtures are precisely that shape, which is what makes this assertion meaningful.
+        """
+        rows = {b["name"]: b for b in list_imports(limit=200)}
+        self.assertIn(self.july.name, rows)
+        self.assertEqual(rows[self.july.name]["successful_rows"], 0)
+
+
+class TestTheHistoryFigures(OutflowReviewFixture):
+    """`list_imports` -- the count and the amount the History dialog prints (slice CF/S4)."""
+
+    def test_the_count_EXCLUDES_transfers_the_bank_refused(self):
+        """⚠️ IT PAIRS WITH `gross_amount`, WHICH HAS EXCLUDED THEM SINCE PARSE TIME (invariant 13).
+
+        `total_rows` counts every staged transfer including the refused ones. Printing that beside
+        an amount that never contained them would put a count and a figure describing DIFFERENT
+        populations on one line -- the same defect as a chip reading 20 that opens a list of 47.
+        """
+        row = next(b for b in list_imports(limit=200) if b["name"] == self.batch.name)
+
+        failed = sum(1 for r in self.parsed.rows if not r.is_success)
+        self.assertGreater(failed, 0, "fixture precondition: the sample has a refused transfer")
+
+        self.assertEqual(row["total_rows"], len(self.parsed.rows))
+        self.assertEqual(row["successful_rows"], len(self.parsed.rows) - failed)
+
+    def test_it_reports_the_amount_that_actually_left_the_account(self):
+        row = next(b for b in list_imports(limit=200) if b["name"] == self.batch.name)
+        self.assertEqual(float(row["gross_amount"]), float(self.parsed.gross_amount))
+
+
+class TestTheMatchingOrder(unittest.TestCase):
+    """`_match_order` -- which batch `match_period` matches FIRST (slice CF/S3).
+
+    ⚠️ THIS IS NOT A PRESENTATION TEST. A record both imports match goes to the earlier transfer
+    under `resolve_claims`' ordering, so this decides where money lands. It exists because the rule
+    used to be `.reverse()` on a picker's sort order, and re-ordering that picker -- a change asked
+    for as a cosmetic one -- would have moved it silently.
+    """
+
+    def test_it_matches_the_oldest_UPLOAD_first(self):
+        scoped = [
+            {"name": "B", "uploaded_at": "2026-08-01 10:00:00"},
+            {"name": "A", "uploaded_at": "2026-07-01 10:00:00"},
+        ]
+        self.assertEqual(_match_order(scoped), ["A", "B"])
+
+    def test_it_ignores_the_period_the_picker_now_sorts_by(self):
+        """The regression the extraction exists to prevent.
+
+        The picker orders by `period_to`; this must not. A statement covering March but uploaded
+        last is still matched LAST, because the claim ordering is about when we learned of the
+        transfer, not when it happened.
+        """
+        scoped = [
+            {"name": "MARCH", "uploaded_at": "2026-08-01 10:00:00", "period_to": "2026-03-31"},
+            {"name": "JULY", "uploaded_at": "2026-07-01 10:00:00", "period_to": "2026-07-31"},
+        ]
+        self.assertEqual(_match_order(scoped), ["JULY", "MARCH"])
+
+    def test_a_batch_with_no_upload_time_still_sorts_FIRST(self):
+        """Reproducing the retired clause exactly. `DESC NULLS LAST` reversed is `ASC NULLS FIRST`,
+        so a batch with no `uploaded_at` led the run before and must still lead it -- otherwise this
+        refactor changed matching order while claiming not to.
+        """
+        scoped = [
+            {"name": "DATED", "uploaded_at": "2026-07-01 10:00:00"},
+            {"name": "UNDATED", "uploaded_at": None},
+        ]
+        self.assertEqual(_match_order(scoped), ["UNDATED", "DATED"])
+
+    def test_the_unique_name_breaks_a_tie_so_query_order_never_decides(self):
+        """Two statements uploaded in the same second is not hypothetical -- a scripted import does
+        it. The name is unique, which is the same guarantee `pair_stack` and `resolve_claims` rely
+        on: no tie survives to be broken by whatever order the database happened to return.
+        """
+        scoped = [
+            {"name": "OFI-2", "uploaded_at": "2026-07-01 10:00:00"},
+            {"name": "OFI-1", "uploaded_at": "2026-07-01 10:00:00"},
+        ]
+        self.assertEqual(_match_order(scoped), ["OFI-1", "OFI-2"])
+
+    def test_an_empty_scope_stays_empty(self):
+        self.assertEqual(_match_order([]), [])

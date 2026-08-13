@@ -1,7 +1,14 @@
 // src/pages/outflow-import/components/ImportStatementDialog.tsx
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, CheckCircle2, FileSpreadsheet, Loader2, Upload } from "lucide-react";
+import {
+    AlertTriangle,
+    CheckCircle2,
+    FileSpreadsheet,
+    Loader2,
+    RefreshCw,
+    Upload,
+} from "lucide-react";
 import { useFrappePostCall } from "frappe-react-sdk";
 
 import { Button } from "@/components/ui/button";
@@ -13,6 +20,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { WizardSteps } from "@/components/ui/wizard-steps";
 import {
     Select,
     SelectContent,
@@ -36,7 +44,16 @@ import {
     progressFraction,
     progressText,
 } from "../cashbookPreview";
+import {
+    CONFIRM_STEP_NOTE,
+    FINISH_LATER_NOTE,
+    clickableStepIndex,
+    confirmEmptyCopy,
+    currentStepIndex,
+    importSteps,
+} from "../importWizard";
 import { CashbookReviewTree } from "./CashbookReviewTree";
+import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
 
 const PREVIEW_URL =
     "/api/method/nirmaan_stack.api.outflow_import.upload.preview_outflow_statement";
@@ -49,6 +66,15 @@ const CASHBOOK_CONFIRM_URL =
 
 /** A Cashbook import writes in the background, so the dialog watches the rows rather than waiting. */
 const STATUS_POLL_MS = 1500;
+
+/**
+ * The confirm step's scope: no filters at all (owner ruling Q21).
+ *
+ * ⚠️ A MODULE CONSTANT, NOT AN INLINE `{}`. `ConfirmMatchedPanel` keys its SWR cache on
+ * `JSON.stringify(scope)` and passes the object straight to the fetch — a fresh literal every render
+ * is a fresh identity, and the refetch churn that follows is invisible until somebody profiles it.
+ */
+const EMPTY_CONFIRM_SCOPE: Record<string, unknown> = {};
 
 // Mirrors the server's own limits (api/outflow_import/upload.py). Client-side is a courtesy so a
 // wrong file fails instantly; the endpoint is the boundary.
@@ -81,6 +107,14 @@ interface Props {
         period?: { from?: string | null; to?: string | null },
         source?: string
     ) => void;
+    /**
+     * Re-read the screen behind, WITHOUT moving the period or the tab (slice CF/S7).
+     *
+     * ⚠️ IT IS NOT `onImported` CALLED AGAIN. That one also sets the period and, for Cashbook, the
+     * tab — right once, when the statement arrives. Calling it after every settle inside step 4
+     * would yank the tab out from under somebody mid-review.
+     */
+    onRefresh?: () => Promise<void> | void;
 }
 
 /**
@@ -98,7 +132,7 @@ interface Props {
  * batch back, rather than reporting a failure that would send somebody to re-upload a statement
  * that is already in.
  */
-export const ImportStatementDialog = ({ open, onOpenChange, onImported }: Props) => {
+export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefresh }: Props) => {
     const inputRef = useRef<HTMLInputElement>(null);
 
     const [source, setSource] = useState("Cashfree");
@@ -116,10 +150,36 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported }: Props)
     const [cashbookBatch, setCashbookBatch] = useState<CashbookConfirmResult | null>(null);
     const [cashbookStatus, setCashbookStatus] = useState<CashbookStatus | null>(null);
 
+    /**
+     * The Cashfree match has FINISHED, which is not the same as "not running" (slice CF/S7).
+     *
+     * ⚠️ IT IS WHAT SEPARATES STEP 3 FROM STEP 4, AND A FAILURE MUST NOT SET IT. `isBusy` goes back
+     * to null whether the match succeeded or threw, so deriving the step from it would advance a
+     * failed run to Confirm — where the list would be honestly empty for entirely the wrong reason.
+     */
+    const [matched, setMatched] = useState(false);
+    /** True while the settle loop inside the confirm step is writing. Blocks dismissal. */
+    const [confirming, setConfirming] = useState(false);
+    /** Bumped by a re-run so the confirm panel remounts and refetches rather than showing stale rows. */
+    const [rematchNonce, setRematchNonce] = useState(0);
+
     const isCashbook = source === "Cashbook";
 
     const { call: runMatch } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.review.match_batch"
+    );
+
+    /**
+     * The step-4 re-run, which is NOT the same call the import itself makes.
+     *
+     * ⚠️ IT SPANS EVERY OPEN IMPORT (owner ruling Q2), while the step-3 match is this batch's own.
+     * The point of pressing it here is that a payment approved since the last run may belong to an
+     * older statement — so scoping it to the file just uploaded would answer a question nobody
+     * asked. `match_period` with no filters resolves the open imports server-side, and skips the
+     * `Completed` ones (slice CF/S5).
+     */
+    const { call: runMatchAcrossOpenImports, loading: rematching } = useFrappePostCall(
+        "nirmaan_stack.api.outflow_import.review.match_period"
     );
 
     // A dialog is REUSED, unlike the page it replaces -- which was unmounted and rebuilt on every
@@ -131,6 +191,8 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported }: Props)
         setStaged(null);
         setError(null);
         setIsBusy(null);
+        setMatched(false);
+        setConfirming(false);
         setCashbookPreview(null);
         setCashbookBatch(null);
         setCashbookStatus(null);
@@ -141,6 +203,7 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported }: Props)
     useEffect(() => {
         setPreview(null);
         setStaged(null);
+        setMatched(false);
         setCashbookPreview(null);
         setCashbookBatch(null);
         setCashbookStatus(null);
@@ -345,25 +408,99 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported }: Props)
         try {
             await runMatch({ batch });
         } catch (err: any) {
+            // ⚠️ THE ADVICE CHANGED WITH THE WIZARD (slice CF/S7). It used to say "use Re-run match
+            // on the summary", which was right while this dialog closed on failure. It no longer
+            // closes -- the reviewer is standing on step 3, which now HAS that button -- so pointing
+            // at another screen would send them away from the control that fixes it.
             setError(
                 `The statement was imported, but matching it failed: ${describeFrappeError(
                     err,
                     "no reason was returned"
-                )} Use “Re-run match” on the summary.`
+                )} Try “Re-run match” below.`
             );
             setIsBusy(null);
-            onImported(batch, period);
+            onImported(batch, period, source);
             return;
         }
         setIsBusy(null);
-        onImported(batch, period);
-        onOpenChange(false);
-    }, [file, isBusy, post, runMatch, onImported, onOpenChange]);
+        setMatched(true);
+        // ⚠️ THE PAGE BEHIND IS REFRESHED NOW, AND THE DIALOG STAYS OPEN (owner ruling Q1). Until
+        // CF/S7 those two happened together. Refreshing here means that whenever the reviewer does
+        // close -- after confirming, or straight away -- the screen behind is already current and the
+        // statement they just imported is in view rather than outside the default period.
+        onImported(batch, period, source);
+    }, [file, isBusy, post, runMatch, onImported, source]);
+
+    /**
+     * Step 4's re-run, and step 3's retry after a failed match.
+     *
+     * ⚠️ IT REACHES EVERY OPEN IMPORT, NOT JUST THIS ONE (owner ruling Q2). The reason to press it
+     * after an upload is that a payment approved since the last run may belong to an OLDER
+     * statement, so scoping it to the file just uploaded would answer a question nobody asked.
+     * `match_period` with no filters resolves the open imports server-side and skips the `Completed`
+     * ones (slice CF/S5).
+     *
+     * ⚠️ A FAILURE HERE IS NOT AN IMPORT FAILURE. By this point the statement is in, so the message
+     * says what did not happen rather than casting doubt on what did.
+     */
+    const handleRematchOpenImports = useCallback(async () => {
+        setError(null);
+        try {
+            await runMatchAcrossOpenImports({});
+            // Whatever the run changed, the confirm list is now stale. Bumping the nonce remounts
+            // the panel so it refetches rather than showing what was true a moment ago.
+            setMatched(true);
+            setRematchNonce((n) => n + 1);
+            await onRefresh?.();
+        } catch (err: any) {
+            setError(
+                `The re-run failed: ${describeFrappeError(
+                    err,
+                    "no reason was returned"
+                )} The import itself is unaffected.`
+            );
+        }
+    }, [runMatchAcrossOpenImports, onRefresh]);
 
     const working = isBusy === "upload" || isBusy === "match";
 
+    /**
+     * The step, DERIVED from what the server has actually done (slice CF/S7).
+     *
+     * ⚠️ NEVER A SEPARATE `currentStep` NUMBER. A pointer held beside the flow is free to disagree
+     * with what is on screen — showing "Confirm" over an unmatched statement, or "Upload" after the
+     * rows were written. Every input here is a fact about the server, so the stepper can only ever
+     * describe something that really happened.
+     */
+    const flow = {
+        previewed: isCashbook ? Boolean(cashbookPreview) : Boolean(preview),
+        staged: isCashbook ? Boolean(cashbookBatch) : Boolean(staged),
+        matched,
+    };
+    const steps = importSteps(source);
+    const stepIndex = currentStepIndex(source, flow);
+    const onConfirmStep = !isCashbook && stepIndex === 3;
+
+    /**
+     * Drop the preview and go back to the file picker.
+     *
+     * ⚠️ REACHABLE ONLY FROM STEP 1, and `canStepBack` is what enforces it. From step 2 on the rows
+     * are staged, and "back" would offer a re-upload the duplicate guard will refuse — a promise
+     * that cannot be kept.
+     */
+    const goBackToUpload = useCallback(() => {
+        setPreview(null);
+        setCashbookPreview(null);
+        setError(null);
+    }, []);
+
+    // ⚠️ THE DIALOG REFUSES TO CLOSE WHILE ANYTHING IS WRITING -- the upload, the match, or the
+    // settle loop inside step 4. `confirming` is the panel's own state, reported up through
+    // `onRunningChange`, because only this component owns the dismiss.
+    const locked = working || confirming;
+
     return (
-        <Dialog open={open} onOpenChange={(next) => (working ? null : onOpenChange(next))}>
+        <Dialog open={open} onOpenChange={(next) => (locked ? null : onOpenChange(next))}>
             {/* ⚠️ WIDE ENOUGH THAT NO FIGURE WRAPS (owner ruling 2026-08-10). The summary sets a
                 label against a right-aligned value on one line, and a wrapped period or a wrapped
                 rupee figure is the difference between a block that reads as a statement and one
@@ -384,21 +521,49 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported }: Props)
                 one because its tree carries a label, a count and an amount on every line. */}
             <DialogContent
                 className={`grid max-h-[85vh] grid-rows-[auto_1fr_auto] gap-0 overflow-hidden p-0 ${
-                    isCashbook ? "w-[min(92vw,960px)] sm:max-w-none" : "max-w-3xl"
+                    // ⚠️ THE CONFIRM STEP TAKES THE WIDE FORM TOO (slice CF/S7). It renders the same
+                    // vendor tree the standalone confirm dialog does at `max-w-5xl`; at the Cashfree
+                    // width its columns collapse.
+                    isCashbook || onConfirmStep ? "w-[min(92vw,1024px)] sm:max-w-none" : "max-w-3xl"
                 }`}
             >
-                <DialogHeader className="px-6 pb-2 pt-6">
-                    <DialogTitle>
-                        {isCashbook ? "Import a petty cash statement" : "Import a bank statement"}
-                    </DialogTitle>
-                    <DialogDescription>
-                        {isCashbook
-                            ? "Wallet spends that have already left the account. Each one becomes an expense record."
-                            : "Transfers that have already left the bank. Nothing is settled by importing — every row is confirmed by a person afterwards."}
-                    </DialogDescription>
+                <DialogHeader className="space-y-4 px-6 pb-2 pt-6">
+                    <div className="space-y-1.5">
+                        <DialogTitle>
+                            {isCashbook
+                                ? "Import a petty cash statement"
+                                : "Import a bank statement"}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {isCashbook
+                                ? "Wallet spends that have already left the account. Each one becomes an expense record."
+                                : "Transfers that have already left the bank. Nothing is settled by importing — every row is confirmed by a person afterwards."}
+                        </DialogDescription>
+                    </div>
+                    {/* ⚠️ THE STEP COUNT IS FIXED PER SOURCE AND NEVER RENUMBERS MID-FLOW. Step 4
+                        renders even when nothing matched, because a wizard whose last step vanishes
+                        when it has nothing to report reads as a crash.
+
+                        ⚠️ CLICKING A CIRCLE ONLY WORKS BEFORE ANYTHING IS WRITTEN. `clickableStepIndex`
+                        allows a completed step, and only while `canStepBack` -- from step 2 on the
+                        rows are staged and there is nothing to go back to. */}
+                    <WizardSteps
+                        steps={steps}
+                        currentStep={stepIndex}
+                        onStepClick={(target) => {
+                            if (clickableStepIndex(source, flow, target)) goBackToUpload();
+                        }}
+                        allowForwardNavigation={false}
+                    />
                 </DialogHeader>
 
                 <div className="min-h-0 space-y-5 overflow-y-auto px-6 py-4">
+                    {/* ⚠️ THE SOURCE PICKER AND THE DROP ZONE BELONG TO STEP 1 ONLY. They used to sit
+                        above every state, which was harmless when the flow was one column of
+                        stacked sections -- under a stepper it would put "choose a file" on a screen
+                        headed "Confirm", over a statement already in the database. */}
+                    {stepIndex === 0 && (
+                        <>
                     <div className="space-y-2">
                         <Label htmlFor="outflow-source">Source</Label>
                         <Select value={source} onValueChange={setSource} disabled={working}>
@@ -455,6 +620,18 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported }: Props)
                         )}
                     </div>
 
+                            <Button onClick={handlePreview} disabled={!file || isBusy !== null}>
+                                {isBusy === "preview" && (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                )}
+                                {isBusy === "preview" ? "Reading statement…" : "Read statement"}
+                            </Button>
+                        </>
+                    )}
+
+                    {/* ⚠️ THE ERROR BANNER SPANS EVERY STEP, DELIBERATELY. Each step can fail in its
+                        own way -- an unreadable file, a refused upload, a failed match, a refused
+                        re-run -- and the message always belongs beside the step that produced it. */}
                     {error && (
                         <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
                             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -462,41 +639,81 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported }: Props)
                         </div>
                     )}
 
-                    {/* Parse -> preview -> confirm -> match. The preview is where the detected
-                        period appears, BEFORE anything is written.
+                    {/* ⚠️ THE FILE IS NAMED ON EVERY STEP AFTER THE FIRST. The drop zone used to
+                        carry it, and gating the drop zone to step 1 quietly took the filename with
+                        it -- leaving a reviewer to confirm a statement without being able to see
+                        WHICH statement. On the last screen before anything is written, that is the
+                        one fact that has to stay on screen. */}
+                    {stepIndex > 0 && file && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <FileSpreadsheet className="h-3.5 w-3.5 shrink-0" />
+                            <span className="truncate font-medium text-foreground">{file.name}</span>
+                            <span className="shrink-0">· {source}</span>
+                        </div>
+                    )}
 
-                        ⚠️ CASHBOOK BRANCHES HERE AND NOWHERE ELSE. Everything above -- the source
-                        picker, the drop zone, the error banner -- is shared, because it is the same
-                        act. What differs is what the server found and what confirming it does, and
-                        that is exactly this chain. */}
-                    {isCashbook ? (
-                        cashbookBatch ? null : cashbookPreview ? (
-                            <CashbookReviewTree preview={cashbookPreview} />
+                    {/* STEP 2 -- what importing this statement WOULD do. Nothing is written yet. */}
+                    {stepIndex === 1 &&
+                        (isCashbook ? (
+                            cashbookPreview && <CashbookReviewTree preview={cashbookPreview} />
                         ) : (
-                            <Button onClick={handlePreview} disabled={!file || isBusy !== null}>
-                                {isBusy === "preview" && (
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                )}
-                                {isBusy === "preview" ? "Reading statement…" : "Read statement"}
-                            </Button>
-                        )
-                    ) : staged ? (
+                            preview && (
+                                <StatementPreview
+                                    preview={preview}
+                                    busy={working}
+                                    phase={isBusy}
+                                    onConfirm={handleConfirm}
+                                    onChooseAnother={() => inputRef.current?.click()}
+                                />
+                            )
+                        ))}
+
+                    {/* STEP 3 -- the rows are IN. For Cashfree this is the staged summary while the
+                        match runs; for Cashbook it is the creation job's progress. */}
+                    {stepIndex === 2 && !isCashbook && staged && (
                         <StagedSummary result={staged} matching={isBusy === "match"} />
-                    ) : preview ? (
-                        <StatementPreview
-                            preview={preview}
-                            busy={working}
-                            phase={isBusy}
-                            onConfirm={handleConfirm}
-                            onChooseAnother={() => inputRef.current?.click()}
-                        />
-                    ) : (
-                        <Button onClick={handlePreview} disabled={!file || isBusy !== null}>
-                            {isBusy === "preview" && (
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            )}
-                            {isBusy === "preview" ? "Reading statement…" : "Read statement"}
-                        </Button>
+                    )}
+
+                    {/* ⚠️ A FAILED MATCH KEEPS THE REVIEWER ON STEP 3, WITH THE FIX IN REACH (owner
+                        ruling Q31), AND THE FIX IS THE FOOTER'S Re-run BUTTON -- there is
+                        deliberately no second copy here. Advancing to Confirm would show an honestly
+                        empty list for the wrong reason: "nothing matched" and "the match never ran"
+                        are different sentences, and only the second one has a Re-run as its answer.
+                        The footer renders from step 3 on, so it is already on screen. */}
+
+                    {/* STEP 4 -- confirm. See `CONFIRM_STEP_NOTE` on why this reaches wider than the
+                        statement that was just imported. */}
+                    {onConfirmStep && (
+                        <div className="space-y-4">
+                            <p className="text-xs text-muted-foreground">{CONFIRM_STEP_NOTE}</p>
+                            <ConfirmMatchedPanel
+                                // ⚠️ REMOUNTED AFTER A RE-RUN so the list refetches. Without the
+                                // key the panel keeps showing what was confirmable before the run.
+                                key={rematchNonce}
+                                // ⚠️ NO FILTERS: every confirmable transfer, any import, any period
+                                // (owner ruling Q21). A confirmable row is `Matched` WITH a stored
+                                // suggestion, which only exists inside an open batch -- so this
+                                // already IS the open-import set, with no new server concept.
+                                filters={EMPTY_CONFIRM_SCOPE}
+                                active={onConfirmStep}
+                                onClose={() => onOpenChange(false)}
+                                onSettled={async () => {
+                                    await onRefresh?.();
+                                }}
+                                onRunningChange={setConfirming}
+                                Title="h3"
+                                Description="p"
+                                // Both found in the browser walk, and both are about this step's
+                                // wider scope: the panel's shipped empty state said "in this
+                                // import", contradicting the line directly above it, and its
+                                // "Cancel" read as an offer to undo an import that is already
+                                // written. "Finish later" in the footer is the honest exit.
+                                emptyNote={confirmEmptyCopy(
+                                    Math.max((staged?.total_rows ?? 0) - (staged?.skipped_rows ?? 0), 0)
+                                )}
+                                showCancel={false}
+                            />
+                        </div>
                     )}
 
                     {/* Once the job is running the tree is replaced by what it is doing. The tree
@@ -545,6 +762,49 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported }: Props)
                                 </Button>
                             </>
                         )}
+                    </div>
+                )}
+
+                {/* ⚠️ THE CASHFREE FOOTER EXISTS ONLY FROM STEP 3 ON (slice CF/S7). Steps 1 and 2
+                    keep their in-body buttons, which is where they have always been -- moving them
+                    would restructure a screen that settles money for no reason this slice needs.
+                    From step 3 the body is a staged summary or an 800-row vendor tree that is MEANT
+                    to be scrolled, so the way OUT has to stay put while you scroll it. */}
+                {!isCashbook && stepIndex >= 2 && (
+                    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t px-6 py-3">
+                        {/* ⚠️ IT SAYS THE ROWS ARE ALREADY IN. By this point closing loses nothing,
+                            and a reviewer who cannot tell that will sit through an 800-row confirm
+                            they did not want to start -- or close it fearing they undid the
+                            import. */}
+                        <p className="max-w-md text-xs text-muted-foreground">
+                            {FINISH_LATER_NOTE}
+                        </p>
+                        <div className="flex items-center gap-2">
+                            {/* Re-run reaches every OPEN import, not only this statement -- the
+                                point being that a payment approved since the last run may belong to
+                                an older one. */}
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleRematchOpenImports}
+                                disabled={rematching || locked}
+                            >
+                                {rematching ? (
+                                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                                )}
+                                Re-run match
+                            </Button>
+                            <Button
+                                size="sm"
+                                variant={onConfirmStep ? "outline" : "default"}
+                                onClick={() => onOpenChange(false)}
+                                disabled={locked}
+                            >
+                                Finish later
+                            </Button>
+                        </div>
                     </div>
                 )}
             </DialogContent>

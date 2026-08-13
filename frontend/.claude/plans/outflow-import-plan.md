@@ -1797,3 +1797,172 @@ Each was built or attempted, measured, and dropped for a reason worth keeping:
   `nirmaan_stack.patches.v3_0.seed_cashbook_import_rules` and
   `nirmaan_stack.patches.v3_0.backfill_outflow_row_source`.
 - **A production migrate** — two new doctypes, two row fields, one widened Select.
+
+---
+
+# §CF — The Cashfree wizard and the summary refinements (2026-08-14)
+
+Eight owner asks, settled over four grilling rounds before a line was written. The rounds are the
+record: every recommendation below was put to the owner and either taken or overturned, and the
+overturned ones are named where they mattered.
+
+## The eight asks, and what each became
+
+| # | Ask | Became |
+|---|---|---|
+| 1 | Cashfree gets Cashbook's multi-step check + confirm | A 4-step wizard, confirm **in place** (no dialog swap) |
+| 2 | A Source Type selector on the summary | Scopes the WHOLE screen, not only the Import dropdown |
+| 3 | Imports sorted newest-first by the file's date | `period_to DESC` on the two READING surfaces only |
+| 4 | Move the filename list into a History dialog | Clock icon beside Import statement; last 10; extends `list_imports` |
+| 5 | Drop "the summary above and the tabs below…" | Both variants deleted |
+| 6 | Reference is the Payment Ref for expenses | Falls back to `transfer_id`; last 12 chars, DISPLAY ONLY |
+| 7 | Remove the Import column | HIDDEN by default, not removed — the funnel lives in the header |
+| 8 | Re-run drops its count; finished imports auto-close | Auto-close is DERIVED (`Completed`), not stamped |
+
+## The four decisions worth keeping
+
+**AUTO-CLOSE IS DERIVED AND REVERSES NOTHING.** The 2026-08-10 ruling — *there is no close import* —
+stands. `derive_batch_status` already returns `Completed` for a batch with zero open rows, and
+`_refresh_batch_rollup` runs on every settle and every skip, so a batch closes itself. Excluding
+`Completed` batches from `match_period` needs no field, no patch and no backfill. ⚠️ **Do not
+resurrect `closed_at` / `closed_by` / `close_reason` to implement this** — they are still on the
+doctype, still never written, and writing them would re-create exactly the control that ruling
+deleted. Also worth stating: re-matching a finished batch was ALREADY a no-op (`match_batch` skips
+`_FROZEN_ROW_STATUSES`), so this is a cost-and-noise change, never a correctness one.
+
+**THE CONFIRM STEP IS DELIBERATELY UNFILTERED.** Step 4 asks `get_confirmable_rows` for every
+confirmable row in the system — any import, any period — because the whole reason to press Re-run
+after an upload is that a payment approved yesterday belongs to a statement from last month. A
+confirmable row is `Matched` **with a stored suggestion**, which only ever exists inside an open
+batch, so "no filters" already yields the open-import set with no new server concept. Two accepted
+costs, both designed for: a six-month-old unconfirmed statement appears in step 4, and the
+`_MAX_CONFIRMABLE` (2,000) refusal is reachable — so the step renders that refusal and sends the
+reviewer to the summary, where the narrowing controls actually are.
+
+**⚠️ `match_period` MUST SORT ITSELF, AND THIS IS THE TRAP THE SLICE ALMOST SHIPPED.** It called
+`_imports_in_scope` and `.reverse()`d the result to get oldest-first — and that order decides which
+transfer wins a record contested by two imports (`resolve_claims` orders by `(added_on, row name)`,
+so the batch matched first places the claim). Changing `_imports_in_scope`'s `ORDER BY` to
+`period_to` for the picker would therefore have silently changed money outcomes, with nothing
+failing anywhere. `match_period` now carries its **own explicit** `uploaded_at ASC`, so the coupling
+is visible and a future re-ordering of a reading surface cannot reach it.
+
+**TRUNCATION NEVER TOUCHES A STORED VALUE, AND NEVER TOUCHES `column.get`.** The wallet's
+`transfer_id` is the only thing that finds a petty-cash spend in the wallet's own records — the
+Cashbook slice already shipped 115 expenses with blank references once — so the last-12 rule is a
+render concern and the full value stays in storage and in the cell's `title`. It stays out of
+`column.get` for a second reason: that function feeds sort, filter and the facet values, so
+truncating there would make searching a full UTR find nothing.
+
+## Two smaller rulings
+
+- **One value, two editors — again.** The Source selector and the Source column funnel read and
+  write ONE store entry, copying the Period ↔ Payment-Date pattern (P1). Two filters over one column
+  AND together, so "Cashfree" above and "Cashbook" in the funnel would select nothing while neither
+  control looked wrong. Where the funnel holds both values the selector reads **Mixed**, never
+  "All" — a control reading "All" under an applied filter is the invisible-filter defect this
+  screen has already shipped once.
+- **Two safety signals became one, knowingly.** Today the `(N imports)` on the button AND the
+  filename list under the card both warn that Re-run reaches past the period. The count comes off
+  the button (owner: not in the button) and the list moves behind an icon, so the caption *"Re-run
+  reaches N open imports."* is now the only pre-click statement of scope. It counts OPEN imports
+  only — naming statements the button will not touch is the same class of lie as "button 688, table
+  893", pointing the other way.
+
+## ⚠️ S6 is NOT the extraction the Cashbook slice rejected
+
+The Cashbook record above lists *"extracting the `ConfirmAllMatchedDialog` tree"* as tried and
+dropped: the three-level tri-state tree is the component, and `CashbookReviewTree` shares none of
+its logic. **That finding stands and is not being reversed.** S6 extracts something different — the
+whole panel BODY out of its `<Dialog>` shell, tree and selection and safety bar together, unchanged
+— so one implementation can render in two places. Nothing is shared with `CashbookReviewTree`.
+
+## The slices
+
+| # | Slice | Touches |
+|---|---|---|
+| S1 | Table & copy trims | frontend only |
+| S2 | Source Type selector | frontend only — `source` is already a server facet |
+| S3 | Import ordering | backend; carries the `match_period` fix |
+| S4 | History dialog | `list_imports` + a new dialog |
+| S5 | Auto-close + re-run caption | `status.py` predicate, `match_period`, the panel |
+| S6 | Extract `ConfirmMatchedPanel` | frontend refactor, zero behaviour change |
+| S7 | The Cashfree wizard | frontend |
+
+S6 ships alone and carries no features on purpose: if the browser walk shows any difference, it is a
+regression rather than a feature interaction.
+
+## As-built, per slice
+
+| # | Slice | What landed |
+|---|---|---|
+| S1 | Table & copy trims | `referenceValue` + `shortReference` (display-only, out of `column.get`); `Reference (UTR)` -> `Reference`; `import_batch` hidden-by-default; both "same period" sentences deleted |
+| S2 | Source Type selector | `useOutflowSourceStore` (mirrors the period store, URL-linkable, unknown values dropped); `SOURCE_COLUMN_ID` routed in `useOutflowRows`; **Mixed** state; withheld when a batch is pinned; **zero backend work** |
+| S3 | Import ordering | `list_imports` + `_imports_in_scope` -> `period_to DESC`; **`_match_order` extracted** so `match_period` stops borrowing a picker's sort |
+| S4 | History dialog | `list_imports` gained `source` / `gross_amount` / `successful_rows` (`FILTER` + `LEFT JOIN`); `ImportHistoryDialog` behind a clock icon; the card's filename list removed, the pinned footer kept |
+| S5 | Auto-close + caption | `status.batch_is_open` (pure); `is_open` on `_imports_in_scope`; `match_period` skips `Completed`; count off the button, `rematchReachLabel` under it, disabled when nothing is open |
+| S6 | `ConfirmMatchedPanel` | The whole panel moved out of its `<Dialog>` shell; chrome passed in as `Title`/`Description`/`Footer`; `running` reported up through `onRunningChange`. Zero behaviour change |
+| S7 | The wizard | `importWizard.ts` (pure step model, step DERIVED from server facts); 4 Cashfree steps / 3 Cashbook; step 4 renders `ConfirmMatchedPanel` unfiltered; failed match holds step 3 |
+
+**Verification.** 2,569 vitest (up from 2,535 — 34 new), `test_review` 162 (up from 150 — 12 new),
+`test_status` 85 (up from 78 — 7 new), `tsc` clean across `pages/outflow-import`, production build
+green. `residence_check.py` unchanged by this work (its two failing rules fail identically on the
+pristine tree — verified by stashing).
+
+⚠️ **One pre-existing failure is NOT ours and was proven so by stashing:**
+`test_review.TestTheOrderNameForLinking::test_the_master_table_carries_it_too` calls
+`get_outflow_rows(scope="all", limit=200)` UNSCOPED against the live dev database and expects its own
+fixture row in the first 200 by date. It fails identically on the untouched tree. Worth fixing on its
+own terms — it is a test coupled to live data — but not inside this arc.
+
+## The browser walk (2026-08-14) — what it confirmed, and the FOUR defects it found
+
+Walked on :8080 against the live dev site with two throwaway Cashfree statements. **Every one of
+these defects was invisible to a fully green suite**, which is the standing point about this repo
+having no DOM environment.
+
+**Confirmed working:** the 4-step wizard end to end; the dialog staying open past the match; the page
+behind refreshing to the statement's own period; step 4's unfiltered scope note; the History dialog
+(sorted `period_to DESC`, source chips, status tones, `successful_rows` + `gross_amount` agreeing
+with the summary exactly); Source scoping the whole screen and riding the URL (`?src=Cashbook`); the
+Reference fallback rendering on all 115 Cashbook rows that were **blank before this arc**, at
+12 characters with the full 22-character id intact in storage; and auto-close — the Cashbook import
+reads `Completed`, Re-run is disabled with a tooltip that says why, and once a second open import
+existed the caption appeared reading **"Re-run reaches 2 open imports."** over *three* imports.
+
+| # | Defect | Fix |
+|---|---|---|
+| 1 | The disabled-Re-run tooltip read **"all 1 statement has"** | The SUBJECT is chosen, not pluralised — the same trap `rematchWarning`'s "1 of them extend" hit before, in a new place |
+| 2 | Step 4's empty state said **"in this import"** — directly contradicting the scope note above it | `emptyNote` is now the host's to set; the wizard passes `confirmEmptyCopy`, which names the count and where the work went |
+| 3 | Step 4 rendered a **Cancel** button beside Finish later | `showCancel={false}` in the wizard. At step 4 the rows are already written, so "Cancel" read as an offer to undo them — the opposite of the truth, on the screen where a reviewer is deciding whether their work was saved |
+| 4 | Importing Cashfree while Source was pinned to Cashbook landed on a screen that did not list it | `handleImported` clears the source scope, for the period rule's exact reason. **Cleared, not set to the imported source** — clearing can only widen, so it cannot hide anything |
+
+⚠️ **Defect 3 is the one worth remembering.** It was not a duplicate-button tidy-up: two controls
+that both close the dialog are harmless, but one of them was NAMED as though it reverted an import
+that had already happened.
+
+## Two things found while building, not while planning
+
+1. **The `match_period` ordering trap (S3), which the plan caught but only just.** `.reverse()` on a
+   picker's sort order was load-bearing for **where a contested record lands**. Re-ordering that
+   picker was asked for as a cosmetic change and would have moved money quietly. It now sorts itself.
+2. **The step-gated drop zone hid the filename (S7).** Gating the source picker and drop zone to
+   step 1 silently took the filename with them, leaving a reviewer on the last screen before a write
+   unable to see WHICH statement they were confirming. A compact file line now renders from step 2 on.
+
+## Still owed
+
+- **Three paths the walk did NOT reach**, each needing a state the dev site did not have:
+  - **A non-empty step 4.** Every confirmable row on the site was already settled (`0 matched`), so
+    the vendor tree, the safety bar and the settle loop rendered only their empty state. The panel
+    is byte-unchanged from the shipped dialog apart from its shell, but that is an argument, not a
+    walk.
+  - **The `_MAX_CONFIRMABLE` refusal** above 2,000 confirmable rows.
+  - **A deliberately failed match** holding step 3 with its Re-run.
+  - **The Source selector's `Mixed` state**, which needs both sources ticked in the column funnel.
+- **Nothing to migrate.** No doctype changed, no patch, no backfill — auto-close is derived and the
+  Source scope rides an existing facet.
+- **Two throwaway imports are on the dev site** from the walk (`walkthrough-cashfree.csv`,
+  `walkthrough-cashfree-2.csv`, 6 successful rows, all `Not-Matched`, beneficiaries prefixed
+  `Walkthrough`/`Walk Two`). They settle nothing and touch no ledger; delete the two
+  `Outflow Import Batch` rows to remove them.

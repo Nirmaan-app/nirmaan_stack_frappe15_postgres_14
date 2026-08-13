@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Columns3, Search, Upload, Wallet, X } from "lucide-react";
+import { Columns3, History, Search, Upload, Wallet, X } from "lucide-react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 
@@ -18,10 +18,12 @@ import type {
 import { OPEN_ROW_STATUSES } from "./outflowImportStatus";
 import { ConfirmAllMatchedDialog } from "./components/ConfirmAllMatchedDialog";
 import { DecisionDialog } from "./components/DecisionDialog";
+import { ImportHistoryDialog } from "./components/ImportHistoryDialog";
 import { ImportStatementDialog } from "./components/ImportStatementDialog";
 import { ImportSummaryPanel } from "./components/ImportSummaryPanel";
 import { useOutflowRows } from "./useOutflowRows";
 import { useOutflowPeriod } from "./useOutflowPeriodStore";
+import { useOutflowSource } from "./useOutflowSourceStore";
 import { ApprovedRecordsPanel } from "./components/ApprovedRecordsPanel";
 import { SkippedRowsDialog } from "./components/SkippedRowsDialog";
 import {
@@ -122,6 +124,7 @@ export const OutflowMasterPage = () => {
     // list they are about to correct.
     const [confirmError, setConfirmError] = useState<string | null>(null);
     const [importing, setImporting] = useState(false);
+    const [showingHistory, setShowingHistory] = useState(false);
     const [confirmingAll, setConfirmingAll] = useState(false);
     const [showingSkipped, setShowingSkipped] = useState(false);
 
@@ -145,6 +148,9 @@ export const OutflowMasterPage = () => {
      * own separate table, and the confirm dialog), and a prop would reach three of them.
      */
     const { period, setPeriod } = useOutflowPeriod();
+    // The screen's source scope (slice CF/S2). The panel edits it; `useOutflowRows` applies it as
+    // the `source` funnel's value, so the two controls cannot hold different answers.
+    const { sources, setSources } = useOutflowSource();
 
     /**
      * ⚠️ THE SUMMARY TAKES THE TABLE'S OWN FILTERS, MINUS THE SCOPE. This is what makes the panel
@@ -181,7 +187,11 @@ export const OutflowMasterPage = () => {
     );
 
     const summary = summaryData?.message;
-    const { data: importsData, mutate: mutateImports } = useFrappeGetCall<{
+    const {
+        data: importsData,
+        isLoading: importsLoading,
+        mutate: mutateImports,
+    } = useFrappeGetCall<{
         message: OutflowImportOption[];
     }>("nirmaan_stack.api.outflow_import.review.list_imports", {}, "outflow-imports");
 
@@ -459,6 +469,19 @@ export const OutflowMasterPage = () => {
             );
 
             /**
+             * ⚠️ THE SOURCE SCOPE IS CLEARED FOR THE PERIOD'S EXACT REASON (slice CF/S2, found in
+             * the CF/S7 browser walk). A reviewer narrowed to Cashbook who then imports a Cashfree
+             * statement would land on a screen that does not list it and a summary that does not
+             * count it — the same "reads as a failed upload" defect the period rule above exists to
+             * prevent, arriving through the other control.
+             *
+             * ⚠️ CLEARED, NOT SET TO THE IMPORTED SOURCE. Clearing can only ever WIDEN what is in
+             * view, so it cannot hide anything; setting it would silently narrow the screen for
+             * somebody who was deliberately looking at everything.
+             */
+            setSources([]);
+
+            /**
              * ⚠️ A CASHBOOK IMPORT LANDS ON THE TAB THAT HOLDS IT (owner ruling Q22).
              *
              * Every Cashbook row ends `Settled` — it created a record rather than finding one — and
@@ -473,7 +496,7 @@ export const OutflowMasterPage = () => {
 
             await refreshAll();
         },
-        [refreshAll, setPeriod, setTab]
+        [refreshAll, setPeriod, setSources, setTab]
     );
 
     return (
@@ -484,7 +507,20 @@ export const OutflowMasterPage = () => {
                     a MODE you could not leave, so the screen had to announce that it was in one. The
                     Import selector now states the same fact in a control you can act on, and a chip
                     repeating it would be a second, un-clickable copy of the answer. */}
-                <div className="ml-auto flex gap-2">
+                <div className="ml-auto flex items-center gap-2">
+                    {/* ⚠️ AN ICON, BESIDE THE ACTION IT IS THE HISTORY OF (owner ruling, slice
+                        CF/S4). It replaced the filename list at the foot of the summary card. It is
+                        icon-only because it opens a read-only list and sits next to the primary
+                        action — two labelled buttons here would read as two things to do. */}
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setShowingHistory(true)}
+                        title="Import history"
+                        aria-label="Import history"
+                    >
+                        <History className="h-4 w-4" />
+                    </Button>
                     <Button size="sm" onClick={() => setImporting(true)}>
                         <Upload className="mr-2 h-4 w-4" />
                         Import statement
@@ -496,6 +532,8 @@ export const OutflowMasterPage = () => {
                 summary={summary}
                 period={period}
                 onPeriodChange={setPeriod}
+                sources={sources}
+                onSourcesChange={setSources}
                 imports={importOptions}
                 selectedImport={selectedImport}
                 onSelectImport={handleSelectImport}
@@ -506,16 +544,17 @@ export const OutflowMasterPage = () => {
                 onShowSkipped={() => setShowingSkipped(true)}
             />
 
-            {/* ⚠️ THE SCOPE OF THE TABLE, SAID OUT LOUD -- AND IT SAYS SOMETHING DIFFERENT SINCE P1.
-                It used to warn that the panel and the table described DIFFERENT populations (the
-                panel's button read 688 while the tab read 893, and both were right). They now
-                describe the SAME one, so the line's job changed from reconciling two numbers to
-                naming the window both of them are counting. */}
-            <p className={`text-xs text-muted-foreground ${showingApproved ? "hidden" : ""}`}>
-                {selectedImport
-                    ? "The summary above and the tabs below describe this whole import — the period does not apply."
-                    : "The summary above and the tabs below describe the same period."}
-            </p>
+            {/* ⚠️ THE "same period" LINE IS GONE (owner ruling, slice CF/S1), AND WHAT IT WAS
+                GUARDING IS WORTH RECORDING SO IT IS NOT RE-ADDED AS AN OBVIOUS GAP. It began as a
+                warning that the panel and the table described DIFFERENT populations -- the panel's
+                button read 688 while the tab read 893, and both numbers were right. P1 made them
+                one population, which left the sentence merely naming a window that the Period
+                control above states in a form you can act on. A caption repeating a control is a
+                second, un-clickable copy of the answer.
+
+                Its pinned variant went with it for the same reason: the Period control already
+                reads "Not applied · whole statement" while an import is selected, which is the same
+                fact in the place a reader looks for it. */}
 
             <div className="flex flex-wrap items-center gap-2 border-b">
                 {OUTFLOW_TABS.map((t) => (
@@ -680,10 +719,30 @@ export const OutflowMasterPage = () => {
                 </div>
             )}
 
+            {/* ⚠️ `onRefresh` IS NOT `onImported` (slice CF/S7). The dialog now stays open through
+                the confirm step, so it needs a way to re-read this screen after each settle without
+                also moving the period and the tab — `handleImported` does both, correctly, but only
+                once, when the statement arrives. */}
             <ImportStatementDialog
                 open={importing}
                 onOpenChange={setImporting}
                 onImported={handleImported}
+                onRefresh={refreshAll}
+            />
+
+            {/* ⚠️ IT TAKES `importOptions`, THE SAME LIST THE IMPORT SELECTOR RENDERS, so the two
+                cannot disagree about which statements exist or in what order. Every row here is a
+                way to select one, and offering a statement the picker does not have would be a dead
+                end. It obeys the source scope and ignores the period -- see the dialog's own note on
+                why that asymmetry is deliberate. */}
+            <ImportHistoryDialog
+                open={showingHistory}
+                onOpenChange={setShowingHistory}
+                imports={importOptions}
+                sources={sources}
+                selectedImport={selectedImport}
+                onSelectImport={handleSelectImport}
+                loading={importsLoading}
             />
 
             {/* ⚠️ BOTH TAKE THE PERIOD'S FILTERS, NOT A BATCH (slice P1). The confirm dialog acts on

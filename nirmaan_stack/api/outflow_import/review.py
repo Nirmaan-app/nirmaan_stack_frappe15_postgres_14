@@ -86,6 +86,7 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_SKIPPED,
     ROW_STATUSES,
     StatusTally,
+    batch_is_open,
     derive_batch_counters,
     derive_batch_status,
     several_found_note,
@@ -2283,15 +2284,32 @@ def match_period(
         facets=facets,
         failed=failed,
     )
-    batches = [b["name"] for b in _imports_in_scope(where, params)]
-
-    # ⚠️ ORDERED OLDEST-FIRST, DELIBERATELY. `_imports_in_scope` returns newest-first because that is
-    # how a picker reads; matching wants the opposite. A record contested by two imports goes to the
-    # EARLIER transfer under `resolve_claims`' `(added_on, row name)` ordering, and matching oldest
-    # first means the later batch sees that claim already placed rather than placing and releasing
-    # it. The outcome is the same either way -- the claim pass is order-independent by construction
-    # -- but the run does less work and its per-batch counters read in the order things happened.
-    batches.reverse()
+    # ⚠️ ORDERED OLDEST-UPLOADED FIRST, AND IT SORTS ITSELF RATHER THAN REVERSING THE READER
+    # (slice CF/S3). A record contested by two imports goes to the EARLIER transfer under
+    # `resolve_claims`' `(added_on, row name)` ordering, so matching oldest first means the later
+    # batch sees that claim already placed rather than placing and releasing it. The outcome is the
+    # same either way -- the claim pass is order-independent by construction -- but the run does
+    # less work and its per-batch counters read in the order things happened.
+    #
+    # ⚠️ THIS USED TO BE `_imports_in_scope(...)` FOLLOWED BY `.reverse()`, AND THAT COUPLING WAS A
+    # TRAP THAT ALMOST FIRED. It borrowed its meaning from a PICKER'S sort order, so when CF/S3
+    # re-ordered that reader by `period_to` -- a presentation change, asked for as one -- this
+    # function would silently have started matching in a different order, and a contested record
+    # could have gone to a different transfer. Nothing would have failed. The ordering that decides
+    # where money lands now lives here, in full, and cannot be moved by a change to how a dropdown
+    # reads.
+    #
+    # `_match_order` is a named, separately tested function for the same reason: an ordering that
+    # decides where money lands should not be an anonymous expression inside an endpoint.
+    #
+    # ⚠️ A `Completed` STATEMENT IS SKIPPED (slice CF/S5), AND THIS IS A COST FIX RATHER THAN A
+    # BEHAVIOUR ONE. `match_batch` already skips `_FROZEN_ROW_STATUSES` per row, so a statement
+    # whose every transfer is settled or skipped has nothing left to match -- it just walked all
+    # 1,043 rows to find that out, on every re-run, forever. `batch_is_open` is the ONE predicate;
+    # the caption above the button counts through the same `is_open` flag, so the number a reviewer
+    # reads and the set this loops over cannot disagree.
+    scoped = [b for b in _imports_in_scope(where, params) if b["is_open"]]
+    batches = _match_order(scoped)
 
     results = []
     for name in batches:
@@ -2380,17 +2398,47 @@ def list_imports(limit=60):
 
     ⚠️ NOT THE BATCH ID. An accountant knows a statement by its file and the fortnight it covers;
     `OFI-26-00007` means nothing to them. The picker composes its label from these fields.
+
+    ⚠️ ORDERED BY THE STATEMENT'S OWN PERIOD, NOT BY WHEN IT WAS UPLOADED (owner ruling, slice
+    CF/S3). Statements are routinely posted weeks after the transfers moved, so `uploaded_at` put a
+    March statement above a July one purely because somebody got to it later -- and the label a
+    reader is scanning for is the period. `uploaded_at` remains the tie-break, for the batches whose
+    period did not parse.
+
+    ⚠️ THIS ORDER IS FOR READING ONLY. `match_period` sorts its own batch list -- see the warning
+    there, which is about money rather than presentation.
+
+    ⚠️ ONE READER FOR TWO SURFACES (slice CF/S4). The Import picker and the History dialog both
+    come from here. A second endpoint answering "what imports are there" would be free to disagree
+    with the dropdown about which statements exist and in what order -- and the History dialog's
+    rows are clickable, so a disagreement would offer a statement the picker cannot select.
+
+    ⚠️ `successful_rows` IS COUNTED, NOT READ OFF `total_rows`. The batch stores `total_rows`
+    including transfers the bank REFUSED, while `gross_amount` has excluded them since parse time
+    (invariant 13). Printing those two side by side would put a count and an amount describing
+    different populations on one line -- the Skipped-chip defect, in a smaller frame. The definition
+    of "successful" is BOUND from `parser.BANK_SUCCESS_STATUS`, never spelled a second time.
+
+    ⚠️ A BATCH WITH NO ROWS STILL APPEARS, at zero. `LEFT JOIN` rather than `JOIN`: an import that
+    staged nothing is exactly the one somebody goes looking for in a history, and dropping it would
+    make the failure invisible on the only screen that lists imports as imports.
     """
     require_outflow_access()
     return frappe.db.sql(
         """
-        SELECT name, original_filename, period_from, period_to, status,
-               total_rows, uploaded_at, uploaded_by
-        FROM "tabOutflow Import Batch"
-        ORDER BY uploaded_at DESC NULLS LAST, creation DESC
+        SELECT b.name, b.original_filename, b.period_from, b.period_to, b.status, b.source,
+               b.total_rows, b.gross_amount, b.uploaded_at, b.uploaded_by,
+               COUNT(r.name) FILTER (
+                   WHERE UPPER(COALESCE(r.status_raw, '')) = %s
+               ) AS successful_rows
+        FROM "tabOutflow Import Batch" b
+        LEFT JOIN "tabOutflow Import Row" r ON r.import_batch = b.name
+        GROUP BY b.name, b.original_filename, b.period_from, b.period_to, b.status, b.source,
+                 b.total_rows, b.gross_amount, b.uploaded_at, b.uploaded_by, b.creation
+        ORDER BY b.period_to DESC NULLS LAST, b.uploaded_at DESC NULLS LAST, b.creation DESC
         LIMIT %s
         """,
-        (max(1, min(int(limit or 60), 200)),),
+        (BANK_SUCCESS_STATUS, max(1, min(int(limit or 60), 200))),
         as_dict=True,
     )
 
@@ -2593,6 +2641,35 @@ def _batch_meta(batch: str) -> dict:
     )
 
 
+def _match_order(scoped: list) -> list:
+    """The order `match_period` matches batches in: OLDEST UPLOADED FIRST.
+
+    ⚠️ THIS DECIDES WHERE A CONTESTED RECORD LANDS, WHICH IS WHY IT IS ITS OWN FUNCTION. A record
+    that two imports both match goes to the EARLIER transfer under `resolve_claims`' `(added_on, row
+    name)` ordering; matching oldest first means the later batch sees that claim already placed
+    rather than placing and releasing it.
+
+    ⚠️ IT USED TO BE `_imports_in_scope(...)` FOLLOWED BY `.reverse()`, AND THAT ALMOST FIRED
+    (slice CF/S3). Borrowing the order from a PICKER'S sort meant that re-ordering the picker by
+    `period_to` -- a presentation change, asked for as one -- would silently have changed the order
+    money is matched in, with nothing failing anywhere. The rule now lives here in full and cannot
+    be moved by a change to how a dropdown reads.
+
+    ⚠️ A BATCH WITH NO `uploaded_at` STILL SORTS FIRST, reproducing the reversed clause exactly
+    (`DESC NULLS LAST` reversed is `ASC NULLS FIRST`). The tuple's first element separates the two
+    groups, so the placeholder `""` is never compared against a datetime. The name breaks the
+    remaining ties -- it is unique, which is the same guarantee `pair_stack` and `resolve_claims`
+    rely on, so no tie survives to be broken by query order.
+    """
+    return [
+        b["name"]
+        for b in sorted(
+            scoped,
+            key=lambda b: (b.get("uploaded_at") is not None, b.get("uploaded_at") or "", b["name"]),
+        )
+    ]
+
+
 def _imports_in_scope(where, params) -> list:
     """Which statements the selected transfers actually came from.
 
@@ -2621,17 +2698,24 @@ def _imports_in_scope(where, params) -> list:
             # How many rows the batch holds in TOTAL, so a caller can see at a glance that acting on
             # it reaches further than the filter does.
             "total_rows": int(g["total_rows"] or 0),
+            # ⚠️ THE DERIVED BATCH STATUS, CARRIED SO THE SCREEN CAN TELL AN OPEN STATEMENT FROM A
+            # FINISHED ONE (slice CF/S5). `match_period` skips the finished ones, so the caption
+            # above the button must count only the open ones -- naming statements the button will
+            # not touch is the same class of lie as "button 688, table 893", pointing the other way.
+            "status": g["status"],
+            "is_open": batch_is_open(g["status"]),
         }
         for g in frappe.db.sql(
             f"""
-            SELECT b.name, b.original_filename, b.period_from, b.period_to, b.uploaded_at,
+            SELECT b.name, b.original_filename, b.period_from, b.period_to, b.uploaded_at, b.status,
                    COUNT(*) AS row_count,
                    COALESCE(MAX(b.total_rows), 0) AS total_rows
             FROM "tabOutflow Import Row" r
             JOIN "tabOutflow Import Batch" b ON b.name = r.import_batch
             {clause}
-            GROUP BY b.name, b.original_filename, b.period_from, b.period_to, b.uploaded_at
-            ORDER BY b.uploaded_at DESC NULLS LAST, b.name DESC
+            GROUP BY b.name, b.original_filename, b.period_from, b.period_to, b.uploaded_at,
+                     b.status
+            ORDER BY b.period_to DESC NULLS LAST, b.uploaded_at DESC NULLS LAST, b.name DESC
             """,
             tuple(params),
             as_dict=True,

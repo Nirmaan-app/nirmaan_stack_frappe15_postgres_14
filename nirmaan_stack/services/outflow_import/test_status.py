@@ -51,6 +51,7 @@ from nirmaan_stack.services.outflow_import.status import (
     StatusTally,
     Suggestion,
     derive_batch_counters,
+    batch_is_open,
     derive_batch_status,
     derive_import_summary,
     derive_row_outcome,
@@ -617,6 +618,44 @@ class TestBatchStatus(unittest.TestCase):
 
     def test_an_errored_row_keeps_the_batch_open(self):
         self.assertEqual(derive_batch_status([ROW_SETTLED, ROW_ERROR]), BATCH_PARTIALLY_SETTLED)
+
+    def test_batch_is_open_reads_the_status_derive_already_produces(self):
+        """`batch_is_open` IS "auto-close" (slice CF/S5), and it adds no state.
+
+        The 2026-08-10 ruling deleted `close_batch` because it stamped three fields nobody read.
+        Nothing here writes anything: a batch closes itself the moment `derive_batch_status` returns
+        `Completed`, and `_refresh_batch_rollup` runs on every settle and every skip.
+        """
+        self.assertFalse(batch_is_open(derive_batch_status([ROW_SETTLED, ROW_SKIPPED])))
+        self.assertTrue(batch_is_open(derive_batch_status([ROW_SETTLED, ROW_MATCHED])))
+        self.assertTrue(batch_is_open(derive_batch_status([])))
+
+    def test_an_unknown_or_missing_status_is_OPEN(self):
+        """⚠️ THE FAILURE DIRECTION IS THE POINT.
+
+        A batch whose rollup has never run carries no status. Reading that as finished would drop it
+        from every re-match silently -- the invisible-exclusion class this feature keeps fixing.
+        Failing towards "still has work" costs one wasted pass; failing the other way loses the work.
+        """
+        self.assertTrue(batch_is_open(None))
+        self.assertTrue(batch_is_open(""))
+        self.assertTrue(batch_is_open("   "))
+        self.assertTrue(batch_is_open("Something Else"))
+
+    def test_it_does_not_resurrect_the_deleted_close_fields(self):
+        """The ruling this slice had to work around, pinned.
+
+        `closed_at` / `closed_by` / `close_reason` are still on the doctype and still never written.
+        "Auto-close" is a READ of a derived status -- if a future change makes it a WRITE, that is
+        the deleted control coming back and it should be a deliberate decision, not a drift.
+        """
+        import inspect
+
+        from nirmaan_stack.services.outflow_import import status as S
+
+        source = inspect.getsource(S.batch_is_open)
+        for field in ("closed_at", "closed_by", "close_reason"):
+            self.assertNotIn(f"{field} =", source)
 
     def test_derive_batch_status_takes_no_force_closed_argument(self):
         """Retired with `Completed with exceptions`. Pinned so a well-meaning re-add fails loudly

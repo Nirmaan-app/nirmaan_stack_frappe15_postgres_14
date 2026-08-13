@@ -22,13 +22,17 @@ import {
  * not a list of 115 rows: a wrong project match is invisible in a long list and obvious in a
  * rollup, where a project nobody is working on this month shows up as a lonely one-row line.
  *
- * ⚠️ THE `ConfirmAllMatchedDialog` TREE WAS DELIBERATELY NOT EXTRACTED FOR THIS. It is a
- * three-level vendor -> project -> transfer shape built around tri-state selection -- `TriCheckbox`,
- * `nodeSelectionState`, toggle-a-whole-branch -- and strip those out and there is no component
- * left, only a chevron and a right-aligned figure. Parameterising it over node type, depth, leaf
- * renderer and whether selection exists at all would make it worse for both callers, and it is a
- * dialog that confirms real settlements. This copies the VISUAL GRAMMAR on purpose (same chevron,
- * same truncation, same tabular amount column) and shares no logic.
+ * ⚠️ THE CONFIRM TREE (now in `ConfirmMatchedPanel`) WAS DELIBERATELY NOT EXTRACTED FOR THIS, AND
+ * THAT FINDING STILL STANDS. It is a three-level vendor -> project -> transfer shape built around
+ * tri-state selection -- `TriCheckbox`, `nodeSelectionState`, toggle-a-whole-branch -- and strip
+ * those out and there is no component left, only a chevron and a right-aligned figure.
+ * Parameterising it over node type, depth, leaf renderer and whether selection exists at all would
+ * make it worse for both callers, and it confirms real settlements. This copies the VISUAL GRAMMAR
+ * on purpose (same chevron, same truncation, same tabular amount column) and shares no logic.
+ *
+ * ⚠️ SLICE CF/S6 IS A DIFFERENT EXTRACTION AND DOES NOT REOPEN THIS. It moved the WHOLE panel --
+ * tree, selection, safety bar and settle loop together -- out of its `<Dialog>` shell so the import
+ * wizard could render the same one. Nothing was pulled apart, and nothing is shared with this file.
  *
  * ⚠️ THE TWO LEDGERS GROUP BY DIFFERENT THINGS, and that is the design rather than an oversight. A
  * project expense is checked by asking "does that project have work this month", so it groups by

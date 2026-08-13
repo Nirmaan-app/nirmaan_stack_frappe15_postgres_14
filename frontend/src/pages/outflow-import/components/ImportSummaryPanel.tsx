@@ -1,5 +1,6 @@
 // src/pages/outflow-import/components/ImportSummaryPanel.tsx
 
+import { useMemo } from "react";
 import { CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -26,9 +27,14 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
+    SOURCE_OPTIONS,
     importOptionLabel,
     importsCoveredLabel,
+    importsForSource,
+    openImports,
+    rematchReachLabel,
     rematchWarning,
+    sourceSelectorValue,
     summaryTiles,
     type SummaryImport,
     type SummaryTile,
@@ -50,6 +56,12 @@ interface Props {
      */
     selectedImport?: string;
     onSelectImport: (batch?: string) => void;
+    /**
+     * The screen's source scope (slice CF/S2). The FUNNEL'S shape, a list — see `SOURCE_COLUMN_ID`
+     * on why the multi-select shape is the stored one and the dropdown is the lossy editor.
+     */
+    sources: readonly string[];
+    onSourcesChange: (values: string[]) => void;
     loading?: boolean;
     matching?: boolean;
     onConfirmAllMatched: () => void;
@@ -60,6 +72,21 @@ interface Props {
 
 /** The selector's "no import chosen" option. A Radix `Select` cannot take `""` as an item value. */
 const ALL_IMPORTS = "__all__";
+
+/** The Source selector's "every source" option, for the same Radix reason. */
+const ALL_SOURCES = "all";
+
+/**
+ * The Source selector's read-only state when the funnel holds more than one source.
+ *
+ * ⚠️ IT IS AN ITEM, NOT A PLACEHOLDER, BECAUSE A RADIX `Select` BOUND TO A VALUE IT CANNOT OFFER
+ * RENDERS BLANK AND THEN OVERWRITES IT ON THE FIRST INTERACTION. That trapdoor is documented in
+ * `frontend/CLAUDE.md` against the Rate Master type picker, which lost four `number_choice`
+ * definitions to exactly this. Here the value being silently overwritten would be a filter over the
+ * whole screen. Choosing it explicitly means "every source", which is the only thing widening from
+ * a mixed selection can honestly mean.
+ */
+const MIXED_SOURCES = "mixed";
 
 /**
  * The summary of every transfer in the current PERIOD, above the master table (X2 + X3, P1).
@@ -91,6 +118,8 @@ export const ImportSummaryPanel = ({
     imports: importOptions,
     selectedImport,
     onSelectImport,
+    sources,
+    onSourcesChange,
     loading,
     matching,
     onConfirmAllMatched,
@@ -100,18 +129,101 @@ export const ImportSummaryPanel = ({
     const totals = summary?.totals;
     const imports: SummaryImport[] = summary?.imports ?? [];
     const warning = rematchWarning(imports);
+    // ⚠️ ONE SOURCE FOR THE COUNT, THE CAPTION AND THE DISABLED STATE (slice CF/S5). All three
+    // answer "what will this button touch?", and `openImports` reads the server's own `is_open` —
+    // the same flag `match_period` filters on — so the number shown and the set acted on cannot
+    // drift apart.
+    const openCount = openImports(imports).length;
+    const reach = rematchReachLabel(imports);
     const pinned = Boolean(selectedImport);
+    const sourceValue = sourceSelectorValue(sources);
+
+    /**
+     * What the Source trigger is BOUND to, which is not always what is stored.
+     *
+     * ⚠️ A PINNED IMPORT READS "All sources" BECAUSE THE SCOPE IS GENUINELY NOT APPLIED — see the
+     * withhold in `useOutflowRows`. Rendering the stored value greyed would say "applied, just not
+     * editable", which is the opposite of the truth and the exact mistake the period control's own
+     * comment warns about.
+     */
+    const sourceTriggerValue = pinned
+        ? ALL_SOURCES
+        : sourceValue === "mixed"
+          ? MIXED_SOURCES
+          : sourceValue === "all"
+            ? ALL_SOURCES
+            : sourceValue;
+
+    /**
+     * ⚠️ THE OPTIONS ARE NARROWED, NOT THE SELECTION (owner ask). Choosing a source filters WHICH
+     * statements are on offer here; it never silently changes which one is chosen. A pinned import
+     * outside the current source keeps its place in the list for that reason — dropping it would
+     * make the selector render a value it cannot offer, which is the trapdoor `MIXED_SOURCES`
+     * exists to avoid, pointing at the wider control.
+     */
+    const offeredImports = useMemo(() => {
+        const narrowed = importsForSource(importOptions, pinned ? undefined : sources);
+        if (!selectedImport || narrowed.some((o) => o.name === selectedImport)) return narrowed;
+        const chosen = importOptions.find((o) => o.name === selectedImport);
+        return chosen ? [chosen, ...narrowed] : narrowed;
+    }, [importOptions, sources, pinned, selectedImport]);
 
     return (
         <Card>
             <CardContent className="space-y-4 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        {/* ⚠️ THE IMPORT SELECTOR COMES FIRST, AND THE ORDER IS THE MEANING. It is
-                            the WIDER of the two controls: choosing a statement replaces the period
-                            entirely rather than narrowing within it (owner ruling 2026-08-12), so
-                            reading left to right gives the scope and then, only where it still
-                            applies, the window inside it. */}
+                        {/* ⚠️ SOURCE COMES FIRST BECAUSE IT NARROWS WHAT THE NEXT CONTROL OFFERS
+                            (slice CF/S2). Reading left to right: what KIND of transfer, then which
+                            STATEMENT, then — where it still applies — which WINDOW inside it. A
+                            source chosen after an import would be a control acting on a list that
+                            had already been reduced to one.
+
+                            ⚠️ DISABLED, NOT HIDDEN, WHILE AN IMPORT IS SELECTED — the same rule and
+                            the same reasoning as the period beside it. A statement has ONE source,
+                            so a scope left set could only empty the screen; and a control that
+                            VANISHES leaves the reader unable to tell "no source scope applies" from
+                            "one applies and I cannot see it". */}
+                        <div className="flex items-center gap-2">
+                            <span className="whitespace-nowrap text-sm font-medium">Source</span>
+                            <Select
+                                value={sourceTriggerValue}
+                                disabled={pinned}
+                                onValueChange={(next) =>
+                                    onSourcesChange(
+                                        next === ALL_SOURCES || next === MIXED_SOURCES ? [] : [next]
+                                    )
+                                }
+                            >
+                                <SelectTrigger className="h-8 w-[150px]">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {/* Named, not blank — the same reason the Import selector names
+                                        its own catch-all. */}
+                                    <SelectItem value={ALL_SOURCES}>All sources</SelectItem>
+                                    {SOURCE_OPTIONS.map((option) => (
+                                        <SelectItem key={option} value={option}>
+                                            {option}
+                                        </SelectItem>
+                                    ))}
+                                    {/* Only offered while it is the truth. Picking it again means
+                                        "every source", which is what widening from a mixed funnel
+                                        selection can honestly mean. */}
+                                    {sourceValue === "mixed" && (
+                                        <SelectItem value={MIXED_SOURCES}>
+                                            Mixed (from the column filter)
+                                        </SelectItem>
+                                    )}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        {/* ⚠️ THE IMPORT SELECTOR COMES NEXT, AND THE ORDER IS THE MEANING. It is
+                            the WIDER of the remaining two controls: choosing a statement replaces
+                            the period entirely rather than narrowing within it (owner ruling
+                            2026-08-12), so reading left to right gives the scope and then, only
+                            where it still applies, the window inside it. */}
                         <div className="flex items-center gap-2">
                             <span className="whitespace-nowrap text-sm font-medium">Import</span>
                             <Select
@@ -128,7 +240,7 @@ export const ImportSummaryPanel = ({
                                         yet" — a state this screen does not have — where the truth is
                                         that every import is in view. */}
                                     <SelectItem value={ALL_IMPORTS}>All imports</SelectItem>
-                                    {importOptions.map((option) => (
+                                    {offeredImports.map((option) => (
                                         <SelectItem key={option.name} value={option.name}>
                                             {importOptionLabel(option)}
                                         </SelectItem>
@@ -156,33 +268,56 @@ export const ImportSummaryPanel = ({
                         )}
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-start gap-2">
                         {/* ⚠️ RE-RUNNING REACHES FURTHER THAN THE PERIOD, AND IT SAYS SO. Matching is
                             per BATCH — `match_batch`'s four global passes reason over a whole
                             import at once — so a batch that straddles the window is re-matched in
                             full. The tooltip names the batches and the overspill rather than
-                            letting somebody discover it afterwards. */}
-                        <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        disabled={!imports.length || matching}
-                                        onClick={onRunMatch}
-                                    >
-                                        {matching ? (
-                                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                                        ) : (
-                                            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                                        )}
-                                        Re-run match
-                                        {imports.length > 1 ? ` (${imports.length} imports)` : ""}
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent className="max-w-xs">{warning}</TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
+                            letting somebody discover it afterwards.
+
+                            ⚠️ THE COUNT CAME OFF THE BUTTON AND BECAME THE CAPTION BELOW IT (owner
+                            ruling, slice CF/S5), AND THAT CAPTION IS NOW LOAD-BEARING. Two things
+                            used to state this action's reach: this count, and the filename list at
+                            the foot of the card. The list moved behind the History icon in the same
+                            change, so `rematchReachLabel` is the ONLY pre-click statement of scope
+                            left on the screen. It counts OPEN imports, because `match_period` skips
+                            the finished ones.
+
+                            ⚠️ DISABLED WHEN NOTHING IN VIEW IS STILL OPEN. Every transfer settled or
+                            skipped means there is nothing left to match, so the button would run,
+                            report success, and have done nothing. */}
+                        <div className="flex flex-col items-end gap-1">
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        {/* A disabled button swallows pointer events, so the
+                                            tooltip would disappear exactly when it has the most to
+                                            explain. The wrapper keeps it reachable. */}
+                                        <span tabIndex={0}>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                disabled={!openCount || matching}
+                                                onClick={onRunMatch}
+                                            >
+                                                {matching ? (
+                                                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                                ) : (
+                                                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                                                )}
+                                                Re-run match
+                                            </Button>
+                                        </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-xs">{warning}</TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                            {reach && (
+                                <span className="whitespace-nowrap text-[11px] text-muted-foreground">
+                                    {reach}
+                                </span>
+                            )}
+                        </div>
                         {/* ⚠️ "CONFIRM", NEVER "APPROVE" (owner ruling 2026-08-09). This feature
                             never approves anything -- it records that already-approved money left
                             the bank. A button here saying Approve would tell an accountant they are
@@ -269,32 +404,18 @@ export const ImportSummaryPanel = ({
                             ))}
                         </div>
 
-                        {/* ⚠️ THE IMPORTS ARE LISTED, NOT SUMMED (slice P1). The panel used to name
-                            one statement -- its file, its uploader, its declared period -- because
-                            it described exactly one. A period can span several, and which ones is a
-                            real question: it is the set "Re-run match" acts on, in full.
+                        {/* ⚠️ THE FILENAME LIST MOVED TO THE HISTORY DIALOG (owner ruling, slice
+                            CF/S4), AND ITS REAL JOB DID NOT MOVE WITH IT. That line listed the
+                            statements in scope with their row counts, and it was not a caption: it
+                            named the set "Re-run match" acts on, IN FULL, including each batch's
+                            transfers outside the period. Behind an icon, that is no longer a
+                            pre-click statement of scope.
 
-                            ⚠️ DERIVED FROM THE ROWS, NEVER FROM `period_from`/`period_to` ON THE
-                            BATCH. Three different "periods" exist in this schema and they do not
-                            coincide; the server reads these back off the same rows it counted, so
-                            this line and the figures above it cannot disagree. */}
-                        {!pinned && imports.length > 0 && (
-                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                                {imports.slice(0, 4).map((batch) => (
-                                    <span key={batch.name}>
-                                        {batch.original_filename || batch.name}
-                                        <span className="text-muted-foreground/70">
-                                            {" "}
-                                            · {batch.row_count}
-                                            {batch.total_rows > batch.row_count
-                                                ? ` of ${batch.total_rows}`
-                                                : ""}
-                                        </span>
-                                    </span>
-                                ))}
-                                {imports.length > 4 && <span>+{imports.length - 4} more</span>}
-                            </div>
-                        )}
+                            So the job was handed to the caption under the Re-run button, which
+                            states the same fact in the place the action is. If BOTH ever go, the
+                            overspill becomes something a reviewer discovers afterwards -- which is
+                            what the P1 ruling was written to prevent. `summary.imports` is still
+                            read: `rematchWarning` and that caption are built from it. */}
 
                         {pinned && summary.import && (
                             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">

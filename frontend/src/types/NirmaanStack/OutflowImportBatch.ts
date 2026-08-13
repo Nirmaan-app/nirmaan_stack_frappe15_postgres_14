@@ -208,7 +208,25 @@ export interface OutflowImportOption {
     period_from?: string;
     period_to?: string;
     status?: string;
+    /**
+     * Which kind of statement this was (slice CF/S2).
+     *
+     * ⚠️ OPTIONAL, AND `importsForSource` TREATS A BLANK AS MATCHING EVERY SCOPE. A batch predating
+     * the column — or on a site where the backfill has not run — would otherwise vanish from the
+     * picker with no control able to bring it back, while its transfers still needed settling.
+     */
+    source?: string;
     total_rows?: number;
+    /**
+     * How many of this statement's transfers the bank actually moved (slice CF/S4).
+     *
+     * ⚠️ NOT `total_rows`, WHICH INCLUDES REFUSED TRANSFERS. It pairs with `gross_amount`, which has
+     * excluded them since parse time — printing `total_rows` beside that amount would put a count
+     * and a figure describing different populations on one line.
+     */
+    successful_rows?: number;
+    /** Money that actually left the account. Bank-refused transfers were never in it. */
+    gross_amount?: number;
     uploaded_at?: string;
     uploaded_by?: string;
 }
