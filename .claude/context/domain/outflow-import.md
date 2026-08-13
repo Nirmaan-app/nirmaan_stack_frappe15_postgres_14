@@ -1507,6 +1507,53 @@ Verified end to end on live data: summary **849 / 843 / 6**, facet filters to 84
 Two new fields plus a widened Select. Pullers need `bench --site localhost migrate`. The
 `patches.txt` wiring line is added EXTERNALLY by the maintainer, per this repo's convention.
 
+### ⚠️ What the browser walk found that every green suite missed (2026-08-13)
+
+Three defects, none visible to any test. Recorded because each is a CLASS, not a one-off.
+
+**① A FACET NEEDS THREE LISTS, AND MISSING ONE FAILS SILENTLY.** `settlement_origin` was added to
+`OUTFLOW_COLUMNS` (draws the funnel) and `review._FACET_COLUMNS` (lets the server apply it) but not
+to `outflowTableModel.SERVER_FACET_COLUMNS` — which is the only one that decides whether the
+selection is ever **sent**. The tick box registered, "Clear filters (1)" appeared, and the row set
+did not move. Each list was internally consistent, so nothing could see it. Now pinned by a test
+comparing the lists in both directions.
+
+**② `_FACET_COLUMNS` DOES NOT SHIP A COLUMN TO THE SCREEN.** That map governs FILTERING; the SELECT
+lists in `get_outflow_rows` and `_load_rows` govern what a row CARRIES. Q1 changed only the first,
+so the "Settled via" column rendered an em dash on all 849 settled rows while the summary beside it
+correctly reported 843 auto-matched. ⚠️ **Asserting the KEY is present is the test that catches
+this** — a value assertion passes on a payload that omits the key, because `.get()` returns None
+either way.
+
+**③ THE STALE TDS SENTENCE HAD THREE HOMES, AND D1 FIXED ONE.** *"A deduction such as TDS looks like
+this; settle it in the payments screen"* also lived in the record verdict line and the amount-mark
+tooltip. It was not simply wrong — outside the 0.95–2.05% service band the payments screen IS still
+the answer — it stated unconditionally something slice TD had made conditional. Both now read the
+ONE shared `AMOUNT_GAP_HINT`, which points at the affordance instead of predicting the outcome.
+
+**⚠️ AND A PRE-EXISTING ONE, NOT FIXED: the `time` column's funnel does nothing.** It renders a value
+DERIVED in the client from `added_on`; there is no `time` column to filter on, so it appears in
+neither facet list. It is named in `DEAD_FUNNELS` in the test rather than silently exempted, so the
+rule stays enforced for every other column. Fixing it means faceting on an expression or dropping
+the funnel — out of scope, and now written down.
+
+### ⚠️ The scrollbar fix (D2) is PARTIAL, and the recommendation behind it was wrong
+
+Measured in the browser at three viewport heights:
+
+| Viewport | "Clear selection" |
+|---|---|
+| 816px+ | visible |
+| 677px (laptop) | **below the fold** |
+| 557px | **below the fold** |
+
+Capping the table (`max-h-[min(420px,38vh)]`) saves ~160px and is a real improvement, but the
+dialog's FIXED chrome — header, search, count line, verdict line, footer — plus even a shrunken
+table still exceeds the 85vh body cap on a laptop. **The option rejected as "belt-and-braces" (move
+the control into the sticky footer) is the one that actually closes it**, because a footer control
+cannot be scrolled away at any height. Recorded so the next reader does not re-derive the same
+wrong conclusion from the same reasoning.
+
 ---
 
 ## Known limits, accepted with numbers
