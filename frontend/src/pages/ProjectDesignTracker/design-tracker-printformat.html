@@ -1,0 +1,523 @@
+<!--
+    ============================================================================
+    REFERENCE COPY -- the runtime lives in the DATABASE.
+
+    Edit at:  Desk -> Print Format -> "Project Design Tracker"
+    Then mirror the HTML back into this file so it stays readable without a
+    Desk login. `nirmaan_stack/fixtures/print_format.json` is NOT hand-edited.
+
+    Driven by: src/pages/ProjectDesignTracker/download/  (see its README.md for
+    the param contract and the four inclusion rules this file shares with it).
+    ============================================================================
+
+    PRINT FORMAT: Nirmaan Design Tracker
+    Features:
+    - FILTERS: phases / zones / categories (multi-select) + legacy phase / zone.
+    - DATA: Fetches linked Project Doc to get GST/Address logic.
+    - HEADER: Standardized Nirmaan Header (Dynamic Address + Logo).
+    - TITLE: Big 24px Bold Title + Date.
+    - CONTENT: Design Tracker Logic (Red/Green/Amber Badges, Zones).
+-->
+
+<!-- ========================================== -->
+<!-- 0. FILTER PARAMS                           -->
+<!-- ========================================== -->
+{#
+   NEW (multi-select, sent by the Design Tracker download dialog) -- each a
+   JSON array in the query string:
+       phases      e.g. ["Onboarding","Handover"]   (always sent)
+       zones       e.g. ["Zone A"]                  (absent = all zones)
+       categories  e.g. ["","Civil"]                (absent = all categories)
+
+   LEGACY (single value, still used by the PMO dashboard). Read ONLY when the
+   matching new param is absent, so old links keep working:
+       phase       "All" | "Onboarding" | "Handover"   (absent = Onboarding only)
+       zone        one zone name                        (absent = all zones)
+#}
+{%- set phases_param = frappe.form_dict.phases -%}
+{%- set zones_param = frappe.form_dict.zones -%}
+{%- set categories_param = frappe.form_dict.categories -%}
+
+{#
+   Read every param off form_dict ONLY.
+
+   The pre-2026-08 version also fell back to `frappe.request.args`, which is
+   dead weight -- Frappe builds form_dict FROM the request, so a GET query param
+   is always there -- and actively harmful: outside an HTTP request (a
+   background job, a scheduled `frappe.get_print`, a test) `frappe.request` is
+   not a werkzeug Request, and `.args` raises UndefinedError in the Jinja
+   sandbox, taking the whole render down. Do not reinstate it.
+#}
+{%- set legacy_phase = frappe.form_dict.phase -%}
+{%- set legacy_zone = frappe.form_dict.zone -%}
+
+{%- set sel_phases = json.loads(phases_param) if phases_param else none -%}
+{%- set sel_zones = json.loads(zones_param) if zones_param else none -%}
+{%- set sel_categories = json.loads(categories_param) if categories_param else none -%}
+
+{# --- PHASES --- #}
+{%- if sel_phases is not none -%}
+    {%- set phases = sel_phases -%}
+{%- elif legacy_phase == "All" -%}
+    {%- set phases = ["Onboarding", "Handover"] -%}
+{%- elif legacy_phase and legacy_phase in ["Onboarding", "Handover"] -%}
+    {%- set phases = [legacy_phase] -%}
+{%- else -%}
+    {# No phase given at all: Onboarding only. This is the historical default -- #}
+    {# do not "fix" it to All, several saved links rely on it.                   #}
+    {%- set phases = ["Onboarding"] -%}
+{%- endif -%}
+
+{# --- ALL ZONES ON THE DOC (tracker order first, then any task-only zone) --- #}
+{%- set all_zones = [] -%}
+{%- for z in doc.zone or [] -%}
+    {%- set zname = (z.tracker_zone or "") | string | trim -%}
+    {%- if zname and zname not in all_zones -%}
+        {%- set _ = all_zones.append(zname) -%}
+    {%- endif -%}
+{%- endfor -%}
+{%- for t in doc.design_tracker_task or [] -%}
+    {%- set zname = (t.task_zone or "") | string | trim -%}
+    {%- if zname and zname not in all_zones -%}
+        {%- set _ = all_zones.append(zname) -%}
+    {%- endif -%}
+{%- endfor -%}
+
+{# --- ALL CATEGORIES ON THE DOC ("" is the Uncategorized bucket) --- #}
+{%- set all_categories = [] -%}
+{%- for t in doc.design_tracker_task or [] -%}
+    {%- set cname = (t.design_category or "") | string | trim -%}
+    {%- if t.task_status != "Not Applicable" and cname not in all_categories -%}
+        {%- set _ = all_categories.append(cname) -%}
+    {%- endif -%}
+{%- endfor -%}
+
+{# --- ZONES TO RENDER --- #}
+{%- if sel_zones is not none -%}
+    {%- set zones_to_loop = sel_zones -%}
+{%- elif legacy_zone and (legacy_zone | string | trim) != "All" -%}
+    {%- set zones_to_loop = [legacy_zone | string | trim] -%}
+{%- else -%}
+    {%- set zones_to_loop = all_zones -%}
+{%- endif -%}
+
+{# --- CATEGORIES TO RENDER --- #}
+{%- set categories_to_show = sel_categories if sel_categories is not none else all_categories -%}
+
+{# A single zone needs no zone banner -- the overview table already names it. #}
+{%- set show_zone_header = (zones_to_loop | length) > 1 -%}
+
+{# --- OVERVIEW LABELS ---
+   Only ZONE is shown in the overview table. The Phase and Category columns were
+   removed: the phase already heads its own section ("ONBOARDING PHASE"), and the
+   category heads every task table, so both were repeating themselves.
+   `phases` / `categories_to_show` are still fully live -- they drive the FILTERING
+   below; it is only their display labels that are gone. #}
+{%- if (zones_to_loop | length) == (all_zones | length) -%}
+    {%- set zone_label = "All Zones" -%}
+{%- else -%}
+    {%- set zone_label = zones_to_loop | join(", ") -%}
+{%- endif -%}
+
+
+<!-- ========================================== -->
+<!-- 1. SERVER-SIDE DATA LOGIC                  -->
+<!-- ========================================== -->
+
+{# --- DYNAMIC GST & ADDRESS LOOKUP --- #}
+{%- set default_gstin = "29ABFCS9095N1Z9" -%}
+{%- set company_info = {"address": "N/A", "state": "N/A", "code": "N/A"} -%}
+
+
+{# A. IDENTIFY PROJECT & EXTRACT SELECTION #}
+{%- set target_gstin = none -%}
+{%- set p_doc = none -%}
+
+{%- if doc.project -%}
+    {%- set p_doc = frappe.get_doc("Projects", doc.project) if frappe.db.exists("Projects", doc.project) else none -%}
+{%- elif doc.doctype == "Projects" -%}
+    {%- set p_doc = doc -%}
+{%- endif -%}
+
+{%- if p_doc and p_doc.project_gst -%}
+    {%- set target_gstin = p_doc.project_gst -%}
+{%- endif -%}
+
+{# B. DATABASE LOOKUP (Order: GSTIN -> Name -> Default) #}
+{%- set found_name = none -%}
+
+{# 1. First check by selected GSTIN #}
+{%- if target_gstin -%}
+    {%- set found_name = frappe.db.get_value("Project GST", {"gstin": target_gstin}, "name") -%}
+{%- endif -%}
+
+{# 3. Fallback to Default GSTIN #}
+{%- if not found_name -%}
+    {%- set found_name = frappe.db.get_value("Project GST", {"gstin": default_gstin}, "name") -%}
+{%- endif -%}
+
+{# C. CONSTRUCT COMPANY INFO #}
+{%- if found_name -%}
+    {%- set gst_doc = frappe.get_doc("Project GST", found_name) -%}
+    {# 1. Combine City and Pincode with a hyphen (e.g., "Bengaluru-560001") #}
+    {%- set city_pin_list = [gst_doc.city, gst_doc.pincode] | select | join("-") -%}
+
+    {%- set addr_parts = [gst_doc.address, city_pin_list, gst_doc.state] -%}
+    {%- set full_addr = addr_parts | select | join(", ") -%}
+    {%- set _ = company_info.update({
+        "address": full_addr,
+        "state": gst_doc.state,
+        "code": gst_doc.gstin[:2] if gst_doc.gstin else "N/A"
+    }) -%}
+{%- endif -%}
+
+{# D. FINAL VALIDATION #}
+{%- if company_info.address == "N/A" -%}
+    {%- set _ = company_info.update({
+        "address": "Billing address not configured (Check Project GST DocType)",
+        "state": "N/A",
+        "code": "--"
+    }) -%}
+{%- endif -%}
+
+
+
+{%- set company_name = "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)" -%}
+{%- set logo_url = "https://stack.nirmaan.app/assets/nirmaan_stack/frontend/assets/logo-svg-BptBZTzQ.svg" -%}
+
+
+<!-- ========================================== -->
+<!-- 2. CSS STYLING                             -->
+<!-- ========================================== -->
+<style>
+    @page { size: A4 portrait; margin: 10mm; }
+
+    html, body {
+        font-family: 'Inter', Helvetica, Arial, sans-serif;
+        font-size: 10px; /* Base font size */
+        color: #111;
+        background-color: #fff;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    /* --- HEADER STYLES --- */
+    .header-wrapper { width: 100%; margin-bottom: 20px; }
+    .logo-img { height: 40px; display: block; margin-bottom: 8px; }
+    .company-name-lg { font-size: 14px; font-weight: bold; color: #000; margin-bottom: 4px; }
+    .company-addr-lg { font-size: 10px; color: #555; margin-bottom: 12px; }
+    .header-border { border-bottom: 3px solid #000; margin-bottom: 15px; }
+
+    /* --- REPORT META --- */
+    .report-meta-table { width: 100%; margin-bottom: 10px; border-bottom: 1px solid #e5e7eb; }
+    .report-title-lg { font-size: 18px; font-weight: bold; color: #000; padding-bottom: 8px; }
+    .report-date-lg { font-size: 11px; font-weight: bold; color: #000; text-align: right; padding-bottom: 8px; text-transform: uppercase; }
+
+    /* --- DESIGN TRACKER SPECIFIC STYLES --- */
+
+    /* Overview Table */
+    .overview-table { width: 100%; border: 1px solid #E5E7EB; border-radius: 8px; border-spacing: 0; margin-bottom: 25px; table-layout: fixed; }
+    .overview-table td { padding: 10px 12px; vertical-align: top; border-right: 1px solid #F3F4F6; }
+    .overview-table td:last-child { border-right: none; }
+    .overview-label { font-size: 9px; text-transform: uppercase; color: #6B7280; font-weight: 700; margin-bottom: 5px; letter-spacing: 0.5px; }
+    .overview-value { font-size: 12px; font-weight: 600; color: #111827; word-wrap: break-word; }
+    .overview-value-sm { font-size: 10px; font-weight: 600; color: #111827; word-wrap: break-word; line-height: 1.35; }
+
+    /* Section Title */
+    .main-section-title {
+        font-size: 16px;
+        font-weight: 700;
+        margin-top: 0;
+        margin-bottom: 15px;
+        color: #111827;
+        border-bottom: 2px solid #eee;
+        padding-bottom: 5px;
+    }
+
+    /* Category Headers */
+    .category-block { display: block; margin-bottom: 20px; }
+    .category-block:last-child { margin-bottom: 0; }
+    .category-header { background-color: #F9FAFB; border: 1px solid #E5E7EB; border-left: 6px solid #D1383E; padding: 8px 10px; font-size: 12px; font-weight: 700; color: #111827; margin-bottom: 0; border-bottom: none; border-top-left-radius: 4px; border-top-right-radius: 4px; page-break-after: avoid; break-after: avoid; }
+
+    /* Task Table */
+    .custom-table { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid #E5E7EB; table-layout: fixed; margin-top: 0; border-top: 1px solid #E5E7EB; border-bottom-left-radius: 4px; border-bottom-right-radius: 4px; }
+    .custom-table th { background-color: #fff; color: #4B5563; font-size: 9px; font-weight: 700; text-transform: uppercase; text-align: left; padding: 8px 6px; border-bottom: 1px solid #E5E7EB; border-right: 1px solid #F3F4F6; }
+    .custom-table th:last-child { border-right: none; }
+    thead { display: table-header-group; }
+    .custom-table td { padding: 8px 6px; border-bottom: 1px solid #F3F4F6; border-right: 1px solid #F3F4F6; vertical-align: top; font-size: 10px; word-wrap: break-word; }
+    .custom-table td:last-child { border-right: none; }
+    .custom-table tr:last-child td { border-bottom: none; }
+    tr { page-break-inside: avoid; break-inside: avoid; }
+
+    /* Badges */
+    .badge {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        padding: 3px 2px;
+        border-radius: 12px;
+        font-size: 8px;
+        font-weight: 600;
+        text-align: center;
+        white-space: normal;
+        line-height: 1.1;
+        border: 1px solid transparent;
+    }
+    .badge-gray { background-color: #F3F4F6; color: #374151; border-color: #D1D5DB; }
+    .badge-red { background-color: #FEE2E2; color: #B91C1C; border-color: #EF4444; }
+    .badge-green-light { background-color: #DCFCE7; color: #15803D; border-color: #22C55E; }
+    .badge-green-dark { background-color: #86EFAC; color: #14532D; border-color: #22C55E; }
+    .badge-amber { background-color: #FEF3C7; color: #B45309; border-color: #F59E0B; }
+
+    .zone-badge {
+        display: inline-block;
+        background-color: #F3F4F6; color: #374151;
+        padding: 1px 4px; border-radius: 3px;
+        font-size: 8px; font-weight: 700;
+        border: 1px solid #E5E7EB; margin-top: 3px;
+    }
+
+    .text-link { color: #2563EB; text-decoration: none; font-weight: 600; font-size: 9px; }
+    .note-text { font-size: 9px; color: #374151; line-height: 1.35; word-break: break-word; white-space: pre-wrap; }
+
+</style>
+
+<!-- ========================================== -->
+<!-- 3. HTML CONTENT                            -->
+<!-- ========================================== -->
+<div class="print-format">
+
+    <!-- 1. HEADER Section (Standardized) -->
+    <div class="header-wrapper">
+        <img src="{{ logo_url }}" class="logo-img">
+        <div class="company-name-lg">{{ company_name }}</div>
+        <div class="company-addr-lg">{{ company_info.address }}</div>
+        <div class="header-border"></div>
+    </div>
+
+    <!-- 2. TITLE & DATE (Standardized) -->
+    <table class="report-meta-table">
+        <tr>
+            <td class="report-title-lg">Design Tracker</td>
+            <td class="report-date-lg">REPORT DATE : {{ frappe.utils.formatdate(frappe.utils.nowdate(), "dd-MMM-yyyy") }}</td>
+        </tr>
+    </table>
+
+    <!-- 3. PROJECT DETAILS + APPLIED FILTERS -->
+    <table class="overview-table">
+        <tr>
+            <td style="width: 30%;">
+                <div class="overview-label">Project Name</div>
+                <div class="overview-value">{{ doc.project_name }}</div>
+            </td>
+            <td style="width: 30%;">
+                <div class="overview-label">Zone</div>
+                <div class="overview-value-sm" style="color: #D1383E;">{{ zone_label }}</div>
+            </td>
+            <td style="width: 20%;">
+                <div class="overview-label">Start Date</div>
+                <div class="overview-value-sm">
+                    {{ frappe.utils.formatdate(doc.start_date, "dd-MMM-yyyy") if doc.start_date else "-" }}
+                </div>
+            </td>
+            <td style="width: 20%;">
+                <div class="overview-label">Deadline</div>
+                <div class="overview-value-sm">{{ frappe.utils.formatdate(doc.overall_deadline, "dd-MMM-yyyy") if doc.overall_deadline else "-" }}</div>
+            </td>
+        </tr>
+    </table>
+
+    <!-- 4. TASK LIST CONTENT -->
+    <h3 class="main-section-title">Task List</h3>
+
+    {% if doc.design_tracker_task %}
+
+        {# --- MAIN LOOP: PHASE > ZONE > CATEGORY --- #}
+        {% set printed = namespace(phases=0) %}
+
+        {% for current_phase in phases %}
+
+            {# --- PRE-CHECK: does this phase have any printable task inside the --- #}
+            {# --- selected zones AND categories? Without the category test here  --- #}
+            {# --- a filtered-out phase still prints a bare phase banner.        --- #}
+            {% set phase_ns = namespace(has_tasks=false) %}
+            {% for t in doc.design_tracker_task %}
+                {% set t_phase = t.task_phase or "Onboarding" %}
+                {% set t_zone = (t.task_zone or "") | string | trim %}
+                {% set t_cat = (t.design_category or "") | string | trim %}
+                {% if t.task_status != "Not Applicable"
+                      and t_phase == current_phase
+                      and t_zone in zones_to_loop
+                      and t_cat in categories_to_show %}
+                    {% set phase_ns.has_tasks = true %}
+                {% endif %}
+            {% endfor %}
+
+            {% if phase_ns.has_tasks %}
+
+                {# --- PHASE HEADER --- #}
+                {# Break onto a new page for every phase after the first one that printed. #}
+                <div style={% if printed.phases > 0 %}"margin-top: 30px; margin-bottom: 20px; border-bottom: 3px solid #D1383E; padding-bottom: 5px; page-break-after: avoid; page-break-before: always;"{% else %}"margin-top: 30px; margin-bottom: 20px; border-bottom: 3px solid #D1383E; padding-bottom: 5px; page-break-after: avoid;"{% endif %}>
+                     <span style="font-size: 18px; font-weight: 800; color: #D1383E; text-transform: uppercase; letter-spacing: 0.5px;">
+                        {{ current_phase }} Phase
+                     </span>
+                </div>
+                {% set printed.phases = printed.phases + 1 %}
+
+                {# Initialize a namespace counter to track printed zones for reliable pagination #}
+                {% set ns = namespace(zones_printed=0) %}
+
+                {% for current_zone in zones_to_loop %}
+
+                    {# --- FILTER TASKS FOR THIS PHASE + ZONE + CATEGORY --- #}
+                    {% set valid_tasks = [] %}
+                    {% for t in doc.design_tracker_task %}
+                        {% set t_phase = t.task_phase or "Onboarding" %}
+                        {% set t_zone = (t.task_zone or "") | string | trim %}
+                        {% set t_cat = (t.design_category or "") | string | trim %}
+
+                        {% if t.task_status != "Not Applicable"
+                              and t_phase == current_phase
+                              and t_zone == current_zone
+                              and t_cat in categories_to_show %}
+                             {% set _ = valid_tasks.append(t) %}
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if valid_tasks|length > 0 %}
+
+                        {# --- ZONE HEADER (only when more than one zone is printed) --- #}
+                        {% if show_zone_header %}
+                        <div style="margin-top: 20px; margin-bottom: 10px; padding: 5px 10px; background-color: #f3f4f6; border-left: 4px solid #333; page-break-after: avoid; {% if ns.zones_printed > 0 %}page-break-before: always;{% endif %}">
+                             <span style="font-size: 14px; font-weight: 700; color: #111;">
+                                ZONE: {{ current_zone }}
+                             </span>
+                        </div>
+                        {% endif %}
+
+                        {# Increment our counter so the next zone triggers the page break #}
+                        {% set ns.zones_printed = ns.zones_printed + 1 %}
+
+                        {% set grouped_tasks = valid_tasks | groupby('design_category') %}
+
+                        {% for category, tasks in grouped_tasks %}
+
+                            <div class="category-block">
+                                <div class="category-header">
+                                    {{ category or "Uncategorized" }} ({{ tasks | length }})
+                                </div>
+
+                                <table class="custom-table">
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 29%;">Task Name</th>
+                                            <!--<th style="width: 14%;">Deadline</th>-->
+                                            <th style="width: 16%;">Last Sub. Date</th>
+                                            <th style="width: 16%;">Status</th>
+                                            <th style="width: 29%;">Remarks</th>
+                                            <th style="width: 10%; text-align:center;">Link</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <!-- SORTING -->
+                                        {% set tasks_with_date = [] %}
+                                        {% set tasks_no_date = [] %}
+                                        {% for t in tasks %}
+                                            {% if t.deadline %}
+                                                {% set _ = tasks_with_date.append(t) %}
+                                            {% else %}
+                                                {% set _ = tasks_no_date.append(t) %}
+                                            {% endif %}
+                                        {% endfor %}
+
+                                        {% set sorted_tasks = (tasks_with_date | sort(attribute='deadline')) + tasks_no_date %}
+
+                                        {% for row in sorted_tasks %}
+                                        <tr>
+                                            <!-- Task Name -->
+                                            <td style="font-weight: 600; color: #111;">
+                                                {{ row.task_name }}
+                                            </td>
+
+                                            <!-- Deadline -->
+                                            <!--<td style="white-space: nowrap;">{{ frappe.utils.formatdate(row.deadline, "dd-MMM-yyyy") if row.deadline else "-" }}</td>-->
+
+                                            <!-- Last Submitted -->
+                                            <td style="white-space: nowrap;">
+                                                {{ frappe.utils.formatdate(row.last_submitted, "dd-MMM-yyyy") if row.last_submitted else "-" }}
+                                            </td>
+
+                                            <!-- STATUS -->
+                                            <td style="vertical-align: middle;">
+                                                {% set s_raw = row.task_status or "" %}
+                                                {% set s_lower = s_raw | lower %}
+                                                {% set status_class = "badge-amber" %} {# Default Amber #}
+
+                                                {% if "not applicable" in s_lower %}
+                                                    {% set status_class = "badge-gray" %}
+                                                {% elif "not started" in s_lower %}
+                                                    {% set status_class = "badge-red" %}
+                                                {% elif "submitted" in s_lower %}
+                                                    {% set status_class = "badge-green-light" %}
+                                                {% elif "approved" in s_lower %}
+                                                    {% set status_class = "badge-green-dark" %}
+                                                {% endif %}
+
+                                                <span class="badge {{ status_class }}">{{ s_raw or "N/A" }}</span>
+                                            </td>
+
+
+
+                                            <!-- Note -->
+                                            <td>
+            {% set status = (row.task_status or "") | trim %}
+            {% set comments = (row.comments or "") | trim %}
+
+            {% if status == "Submitted" and not comments %}
+                <!-- Submitted but no comments -->
+                <div class="note-t">
+                    Approval Pending By Client
+                </div>
+
+            {% elif comments %}
+                <!-- Comments exist -->
+                <div class="note-t">{{ comments }}</div>
+
+            {% else %}
+                <!-- Default empty -->
+                <span style="color:#999;">-</span>
+            {% endif %}
+        </td>
+
+                                            <!-- Link -->
+                                            <td style="text-align: center; vertical-align: middle;">
+                                                {% if row.file_link and row.file_link|trim != "" %}
+                                                    <a href="{{ row.file_link }}" target="_blank" class="text-link">View</a>
+                                                {% else %}
+                                                    <span style="color:#999;">-</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% endfor %}
+
+                    {% endif %}
+
+                {% endfor %} {# End Zone Loop #}
+
+            {% endif %} {# End phase_has_tasks check #}
+
+        {% endfor %} {# End Phase Loop #}
+
+        {% if printed.phases == 0 %}
+            <p style="text-align: center; color: #777;">No tasks match the selected phase, zone and category.</p>
+        {% endif %}
+
+    {% else %}
+        <p style="text-align: center; color: #777;">No tasks found.</p>
+    {% endif %}
+
+</div>
