@@ -385,6 +385,13 @@ export const SERVER_FACET_COLUMNS: readonly string[] = [
     "bank_account",
     "ifsc",
     "import_batch",
+    // ⚠️ A FACET NEEDS THREE LISTS, AND MISSING THIS ONE FAILS SILENTLY (slice Q1). Declaring
+    // `filter: "facet"` in OUTFLOW_COLUMNS draws the funnel; adding the column to
+    // `review._FACET_COLUMNS` lets the server apply it; and ONLY this list decides whether the
+    // selection is ever SENT. Without it the tick box registered, "Clear filters (1)" appeared,
+    // and the row set did not move -- a control that looks like it works and does nothing.
+    // Caught in the browser; no suite could see it.
+    "settlement_origin",
 ];
 
 /** Which columns the server can sort by. Mirrors `review._SORTABLE_COLUMNS`. */
@@ -1770,6 +1777,26 @@ export const settleBlocker = (
  * dialog, the SMALLER case is the common arrival here -- the one shape the old wording described
  * least well.
  */
+/**
+ * The amount-gap sentence shown on a record that cannot be settled at its own amount.
+ *
+ * ⚠️ IT NO LONGER NAMES A DESTINATION, AND THAT IS THE FIX (found in the browser walk, 2026-08-13).
+ * Both surfaces used to end "...A deduction such as TDS looks like this; settle it in the payments
+ * screen" -- the SAME claim slice D1 removed from the dead-end dialog, still live in two other
+ * places. Slice TD made a deduction settleable HERE for a service payment with a 0.95-2.05% gap,
+ * so the sentence was telling a reviewer to leave the screen that could now do the job.
+ *
+ * ⚠️ IT WAS NOT SIMPLY WRONG, WHICH IS WHY IT SURVIVED: outside that band the payments screen IS
+ * still the answer. It stated unconditionally something that had become conditional. The wording
+ * now points at the affordance instead of predicting the outcome -- picking the record and
+ * confirming is what reveals which case this is, and that path already explains itself.
+ *
+ * ⚠️ ONE DEFINITION, TWO CALLERS (`RecordVerdict` and the table's amount mark). They drifted into
+ * saying the same stale thing twice because each carried its own copy of the string.
+ */
+export const AMOUNT_GAP_HINT =
+    "too far apart to settle at this amount — pick it and confirm to see the options";
+
 export const settleBlockText = (block: SettleBlock | null | undefined): string => {
     if (!block) return "";
     switch (block.reason) {

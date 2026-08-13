@@ -31,6 +31,7 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
+    AMOUNT_GAP_HINT,
     INTENT_DEDUCTION,
     INTENT_PART_PAYMENT,
     amountVerdict,
@@ -1043,9 +1044,7 @@ const RecordVerdict = ({
                         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                         <span>
                             <span className="font-mono">{record.name}</span> differs by{" "}
-                            {formatToIndianRupee(Math.abs(verdict.difference))} — too far
-                            apart to settle here. A deduction such as TDS looks like this; settle it
-                            in the payments screen
+                            {formatToIndianRupee(Math.abs(verdict.difference))} — {AMOUNT_GAP_HINT}
                         </span>
                     </>
                 )}

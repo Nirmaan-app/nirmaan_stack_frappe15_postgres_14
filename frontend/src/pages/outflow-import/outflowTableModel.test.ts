@@ -1793,6 +1793,50 @@ describe("the period column", () => {
     it("is not offered as a server FACET column, or the funnel would fetch dates to tick", () => {
         expect(SERVER_FACET_COLUMNS).not.toContain(PERIOD_COLUMN_ID);
     });
+
+    /**
+     * ⚠️ A KNOWN, PRE-EXISTING DEAD FUNNEL, NAMED SO THE INVARIANT BELOW CAN STILL BE ENFORCED.
+     *
+     * `time` renders `timeOnly(r.added_on)` -- a value DERIVED in the client. There is no `time`
+     * column on `Outflow Import Row`, so it appears in neither `SERVER_FACET_COLUMNS` nor the
+     * server's `_FACET_COLUMNS`, and ticking its funnel has never filtered anything. That is a
+     * defect, found by the check below rather than reported by a user; it is not fixable by adding
+     * it to a list (the server would have nothing to filter on) and fixing it properly -- faceting
+     * on an expression, or dropping the funnel -- is out of slice Q1's scope.
+     *
+     * Listing it here keeps the rule enforced for every OTHER column instead of deleting the rule
+     * because one case fails it. Anything added to this set needs the same kind of explanation.
+     */
+    const DEAD_FUNNELS = new Set(["time"]);
+
+    it("⚠️ EVERY facet column is ALSO in SERVER_FACET_COLUMNS, or its funnel does nothing", () => {
+        // THE BUG THIS EXISTS FOR (slice Q1, found in the browser): a facet needs THREE lists to
+        // work -- `filter: "facet"` here draws the funnel, `review._FACET_COLUMNS` lets the server
+        // apply it, and SERVER_FACET_COLUMNS decides whether the selection is ever SENT. Adding
+        // the first two and not the third produced a tick box that registered, showed
+        // "Clear filters (1)", and left the row set completely unchanged.
+        //
+        // No unit test could see that, because each list was internally consistent. This one
+        // compares them.
+        const funnelled = OUTFLOW_COLUMNS.filter((c) => c.filter === "facet").map((c) => c.id);
+        expect(funnelled.length).toBeGreaterThan(0);
+        for (const id of funnelled) {
+            if (DEAD_FUNNELS.has(id)) continue;
+            expect(SERVER_FACET_COLUMNS).toContain(id);
+        }
+    });
+
+    it("and nothing is sent that has no funnel to set it", () => {
+        // The other direction: a column the server would accept but the screen cannot express is
+        // dead weight, and `added_on` is the cautionary tale -- it sat here after P1 and was
+        // harmless only because `serverQuery`'s loop happened to skip a non-array value.
+        const funnelled = new Set(
+            OUTFLOW_COLUMNS.filter((c) => c.filter === "facet").map((c) => c.id)
+        );
+        for (const id of SERVER_FACET_COLUMNS) {
+            expect(funnelled.has(id)).toBe(true);
+        }
+    });
 });
 
 describe("isDateFilterValue", () => {
