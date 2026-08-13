@@ -78,6 +78,7 @@ __all__ = [
     "GENERIC_PROJECT_TOKENS",
     "ProjectIndex",
     "build_project_index",
+    "alias_haystack",
     "comparable_tokens",
     "distinctive_tokens",
 ]
@@ -243,7 +244,7 @@ class ProjectIndex:
         Word boundaries come from padding both sides with a space, so "ey" cannot match inside
         "they" or "money".
         """
-        haystack = _alias_haystack(value)
+        haystack = alias_haystack(value)
         if not haystack.strip():
             return frozenset()
         return frozenset(
@@ -298,7 +299,7 @@ def build_project_index(
 
     claimed: dict[str, set[str]] = {}
     for phrase, project_id in aliases:
-        normalized = _alias_haystack(phrase).strip()
+        normalized = alias_haystack(phrase).strip()
         if not normalized or project_id not in names:
             continue
         claimed.setdefault(normalized, set()).add(project_id)
@@ -313,11 +314,17 @@ def build_project_index(
     )
 
 
-def _alias_haystack(value: object) -> str:
+def alias_haystack(value: object) -> str:
     """Text reduced to space-separated lowercase words, padded so a phrase matches on boundaries.
 
     Deliberately NOT `comparable_tokens`: this keeps short words and keeps ORDER, both of which an
     alias depends on. Punctuation becomes a space so "VR-Mall" and "VR Mall" read alike.
+
+    ⚠️ PUBLIC BECAUSE IT HAS A SECOND READER, on exactly the terms `comparable_tokens` is public.
+    `Outflow Import Project Alias.validate` needs the same normalisation to warn that two phrases
+    collide -- and a private twin there would be a second definition of "when are two aliases the
+    same", free to drift. When it drifted, the symptom would be an alias the editor accepted and
+    the matcher then ignored.
     """
     if value is None:
         return " "

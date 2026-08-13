@@ -166,6 +166,59 @@ def load_project_index() -> ProjectIndex:
     return build_project_index([(r["name"], r.get("project_name") or "") for r in rows])
 
 
+def load_project_aliases() -> tuple[tuple[str, str], ...]:
+    """Active `(phrase, project_id)` pairs for `build_project_index(..., aliases=...)`.
+
+    ⚠️ NOT WIRED INTO `load_project_index`, AND THAT IS THE POINT. Cashfree's tier 2 settles money
+    against an approved record, and its remarks are system-generated and name a project in full --
+    it has never needed an alias and must not silently acquire one, because widening what tier 2
+    recognises widens what settles unattended. The Cashbook path passes these in explicitly.
+    """
+    rows = frappe.db.sql(
+        """
+        SELECT keyword, project
+        FROM "tabOutflow Import Project Alias"
+        WHERE active = 1 AND keyword IS NOT NULL AND project IS NOT NULL
+        """,
+        as_dict=True,
+    )
+    return tuple((r["keyword"], r["project"]) for r in rows)
+
+
+def load_expense_rules() -> dict[str, tuple[tuple[str, str], ...]]:
+    """Active keyword -> expense type rules, grouped by ledger and LONGEST KEYWORD FIRST.
+
+    Returned as `{"Project": ((keyword, expense_type), ...), "Non Project": (...)}`. Both keys are
+    always present, so a caller never has to guard on a ledger having no rules at all.
+
+    ⚠️ THE ORDER IS THE RULE, not a presentation choice. "print" and "printout charges" can both
+    sit in the table, and the more specific phrase has to be tried first or it can never win. The
+    sort happens HERE rather than at the call site so there is one answer to "which rule applies",
+    and the caller cannot accidentally iterate a dict in insertion order and get a different one.
+
+    ⚠️ Keywords are lowercased here because that is the form they are matched in. The stored value
+    keeps whatever case its author typed, which is what the editing screen shows back to them.
+    """
+    rows = frappe.db.sql(
+        """
+        SELECT keyword, ledger, expense_type
+        FROM "tabOutflow Import Expense Rule"
+        WHERE active = 1 AND keyword IS NOT NULL AND expense_type IS NOT NULL
+        """,
+        as_dict=True,
+    )
+    grouped: dict[str, list[tuple[str, str]]] = {"Project": [], "Non Project": []}
+    for row in rows:
+        if row["ledger"] in grouped:
+            grouped[row["ledger"]].append(
+                ((row["keyword"] or "").strip().lower(), row["expense_type"])
+            )
+    return {
+        ledger: tuple(sorted(pairs, key=lambda pair: (-len(pair[0]), pair[0])))
+        for ledger, pairs in grouped.items()
+    }
+
+
 def load_payments_by_reference(references: Sequence[str]) -> tuple[TargetRef, ...]:
     """Pass A, SETTLE CANDIDATES: APPROVED payments whose normalised UTR is one of these.
 
