@@ -144,6 +144,41 @@ class TestTheWorker(CashbookImportCase):
         self.assertEqual(expense.payment_ref, row.transfer_id)
         self.assertEqual(expense.payment_attachment, "/private/files/test-statement.csv")
 
+    def test_the_expense_is_dated_the_day_the_money_moved(self):
+        """⚠️ THE REGRESSION TEST FOR A DEFECT NO SUITE COULD SEE.
+
+        The first production import created 115 expenses with a BLANK `payment_date`. Every other
+        figure was right and nothing raised: `create_expense_from_row` reads `added_on_date`, which
+        is DERIVED by the `_StagedRow` adapter and does not exist on a raw `Document`, so
+        `getattr(row, "added_on_date", None)` returned None in silence.
+
+        It survived because the fixtures asserted the fields the writer SETS and never the ones it
+        DERIVES. This asserts a derived one, against the row's own stored date.
+        """
+        cb._cashbook_worker(self.batch, "Administrator")
+        row = self._row("AAAAAA")
+        added_on = frappe.db.get_value("Outflow Import Row", row.name, "added_on")
+        target = frappe.db.get_value(
+            "Outflow Row Match", {"import_row": row.name},
+            ["target_doctype", "target_name"], as_dict=True,
+        )
+        payment_date = frappe.db.get_value(target.target_doctype, target.target_name, "payment_date")
+        self.assertIsNotNone(payment_date, "the expense was created with no payment date")
+        self.assertEqual(str(payment_date), str(added_on.date()))
+
+    def test_no_created_expense_is_left_undated(self):
+        """The whole-batch form, because the defect was uniform rather than a stray row."""
+        cb._cashbook_worker(self.batch, "Administrator")
+        undated = []
+        for match in frappe.get_all(
+            "Outflow Row Match",
+            filters={"import_batch": self.batch},
+            fields=["target_doctype", "target_name"],
+        ):
+            if not frappe.db.get_value(match.target_doctype, match.target_name, "payment_date"):
+                undated.append(match.target_name)
+        self.assertEqual(undated, [])
+
     def test_who_spent_it_comes_from_the_statement_not_the_importer(self):
         """⚠️ The fixture's spender is "Asha Menon"; the importer is Administrator.
 

@@ -54,6 +54,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
     _statement_file_url,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
+from nirmaan_stack.api.outflow_import.review import _StagedRow
 from nirmaan_stack.services.outflow_import.candidates import (
     load_expense_rules,
     load_project_aliases,
@@ -236,7 +237,17 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
     """One row -> one expense -> one match record -> the row flips to Settled."""
     doc = frappe.db.get_value(ROW_DOCTYPE, row_name, "*", as_dict=True)
 
-    staged = frappe.get_doc(ROW_DOCTYPE, row_name)
+    # ⚠️ THE ADAPTER, NOT A RAW `frappe.get_doc`. `create_expense_from_row` reads its argument BY
+    # ATTRIBUTE, and two of the attributes it wants are DERIVED rather than stored: `added_on_date`
+    # (from the `added_on` datetime) and a `Decimal` amount. `_StagedRow` computes both; a
+    # `Document` has neither, and `getattr(doc, "added_on_date", None)` returns None in silence.
+    #
+    # It cost 115 expenses with a BLANK `payment_date` on the first production import -- every
+    # figure else correct, nothing raised, and no test could see it because the fixtures asserted
+    # the fields the writer sets rather than the ones it derives. Found by reading the records back
+    # out of the database after a real run. `expenses.create_expense` has always used this adapter;
+    # this path simply did not, which is the whole of the defect.
+    staged = _StagedRow(doc)
     result = create_expense_from_row(
         staged,
         doctype=doc["suggested_doctype"],
