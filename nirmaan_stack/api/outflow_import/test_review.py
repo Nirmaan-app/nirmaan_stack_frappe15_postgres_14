@@ -919,6 +919,34 @@ class TestTheOrderNameForLinking(OutflowReviewFixture):
         self.assertTrue(stamped)
         self.assertTrue(all(e["order_name"] == "TEST-PO/REL/25-26" for e in stamped))
 
+    def test_BOTH_row_reads_actually_SHIP_settlement_origin(self):
+        """⚠️ THE BUG THE BROWSER WALK FOUND AND EVERY GREEN SUITE MISSED.
+
+        `_FACET_COLUMNS` governs FILTERING; the SELECT lists govern what a row CARRIES. Slice Q1
+        first changed only the former, so the "Settled via" column rendered an em dash on all 849
+        settled rows while the summary beside it correctly reported 843 auto-matched. Filtering
+        worked, the count worked, the data was right -- and the screen showed nothing.
+
+        Asserting the KEY is present is the point; a value assertion alone would pass on a payload
+        that omits it entirely, because `.get()` returns None either way.
+        """
+        for label, rows in (
+            ("get_batch_rows", get_batch_rows(self.batch.name)["rows"]),
+            ("get_outflow_rows", get_outflow_rows(scope="all", limit=200)["rows"]),
+        ):
+            self.assertTrue(rows, f"{label}: fixture precondition")
+            for row in rows:
+                self.assertIn("settlement_origin", row, f"{label} dropped the key")
+
+    def test_a_settled_row_carries_a_NON_BLANK_origin_end_to_end(self):
+        """The other half: present AND populated, through the real endpoint."""
+        settled = [
+            r for r in get_outflow_rows(scope="all", limit=200)["rows"]
+            if r["row_status"] == "Settled"
+        ]
+        if settled:
+            self.assertTrue(all((r["settlement_origin"] or "").strip() for r in settled))
+
     def test_the_lookup_asks_for_nothing_when_there_are_no_payments(self):
         """A pure guard on the helper: an empty ask must not build an `IN ()` clause."""
         self.assertEqual(_payment_order_names([]), {})

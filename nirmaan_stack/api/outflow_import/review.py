@@ -1725,6 +1725,12 @@ def get_outflow_rows(
                r.normalized_account, r.normalized_reference, r.resolved_vendor, r.resolved_project,
                r.suggested_doctype, r.suggested_name, r.suggestion_rule, r.match_basis,
                r.auto_matched, r.row_status, r.skip_reason, r.outcome_note,
+               -- ⚠️ ADDING A COLUMN TO `_FACET_COLUMNS` DOES NOT SHIP IT TO THE SCREEN. That map
+               -- governs FILTERING; this list governs what the row CARRIES, and slice Q1 initially
+               -- changed only the first -- so the "Settled via" column rendered an em dash on all
+               -- 849 settled rows while the summary beside it reported 843 auto-matched. Caught in
+               -- the browser, by nothing else: every suite was green.
+               r.settlement_origin,
                b.original_filename AS import_filename,
                b.period_from       AS import_period_from,
                b.period_to         AS import_period_to
@@ -2397,7 +2403,7 @@ def _load_rows(batch: str) -> list:
                beneficiary_id, bank_account, ifsc, remarks, bank_reference_no, service_charge,
                service_tax, added_by_raw, normalized_account, normalized_reference,
                resolved_vendor, resolved_project, suggested_doctype, suggested_name,
-               row_status, skip_reason, outcome_note
+               row_status, skip_reason, outcome_note, settlement_origin
         FROM "tabOutflow Import Row"
         WHERE import_batch = %s
         ORDER BY added_on ASC, name ASC
