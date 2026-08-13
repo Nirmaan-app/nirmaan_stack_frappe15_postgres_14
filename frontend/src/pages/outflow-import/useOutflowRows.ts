@@ -14,6 +14,7 @@ import {
     DEFAULT_HIDDEN_COLUMNS,
     DEFAULT_PAGE_SIZE,
     PERIOD_COLUMN_ID,
+    SOURCE_COLUMN_ID,
     activeFilterCount,
     isDateFilterValue,
     serverQuery,
@@ -22,6 +23,7 @@ import {
     type SortState,
 } from "./outflowTableModel";
 import { useOutflowPeriod } from "./useOutflowPeriodStore";
+import { useOutflowSource } from "./useOutflowSourceStore";
 
 /**
  * One asking of `get_outflow_rows`: the query a person is building, and what came back.
@@ -141,6 +143,12 @@ export function useOutflowRows({
     const { period, setPeriod } = useOutflowPeriod();
 
     /**
+     * The screen's source scope, on exactly the same terms as the period (slice CF/S2). It is the
+     * `source` column's facet, and the control above the summary is its second editor.
+     */
+    const { sources, setSources } = useOutflowSource();
+
+    /**
      * ⚠️ A PINNED BATCH SUPPRESSES THE PERIOD ENTIRELY, and this is a correctness rule rather than a
      * convenience. On `/bulk-import-outflow/:id` the screen is scoped to ONE import and the period
      * control is HIDDEN — so a period left in the store by an earlier visit would keep narrowing the
@@ -149,10 +157,20 @@ export function useOutflowRows({
      *
      * An invisible filter is the worst kind: every number is wrong and everything looks right. A
      * deep link means "this import, all of it".
+     *
+     * ⚠️ THE SOURCE SCOPE IS WITHHELD BY THE SAME LINE, AND THAT IS ONE RULE RATHER THAN TWO (slice
+     * CF/S2). A pinned import is ONE statement with ONE source, so a scope disagreeing with it does
+     * not narrow the view — it empties it, and the reader is looking at a screen headed by the
+     * statement they just chose reporting zero transfers. "This import, all of it" has to mean all
+     * of it whichever control is left set.
      */
     const filters = useMemo<ColumnFilters>(
-        () => ({ ...ownFilters, [PERIOD_COLUMN_ID]: batch ? undefined : (period ?? undefined) }),
-        [ownFilters, period, batch]
+        () => ({
+            ...ownFilters,
+            [PERIOD_COLUMN_ID]: batch ? undefined : (period ?? undefined),
+            [SOURCE_COLUMN_ID]: batch || !sources.length ? undefined : sources,
+        }),
+        [ownFilters, period, sources, batch]
     );
 
     // Typing must not fire a query per keystroke now that search is a round trip.
@@ -250,10 +268,11 @@ export function useOutflowRows({
     }, []);
 
     /**
-     * ⚠️ THE DATE COLUMN IS ROUTED TO THE PERIOD STORE, EVERY OTHER COLUMN TO LOCAL STATE. This is
-     * the ONE place that knows the `added_on` funnel and the `Period` control above the summary are
-     * two editors of one value. Writing it into `ownFilters` as well would create a second copy that
-     * `filters` then overwrites on the next render — the edit would appear to work and then revert.
+     * ⚠️ TWO COLUMNS ARE ROUTED TO STORES, EVERY OTHER COLUMN TO LOCAL STATE. This is the ONE place
+     * that knows the `added_on` funnel and the `Period` control — and, since CF/S2, the `source`
+     * funnel and the `Source` control — are each two editors of one value. Writing either into
+     * `ownFilters` as well would create a second copy that `filters` then overwrites on the next
+     * render: the edit would appear to work and then revert.
      */
     const setFilter = useCallback(
         (columnId: string, value: ColumnFilters[string]) => {
@@ -261,16 +280,24 @@ export function useOutflowRows({
                 setPeriod(isDateFilterValue(value) ? (value as DateFilterValue) : null);
                 return;
             }
+            if (columnId === SOURCE_COLUMN_ID) {
+                setSources(Array.isArray(value) ? value : []);
+                return;
+            }
             setOwnFilters((prev) => ({ ...prev, [columnId]: value }));
         },
-        [setPeriod]
+        [setPeriod, setSources]
     );
 
     /**
-     * ⚠️ CLEARING DOES NOT TOUCH THE PERIOD, deliberately — see `activeFilterCount`, which excludes it
-     * from the badge for the same reason. The period is the scope somebody chose for the whole screen
-     * and it has its own always-visible control saying so; a "Clear filters" button silently widening
-     * the summary to every transfer ever staged is a much bigger act than clearing a funnel.
+     * ⚠️ CLEARING TOUCHES NEITHER THE PERIOD NOR THE SOURCE, deliberately — see `activeFilterCount`,
+     * which excludes both from the badge for the same reason. Each is the scope somebody chose for
+     * the whole screen and each has its own always-visible control saying so; a "Clear filters"
+     * button silently widening the summary to every transfer ever staged, or to a source the reader
+     * had deliberately set aside, is a much bigger act than clearing a funnel.
+     *
+     * It falls out for free rather than needing a second exclusion: both live in stores, and this
+     * only resets `ownFilters`.
      */
     const clearFilters = useCallback(() => setOwnFilters({}), []);
 

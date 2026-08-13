@@ -53,6 +53,10 @@ def get_rate_master_items(discipline=None, kind=None):
         filters=filters,
         fields=[
             "name",
+            # The STABLE, DURABLE row identity across mints -- what a later CSV round trip matches
+            # on. `name` is regenerated on every import (freeze-and-supersede INSERTS a new row and
+            # retains the old one, so the old name stays occupied), which is why it cannot serve.
+            "item_uid",
             "discipline",
             "kind",
             "brand",
@@ -1902,3 +1906,191 @@ def update_rate_config(name=None, config=None):
     doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED (track_changes -> Version diff)
     frappe.db.commit()
     return {"ok": True, "config": cfg}
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════
+# SLICE 4: THE ASSET EXPORT. The database is the source of truth; the asset is now
+# BOOTSTRAP-AND-SNAPSHOT only. Running this export is what keeps a re-import safe -- the
+# file provably matches the DB, so a load can only replay what is already there.
+#
+# Shape cloned from export_writeback.export_priced_workbook (whitelisted POST returning
+# {filename, content_type, content_base64}, which the client turns into a Blob download).
+# ⚠️ ITS PERMISSION GATE IS DELIBERATELY *NOT* CLONED: that endpoint is bare login-only.
+# This one gates on the EXISTING _require_rate_admin (pricing._is_nirmaan_admin), matching
+# the RM-4a/4b writes, because an export hands the whole priced catalog to whoever calls it.
+#
+# ⚠️ A WEB REQUEST CANNOT WRITE INTO THE REPO, and nothing here tries. The file is returned
+# for download and retained as a snapshot row; committing it to git stays a human act.
+# ══════════════════════════════════════════════════════════════════════════════════════
+import base64  # noqa: E402
+
+from nirmaan_stack.services.boq_rate_master import exporter  # noqa: E402
+
+
+@frappe.whitelist(methods=["POST"])
+def export_rate_master_asset(discipline=None):
+    """ADMIN-ONLY: serialise the live catalog for a discipline into a loader-ready asset,
+    retain it as a snapshot, and return the file for download.
+
+    Returns {filename, content_type, content_base64, discipline, item_count, config_count,
+    retired_kinds, retired_category_ids, snapshot, snapshot_version, pruned}.
+    URL: .../rate_master.export_rate_master_asset
+    """
+    _require_rate_admin()  # BEFORE any read or write
+    if not discipline:
+        frappe.throw("discipline is required.", title="Missing field: discipline")
+
+    payload, text = exporter.export_asset_text(discipline)
+    snapshot = exporter.write_snapshot(discipline, text, payload)
+    frappe.db.commit()
+
+    version = frappe.db.get_value(exporter.SNAPSHOT_DOCTYPE, snapshot, "version")
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "_", discipline).strip("_").lower() or "discipline"
+    return {
+        "filename": f"rate_master_{slug}_v{version}.json",
+        "content_type": "application/json",
+        "content_base64": base64.b64encode(text.encode("utf-8")).decode("ascii"),
+        "discipline": payload["discipline"],
+        "item_count": len(payload["items"]),
+        "config_count": len(payload["category_configs"]),
+        "retired_kinds": payload["retired_kinds"],
+        "retired_category_ids": payload["retired_category_ids"],
+        "snapshot": snapshot,
+        "snapshot_version": version,
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def export_rate_master_csv(discipline=None, category_id=None):
+    """ADMIN-ONLY: the EDITABLE csv -- what a pricer edits in Excel and uploads back.
+
+    MODE A when `category_id` is given: exactly that category's attribute + rate columns.
+    MODE B when it is omitted: every category in one file, with a `category` column and the UNION
+    of every category's keys (sparse by construction).
+
+    Same download shape and the SAME admin gate as export_rate_master_asset -- an editable dump of
+    the priced catalog is no less sensitive than the asset.
+
+    Returns {filename, content_type, content_base64, discipline, category_id, mode, columns,
+    column_count, row_count}. URL: .../rate_master.export_rate_master_csv
+    """
+    _require_rate_admin()  # BEFORE any read
+    if not discipline:
+        frappe.throw("discipline is required.", title="Missing field: discipline")
+
+    from nirmaan_stack.services.boq_rate_master import csv_exporter
+
+    if category_id:
+        text, headers, n = csv_exporter.build_category_csv(discipline, category_id)
+        mode, label = "category", category_id
+    else:
+        text, headers, n = csv_exporter.build_all_categories_csv(discipline)
+        mode, label = "all", "all_categories"
+
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "_", "%s_%s" % (discipline, label)).strip("_").lower()
+    return {
+        "filename": f"rate_master_{slug}.csv",
+        "content_type": "text/csv",
+        "content_base64": base64.b64encode(text.encode("utf-8")).decode("ascii"),
+        "discipline": discipline,
+        "category_id": category_id or None,
+        "mode": mode,
+        "columns": headers,
+        "column_count": len(headers),
+        "row_count": n,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════
+# SLICE 6: THE CSV UPLOAD -- the last piece of the round trip, and the FIRST write path
+# into the live catalog from a file a human edited.
+#
+# TWO STEPS, NEVER ONE. `preview_rate_master_csv` is READ-ONLY and `apply_rate_master_csv`
+# is the only writer; there is deliberately no combined endpoint, because an upload that
+# applied on arrival would give the user nothing to check before a catastrophic rate landed.
+#
+# The apply RE-BUILDS the plan from the live catalog rather than trusting anything posted
+# back, and refuses when the preview's `digest` no longer matches -- the honest answer when
+# the database moved between the two steps.
+#
+# ⚠️ BOTH gate on the SAME `_require_rate_admin`, gate FIRST, as slice 5 does. The preview
+# is read-only but it renders the whole priced catalog's deltas, so it is exactly as
+# sensitive as the download it is paired with.
+#
+# ⚠️ The upload does NOT go through `loader.py`: a `replace=True` supersedes an entire
+# SCOPE and would wipe every item the file omitted. See services/boq_rate_master/
+# csv_importer.py for the upsert rules and why absent items must stay untouched.
+# ══════════════════════════════════════════════════════════════════════════════════════
+
+
+def _decode_upload(content_base64, csv_text):
+    """The uploaded bytes. base64 is the primary transport -- it mirrors the download's own
+    `content_base64` and preserves the file's bytes exactly, including the BOM and whatever
+    encoding Excel chose, which is what lets the importer REPORT the encoding rather than
+    guess at it. A plain-text fallback exists for callers (and tests) with a string in hand."""
+    if content_base64:
+        try:
+            return base64.b64decode(content_base64)
+        except Exception:
+            frappe.throw("The uploaded file could not be decoded.", title="Unreadable upload")
+    if csv_text is None or csv_text == "":
+        frappe.throw("No file content was received.", title="Nothing to read")
+    return csv_text
+
+
+@frappe.whitelist(methods=["POST"])
+def preview_rate_master_csv(discipline=None, content_base64=None, csv_text=None):
+    """ADMIN-ONLY, READ-ONLY: what this file WOULD do. Writes nothing, commits nothing.
+
+    Returns the plan: {discipline, mode, encoding, row_count, columns, counts, errors,
+    changes, digest}. `counts` carries rates_changed / items_added / unchanged / errors
+    (the owner's four headline numbers) plus `other_changed` for rows that moved in some
+    way other than a rate -- an honest fifth number rather than mislabelling those rows as
+    one of the four.
+
+    Each change carries `major`: TRUE for every new item and for any rate move of 10% or
+    more IN EITHER DIRECTION (and for a move a percentage cannot describe -- a rate
+    appearing, disappearing, or leaving zero). The client expands those by default and
+    collapses the rest behind a count; nothing is hidden either way.
+    URL: .../rate_master.preview_rate_master_csv
+    """
+    _require_rate_admin()  # BEFORE any read
+    if not discipline:
+        frappe.throw("discipline is required.", title="Missing field: discipline")
+
+    from nirmaan_stack.services.boq_rate_master import csv_importer
+
+    plan = csv_importer.build_plan(discipline, _decode_upload(content_base64, csv_text))
+    return csv_importer.public_plan(plan)
+
+
+@frappe.whitelist(methods=["POST"])
+def apply_rate_master_csv(discipline=None, content_base64=None, csv_text=None,
+                          expected_digest=None):
+    """ADMIN-ONLY: apply an already-previewed CSV. ALL-OR-NOTHING.
+
+    A SNAPSHOT of the pre-upload catalog is written FIRST, in the SAME transaction, via
+    slice 4's mechanism -- that is the rollback path, and an upload with no snapshot behind
+    it is unrecoverable. The single `frappe.db.commit()` below is the only commit: any
+    failure anywhere above it leaves the transaction uncommitted, so a malformed row rejects
+    the WHOLE file rather than half-applying it.
+
+    The result is LIVE IMMEDIATELY -- extraction allowed-values, the pricing-helper dropdowns
+    and every rate computation read the catalog at runtime, through the active-only readers,
+    so a superseded row leaves those surfaces the moment this commits.
+
+    Returns {applied, items_added, items_replaced, snapshot, snapshot_version, batch, plan}.
+    URL: .../rate_master.apply_rate_master_csv
+    """
+    _require_rate_admin()  # BEFORE any read or write
+    if not discipline:
+        frappe.throw("discipline is required.", title="Missing field: discipline")
+
+    from nirmaan_stack.services.boq_rate_master import csv_importer
+
+    result = csv_importer.apply_plan(
+        discipline, _decode_upload(content_base64, csv_text), expected_digest=expected_digest
+    )
+    frappe.db.commit()  # the ONE commit -- snapshot + every write, or neither
+    result["plan"] = csv_importer.public_plan(result["plan"])
+    return result

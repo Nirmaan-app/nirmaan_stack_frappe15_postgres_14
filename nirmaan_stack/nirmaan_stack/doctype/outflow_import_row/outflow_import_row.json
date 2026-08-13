@@ -33,6 +33,8 @@
   "suggestion_rule",
   "auto_matched",
   "match_basis",
+  "suggested_expense_type",
+  "source",
   "decision_section",
   "row_status",
   "skip_reason",
@@ -266,6 +268,21 @@
    "label": "Settlement Origin",
    "options": "\nSuggestion accepted\nSuggestion overridden\nNo suggestion",
    "read_only": 1
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Data",
+   "label": "Source",
+   "read_only": 1,
+   "in_standard_filter": 1,
+   "description": "Denormalised from the batch so the master table can filter by it without a join. Cashfree or Cashbook."
+  },
+  {
+   "fieldname": "suggested_expense_type",
+   "fieldtype": "Data",
+   "label": "Suggested Expense Type",
+   "read_only": 1,
+   "description": "Cashbook only. The expense type the plan chose from this row's remark, stored so the background job writes exactly what the preview showed rather than deciding again."
   }
  ],
  "index_web_pages_for_search": 1,

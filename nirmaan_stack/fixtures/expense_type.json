@@ -331,5 +331,14 @@
   "name": "Staff Accommodation Rent",
   "non_project": 0,
   "project": 1
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Petty Cash",
+  "modified": "2026-08-13 00:00:00.000000",
+  "name": "Petty Cash",
+  "non_project": 1,
+  "project": 1
  }
 ]

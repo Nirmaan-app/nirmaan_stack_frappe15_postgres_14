@@ -31,6 +31,8 @@ import os
 
 import frappe
 
+from nirmaan_stack.services.boq_rate_master import retirement
+
 ITEM_DOCTYPE = "BoQ Rate Master Item"
 CONFIG_DOCTYPE = "BoQ Rate Category Config"
 
@@ -38,8 +40,16 @@ BATCH_PREFIX = "rmbulk-"
 # Only these attribute keys are canonicalized to UPPERCASE at ingest (per normalization_rule).
 NORMALIZE_ATTRS = ("material", "insulation")
 
+# THE single Electrical asset (merged 2026-08-13). It carries every item and every category
+# config, so it takes the MULTI path (`category_configs`) and therefore _load_multi's SCOPED
+# supersede. That is the point of the merge, not a side effect: the superseded wiring asset used
+# the SINGULAR `category_config` key, which routes to the single-config path below, whose
+# _deactivate_prior is DISCIPLINE-WIDE -- importing it with replace=True deactivated every
+# Electrical item, and the live catalog survived only on an undocumented ordering rule.
+# `rate_master_wiring_cabling_v3.json` is RETAINED on disk as a mint-gate self-test operand
+# (scripts/mint_completeness_check.py, do_history(WIRING)); it is a retired artefact, not an asset.
 DEFAULT_DATA_FILE = os.path.join(
-    os.path.dirname(__file__), "data", "rate_master_wiring_cabling_v3.json"
+    os.path.dirname(__file__), "data", "rate_master_electrical_all_v30.json"
 )
 
 
@@ -222,6 +232,9 @@ def load_rate_master(payload=None, path=None, replace=False):
                 "kind": kind,
                 "brand": it.get("brand"),
                 "unit": it.get("unit"),
+                # Carried through from the payload exactly like brand/unit. A legacy asset (v29 and
+                # earlier) carries none, and .get() yields None -- which is why nothing else changes.
+                "item_uid": it.get("item_uid"),
                 "attributes": json.dumps(attrs),
                 "rates": json.dumps(it["rates"]),
                 "source_sheet": src.get("sheet"),
@@ -337,6 +350,9 @@ def _load_multi(payload, replace):
                 "kind": kind,
                 "brand": it.get("brand"),
                 "unit": it.get("unit"),
+                # Carried through from the payload exactly like brand/unit. A legacy asset (v29 and
+                # earlier) carries none, and .get() yields None -- which is why nothing else changes.
+                "item_uid": it.get("item_uid"),
                 "attributes": json.dumps(attrs),
                 "rates": json.dumps(it["rates"]),
                 "source_sheet": src.get("sheet"),
@@ -371,6 +387,14 @@ def _load_multi(payload, replace):
         ).insert(ignore_permissions=True)
         category_ids.append(cat_id)
 
+    # SLICE 3 -- PAYLOAD IS THE INSTRUCTION, TABLE IS THE RECORD. Recording is a SIDE EFFECT of a
+    # payload declaring a retirement; the deactivation above still takes its scope from the payload
+    # alone and is BYTE-UNCHANGED. Nothing here is ever read back to drive behaviour -- that would
+    # change import semantics, which is out of scope. Rides this function's single commit.
+    retirements_recorded = retirement.record_retirements(
+        discipline, retired_kinds, retired_cat_ids
+    )
+
     frappe.db.commit()
 
     return {
@@ -378,6 +402,7 @@ def _load_multi(payload, replace):
         "batch": batch,
         "discipline": discipline,
         "category_ids": category_ids,
+        "retirements_recorded": retirements_recorded,
         "items_by_kind": by_kind,
         "items_total": sum(by_kind.values()),
         "configs_loaded": len(configs),

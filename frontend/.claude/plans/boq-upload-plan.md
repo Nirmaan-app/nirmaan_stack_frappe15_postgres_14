@@ -27426,3 +27426,972 @@ ways, compared through the real `serialize_run_results`.**
 
 Volume measured at ~401 KB for a 94-row sheet -> ~1.8 MB for the ~415-row audit sweep, matching the
 1.5-3 MB estimate.
+
+## Build slice MERGE-1 -- ONE Electrical asset (2026-08-13)
+
+Branch `feature/boq-pricing-helper`. Owner ruling: the two-asset split was **SEQUENCING, NOT
+DESIGN** -- wiring was built first as a trial and everything else followed. It is **not** an
+invariant and is **SUPERSEDED** by this slice. The history below stays recorded; only the
+arrangement changes.
+
+**THE ASSET.** `data/rate_master_electrical_all_v30.json`, sha256 prefix `63628d6a15a33796` --
+**1,382 items + 12 configs**, folding in `rate_master_wiring_cabling_v3.json` (588 items + the
+`wiring_cabling` config). `loader.DEFAULT_DATA_FILE` repointed to it.
+
+### Why the split had to go -- a LIVE hazard, not tidiness
+
+The two assets took **different loader paths with different supersede semantics**:
+
+| | wiring v3 (`category_config`, SINGULAR) | E-ALL (`category_configs`, LIST) |
+|---|---|---|
+| path | `load_rate_master` single-config | `_load_multi` |
+| refuse check | `_active_item_count(discipline)` -- discipline-wide | scoped to payload kinds + category_ids |
+| `replace=True` supersede | `_deactivate_prior` -> `UPDATE "tabBoQ Rate Master Item" SET active = 0 WHERE discipline = %s AND active = 1` -- **EVERY Electrical item** | `_deactivate_scope` -- only this payload's kinds |
+
+So importing wiring with `replace=True` **deactivated all 795 E-ALL items**, and the live catalog
+survived only on an **undocumented ordering rule** (wiring FIRST, E-ALL SECOND). The batch timeline
+records it happening:
+
+```
+rmbulk-2375d419f780  795 items  2026-08-09 22:20:33  (E-ALL)       -> inactive
+rmbulk-237b288346ab  588 items  2026-08-09 22:20:43  (WIRING)      -> ACTIVE   <- wiped the 795
+rmbulk-af38ed056c61  795 items  2026-08-09 22:21:20  (E-ALL again) -> inactive
+```
+
+The merged asset uses the LIST form, so it takes `_load_multi`'s SCOPED supersede and the
+discipline-wide `UPDATE` is **never reached**. The singular path still exists in the loader and is
+still dangerous -- it is simply no longer reachable from a shipped asset. `test_24b`'s NEGATIVE half
+pins exactly that: the merged payload must NOT carry `category_config`, because that key alone
+selects the wide path.
+
+### Owner rulings applied
+
+- **ONE ITEM DROPPED, NO DELETE PATH ADDED.** `db_switchgear_item` /
+  `TPN FLEXI DB 4 ROW 14M (DOUBLE DOOR IP 43)` existed TWICE with two prices. **KEPT** the 12,881
+  copy (source row 17); **DROPPED** the 12,133 copy (source row 14). It is simply ABSENT from the
+  asset and is superseded naturally on import. Item count **1,382, not 1,383**.
+- **`rate_master_wiring_cabling_v3.json` RETAINED on disk** -- a mint-gate self-test operand
+  (`do_history(WIRING)`, T4) and the singular-shape fixture the ~30 single-config loader tests need.
+  A retired artefact, not a live asset.
+- **Goldens:** wiring's five (g1-g5) carried BOTH on the config AND in the top-level dict -- what 9
+  of the 11 pre-existing E-ALL configs already do. Proven EFFECTIVE (below).
+- **`item_kinds` NOT added to `wiring_cabling`** -- its kinds derive from the pipelines'
+  `match_master_row` (`cable`, `termination`), byte-equal to a declared list, so adding one is
+  behaviour-neutral but would make the stored config differ from the live DB for no gain.
+
+### The acceptance test -- reproduced CURRENT DB CONTENT, proven not asserted
+
+Read-only: the loader was **never** run against live data. What `_load_multi` WOULD store was
+reconstructed (canonicalisation + goldens merge + discipline stamp) and compared to the live active
+rows.
+
+| Axis | Result |
+|---|---|
+| item count per kind | **15 kinds** both sides; asset 1,382 vs db 1,383 -- the ruled drop only (`db_switchgear_item` 136 vs 137) |
+| identity multiset (kind, brand, attributes) | asset-only **0** / db-only **1** = exactly the dropped duplicate |
+| rates | **ZERO diff** |
+| brand / unit / source_sheet | **ZERO diff** |
+| `source_row` | **27 rows**, all `db_shell`, asset `null` vs DB `0` -- Frappe `Int` stores `None` as `0`. A FRAMEWORK COERCION, idempotent from the second hop. Not "fixed"; the data was not edited. |
+| per-row field diff | **1,355 IDENTICAL** + 27 source_row + 1 dropped |
+| config key sets and values, deep | **12 / 12 IDENTICAL** -- no asset-only key, no db-only key, no differing value |
+| EFFECTIVE goldens after the merge | **12 / 12 MATCH**; `wiring_cabling` = `[g1..g5]`, inner copy == top-level copy |
+| retired scope | `retired_kinds` `[ups_per_kva, ups_reference]`, `retired_category_ids` `[ups, switches_point]` -- carried through verbatim |
+| `name` / `import_batch` / `creation` / `modified` | **NOT reproducible, by design** -- `_load_multi` INSERTS fresh documents. "Exactly" means CONTENT-exactly, never IDENTITY-exactly; that is why the stable id is its own slice. |
+
+### The stale pins -- three of four collapsed, one BLOCKED on an owner ruling
+
+`test_rate_master.py` carried FOUR "current-asset" pins on THREE different versions. A single
+module-level `CURRENT_EALL_ASSET` now names the live asset once.
+
+| Pin | Was | Now |
+|---|---|---|
+| `_EALL_CURRENT` (3 tests) | **v27** -- the pin whose own docstring warns about this exact staleness, and which had fallen into it TWICE | `CURRENT_EALL_ASSET` |
+| inline path in `test_92` | v29 | `CURRENT_EALL_ASSET` |
+| RULING-2 wiring read | `rate_master_wiring_cabling_v3.json` | the merged asset's `wiring_cabling` config |
+| `_ASSET` (4 tests) | **v22** | **STILL v22 -- see below** |
+| `cls.eall` / two v17 reads | v12 / v17 | **unchanged, deliberately historical** (they assert those assets' own counts) |
+| `cls.raw` | `loader.DEFAULT_DATA_FILE` | `LEGACY_WIRING_ASSET` by explicit path |
+
+**`cls.raw` had to stop following `DEFAULT_DATA_FILE`.** `_real_payload` stamps
+`p["category_config"]["discipline"]`, so the ~30 tests built on it require the SINGULAR shape --
+which is also the only coverage the discipline-wide path has. Repointing them at the merged asset
+would have deleted that coverage.
+
+**`_ASSET` could NOT be collapsed, and that is a FINDING.** Repointing it at the current asset
+fails THREE tests -- and **v30 is byte-identical to v29 on both points**, so the merge changed
+nothing here; the tests are simply two mints stale and assert shapes **two owner rulings have since
+superseded**:
+
+- `test_38` / `test_40` -- `blank_item.disables_when_none == ["blank_qty"]`. v22 `['blank_qty']` ->
+  v29/v30 **ABSENT**. Removed by the BLANKER-BIND ruling: once `blank_item` stopped driving the
+  price, its `disables_when_none` was greying out the newly EDITABLE `blank_qty`.
+- `test_41` -- back_box `ref.item == "@plate_item"`. v22 `@plate_item` -> v29/v30 **`@box_item`**.
+  The back box takes the selected plate's module COUNT re-fitted on its OWN shorter ladder, never
+  the plate's LABEL.
+
+So those three currently assert the PRE-RULING shape, i.e. two defects. **Updating them is an owner
+call and is out of scope for a merge slice**, which must not silently rewrite a guard. The pin stays
+explicit with the finding recorded in-line at the pin site.
+
+### Gates
+
+- **MINT GATE `v29 (as committed) -> v30 (working copy)`: PASS -- "No atoms disappeared", exit 0.**
+  **The gate CANNOT see the dropped item.** Its item vocabulary is `kind:<k>`, so an individual
+  dropped item is below its resolution -- `db_switchgear_item` still exists as a kind. An
+  `intentional_removals` entry is therefore **inapplicable**: the gate never emits an atom string
+  for it. (Prediction corrected: the drop does NOT show as a removal.)
+- **`--self-test`: ALL PASS (T1-T5)**, T4 included -- confirming wiring v3's retention keeps the
+  history-walk calibration intact.
+- **`test_rate_master` 100 -> 101** (the new `test_24b`), OK both before and after.
+- `test_rate_suggest` and `test_extraction_coercion`: **identical to baseline** (suggest carries 3
+  pre-existing failures unrelated to this slice; coercion 26 OK).
+- vitest: **2,317 passed / 1 failed of 2,318, identical to baseline** (the pre-existing
+  `POAdjustment/writeOffControl.test.ts` timeout). No frontend file touched.
+
+**No rendered surface changes.**
+
+## Build slice MERGE-1b -- stale pins closed, v30 imported, browser cert (2026-08-13)
+
+Branch `feature/boq-pricing-helper`. Slice 1 proved v30 was CONTENT-EQUIVALENT to the live DB but
+never imported it, so nothing had proven the running system still behaves the same. This slice
+closes both gaps.
+
+### Part A -- the four stale `_ASSET` assertions
+
+`_ASSET` was the last of four "current-asset" pins still naming its own version (v22, two mints
+stale). It now reads `CURRENT_EALL_ASSET`, so **every** current pin reads one constant.
+
+**FOUR tests read `_ASSET`** -- slice 1 reported "4 tests" but named only three failures. The fourth
+is **`test_37_switches_sockets_routing_and_ownership`**, which asserts `matching_mode` /
+`identity_attribute_id` are absent and `item_kinds == ["switch_socket_item"]`, plus the negative
+prompt-routing pins. **All of those are unchanged v22 -> v30, so test_37 PASSES on repoint with no
+edit.** The other three failed, and repointing surfaced a FOURTH stale assertion inside test_38 that
+the earlier run never reached (assertions short-circuit).
+
+Every updated assertion carries an inline comment naming the ruling it now encodes:
+
+| Test | Was (v22) | Now (v30) | Ruling |
+|---|---|---|---|
+| `test_38`, `test_40` | `blank_item.disables_when_none == ["blank_qty"]` | **ABSENT** | **BLANKER-BIND** -- the blanker is inferred from the EFFECTIVE module count and no longer drives the price, so `blank_qty` became EDITABLE; the dead dropdown was greying out the one field that had just started to matter |
+| `test_40` | blank line `ref.item "@blank_item"`, `qty {from_attr: blank_qty}` | **`@blank_fit_item`**, `qty {from_fit: blank_count}` | same ruling, binding half -- the pipeline computes both the item and the count |
+| `test_40` | `extraction_defaults["blank_qty"] == 1.0` | **ABSENT** | **RULING 4** -- a fabricated default and a computed count must not both be live |
+| `test_41` | back_box `ref.item == "@plate_item"` | **`@box_item`** | the box takes the plate's module COUNT re-fitted on its OWN shorter ladder, never the plate's LABEL; copying the label asked the catalog for a box that does not exist and made the row unpriceable |
+| `test_38` | `assertNotIn("colour", extraction_defaults)` + `assertFalse(rules)` | `colour == "White"`, `rules` truthy | both were **C2 SCOPE statements** ("no colour default and no rules THIS SLICE"), superseded at v23 where `colour: "White"` was added on both categories ("S4 is NOT a rule") |
+
+`test_41`'s explanatory comment was ALSO stale -- it said the back_box binding was "NOT part of this
+fix ... and is slice 2"; slice 2 shipped and changed it. Both comment and assertion moved.
+
+**Left untouched, deliberately:** `cls.eall` (v12), the two v17 reads in test_31/test_32, and
+`cls.raw` (`LEGACY_WIRING_ASSET`). The last is the ONLY coverage the discipline-wide
+`_deactivate_prior` path has -- that path is reachable only through the SINGULAR `category_config`
+key, which the merged asset does not carry.
+
+### Part B -- v30 imported into the dev database (LIVE WRITE)
+
+Production loader path, `loader.load_rate_master(replace=True)` with `DEFAULT_DATA_FILE` = v30. New
+batch **`rmbulk-e4684c2b9daa`**: **1,382 items + 12 configs in ONE batch**, where the two-asset
+arrangement needed two. Prior batches (`rmbulk-1ac1ca9da022` 795, `rmbulk-237b288346ab` 588) are
+retained at `active=0` -- 1,383 items and 12 configs superseded, **none deleted**.
+
+Fingerprints captured read-only before and after, compared axis by axis:
+
+| Axis | Result |
+|---|---|
+| active item count | 1,383 -> 1,382, **exactly -1** (the ruled duplicate) |
+| per-kind counts | **15 kinds both sides**; only `db_switchgear_item` 137 -> 136 |
+| identity multiset (kind, brand, attributes) | 1,382 distinct both sides; **lost exactly the duplicate's second copy, gained nothing** |
+| rates per identity | **ZERO changes.** The duplicate collapsed `['{"list_price":12133.0}','{"list_price":12881.0}']` -> `['{"list_price":12881.0}']`, keeping the ruled copy |
+| full content multiset | lost 1 (the dropped row), gained 0 |
+| config blobs, deep | **all 12 BYTE-IDENTICAL** |
+| batches | two -> **one**, covering items AND configs |
+| superseded rows | inactive items +1,383, inactive configs +12 -- every one retained |
+
+**OVERALL: PASS** -- content-equivalent; only the ruled duplicate and row identity changed.
+
+### Part C -- browser cert, GREEN
+
+Environment: Docker crashed mid-slice and the owner restarted it; **bench and Vite were both down**
+and had to be started. Worker restarted after the import per #171 (new PID, start time post-import).
+Vite restarted PID-targeted (`pgrep -af vite`, `kill <listed PIDs>`, confirm empty + port free,
+restart from `frontend/`) -- never `pkill -f vite`. De-stale ritual run twice (once for the BEFORE
+capture, once after the import): site data cleared **EXCLUDING cookies** (clearing them forces a
+relogin), service workers unregistered, tab CLOSED and a new one opened, bare root loaded before the
+deep route. `sid` confirmed present and HttpOnly on both sides of the clear, read through the CDP
+cookie API, never `document.cookie`.
+
+**The rate comparison -- seven rows, seven categories, captured from the helper panel BEFORE the
+import and again AFTER:**
+
+| Excel row | Category | Before | After | |
+|---|---|---|---|---|
+| 120 | `wiring_cabling` | 120 | 120 | IDENTICAL |
+| 16 | `db_switchgear` | 20550 | 20550 | IDENTICAL |
+| 175 | `conduit_piping` | 45.5 | 45.5 | IDENTICAL |
+| 196 | `point_wiring` | 4326 | 4326 | IDENTICAL |
+| 239 | `switches_sockets` | 380 | 380 | IDENTICAL |
+| 364 | `cabletray_raceway` | (missing attributes) | (missing attributes) | IDENTICAL |
+| 265 | `popup_boxes` | 7200 | 7200 | IDENTICAL |
+
+The extracted-attribute lines are identical too, so both the INPUTS and the OUTPUTS match. Row 364's
+honest no-compute ("Complete the missing attributes to price") is stable across the import and is a
+valid observable, not a gap.
+
+**Rate Master Data Viewer**, every category, all reading the new batch `rmbulk-e4684c2b9daa`:
+Wiring **588**, CableTray 460, **DB and Switchgear 171** (was 172 -- the dropped duplicate visible in
+the UI), Switches 58, Industrial Socket 28, Earthing 25, LMS 24, Miscellaneous 13, Conduit 8, Junction
+Box 6, Pop-up 1, and Point Wiring **0 with its documented empty state** (kind-less category).
+
+READ-ONLY throughout: no suggestion accepted, no rate edited, no suggest run started. Clicking a
+badge only SELECTS the row for the always-mounted embedded panel.
+
+### Environment notes worth keeping
+
+- **`playwright.connect_over_cdp` STALLS against Chrome 151** -- the websocket connects and the
+  handshake never completes. The cause is the **Origin header**: Chrome rejects a CDP websocket that
+  carries one ("Rejected an incoming WebSocket connection from the http://127.0.0.1:9222 origin").
+  A raw `websocket-client` connection with `suppress_origin=True` works.
+- **`127.0.0.1:8000` is NOT a Frappe site.** Probing bench there returns `404 ... 127.0.0.1 does not
+  exist`; the Host header must be `localhost`. A cold bench also takes minutes before its first
+  response, which reads exactly like a hang.
+- ⚠️ **Killing the RQ worker under honcho takes the WHOLE bench stack down.** honcho terminates every
+  process when one exits, so `kill <worker pid>` stopped web, schedule, watch and socketio too
+  (`rc=-15`). Restart the worker by restarting `bench start`, not by killing its PID.
+
+## Build slice STABLE-ID -- `item_uid` on BoQ Rate Master Item (2026-08-13)
+
+Branch `feature/boq-pricing-helper`. Every import INSERTS fresh documents, so `name` is regenerated
+and no item had a durable identity across mints. The round trip (download -> edit -> upload) needs
+one: "matched ids replace, blank ids add" is undefined without it, and content matching turns every
+rename into a silent duplicate.
+
+### ⚠️ MIGRATE-CARRYING
+
+**This slice adds a database column. Anyone pulling this branch must run a migration**
+(`bench --site localhost migrate`). `patches.txt` was NOT touched and no patch entry is needed --
+a new field on an existing doctype is picked up by the ordinary doctype sync.
+
+### The field
+
+`item_uid` -- `Data`, `search_index: 1`, placed at the END of the Identity section (immediately after
+`unit`), so the human-meaningful identity fields keep their positions and the opaque id groups with
+them.
+
+**Added through FRAPPE'S OWN DocType API, not by hand-editing JSON.** `developer_mode: 1` is set in
+`common_site_config.json`, so `frappe.get_doc("DocType", ...).save()` both altered the table and
+rewrote the doctype JSON in the app folder itself ("Wrote document file for DocType BoQ Rate Master
+Item at ...").
+
+**Exactly what changed in the JSON** -- Frappe's export made four incidental changes beyond the field:
+
+| Change | Note |
+|---|---|
+| `+ "item_uid"` in `field_order`, after `unit` | the field |
+| `+` the field object (fieldname / fieldtype / label / search_index / description) | the field |
+| `- "allow_rename": 0` | Frappe omits falsy defaults on export; semantically a no-op (0 IS the default) |
+| `- "istable": 0` | same |
+| `creation` microseconds truncated, `modified` bumped | Frappe's export normalisation |
+| trailing newline dropped | restored by hand afterwards; JSON re-validated |
+
+**⚠️ NOT UNIQUE.** The column carries a plain btree index
+(`CREATE INDEX item_uid ON public."tabBoQ Rate Master Item" USING btree (item_uid)`), `unique = 0`.
+The uid is unique only among `active = 1` rows -- superseded rows legitimately share one, and that
+sharing is what makes history traceable. A partial unique index over `active = 1` is possible; it is
+**NOT applied**, and is reported rather than assumed.
+
+### The scheme -- STAMPED, never content-derived
+
+`rmi-` + 12 lowercase hex = **16 chars**. Opaque, so it never has to change when an attribute is
+edited; the prefix mirrors the module's existing `rmbulk-` / `manual-` provenance prefixes so a uid is
+recognisable on sight in a spreadsheet cell; 16 chars sits in a CSV cell without wrapping.
+
+**A content hash was excluded, and the reason is decisive:** the id would CHANGE when an attribute is
+edited, so an edited row would come back carrying a different id, be read as an insert, and leave the
+original active -- a silent duplicate on every rename, which is the exact failure the uid exists to
+prevent.
+
+### The loader -- two lines, verified against the code first
+
+Both insert sites were read before editing and are exactly as expected: two `frappe.get_doc({...})`
+dicts carrying `brand`/`unit` through `it.get(...)`. Each gained one line:
+
+```python
+"item_uid": it.get("item_uid"),
+```
+
+**Nothing else in the loader moved** -- freeze-and-supersede is untouched.
+
+**`_validate_items` needed NO change.** It requires `kind` / `attributes` / `rates` / `source` and
+never mentions `item_uid`, so absence was already tolerated by construction. A legacy asset therefore
+loads unchanged, with the field left BLANK -- never a fabricated value.
+
+### The read endpoint
+
+`get_rate_master_items` gained `item_uid` in its `fields` list -- one entry, beside the `name` the
+endpoint already returned. Verified: the field is present on every returned row.
+
+### The backfill -- ACTIVE ROWS ONLY
+
+`scripts/backfill_rate_master_item_uid.py`. A one-off maintenance script, **not a patch**: it seeds
+data, it does not migrate structure.
+
+**History is DELIBERATELY EXCLUDED** (owner ruling). A superseded row has no reliable key to its
+successor -- the only handle is content, and content is exactly what changes between versions, so a
+historical backfill could only ever be approximate. There is no hook implying one is coming.
+
+**Pairing:** DB row <-> asset item on `(kind, brand, canonicalised attributes)`, mirroring
+`loader._canonicalize_attributes` so both sides key identically. **`brand` is load-bearing**: six
+`lms_item` pairs are identical on `(kind, attributes)` and differ ONLY by brand -- Lutron vs Zen
+Control, at materially different prices -- so pairing without it would mis-assign six uids. The script
+**REFUSES and writes nothing** unless the pairing is 1:1 in both directions.
+
+**Measured:** 1,382 active DB rows / 1,382 distinct keys; 1,382 asset items / 1,382 distinct keys;
+**pairing 1:1 VERIFIED**; 1,382 uids minted, 1,382 distinct.
+
+**Idempotent, proven by running `--apply` twice:** the second run reported `1382 reused, 0 minted`,
+`DB rows stamped: 0`, and the same PASS.
+
+**The asset and the DB are stamped in the SAME run with the SAME value**, so a re-import reproduces
+the identity rather than minting a new one. Proof, re-read from disk and DB after writing:
+
+```
+DB rows with a uid    : 1382 / 1382
+asset items with a uid: 1382 / 1382
+keys where DB uid != asset uid: 0
+RESULT: PASS -- asset and DB agree on every item
+```
+
+`frappe.db.set_value(..., update_modified=False)` is used deliberately: this seeds an identity rather
+than editing content, and the doctype is `track_changes: 1`, so a `doc.save()` would have minted 1,382
+Version rows recording a field that had no prior value.
+
+**Inactive rows carrying a uid: 0** -- the active-only ruling is honoured in the data, not just the
+docstring.
+
+### Gates
+
+- **MINT GATE: PASS both ways -- "No atoms disappeared", exit 0.** Run as `v29 (committed) -> v30
+  (working copy)` and again as `v30 (committed) -> v30 (working copy)`, the latter isolating the uid
+  addition itself.
+  ⚠️ **Adding a key to every item does NOT register with the gate**, and the reason is the same blind
+  spot the dropped item hit: the gate's item vocabulary is `kind:<k>`, so nothing BELOW the kind level
+  -- neither an individual item nor a per-item key -- is in its atom vocabulary at all. Reported here
+  because "may or may not register" was an open question; the answer is that it does not.
+- **Loader round-trip PROVEN** (`test_24c`): the uid-carrying v30 loads into a SCRATCH discipline via
+  `_new_disc()` and every one of the 1,382 rows arrives with the uid the asset assigned it, keyed on
+  the same `(kind, brand, attributes)` tuple the backfill paired on. Never against live Electrical data.
+- **Legacy asset PROVEN** (`test_24d`): v12 (which genuinely carries no uid -- asserted, so the test
+  cannot pass vacuously) loads successfully into a scratch discipline with the field left blank.
+- `test_rate_master` **101 -> 103** (the two new tests), OK before and after.
+- `test_rate_suggest` and `test_extraction_coercion` unchanged from baseline; vitest unchanged.
+
+### Cert -- MEASURED, because nothing renders
+
+**No rendered surface changed.** `grep` over `frontend/src` finds **zero** references to `item_uid`,
+and the Data Viewer's column model is `kind / brand / <attribute definitions> / <rate keys> / unit /
+source_sheet / source_row` -- a top-level item field is not in it. The measured cert stands in place of
+a browser run: field present with the right type and index, 1,382 rows stamped and distinct, 0 inactive
+stamped, endpoint surfacing it on every row, loader carrying it, legacy loading, suites green.
+
+⚠️ The frontend `RateMasterItem` TypeScript interface does **not** declare `item_uid` yet. Harmless at
+runtime (the field rides in the payload regardless) and deliberately out of scope here -- the download
+slice owes that one line when it first reads the value.
+
+## Build slice RETIREMENT-STATE -- `BoQ Rate Master Retirement` (2026-08-13)
+
+Branch `feature/boq-pricing-helper`. The database becomes the source of truth and the export will
+build the asset FROM it. `retired_kinds` / `retired_category_ids` are the ONLY two loader inputs
+consumed to drive behaviour and never persisted (the Q5 sweep: 43 read sites against 12 write sites,
+this pair the only intersection), so an export walking rows alone would drop them.
+
+### ⚠️ MIGRATE-CARRYING
+
+**This slice creates a doctype. Anyone pulling this branch must run `bench --site localhost
+migrate`.** `patches.txt` was NOT touched and no patch entry is needed -- a new doctype is picked up
+by the ordinary doctype sync.
+
+**Route used: EDIT THE JSON BY HAND, THEN `bench migrate`** -- the standing practice, no deviation.
+The DocType API route (`frappe.get_doc("DocType", ...).save()`) that slice 2 used on my prompt's
+instruction was NOT used here.
+
+### The doctype
+
+`BoQ Rate Master Retirement`, one row per retired thing.
+
+| Field | Type | Notes |
+|---|---|---|
+| `discipline` | Data, reqd, search_index | scopes the read function |
+| `scope_type` | Select `kind` \| `category`, reqd | the two axes are NOT symmetric -- see below |
+| `scope_value` | Data, reqd, search_index | the kind name or category_id |
+| `retired_at` | Datetime, OPTIONAL | **empty on the backfill, deliberately** |
+| `retired_by` | Data, OPTIONAL | **empty on the backfill, deliberately** |
+| `reason` | Small Text, OPTIONAL | empty on the backfill |
+
+Plus a composite `(discipline, scope_type)` index via `on_doctype_update`, mirroring the sibling
+doctypes' pattern.
+
+**⚠️ UNIQUENESS IS STRUCTURAL.** `autoname` is
+`format:{discipline}::{scope_type}::{scope_value}`, so the tuple IS the primary key -- a duplicate is
+a PK collision, not a validation that could race or be skipped. This follows the pricing lock's
+deterministic-PK precedent. **No unique index, no duplicate-checking validate hook.** Verified live:
+the only UNIQUE index on the table is `..._pkey`; `discipline`, `scope_value` and the composite are
+plain btree.
+
+**⚠️ Why the axes are not symmetric:** `switches_point` owned NO item kinds at all (a pure borrower of
+`switch_socket_item`), so its retirement has a config footprint and no item footprint. A kind can be
+retired without a category and vice versa, which is why `scope_type` exists rather than two tables.
+
+### Why derivation was rejected
+
+The obvious derivation -- *a kind/category with rows but none active* -- was **measured and matches
+the four known entries exactly** on the current database. Rejected anyway:
+
+1. ⚠️ **It returns EMPTY on a fresh bootstrap database.** The lists would vanish in precisely the case
+   the asset exists to serve. This alone settles it.
+2. It is coupled to history retention: archiving superseded rows would silently shrink it.
+3. It cannot tell "deliberately retired" from "happens to have no active rows just now".
+4. It can only see what once existed in *that* database -- so the answer depends on which database you
+   ask, which is the opposite of a declaration.
+
+### PAYLOAD IS THE INSTRUCTION, TABLE IS THE RECORD
+
+`_load_multi` calls `retirement.record_retirements(...)` immediately before its single commit.
+**`_deactivate_scope` is byte-unchanged and still takes its scope from the payload alone.** The table
+is never read to drive deactivation; doing so would change import semantics and is out of scope.
+
+Pinned by `test_24f`, the negative half: a retirement recorded for `cable_tray` (a kind the payload
+does NOT retire) must leave all 450 `cable_tray` rows active after a `replace=True` load. If the
+loader ever consulted the table, that test goes red.
+
+### The hazard this guards -- reachable with two commands
+
+Three of the four retired things cannot be re-activated by any asset on disk (even v12, the oldest
+retained, carries zero `ups_per_kva` / `ups_reference` items and no `ups` config; they came from a
+batch whose asset version is in the gate's uninspectable window).
+
+⚠️ **`switches_point` is the exception and it is real: its config EXISTS in `v22`, which is on disk.**
+Load v22, then load an export lacking `retired_category_ids`, and it stays ORPHAN-ACTIVE.
+
+Separately, the mint gate treats these lists as its **only machine-readable retirement declaration**
+(`retkind:` / `retcat:` atoms, used to explain cascading removals). Losing them would make every
+future retirement surface as an undeclared, unexplained loss -- a cost unaffected by the current four
+already being banked.
+
+### The read function
+
+`retirement.get_retirement_lists(discipline)` returns `{"retired_kinds": [...],
+"retired_category_ids": [...]}` -- two sorted lists of plain strings, the exact shape the asset uses.
+The export (a later slice) calls this instead of carrying the lists forward from the previous file.
+An unknown discipline returns two EMPTY lists, never a guess.
+
+### The backfill
+
+`scripts/backfill_rate_master_retirement.py` -- a one-off maintenance script, NOT a patch. Four rows,
+all discipline `Electrical`, all three optional fields empty:
+
+```
+Electrical::kind::ups_per_kva
+Electrical::kind::ups_reference
+Electrical::category::ups
+Electrical::category::switches_point
+```
+
+**Idempotent, proven by running `--apply` twice:** the second run reported
+`created: []`, `existing: [all four]`, rows still 4.
+
+### Known gap, deliberately not fixed
+
+⚠️ **The SINGULAR-config loader path ignores the retirement lists entirely.** They are read only
+inside `_load_multi`; `load_rate_master`'s singular `category_config` branch never reads them and
+therefore never records them. No shipped asset takes that branch (the merge removed the only one), but
+the gap is real. Asserted in the cert so it stays visible rather than forgotten.
+
+### Gates
+
+- **`bench migrate`: CLEAN.** It also executed four previously-pending `v3_0` patches (CEO-hold seed,
+  TDS backfills and indexes) that had nothing to do with this slice -- see the surprises below.
+- **MINT GATE: PASS -- "No atoms disappeared", exit 0.** No asset was changed this slice, so this is a
+  no-op confirmation. ⚠️ Its known blindness below the kind level (it missed a dropped item in slice 1
+  and a per-item key in slice 2) means a PASS proves very little here; reported because #187 requires
+  it.
+- **Loader round-trip PROVEN** (`test_24e`): the current asset loads into a SCRATCH discipline via
+  `_new_disc()` and all four retirement entries are recorded, with provenance empty and a second load
+  recording nothing new. Never against live Electrical data.
+- **Legacy asset PROVEN** (`test_24d`, pre-existing): v12 still loads into a scratch discipline.
+- `test_rate_master` **103 -> 105**; `test_rate_suggest` back to its single known failure with **zero
+  errors**; `test_extraction_coercion` 26 OK; vitest unchanged.
+
+### Cert -- MEASURED, because nothing renders
+
+No frontend file was touched and nothing surfaces the new doctype. The measured cert covers: doctype
+and table exist with the exact field shape; the only UNIQUE index is the primary key; the four rows
+present with every provenance field empty; the read function returning the asset's exact shape and two
+empty lists for an unknown discipline; idempotence on re-run; the live Electrical catalog unchanged
+(1,382 active items / 12 configs / one batch); and the singular-path gap asserted. **GREEN.**
+
+### ⚠️ Two environment findings worth keeping
+
+1. **A primary-key violation ABORTS the postgres transaction.** The first version of `test_24e`
+   probed the duplicate-insert without a savepoint, and every subsequent test in the class failed at
+   its first write -- **18 cascading errors plus a failing `tearDownClass`**. The probe now sits inside
+   `frappe.db.savepoint(...)` / `frappe.db.rollback(save_point=...)`. Any test that deliberately
+   triggers an integrity error needs the same.
+2. ⚠️ **A failed `tearDownClass` orphans an entire run's synthetic data in the LIVE site DB.** That
+   cascade left **56 `TEST_RM_*` disciplines: 45,432 items, 234 configs, 42 retirement rows** — and
+   `test_rate_suggest.test_27_live_configs_all_validate` reads *all active configs across all
+   disciplines*, so it began failing on that debris. Purged with the same discipline-scoped delete
+   `tearDownClass` performs; Electrical verified untouched (28,826 total items, 1,382 active, 382
+   configs) and the suite returned to its single known failure. **The suite's teardown now also purges
+   `BoQ Rate Master Retirement`**, since both E-ALL fixtures declare retirements and would otherwise
+   leave rows behind on every run.
+
+## Build slice EXPORT -- the asset export + snapshots (2026-08-13)
+
+Branch `feature/boq-pricing-helper`. The database is the source of truth; the asset is
+BOOTSTRAP-AND-SNAPSHOT only. **Running this export is what keeps a re-import safe** -- the file
+provably matches the DB, so a load can only replay what is already there.
+
+### ⚠️ MIGRATE-CARRYING
+
+**`BoQ Rate Master Snapshot` is a new doctype and table. Anyone pulling this branch must run
+`bench --site localhost migrate`.** `patches.txt` untouched; no patch entry needed.
+
+**Route: the doctype JSON was written BY HAND and applied with `bench migrate`** -- standing
+practice, no deviation. The DocType API route was not used.
+
+### Part 1 -- the serialiser (`services/boq_rate_master/exporter.py`)
+
+⭐ **THE GOVERNING INVARIANT: config blobs emitted VERBATIM.** Never enumerate keys, never rebuild,
+never filter. No two configs share a key set (`db_switchgear` 13 keys, `junction_box_raceway` 6,
+`wiring_cabling` uniquely carries `discipline`); 15 keys have no screen control and 8 reach the AI
+prompt. A fixed-schema export would silently drop the 21st key the day someone adds one, and
+`_validate_config`'s allowlist has already had to widen six times. `attributes` and `rates` ride
+through whole for the same reason.
+
+**Emitted per item -- exactly 7 keys in order:** `kind`, `brand`, `unit`, `attributes`, `rates`,
+`source`, `item_uid`. ⚠️ `_validate_items` REQUIRES `source` to be a dict on every item.
+
+**Emitted top level:** `discipline`, `items`, `category_configs`, `goldens`, `source_workbook`, and
+`retired_kinds` / `retired_category_ids` **from the retirement TABLE (slice 3), never a file header**.
+
+**Never emitted:** `name`, `import_batch`, `creation`, `modified`, `owner`, `active`.
+
+**Deliberately dropped (owner-ruled archaeology):** `sha256_prefix`, `extracted_at`, `provenance`,
+`excluded_categories`, `slice_note`, `merged_from`, and `source.col` on the 27 db_shell items.
+
+**`source_row` convention: ALWAYS emitted, including 0.** The 27 db_shell items hold `source_row = 0`
+in the DB and 0 is what the DB says. Omitting it to reproduce the old asset's absent `row` would be
+the export inventing an absence, and would conflate a genuine row 0 with "no row" -- which matters
+because `create_rate_master_item` stamps `source_row = 0` on every manually created item. It is also
+the option with no special case, so byte-stability comes free.
+
+**Byte-stability by construction:** `indent=1`, `ensure_ascii=False`, **no `sort_keys`** (ordering is
+already deterministic -- kind then item_uid, category_id -- and re-sorting would reorder the verbatim
+blobs). Nothing in the payload is a timestamp, batch id or hash.
+
+⚠️ **Expected, not a defect:** `_canonicalize_attributes` uppercases `material` / `insulation` at
+ingest, so export -> import -> export is stable but original -> import -> export is not byte-faithful
+to an original carrying non-canonical casing.
+
+### Part 2 -- `BoQ Rate Master Snapshot`
+
+Modelled on `Pricing Workbook Version`, with two departures learned from that doctype's scars:
+
+- **`payload` is LONG TEXT, not JSON.** A snapshot exists to be RESTORED, so byte-fidelity of the
+  stored text is the point and Frappe must never hydrate and re-serialise it. It also sidesteps the
+  list-valued-JSON wall that forces that module's prune to use a raw `frappe.db.delete`.
+- **`track_changes: 0`** -- a snapshot is already immutable evidence; a Version row per snapshot
+  would double the storage of the largest column in the app for nothing.
+
+⚠️ **RETENTION: keep the newest 10 per discipline (owner-ruled), pruned on write.** `version` is
+`(max existing) + 1` and is **never reused after a prune**, so a version number identifies one
+snapshot for the life of the site even once its row is gone.
+
+### Part 3 -- the endpoint
+
+`rate_master.export_rate_master_asset(discipline)` -- whitelisted POST returning
+`{filename, content_type, content_base64, ...}`, the shape `export_priced_workbook` uses.
+
+⚠️ **Its permission gate is deliberately NOT cloned.** That endpoint is bare login-only; this one
+gates on the existing `_require_rate_admin` (`pricing._is_nirmaan_admin`), matching the RM-4a/4b
+writes, because an export hands over the whole priced catalog.
+
+⚠️ **A web request cannot write into the repo and nothing tries.** The file is returned for download
+and retained as a snapshot; committing it stays a human act.
+
+### THE VERIFICATION -- proven by round trip, not assertion
+
+Export live -> load into a SCRATCH discipline -> compare axis by axis. **Never against live
+Electrical data.**
+
+| Axis | Result |
+|---|---|
+| items per kind | **identical** -- 15 kinds, 1,382 both sides |
+| identity multiset (kind, brand, attributes) | **identical** -- 0 only-live, 0 only-scratch |
+| rates + brand/unit/source_sheet/source_row + **item_uid** (full tuple) | **identical** -- 0 / 0 |
+| item_uid set | **identical** -- 1,382 uids |
+| config blobs, deep | **identical** (discipline stamp aside) -- 12 configs |
+| goldens | **identical** -- 11 categories |
+| the four retirement entries | **reproduced** |
+
+**Two consecutive exports BYTE-IDENTICAL: confirmed.** ⚠️ The first comparison appeared to fail by 72
+bytes; that was the check, not the export -- it replaced the discipline string with `count=1` while
+the loader stamps it into each config blob too. Re-run properly: the scratch discipline appears
+**13 times** (1 top-level + 12 blobs), delta **13 x 7 = 91 bytes exactly as predicted**, and after
+normalising every occurrence the files are **byte-identical**. Re-exporting LIVE twice is byte-identical
+with no normalisation at all.
+
+**Export vs committed v30, every difference classified:**
+
+| Class | Difference |
+|---|---|
+| **(a) owner-ruled drop** | 6 top-level keys gone: `sha256_prefix`, `extracted_at`, `provenance`, `excluded_categories`, `slice_note`, `merged_from` |
+| **(a) owner-ruled drop / declared convention** | 27 db_shell items differ on `source_row` **only** -- `null` -> `0`. Verified precisely: 0 keys only-in-v30, 0 only-in-new, and the only differing pair is `(None, 0)` x 27. `source.col` dropped by ruling. |
+| **(b) DB changed since import** | none |
+| **(c) export defect** | **none** |
+| expected loader stamping | 11 configs GAIN `discipline`; `switches_sockets` GAINS `goldens` -- exactly as predicted |
+
+### Gates
+
+- **`bench migrate`: CLEAN** -- zero errors, zero tracebacks, no pending patches this time.
+- ⚠️ **MINT GATE: 11 undeclared removals -- and all 11 are the owner-ruled archaeology**: the 6
+  dropped top-level keys plus the 5 `excl:` entries that cascade from dropping `excluded_categories`.
+  **No item, config-key, golden, kind or retirement atom was lost.** Notably `retkind:` / `retcat:`
+  do NOT appear, which independently confirms the export reproduced the retirement declarations from
+  the table. ⚠️ **A gate PASS would not have proved item fidelity anyway** -- its atom vocabulary is
+  `kind:<k>`, blind below the kind level. The round trip is the real gate.
+  ⚠️ The gate also **crashes on an operand outside the repo** (`git log` returns 128), so it was run
+  with the export placed transiently inside the repo and removed immediately.
+- `test_rate_master` **105 -> 111**; `test_rate_suggest` and `test_extraction_coercion` unchanged;
+  vitest unchanged.
+
+### Backwards compatibility -- confirmed
+
+`loader.py` and `_deactivate_scope` are **untouched this slice**. Existing assets still load (the
+v12/v17 historical fixtures and the legacy-no-uid test all still pass). Nothing that consumed the
+catalog before behaves differently -- the export is purely additive: a new module, a new doctype, and
+a new endpoint that nothing calls yet.
+
+### Cert -- MEASURED, because nothing renders
+
+`grep` over `frontend/src` finds **zero** references to `export_rate_master_asset` or the snapshot
+doctype. 30 checks green: doctype shape (including `payload` Long Text and `track_changes 0`),
+`KEEP_SNAPSHOTS == 10`, the admin gate called first, the endpoint writing nothing into the repo, the
+export's key set, byte-stability, the endpoint round trip on **synthetic data only** with the snapshot
+payload byte-identical to the download, the prune keeping the newest 10, live Electrical untouched,
+and **zero residual** after cleanup.
+
+
+## Build slice CSV-DOWNLOAD -- the editable CSV + the asset-export button (2026-08-13)
+
+The first half of the round trip the owner asked for: *download CSV -> edit in Excel -> upload back*.
+This slice ships the DOWNLOAD only. **There is no upload path, no parse and no upsert** -- deliberately
+held for the next slice, so nothing here can write to the catalog.
+
+It also wires slice EXPORT's `export_rate_master_asset`, which until now had **zero** callers.
+
+### Two files, two purposes, and they must never be confused
+
+| Surface | File | For |
+|---|---|---|
+| **Download to edit** | CSV, one row per item | a pricer edits rates / adds SKUs in Excel and uploads it back |
+| **Download a backup** | the loader-ready asset JSON | bootstrap + restore. **Not** hand-editable, and nothing reads an edited one |
+
+The two groups are labelled **by PURPOSE, not by file format** (owner-approved copy, single-sourced in
+`rateMasterDownload.DOWNLOAD_COPY`). A user choosing between "CSV" and "JSON" is choosing an
+extension, not an intention -- and the failure this guards against is someone taking the BACKUP,
+editing it, and finding that nothing reads it back. A test pins that neither group label may name a
+file extension.
+
+### The two CSV modes
+
+`services/boq_rate_master/csv_exporter.py` (new, service-side):
+
+- **MODE A `build_category_csv(discipline, category_id)`** -- ONE category. Columns are exactly that
+  category's attribute + rate keys as real named columns. Measured on `wiring_cabling`: **15 columns,
+  588 rows**.
+- **MODE B `build_all_categories_csv(discipline)`** -- every category in one file: the UNION of all
+  keys plus an explicit `category` column. Measured: **45 columns, 1,382 rows across 11 categories**
+  (= 20 attrs + 18 rates + 7 fixed). Sparse by construction -- a cable row has nothing to say about
+  `tray_type` -- and that is honest, not wrong.
+
+Both lead with `item_uid` and tail with `source_sheet` / `source_row`.
+
+**Why it is built SERVER-side** rather than from the already-loaded client rows: Mode B needs the
+kind -> category map across all 12 configs, which the client does not hold; it gives the download a real
+admin gate; and it reuses the existing kind resolution instead of minting a second definition in TS.
+
+### Load-bearing details
+
+- **EVERY row carries `item_uid`.** Without it the round trip is one-way: the upload cannot tell an
+  edit from a new item, and content matching would turn every rename into a silent duplicate. This is
+  what slice STABLE-ID exists for, and this slice is its first consumer.
+- **Values are emitted AS STORED** -- a float stays `4.0`, spacing is preserved, and nothing is
+  prettified. A CSV that tidies its values is not a round trip.
+- **A category with NO items is a headers-only TEMPLATE, not an error** (`point_wiring` is kind-less
+  and owns no rows). The columns then come from the config's `attribute_definitions`, so a user can
+  still add rows for it. An **unknown** category is a named error -- absence and nonsense are
+  different answers.
+- **UTF-8 BOM + CRLF**, so Excel opens the file correctly; the catalog carries `(R)` and a U+2010
+  hyphen, which is also why the client decoder widens `atob`'s binary string byte-by-byte before the
+  Blob rather than trusting it as text.
+- **ADMIN-GATED, gate first.** `export_rate_master_csv` calls `_require_rate_admin()` before it reads
+  anything -- an editable dump of the priced catalog is no less sensitive than the asset. The frontend
+  HIDES the panel for non-admins (never disables); the endpoint is the boundary.
+
+### Frontend
+
+`rateMasterDownload.ts` (new) holds `downloadBase64` (the base64 -> Blob decoder shared by both
+endpoints, following `export_priced_workbook`'s download triple), `DOWNLOAD_COPY`, and
+`downloadErrorMessage`. `RateMasterDataViewer.tsx` renders the panel; `RateMasterPage.tsx` wires both
+endpoints.
+
+The panel is **bound once and rendered in BOTH branches** -- including the kind-less-category early
+return. That case needs the downloads MORE than the normal one, since Mode B still covers it and its
+Mode A file is exactly the usable template described above.
+
+### Two defects this slice found in its own code, both worth recording
+
+**1. A JSX comment outside JSX children silently swallows the element.** The panel was first written
+as `const downloadPanel = {/* ... */} {isAdmin && (...)}`. `{/* ... */}` is JSX-CHILD syntax; at a
+`const` it parses as an empty object literal, so `downloadPanel` typed as `{}` and **the buttons would
+simply not have rendered**. `tsc` named it (`Type '{}' is not assignable to type 'ReactNode'`) -- the
+suite could not have, and neither could review at a glance. Fixed to `//` comments, with a note at the
+site.
+
+**2. "There was an error." is not an error message.** The panel first rendered
+`(e as {message?})?.message ?? "Download failed"`, and on a Frappe failure `message` is empty or
+generic. During the cert a stale web worker produced
+`AttributeError: module ... has no attribute 'export_rate_master_csv'` and the screen said only *"There
+was an error."*; the cause had to be dug out of the network tab by hand. Frappe puts the real text in
+`_server_messages` (a JSON array of JSON strings) or `exception`, **not** in `message` -- the same shape
+the pricing module already parses on its save path. The new pure `downloadErrorMessage` reads them
+most-specific-first, strips the `frappe.exceptions.X:` prefix, falls THROUGH a malformed envelope
+rather than swallowing it, and can never return an empty string. Validated against the real server
+envelope in-browser, not only in unit tests.
+
+### Tests
+
+`test_rate_master` **111 -> 116**. `test_24m` Mode A columns + `item_uid` on every row; `test_24n` the
+Mode B union + `category` column + a blank tray cell on a cable row; `test_24o` a comma/quote value
+survives and values are as-stored; `test_24p` a non-admin is refused (both modes) with the admin twin;
+`test_24q` an empty category is headers-only and an unknown one raises.
+
+`rateMasterDownload.test.ts` (new) **11 vitest tests** over `downloadErrorMessage` + `DOWNLOAD_COPY`.
+`downloadBase64` is deliberately NOT covered -- it only builds a Blob and clicks an `<a>`, and this
+project runs vitest with `environment: "node"` and no DOM on purpose; the browser cert is its gate.
+
+### Cert -- GREEN, full de-stale ritual
+
+Vite killed PID-targeted (verified `PPID=1`, NOT under honcho) and restarted detached; one service
+worker unregistered; site data cleared **excluding cookies** (`sid` verified surviving); every app tab
+closed and a fresh one opened; bare root then the deep route.
+
+**Bundle marker was code-derived, not a rendered string** -- `downloadBase64`, an exported symbol of
+the new module that never appears in the UI. A data marker could not serve here, because the buttons
+ARE the observation under test.
+
+Observed: both groups render with all three buttons and the exact copy; all three files downloaded
+through **real button clicks** -- Mode A 15 cols / 588 rows, Mode B 45 cols / 1,382 rows / 11
+categories, every row carrying `item_uid`; the asset parses as JSON with its 7 expected top-level keys,
+1,382 items / 12 configs / 11 goldens and both retirement lists intact. Sessionless (Guest) calls to
+all three endpoints returned **403 PermissionError** against the running server, not just in tests.
+
+**A stale web worker was the one real blocker**: `rate_master.py` was appended to after bench started,
+and the long-running process had already imported the module, so the endpoint 417'd with *"has no
+attribute"* while the file on disk was correct and the tests were green. A `bench start` restart fixed
+it. Worth remembering -- a passing test suite says nothing about what the running web worker holds.
+
+**One real-data write, reported not hidden:** clicking *Asset file* created `BoQ Rate Master Snapshot`
+**v1** (`admins@nirmaan.app`) -- the first snapshot ever on this site. That is slice EXPORT's designed
+retention firing on a genuine admin export, so it is correct product data rather than cert debris, and
+it was left in place. Everything else in the cert was read-only.
+
+---
+
+## Build slice CSV-UPLOAD -- the round trip closes (2026-08-13)
+
+Slice 5 shipped the download; this ships the upload. **It is the FIRST slice that writes to the live
+catalog from a file a human edited** -- everything before it was additive or read-only -- so the shape
+of the interaction, not just the code, is the safety feature.
+
+### The upsert semantics (owner-ruled, exact)
+
+  * a row whose `item_uid` MATCHES an active item -> **REPLACES** it
+  * a row with a **BLANK** `item_uid` -> **ADDED**, minting a fresh `rmi-` uid
+  * an active item **ABSENT from the file** -> **LEFT UNTOUCHED**
+
+That last line is the safety property of the whole feature: a partial upload can never delete
+anything. Edit three rows, upload three rows, nothing else moves. It is also the reason **the upload
+is NOT routed through `loader.py`**, and this is not a stylistic preference -- `_deactivate_scope`
+computes its supersede set from the payload's **KINDS**, so a `replace=True` carrying three cable rows
+would deactivate all 292 of them. The importer computes its supersede set from the file's **matched
+UIDS** instead. Same law, different scope, and the difference is exactly what makes absent items safe.
+
+**Freeze-and-supersede is intact and is what makes "replace" safe.** A matched row is never mutated in
+place: its document is flipped `active = 0` (RETAINED) and a NEW document is inserted carrying the
+SAME `item_uid`. That is precisely the identity model slice 2 shipped for -- many rows share one uid,
+unique only among `active = 1`. Proven live: after the cert apply, `rmi-cert00000001` had an active
+row at 200.0 on the `csvup-` batch and an inactive row at 100.0 on the seed batch.
+
+**A uid present in the file but matching no active item is an ERROR, named** -- never an insert. It
+means a stale file or a hand-typed id, and inserting it would mint the silent duplicate `item_uid`
+exists to prevent.
+
+**Mode detection is the presence of the `category` column, and the mode is INFORMATIONAL.** Items
+carry no category (a category is derived from an item's `kind`), so the upsert is uid-keyed and
+mode-independent -- the same rows in either shape produce the same result. Mode B's `category` value
+is validated against the kind's real category and a mismatch is refused rather than silently
+discarded.
+
+### Two steps, never one
+
+`preview_rate_master_csv` is READ-ONLY; `apply_rate_master_csv` is the only writer and **re-builds the
+plan from the live catalog** rather than trusting anything posted back, so a doctored plan cannot be
+applied. The preview's `digest` fingerprints the decision AND the rows it was computed from; a stale
+one is REFUSED ("the catalog changed since this file was previewed"). An unrelated edit elsewhere is
+deliberately NOT in the fingerprint -- it must not block a correct upload.
+
+**The snapshot is slice 4's mechanism, taken BEFORE any write, in the SAME transaction.** That is the
+rollback path. `apply_plan` never commits; the endpoint's single `frappe.db.commit()` is the only one,
+which is what makes the whole thing all-or-nothing -- and it means **the snapshot can never exist for
+an upload that did not land**. A plan with nothing to apply writes no snapshot: there is nothing to
+roll back to, and one would evict a real snapshot from the keep-10.
+
+### The preview thresholds (owner-ruled)
+
+Headline counts: **rates changed - items added - rows unchanged - errors**, plus an honest fifth
+`other changes` shown ONLY when non-zero (a row that moved in some way other than a rate is none of
+the four, and folding it into one would mislabel it).
+
+**EXPANDED BY DEFAULT: every new item, and any rate move of 10% or more IN EITHER DIRECTION.** Both
+directions matter and they fail differently: 26,100 typed for 2,610 is invisible in a count, and 261
+for 2,610 quotes catastrophically low -- so the threshold is on the ABSOLUTE move. A move a percentage
+cannot describe (a rate appearing, disappearing, or leaving zero) is major too: an uncomputable
+percentage is not the same as a change that does not matter. Everything else collapses behind a count
+and opens in one click -- **collapsing is about attention, not access.**
+
+### Excel mangling -- the preview is the defence, not a repair pass
+
+Measured on the live catalog, all of these are one Excel round trip from being rewritten: `16/20A`
+(rating), `6A/16A 3-Pin Socket` (item), `70 x 6 MM Earth Strip` (type), `100x50mm` (size),
+`3 Pin / 2P+E` (pole), `IP44/54 - Splash Proof` (enclosure), and a description carrying U+2010 hyphens
+and a bullet.
+
+**Nothing is silently repaired.** Changed-ness is decided by comparing the value that WOULD BE STORED
+against the value that IS stored, **type-strictly** (`json.dumps`, so a stored `2.0` and a typed `2`
+are told apart) -- never by comparing display text. That is what stops a mangled value slipping
+through as "unchanged". A value we cannot read (`1,234.50`, a currency symbol) is REJECTED BY NAME
+rather than helpfully fixed; a refusal is the loudest possible surfacing. The DELIBERATE exception is
+a numerically identical float flattened from `2.0` to `2` -- the same stored number, so no change.
+
+Encoding is surfaced, not guessed: `utf-8-sig` first (our own export), falling back to `cp1252` (what
+Excel writes for plain "CSV"), with the encoding actually used reported in the plan and warned about
+on screen.
+
+**Blank cells: one rule, two representations.** A blank cell means "empty or absent", and where the
+stored value is ALREADY empty or absent nothing changes -- which is what makes an unedited round trip
+a genuine no-op (measured: one live attribute holds `""` and two live rates hold `null`; all three
+survive). Clearing a real value differs by space because the DATA does: a cleared ATTRIBUTE is REMOVED
+(no live null convention), a cleared RATE becomes `None` (there is one).
+
+**The attribute space is DECLARED ∪ OBSERVED**, unlike the RM-4a item endpoints. Three live keys
+(`family`, `location`, `pricing_mode`) are carried by real items and declared by no config, so a
+declared-only space would reject a faithful round trip of those rows. Measured: the attribute and rate
+key spaces are DISJOINT, and a name in both is refused outright -- the export emits one column per
+name, so the FILE would be ambiguous, and an import cannot repair an export that cannot represent
+the data.
+
+### Files
+
+| File | Change |
+|---|---|
+| `services/boq_rate_master/csv_importer.py` | NEW, 744 lines -- parse, classify, plan, apply |
+| `api/boq/rate_master.py` | +95 -- `preview_rate_master_csv` / `apply_rate_master_csv` |
+| `api/boq/test_rate_master.py` | +640 -- 16 new tests (116 -> 132) |
+| `frontend/.../rateMasterUpload.ts` | NEW, 192 lines -- pure helpers + the copy |
+| `frontend/.../rateMasterUpload.test.ts` | NEW, 216 lines -- 23 vitest cases |
+| `frontend/.../RateMasterUploadDialog.tsx` | NEW, 320 lines -- the preview surface |
+| `frontend/.../RateMasterDataViewer.tsx` | +22 -- the upload group in the dashed panel |
+| `frontend/.../RateMasterPage.tsx` | +38 -- the two SDK calls |
+
+⚠️ **`csv_importer.py` is 744 lines, over the app's ~500-line split guideline, and is left whole
+deliberately.** Roughly 300 of those lines are the module docstring and inline rationale rather than
+code. The one natural seam is `build_plan` / `apply_plan` -- and those two are exactly what must never
+drift, since the apply re-derives the plan and writes `change["_payload"]` straight out of it. Keeping
+them in one file is what makes "one computation, two readers" visible at a glance. Flagged rather than
+hidden; revisit if a third concern lands here.
+
+### Tests
+
+`test_rate_master` **116 -> 132**, all green. The strongest is **test_87**: downloading a category and
+uploading it back UNEDITED reports zero changes and zero errors. It is one assertion but it proves the
+blank-cell rules, the type-strict comparison and the value coercion all agree with what `csv_exporter`
+emitted -- if it failed, every real preview would be buried in noise and the 10% rule would be
+useless.
+
+Positive: 87 round-trip no-op - 88 one rate edit, rest untouched, supersede shape - 89 blank uid adds
+with a fresh uid and honest provenance - 90 partial file leaves absent items active - 91 both modes
+parse - 92 the >=10% rule in both directions plus the uncomputable case - 93 the snapshot holds the
+PRE-upload rate. Negative: 94 non-admin refused on BOTH endpoints - 95 unknown uid rejected by name -
+96 one malformed row rejects the whole file - **96b the transactional guarantee itself** (a failure
+mid-write rolls back the writes AND the snapshot) - 97 the preview writes nothing - 98 Excel mangling
+surfaces as a change, with the flattened-float exception - 99 a stale digest refuses - 100 header and
+duplicate problems each named - 101 `classify_columns` pure, ambiguous column refused.
+
+vitest **2329 -> 2352** (23 new), same one pre-existing failure. tsc: zero errors in the touched
+subtree. `vite build` exit 0.
+
+### Cert -- GREEN, and the CSRF finding
+
+Full ritual in order: bench killed by explicit PID and restarted (the first :8000 request took ~40 s
+cold-starting -- *listening but slow*, not wedged, and the difference was checked rather than assumed);
+Vite killed PID-targeted (the `pgrep -af vite` listing contained CC's own shell self-matching, which was
+excluded by hand) and restarted; browser de-staled over **CDP** -- site data cleared EXCLUDING cookies
+with `sid` verified surviving, service workers unregistered, every app tab closed, a fresh tab, bare
+root first then the deep route.
+
+**Bundle marker was code-derived:** exported symbols of the NEW module (`splitChanges`,
+`headlineCounts`, `canApply`, `planIsNoOp`, `fileToBase64`) resolved through the page's own module
+graph and were checked to BEHAVE, not merely exist. A data marker could not serve -- the upload
+surface IS the observation under test.
+
+**LIVE, READ-ONLY (the highest-value observation):** a real *This category* button click downloaded the
+588-row wiring CSV; it was edited OUTSIDE the app (+25%, -20%, +4%, a trailing-space attribute mangle,
+one blank-uid row) and fed back through the real file input. The dialog reported **3 rates changed - 1
+items added - 1 other changes - 584 rows unchanged - 0 errors**, expanded exactly three (the +25%, the
+-20% and the new item, the new item showing `source_sheet -> CSV upload` / `source_row -> 589`), and
+collapsed two behind *2 smaller changes* -- **the whitespace mangle among them, surfaced as a change
+rather than slipping through as unchanged.** Then walked away without confirming, and the database was
+verified byte-unchanged: 1382 active, original batch, all four touched values at their original
+readings, **zero `csvup-` rows anywhere**.
+
+**SYNTHETIC, FULL CYCLE:** a throwaway discipline `CERT_S6_THROWAWAY` (6 items) took download -> edit
+to a PARTIAL 3-row file -> preview -> apply. A deliberately stale digest was refused (417) before the
+real one applied 2 rows; the edited item gained an active row at 200.0 on a `csvup-` batch with its
+prior row RETAINED inactive at 100.0, the blank-uid row minted `rmi-bf4ad02ccb21`, **the four absent
+items stayed active on the seed batch with original values**, and snapshot `BRMS-26-00116` v1 held the
+PRE-upload 100.0. Two malformed files were refused whole (417, nothing written) -- one on a cell-count
+mismatch, one on `'1,234.50' is not a number`. Sessionless calls to BOTH endpoints returned 403
+PermissionError against the running server. The discipline was purged and **zero residual** confirmed,
+with live Electrical byte-identical to its pre-cert state.
+
+**⚠️ AN ENVIRONMENT FINDING WORTH KEEPING: `window.csrf_token` is ALWAYS undefined on :8080.**
+`frontend/index.html` sets it in the same inline block as `frappe.boot = {{ boot }}`; Vite serves the
+RAW template, so that line is a JavaScript syntax error and the WHOLE block -- csrf token included --
+never executes. Frappe normally lets this pass because `validate_csrf_token` returns early when the
+session has **no stored token**; opening the Frappe desk at :8000 stores one, and from that moment
+every POST from :8080 fails with an opaque 400 `CSRFTokenError` ("Invalid Request"). That is the
+"CSRF desync on :8080" the runbook names, and this is its mechanism. The cert recovered the session's
+real token via the proxied `/app` route (`/app` is proxied to :8000 by `proxyOptions.ts`) and set
+`window.csrf_token` on the page -- reinstating exactly what the Jinja-rendered `frontend.html` would
+have provided. **This is an environment accommodation, not a product change, and no product code
+depends on it.**
+
+### Interim config procedure (owner ruling 2026-08-13)
+
+Until a config authoring surface exists, a config change is made by **exporting the asset, editing it,
+and reloading**. **STANDING RULE: NEVER LOAD AN ASSET THAT WAS NOT EXPORTED MINUTES EARLIER.** A load
+is `replace=True` and supersedes everything in scope, so a stale file wipes every change made since it
+was exported; and any asset older than the `item_uid` slice carries no `item_uid`, so loading one
+would BLANK every id -- which breaks this slice's round trip outright, since a blank uid reads as
+"add this item".

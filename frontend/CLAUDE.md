@@ -1356,6 +1356,50 @@ in the plan doc.
   outside the `replace=True` supersede scope and stays ORPHAN-ACTIVE. There is no delete path in the
   loader or any admin endpoint — this module is freeze-and-supersede, so "remove a category" is always
   "retire it + drop its registry line".
+- **THE TWO DOWNLOAD SURFACES ARE GROUPED BY PURPOSE, NEVER BY FILE FORMAT (owner-approved copy).**
+  *Download to edit* (CSV, one row per item — a pricer edits it in Excel and uploads it back) and
+  *Download a backup* (the loader-ready asset JSON — bootstrap + restore, **not** hand-editable, and
+  nothing reads an edited one). Someone choosing between "CSV" and "JSON" is choosing an extension,
+  not an intention, and the failure this guards against is taking the BACKUP, editing it, and finding
+  nothing reads it back. All wording is single-sourced in `rateMasterDownload.DOWNLOAD_COPY` so the two
+  surfaces cannot drift; a test pins that neither group label may name a file extension.
+- **EVERY CSV ROW CARRIES `item_uid`, and that is what makes the round trip possible.** Without it the
+  upload cannot tell an edit from a new item, and matching on content would turn every rename into a
+  silent duplicate. Values are emitted **AS STORED** (a float stays `4.0`; nothing is prettified) — a
+  CSV that tidies its values is not a round trip. A category with no items yields a **headers-only
+  TEMPLATE**, never an error; an **unknown** category *is* an error, because absence and nonsense are
+  different answers. Both download endpoints are **ADMIN-GATED, gate first** — the panel is HIDDEN for
+  non-admins (never disabled) and the endpoints are the real boundary.
+- **A DOWNLOAD EITHER PRODUCES A FILE OR EXPLAINS ITSELF.** Frappe puts the useful text in
+  `_server_messages` / `exception`, **not** in `message`, so the pure `downloadErrorMessage` reads them
+  most-specific-first and strips the `frappe.exceptions.X:` prefix. It shipped once as
+  `(e as {message?})?.message ?? "…"`, which rendered a real stale-worker `AttributeError` as the
+  entirely uninformative "There was an error." — never reintroduce a generic catch-all here.
+- **THE UPLOAD SURFACE IS UPLOAD → PREVIEW → CONFIRM → APPLY, AND NEVER ONE STEP (owner-locked).**
+  `RateMasterUploadDialog.tsx` sits IN the same dashed panel as the downloads, immediately after
+  *Download to edit*, because it is the SECOND HALF of that one action — download, edit, upload.
+  Pairing it with the *backup* group instead would attach it to the file nothing reads back, which is
+  the exact confusion the purpose-based grouping exists to prevent. **THE DIALOG DECIDES NOTHING:**
+  the server computes the whole plan (what changed, what is major, what is an error) and this only
+  RENDERS it. A second client-side copy of the 10% rule or of the upsert semantics would be free to
+  disagree with the write that actually happens — the one failure a preview must never have — so
+  `splitChanges` reads the server's `major` flag and never re-derives the threshold.
+- **THE FILE IS SENT AS BASE64 BYTES, NOT AS TEXT.** Reading it as text forces a decode in the
+  browser, which silently picks UTF-8 and would mangle the cp1252 file Excel produces when the user
+  chooses plain "CSV" rather than "CSV UTF-8". Sending bytes lets the SERVER report which encoding it
+  actually read, and the dialog surfaces that as a warning — surfacing the problem instead of
+  guessing at it. The bytes are held in a ref so **APPLY sends exactly what was PREVIEWED**; re-reading
+  the file on confirm would let a file changed on disk in between be applied against the wrong preview.
+- **HEADLINE COUNTS ARE THE OWNER'S FOUR, PLUS AN HONEST FIFTH ONLY WHEN NON-ZERO.** `rates changed ·
+  items added · rows unchanged · errors` are the named four; `other changes` appears ONLY when a row
+  moved in some way other than a rate (an attribute Excel rewrote, a renamed kind). Such a row is none
+  of the four, and folding it into one of them would MISLABEL it — an honest extra count beats a wrong
+  one, and it stays out of sight on the ordinary rate-edit upload. **Expanded by default: every new
+  item and every rate move of ≥10% IN EITHER DIRECTION; everything else collapses behind a count that
+  opens in one click.** Errors block Apply absolutely — the apply is all-or-nothing, so a partly-good
+  file is not partly appliable. The copy (`rateMasterUpload.UPLOAD_COPY`) is single-sourced like
+  `DOWNLOAD_COPY` and must keep naming the two facts that make confirming safe: **absent items are
+  left untouched**, and **a snapshot is saved first so this can be rolled back.**
 - **`ratePipelineInterpreter.ts` is THE single compute source (owner-locked) -- a PURE TS module with NO
   React imports.** It executes the stored pipeline step vocabulary (`match_master_row`,
   `apply_effective_multiplier` with conditions, `scale`, `component`, `component_band`, `sum_components`,

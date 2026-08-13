@@ -3,14 +3,13 @@
 // Original accordion-based version available in: project-design-tracker-details-original.tsx
 
 import React, { useCallback, useMemo, useState } from 'react';
-import { format } from "date-fns";
 import { useParams, useNavigate } from 'react-router-dom';
 import { ProjectDesignTracker, DesignTrackerTask, User, AssignedDesignerDetail } from './types';
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { Button } from '@/components/ui/button';
-import { Edit, Download, Plus, Check, Info, X, ChevronDown, EyeOff, CheckCircle2,FileText, User as UserIcon, Users } from 'lucide-react';
+import { Edit, Download, Plus, Check, Info, X, ChevronDown, EyeOff, CheckCircle2, User as UserIcon } from 'lucide-react';
 import { ProgressCircle } from '@/components/ui/ProgressCircle';
 import {
     Collapsible,
@@ -32,6 +31,7 @@ import { TaskEditModal } from './components/TaskEditModal';
 import { BulkUpdateDialog } from './components/BulkUpdateDialog';
 import { useFrappePostCall } from 'frappe-react-sdk';
 import { RenameZoneDialog } from './components/RenameZoneDialog';
+import { DownloadReportDialog, useDownloadReport } from './download';
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
@@ -52,8 +52,6 @@ import {
     RowSelectionState,
 } from "@tanstack/react-table";
 import { getTaskTableColumns, TASK_DATE_COLUMNS } from './config/taskTableColumns';
-
-const DOCTYPE = 'Project Design Tracker';
 
 // --- TYPE DEFINITION for Category Items ---
 interface CategoryItem {
@@ -1185,56 +1183,11 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
         setIsRenameModalOpen(true);
     };
 
-    const handleDownloadReport = async (zoneName?: string, isFullReport: boolean = false) => {
-        const printFormatName = "Project Design Tracker";
-        const params = new URLSearchParams({
-            doctype: DOCTYPE,
-            name: trackerId!,
-            format: printFormatName,
-            no_letterhead: "0",
-            _lang: "en",
-            phase: isFullReport ? "All" : activePhase, // Pass 'All' or current phase
-        });
-
-        if (zoneName) {
-            params.append("zone", zoneName);
-        }
-
-        const downloadUrl = `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
-
-        try {
-            toast({ title: "Generating PDF...", description: "Please wait while we generate your report." });
-
-            const response = await fetch(downloadUrl);
-            if (!response.ok) throw new Error('PDF generation failed.');
-
-            const blob = await response.blob();
-
-            const now = new Date();
-            const dateStr = format(now, "dd_MMM_yyyy");
-            const projectNameClean = (trackerDoc?.project_name || "Project").replace(/[^a-zA-Z0-9-_]/g, "_");
-
-            let filename = `${projectNameClean}-${isFullReport ? "FullReport" : activePhase}-${dateStr}-DesignTracker`;
-            if (zoneName) {
-                filename += `-${zoneName.replace(/[^a-zA-Z0-9-_]/g, "_")}`;
-            }
-            filename += ".pdf";
-
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', filename);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.URL.revokeObjectURL(url);
-
-            toast({ title: "Success", description: "Report downloaded successfully.", variant: "success" });
-        } catch (error) {
-            console.error("Download Error:", error);
-            toast({ title: "Error", description: "Failed to download PDF.", variant: "destructive" });
-        }
-    };
+    // --- Download Report (dialog + PDF fetch live in ./download) ---
+    const download = useDownloadReport({
+        trackerId,
+        projectName: trackerDoc?.project_name,
+    });
 
     // --- Inline Task Save Handler ---
     const inlineTaskSaveHandler = async (updatedFields: { [key: string]: any }) => {
@@ -1470,57 +1423,8 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                                     </div>
                                 )}
 
-                                {/* Action Buttons */}
-                                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-50">
-                                    {hasEditStructureAccess && !isProjectManager && (
-                                        <>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                className="h-7 text-xs gap-1"
-                                                onClick={() => setIsAddCategoryModalOpen(true)}
-                                                disabled={availableNewCategories.length === 0}
-                                            >
-                                                <Plus className="h-3 w-3" /> Category
-                                            </Button>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                className="h-7 text-xs gap-1"
-                                                onClick={() => setIsAddZoneModalOpen(true)}
-                                            >
-                                                <Plus className="h-3 w-3" /> Zone
-                                            </Button>
-                                        </>
-                                    )}
-                                    {hasHandover && (
-                                        <Button
-                                            variant="default"
-                                            size="sm"
-                                            className="h-7 text-xs gap-1 bg-red-600 hover:bg-red-700 ml-auto"
-                                            onClick={() => handleDownloadReport(undefined, true)}
-                                        >
-                                            <Download className="h-3 w-3" /> Download Tracker
-                                        </Button>
-                                    )}
-                                    {/* <TooltipProvider>
-                                <Tooltip delayDuration={200}>
-                                    <TooltipTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="h-8 text-xs gap-1"
-                                            onClick={() => handleDownloadReport(undefined, true)}
-                                        >
-                                            <FileText className="h-3 w-3" /> Download Tracker
-                                        </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="text-xs">
-                                        Download full report (Onboarding + Handover) for all zones
-                                    </TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider> */}
-                                </div>
+                                {/* "+ Category" / "+ Zone" moved to the Zone bar, which renders at
+                                    this breakpoint too -- one instance now serves both. */}
                             </div>
                         </CollapsibleContent>
                     </Collapsible>
@@ -1616,55 +1520,39 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                         </div>
                     )}
 
-                    {/* Row 3: Actions */}
-                    {/* Row 3: Actions */}
-                    {hasEditStructureAccess && !isProjectManager && (
-                        <div className="flex items-center justify-between gap-3 pt-3 mt-3 border-t border-gray-100">
-                            {/* Left: Structure Buttons */}
-                            <div className="flex items-center gap-2">
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 text-xs gap-1"
-                                    onClick={() => setIsAddCategoryModalOpen(true)}
-                                    disabled={availableNewCategories.length === 0}
-                                >
-                                    <Plus className="h-3 w-3" /> Category
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 text-xs gap-1"
-                                    onClick={() => setIsAddZoneModalOpen(true)}
-                                >
-                                    <Plus className="h-3 w-3" /> Zone
-                                </Button>
-                            </div>
-                            
-                            {/* Right: Report Button (Only if handover exists) */}
-                            {hasHandover && (
-                                <TooltipProvider>
-                                    <Tooltip delayDuration={200}>
-                                        <TooltipTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                className="h-8 text-xs gap-1"
-                                                onClick={() => handleDownloadReport(undefined, true)}
-                                            >
-                                                <Download className="h-3 w-3" /> Download Tracker
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="bottom" className="text-xs">
-                                            Download full report (Onboarding + Handover) for all zones
-                                        </TooltipContent>
-                                    </Tooltip>
-                                </TooltipProvider>
-                            )}
-                        </div>
-                    )}
                 </div>
             </div>
+
+            {/* ═══════════════════════════════════════════════════════════════
+                STRUCTURE ACTIONS - sits directly ABOVE the Phase bar.
+                Its own row (not the Zone bar) because these are TRACKER-scoped:
+                a category or zone added here lands across EVERY zone and phase,
+                whereas "+ Create Task" is genuinely per-zone and stays below.
+                Rendered at BOTH breakpoints, so mobile gets them too.
+            ═══════════════════════════════════════════════════════════════ */}
+            {hasEditStructureAccess && (
+                <div className="bg-white border-b border-gray-200 px-4 py-2 md:px-6">
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs gap-1"
+                            onClick={() => setIsAddCategoryModalOpen(true)}
+                            disabled={availableNewCategories.length === 0}
+                        >
+                            <Plus className="h-3 w-3" /> Design Category
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs gap-1"
+                            onClick={() => setIsAddZoneModalOpen(true)}
+                        >
+                            <Plus className="h-3 w-3" /> Design Zone
+                        </Button>
+                    </div>
+                </div>
+            )}
 
             {/* ═══════════════════════════════════════════════════════════════
                 ROW 1.5: PHASE TABS - Onboarding / Handover toggle + Download
@@ -1711,13 +1599,13 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                                         variant="default"
                                         size="sm"
                                         className="h-8 text-xs gap-1 bg-red-600 hover:bg-red-700"
-                                        onClick={() => handleDownloadReport()}
+                                        onClick={() => download.openDownloadDialog({ phases: [activePhase] })}
                                     >
-                                        <Download className="h-3 w-3" /> Download Phase
+                                        <Download className="h-3 w-3" /> Download PDF
                                     </Button>
                                 </TooltipTrigger>
                                 <TooltipContent side="bottom" className="text-xs">
-                                    Download report for the current phase only
+                                    Opens on {activePhase} — phases, zones and categories all selectable
                                 </TooltipContent>
                             </Tooltip>
                         </TooltipProvider>
@@ -1776,8 +1664,12 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                             </div>
                         </div>
 
-                        {/* Right: My Tasks Toggle + Create Task + Export Zone */}
-                        <div className="flex items-center gap-2">
+                        {/* Right: My Tasks filter, then the three create actions.
+                            Category / Zone / Task live together here because they are the same
+                            kind of action, and "+ Zone" belongs beside the zone chips it adds to.
+                            This bar renders at BOTH breakpoints, so it replaces what used to be
+                            two separate copies (desktop Row 3 + the mobile collapsible). */}
+                        <div className="flex flex-wrap items-center gap-2">
                             {/* My Tasks Toggle - Only for Design Executive and Design Lead */}
                             {(isDesignExecutive || role === "Nirmaan Design Lead Profile") && (
                                 <button
@@ -1808,6 +1700,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                                 </button>
                             )}
 
+
                             {isAdmin && (
                                 <Button
                                     variant="outline"
@@ -1827,25 +1720,6 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                                 >
                                     <Plus className="h-3 w-3" /> Create Task
                                 </Button>
-                            )}
-                            {activeTab && (
-                                <TooltipProvider>
-                                    <Tooltip delayDuration={200}>
-                                        <TooltipTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                className="h-7 text-xs gap-1 text-red-700 border-red-200 hover:bg-red-50"
-                                                onClick={() => handleDownloadReport(activeTab)}
-                                            >
-                                                <Download className="h-3 w-3" /> {activeTab}
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="bottom" className="text-xs">
-                                            Download Design Tracker for {activeTab}
-                                        </TooltipContent>
-                                    </Tooltip>
-                                </TooltipProvider>
                             )}
                         </div>
                     </div>
@@ -2001,6 +1875,20 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                 isAdmin={isAdmin}
                 onBulkUpdate={handleBulkUpdate}
             />
+
+            {/* Mounted only while open, so the picker initialises from the seed
+                without an effect. See ./download/README.md */}
+            {download.isOpen && (
+                <DownloadReportDialog
+                    onOpenChange={download.setIsOpen}
+                    tasks={trackerDoc.design_tracker_task || []}
+                    zoneOrder={uniqueZones as string[]}
+                    hasHandover={hasHandover}
+                    seed={download.seed}
+                    isDownloading={download.isDownloading}
+                    onDownload={download.runDownload}
+                />
+            )}
         </div>
     );
 };

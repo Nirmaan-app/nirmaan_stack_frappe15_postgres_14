@@ -59,7 +59,18 @@ import {
     isConfirmable,
     orderBySuggestion,
     orderPaymentsHref,
+    SOURCE_COLUMN_ID,
+    SOURCE_OPTIONS,
+    importPeriodLabel,
+    importStatusTone,
+    importsForSource,
+    openImports,
+    rematchReachLabel,
+    sourceSelectorValue,
+    REFERENCE_DISPLAY_MAX,
+    referenceValue,
     rowSettlementLinks,
+    shortReference,
     seedDecisions,
     serverQuery,
     settlementLink,
@@ -101,16 +112,28 @@ describe("columns", () => {
         // ⚠️ "Import" JOINED AT X3 and it only makes sense from X3 on: the batch screen showed one
         // import, so naming it in every row would have been noise. The master table spans every
         // import, and "which statement was this?" becomes a real question the moment it does.
+        //
+        // ⚠️ "Source" JOINED WHEN CASHBOOK DID, and this pin was updated deliberately rather than
+        // worked around. Two things forced it. A hidden column has no header, and in this table a
+        // funnel lives IN a header -- so hiding it would have shipped a filter nobody could reach,
+        // which is not what was asked for. And the two sources do not merely differ in origin:
+        // a Cashfree row SETTLES a record somebody approved, a Cashbook row CREATED one. Mixed in
+        // an unlabelled table they read as though they behave alike, and they do not.
+        //
+        // ⚠️ "Import" LEFT THIS LIST AT CF/S1 (owner ruling) and "Reference (UTR)" became
+        // "Reference". Both pins were updated deliberately rather than worked around: the Import
+        // selector above the summary answers "which statement?" in a control you can act on, and
+        // the header could not keep promising a UTR once a Cashbook row renders its wallet id.
         const shown = OUTFLOW_COLUMNS.filter((c) => !c.hiddenByDefault).map((c) => c.title);
         expect(shown).toEqual([
             "Payment Date",
             "Beneficiary",
             "Amount Paid",
             "Remarks",
-            "Reference (UTR)",
+            "Reference",
             "Status",
             "Outcome",
-            "Import",
+            "Source",
         ]);
     });
 
@@ -125,12 +148,26 @@ describe("columns", () => {
         // column picker. The alternative -- a second filter path that bypasses OUTFLOW_COLUMNS --
         // would break the single-builder guarantee that keeps the page, its count, the tabs and
         // the summary from disagreeing.
+        //
+        // ⚠️ `import_batch` JOINED AT CF/S1 FOR THE SAME REASON `settlement_origin` DID, AND THAT
+        // IS WHY THE OWNER'S "remove the Import column" BECAME "hide it". Deleting the column would
+        // have deleted the Import FACET with it -- there is no second filter path -- so a request
+        // about screen width would have silently cut the ability to filter by statement.
         expect(DEFAULT_HIDDEN_COLUMNS).toEqual([
+            "import_batch",
             "settlement_origin",
             "bank_account",
             "ifsc",
             "time",
         ]);
+    });
+
+    it("keeps the Import facet reachable although the column is hidden", () => {
+        // The point of hiding rather than deleting. If this ever stops being a facet, the Import
+        // funnel is gone and nothing else on the table can filter by statement.
+        const col = OUTFLOW_COLUMNS.find((c) => c.id === "import_batch")!;
+        expect(col.filter).toBe("facet");
+        expect(col.hiddenByDefault).toBe(true);
     });
 
     it("offers settled-via as a FACET, so the values come from the database", () => {
@@ -153,6 +190,253 @@ describe("columns", () => {
         const time = OUTFLOW_COLUMNS.find((c) => c.id === "time")!;
         expect(date.get(source)).toBe("2026-08-05");
         expect(time.get(source)).toBe("14:22");
+    });
+});
+
+describe("what Re-run match will touch", () => {
+    const imp = (over: Partial<SummaryImport> = {}): SummaryImport => ({
+        name: "OFI-1",
+        original_filename: "aug.csv",
+        row_count: 10,
+        total_rows: 10,
+        is_open: true,
+        ...over,
+    });
+
+    it("skips a finished statement", () => {
+        // ⚠️ AUTO-CLOSE, AND IT IS DERIVED. `Completed` means every transfer is settled or skipped;
+        // `match_batch` already skips those rows one by one, so re-running such a statement was
+        // always a no-op that walked every row to discover it.
+        const open = openImports([
+            imp({ name: "A", is_open: true }),
+            imp({ name: "DONE", is_open: false, status: "Completed" }),
+        ]);
+        expect(open.map((b) => b.name)).toEqual(["A"]);
+    });
+
+    it("⚠️ treats a MISSING flag as open, never as finished", () => {
+        // An older server does not send `is_open`. Reading its absence as "closed" would make the
+        // button silently re-run nothing while reporting success — the failure direction that
+        // loses work rather than wasting a pass.
+        expect(openImports([imp({ is_open: undefined })])).toHaveLength(1);
+    });
+
+    it("says how far the re-run reaches, counting only the open ones", () => {
+        const label = rematchReachLabel([
+            imp({ name: "A" }),
+            imp({ name: "B" }),
+            imp({ name: "DONE", is_open: false }),
+        ]);
+        expect(label).toBe("Re-run reaches 2 open imports.");
+    });
+
+    it("is silent for a single statement, which needs no warning about its own scope", () => {
+        expect(rematchReachLabel([imp()])).toBe("");
+        expect(rematchReachLabel([])).toBe("");
+        expect(rematchReachLabel([imp({ is_open: false }), imp({ name: "B", is_open: false })])).toBe("");
+    });
+
+    it("⚠️ the tooltip names only the statements the button acts on", () => {
+        // Listing a finished statement would describe an action wider than the one that runs —
+        // the same failure as the count this replaced, pointing the other way.
+        const warning = rematchWarning([
+            imp({ name: "A", original_filename: "open.csv" }),
+            imp({ name: "B", original_filename: "open2.csv" }),
+            imp({ name: "DONE", original_filename: "finished.csv", is_open: false }),
+        ]);
+        expect(warning).toContain("open.csv");
+        expect(warning).not.toContain("finished.csv");
+        expect(warning).toContain("2 imports");
+    });
+
+    it("explains the disabled button rather than going quiet", () => {
+        const warning = rematchWarning([
+            imp({ name: "A", is_open: false }),
+            imp({ name: "B", is_open: false }),
+        ]);
+        expect(warning).toContain("finished");
+        expect(warning).toContain("nothing left to match");
+        expect(warning).toContain("All 2 statements have");
+    });
+
+    it("⚠️ picks the SUBJECT for one finished statement, never 'all 1 statement'", () => {
+        // Found in the browser walk. Interpolating the count and switching only the verb read as
+        // broken text on a tooltip whose whole job is to explain a disabled control — the same trap
+        // "1 of them extend" hit in the overspill sentence, in a new place.
+        const warning = rematchWarning([imp({ name: "A", is_open: false })]);
+        expect(warning).toContain("This statement has");
+        expect(warning).not.toContain("all 1");
+        expect(warning).not.toContain("All 1");
+    });
+
+    it("still warns about a statement that straddles the period", () => {
+        // The pre-existing overspill sentence must survive the open/closed filter — it is the other
+        // half of what this button has to state before it is pressed.
+        const warning = rematchWarning([
+            imp({ name: "A", row_count: 4, total_rows: 10 }),
+            imp({ name: "B" }),
+        ]);
+        expect(warning).toContain("6 transfers");
+        expect(warning).toContain("outside it will be re-matched too");
+    });
+});
+
+describe("the import history row", () => {
+    it("reads the declared period in the app's date format", () => {
+        expect(importPeriodLabel({ period_from: "2026-08-01", period_to: "2026-08-15" })).toBe(
+            "01-Aug-2026 – 15-Aug-2026"
+        );
+    });
+
+    it("renders one bound alone rather than a half-empty range", () => {
+        expect(importPeriodLabel({ period_from: "2026-08-01" })).toBe("01-Aug-2026");
+        expect(importPeriodLabel({ period_to: "2026-08-15" })).toBe("15-Aug-2026");
+    });
+
+    it("says em dash when a statement declared no period", () => {
+        // Legible as missing, rather than as a cell that failed to render.
+        expect(importPeriodLabel({})).toBe("—");
+    });
+
+    it("tones a finished import quietly and an open one for attention", () => {
+        // ⚠️ THE STATUS IS PRINTED ON EVERY ROW, INCLUDING `Completed` (slice CF/S5). It decides
+        // whether Re-run touches a statement, so "why was that one skipped?" has to be answerable
+        // here. Showing the word only when work remains would make the answer an ABSENCE.
+        expect(importStatusTone("Completed")).toContain("muted");
+        expect(importStatusTone("Partially Settled")).toContain("amber");
+        expect(importStatusTone("In Review")).toContain("amber");
+        expect(importStatusTone(undefined)).toContain("amber");
+    });
+});
+
+describe("the source scope", () => {
+    it("is the `source` column's own filter, so the funnel and the selector are one value", () => {
+        // ⚠️ THE POINT OF THE WHOLE SLICE. Two controls over one column would AND together, so
+        // "Cashfree" above with "Cashbook" ticked in the funnel selects NOTHING while neither
+        // control looks wrong. Same shape as `PERIOD_COLUMN_ID`.
+        expect(SOURCE_COLUMN_ID).toBe("source");
+        expect(OUTFLOW_COLUMNS.find((c) => c.id === SOURCE_COLUMN_ID)!.filter).toBe("facet");
+    });
+
+    it("is already a server facet, so it needed no new filter path", () => {
+        // Declaring a facet needs THREE lists to agree (see `SERVER_FACET_COLUMNS`). `source` was
+        // in all of them before this slice, which is why the scope is a store over an existing
+        // funnel rather than a bespoke parameter past `_row_filters`.
+        expect(SERVER_FACET_COLUMNS).toContain("source");
+    });
+
+    it("reads All for an empty selection — a pass-through, never 'show nothing'", () => {
+        expect(sourceSelectorValue([])).toBe("all");
+        expect(sourceSelectorValue(undefined)).toBe("all");
+        expect(sourceSelectorValue(["  "])).toBe("all");
+    });
+
+    it("names the one chosen source", () => {
+        expect(sourceSelectorValue(["Cashbook"])).toBe("Cashbook");
+    });
+
+    it("⚠️ reads Mixed — never All — when the funnel holds both", () => {
+        // A dropdown reading "All" over an applied filter is the invisible-filter defect this
+        // screen shipped once already, when a deep link left a hidden period applied and every
+        // number on the page was wrong with nothing able to reveal it.
+        expect(sourceSelectorValue(["Cashfree", "Cashbook"])).toBe("mixed");
+    });
+
+    it("offers exactly the two sources a batch can have", () => {
+        expect([...SOURCE_OPTIONS]).toEqual(["Cashfree", "Cashbook"]);
+    });
+
+    it("narrows the imports on offer to the chosen source", () => {
+        const options = [
+            { name: "A", source: "Cashfree" },
+            { name: "B", source: "Cashbook" },
+        ];
+        expect(importsForSource(options, ["Cashbook"]).map((o) => o.name)).toEqual(["B"]);
+    });
+
+    it("offers every import when nothing is chosen", () => {
+        const options = [
+            { name: "A", source: "Cashfree" },
+            { name: "B", source: "Cashbook" },
+        ];
+        expect(importsForSource(options, []).map((o) => o.name)).toEqual(["A", "B"]);
+    });
+
+    it("⚠️ keeps an import with NO source under every scope", () => {
+        // The same reasoning as the period's `IS NULL` clauses. A batch predating the column would
+        // otherwise disappear from the picker with no control able to bring it back, while its
+        // transfers still needed settling. Noisy in the rare case; silent in the dangerous one.
+        const options = [{ name: "A", source: "Cashfree" }, { name: "OLD" }];
+        expect(importsForSource(options, ["Cashbook"]).map((o) => o.name)).toEqual(["OLD"]);
+    });
+
+    it("is excluded from the Clear-filters badge, like the period", () => {
+        // Both are screen SCOPES with their own always-visible controls — which is the thing a
+        // badge substitutes for — and "Clear filters" must not silently widen either.
+        expect(activeFilterCount({ [SOURCE_COLUMN_ID]: ["Cashbook"] })).toBe(0);
+        expect(activeFilterCount({ [SOURCE_COLUMN_ID]: ["Cashbook"], row_status: ["Matched"] })).toBe(1);
+    });
+});
+
+describe("the reference a transfer is known by", () => {
+    it("uses the bank reference when there is one", () => {
+        expect(referenceValue(row({ bank_reference_no: "620919871893" }))).toBe("620919871893");
+    });
+
+    it("falls back to the wallet's transaction id when there is no bank reference", () => {
+        // ⚠️ THE WHOLE POINT OF THE FALLBACK. A Cashbook row has no UTR and never will, so this
+        // column rendered EMPTY on every petty-cash transfer -- while the expense that row created
+        // carried the transaction id as its `payment_ref`. The screen was hiding the one value that
+        // reconciles the two systems.
+        const wallet = row({ bank_reference_no: "", transfer_id: "CF-WALLET-8891203471" });
+        expect(referenceValue(wallet)).toBe("CF-WALLET-8891203471");
+    });
+
+    it("is one-way: a bank reference is never replaced by the transfer id", () => {
+        // Nothing about the Cashfree path moves. Both fields are populated there.
+        const bank = row({ bank_reference_no: "620919871893", transfer_id: "T-9" });
+        expect(referenceValue(bank)).toBe("620919871893");
+    });
+
+    it("treats a whitespace-only bank reference as absent", () => {
+        expect(referenceValue(row({ bank_reference_no: "   ", transfer_id: "T-9" }))).toBe("T-9");
+    });
+
+    it("is empty when the row carries neither", () => {
+        expect(referenceValue(row({ bank_reference_no: "", transfer_id: "" }))).toBe("");
+    });
+
+    it("shows the LAST 12 characters of a longer reference, not the first", () => {
+        // ⚠️ THE TAIL, NOT THE HEAD, AND IT IS NOT A STYLE CHOICE. A wallet id is front-loaded with
+        // a constant prefix, so taking the head would print the same twelve characters on every
+        // row and distinguish nothing.
+        expect(shortReference("CF-WALLET-8891203471")).toBe("T-8891203471");
+        expect(shortReference("CF-WALLET-8891203471")).toHaveLength(REFERENCE_DISPLAY_MAX);
+    });
+
+    it("leaves a reference of exactly the limit alone", () => {
+        const exact = "620919871893";
+        expect(exact).toHaveLength(REFERENCE_DISPLAY_MAX);
+        expect(shortReference(exact)).toBe(exact);
+    });
+
+    it("leaves a shorter reference alone, and survives a blank", () => {
+        expect(shortReference("ABC123")).toBe("ABC123");
+        expect(shortReference("")).toBe("");
+        expect(shortReference(null)).toBe("");
+        expect(shortReference(undefined)).toBe("");
+    });
+
+    it("⚠️ NEVER shortens what the column SORTS, FILTERS or FACETS on", () => {
+        // The load-bearing half. `column.get` feeds the sort, the funnels and
+        // `get_outflow_facet_values` -- so a truncation here would mean pasting a full UTR into the
+        // search box and finding nothing, silently, because an empty result looks exactly like a
+        // search with no matches. Only the rendered text is short; the cell keeps the full value on
+        // its `title`.
+        const long = row({ bank_reference_no: "", transfer_id: "CF-WALLET-8891203471" });
+        const col = OUTFLOW_COLUMNS.find((c) => c.id === "bank_reference_no")!;
+        expect(col.get(long)).toBe("CF-WALLET-8891203471");
+        expect(String(col.get(long)).length).toBeGreaterThan(REFERENCE_DISPLAY_MAX);
     });
 });
 
