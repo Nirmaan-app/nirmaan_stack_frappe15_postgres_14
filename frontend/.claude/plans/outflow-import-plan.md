@@ -5,6 +5,10 @@ they conflict.
 **Status:** **v3 is BUILT and committed** through T1–T5 (`6567d2e4`); the live browser walk and the
 production migrate are still owed. **v4 (§H) is PLANNED, NOT STARTED — no code written.**
 **§P1 — the period-scoped summary — is BUILT (2026-08-12), browser walk owed. See §P1 below.**
+**CASHBOOK — the second source — is BUILT and committed (2026-08-13), browser walk owed.**
+Eight slices on `feature/outflow-cashbook-import`; see **§CB** at the end of this file.
+Design + the four accepted risks: **`docs/adr/0015-cashbook-import-creates-expenses.md`**.
+As-built: `.claude/context/domain/outflow-import.md` § Cashbook.
 **Fresh-session brief:** `docs/outflow-import/HANDOFF.md` — read it first.
 **Branch (proposed):** `feature/outflow-import`
 **Spec + all 13 owner rulings:** `docs/outflow-import/workflow.html` **section 0** (7 tabs).
@@ -1732,3 +1736,64 @@ into a blind pre-commit gate for this feature.
 
 The reconciliation report will make the first two visible for the first time. Repairing them is
 a separate decision — the owner has ruled this feature **reports, never fixes**.
+
+---
+
+# §CB — Cashbook, the second source (2026-08-13)
+
+**BUILT and committed** on `feature/outflow-cashbook-import`, eight slices, browser walk owed.
+**Design, measurements and the four accepted risks: `docs/adr/0015-cashbook-import-creates-expenses.md`.**
+As-built invariants: `.claude/context/domain/outflow-import.md` § Cashbook.
+
+A Cashfree import **pays** what someone approved. A Cashbook import **creates** what a wallet already
+spent. The prime directive is now source-scoped rather than absolute — ADR-0015 is the document to
+read before touching any of it.
+
+## The slices
+
+| # | Commit | What |
+|---|---|---|
+| 1 | `78415209` | Parser adapter, `RawRow.row_kind`, multi-column field map, the totals-block rule |
+| 2 | `59d65935` | `food`/`old`/`pro` as generic words + curated project aliases |
+| 3 | `532c1910` | Two lookup doctypes, `Petty Cash`, the seed patch, the generated rules doc |
+| 4 | `49deafab` | `services/outflow_import/cashbook.py` — the pure plan |
+| 5 | `b3f13edd` | Four endpoints + the background job; `payment_by` / `payment_ref` |
+| 6 | `40058299` | The read-only review tree + the dialog height fix |
+| 7 | `fd63a601` | Source filter (five parts + a backfill) and the post-import tab |
+| 8 | this | ADR-0015, the domain-doc section, the disjointness correction |
+
+## Measured, on the real 137-row export
+
+| | |
+|---|---|
+| Staged / created / skipped | 131 / 115 / 16 |
+| Project vs Non-Project | 87 (₹72,678) / 28 (₹31,507) |
+| `Petty Cash` fallback | 26 (22%) |
+| Project matching, before → after slice 2 | 73 matched, 7 ambiguous, 35 none → **87 / 1 / 27** |
+| Misfile rate | ~16% → **~1–2%** |
+
+The one known wrong match that survives is `Courier charges from bngl to Kolkata` → `Maersk Kolkata`,
+where a destination city reads as a project.
+
+## Three things that were planned and did NOT happen
+
+Each was built or attempted, measured, and dropped for a reason worth keeping:
+
+1. **The one-token project-name guard** (slice 2). Broke two documented behaviours — `Fujitsu`
+   beside `Fujitsu Chennai`, and a remark naming two projects — because `ANSR - 2` and `Fujitsu`
+   are structurally identical. Bought one row. The real fix is renaming such projects in the master.
+2. **`court` in `GENERIC_PROJECT_TOKENS`** (slice 2). Measured +0/+0. A negative test pins it out so
+   nobody completes the set later.
+3. **Extracting the `ConfirmAllMatchedDialog` tree** (slice 6). It is a three-level shape built
+   around tri-state selection; remove those and no component remains. `CashbookReviewTree` copies
+   the visual grammar and shares no logic.
+
+## Still owed
+
+- **A live browser walk.** Everything here was proven by staging the real statement, running the
+  worker and reading the database back — never through the actual dialog. Slices 6 and 7 have no
+  DOM tests, because this repo has no DOM test environment.
+- **Two `patches.txt` lines** (maintainer, per the existing convention):
+  `nirmaan_stack.patches.v3_0.seed_cashbook_import_rules` and
+  `nirmaan_stack.patches.v3_0.backfill_outflow_row_source`.
+- **A production migrate** — two new doctypes, two row fields, one widened Select.

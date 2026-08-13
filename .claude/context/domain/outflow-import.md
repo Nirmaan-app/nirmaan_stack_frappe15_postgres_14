@@ -60,6 +60,11 @@ pick one ad-hoc; ask.
 | Seeding decisions from the match run | `outflowTableModel.ts` (`suggestedDecision`, `seedDecisions`, `decisionOrigin`) | pre-select inside a component; the dialog used to, and it could only fire once a row was already open |
 | Grouping + pairing interchangeable transfers | `services/outflow_import/stacks.py` (`stack_key`, `group_into_stacks`, `pair_stack`, `stack_note`, `stack_surplus_note`) | decide a stack's membership, its pairing, or why it did not pair, anywhere else. `review._resolve_stacks` owns the DATABASE half and nothing more |
 | Access | `api/outflow_import/permissions.require_outflow_access` | gate an endpoint any other way |
+| **What a Cashbook statement will CREATE** (Cashbook slice 4) | `services/outflow_import/cashbook.py` (`plan_statement`, `pick_expense_type`, `group_plan`) — pure | decide a ledger, a project or an expense type for a wallet row anywhere else. ⚠️ It must not reach `matcher`, `disambiguate`, `claims`, `stacks` or `settle` — pinned by a test, the same fence `similarity` and `partial_settle` sit behind. It decides what to CREATE; those decide what existing approved record a transfer PAYS, under an amount window this has no equivalent of |
+| Which keyword means which expense type | the `Outflow Import Expense Rule` doctype, read by `candidates.load_expense_rules` | hardcode a keyword map. The rules are per-LEDGER because the two expense vocabularies are nearly disjoint, and they arrive LONGEST KEYWORD FIRST — that order is the rule, not presentation |
+| What phrase means which project | the `Outflow Import Project Alias` doctype, read by `candidates.load_project_aliases` | grow a second nickname list. ⚠️ Deliberately NOT wired into `load_project_index`: Cashfree tier 2 settles money and its remarks name projects in full, so widening what it recognises would widen what settles unattended |
+| The Cashbook write | `api/outflow_import/cashbook._cashbook_worker` (over `settle.create_expense_from_row`) | create an expense from a wallet row anywhere else |
+| The Cashbook preview's shape | `frontend/src/pages/outflow-import/cashbookPreview.ts` | re-order or re-total the preview at a render site. `sortGroups` is the safety feature, not a style choice |
 
 ---
 
@@ -383,7 +388,16 @@ needs one vocabulary rather than one per writer.
 8. **The two expense doctypes are not twins.** `Project Expenses.amount` is a **Data** column of
    numeric strings; the non-project one is real **Currency**. `payment_by` exists only on the project
    side. `Non Project Expenses` has no vendor and no project column. Expense Type is **scoped** —
-   `project=1` and `non_project=1` are disjoint, so switching ledger must clear the chosen type.
+   switching ledger must clear the chosen type, because most types are available on one side only.
+
+   ⚠️ **CORRECTED 2026-08-13: the two flags are NOT disjoint, and never were.** This line used to
+   say they were. The schema has always allowed both, and the live master has always had
+   counter-examples — `Travel Expenses (Bus)` and `Travel Expenses (Train)` carry `project = 1` AND
+   `non_project = 1`. The real shape is 12 project-only, 25 non-project-only, 2 shared. It read as
+   a constraint and was only ever a convention, which mattered the moment something needed a type
+   usable on both sides: `Petty Cash`, the Cashbook import's fallback (ADR-0015), carries both
+   deliberately. **Do not restore the stronger claim** — `settle._assert_type_scope` checks the
+   flag for the side being written and is the only rule there is.
 9. **Neither expense doctype has an approval date.** No field, no approver — only `Project Payments`
    records one (`approval_date` / `ceo_approval_date`). The search endpoint therefore returns
    `approved_on` for payments and `updated_on` (the modification timestamp) for expenses, under
@@ -1641,3 +1655,83 @@ real endpoint. It exists to cover the WIRING (that `_load_pools` loads a project
 reaches `match_row`), which every pure test would pass without. Its **control** — row 0006, identical
 in every respect except that its remark names no project, and which must stay `Mismatched` — is the
 assertion that fails first if tier 2 ever stops requiring one.
+
+---
+
+## Cashbook — the second source (2026-08-13)
+
+**A Cashfree import PAYS what someone approved. A Cashbook import CREATES what a wallet already
+spent.** Same screen, opposite job. The prime directive at the top of this doc is now
+source-scoped, not absolute — the reasoning, the measurements and the four accepted risks are in
+**[ADR-0015](../../../docs/adr/0015-cashbook-import-creates-expenses.md)**, which is the document to
+read before changing any of this.
+
+### The three phases, and nothing is written until the third
+
+```
+preview_cashbook_statement   parse -> plan -> rollup      WRITES NOTHING
+confirm_cashbook_import      save file, stage, enqueue    batch + rows only
+_cashbook_worker             create the expenses          one row, one transaction
+get_cashbook_status          counts the rows              reads only
+```
+
+An abandoned import leaves no trace. Confirm RE-PLANS from the re-posted file and trusts nothing
+the browser computed — the preview renders the server's decision, it is never an input to it.
+
+### What a row becomes
+
+| Step | Rule |
+|---|---|
+| Importable? | `Wallet Spend` + `SUCCESS` + amount > 0 + not already imported. Anything else is a VISIBLE skip carrying its own sentence |
+| Ledger | remark names exactly one project → `Project Expenses`, else `Non Project Expenses`. **There is no third answer** (R2) |
+| Expense type | keyword rules **for that ledger**, longest match wins, ties → `Petty Cash` |
+
+⚠️ **Ledger is decided BEFORE type, and they are not independent.** 12 expense types are
+project-only, 25 non-project-only, 2 carry both — so `Material Transportation Charges` does not
+exist for a Non-Project Expense at all. `Courier charges veeva project` is Material Transportation
+Charges; `Courier charges` alone is Postage & Courier.
+
+⚠️ **A keyword matches at the START OF A WORD.** People write "unloading" where the rule says
+"unload" and "printout" where it says "print", so whole-word matching would miss most of a real
+statement — but a bare substring finds "print" inside "blueprint". No regex: the haystack is
+space-normalised and padded, so a word start is exactly a preceding space.
+
+### Invariants that break silently
+
+1. **It must never run `match_batch`.** A wallet statement has no UTR and no account, so the ladder
+   can find nothing — except a real approved payment sharing an amount. Pinned by a test that reads
+   the module's **AST, not its source text**: the first version scanned raw source and failed on
+   the docstring explaining the prohibition, and a prose scan cannot tell a prohibition from a
+   violation.
+2. **The plan is STORED on the row, not recomputed by the job.** `suggested_doctype`,
+   `resolved_project` and `suggested_expense_type` are written at confirm time. Re-planning would
+   be a second computation of the decision a person just approved — an alias edited in the seconds
+   between is all it would take — and the row is the only place a reviewer can see the decision
+   afterwards.
+3. **The worker commits PER ROW.** Killed at row 60 it leaves 59 durable expenses; re-running picks
+   up only what is still pending, and `Outflow Row Match`'s unique key refuses a second settlement
+   even if it did not. A failing row marks itself `Error` and the run CONTINUES — the reviewer
+   approved the whole batch, and halting would leave them unable to tell what went through.
+4. **`payment_by` and `payment_ref` come from the STATEMENT, not the importer.** A wallet names who
+   actually spent (`From`) and issues no UTR, so its transaction id is the only value that finds
+   the spend again. The live run caught this: 115 expenses were created with a blank reference
+   before `payment_ref` became a parameter. Cashfree keeps both defaults.
+5. **`Petty Cash` must carry BOTH `project` and `non_project`.** It is the fallback on either
+   ledger, and `settle._assert_type_scope` refuses a type lacking the flag for its side. It ships as
+   a fixture; without it a Cashbook import writes nothing at all.
+6. **The lookup tables are DOCTYPES because their rows name other records.** A JSON asset would keep
+   a dead name after a rename and either throw mid-batch or quietly book everything to the fallback.
+   `docs/outflow-import/cashbook-expense-rules.md` is GENERATED from them by
+   `scripts/generate_cashbook_rules_doc.py` — re-run it after editing rules in Desk.
+7. **`Outflow Import Row.source` is denormalised and needs its backfill.** The Source funnel filters
+   `r.source`; `_row_filters` builds single-table clauses shared by five readers, not all of which
+   carry the batch join. All 1,043 pre-existing rows were blank until
+   `v3_0.backfill_outflow_row_source` — shipping the facet without it would have drawn a funnel
+   offering one option reading "(blank)".
+
+### Two patches need `patches.txt` lines (maintainer, per the existing convention)
+
+```
+nirmaan_stack.patches.v3_0.seed_cashbook_import_rules
+nirmaan_stack.patches.v3_0.backfill_outflow_row_source
+```
