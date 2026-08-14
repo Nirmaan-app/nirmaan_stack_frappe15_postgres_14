@@ -3844,24 +3844,21 @@ class TestRateMaster(FrappeTestCase):
         return self._picks_with(rows, idx, 1)[0]
 
     def _picks_measurable_at_ten_percent(self, rows, idx, n=3):
-        """Indices of the first n rows whose stored value makes a +-10% edit MEASURABLE as major.
+        """Indices of the first n rows whose stored value makes a +-10% edit measurable as major.
 
-        F-21 (OPEN, owner-parked, lives in csv_importer): the >=10% boundary is FLOAT-FRAGILE ON THE
-        DOWNWARD SIDE. `_rate_change_pct` is `(new - old) / abs(old) * 100.0` and major is
-        `abs(pct) >= 10.0`, so a value whose 0.90 multiple is not exactly representable computes
-        -9.999999999999993 and is classified NOT major -- e.g. 491.0 -> 441.90000000000003. An
-        exactly -10% edit therefore collapses behind a count today.
+        ✅ F-21 IS FIXED (2026-08-14), so this picker is no longer routing around a defect. The
+        classifier now ROUNDS before comparing (`round(abs(pct), 6) >= MAJOR_RATE_CHANGE_PCT`), so
+        an exactly -10% edit is major whatever the float does -- which is what the docstring's
+        "AT OR ABOVE" promise always claimed. Its own boundary coverage is `test_f21a`/`test_f21b`.
 
-        This picker ACCOMMODATES that boundary as it IS; it does not paper over it and it does not
-        weaken any assertion -- it only selects which rows the fixture edits. F-21 is recorded in
-        the docs and is a separate slice; do NOT "fix" it here by loosening the comparison.
+        WHAT THIS PICKER IS NOW: belt-and-braces VALUE HYGIENE for a fixture that needs rows it can
+        do arithmetic on. Its live-behaviour half is inert post-fix -- every non-zero row qualifies
+        -- and it is kept because the ZERO EXCLUSION is still load-bearing: `x1.05` leaves a zero
+        UNCHANGED, so such a row never appears in plan["changes"] and the lookup would KeyError,
+        and its percentage would be a divide-by-zero. 31 rows in this column are zeros.
 
-        It ALSO excludes rows whose value is 0.0 (31 of them in this column): x1.05 leaves a zero
-        unchanged, so the row never appears in plan["changes"] and the lookup would KeyError, and
-        its percentage would be a divide-by-zero.
-
-        Headroom is not marginal: 102 of the 261 non-zero rows in wiring_cabling's
-        list_price_per_mtr qualify."""
+        ⚠️ Do NOT read the surviving `>= 10.0` comparisons below as the product's rule. They are a
+        fixture filter; the product's rule lives in `csv_importer._diff_fields` and is rounded."""
         def pct(old, new):
             return (new - old) / abs(old) * 100.0
 
@@ -4074,6 +4071,127 @@ class TestRateMaster(FrappeTestCase):
         victim[cat_i] = "wiring_cabling"
         bad = csv_importer.build_plan(disc, self._csv_text(headers, rows))
         self.assertTrue(any("does not match kind" in e["message"] for e in bad["errors"]))
+
+    # ---- F-21 (2026-08-14): the >=10% boundary keeps its own promise -------------------
+    # Plain-English coverage summary (test -> changed behaviour):
+    #   f21a  an EXACTLY -10% edit is MAJOR even when the 0.90 multiple is not representable.
+    #         This is the whole defect: `(new-old)/abs(old)*100` returned -9.999999999999993 and
+    #         `abs(pct) >= 10.0` said no, so the row folded away behind a count -- in the one
+    #         direction that quotes LOW. 60% of integer rupee rates 1..20000 were affected.
+    #   f21b  NEGATIVE twin: -9.99% STAYS minor. The threshold MOVED, it did not dissolve.
+    #   f21c  the per-field flag: one change carrying a major AND a minor rate field flags them
+    #         separately, and the change-level flag is "any field major".
+    #   f21d  the DIGEST is unchanged by the new field key -- proven, not assumed.
+    #
+    # ⚠️ THE ROW IS FOUND BY ITS FLOAT BEHAVIOUR, NEVER HARDCODED. Whether `old * 0.90` lands a
+    # hair short of -10% depends on the value: 399.0 -> 359.1 gives -9.999999999999993 and is the
+    # case under test, while 605.0 -> 544.5 gives exactly -10.0 and proves nothing. 234 of the 450
+    # tray rows are in the short class today, but WHICH ones is a property of the live catalog, so
+    # a hardcoded pair would rot silently into a test that passes without testing anything.
+    F21_RATE_COL = "without_cover_list"
+
+    def _f21_short_row(self, disc):
+        """(headers, rows, idx, old) for the first cabletray row whose `old * 0.90` lands SHORT of
+        -10% under the raw arithmetic -- i.e. a row the pre-F-21 classifier got wrong."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+        text, _h, _n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        headers, rows = self._csv_parts(text)
+        ci = headers.index(self.F21_RATE_COL)
+        for idx, r in enumerate(rows):
+            old = float(r[ci])
+            if old and abs((old * 0.90 - old) / abs(old) * 100.0) < 10.0:
+                return headers, rows, idx, old
+        self.fail("fixture: no tray row lands short of -10% -- the boundary case is unreachable")
+
+    def _f21_plan_for(self, disc, headers, rows, idx, edits):
+        """Preview ONE edited row. Preview only -- nothing is applied, nothing is written."""
+        from nirmaan_stack.services.boq_rate_master import csv_importer
+        row = list(rows[idx])
+        for col, val in edits.items():
+            row[headers.index(col)] = val
+        plan = csv_importer.build_plan(disc, self._csv_text(headers, [row]))
+        self.assertEqual(plan["errors"], [])
+        return plan, plan["changes"][0]
+
+    def test_f21a_an_exactly_ten_percent_drop_is_major_even_when_the_float_lands_short(self):
+        """POSITIVE -- F-21, and this test FAILS on the pre-fix code.
+
+        The promise is stated three times ('a rate change AT OR ABOVE this', 'a rate move of 10%
+        or more', '>= 10% IN EITHER DIRECTION') and the code did not keep it: an exactly -10%
+        edit on a value whose 0.90 multiple is not representable computed -9.999999999999993, so
+        `abs(pct) >= 10.0` was False and the row collapsed behind a count.
+
+        The fix is ROUND-THEN-COMPARE at 6 decimal places -- the module's own idiom, since it
+        already rounds this same value to 2dp one line later for display."""
+        disc = self._loaded_disc()
+        headers, rows, idx, old = self._f21_short_row(disc)
+        new = old * 0.90
+        # the raw arithmetic really does land short -- this IS the condition under test
+        self.assertLess(abs((new - old) / abs(old) * 100.0), 10.0)
+        _plan, change = self._f21_plan_for(disc, headers, rows, idx,
+                                           {self.F21_RATE_COL: repr(new)})
+        fld = next(f for f in change["fields"] if f["column"] == self.F21_RATE_COL)
+        self.assertEqual(fld["pct"], -10.0)          # what the user is SHOWN, rounded to 2dp
+        self.assertTrue(fld["major"], "an exactly -10% move must be MAJOR (F-21)")
+        self.assertTrue(change["major"])
+
+    def test_f21b_a_move_just_inside_the_threshold_stays_minor(self):
+        """NEGATIVE twin -- the threshold MOVED, it did not DISSOLVE.
+
+        Without this, 'fix the boundary' and 'lower the boundary' are indistinguishable. -9.99%
+        is a real, deliberate near-miss and must still collapse behind a count."""
+        disc = self._loaded_disc()
+        headers, rows, idx, old = self._f21_short_row(disc)
+        near = round(old * 0.9001, 6)                  # -9.99%
+        _plan, change = self._f21_plan_for(disc, headers, rows, idx,
+                                           {self.F21_RATE_COL: repr(near)})
+        fld = next(f for f in change["fields"] if f["column"] == self.F21_RATE_COL)
+        self.assertAlmostEqual(fld["pct"], -9.99, places=2)
+        self.assertFalse(fld["major"], "-9.99% is not a 10% move")
+        self.assertFalse(change["major"])
+
+    def test_f21c_the_major_flag_is_per_field_and_the_change_is_any(self):
+        """POSITIVE -- ONE DEFINITION (F-21 R2).
+
+        The dialog used to decide its own colour from `Math.abs(f.pct) >= 10`, a SECOND definition
+        of the threshold reading the ROUNDED percentage. At the boundary the two disagreed and the
+        row rendered RED while sitting COLLAPSED -- the UI saying 'big move' and 'not worth
+        showing' about the same row. The server now emits the verdict PER FIELD so the colour can
+        read it instead of recomputing it."""
+        disc = self._loaded_disc()
+        headers, rows, idx, old = self._f21_short_row(disc)
+        other_old = float(rows[idx][headers.index("cover_only_list")])
+        _plan, change = self._f21_plan_for(disc, headers, rows, idx, {
+            self.F21_RATE_COL: repr(old * 0.90),                    # exactly -10% -> major
+            "cover_only_list": repr(round(other_old * 0.98, 6)),    # -2% -> minor
+        })
+        by_col = {f["column"]: f for f in change["fields"]}
+        self.assertTrue(by_col["without_cover_list"]["major"])
+        self.assertFalse(by_col["cover_only_list"]["major"])
+        self.assertTrue(change["major"], "change-level major is ANY field major")
+        # a NON-rate field carries no verdict at all -- a percentage is meaningless there
+        for f in change["fields"]:
+            if f["space"] != "rate":
+                self.assertNotIn("major", f)
+
+    def test_f21d_the_new_field_key_does_not_move_the_digest(self):
+        """NEGATIVE -- the stale-preview guard must be untouched by a DISPLAY addition.
+
+        `_digest` fingerprints (row, kind, uid, name, (column, old, new)). If the per-field flag
+        leaked into it, every previously-issued digest would stop matching and every in-flight
+        preview would be refused with 'the catalog moved' -- a false alarm about the wrong thing.
+        Recomputed here from the same inputs rather than asserted from a constant."""
+        from nirmaan_stack.services.boq_rate_master import csv_importer
+        disc = self._loaded_disc()
+        headers, rows, idx, old = self._f21_short_row(disc)
+        plan, _change = self._f21_plan_for(disc, headers, rows, idx,
+                                           {self.F21_RATE_COL: repr(old * 0.90)})
+        stripped = json.loads(json.dumps(plan, default=str))
+        for c in stripped["changes"]:
+            for f in c["fields"]:
+                f.pop("major", None)          # the pre-F-21 field shape
+        self.assertEqual(csv_importer._digest(disc, stripped), plan["digest"],
+                         "the per-field flag must not enter the digest")
 
     def test_92_a_ten_percent_move_in_either_direction_is_major(self):
         """POSITIVE: the expansion rule, exactly as ruled.

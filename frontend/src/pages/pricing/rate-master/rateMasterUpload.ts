@@ -20,6 +20,12 @@ export interface UploadField {
   old: string;
   new: string;
   pct: number | null;
+  /**
+   * The server's per-field verdict (F-21). RATE-space fields only -- a percentage, and therefore
+   * this verdict, is meaningless on a `kind` rename or an attribute edit, so it is absent there.
+   * The dialog RENDERS this; it must never recompute the threshold from `pct`.
+   */
+  major?: boolean;
 }
 
 export interface UploadChange {
