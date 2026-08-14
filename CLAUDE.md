@@ -620,7 +620,8 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   discipline (`_deactivate_scope`): a `replace=True` supersedes only that scope, so importing the
   non-wiring Electrical categories can NEVER deactivate a wiring (cable/termination, wiring_cabling) row —
   the WIRING-UNTOUCHED invariant.** Non-wiring Electrical categories are loaded by PATH from a separate
-  asset; `DEFAULT_DATA_FILE` stays the wiring asset.
+  asset. (HISTORICAL: this line used to add "`DEFAULT_DATA_FILE` stays the wiring asset" — that constant
+  no longer exists, F-20; there is no default and **every** load names its file.)
 - **Interpreter step vocabulary (owner-locked, MINIMAL — no loose-formula generalization; the asset
   normalizes every formula to `base` = the step's target value + EXACT param names).** Beyond the wiring
   set, the pure `ratePipelineInterpreter.ts` supports: `component_band` STRING-EQUALITY bands (band_on read
@@ -1011,15 +1012,36 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   (`rate_master_wiring_cabling_v3.json`) — the reference going forward, superseding the earlier 25-Jul
   reference; **its content now lives inside the merged asset** (above). A benchmark refresh is a
   `replace=True` re-import of a new asset (freeze-and-supersede: the prior `rmbulk-` batch goes inactive,
-  rows retained). NOTE: `loader.DEFAULT_DATA_FILE` is version-pinned to the asset filename (a known wart
-  flagged for a future de-pinning slice), so a rename forces a loader edit in lockstep.
-- **⚠️⚠️ F-20 — THE VERSION PIN IS NOW A HAZARD, NOT A WART (OPEN, owner-sequenced NEXT, before F-17).**
-  `DEFAULT_DATA_FILE` still points at **v30**, which carries the **pre-F-16** shape. A path-less
-  `load_rate_master(replace=True)` would therefore **re-activate the 10 retired `tray_install_rate` rows
-  and strip `install_rate` from all 450 `cable_tray` rows** — a silent, complete regression of F-16.
-  **Until it is fixed, every reload goes BY EXPLICIT PATH.** The export endpoint also emits a
-  differently-named file (`rate_master_electrical_v5.json`) from the on-disk lineage
-  (`rate_master_electrical_all_v31.json`), so the two names never converge on their own.
+  rows retained).
+- **✅ F-20 — CLOSED (2026-08-14). THERE IS NO DEFAULT ASSET, AND A SOURCE-LESS LOAD REFUSES BY NAME.**
+  `loader.DEFAULT_DATA_FILE` is **DELETED**. It named a FIXED filename, so it went stale on every mint:
+  it still pointed at **v30** after F-16 shipped v31, and a path-less `load_rate_master(replace=True)`
+  would have **silently reverted the WHOLE v30 scope** (12 categories, 15 kinds) — re-activating the 10
+  retired `tray_install_rate` rows and stripping `install_rate` from all 450 trays — **while reporting a
+  successful load**. Note the shape: it was a **scope-wide REVERT through the SCOPED multi path**, never
+  a catalog wipe. **The danger was the INVITATION, not the traffic:** nothing in the repo ever opened it
+  (all 68 callers pass `payload=`, `path=` was passed by nobody, and no hook / patch / fixture / migrate
+  step / CI job / endpoint could reach it — strictly human-invoked), but an optional argument documented
+  as *"defaults to the committed data asset"* reads like a safe convenience. `_load_payload` now refuses
+  when BOTH inputs are absent, with a message that **teaches** — it names the two valid call shapes,
+  warns that a file must have been exported minutes earlier because a load is a supersede, and points at
+  the admin export endpoint. **The "reload BY EXPLICIT PATH" interim rule is RETIRED — the loader
+  enforces it now.** ⚠️ The export endpoint still emits a differently-named file
+  (`rate_master_electrical_v5.json`) from the on-disk lineage (`..._all_v31.json`); the two names never
+  converge on their own, which is exactly why a load must always name its file.
+- **⚠️ ONE AUTHORITATIVE VERSION PIN: `CURRENT_EALL_ASSET` (in `api/boq/test_rate_master.py`).** The
+  loader now carries none, and the F-20 sweep fixed the third one
+  (`scripts/backfill_rate_master_item_uid.py`, v30 → v31). **Any new file naming an asset version must
+  justify itself against this line** — three independent pins had already drifted apart once.
+- **⚠️ THE BOOTSTRAP GROUND (measured by the F-20 recon; do not re-derive it).** The
+  *empty-check + explicit-force* contract **ALREADY EXISTS** one layer down: `_load_multi` counts the
+  active scope and **refuses a non-replace load over a populated scope**, so `replace=False` IS the
+  empty check and `replace=True` IS the force. A future bootstrap command is therefore a **WRAPPER, not
+  a new guarantee.** And a fresh site can only bootstrap from the **REPO asset** — there is no database
+  to export from — so **the committed asset's currency is a CORRECTNESS property, not housekeeping.**
+  This qualifies the "the on-disk file is stale but harmless while the DATABASE is the source of truth"
+  framing: true for an established site, **false for a new one**. The mint-and-bump-the-pin discipline
+  applies to every future change that moves the catalog.
 - **⚠️ F-21 — THE ≥10% "MAJOR" BOUNDARY IS FLOAT-FRAGILE DOWNWARD (OPEN, `csv_importer`).**
   `_rate_change_pct` is `(new - old) / abs(old) * 100.0` and major is `abs(pct) >= 10.0`, so an
   **exactly −10%** edit can compute `−9.999999999999993` and be classified **not major**, collapsing

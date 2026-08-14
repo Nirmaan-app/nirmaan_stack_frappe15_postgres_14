@@ -28564,11 +28564,10 @@ cookie API); service workers 0; bare root then deep route; CSRF recovered via th
 
 ### Open items raised by this slice
 
-- **F-20 (HAZARD, owner-sequenced NEXT, before F-17)** -- `loader.DEFAULT_DATA_FILE` still points at
-  **v30**, which carries the pre-F-16 shape. A path-less `replace=True` load would **re-activate the 10
-  retired rows and strip `install_rate` from all 450**. Reload BY EXPLICIT PATH until fixed. The export
-  endpoint also emits a differently-named file (`rate_master_electrical_v5.json`) from the on-disk
-  lineage, so the names never converge on their own.
+- **F-20 — ✅ CLOSED 2026-08-14** (was: HAZARD, owner-sequenced next). `loader.DEFAULT_DATA_FILE`
+  pointed at **v30**, the pre-F-16 shape; a path-less `replace=True` load would have **re-activated the
+  10 retired rows and stripped `install_rate` from all 450**. The constant is now DELETED and a
+  source-less load refuses by name. See the F-20 slice record below.
 - **F-21 (NEW)** -- the `>=10%` "major" boundary is float-fragile downward: an exactly -10% edit can
   compute `-9.999999999999993` and be classified **not major**, collapsing behind a count (measured
   `491.0 -> 441.90000000000003`). Masked until now because the tray fixture used round numbers
@@ -28591,3 +28590,166 @@ cookie API); service workers 0; bare root then deep route; CSRF recovered via th
   stored a token, which is why it was intermittent. The token must be **re-set per navigation** on
   :8080.
 - The **suggest-run eligible set needs a reload after a hand-set category.**
+
+---
+
+## Build slice F-20 -- remove the loader's default asset (2026-08-14)
+
+**Status: SHIPPED.** Branch `feature/boq-pricing-helper`. Tests **137 -> 138**, all passing. No
+schema, no migrate, no asset mint, no DB change of any kind -- the live catalog was verified
+untouched (1,372 active, batch `rmbulk-4b375e513b9d`).
+
+### The trap
+
+`_load_payload` fell back to a `DEFAULT_DATA_FILE` constant whenever no payload and no path were
+given:
+
+```python
+DEFAULT_DATA_FILE = os.path.join(os.path.dirname(__file__), "data",
+                                 "rate_master_electrical_all_v30.json")
+...
+with open(path or DEFAULT_DATA_FILE, "r", encoding="utf-8") as fh:
+```
+
+It named a **FIXED filename**, so it went stale the moment a new asset was minted. After F-16 shipped
+v31 it still pointed at v30, and a path-less `load_rate_master(replace=True)` would have **silently
+reverted the WHOLE v30 scope** -- 12 categories, 15 kinds, 1,382 items -- re-activating the 10 retired
+`tray_install_rate` rows and stripping `install_rate` from all 450 trays, **while reporting a
+successful load**.
+
+⚠️ **The shape matters and was mis-stated in the F-16 note: it is a scope-wide REVERT through the
+SCOPED multi path, never a catalog wipe.** v30 carries the LIST form, so a path-less load takes
+`_load_multi`'s scoped supersede and never reaches the discipline-wide `_deactivate_prior`. A
+NON-replace path-less load is harmless -- the scope refusal fires.
+
+### What the recon established (all machine-checked, read-only)
+
+- **The default was opened by NOTHING.** All **68** call sites pass `payload=`, so `_load_payload`
+  returns at `if payload is not None` before reaching the `open()`. **`path=` was passed by nobody** --
+  its only occurrence in the repo was the parameter in the definition itself, making the file-reading
+  branch dead code in-repo.
+- **Strictly human-invoked.** `after_install` is commented out; there is no `before_install` /
+  `after_migrate` / `before_tests`; `fixtures` carries no rate-master doctype; `patches.txt` has no
+  rate-master patch; CI runs `run-tests` whose 68 loader calls all pass `payload=`; and
+  `api/boq/rate_master.py` imports `loader` **only** for `_canonicalize_attributes`, never
+  `load_rate_master`. The CSV upload is explicitly routed around the loader.
+- **THE DANGER WAS THE INVITATION, NOT THE TRAFFIC.** An optional argument documented as *"defaults to
+  the committed data asset"* reads like a safe convenience. Nothing would ever have tripped it on its
+  own; a human would have typed it.
+- **A THIRD stale v30 pin existed:** `scripts/backfill_rate_master_item_uid.py:55`.
+
+### The fix -- shape (b)
+
+**Shape (a) was rejected as unbuildable, and this is worth keeping.** "Make `path` required at the
+signature" cannot work: the function takes `payload` **OR** `path`, every caller uses `payload`, and
+Python cannot express "exactly one of these two" without splitting the function -- so requiring `path`
+would break all 68 call sites. The nearest literal (a) -- delete the constant and let `open(None)`
+raise -- reports a stdlib `TypeError` at file access, which is precisely the unhelpful failure this
+codebase's honest-refusal ethos rejects.
+
+Shape (b), confined to `_load_payload`:
+
+```python
+if payload is not None:
+    return payload
+if not path:
+    # Refuse BEFORE anything is read or written -- this is the first statement of the load.
+    frappe.throw(<teaching message>, title="Rate master: no payload and no path")
+with open(path, "r", encoding="utf-8") as fh:
+    return json.load(fh)
+```
+
+**The message TEACHES rather than merely refusing** (owner ruling): it names the two valid call shapes,
+warns that a file must have been **exported minutes earlier** because a load is a supersede, and points
+at `nirmaan_stack.api.boq.rate_master.export_rate_master_asset` as the way to obtain a current one.
+
+Also in the same pass:
+
+- `import os` removed -- the deleted constant was its **only** user.
+- The `_load_payload` docstring's *"(defaults to the committed data asset)"* is replaced with the truth;
+  `load_rate_master` gains an explicit SOURCE paragraph (payload or explicit path, no default, never
+  load a file you did not just export).
+- The comment block that justified the constant is **RETAINED and re-anchored.** It records why the
+  payload's SHAPE picks the loader path and why the two supersede differently (LIST -> scoped,
+  SINGULAR -> discipline-wide), plus why `rate_master_wiring_cabling_v3.json` stays on disk as a
+  mint-gate operand. That is load-bearing history with nothing to do with the default, and deleting the
+  constant must not take it along.
+- A standing `⚠️ F-20` note sits where the constant was, so the next reader learns why there is no
+  default instead of helpfully adding one back.
+- `scripts/backfill_rate_master_item_uid.py`: **v30 -> v31**, with a comment recording the sweep and
+  why the uids are unaffected -- pairing is on `(kind, brand, attributes)` and F-16 changed only a RATE
+  key plus a retirement, so every active row still pairs to exactly one asset item, and v31 inherited
+  v30's uids anyway.
+- The stale comment at `test_rate_master.py:118-123` ("this was loader.DEFAULT_DATA_FILE; that now
+  points at ...") asserted a fact that had just stopped being true; corrected in the same pass.
+
+### The test: 137 -> 138
+
+**`test_f20_a_source_less_load_refuses_by_name_and_writes_nothing`** -- NEGATIVE, and it carries four
+assertions:
+
+1. **Refuses by name** on the DANGEROUS shape specifically (`load_rate_master(replace=True)`, path-less)
+   and the message TEACHES -- pins "needs an explicit source", `payload=`, `path=`, and
+   `export_rate_master_asset`.
+2. **An EMPTY-STRING path refuses identically.** This pins `not path` rather than `path is None`;
+   without it, `path=""` would sail through to `open("")` and raise a bare `OSError`.
+3. **Row counts unchanged** across both doctypes.
+4. **The constant is GONE** (`hasattr` check). Without this, a re-introduced default would restore the
+   trap **silently** -- no other test takes that branch, so nothing else would notice.
+
+⚠️ **Why nothing is written is true BY CONSTRUCTION, not by luck:** `_load_payload` is called on
+`load_rate_master`'s FIRST line, before the shape branch and before any count or insert, so the refusal
+precedes every DB statement. The row counts are belt-and-braces on that ordering, **not** the proof of
+it. The isolated run takes **0.030 s**, which is itself evidence that no DB work occurs.
+
+Calling the loader in a test is safe here precisely because the call is refused before it can read or
+write anything: no asset is opened and no discipline is touched.
+
+### Cert -- measured, browser omitted with rationale
+
+**No browser cert, deliberately.** The change has **no rendered surface**: it deletes a constant nothing
+opens and adds a refusal on a path nothing takes. Precedent: the EA-7 measured cert and the Gemini
+cut-rule slice. The cert IS:
+
+1. the negative test demonstrating the refusal **by name** (and passing in isolation);
+2. the full suite **138 OK**, baseline **137 OK** -- **+1 exactly**, so the recon's zero-breakage claim
+   held on contact;
+3. a **read-only** live confirmation that Electrical is untouched: 1,372 active, batch
+   `rmbulk-4b375e513b9d`, 450 `cable_tray`, **0** `tray_install_rate`, 5 retirement rows, 5 snapshots
+   (this slice wrote none).
+
+### The bootstrap ground (recon Q5 -- banked so item 5 need not re-derive it)
+
+- **"Empty" is measurable today**, from two tables filtered `active = 1`: `BoQ Rate Master Item` and
+  `BoQ Rate Category Config`. `_active_item_count` reads discipline-wide; `_load_multi` reads the
+  payload SCOPE (`kind in payload_kinds`, `category_id in payload_cat_ids`).
+- **The empty-check + explicit-force contract ALREADY EXISTS** -- `_load_multi` refuses a non-replace
+  load over a populated scope, so `replace=False` IS the empty check and `replace=True` IS the force.
+  **Item 5 is a COMMAND WRAPPER, not a new guarantee.** The one real gap: the check is scope-relative,
+  so "fresh site" and "site missing exactly this scope" look alike.
+- **A fresh site can only bootstrap from the REPO asset** -- there is no database to export from, and
+  `exporter.build_asset` would return an empty payload. **Therefore the committed asset's currency is a
+  CORRECTNESS property, not housekeeping.** This qualifies the F-16-era framing that the on-disk file is
+  "stale but harmless while the DATABASE is the source of truth": true for an established site, **false
+  for a new one**. The mint-and-bump-the-pin discipline applies to every future change that moves the
+  catalog.
+- A complete bootstrap also needs **retirement state**, which is documented as not derivable -- it comes
+  free, because `_load_multi` calls `record_retirements` from the payload's lists, and v31 carries the 3
+  kinds + 2 categories that make up the 5 live retirements.
+
+### Version-pin inventory after this slice
+
+| pin | file | state |
+|---|---|---|
+| `CURRENT_EALL_ASSET` | `api/boq/test_rate_master.py` | **v31 -- the ONE authoritative current pin** |
+| `DEFAULT_DATA_FILE` | `services/boq_rate_master/loader.py` | **DELETED** |
+| `ASSET` | `scripts/backfill_rate_master_item_uid.py` | **v31** (swept here) |
+| `LEGACY_WIRING_ASSET`, `cls.eall`, the two v17 reads | `api/boq/test_rate_master.py` | deliberately HISTORICAL -- must NOT follow the current pin |
+
+**Any new file naming an asset version must justify itself against `CURRENT_EALL_ASSET`** -- three
+independent pins had already drifted apart once, which is the C4 trap the single-pin rule exists for.
+
+### Scope discipline
+
+This slice did **not** grow into the bootstrap command (no bench command, no endpoint), and **F-21 was
+not touched** -- `csv_importer.py` is byte-unchanged. Both remain owner-parked.
