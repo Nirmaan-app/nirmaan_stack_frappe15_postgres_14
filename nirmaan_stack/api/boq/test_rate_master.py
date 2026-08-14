@@ -120,9 +120,10 @@ class TestRateMaster(FrappeTestCase):
     def setUpClass(cls):
         super().setUpClass()
         # The SINGULAR-shape fixture, read by explicit path. Until the 2026-08-13 merge this was
-        # loader.DEFAULT_DATA_FILE; that now points at the merged LIST-shape asset, and
-        # `_real_payload` below stamps `p["category_config"]["discipline"]`, so the ~30 tests built
-        # on it cover the single-config loader path specifically. See LEGACY_WIRING_ASSET.
+        # loader.DEFAULT_DATA_FILE; that constant is GONE as of F-20 (2026-08-14) -- there is no
+        # default asset at all now, and a source-less load refuses by name. `_real_payload` below
+        # stamps `p["category_config"]["discipline"]`, so the ~30 tests built on it cover the
+        # single-config loader path specifically. See LEGACY_WIRING_ASSET.
         with open(_asset_path(LEGACY_WIRING_ASSET), "r", encoding="utf-8") as fh:
             cls.raw = json.load(fh)
         # EA-1/EA-1b: a HISTORICAL E-ALL asset, pinned to v12 on purpose -- test_23 asserts that
@@ -1009,6 +1010,58 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(
             goldens["t3"]["expect"]["tray_boq_install"]["install_per_rmt"],
             self.F16_WIDTH_TABLE[100.0] + 200.0 * 1.45,
+        )
+
+    def test_f20_a_source_less_load_refuses_by_name_and_writes_nothing(self):
+        """NEGATIVE -- F-20. A load with NEITHER payload NOR path must refuse by name.
+
+        THE TRAP THIS REPLACES: `_load_payload` used to fall back to a `DEFAULT_DATA_FILE`
+        constant naming a FIXED filename, so it went stale the moment a new asset was minted. It
+        still pointed at v30 after F-16 shipped v31, and a path-less `load_rate_master(replace=
+        True)` would have silently reverted the WHOLE v30 scope -- 12 categories and 15 kinds --
+        re-activating the 10 retired `tray_install_rate` rows and stripping `install_rate` from all
+        450 trays. It reported success while doing it.
+
+        Nothing in the repo ever opened that default (every caller passes `payload=`), so the
+        danger was never traffic -- it was the INVITATION: an optional argument documented as
+        "defaults to the committed data asset" reads like a safe convenience.
+
+        WHY NOTHING IS WRITTEN IS TRUE BY CONSTRUCTION, not by luck: `_load_payload` is called on
+        `load_rate_master`'s FIRST line, before the shape branch, before any count and before any
+        insert -- so the refusal precedes every DB statement. The row counts below are a
+        BELT-AND-BRACES confirmation of that ordering, not the proof of it.
+
+        This test calls the loader deliberately, and it is safe precisely because the call is
+        refused before it can read or write anything: no asset is opened and no discipline is
+        touched.
+        """
+        before_items = frappe.db.count(loader.ITEM_DOCTYPE)
+        before_cfgs = frappe.db.count(loader.CONFIG_DOCTYPE)
+
+        # the DANGEROUS shape specifically: path-less AND replace=True
+        with self.assertRaises(frappe.ValidationError) as cm:
+            loader.load_rate_master(replace=True)
+        msg = str(cm.exception)
+        # the message must TEACH, naming both valid call shapes and where a current file comes from
+        self.assertIn("needs an explicit source", msg)
+        self.assertIn("payload=", msg)
+        self.assertIn("path=", msg)
+        self.assertIn("export_rate_master_asset", msg)
+
+        # an EMPTY-STRING path is falsy and must refuse identically -- `not path`, never
+        # `path is None`, or `path=""` would sail through to open("") and raise a bare OSError.
+        with self.assertRaises(frappe.ValidationError):
+            loader.load_rate_master(path="", replace=True)
+
+        self.assertEqual(frappe.db.count(loader.ITEM_DOCTYPE), before_items)
+        self.assertEqual(frappe.db.count(loader.CONFIG_DOCTYPE), before_cfgs)
+
+        # and the constant is GONE. Without this, a re-introduced default would silently restore
+        # the trap and every other test would still pass -- none of them takes that branch.
+        self.assertFalse(
+            hasattr(loader, "DEFAULT_DATA_FILE"),
+            "F-20: loader must carry NO default asset constant -- a fixed filename goes stale on "
+            "every mint, and a path-less load would silently supersede the live catalog with it",
         )
 
     def test_24d_a_legacy_asset_without_uids_still_loads(self):

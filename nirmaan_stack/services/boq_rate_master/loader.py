@@ -27,7 +27,6 @@ run out-of-band; RM-1 ships NO write endpoint.
 """
 
 import json
-import os
 
 import frappe
 
@@ -40,25 +39,49 @@ BATCH_PREFIX = "rmbulk-"
 # Only these attribute keys are canonicalized to UPPERCASE at ingest (per normalization_rule).
 NORMALIZE_ATTRS = ("material", "insulation")
 
-# THE single Electrical asset (merged 2026-08-13). It carries every item and every category
-# config, so it takes the MULTI path (`category_configs`) and therefore _load_multi's SCOPED
-# supersede. That is the point of the merge, not a side effect: the superseded wiring asset used
-# the SINGULAR `category_config` key, which routes to the single-config path below, whose
-# _deactivate_prior is DISCIPLINE-WIDE -- importing it with replace=True deactivated every
-# Electrical item, and the live catalog survived only on an undocumented ordering rule.
+# THE PAYLOAD'S SHAPE PICKS THE LOADER PATH, AND THE TWO SUPERSEDE DIFFERENTLY.
+# A payload carrying `category_configs` (LIST) takes the MULTI path and therefore _load_multi's
+# SCOPED supersede; a payload carrying the SINGULAR `category_config` key routes to the
+# single-config path below, whose _deactivate_prior is DISCIPLINE-WIDE. That distinction is the
+# point of the 2026-08-13 merge, not a side effect: importing the old wiring asset (singular) with
+# replace=True deactivated every Electrical item, and the live catalog survived only on an
+# undocumented ordering rule. The merged Electrical asset uses the LIST form, so the
+# discipline-wide UPDATE is unreachable from any shipped asset.
 # `rate_master_wiring_cabling_v3.json` is RETAINED on disk as a mint-gate self-test operand
 # (scripts/mint_completeness_check.py, do_history(WIRING)); it is a retired artefact, not an asset.
-DEFAULT_DATA_FILE = os.path.join(
-    os.path.dirname(__file__), "data", "rate_master_electrical_all_v30.json"
-)
+#
+# ⚠️ F-20 (2026-08-14): THERE IS NO DEFAULT ASSET, DELIBERATELY. A `DEFAULT_DATA_FILE` constant
+# used to live here, and `_load_payload` fell back to it whenever no payload and no path were
+# given. It named a FIXED filename, so it went stale the moment a new asset was minted -- it still
+# pointed at v30 after F-16 shipped v31, and a path-less `load_rate_master(replace=True)` would
+# have silently reverted the WHOLE v30 scope (12 categories, 15 kinds), re-activating the 10
+# retired `tray_install_rate` rows and stripping `install_rate` from all 450 trays. Nothing in the
+# repo ever opened it -- every caller passes `payload=` -- so the danger was never traffic, it was
+# the INVITATION: an optional argument documented as "defaults to the committed data asset" reads
+# like a safe convenience. Do not reintroduce it; a caller that wants a file names the file.
 
 
 def _load_payload(payload=None, path=None):
-    """Return the parsed payload dict from an in-memory dict OR a JSON file path
-    (defaults to the committed data asset)."""
+    """Return the parsed payload dict from an in-memory dict OR an EXPLICIT JSON file path.
+
+    There is NO default asset (F-20). Exactly one of the two must be supplied; when both are
+    absent this REFUSES BY NAME rather than guessing a file, because the file it used to guess
+    was a fixed filename that went stale on every mint.
+    """
     if payload is not None:
         return payload
-    with open(path or DEFAULT_DATA_FILE, "r", encoding="utf-8") as fh:
+    if not path:
+        # Refuse BEFORE anything is read or written -- this is the first statement of the load.
+        frappe.throw(
+            "load_rate_master needs an explicit source. Pass EITHER payload=<dict> (an in-memory "
+            "payload) OR path=<file> (a JSON asset exported MINUTES EARLIER -- a stale file "
+            "supersedes everything in its scope). There is no default asset: the one that used to "
+            "exist named a fixed filename and silently went stale on every mint. Get a current "
+            "file from the admin export endpoint "
+            "nirmaan_stack.api.boq.rate_master.export_rate_master_asset.",
+            title="Rate master: no payload and no path",
+        )
+    with open(path, "r", encoding="utf-8") as fh:
         return json.load(fh)
 
 
@@ -192,6 +215,11 @@ def _deactivate_scope(discipline, kinds, category_ids):
 def load_rate_master(payload=None, path=None, replace=False):
     """Load the rate-master payload. Returns a summary dict on success; raises
     frappe.ValidationError on a non-replace re-run against existing active data.
+
+    SOURCE: pass EITHER an in-memory `payload` OR an explicit `path`. There is NO default asset
+    (F-20) -- a path-less call REFUSES BY NAME. Any file passed here must have been exported
+    minutes earlier: a load is a supersede, so a stale file silently reverts everything in its
+    scope. NEVER load an asset you did not just export.
 
     Summary keys: status, batch, discipline, category_id, cable/termination/<kind> counts
     (as `items_by_kind`), items_total, config_loaded (1), items_deactivated, configs_deactivated.
