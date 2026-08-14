@@ -28395,3 +28395,199 @@ is `replace=True` and supersedes everything in scope, so a stale file wipes ever
 was exported; and any asset older than the `item_uid` slice carries no `item_uid`, so loading one
 would BLANK every id -- which breaks this slice's round trip outright, since a blank uid reads as
 "add this item".
+
+---
+
+## Build slice F-16 -- cable tray install moves ON-ROW (2026-08-13/14)
+
+**Status: SHIPPED.** Branch `feature/boq-pricing-helper`. Asset **v31**
+(`rate_master_electrical_all_v31.json`), batch `rmbulk-4b375e513b9d`, 1,372 active Electrical items.
+
+### The change
+
+Tray install was a **second lookup** into a parallel kind `tray_install_rate` (10 width-keyed rows),
+multiplied by 4 in the pipeline. A width absent from those 10 rows priced supply, **skipped install,
+and warned about nothing** -- a silent no-compute.
+
+Each `cable_tray` row now carries `install_rate` holding the **FINAL effective per-metre figure, x4
+already baked in** (never multiply it again), read VERBATIM off the row the supply match already
+found. The install pipeline became:
+
+```
+1. match_master_row  kind = cable_tray      "install rate carried on the tray row itself (F-16)"
+2. component width_install  target=install_rate  params {}  formula "base"
+3. UNCHANGED (floor_cutting, 200 x 1.45 = 290)
+4. UNCHANGED (sum_components -> install_per_rmt)
+```
+
+Step 2's shape is copied verbatim from the supply pipeline's existing `base` component. **No
+interpreter change** -- the mechanism already existed and the tray's own supply pipeline already used
+it (one `match_master_row`, two rate keys read off the matched row: `without_cover_list` and
+`cover_only_list`). `item_kinds` is now `["cable_tray"]`.
+
+The ten figures: `50->100 100->120 150->140 200->160 250->180 300->220 350->260 400->300 450->340
+600->380`.
+
+### Prices unchanged -- measured, not assumed
+
+A BEFORE ledger was captured **PRE-RELOAD** through the running app (owner's Chrome over CDP, the
+app's own interpreter resolved through the page's live module graph, the production read endpoints),
+then re-priced after. Six rows, six widths including 50 and 600, every adder branch exercised:
+
+| row | w | cover | install | cut | refill | supply | install | total |
+|---|---|---|---|---|---|---|---|---|
+| L1 | 50 | No | Ceiling | No | No | 321 | 100 | 421 |
+| L2 | 100 | Yes | Floor | No | No | 282 | 120 | 402 |
+| L3 | 200 | No | Floor | Yes | Yes | 459 | 450 | 909 |
+| L4 | 300 | Yes | Ceiling | No | No | 641 | 220 | 861 |
+| L5 | 450 | No | Ceiling | Yes | No | 414 | 630 | 1044 |
+| L6 | 600 | Yes | Floor | Yes | Yes | 1060 | 670 | 1730 |
+
+**All eighteen figures identical to the rupee after the change.** The three stored goldens t1/t2/t3
+all sit at width 100, where the retired table said `30 x 4` and the row now says `120` -- the same
+number by construction, which is exactly why **no golden needed editing**.
+
+### The retirement, and the orphan-active lesson
+
+**The kind is RETIRED BY DECLARATION, never by omission.** `_load_multi` computes its supersede scope
+from the PAYLOAD's own kinds, so dropping the 10 items alone would have left them **ORPHAN-ACTIVE**.
+`retired_kinds` is the only mechanism; it is **ADDED to, never replaced** (replacing would un-retire
+an existing entry), and it is self-sustaining because the exporter rebuilds the list from the
+retirement TABLE. F-16 is the fifth Electrical retirement.
+
+The retirement row carries a **BLANK reason** -- owner ruling (option C). `record_retirements` accepts
+no reason parameter, and its docstring's refusal is specifically of **back-inference** for the four
+backfilled rows (whose only signal was an approximate batch timestamp); it does not forbid recording
+going forward. The reason lives in the feat commit message and here:
+*Superseded by F-16: tray install moved on-row (2026-08-13).* Threading it to the row is **F-19**.
+
+### The parallel-row sweep (2026-08-13)
+
+Governing principle, owner-worded: **adding ONE item must never require a second, hidden row for that
+item to price completely.** Boundary test: *could the referenced row plausibly appear on a BoQ line?*
+
+The census is **EXHAUSTIVE** -- the rate-table-wearing-an-item-costume pattern existed in exactly TWO
+places: `tray_install_rate` (silent no-compute; fixed here) and `db_install_rate` (fails safe to a
+0.15 ratio; **F-17**). `popup_box_module` is a rate-table row by the boundary test but carries **both
+rates on its one row** -- NO ACTION. Everything else resolves to a real product.
+
+**A ratio was REJECTED FOR TRAY ON MEASUREMENT:** the implied install/supply ratio spans
+**0.1083 - 1.3077** across all real combinations, a **1107% spread**. Do not propose one.
+
+### Procedure notes
+
+Export -> edit -> reload, by **explicit path**. The loaded file **round-trips BYTE-IDENTICALLY**
+against a fresh export of the database (679,570 bytes), which is the real gate -- the mint gate's
+atom vocabulary is `kind:<k>` and is blind below kind level. Verified after reload: 1,372 active;
+**exactly** the 10 rows deactivated, proven by comparing full active `item_uid` SETS rather than
+counts (a count can balance while content swaps); 450 tray rows carrying `install_rate` matching the
+table, 45 per width; exactly ONE new retirement row with the existing four unchanged.
+
+The asset was minted as **v31 in the existing lineage**, not edited in place -- a commit-based mint
+comparison cannot see an in-place edit. `CURRENT_EALL_ASSET` was bumped in the same change, which is
+the whole point of that single pin.
+
+### Tests: 132 -> 137, all passing
+
+Five new (three positive, two negative):
+
+- **`test_f16a`** POSITIVE -- at width 100 all 45 rows carry `install_rate = 120`, supply rates
+  untouched, install step 1 matches `cable_tray`, step 2 is `target=install_rate` / `formula="base"`.
+- **`test_f16b`** POSITIVE -- the same at width 600 (380), then **every** tray row against the full
+  table, 45 per width, no eleventh width. All three goldens sit at width 100, so this is the only
+  coverage away from it and a hard-coded 120 would otherwise pass everything.
+- **`test_f16c`** NEGATIVE -- the kind is absent from items AND `item_kinds` AND present in
+  `retired_kinds`, the ups pair preserved; a scratch-discipline load then proves it deactivates.
+- **`test_f16d`** NEGATIVE -- no `per_run_factor` anywhere in the install pipeline; `width_install`
+  params `{}`; the cutting adder and `sum_components` byte-unchanged. A re-introduced multiplier would
+  **quadruple every tray install**, and the goldens alone could not catch it -- they would move
+  together and look self-consistent.
+- **`test_f16e`** -- the goldens reproduce UNCHANGED; the prices-must-not-move instrument.
+
+**⚠️ SCOPE NOTE:** the interpreter is TypeScript and there is deliberately no Python implementation,
+and frontend tests were out of scope, so these pin the **data and config that determine the price**;
+the **executed** finals are proven by the browser cert (C2-C4). Recorded inline in the test file so a
+later reader cannot mistake a data pin for an execution pin.
+
+Four existing pins were updated to match the ruling, each with an inline comment naming F-16:
+`test_24b`/`test_24e` (retirement lists), `test_24m` (460 -> 450), `test_72`, `test_92`, plus ten
+`1382 -> 1372` count pins that follow `CURRENT_EALL_ASSET`.
+
+### Test-debt found on the way (recorded, not restructured)
+
+- **`test_24b` / `test_24e` HARDCODE the retirement lists**, outside the `CURRENT_EALL_ASSET`
+  single-pin discipline -- they will need editing on **every future retirement**. They also encoded the
+  hand-built `["ups", "switches_point"]` ORDER; an EXPORTED asset is **sorted**
+  (`get_retirement_lists` returns `sorted(...)`, "sorted for a stable export"), so the pin is now
+  `["switches_point", "ups"]`. That mismatch was **invisible** until the `retired_kinds` line above it
+  was corrected, because that line failed first.
+- **`test_72`'s absence pin encoded a HAND-BUILT-FILE property.** An EXPORTED asset legitimately GAINS
+  a config-level `goldens` copy (the loader stamps it at ingest, the export reproduces what is stored
+  -- already documented), so `assertNotIn("goldens", ss)` fails on **every** exported asset while never
+  having guarded the real hazard. Replaced (owner ruling R2) with: for every config carrying a
+  config-level copy, a top-level entry **must exist** and the two **must agree exactly**. The actual
+  hazard is an **orphan** copy -- the overwrite fires only when a top-level twin exists, so an orphan
+  survives the load and goes silently stale. The new form holds for hand-built and exported assets
+  alike; the #178 invariant (top-level is the authority) is unchanged.
+- **`test_92`'s fixture borrowed its blanks from the retired rows.** It needed a blank
+  `cover_only_list` to exercise "a rate APPEARING -- no percentage exists", and those blanks came from
+  the 10 `tray_install_rate` rows sharing the tray category. F-16 made `cabletray_raceway` **fully
+  dense** (all 450 rows carry all four rates), so no appearing-rate case exists in it at all. Moved
+  (owner ruling R3) to `wiring_cabling`, whose sparsity is **structural and permanent**: two kinds with
+  disjoint rate keys, so 292 cable rows carry no lug/gland rates and 296 termination rows carry no
+  per-metre rates. Survey of every category for genuine blank RATE cells: `db_switchgear` (171),
+  `miscellaneous` (2), `wiring_cabling` (588) -- everything else zero.
+
+### Browser live cert (2026-08-14) -- PASSED
+
+Bench and Vite restarted by explicit PID (never a pattern-kill loop); fresh worker verified
+**behaviourally** (a real method returned a real 403 "is not whitelisted"; a bogus method returned
+`has no attribute 'f16_definitely_not_real'`). **The first bench restart looked wedged and was not:**
+`:8000` was listening with a climbing `Recv-Q` and returned nothing for 30 s, then answered in 4 ms
+once warm -- a **cold start**, exactly the case the ritual tells you to re-check before concluding.
+Browser over CDP against the owner's already-running Chrome; 2 app tabs closed and a fresh one opened;
+site data cleared **excluding cookies** with the HttpOnly `sid` verified surviving (read via the CDP
+cookie API); service workers 0; bare root then deep route; CSRF recovered via the proxied `/app`.
+
+- **C1** -- the changed module resolved through the page's OWN module graph and **behaved**:
+  `evalFormula('base', {base: 340}) = 340`; live config `item_kinds ["cable_tray"]`, install match kind
+  `cable_tray`, step 2 `{target: install_rate, params: {}, formula: "base"}`, **`per_run_factor` absent
+  from the whole pipeline**; 1,372 active / 450 tray / 450 carrying `install_rate` / **0**
+  `tray_install_rate`.
+- **C2** -- all six ledger rows re-priced **identical to the rupee**.
+- **C3 / C4** -- traces at width 300 and width 50: **ONE** `match_master_row`, kind `cable_tray`, and
+  the install row's `item_uid` is the **SAME row the supply match found** (`rmi-3ccffdd36f70`,
+  `rmi-0d8d96363342`), with `install_rate` read verbatim (220, 100). Verified across all six.
+- **C5** -- **zero residual**: the cert made NO writes (reads plus pure in-browser interpreter runs),
+  so no throwaway BoQ was created. Confirmed: 0 TEST BoQs, snapshots still `[1..5]`, batch
+  `rmbulk-4b375e513b9d` unchanged, 1,372 active, 5 retirement rows, 0 leftover `TEST_RM_` disciplines.
+
+### Open items raised by this slice
+
+- **F-20 (HAZARD, owner-sequenced NEXT, before F-17)** -- `loader.DEFAULT_DATA_FILE` still points at
+  **v30**, which carries the pre-F-16 shape. A path-less `replace=True` load would **re-activate the 10
+  retired rows and strip `install_rate` from all 450**. Reload BY EXPLICIT PATH until fixed. The export
+  endpoint also emits a differently-named file (`rate_master_electrical_v5.json`) from the on-disk
+  lineage, so the names never converge on their own.
+- **F-21 (NEW)** -- the `>=10%` "major" boundary is float-fragile downward: an exactly -10% edit can
+  compute `-9.999999999999993` and be classified **not major**, collapsing behind a count (measured
+  `491.0 -> 441.90000000000003`). Masked until now because the tray fixture used round numbers
+  (`120 -> 108.0` is exact). Lives in `csv_importer`; `test_92` accommodates the boundary as it IS and
+  must not be "fixed" by loosening the comparison.
+- **F-19** -- `record_retirements` carries no reason (above).
+- **F-18** -- a `component` whose `target` names a rate key the matched row lacks binds
+  `base = undefined`; the unknown-identifier guard does **not** fire (the key IS in `env`);
+  `sum_components` yields **NaN**; the pipeline returns `status: "ok"` with a NaN final that
+  `pricingSheetHelper` adopts. **General interpreter exposure, NOT introduced by F-16.** Its own slice.
+
+### Earlier E2E cert findings carried forward (2026-08-13)
+
+- A **sub-rounding rate edit is visible in the WORKINGS and invisible in the final rate** -- a +4.65%
+  edit was absorbed entirely by the roundup-to-tens. **Verify small edits in the workings**, not the
+  final figure.
+- The **:8080 CSRF mystery is ROOT-CAUSED** (mechanism recorded above in the interim-procedure
+  section): Vite serves the raw Jinja template, so the inline `frappe.boot = {{ boot }}` line is a JS
+  syntax error and `window.csrf_token` NEVER SETS. The opaque 400 appears only once a desk tab has
+  stored a token, which is why it was intermittent. The token must be **re-set per navigation** on
+  :8080.
+- The **suggest-run eligible set needs a reload after a hand-set category.**

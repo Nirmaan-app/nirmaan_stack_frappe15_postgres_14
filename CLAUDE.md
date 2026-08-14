@@ -633,8 +633,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   A conditional `component` may ALSO carry a `target` (base from the matched row) together with its
   conditions (e.g. the tray `cover`, `base*factor`) — this shape needed no interpreter change.
   **EA-2b — the CORRECTED cable-tray config is FOUR pipelines** (supply/install/bcs/bcs_install):
-  conditional-component adders (cover / ceiling 106 / refill 180 / cutting 200) + a **width-table install
-  match** (kind `tray_install_rate`, ×4). The old single `tray_boq` (install = supply ×0.2, golden 280/60)
+  conditional-component adders (cover / ceiling 106 / refill 180 / cutting 200) + an install rate read
+  **OFF THE TRAY ROW ITSELF** (**SUPERSEDED at F-16 2026-08-13** — this was a width-table match into the
+  parallel kind `tray_install_rate` ×4; see the F-16 invariant below). The old single `tray_boq` (install = supply ×0.2, golden 280/60)
   was WRONG and is DELETED; oracle goldens t1/t2/t3 (431/120/297/0, 415/120/286, 410/200) are the pins,
   machine-verified (config-data preview gate + vitest + live Derivation), so the tray is OFF the manual
   verification list. **EA-2c — `component_ref` (a NEW step): base from a SEPARATELY-REFERENCED master row**
@@ -794,6 +795,26 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   `retired_category_ids` are read through `retirement.get_retirement_lists`. A discipline with no
   retirement rows exports two EMPTY lists — inheriting a header would make a fresh discipline claim
   retirements it never made.
+- **⚠️ REMOVING ITEMS FROM AN ASSET DOES NOT DEACTIVATE THEM — `retired_kinds` is the ONLY mechanism,
+  and the list is ADDED to, never replaced (owner-locked, F-16 2026-08-13).** `_load_multi` computes
+  its supersede scope from the PAYLOAD's OWN kinds, so a kind merely dropped from an asset is never
+  named by `_deactivate_scope` and its rows stay **ORPHAN-ACTIVE** — still served by every active-only
+  reader, while the asset meant to define them no longer mentions them. This is the kind-level twin of
+  the category rule above, and it is SELF-SUSTAINING once declared: the exporter rebuilds the list from
+  the retirement TABLE, so every later export carries it. **Replacing rather than appending would
+  silently UN-RETIRE an existing entry.** The retirement row is minted with a BLANK reason — see F-19.
+- **A CATEGORY'S INSTALL RATE BELONGS ON THE ITEM ROW, NOT IN A PARALLEL RATE TABLE (owner-locked,
+  F-16).** Governing principle: **adding ONE item must never require a second, hidden row for that item
+  to price completely.** Cable tray's install was a second `match_master_row` into `tray_install_rate`
+  ×4, so a width absent from those 10 rows priced supply, skipped install and warned about nothing.
+  Each `cable_tray` row now carries an `install_rate` holding the FINAL effective per-metre figure (the
+  ×4 **baked in — never multiply it again**), read verbatim off the row the supply match already found;
+  the kind is retired and `item_kinds` is `["cable_tray"]`. **A ratio was REJECTED FOR TRAY ON
+  MEASUREMENT** (implied ratio spans 0.1083–1.3077 across all real combinations, a 1107% spread) — do
+  not propose one. The parallel-row census is EXHAUSTIVE: exactly TWO instances existed,
+  `tray_install_rate` (silent no-compute, fixed here) and `db_install_rate` (fails safe to a 0.15
+  ratio); `popup_box_module` is a rate-table row by the boundary test but carries both rates on its one
+  row — NO ACTION. Boundary test: *could the referenced row plausibly appear on a BoQ line?*
 - **⚠️ `source_row` IS ALWAYS EMITTED, INCLUDING 0.** The 27 db_shell items hold `source_row = 0` in
   the database and 0 is what the database says; omitting it to reproduce the old asset's absent `row`
   would be the export inventing an absence, and it would conflate a genuine row 0 with "no row" —
@@ -992,6 +1013,32 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   `replace=True` re-import of a new asset (freeze-and-supersede: the prior `rmbulk-` batch goes inactive,
   rows retained). NOTE: `loader.DEFAULT_DATA_FILE` is version-pinned to the asset filename (a known wart
   flagged for a future de-pinning slice), so a rename forces a loader edit in lockstep.
+- **⚠️⚠️ F-20 — THE VERSION PIN IS NOW A HAZARD, NOT A WART (OPEN, owner-sequenced NEXT, before F-17).**
+  `DEFAULT_DATA_FILE` still points at **v30**, which carries the **pre-F-16** shape. A path-less
+  `load_rate_master(replace=True)` would therefore **re-activate the 10 retired `tray_install_rate` rows
+  and strip `install_rate` from all 450 `cable_tray` rows** — a silent, complete regression of F-16.
+  **Until it is fixed, every reload goes BY EXPLICIT PATH.** The export endpoint also emits a
+  differently-named file (`rate_master_electrical_v5.json`) from the on-disk lineage
+  (`rate_master_electrical_all_v31.json`), so the two names never converge on their own.
+- **⚠️ F-21 — THE ≥10% "MAJOR" BOUNDARY IS FLOAT-FRAGILE DOWNWARD (OPEN, `csv_importer`).**
+  `_rate_change_pct` is `(new - old) / abs(old) * 100.0` and major is `abs(pct) >= 10.0`, so an
+  **exactly −10%** edit can compute `−9.999999999999993` and be classified **not major**, collapsing
+  behind a count (measured: `491.0 → 441.90000000000003`). It was masked until F-16 because the tray
+  fixture used round numbers (`120 → 108.0` is exact). `test_92` ACCOMMODATES the boundary as it is
+  (it picks rows whose ±10% is measurable, and skips `0.0` rows); **do not "fix" it by loosening that
+  comparison** — the product change is its own slice.
+- **⚠️ F-19 — A RETIREMENT MINTED THROUGH THE ASSET PATH ALWAYS HAS A BLANK REASON (OPEN).**
+  `record_retirements` accepts no reason parameter and deliberately omits `retired_at`/`retired_by`/
+  `reason`. **Read its docstring precisely: it refuses BACK-INFERENCE** for the four backfilled rows,
+  whose only signal was an approximate batch timestamp — it does not forbid recording a reason going
+  forward, and the capability simply never existed because nothing needed it. F-16's reason lives in
+  its feat commit message and in the plan doc instead. Threading a reason to the row is its own slice
+  after F-17.
+- **⚠️ F-18 — A `component` WHOSE `target` NAMES A RATE KEY THE MATCHED ROW LACKS YIELDS NaN THROUGH
+  `status: "ok"` (OPEN, general interpreter exposure, NOT introduced by F-16).** `env.base` is assigned
+  `undefined`, so the unknown-identifier guard does **not** fire (the key IS in `env`); the formula
+  returns `undefined`, `sum_components` reduces to **NaN**, and the pipeline returns `status: "ok"` with
+  a NaN final that `pricingSheetHelper` then adopts. Worse than an honest `no_match`. Its own slice.
 - **29-Jul truth-file cycle (EA-DIFF, owner-locked; the E-ALL benchmark of THAT cycle was
   `rate_master_electrical_all_v12.json` — the CURRENT asset is the MERGED
   `rate_master_electrical_all_v30.json`, sha256 prefix `63628d6a15a33796`; asset lineage v9->v12,
