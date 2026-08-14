@@ -29191,4 +29191,201 @@ and a read-only confirmation that the catalog is untouched -- 1,364 active, one 
 
 **F-16 ✅ · F-20 ✅ · F-17 ✅ · F-21 ✅ · F-19 ✅.** Next: **F-18** (a `component` whose `target`
 names a rate key the matched row lacks binds `base = undefined` -> NaN through `status: "ok"`), then
-the seven cleared audit fixes behind the combined recon.
+the seven cleared audit fixes behind the combined recon. *(F-18 closed 2026-08-14 -- see the slice
+below; it turned out to be FIVE entry points plus a chain, not one.)*
+
+---
+
+## Build slice F-18 -- no non-finite number is ever labelled "ok" (2026-08-14)
+
+**Branch:** `feature/boq-pricing-helper`. **One source file:** the pure
+`frontend/src/pages/pricing/rate-master/ratePipelineInterpreter.ts`, plus its test file. No type
+change, no new status, no consumer change, no config change, no backend change, no migrate.
+
+### What was actually wrong
+
+`status: "ok"` meant only *"the step loop ran to the end without an early return and without
+throwing"*. It made **no claim about the numbers**, while `pricingSheetHelper`, the Rate Master
+Derivation tab and the RM-4b preview gate all read it as *"these numbers are good"*. A NaN in `ctx`
+was copied into `finals` and labelled `ok`.
+
+The banked F-16 note described ONE step (`component`). The recon
+(`f18_nan_recon_2026-08-14.md`) found **five entry points and a chain**, and the breadth is the
+reason a fix framed around the identifier guard alone would have missed most of it:
+
+| # | Step | What it did |
+|---|---|---|
+| E1 | `component` | `env.base = ctx[target]` -- `undefined` survived `evalFormula`'s `in` test, which checks KEY PRESENCE (`"base" in { base: undefined }` is TRUE) |
+| E2 | `component_band` | the same `undefined`, planted under **three** identifiers at once (`base`, `gland_list`, the column's own name) |
+| E3 | `apply_effective_multiplier` | `ctx[target] * evalFormula(...)` -- **the multiply is OUTSIDE the formula**, so no evaluator guard was ever on the path |
+| E4 | `roundup` | `roundUp(undefined, d)` = `Math.ceil(undefined * f - 1e-9) / f` = NaN, written straight back into `ctx` |
+| E5 | `install_as_ratio` | **did not FAIL into NaN -- it ASSIGNED one**: `const base = supplyKey ? ctx[supplyKey] : NaN` |
+| P1 | `sum_components` | the propagator, never an origin |
+
+**THE CHAIN was the finding the premise did not contain.** `scale`'s EA-1b honest partial (`continue`,
+output left absent) creates a hole, and the next unguarded step converts that honesty into a NaN. It
+is live-shaped in three pipelines, and it produced an asymmetry nobody chose: **the same missing key
+gave an honest partial in `conduit_bcs` and a NaN in `conduit_boq`, differing only in having a
+`roundup` downstream.** Absence-honesty depended on step order.
+
+**The check already existed in the file, twice.** `component_ref` has always done
+`typeof base !== "number" || !Number.isFinite(base)` -> `no_match` with
+`` `${s.target} not on the referenced row -- not computed` ``, at two sites. F-18 was never a missing
+idea; it was a missing application of an idea the file already held.
+
+### The rulings (owner, adopting the recon's recommendation in full)
+
+- **R1 -- per-step guards, the `component_ref` idiom copied (its CHECK and its MESSAGE SHAPE)** at E1,
+  E2, E3, E5 -> `no_match`. All four refuse because their value feeds `sum_components`: losing it makes
+  the **SUM wrong**, not merely shorter, which is exactly why `component_ref` refuses in the same
+  situation. The message says **"matched row"** where `component_ref` says **"referenced row"** -- the
+  idiom is copied, the wording stays honest about WHICH row was short, and both are pinned so neither
+  drifts into the other.
+- **R2 -- E4 `roundup` is an HONEST PARTIAL, not a refusal.** The absence it reads is almost never its
+  own fault. Refusing would discard a sibling output that computed correctly (`conduit_boq`'s
+  `supply_per_mtr` is right even when `install_per_mtr` was never produced) -- the over-wide action the
+  PW-FIX ruling reversed for `module_fit`. It takes `scale`'s own `continue` shape: skip, leave the
+  output ABSENT, and SAY SO in the trace.
+- **R3 -- the tail backstop**, `typeof v === "number" && !Number.isFinite(v)`. Class-complete by
+  construction, and the only mechanism that does not depend on config being well-formed -- **the loader
+  does not validate, only `update_rate_config` does**, so a bad `rate_stages.mult` reaching `stageRate`
+  is caught here and nowhere else. A dropped output pushes a `(finalize)` trace note; a clean pipeline
+  pushes none, so every existing trace is byte-unmoved.
+- **R4 -- the `evalFormula` rider:** a present-but-`undefined` binding raises the same error as an
+  unbound one, finally making the doc comment (*"Throws on unknown identifiers ... rather than silently
+  mis-computing"*) true. A **backstop for a future formula site**, not the primary fix -- every current
+  call site now guards its own target first and returns the better-worded `no_match`.
+- **R5** -- one source file; no new status (a fourth would fall into `RateMasterDerivation`'s
+  `unsupported` branch and be mislabelled, since its render is an `ok ? ... : no_match ? ... : ...`
+  chain).
+- **R6** -- `applyRate`'s missing finiteness check is **BANKED, deliberately not built**: post-fix no
+  NaN can leave the interpreter as `ok`, so the gap is closed at source rather than in depth.
+
+### THE ONE LIVE BEHAVIOUR THIS SLICE MUST NOT MOVE
+
+`status: "ok"` with an **`undefined`** final is the SHIPPED EA-1b honest-partial contract -- live on the
+`miscellaneous` **CEIG** and **AS Built** rows, 4 combinations across `misc_boq` + `misc_bcs`. A backstop
+phrased as *"no non-value may pass with ok"* would have broken all four while fixing nothing that was
+ever broken. **Absent means "this row has no such rate"; NaN means "we computed nonsense".** Pinned by
+`NEGATIVE PIN: ok with an UNDEFINED final passes through UNTOUCHED`.
+
+### Phase 0 baselines (all measured, none from memory)
+
+| | |
+|---|---|
+| tip | `53fbe65d`, five standing-noise entries, `patches.txt` clean |
+| backend `test_rate_master` | **152 OK** |
+| vitest full suite | **2352 passed / 1 failed (2353)**, 67 files -- the failure is the known pre-existing `writeOffControl.test.ts > mirrors the sibling admin predicates` 5 s timeout |
+| interpreter suite | 242 cases |
+
+**Phase 0d -- THE LIVE-DB CROSS-CHECK the recon could not do.** For each of the 16 exposed read sites,
+every ACTIVE row of the kind was checked for the key against the live database (read-only). Result:
+**1,364 active Electrical rows -- exactly matching the v32 asset -- and 0 rows short**, with per-kind
+counts identical to the asset census (`cable_tray` 450, `conduit` 8, `earthing_item` 25,
+`junction_box` 6, `cable` 292, `termination` 296). **The exposure was LATENT, confirmed against live
+data, not merely against the asset.** Had any row been short the fix order would have changed.
+
+### The fix -- seven sites, one file
+
+| Site | Step | Shape |
+|---|---|---|
+| `evalFormula` | R4 rider | reject a present-but-`undefined` binding |
+| `apply_effective_multiplier` | E3 | guard `ctx[target]` **before the multiply** -> `no_match` |
+| `roundup` | E4 | non-finite/absent target -> skip, output absent, trace note |
+| `component` | E1 | guard inside the `target !== undefined` branch -> `no_match` |
+| `component_band` | E2 | guard **before** the three-identifier bind -> `no_match` |
+| `install_as_ratio` | E5 | the literal `NaN` dies -> `no_match` NAMING the missing supply key |
+| tail | R3 | drop any output that is a NUMBER and not finite; `undefined` untouched |
+
+**Diff: 143 insertions, 8 deletions (77 code + 66 comment).** Larger than the recon's ~70-90 estimate,
+which under-costed each guard as a bare `if`: R1 requires the `component_ref` idiom *including* its
+message, and that lives in a multi-line `steps.push({...})` plus the full `no_match` return -- ~11 code
+lines per site x 5, plus ~20 for the backstop. Scope was exactly R1-R4, no extra sites, one file;
+the overage was surfaced and accepted before Phase 2 rather than absorbed silently.
+
+### Tests -- 20 new, 242 -> **262**
+
+Every assertion uses `Number.isNaN` / `status` / `toBeUndefined`, **never `JSON.stringify`** -- NaN
+serialises to `null`, so a stringified assertion would pass against a genuine null.
+
+| Test | Polarity | Pins |
+|---|---|---|
+| E1 target missing | POSITIVE | `no_match`, empty finals, the "matched row" message |
+| E1 bare `base` formula | POSITIVE | the subtler half -- the evaluator returned `undefined`, NaN only appeared at `sum_components` |
+| E1 target present | NEGATIVE | byte-unchanged (supply 200) |
+| E1 **param-only component (no `target`)** | NEGATIVE | the tray ceiling-accessories shape still prices -- the guard sits INSIDE the target branch |
+| E2 chosen column missing | POSITIVE | `no_match`; **`bandChosen` still reported** -- refusing must not hide which column was asked for |
+| E2 column present | NEGATIVE | byte-unchanged (supply 300) |
+| E3 missing rate | POSITIVE | `no_match` -- and the comment records that the multiply is outside the formula |
+| E3 present rate | NEGATIVE | byte-unchanged (eff 50) |
+| E4 target absent | POSITIVE | **`ok` with the output ABSENT**, not `no_match` |
+| E4 present value | NEGATIVE | byte-unchanged (100) |
+| E5 no `supply_*` | POSITIVE | `no_match`, message NAMES the gap |
+| E5 real `supply_*` | NEGATIVE | byte-unchanged (install 20) |
+| **THE CHAIN** | POSITIVE | `ok`; **sibling `supply` = 200 still prices**; `install` absent, not NaN |
+| **THE BACKSTOP** | POSITIVE | non-finite `rate_stages.mult` -> dropped + `(finalize)` note |
+| backstop on a clean run | NEGATIVE | **no `(finalize)` note** -- every existing trace unmoved |
+| **THE HONEST-PARTIAL PIN** | NEGATIVE | `ok` + `undefined` final passes UNTOUCHED (CEIG shape) |
+| `component_ref` CONTROL | NEGATIVE | the template is byte-unchanged, "referenced row" wording intact |
+| STEP_VOCABULARY partition | NEGATIVE | the two lists must PARTITION the 13-member vocabulary, so **a new step type breaks the test and forces a classification** rather than inheriting F-18 by default |
+| R4 undefined binding | POSITIVE | throws `Unknown identifier`, same as unbound |
+| R4 bound `0` | NEGATIVE | **falsy is not absent** -- `0` still evaluates |
+
+**Plain-English coverage:** the five entry points each get a failing-input case proving the honest
+outcome and a working-input case proving nothing else moved; the chain proves a sibling output
+survives; the backstop proves a route no per-step guard covers is still caught; the honest-partial pin
+and the `component_ref` control are the two "must not move" anchors; the vocabulary partition stops a
+future step joining the class silently.
+
+### Cert -- MEASURED, browser omitted with rationale
+
+**Rationale (recon Q4):** no NaN can reach persisted state today -- `RateHelperPanel`'s
+`Number.isFinite` disables "Use this value" -- so there is no amount, rollup, BCS margin, export or
+tender document to inspect, and the only visible delta is panel text on a row that would first have to
+be manufactured by breaking the catalog. The honest gate is the interpreter. Precedent: F-20, F-19.
+
+**(i) Suites.** interpreter **262 passed**; full vitest **2372 passed / 1 failed (2373)** vs the 2352/1
+baseline -- exactly **+20**, same single pre-existing failure, same 66/67 file counts, zero other
+movement. Backend `test_rate_master` **152 OK**, unchanged (no backend change).
+
+**(ii) Sensitivity sweep, A/B against the pre-fix module extracted from `git HEAD`.** All 18 exposed
+read sites, each driven with its key artificially absent in memory:
+
+| | count |
+|---|---|
+| sites measured | **18** (12 item-attribute driven + 6 golden-driven) |
+| PRE-FIX NaN-through-ok | **18** |
+| **POST-FIX NaN-through-ok** | **0** |
+| post-fix outcome: `honest no_match` | 15 |
+| post-fix outcome: `ok, output ABSENT` (the three chain sites) | 3 |
+
+The four `cabletray_raceway` sites and both `gland_band2_list` sites need the configs' own goldens to
+build a clean run (tray needs pipeline-level choices; band 2 needs a >=35 sqmm row), so they were
+driven that way -- the same route the recon used to reach them.
+
+**(iii) The four honest partials -- byte-identical.** `misc_boq` CEIG `ok {supply:<absent>,
+install:225000}` · `misc_boq` AS Built `ok {supply:24500, install:<absent>}` · `misc_bcs` CEIG
+`ok {bcs_supply:<absent>, bcs_install:0}` · `misc_bcs` AS Built `ok {bcs_supply:19600,
+bcs_install:<absent>}`. **4 of 4 identical pre and post.**
+
+**(iv) Catalog sweep + goldens, A/B.**
+
+| | runs | status changes | newly non-ok | value changes | post NaN-through-ok |
+|---|---|---|---|---|---|
+| catalog sweep | **3,075** | 0 | **0** | **0** | **0** |
+| golden output slots | **95** | 0 | 0 | **0** | **0** |
+
+**Zero live movement.** The fix converts a latent cliff into a guardrail and moves nothing that ships
+today -- which is what the Phase 0d live-DB census predicted and what makes it safe to land.
+
+### Queue state
+
+**F-16 ✅ · F-20 ✅ · F-17 ✅ · F-21 ✅ · F-19 ✅ · F-18 ✅ -- ALL SIX STANDALONE FINDINGS ARE
+CLOSED.** Next: the **combined recon for the seven cleared audit fixes**.
+
+**Constraint recorded for every future frontend slice: vitest runs IN THE CONTAINER ONLY.**
+`frontend/node_modules` is populated for `linux-arm64`, so esbuild -- and therefore vitest -- refuses
+to start on the Windows host (*"You installed esbuild for another platform than the one you're
+currently using"*). The recon hit this and drove the interpreter through Node 24's native TypeScript
+type-stripping instead, which is also how the A/B cert above loaded the pre-fix module from
+`git show HEAD:...` without touching the working tree.

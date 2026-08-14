@@ -1139,11 +1139,44 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
 - **OPTION C IS RETIRED GOING FORWARD.** F-16 and F-17 put their reason in the commit body because
   the channel did not exist. It does now: a future retirement declares its reason **in the asset**,
   and the commit body is a copy rather than the only record.
-- **⚠️ F-18 — A `component` WHOSE `target` NAMES A RATE KEY THE MATCHED ROW LACKS YIELDS NaN THROUGH
-  `status: "ok"` (OPEN, general interpreter exposure, NOT introduced by F-16).** `env.base` is assigned
-  `undefined`, so the unknown-identifier guard does **not** fire (the key IS in `env`); the formula
-  returns `undefined`, `sum_components` reduces to **NaN**, and the pipeline returns `status: "ok"` with
-  a NaN final that `pricingSheetHelper` then adopts. Worse than an honest `no_match`. Its own slice.
+- **✅ F-18 — CLOSED (2026-08-14). NO NON-FINITE NUMBER IS EVER LABELLED `"ok"`, AND THE THREE-PART
+  CONTRACT IS NOW STATED (owner-locked).** `status: "ok"` used to mean only *"the step loop ran to the
+  end without an early return and without throwing"* — it made **no claim about the numbers**, while
+  every consumer reads it as *"these numbers are good"*. It now means: **(1)** a missing rate on a row
+  we DID match **REFUSES** (`no_match`); **(2)** an output that could not be computed is **ABSENT,
+  never zero and never NaN**; **(3)** an **`undefined` final remains the honest-partial contract** and
+  is untouched. The guards copy `component_ref`'s existing idiom — its check AND its message shape —
+  so this adds no concept, only its missing applications.
+- **⚠️ F-18 WAS FIVE ENTRY POINTS, NOT ONE — a fix framed around the identifier guard could not have
+  covered it.** `component` and `component_band` bound `undefined` past `evalFormula`'s `in` test
+  (which checks KEY PRESENCE: `"base" in { base: undefined }` is TRUE); **`apply_effective_multiplier`
+  multiplies OUTSIDE the formula**, so no evaluator guard was ever on its path; `roundup` turned
+  `roundUp(undefined, d)` into NaN; and **`install_as_ratio` did not FAIL into NaN, it ASSIGNED one**
+  (`const base = supplyKey ? ctx[supplyKey] : NaN`). `sum_components` was the propagator, never an
+  origin.
+- **⚠️ `roundup` IS AN HONEST PARTIAL, NOT A REFUSAL — THE ONE DELIBERATE ASYMMETRY (owner-locked).**
+  The absence it reads is almost never its own fault: an upstream `scale` that honestly declined to
+  write its result leaves exactly that hole, and refusing would discard a SIBLING output that computed
+  correctly (`conduit_boq`'s `supply_per_mtr` is right even when `install_per_mtr` was never
+  produced) — the over-wide action the PW-FIX ruling reversed for `module_fit`. **This kills the
+  conduit_boq / conduit_bcs asymmetry: the same missing key used to give an honest partial in one and
+  a NaN in the other, so absence-honesty depended on which step happened to come NEXT.** The four
+  guards that DO refuse (`component`, `component_band`, `apply_effective_multiplier`,
+  `install_as_ratio`) refuse because their value feeds `sum_components` — losing it makes the SUM
+  wrong, not merely shorter, which is why `component_ref` has always refused in the same situation.
+- **⚠️ THE TAIL BACKSTOP'S PREDICATE IS `typeof v === "number" && !Number.isFinite(v)` — A NUMBER THAT
+  IS NOT FINITE, NEVER A MISSING VALUE (owner-locked).** It is the only mechanism that does not depend
+  on config being well-formed (**the loader does not validate; only `update_rate_config` does**), so a
+  bad value reaching `stageRate` is caught here. **A backstop written as "no non-value may pass with
+  ok" would BREAK the four live `miscellaneous` CEIG / AS Built honest partials while fixing nothing
+  that was ever broken.** Absent means *"this row has no such rate"*; NaN means *"we computed
+  nonsense"* — never collapse them.
+- **⚠️ `applyRate`'s MISSING FINITENESS CHECK IS A KNOWN, DELIBERATELY DEFERRED HARDENING (F-18 R6).**
+  `PricingGrid.applyRate` would write `String(NaN)` into a draft rate cell if any caller reached it;
+  today the ONLY thing stopping that is `RateHelperPanel`'s `Number.isFinite` on the override input,
+  which disables "Use this value" — a guard that exists to reject a user typing nonsense and catches
+  this by coincidence. Post-F-18 no NaN can leave the interpreter as `ok`, so the gap is closed at
+  source rather than in depth. Do NOT treat the absence of a second check as evidence it is unneeded.
 - **29-Jul truth-file cycle (EA-DIFF, owner-locked; the E-ALL benchmark of THAT cycle was
   `rate_master_electrical_all_v12.json` — the CURRENT asset is the MERGED
   `rate_master_electrical_all_v30.json`, sha256 prefix `63628d6a15a33796`; asset lineage v9->v12,
