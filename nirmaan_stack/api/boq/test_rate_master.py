@@ -94,8 +94,12 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # F-16 (2026-08-13) minted v31: cable tray install moved ON-ROW. Every cable_tray row gained an
 # `install_rate` rate key holding the FINAL effective per-metre figure (the old x4 baked in), and
 # the 10-row `tray_install_rate` parallel kind was RETIRED BY DECLARATION (retired_kinds), so the
-# asset carries 1372 items, not 1382. The count pins below follow this constant.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v31.json"
+# asset carried 1372 items, not 1382. (F-17 then took it to 1364 -- see below.)
+# F-17 (2026-08-13/14) minted v32: db_switchgear install became a plain RATIO of the calculated
+# supply (20%, roundup tens), the 8-row `db_install_rate` table was RETIRED BY DECLARATION, and
+# the Finding-B db_shell was repriced 12,133 -> 12,881 (R1). Asset carries 1364 items, not 1372.
+# The count pins below follow this constant.
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v32.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -795,7 +799,7 @@ class TestRateMaster(FrappeTestCase):
 
         r = loader.load_rate_master(payload=payload)
         # ONE batch covers items AND configs -- previously two batches from two files.
-        self.assertEqual(r["items_total"], 1372)  # F-16: 1382 -> 1372, the 10 retired tray_install_rate rows
+        self.assertEqual(r["items_total"], 1364)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)
         self.assertEqual(r["configs_loaded"], 12)
         self.assertEqual(len({r["batch"]}), 1)
         self.assertTrue(r["batch"].startswith("rmbulk-"))
@@ -827,7 +831,8 @@ class TestRateMaster(FrappeTestCase):
         # outside the CURRENT_EALL_ASSET single-pin discipline and will need editing on every future
         # retirement. Recorded, not restructured, in this slice.
         self.assertEqual(payload["retired_kinds"],
-                         ["tray_install_rate", "ups_per_kva", "ups_reference"])
+                         ["db_install_rate", "tray_install_rate", "ups_per_kva",
+                          "ups_reference"])  # F-17 added db_install_rate
         # F-16: SORTED, because the asset is now EXPORTED rather than hand-built and
         # retirement.get_retirement_lists returns `sorted(...)` -- "sorted for a stable export",
         # per its own docstring. v30 carried the hand-built insertion order ["ups",
@@ -861,10 +866,10 @@ class TestRateMaster(FrappeTestCase):
             filters={"discipline": disc, "active": 1},
             fields=["kind", "brand", "attributes", "item_uid"],
         )
-        self.assertEqual(len(stored), 1372)  # F-16: 1382 -> 1372, the 10 retired tray_install_rate rows
+        self.assertEqual(len(stored), 1364)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)
         self.assertTrue(all((r["item_uid"] or "").startswith("rmi-") for r in stored),
                         "every stored row must carry the uid the asset supplied")
-        self.assertEqual(len({r["item_uid"] for r in stored}), 1372)
+        self.assertEqual(len({r["item_uid"] for r in stored}), 1364)
         # and it is the SAME uid on the SAME item -- keyed by (kind, brand, attributes), the tuple
         # the backfill paired on. `brand` is load-bearing here: six lms_item pairs are identical on
         # (kind, attributes) and differ ONLY by brand, at materially different prices.
@@ -874,7 +879,7 @@ class TestRateMaster(FrappeTestCase):
                     loader._canonicalize_attributes(it["attributes"])): it["item_uid"]
                 for it in payload["items"]}
         got = {key(r["kind"], r["brand"], _obj(r["attributes"])): r["item_uid"] for r in stored}
-        self.assertEqual(len(want), 1372)
+        self.assertEqual(len(want), 1364)
         self.assertEqual(want, got, "uid must land on the item the asset assigned it to")
 
     # ---- F-16 (2026-08-13): cable tray install moved ON-ROW ----------------------------
@@ -1012,6 +1017,147 @@ class TestRateMaster(FrappeTestCase):
             self.F16_WIDTH_TABLE[100.0] + 200.0 * 1.45,
         )
 
+    # ---- F-17 (2026-08-13/14): db_switchgear install becomes a plain RATIO -------------
+    # Plain-English coverage summary (test -> changed behaviour):
+    #   f17a  install is 20% of the CALCULATED SUPPLY, on a BARE shell and on the SAME shell
+    #         LOADED with MCBs. Two assemblies is the whole point: the retired table was a flat
+    #         per-shell figure that could not see the MCBs, so a single-assembly test would not
+    #         distinguish "tracks the assembly" from "happens to match on this one row".
+    #   f17b  R1 -- the Finding-B shell prices from 12,881, and its old 12,133 row is retained
+    #         inactive (freeze-and-supersede), not deleted.
+    #   f17c  NEGATIVE: the install table is genuinely retired -- absent from items, absent from
+    #         item_kinds, present in retired_kinds. Omission alone would leave it orphan-active.
+    #   f17d  NEGATIVE: NO `lookup_or_ratio` step and NO `db_install_rate` reference survive in
+    #         the install pipeline -- the reference is GONE, not dormant.
+    #   f17e  the four goldens carry the re-minted ratio figures.
+    #
+    # SCOPE NOTE (as for F-16): the interpreter is TypeScript, so these pin the DATA and CONFIG
+    # that determine the price; the EXECUTED figures are proven by the browser cert against the
+    # expected-after table.
+    F17_RATIO = 0.20
+
+    def _f17_db_config(self, payload):
+        return next(c for c in payload["category_configs"] if c["category_id"] == "db_switchgear")
+
+    def test_f17a_install_is_a_ratio_of_the_calculated_supply(self):
+        """POSITIVE -- the ruling itself, expressed in config rather than in a lookup table.
+
+        Install was `lookup_or_ratio`: a flat per-shell figure from an 8-row table (x1.5) for 8
+        shells, and a 0.15 ratio fallback for the other 19. It is now ONE rule for all 27 --
+        `ROUNDUP(supply x 0.20, -1)` -- so it tracks the WHOLE assembly (shell + MCBs + enclosure)
+        rather than the shell alone.
+
+        The step pair is asserted rather than the arithmetic, because the arithmetic lives in the
+        TypeScript interpreter; the browser cert proves the numbers against the expected-after
+        table, on a BARE and a LOADED assembly for each certified shell."""
+        payload = self._merged_payload("Electrical")
+        steps = self._f17_db_config(payload)["pipelines"]["db_buildup_install"]["steps"]
+        scale = steps[-2]
+        self.assertEqual(scale["step"], "scale")
+        self.assertEqual(scale["target"], "supply")        # the CALCULATED supply, not the shell
+        self.assertEqual(scale["result"], "install")
+        self.assertEqual(scale["params"], {"m": self.F17_RATIO})
+        self.assertEqual(scale["formula"], "base*m")
+        # the rounding BEHAVIOUR of the retired step's `round_ratio: -1` is preserved exactly
+        self.assertEqual(steps[-1], {"step": "roundup", "target": "install",
+                                     "params": {"digits": -1}})
+        # steps 0-9 (the build-up itself) are untouched by F-17
+        supply_steps = self._f17_db_config(payload)["pipelines"]["db_buildup_supply"]["steps"]
+        self.assertEqual(steps[:10], supply_steps[:10])
+
+    def test_f17b_the_finding_b_shell_prices_from_the_higher_figure(self):
+        """POSITIVE -- R1, the slice's SECOND deliberate price move.
+
+        The ledger's framing (a merge dedup 'missed a twin') was a MISREAD: the merge deduplicated
+        `db_switchgear_item` and completed correctly. The 12,133 that survived was the `db_shell`
+        catalog's OWN row for the same product -- a different kind with a different rate key, never
+        part of that dedup. The owner adopted the higher figure for safety, so this is a new pricing
+        decision, not a repair."""
+        payload = self._merged_payload("Electrical")
+        shells = [i for i in payload["items"] if i["kind"] == "db_shell"]
+        self.assertEqual(len(shells), 27)
+        target = [i for i in shells if i["item_uid"] == "rmi-867d1c6a5d6b"]
+        self.assertEqual(len(target), 1)
+        self.assertEqual(target[0]["rates"]["shell_rate"], 12881.0)
+        self.assertEqual(target[0]["attributes"]["item"],
+                         "TPN FLEXI DB 4 ROW 14M (DOUBLE DOOR IP 43)")
+        # exactly ONE active shell row for that product -- no duplicate was introduced
+        same = [i for i in shells
+                if i["attributes"]["item"] == "TPN FLEXI DB 4 ROW 14M (DOUBLE DOOR IP 43)"]
+        self.assertEqual(len(same), 1)
+        # and no active row anywhere still carries the superseded figure
+        self.assertEqual([i["item_uid"] for i in payload["items"]
+                          if 12133.0 in (i.get("rates") or {}).values()], [])
+
+    def test_f17c_the_install_table_is_retired_by_declaration(self):
+        """NEGATIVE -- the same failure mode F-16 proved: omission alone is not retirement.
+
+        `_load_multi` scopes its supersede to the payload's own kinds, so a kind merely dropped from
+        an asset is never named by `_deactivate_scope` and its rows stay ORPHAN-ACTIVE. Declaring it
+        in `retired_kinds` is the only thing that deactivates it, and the list is ADDED to."""
+        payload = self._merged_payload("Electrical")
+        self.assertFalse([i for i in payload["items"] if i["kind"] == "db_install_rate"])
+        self.assertEqual(self._f17_db_config(payload)["item_kinds"],
+                         ["db_switchgear_item", "db_shell"])
+        self.assertIn("db_install_rate", payload["retired_kinds"])
+        for kept in ("tray_install_rate", "ups_per_kva", "ups_reference"):
+            self.assertIn(kept, payload["retired_kinds"])   # never replaced, only added to
+
+        disc = self._new_disc()
+        r = loader.load_rate_master(payload=self._merged_payload(disc), replace=True)
+        self.assertIn("kind::db_install_rate", r["retirements_recorded"]["created"])
+        self.assertEqual(self._active_items(disc, kind="db_install_rate"), 0)
+        self.assertEqual(self._active_items(disc, kind="db_shell"), 27)
+
+    def test_f17d_no_lookup_survives_in_the_install_pipeline(self):
+        """NEGATIVE -- GONE, not dormant (owner ruling C).
+
+        Retiring the 8 rows alone would have left the `lookup_or_ratio` step in place, still naming
+        a kind that no longer exists and still tracing 'table miss' against a table that had been
+        retired. Deleting only its `lookup` key was MEASURED and is fatal: the interpreter reads
+        `s.lookup.item` unconditionally, so the pipeline degrades to `unsupported` and every DB
+        install blanks. Replacing the step with `scale` + `roundup` -- existing vocabulary, no
+        interpreter change -- is the shape that removes the reference safely."""
+        payload = self._merged_payload("Electrical")
+        install = json.dumps(self._f17_db_config(payload)["pipelines"]["db_buildup_install"])
+        self.assertNotIn("lookup_or_ratio", install)
+        self.assertNotIn("db_install_rate", install)
+        self.assertNotIn("round_ratio", install)
+        self.assertNotIn("round_lookup", install)
+        # and NO category anywhere still EXECUTES the step -- checked STRUCTURALLY, over step
+        # types, not by searching the serialized config. A substring search also matches the
+        # `notes` prose, which retains the v16c build record that introduced `lookup_or_ratio`;
+        # that is archaeology and is meant to stay. The claim being pinned is behavioural --
+        # nothing runs the step -- so the assertion has to look at steps.
+        executed = [
+            (c["category_id"], pid)
+            for c in payload["category_configs"]
+            for pid, pl in (c.get("pipelines") or {}).items()
+            for st in pl.get("steps", [])
+            if st.get("step") == "lookup_or_ratio"
+        ]
+        self.assertEqual(executed, [],
+                         "F-17: lookup_or_ratio has no shipped consumer left")
+
+    def test_f17e_the_db_goldens_carry_the_reminted_ratio_figures(self):
+        """POSITIVE -- the goldens are config DATA and a standing pin, so a ruling that moves
+        prices must move them too (a test is updated to match a ruling, never the reverse).
+
+        Each was re-derived through the interpreter before editing: dbu1 and dbu3 were already on
+        the 0.15 ratio (3,660 / 3,580 -> 4,880 / 4,770); dbu2 and dbu4 were TABLE hits (1,500 /
+        1,275 -> 2,640 / 1,670). Supplies are unchanged -- none of the four uses the R1 shell, and
+        dbu3's shell is "None"."""
+        payload = self._merged_payload("Electrical")
+        top = {g["id"]: g for g in payload["goldens"]["db_switchgear"]}
+        self.assertEqual(set(top), {"dbu1", "dbu2", "dbu3", "dbu4"})
+        for gid, install in (("dbu1", 4880.0), ("dbu2", 2640.0),
+                             ("dbu3", 4770.0), ("dbu4", 1670.0)):
+            self.assertEqual(top[gid]["expect"]["db_buildup_install"]["install"], install)
+        # the supplies did NOT move
+        self.assertEqual(top["dbu1"]["expect"]["db_buildup_supply"]["supply"], 24360.0)
+        self.assertEqual(top["dbu3"]["expect"]["db_buildup_supply"]["supply"], 23840.0)
+        self.assertEqual(top["dbu3"]["attrs"]["db_shell_item"], "None")   # checked, not assumed
+
     def test_f20_a_source_less_load_refuses_by_name_and_writes_nothing(self):
         """NEGATIVE -- F-20. A load with NEITHER payload NOR path must refuse by name.
 
@@ -1102,7 +1248,8 @@ class TestRateMaster(FrappeTestCase):
         # F-16 ADDED tray_install_rate -- see the note on the twin pin in test_24b: this one is
         # likewise hardcoded and outside the single-pin discipline.
         self.assertEqual(payload["retired_kinds"],
-                         ["tray_install_rate", "ups_per_kva", "ups_reference"])
+                         ["db_install_rate", "tray_install_rate", "ups_per_kva",
+                          "ups_reference"])  # F-17 added db_install_rate
         # F-16: SORTED, because the asset is now EXPORTED rather than hand-built and
         # retirement.get_retirement_lists returns `sorted(...)` -- "sorted for a stable export",
         # per its own docstring. v30 carried the hand-built insertion order ["ups",
@@ -1119,12 +1266,13 @@ class TestRateMaster(FrappeTestCase):
         r = loader.load_rate_master(payload=payload)
 
         # the summary reports what it recorded, and the read function returns the asset's own shape
-        # F-16: 4 -> 5 recorded, and tray_install_rate joins the kinds -- the fifth retirement.
-        self.assertEqual(len(r["retirements_recorded"]["created"]), 5)
+        # F-16: 4 -> 5 recorded. F-17: 5 -> 6, db_install_rate is the SIXTH retirement.
+        self.assertEqual(len(r["retirements_recorded"]["created"]), 6)
         self.assertEqual(r["retirements_recorded"]["existing"], [])
         self.assertEqual(
             retirement.get_retirement_lists(disc),
-            {"retired_kinds": ["tray_install_rate", "ups_per_kva", "ups_reference"],
+            {"retired_kinds": ["db_install_rate", "tray_install_rate", "ups_per_kva",
+                               "ups_reference"],   # F-17 added db_install_rate
              "retired_category_ids": ["switches_point", "ups"]},
         )
 
@@ -1139,10 +1287,10 @@ class TestRateMaster(FrappeTestCase):
         # IDEMPOTENT: a second load records nothing new
         r2 = loader.load_rate_master(payload=self._merged_payload(disc), replace=True)
         self.assertEqual(r2["retirements_recorded"]["created"], [])
-        # F-16: 4 -> 5 on both counts -- tray_install_rate is the fifth retirement.
-        self.assertEqual(len(r2["retirements_recorded"]["existing"]), 5)
+        # F-16: 4 -> 5. F-17: 5 -> 6 on both counts -- db_install_rate is the sixth.
+        self.assertEqual(len(r2["retirements_recorded"]["existing"]), 6)
         self.assertEqual(
-            frappe.db.count(retirement.RETIREMENT_DOCTYPE, {"discipline": disc}), 5
+            frappe.db.count(retirement.RETIREMENT_DOCTYPE, {"discipline": disc}), 6
         )
 
         # UNIQUENESS IS STRUCTURAL: the tuple IS the primary key, so a duplicate cannot be inserted
@@ -1220,7 +1368,7 @@ class TestRateMaster(FrappeTestCase):
         payload2 = json.loads(json.dumps(payload))
         payload2["discipline"] = dst
         r = loader.load_rate_master(payload=payload2)
-        self.assertEqual(r["items_total"], 1372)  # F-16: 1382 -> 1372, the 10 retired tray_install_rate rows
+        self.assertEqual(r["items_total"], 1364)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)
         self.assertEqual(r["configs_loaded"], 12)
 
         def rows(d):
@@ -1361,7 +1509,7 @@ class TestRateMaster(FrappeTestCase):
                                 fields=["payload", "item_count", "config_count", "taken_by",
                                         "import_batch"],
                                 order_by="version desc", limit=1)[0]
-        self.assertEqual(newest["item_count"], 1372)  # F-16: 1382 -> 1372, the 10 retired tray_install_rate rows
+        self.assertEqual(newest["item_count"], 1364)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)
         self.assertEqual(newest["config_count"], 12)
         self.assertTrue(newest["taken_by"])
         self.assertTrue(newest["import_batch"].startswith("rmbulk-"))
@@ -1394,7 +1542,7 @@ class TestRateMaster(FrappeTestCase):
         res = rate_master.export_rate_master_asset(discipline=disc)
         self.assertEqual(res["content_type"], "application/json")
         self.assertTrue(res["filename"].endswith(".json"))
-        self.assertEqual(res["item_count"], 1372)  # F-16: 1382 -> 1372, the 10 retired tray_install_rate rows
+        self.assertEqual(res["item_count"], 1364)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)
         decoded = base64.b64decode(res["content_base64"]).decode("utf-8")
         self.assertEqual(json.loads(decoded)["discipline"], disc)
         self.assertEqual(frappe.db.count(exporter.SNAPSHOT_DOCTYPE, {"discipline": disc}), before + 1)
@@ -1453,7 +1601,7 @@ class TestRateMaster(FrappeTestCase):
         loader.load_rate_master(payload=self._merged_payload(disc))
 
         text, headers, n = csv_exporter.build_all_categories_csv(disc)
-        self.assertEqual(n, 1372)  # F-16: 1382 -> 1372, the 10 retired tray_install_rate rows
+        self.assertEqual(n, 1364)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)
         self.assertEqual(headers[:5], ["item_uid", "category", "kind", "brand", "unit"])
         self.assertEqual(headers[-2:], ["source_sheet", "source_row"])
         for k in ("tray_type", "core", "conduit_type", "colour", "description"):
@@ -1461,7 +1609,7 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(len(headers), 45)
 
         rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
-        self.assertEqual(len(rows) - 1, 1372)
+        self.assertEqual(len(rows) - 1, 1364)
         self.assertTrue(all(r[0].startswith("rmi-") for r in rows[1:]))
         cats = {r[1] for r in rows[1:]}
         self.assertIn("cabletray_raceway", cats)
@@ -1524,7 +1672,7 @@ class TestRateMaster(FrappeTestCase):
         res_all = rate_master.export_rate_master_csv(discipline=disc)
         self.assertEqual(res_all["mode"], "all")
         self.assertEqual(res_all["column_count"], 45)
-        self.assertEqual(res_all["row_count"], 1372)  # F-16: 1382 -> 1372, the 10 retired tray_install_rate rows
+        self.assertEqual(res_all["row_count"], 1364)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)
 
     def test_24q_a_category_with_no_items_gives_headers_only_not_an_error(self):
         """SLICE 5 NEGATIVE -- point_wiring is kind-less and owns no rows of its own. It must yield a
