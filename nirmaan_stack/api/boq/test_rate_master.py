@@ -91,7 +91,11 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # pins had drifted independently (_ASSET on v22, _EALL_CURRENT on v27, an inline v29), which is
 # the exact C4 trap _EALL_CURRENT's own docstring warns about and had itself fallen into twice.
 # One constant is the whole point: a mint bumps this line and every current-asset test follows.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v30.json"
+# F-16 (2026-08-13) minted v31: cable tray install moved ON-ROW. Every cable_tray row gained an
+# `install_rate` rate key holding the FINAL effective per-metre figure (the old x4 baked in), and
+# the 10-row `tray_install_rate` parallel kind was RETIRED BY DECLARATION (retired_kinds), so the
+# asset carries 1372 items, not 1382. The count pins below follow this constant.
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v31.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -790,7 +794,7 @@ class TestRateMaster(FrappeTestCase):
 
         r = loader.load_rate_master(payload=payload)
         # ONE batch covers items AND configs -- previously two batches from two files.
-        self.assertEqual(r["items_total"], 1382)
+        self.assertEqual(r["items_total"], 1372)  # F-16: 1382 -> 1372, the 10 retired tray_install_rate rows
         self.assertEqual(r["configs_loaded"], 12)
         self.assertEqual(len({r["batch"]}), 1)
         self.assertTrue(r["batch"].startswith("rmbulk-"))
@@ -816,8 +820,19 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(extraction._config_kinds(stored), ["cable", "termination"])
 
         # the retired scope carries through unchanged
-        self.assertEqual(payload["retired_kinds"], ["ups_per_kva", "ups_reference"])
-        self.assertEqual(payload["retired_category_ids"], ["ups", "switches_point"])
+        # F-16 ADDED tray_install_rate: the parallel install table is retired BY DECLARATION, since
+        # omission alone leaves its rows orphan-active (_load_multi scopes the supersede to the
+        # payload's own kinds). NOTE: this pin HARDCODES the list rather than deriving it, so it sits
+        # outside the CURRENT_EALL_ASSET single-pin discipline and will need editing on every future
+        # retirement. Recorded, not restructured, in this slice.
+        self.assertEqual(payload["retired_kinds"],
+                         ["tray_install_rate", "ups_per_kva", "ups_reference"])
+        # F-16: SORTED, because the asset is now EXPORTED rather than hand-built and
+        # retirement.get_retirement_lists returns `sorted(...)` -- "sorted for a stable export",
+        # per its own docstring. v30 carried the hand-built insertion order ["ups",
+        # "switches_point"]. This mismatch was INVISIBLE until the retired_kinds pin above was
+        # corrected, because that line failed first.
+        self.assertEqual(payload["retired_category_ids"], ["switches_point", "ups"])
 
     def test_24c_the_loader_carries_item_uid_through_from_the_asset(self):
         """SLICE 2 -- the stable item uid survives an import.
@@ -845,10 +860,10 @@ class TestRateMaster(FrappeTestCase):
             filters={"discipline": disc, "active": 1},
             fields=["kind", "brand", "attributes", "item_uid"],
         )
-        self.assertEqual(len(stored), 1382)
+        self.assertEqual(len(stored), 1372)  # F-16: 1382 -> 1372, the 10 retired tray_install_rate rows
         self.assertTrue(all((r["item_uid"] or "").startswith("rmi-") for r in stored),
                         "every stored row must carry the uid the asset supplied")
-        self.assertEqual(len({r["item_uid"] for r in stored}), 1382)
+        self.assertEqual(len({r["item_uid"] for r in stored}), 1372)
         # and it is the SAME uid on the SAME item -- keyed by (kind, brand, attributes), the tuple
         # the backfill paired on. `brand` is load-bearing here: six lms_item pairs are identical on
         # (kind, attributes) and differ ONLY by brand, at materially different prices.
@@ -858,8 +873,143 @@ class TestRateMaster(FrappeTestCase):
                     loader._canonicalize_attributes(it["attributes"])): it["item_uid"]
                 for it in payload["items"]}
         got = {key(r["kind"], r["brand"], _obj(r["attributes"])): r["item_uid"] for r in stored}
-        self.assertEqual(len(want), 1382)
+        self.assertEqual(len(want), 1372)
         self.assertEqual(want, got, "uid must land on the item the asset assigned it to")
+
+    # ---- F-16 (2026-08-13): cable tray install moved ON-ROW ----------------------------
+    # Plain-English coverage summary (test -> changed behaviour):
+    #   f16a  a tray row CARRIES its own install rate, at the narrow end of the width table, and
+    #         the install pipeline now matches `cable_tray` -- i.e. the second lookup is gone and
+    #         install is read off the row the supply match already found.
+    #   f16b  the same at the WIDE end. All three stored goldens sit at width 100, so without this
+    #         a single hard-coded 120 would satisfy every other check in the suite.
+    #   f16c  NEGATIVE: the parallel kind is genuinely RETIRED -- absent from the asset, absent
+    #         from item_kinds, and declared in retired_kinds so a replace deactivates it. Omission
+    #         alone would leave the 10 rows ORPHAN-ACTIVE.
+    #   f16d  NEGATIVE: no multiplier survives anywhere in the install pipeline. A re-introduced
+    #         per_run_factor would QUADRUPLE every tray install and nothing else here would notice.
+    #   f16e  the three goldens reproduce UNCHANGED -- the prices-must-not-move instrument.
+    #
+    # SCOPE NOTE, deliberate: the pipeline INTERPRETER is TypeScript
+    # (frontend/src/pages/pricing/rate-master/ratePipelineInterpreter.ts) and there is no Python
+    # implementation -- by design; a second implementation of this arithmetic is forbidden. These
+    # tests therefore pin the DATA and CONFIG that determine the price. The EXECUTED finals
+    # (install = 120 at width 100, 380 at width 600) are proven in the browser cert against the
+    # pre-change ledger, which is the only surface that actually runs the interpreter.
+    F16_WIDTH_TABLE = {50.0: 100.0, 100.0: 120.0, 150.0: 140.0, 200.0: 160.0, 250.0: 180.0,
+                       300.0: 220.0, 350.0: 260.0, 400.0: 300.0, 450.0: 340.0, 600.0: 380.0}
+
+    def _f16_tray_config(self, payload):
+        return next(c for c in payload["category_configs"] if c["category_id"] == "cabletray_raceway")
+
+    def _f16_tray_rows(self, payload, width):
+        return [i for i in payload["items"]
+                if i["kind"] == "cable_tray" and i["attributes"]["width_mm"] == width]
+
+    def test_f16a_install_is_read_off_the_tray_row_itself_at_the_narrow_end(self):
+        """POSITIVE. At width 100 every tray row carries install_rate = 120 -- the FINAL effective
+        figure, with the old x4 already baked in -- and the install pipeline's match_master_row now
+        names `cable_tray`, the SAME kind the supply pipeline matches.
+
+        That pairing is the whole of F-16: one matched row, two rate keys read off it, exactly as
+        the supply pipeline already reads without_cover_list and cover_only_list off one row."""
+        payload = self._merged_payload("Electrical")
+        rows = self._f16_tray_rows(payload, 100.0)
+        self.assertEqual(len(rows), 45)
+        for it in rows:
+            self.assertEqual(it["rates"]["install_rate"], 120.0)
+            # the supply rates are UNTOUCHED -- install_rate was added, nothing was replaced
+            self.assertIn("without_cover_list", it["rates"])
+            self.assertIn("cover_only_list", it["rates"])
+
+        steps = self._f16_tray_config(payload)["pipelines"]["tray_boq_install"]["steps"]
+        self.assertEqual(steps[0]["step"], "match_master_row")
+        self.assertEqual(steps[0]["params"]["kind"], "cable_tray")
+        self.assertEqual(steps[1]["target"], "install_rate")
+        self.assertEqual(steps[1]["formula"], "base")   # verbatim, no arithmetic on top
+
+    def test_f16b_install_is_read_off_the_tray_row_itself_at_the_wide_end(self):
+        """POSITIVE, and the ONLY coverage away from width 100.
+
+        Goldens t1/t2/t3 all sit at width 100, so a config that hard-coded 120 -- or a table read
+        that silently returned the same row for every width -- would pass f16a and every golden.
+        Width 600 is the far end of the ladder, and the whole table is checked row by row."""
+        payload = self._merged_payload("Electrical")
+        rows = self._f16_tray_rows(payload, 600.0)
+        self.assertEqual(len(rows), 45)
+        for it in rows:
+            self.assertEqual(it["rates"]["install_rate"], 380.0)
+
+        # every width, every row: 450 rows, 45 at each of the ten widths, no eleventh value
+        seen = {}
+        for it in payload["items"]:
+            if it["kind"] != "cable_tray":
+                continue
+            w = it["attributes"]["width_mm"]
+            self.assertIn(w, self.F16_WIDTH_TABLE, f"width {w} is outside the F-16 table")
+            self.assertEqual(it["rates"]["install_rate"], self.F16_WIDTH_TABLE[w])
+            seen[w] = seen.get(w, 0) + 1
+        self.assertEqual(seen, {w: 45 for w in self.F16_WIDTH_TABLE})
+
+    def test_f16c_the_parallel_kind_is_retired_by_declaration_not_by_omission(self):
+        """NEGATIVE, and the one that would have been silently wrong.
+
+        `_load_multi` computes its supersede scope from the PAYLOAD's own kinds, so a kind merely
+        DROPPED from an asset is never named by _deactivate_scope and its rows stay ACTIVE -- still
+        served by every active-only reader, while the asset meant to define them no longer mentions
+        them. Declaring it in `retired_kinds` is the ONLY thing that deactivates it, and the
+        declaration must ADD to the existing entries rather than replace them."""
+        payload = self._merged_payload("Electrical")
+        self.assertFalse([i for i in payload["items"] if i["kind"] == "tray_install_rate"])
+        self.assertEqual(self._f16_tray_config(payload)["item_kinds"], ["cable_tray"])
+        self.assertIn("tray_install_rate", payload["retired_kinds"])
+        # the pre-existing retirements survive -- losing one would silently UN-retire that kind
+        self.assertIn("ups_per_kva", payload["retired_kinds"])
+        self.assertIn("ups_reference", payload["retired_kinds"])
+
+        # and the declaration really does deactivate, in a scratch discipline
+        disc = self._new_disc()
+        r = loader.load_rate_master(payload=self._merged_payload(disc), replace=True)
+        self.assertIn("kind::tray_install_rate", r["retirements_recorded"]["created"])
+        self.assertEqual(self._active_items(disc, kind="tray_install_rate"), 0)
+        self.assertEqual(self._active_items(disc, kind="cable_tray"), 450)
+
+    def test_f16d_no_multiplier_survives_in_the_install_pipeline(self):
+        """NEGATIVE. The x4 is now baked into the stored figures, so the pipeline must apply NO
+        factor at all. A re-introduced `per_run_factor` -- or any other numeric param on the
+        width_install step -- would quadruple every tray install on every sheet, and the goldens
+        could not catch it alone: they would simply move together and look self-consistent."""
+        payload = self._merged_payload("Electrical")
+        pl = self._f16_tray_config(payload)["pipelines"]["tray_boq_install"]
+        self.assertNotIn("per_run_factor", json.dumps(pl))
+        width_install = next(s for s in pl["steps"] if s.get("name") == "width_install")
+        self.assertEqual(width_install["params"], {})
+        # the floor_cutting adder and the sum are UNTOUCHED by F-16
+        cutting = next(s for s in pl["steps"] if s.get("name") == "floor_cutting")
+        self.assertEqual(cutting["conditions"][0]["params"], {"cutting_rate": 200.0, "markup": 0.45})
+        self.assertEqual(pl["steps"][-1], {"step": "sum_components", "result": "install_per_rmt"})
+
+    def test_f16e_the_tray_goldens_are_unchanged_by_the_restructure(self):
+        """THE PRICES-MUST-NOT-MOVE INSTRUMENT.
+
+        F-16 is a pure restructure, so the stored goldens must survive it untouched. All three sit
+        at width 100, where the retired table said 30 x 4 and the row now says 120 -- the same
+        number by construction, which is exactly why no golden needed editing. t3 additionally
+        carries the cutting adder (200 x 1.45 = 290), proving F-16 left that branch alone."""
+        payload = self._merged_payload("Electrical")
+        goldens = {g["id"]: g for g in payload["goldens"]["cabletray_raceway"]}
+        self.assertEqual(set(goldens), {"t1", "t2", "t3"})
+        for gid in ("t1", "t2", "t3"):
+            self.assertEqual(goldens[gid]["attrs"]["width_mm"], 100.0)
+        self.assertEqual(goldens["t1"]["expect"]["tray_boq_install"]["install_per_rmt"], 120.0)
+        self.assertEqual(goldens["t2"]["expect"]["tray_boq_install"]["install_per_rmt"], 120.0)
+        self.assertEqual(goldens["t3"]["expect"]["tray_boq_install"]["install_per_rmt"], 410.0)
+        self.assertEqual(goldens["t1"]["expect"]["tray_boq_supply"]["supply_per_rmt"], 431.0)
+        # 410 = the row's own 120 + the untouched cutting adder 290
+        self.assertEqual(
+            goldens["t3"]["expect"]["tray_boq_install"]["install_per_rmt"],
+            self.F16_WIDTH_TABLE[100.0] + 200.0 * 1.45,
+        )
 
     def test_24d_a_legacy_asset_without_uids_still_loads(self):
         """SLICE 2 -- NEGATIVE half. v29 and earlier carry no `item_uid`, and `_validate_items` must
@@ -896,8 +1046,16 @@ class TestRateMaster(FrappeTestCase):
 
         disc = self._new_disc()
         payload = self._merged_payload(disc)
-        self.assertEqual(payload["retired_kinds"], ["ups_per_kva", "ups_reference"])
-        self.assertEqual(payload["retired_category_ids"], ["ups", "switches_point"])
+        # F-16 ADDED tray_install_rate -- see the note on the twin pin in test_24b: this one is
+        # likewise hardcoded and outside the single-pin discipline.
+        self.assertEqual(payload["retired_kinds"],
+                         ["tray_install_rate", "ups_per_kva", "ups_reference"])
+        # F-16: SORTED, because the asset is now EXPORTED rather than hand-built and
+        # retirement.get_retirement_lists returns `sorted(...)` -- "sorted for a stable export",
+        # per its own docstring. v30 carried the hand-built insertion order ["ups",
+        # "switches_point"]. This mismatch was INVISIBLE until the retired_kinds pin above was
+        # corrected, because that line failed first.
+        self.assertEqual(payload["retired_category_ids"], ["switches_point", "ups"])
 
         # nothing recorded for a discipline that has never been loaded
         self.assertEqual(
@@ -908,11 +1066,12 @@ class TestRateMaster(FrappeTestCase):
         r = loader.load_rate_master(payload=payload)
 
         # the summary reports what it recorded, and the read function returns the asset's own shape
-        self.assertEqual(len(r["retirements_recorded"]["created"]), 4)
+        # F-16: 4 -> 5 recorded, and tray_install_rate joins the kinds -- the fifth retirement.
+        self.assertEqual(len(r["retirements_recorded"]["created"]), 5)
         self.assertEqual(r["retirements_recorded"]["existing"], [])
         self.assertEqual(
             retirement.get_retirement_lists(disc),
-            {"retired_kinds": ["ups_per_kva", "ups_reference"],
+            {"retired_kinds": ["tray_install_rate", "ups_per_kva", "ups_reference"],
              "retired_category_ids": ["switches_point", "ups"]},
         )
 
@@ -927,9 +1086,10 @@ class TestRateMaster(FrappeTestCase):
         # IDEMPOTENT: a second load records nothing new
         r2 = loader.load_rate_master(payload=self._merged_payload(disc), replace=True)
         self.assertEqual(r2["retirements_recorded"]["created"], [])
-        self.assertEqual(len(r2["retirements_recorded"]["existing"]), 4)
+        # F-16: 4 -> 5 on both counts -- tray_install_rate is the fifth retirement.
+        self.assertEqual(len(r2["retirements_recorded"]["existing"]), 5)
         self.assertEqual(
-            frappe.db.count(retirement.RETIREMENT_DOCTYPE, {"discipline": disc}), 4
+            frappe.db.count(retirement.RETIREMENT_DOCTYPE, {"discipline": disc}), 5
         )
 
         # UNIQUENESS IS STRUCTURAL: the tuple IS the primary key, so a duplicate cannot be inserted
@@ -1007,7 +1167,7 @@ class TestRateMaster(FrappeTestCase):
         payload2 = json.loads(json.dumps(payload))
         payload2["discipline"] = dst
         r = loader.load_rate_master(payload=payload2)
-        self.assertEqual(r["items_total"], 1382)
+        self.assertEqual(r["items_total"], 1372)  # F-16: 1382 -> 1372, the 10 retired tray_install_rate rows
         self.assertEqual(r["configs_loaded"], 12)
 
         def rows(d):
@@ -1148,7 +1308,7 @@ class TestRateMaster(FrappeTestCase):
                                 fields=["payload", "item_count", "config_count", "taken_by",
                                         "import_batch"],
                                 order_by="version desc", limit=1)[0]
-        self.assertEqual(newest["item_count"], 1382)
+        self.assertEqual(newest["item_count"], 1372)  # F-16: 1382 -> 1372, the 10 retired tray_install_rate rows
         self.assertEqual(newest["config_count"], 12)
         self.assertTrue(newest["taken_by"])
         self.assertTrue(newest["import_batch"].startswith("rmbulk-"))
@@ -1181,7 +1341,7 @@ class TestRateMaster(FrappeTestCase):
         res = rate_master.export_rate_master_asset(discipline=disc)
         self.assertEqual(res["content_type"], "application/json")
         self.assertTrue(res["filename"].endswith(".json"))
-        self.assertEqual(res["item_count"], 1382)
+        self.assertEqual(res["item_count"], 1372)  # F-16: 1382 -> 1372, the 10 retired tray_install_rate rows
         decoded = base64.b64decode(res["content_base64"]).decode("utf-8")
         self.assertEqual(json.loads(decoded)["discipline"], disc)
         self.assertEqual(frappe.db.count(exporter.SNAPSHOT_DOCTYPE, {"discipline": disc}), before + 1)
@@ -1210,7 +1370,10 @@ class TestRateMaster(FrappeTestCase):
         loader.load_rate_master(payload=self._merged_payload(disc))
 
         text, headers, n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
-        self.assertEqual(n, 460)
+        # F-16: 460 -> 450. The category used to own TWO kinds (450 cable_tray + the 10-row
+        # tray_install_rate table); the table is retired, so its CSV scope shrank by exactly the
+        # retired kind -- a positive signal, not merely a count edit.
+        self.assertEqual(n, 450)
         self.assertEqual(headers,
                          ["item_uid", "kind", "brand", "unit",
                           "material", "thickness_mm", "tray_type", "width_mm",
@@ -1221,7 +1384,7 @@ class TestRateMaster(FrappeTestCase):
 
         rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
         self.assertEqual(rows[0], headers)
-        self.assertEqual(len(rows) - 1, 460)
+        self.assertEqual(len(rows) - 1, 450)   # F-16: 460 -> 450, same reason as the count above
         self.assertTrue(all(r[0].startswith("rmi-") for r in rows[1:]),
                         "every row must carry item_uid")
 
@@ -1237,7 +1400,7 @@ class TestRateMaster(FrappeTestCase):
         loader.load_rate_master(payload=self._merged_payload(disc))
 
         text, headers, n = csv_exporter.build_all_categories_csv(disc)
-        self.assertEqual(n, 1382)
+        self.assertEqual(n, 1372)  # F-16: 1382 -> 1372, the 10 retired tray_install_rate rows
         self.assertEqual(headers[:5], ["item_uid", "category", "kind", "brand", "unit"])
         self.assertEqual(headers[-2:], ["source_sheet", "source_row"])
         for k in ("tray_type", "core", "conduit_type", "colour", "description"):
@@ -1245,7 +1408,7 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(len(headers), 45)
 
         rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
-        self.assertEqual(len(rows) - 1, 1382)
+        self.assertEqual(len(rows) - 1, 1372)
         self.assertTrue(all(r[0].startswith("rmi-") for r in rows[1:]))
         cats = {r[1] for r in rows[1:]}
         self.assertIn("cabletray_raceway", cats)
@@ -1308,7 +1471,7 @@ class TestRateMaster(FrappeTestCase):
         res_all = rate_master.export_rate_master_csv(discipline=disc)
         self.assertEqual(res_all["mode"], "all")
         self.assertEqual(res_all["column_count"], 45)
-        self.assertEqual(res_all["row_count"], 1382)
+        self.assertEqual(res_all["row_count"], 1372)  # F-16: 1382 -> 1372, the 10 retired tray_install_rate rows
 
     def test_24q_a_category_with_no_items_gives_headers_only_not_an_error(self):
         """SLICE 5 NEGATIVE -- point_wiring is kind-less and owns no rows of its own. It must yield a
@@ -2785,11 +2948,32 @@ class TestRateMaster(FrappeTestCase):
 
         It was harmless ONLY while the top-level entry existed to overwrite it. Drop that entry --
         exactly what a retirement does -- and the stale copy would load SILENTLY. NEGATIVE half: no
-        config may carry a `goldens` copy that disagrees with the top-level dict."""
-        payload = self._current_eall_asset()
+        config may carry a `goldens` copy that disagrees with the top-level dict.
 
-        ss = [c for c in payload["category_configs"] if c["category_id"] == "switches_sockets"][0]
-        self.assertNotIn("goldens", ss)
+        F-16 (owner ruling R2) REPLACED an `assertNotIn("goldens", ss)` absence pin. That pin
+        encoded a property of a HAND-BUILT asset, not of the invariant: v30 was hand-merged, whereas
+        an EXPORTED asset legitimately GAINS a config-level `goldens` copy, because the loader stamps
+        it at ingest and the export reproduces what is stored. So the absence pin fails on every
+        exported asset -- v31 was the first -- while never having guarded the actual hazard.
+
+        THE ACTUAL HAZARD is a config-level copy with NO top-level twin: the overwrite fires only
+        when a top-level entry exists for that category, so an orphan copy survives the load
+        untouched and goes silently stale. Absence-checking could not see that; agreement-checking
+        does, and it holds for hand-built and exported assets alike."""
+        payload = self._current_eall_asset()
+        top = payload["goldens"]
+
+        for cfg in payload["category_configs"]:
+            if "goldens" not in cfg:
+                continue                      # nothing to disagree with
+            cid = cfg["category_id"]
+            # (a) a top-level entry MUST exist -- an orphan copy is the silent-staleness hazard
+            self.assertIn(cid, top,
+                          f"{cid} carries a config-level goldens copy with no top-level twin: "
+                          "the load would not overwrite it, so it can go stale unnoticed")
+            # (b) and the two must AGREE EXACTLY -- a disagreeing copy is the #178 defect
+            self.assertEqual(cfg["goldens"], top[cid],
+                             f"{cid}'s config-level goldens disagree with the top-level authority")
 
         # the surviving authority is the slice-2 re-mint, not the incoherent 1a golden
         ss1 = {g["id"]: g for g in payload["goldens"]["switches_sockets"]}["ss1"]
@@ -3458,6 +3642,46 @@ class TestRateMaster(FrappeTestCase):
     def _first_with(self, rows, idx):
         return self._picks_with(rows, idx, 1)[0]
 
+    def _picks_measurable_at_ten_percent(self, rows, idx, n=3):
+        """Indices of the first n rows whose stored value makes a +-10% edit MEASURABLE as major.
+
+        F-21 (OPEN, owner-parked, lives in csv_importer): the >=10% boundary is FLOAT-FRAGILE ON THE
+        DOWNWARD SIDE. `_rate_change_pct` is `(new - old) / abs(old) * 100.0` and major is
+        `abs(pct) >= 10.0`, so a value whose 0.90 multiple is not exactly representable computes
+        -9.999999999999993 and is classified NOT major -- e.g. 491.0 -> 441.90000000000003. An
+        exactly -10% edit therefore collapses behind a count today.
+
+        This picker ACCOMMODATES that boundary as it IS; it does not paper over it and it does not
+        weaken any assertion -- it only selects which rows the fixture edits. F-21 is recorded in
+        the docs and is a separate slice; do NOT "fix" it here by loosening the comparison.
+
+        It ALSO excludes rows whose value is 0.0 (31 of them in this column): x1.05 leaves a zero
+        unchanged, so the row never appears in plan["changes"] and the lookup would KeyError, and
+        its percentage would be a divide-by-zero.
+
+        Headroom is not marginal: 102 of the 261 non-zero rows in wiring_cabling's
+        list_price_per_mtr qualify."""
+        def pct(old, new):
+            return (new - old) / abs(old) * 100.0
+
+        picks = []
+        for i, r in enumerate(rows):
+            raw = (r[idx] or "").strip()
+            if not raw:
+                continue
+            v = float(raw)
+            if v == 0.0:
+                continue
+            # round-trip through str() exactly as the fixture writes the cell back
+            up, dn = float(str(v * 1.10)), float(str(v * 0.90))
+            if abs(pct(v, up)) >= 10.0 and abs(pct(v, dn)) >= 10.0:
+                picks.append(i)
+            if len(picks) == n:
+                break
+        self.assertGreaterEqual(len(picks), n,
+                                "fixture: not enough rows whose +-10% edit is measurable")
+        return picks
+
     def _active_rows(self, disc):
         return {
             r["item_uid"]: r
@@ -3654,16 +3878,29 @@ class TestRateMaster(FrappeTestCase):
         """POSITIVE: the expansion rule, exactly as ruled.
 
         26,100 typed for 2,610 is invisible in a count and 261 for 2,610 quotes catastrophically
-        low -- BOTH directions matter, so the threshold is on the absolute move."""
+        low -- BOTH directions matter, so the threshold is on the absolute move.
+
+        F-16 (owner ruling R3) MOVED this fixture from cabletray_raceway to wiring_cabling. The
+        appearing-rate case needs a GENUINELY blank rate cell, and the tray category's blanks were
+        never its own: they were borrowed from the 10 tray_install_rate rows, which shared the
+        category and carry no cover rates. F-16 retired that kind, so cabletray_raceway is now
+        FULLY DENSE -- all 450 rows carry all four rates -- and no appearing-rate case exists in it
+        at all. wiring_cabling is genuinely sparse for a structural reason that will not go away:
+        it spans two kinds with disjoint rate keys, so its 292 cable rows carry no lug/gland rates
+        and its 296 termination rows carry no per-metre rates. The assertion is UNWEAKENED; only
+        the category supplying the blank changed."""
         from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
 
         disc = self._loaded_disc()
-        text, _h, _n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        text, _h, _n = csv_exporter.build_category_csv(disc, "wiring_cabling")
         headers, rows = self._csv_parts(text)
-        ri = headers.index("install_rate")
-        ci = headers.index("cover_only_list")
+        ri = headers.index("list_price_per_mtr")   # carried by the cable rows
+        ci = headers.index("lug_list")             # blank on every cable row
 
-        picks = self._picks_with(rows, ri, 3)
+        # F-21: pick rows whose +-10% edit is MEASURABLE, and never a 0.0 row -- see the picker's
+        # docstring. The boundary's downward float-fragility is a real product edge, recorded and
+        # owner-parked; it is accommodated here, not hidden and not fixed.
+        picks = self._picks_measurable_at_ten_percent(rows, ri, 3)
         up, down, small = (list(rows[i]) for i in picks)
         up[ri] = str(float(up[ri]) * 1.10)          # exactly +10%
         down[ri] = str(float(down[ri]) * 0.90)      # exactly -10%
@@ -3680,12 +3917,16 @@ class TestRateMaster(FrappeTestCase):
         self.assertFalse(by_uid[small[0]]["major"], "a 5% move collapses behind a count")
         self.assertTrue(by_uid[appear[0]]["major"], "a move a percentage cannot describe is major")
 
-        pct_up = next(f["pct"] for f in by_uid[up[0]]["fields"] if f["column"] == "install_rate")
-        pct_dn = next(f["pct"] for f in by_uid[down[0]]["fields"] if f["column"] == "install_rate")
+        # F-16: the columns follow the fixture's move to wiring_cabling (were install_rate /
+        # cover_only_list, the tray pair).
+        pct_up = next(f["pct"] for f in by_uid[up[0]]["fields"]
+                      if f["column"] == "list_price_per_mtr")
+        pct_dn = next(f["pct"] for f in by_uid[down[0]]["fields"]
+                      if f["column"] == "list_price_per_mtr")
         self.assertAlmostEqual(pct_up, 10.0, places=2)
         self.assertAlmostEqual(pct_dn, -10.0, places=2)
         self.assertIsNone(next(f["pct"] for f in by_uid[appear[0]]["fields"]
-                               if f["column"] == "cover_only_list"))
+                               if f["column"] == "lug_list"))
         # nothing about computing a preview writes
         self.assertEqual(frappe.db.count("BoQ Rate Master Snapshot", {"discipline": disc}), 0)
 
