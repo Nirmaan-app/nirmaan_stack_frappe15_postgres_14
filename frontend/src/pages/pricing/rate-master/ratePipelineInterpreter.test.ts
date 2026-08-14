@@ -3194,3 +3194,289 @@ describe("BLANKER -- the item bind follows the EFFECTIVE count", () => {
       .toContain("no matching row(s)");
   });
 });
+
+// =======================================================================================================
+// F-18 -- NO NON-FINITE NUMBER IS EVER LABELLED "ok".
+//
+// The recon found FIVE entry points, not one. Each bound or computed a value that could be absent and
+// let the result reach `finals` under `status: "ok"`:
+//   E1 component                  -- `ctx[target]` undefined; the evaluator's `in` guard tests KEY
+//                                    PRESENCE, so `{ base: undefined }` passed and returned NaN
+//   E2 component_band             -- the same, planted under THREE identifiers at once
+//   E3 apply_effective_multiplier -- the multiply is OUTSIDE the formula, so no guard was even on the path
+//   E4 roundup                    -- roundUp(undefined, d) = NaN, written back into ctx
+//   E5 install_as_ratio           -- did not FAIL into NaN, it ASSIGNED one (`: NaN`)
+// plus THE CHAIN: `scale`'s honest partial creates the hole that the next unguarded step converts to NaN
+// (why the same missing key gave an honest partial in conduit_bcs and a NaN in conduit_boq), and THE
+// BACKSTOP for anything none of the five cover.
+//
+// The contract these pin: a missing rate on a row we DID match REFUSES; an output that could not be
+// computed is ABSENT, never zero and never NaN; and `status: "ok"` now makes a claim about the numbers.
+//
+// WARNING: every assertion uses `Number.isNaN` / `status` / `toBeUndefined`, NEVER `JSON.stringify` --
+// NaN serialises to `null`, so a stringified assertion would pass against a genuine null.
+// =======================================================================================================
+describe("F-18 -- a non-finite number is never labelled ok", () => {
+  // ONE fixture: the row carries `list_price` and DELIBERATELY NOT `install_base`. That single absence
+  // drives every entry point below, which is the point -- it is one defect wearing five costumes.
+  const F18_ITEMS: RateMasterItem[] = [
+    { discipline: "Electrical", kind: "f18_kind", attributes: { size: "10" }, rates: { list_price: 100 } },
+  ];
+  const SEL = { size: "10" };
+  const MATCH = { step: "match_master_row", params: { kind: "f18_kind" } };
+  const run = (steps: unknown[], output: string[]) =>
+    runPipeline("f18", { output, steps } as unknown as Pipeline, F18_ITEMS, SEL);
+  const stepNamed = (r: ReturnType<typeof runPipeline>, name: string) =>
+    r.steps.find((s) => s.step === name);
+
+  // ---- E1 component -----------------------------------------------------------------------------
+  it("E1 POSITIVE: a `component` whose target is not on the matched row REFUSES (never a NaN sum)", () => {
+    const r = run([
+      MATCH,
+      { step: "component", name: "good", target: "list_price", formula: "base*f", params: { f: 1 } },
+      { step: "component", name: "missing", target: "install_base", formula: "base*f", params: { f: 1 } },
+      { step: "sum_components", result: "supply" },
+    ], ["supply"]);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+    expect(Number.isNaN(r.finals.supply)).toBe(false);
+    expect(r.steps[r.steps.length - 1].matchedCondition)
+      .toBe("install_base not on the matched row -- not computed");
+  });
+
+  it("E1 POSITIVE: the bare `base` formula (no operator) refuses too -- it returned `undefined`, not NaN", () => {
+    // The subtler half of the same hole: with no arithmetic the evaluator handed back `undefined`
+    // itself, which only became NaN once sum_components reduced over it.
+    const r = run([
+      MATCH,
+      { step: "component", name: "missing", target: "install_base", formula: "base" },
+      { step: "sum_components", result: "supply" },
+    ], ["supply"]);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+  });
+
+  it("E1 NEGATIVE: a component whose target IS on the row is byte-unchanged", () => {
+    const r = run([
+      MATCH,
+      { step: "component", name: "good", target: "list_price", formula: "base*f", params: { f: 2 } },
+      { step: "sum_components", result: "supply" },
+    ], ["supply"]);
+    expect(r.status).toBe("ok");
+    expect(r.finals).toEqual({ supply: 200 });
+  });
+
+  it("E1 NEGATIVE: a param-only component (NO target at all) still prices -- the guard is inside the target branch", () => {
+    // The tray ceiling-accessories shape: a conditional component carrying no `target`. The F-18 guard
+    // must not touch it, or every fixed-scalar adder in the catalog stops computing.
+    const r = run([
+      MATCH,
+      { step: "component", name: "fixed", formula: "amount", params: { amount: 106 } },
+      { step: "sum_components", result: "supply" },
+    ], ["supply"]);
+    expect(r.status).toBe("ok");
+    expect(r.finals).toEqual({ supply: 106 });
+  });
+
+  // ---- E2 component_band ------------------------------------------------------------------------
+  it("E2 POSITIVE: a `component_band` whose CHOSEN column is not on the matched row REFUSES", () => {
+    const r = run([
+      MATCH,
+      { step: "component_band", name: "b", band_on: "size", formula: "base*f", params: { f: 1 },
+        bands: [{ when: "10", target: "install_base" }] },
+      { step: "sum_components", result: "supply" },
+    ], ["supply"]);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+    const st = stepNamed(r, "component_band");
+    expect(st?.matchedCondition).toBe("install_base not on the matched row -- not computed");
+    // the band it CHOSE is still reported -- refusing must not hide which column was asked for
+    expect(st?.bandChosen).toBe("size 10 -> install_base");
+  });
+
+  it("E2 NEGATIVE: a band landing on a column the row DOES carry is byte-unchanged", () => {
+    const r = run([
+      MATCH,
+      { step: "component_band", name: "b", band_on: "size", formula: "base*f", params: { f: 3 },
+        bands: [{ when: "10", target: "list_price" }] },
+      { step: "sum_components", result: "supply" },
+    ], ["supply"]);
+    expect(r.status).toBe("ok");
+    expect(r.finals).toEqual({ supply: 300 });
+  });
+
+  // ---- E3 apply_effective_multiplier -------------------------------------------------------------
+  it("E3 POSITIVE: `apply_effective_multiplier` on a missing rate REFUSES -- the multiply is OUTSIDE the formula", () => {
+    const r = run([
+      MATCH,
+      { step: "apply_effective_multiplier", target: "install_base", result: "eff", formula: "(1-d)*(1+m)",
+        conditions: [{ when: { size: "10" }, params: { d: 0.1, m: 0.2 } }] },
+    ], ["eff"]);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+    expect(Number.isNaN(r.finals.eff)).toBe(false);
+    expect(stepNamed(r, "apply_effective_multiplier")?.matchedCondition)
+      .toBe("install_base not on the matched row -- not computed");
+  });
+
+  it("E3 NEGATIVE: the effective multiplier over a present rate is byte-unchanged", () => {
+    const r = run([
+      MATCH,
+      { step: "apply_effective_multiplier", target: "list_price", result: "eff", formula: "(1-d)*(1+m)",
+        conditions: [{ when: { size: "10" }, params: { d: 0.5, m: 0.0 } }] },
+    ], ["eff"]);
+    expect(r.status).toBe("ok");
+    expect(r.finals.eff).toBe(50);
+  });
+
+  // ---- E4 roundup -- HONEST PARTIAL, NOT A REFUSAL ------------------------------------------------
+  it("E4 POSITIVE: `roundup` on a target the row does not carry stays ok with the output ABSENT", () => {
+    const r = run([MATCH, { step: "roundup", target: "install_base", params: { digits: -1 } }], ["install_base"]);
+    expect(r.status).toBe("ok");                                  // partial, NOT no_match (the PW-FIX lesson)
+    expect(r.finals.install_base).toBeUndefined();
+    expect(Number.isNaN(r.finals.install_base as unknown as number)).toBe(false);
+    expect(stepNamed(r, "roundup")?.label)
+      .toBe("install_base not available to round -- install_base not computed");
+  });
+
+  it("E4 NEGATIVE: roundup over a present value is byte-unchanged", () => {
+    const r = run([MATCH, { step: "roundup", target: "list_price", params: { digits: -1 } }], ["list_price"]);
+    expect(r.status).toBe("ok");
+    expect(r.finals.list_price).toBe(100);
+  });
+
+  // ---- E5 install_as_ratio -- the literal NaN ----------------------------------------------------
+  it("E5 POSITIVE: `install_as_ratio` with no supply_* in ctx REFUSES and NAMES the gap", () => {
+    const r = run([MATCH, { step: "install_as_ratio", result: "install", params: { ratio: 0.2 } }], ["install"]);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+    expect(Number.isNaN(r.finals.install)).toBe(false);
+    expect(stepNamed(r, "install_as_ratio")?.matchedCondition)
+      .toBe("no supply_* value computed -- install not computed");
+  });
+
+  it("E5 NEGATIVE: install_as_ratio over a real supply_* value is byte-unchanged", () => {
+    const r = run([
+      MATCH,
+      { step: "scale", target: "list_price", result: "supply_per_set", params: { m: 1 }, formula: "base*m" },
+      { step: "install_as_ratio", result: "install", params: { ratio: 0.2 } },
+    ], ["install"]);
+    expect(r.status).toBe("ok");
+    expect(r.finals.install).toBe(20);
+  });
+
+  // ---- THE CHAIN -- the conduit_boq shape --------------------------------------------------------
+  it("THE CHAIN POSITIVE: an honest `scale` skip then a `roundup` on its unwritten key -- absent, ok, no NaN", () => {
+    // This is conduit_boq / jb_boq / cable_boq. Pre-F-18 the scale declined honestly and the NEXT step
+    // turned that honesty into a NaN -- which is why the SAME missing key gave an honest partial in
+    // conduit_bcs (no downstream roundup) and a NaN in conduit_boq. The sibling output must survive:
+    // refusing the pipeline would discard a supply figure that computed perfectly well.
+    const r = run([
+      MATCH,
+      { step: "scale", target: "list_price", result: "supply", params: { m: 2 }, formula: "base*m" },
+      { step: "roundup", target: "supply", params: { digits: -1 } },
+      { step: "scale", target: "install_base", result: "install", params: { m: 2 }, formula: "base*m" },
+      { step: "roundup", target: "install", params: { digits: -1 } },
+    ], ["supply", "install"]);
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply).toBe(200);                        // THE SIBLING STILL PRICES
+    expect(r.finals.install).toBeUndefined();                 // absent, never NaN
+    expect(Number.isNaN(r.finals.install as unknown as number)).toBe(false);
+  });
+
+  // ---- THE BACKSTOP ------------------------------------------------------------------------------
+  it("THE BACKSTOP POSITIVE: a non-finite `rate_stages.mult` is DROPPED, never ok-NaN", () => {
+    // The loader-does-not-validate fixture: `_validate_config` requires a finite `mult`, but it has
+    // exactly ONE caller (update_rate_config) and `_load_multi` validates nothing -- so an imported
+    // asset can carry this. No per-step guard above covers it; the tail does.
+    const r = run([
+      { step: "component_ref", name: "r", target: "list_price",
+        ref: { kind: "f18_kind", size: "10" }, rate_stages: [{ mult: Number.NaN }], qty: 1 },
+      { step: "sum_components", result: "supply" },
+    ], ["supply"]);
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply).toBeUndefined();
+    expect(Number.isNaN(r.finals.supply as unknown as number)).toBe(false);
+    expect(stepNamed(r, "(finalize)")?.label)
+      .toBe("supply computed to a non-finite value -- dropped, not priced");
+  });
+
+  it("THE BACKSTOP NEGATIVE: a clean pipeline pushes NO finalize note (every existing trace is unmoved)", () => {
+    const r = run([
+      MATCH,
+      { step: "component", name: "good", target: "list_price", formula: "base" },
+      { step: "sum_components", result: "supply" },
+    ], ["supply"]);
+    expect(r.status).toBe("ok");
+    expect(stepNamed(r, "(finalize)")).toBeUndefined();
+  });
+
+  // ---- THE ONE LIVE BEHAVIOUR THIS SLICE MUST NOT MOVE -------------------------------------------
+  it("NEGATIVE PIN: `ok` with an UNDEFINED final passes through UNTOUCHED (the CEIG / AS Built contract)", () => {
+    // R3's predicate is `typeof v === "number" && !Number.isFinite(v)` -- A NUMBER THAT IS NOT FINITE,
+    // never a MISSING value. `status: "ok"` with an absent output is the SHIPPED EA-1b honest-partial
+    // contract, live today on the `miscellaneous` CEIG / AS Built rows (4 combinations across misc_boq
+    // and misc_bcs, measured against the live catalog). A backstop written as "no non-value may pass
+    // with ok" would break those four while fixing nothing that was ever broken -- absent means "this
+    // row has no such rate", NaN means "we computed nonsense", and they must not be collapsed.
+    // See also the EA-1b describe above, which pins the same rows from the honest-partial side.
+    const partialItems: RateMasterItem[] = [
+      { discipline: "Electrical", kind: "f18_misc", attributes: { description: "CEIG" },
+        rates: { boq_supply: null as unknown as number, boq_install: 225000 } },
+    ];
+    const r = runPipeline("misc_boq", { output: ["supply", "install"], steps: [
+      { step: "match_master_row", params: { kind: "f18_misc" } },
+      { step: "scale", target: "boq_supply", result: "supply", params: { f: 1 }, formula: "base*f" },
+      { step: "scale", target: "boq_install", result: "install", params: { f: 1 }, formula: "base*f" },
+    ] } as unknown as Pipeline, partialItems, { description: "CEIG" });
+    expect(r.status).toBe("ok");
+    expect(r.finals.install).toBe(225000);
+    expect(r.finals.supply).toBeUndefined();
+    expect(stepNamed(r, "(finalize)")).toBeUndefined();      // nothing dropped -- nothing was non-finite
+  });
+
+  // ---- THE TEMPLATE THE FIVE GUARDS COPY ---------------------------------------------------------
+  it("CONTROL: `component_ref`'s own guard -- the idiom these copy -- is byte-unchanged", () => {
+    const r = run([
+      { step: "component_ref", name: "r", target: "install_base",
+        ref: { kind: "f18_kind", size: "10" }, rate_stages: [{ mult: 1 }], qty: 1 },
+      { step: "sum_components", result: "supply" },
+    ], ["supply"]);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+    // "referenced row" here vs "matched row" in the new guards -- the idiom is copied, the WORDING
+    // stays honest about WHICH row was short. Both are pinned so neither drifts into the other.
+    expect(stepNamed(r, "component_ref")?.matchedCondition)
+      .toBe("install_base not on the referenced row -- not computed");
+  });
+
+  // ---- NO FUTURE STEP MAY JOIN THE CLASS SILENTLY -------------------------------------------------
+  it("NEGATIVE: every step reading a possibly-absent number is accounted for, so a new step forces a choice", () => {
+    // The two lists must PARTITION the vocabulary. Adding a step type breaks this test, which is the
+    // point: whoever adds it has to say which side it falls on rather than inheriting F-18 by default.
+    const READS_A_POSSIBLY_ABSENT_NUMBER = [
+      // a rate key off a matched or referenced row, or a ctx value another step may not have written
+      "apply_effective_multiplier", "scale", "roundup", "component", "component_ref",
+      "component_band", "install_as_ratio", "lookup_or_ratio",
+    ];
+    const READS_NO_POSSIBLY_ABSENT_NUMBER = [
+      // these read the row itself, the component bag, or ATTRIBUTES (already honest no-computes)
+      "match_master_row", "sum_components", "circuit_fit", "module_fit", "derive_attribute",
+    ];
+    for (const s of READS_A_POSSIBLY_ABSENT_NUMBER) expect(STEP_VOCABULARY).toContain(s);
+    expect([...READS_A_POSSIBLY_ABSENT_NUMBER, ...READS_NO_POSSIBLY_ABSENT_NUMBER].sort())
+      .toEqual([...STEP_VOCABULARY].sort());
+  });
+
+  // ---- THE RIDER (R4) ----------------------------------------------------------------------------
+  it("R4 POSITIVE: evalFormula rejects a present-but-undefined binding exactly like an unbound one", () => {
+    expect(() => evalFormula("base * 2", { base: undefined as unknown as number }))
+      .toThrow(/Unknown identifier 'base'/);
+    expect(() => evalFormula("base * 2", {})).toThrow(/Unknown identifier 'base'/);
+  });
+
+  it("R4 NEGATIVE: a legitimately bound 0 still evaluates -- falsy is not absent", () => {
+    expect(evalFormula("base * 2", { base: 0 })).toBe(0);
+    expect(evalFormula("base + 1", { base: 0 })).toBe(1);
+  });
+});

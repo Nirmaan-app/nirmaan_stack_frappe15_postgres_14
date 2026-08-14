@@ -105,7 +105,19 @@ export function evalFormula(expr: string, env: Record<string, number>): number {
     }
     if (tk.t === "id") {
       pos++;
-      if (!(tk.v in env)) throw new Error(`Unknown identifier '${tk.v}' in formula '${expr}'`);
+      // F-18 (R4) -- THE RIDER THAT MAKES THE DOC COMMENT ABOVE TRUE.
+      // `in` tests KEY PRESENCE, not value-hood: `"base" in { base: undefined }` is TRUE. So a
+      // binding assigned `undefined` used to sail past this guard, return `undefined` into the
+      // arithmetic, and reach the caller as NaN under `status: "ok"` -- the exact opposite of
+      // "surfaces config problems rather than silently mis-computing". An identifier bound to
+      // NOTHING says no more than an unbound one, so it raises the SAME error and degrades through
+      // the Option-C wrapper to the honest `unsupported`.
+      // This is a BACKSTOP, not the primary fix: every call site that could bind an absent rate now
+      // guards its own target first (E1/E2/E3 below) and returns the better-worded `no_match`. What
+      // this covers is a FUTURE formula site written without that guard.
+      if (!(tk.v in env) || env[tk.v] === undefined) {
+        throw new Error(`Unknown identifier '${tk.v}' in formula '${expr}'`);
+      }
       return env[tk.v];
     }
     if (tk.t === "lp") {
@@ -542,7 +554,23 @@ export function runPipeline(
         // no matching condition -> treat as a data gap, honestly (no value produced)
         return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
       }
-      const value = ctx[s.target] * evalFormula(s.formula, { ...cond.params });
+      // F-18 (E3) -- the matched row must actually CARRY the rate this step multiplies.
+      // ⚠️ THE MULTIPLY IS OUTSIDE `evalFormula`, so the identifier guard up in the evaluator can
+      // never see this one: `undefined * <number>` is NaN with nothing thrown, and that NaN reached
+      // `finals` under `status: "ok"`. Guarded here, in the `component_ref` idiom (its check AND its
+      // message shape), because a missing rate on a row we DID match is a data gap -- `no_match` --
+      // not a config gap (`unsupported`).
+      const effBase = ctx[s.target];
+      if (typeof effBase !== "number" || !Number.isFinite(effBase)) {
+        steps.push({
+          step: stepType,
+          label: s.explain || "apply effective multiplier",
+          matchedCondition: `${s.target} not on the matched row -- not computed`,
+          runningValues: snapshot(),
+        });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
+      const value = effBase * evalFormula(s.formula, { ...cond.params });
       ctx[s.result] = value;
       steps.push({
         step: stepType,
@@ -703,7 +731,28 @@ export function runPipeline(
       });
     } else if (stepType === "roundup") {
       const s = raw as import("./rateMasterTypes").RoundupStep;
-      const value = roundUp(ctx[s.target], s.params.digits);
+      // F-18 (E4) -- THE CHAIN, and the one site that must NOT refuse.
+      // `roundUp(undefined, d)` is `Math.ceil(undefined * f - 1e-9) / f` = NaN, written straight back
+      // into `ctx`. The absence it reads is almost never this step's fault: an upstream `scale` that
+      // HONESTLY declined to write its result (the EA-1b honest partial) leaves exactly this hole,
+      // and the next unguarded step turned that honesty into a NaN. That is why the same missing key
+      // used to give an honest partial in `conduit_bcs` and a NaN in `conduit_boq` -- the two differ
+      // only in having a `roundup` downstream.
+      // ⚠️ HONEST PARTIAL, NOT A REFUSAL (owner ruling): refusing the pipeline would discard sibling
+      // outputs that computed correctly -- `conduit_boq`'s `supply_per_mtr` is right even when
+      // `install_per_mtr` was never produced. That is the over-wide action the PW-FIX ruling reversed
+      // for `module_fit`. So this takes `scale`'s own `continue` shape: skip, leave the output
+      // ABSENT (renders "-"), and SAY SO in the trace -- never a zero, never a NaN.
+      const roundBase = ctx[s.target];
+      if (typeof roundBase !== "number" || !Number.isFinite(roundBase)) {
+        steps.push({
+          step: stepType,
+          label: `${s.target} not available to round -- ${s.target} not computed`,
+          runningValues: snapshot(),
+        });
+        continue;
+      }
+      const value = roundUp(roundBase, s.params.digits);
       ctx[s.target] = value;
       steps.push({
         step: stepType,
@@ -716,10 +765,29 @@ export function runPipeline(
       const s = raw as import("./rateMasterTypes").ComponentStep;
       const env: Record<string, number> = {};
       if (s.target !== undefined) {
+        // F-18 (E1) -- THE ORIGINAL FINDING. The matched row must CARRY the rate this component
+        // prices. Without this, `ctx[s.target]` is `undefined`, both bindings below are `undefined`,
+        // the evaluator's `in` guard passes (the KEY exists), the formula returns NaN, and
+        // `sum_components` carries that NaN into `finals` under `status: "ok"`.
+        // Guarded in the `component_ref` idiom -- the same check and the same message shape it has
+        // used at two sites all along; the only thing new here is applying it to the MATCHED row.
+        // ⚠️ REFUSAL, not a partial (unlike E4): this value feeds `sum_components`, so a missing
+        // component does not merely lose one line -- it makes the SUM wrong, which is precisely why
+        // `component_ref` refuses the whole pipeline in the same situation.
+        const compBase = ctx[s.target];
+        if (typeof compBase !== "number" || !Number.isFinite(compBase)) {
+          steps.push({
+            step: stepType,
+            label: s.explain || `component: ${s.name}`,
+            matchedCondition: `${s.target} not on the matched row -- not computed`,
+            runningValues: { ...snapshot(), ...componentEntries(components) },
+          });
+          return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+        }
         // Bind the target value under BOTH `base` (the normalized contract) and its own name (the
         // legacy wiring `lug` component's formula references `lug_list`).
-        env.base = ctx[s.target];
-        env[s.target] = ctx[s.target];
+        env.base = compBase;
+        env[s.target] = compBase;
       }
       let params: Record<string, number> = s.params ?? {};
       if (Array.isArray(s.conditions)) {
@@ -1337,9 +1405,25 @@ export function runPipeline(
         steps.push({ step: stepType, label: s.explain || `component: ${s.name}`, runningValues: snapshot() });
         return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
       }
+      // F-18 (E2) -- the band CHOSE a column; the matched row must carry it. Guarded BEFORE the bind
+      // below, which would otherwise plant the same `undefined` under THREE identifiers at once and
+      // let the evaluator's `in` guard wave all three through into a NaN.
+      // Same `component_ref` check and message shape as E1, and a refusal for the same reason: this
+      // value feeds `sum_components`, so losing it makes the sum wrong rather than merely shorter.
+      const bandBase = ctx[chosen.target];
+      if (typeof bandBase !== "number" || !Number.isFinite(bandBase)) {
+        steps.push({
+          step: stepType,
+          label: s.explain || `component: ${s.name} (banded)`,
+          bandChosen: `${s.band_on} ${chosen.label} -> ${chosen.target}`,
+          matchedCondition: `${chosen.target} not on the matched row -- not computed`,
+          runningValues: { ...snapshot(), ...componentEntries(components) },
+        });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
       // Bind the chosen column under `base` (the normalized contract), plus the legacy `gland_list`
       // and the column's own name (the wiring gland formula references gland_list).
-      const value = evalFormula(s.formula, { base: ctx[chosen.target], gland_list: ctx[chosen.target], [chosen.target]: ctx[chosen.target], ...s.params });
+      const value = evalFormula(s.formula, { base: bandBase, gland_list: bandBase, [chosen.target]: bandBase, ...s.params });
       components[s.name] = value;
       steps.push({
         step: stepType,
@@ -1361,8 +1445,26 @@ export function runPipeline(
       });
     } else if (stepType === "install_as_ratio") {
       const s = raw as import("./rateMasterTypes").InstallAsRatioStep;
+      // F-18 (E5) -- THE ONE SITE THAT DID NOT FAIL INTO NaN, IT ASSIGNED ONE.
+      // `const base = supplyKey ? ctx[supplyKey] : NaN` was a deliberate literal: with no `supply_*`
+      // key in `ctx` this step multiplied NaN by the ratio and handed the result on under
+      // `status: "ok"`. There is nothing to take a ratio OF, so it refuses -- and it NAMES the
+      // missing key, because "install is a share of supply" is unreadable without saying which
+      // supply was looked for.
       const supplyKey = Object.keys(ctx).find((k) => k.startsWith("supply_"));
-      const base = supplyKey ? ctx[supplyKey] : NaN;
+      const base = supplyKey === undefined ? undefined : ctx[supplyKey];
+      if (typeof base !== "number" || !Number.isFinite(base)) {
+        steps.push({
+          step: stepType,
+          label: s.explain || `install as ${s.params.ratio * 100}% of supply`,
+          matchedCondition:
+            supplyKey === undefined
+              ? "no supply_* value computed -- install not computed"
+              : `${supplyKey} not computed -- install not computed`,
+          runningValues: snapshot(),
+        });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
       const value = base * s.params.ratio;
       ctx[s.result] = value;
       steps.push({
@@ -1469,8 +1571,41 @@ export function runPipeline(
     return { pipelineId, outputs: pipeline.output, status: "unsupported", steps, finals: {}, matchedItem, note: pipeline.note };
   }
 
+  // F-18 (R3) -- THE BACKSTOP. `status: "ok"` used to mean only "the step loop ran to the end without
+  // an early return and without throwing"; it made NO claim about the numbers, while every consumer
+  // reads it as "these numbers are good". A non-finite number is now never labelled ok, whatever
+  // route produced it -- including one no per-step guard above covers, such as a malformed config
+  // value reaching `stageRate` (the loader does not validate; only `update_rate_config` does).
+  //
+  // ⚠️ THE PREDICATE IS `typeof v === "number" && !Number.isFinite(v)` -- A NUMBER THAT IS NOT
+  // FINITE, NEVER A MISSING VALUE. An `undefined` final passes through UNTOUCHED, because
+  // `status: "ok"` with an absent output is the SHIPPED EA-1b honest-partial contract, live today on
+  // the `miscellaneous` CEIG / AS Built rows (4 combinations across misc_boq + misc_bcs, measured).
+  // A backstop written as "no non-value may pass with ok" would break those four while fixing
+  // nothing that was ever broken. The two cases look alike and mean opposite things: absent is "this
+  // row has no such rate", NaN is "we computed nonsense".
   const finals: Record<string, number> = {};
-  for (const o of pipeline.output) finals[o] = ctx[o];
+  const nonFinite: string[] = [];
+  for (const o of pipeline.output) {
+    const v = ctx[o];
+    if (typeof v === "number" && !Number.isFinite(v)) {
+      // Drop it. Consumers read finals BY `outputs`, so an absent key and a present-undefined one
+      // are indistinguishable to every one of them -- the output renders "-" exactly as an honest
+      // partial does, which is the truthful rendering for a value we could not compute.
+      nonFinite.push(o);
+      continue;
+    }
+    finals[o] = v;
+  }
+  if (nonFinite.length) {
+    // Never silent: something upstream produced a non-finite number and the trace has to say so, or
+    // the dropped output is indistinguishable from a rate the row genuinely does not carry.
+    steps.push({
+      step: "(finalize)",
+      label: `${nonFinite.join(", ")} computed to a non-finite value -- dropped, not priced`,
+      runningValues: snapshot(),
+    });
+  }
   return { pipelineId, outputs: pipeline.output, status: "ok", steps, finals, matchedItem, note: pipeline.note };
 }
 
