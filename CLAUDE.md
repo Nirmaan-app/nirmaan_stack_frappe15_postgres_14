@@ -1074,13 +1074,35 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   This qualifies the "the on-disk file is stale but harmless while the DATABASE is the source of truth"
   framing: true for an established site, **false for a new one**. The mint-and-bump-the-pin discipline
   applies to every future change that moves the catalog.
-- **⚠️ F-21 — THE ≥10% "MAJOR" BOUNDARY IS FLOAT-FRAGILE DOWNWARD (OPEN, `csv_importer`).**
-  `_rate_change_pct` is `(new - old) / abs(old) * 100.0` and major is `abs(pct) >= 10.0`, so an
-  **exactly −10%** edit can compute `−9.999999999999993` and be classified **not major**, collapsing
-  behind a count (measured: `491.0 → 441.90000000000003`). It was masked until F-16 because the tray
-  fixture used round numbers (`120 → 108.0` is exact). `test_92` ACCOMMODATES the boundary as it is
-  (it picks rows whose ±10% is measurable, and skips `0.0` rows); **do not "fix" it by loosening that
-  comparison** — the product change is its own slice.
+- **✅ F-21 — CLOSED (2026-08-14). THE ≥10% "MAJOR" BOUNDARY ROUNDS BEFORE COMPARING, AND THE
+  THRESHOLD HAS EXACTLY ONE DEFINITION.** `_rate_change_pct` is `(new - old) / abs(old) * 100.0`, and
+  `abs(pct) >= 10.0` turned binary rounding error into a wrong answer whenever the result landed a
+  hair **SHORT**: an exactly −10% edit computed `−9.999999999999993` and was classified **not major**,
+  folding the row behind a count. Measured on integer rupee rates 1..20000: **11,999 of 20,000 (60%)
+  downward, 0 of 20,000 upward** — `×1.10` lands a hair ABOVE, where the error is harmless against a
+  `>=` test, so it bit only in the direction that **quotes LOW**. Now
+  **`round(abs(pct), 6) >= MAJOR_RATE_CHANGE_PCT`** — six decimals is far finer than any real rate
+  move and far coarser than float noise (~1e-14), and it is the module's own idiom (the same value is
+  rounded one line below for display). **Never restore the bare comparison**; the docstring's "AT OR
+  ABOVE" is inclusive and this is what makes it true.
+- **⚠️ THE THRESHOLD LIVED IN TWO PLACES, AND THEY DISAGREED ON SCREEN (F-21, the finding).**
+  `RateMasterUploadDialog.tsx` decided the percentage's COLOUR from its own `Math.abs(f.pct) >= 10`,
+  reading the **ROUNDED** percentage while the server classified from the raw one. At the boundary a
+  row therefore rendered **RED while sitting COLLAPSED** — "big move" and "not worth showing", about
+  the same row. **The server now emits `major` PER RATE FIELD beside `pct`; the change-level flag
+  stays "any rate field major" and still drives grouping; the dialog RENDERS the flag and computes
+  nothing.** Non-rate fields carry **no** verdict — a percentage, and therefore the verdict, is
+  meaningless on a `kind` rename or an attribute edit. The module's doctrine (*"a second client-side
+  copy of the 10% rule would be free to disagree with the write that actually happens"*) was an
+  ASPIRATION until this slice; it is now enforced by the payload. **The digest is unaffected and that
+  is PROVEN** — `_digest` fingerprints `(row, kind, uid, name, (column, old, new))`, so a display
+  addition cannot invalidate an in-flight preview.
+- **⚠️ `_picks_measurable_at_ten_percent` IS NOW VALUE HYGIENE, NOT A WORKAROUND.** F-16 added it to
+  route around the F-21 boundary; with F-21 fixed its live-behaviour half is inert (every non-zero row
+  qualifies). It is KEPT because the **zero exclusion** is still load-bearing — `×1.05` leaves a zero
+  UNCHANGED, so such a row never reaches `plan["changes"]` and the lookup would `KeyError`, and its
+  percentage would divide by zero. The `>= 10.0` comparisons inside it are a FIXTURE FILTER and must
+  not be read as the product's rule.
 - **⚠️ F-19 — A RETIREMENT MINTED THROUGH THE ASSET PATH ALWAYS HAS A BLANK REASON (OPEN).**
   `record_retirements` accepts no reason parameter and deliberately omits `retired_at`/`retired_by`/
   `reason`. **Read its docstring precisely: it refuses BACK-INFERENCE** for the four backfilled rows,

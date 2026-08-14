@@ -28924,3 +28924,156 @@ move. Fresh worker verified behaviourally (real method -> 403; bogus method -> `
 Next: **F-21** (the >=10% major boundary, float-fragile downward, `csv_importer`), **F-19** (the
 retirement reason channel), **F-18** (a `component` target naming a missing rate key -> NaN through
 `status: "ok"`), then the seven cleared audit fixes behind the combined recon.
+
+---
+
+## Build slice F-21 -- the 10% preview boundary keeps its own promise (2026-08-14)
+
+**Status: SHIPPED.** Backend **143 -> 147**, frontend **23 -> 24**, browser cert PASSED
+**preview-only with zero writes**. No asset, no catalog change -- the live Electrical catalog is
+byte-untouched at 1,364 active.
+
+### The defect
+
+The CSV upload preview promises, in three places, to expand *"every rate move of 10% or more in
+either direction"*. It did not.
+
+```python
+pct = (new - old) / abs(old) * 100.0
+if pct is None or abs(pct) >= MAJOR_RATE_CHANGE_PCT:   # 10.0
+```
+
+`>=` against a value carrying binary rounding error is wrong whenever the result lands a hair
+**SHORT**. An exactly −10% edit computes `-9.999999999999993` and was classified **not major**, so
+the row folded away behind a count.
+
+**Measured over integer rupee rates 1..20000:**
+
+| direction | misclassified |
+|---|---|
+| downward (`×0.90`) | **11,999 / 20,000 = 60.0%** |
+| upward (`×1.10`) | **0 / 20,000** |
+
+The asymmetry has a mechanism, not a coincidence: `491.0 * 1.10` is
+`540.1000000000000227…` (a hair ABOVE — harmless against `>=`) while `491.0 * 0.90` is
+`441.90000000000003410…` (a hair BELOW — fatal). **It bit only in the direction that quotes LOW.**
+
+⚠️ **The honest generalisation is NOT "the bug is downward-only":** the comparison fails for any
+construction landing short. `×0.90` simply lands short most of the time.
+
+### ⚠️ The finding the recon earned: the threshold lived in TWO places
+
+The premise named one site. The census found a second — `RateMasterUploadDialog.tsx` decided the
+percentage's **colour** from its own `Math.abs(f.pct) >= 10`.
+
+**And the two saw different numbers.** The server classifies from the **raw** float, then sends
+`round(pct, 2)`. At the boundary:
+
+| old → new | server pct | server `major` | pct SENT | client `>= 10` | |
+|---|---|:--:|---:|:--:|---|
+| 491 → 441.90000000000003 | −9.999999999999993 | **False** | **−10.0** | **True** | ⚠️ **CONTRADICTION** |
+| 2610 → 2349.0 | −10.0 | True | −10.0 | True | agree |
+
+So the user saw **"−10%" in destructive red, folded away behind a count** — the UI saying "big move"
+and "not worth showing" about the same row. That is the symptom a pricer would actually notice, and
+it was not in the ledger.
+
+The module's own doctrine, stated in three files — *"a second client-side copy of the 10% rule …
+would be free to disagree with the write that actually happens, which is the one failure a preview
+must never have"* — **was an aspiration, not a fact.**
+
+### The fix
+
+**R1 — round then compare** (`csv_importer._diff_fields`):
+
+```python
+field_major = pct is None or round(abs(pct), 6) >= MAJOR_RATE_CHANGE_PCT
+```
+
+Six decimals is far finer than any real rate move and far coarser than float noise (~1e-14), and it
+is **this module's own idiom** — the same value is rounded to 2dp one line below for display. An
+epsilon (`>= 10.0 - 1e-9`) behaves identically on every case measured and was the second choice only
+because it reads as a magic constant. Restructuring the arithmetic was rejected: any rearrangement
+still lands on binary floats and would obscure an obvious formula.
+
+**R2 — one definition.** The server emits `major` **per rate field** beside `pct`. Change-level
+`major` remains "any rate field major" and still drives grouping. The dialog **renders** the flag;
+the inline `10` is gone. **Non-rate fields carry no verdict** — a percentage, and therefore the
+verdict, is meaningless on a `kind` rename or an attribute edit.
+
+**R3 — the digest is untouched, and it is PROVEN not assumed** (`test_f21d`): `_digest` fingerprints
+`(row, kind, uid, name, (column, old, new))`. Had the flag leaked in, every in-flight preview would
+have been refused with "the catalog moved" — a false alarm about the wrong thing.
+
+### Blast radius — narrow, and worth fixing anyway
+
+`major` gates the **expand/collapse grouping and nothing else**: the headline counts derive from
+`any(f["space"] == "rate")`, `_digest` omits it, and `apply_plan` never consults it. A misclassified
+row only ever changed its display grouping — **but the preview exists to catch a mistyped rate**, and
+the ≥10% rule is its attention mechanism. A ₹2,610 → ₹2,349 typo is exactly the case it was written
+for, and it was being folded away.
+
+### Tests: 143 -> 147 backend, 23 -> 24 frontend
+
+Written **first** and run against the UNFIXED code, per the prompt:
+
+| test | pre-fix | post-fix |
+|---|---|---|
+| `test_f21a` exactly −10% on a short-landing value is MAJOR | FAILED | OK |
+| `test_f21b` −9.99% STAYS minor (the threshold moved, not dissolved) | FAILED | OK |
+| `test_f21c` per-field flags differ; change-level is "any" | FAILED | OK |
+| `test_f21d` the new key does NOT move the digest | **OK** | **OK** |
+
+`test_f21d` passing on both sides is the point — R3 is a *no-change* claim.
+
+⚠️ **A fixture bug of mine, caught before it could mislead.** The first version hardcoded
+`F21_SHORT_OLD = 491.0` from the recon's example; the first tray row is actually **605.0**, so the
+test computed −26.95% and failed for the wrong reason. Worse: had 605 happened to land short, it
+would have **passed while testing nothing**. Rewritten so `_f21_short_row` **derives** the row from
+live data and fails loudly if no short-landing row exists. **234 of the 450 tray rows** are in that
+class today, but *which* ones is a property of the catalog — `605.0 → 544.5` is exactly −10.0 and
+proves nothing; `399.0 → 359.1` is `-9.999999999999993` and is the case under test.
+
+**Frontend companion** (`rateMasterUpload.test.ts`): *grouping and colour read the SAME server flags
+— red-but-collapsed is impossible.* ⚠️ The colour itself lives in JSX and is **structurally
+untestable** here — vitest runs `environment: "node"` with no DOM, by deliberate choice. What is
+testable, and is what makes the contradiction impossible, is the **data contract**: the change-level
+flag must be exactly "any rate field flagged", so a collapsed change cannot carry a field the dialog
+would paint red. The rendered half is the browser cert's job.
+
+**R4:** `_picks_measurable_at_ten_percent`'s docstring rewritten — the accommodates-the-boundary
+language is gone, F-21 is named as FIXED, and the picker is recorded as **belt-and-braces value
+hygiene** whose surviving `>= 10.0` comparisons are a fixture filter, not the product's rule. The
+**zero exclusion is still load-bearing** and is kept.
+
+### Browser cert -- PASSED, preview-only, zero writes
+
+Bench + Vite restarted by explicit PID; `pgrep -af vite` again matched **my own shell** and was
+excluded by hand; the bench watcher survived. `:8000` showed the **cold-start** pattern a third time
+in this arc (two 000s, then 200 at 11.4 s ttfb, then 18 ms) — restart-again would have been wrong.
+Fresh worker verified behaviourally (real method → 403; bogus → `has no attribute
+'f21_not_a_real_method'`).
+
+- **C1** — `rateMasterUpload.ts` resolved through the page's module graph and **behaved**:
+  `splitChanges` → expanded `[1]`, collapsed `[2]`; `formatPct(-10)` → `'-10%'`; the real
+  `preview_rate_master_csv` endpoint answered (`mode category`, `encoding utf-8`).
+- **C2** — a genuine three-row CSV built from the exporter's own download against live uids:
+  `rmi-01012d5f2023` edited to **exactly −10%** (276.0 → 248.4, raw pct `-9.999999999999998`, i.e. it
+  really does land short), `rmi-02e4f6875ec4` at **−9.99%**, `rmi-00b8e3d1d6f3` **unchanged**.
+  Result: `change.major=True` / `field.major=True` / `pct=-10` on the boundary row;
+  `False` / `False` / `-9.99` on the near row; the unchanged row absent from `changes`;
+  `counts {rates_changed: 2, items_added: 0, unchanged: 1, other_changed: 0, errors: 0}`.
+- **C3** — **the contradiction is DEAD**: no change is collapsed while carrying a field flagged
+  major, and `change.major == any(rate field major)` on every row.
+- **C4** — **zero residual**, and proven rather than asserted: only `preview_rate_master_csv` was
+  called (read-only, opens no transaction); 1,364 active; the only active batch is
+  `rmbulk-4dd065713fd2`; snapshots still 7 (an apply would add one); all three cert rows still at
+  276.0 / 399.0 / 605.0. Two inactive `csvup-` batches exist — **checked, and they are from
+  2026-08-13**, a day before this session, with **zero Electrical items modified in the last 30
+  minutes**.
+
+### Queue state
+
+**F-16 ✅ · F-20 ✅ · F-17 ✅ · F-21 ✅.** Next: **F-19** (the retirement reason channel), then
+**F-18** (a `component` target naming a missing rate key → NaN through `status: "ok"`), then the
+seven cleared audit fixes behind the combined recon.
