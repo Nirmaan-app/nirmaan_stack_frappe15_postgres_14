@@ -789,7 +789,8 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
 - **WHAT THE EXPORT EMITS AND DROPS.** Per item, exactly 7 keys in order: `kind`, `brand`, `unit`,
   `attributes`, `rates`, `source`, `item_uid` — ⚠️ `source` MUST be a dict on every item or
   `_validate_items` throws. Top level: `discipline`, `items`, `category_configs`, `goldens`,
-  `source_workbook`, `retired_kinds`, `retired_category_ids`. **NEVER emitted:** `name`,
+  `source_workbook`, `retired_kinds`, `retired_category_ids`, and (F-19) `retirement_reasons`.
+  **NEVER emitted:** `name`,
   `import_batch`, `creation`, `modified`, `owner`, `active` — row identity regenerates on every
   import by design, which is exactly why `item_uid` exists and IS emitted. **Deliberately dropped as
   archaeology (owner-ruled, do NOT preserve or merge from the previous file):** `sha256_prefix`,
@@ -1103,13 +1104,41 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   UNCHANGED, so such a row never reaches `plan["changes"]` and the lookup would `KeyError`, and its
   percentage would divide by zero. The `>= 10.0` comparisons inside it are a FIXTURE FILTER and must
   not be read as the product's rule.
-- **⚠️ F-19 — A RETIREMENT MINTED THROUGH THE ASSET PATH ALWAYS HAS A BLANK REASON (OPEN).**
-  `record_retirements` accepts no reason parameter and deliberately omits `retired_at`/`retired_by`/
-  `reason`. **Read its docstring precisely: it refuses BACK-INFERENCE** for the four backfilled rows,
-  whose only signal was an approximate batch timestamp — it does not forbid recording a reason going
-  forward, and the capability simply never existed because nothing needed it. F-16's reason lives in
-  its feat commit message and in the plan doc instead. Threading a reason to the row is its own slice
-  after F-17.
+- **✅ F-19 — CLOSED (2026-08-14). A RETIREMENT CAN CARRY THE REASON IT HAPPENED.** The asset gains
+  ONE optional top-level key — **`retirement_reasons: {"kinds": {…}, "categories": {…}}`** — read by
+  the loader and stored on the minted row. **TWO sub-maps, not one flat map:** a kind and a category
+  can share a name, which is exactly why `retired_kinds` / `retired_category_ids` are two lists, and
+  a flat map would reintroduce that ambiguity. `retirement.reason_map` is the ONE place that knows
+  the shape. **The entries themselves stay PLAIN STRINGS and must** — `_deactivate_scope`
+  interpolates them straight into SQL, so an object-shaped entry is a broken query, not a style
+  choice.
+- **⚠️ A REASONLESS RETIREMENT IS LEGAL AND RECORDS BLANK (F-19 R2).** Refusing one would have been
+  tidier and was REJECTED: every asset up to and including v32 declares retirements and carries no
+  reasons, so the shipped catalog would have stopped loading — the trap class F-20 removed. The lever
+  against forgetting is VISIBILITY, not refusal: the load summary reports
+  **`retirements_without_reason`**.
+- **⚠️ A REASON NAMING SOMETHING THE PAYLOAD DOES NOT RETIRE REFUSES BY NAME (F-19 R3).** The map
+  **ANNOTATES** a declaration; it must never **MAKE** one. `retired_kinds` stays the single
+  instruction — the standing *payload is the instruction, table is the record* rule — and without the
+  refusal a typo'd key would sit in the asset looking effective while doing nothing.
+- **⚠️ THE EXPORT EMITS `reason` ONLY — NEVER `retired_at` / `retired_by` (F-19 R4).** A timestamp in
+  the payload would break the two-consecutive-exports-are-byte-identical guarantee the moment two
+  exports straddled a new retirement, and `retired_by` would record an actor the table never
+  observed. A reason is authored text: stable, and the half worth self-documenting. Both sub-maps are
+  emitted **sorted**; a blank reason contributes nothing, so a discipline with none exports two empty
+  maps.
+- **⚠️ AN EXISTING RETIREMENT ROW IS NEVER UPDATED, NOT EVEN TO ADD A REASON (F-19 R5).**
+  `record_retirements` SKIPS an entry that already exists — that skip is what makes a re-load safe —
+  so it is **structurally unable** to fill a row minted blank. Turning it into an upsert would trade
+  a load-safety guarantee for two historical fields. The two rows F-16 and F-17 minted blank were
+  filled by the one-off **`scripts/backfill_retirement_reasons.py`** (dry-run default, idempotent),
+  from text recorded verbatim in commits `77f54f4f` and `6e0af13a`. **That is copying recorded fact,
+  not inventing history:** the original refusal is about BACK-INFERENCE and still stands where it
+  bites — `retired_at` would timestamp the LOAD rather than the decision, and `retired_by` would name
+  an actor the table never saw, so **neither is ever written**.
+- **OPTION C IS RETIRED GOING FORWARD.** F-16 and F-17 put their reason in the commit body because
+  the channel did not exist. It does now: a future retirement declares its reason **in the asset**,
+  and the commit body is a copy rather than the only record.
 - **⚠️ F-18 — A `component` WHOSE `target` NAMES A RATE KEY THE MATCHED ROW LACKS YIELDS NaN THROUGH
   `status: "ok"` (OPEN, general interpreter exposure, NOT introduced by F-16).** `env.base` is assigned
   `undefined`, so the unknown-identifier guard does **not** fire (the key IS in `env`); the formula

@@ -29077,3 +29077,118 @@ Fresh worker verified behaviourally (real method → 403; bogus → `has no attr
 **F-16 ✅ · F-20 ✅ · F-17 ✅ · F-21 ✅.** Next: **F-19** (the retirement reason channel), then
 **F-18** (a `component` target naming a missing rate key → NaN through `status: "ok"`), then the
 seven cleared audit fixes behind the combined recon.
+
+---
+
+## Build slice F-19 -- retirements can carry a reason (2026-08-14)
+
+**Status: SHIPPED.** Tests **147 -> 152**. Measured cert (no browser -- nothing renders retirement).
+**No asset change, no v33, no reload of the live catalog** (R7): 1,364 active, batch
+`rmbulk-4dd065713fd2` unchanged. The only live write is the two-row reason backfill.
+
+### The gap
+
+The loader recorded WHAT was retired and nothing about WHY. The reason lived only in a commit
+message -- which the database cannot show anyone, and which does not exist at all on a fresh site
+bootstrapped from the repo asset (the F-20 finding that the committed asset IS the catalog there).
+
+### The channel
+
+ONE optional top-level asset key:
+
+```json
+"retirement_reasons": {"kinds": {"<kind>": "<reason>"},
+                       "categories": {"<category_id>": "<reason>"}}
+```
+
+**Two sub-maps, not one flat map.** A KIND and a CATEGORY can share a name -- which is precisely why
+`retired_kinds` and `retired_category_ids` are two lists -- so a flat map would reintroduce an
+ambiguity the rest of the module is careful to avoid. `retirement.reason_map` is the ONE place that
+knows the shape.
+
+⚠️ **The shape was FORCED, not chosen.** `_deactivate_scope` interpolates the list entries straight
+into SQL (`[discipline, *kinds]` against an `IN (...)` placeholder run), so entries **must stay plain
+strings**. The tempting alternative -- `retired_kinds` entries becoming `{kind, reason}` objects --
+would have broken the deactivation query itself, plus the `isinstance` guard and both `test_24b` /
+`test_24e` pins, and would have required carrying a dual shape forever so old assets kept loading.
+
+**And no doctype change was needed:** `reason` (Small Text), `retired_at` and `retired_by` already
+existed as optional fields in a section labelled *"Provenance (optional)"*. **No migration, no
+coordination** -- the whole slice is code. `track_changes: 1` means every write is audited for free.
+
+### The four rulings, and why each is the way it is
+
+- **R2 -- a reasonless retirement is LEGAL and records blank.** Refusing would have been tidier and
+  was rejected: **every asset up to and including v32 declares retirements and carries no reasons**,
+  so the shipped catalog would have stopped loading -- exactly the trap class F-20 had just removed.
+  The lever against forgetting is VISIBILITY: the load summary now reports
+  `retirements_without_reason`.
+- **R3 -- a reason naming something the payload does not retire REFUSES BY NAME.** The map
+  **annotates** a declaration; it must never **make** one. `retired_kinds` stays the single
+  instruction (the standing *payload is the instruction, table is the record* rule), and without the
+  refusal a typo'd key would sit in the asset looking effective while doing nothing -- the
+  silent-no-op class this module keeps paying to remove.
+- **R4 -- export emits `reason` ONLY.** A timestamp in the payload would break `test_24h`'s
+  two-consecutive-exports-are-byte-identical guarantee the moment two exports straddled a new
+  retirement, and `retired_by` records an actor the table never observed. Both sub-maps are emitted
+  **sorted**; a blank reason contributes nothing, so a discipline with none exports two empty maps --
+  the same inherit-nothing discipline the two lists already keep.
+- **R5 -- skip semantics UNCHANGED**, and this was the recon's key finding. `record_retirements`
+  SKIPS an entry that already exists, so it is **structurally unable** to fill a row minted blank: a
+  replay reports it as `existing` and changes nothing. That skip is what makes a re-load safe;
+  turning it into an upsert to fill two historical fields would trade a real guarantee for a cosmetic
+  one. Pinned by `test_f19e`.
+
+### The backfill -- copying recorded fact, not inventing history
+
+`scripts/backfill_retirement_reasons.py`, sibling in style to `backfill_rate_master_retirement.py`:
+**dry-run by default**, `--apply` to write, **idempotent**, and it **refuses per row** rather than
+guessing -- a missing row, or one already carrying a DIFFERENT reason, is reported and left alone
+(a row someone has since annotated by hand is not ours to overwrite).
+
+It fills `reason` on exactly two rows, from text recorded verbatim in the commit bodies:
+
+| row | reason |
+|---|---|
+| `Electrical::kind::tray_install_rate` | *Superseded by F-16: tray install moved on-row (2026-08-13).* (`77f54f4f`) |
+| `Electrical::kind::db_install_rate` | *Superseded by F-17: db install as ratio 0.20 (2026-08-13).* (`6e0af13a`) |
+
+⚠️ **The original refusal still stands where it bites.** Its rationale is BACK-INFERENCE -- *"the
+only available signal is the `creation` timestamp of the last batch in which each was still active,
+which is approximate"*. Nothing here is inferred: both reasons were authored at the time of the
+decision and written down. But **`retired_at` and `retired_by` are NOT touched** -- `retired_at`
+would timestamp the LOAD rather than the decision, and `retired_by` would name an actor the table
+never observed. Those two remain exactly the fields the refusal is about.
+
+**Executed live:** dry run listed both rows and wrote nothing; `--apply` wrote 2; a second `--apply`
+reported *"already carries this reason"* and wrote 0. All six rows still blank on
+`retired_at`/`retired_by`.
+
+### Tests: 147 -> 152
+
+| test | polarity | pins |
+|---|---|---|
+| `test_f19a` | POSITIVE | a declared reason is recorded VERBATIM, on **only** the row it names; the other four record blank and `retirements_without_reason` is 4; `retired_at`/`retired_by` untouched |
+| `test_f19b` | POSITIVE | the reason survives export -> re-load (extends `test_24g`'s axes), and the export carries **no** `retired_at`/`retired_by` |
+| `test_f19c` | R2 | a payload with no reasons at all still records six rows, all blank, and the summary counts 6 |
+| `test_f19d` | NEGATIVE | a reason for an undeclared kind refuses BY NAME (message names the kind AND `retired_kinds`); malformed maps refuse by shape |
+| `test_f19e` | NEGATIVE | **a replay does NOT fill an existing blank row** -- the recon's finding, pinned |
+
+**`test_24e` was NARROWED, not weakened:** only its `reason` clause changed meaning;
+`retired_at`/`retired_by` are still asserted blank for every row, and the comment now records why the
+three fields are no longer alike. Two `get_retirement_lists` equality pins gained the new key -- that
+read now returns the reasons in the same shape the asset uses, so its docstring stays true.
+
+### Cert -- measured, browser omitted with rationale
+
+**0c swept for a rendered surface and found none:** the only references to the retirement doctype are
+in `test_rate_master.py` and a **comment** in `rateMasterRegistry.ts`. No endpoint, no screen, no
+frontend code reads it. Precedent: F-20. The cert IS the suite (152 OK), the live backfill read back,
+and a read-only confirmation that the catalog is untouched -- 1,364 active, one batch, 7 snapshots
+(no export this slice), six retirement rows of which exactly two are now reasoned.
+
+### Queue state
+
+**F-16 ✅ · F-20 ✅ · F-17 ✅ · F-21 ✅ · F-19 ✅.** Next: **F-18** (a `component` whose `target`
+names a rate key the matched row lacks binds `base = undefined` -> NaN through `status: "ok"`), then
+the seven cleared audit fixes behind the combined recon.
