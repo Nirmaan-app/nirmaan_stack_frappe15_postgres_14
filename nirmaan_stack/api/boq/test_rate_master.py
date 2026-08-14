@@ -1260,7 +1260,11 @@ class TestRateMaster(FrappeTestCase):
         # nothing recorded for a discipline that has never been loaded
         self.assertEqual(
             retirement.get_retirement_lists(disc),
-            {"retired_kinds": [], "retired_category_ids": []},
+            # F-19: the read gained `retirement_reasons` in the SAME shape the asset uses. A
+            # discipline with no rows exports two EMPTY sub-maps -- the same inherit-nothing
+            # discipline the two lists already keep.
+            {"retired_kinds": [], "retired_category_ids": [],
+             "retirement_reasons": {"kinds": {}, "categories": {}}},
         )
 
         r = loader.load_rate_master(payload=payload)
@@ -1273,16 +1277,25 @@ class TestRateMaster(FrappeTestCase):
             retirement.get_retirement_lists(disc),
             {"retired_kinds": ["db_install_rate", "tray_install_rate", "ups_per_kva",
                                "ups_reference"],   # F-17 added db_install_rate
-             "retired_category_ids": ["switches_point", "ups"]},
+             "retired_category_ids": ["switches_point", "ups"],
+             # F-19: the merged asset declares retirements but carries NO reasons, so the maps are
+             # empty here. That is the R2 path -- a reasonless retirement is legal and records blank.
+             "retirement_reasons": {"kinds": {}, "categories": {}}},
         )
 
-        # ⚠️ provenance stays EMPTY -- the loader never knew when/who/why, and a field asserting a
-        # precision it does not have is worse than an empty one.
+        # ⚠️ retired_at / retired_by stay EMPTY -- the loader knows when it RAN, not when the
+        # decision was made, and it has never known by whom. A field asserting a precision it does
+        # not have is worse than an empty one, and F-19 does NOT change that.
+        #
+        # F-19 NARROWED THE REASON CLAUSE ONLY: a reason is AUTHORED FACT travelling with the
+        # payload, not something inferred after the event, so it may now be set. This payload
+        # carries no `retirement_reasons`, so every row here is still blank -- which is the R2 path
+        # (a reasonless retirement is legal). The reason CHANNEL is covered by test_f19a-e.
         for row in frappe.get_all(retirement.RETIREMENT_DOCTYPE, filters={"discipline": disc},
                                   fields=["retired_at", "retired_by", "reason"]):
             self.assertIsNone(row["retired_at"])
             self.assertFalse(row["retired_by"])
-            self.assertFalse(row["reason"])
+            self.assertFalse(row["reason"])   # blank HERE because this payload declares none
 
         # IDEMPOTENT: a second load records nothing new
         r2 = loader.load_rate_master(payload=self._merged_payload(disc), replace=True)
@@ -1307,6 +1320,139 @@ class TestRateMaster(FrappeTestCase):
                 "scope_type": "kind", "scope_value": "ups_per_kva",
             }).insert(ignore_permissions=True)
         frappe.db.rollback(save_point="retirement_dup_probe")
+
+    # ---- F-19 (2026-08-14): a retirement can carry a REASON ----------------------------
+    # Plain-English coverage summary (test -> changed behaviour):
+    #   f19a  a payload declaring a reason records it VERBATIM on the minted row, and only on the
+    #         row it names -- the map ANNOTATES a declaration, it does not make one.
+    #   f19b  the reason survives export -> re-load, so the asset self-documents its retirements.
+    #         retired_at/retired_by are NOT exported (a timestamp would break byte-identity).
+    #   f19c  a retirement with NO reason still records, blank, and the summary COUNTS it. This is
+    #         what keeps every pre-F-19 asset (v32 and earlier) loading.
+    #   f19d  NEGATIVE: a reason naming something the payload does not retire REFUSES BY NAME. The
+    #         map must never become a second, quieter way to declare a retirement.
+    #   f19e  NEGATIVE: a replay carrying reasons does NOT fill an existing blank row. The skip is
+    #         what makes a re-load safe; the two historical rows are filled by the one-off script.
+    F19_KIND_REASON = "Superseded by a test: the kind moved on-row."
+    F19_CAT_REASON = "Superseded by a test: the category was folded away."
+
+    def _f19_payload(self, disc, reasons=None):
+        """The merged payload for a scratch discipline, optionally carrying `retirement_reasons`."""
+        p = self._merged_payload(disc)
+        if reasons is not None:
+            p["retirement_reasons"] = reasons
+        return p
+
+    def test_f19a_a_declared_reason_is_recorded_verbatim_on_the_minted_row(self):
+        """POSITIVE -- the channel itself.
+
+        Before F-19 the loader recorded WHAT was retired and nothing about WHY; the reason lived
+        only in a commit message, which the database could not show anyone. The asset now carries an
+        optional `retirement_reasons` map and the minted row stores it verbatim."""
+        from nirmaan_stack.services.boq_rate_master import retirement
+        disc = self._new_disc()
+        payload = self._f19_payload(disc, {
+            "kinds": {"tray_install_rate": self.F19_KIND_REASON},
+            "categories": {"ups": self.F19_CAT_REASON},
+        })
+        r = loader.load_rate_master(payload=payload)
+        self.assertEqual(len(r["retirements_recorded"]["created"]), 6)
+
+        rows = {x["name"]: x for x in frappe.get_all(
+            retirement.RETIREMENT_DOCTYPE, filters={"discipline": disc},
+            fields=["name", "scope_type", "scope_value", "reason", "retired_at", "retired_by"])}
+        kind_row = rows[f"{disc}::kind::tray_install_rate"]
+        cat_row = rows[f"{disc}::category::ups"]
+        self.assertEqual(kind_row["reason"], self.F19_KIND_REASON)
+        self.assertEqual(cat_row["reason"], self.F19_CAT_REASON)
+        # ONLY the named rows -- the other four are declared but unexplained, and that is legal
+        self.assertFalse(rows[f"{disc}::kind::ups_per_kva"]["reason"])
+        self.assertEqual(r["retirements_without_reason"], 4)
+        # provenance the loader cannot know is STILL untouched
+        for row in rows.values():
+            self.assertIsNone(row["retired_at"])
+            self.assertFalse(row["retired_by"])
+
+    def test_f19b_a_reason_survives_the_export_round_trip(self):
+        """POSITIVE -- the asset self-documents (extends test_24g's axes).
+
+        A reason that lived only in the database would be lost the next time the catalog was
+        bootstrapped from the repo asset -- the F-20 finding that a fresh site can only load the
+        committed file. So the export must carry it, and a re-load must reproduce it."""
+        from nirmaan_stack.services.boq_rate_master import exporter, retirement
+        src = self._new_disc()
+        loader.load_rate_master(payload=self._f19_payload(src, {
+            "kinds": {"tray_install_rate": self.F19_KIND_REASON}, "categories": {}}))
+
+        payload, _text = exporter.export_asset_text(src)
+        self.assertEqual(payload["retirement_reasons"]["kinds"]["tray_install_rate"],
+                         self.F19_KIND_REASON)
+        # ⚠️ REASON ONLY -- a timestamp in the payload would break test_24h's byte-identity
+        self.assertNotIn("retired_at", json.dumps(payload["retirement_reasons"]))
+        self.assertNotIn("retired_by", json.dumps(payload["retirement_reasons"]))
+
+        dst = self._new_disc()
+        payload2 = json.loads(json.dumps(payload))
+        payload2["discipline"] = dst
+        loader.load_rate_master(payload=payload2)
+        self.assertEqual(retirement.get_retirement_lists(dst)["retirement_reasons"],
+                         retirement.get_retirement_lists(src)["retirement_reasons"])
+
+    def test_f19c_a_retirement_without_a_reason_records_blank_and_is_counted(self):
+        """NEGATIVE-ish (R2) -- the backwards-compatibility path, and the reason it was chosen.
+
+        REFUSING a reasonless retirement would have been the tidier rule and was rejected: every
+        asset up to and including v32 declares retirements and carries no reasons at all, so the
+        shipped catalog would have stopped loading -- exactly the trap class F-20 removed. The
+        honest lever against forgetting is VISIBILITY, so the summary reports the count."""
+        from nirmaan_stack.services.boq_rate_master import retirement
+        disc = self._new_disc()
+        r = loader.load_rate_master(payload=self._merged_payload(disc))   # no reasons at all
+        self.assertEqual(len(r["retirements_recorded"]["created"]), 6)
+        self.assertEqual(r["retirements_without_reason"], 6)
+        for row in frappe.get_all(retirement.RETIREMENT_DOCTYPE, filters={"discipline": disc},
+                                  fields=["reason"]):
+            self.assertFalse(row["reason"])
+
+    def test_f19d_a_reason_for_an_undeclared_retirement_refuses_by_name(self):
+        """NEGATIVE -- the map ANNOTATES a declaration; it must never MAKE one.
+
+        `retired_kinds` stays the single instruction (the module's standing "payload is the
+        instruction, table is the record" rule). Without this, a typo'd key would sit in the asset
+        looking effective while doing nothing -- the silent-no-op class this module keeps paying to
+        remove -- and a reader could reasonably think naming a kind here retired it."""
+        disc = self._new_disc()
+        with self.assertRaises(frappe.ValidationError) as cm:
+            loader.load_rate_master(payload=self._f19_payload(disc, {
+                "kinds": {"cable_tray": "this kind is NOT retired by this payload"},
+                "categories": {}}))
+        self.assertIn("cable_tray", str(cm.exception))
+        self.assertIn("retired_kinds", str(cm.exception))
+        # a malformed map is refused too, by shape
+        for bad in ({"kinds": ["not", "a", "map"]}, {"unexpected": {}}, "not a dict"):
+            with self.assertRaises(frappe.ValidationError):
+                loader.load_rate_master(payload=self._f19_payload(self._new_disc(), bad))
+
+    def test_f19e_a_replay_never_fills_an_existing_blank_reason(self):
+        """NEGATIVE -- THE RECON'S KEY FINDING, pinned so it cannot regress.
+
+        `record_retirements` SKIPS an entry that already exists, and that skip is what makes a
+        re-load safe. It is therefore structurally unable to fill a row minted blank: re-loading
+        with reasons attached reports the rows as `existing` and changes nothing. Turning the skip
+        into an upsert would trade a load-safety guarantee for two historical fields, which is why
+        the two real rows were filled by `scripts/backfill_retirement_reasons.py` instead."""
+        from nirmaan_stack.services.boq_rate_master import retirement
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))       # minted blank
+        name = f"{disc}::kind::tray_install_rate"
+        self.assertFalse(frappe.db.get_value(retirement.RETIREMENT_DOCTYPE, name, "reason"))
+
+        r2 = loader.load_rate_master(payload=self._f19_payload(disc, {
+            "kinds": {"tray_install_rate": self.F19_KIND_REASON}, "categories": {}}), replace=True)
+        self.assertEqual(r2["retirements_recorded"]["created"], [])
+        self.assertIn("kind::tray_install_rate", r2["retirements_recorded"]["existing"])
+        self.assertFalse(frappe.db.get_value(retirement.RETIREMENT_DOCTYPE, name, "reason"),
+                         "a replay must NOT fill an existing blank reason (F-19 R5)")
 
     def test_24f_the_table_is_the_record_and_never_drives_deactivation(self):
         """SLICE 3 NEGATIVE half -- the payload remains the instruction.

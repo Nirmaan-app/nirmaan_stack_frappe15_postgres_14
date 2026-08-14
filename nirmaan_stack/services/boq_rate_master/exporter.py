@@ -132,6 +132,15 @@ def build_asset(discipline):
         "goldens": goldens,
         "retired_kinds": lists["retired_kinds"],
         "retired_category_ids": lists["retired_category_ids"],
+        # F-19: the AUTHORED reasons, so the asset self-documents its own retirements. Both
+        # sub-maps are emitted sorted by key (in get_retirement_lists), and a row with a blank
+        # reason contributes nothing -- so a discipline with no reasons exports two empty maps.
+        #
+        # ⚠️ REASON ONLY -- NEVER `retired_at` / `retired_by` (F-19 R4). A timestamp in the payload
+        # would break the two-consecutive-exports-are-byte-identical guarantee the moment two
+        # exports straddled a new retirement, and `retired_by` records an actor the table never
+        # observed. A reason is authored text: stable, and the half worth self-documenting.
+        "retirement_reasons": lists["retirement_reasons"],
     }
 
 

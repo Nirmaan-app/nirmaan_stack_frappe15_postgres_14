@@ -181,6 +181,53 @@ def _deactivate_prior(discipline, category_id):
     return n_items, n_cfg
 
 
+def _validated_retirement_reasons(reasons, retired_kinds, retired_category_ids):
+    """F-19: validate the asset's optional `retirement_reasons` map and return it unchanged.
+
+    Shape: {"kinds": {<kind>: <reason>}, "categories": {<category_id>: <reason>}}. ABSENT is legal
+    and means "no reasons" -- every asset up to and including v32 declares retirements and carries
+    no reasons at all, and they must keep loading byte-identically (R2).
+
+    ⚠️ A REASON NAMING SOMETHING THE PAYLOAD DOES NOT RETIRE IS REFUSED BY NAME (R3). The map
+    ANNOTATES a declaration; it must never become a second, quieter way to MAKE one. `retired_kinds`
+    stays the single instruction -- the same "payload is the instruction" rule the table already
+    keeps -- and a typo'd key would otherwise sit in the asset looking effective while doing
+    nothing, which is the class of silent-no-op this module keeps paying to remove.
+    """
+    if reasons is None:
+        return None
+    if not isinstance(reasons, dict):
+        frappe.throw("E-ALL 'retirement_reasons' must be an object with 'kinds' / 'categories'.")
+    unknown = set(reasons) - {"kinds", "categories"}
+    if unknown:
+        frappe.throw(
+            "E-ALL 'retirement_reasons' has unknown key(s): %s. Expected 'kinds' / 'categories'."
+            % ", ".join(sorted(unknown))
+        )
+    declared = {"kinds": {k.strip() for k in retired_kinds if isinstance(k, str)},
+                "categories": {c.strip() for c in retired_category_ids if isinstance(c, str)}}
+    for key in ("kinds", "categories"):
+        sub = reasons.get(key)
+        if sub is None:
+            continue
+        if not isinstance(sub, dict):
+            frappe.throw("E-ALL 'retirement_reasons.%s' must be an object." % key)
+        for value, text in sub.items():
+            if not isinstance(value, str) or not isinstance(text, str):
+                frappe.throw(
+                    "E-ALL 'retirement_reasons.%s' must map strings to strings (offending key: %r)."
+                    % (key, value)
+                )
+            if value.strip() not in declared[key]:
+                frappe.throw(
+                    "E-ALL 'retirement_reasons.%s' names '%s', which this payload does not retire. "
+                    "A reason ANNOTATES a declaration -- add it to '%s' to retire it."
+                    % (key, value, "retired_kinds" if key == "kinds" else "retired_category_ids"),
+                    title="Rate master: reason for an undeclared retirement",
+                )
+    return reasons
+
+
 def _deactivate_scope(discipline, kinds, category_ids):
     """EA-1 SCOPED freeze-and-supersede: deactivate the prior active items whose KIND is in `kinds`
     and the prior active configs whose category_id is in `category_ids` -- and NOTHING else. This is
@@ -329,6 +376,9 @@ def _load_multi(payload, replace):
     retired_cat_ids = payload.get("retired_category_ids") or []
     if not isinstance(retired_kinds, list) or not isinstance(retired_cat_ids, list):
         frappe.throw("E-ALL 'retired_kinds' / 'retired_category_ids' must be lists.")
+    retirement_reasons = _validated_retirement_reasons(
+        payload.get("retirement_reasons"), retired_kinds, retired_cat_ids
+    )
 
     items = payload["items"]
     payload_kinds = sorted({it["kind"].strip() for it in items})
@@ -420,7 +470,7 @@ def _load_multi(payload, replace):
     # alone and is BYTE-UNCHANGED. Nothing here is ever read back to drive behaviour -- that would
     # change import semantics, which is out of scope. Rides this function's single commit.
     retirements_recorded = retirement.record_retirements(
-        discipline, retired_kinds, retired_cat_ids
+        discipline, retired_kinds, retired_cat_ids, retirement_reasons
     )
 
     frappe.db.commit()
@@ -438,6 +488,10 @@ def _load_multi(payload, replace):
         "configs_deactivated": configs_deactivated,
         "retired_kinds": list(retired_kinds),
         "retired_category_ids": list(retired_cat_ids),
+        # F-19 R2: a retirement with no reason is ALLOWED and records blank -- refusing would make
+        # every pre-F-19 asset unloadable. The honest lever against forgetting is VISIBILITY, not a
+        # hard refusal, so the summary says how many were recorded unexplained.
+        "retirements_without_reason": retirements_recorded.get("unreasoned", 0),
         "retired_items_deactivated": retired_items_deactivated,
         "retired_configs_deactivated": retired_configs_deactivated,
     }
