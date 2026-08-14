@@ -29389,3 +29389,188 @@ to start on the Windows host (*"You installed esbuild for another platform than 
 currently using"*). The recon hit this and drove the interpreter through Node 24's native TypeScript
 type-stripping instead, which is also how the A/B cert above loaded the pre-fix module from
 `git show HEAD:...` without touching the working tree.
+
+
+## Build slice F-3 -- junction box prices by FACE SIZE (2026-08-15)
+
+**Status: SHIPPED.** Branch `feature/boq-pricing-helper`. Asset **v33**
+(`rate_master_electrical_all_v33.json`, sha `1d410de109668c3b`), batch `rmbulk-545b33565f1c`,
+1,364 active Electrical items -- **no row added, none retired, no rate moved.**
+
+### The defect
+
+`junction_box_raceway` declared ONE attribute, `size`, a `choice` over six COMPOSITE strings
+(`"100x50mm"` ... `"350x50mm"`). Every real BoQ line is THREE-dimensional -- `300 mm x 300 x 60 mm
+(height)` -- so the model could not honestly map one onto the other and returned null. **All 12 live
+junction-box rows across the confirmed BoQ set extracted `size = None`, every one at confidence 0.9:
+the model was not confused, it was confident there was no value it could give.** The category had
+never priced a single row.
+
+### The change (five parts, one asset)
+
+| part | before | after |
+|---|---|---|
+| attribute definition | `{"id":"size","type":"choice","values":[6 strings]}` | `{"id":"face_mm","label":"Face size (mm)","type":"number_choice","values_from":{"kind":"junction_box","attr":"face_mm"}}` |
+| six catalog rows | `{"size":"300x50mm"}` | `{"face_mm":300.0}` -- **`size` REMOVED** |
+| estimator rules | (none -- the config had no `rules` key) | **R11**, placed immediately before `goldens` (house position in all four categories that carry rules) |
+| golden `j1` | `attrs {"size":"150x50mm"}` | `attrs {"face_mm":150.0}` -- **expected 430/90 UNCHANGED** |
+| top-level goldens dict | same | same, kept in step |
+
+`jb_boq` is untouched: it matches on `kind` and never names an attribute.
+
+**`number_choice` is required, not stylistic.** `face_mm` is a numeric catalog column and
+`matchMasterRow` compares with `===`, so a plain `choice` would emit `"150"` against a stored `150`
+and match nothing, silently.
+
+### FLOATS, NOT INTS -- and the CSV round trip is why
+
+The first mint stored `face_mm` as INTEGERS, matching the owner-approved text literally. **Three
+tests failed** (`test_91`, `test_94`, `test_95`), all asserting that an unedited download -> upload of
+the junction-box CSV is a no-op. They reported all six rows changed, `old: '300', new: '300.0'`: the
+CSV emits the value AS STORED, the importer parses the cell to `float`, and changed-ness is decided
+**type-strictly** by design. **The tests were right and the data was wrong.** Every other numeric
+attribute in the whole Electrical catalog is a float (`conduit.size_mm 50.0`, `cable_tray.width_mm
+100.0`, `cable.core 1.0`) *because* the round-trip guarantee depends on it. Owner ruled floats;
+re-minted. **An int in this catalog can never survive a round trip -- do not reintroduce one.**
+
+Floats change nothing else: server `float(raw)`, client `Number()`, `===` on a JS number (JSON `100.0`
+parses to `100`), and the dropdown still renders `100`, not `100.0` (cert V1).
+
+### `size` was REMOVED from the rows, not left alongside (owner ruling)
+
+`matchMasterRow` iterates the ROW's keys and short-circuits `!(k in selected)`, so a stale `size` with
+`size` absent from the selection is IGNORED -- functionally either choice works. It was removed
+because it would be **inert**, and an inert key here tells three different stories: the Data tab
+derives its columns from `attribute_definitions` (invisible), the CSV attribute space is **declared
+UNION observed** (visible AND editable), and the matcher ignores it. A column that accepts edits and
+discards their effect is worse than an absent one. Verified first: `junction_box` is the only kind
+carrying a `size` attribute, referenced by one config, named by no `values_from`.
+
+### Phase 4b -- the assembled prompt, built with ZERO AI calls
+
+`run_extraction(boq, sheet, client=...)` already exposes `client` as an injectable parameter "for
+tests (a mock Anthropic client)", so **no refactoring was needed**: a double captured
+`messages.create(**kw)` and raised a **`BaseException`** subclass -- `_extract_batch`'s retry loop
+catches `Exception`, so it propagated immediately with no retries, no sleeps and no `log_error` write.
+9,353 characters, reviewed and approved by the owner before Phase 5.
+
+**The coverage sentence in R11 is voiced in the extraction prompt's OWN vocabulary** (owner amendment):
+`_ROW_CONTEXT_SHAPE_GUIDANCE` (`extraction.py:776-790`) defines `description`, `notes` (kind-keyed) and
+`ancestor_chain`, and R11 names exactly those. It says `notes` rather than enumerating
+`own`/`attached`/`appended` because the prompt DEFINES `notes` as the kind-keyed container -- naming
+two of three would imply the third does not count.
+
+### Phase 5 -- scoped re-extraction, and what it uncovered
+
+**BOQ-26-00066 (rows 347-351):** `BRSR-26-00581` complete + active. 5 rows changed, **0 outside the
+junction-box set**, **141 untouched rows byte-identical**. All five correct at **0.98**.
+
+**BOQ-26-00114 (rows 246-248, 258-261):** the scoped pass extracted all seven correctly at 0.98 --
+and could not go active. Two causes, found in that order:
+
+1. **SR-1 x SELROW.** The carry source `BRSR-26-00031` (2026-07-30) had `attempted_rows = NULL` while
+   SR-1's migrate backfilled `status` to `"complete"`. `_carry_source_run` (`rate_master.py:532`) seeds
+   `acc_attempted` from that field, so a scoped pass starts EMPTY, `complete = ... and not (population
+   - acc_attempted)` (`:754`) can never be satisfied, and `active` only flips at complete (`:548`,
+   R-SUPERSEDE). The work stranded in an `active=0` partial.
+2. **The population had GROWN.** After repairing (1), the run STILL went partial: `assemble_population`
+   now returns **125** rows against the old run's **107**. The extra **18 are all `point_wiring`** -- a
+   category that went live at EA-4a, AFTER that run. The document was telling the truth; those 18 rows
+   had never been extracted at all.
+
+**OWNER RULING (2026-08-15): KNOWN BEHAVIOUR, no fix.** Runs predating 2026-08-10 are test-era, no
+production BoQ depends on them, and the sanctioned remedy for any such sheet needed in testing is a
+**full re-extraction**. A backlog slice to seed `attempted_rows` from the results set was proposed and
+**WITHDRAWN**. This paragraph exists so a future stranded run is explained in one search.
+
+**VERIFICATION GATE (owner-upgraded), all 43 run rows:** 8 NULL `attempted_rows` / 35 populated
+(reading `BRSR-26-00031` at its pre-repair NULL). Newest NULL `BRSR-26-00047` **2026-07-31 20:11:27**;
+oldest populated `BRSR-26-00130` **2026-08-03 00:10:41** -- a clean split with a two-day gap, so the
+SR-1 boundary sits between them. **(1) every NULL predates the boundary: PASS. (2) every row created
+after it carries `attempted_rows`: PASS**, across ALL states -- complete+scoped 2, complete+whole 29,
+**partial+scoped 2, partial+whole 2**. No state and no shape reproduces the NULL. All 8 NULL rows are
+complete + whole-sheet and every one predates 2026-08-10.
+
+**The (c) repair, as performed (reversible):** `BRSR-26-00031.attempted_rows` **NULL -> its own 107
+result rows** via `set_value(update_modified=False)` (`track_changes:0` doctype + the list-valued-JSON
+wall). To restore: set it back to `None`. Then the sanctioned full re-extraction produced
+`BRSR-26-00584` -- complete, active, 125 rows, all 7 junction-box rows correct at 0.98.
+
+**What the full re-extraction cost, measured honestly:** of the 100 carried non-junction-box rows,
+**67 differ because the CONFIG moved** since 2026-07-30 (attribute sets changed -- e.g. `runs` added
+to `wiring_cabling`), **19 are genuine model drift** (19%, squarely in the standing 15-18% band), 11
+identical, 3 confidence-only. A raw "89% changed" headline would have been mostly schema evolution.
+
+**Extraction capture, all 12 rows:** `raw -> coerced` with `reason='ok'` on every one, `attempt=1`,
+`stop_reason=end_turn`, and **all eight drop classes empty**. The model returned `300.0` and the
+pipeline stored `300` -- `_coerce_value_ex`'s float normalisation working as designed.
+
+### Gates
+
+| gate | result |
+|---|---|
+| G1 backend | `test_rate_master` **152, OK** (baseline 152 OK). Isolating run first: 6 failures + 1 error, all reported for rulings, none auto-fixed |
+| G1 vitest | **2372 passed / 1 failed (67 files)** -- baseline-identical; the one failure is the known `writeOffControl` dynamic-import timeout, untouched by this slice |
+| G2 round trip | export -> v33 -> load -> re-export **BYTE-IDENTICAL** (`1d410de109668c3b`), 1364 items / 12 configs, all six `item_uid`s preserved |
+| G3 goldens | 26 goldens / 78 expect-rows; `j1` re-minted on INPUT only, 430/90 unchanged |
+| G4 diff | vs the pre-F-3 export: **23 insertions / 19 deletions, one file** -- exactly the approved change set |
+| G5 AI spend | 3 batch calls (2 scoped + 1 full re-extraction) |
+
+### Pin re-mints (Ruling 2, owner 2026-08-15) -- each reported, none auto-fixed
+
+Four tests pinned "the current asset carries no retirement reasons" -- true only because **v32 was
+minted at F-17, before F-19 added the channel and backfilled the two reasons. v33 is the first asset
+exported after F-19**, so it is the first to carry them. They were guaranteed to fail on the next mint
+by anyone, for any reason.
+
+- **`test_24e`** -- asserts `retirement_reasons == payload["retirement_reasons"]` instead of two empty
+  maps. Asserting against the PAYLOAD states the actual rule (the loader records what the asset
+  declares) and is immune to every future mint. **A SECOND assertion in this test moved too** -- a
+  blanket `assertFalse(row["reason"])`, masked until the first was fixed -- now each row carries
+  exactly what the payload declared for its scope, blank where it declared nothing. **The
+  `retired_at` / `retired_by` clauses are UNTOUCHED and are the load-bearing half.**
+- **`test_f19c`** / **`test_f19e`** -- the FIXTURE is re-minted, not the ruling: both `pop`
+  `retirement_reasons`, so "declares retirements and no reasons" / "minted blank" is the fixture's own
+  property rather than borrowed from whichever asset is current.
+- **`test_24j`** -- also blanks `retirement_reasons` alongside the two lists it already blanks. **F-19
+  made reasons a THIRD retirement input**, and its R3 refuses a reason naming something the payload
+  does not retire, so emptying only two of three left the payload self-contradictory and the loader
+  threw, correctly. Latent since F-19.
+- **`test_98`** -- docstring only: `100x50mm` dropped from the mangling-prone list (prose; the test
+  exercises earthing / industrial_sockets / wiring_cabling).
+
+### Cert (live, CDP against the owner's Chrome)
+
+De-stale ran in full: bench restarted; the three LISTED vite PIDs killed (never pattern-killed);
+confirmed empty; `node_modules/.vite` cleared; both detached-restarted; **:8080 and :8000 both 200**;
+caches + service workers + storage cleared with **cookies preserved**; ROOT loaded before the deep
+route. **No frontend source changed in this slice, so the marker is the SERVED CONFIG, not the
+bundle** -- and it is green both directions: NEW `face_mm` / `number_choice` / `values_from` / `R11` /
+golden `{face_mm:150}` / catalog 100-350 present; OLD `size` definition and `size` on any catalog row
+**absent**; batch `rmbulk-545b33565f1c`.
+
+- **V1 PASS** -- Face size (mm) renders as a DROPDOWN offering **exactly** `100, 150, 200, 250, 300,
+  350` plus the "select" placeholder, as clean integers (the float storage renders correctly).
+- **V2** -- BEFORE on record from Phase 1d: all 12 rows blank, each at confidence 0.9.
+- **V3 PASS** -- three rows quoted to the rupee: **row 258** (300x300x50) `supply 920 / install 190 /
+  combined 1110`; **row 246** (300x300x60) `1110`; **row 247** (200x200x60) `supply 540 / install 110 /
+  combined 650`. Each matches the catalog by hand (630 -> ROUNDUP(913.5,-1)=920, ROUNDUP(184,-1)=190;
+  370 -> ROUNDUP(536.5,-1)=540, ROUNDUP(108,-1)=110).
+- **V4 PASS** -- **rows 246 (depth 60) and 258 (depth 50), same face, price IDENTICALLY at 1110.**
+  R11's depth-is-ignored rule, on real data.
+- **V5 PASS** -- the panel names the basis in plain terms: *"Rate master: junction_box_raceway @ Face
+  size (mm) = 200"*, with `supply = 540 / install = 110 / combined_rate = supply + install = 650`.
+  "Use this value" is ENABLED.
+- **V6 PARTIAL, stated honestly** -- the browser spot-check landed on two **`wiring_cabling`** rows
+  (row 186 -> 570, row 190 -> 318, both rendering their full Cable + Termination groups), **not on a
+  tray row and a conduit row as specified**. The categorical proof that no other category moved is the
+  **asset diff** (only junction_box items + config differ, 23/19 lines) and **26/26 goldens green**
+  inside the 152-test suite; the browser half is confirmatory and is short of the letter of V6.
+
+### Known leftover (not a defect, reported)
+
+BOQ-26-00114 still carries two inactive partial runs (`BRSR-26-00582`, `BRSR-26-00583`), so the pricing
+editor shows the SR-1 resume strip -- *"Rate suggestions stopped early ... Resume run"* -- even though
+`BRSR-26-00584` is complete and active and "Use this value" is enabled. `get_active_suggestion_run`
+returns the newest resumable partial under its own `partial_run` key by design; the banner is telling
+the truth about a document that is now obsolete in substance.

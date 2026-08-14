@@ -1372,6 +1372,36 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   pipeline change must still reproduce EXACTLY.
 - **Migrate obligation grows:** these two doctypes add to the pullers' migrate obligation (Abhishek
   heads-up) — pulling requires a DB migrate.
+- **⚠️ A NUMERIC CATALOG ATTRIBUTE IS STORED AS A FLOAT, AND THE CSV ROUND TRIP IS WHY (owner-locked,
+  F-3 2026-08-15).** The CSV emits a value AS STORED and the importer parses the cell to `float`, while
+  changed-ness is decided **type-strictly** — so a stored INT reads back as a change and an unedited
+  download → upload stops being a no-op. Every numeric attribute in the Electrical catalog is a float
+  (`conduit.size_mm 50.0`, `cable_tray.width_mm 100.0`, `cable.core 1.0`) for exactly this reason.
+  F-3's first mint used ints and three CSV round-trip tests caught it. **Never reintroduce one.** Floats
+  are otherwise inert: server `float(raw)`, client `Number()`, `===` on a JS number (JSON `100.0` parses
+  to `100`), and a dropdown still renders `100`.
+- **`junction_box_raceway` PRICES BY `face_mm`, A NUMBER — the composite `size` string is RETIRED
+  (owner-locked, F-3).** A BoQ line is three-dimensional (`300 mm x 300 x 60 mm`) and the catalog's old
+  two-dimensional `"300x50mm"` could not be matched against it, so **all 12 live rows extracted blank**.
+  `face_mm` is a `number_choice` with `values_from {kind: junction_box, attr: face_mm}` — it MUST be
+  `number_choice`, because `matchMasterRow` compares with `===` and a plain `choice` emits `"150"`
+  against a stored `150` and matches nothing, silently. **The DEPTH does not price**; estimator rule
+  **R11** carries that reading instruction, and its coverage sentence is deliberately voiced in
+  `_ROW_CONTEXT_SHAPE_GUIDANCE`'s own vocabulary (`description` / `notes` / `ancestor_chain`). `size`
+  was REMOVED from the six rows rather than left alongside: the matcher would ignore it, but the CSV
+  attribute space is **declared ∪ observed**, so it would render an editable column with no effect.
+- **⚠️ A SCOPED RE-EXTRACTION CANNOT COMPLETE AGAINST A PRE-SR-1 RUN — KNOWN BEHAVIOUR, NOT A BUG
+  (owner ruling 2026-08-15).** SR-1's migrate backfilled `status` to `"complete"` but left
+  `attempted_rows` NULL; the later SELROW carry seeds `acc_attempted` from that field
+  (`rate_master.py:532`), so `complete = ... and not (population - acc_attempted)` (`:754`) can never be
+  satisfied and the pass strands in an `active=0` partial (`:548`, R-SUPERSEDE). **Runs predating
+  2026-08-10 are test-era, no production BoQ depends on them, and the sanctioned remedy for any such
+  sheet needed in testing is a FULL re-extraction** — a fix slice was proposed and WITHDRAWN. Proven by
+  a full-table gate: 8 NULL rows all predate 2026-07-31 20:11, the oldest populated row is 2026-08-03
+  00:10, and **every state and shape created after that boundary carries `attempted_rows`** (including
+  partial+scoped and partial+whole), so **no run created today can reproduce it**. Related and separate:
+  a sheet's POPULATION grows when a new category goes live, so an old "complete" run can also be
+  genuinely short of today's rows — the same full re-extraction is the remedy.
 
 ## BoQ Rate Suggestion (RM-3)
 

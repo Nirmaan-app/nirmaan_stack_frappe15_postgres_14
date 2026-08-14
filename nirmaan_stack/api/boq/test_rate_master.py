@@ -4633,9 +4633,13 @@ class TestRateMaster(FrappeTestCase):
         """NEGATIVE -- THE CENTRAL DATA RISK. Nothing is silently repaired; the PREVIEW is the
         defence, so every mangle must surface as a CHANGE.
 
-        The live catalog really does carry `16/20A`, `70 x 6 MM Earth Strip`, `100x50mm` and
-        `3 Pin / 2P+E`, all one Excel round trip from being rewritten. The deliberate exception is
-        a NUMERICALLY IDENTICAL float flattened from 2.0 to 2 -- same stored value, no change."""
+        The live catalog really does carry `16/20A`, `70 x 6 MM Earth Strip` and `3 Pin / 2P+E`,
+        all one Excel round trip from being rewritten. The deliberate exception is a NUMERICALLY
+        IDENTICAL float flattened from 2.0 to 2 -- same stored value, no change.
+
+        F-3 (2026-08-15) dropped `100x50mm` from that list: junction_box now carries a numeric
+        `face_mm`, so the composite string is no longer in the catalog. Prose only -- this test
+        exercises earthing / industrial_sockets / wiring_cabling and never touched it."""
         from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
 
         disc = self._loaded_disc()
