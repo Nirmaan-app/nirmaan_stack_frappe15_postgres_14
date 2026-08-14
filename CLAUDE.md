@@ -694,7 +694,10 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   (supply) / x0.3 (bcs); supply + bcs are EXISTING vocabulary (`component_ref none_skips` cross-kind to the NEW
   `db_shell` kind, `sum_components`, `scale`, `roundup`), so the earlier "variable-length list step +
   extraction-payload extension" prediction was WRONG -- the scalar one-attribute-set-per-row payload carries the
-  fixed slots and needed NO extension. **`lookup_or_ratio` is the sheet's EXACT IFERROR three-way install**
+  fixed slots and needed NO extension. ⚠️ **SUPERSEDED AT F-17 (2026-08-13/14): the DB install is now a PLAIN
+  RATIO — `scale` (m 0.20) + `roundup` (digits -1) — and `lookup_or_ratio` HAS NO SHIPPED CONSUMER.** The
+  three-way description that follows is HISTORY; the step remains in the interpreter's vocabulary but no config
+  executes it. **`lookup_or_ratio` was the sheet's EXACT IFERROR three-way install**
   (owner contract, do NOT improvise): (a) `when_shell_absent.attr=="None"` -> `ROUNDUP(ratio.of x ratio.mult)`
   [shell-absent]; (b) else the unique install-table lookup (`kind`+`item`==`@attr`) resolves -> `ROUNDUP(matched
   [target] x mult)` [table-hit]; (c) lookup MISS -> `ROUNDUP(ratio.of x ratio.mult)` [IFERROR fallback]. A ratio
@@ -804,6 +807,35 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   the category rule above, and it is SELF-SUSTAINING once declared: the exporter rebuilds the list from
   the retirement TABLE, so every later export carries it. **Replacing rather than appending would
   silently UN-RETIRE an existing entry.** The retirement row is minted with a BLANK reason — see F-19.
+- **✅ THE PARALLEL-ROW PATTERN IS CLOSED (F-16 + F-17). The governing principle STANDS AS DESIGN LAW
+  for every future kind: adding ONE item must never require a second, hidden row for that item to price
+  completely.** The census was EXHAUSTIVE and both instances are now fixed — `tray_install_rate` (F-16,
+  moved on-row) and `db_install_rate` (F-17, replaced by a ratio). `popup_box_module` remains a
+  rate-table row by the boundary test but carries **both** rates on its one row — NO ACTION.
+- **db_switchgear INSTALL IS A PLAIN RATIO OF THE CALCULATED SUPPLY (owner-locked, F-17):**
+  `ROUNDUP(supply x 0.20, -1)` for **all 27 shells**, where `supply` is the WHOLE assembly
+  (shell + 5 MCB slots + enclosure, x0.495). It replaced `lookup_or_ratio`'s 8-row `db_install_rate`
+  table (x1.5, 8 shells) and 0.15 fallback (19 shells). **A flat per-shell figure could not see the
+  MCBs — that is the whole point.** A DELIBERATE REPRICING that moves **both ways**: on a bare shell
+  install rises on 21 and **falls on 6** (table-path shells whose flat figure exceeded 20% of a bare
+  supply); loaded with four MCBs it rises on all 27.
+  **⚠️ THE STEP IS `scale` + `roundup`, NOT A TRIMMED `lookup_or_ratio` — and the alternative was
+  MEASURED, not assumed.** Deleting only the step's `lookup` key is **FATAL**: the interpreter reads
+  `s.lookup.item` unconditionally, so Option-C degrades the pipeline to `unsupported` and **every DB
+  install blanks**. Keeping the step with `ratio.mult 0.20` is numerically identical but leaves a
+  dangling reference to a retired kind and a trace saying *"table miss"* about a table that no longer
+  exists. `round_ratio: -1` is retained as BEHAVIOUR by the explicit `roundup` step.
+  **`lookup_or_ratio` now has NO shipped consumer** — it stays in the interpreter vocabulary, executed
+  by nothing (a fact, not a problem; a substring search still finds it in `db_switchgear`'s `notes`,
+  which is archaeology and is meant to stay — assert over STEP TYPES, never over serialized config).
+- **A `db_shell` PRICE AND A `db_switchgear_item` PRICE FOR THE SAME PRODUCT NAME ARE DIFFERENT ROWS IN
+  DIFFERENT CATALOGS (F-17 / Finding B).** The v30 merge deduplicated **`db_switchgear_item`** and
+  completed correctly; the 12,133 that survived afterwards was the **`db_shell`** catalog's own row for
+  the same product — a different kind with a different rate key (`shell_rate` vs `list_price`), never
+  part of that dedup. The "the merge missed a twin" framing was a **MISREAD**. Owner ruling (F-17 R1):
+  the shell adopts **12,881**, the higher figure, for safety — **a new pricing decision, not a repair.**
+  26 of the 27 shells have no `db_switchgear_item` counterpart at all, so "these two numbers differ" is
+  not by itself evidence of a defect.
 - **A CATEGORY'S INSTALL RATE BELONGS ON THE ITEM ROW, NOT IN A PARALLEL RATE TABLE (owner-locked,
   F-16).** Governing principle: **adding ONE item must never require a second, hidden row for that item
   to price completely.** Cable tray's install was a second `match_master_row` into `tray_install_rate`
@@ -814,8 +846,8 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   MEASUREMENT** (implied ratio spans 0.1083–1.3077 across all real combinations, a 1107% spread) — do
   not propose one. The parallel-row census is EXHAUSTIVE: exactly TWO instances existed,
   `tray_install_rate` (silent no-compute, fixed here) and `db_install_rate` (fails safe to a 0.15
-  ratio); `popup_box_module` is a rate-table row by the boundary test but carries both rates on its one
-  row — NO ACTION. Boundary test: *could the referenced row plausibly appear on a BoQ line?*
+  ratio; **fixed at F-17**); `popup_box_module` is a rate-table row by the boundary test but carries both
+  rates on its one row — NO ACTION. Boundary test: *could the referenced row plausibly appear on a BoQ line?*
 - **⚠️ `source_row` IS ALWAYS EMITTED, INCLUDING 0.** The 27 db_shell items hold `source_row = 0` in
   the database and 0 is what the database says; omitting it to reproduce the old asset's absent `row`
   would be the export inventing an absence, and it would conflate a genuine row 0 with "no row" —
@@ -1074,12 +1106,12 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   DATA-ONLY category (`pipelines:{}`, `item_kinds:[]`) with a banked EA-4 oracle `1869/735/2604` in
   `config.notes`; it is the FIRST kind-less category. (4) **DB install three-way split** (db_switchgear): kind
   `db_install_rate` + pipelines `db_install_db` (DB-family, scale x1.5) / `db_install_nondb` (switchgear+enclosure,
-  15% of BoQ supply). **OWNER-RULED SHAPE (load-bearing):** `db_install_nondb` MUST be a **`component` step with
-  `conditions`** (NOT `scale` — the interpreter's `scale` does NOT bind `conditions`, only `component` /
-  `apply_effective_multiplier` do; a `scale`+conditions ships an unbound identifier that throws). Its conditions
-  EXCLUDE the DB family (a DB row matches no condition -> honest no-compute, so DB install comes ONLY from
-  `db_install_db`). **THE DEMOTION-STYLE LESSON: `scale` binds only top-level `params`; conditional params require
-  `component`.** (5) **Interpreter robustness (Option C, owner scope-add):** `runPipeline`'s "never throws on data
+  15% of BoQ supply). ⚠️ **HISTORICAL — BOTH PIPELINES WERE DELETED AT EA-4d** (the DB single-item path had no
+  sheet-cell basis; the whole guiding DB block IS the build-up), **and the `db_install_rate` KIND ITSELF WAS
+  RETIRED AT F-17.** Kept only for the reasoning below, which is still live: **`scale` binds only top-level
+  `params`, so conditional params require `component`** (the interpreter's `scale` does NOT bind `conditions`,
+  only `component` / `apply_effective_multiplier` do; a `scale`+conditions ships an unbound identifier that
+  throws). Do not read this entry as describing anything that ships. (5) **Interpreter robustness (Option C, owner scope-add):** `runPipeline`'s "never throws on data
   shape" contract is ENFORCED — a data-shape formula throw (unbound identifier / malformed) DEGRADES to the honest
   `unsupported` status, page + helper NEVER hit the error boundary. The Data-Viewer **empty-scope** rule
   (`rateMasterStructure.isCategoryDataScopeEmpty`): a kind-less category renders an honest empty state (0 rows,

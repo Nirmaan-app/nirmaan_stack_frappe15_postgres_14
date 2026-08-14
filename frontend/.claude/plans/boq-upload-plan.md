@@ -28753,3 +28753,174 @@ independent pins had already drifted apart once, which is the C4 trap the single
 
 This slice did **not** grow into the bootstrap command (no bench command, no endpoint), and **F-21 was
 not touched** -- `csv_importer.py` is byte-unchanged. Both remain owner-parked.
+
+---
+
+## Build slice F-17 -- db_switchgear install becomes a plain RATIO (2026-08-13/14)
+
+**Status: SHIPPED.** Asset **v32** (`rate_master_electrical_all_v32.json`), batch
+`rmbulk-4dd065713fd2`, **1,364** active Electrical items. Tests **138 -> 143**, all passing.
+Browser cert PASSED against a pre-computed contract.
+
+### The change
+
+Install was `lookup_or_ratio`: a flat per-shell figure from an 8-row `db_install_rate` table (x1.5)
+for 8 shells, and a 0.15 ratio fallback for the other 19. It is now **ONE rule for all 27** --
+`ROUNDUP(supply x 0.20, -1)` -- where `supply` is the WHOLE assembly (shell + 5 MCB slots +
+enclosure, x0.495, roundup tens). **A flat per-shell figure could not see the MCBs; that is the
+point of the change.**
+
+```
+[10] scale     target=supply  result=install  params {m: 0.20}  formula "base*m"
+[11] roundup   target=install params {digits: -1}
+```
+
+Steps [0]-[9] (the build-up itself) are byte-identical to `db_buildup_supply` and untouched.
+
+### ⚠️ Shape C, and why the alternatives were rejected -- MEASURED, not reasoned
+
+Three candidate edits were probed through the real interpreter against the live catalog before
+choosing (TPN DB 8WAY, loaded; the contract says 2,640):
+
+| variant | install | status | verdict |
+|---|---|---|---|
+| **A** keep `lookup_or_ratio`, `ratio.mult` 0.20, rows retired | 2,640 | ok | works, but leaves a **dangling reference** to a retired kind and traces *"table miss"* against a table that no longer exists |
+| **B** delete the step's `lookup` key | **null** | **`unsupported`** | **FATAL** -- the interpreter reads `s.lookup.item` unconditionally; Option-C degrades the pipeline and **every DB install blanks**. Never attempt it. |
+| **C** replace step with `scale` + `roundup` | 2,640 | ok | **CHOSEN** -- existing vocabulary, no interpreter change, reference GONE not dormant |
+| **D** control: keep step, rows still present | 1,500 | ok | table-hit -- proves retiring the rows is what routes A to the ratio |
+
+A and C are **numerically identical everywhere**. `round_ratio: -1` is retained as **BEHAVIOUR** by
+the explicit `roundup` step, not as a key. **`lookup_or_ratio` now has NO shipped consumer** -- it
+stays in the interpreter vocabulary, executed by nothing.
+
+⚠️ **A substring search still finds `lookup_or_ratio` in `db_switchgear`'s `notes`** -- the v16c
+build record. That is archaeology and is meant to stay. **Assert over STEP TYPES, never over the
+serialized config**; the first version of `test_f17d` did the latter and failed on documentation
+prose while the product was correct.
+
+### The repricing -- deliberate, and it moves BOTH ways
+
+| assembly | rises | falls |
+|---|---|---|
+| **BARE** (all MCB slots + enclosure `"None"`) | 21 shells | **6 shells** |
+| **LOADED** (`63A FP MCB C CURVE` x4) | all 27 | none |
+
+The six that fall are table-path shells whose flat lookup (750 / 1,275 / 1,500) exceeded 20% of a
+*bare* supply. A bare SPN DB 6WAY falls **750 -> 280**; the same shell loaded rises **750 -> 1,870**.
+"Prices must rise" would have been the wrong cert expectation.
+
+### R1 -- Finding B was a MISREAD, and the fix is a new decision
+
+The ledger said a merge dedup "missed a twin": `rmi-867d1c6a5d6b` still at 12,133 while
+`rmi-46031e57924f` held 12,881. **Both uids were read in full and they are DIFFERENT KINDS** --
+`db_shell` (`shell_rate`) and `db_switchgear_item` (`list_price`), one row in each of two catalogs
+for the same product name.
+
+The v30 merge deduplicated **`db_switchgear_item`** ("KEPT the 12881 copy (row 17); DROPPED the
+12133 copy (row 14)") and **completed correctly** -- exactly one active row of that kind carries the
+name, at 12,881. Corroborated: **no duplicate `item` among the 27 active shells**, and **exactly one
+active row anywhere carried 12,133** -- the shell. So the surviving figure was the shell catalog's
+**own** row, never part of that dedup.
+
+**Owner ruling R1: the shell adopts 12,881, the higher figure, for safety -- a NEW pricing decision,
+not a repair.** 26 of the 27 shells have no `db_switchgear_item` counterpart at all, so "these two
+numbers differ" is not by itself evidence of a defect.
+
+| assembly | supply before | supply after | install before | install after |
+|---|---|---|---|---|
+| bare | 6,010 | **6,380** | 910 | **1,280** |
+| loaded | 13,950 | **14,320** | 2,100 | **2,870** |
+
+### The retirement
+
+The 8 `db_install_rate` rows are **RETIRED BY DECLARATION** -- the **sixth** Electrical retirement,
+**blank reason** per option C (the reason rides the feat commit body). `retired_kinds` is **ADDED**
+to: `["db_install_rate", "tray_install_rate", "ups_per_kva", "ups_reference"]`. Omission alone would
+have left them orphan-active -- the F-16 lesson, applied.
+
+### The goldens, re-minted (each re-derived BEFORE editing)
+
+| golden | shell | was | branch | **now** |
+|---|---|---|---|---|
+| dbu1 | VTPN DB 6WAY WITH MCB INCOMER | 3,660 | ratio 0.15 | **4,880** |
+| dbu2 | TPN DB 8WAY | 1,500 | table hit | **2,640** |
+| dbu3 | shell `"None"` | 3,580 | ratio 0.15 | **4,770** |
+| dbu4 | TPN DB 6WAY | 1,275 | table hit | **1,670** |
+
+**Supplies are unchanged** -- none of the four uses the R1 shell, and **`dbu3` was checked, not
+assumed**: its `db_shell_item` is `"None"`, so its supply stays 23,840.
+
+⚠️ **Both golden copies were updated.** The exported asset carries `goldens` at the top level **and**
+on the config, and they agreed before the edit; `test_72` (rewritten at F-16) requires that where a
+config-level copy exists it has a top-level twin and **agrees exactly**. Editing one would have
+broken that invariant.
+
+### The contract, and how it was computed
+
+`f17_expected_after_2026-08-14.md` (Desktop) -- **27 shells x 2 assemblies** plus the four goldens --
+was computed and written **before any export, edit or reload**. Every figure came from **the
+application's own interpreter**, resolved through the running page's module graph and driven with the
+live catalog; the R1 reprice was applied to a **copy** of the items array so nothing live was touched.
+
+**The chain was validated before it was trusted:** all four stored goldens were re-derived and every
+computed BEFORE value matched the stored value exactly. A chain that reproduces four shipped figures
+to the rupee is the chain producing the AFTER column.
+
+⚠️ **A per-shell table is only well defined against a DECLARED assembly.** `supply` sums the shell,
+five MCB slots and the enclosure, so install is per-ROW, not per-shell. Only the 8 table-path shells
+had a supply-independent install *before*. Hence R2's two assemblies, identical across all 27 shells.
+
+### Verification after reload
+
+1,364 active; **exactly the 8 rows deactivated**, proven by comparing active `item_uid` SETS (a count
+can balance while content swaps); `item_kinds` `["db_switchgear_item", "db_shell"]`; **exactly ONE new
+retirement row** with the five existing unchanged and a blank reason; the R1 row active at 12,881 with
+its predecessors **retained** inactive; and the **450 `cable_tray` rows byte-identical** -- the canary
+for "nothing outside db_switchgear moved". The loaded asset **round-trips BYTE-IDENTICALLY** against a
+fresh export (677,041 bytes).
+
+### Tests: 138 -> 143
+
+- **`test_f17a`** POSITIVE -- install is `scale(m 0.20)` off the CALCULATED supply plus `roundup(-1)`;
+  build-up steps [0]-[9] identical to the supply pipeline.
+- **`test_f17b`** POSITIVE -- R1: the shell prices from 12,881, exactly one active row for that
+  product, and no active row anywhere still carries 12,133.
+- **`test_f17c`** NEGATIVE -- retired by declaration: absent from items AND `item_kinds`, present in
+  `retired_kinds`, the other three preserved; a scratch-discipline load proves it deactivates.
+- **`test_f17d`** NEGATIVE -- no `lookup_or_ratio` step and no `db_install_rate` reference survive,
+  checked **structurally over step types** across every config.
+- **`test_f17e`** POSITIVE -- the four goldens carry the re-minted figures and the supplies did not move.
+
+Known-debt pins updated with F-17 comments: `test_24b`/`test_24e` retirement lists (**and** their
+`get_retirement_lists` twin and the created/existing counts 5 -> 6 -- the debt is wider than the two
+sites previously recorded), plus the `1372 -> 1364` count pins that follow `CURRENT_EALL_ASSET`.
+
+### Browser cert -- PASSED
+
+Bench and Vite restarted by explicit PID. ⚠️ **`pgrep -af vite` matched MY OWN SHELL** (its command
+line contained the pattern) and was excluded by hand -- exactly the case the ritual warns about; the
+same shell also appeared in the honcho lookup. The bench watcher survived. `:8000` again showed the
+**cold-start** pattern (three 000s, then 200 at 17 ms) -- restart-again would have been the wrong
+move. Fresh worker verified behaviourally (real method -> 403; bogus method -> `has no attribute
+'f17_not_a_real_method'`).
+
+- **C1** -- the changed shape resolved through the page's module graph and **behaved**:
+  `evalFormula('base*m', {13190, 0.20}) = 2638` -> `roundUp(2638, -1) = 2640`; live config
+  `item_kinds ["db_switchgear_item","db_shell"]`, last two steps the scale/roundup pair, **no**
+  `lookup_or_ratio`, **no** `db_install_rate`, 0 active, 1,364 total.
+- **C2** -- **six shells spanning BOTH prior populations, each in BOTH assemblies: all 24 figures
+  identical to the contract**, and no `lookup_or_ratio` step ran on any of them. The R1 shell was one
+  of the six (6,380 / 14,320 -- the 12,881-derived supplies).
+- **C3** -- trace for TPN DB 8WAY loaded: `supply=13190` -> the ratio explain line -> `install=2638`
+  -> `round up (to tens) => install=2640`. No lookup.
+- **C4** -- NEGATIVE canary: F-16 tray ledger rows L1 (321/100/421) and L6 (1060/670/1730)
+  **identical to their before figures**.
+- **C5** -- zero residual: no writes (reads + pure interpreter runs), 0 TEST BoQs, batch unchanged,
+  1,364 active, 6 retirement rows, 0 leftover `TEST_RM_` disciplines.
+
+### Queue state
+
+**F-16 ✅ · F-20 ✅ · F-17 ✅** -- the parallel-row pattern is CLOSED (both census instances fixed).
+Next: **F-21** (the >=10% major boundary, float-fragile downward, `csv_importer`), **F-19** (the
+retirement reason channel), **F-18** (a `component` target naming a missing rate key -> NaN through
+`status: "ok"`), then the seven cleared audit fixes behind the combined recon.
