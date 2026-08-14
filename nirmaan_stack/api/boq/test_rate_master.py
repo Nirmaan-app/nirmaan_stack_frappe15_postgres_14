@@ -98,8 +98,15 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # F-17 (2026-08-13/14) minted v32: db_switchgear install became a plain RATIO of the calculated
 # supply (20%, roundup tens), the 8-row `db_install_rate` table was RETIRED BY DECLARATION, and
 # the Finding-B db_shell was repriced 12,133 -> 12,881 (R1). Asset carries 1364 items, not 1372.
+# F-3 (2026-08-15) minted v33: junction_box_raceway prices by FACE SIZE. The `size` choice
+# ("150x50mm") became `face_mm` (number_choice, values_from junction_box.face_mm) and the six
+# catalog rows swapped their `size` string for a numeric `face_mm` -- the depth was never a
+# pricing dimension and the composite string could not be matched against a three-dimensional
+# BoQ line, so all 12 live junction-box rows extracted blank. NO row added, NONE retired, no
+# rate moved: the count stays 1364 and golden j1 keeps 430/90 (an INPUT re-mint, not a
+# repricing). New estimator rule R11 carries the face-size reading instruction.
 # The count pins below follow this constant.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v32.json"
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v33.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -1278,9 +1285,16 @@ class TestRateMaster(FrappeTestCase):
             {"retired_kinds": ["db_install_rate", "tray_install_rate", "ups_per_kva",
                                "ups_reference"],   # F-17 added db_install_rate
              "retired_category_ids": ["switches_point", "ups"],
-             # F-19: the merged asset declares retirements but carries NO reasons, so the maps are
-             # empty here. That is the R2 path -- a reasonless retirement is legal and records blank.
-             "retirement_reasons": {"kinds": {}, "categories": {}}},
+             # F-3 (2026-08-15) RE-MINTED THIS PIN, and the ruling it now encodes is F-19's own.
+             # It used to assert two EMPTY maps, on the stated grounds that "the merged asset
+             # declares retirements but carries NO reasons". That was never a property of the
+             # SYSTEM -- only of v32, which was minted at F-17, BEFORE F-19 added the channel and
+             # backfilled the two real reasons. v33 is the first asset exported after F-19, so it
+             # is the first to carry them, and the old assertion was guaranteed to fail on the next
+             # mint by anyone for any reason. Asserting against the PAYLOAD states the actual rule
+             # -- the loader records what the asset declares, and the read returns it in the
+             # asset's own shape -- and is immune to every future mint.
+             "retirement_reasons": payload["retirement_reasons"]},
         )
 
         # ⚠️ retired_at / retired_by stay EMPTY -- the loader knows when it RAN, not when the
@@ -1288,14 +1302,26 @@ class TestRateMaster(FrappeTestCase):
         # not have is worse than an empty one, and F-19 does NOT change that.
         #
         # F-19 NARROWED THE REASON CLAUSE ONLY: a reason is AUTHORED FACT travelling with the
-        # payload, not something inferred after the event, so it may now be set. This payload
-        # carries no `retirement_reasons`, so every row here is still blank -- which is the R2 path
-        # (a reasonless retirement is legal). The reason CHANNEL is covered by test_f19a-e.
+        # payload, not something inferred after the event, so it may now be set. The reason CHANNEL
+        # is covered by test_f19a-e.
+        #
+        # F-3 (2026-08-15) RE-MINTED THE REASON HALF, on F-19's ruling -- the SECOND assertion in
+        # this test to move, and it was masked until the first one was fixed. It read a blanket
+        # `assertFalse(reason)` "because this payload declares none", true only while the current
+        # asset was v32 (minted at F-17, before F-19's channel and backfill). The two timestamp
+        # clauses are UNTOUCHED and are the load-bearing half: `retired_at` / `retired_by` are
+        # never written, because the loader knows when it RAN and has never known by whom.
+        declared = payload["retirement_reasons"]
         for row in frappe.get_all(retirement.RETIREMENT_DOCTYPE, filters={"discipline": disc},
-                                  fields=["retired_at", "retired_by", "reason"]):
+                                  fields=["scope_type", "scope_value",
+                                          "retired_at", "retired_by", "reason"]):
             self.assertIsNone(row["retired_at"])
             self.assertFalse(row["retired_by"])
-            self.assertFalse(row["reason"])   # blank HERE because this payload declares none
+            # each row carries EXACTLY what the payload declared for its scope, and blank where it
+            # declared nothing -- the R2 path still proven on the four reasonless retirements.
+            bucket = "kinds" if row["scope_type"] == "kind" else "categories"
+            self.assertEqual(row["reason"] or "",
+                             declared.get(bucket, {}).get(row["scope_value"], ""))
 
         # IDEMPOTENT: a second load records nothing new
         r2 = loader.load_rate_master(payload=self._merged_payload(disc), replace=True)
@@ -1404,10 +1430,18 @@ class TestRateMaster(FrappeTestCase):
         REFUSING a reasonless retirement would have been the tidier rule and was rejected: every
         asset up to and including v32 declares retirements and carries no reasons at all, so the
         shipped catalog would have stopped loading -- exactly the trap class F-20 removed. The
-        honest lever against forgetting is VISIBILITY, so the summary reports the count."""
+        honest lever against forgetting is VISIBILITY, so the summary reports the count.
+
+        F-3 (2026-08-15) RE-MINTED THE FIXTURE, not the ruling. The reasonless payload used to be
+        `_merged_payload` as-is, which was reasonless only because v32 predated F-19. v33 carries
+        two real reasons, so the fixture now STRIPS the key: the R2 path is about a payload that
+        declares retirements and no reasons, and that must be an explicit property of the fixture
+        rather than an accident of which asset happens to be current."""
         from nirmaan_stack.services.boq_rate_master import retirement
         disc = self._new_disc()
-        r = loader.load_rate_master(payload=self._merged_payload(disc))   # no reasons at all
+        payload = self._merged_payload(disc)
+        payload.pop("retirement_reasons", None)                           # no reasons at all
+        r = loader.load_rate_master(payload=payload)
         self.assertEqual(len(r["retirements_recorded"]["created"]), 6)
         self.assertEqual(r["retirements_without_reason"], 6)
         for row in frappe.get_all(retirement.RETIREMENT_DOCTYPE, filters={"discipline": disc},
@@ -1440,10 +1474,18 @@ class TestRateMaster(FrappeTestCase):
         re-load safe. It is therefore structurally unable to fill a row minted blank: re-loading
         with reasons attached reports the rows as `existing` and changes nothing. Turning the skip
         into an upsert would trade a load-safety guarantee for two historical fields, which is why
-        the two real rows were filled by `scripts/backfill_retirement_reasons.py` instead."""
+        the two real rows were filled by `scripts/backfill_retirement_reasons.py` instead.
+
+        F-3 (2026-08-15) RE-MINTED THE FIXTURE, not the ruling. The first load must mint the row
+        BLANK for the replay to prove anything, and `_merged_payload` stopped doing that the moment
+        an asset carried reasons -- v33 is the first, because v32 predated F-19. Stripping the key
+        makes "minted blank" the fixture's own doing rather than a property borrowed from whichever
+        asset is current."""
         from nirmaan_stack.services.boq_rate_master import retirement
         disc = self._new_disc()
-        loader.load_rate_master(payload=self._merged_payload(disc))       # minted blank
+        blank = self._merged_payload(disc)
+        blank.pop("retirement_reasons", None)
+        loader.load_rate_master(payload=blank)                            # minted blank
         name = f"{disc}::kind::tray_install_rate"
         self.assertFalse(frappe.db.get_value(retirement.RETIREMENT_DOCTYPE, name, "reason"))
 
@@ -1616,6 +1658,12 @@ class TestRateMaster(FrappeTestCase):
         payload_in = self._merged_payload(disc)
         payload_in["retired_kinds"] = []
         payload_in["retired_category_ids"] = []
+        # F-3 (2026-08-15): blank the reasons TOO. F-19 made `retirement_reasons` a THIRD
+        # retirement input, and its R3 refuses a reason naming something the payload does not
+        # retire -- so emptying only the two lists left this payload self-contradictory and the
+        # loader threw, correctly. Latent since F-19 and invisible only because v32, the current
+        # asset until v33, carried no reasons at all.
+        payload_in["retirement_reasons"] = {"kinds": {}, "categories": {}}
         loader.load_rate_master(payload=payload_in)
         out, _ = exporter.export_asset_text(disc)
         self.assertEqual(out["retired_kinds"], [])
