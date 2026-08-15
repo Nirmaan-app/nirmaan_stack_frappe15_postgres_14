@@ -1441,6 +1441,17 @@ def _validate_config(cfg):
         # list of dependent attr ids greyed/cleared when it is set to "None" (pass-through, shape-checked).
         if "allow_none" in d and not isinstance(d.get("allow_none"), bool):
             _vthrow(f"attribute '{did}' allow_none must be true/false.")
+        # SLICE 2d: `panel: false` hides an attribute from the PRICING PANEL only -- it is NOT
+        # `selector`, which also removes it from the AI prompt. Shape-checked exactly like
+        # allow_none.
+        #
+        # NOTE for the next reader: attribute definitions have NO key allowlist here (unlike the
+        # config's top-level `_KNOWN_CONFIG_KEYS`), so an unregistered key was never rejected and
+        # `panel` did not strictly need a change to be saveable. It gets this guard anyway, because a
+        # flag whose TYPE is unchecked fails silently: a string "false" is truthy in the frontend, so
+        # the attribute would keep rendering with nothing to say why.
+        if "panel" in d and not isinstance(d.get("panel"), bool):
+            _vthrow(f"attribute '{did}' panel must be true/false.")
         dwn = d.get("disables_when_none")
         if dwn is not None and (not isinstance(dwn, list) or not all(isinstance(x, str) and x for x in dwn)):
             _vthrow(f"attribute '{did}' disables_when_none must be a list of attribute ids.")

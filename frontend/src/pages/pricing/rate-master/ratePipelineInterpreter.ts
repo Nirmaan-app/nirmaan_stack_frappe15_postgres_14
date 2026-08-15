@@ -18,6 +18,7 @@
 import type {
   CatalogFitOutcome,
   DerivedAttrOutcome,
+  MapAttributeOutcome,
   ModuleFitOutcome,
   Pipeline,
   PipelineResult,
@@ -562,6 +563,28 @@ export function catalogFitOutcomes(
   return out;
 }
 
+/**
+ * SLICE 2d -- the ONE reader over `StepTrace.mapAttribute`, keyed by `result_attr`, first-wins across
+ * pipelines (supply and install carry the identical map steps). The `catalogFitOutcomes` shape, third
+ * instance of the same contract: read the structured data, never the prose, never re-derive.
+ *
+ * It exists so option B can answer *"was the fact this item rests on STATED, or did we work it out?"*
+ * -- the question that separates a plain marker from "(computed)" when the ladder itself hit exactly.
+ */
+export function mapAttributeOutcomes(
+  results: Array<{ steps: StepTrace[] }>
+): Map<string, MapAttributeOutcome> {
+  const out = new Map<string, MapAttributeOutcome>();
+  for (const r of results) {
+    for (const st of r.steps ?? []) {
+      if (st.mapAttribute && !out.has(st.mapAttribute.result_attr)) {
+        out.set(st.mapAttribute.result_attr, st.mapAttribute);
+      }
+    }
+  }
+  return out;
+}
+
 function readableCondition(when: Record<string, string | number>, params: Record<string, number>): string {
   const lhs = Object.entries(when)
     .map(([k, v]) => `${k} = ${v}`)
@@ -861,6 +884,8 @@ export function runPipeline(
           step: stepType,
           label: s.explain || `map ${p.result_attr}`,
           matchedCondition: `${p.prefer_attr} stated as ${String(stated)} -- kept (a stated value wins)`,
+          // SLICE 2d: the row supplied it, so nothing was substituted -- the option-B "plain" case.
+          mapAttribute: { result_attr: p.result_attr, stated: true },
           runningValues: snapshot(),
         });
         continue;
@@ -902,6 +927,9 @@ export function runPipeline(
         step: stepType,
         label: s.explain || `map ${p.result_attr}`,
         matchedCondition: `${how} -> ${p.result_attr} = ${String(mapped)}`,
+        // SLICE 2d: this value came from the TABLE or from a DEFAULT, not from the row. Both are
+        // substitutions, and option B marks the item they feed as "(computed)".
+        mapAttribute: { result_attr: p.result_attr, stated: false },
         runningValues: snapshot(),
       });
     } else if (stepType === "catalog_fit") {
@@ -922,6 +950,18 @@ export function runPipeline(
       }
       const isStated = (v: string | number | undefined) =>
         v !== undefined && v !== null && v !== "";
+
+      // SLICE 2d -- the attribute ids behind this step's `where` "@" references, collected ONCE and in
+      // config order. Computed here, before any early return, so the stated and absent paths publish
+      // the same join key as the fitted path: a consumer must never have to care WHICH branch ran to
+      // know which facts this fit rests on. List members are included -- `["@mcb_curve", "NA"]` rests
+      // on the curve just as much as a bare ref does.
+      const whereRefs: string[] = [];
+      for (const v of Object.values(p.where ?? {})) {
+        for (const m of Array.isArray(v) ? v : [v]) {
+          if (typeof m === "string" && m.startsWith("@")) whereRefs.push(m.slice(1));
+        }
+      }
 
       const pushFit = (
         matchedCondition: string,
@@ -944,6 +984,9 @@ export function runPipeline(
         pushFit(`${p.prefer_attr} stated as ${String(statedItem)} -- kept (a stated value wins)`, {
           bind: p.bind, fitted: null, size: null, requested: null, exact: false,
           absent: statedItem === NONE_SENTINEL, stated: String(statedItem),
+          // OPTION B: the row's own value is what prices -- this step fitted nothing, so it
+          // substituted nothing. The panel renders it PLAIN.
+          substituted: false, whereRefs,
         });
         continue;
       }
@@ -954,6 +997,8 @@ export function runPipeline(
         fitLabels[p.bind] = NONE_SENTINEL;
         pushFit(`${p.absent_when.attr} is ${String(p.absent_when.equals)} -> no ${p.bind}`, {
           bind: p.bind, fitted: null, size: null, requested: null, exact: false, absent: true,
+          // A CONCLUDED ABSENCE is a computed verdict, not a missing one -- "None (computed)".
+          substituted: false, whereRefs,
         });
         continue;
       }
@@ -1007,6 +1052,7 @@ export function runPipeline(
           fitLabels[p.bind] = NONE_SENTINEL;
           pushFit(`${p.fit_from.attr} not stated -> no ${p.bind}`, {
             bind: p.bind, fitted: null, size: null, requested: null, exact: false, absent: true,
+            substituted: false, whereRefs,
           });
           continue;
         }
@@ -1034,6 +1080,7 @@ export function runPipeline(
         fitLabels[p.bind] = NONE_SENTINEL;
         pushFit(`${fmtNum(want)} -> nothing in the catalog fits -> no ${p.bind}`, {
           bind: p.bind, fitted: null, size: null, requested: want, exact: false, absent: true,
+          substituted: false, whereRefs,
         });
         continue;
       }
@@ -1049,7 +1096,10 @@ export function runPipeline(
           (fit.exact
             ? `${fit.label}`
             : `${fmtNum(want)} not carried -> ${fmtNum(fit.modules)} (next ${p.direction === "down" ? "lower" : "higher"}) -> ${fit.label}`),
-        { bind: p.bind, fitted: fit.label, size: fit.modules, requested: want, exact: fit.exact, absent: false }
+        { bind: p.bind, fitted: fit.label, size: fit.modules, requested: want, exact: fit.exact, absent: false,
+          // OPTION B: a HOP is a substitution -- the catalog did not carry what was asked for, so a
+          // different rung is being priced and the panel must say so.
+          substituted: !fit.exact, whereRefs }
       );
     } else if (stepType === "roundup") {
       const s = raw as import("./rateMasterTypes").RoundupStep;

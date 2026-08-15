@@ -27,6 +27,24 @@ export interface AttributeDefinition {
   values?: (string | number)[];
   /** brand carries selector:false -- shown but not selectable. Absent => selectable. */
   selector?: boolean;
+  /**
+   * SLICE 2d -- hidden from the PRICING PANEL only. Absent => shown, so every pre-2d config is
+   * byte-identical.
+   *
+   * ⚠️ THIS IS NOT `selector`, AND THE DIFFERENCE IS THE WHOLE POINT. `selector: false` hides an
+   * attribute from all THREE surfaces including the AI prompt (`extraction.py` skips it), which is
+   * the opposite of what this flag is for: the four `industrial_sockets` MCB facts must keep being
+   * EXTRACTED and keep driving the pipeline while leaving the pricer's screen, so that one field --
+   * `paired_mcb` -- carries the whole answer.
+   *
+   * ⚠️ IT NARROWS THE RENDERED LIST ONLY, NEVER THE DEFINITION WALK. `pricingSheetHelper`'s one loop
+   * builds three things from the same defs: the panel list, the `selected` map handed to
+   * `runPipeline`, and the missing-attribute gate. Filtering the WALK would strip these facts from
+   * `selected`, so `absent_when` would never fire and `fit_from` would never read -- every socket row
+   * silently mispriced. The filter belongs on the push, and the gate exempts a hidden attribute
+   * because a field the pricer cannot see is not missing user input.
+   */
+  panel?: boolean;
   note?: string;
   // EA-4a: a choice whose allowed values are RESOLVED FROM the live master (distinct `attr` values of the
   // `kind` rows matching `where`), exactly like the item-identity catalogs. The BACKEND resolves these at
@@ -730,6 +748,42 @@ export interface CatalogFitOutcome {
   absent: boolean;
   /** Set when STATED-WINS fired: the value the row supplied, which the step deferred to. */
   stated?: string;
+  /**
+   * SLICE 2d, OPTION B -- did THIS step substitute anything? True when the ladder HOPPED (the catalog
+   * did not carry the requested size, so a different rung is being priced). False when the rung was
+   * carried exactly, and on the stated / absent paths, where the step fitted nothing at all.
+   *
+   * ⚠️ THIS ANSWERS FOR THIS STEP ONLY -- it is deliberately NOT the whole option-B verdict. A fit can
+   * be exact and still rest on a substituted FACT (a pole inferred from the pin count, a curve taken
+   * from a default), and those substitutions happen in `map_attribute`, a different step. The panel
+   * composes the two: `substituted || any whereRef's map outcome was not stated`. Computing the whole
+   * verdict here would need this step to reach into another's business.
+   */
+  substituted: boolean;
+  /**
+   * SLICE 2d -- the attribute ids this step's `where` resolved through "@" references, in config
+   * order. It is the JOIN KEY the panel needs to find the `map_attribute` outcomes that feed this
+   * fit; without it a consumer would have to re-read the config and re-resolve the refs, which is a
+   * second copy of resolution logic. Empty when the `where` carries only literals.
+   */
+  whereRefs: string[];
+}
+
+/**
+ * SLICE 2d -- the outcome of one `map_attribute` step, published as STRUCTURED DATA exactly as
+ * `moduleFit` / `derivedAttr` / `catalogFit` are. MINIMAL BY DESIGN: the only question any surface
+ * asks of this step is *"did the row STATE this, or did we work it out?"*, because that is what
+ * decides whether the item it fed into is plain or `(computed)`.
+ *
+ * `stated` is TRUE only when the step's `prefer_attr` path fired -- the row supplied the value and the
+ * mapping never ran. It is FALSE when the value came from the `table` (inferred from another
+ * attribute) or from `default`. Both of those are substitutions, and option B marks them.
+ */
+export interface MapAttributeOutcome {
+  /** The attribute id this step resolved (echoes the step's `result_attr`). */
+  result_attr: string;
+  /** The row stated it, so nothing was substituted. */
+  stated: boolean;
 }
 
 export interface StepTrace {
@@ -762,6 +816,10 @@ export interface StepTrace {
   /** For catalog_fit: the STRUCTURED outcome (see CatalogFitOutcome). Same contract as moduleFit --
    * the prose stays the human sentence, this stays the machine one. */
   catalogFit?: CatalogFitOutcome;
+  /** For map_attribute: the STRUCTURED outcome (see MapAttributeOutcome). Present on every
+   * map_attribute step that resolved a value -- stated, mapped or defaulted -- so option B can tell
+   * a fact the row supplied from one we worked out, without reading the prose. */
+  mapAttribute?: MapAttributeOutcome;
   /** Snapshot of every named value after this step (for the running-value column). */
   runningValues: Record<string, number>;
   /** Set when the step type is not recognized (forward-compat honesty). */

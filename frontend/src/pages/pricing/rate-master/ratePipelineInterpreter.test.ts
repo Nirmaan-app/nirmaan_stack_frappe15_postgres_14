@@ -8,6 +8,7 @@ import {
   NONE_SENTINEL,
   buildModuleLadder,
   catalogFitOutcomes,
+  mapAttributeOutcomes,
   derivedAttrOutcomes,
   evalFormula,
   fitModuleLadder,
@@ -20,7 +21,9 @@ import {
   stepFactor,
 } from "./ratePipelineInterpreter";
 import { STEP_VOCABULARY, blankStep, coerceForMatch } from "./rateMasterStructure";
-import { derivedQtyAttrs, derivedQtyValue } from "./RateMasterDerivation";
+import { derivedQtyValue } from "./RateMasterDerivation";
+// SLICE 2d: relocated to the leaf both screens may import (import-direction law).
+import { derivedQtyAttrs } from "./rateMasterStructure";
 
 // ---- the four stored pipelines (verbatim shape from RM-1 config) ----
 const PIPELINES: Record<string, Pipeline> = {
@@ -3717,8 +3720,13 @@ describe("SLICE 2b -- catalog_fit (the ladder)", () => {
   it("POSITIVE -- THE WHOLE POINT: 20A is not carried at FP, so the ladder HOPS to 25A FP MCB C CURVE", () => {
     const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
     const t = cfTrace(r)!;
+    // ⚠️ SLICE 2d EXTENDED THIS SHAPE, ADDITIVELY: `substituted` (this step's own option-B verdict --
+    // the ladder hopped, so a different rung is priced) and `whereRefs` (the join key into the
+    // map_attribute outcomes the fit rests on). No pre-existing field moved, and the PRICE below is
+    // unchanged.
     expect(t.catalogFit).toEqual({
       bind: "paired_mcb", fitted: "25A FP MCB C CURVE", size: 25, requested: 20, exact: false, absent: false,
+      substituted: true, whereRefs: ["mcb_pole", "mcb_curve"],
     });
     expect(t.matchedCondition).toContain("not carried");
     expect(t.matchedCondition).toContain("next higher");
@@ -3942,5 +3950,82 @@ describe("SLICE 2c -- catalogFitOutcomes (the ONE reader over StepTrace.catalogF
 
   it("NEGATIVE: a step with no steps array at all does not throw", () => {
     expect(catalogFitOutcomes([{ steps: undefined as never }]).size).toBe(0);
+  });
+});
+
+// ── SLICE 2d: THE TWO NEW OUTCOMES ─────────────────────────────────────────────────────────────
+// Option B needs to answer "was anything SUBSTITUTED behind this item?", and no single step can:
+// `catalog_fit` knows whether IT hopped, `map_attribute` knows whether the facts were STATED. Both
+// publish structured data and the panel composes them -- the moduleFit/derivedAttr precedent, now at
+// four instances. ⚠️ NEITHER CHANGES A PRICE: these are observations of what the steps already did.
+describe("SLICE 2d -- mapAttributeOutcomes + the catalog_fit substitution discriminator", () => {
+  it("POSITIVE: a STATED fact publishes stated:true", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS,
+      { ...ROW98, mcb_pole_stated: "FP", mcb_curve_stated: "C" });
+    const m = mapAttributeOutcomes([r]);
+    expect(m.get("mcb_pole")!.stated).toBe(true);
+    expect(m.get("mcb_curve")!.stated).toBe(true);
+  });
+
+  it("POSITIVE: a TABLE-mapped fact publishes stated:false -- inferred is not stated", () => {
+    // ROW98 states neither pole nor curve: the pole comes from the socket's pin count via `table`
+    // and the curve from `default`. Both are substitutions, and option B marks the item they feed.
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    const m = mapAttributeOutcomes([r]);
+    expect(m.get("mcb_pole")!.stated).toBe(false);
+    expect(m.get("mcb_curve")!.stated).toBe(false);
+  });
+
+  it("POSITIVE: keyed by result_attr, first-wins across pipelines", () => {
+    const supply = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    const install = runPipeline("indsock_install", indsockInstall(), CF_ITEMS, ROW98);
+    expect(mapAttributeOutcomes([supply, install]).get("mcb_pole")!.stated).toBe(false);
+    expect(mapAttributeOutcomes([install, supply]).size).toBe(2);
+  });
+
+  it("NEGATIVE: EMPTY when no map_attribute ran", () => {
+    const r = runPipeline("cable_boq", PIPELINES.cable_boq, ITEMS, sel("COPPER", "UNARMOURED", 1.0, 6.0));
+    expect(mapAttributeOutcomes([r]).size).toBe(0);
+  });
+
+  it("POSITIVE: a HOP sets substituted:true; an exact rung sets it false", () => {
+    const hop = catalogFitOutcomes([runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98)]).get("paired_mcb")!;
+    expect(hop.fitted).toBe("25A FP MCB C CURVE");   // 20 A -> the 25 A rung
+    expect(hop.substituted).toBe(true);
+    const exact = catalogFitOutcomes([
+      runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, mcb_amp_a: 25 }),
+    ]).get("paired_mcb")!;
+    expect(exact.exact).toBe(true);
+    expect(exact.substituted).toBe(false);
+  });
+
+  it("POSITIVE: whereRefs is the JOIN KEY -- the attribute ids behind the where's @refs, list members included", () => {
+    // Without it a consumer would have to re-read the config and re-resolve the refs, which is a
+    // second copy of resolution logic. `curve` is declared as ["@mcb_curve", "NA"], so the ref inside
+    // the LIST must be collected too -- the fit rests on the curve either way.
+    const cf = catalogFitOutcomes([runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98)]).get("paired_mcb")!;
+    expect(cf.whereRefs).toEqual(["mcb_pole", "mcb_curve"]);
+  });
+
+  it("POSITIVE: whereRefs is published on the STATED and ABSENT paths too, not only on a fit", () => {
+    // A consumer must never have to know WHICH branch ran to learn which facts the verdict rests on.
+    const stated = catalogFitOutcomes([
+      runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, paired_mcb: "63A FP MCB C CURVE" }),
+    ]).get("paired_mcb")!;
+    expect(stated.whereRefs).toEqual(["mcb_pole", "mcb_curve"]);
+    expect(stated.substituted).toBe(false);
+    const absent = catalogFitOutcomes([
+      runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, mcb_present: "No" }),
+    ]).get("paired_mcb")!;
+    expect(absent.absent).toBe(true);
+    expect(absent.whereRefs).toEqual(["mcb_pole", "mcb_curve"]);
+  });
+
+  it("⚠️ NEGATIVE: NO PRICE MOVED -- the outcomes are observations, and row 98 still prices as it did", () => {
+    // The same 10618 the slice-2b block pins (socket 9222 + mcb 1396), asserted again from the 2d
+    // side: publishing a step's reasoning must not change its arithmetic.
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply).toBe(10618);
   });
 });

@@ -141,7 +141,10 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # 6 rows. This is the ONE compliance sharpening; if pre-emption survives it, the fix is structural
 # (per-surface attribute hiding) and becomes its own slice, not a third wording.
 # The count pins below follow this constant.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v37.json"
+# SLICE 2d: v38 = v37 + `panel: false` on the four industrial_sockets MCB FACT attributes
+# (hidden from the pricing panel ONLY -- still extracted, still driving the pipeline) + the
+# R12 literal-mention rewrite of step (1) and its steps-(2)-(4) guard. Nothing else moved.
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v38.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose

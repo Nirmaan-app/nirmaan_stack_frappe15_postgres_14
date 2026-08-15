@@ -6,7 +6,7 @@
  * so a new helper needs no panel change. Nothing persists (guardrail G2).
  */
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { X, ChevronRight, ChevronDown, Sparkles, CheckCircle2 } from "lucide-react";
+import { X, ChevronRight, ChevronDown, RotateCcw, Sparkles, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -243,6 +243,37 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
     });
   };
 
+  /**
+   * SLICE 2d (B3) -- hand ONE attribute back to the pipeline.
+   *
+   * ⚠️ IT DELETES THE OVERRIDE; IT DOES NOT WRITE "". The two are different and 2c only got away with
+   * conflating them because the one attribute that could be cleared (`paired_mcb`) is never stated by
+   * extraction, so both routes landed on the same value. Everywhere else they diverge: writing ""
+   * overrides the EXTRACTED value with empty and yields the COMPUTED one, while deleting the override
+   * restores what extraction actually read. "Undo my edit" means the latter.
+   *
+   * It also drops any stale final-value override for the same reason `setAttr` does -- the recompute
+   * that follows produces a different number, and banking the old one would price from a state the
+   * panel is no longer showing.
+   */
+  const resetAttr = (helperId: string, attrId: string) => {
+    if (excelRow == null) return;
+    setAttrOverrideState((prev) => {
+      if (prev.row !== excelRow) return prev;
+      const forHelper = prev.byHelper[helperId];
+      if (!forHelper || forHelper[attrId] === undefined) return prev;
+      const nextForHelper = { ...forHelper };
+      delete nextForHelper[attrId];
+      return { row: excelRow, byHelper: { ...prev.byHelper, [helperId]: nextForHelper } };
+    });
+    setFinalOverrideState((prev) => {
+      if (prev.row !== excelRow || prev.byHelper[helperId] === undefined) return prev;
+      const next = { ...prev.byHelper };
+      delete next[helperId];
+      return { row: excelRow, byHelper: next };
+    });
+  };
+
   return (
     <aside
       ref={asideRef}
@@ -388,7 +419,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                               ? "italic text-muted-foreground"
                               : undefined;
                         return (
-                        <div key={a.id} className="space-y-0.5">
+                        <div key={a.id} className="group/attr space-y-0.5">
                         <label className="flex items-center justify-between gap-2 text-xs">
                           <span className="flex items-center gap-1 text-muted-foreground">
                             {a.label}
@@ -411,6 +442,17 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                               >
                                 default
                               </span>
+                            )}
+                            {attrOverrides[helper.id]?.[a.id] !== undefined && (
+                              <button
+                                type="button"
+                                onClick={() => resetAttr(helper.id, a.id)}
+                                title="Undo my edit to this field -- restores what the row supplied"
+                                aria-label={`Undo my edit to ${a.label}`}
+                                className="opacity-0 transition-opacity group-hover/attr:opacity-100 focus:opacity-100 focus-visible:opacity-100"
+                              >
+                                <RotateCcw className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                              </button>
                             )}
                             {typeof a.confidence === "number" && (
                               <span className="tabular-nums text-[10px] opacity-70">
@@ -448,8 +490,8 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                                   blank there IS incomplete and offering it would invite a dead end.
                                   Selecting it calls setAttr(id, ""), which overrides the extracted
                                   value with empty -- the recompute then restores the computed one. */}
-                              <option value="" disabled={!a.derived}>
-                                {a.derived ? "— use computed —" : "— select —"}
+                              <option value="" disabled>
+                                — select —
                               </option>
                               {a.options.map((o) => (
                                 <option key={o} value={o}>

@@ -333,3 +333,173 @@ export function distinctNumberValues(items: RateMasterItem[], attrId: string): n
   }
   return Array.from(set).sort((a, b) => a - b);
 }
+
+// ── SLICE 2d: THE DERIVED-BINDS PREDICATES LIVE HERE ────────────────────────────────────────────
+// RELOCATED from `RateMasterDerivation.tsx` (derivedQtyAttrs) and `pricingSheetHelper.ts`
+// (derivedAttrIds) by the import-direction law -- the same ruling that moved the BCS readiness
+// predicate down to `services/`. BOTH sides now need them: the pricing panel has always read them,
+// and slice 2d's Q4(i) ruling makes the Rate Master Derivation screen a pure calculator, which means
+// IT must know which attributes are derived too.
+//
+// ⚠️ THERE WAS NO LEGAL PLACE FOR THIS IN EITHER CALLER. `pricingSheetHelper.ts` already imports FROM
+// `RateMasterDerivation.tsx`, so having the Derivation screen import `derivedAttrIds` back out of the
+// helper is a CYCLE. `rateMasterStructure.ts` imports only the interpreter, so it is the leaf both
+// sides may import -- api->service, one legal direction.
+//
+// ⚠️ AND NEVER A SECOND COPY. Two predicates on either side of this boundary could disagree about
+// whether a field is an input, and the disagreement would surface as a control that is editable on
+// one screen and absent on the other for the same attribute -- with a price that follows only one of
+// them.
+
+// ---- BLANKER SLICE: DERIVED, READ-ONLY attribute displays ----
+//
+// THE DEFECT: `blank_qty` sat inert at 0 in the form while the blank line priced at 1, because slice
+// 2 part 2 moved that line onto the COMPUTED count (`qty: {from_fit: "blank_count"}`) and stopped
+// reading the attribute. The form said one thing and the price said another.
+//
+// ⚠️ THE DERIVED-NESS IS READ FROM THE CONFIG THAT ALREADY EXISTS -- no new config key, and nothing
+// hardcoded by attribute id. An attribute is DERIVED exactly when a component takes its quantity
+// from a computed binding INSTEAD of from that attribute, which the stored `qty` already declares:
+//   {from_fit: "blank_count"}  -> the attribute is superseded  -> derived, read-only
+//   {from_attr: "blank_qty"}   -> the attribute IS the input   -> stays editable
+// The rule is READ PER CONFIG, so each category answers for itself and no asset mint is needed:
+// switches_sockets and point_wiring carry the from_fit form and their `blank_qty` is derived, while a
+// config that still declares {from_attr: "blank_qty"} OPTS OUT AUTOMATICALLY and keeps that field
+// editable. ⚠️ Hardcoding `d.id === "blank_qty"` would freeze the field for EVERY config, including one
+// that genuinely reads it -- which is why the shape, not the id, is what decides. (The from_attr case
+// was live on `switches_point` until that category was retired in 2026-08; the RULE does not depend on
+// an example existing, and must keep working the moment another config declares that shape.)
+//
+// The `_qty` suffix ties a component to its attribute (`blank` -> `blank_qty`), the SAME convention
+// every shipped config already uses (switch/switch_qty, socket1/socket1_qty, plate/plate_qty). The
+// second guard makes it airtight: an attribute ANY step still reads via from_attr is never derived,
+// so a config that both computes and reads a value keeps the user in control.
+
+/** One derived attribute: the def it covers, and the pipeline ctx key holding its computed value. */
+export interface DerivedQtyBinding {
+  attrId: string;
+  ctxKey: string;
+}
+
+/**
+ * PURE. The attributes this config DERIVES rather than accepts as input, keyed by attribute id.
+ * Empty for every config whose components read their quantities from attributes (the pre-slice
+ * shape), so a category that was never migrated is byte-unaffected.
+ */
+export function derivedQtyAttrs(config: RateCategoryConfig): Map<string, DerivedQtyBinding> {
+  const defIds = new Set((config.attribute_definitions ?? []).map((d) => d.id));
+  const readAsInput = new Set<string>();
+  const candidates = new Map<string, string>();
+  for (const pl of Object.values(config.pipelines ?? {})) {
+    for (const raw of pl.steps ?? []) {
+      const s = raw as { name?: string; qty?: unknown };
+      const qty = s.qty as { from_attr?: string; from_fit?: string } | undefined;
+      if (!qty || typeof qty !== "object") continue;
+      if (typeof qty.from_attr === "string") readAsInput.add(qty.from_attr);
+      if (typeof qty.from_fit === "string" && typeof s.name === "string" && s.name) {
+        const attrId = `${s.name}_qty`;
+        if (defIds.has(attrId)) candidates.set(attrId, qty.from_fit);
+      }
+    }
+  }
+  const out = new Map<string, DerivedQtyBinding>();
+  for (const [attrId, ctxKey] of candidates) {
+    // an attribute ANY step still reads as an input stays the user's to set
+    if (readAsInput.has(attrId)) continue;
+    out.set(attrId, { attrId, ctxKey });
+  }
+  return out;
+}
+
+/**
+ * The attribute ids this config COMPUTES rather than accepts as user input.
+ *
+ * ⚠️ A DERIVED ATTRIBUTE IS NEVER "MISSING INPUT". Leaving one blank means the pricer did not state
+ * it, not that the row is incomplete -- the pipeline derives it. Counting one as missing refuses a
+ * row the pipeline can price perfectly well, which is exactly what happened: `module_fit`'s ladders
+ * BIND `plate_item`, the helper counted it as required, and 26 rows across switches_sockets and
+ * point_wiring showed "Complete the missing attributes to price" while the pipeline computed
+ * 380/80, 500/100, 290/60 and 1238/667.4 for them.
+ *
+ * TWO derivation mechanisms, ONE definition of each -- this composes, it does NOT re-implement:
+ *   1. `derivedQtyAttrs` (the blanker slice) -- a component taking `qty: {from_fit}` supersedes its
+ *      `<name>_qty` attribute. REUSED verbatim; the risk of two copies drifting (#179, three
+ *      coercion sites that agreed until they did not) is why this imports rather than repeats it.
+ *   2. `module_fit` LADDER BINDS -- `ladders[].bind` names the attribute the fitted rung binds to.
+ *      This half is new and lives here only.
+ *
+ * ⚠️ `bind` IS NOT `floor_from`, and one attribute is BOTH. `plate_item` is its own ladder's
+ * `floor_from` (a STATED plate is a floor -- the take-the-larger rule) AND its `bind` (the fitted
+ * rung). **Being a bind WINS**: the pipeline can always compute the value, so a blank one is "no
+ * floor stated", never "input missing". A `floor_from` attribute that is NOT also a bind stays a
+ * genuine input and still blocks when blank.
+ *
+ * ⚠️ READ FROM CONFIG, never hardcoded by id. `plate_item` / `box_item` are today's binds; a future
+ * ladder may bind anything, and a category with no `module_fit` is byte-unaffected. PURE.
+ */
+/**
+ * PURE. The attribute a `module_fit` `blanks` block ARBITRATES on -- the blanker quantity the row
+ * states, which the step weighs against the plate's spare capacity.
+ *
+ * ⚠️ THIS IS WHY THAT FIELD IS NOT READ-ONLY DESPITE LOOKING SUPERSEDED. Its component still takes
+ * `qty: {from_fit}`, so `derivedQtyAttrs` -- which keys purely on that shape -- reports it as fully
+ * superseded, and branch 1 of `applyDerivedDisplay` would lock it. But `module_fit` now READS the
+ * attribute, so it IS an input: the pipeline arbitrates between it and the computed spare, and an
+ * edit genuinely reaches the price. A locked field would be the lie the read-only contract exists to
+ * prevent, only pointing the other way.
+ *
+ * ⚠️ READ FROM CONFIG, never by attribute id. A config with no `qty_attr` is byte-unaffected and its
+ * quantity stays read-only exactly as before. PURE.
+ */
+export function blanksQtyAttr(config: RateCategoryConfig): string | undefined {
+  for (const pl of Object.values(config.pipelines ?? {})) {
+    for (const raw of pl.steps ?? []) {
+      const s = raw as { step?: string; params?: { blanks?: { qty_attr?: unknown } } };
+      const qa = s.params?.blanks?.qty_attr;
+      if (s.step === "module_fit" && typeof qa === "string" && qa) return qa;
+    }
+  }
+  return undefined;
+}
+
+export function derivedAttrIds(config: RateCategoryConfig): Set<string> {
+  const out = new Set<string>(derivedQtyAttrs(config).keys());
+  for (const pl of Object.values(config.pipelines ?? {})) {
+    for (const raw of pl.steps ?? []) {
+      const s = raw as {
+        step?: string;
+        params?: { ladders?: Array<{ bind?: unknown }>; result_attr?: unknown; bind?: unknown };
+      };
+      if (s.step === "module_fit") {
+        for (const ladder of s.params?.ladders ?? []) {
+          if (typeof ladder.bind === "string" && ladder.bind) out.add(ladder.bind);
+        }
+      } else if (s.step === "catalog_fit") {
+        // THE FOURTH MECHANISM (slice 2b). A `catalog_fit` BINDS its target from the catalog, so a
+        // blank one means "the row did not state an item", never "the row is incomplete".
+        //
+        // ⚠️ It behaves like a `module_fit` LADDER BIND, not like the read-only blanker quantity: the
+        // step's `prefer_attr` reads the SAME attribute and a stated value WINS outright, so the
+        // field stays EDITABLE and `readOnly` is never set. That is what keeps the pricer's override
+        // surface -- the mechanism that corrected two live rows by hand in slice 2.
+        if (typeof s.params?.bind === "string" && s.params.bind) out.add(s.params.bind);
+      } else if (s.step === "derive_attribute") {
+        // THE THIRD MECHANISM. A `derive_attribute` COMPUTES its target attribute from other
+        // attributes, so a blank one means "the row did not state it", never "the row is incomplete".
+        //
+        // ⚠️ This is NOT cosmetic. point_wiring's `circuit_length_m` used to arrive pre-filled by an
+        // `extraction_defaults` entry of 15; removing that default (which is what makes the derivation
+        // reachable at all -- an injected value is a STATED value and would win forever) leaves the
+        // field blank on every future row. Without this branch the missing-attribute gate below fires
+        // and the row prices NOTHING while the pipeline can compute the length perfectly well.
+        //
+        // Same shape as the two mechanisms above, and the same lesson for the THIRD time: a no-op
+        // measured before a dependency lands is not a no-op afterwards.
+        if (typeof s.params?.result_attr === "string" && s.params.result_attr) {
+          out.add(s.params.result_attr);
+        }
+      }
+    }
+  }
+  return out;
+}

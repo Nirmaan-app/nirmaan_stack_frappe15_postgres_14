@@ -32,6 +32,15 @@ export interface WorkingsAttribute {
   /** EA-4a-r: this def may itself be "None" (positive absence). For a NUMBER def the panel renders a "None"
    * checkbox beside the numeric input (a choice def carries None as its top option instead). */
   allowNone?: boolean;
+  /**
+   * SLICE 2d, OPTION B -- did the pipeline SUBSTITUTE or INFER anything behind this value?
+   *
+   * Set only by a mechanism that can answer it (today `catalog_fit`, via its own `substituted` plus
+   * the `map_attribute` outcomes its `where` rests on, and `module_fit`'s take-the-larger upgrade).
+   * ABSENT means "this mechanism does not answer", and the pre-2d blank-and-derived rule applies --
+   * which is what keeps every other derived attribute rendering exactly as it did.
+   */
+  substituted?: boolean;
   /** U2: the extraction filled this value from a CONFIG DEFAULT -- the row text gave no positive
    * identification. The panel tints it amber so the pricer can see, and correct, every defaulted value
    * before using the rate. A human override CLEARS this (the helper drops the mark on recompute), so the
@@ -157,32 +166,49 @@ export function attrNoteText(n: AttrNote): string {
 }
 
 /**
- * PURE. What the field SHOWS. Three cases, and the difference between the first two is the whole
- * point of the derived contract:
+ * PURE. What the field SHOWS.
  *
- *   readOnly (fully superseded)  -> the COMPUTED value, always. A stated blanker count is ignored by
- *                                   the pipeline, so showing it would be a lie.
- *   a stated value               -> the STATED value. It is the user's entry AND it feeds the
- *                                   pipeline as the floor, so it must never be overwritten on screen.
- *   blank + derived              -> the COMPUTED value. This is the field that read "— select —" in
- *                                   red while the pipeline was pricing a 3M plate.
+ * ⚠️ SLICE 2d NARROWED THIS CONTRACT BY OWNER RULING, and the old sentence is recorded here because
+ * the change is easy to read as a regression. It used to say, flatly, that a stated value "must never
+ * be overwritten on screen". That was right while the only alternative was hiding the pricer's entry
+ * behind a number they could not see -- but it made the TAKE-THE-LARGER upgrade case dishonest: the
+ * row states 1M, the pipeline buys 3M, and the field showed 1M. The rule is now split by WHO WON:
+ *
+ *   readOnly (fully superseded)   -> the COMPUTED value, always.
+ *   stated AND SUBSTITUTED        -> WHAT WAS BOUGHT, marked "(computed)" and explained by the note.
+ *                                    The pipeline overrode the entry, so showing the entry would name
+ *                                    a size the row is not being charged for.
+ *   stated AND USED               -> the STATED value. Untouched -- this half of the old rule stands.
+ *   blank + derived               -> the COMPUTED value.
+ *
+ * The narrowing is exact: a stated value the pipeline USED is still never overwritten.
  */
 export function attrDisplayValue(
-  a: Pick<WorkingsAttribute, "value" | "derived" | "derivedValue" | "readOnly">,
+  a: Pick<WorkingsAttribute, "value" | "derived" | "derivedValue" | "readOnly" | "substituted">,
 ): string {
   if (a.readOnly) return a.derivedValue ?? "";
+  if (a.substituted && a.derivedValue !== undefined) return a.derivedValue;
   if (a.value !== "") return a.value;
   return a.derived ? a.derivedValue ?? "" : "";
 }
 
-/** PURE. Is the value on screen the PIPELINE's rather than the row's? Drives the "(computed)" marker
- * -- which must NOT appear on a derived attribute the row actually states, or it would claim the
- * pricer's own entry was computed. */
+/**
+ * PURE. Is the value on screen the PIPELINE's rather than the row's? Drives the "(computed)" marker.
+ *
+ * ⚠️ SLICE 2d, OPTION B: the marker now means "something was SUBSTITUTED OR INFERRED", not merely
+ * "the row left this blank". A `catalog_fit` that hit its ladder exactly on facts the row STATED has
+ * computed nothing the row did not already say, so it renders PLAIN -- and a step that hopped a
+ * ladder, inferred a pole or took a default renders "(computed)" even when the row said nothing.
+ * `substituted` is the step's own verdict where it publishes one; where it does not, the pre-2d
+ * blank-and-derived rule stands, so every other mechanism is unchanged.
+ */
 export function isShowingDerived(
-  a: Pick<WorkingsAttribute, "value" | "derived" | "derivedValue" | "readOnly">,
+  a: Pick<WorkingsAttribute, "value" | "derived" | "derivedValue" | "readOnly" | "substituted">,
 ): boolean {
   if (a.readOnly) return a.derivedValue !== undefined;
-  return !!a.derived && a.value === "" && a.derivedValue !== undefined;
+  if (a.derivedValue === undefined) return false;
+  if (a.substituted !== undefined) return a.substituted;
+  return !!a.derived && a.value === "";
 }
 
 /**
