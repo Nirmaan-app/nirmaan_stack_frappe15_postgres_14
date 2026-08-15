@@ -26,6 +26,30 @@ import { isDropdownAttributeType, isNumericAttributeType } from "./rateMasterStr
  * reads `selected` directly. The TYPE decision is the shared one, so a `number_choice` dropdown
  * writes a NUMBER here for exactly the same reason it does on the pricing-editor path.
  */
+/**
+ * SLICE 2c. The Radix option value standing in for "no value stated".
+ *
+ * ⚠️ IT IS A UI-ONLY TOKEN AND MUST NEVER LEAVE THIS FILE. Radix refuses an empty SelectItem value,
+ * so the option needs *some* string; both boundaries translate it (see the Select below), which is
+ * what keeps `selected` -- and therefore the interpreter -- seeing a plain "". The `__` bracketing
+ * makes an accidental leak obvious on screen rather than silently matching a catalog row.
+ */
+export const NOT_STATED_SENTINEL = "__not_stated__";
+
+/** PURE. Selection value -> the Radix item value. "" / absent become the sentinel; everything else
+ * is passed through as a string. Paired with `fromSelectValue`, which is its exact inverse for the
+ * only value that matters. Extracted so the round trip is unit-testable -- there is no DOM test
+ * environment here, so a mapping left inline in JSX could not be pinned at all. */
+export function toSelectValue(v: string | number | undefined): string {
+  return v === "" || v === undefined ? NOT_STATED_SENTINEL : String(v);
+}
+
+/** PURE. The Radix item value -> what the SELECTION stores. The sentinel becomes "", so the token
+ * never reaches `selected`, `runPipeline`, or a catalog match key. */
+export function fromSelectValue(v: string): string {
+  return v === NOT_STATED_SENTINEL ? "" : v;
+}
+
 function coerceSelected(def: AttributeDefinition, raw: string): string | number {
   // EA-4a-r: preserve the "None" sentinel verbatim for an allow_none def (never Number("None")=NaN).
   if (def.allow_none && raw === NONE_SENTINEL) return NONE_SENTINEL;
@@ -439,11 +463,29 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
                       </span>
                     )}
                   </label>
-                  <Select value={String(selected[d.id] ?? "")} onValueChange={(v) => setAttr(d, v)} disabled={disabledByNone.has(d.id)}>
+                  {/* SLICE 2c -- "NOT STATED" IS EXPRESSIBLE HERE NOW.
+                      Without it this screen could not represent a row that states no value, so a
+                      `catalog_fit` always took its stated-wins branch and the ladder could never run
+                      -- the reason the hop was invisible on the one tab that renders step details.
+
+                      ⚠️ IT MUST BE A SENTINEL, NOT value="". Radix throws on an empty SelectItem
+                      value ("the Select value can be set to an empty string to clear the selection
+                      and show the placeholder"), so the OPTION carries the sentinel and the two
+                      boundaries translate: `value` maps "" -> sentinel for display, `onValueChange`
+                      maps sentinel -> "" on the way in. The literal sentinel therefore never reaches
+                      `selected`, and never reaches the interpreter. */}
+                  <Select
+                    value={toSelectValue(selected[d.id])}
+                    onValueChange={(v) => setAttr(d, fromSelectValue(v))}
+                    disabled={disabledByNone.has(d.id)}
+                  >
                     <SelectTrigger className="h-8 w-44 disabled:opacity-50">
                       <SelectValue placeholder={`Select ${d.label}`} />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value={NOT_STATED_SENTINEL}>
+                        <span className="italic text-muted-foreground">— not stated —</span>
+                      </SelectItem>
                       {options.map((o) => (
                         <SelectItem key={o} value={o}>{o}</SelectItem>
                       ))}

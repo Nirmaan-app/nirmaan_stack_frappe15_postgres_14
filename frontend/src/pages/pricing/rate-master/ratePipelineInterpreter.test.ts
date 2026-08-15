@@ -7,6 +7,7 @@ import type { Pipeline, RateCategoryConfig, RateMasterItem } from "./rateMasterT
 import {
   NONE_SENTINEL,
   buildModuleLadder,
+  catalogFitOutcomes,
   derivedAttrOutcomes,
   evalFormula,
   fitModuleLadder,
@@ -3875,5 +3876,71 @@ describe("SLICE 2b -- catalog_fit (the ladder)", () => {
     for (const s of r.steps.filter((x) => x.step === "catalog_fit" || x.step === "map_attribute")) {
       expect(s.params).toBeUndefined();
     }
+  });
+});
+
+// ── SLICE 2c: catalogFitOutcomes -- the ONE reader ──────────────────────────────────────────────
+// `catalog_fit`'s answer was computed and then thrown away: the fitted label lives in `fitLabels`,
+// which is FUNCTION-LOCAL to `runPipeline` (28 inline return sites -- adding a result field would
+// have meant editing every one), and the trace's `matchedRows` push is gated on `st.refItem`, which
+// a `catalog_fit` step does not carry. So the panel showed a blank field beside a priced MCB.
+//
+// This reader is the `moduleFitOutcome` / `derivedAttrOutcomes` shape, third instance: READ THE
+// STRUCTURED DATA, never the prose (`matchedCondition` is a human sentence that gets reworded, and
+// making it a parsing contract fails SILENTLY) and never re-derive the fit (that would be a second
+// copy of the catalog-resolved ladder rule).
+describe("SLICE 2c -- catalogFitOutcomes (the ONE reader over StepTrace.catalogFit)", () => {
+  it("POSITIVE: it is KEYED BY BIND, not by step order -- a consumer looks up by attribute id", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    const out = catalogFitOutcomes([r]);
+    expect(out.get("paired_mcb")!.fitted).toBe("25A FP MCB C CURVE");
+    expect(out.get("paired_mcb")!.bind).toBe("paired_mcb");
+  });
+
+  it("POSITIVE: FIRST WINS across pipelines -- supply and install fit identically, so either is the answer", () => {
+    // Both `indsock_boq` and `indsock_install` carry the SAME catalog_fit step, so the panel would
+    // otherwise have to pick one arbitrarily. First-wins makes the choice explicit and stable; if the
+    // two ever disagreed, showing the first is still better than showing whichever ran last.
+    const supply = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    const install = runPipeline("indsock_install", indsockInstall(), CF_ITEMS, ROW98);
+    expect(catalogFitOutcomes([supply, install]).get("paired_mcb")!.fitted).toBe("25A FP MCB C CURVE");
+    expect(catalogFitOutcomes([install, supply]).get("paired_mcb")!.fitted).toBe("25A FP MCB C CURVE");
+  });
+
+  it("POSITIVE: an outcome is present on the ABSENT path too -- absence is an ANSWER, not silence", () => {
+    // mcb_present "No" -> the step binds the sentinel and reports absent. The panel must be able to
+    // tell "we decided there is no MCB" from "this step never ran"; a reader that only reported fits
+    // would collapse the two.
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, mcb_present: "No" });
+    const o = catalogFitOutcomes([r]).get("paired_mcb")!;
+    expect(o.absent).toBe(true);
+    expect(o.fitted).toBeNull();
+  });
+
+  it("POSITIVE: an outcome is present on the STATED path too, carrying `stated` and NO fit", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS,
+      { ...ROW98, paired_mcb: "63A FP MCB C CURVE" });
+    const o = catalogFitOutcomes([r]).get("paired_mcb")!;
+    expect(o.stated).toBe("63A FP MCB C CURVE");
+    expect(o.fitted).toBeNull();   // stated-wins bound nothing -- there is no computed value to show
+  });
+
+  it("NEGATIVE: EMPTY when no catalog_fit ran -- a config without the step is byte-identical", () => {
+    // The regression bar for this slice: every pre-2c config must be untouched by the reader.
+    const r = runPipeline("cable_boq", PIPELINES.cable_boq, ITEMS, sel("COPPER", "UNARMOURED", 1.0, 6.0));
+    expect(r.finals).toEqual({ supply_per_mtr: 120, install_per_mtr: 20 });  // g1, still exactly itself
+    expect(catalogFitOutcomes([r]).size).toBe(0);
+  });
+
+  it("NEGATIVE: EMPTY on a BAILED catalog_fit -- a refusal claims nothing (the module_fit precedent)", () => {
+    // `bail` pushes a plain trace with no `catalogFit`, exactly as a module_fit that bailed publishes
+    // no outcome. A reader inventing an entry here would report a fit the step explicitly refused.
+    const r = runPipeline("indsock_boq", indsockSupply({ kind: "no_such_kind" }), CF_ITEMS, ROW98);
+    expect(r.status).toBe("no_match");
+    expect(catalogFitOutcomes([r]).size).toBe(0);
+  });
+
+  it("NEGATIVE: a step with no steps array at all does not throw", () => {
+    expect(catalogFitOutcomes([{ steps: undefined as never }]).size).toBe(0);
   });
 });

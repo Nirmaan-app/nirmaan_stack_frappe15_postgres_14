@@ -14,8 +14,13 @@ import {
   sortAttrNotes,
   upgradeWarningText,
 } from "./rateHelperTypes";
-import { derivedQtyAttrs } from "@/pages/pricing/rate-master/RateMasterDerivation";
-import { overridesForRow } from "./RateHelperPanel";
+import {
+  NOT_STATED_SENTINEL,
+  derivedQtyAttrs,
+  fromSelectValue,
+  toSelectValue,
+} from "@/pages/pricing/rate-master/RateMasterDerivation";
+import { hasSessionEdits, overridesForRow } from "./RateHelperPanel";
 import {
   applyDerivedDisplay,
   attributeOptions,
@@ -1499,5 +1504,239 @@ describe("BLANKER QUANTITY -- the config-read predicate, and the two-screens dis
   it("the arbitrated quantity is never flagged as missing input, stated or blank", () => {
     expect(isAttrBlank(arbCompute({ plate_item: "6M", blank_qty: null })("blank_qty")!)).toBe(false);
     expect(isAttrBlank(arbCompute({ plate_item: "6M", blank_qty: 2 })("blank_qty")!)).toBe(false);
+  });
+});
+
+// ── SLICE 2c: THE PANEL SHOWS WHAT PRICING USED ────────────────────────────────────────────────
+// `catalog_fit` shipped in 2b computing the paired MCB correctly and showing NOTHING for it: the
+// field read "— select —" beside a line the pipeline had priced. `derivedAttrIds` already marked the
+// bind derived (so the missing-input gate was quiet -- the row priced), but no branch ever filled
+// `derivedValue`, so `attrDisplayValue` rendered empty. This is the display half.
+//
+// It is the FOURTH mechanism to reach this display, and it behaves like the ladder bind and the
+// derive_attribute target -- NOT like the blanker quantity: a stated value IS read and wins outright,
+// so the field must stay EDITABLE and `readOnly` must never be set.
+
+/** A two-rung MCB ladder at one pole/curve. 20 A is deliberately NOT carried. */
+const CF_ITEMS: RateMasterItem[] = [
+  { discipline: "Electrical", kind: "db_switchgear_item",
+    attributes: { family: "Switchgear", device: "MCB", pole: "FP", curve: "C", item: "25A FP MCB C CURVE", amp_a: 25.0 },
+    rates: { list_price: 1000 } },
+  { discipline: "Electrical", kind: "db_switchgear_item",
+    attributes: { family: "Switchgear", device: "MCB", pole: "FP", curve: "C", item: "63A FP MCB C CURVE", amp_a: 63.0 },
+    rates: { list_price: 2000 } },
+] as unknown as RateMasterItem[];
+
+function catalogFitConfig(): RateCategoryConfig {
+  return {
+    discipline: "Electrical",
+    category_id: "cf_probe",
+    attribute_definitions: [
+      { id: "mcb_present", label: "MCB present", type: "choice", values: ["Yes", "No"] },
+      { id: "mcb_amp_a", label: "MCB amps", type: "number" },
+      { id: "paired_mcb", label: "Paired MCB", type: "choice",
+        values: ["25A FP MCB C CURVE", "63A FP MCB C CURVE"], allow_none: true },
+    ],
+    pipelines: {
+      probe_boq: {
+        output: ["supply"],
+        steps: [
+          { step: "catalog_fit",
+            params: {
+              bind: "paired_mcb", kind: "db_switchgear_item",
+              where: { family: "Switchgear", device: "MCB", pole: "FP", curve: "C" },
+              size_from: { attr: "amp_a" }, fit_from: { attr: "mcb_amp_a" }, direction: "up",
+              prefer_attr: "paired_mcb", absent_when: { attr: "mcb_present", equals: "No" },
+              on_miss: "none", on_missing_fact: "none",
+            } },
+          { step: "component_ref", name: "mcb",
+            ref: { kind: "db_switchgear_item", family: "Switchgear", item: "@paired_mcb" },
+            target: "list_price", qty: 1, none_skips: true },
+          { step: "sum_components", result: "supply" },
+        ],
+      },
+    },
+  } as unknown as RateCategoryConfig;
+}
+
+const cfCtx = (excelRow: number): RateHelperRowContext => ({
+  excelRow, description: "probe row", nodeType: "Line Item",
+  category: "cf_probe", discipline: "Electrical",
+  rateKinds: ["supply_rate"] as unknown as never,
+});
+
+/** Compute one row of the catalog_fit fixture and return an attribute lookup. */
+function cfCompute(over: Record<string, string | number | null> = {}) {
+  const merged: Record<string, string | number | null> = {
+    mcb_present: "Yes", mcb_amp_a: 20, paired_mcb: null, ...over,
+  };
+  const r = makePricingSheetHelper({
+    configsByCategory: new Map([["cf_probe", catalogFitConfig()]]),
+    items: CF_ITEMS,
+    extractionByRow: buildExtractionByRow([{
+      excel_row: 1,
+      attributes: Object.fromEntries(
+        Object.entries(merged).map(([k, v]) => [k, { value: v, confidence: 0.9 }]),
+      ) as never,
+    }]),
+  }).compute(cfCtx(1));
+  if (!isSuggestion(r)) throw new Error("expected a suggestion");
+  return (id: string) => r.workings.attributes.find((a) => a.id === id);
+}
+
+describe("SLICE 2c -- a catalog_fit bind DISPLAYS what the pipeline fitted", () => {
+  it("POSITIVE (row 98's defect): a blank paired MCB shows the FITTED catalog item", () => {
+    // 20 A is not carried; the ladder's next-higher rung is 25 A. Before 2c this field was empty.
+    const mcb = cfCompute()("paired_mcb");
+    expect(mcb?.derived).toBe(true);
+    expect(mcb?.derivedValue).toBe("25A FP MCB C CURVE");
+    expect(attrDisplayValue(mcb!)).toBe("25A FP MCB C CURVE");
+  });
+
+  it("POSITIVE: it is marked as SHOWING DERIVED, so the computed marker appears", () => {
+    expect(isShowingDerived(cfCompute()("paired_mcb")!)).toBe(true);
+  });
+
+  it("POSITIVE: it is NOT blank -- no red border on a field the pipeline fitted", () => {
+    expect(isAttrBlank(cfCompute()("paired_mcb")!)).toBe(false);
+  });
+
+  it("it stays EDITABLE -- `readOnly` is never set, because a stated value WINS outright", () => {
+    // This is the whole difference from the blanker quantity. `catalog_fit`'s `prefer_attr` reads the
+    // SAME attribute and defers to it, so an edit here is the one thing that always reaches the price
+    // -- the mechanism that corrected two live rows by hand in slice 2. Locking it would be the lie
+    // the read-only contract exists to prevent, pointing the other way.
+    expect(cfCompute()("paired_mcb")!.readOnly).toBeUndefined();
+  });
+
+  it("`value` is NOT overwritten -- a fitted item stays distinguishable from a stated one", () => {
+    const mcb = cfCompute()("paired_mcb");
+    expect(mcb?.value).toBe("");             // the row supplied nothing
+    expect(mcb?.derivedValue).toBe("25A FP MCB C CURVE");
+  });
+
+  it("NEGATIVE: a STATED item is shown AS STATED and never re-labelled as computed", () => {
+    // Stated-wins bound nothing, so there IS no computed value; publishing one would claim the
+    // pipeline chose what the pricer chose.
+    const mcb = cfCompute({ paired_mcb: "63A FP MCB C CURVE" })("paired_mcb");
+    expect(mcb?.derivedValue).toBeUndefined();
+    expect(attrDisplayValue(mcb!)).toBe("63A FP MCB C CURVE");
+    expect(isShowingDerived(mcb!)).toBe(false);
+  });
+
+  it("NEGATIVE: POSITIVE ABSENCE renders EMPTY, never a fitted item", () => {
+    // mcb_present "No" -> the step bound the sentinel and the MCB line is zero. "No MCB" is a
+    // decision, not a value, and inventing a size for it would be worse than showing nothing.
+    const mcb = cfCompute({ mcb_present: "No" })("paired_mcb");
+    expect(mcb?.derived).toBe(true);
+    expect(mcb?.derivedValue).toBeUndefined();
+    expect(isShowingDerived(mcb!)).toBe(false);
+    expect(isAttrBlank(mcb!)).toBe(false);   // still not "missing input" -- it was answered
+  });
+
+  it("NEGATIVE: an unreadable fact (on_missing_fact none) renders EMPTY, and does not refuse", () => {
+    const mcb = cfCompute({ mcb_amp_a: null })("paired_mcb");
+    expect(mcb?.derived).toBe(true);
+    expect(mcb?.derivedValue).toBeUndefined();
+  });
+
+  it("THE THREE STATES ARE MUTUALLY EXCLUSIVE on every path this fixture can reach", () => {
+    // blank / defaulted / showing-derived: at most one may be true at a time, or the field carries
+    // two contradictory claims about the same value.
+    const cases: Array<Record<string, string | number | null>> = [
+      {}, { paired_mcb: "63A FP MCB C CURVE" }, { mcb_present: "No" }, { mcb_amp_a: null },
+    ];
+    for (const over of cases) {
+      const a = cfCompute(over)("paired_mcb")!;
+      const flags = [isAttrBlank(a), isAttrDefaulted(a), isShowingDerived(a)].filter(Boolean);
+      expect(flags.length).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("REGRESSION BAR: a config with NO catalog_fit is byte-identical -- plate_item unchanged", () => {
+    // The 2c reader must be invisible to every pre-2c config. The module_fit face plate is the
+    // sharpest case: it reaches the SAME `if (!ladder)` region the new branch was added to.
+    const plate = mfCompute()("plate_item");
+    expect(plate?.derived).toBe(true);
+    expect(plate?.derivedValue).toBe("3M");
+    expect(plate?.readOnly).toBeUndefined();
+    expect(isShowingDerived(plate!)).toBe(true);
+    expect(isAttrBlank(plate!)).toBe(false);
+    // and the read-only blanker quantity, the other side of that region
+    expect(mfCompute()("blank_qty")?.readOnly).toBe(true);
+  });
+});
+
+// ── SLICE 2c: hasSessionEdits -- the Revert button's ONE condition ──────────────────────────────
+// Revert exists because a panel edit is a SESSION experiment: the pricer overrides an attribute to
+// see what it would cost, and until now had no way back except reloading the page. The predicate is
+// pure so the button's disabled state is testable in the node env (the component is not).
+describe("SLICE 2c -- hasSessionEdits (Revert is disabled until there is something to revert)", () => {
+  const NO_ATTRS = { row: null, byHelper: {} as Record<string, Record<string, string>> };
+  const NO_FINALS = { row: null, byHelper: {} as Record<string, string> };
+
+  it("NEGATIVE: a clean panel has nothing to revert", () => {
+    expect(hasSessionEdits(NO_ATTRS, NO_FINALS, 221)).toBe(false);
+  });
+
+  it("POSITIVE: one ATTRIBUTE override on this row counts", () => {
+    const attrs = { row: 221, byHelper: { pricing_sheet: { paired_mcb: "63A FP MCB C CURVE" } } };
+    expect(hasSessionEdits(attrs, NO_FINALS, 221)).toBe(true);
+  });
+
+  it("POSITIVE: one FINAL-VALUE override on this row counts, with no attribute edits at all", () => {
+    const finals = { row: 221, byHelper: { pricing_sheet: "1234" } };
+    expect(hasSessionEdits(NO_ATTRS, finals, 221)).toBe(true);
+  });
+
+  it("NEGATIVE: ANOTHER row's edits do not enable Revert -- it reuses `overridesForRow`", () => {
+    // The row-scoping rule this panel state was rebuilt around: an override belongs to ONE row. A
+    // Revert enabled by a different row's edits would claim there is something here to undo.
+    const attrs = { row: 235, byHelper: { pricing_sheet: { paired_mcb: "63A FP MCB C CURVE" } } };
+    expect(hasSessionEdits(attrs, NO_FINALS, 221)).toBe(false);
+  });
+
+  it("NEGATIVE: no row selected has nothing to revert", () => {
+    const attrs = { row: 221, byHelper: { pricing_sheet: { paired_mcb: "x" } } };
+    expect(hasSessionEdits(attrs, NO_FINALS, undefined)).toBe(false);
+  });
+
+  it("NEGATIVE: an EMPTY per-helper map is not an edit -- a cleared override re-disables Revert", () => {
+    // `setAttr` writes a per-helper object; clearing the last key can leave `{}` behind. Counting the
+    // container rather than its contents would leave Revert enabled with nothing to undo.
+    expect(hasSessionEdits({ row: 221, byHelper: { pricing_sheet: {} } }, NO_FINALS, 221)).toBe(false);
+  });
+});
+
+// ── SLICE 2c: the "not stated" sentinel ────────────────────────────────────────────────────────
+// Radix forbids `value=""` on a SelectItem (it reserves the empty string for clearing the selection
+// and showing the placeholder), so the OPTION carries a sentinel and the two boundaries translate.
+// Extracted as pure functions because there is NO DOM test environment here -- a mapping left inline
+// in JSX could not be pinned at all.
+describe("SLICE 2c -- the not-stated sentinel round-trips and NEVER leaks", () => {
+  it("POSITIVE: empty -> sentinel -> empty is the identity", () => {
+    expect(fromSelectValue(toSelectValue(""))).toBe("");
+  });
+
+  it("POSITIVE: an absent value also displays as the sentinel", () => {
+    expect(toSelectValue(undefined)).toBe(NOT_STATED_SENTINEL);
+  });
+
+  it("POSITIVE: an ordinary value round-trips untouched; numbers stringify as the Select needs", () => {
+    expect(fromSelectValue(toSelectValue("25A FP MCB C CURVE"))).toBe("25A FP MCB C CURVE");
+    expect(toSelectValue(63)).toBe("63");
+  });
+
+  it("NEGATIVE: the sentinel NEVER reaches the selection -- it is not a value, it is no value", () => {
+    // If it leaked it would become a catalog match key, match nothing, and price the row wrong --
+    // silently, because `matchMasterRow` compares with === and reports a miss, not an error.
+    expect(fromSelectValue(NOT_STATED_SENTINEL)).toBe("");
+  });
+
+  it("NEGATIVE: the NONE sentinel is a DIFFERENT thing and passes straight through", () => {
+    // "None" is POSITIVE ABSENCE (a decision); "not stated" is the absence of one. Collapsing them
+    // would turn "there is deliberately no MCB here" into "nobody said".
+    expect(fromSelectValue(toSelectValue("None"))).toBe("None");
+    expect(toSelectValue("None")).not.toBe(NOT_STATED_SENTINEL);
   });
 });

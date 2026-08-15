@@ -16,6 +16,7 @@
 //  - ROUNDUP is Excel ROUNDUP (away from zero) at `digits`: digits -1 => tens.
 
 import type {
+  CatalogFitOutcome,
   DerivedAttrOutcome,
   ModuleFitOutcome,
   Pipeline,
@@ -525,6 +526,37 @@ export function derivedAttrOutcomes(
   for (const r of results) {
     for (const st of r.steps ?? []) {
       if (st.derivedAttr && !out.has(st.derivedAttr.attr)) out.set(st.derivedAttr.attr, st.derivedAttr);
+    }
+  }
+  return out;
+}
+
+/**
+ * SLICE 2c: the `catalog_fit` OUTCOMES carried by a set of pipeline results, keyed by the attribute
+ * each ladder BINDS -- the third reader of a structured step outcome, mirroring `moduleFitOutcome`
+ * and `derivedAttrOutcomes` exactly.
+ *
+ * WHY A READER AND NOT A NEW RESULT FIELD: `runPipeline` builds its result at 28 separate return
+ * sites and its selection overlay / label binds are function-local, so publishing an "effective
+ * selection" would mean touching every one of them. The outcome each step already publishes on its
+ * own trace is the established channel -- so this adds a pure function and changes NO existing code
+ * path. A caller that ignores it is not merely byte-identical; it is untouched.
+ *
+ * FIRST-WINS, like `derivedAttrOutcomes`: a category may run the same `catalog_fit` in several
+ * pipelines (supply + install), and they compute the identical bind, so the first is the answer.
+ *
+ * ⚠️ IT RETURNS EVERY VERDICT, NOT ONLY A FITTED ONE. A stated-wins outcome (`stated` set,
+ * `fitted` null) and a positively-absent one (`absent` true) are both real answers about what
+ * pricing used -- a consumer that wants "was a value computed?" must test `fitted`, never mere
+ * presence in this map. PURE.
+ */
+export function catalogFitOutcomes(
+  results: Array<{ steps: StepTrace[] }>
+): Map<string, CatalogFitOutcome> {
+  const out = new Map<string, CatalogFitOutcome>();
+  for (const r of results) {
+    for (const st of r.steps ?? []) {
+      if (st.catalogFit && !out.has(st.catalogFit.bind)) out.set(st.catalogFit.bind, st.catalogFit);
     }
   }
   return out;

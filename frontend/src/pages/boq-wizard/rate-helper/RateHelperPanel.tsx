@@ -107,6 +107,31 @@ const EMPTY_FINAL_MAP: Record<string, string> = {};
 const EMPTY_ATTR_STATE: RowScoped<Record<string, Record<string, string>>> = { row: null, byHelper: EMPTY_ATTR_MAP };
 const EMPTY_FINAL_STATE: RowScoped<Record<string, string>> = { row: null, byHelper: EMPTY_FINAL_MAP };
 
+/**
+ * SLICE 2c. PURE. Does the CURRENT row carry any panel-session edit?
+ *
+ * Drives the Revert button's enabled state, so a clean row never offers a control that would do
+ * nothing. It reads the SAME row-scoping rule as `overridesForRow`: a state scoped to a DIFFERENT
+ * row is not an edit to this one, which is why a row switch disables the button with no extra
+ * bookkeeping.
+ *
+ * Both maps are checked because they are edited independently -- an attribute pick and a typed final
+ * value are separate acts, and either alone must arm the button.
+ */
+export function hasSessionEdits(
+  attrState: RowScoped<Record<string, Record<string, string>>>,
+  finalState: RowScoped<Record<string, string>>,
+  excelRow: number | undefined,
+): boolean {
+  if (excelRow == null) return false;
+  const attrs = overridesForRow(attrState, excelRow, EMPTY_ATTR_MAP);
+  const finals = overridesForRow(finalState, excelRow, EMPTY_FINAL_MAP);
+  // A helper KEY may exist carrying an empty per-attribute map, so its presence is not itself an
+  // edit -- look for an actual attribute entry.
+  const anyAttr = Object.values(attrs).some((byAttr) => Object.keys(byAttr).length > 0);
+  return anyAttr || Object.keys(finals).length > 0;
+}
+
 export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onClose, variant = "embedded" }: RateHelperPanelProps) {
   // RM-3b: a row is loaded iff we have its context. Absent => the empty-state placeholder.
   const hasSelection = ctx != null && excelRow != null && col != null && kind != null;
@@ -133,6 +158,8 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
   // What the CURRENT row may see. A different row (or none) sees nothing -- never the previous row's.
   const attrOverrides = overridesForRow(attrOverrideState, excelRow, EMPTY_ATTR_MAP);
   const finalOverride = overridesForRow(finalOverrideState, excelRow, EMPTY_FINAL_MAP);
+  // SLICE 2c: arms the Revert button. Same row-scoping rule as the two reads above.
+  const sessionEdited = hasSessionEdits(attrOverrideState, finalOverrideState, excelRow);
 
   // Defect 1c: scroll-into-view GUARD on open / when the target cell changes -- but ONLY when the
   // panel is genuinely off-screen. A sticky embedded panel deep in a scrolled sheet is already pinned
@@ -339,17 +366,27 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                         // is deliberately NO highlight state held here to outlive the correction.
                         const blank = isAttrBlank(a);
                         const defaulted = isAttrDefaulted(a);
+                        // DERIVED DISPLAY: what the field SHOWS may be the PIPELINE's value rather
+                        // than the row's -- a computed face plate or paired MCB where the row stated
+                        // none, or the blanker count that always wins. One pure helper decides, so
+                        // this render and the tests read the identical rule. Computed BEFORE the tone
+                        // because the muted tone is a function of it.
+                        const shown = attrDisplayValue(a);
+                        const showingDerived = isShowingDerived(a);
+                        // SLICE 2c: the THIRD tone. A value the PIPELINE supplied is shown MUTED, so
+                        // the field says at a glance whose number is pricing the row. The three are
+                        // mutually exclusive BY CONSTRUCTION, not by this ordering: `isAttrBlank`
+                        // excludes `derived`, so a computed attribute can never also be red, and
+                        // `isAttrDefaulted` reads the EXTRACTION flag, which the pipeline's own value
+                        // does not carry. The order is belt-and-braces, and blank stays first because
+                        // a genuinely missing input is the most urgent thing on the card.
                         const fieldTone = blank
                           ? "border-red-500 dark:border-red-500"
                           : defaulted
                             ? "bg-amber-50 dark:bg-amber-950/30"
-                            : undefined;
-                        // DERIVED DISPLAY: what the field SHOWS may be the PIPELINE's value rather
-                        // than the row's -- a computed face plate where the row stated none, or the
-                        // blanker count that always wins. One pure helper decides, so this render
-                        // and the tests read the identical rule.
-                        const shown = attrDisplayValue(a);
-                        const showingDerived = isShowingDerived(a);
+                            : showingDerived
+                              ? "italic text-muted-foreground"
+                              : undefined;
                         return (
                         <div key={a.id} className="space-y-0.5">
                         <label className="flex items-center justify-between gap-2 text-xs">
@@ -402,9 +439,17 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                             >
                               {/* An EMPTY value (the AI could not read it, or a manual row) must not
                                   masquerade as the first option -- show an explicit unset placeholder
-                                  so the pricer knows this attribute still needs a pick. */}
-                              <option value="" disabled>
-                                — select —
+                                  so the pricer knows this attribute still needs a pick.
+
+                                  SLICE 2c -- THE CLEAR AFFORDANCE. For a DERIVED attribute the
+                                  placeholder is SELECTABLE and says so: clearing is how a pricer hands
+                                  the field back to the pipeline, and blank there means "not stated",
+                                  never "incomplete". For a genuine input it stays DISABLED, because
+                                  blank there IS incomplete and offering it would invite a dead end.
+                                  Selecting it calls setAttr(id, ""), which overrides the extracted
+                                  value with empty -- the recompute then restores the computed one. */}
+                              <option value="" disabled={!a.derived}>
+                                {a.derived ? "— use computed —" : "— select —"}
                               </option>
                               {a.options.map((o) => (
                                 <option key={o} value={o}>
@@ -549,6 +594,32 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                       }
                     >
                       Use this value
+                    </Button>
+                    {/* SLICE 2c -- REVERT TO SUGGESTION. Two resets, and nothing else.
+                        This works because the SUGGESTION IS NEVER MUTATED: `ctx` is the source and
+                        the overrides are a separate map layered on read, so discarding them re-derives
+                        the full suggested calculation with no snapshot to keep and nothing to restore.
+                        Deliberately NOT touched: `expanded` (which card is open is navigation, not a
+                        value -- collapsing on revert would be a surprise), `panelWidth` (a persisted
+                        layout preference), and every SAVED cell price, which stays behind the explicit
+                        "Use this value" click. Other rows are unreachable by construction: the state
+                        holds ONE row, so a reset cannot touch edits that are not stored. */}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8"
+                      disabled={!sessionEdited}
+                      title={
+                        sessionEdited
+                          ? "Discard your edits on this row and show the suggested calculation again"
+                          : "No edits to discard on this row"
+                      }
+                      onClick={() => {
+                        setAttrOverrideState(EMPTY_ATTR_STATE);
+                        setFinalOverrideState(EMPTY_FINAL_STATE);
+                      }}
+                    >
+                      Revert
                     </Button>
                   </div>
                 </div>

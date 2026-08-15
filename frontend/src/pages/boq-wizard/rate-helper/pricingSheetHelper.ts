@@ -24,7 +24,7 @@
  * Its group LABELS come from `pipeline_labels` (config data), so only the pairing BEHAVIOUR is
  * special-cased, not the strings. Every OTHER category goes through the generic path.
  */
-import { derivedAttrOutcomes, moduleFitOutcome, NONE_SENTINEL, runPipeline } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
+import { catalogFitOutcomes, derivedAttrOutcomes, moduleFitOutcome, NONE_SENTINEL, runPipeline } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
 // CP2: `coerceForMatch` moved to the shared rate-master module (the single point where an attribute
 // value becomes a match key); this file imports it and no longer defines it.
 import { coerceForMatch, isDropdownAttributeType } from "@/pages/pricing/rate-master/rateMasterStructure";
@@ -357,6 +357,28 @@ export function applyDerivedDisplay(
           // A STATED value publishes no display value -- `attrDisplayValue` shows the row's own entry,
           // which is what actually prices. Nothing was computed, and claiming otherwise would be a lie.
           ...(computed.value === null ? {} : { derivedValue: String(computed.value) }),
+        };
+      }
+      // 4. SLICE 2c -- a `catalog_fit` LADDER BIND. The FOURTH mechanism reaching this display, read
+      //    through the interpreter's own reader (`catalogFitOutcomes`) exactly as the three above are.
+      //    Before this, `derivedAttrIds` already marked such an attribute `derived` -- so it was
+      //    correctly exempt from the missing-input gate -- but nothing ever filled its `derivedValue`,
+      //    and `attrDisplayValue` therefore rendered EMPTY. That is the whole reason row 98's paired
+      //    MCB read "— select —" while the pipeline priced a 25A FP MCB C CURVE behind it.
+      //
+      //    It behaves like the ladder bind and the derive_attribute target, NOT like the blanker
+      //    quantity: a stated value IS read and wins outright, so `readOnly` must never be set here.
+      const cf = catalogFitOutcomes(results).get(a.id);
+      if (cf) {
+        return {
+          ...a,
+          derived: true,
+          // TWO cases publish NO display value, for the same reason in both: nothing was computed.
+          //   * STATED-WINS (`stated` set) -- the row's own entry is what prices; `attrDisplayValue`
+          //     shows it, and claiming the pipeline computed it would be a lie.
+          //   * POSITIVELY ABSENT (`absent`) -- "no MCB" is a decision, not a value; the field renders
+          //     empty rather than inventing one.
+          ...(cf.fitted === null ? {} : { derivedValue: cf.fitted }),
         };
       }
       return { ...a, derived: true }; // derived by config, but nothing fitted/computed this run
