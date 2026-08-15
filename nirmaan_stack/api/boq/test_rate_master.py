@@ -105,8 +105,21 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # BoQ line, so all 12 live junction-box rows extracted blank. NO row added, NONE retired, no
 # rate moved: the count stays 1364 and golden j1 keeps 430/90 (an INPUT re-mint, not a
 # repricing). New estimator rule R11 carries the face-size reading instruction.
+# F-5 + F-6 (2026-08-15) minted v34: industrial_sockets gained estimator rule R12 (how to pair an
+# MCB with a socket -- BoQ-stated wins, else derive amperage from the row TEXT and pole from the
+# pin count, else "None"; C curve by default; exact-or-next-higher at that pole, with "80 FP MCB"
+# named for the above-63A four-pole case the curve grid cannot reach) and an `enclosure`
+# extraction default of IP44/54 with text_overrides for IP67 / IP 67 / waterproof / water proof.
+# CONFIG-ONLY: no item added, none retired, no rate moved -- the count stays 1364 and all 12
+# configs are unchanged apart from industrial_sockets. Goldens 26 -> 28 (new i2, i3).
+# v35 (same day) REWORDED R12 steps 3/4/5 ONLY -- v34 was never committed. The v34 re-extraction
+# showed the model constructing catalog names that do not exist (e.g. "20A FP MCB C CURVE", which
+# the FP grid does not carry from 25A down), which coercion then dropped to null; a null is NOT the
+# "None" sentinel, so `@paired_mcb` could not bind and the WHOLE row went unpriceable. Step 5 now
+# leads with "your answer MUST be a name from the allowed values list", step 4 says the curve is
+# "always C, never D", and step 3 says never invent an MCB. Steps 1 and 2 are byte-unchanged.
 # The count pins below follow this constant.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v33.json"
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v35.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
