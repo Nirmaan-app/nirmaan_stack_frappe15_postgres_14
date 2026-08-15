@@ -1557,6 +1557,26 @@ invariants:
 - **Extraction prompt rulings (owner, `prompts/boq_rate_attr_extraction_prompt.md`):** tolerate spelling
   variants (map to the canonical value), and — for an ARMOURED/UNARMOURED insulation attribute — a FLEXIBLE
   cable is UNARMOURED, and insulation DEFAULTS to UNARMOURED when neither armoured nor unarmoured is stated.
+- **⚠️ A NULL IS NOT THE `"None"` SENTINEL, AND THE DIFFERENCE COSTS THE WHOLE ROW (owner-locked).**
+  `none_skips` zeroes a component whose ref `@attr` resolves to the STRING `"None"`; a **null** —
+  which is what `_coerce_value` returns when the model's answer fails validation — matches nothing,
+  so the `@` reference stays UNBOUND and `component_ref` refuses the **entire pipeline**, socket line
+  and all. A rule that leads a model toward names outside its allowed values therefore does not
+  merely lose that component: it makes rows unpriceable that priced before. When a config asks the
+  model to CONSTRUCT a catalog key, the instruction must lead with *the answer must be a name from
+  the allowed values list*, and the fallback for "nothing fits" must be `"None"`, never a near-miss.
+- **⚠️ `text_overrides` HAS NO SERVER-SIDE MATCHER — the MODEL does the matching (owner-locked).**
+  An `extraction_defaults` entry of the form `{default, text_overrides: [{contains, value}]}` is
+  serialised WHOLE into the prompt and interpreted by the model (`extraction._extract_batch`); no code
+  ever evaluates `contains`. So nothing normalises spacing or case: **spelling variants must each be
+  listed** (`IP67` AND `IP 67`; `waterproof` AND `water proof`). Entries are a LIST, so multiples are
+  free. A single entry relying on the model to equate two spellings is a silent assumption.
+- **AN EXTRACTION-SIDE RULE IS CERTIFIED BY RE-RUN + CAPTURE, NEVER BY TEST (owner-locked).** No unit
+  test can see what the model returns, so a green suite says nothing about a prompt/rules change. The
+  evidence is a scoped re-extraction (`start_suggest(only_rows=[...])`) plus the always-on JSONL
+  capture, which preserves the RAW value per row beside its coerced result and its drop reason — that
+  pairing is what turns "the rows came back blank" into a named cause. Treat any `rules` /
+  `extraction_defaults` / prompt wording change as UNVERIFIED until re-run on live rows.
 - **Frontend attributes are CATEGORY-SCOPED (owner):** the `Pricing sheet` helper shows the row's CATEGORY
   attributes; a category with no attribute set defined yet shows a "coming soon" note, not the wrong fields.
   A badge-less rate-editable cell exposes an always-on faint opener for manual fill.

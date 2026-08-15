@@ -29574,3 +29574,240 @@ editor shows the SR-1 resume strip -- *"Rate suggestions stopped early ... Resum
 `BRSR-26-00584` is complete and active and "Use this value" is enabled. `get_active_suggestion_run`
 returns the newest resumable partial under its own `partial_run` key by design; the banner is telling
 the truth about a document that is now obsolete in substance.
+
+## Build slice F-5 + F-6 -- sockets pair their MCB and default their enclosure (2026-08-15)
+
+**Status: SHIPPED.** Branch `feature/boq-pricing-helper`. Asset **v35**
+(`rate_master_electrical_all_v35.json`, sha `60b133eb7b14fa69`), batch `rmbulk-d849360d0a81`,
+1,364 active Electrical items / 12 configs -- **no item added, none retired, no rate moved.**
+**v34 is committed too** (`rate_master_electrical_all_v34.json`, sha `3814d292d4cc6e88`): it was
+minted, loaded and re-extracted in-session, then superseded before cert. The lineage stays honest.
+
+### The two defects
+
+**F-5.** `industrial_sockets` carried no `rules` key. On the 23 live socket rows the model defaulted
+`paired_mcb` to the `"None"` sentinel on every row that named an MCB (via `extraction_defaults`), or
+guessed a **D** curve with no basis, or returned null where the stated amperage was absent from the
+catalog at the derived pole. The MCB line was therefore wrong or missing on most rows.
+
+**F-6.** `enclosure` had no default. On BOQ-26-00113's six rows (`enclosed in sheet metal box`, no IP
+rating stated) it extracted `null`, and the socket `component_ref` matches on `enclosure` -- so **all
+six rows were unpriceable by construction.**
+
+### THE CATALOG GRID -- the fact that decided the whole slice
+
+The `paired_mcb` dropdown resolves `db_switchgear_item` names where `family = Switchgear` (**106** of
+136 active rows). The MCB names follow a strict grammar `{amperage}A {pole} MCB {curve} CURVE`, and
+**exactly two curves (C, D)** are live. The amperages available per pole:
+
+| Pole | available amperages |
+|---|---|
+| SP | 6, 10, 16, 20, 25, 32, 40, 63 |
+| DP / TP / FP | **25, 32, 40, 63** |
+
+**DP/TP/FP start at 25A**, so every 16A or 20A four-pole or double-pole derivation needs the
+next-higher substitution -- which is exactly where both wordings struggled. The grid is also
+**rectangular** (C and D exist at every rung), so R12's *curve* substitution clause cannot fire on
+today's catalog; it is retained as forward protection (owner Q3), recorded here so a later reader does
+not mistake it for dead wording that slipped through.
+
+Two names sit OUTSIDE that grammar and matter: **`80 FP MCB`** (an 80A four-pole MCB, named without a
+curve) and `80A FP MCCB` (a different device class). Row 103 (`5 pin 80 A`) derives 80A/FP, which the
+curve grid cannot reach -- owner ruling **Q1(a)**: use `80 FP MCB`, keep the MCCB out of it.
+
+### The change (two parts, one config)
+
+| part | before | after |
+|---|---|---|
+| estimator rules | (no `rules` key) | **R12**, placed immediately before `goldens` (house position) |
+| `extraction_defaults` | `{"paired_mcb": "None"}` | `+ "enclosure": {default: "IP44/54 - Splash Proof", text_overrides: [IP67, IP 67, waterproof, water proof]}` |
+| goldens | `i1` only | `+ i2` (real paired MCB, 8348/2930) `+ i3` (interlocked WITH an MCB set, 13426/4700) |
+
+Both goldens are carried in the config **and** the top-level `goldens` dict (the loader reads the top
+level). Goldens 26 -> 28. `paired_mcb: "None"` STAYS -- it is R12 step 3's mechanical half.
+
+**`text_overrides` lists BOTH `IP67` and `IP 67` deliberately.** There is **no server-side matcher**:
+the whole `extraction_defaults` dict is serialised into the prompt and the MODEL does the matching
+(`extraction.py:923-931`), so nothing normalises the space. Owner Q2 added the spaced `water proof`
+on the same reasoning. Live-verified: rows whose text reads `IP 67` resolved correctly.
+
+### IT TOOK TWO WORDINGS, AND THE FIRST ONE'S FAILURE IS THE LESSON
+
+**v34's R12** told the model the name FORMAT and said "take the NEXT HIGHER rating". The model derived
+the pole correctly, kept the STATED amperage, and **constructed a catalog name that does not exist**:
+
+| row | model returned | exists? | required |
+|---|---|---|---|
+| 98 | `20A FP MCB C CURVE` | no (FP starts at 25A) | `25A FP MCB C CURVE` |
+| 87 | `16A FP MCB C CURVE` | no | `25A FP MCB C CURVE` |
+| 470 / 472 / 480 | the 20A/16A/20A DP or FP rung | no | the 25A rung |
+
+`_coerce_value` dropped all five as `not_an_allowed_choice`. **A null is NOT the `"None"` sentinel**,
+so `none_skips` does not catch it, `@paired_mcb` cannot bind, and **the WHOLE row goes unpriceable --
+socket line included.** Rows 98 and 87 priced before the slice and stopped pricing. That is *worse*
+than the defect being fixed, which is why v34 was held and reworded rather than shipped.
+
+**v35 replaces steps 3/4/5 only** (steps 1 and 2 byte-unchanged). Step 5 now LEADS with *"Your answer
+MUST be a name from the allowed values list - never construct a name that is not in the list"*, carries
+the worked example *'20A DP MCB C CURVE' does not exist, so record '25A DP MCB C CURVE'*, and ends with
+a `"None"`-rather-than-outside-the-list floor. Step 4 is blunt: *"the curve is C - always C, never D."*
+Step 3 adds *"Never invent an MCB."*
+
+**The old step-4 sentence naming the name GRAMMAR was dropped, not re-homed** -- plausibly it was what
+invited the model to construct names in the first place, and step 5's list rule replaces its function.
+
+### Measured outcome (23 live rows, re-extracted per BoQ via `only_rows`)
+
+| axis | pre-slice | v34 | **v35** |
+|---|---|---|---|
+| priceable rows | 11 / 23 | 15 / 23 | **18 / 23** |
+| coercion drops | -- | 5 | **0** |
+| rows below pre-slice priceability | -- | 2 | **0** |
+
+**Six of the ten watch-list rows were fixed by the rewording:** 470 / 472 / 480 (null -> the 25A rung,
+470 landing exactly on step 5's worked example) and 474 / 476 / 478 (D -> **C**). Rows 95 / 103 / 79 did
+not regress. **Carry-forward integrity was perfect on every run: 567 untouched rows, 0 differing**, and
+no row outside the scoped set was touched.
+
+### FOUR ROWS REMAIN WRONG, AND THEY ARE SLICE 2b's ACCEPTANCE CASES
+
+The residual is a NEW failure mode the fix introduced -- **"sideways, not up"**. The model satisfied
+"must be from the list" by changing something OTHER than the amperage until a name existed:
+
+| row | required | returned | what it changed | money |
+|---|---|---|---|---|
+| 98 | `25A FP MCB C CURVE` (1396) | `20A SP MCB C CURVE` (223) | the **pole** | **-1,173 under** |
+| 87 | `25A FP MCB C CURVE` (1396) | `16A RCBO 30mA (FP)` (3,852) | the **device class** | **+2,456 over** |
+
+These now PRICE, so nothing on screen flags them -- *quieter* than the v34 null, and wrong in both
+directions. Plus **row 97** (`40A SP MCB D CURVE`, byte-identical across both wordings, no curve stated)
+and **row 589** (invents an MCB on a trolley row naming none; **accepted by owner ruling C** -- it does
+not price, `item` is null, and its confidence is honestly low).
+
+**Owner ruling A: the amperage/pole/curve ladder moves into the PIPELINE as slice 2b.** What the
+rewording fixed, it fixed completely and repeatably; what it did not fix is precisely the part requiring
+*choice between catalog rows under constraint* -- hold pole and device fixed, walk amperage up. That is
+ladder work, and `module_fit` / `circuit_fit` already exist to make exactly that deterministic **and
+visible in the derivation trace**, which a model choice never is.
+
+### The two manual corrections are part of the shipped state
+
+Rows **98** (BOQ-26-00066) and **87** (BOQ-26-00114) were corrected by hand in the pricing editor to
+`25A FP MCB C CURVE` and applied via "Use this value":
+
+| | before | after |
+|---|---|---|
+| row 98 | `20A SP MCB C CURVE` 223 -> supply 9445 / install 3310 | **1396 -> supply 10618 / install 3720** |
+| row 87 | `16A RCBO 30mA (FP)` 3852 -> supply 13074 / install 4580 | **1396 -> supply 10618 / install 3720** |
+
+Combined rate **14338** on both; persisted with freeze-and-supersede (row 98: pricing_version 1 ->
+`is_current 0` retaining 6800, version 2 `is_current 1`), and **verified across a page reload**.
+
+WARNING: **The build prompt's expected figure of "supply 12372" was WRONG and was corrected before
+applying.** 12372 belongs to the *rating-32A* rows (99 / 100 / 86, socket line 10976). Rows 98 and 87
+carry rating `16/20A`, so their socket line is **9222** (catalog 9410 x 0.98) and the correct answer is
+**10618**. The MCB half (2820 x 0.495 -> 1396) was right as stated.
+
+### Cert (browser, live, v35)
+
+Ritual: bench restart; vite PIDs killed (listed only) -> confirmed empty -> detached restart; :8080 and
+:8000 both 200 from container AND host; site data cleared keeping cookies; ROOT then deep route.
+**Config-served marker green BOTH directions** -- v35 strings present, v34 strings absent; the Rate
+Master screen independently shows batch `rmbulk-d849360d0a81` and renders R12 in full on the Derivation
+tab.
+
+- **V1 PASS** -- row 95: `Enclosure = IP67 - Water Proof`, `Paired MCB = 25A SP MCB C CURVE`; socket
+  8125 + mcb 223 = supply **8348**, install **2930**, combined **11278**.
+- **V2** -- BEFORE on record: `paired_mcb "None"` (defaulted) on every with-MCB row; 00113's six
+  enclosures `null`.
+- **V3 PASS** -- to the rupee, two rows: 449 x 0.495 = 222.255 -> **223** (row 95); 390 x 0.495 =
+  193.05 -> **194** (row 96).
+- **V4 PASS** -- row 79 (`plug top`, no MCB): `Paired MCB = None` with a **"default"** chip, and the
+  trace carries **NO paired_mcb line at all** -- supply 3078 = socket alone.
+- **V5 PASS** -- no live interlocked row exists, so demonstrated through the Rate Master Derivation
+  with golden i3's attributes: `ref: Switchgear 32A SP MCB C CURVE (rate 194 x qty 0)` -> `paired_mcb =
+  0`. **The MCB RESOLVES at 194 and is then zeroed by the interlocked gate** -- the `qty -> 0` path, NOT
+  `none_skips` (which is what a `"None"` would have exercised). supply **13426** / install **4700**.
+- **V6 PASS both halves** -- row 470's `Enclosure` carries a `default` chip in the **amber** attention
+  token (`bg-amber-100` / `text-amber-800`) at 50% confidence; overriding it to IP67 **clears the chip**
+  and re-prices 8638 -> **8854**.
+- **V7 PASS** -- row 258 -> `junction_box_raceway @ Face size (mm) = 300` = **1110** (the F-3 figure,
+  unmoved); cable-tray row 239 = **1017**. Stronger than the browser half: **11 of 12 configs and all
+  1,364 items are byte-identical v34 -> v35**, so no untouched category *can* have moved.
+
+**BOTH NEW GOLDENS ARE MACHINE-VERIFIED THROUGH THE REAL INTERPRETER** -- i3 at V5, and i2 via row 95
+in the pricing editor (same attribute set -> 8348/2930). The vitest goldens are independent hand-written
+pins and read no asset, so a new config golden is NOT covered by a green vitest run; the interpreter
+path is the only thing that proves one.
+
+### Tests
+
+`bench --site localhost run-tests --module nirmaan_stack.api.boq.test_rate_master` -- **152 OK**, twice
+(after the v34 load and again after v35). **Zero pin re-mints were needed beyond `CURRENT_EALL_ASSET`**:
+no test hardcodes a golden count, so 26 -> 28 flowed through untouched. Vitest **2372 passed / 1 failed**
+(the known `writeOffControl` timeout), unchanged. Post-suite: 12 configs, 1,364 items, zero `TEST_RM`
+residue.
+
+**F-5's extraction half is certified by RE-RUN + CAPTURE, never by test.** No unit test can see what the
+model returns; the evidence is the scoped re-extraction plus the always-on JSONL capture, which is what
+made the v34 diagnosis exact (it named `not_an_allowed_choice` per row and preserved the raw value the
+model actually sent). Treat a wording change here as unverifiable until re-run.
+
+### Env note
+
+An "Invalid Request" during the cert was **`frappe.exceptions.CSRFTokenError`**, caused by clearing site
+data (which wipes the `localStorage`-held CSRF token) WITHOUT the re-login the documented recipe pairs
+with it. GETs keep working and every POST fails, so it presents as a broken write path. A plain reload
+does NOT re-issue the token -- only a login does. Nothing was written while it was in force (verified
+server-side), so it is safe, but it costs a cert if not recognised.
+
+### R12 as shipped -- the approved wording, VERBATIM
+
+Steps 1 and 2 are byte-identical between v34 and v35; steps 3, 4 and 5 are the owner's replacement
+text, applied verbatim and not re-voiced. The single `guidance` string, as it sits in the v35 asset and
+as the model receives it inside the `ESTIMATOR_RULES` block:
+
+> Industrial socket lines are often billed together with the MCB that controls them. Decide the paired
+> MCB as follows. (1) If the row's `description`, its `notes`, or any `ancestor_chain` entry names a
+> specific MCB with its details, record exactly that MCB - the BoQ always wins. (2) If an MCB is
+> mentioned without full details (for example 'with MCB'), derive it. The amperage is the HIGHEST
+> current stated in the text - '25/20/16 A' gives 25A - read from the text itself, never from the
+> `rating` attribute, whose values are ranges that lose the individual figures. The pole comes from the
+> pin count: a 3-pin socket takes a single-pole MCB (SP), a 5-pin socket takes a four-pole MCB (FP).
+> (3) If no MCB is mentioned at all in the row's `description`, its `notes`, or any `ancestor_chain`
+> entry, record "None". Never invent an MCB - a row that does not mention one gets "None", whatever the
+> socket's size. (4) Curve: use the curve the text states. If the text states no curve, the curve is C -
+> always C, never D. (5) Your answer MUST be a name from the allowed values list - never construct a
+> name that is not in the list. If the name you derive does not exist because that amperage is absent
+> at that pole, move UP to the next higher amperage that exists in the list at the same pole and curve -
+> for example '20A DP MCB C CURVE' does not exist, so record '25A DP MCB C CURVE'. Never move down.
+> Above 63A at four pole there is no next-higher MCB in the curve grid; use the catalog item '80 FP
+> MCB', which is named without a curve. If no allowed name fits at all, record "None" rather than a
+> name outside the list. If the stated curve does not exist at that rating, take the other curve. These
+> substitutions are independent - neither forces the other.
+
+The coverage phrasing in (1) and (3) is voiced in the extraction prompt's OWN vocabulary
+(`description` / `notes` / `ancestor_chain`, defined by `_ROW_CONTEXT_SHAPE_GUIDANCE`) -- the R11 house
+style from slice F-3.
+
+### NEXT QUEUED: slice 2b -- the amperage/pole/curve ladder moves into the pipeline
+
+Scoped separately, not started. Owner ruling A (2026-08-15). The model would extract only the FACTS a
+BoQ line states -- stated amperage, pin count, stated curve (if any) -- and the PIPELINE would resolve
+the catalog row: hold pole and device class FIXED, walk the amperage UP to the next rung that exists,
+`80 FP MCB` above the four-pole grid, `"None"` when nothing fits. The precedent already exists in
+`module_fit` / `circuit_fit`, including the property that makes it worth doing: **a ladder hop appears
+in the derivation trace, and a model's choice never does.**
+
+**Acceptance cases are the three rows this slice could not fix**, all reproducible today:
+
+| row | BoQ | text | required | v35 returns |
+|---|---|---|---|---|
+| 98 | 00066 | `5 pin 16/20 A ... with MCB` | `25A FP MCB C CURVE` | `20A SP MCB C CURVE` (pole changed) |
+| 87 | 00114 | `5 pin 6/16 A ... with mcb` | `25A FP MCB C CURVE` | `16A RCBO 30mA (FP)` (device class changed) |
+| 97 | 00066 | `3 pin 40 A ... with MCB` | `40A SP MCB C CURVE` | `40A SP MCB D CURVE` (curve) |
+
+Rows 98 and 87 currently carry a MANUAL correction (see above); a correct ladder must reproduce
+`25A FP MCB C CURVE` on both without one. **Row 589 is explicitly OUT of scope** (owner ruling C,
+accepted as the known residual of the extract-facts model half: it invents an MCB on a row naming none,
+it does not price, and its confidence is honestly low).
