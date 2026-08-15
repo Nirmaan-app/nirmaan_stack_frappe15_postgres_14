@@ -221,12 +221,21 @@ export function derivedAttrIds(config: RateCategoryConfig): Set<string> {
     for (const raw of pl.steps ?? []) {
       const s = raw as {
         step?: string;
-        params?: { ladders?: Array<{ bind?: unknown }>; result_attr?: unknown };
+        params?: { ladders?: Array<{ bind?: unknown }>; result_attr?: unknown; bind?: unknown };
       };
       if (s.step === "module_fit") {
         for (const ladder of s.params?.ladders ?? []) {
           if (typeof ladder.bind === "string" && ladder.bind) out.add(ladder.bind);
         }
+      } else if (s.step === "catalog_fit") {
+        // THE FOURTH MECHANISM (slice 2b). A `catalog_fit` BINDS its target from the catalog, so a
+        // blank one means "the row did not state an item", never "the row is incomplete".
+        //
+        // ⚠️ It behaves like a `module_fit` LADDER BIND, not like the read-only blanker quantity: the
+        // step's `prefer_attr` reads the SAME attribute and a stated value WINS outright, so the
+        // field stays EDITABLE and `readOnly` is never set. That is what keeps the pricer's override
+        // surface -- the mechanism that corrected two live rows by hand in slice 2.
+        if (typeof s.params?.bind === "string" && s.params.bind) out.add(s.params.bind);
       } else if (s.step === "derive_attribute") {
         // THE THIRD MECHANISM. A `derive_attribute` COMPUTES its target attribute from other
         // attributes, so a blank one means "the row did not state it", never "the row is incomplete".

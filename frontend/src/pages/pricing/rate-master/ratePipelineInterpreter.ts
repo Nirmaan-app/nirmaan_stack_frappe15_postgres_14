@@ -380,20 +380,75 @@ export function moduleSizesFromLabel(label: string): number[] {
  */
 export function buildModuleLadder(
   items: RateMasterItem[],
-  spec: { kind: string; where?: Record<string, string | number>; label_attr?: string }
+  spec: {
+    kind: string;
+    /** SLICE 2b: a value may be a LIST, matching any member. Values arrive ALREADY "@"-resolved --
+     * resolution needs the run's binding scopes, and keeping it out here keeps this pure. */
+    where?: Record<string, string | number | Array<string | number>>;
+    label_attr?: string;
+    /** SLICE 2b: where a rung's SIZE comes from. Absent => parse the label, the behaviour every
+     * pre-2b caller relies on and the reason `module_fit` is byte-unaffected by this change. */
+    size_from?: { attr: string } | { label: true };
+  }
 ): ModuleRung[] {
   const labelAttr = spec.label_attr || "item";
   const where = spec.where ?? {};
-  const rungs: ModuleRung[] = [];
+  const sizeAttr =
+    spec.size_from && "attr" in spec.size_from ? spec.size_from.attr : undefined;
+  // SLICE 2b: list-valued `where` keys, in sorted key order, define the PREFERENCE vector -- the
+  // index of the member each row matched. Two rows tying on the same SIZE are settled by comparing
+  // those vectors lexicographically (earlier member wins), and only then by the original (size,
+  // label) order. With no list-valued key every vector is empty and the comparison collapses to the
+  // pre-2b sort exactly.
+  const listKeys = Object.keys(where).filter((k) => Array.isArray(where[k])).sort();
+  const rungs: Array<ModuleRung & { pref: number[] }> = [];
   for (const it of items) {
     if (it.kind !== spec.kind) continue;
-    if (!Object.entries(where).every(([k, v]) => it.attributes?.[k] === v)) continue;
+    let matched = true;
+    const pref: number[] = [];
+    for (const [k, v] of Object.entries(where)) {
+      const got = it.attributes?.[k];
+      if (Array.isArray(v)) {
+        const idx = v.indexOf(got as string | number);
+        if (idx < 0) { matched = false; break; }
+      } else if (got !== v) {
+        matched = false;
+        break;
+      }
+    }
+    if (!matched) continue;
+    for (const k of listKeys) {
+      pref.push((where[k] as Array<string | number>).indexOf(it.attributes?.[k] as string | number));
+    }
     const label = it.attributes?.[labelAttr];
     if (typeof label !== "string" && typeof label !== "number") continue;
-    for (const size of moduleSizesFromLabel(String(label))) rungs.push({ size, label: String(label) });
+    if (sizeAttr) {
+      // SIZE FROM A NUMERIC ATTRIBUTE. A row whose size attribute is missing or non-numeric is not a
+      // rung -- it is skipped silently here, and an EMPTY ladder is what the caller reports.
+      const raw = it.attributes?.[sizeAttr];
+      const n = typeof raw === "number" ? raw : Number(raw);
+      if (!Number.isFinite(n)) continue;
+      rungs.push({ size: n, label: String(label), pref });
+    } else {
+      for (const size of moduleSizesFromLabel(String(label))) rungs.push({ size, label: String(label), pref });
+    }
   }
-  rungs.sort((a, b) => (a.size - b.size) || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
-  return rungs.filter((r, i) => i === 0 || rungs[i - 1].size !== r.size);
+  const prefCmp = (a: number[], b: number[]) => {
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      const d = (a[i] ?? 0) - (b[i] ?? 0);
+      if (d !== 0) return d;
+    }
+    return 0;
+  };
+  rungs.sort(
+    (a, b) =>
+      (a.size - b.size) ||
+      prefCmp(a.pref, b.pref) ||
+      (a.label < b.label ? -1 : a.label > b.label ? 1 : 0)
+  );
+  return rungs
+    .filter((r, i) => i === 0 || rungs[i - 1].size !== r.size)
+    .map(({ size, label }) => ({ size, label }));
 }
 
 /**
@@ -408,9 +463,25 @@ export function buildModuleLadder(
  * then re-checks with `circuits <= 0`, so an unusable fit is still caught downstream; here there is no
  * such second gate.) PURE.
  */
-export function fitModuleLadder(rungs: ModuleRung[], count: number): { label: string; modules: number; exact: boolean } | null {
+export function fitModuleLadder(
+  rungs: ModuleRung[],
+  count: number,
+  /** SLICE 2b. "up" (the DEFAULT, and every pre-2b caller's behaviour) = exact else the next HIGHER
+   * rung. "down" = exact else the next LOWER, for a future consumer whose oversize is the unsafe
+   * direction. `module_fit` never passes this and is byte-unaffected. */
+  direction: "up" | "down" = "up"
+): { label: string; modules: number; exact: boolean } | null {
   const exact = rungs.find((r) => r.size === count);
   if (exact) return { label: exact.label, modules: exact.size, exact: true };
+  if (direction === "down") {
+    // rungs are ascending, so the last one below the count is the nearest lower.
+    let lower: ModuleRung | undefined;
+    for (const r of rungs) {
+      if (r.size < count) lower = r;
+      else break;
+    }
+    return lower ? { label: lower.label, modules: lower.size, exact: false } : null;
+  }
   const next = rungs.find((r) => r.size > count);
   return next ? { label: next.label, modules: next.size, exact: false } : null;
 }
@@ -729,6 +800,225 @@ export function runPipeline(
         produced: { key: p.result_attr, value: derived },
         runningValues: snapshot(),
       });
+    } else if (stepType === "map_attribute") {
+      // SLICE 2b: resolve ONE string attribute -- stated wins, else a config table, else a default.
+      // A CONVERSION belongs in code (the owner's standing principle), and `derive_attribute` cannot
+      // serve because its formula language is arithmetic and a pole is a string.
+      const s = raw as import("./rateMasterTypes").MapAttributeStep;
+      const p = s.params;
+      // Same shape as every other step's local refusal (bail is block-scoped by design, so each
+      // step owns its own and none can leak into another).
+      const bail = (label: string) => {
+        steps.push({ step: stepType, label, runningValues: snapshot() });
+        return { pipelineId, outputs: pipeline.output, status: "no_match" as const, steps, finals: {}, matchedItem, note: pipeline.note };
+      };
+      if (!p || typeof p.result_attr !== "string" || !p.result_attr) {
+        // OPTION C: a malformed step declared no target. Its own honest refusal, distinct from
+        // "the inputs could not be read".
+        return bail("map_attribute declares no result_attr -- no value computed");
+      }
+      const isStated = (v: string | number | undefined) =>
+        v !== undefined && v !== null && v !== "" && v !== NONE_SENTINEL;
+
+      // (a) STATED-WINS, checked FIRST -- before the source is even read, so a stated value resolves
+      // even when the attribute the table would have mapped is blank or unreadable.
+      const stated = p.prefer_attr ? selected[p.prefer_attr] : undefined;
+      if (isStated(stated)) {
+        selected[p.result_attr] = stated as string | number;
+        steps.push({
+          step: stepType,
+          label: s.explain || `map ${p.result_attr}`,
+          matchedCondition: `${p.prefer_attr} stated as ${String(stated)} -- kept (a stated value wins)`,
+          runningValues: snapshot(),
+        });
+        continue;
+      }
+
+      // (b) the table, then the default. An unmapped source is NOT an error when a default exists --
+      // that is the curve-else-C shape, where "nothing stated" has a right answer.
+      let mapped: string | number | undefined;
+      let how = "";
+      const src = p.from_attr ? selected[p.from_attr] : undefined;
+      if (p.table && isStated(src) && Object.prototype.hasOwnProperty.call(p.table, String(src))) {
+        mapped = p.table[String(src)];
+        how = `${p.from_attr} ${String(src)} -> ${String(mapped)}`;
+      } else if (p.default !== undefined) {
+        mapped = p.default;
+        how = `nothing stated -> ${String(mapped)} (default)`;
+      }
+
+      if (mapped === undefined) {
+        if (p.on_miss === "skip") {
+          steps.push({
+            step: stepType,
+            label: s.explain || `map ${p.result_attr}`,
+            matchedCondition: `${p.result_attr} not resolved -- skipped`,
+            runningValues: snapshot(),
+          });
+          continue;
+        }
+        // HONEST NO-COMPUTE, naming the attribute -- never a guess and never a silent blank.
+        return bail(
+          p.from_attr
+            ? `${p.from_attr} ("${String(src ?? "")}") maps to no ${p.result_attr} -- no value computed`
+            : `${p.result_attr} has nothing to resolve from -- no value computed`
+        );
+      }
+
+      selected[p.result_attr] = mapped;
+      steps.push({
+        step: stepType,
+        label: s.explain || `map ${p.result_attr}`,
+        matchedCondition: `${how} -> ${p.result_attr} = ${String(mapped)}`,
+        runningValues: snapshot(),
+      });
+    } else if (stepType === "catalog_fit") {
+      // SLICE 2b: fit a stated NUMBER onto a catalog-derived ladder and BIND the chosen row's label.
+      // The generic half of `module_fit`, reusable by slice 3's tray width and F-10's converted
+      // thickness. Binds into `fitLabels`, so "@<bind>" resolves through the ONE existing order.
+      const s = raw as import("./rateMasterTypes").CatalogFitStep;
+      const p = s.params;
+      const bail = (label: string) => {
+        steps.push({ step: stepType, label, runningValues: snapshot() });
+        return { pipelineId, outputs: pipeline.output, status: "no_match" as const, steps, finals: {}, matchedItem, note: pipeline.note };
+      };
+      if (!p || typeof p.bind !== "string" || !p.bind || typeof p.kind !== "string" || !p.kind
+          || !p.fit_from || typeof p.fit_from.attr !== "string" || !p.fit_from.attr) {
+        // OPTION C: "declared nothing to fit" is not the same statement as "the inputs were
+        // unreadable", so a malformed step keeps its own refusal.
+        return bail("catalog_fit declares no bind / kind / fit_from -- no value computed");
+      }
+      const isStated = (v: string | number | undefined) =>
+        v !== undefined && v !== null && v !== "";
+
+      const pushFit = (
+        matchedCondition: string,
+        outcome: import("./rateMasterTypes").CatalogFitOutcome
+      ) => {
+        steps.push({
+          step: stepType,
+          label: s.explain || `catalog fit: ${p.bind}`,
+          matchedCondition,
+          catalogFit: outcome,
+          runningValues: snapshot(),
+        });
+      };
+
+      // (a) STATED-WINS. Bind NOTHING, so `resolveAtRef` falls through to the selection and the
+      // stated item is what prices. THIS IS WHAT KEEPS THE PRICER'S OVERRIDE SURFACE ALIVE -- the
+      // mechanism that corrected rows 98 and 87 by hand. Checked before anything is read.
+      const statedItem = p.prefer_attr ? selected[p.prefer_attr] : undefined;
+      if (isStated(statedItem)) {
+        pushFit(`${p.prefer_attr} stated as ${String(statedItem)} -- kept (a stated value wins)`, {
+          bind: p.bind, fitted: null, size: null, requested: null, exact: false,
+          absent: statedItem === NONE_SENTINEL, stated: String(statedItem),
+        });
+        continue;
+      }
+
+      // (b) POSITIVE ABSENCE. Bind the sentinel so a `none_skips` component zeroes its line; an
+      // UNBOUND "@" ref would be a bindMiss and refuse the whole row (the module_fit lesson).
+      if (p.absent_when && selected[p.absent_when.attr] === p.absent_when.equals) {
+        fitLabels[p.bind] = NONE_SENTINEL;
+        pushFit(`${p.absent_when.attr} is ${String(p.absent_when.equals)} -> no ${p.bind}`, {
+          bind: p.bind, fitted: null, size: null, requested: null, exact: false, absent: true,
+        });
+        continue;
+      }
+
+      // (c) resolve every `where` value: literals pass through, "@refs" resolve, LISTS resolve
+      // member-wise. An unresolved ref is an HONEST no-compute NAMING THE KEY -- never a silent skip,
+      // which would quietly widen the ladder to the whole family.
+      const resolvedWhere: Record<string, string | number | Array<string | number>> = {};
+      let whereMiss: string | null = null;
+      const resolveOne = (v: string | number): string | number | undefined =>
+        typeof v === "string" && v.startsWith("@") ? resolveAtRef(v.slice(1)) : v;
+      for (const [k, v] of Object.entries(p.where ?? {})) {
+        if (Array.isArray(v)) {
+          const members: Array<string | number> = [];
+          for (const m of v) {
+            const r = resolveOne(m);
+            // A list member that does not resolve is DROPPED, not fatal: `["@mcb_curve", "NA"]` must
+            // still offer "NA" when no curve was resolved. An empty list IS fatal (below).
+            if (r !== undefined && r !== null && r !== "") members.push(r);
+          }
+          if (!members.length) { whereMiss = k; break; }
+          resolvedWhere[k] = members;
+        } else {
+          const r = resolveOne(v);
+          if (r === undefined || r === null || r === "") { whereMiss = k; break; }
+          resolvedWhere[k] = r;
+        }
+      }
+      if (whereMiss !== null) {
+        return bail(`'${whereMiss}' not provided -- no ${p.bind} computed`);
+      }
+
+      // (d) the value being fitted.
+      const rawFit = selected[p.fit_from.attr];
+      const want = typeof rawFit === "number" ? rawFit : Number(rawFit);
+      if (!isStated(rawFit) || !Number.isFinite(want)) {
+        // SLICE 2b (owner ruling A-ii): a category may OPT IN to treating an unreadable fact as
+        // POSITIVE ABSENCE rather than a refusal. Refusing discards the rest of the row -- the socket
+        // priced perfectly well and only its pairing is unknown -- which is the over-wide action the
+        // PW-FIX ruling reversed for module_fit. With `on_missing_fact: "none"` the bind takes the
+        // sentinel, `none_skips` zeroes the MCB line, and the row prices honestly short.
+        //
+        // ⚠️ DEFAULT IS UNCHANGED: absent the key this still refuses, so every other config is
+        // byte-identical. The opt-in is per-step CONFIG, never a global softening.
+        //
+        // The two cases are handled together on purpose. A `number` attribute cannot reach here
+        // "present but unreadable" from extraction -- `_coerce_value` already nulls a non-numeric --
+        // so the only way in is a hand-typed override, and inventing a third behaviour for it would
+        // add a branch no row exercises.
+        if (p.on_missing_fact === "none") {
+          fitLabels[p.bind] = NONE_SENTINEL;
+          pushFit(`${p.fit_from.attr} not stated -> no ${p.bind}`, {
+            bind: p.bind, fitted: null, size: null, requested: null, exact: false, absent: true,
+          });
+          continue;
+        }
+        return bail(`attribute '${p.fit_from.attr}' missing or non-numeric -- no ${p.bind} computed`);
+      }
+
+      // (e) build + fit.
+      const rungs = buildModuleLadder(items, {
+        kind: p.kind, where: resolvedWhere, label_attr: p.label_attr, size_from: p.size_from,
+      });
+      if (!rungs.length) {
+        return bail(`no '${p.kind}' rows match -- no ${p.bind} computed`);
+      }
+      const fit = fitModuleLadder(rungs, want, p.direction);
+      if (!fit) {
+        // A MISS IS NOT AUTOMATICALLY FATAL. `on_miss: "none"` binds the sentinel so the rest of the
+        // row still prices -- a missing MCB leaves the socket un-paired, it does not make the socket
+        // wrong. `module_fit`'s refusal is the other choice, kept available for a plate-like ladder.
+        if (p.on_miss === "no_compute") {
+          const top = rungs[rungs.length - 1];
+          return bail(
+            `${fmtNum(want)} exceeds the largest '${p.bind}' the catalog carries (${top.label}) -- no value computed`
+          );
+        }
+        fitLabels[p.bind] = NONE_SENTINEL;
+        pushFit(`${fmtNum(want)} -> nothing in the catalog fits -> no ${p.bind}`, {
+          bind: p.bind, fitted: null, size: null, requested: want, exact: false, absent: true,
+        });
+        continue;
+      }
+
+      fitLabels[p.bind] = fit.label;
+      // THE WORKING: the request, the hop (or its absence), and the row chosen -- one line. The
+      // " (next higher)" wording is the SAME string module_fit emits, so the two read alike.
+      const whereParts = Object.entries(resolvedWhere)
+        .map(([k, v]) => `${k} ${Array.isArray(v) ? v.join("/") : String(v)}`)
+        .join(", ");
+      pushFit(
+        `${p.fit_from.attr} ${fmtNum(want)} at ${whereParts} -> ` +
+          (fit.exact
+            ? `${fit.label}`
+            : `${fmtNum(want)} not carried -> ${fmtNum(fit.modules)} (next ${p.direction === "down" ? "lower" : "higher"}) -> ${fit.label}`),
+        { bind: p.bind, fitted: fit.label, size: fit.modules, requested: want, exact: fit.exact, absent: false }
+      );
     } else if (stepType === "roundup") {
       const s = raw as import("./rateMasterTypes").RoundupStep;
       // F-18 (E4) -- THE CHAIN, and the one site that must NOT refuse.

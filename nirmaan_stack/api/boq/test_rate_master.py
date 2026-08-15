@@ -118,8 +118,30 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # "None" sentinel, so `@paired_mcb` could not bind and the WHOLE row went unpriceable. Step 5 now
 # leads with "your answer MUST be a name from the allowed values list", step 4 says the curve is
 # "always C, never D", and step 3 says never invent an MCB. Steps 1 and 2 are byte-unchanged.
+# SLICE 2b (2026-08-15) minted v36: the MCB choice moved OUT of the prompt and INTO the pipeline.
+# Two new interpreter steps -- `map_attribute` (a CONVERSION: pin count -> pole, stated pole winning)
+# and `catalog_fit` (fit the stated amperage onto a catalog-derived ladder, exact else next higher) --
+# replace every substitution sentence R12 used to carry. The 106 `family: Switchgear` rows were MINTED
+# with `device` / `pole` / `amp_a` / `curve` (curve "NA" where a device carries none, including the one
+# grammar exception `80 FP MCB`), because a ladder can only filter on STORED attributes and those four
+# discriminators lived inside the item NAME. 106 rows EDITED, none added: the count stays 1364 across
+# 12 configs. ⚠️ `extraction_defaults.paired_mcb` was DELETED in the same mint -- an injected default is
+# a STATED value, so it would win on every row forever and make the ladder inert while every test
+# stayed green. Goldens 28 -> 30 (i4 the ladder hop, i5 the no-MCB absence).
+# v37 (same day, owner rulings A + B on the Phase-6 re-extraction): TWO corrections, no data move.
+# (A) R12 step 2 REVERTS to the original semantics -- a socket's stated current serves the MCB when
+# the text gives no separate MCB current. Under v36's stricter "stated FOR that MCB" the model left
+# `mcb_amp_a` blank on rows whose only current is the socket's, and `catalog_fit` then refused the
+# WHOLE row (row 78 had priced under v35). Paired with a new per-step opt-in
+# `catalog_fit.on_missing_fact: "none"` -- an unreadable fact binds the None sentinel so the socket
+# still prices with its MCB honestly unpriced, instead of discarding a row that priced perfectly
+# well. DEFAULT UNCHANGED: absent the key the step still refuses.
+# (B) R12 gains step (0) -- "`paired_mcb`: ALWAYS return null" -- because the model kept naming a
+# catalog item on the sheet whose text names one, and stated-wins then PRE-EMPTED the ladder on 4 of
+# 6 rows. This is the ONE compliance sharpening; if pre-emption survives it, the fix is structural
+# (per-surface attribute hiding) and becomes its own slice, not a third wording.
 # The count pins below follow this constant.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v35.json"
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v37.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -1813,7 +1835,13 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(headers[-2:], ["source_sheet", "source_row"])
         for k in ("tray_type", "core", "conduit_type", "colour", "description"):
             self.assertIn(k, headers)
-        self.assertEqual(len(headers), 45)
+        # SLICE 2b: 45 -> 48. The MCB-ladder mint gave the 106 `family: Switchgear` rows the four
+        # discriminators a catalog ladder can filter on, and THREE of those names are new to the
+        # union -- `device`, `amp_a`, `curve`. `pole` is NOT new: industrial_sockets already declared
+        # it, which is why this is +3 rather than +4. (One consequence, logged not fixed: the single
+        # `pole` column now carries two vocabularies -- "3 Pin / 2P+E" on socket rows, "FP" on
+        # switchgear rows. The union has always been per-row, so this is legible, not wrong.)
+        self.assertEqual(len(headers), 48)
 
         rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
         self.assertEqual(len(rows) - 1, 1364)
@@ -1878,7 +1906,8 @@ class TestRateMaster(FrappeTestCase):
         self.assertIn("item_uid", base64.b64decode(res["content_base64"]).decode("utf-8"))
         res_all = rate_master.export_rate_master_csv(discipline=disc)
         self.assertEqual(res_all["mode"], "all")
-        self.assertEqual(res_all["column_count"], 45)
+        # SLICE 2b: 45 -> 48, the same +3 as test_24n (device / amp_a / curve; `pole` already existed).
+        self.assertEqual(res_all["column_count"], 48)
         self.assertEqual(res_all["row_count"], 1364)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)
 
     def test_24q_a_category_with_no_items_gives_headers_only_not_an_error(self):
@@ -2609,7 +2638,15 @@ class TestRateMaster(FrappeTestCase):
                 # SLICE 2. This pin was proven green at 11 types against the unchanged
                 # validator, THEN both sides were extended together in one commit.
                 "module_fit",
-                # CIRCUIT LENGTH part 1 (this slice). Same discipline: green at 12 types against the
+                # SLICE 2b. Same discipline again: green at 13 types against the unchanged validator,
+                # then interpreter + validator extended together in one commit. `map_attribute` is the
+                # CONVERSION primitive (pin count -> pole here, F-10's SWG -> mm next); `catalog_fit`
+                # is `module_fit`'s ladder half generalised, so slice 3's tray width rides the same
+                # step. Both are PASS-THROUGH here -- the pure interpreter's Option-C degrades a
+                # malformed shape to the honest `unsupported`.
+                "map_attribute",
+                "catalog_fit",
+                # CIRCUIT LENGTH part 1. Same discipline: green at 12 types against the
                 # unchanged validator, then interpreter + validator extended together in one commit.
                 "derive_attribute",
             },
@@ -3299,10 +3336,13 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(rate_master._STEP_DIVISOR_SUFFIX, "_step_divisor")
 
     def test_70_derive_attribute_is_in_the_known_step_vocabulary(self):
-        """The vocabulary pin's server half. The frontend STEP_VOCABULARY carries the same 13 members
-        (pinned in ratePipelineInterpreter.test.ts); a step known to only one side is unusable."""
+        """The vocabulary pin's server half. The frontend STEP_VOCABULARY carries the same 15 members
+        (pinned in ratePipelineInterpreter.test.ts); a step known to only one side is unusable.
+
+        SLICE 2b took this 13 -> 15 (`map_attribute` + `catalog_fit`), extended on both sides in one
+        commit exactly as the 11 -> 12 -> 13 moves before it."""
         self.assertIn("derive_attribute", rate_master._KNOWN_STEP_TYPES)
-        self.assertEqual(len(rate_master._KNOWN_STEP_TYPES), 13)
+        self.assertEqual(len(rate_master._KNOWN_STEP_TYPES), 15)
 
     # ---- MINT GATE: the two carry-forward repairs ----
     #

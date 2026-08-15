@@ -93,6 +93,14 @@ export const STEP_VOCABULARY = [
   // SLICE 2: computes a module count from a PARAMETERISED weighted sum over stated quantities and
   // resolves it against ladders derived FROM THE CATALOG (exact, else the next higher size).
   "module_fit",
+  // SLICE 2b: resolves ONE string attribute -- stated wins, else a config conversion table, else a
+  // default. A CONVERSION is deterministic code, never a prompt sentence (the owner's standing
+  // principle); this is also F-10's SWG -> mm shape.
+  "map_attribute",
+  // SLICE 2b: fits a stated NUMBER onto a ladder derived FROM THE CATALOG and binds the chosen row's
+  // label -- module_fit's ladder half, generalised (size from a numeric attribute, "@"-refs and value
+  // lists in `where`, explicit direction) so slice 3's tray width rides the same step.
+  "catalog_fit",
   // CIRCUIT LENGTH part 1: computes an ATTRIBUTE value (formula + source attrs + target attr all from
   // config) into the SELECTION, where circuit_fit's length and a component's {from_attr} qty read --
   // ctx, where every other step writes, is invisible to both. A stated value always wins.

@@ -1283,6 +1283,17 @@ _KNOWN_STEP_TYPES = {
     # the target would silently never find a stated value to defer to, which is the quietest possible
     # way to get a wrong price.
     "derive_attribute",
+    # SLICE 2b: resolves ONE string attribute -- a stated value if there is one, else a config
+    # conversion table, else a config default. A CONVERSION (pin count -> pole, SWG -> mm) is
+    # deterministic code under the owner's standing principle, never a prompt sentence. PASS-THROUGH:
+    # no deep structural validation -- the pure interpreter's Option-C degrades a malformed shape to
+    # the honest `unsupported`, and its attribute ids are ordinary selection reads rather than the
+    # kind of silent-typo hazard module_fit's ladder binds carry.
+    "map_attribute",
+    # SLICE 2b: fits a stated NUMBER onto a ladder derived FROM THE CATALOG and binds the chosen
+    # row's label -- module_fit's ladder half, generalised so slice 3's tray width and F-10's
+    # converted thickness ride the same step. PASS-THROUGH for the same reason as map_attribute.
+    "catalog_fit",
 }
 _KNOWN_CONFIG_KEYS = {
     "discipline", "category_id", "category_display", "pairing_rule",
