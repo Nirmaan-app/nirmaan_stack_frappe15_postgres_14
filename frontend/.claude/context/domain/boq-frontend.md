@@ -2614,3 +2614,68 @@ because there is no DOM test environment** -- an inline mapping could not be pin
 a match key, match nothing, and price the row wrong *silently* (`matchMasterRow` compares with `===`
 and reports a miss, not an error). It is **a different thing from the `"None"` sentinel** -- `"None"` is
 positive absence, `— not stated —` is the absence of a decision -- and the two must never be collapsed.
+
+---
+
+## Slice 2d -- one answer per field (2026-08-16)
+
+### `panel: false` -- the filter goes on the PUSH, never the walk
+
+`pricingSheetHelper`'s single defs loop builds **three** things: `workingsAttrs` (the panel),
+`selected` (handed to `runPipeline`), and `missing` (the gate). Only the push narrows:
+
+```ts
+if (d.panel === false) continue;   // AFTER selected + missing are computed
+workingsAttrs.push({ ... });
+```
+
+⚠️ Filtering the WALK strips the facts from `selected`, so `catalog_fit`'s `absent_when` never fires
+and `fit_from` never reads -- **every socket row silently mispriced, with a tidier-looking panel.**
+The gate also exempts a hidden attribute (`d.panel !== false`), because a field the pricer cannot see
+is not missing user input; without it a blank `mcb_present` refuses the row with nothing to fill.
+
+### Option B -- the marker composes TWO outcomes
+
+`CatalogFitOutcome` gained `substituted` (did THIS step hop?) and `whereRefs` (the attribute ids
+behind its `where` "@" refs -- the JOIN KEY). `MapAttributeOutcome {result_attr, stated}` is new, read
+through `mapAttributeOutcomes`. The panel's verdict:
+
+```ts
+substituted = cf.substituted || cf.whereRefs.some((id) => maps.get(id)?.stated === false)
+```
+
+⚠️ **Neither step can answer alone.** Row 474 states 32 A and DP, hits the ladder exactly, and only
+the CURVE is defaulted -- `cf.substituted` is FALSE and the row is still `(computed)`. Building the
+verdict from the fit alone marks it PLAIN and claims the row specified a curve it never mentioned.
+
+`WorkingsAttribute.substituted` is ABSENT on mechanisms that cannot answer, and absence keeps the
+pre-2d blank-and-derived rule -- which is what leaves every other derived attribute unchanged.
+
+### B3 -- the per-attribute reset
+
+Hover-revealed `RotateCcw`, rendered only while that attribute carries a session override, and it
+**DELETES the override** (`resetAttr`) rather than writing `""`. Writing `""` overrides the extracted
+value with empty and yields the COMPUTED value; deleting restores what EXTRACTION read. "Undo my
+edit" means the latter. It also drops a stale final-value override, exactly as `setAttr` does.
+
+⚠️ **THE RENDER GUARD IS `attrOverrides[helper.id]?.[a.id]`.** The map is keyed by helper id THEN
+attribute id. Keyed by attribute id alone the control is **structurally unreachable on every row** --
+shipped that way and caught only by the browser cert (six unit tests on the pure predicate passed
+throughout).
+
+⚠️ **`RateHelperPanel.tsx` exports non-component values, so React Fast Refresh CANNOT hot-swap it.**
+Editing it and re-checking in the browser requires the full Vite de-stale (restart with
+`node_modules/.vite` cleared + hard reload); an HMR update silently leaves the old module running.
+
+### Q4(i) -- the Derivation tab is a pure calculator
+
+`selectableDefs` now filters `!derivedBinds.has(d.id)` using the SHARED `derivedAttrIds`, so a
+`catalog_fit` bind or `module_fit` ladder bind has no select and appears only in the step lines. The
+predicate moved to `rateMasterStructure.ts` (with `derivedQtyAttrs` + `blanksQtyAttr`) because
+`pricingSheetHelper` already imports FROM `RateMasterDerivation` -- importing back is a cycle. The 2c
+`NOT_STATED_SENTINEL` / `toSelectValue` / `fromSelectValue` are DELETED and the bindings are plain
+again.
+
+⚠️ Cost, accepted deliberately: **no attribute on that screen can be unset**, so it can no longer
+answer "what does this category do when this attribute is not stated?", and the three bench
+capabilities (upgrade / stated-wins / stated-`"None"` sticking) are now pinned by unit tests only.

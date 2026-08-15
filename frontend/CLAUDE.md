@@ -948,23 +948,41 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
   visibly absent). Same reason in both cases: **nothing was computed.** Neither is `isAttrBlank`, so
   neither draws the red border, and the three states (blank / defaulted-amber / showing-derived) stay
   MUTUALLY EXCLUSIVE.
-- **A COMPUTED VALUE MUST BE CLEARABLE BACK TO BLANK, AND ONLY WHERE BLANK MEANS SOMETHING
-  (owner-locked).** On a DERIVED attribute blank is a legitimate instruction -- *let the pipeline
-  decide* -- so the placeholder is SELECTABLE and reads `— use computed —`; everywhere else blank
-  still just means missing input, so it stays DISABLED and reads `— select —`
-  (`disabled={!a.derived}`). ⚠️ A recompute path is NOT an affordance: this shipped for a whole slice
-  with the recompute working and the placeholder `disabled`, so there was no way back to blank at
-  all. **A claim about a rendered affordance is settled by reading the element the user clicks, never
-  the handler behind it.**
-- **A `<Select>` CLEARED TO BLANK NEEDS A SENTINEL, AND THE SENTINEL MUST NEVER REACH THE SELECTION
-  (owner-locked).** Radix reserves `value=""` for clearing, so the OPTION carries
-  `NOT_STATED_SENTINEL` and the two boundaries translate through the pure `toSelectValue` /
-  `fromSelectValue`. If it leaked it would become a **catalog match key**, match nothing, and price
-  the row wrong SILENTLY (`matchMasterRow` compares with `===` and reports a miss, not an error).
-  ⚠️ It is a DIFFERENT thing from the `"None"` sentinel -- `"None"` is positive absence, `— not
-  stated —` is the absence of a decision -- and the two must never be collapsed. Both mappings live
-  as PURE functions, not inline in JSX: with no DOM test environment, an inline mapping is
-  unpinnable.
+  ⚠️ **SLICE 2d AMENDED THE ABSENCE HALF BY RULING: a CONCLUDED absence now renders `None
+  (computed)`, not empty.** The premise changed, which is why the test moved rather than the code
+  being wrong before: a step that fired `absent_when` **reached a verdict**, and a concluded absence
+  is a verdict rather than the lack of one. Rendering it empty was tolerable only while the facts
+  behind it were on screen to explain the blank; once they leave the panel the field has to speak for
+  itself. **A HUMAN-stated `"None"` still renders PLAIN** -- their decision, not ours.
+- **OPTION B -- THE MARKER MEANS "SOMETHING WAS SUBSTITUTED OR INFERRED", NOT "THE ROW LEFT THIS
+  BLANK" (owner-locked, slice 2d).** PLAIN when the fitted item matches the stated facts with nothing
+  substituted · `(computed)` when anything was substituted or inferred · `None (computed)` on a
+  concluded absence · plain `None` when a human stated it · the amber `default` badge unchanged.
+  ⚠️ **NO SINGLE STEP CAN ANSWER IT, AND THAT IS THE WHOLE DESIGN.** A `catalog_fit` can hit its
+  ladder EXACTLY and still rest on a pole we inferred or a curve we defaulted -- so the verdict is
+  composed from the step's own `substituted` flag **and** the `map_attribute` outcomes its `whereRefs`
+  point at. Building it from the fit alone marks such a row PLAIN and claims the row specified a fact
+  it never mentioned (live case: row 474, exact 32 A hit, defaulted curve -- correctly `(computed)`).
+  ⚠️ **A stated value the pipeline SUBSTITUTED shows WHAT WAS BOUGHT** (take-the-larger's upgrade),
+  narrowing the older "a stated value is never overwritten on screen" to *a stated value the pipeline
+  USED is never overwritten*. The upgrade NOTE is kept, so it is corrected AND explained.
+- **A SESSION EDIT IS UNDONE PER FIELD, AND UNDOING DELETES THE OVERRIDE (owner-locked, slice 2d).**
+  A hover-revealed reset icon renders beside an attribute **only while that attribute carries a
+  session override**, and clicking it **DELETES the override** rather than writing `""`. The two are
+  different and it matters: writing `""` overrides the extracted value with empty and yields the
+  COMPUTED value, while deleting restores what EXTRACTION actually read. "Undo my edit" means the
+  latter. ⚠️ Its render guard reads `attrOverrides[helper.id]?.[a.id]` -- the map is keyed **by helper
+  id THEN attribute id**, and keying it by attribute id alone makes the control **structurally
+  unreachable on every row** (shipped exactly that way for one cert cycle; see below). The row-level
+  Revert is unchanged and remains the all-at-once escape.
+- **⚠️ MACHINE VOCABULARY DOES NOT APPEAR IN A PRICER-FACING CONTROL (owner-locked, slice 2d).** The
+  2c `— use computed —` placeholder and the Rate Master Derivation `— not stated —` sentinel are both
+  **RETIRED**: every placeholder is the plain disabled `— select —`, and the Derivation screen offers
+  no empty option at all. The clear-back affordance is the reset icon above, which carries **no text**
+  -- so there is no wording to get wrong. ⚠️ **The COST is recorded deliberately:** no attribute on the
+  Derivation screen can be unset any more, so that screen can no longer answer *"what does this
+  category do when this attribute is not stated?"*. That was accepted as a vocabulary decision, not
+  overlooked.
 - **THE FACE PLATE STAYS EDITABLE, AND A TOO-SMALL ENTRY WARNS RATHER THAN BEING SILENTLY
   OVERRIDDEN (owner-locked).** A stated value keeps the screen and still feeds the pipeline as the
   take-the-larger FLOOR. When the computation overrides it, the panel must SAY so, naming the
@@ -1652,10 +1670,20 @@ in the plan doc.
   be flattened. The field reuses the FACE PLATE's seeded-but-editable state (`derived` + `derivedValue`,
   `readOnly` never set); nothing new was invented for it. **Which attribute is arbitrated is READ FROM
   CONFIG** (`blanksQtyAttr`, the `blanks.qty_attr` key), never by id — a config without it keeps the
-  fully-superseded read-only behaviour below, byte-identically. **THE TWO SCREENS STAY APART:** the Rate
-  Master Derivation screen still reads `derivedQtyAttrs` (the superseded-qty half only), which keys on
-  the component's unchanged `{from_fit}` shape, so its answer for `blank_qty` is the same before and
-  after; do not unify the predicates.
+  fully-superseded read-only behaviour below, byte-identically. ⚠️ **"THE TWO SCREENS STAY APART" IS SUPERSEDED (owner ruling Q4(i), slice 2d).** It used to say the
+  Rate Master Derivation screen must read `derivedQtyAttrs` (the superseded-qty half) and never
+  `derivedAttrIds` (both halves). **That screen is now a PURE CALCULATOR: you state the INPUTS, and
+  every attribute the pipeline DERIVES leaves its selects and appears only in the step lines.** The
+  rule existed to stop a genuinely editable field being frozen; the ruling accepts that cost in
+  exchange for a screen on which every control is an input.
+  ⚠️ **IT COSTS THREE BENCH CAPABILITIES, and each is now pinned by a unit test instead of by that
+  screen** -- take-the-larger's UPGRADE (a stated plate too small), `derive_attribute`'s STATED-WINS
+  (a stated circuit length), and `catalog_fit`'s stated-`"None"` STICKING. None can be exercised there
+  any more, because none of their attributes has a control.
+  ⚠️ **The predicate lives in `rateMasterStructure.ts`, the leaf both screens may import** -- with
+  `derivedQtyAttrs` and `blanksQtyAttr` -- because `pricingSheetHelper` already imports FROM
+  `RateMasterDerivation`, so importing back the other way is a CYCLE. **Never a second copy:** two
+  predicates on either side of that boundary could disagree about whether a field is an input.
 - **⚠️ AN ATTRIBUTE'S `disables_when_none` CAN VETO A FIELD THAT MATTERS MORE THAN IT DOES.** Once
   `blank_item` became inert as a pricing input it still carried `disables_when_none: ["blank_qty"]`,
   so on every row where extraction answered `"None"` a DEAD dropdown greyed out the newly EDITABLE

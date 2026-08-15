@@ -1604,6 +1604,29 @@ invariants:
   ever evaluates `contains`. So nothing normalises spacing or case: **spelling variants must each be
   listed** (`IP67` AND `IP 67`; `waterproof` AND `water proof`). Entries are a LIST, so multiples are
   free. A single entry relying on the model to equate two spellings is a silent assumption.
+- **⚠️ `panel: false` IS NOT `selector: false`, AND THE DIFFERENCE IS THE POINT (owner-locked, 2d).**
+  `selector: false` hides an attribute from ALL THREE surfaces **including the AI prompt**
+  (`extraction.py` skips it). `panel: false` hides it from the **PRICING PANEL ONLY** — it is still
+  extracted and still drives the pipeline. That is what lets the four `industrial_sockets` MCB FACTS
+  (`mcb_present`, `mcb_amp_a`, `mcb_pole_stated`, `mcb_curve_stated`) leave the pricer's screen while
+  ONE field, `paired_mcb`, carries the whole answer. ⚠️ **It narrows the RENDERED LIST, never the
+  definition walk**: `pricingSheetHelper`'s single loop builds the panel list, the `selected` map
+  handed to `runPipeline`, AND the missing-attribute gate from the same defs — so filtering the WALK
+  strips the facts from `selected`, `absent_when` never fires, and every socket row is silently
+  mispriced. The filter belongs on the push, and the gate EXEMPTS a hidden attribute, because a field
+  the pricer cannot see is not missing user input.
+- **⚠️ AN MCB MENTION MAY COME FROM AN ANCESTOR, AND R12 SAYS SO DELIBERATELY (owner ruling A, 2d).**
+  R12 step (1) is a **literal-mention test** — the word MCB (or MCCB / RCBO / RCCB / ELCB / "miniature
+  circuit breaker" / "circuit breaker") must actually appear in the row's `description`, its `notes`,
+  **or an `ancestor_chain` entry**; an incomer, a current figure, or a distribution context is NOT a
+  mention, and the default is No. Steps (2)–(4) describe the MCB **only when (1) is Yes** — *a current
+  figure in the text is never evidence that an MCB exists*, which is the sentence that stops the model
+  reasoning backwards from "I can find a current" to "therefore there is an MCB".
+  ⚠️ **A ROW WHOSE PARENT NAMES AN MCB THEREFORE ANSWERS YES, AND THAT IS CORRECT** — the one live
+  case (BOQ-26-00106 row 589, a trolley under a *"9 Nos. 40 amp DP MCB"* preamble) reads its amperage
+  from the parent's MCB rather than borrowing the socket's incomer rating, which is the improvement.
+  **Do not "fix" it by excluding ancestors without a ruling**; measured on the live corpus, 21 of 23
+  socket rows carry the word in their OWN text, 1 only in an ancestor, and 1 nowhere.
 - **AN EXTRACTION-SIDE RULE IS CERTIFIED BY RE-RUN + CAPTURE, NEVER BY TEST (owner-locked).** No unit
   test can see what the model returns, so a green suite says nothing about a prompt/rules change. The
   evidence is a scoped re-extraction (`start_suggest(only_rows=[...])`) plus the always-on JSONL

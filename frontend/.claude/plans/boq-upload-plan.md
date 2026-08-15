@@ -30241,3 +30241,204 @@ is the slice working, not failing.
 "incomer", a current rating, or a distribution context is **not** a mention; default `No`. Per the
 standing invariant, **an extraction-side rule is certified by re-run + capture, never by test.**
 Queued as its own slice ahead of slice 3.
+
+---
+
+## Build slice 2d -- one answer per field, in the user's language (2026-08-16)
+
+**Commits:** `feat(boq-rate-master): one answer per field - panel and derivation speak the user's
+language (slice 2d) - asset v38` + `docs(boq): record slice 2d as built`. Branch
+`feature/boq-pricing-helper`, parent `37d81239`. **Asset v38** (`rate_master_electrical_all_v38.json`).
+
+### What shipped
+
+- **`panel: false`** on `AttributeDefinition` — hides an attribute from the PRICING PANEL only. The
+  four `industrial_sockets` MCB facts (`mcb_present`, `mcb_amp_a`, `mcb_pole_stated`,
+  `mcb_curve_stated`) leave the panel; `paired_mcb` alone carries the answer.
+- **Option B markers** — plain / `(computed)` / `None (computed)` / plain `None` / the amber
+  `default` badge, composed from two structured outcomes.
+- **Two new outcomes:** `CatalogFitOutcome.substituted` + `.whereRefs`, and the new
+  `MapAttributeOutcome {result_attr, stated}` with the `mapAttributeOutcomes` reader — the fourth
+  instance of the moduleFit "read the structured data, never the prose" contract.
+- **B3 per-attribute reset** — a hover-revealed icon that DELETES the override.
+- **Q4(i)** — derived binds leave the Derivation input selects; the 2c sentinel is reverted for all
+  12 categories.
+- **Predicates relocated** to `rateMasterStructure.ts` (`derivedQtyAttrs`, `derivedAttrIds`,
+  `blanksQtyAttr`) — the leaf both screens may import.
+- **RM-4b `in panel` checkbox**; server shape-guard for `panel`.
+
+### ⚠️ THE LOAD-BEARING IMPLEMENTATION FACT
+
+`pricingSheetHelper`'s single defs loop builds THREE things: the panel list, the `selected` map handed
+to `runPipeline`, and the missing-attribute gate. **The filter goes on the PUSH, never the walk** —
+filtering the walk strips the facts from `selected`, so `absent_when` never fires and `fit_from` never
+reads, and **every socket row is silently mispriced with the panel looking tidier than before.** The
+gate exempts a hidden attribute for the same reason the derived exemption exists: a field the pricer
+cannot see is not missing user input.
+
+### ⚠️ OPTION B NEEDS TWO STEPS TO ANSWER ONE QUESTION
+
+A `catalog_fit` can hit its ladder EXACTLY and still rest on a substituted fact. The verdict is
+`substituted || any whereRef's map outcome was not stated`. **Live proof: row 474** (BOQ-26-00113) —
+the row states 32 A and DP, the ladder hits 32 A exactly, and only the CURVE is defaulted; it
+correctly reads `32A DP MCB C CURVE (computed)`. Built from the fit alone it would have read PLAIN and
+claimed the row specified a curve it never mentioned.
+
+### ⚠️ THE C6 DEFECT — SHIPPED, CAUGHT BY THE BROWSER CERT, FIXED
+
+The B3 reset icon **never rendered**, on any attribute, on any row. One line:
+
+```tsx
+- {attrOverrides[a.id] !== undefined && (        // WRONG KEY SPACE
++ {attrOverrides[helper.id]?.[a.id] !== undefined && (
+```
+
+`attrOverrides` is keyed **by helper id THEN attribute id**; `attrOverrides["rating"]` is always
+`undefined`. The handler on the next line (`resetAttr(helper.id, a.id)`) was already correct — so it
+was a dead control, not a wrong action.
+
+**Six unit tests covered `hasSessionEdits` and the delete-not-clear semantics and all passed.** The
+render guard is a React semantic and this repo has NO DOM test environment — the blind spot
+`frontend/CLAUDE.md` documents in its own words. **The browser cert is the only thing that could have
+caught it, and it did.**
+
+### ⚠️ THE FAST-REFRESH STALENESS TRAP (found while re-verifying the fix)
+
+`RateHelperPanel.tsx` exports non-component values (`overridesForRow`, `hasSessionEdits`,
+`RowScoped`), so **React Fast Refresh cannot hot-swap it** — the edited module does not take effect
+and the old one keeps running. My first re-check after the fix still showed no button. **A cert
+re-check after editing such a file requires the FULL Vite de-stale** (restart with
+`node_modules/.vite` cleared, then a hard reload), not an HMR update. Bench is not in this path for a
+frontend-only change.
+
+### THE STANDING CERT RULE (adopted this slice)
+
+**Every slice NAMES its unpinnable interactions — render guards, affordances, anything whose
+correctness is a React semantic — and the cert checks those FIRST.** They are the only items where a
+green suite carries no information. C6 was ordered first for exactly this reason and was the only
+cert item that failed.
+
+### WORKING AGREEMENT #57 (owner, VERBATIM)
+
+> **"No user-facing UI change ships without prior owner discussion — surfaced at draft time as a named
+> list, in user language, before any prompt is sent. Adding or removing an attribute definition IS a
+> user-facing change."**
+
+**Founding case 1 — the 2c `— not stated —` sentinel.** A new option on every attribute select on the
+Rate Master Derivation screen, introduced as a Radix/type-system detail. **Founding case 2 — the 2b
+four fact fields** (`mcb_present`, `mcb_amp_a`, `mcb_pole_stated`, `mcb_curve_stated`), four new
+controls on the pricing panel, introduced as extraction schema. **Both were UI changes framed as
+plumbing, and the owner ruled both out on first sight.**
+
+⚠️ **THE TEST IS WHAT THE USER SEES, NOT WHICH LAYER THE DIFF LANDS IN.** "It's a type", "it's a
+config key", "it's the extraction schema" are all descriptions of the DIFF; the agreement asks what
+appears on someone's screen. An attribute definition is the clearest trap in this codebase precisely
+because it reads as data: adding one puts a control in front of a pricer, removing one takes it away,
+and neither is visible in the word "definition".
+
+⚠️ **AND THE OBLIGATION IS TIMED: "at draft time … before any prompt is sent."** A named list in user
+language, up front — not a mention inside a build report after the work exists, when the cost of
+saying no has already been paid.
+
+**Slice 2d is the remediation of both founding cases** — `panel: false` takes the four fact fields off
+the pricing panel, and Q5(a) reverts the sentinel across all 12 categories — which is why the
+agreement is recorded here rather than anywhere earlier.
+
+### WORKING AGREEMENT #58 (owner, VERBATIM — ratified 2026-08-16)
+
+> **"A negative claim states its search space; where the space has a dimension the reader would not
+> think to ask about, name it explicitly or do not claim the negative."**
+
+**Founding case 1 — the ancestor chain.** The Phase-3 corpus measurement searched `description` +
+`notes` and reported row 589 as *"Yes on text with no MCB word"*. It never searched the
+`ancestor_chain`, whose immediate parent reads *"9 Nos. 40 amp DP MCB of 10 KA service breaking
+capacity."* The row was never a no-mention row, and the entire defect framing rested on that gap.
+
+**Founding case 2 — the trailing space.** The follow-up ancestor sweep returned 16 of 23 rows and
+nearly shipped that number. BOQ-26-00114's sheet is named **`'Electrical '`** — with a trailing space
+(the standing verbatim-#152 gotcha) — so a probe passing `"Electrical"` got **silently nothing back**.
+Phase 6 itself was unaffected because it read the name from the database.
+
+⚠️ **THE TWO CASES ARE DIFFERENT FAILURES AND BOTH ARE COVERED.** The first is a dimension NOT
+SEARCHED (ancestors were never in the query); the second is a dimension searched with a KEY THAT
+SILENTLY MATCHED NOTHING. In both, the tooling returned a clean, confident, wrong negative — which is
+why the agreement puts the burden on the CLAIM rather than on spotting the gap.
+
+⚠️ **IT APPLIES TO THIS SLICE'S OWN EVIDENCE.** The `blank_item` static proof (§R-B) states its search
+space explicitly — every interpreter read path for a selection key, including the non-obvious
+`match_master_row` intersection — and states its limit (a proof, not a numeric A/B). That is the shape
+#58 asks for.
+
+### R-A — "None" IS UNTOUCHED EVERYWHERE
+
+No `None` option, label, attribute or sentinel was removed, renamed, reclassified or hidden. All 20
+`allow_none` attributes across `db_switchgear` / `industrial_sockets` / `point_wiring` /
+`switches_sockets` remain. **The thing removed was the 2c `— not stated —` sentinel** — the pair
+confusion, not `None` itself. Verified on screen at C7 (`MCB pole stated` and `MCB curve stated` both
+still offer `None`; the plate ladder still offers `None`).
+
+### R-B — `blank_item` REPORT-ONLY FINDING (no action taken, by owner ruling)
+
+`"blank_item"` appears in **zero pipeline steps** in either `point_wiring` or `switches_sockets`, and
+**zero active Electrical items carry it as an attribute key** — which closes `match_master_row`'s
+stored-vs-selected intersection, the one route by which a selection key bites without appearing in a
+step. Both routes closed ⇒ varying it, `"None"` included, cannot move any figure.
+
+⚠️ **Honest limit:** this is an exhaustive static proof over the interpreter's read paths, **not a
+numeric A/B**. The goldens cannot supply one — `s1` and `ss1` differ on TEN attributes. Owner ruling:
+**don't change what isn't broken**; the finding is recorded, nothing was touched, and no
+numeric-sweep test was added.
+
+### PHASE 6 — the scoped re-extraction, and the ruling that came out of it
+
+23 rows, one window, `only_rows` per sheet (accepted and echoed: 1 / 6 / 7 / 9). New runs
+`BRSR-26-00601`–`604`, all `complete` / `ai_status: ran`, each carrying its untouched rows forward
+**byte-identically (drift 0 across 567 rows)**.
+
+**THE REGRESSION BAR HELD: 0 flips.** All 21 correct `Yes` rows stayed `Yes`, at HIGHER confidence
+(0.97, up from ~0.90). Row 79 stayed `No`.
+
+**589 did not flip — and OWNER RULING A is that this is CORRECT.** Its parent preamble names an MCB,
+which the approved rule admits. The sharpening still did its job: `mcb_amp_a` moved **63 → 40**, from
+the socket's incomer rating (the borrow old step (2) invited) to the parent MCB's own rating.
+**Acceptance criterion "589 → No" was wrong as written and is corrected to:** 589 shows its MCB
+`(computed)` — 40 A, DP stated by the parent, curve defaulted C — with no fact fields visible; **the
+saved 16580 stays untouched as a standing human override**, the owner may re-apply at discretion.
+
+### PHASE 7 — cert, all ten
+
+Chrome was killed and relaunched mid-cert (renderer corruption in the first attempt — one fully tiled
+frame; nothing was read off it). C1 row 589 `40A DP MCB C CURVE (computed)` · C2 row 98 `25A FP MCB C
+CURVE (computed)`, amp hop 20→25 · C3 row 474 `(computed)` from the defaulted curve alone · C4 row 79
+`None (computed)`, **and a human re-selecting None renders plain `None`** · C5 row 97 refuses with the
+red border on `Rating` ONLY while the derived `Paired MCB` is correctly unflagged · C6 fixed and
+verified twice (Rating on 98, Paired MCB on 79) · C7 in full · C8 point_wiring `1M & 2M (computed)`,
+prices unchanged · C9 589=16580, 98=14338, 87=14338 · C10 below.
+
+**C10 — the dev-shell console exception is a KNOWN NON-FINDING.** One exception per page load,
+`SyntaxError: Unexpected token '{'` at the page document line 32, traced to
+`frappe.boot = {{ boot }};` — an **unrendered Jinja placeholder** in the dev `index.html` that Vite
+serves raw. Pre-existing on every page in dev, unrelated to any slice, harmless.
+
+### Gates
+
+vitest **2452 / 1** (the known `writeOffControl` timeout), **+24** over the 2428 baseline · `tsc` **0
+errors** in both changed directories · backend `test_rate_master` **152 OK** before AND after the
+mint, the only moved pin being `CURRENT_EALL_ASSET` v37→v38 · two consecutive exports byte-identical ·
+v38 round trip **byte-identical** · 12 configs / 1364 items / 0 `TEST_RM` residue.
+
+### FOLLOW-UP LEDGER
+
+1. **The absent-reason discriminator.** `absent_when` fired ("the text says no MCB") and
+   `on_missing_fact` ("we could not read the facts") both produce `{fitted: null, absent: true}` and
+   both render `None (computed)`. With the facts off the panel the second is otherwise unobservable.
+   Needs a discriminator on `CatalogFitOutcome` — an interpreter change, deferred.
+2. **R12 step (0)** still returns `paired_mcb` null ALWAYS, so a "plain value (direct BoQ match)" is
+   unreachable by extraction — only a human override produces it. If a directly-named MCB should be
+   stated, that is its own ruling.
+3. **`— select —` on a computed field.** A derived attribute with a computed value shows its value,
+   but the placeholder still reads `— select —` if opened. Cosmetic, unruled.
+4. **Same-option re-selection.** Choosing the option already displayed fires no DOM change in a real
+   click, so converting computed-`None` to stated-`None` by hand may need a detour through another
+   value. Pre-existing nuance, flagged at the 2c recon.
+5. **The Derivation screen can no longer test unstated attributes** (the Q5a cost, accepted).
