@@ -940,6 +940,31 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
   field. **The computed value is carried in `derivedValue`, NEVER written into `value`**: `value`
   means "what the row supplied", and collapsing the two makes a computed number indistinguishable
   from a stated one to every later reader.
+- **A DERIVED DISPLAY REFUSES TWICE, AND BOTH REFUSALS ARE PINNED CONTRACTS (owner-locked).** A
+  derived attribute publishes NO `derivedValue` when a value was **STATED** (the pipeline deferred to
+  it, so claiming a computed value would credit the pipeline with the pricer's own choice) and when
+  the component is **POSITIVELY ABSENT** (`"None"` / an `absent_when` gate -- a DECISION, not a value;
+  inventing a size for a component that is not there is confidently wrong, which is worse than
+  visibly absent). Same reason in both cases: **nothing was computed.** Neither is `isAttrBlank`, so
+  neither draws the red border, and the three states (blank / defaulted-amber / showing-derived) stay
+  MUTUALLY EXCLUSIVE.
+- **A COMPUTED VALUE MUST BE CLEARABLE BACK TO BLANK, AND ONLY WHERE BLANK MEANS SOMETHING
+  (owner-locked).** On a DERIVED attribute blank is a legitimate instruction -- *let the pipeline
+  decide* -- so the placeholder is SELECTABLE and reads `— use computed —`; everywhere else blank
+  still just means missing input, so it stays DISABLED and reads `— select —`
+  (`disabled={!a.derived}`). ⚠️ A recompute path is NOT an affordance: this shipped for a whole slice
+  with the recompute working and the placeholder `disabled`, so there was no way back to blank at
+  all. **A claim about a rendered affordance is settled by reading the element the user clicks, never
+  the handler behind it.**
+- **A `<Select>` CLEARED TO BLANK NEEDS A SENTINEL, AND THE SENTINEL MUST NEVER REACH THE SELECTION
+  (owner-locked).** Radix reserves `value=""` for clearing, so the OPTION carries
+  `NOT_STATED_SENTINEL` and the two boundaries translate through the pure `toSelectValue` /
+  `fromSelectValue`. If it leaked it would become a **catalog match key**, match nothing, and price
+  the row wrong SILENTLY (`matchMasterRow` compares with `===` and reports a miss, not an error).
+  ⚠️ It is a DIFFERENT thing from the `"None"` sentinel -- `"None"` is positive absence, `— not
+  stated —` is the absence of a decision -- and the two must never be collapsed. Both mappings live
+  as PURE functions, not inline in JSX: with no DOM test environment, an inline mapping is
+  unpinnable.
 - **THE FACE PLATE STAYS EDITABLE, AND A TOO-SMALL ENTRY WARNS RATHER THAN BEING SILENTLY
   OVERRIDDEN (owner-locked).** A stated value keeps the screen and still feeds the pipeline as the
   take-the-larger FLOOR. When the computation overrides it, the panel must SAY so, naming the

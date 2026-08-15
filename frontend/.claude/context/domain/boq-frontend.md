@@ -2550,3 +2550,67 @@ arriving un-asked-for is half the defect that once deleted this whole feature, a
 rate — what the job costs *us* — is the last layer on which to relax it. ⚠️ **The default lives ONLY
 in the client**; an omitted `layers` payload is rates-only server-side, so a client that never learned
 about `bcs_costs` keeps the earlier behaviour exactly. Never push the default into the server.
+
+---
+
+## Rate-helper derived display -- `catalog_fit` (slice 2c, 2026-08-15)
+
+`catalog_fit` is the **FOURTH mechanism** to reach `applyDerivedDisplay`, after a `{from_fit}`
+superseded qty, a `module_fit` ladder bind, and a `derive_attribute` target. It computed correctly from
+slice 2b and **displayed nothing** -- `pricingSheetHelper.ts:559` surfaces only steps carrying BOTH
+`produced` and `refItem`, and a `catalog_fit` step has neither -- so row 589's paired MCB read
+"- select -" while the pipeline priced a `63A DP MCB C CURVE` behind it.
+
+**The value is surfaced by a pure reader, not a result field.** `fitLabels` is function-local to
+`runPipeline` and there are **28 inline return sites**, so a new `PipelineResult` field would have meant
+editing all 28. `catalogFitOutcomes(results)` is keyed by `bind`, **first-wins** across pipelines
+(supply and install carry the identical step), and empty when no `catalog_fit` ran. Third instance of
+the `moduleFitOutcome` / `derivedAttrOutcomes` shape -- **read the structured `StepTrace` data, never
+the prose, and never re-derive the fit.**
+
+⚠️ **TWO DISPLAY REFUSALS, PINNED CONTRACTS (owner-locked).** Both publish **no** `derivedValue`, for
+the same reason -- nothing was computed:
+
+* **A STATED value never renders as computed.** Stated-wins bound nothing; publishing a computed value
+  would claim the pipeline chose what the pricer chose. The `(computed)` marker goes and the
+  muted-italic tone reverts to upright.
+* **POSITIVE ABSENCE renders EMPTY**, never a fitted item. `absent_when` firing is a **decision, not a
+  value**; inventing a size for a component that is not there is confidently wrong, which is worse than
+  visibly absent.
+
+Neither is `isAttrBlank` -- an attribute the pipeline derives is never missing user input -- so no red
+border in either case, and the three states (blank / defaulted-amber / showing-derived) stay mutually
+exclusive.
+
+⚠️ **It behaves like a LADDER BIND, not like the blanker quantity: `readOnly` is never set.**
+`catalog_fit`'s `prefer_attr` reads the same attribute and a stated value **wins outright**, so an edit
+here is the one thing that always reaches the price. Locking it would be the read-only contract's own
+lie, pointing the other way.
+
+### The clear affordance -- and the recon correction
+
+⚠️ **Clearing a derived attribute back to blank was NOT possible pre-2c.** The recon recorded it as
+"already works mechanically"; the recompute path did exist, but the placeholder is
+`<option value="" disabled>` -- **not selectable** -- so once a value was in the select there was no way
+back. The fix is `disabled={!a.derived}` with the text switching to **`— use computed —`** on a derived
+attribute and staying **`— select —`** (greyed) elsewhere: blank becomes selectable exactly where it is
+a legitimate instruction. **A recon premise about a rendered affordance cannot be settled by reading
+the recompute path** -- read the element the user clicks.
+
+### Revert-to-suggestion
+
+`hasSessionEdits(attrState, finalState, excelRow)` is pure and **reuses `overridesForRow`**, so it
+inherits the row-scoping rule rather than re-deriving it -- a Revert enabled by another row's edits
+would claim there is something here to undo. An **empty per-helper map is not an edit**. The button
+resets both override states and **deliberately leaves `expanded` / `panelWidth` alone** -- layout is not
+an edit. Declare it AFTER the `EMPTY_*` module constants (TDZ).
+
+### `NOT_STATED_SENTINEL` (Rate Master Derivation)
+
+Radix forbids `value=""` on a `SelectItem`, so the OPTION carries `"__not_stated__"` and the two
+boundaries translate through the pure `toSelectValue` / `fromSelectValue`. **Extracted from the JSX
+because there is no DOM test environment** -- an inline mapping could not be pinned at all.
+⚠️ **The sentinel must never reach `selected`, `runPipeline`, or a catalog match key**: it would become
+a match key, match nothing, and price the row wrong *silently* (`matchMasterRow` compares with `===`
+and reports a miss, not an error). It is **a different thing from the `"None"` sentinel** -- `"None"` is
+positive absence, `— not stated —` is the absence of a decision -- and the two must never be collapsed.

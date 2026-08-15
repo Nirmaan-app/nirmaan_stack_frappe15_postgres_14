@@ -30061,3 +30061,183 @@ observable by a human using the product. **Owner ruling: bank as slice 2c, commi
 
 Then **slice 3** (tray width next-higher) rides `catalog_fit` with no new capability, and **F-10**
 (SWG -> mm) rides `map_attribute`.
+
+---
+
+## Build slice 2c -- the panel shows what pricing used (2026-08-15)
+
+**Commits:** `feat(boq-rate-master): the panel shows what pricing used (slice 2c)` +
+`docs(boq): record slice 2c as built`. Branch `feature/boq-pricing-helper`, parent `24759105`.
+**Frontend only** -- no backend file, no asset mint, no config edit. Six files:
+`ratePipelineInterpreter.ts` / `.test.ts`, `pricingSheetHelper.ts` / `.test.ts`,
+`RateHelperPanel.tsx`, `RateMasterDerivation.tsx`.
+
+### ⚠️ RECON CORRECTION -- clearing was NOT selectable pre-2c
+
+The 2c recon reported that clearing a derived attribute back to blank *"already works
+mechanically"*. **That was wrong, and it changed the shape of build item 3.** The panel's placeholder
+option is `<option value="" disabled>` -- **`disabled`, therefore not selectable** -- so once a value
+was in the select there was **no way back to blank at all**. The recompute path existed; the
+affordance did not, and a path with no affordance is not a feature.
+
+**The fix is the enabled-when-derived placeholder:**
+
+```tsx
+<option value="" disabled={!a.derived}>{a.derived ? "— use computed —" : "— select —"}</option>
+```
+
+Blank becomes selectable **exactly where it is a legitimate instruction** (*let the pipeline decide*)
+and stays unselectable where blank still just means missing input. Verified on screen both ways in the
+Phase-4 cert: on the derived `Paired MCB`, `Home` reached `— use computed —`; on the non-derived
+`Rating`, `Home` **skipped** the greyed `— select —` and landed on `125A`.
+
+**Lesson, and it is the recurring one:** a recon premise about a *rendered* affordance cannot be
+settled by reading the recompute path. Read the element that the user has to click.
+
+### The reader -- why a reader and not a result field
+
+`catalog_fit` binds its fitted label into `fitLabels`, which is **function-local to `runPipeline`**,
+and `runPipeline` has **28 inline `return { pipelineId, ... }` sites**. Publishing the fit as a new
+`PipelineResult` field would have meant editing all 28. So the value is surfaced by a pure reader over
+the traces:
+
+```ts
+export function catalogFitOutcomes(results): Map<string, CatalogFitOutcome>
+```
+
+Keyed by `bind`, **first-wins** across pipelines (supply and install carry the identical step), empty
+when no `catalog_fit` ran. This is the **third instance of an existing shape** -- `moduleFitOutcome`,
+`derivedAttrOutcomes` -- not a new concept, and it obeys the same standing rule: **read the structured
+`StepTrace` data, never the prose `matchedCondition`** (a human sentence that gets reworded; making it
+a parsing contract fails silently) and **never re-derive the fit** (a second copy of the
+catalog-resolved ladder is exactly the drift #179 exists to prevent).
+
+`applyDerivedDisplay` consumes it in a new branch inside the `if (!ladder)` region, after the
+`derive_attribute` case. `catalog_fit` is the **FOURTH mechanism** to reach this display.
+
+### ⚠️ TWO DISPLAY REFUSALS -- PINNED CONTRACTS (owner-locked)
+
+Both paths publish **no** `derivedValue`, for the *same* reason: **nothing was computed.**
+
+1. **A STATED value NEVER renders as computed.** Stated-wins bound nothing, so there is no computed
+   value; publishing one would claim the pipeline chose what the *pricer* chose. The `(computed)`
+   marker disappears and the muted-italic tone reverts to upright, so the two are distinguishable at a
+   glance. Certified on screen: `Paired MCB` set to `63A DP MCB D CURVE` rendered upright with **no**
+   marker, and the derivation read `paired_mcb: Switchgear 63A DP MCB D CURVE = 1015`.
+2. **POSITIVE ABSENCE renders EMPTY, never a fitted item.** `absent_when` firing means "there is
+   deliberately no such component" -- a **decision, not a value** -- so the field shows nothing and the
+   component line vanishes from the derivation. Inventing a size for a component that is not there
+   would be confidently wrong, which is worse than visibly absent. Certified on screen: `MCB
+   mentioned = No` emptied the field, dropped the `paired_mcb` line, and took the total to **16580**.
+
+Neither state is `isAttrBlank` -- **an attribute the pipeline derives is never missing user input**,
+so no red border in either case. The three states (blank / defaulted-amber / showing-derived) are
+**mutually exclusive**, pinned over every path the fixture can reach.
+
+### ⚠️ IT BEHAVES LIKE A LADDER BIND, NOT LIKE THE BLANKER QUANTITY
+
+`readOnly` is **never set** on this path. `catalog_fit`'s `prefer_attr` reads the **same** attribute
+and a stated value **wins outright**, so an edit here is the one thing that always reaches the price --
+the mechanism that corrected two live rows by hand in slice 2. Locking it would be the lie the
+read-only contract exists to prevent, only pointing the other way.
+
+### Revert-to-suggestion
+
+New pure exported predicate in `RateHelperPanel.tsx`:
+
+```ts
+export function hasSessionEdits(attrState, finalState, excelRow): boolean
+```
+
+It **reuses `overridesForRow`**, so it inherits the row-scoping rule rather than re-deriving it -- a
+Revert enabled by *another* row's edits would claim there is something here to undo. An **empty
+per-helper map is not an edit** (clearing the last override leaves `{}` behind; counting the container
+rather than its contents would leave Revert enabled with nothing to undo). A ghost button after *Use
+this value*, `disabled={!sessionEdited}`; it resets both override states and **deliberately does not
+touch `expanded` / `panelWidth`** -- those are layout, not edits. Placed **after** the `EMPTY_*`
+module constants (a TDZ footgun caught during the edit).
+
+### The Derivation tab's blank option
+
+Radix forbids `value=""` on a `SelectItem` (it reserves the empty string for clearing the selection and
+showing the placeholder), so the OPTION carries a sentinel and the two boundaries translate. Extracted
+as **two pure functions** rather than left inline in JSX -- **there is no DOM test environment here**,
+so an inline mapping could not be pinned at all:
+
+```ts
+export const NOT_STATED_SENTINEL = "__not_stated__";
+export function toSelectValue(v)   // "" | undefined -> sentinel, else String(v)
+export function fromSelectValue(v) // sentinel -> "", else v
+```
+
+**The sentinel never reaches `selected`, `runPipeline`, or a catalog match key.** If it leaked it would
+become a match key, match nothing, and price the row wrong -- *silently*, because `matchMasterRow`
+compares with `===` and reports a miss, not an error. It is also **a different thing from the `"None"`
+sentinel** and must never be collapsed with it: `"None"` is positive absence (a decision), `— not
+stated —` is the absence of one.
+
+### Tests -- 28 added, all green
+
+| Where | N | Pinned |
+|---|---|---|
+| `ratePipelineInterpreter.test.ts` | 7 | reader keyed by bind · first-wins · present on fitted/stated/absent **alike** · empty when no `catalog_fit` ran · empty on a **bailed** step (a refusal claims nothing) · no throw on a missing steps array |
+| `pricingSheetHelper.test.ts` | 10 | fitted item displays · `isShowingDerived` · not blank · **stays editable** · `value` never overwritten · **stated never renders computed** · absence empty · unreadable fact empty · three states mutually exclusive · **REGRESSION BAR** |
+| `pricingSheetHelper.test.ts` | 6 | `hasSessionEdits` -- clean / attr / final-only / other row / no row / empty per-helper map |
+| `pricingSheetHelper.test.ts` | 5 | sentinel round trip · absent displays as sentinel · ordinary values untouched · **never leaks** · distinct from `"None"` |
+
+**REGRESSION BAR:** a config with no `catalog_fit` is byte-identical. Pinned three ways -- `plate_item`
+(which reaches the *same* `if (!ladder)` region) keeps its display, marks and editability; the
+read-only `blank_qty` stays read-only; and the `g1` wiring golden still returns
+`{supply_per_mtr: 120, install_per_mtr: 20}` with the reader returning an empty map over it.
+
+**Runs:** vitest **2428 passed / 1 failed (2429)** against a 2400/1 baseline -- exactly +28, and the one
+failure is the known pre-existing `writeOffControl` 5 s timeout. `tsc` **0 errors** in `rate-helper/`
+and `rate-master/` (3233 repo-wide, the unmoved baseline). Backend
+`test_rate_master` **152 OK, no movement** (this slice touches no backend file).
+
+### Phase-4 cert (browser, BOQ-26-00106 / ELECTRICAL BOQ, row 589)
+
+Vite restarted with `node_modules/.vite` cleared; owner logged in; AI toggle confirmed ON. **No AI call
+was spent** -- the cert reads the panel and the Derivation screen against the stored run.
+
+One row exercised **all three states**, each labelled honestly:
+
+| Panel state | `Paired MCB` renders | Derivation | Total |
+|---|---|---|---|
+| computed | `(computed)` `63A DP MCB C CURVE`, muted italic | `paired_mcb: ... = 1147` | **18127** |
+| stated | `63A DP MCB D CURVE`, upright, no marker | `paired_mcb: ... = 1015` | 17955 |
+| absent (`MCB mentioned = No`) | empty | line **absent** | **16580** |
+
+Also verified: the clear affordance both halves (above); instant recompute in **both** directions
+(`Rating` 63A -> 125A took the suggestion to an honest `—` / "no match for these attributes", and
+Revert restored `18127`); Revert enabled only with a session edit and greyed when clean; the
+Derivation tab's `— not stated —` clearing `Insulation` to four honest `no match` cards and
+**round-tripping back as the checked option**; `wiring_cabling` unchanged at 110/20 + 70/20; console
+free of app errors throughout.
+
+### ⚠️ FINDING RAISED BY THE OWNER DURING THE CERT -- row 589's MCB is an EXTRACTION defect
+
+Row 589's text **never mentions an MCB**. The active run `BRSR-26-00600` returned:
+
+```
+paired_mcb        = null   @ 0.95   <- R12 step (0) worked exactly as designed
+mcb_present       = "Yes"  @ 0.90   <- THE DEFECT
+mcb_amp_a         = 63     @ 0.60   <- the SOCKET's incomer rating, reused
+mcb_pole_stated   = "DP"   @ 0.70   <- contradicts the 5-pin (3P+N+E) socket it also read
+```
+
+`mcb_present = Yes` is false, so `absent_when` never fires, `catalog_fit` runs, and **+1147 lands on a
+row that has no MCB**. **Slice 2b moved the failure without removing it:** the model no longer *picks*
+an MCB (R12 step (0) is holding, at 0.95) -- it now *asserts one exists* and the deterministic ladder
+picks it. The wrong ANSWER survived because the wrong FACT did.
+
+**This is neither a 2c defect nor a pipeline defect** -- the pipeline is faithfully pricing what
+extraction asserted. **What 2c changed is that it is now VISIBLE**: pre-2c that field was blank, so the
+MCB was being added invisibly; the owner spotted it within a minute of the field being populated. That
+is the slice working, not failing.
+
+**Fix direction (OUT OF 2c's scope -- `extraction.py`, assets and category configs are all excluded):**
+`mcb_present` needs its own instruction making it a **literal-mention test, not a judgement** -- an
+"incomer", a current rating, or a distribution context is **not** a mention; default `No`. Per the
+standing invariant, **an extraction-side rule is certified by re-run + capture, never by test.**
+Queued as its own slice ahead of slice 3.
