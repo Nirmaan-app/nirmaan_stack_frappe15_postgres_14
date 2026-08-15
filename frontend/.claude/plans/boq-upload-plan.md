@@ -29811,3 +29811,253 @@ Rows 98 and 87 currently carry a MANUAL correction (see above); a correct ladder
 `25A FP MCB C CURVE` on both without one. **Row 589 is explicitly OUT of scope** (owner ruling C,
 accepted as the known residual of the extract-facts model half: it invents an MCB on a row naming none,
 it does not price, and its confidence is honestly low).
+
+## Build slice 2b -- catalog_fit, the deterministic MCB ladder (2026-08-15)
+
+**Status: SHIPPED.** Branch `feature/boq-pricing-helper`. Asset **v37**
+(`rate_master_electrical_all_v37.json`, sha `e8ca8139…`), batch `rmbulk-a0f9cd44b028`,
+1,364 active Electrical items / 12 configs. **v36 is committed too** -- minted, loaded and
+re-extracted in-session, then superseded before cert. The lineage stays honest.
+
+### The principle this slice exists to apply
+
+**The model reads facts; every substitution, ladder, conversion and fit is deterministic code that
+shows its working.** Slice 2 proved the alternative does not hold: R12 told the model how to CHOOSE a
+catalog item, and two successive wordings could not make it reliable. The model constructed names the
+catalog does not carry (`20A FP MCB C CURVE` -- the FP grid starts at 25A), or moved **sideways**,
+changing the pole or the device class until some name existed.
+
+### ⚠️ THE FINDING THAT REFRAMED THE SLICE: `decomposition_rules` IS PROSE, NOT CODE
+
+`db_switchgear` appears to carry an amperage ladder (`exact_or_next_higher`, `take_highest_first`,
+`default_C`). **It does not.** The key has exactly ONE consumer: `extraction.py:1325` reads it
+(gated on `matching_mode == "composite_decomposition"`) and `_extract_batch:905-906` serialises it
+into the prompt as a `RESOLUTION_RULES` block. **Nothing anywhere executes it** -- verified by
+grepping the whole service + api tree; the only other hits are the config JSON and three tests
+asserting the key survives validation.
+
+So there was no ladder to reuse, only an instruction of exactly the kind slice 2 had just disproved.
+**db_switchgear's own resolution should migrate onto `catalog_fit` -- logged as backlog, not done
+here** (it is a composite category with five MCB slots; a different shape of work).
+
+### The two new steps, both generic
+
+**`map_attribute`** -- resolve ONE string attribute: a stated value wins, else a config conversion
+table, else a config default. A pin-count -> pole mapping (`"5 Pin / 3P+N+E"` -> `FP`) is a
+CONVERSION, so it belongs in code. `derive_attribute` could not serve: its formula language is
+arithmetic and a pole is a string. **This is also F-10's SWG -> mm shape**, so that slice inherits the
+mechanism rather than inventing one.
+
+**`catalog_fit`** -- fit a stated NUMBER onto a ladder derived FROM THE CATALOG and bind the chosen
+row's label into the existing `fitLabels` scope, so `"@paired_mcb"` resolves through the ONE existing
+order. `module_fit`'s ladder half, generalised by three extensions that **all default to pre-2b
+behaviour**:
+
+| extension | absent means |
+|---|---|
+| `size_from: {attr}` | parse the label (`moduleSizesFromLabel`) -- `module_fit`'s path, byte-unchanged |
+| `where` value LISTS with `@`-refs, **list order = preference** | a scalar `where` keeps the old (size, label) dedupe byte-for-byte |
+| `direction: "up" \| "down"` | `"up"` |
+
+**Slice 3's tray width rides this with ZERO new capability** -- `cable_tray` already stores `width_mm`
+as a number, so its ladder is `size_from: {attr: "width_mm"}` and nothing else changes.
+
+### THE CATALOG MINT -- why a data change was unavoidable
+
+A ladder can only filter on **stored** attributes. `db_switchgear_item` carried `{family, item}`
+only: amperage, pole, curve and device class all lived inside the item NAME. All **106**
+`family: Switchgear` rows gained `device` / `pole` / `amp_a` / `curve`, classified with **zero
+unparsed**:
+
+| device | count | curve |
+|---|---|---|
+| MCB | 41 | C 20 · D 20 · **NA 1** |
+| RCBO | 34 | NA |
+| RCCB | 18 | NA |
+| MCCB | 13 | NA |
+
+`curve: "NA"` where a device carries none -- including the ONE grammar exception, **`80 FP MCB`** =
+`{MCB, FP, 80.0, NA}`. **106 rows EDITED, none added: the count stays 1,364.**
+
+The merged value list `curve: ["@mcb_curve", "NA"]` is what lets ONE ladder reach both the requested
+curve and that exception with no second pass: the FP ladder becomes `[25, 32, 40, 63, 80]`, so
+`fit(20) = 25` and `fit(80) = 80`. No size collision exists today, so the list-order preference rule
+is forward protection -- stated so it is not later read as dead.
+
+### ⚠️ THE MANDATORY DELETION
+
+`extraction_defaults.paired_mcb` was **DELETED** in the same mint. **An injected default is a STATED
+value**: it would have won on every row forever and made the whole ladder inert **while every test
+stayed green** -- the documented `circuit_length_m` trap, one layer over.
+
+### STATED-WINS, AND THE DELIBERATE PREDICATE ASYMMETRY (owner-locked)
+
+`paired_mcb` remains an editable attribute and `catalog_fit`'s `prefer_attr`, because it is the
+pricer's override surface -- the mechanism that corrected two rows by hand in slice 2.
+
+**The two steps' stated-checks differ ON PURPOSE:**
+
+| step | sentinel treatment | why |
+|---|---|---|
+| `map_attribute` | `"None"` **skips** stated-wins | a "None" pole is not a pole; the mapping should still run |
+| `catalog_fit` | `"None"` **counts as stated** | a stated "None" is a DECISION to defer to -- it sticks and zeroes the line |
+
+Letting the ladder overwrite a stated `"None"` would make a valid panel selection silently do
+nothing -- the trapdoor this codebase's own conventions disqualify. **Pinned by a named test** so no
+later reader "harmonises" the two predicates.
+
+**TWO LAYERS, TWO MEANINGS:** `mcb_present = "No"` corrects a **FACT** (evaluated before the ladder);
+`paired_mcb = "None"` overrides a **DECISION**. Both are legitimate; they are not duplicates.
+
+### It took THREE R12 wordings, and both corrections are recorded
+
+| version | what changed | measured outcome |
+|---|---|---|
+| **v35** (slice 2) | the model chooses the catalog item | 5 rows null (constructed names), 4 wrong curves |
+| **v36** | fact-reading only; steps 3/4/5 rewritten | rows 78/80 lost their amperage -> `catalog_fit` refused the WHOLE row; **pre-emption on 4 of 6 rows of 00113** |
+| **v37** | step 2 REVERTED + step (0) added | **pre-emption ZERO across all 23 rows**; 78 prices again |
+
+* **A-i** -- step 2 reverted: *a socket's stated current serves the MCB when no separate MCB current
+  is given.* v36's stricter "stated FOR that MCB" left `mcb_amp_a` blank on rows whose only current
+  is the socket's.
+* **A-ii** -- new per-step opt-in **`catalog_fit.on_missing_fact: "none"`**: an unreadable fact binds
+  the None sentinel so the socket still prices with its MCB honestly unpriced, instead of discarding a
+  row that priced perfectly well. **DEFAULT UNCHANGED** -- absent the key the step still refuses.
+* **B** -- step **(0)**: *"`paired_mcb`: ALWAYS return null for this attribute, even when the text
+  names a specific MCB."* The ONE compliance sharpening; a third wording was pre-ruled out in favour
+  of a structural fix.
+
+### R12 as shipped (v37), VERBATIM
+
+> Industrial socket lines are often billed together with the MCB that controls them. Report what the
+> line SAYS about that MCB; the pairing itself is computed downstream. (0) `paired_mcb`: ALWAYS return
+> null for this attribute, even when the text names a specific MCB - the pairing is computed
+> downstream from the facts you report. (1) `mcb_present`: "Yes" if the row's `description`, its
+> `notes`, or any `ancestor_chain` entry mentions an MCB at all, "No" otherwise. Never infer one from
+> the socket's size. (2) `mcb_amp_a`: if the text states a current specifically for the MCB, use it;
+> otherwise the HIGHEST current stated anywhere in the text (a socket's stated current serves the MCB
+> when no separate MCB current is given). '25/20/16 A' gives 25. Read it from the text itself, never
+> from the `rating` attribute, whose values are ranges that lose the individual figures. Leave it
+> blank only when the text states no current at all. (3) `mcb_pole_stated`: the pole the text states
+> for the MCB (for example 'DP', '4P' meaning FP). Leave it "None" when the text does not state one; do
+> not infer it from the socket's pin count. (4) `mcb_curve_stated`: the curve the text states (C or D).
+> Leave it "None" when none is stated.
+
+**Not one substitution sentence remains.** No next-higher, no pole derivation, no curve default, no
+`80 FP MCB`, no allowed-values instruction -- all five now live in code.
+
+### ⚠️ THE CORRECTED F-3 RULE
+
+F-3 recorded: *"a numeric catalog attribute is stored as a FLOAT, and the CSV round trip is why."*
+**That is true only for a DECLARED attribute.** `csv_importer.coerce_attribute` (`:261-273`) floats a
+cell only when the attribute has a **declared numeric type**; an undeclared key *"keeps the text
+EXACTLY as it appears."* `amp_a` was the **first undeclared NUMERIC catalog attribute** -- the three
+pre-existing undeclared keys (`family`, `location`, `pricing_mode`) are all strings, which is why they
+round-trip. The importer returned the string `"25.0"` against the stored float `25.0`, and `_canon` is
+type-strict, so **all 106 rows reported as changed** and an unedited round trip stopped being a no-op.
+
+**THE RULE IS NOW: a numeric catalog attribute is a FLOAT *and is declared in the same mint*, with
+`selector: false` when it is not an extraction input.** `amp_a` is declared on `db_switchgear` as
+`{type: "number", selector: false}` -- `column_spaces` reads every definition and does NOT filter on
+`selector`, so the importer types it, while `selector: false` keeps it out of the prompt, the panel
+and the Derivation configurator. `device` and `curve` stay undeclared strings.
+
+**Declined backlog:** teaching `coerce_attribute` to infer the type from the stored value would retire
+this hazard class entirely, but it is a `csv_importer` change and was out of scope. Recorded, not done.
+
+### Logged observations (not defects)
+
+* **The mode-B CSV now has ONE `pole` column carrying two vocabularies** -- `"3 Pin / 2P+E"` on socket
+  rows, `"FP"` on switchgear rows. The union has always been per-row, so this is legible rather than
+  wrong, but a reader of the file will see mixed values in one column.
+* **Row 84 -- a rating-bucket ambiguity, unruled.** Its socket `rating` drifted `16/20A -> 32A`
+  between runs while **the MCB line held identical across all three**. A candidate rating rule for the
+  matching-layer arc: which stated current identifies the SOCKET when a line carries several.
+* **Row 589** -- a trolley line naming no MCB extracts `mcb_present = Yes`. Ruled acceptable; fixed by
+  hand in the cert (below).
+
+### Tests -- 28 added
+
+**Positive (15):** size-from-attribute rungs · the merged C+NA ladder reaching 80 · list-order
+preference on a tie · direction up/down · **the hop 20 -> `25A FP MCB C CURVE`** · device class held
+so a 16A RCBO is not chosen · exact rung does not hop · 80A reaching the curve-less exception ·
+golden i4 (10618/3720) · golden i5 (socket alone) · stated-wins · **stated `"None"` STICKS** · extra
+stored attributes ignored by `component_ref` · pin-count -> pole conversion · the `on_missing_fact`
+opt-in.
+
+**Negative (11):** stated pole beating the pin-count map (row 470: 3-pin stating DP) · curve default C
+and stated override · unmapped source with no default · malformed `map_attribute` · missing fit value
+naming the attribute · nothing fits -> sentinel not refusal · `on_miss: no_compute` refusing · an
+unresolvable `@`-ref naming the key · `where` matching no row · malformed `catalog_fit` · **the
+`on_missing_fact` default is unchanged**.
+
+**Regression (2):** `buildModuleLadder` without `size_from` still parses labels · **the trace carries
+no `params`**, so the Derivation detail line is displayed.
+
+`bench --site localhost run-tests --module nirmaan_stack.api.boq.test_rate_master` -- **152 OK**.
+Vitest **2400 passed / 1** (the known `writeOffControl` timeout); baseline 2372/1, so +28 exactly.
+
+### Re-extraction -- pre-emption ZERO, integrity clean
+
+Four BoQs, one window per wording. **567 untouched rows, 0 differing** on every run; nothing outside
+the scope touched. Under v37 **all 23 rows returned `paired_mcb = null`** and the ladder resolved
+every one.
+
+### Cert (browser, live, v37)
+
+Full de-stale ritual **including re-login** (the slice-2 CSRF lesson): bench restart; vite PIDs killed
+-> confirmed empty -> detached restart; :8080 and :8000 both 200 from container AND host; site data
+cleared keeping cookies; owner re-login; POST probe 200. Config marker green both directions; the Rate
+Master screen independently shows batch `rmbulk-a0f9cd44b028`.
+
+- **C1 PASS (value)** -- row 98: socket 9222 + `25A FP MCB C CURVE` 1396 = supply **10618**, install
+  **3720**, combined **14338** -- **converging exactly on the override banked by hand in slice 2.**
+- **C2 PASS** -- row 87 `25A FP MCB C CURVE`; a 16A **RCBO exists at FP and was NOT chosen**.
+- **C3 / C5-103** -- the ladder resolves `40A SP MCB C CURVE` and `80 FP MCB` in the data; both rows
+  are **socket-side** blocked (`rating` null) and the panel says so honestly.
+- **C4 PASS** -- row 79 `MCB mentioned = No`, **no `paired_mcb` line at all**, 3078/1080 = 4158.
+- **C5 PASS** -- row 95 **11278** unchanged.
+- **C6 PASS** -- junction-box 258 = **1110**, tray 239 = **1017**. Stronger: v35 -> v37 has **ZERO
+  items with a changed kind or rates**, the only attribute delta being the four keys on exactly 106
+  items -- so no untouched category's price CAN have moved.
+- **C7 PASS** -- the Derivation tab **displays** the `map_attribute` and `catalog_fit` detail lines
+  (the no-`StepTrace.params` caveat, proven on screen).
+- **`paired_mcb = "None"` STICKS** -- `catalog_fit | paired_mcb stated as None -- kept (a stated value
+  wins)` -> socket alone 2196/770.
+- **Row 589 fact-fix** -- `MCB mentioned` -> **No** -> sentinel -> no MCB line -> **16580**
+  (12280 + 4300), persisted at `is_current` v5. `mcb_amp_a` stays 63 and is ignored, because
+  `absent_when` is evaluated BEFORE the ladder: the fact / decision layering, visible.
+- **Rows 98 and 87 overrides intact** at **14338** each.
+
+### ⚠️ KNOWN GAP -- the ladder's working is not visible in the product (banked as SLICE 2c)
+
+This slice's rationale is *"a ladder hop shows its working."* It currently does not, in either surface:
+
+* **Pricing editor panel** -- `pricingSheetHelper.ts:559` surfaces only steps carrying BOTH `produced`
+  and `refItem`. `catalog_fit` has neither, so it is structurally invisible **where the pricer actually
+  works**.
+* **Derivation tab** -- `optionsFor` (`:279-283`) offers no empty option and the initial state takes
+  `opts[0]` (`:319-320`), which for `paired_mcb` is `"None"`. That screen therefore **cannot express
+  "no stated MCB"**, so `catalog_fit` always reports stated-wins and the ladder can never run there.
+
+The hop is correct and proven three ways -- run data, priced results, and the unit tests -- but not
+observable by a human using the product. **Owner ruling: bank as slice 2c, commit 2b as-is.**
+
+### NEXT SLICE -- 2c (scope ruled 2026-08-15, BEFORE slice 3)
+
+1. The panel shows the **EFFECTIVE value pricing used** for every attribute -- stated /
+   defaulted-amber / computed-muted -- read from the interpreter's published effective selection,
+   **single-source**.
+2. A **computed placeholder** on ladder-bound attributes: row 98 shows `25A FP MCB C CURVE - computed`
+   instead of `- select -`.
+3. **Instant recompute on any panel edit, both directions**: override -> stated, clear -> computed
+   restored.
+4. **Revert-to-suggestion**: one click discards session edits and the pipeline re-derives the full
+   suggested calculation.
+5. The **Derivation tab select gains a blank option**, so "no stated MCB" is expressible and the
+   ladder can fire there.
+
+**Saved cell prices stay behind the explicit "Use this value" click, unchanged.**
+
+Then **slice 3** (tray width next-higher) rides `catalog_fit` with no new capability, and **F-10**
+(SWG -> mm) rides `map_attribute`.

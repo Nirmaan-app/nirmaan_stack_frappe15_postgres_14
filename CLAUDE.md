@@ -1557,6 +1557,39 @@ invariants:
 - **Extraction prompt rulings (owner, `prompts/boq_rate_attr_extraction_prompt.md`):** tolerate spelling
   variants (map to the canonical value), and — for an ARMOURED/UNARMOURED insulation attribute — a FLEXIBLE
   cable is UNARMOURED, and insulation DEFAULTS to UNARMOURED when neither armoured nor unarmoured is stated.
+- **⚠️ `decomposition_rules` IS PROSE SENT TO THE MODEL, NOT CODE.** It has exactly ONE consumer:
+  `extraction.py:1325` reads it (gated on `matching_mode == "composite_decomposition"`) and
+  `_extract_batch:905-906` serialises it into the prompt as a `RESOLUTION_RULES` block. **Nothing
+  executes `exact_or_next_higher` / `take_highest_first` / `default_C`.** A category needing a real
+  ladder uses `catalog_fit`; do NOT point a new category at `decomposition_rules` expecting
+  deterministic resolution. db_switchgear's own migration onto `catalog_fit` is BACKLOG.
+- **THE MODEL READS FACTS; EVERY SUBSTITUTION / LADDER / CONVERSION / FIT IS DETERMINISTIC CODE
+  (owner-locked standing principle).** Two generic steps carry it: **`map_attribute`** (resolve one
+  STRING attribute — stated wins, else a config table, else a default; `derive_attribute` cannot
+  serve, its formula language is arithmetic) and **`catalog_fit`** (fit a stated NUMBER onto a
+  ladder derived FROM THE CATALOG and bind the chosen row's label). Both are generic: slice 3's tray
+  width rides `catalog_fit` with ZERO new capability, F-10's SWG→mm rides `map_attribute`.
+  **A ladder can only filter on STORED attributes** — that is why the 106 `family: Switchgear` rows
+  were minted with `device`/`pole`/`amp_a`/`curve`, and why a discriminator living inside an item
+  NAME must become an attribute before any ladder can use it.
+- **⚠️ THE `"None"` SENTINEL IS TREATED DIFFERENTLY BY `map_attribute` AND `catalog_fit`, AND THE
+  ASYMMETRY IS DELIBERATE (owner-locked, test-pinned).** `map_attribute`'s stated-check EXCLUDES the
+  sentinel (a "None" pole is not a pole, so the mapping still runs); `catalog_fit`'s INCLUDES it (a
+  stated "None" is a DECISION to defer to — it STICKS and zeroes the line). Letting a ladder
+  overwrite a stated "None" would make a valid panel selection silently do nothing, the trapdoor this
+  codebase disqualifies. **Never "harmonise" the two predicates.** The layers also differ in meaning:
+  a FACT attribute (`mcb_present = "No"`) corrects what the row SAYS and is evaluated BEFORE the
+  ladder; the bind attribute (`paired_mcb = "None"`) overrides the DECISION.
+- **⚠️ CORRECTED F-3 RULE — a numeric catalog attribute is a FLOAT *and is DECLARED in the same
+  mint*, with `selector: false` when it is not an extraction input.** F-3's float rule holds only for
+  a DECLARED attribute: `csv_importer.coerce_attribute` floats a cell ONLY for a declared numeric
+  type, and an undeclared key keeps the text verbatim — so an undeclared numeric attribute stores a
+  float, reads back a string, and **breaks the unedited-CSV-round-trip no-op** (measured: all 106
+  minted rows reported as changed). `column_spaces` reads every definition and does NOT filter on
+  `selector`, so `selector: false` types it for the importer while keeping it out of the prompt, the
+  panel and the Derivation configurator. Undeclared STRING attributes (`family`, `location`,
+  `pricing_mode`, `device`, `curve`) are unaffected. Teaching the importer to infer type from the
+  stored value would retire the hazard class — DECLINED as out of scope, recorded as backlog.
 - **⚠️ A NULL IS NOT THE `"None"` SENTINEL, AND THE DIFFERENCE COSTS THE WHOLE ROW (owner-locked).**
   `none_skips` zeroes a component whose ref `@attr` resolves to the STRING `"None"`; a **null** —
   which is what `_coerce_value` returns when the model's answer fails validation — matches nothing,
