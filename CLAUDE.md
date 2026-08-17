@@ -1589,6 +1589,25 @@ invariants:
   size would MANUFACTURE a match. **Deleting it does not fail loudly; it un-prices every fitted row.**
   Exactly two steps write into `selected` (`derive_attribute`, `map_attribute`) and this is the
   third — **do not "tidy" a fitted value back onto `fitLabels` alone.**
+- **⚠️ A STEP THAT FILLS AN ATTRIBUTE A LATER STEP READS THROUGH `@` MUST RUN BEFORE IT, AND NOTHING
+  DECLARES THAT (owner-locked, slice 3b).** Cable tray's `map_attribute` (SWG → mm) must be FIRST in
+  every pipeline, ahead of the `catalog_fit` that filters its width ladder on
+  `where: {thickness_mm: "@thickness_mm"}`. Run the fit first and the `@` ref is unresolved, so the
+  fit BAILS and the row dies **before `match_master_row` is ever reached** — with every fact needed
+  to price it present. **The dependency is invisible in config** (two steps, no declared link) and
+  **silent when wrong** (an ordinary `no_match`, indistinguishable from a genuine one). Pinned by a
+  test that runs the SAME inputs in both orders. This generalises: any step whose output another
+  step reaches through `@` owes it position, and reordering a pipeline is never cosmetic.
+- **⚠️ EVERY MECHANISM THAT RESOLVES A VISIBLE ATTRIBUTE OWES A BRANCH IN `applyDerivedDisplay` —
+  THE PANEL SHOWS WHAT PRICING USED (owner-locked; this defect has now shipped TWICE).**
+  `derivedAttrIds` membership exempts an attribute from the missing-input gate, but it does NOT fill
+  its `derivedValue`; with no branch the field falls through to `{...a, derived: true}` and renders
+  **EMPTY beside a correctly priced row**. Slice 2c hit it on `catalog_fit` (row 98's paired MCB read
+  "— select —" beside a priced 25A MCB); slice 3b hit the identical shape on `map_attribute` (a tray
+  pricing off a gauge-converted 1.6 mm showed a blank Thickness). **A mechanism is not finished when
+  it prices correctly — it is finished when the panel can say what it used**, which also means the
+  outcome type must CARRY the resolved value, not merely report that one was substituted. Read it
+  through the step's own structured reader; never parse the trace prose, never re-derive.
 - **⚠️ THE `"None"` SENTINEL IS TREATED DIFFERENTLY BY `map_attribute` AND `catalog_fit`, AND THE
   ASYMMETRY IS DELIBERATE (owner-locked, test-pinned).** `map_attribute`'s stated-check EXCLUDES the
   sentinel (a "None" pole is not a pole, so the mapping still runs); `catalog_fit`'s INCLUDES it (a

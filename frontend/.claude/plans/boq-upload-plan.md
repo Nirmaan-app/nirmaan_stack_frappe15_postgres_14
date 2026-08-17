@@ -30655,3 +30655,174 @@ normally -- this is a derivation-screen limitation, not a pricing one.
 | the 36 rows pricing today | All exact widths -> `exact: true`, `substituted: false`; cert 3 confirms no marker and the same price |
 | every other category | Only `cabletray_raceway` differs from v38; `fit_into` absent from all 11 others |
 | runtime / schema / API | None. One optional TS param + one config step. No doctype JSON, no migrate, no Python |
+
+## Build slice 3b -- cable tray thickness dropdown + SWG conversion (F-9 second half, F-10) (2026-08-17)
+
+**Commits:** `feat(boq-rate-master): cable tray thickness dropdown + SWG conversion - asset v40 (slice
+3b)` + `docs(boq): record slice 3b as built`. Branch `feature/boq-pricing-helper`, parent `22578b80`.
+**Asset v40** (`rate_master_electrical_all_v40.json`, sha256 `ae156d6a28cc1b9a`).
+
+**This slice STOPPED once, at the cert, and the stop was right.** ONE record, per #59.
+
+### What shipped
+
+- **`thickness_swg`** -- the hidden gauge FACT. `selector` on (the model reads it), `panel: false`
+  (never on the pricer's screen). The user sees and edits ONE thickness field, in millimetres.
+- **`thickness_mm` -> `number_choice` + `values_from {kind: cable_tray, attr: thickness_mm}`** -- a
+  catalogue-fed dropdown offering exactly `1, 1.2, 1.4, 1.6, 2`.
+- **The SWG `map_attribute`**, FIRST in all four tray pipelines. 27-entry table (gauges 0-26),
+  PRE-CONVERTED from the standard inch values and PRE-ROUNDED to one decimal in CONFIG -- no runtime
+  arithmetic. **14 -> 2.0, 16 -> 1.6**, both real catalog rows.
+- **`derivedAttrIds` gained a `map_attribute` branch** -- the FIFTH derivation mechanism.
+- **`mapAttributeSources`** -- the pure, config-only half of the conditional exemption.
+- **The CONDITIONAL gate exemption (R8)** and **the display narrowing (R9)**.
+- **`MapAttributeOutcome.value`** + **the `applyDerivedDisplay` map branch** -- the finish.
+- **Estimator rule R13**, owner text.
+
+### ⚠️ THE PIPELINE ORDER IS LOAD-BEARING AND SILENT WHEN WRONG
+
+Required: **`map_attribute` -> `catalog_fit` -> `match_master_row`.** The 3a width fit filters its
+ladder on `where: {thickness_mm: "@thickness_mm"}`, so if the map has not yet resolved the thickness
+the "@" ref is unresolved, the fit BAILS, and the row dies before the matcher -- with every fact
+needed to price it present. Nothing in the config declares this dependency; it is discoverable only
+by reading both steps. Pinned by a test that runs the SAME inputs in both orders.
+
+### ⚠️ R6: `prefer_attr` AND `result_attr` ARE THE SAME ATTRIBUTE
+
+A stated millimetre value beats a stated gauge. The stated-wins branch is checked FIRST, before the
+source is read, so `prefer_attr: thickness_mm` on `result_attr: thickness_mm` short-circuits and the
+row's own value survives untouched. **This adds no field** -- a separate `thickness_mm_stated` would
+have grown the pricer's screen for nothing.
+
+### THE CONDITIONAL EXEMPTION (R8/R9) -- why it is not a blanket one
+
+`derivedAttrIds` answers "could the pipeline EVER fill this?" at CONFIG level. For the four original
+mechanisms that is also the row-level answer -- a ladder, a fit and a formula can always run. **A
+`map_attribute` is the first that CANNOT**: it fills from a SOURCE, and on a row where the source is
+blank it fills nothing.
+
+Exempting the target wholesale would have replaced *"Complete the missing attributes to price"* --
+an instruction the pricer can act on -- with *"no match for these attributes"*, which they cannot,
+on **35 of 79** live tray rows. The owner ruled the message is worth keeping.
+
+**Shape A**: a per-row pre-pass in the existing `disabledByNone` idiom builds `fillableDerived`; the
+gate reads that instead of `derived`. **`derivedAttrIds`' signature never changed**, so its other two
+consumers -- `applyDerivedDisplay` and the Derivation input list -- were untouched. `applyDerivedDisplay`
+takes the row-level set as an OPTIONAL 4th param; absent, it is byte-identical (which is why
+`computeWiring` passes nothing and is unaffected).
+
+⚠️ **INERT FOR EVERY OTHER CATEGORY, and not by luck.** The only other `map_attribute` steps
+(`industrial_sockets`' `mcb_pole` / `mcb_curve`) resolve ids that are **NOT declared attributes**, and
+every consumer of `derivedAttrIds` iterates `attribute_definitions`. An id no consumer iterates cannot
+change anything. Proven twice: by census, and by a vitest run taken after the code changes but BEFORE
+the config landed -- **2461/1, identical to baseline**.
+
+### ⚠️ THE STOP -- the panel showed a blank where pricing used a value
+
+The cert found row 513 pricing at **1068** off a thickness of **1.6 converted from a stated 16SWG**,
+while the Thickness field rendered an empty `-- select --`. **The owner spotted it during the run.**
+
+Cause: `applyDerivedDisplay` had branches for `module_fit`, `catalog_fit` and `derive_attribute` but
+**none for `map_attribute`**, so the attribute fell through to `{...a, derived: true}` -- derived,
+with no value. And it could not simply be added, because **`MapAttributeOutcome` carried only
+`{result_attr, stated}`** -- it never said WHAT the value was.
+
+**This is the same defect shape slice 2c fixed for `catalog_fit`** (row 98's paired MCB reading
+"-- select --" beside a priced 25A MCB), and the same rule: **THE PANEL SHOWS WHAT PRICING USED.**
+
+**Why it was missed, and why the stop was right:** R9 in the brief scoped the display work to the
+gauge-LESS row. Nothing covered the gauge-BEARING row's display. The approved UI list promised item 2;
+the build list did not construct it. **A brief defect, not an implementation one.**
+
+**The finish:** `MapAttributeOutcome.value` populated at both write sites, plus branch 5 in
+`applyDerivedDisplay` reading it through the existing `mapAttributeOutcomes` reader -- the fourth
+instance of the moduleFit contract (read the STRUCTURED data, never the prose, never re-derive).
+**Option B, two opposite cases:** MAPPED -> `(computed)`; STATED -> **PLAIN**, because tagging a value
+the row supplied would credit the pipeline with the pricer's own entry.
+
+### ⚠️ WIDTH INHERITS THE SUBSTITUTION -- already 3b behaviour, now pinned
+
+On a gauge row the width shows `(computed)` **even at an exact catalog width**. That is the slice-2d
+option-B rule, not a regression: the tray `catalog_fit` filters on `@thickness_mm`, so `whereRefs`
+joins into the map outcomes and an exact fit resting on an INFERRED thickness is still a value we
+worked out. Visible in the 3b cert (row 513: `Width (mm) (computed) 600`). A first test expectation
+here was WRONG and was corrected, with the contrast pinned: thickness STATED -> width PLAIN.
+
+### The mint + the re-extraction (ONE atomic operation)
+
+Procedure read: root `CLAUDE.md:993-998`. Export -> edit -> reload; currency **re-proved immediately
+before loading** by re-applying the identical edit to a fresh export and matching v40 byte-for-byte.
+Never hand-edited. Stored-vs-asset verified **key-by-key across all 12 configs, zero mismatches**;
+1,364 items; only `cabletray_raceway` differs from v39; tray goldens unchanged.
+
+**Scoped re-extraction over the 37 gauge-bearing rows** (`only_rows`, three sheets, three runs, all
+`complete` / `ai=ran`). **36 of 37 gauges read correctly:**
+
+| Rows | Read | Reading exercised |
+|---|---|---|
+| `BOQ-26-00106` 154-160 | 14 | own description ("14 gauge") |
+| `BOQ-26-00113` 511-519 | 16 | **nearest ancestor** -- parent's 16SWG beat grandparent's 14SWG |
+| `BOQ-26-00113` 498 | 14 | grandparent, no nearer gauge |
+| `BOQ-26-00019` 364-428 + `00113` 535-539/569-574 | 16 | **body-vs-cover** -- took the BODY gauge |
+| `BOQ-26-00113` 583 | null | wire-mesh tray, parent states no gauge -- **declined rather than borrowing** |
+
+`thickness_mm` came back null on all 37 -- R13 sentence 1 working (*record the gauge, do not convert*).
+**Untouched rows: 86 + 137 + 153 = 376 byte-identical, ZERO differing.**
+
+### The wording (W1-W3) -- terminology alignment only
+
+Two sentences went in VERBATIM. The third was aligned to the prompt's own vocabulary, TERMS ONLY:
+
+| | Text |
+|---|---|
+| BEFORE | "...or **on a section heading above it**. When more than **one heading** states a gauge, use the nearest one." |
+| AFTER | "...or **on an ancestor header**. When more than **one ancestor** states a gauge, use the nearest one." |
+
+`the row itself` and `the nearest one` were left alone -- the prompt already uses the first phrase
+verbatim (line 9) and `_ROW_CONTEXT_SHAPE_GUIDANCE` already states *"A nearer ancestor's text describes
+this row more specifically than a farther one's"*. The alignment REINFORCES an existing sentence; no
+replacement text was authored.
+
+### Counts
+
+| Suite | Baseline | After |
+|---|---|---|
+| vitest | 2461 / 1 -> (3b) 2479 / 1 | **2489 / 1 (2490)** -- +28 across the whole slice, same known `writeOffControl` timeout |
+| `ratePipelineInterpreter.test.ts` | 314 | **324** |
+| `pricingSheetHelper.test.ts` | 138 | **156** |
+| `test_rate_master` | 152 OK (v39 pin) | **152 OK (v40 pin)** |
+| `tsc` in both changed dirs | -- | **0 errors** |
+
+**Vacuity proofs, five mechanisms, both runs each:** B4 (`map_attribute` in `derivedAttrIds`) -> 3 red ·
+B5 (gate narrowing) -> 1 red, exactly the message-preserving test · B6 (display narrowing) -> 1 red ·
+B1 (`value` populated) -> 6 red · B2 (display branch) -> 2 red. All restored, all green.
+
+### Cert -- all pass
+
+⚠️ **The de-stale FIRED, twice.** The first bundle-marker check in 3b came back FALSE: Vite was serving
+pre-slice modules. These files export non-component values, so Fast Refresh cannot hot-swap them --
+the full recipe (kill Vite, delete `node_modules/.vite`, restart) is mandatory, and was applied again
+for the finish. **The owner's standalone `yarn dev` was restarted both times.**
+
+| # | Step | Result |
+|---|---|---|
+| 1 | `BOQ-26-00113` / 513 | **PASS** -- `Thickness (mm) (computed) 1.6`, price unchanged 1068 / 380. **The row the owner reported** |
+| 2 | `BOQ-26-00106` / 154 | **PASS** -- `(computed) 2`. Does not price: width 900 exceeds the catalog top (3a refusing correctly) |
+| 3 | `BOQ-26-00113` / 498 | **PASS** -- `(computed) 2`, same width refusal |
+| 4 | `BOQ-26-00113` / 583 (neither) | **PASS** -- blank, NOT derived, and *"Complete the missing attributes to price"*. **Never observed in the 3b cert; observed here** |
+| 5 | `BOQ-26-00114` / 239 (stated mm) | **PASS** -- shows `1.6` PLAIN, no marker, no `derivedValue` |
+| 6 | `BOQ-26-00106` / 141 (3a width) | **PASS** -- still 440 + 120 = 560 |
+| 7 | Editor-path count | **PASS** -- **63 of 79, unchanged** from the 3b cert. No priced value moved |
+| -- | Thickness dropdown | `-- select --, 1, 1.2, 1.4, 1.6, 2` |
+| -- | Gauge on the panel | **Absent on every row shape** |
+
+The tray population now: 63 price · 8 blocked by width above the catalog top · 4 by a thickness the
+catalog lacks (the 2.6 mm rows) · 4 by having neither thickness nor gauge.
+
+### Backwards compatibility
+
+Every other category using `map_attribute` -- census showed only `industrial_sockets`, whose
+result_attrs are undeclared and therefore unreachable by any consumer. Slice 3a's width -- unchanged
+(cert 6; and width renders through branch 4, pinned). The three tray goldens -- byte-identical v39 ->
+v40, `test_rate_master` 152 OK. The 63 pricing rows -- count identical before and after the finish.
+No doctype JSON, no migrate, no endpoint, no production Python.

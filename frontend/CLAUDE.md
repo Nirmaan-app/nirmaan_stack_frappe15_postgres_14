@@ -918,7 +918,8 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
   override, a future per-attribute note) must be row-scoped the same way.
 - **AN ATTRIBUTE THE PIPELINE DERIVES IS NEVER MISSING USER INPUT (owner-locked).** The helper's
   missing-attribute gate must exempt every attribute the config COMPUTES: a blank one means "not
-  stated", not "row incomplete". Two mechanisms make an attribute derived — a component taking
+  stated", not "row incomplete". Five mechanisms make an attribute derived (see `derivedAttrIds`
+  below for the full list and the conditional case) — a component taking
   `qty: {from_fit}` supersedes its `<name>_qty`, and a `module_fit` **ladder BIND** names the
   attribute the fitted rung binds to — and `derivedAttrIds` is the ONE predicate over both (it
   reuses `derivedQtyAttrs` rather than repeating it; #179 is why). **⚠️ `bind` IS NOT `floor_from`,
@@ -1069,11 +1070,29 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
   (owner-locked).** The sheet's `qty` is INVERSELY shaped, so reading it as the point count inverts the
   correction on exactly the rows that matter most. EXTRACTED, not derived; a plain `number` (a point
   count has no catalog domain, so `number_choice` would be wrong).
-- **`derivedAttrIds` collects THREE mechanisms, and a `derive_attribute`'s `result_attr` is the third**
-  (beside a `{from_fit}` superseded qty and a `module_fit` ladder bind) -- read FROM CONFIG, never by
-  id. It is the LADDER-BIND case, not the read-only blanker quantity: a stated value IS read and wins
-  outright, so the field stays **EDITABLE** and `readOnly` is never set. **The gate NARROWS, it does not
-  open** -- a genuinely absent input, including the SOURCE attribute the formula reads, still blocks.
+- **`derivedAttrIds` collects FIVE mechanisms** -- a `{from_fit}` superseded qty, a `module_fit`
+  ladder bind, a `derive_attribute`'s `result_attr`, a `catalog_fit` bind, and a `map_attribute`'s
+  `result_attr` -- read FROM CONFIG, never by id. All but the first behave like the LADDER BIND, not
+  the read-only blanker quantity: a stated value IS read and wins outright, so those fields stay
+  **EDITABLE** and `readOnly` is never set. **The gate NARROWS, it does not open** -- a genuinely
+  absent input, including the SOURCE attribute a formula reads, still blocks.
+- **⚠️ THE GATE EXEMPTION IS CONDITIONAL FOR A `map_attribute`, AND MUST NOT BE FLATTENED
+  (owner-locked).** `derivedAttrIds` answers *"could the pipeline EVER fill this?"* at CONFIG level;
+  for the first four mechanisms that is also the ROW-level answer -- a ladder, a fit and a formula can
+  always run. **A `map_attribute` is the first that cannot**: it fills from a SOURCE attribute, so on
+  a row where the source is blank it fills nothing. Exempting its target wholesale replaces
+  *"Complete the missing attributes to price"* -- an instruction the pricer can act on -- with a
+  no-match refusal they cannot. The helper therefore builds a PER-ROW fillable set in the existing
+  `disabledByNone` idiom and the gate reads that; **`derivedAttrIds`' signature never changed**, so
+  its other consumers are untouched, and `applyDerivedDisplay` takes the row-level set as an OPTIONAL
+  4th param (absent ⇒ byte-identical).
+- **⚠️ EVERY MECHANISM ADDED TO `derivedAttrIds` OWES A BRANCH IN `applyDerivedDisplay` -- THE PANEL
+  SHOWS WHAT PRICING USED (owner-locked; this has shipped broken TWICE).** Membership exempts an
+  attribute from the missing-input gate but does NOT fill its `derivedValue`; with no branch the field
+  falls through to `{...a, derived: true}` and renders **EMPTY beside a correctly priced row**. Slice
+  2c hit it on `catalog_fit`, slice 3b on `map_attribute`. The step's OUTCOME TYPE must therefore
+  carry the resolved VALUE, not merely a flag saying one was substituted -- and the branch reads it
+  through that step's structured reader, never the trace prose and never by re-deriving.
 - **⚠️ ADDING A REQUIRED EXTRACTED ATTRIBUTE INVALIDATES EVERY PRE-EXISTING EXTRACTION OF THAT
   CATEGORY, so the ASSET APPLY and the RE-EXTRACTION ARE ONE ATOMIC OPERATION (owner-locked).** A run
   that predates the attribute carries it on no row, the missing-attribute gate blocks, and the category
