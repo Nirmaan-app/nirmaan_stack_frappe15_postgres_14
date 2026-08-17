@@ -144,7 +144,7 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # SLICE 2d: v38 = v37 + `panel: false` on the four industrial_sockets MCB FACT attributes
 # (hidden from the pricing panel ONLY -- still extracted, still driving the pipeline) + the
 # R12 literal-mention rewrite of step (1) and its steps-(2)-(4) guard. Nothing else moved.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v38.json"
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v39.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -974,10 +974,20 @@ class TestRateMaster(FrappeTestCase):
             self.assertIn("cover_only_list", it["rates"])
 
         steps = self._f16_tray_config(payload)["pipelines"]["tray_boq_install"]["steps"]
-        self.assertEqual(steps[0]["step"], "match_master_row")
-        self.assertEqual(steps[0]["params"]["kind"], "cable_tray")
-        self.assertEqual(steps[1]["target"], "install_rate")
-        self.assertEqual(steps[1]["formula"], "base")   # verbatim, no arithmetic on top
+        # F-9 (slice 3a) RE-ANCHOR. These four assertions read steps[0] and steps[1] until now.
+        # The INDEX was INCIDENTAL: what F-16 protects is that install is read VERBATIM off the
+        # MATCHED cable_tray row -- one matched row, two rate keys -- not where those two steps
+        # happen to sit in the list. F-9 inserts a `catalog_fit` ahead of the match (the width has
+        # to be fitted BEFORE the row can be matched), which shifted both indices while touching
+        # nothing F-16 cares about. Anchoring by step TYPE and component NAME asserts the same
+        # guarantee and cannot be moved by a later insertion. A missing step yields None and fails
+        # as an assertion rather than an IndexError.
+        match = next((s for s in steps if s.get("step") == "match_master_row"), {})
+        install = next((s for s in steps if s.get("name") == "width_install"), {})
+        self.assertEqual(match.get("step"), "match_master_row")
+        self.assertEqual(match.get("params", {}).get("kind"), "cable_tray")
+        self.assertEqual(install.get("target"), "install_rate")
+        self.assertEqual(install.get("formula"), "base")   # verbatim, no arithmetic on top
 
     def test_f16b_install_is_read_off_the_tray_row_itself_at_the_wide_end(self):
         """POSITIVE, and the ONLY coverage away from width 100.

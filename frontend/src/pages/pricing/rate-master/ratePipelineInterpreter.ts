@@ -1086,6 +1086,17 @@ export function runPipeline(
       }
 
       fitLabels[p.bind] = fit.label;
+      // SLICE 3a -- THE NUMERIC HALF. `fitLabels` is string-typed by contract (a rung's LABEL), and
+      // `match_master_row` compares `selected` values with `===` against the stored attribute. A
+      // category whose ladder attribute IS its match key (cable tray's `width_mm`, stored as a
+      // NUMBER) therefore needs the fitted SIZE, not the label, and it needs it in `selected` --
+      // the only state `matchMasterRow` reads. Writing it here, on the FITTED path alone, is what
+      // makes next-higher reach the matcher at all.
+      //
+      // `selected` is the run-local overlay (`{ ...selectedInput }`), so the caller's object is
+      // never mutated and `value` keeps meaning "what the user or extraction supplied" -- the same
+      // contract `derive_attribute` writes under.
+      if (p.fit_into) selected[p.fit_into] = fit.modules;
       // THE WORKING: the request, the hop (or its absence), and the row chosen -- one line. The
       // " (next higher)" wording is the SAME string module_fit emits, so the two read alike.
       const whereParts = Object.entries(resolvedWhere)

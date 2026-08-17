@@ -4029,3 +4029,179 @@ describe("SLICE 2d -- mapAttributeOutcomes + the catalog_fit substitution discri
     expect(r.finals.supply).toBe(10618);
   });
 });
+
+// ---- SLICE 3a: cable tray width -- next-higher, and the NUMERIC bridge to the matcher ----
+//
+// THE GAP THIS PINS. `catalog_fit` publishes its answer as a rung LABEL into `fitLabels`, which is
+// `Record<string, string>` and stringifies through `String(label)`. That is right for
+// `industrial_sockets`, whose ladder binds a genuinely-string catalog `item` name consumed by a
+// `component_ref` "@ref". `match_master_row` is a DIFFERENT consumer: it reads `selected` and nothing
+// else, and compares with `===` against the stored attribute. Cable tray stores `width_mm` as a
+// NUMBER, so a bound "100" matches nothing -- silently, with a green suite. `fit_into` is the numeric
+// half, and these tests fail without it.
+//
+// The catalog mirrors the live shape (rectangular: widths x thicknesses x tray_type x material) but
+// carries only what these cases need. The 450 -> 600 jump is REAL, which is why an in-between width
+// is not a contrived case.
+const trayRow = (
+  tray_type: string, material: string, thickness_mm: number, width_mm: number, list: number
+): RateMasterItem => ({
+  discipline: "Electrical",
+  kind: "cable_tray",
+  attributes: { tray_type, material, thickness_mm, width_mm },
+  rates: { without_cover_list: list, cover_only_list: 0, install_rate: 30 },
+});
+
+const TRAY_ITEMS: RateMasterItem[] = [
+  trayRow("Solid", "GI", 1.6, 50, 100),
+  trayRow("Solid", "GI", 1.6, 100, 200),
+  trayRow("Solid", "GI", 1.6, 150, 300),
+  trayRow("Solid", "GI", 1.6, 450, 900),
+  trayRow("Solid", "GI", 1.6, 600, 1200),
+  // A SECOND thickness, so the ladder `where` filter is doing real work rather than passing
+  // everything through: a 1.6 row must never fit against a 2.0 rung.
+  trayRow("Solid", "GI", 2.0, 100, 250),
+  trayRow("Solid", "GI", 2.0, 600, 1500),
+];
+
+const TRAY_FIT = {
+  step: "catalog_fit" as const,
+  params: {
+    bind: "width_mm",
+    fit_into: "width_mm",
+    kind: "cable_tray",
+    where: { tray_type: "@tray_type", material: "@material", thickness_mm: "@thickness_mm" },
+    label_attr: "width_mm",
+    size_from: { attr: "width_mm" },
+    fit_from: { attr: "width_mm" },
+    direction: "up",
+    on_miss: "no_compute",
+  },
+};
+
+/** The tray supply shape: fit the width, THEN match, then read the matched row rate. */
+const traySupply = (): Pipeline =>
+  ({
+    output: ["supply_per_rmt"],
+    steps: [
+      TRAY_FIT,
+      { step: "match_master_row", params: { kind: "cable_tray" } },
+      { step: "component", name: "base", target: "without_cover_list", params: {}, formula: "base" },
+      { step: "sum_components", result: "supply_per_rmt" },
+    ],
+  } as unknown as Pipeline);
+
+const TRAY_ROW = { tray_type: "Solid", material: "GI", thickness_mm: 1.6 };
+
+describe("SLICE 3a -- cable tray width fits NEXT HIGHER and reaches the matcher", () => {
+  it("POSITIVE: a width BETWEEN two catalog values fits UP to the next one and PRICES", () => {
+    // The live cert row: BOQ-26-00106 / ELECTRICAL BOQ / 141 states 65 mm, which the catalog does not
+    // carry. 65 -> 100, and the 100 row rate is what prices. Before slice 3a this row produced
+    // nothing at all.
+    const r = runPipeline("tray_boq_supply", traySupply(), TRAY_ITEMS, { ...TRAY_ROW, width_mm: 65 });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply_per_rmt).toBe(200);
+    const cf = cfTrace(r);
+    expect(cf?.catalogFit?.fitted).toBe("100");
+    expect(cf?.catalogFit?.exact).toBe(false);
+    // A HOP IS A SUBSTITUTION -- this is what puts the "(computed)" tag on the width field.
+    expect(cf?.catalogFit?.substituted).toBe(true);
+  });
+
+  it("POSITIVE (THE TYPE BRIDGE): the fitted value reaches `selected` as a NUMBER, not a string", () => {
+    // THE TEST THAT FAILS WITHOUT `fit_into`. `fitLabels` is string-typed, the catalog stores
+    // width_mm as a number, and `matchMasterRow` compares with `===`. If the bridge ever regresses to
+    // publishing the LABEL into the selection, "100" === 100 is false, `match_master_row` returns
+    // no_match, and the row silently stops pricing with every other assertion still green.
+    const r = runPipeline("tray_boq_supply", traySupply(), TRAY_ITEMS, { ...TRAY_ROW, width_mm: 65 });
+    expect(r.status).toBe("ok");
+    // The matched row is the 100-wide one, proving the numeric write landed where the matcher reads.
+    expect(r.matchedItem?.attributes.width_mm).toBe(100);
+    expect(typeof r.matchedItem?.attributes.width_mm).toBe("number");
+    // And the ladder own size is numeric too -- the value `fit_into` writes.
+    expect(cfTrace(r)?.catalogFit?.size).toBe(100);
+    expect(typeof cfTrace(r)?.catalogFit?.size).toBe("number");
+  });
+
+  it("NEGATIVE: a width ABOVE the catalog top produces NO value -- and no new message", () => {
+    // The live cert row: BOQ-26-00169 / E2E CERT / 9 states 750 mm; the catalog stops at 600. The row
+    // must stay blank, SILENTLY (owner ruling). `on_miss: "no_compute"` refuses, the pipeline reports
+    // `no_match`, and `no_match` is EXACTLY what this row already produced before slice 3a via
+    // `match_master_row` -- so the helper renders the identical wording and nothing new appears.
+    const r = runPipeline("tray_boq_supply", traySupply(), TRAY_ITEMS, { ...TRAY_ROW, width_mm: 750 });
+    expect(r.status).toBe("no_match");
+    expect(r.finals.supply_per_rmt).toBeUndefined();
+    // Nothing was fitted, so nothing is claimed -- the field renders empty rather than inventing a size.
+    expect(cfTrace(r)?.catalogFit).toBeUndefined();
+  });
+
+  it("NEGATIVE: nothing is written into the selection on the refusal path", () => {
+    // If the miss path wrote anything into `selected`, `match_master_row` could match a row the pricer
+    // never asked for. It must leave the selection untouched.
+    const sel = { ...TRAY_ROW, width_mm: 750 };
+    runPipeline("tray_boq_supply", traySupply(), TRAY_ITEMS, sel);
+    expect(sel.width_mm).toBe(750);
+  });
+
+  it("UNCHANGED: an EXACT catalog width prices as before and is NOT marked substituted", () => {
+    // UI rule 3: a tray whose width is in the rate list shows no marker and the same price.
+    const r = runPipeline("tray_boq_supply", traySupply(), TRAY_ITEMS, { ...TRAY_ROW, width_mm: 150 });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply_per_rmt).toBe(300);
+    expect(cfTrace(r)?.catalogFit?.exact).toBe(true);
+    expect(cfTrace(r)?.catalogFit?.substituted).toBe(false);
+  });
+
+  it("THE LADDER IS FILTERED: a 1.6 row fits against 1.6 rungs only, never a 2.0 rung", () => {
+    // 450 -> 600 is the real jump. At thickness 1.6 the 600 row costs 1200; at 2.0 it costs 1500. If
+    // the `where` filter were dropped the ladder would carry both and the tie-break, not the spec,
+    // would decide the price.
+    const r = runPipeline("tray_boq_supply", traySupply(), TRAY_ITEMS, { ...TRAY_ROW, width_mm: 500 });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply_per_rmt).toBe(1200);
+    expect(r.matchedItem?.attributes.thickness_mm).toBe(1.6);
+  });
+
+  it("THE PANEL JOIN: the outcome is keyed by BIND, so the tag lands on the width field", () => {
+    // `catalogFitOutcomes` keys by `bind`, and `applyDerivedDisplay` looks it up by ATTRIBUTE ID.
+    // bind === "width_mm" is what makes the "(computed)" tag appear on Width and nowhere else.
+    const r = runPipeline("tray_boq_supply", traySupply(), TRAY_ITEMS, { ...TRAY_ROW, width_mm: 65 });
+    const out = catalogFitOutcomes([r]);
+    expect(out.get("width_mm")?.fitted).toBe("100");
+    expect(out.get("width_mm")?.substituted).toBe(true);
+    expect(out.has("thickness_mm")).toBe(false);
+  });
+
+  it("ABSENT `fit_into` IS BYTE-IDENTICAL: nothing is written into the selection", () => {
+    // The default-off guarantee. Every pre-slice-3a config carries no `fit_into`, so the selection is
+    // untouched and only `fitLabels` receives the bind -- exactly as industrial_sockets relies on.
+    const noWrite = { ...TRAY_FIT, params: { ...TRAY_FIT.params, fit_into: undefined } };
+    const pl = {
+      output: ["supply_per_rmt"],
+      steps: [
+        noWrite,
+        { step: "match_master_row", params: { kind: "cable_tray" } },
+        { step: "component", name: "base", target: "without_cover_list", params: {}, formula: "base" },
+        { step: "sum_components", result: "supply_per_rmt" },
+      ],
+    } as unknown as Pipeline;
+    const sel = { ...TRAY_ROW, width_mm: 65 };
+    const r = runPipeline("tray_boq_supply", pl, TRAY_ITEMS, sel);
+    // The fit still HAPPENS (the label binds) but never reaches the matcher, so the row does not price
+    // -- which is precisely the gap slice 3a closes.
+    expect(cfTrace(r)?.catalogFit?.fitted).toBe("100");
+    expect(r.status).toBe("no_match");
+    expect(sel.width_mm).toBe(65);
+  });
+
+  it("REGRESSION GUARD: the STRING-valued catalog_fit path (industrial_sockets) is unchanged", () => {
+    // The one shipped consumer binds a catalog ITEM NAME and is consumed by a component_ref "@ref".
+    // It carries no `fit_into`, so slice 3a must be invisible to it -- same status, same total, same
+    // bound label as the slice-2b/2d pins assert elsewhere in this file.
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply).toBe(10618);
+    expect(cfTrace(r)?.catalogFit?.fitted).toBe("25A FP MCB C CURVE");
+    expect(typeof cfTrace(r)?.catalogFit?.fitted).toBe("string");
+  });
+});

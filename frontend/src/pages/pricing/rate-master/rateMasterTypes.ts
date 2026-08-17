@@ -525,6 +525,26 @@ export interface CatalogFitStep {
     fit_from: { attr: string };
     /** "up" = exact, else the NEXT HIGHER rung, never lower. "down" = exact, else the next LOWER. */
     direction: "up" | "down";
+    /**
+     * SLICE 3a -- ALSO write the fitted rung's SIZE (a NUMBER) into the run-local selection overlay
+     * under this attribute id, so `match_master_row` can see it.
+     *
+     * ⚠️ THIS EXISTS BECAUSE `bind` CANNOT SERVE, AND THE REASON IS A TYPE. `bind` publishes the
+     * rung's LABEL into `fitLabels`, which is `Record<string, string>` and stringifies through
+     * `String(label)` -- correct for `industrial_sockets`, whose ladder binds a genuinely-string
+     * catalog `item` name and is consumed by a `component_ref` "@ref". `match_master_row` is a
+     * different consumer: it reads `selected` and NOTHING else, and compares with `===` against the
+     * stored attribute. Cable tray stores `width_mm` as a NUMBER, so a bound `"100"` matches
+     * nothing -- silently. This param is the numeric half, and it is what lets a category whose
+     * ladder attribute IS its match key (tray width) use the same step as one whose ladder binds an
+     * item name (the paired MCB).
+     *
+     * ABSENT => byte-identical: nothing is written and every pre-slice-3a config is unaffected.
+     * Written ONLY on the FITTED path -- never on stated-wins (the selection already holds the
+     * stated value), never on a positive absence, and never on a miss (nothing was fitted, so there
+     * is no size to write and inventing one would manufacture a match).
+     */
+    fit_into?: string;
     /** STATED-WINS: when this attribute carries a real value the step binds NOTHING, so the ordinary
      * selection lookup finds the stated one. This is what keeps the pricer's override surface alive. */
     prefer_attr?: string;
