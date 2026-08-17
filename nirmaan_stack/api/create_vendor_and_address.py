@@ -54,6 +54,9 @@ def create_vendor_and_address(
         vendorDoc.vendor_state = addressDoc.state
         vendorDoc.vendor_contact_person_name = values.get("vendor_contact_person_name")
         vendorDoc.vendor_mobile = values.get("vendor_mobile")
+        # Optional alternate number. Vendors doc only -- the Address doc carries a
+        # single `phone`, which belongs to the primary contact.
+        vendorDoc.vendor_alt_mobile = values.get("vendor_alt_mobile")
         vendorDoc.vendor_email = values.get("vendor_email")
         vendorDoc.vendor_gst = values.get("vendor_gst")
         vendorDoc.account_number = values.get("account_number")

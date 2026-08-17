@@ -134,6 +134,14 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
           })
           .max(10, { message: "Mobile number must be of 10 digits" })
           .min(10, { message: "Mobile number must be of 10 digits" }),
+      // Optional alternate number; the empty-string branch keeps a cleared
+      // input from blocking submit.
+      vendor_alt_mobile: z
+          .string()
+          .max(10, { message: "Alternate mobile number must be of 10 digits" })
+          .min(10, { message: "Alternate mobile number must be of 10 digits" })
+          .optional()
+          .or(z.literal("")),
       // vendor_gst: z
       //     .string({
       //         required_error: "Vendor GST Required"
@@ -260,6 +268,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
             pin: undefined,
             vendor_email: undefined,
             vendor_mobile: undefined,
+            vendor_alt_mobile: undefined,
             vendor_gst: undefined,
             account_number: undefined,
             confirm_account_number: undefined,
@@ -697,6 +706,22 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                                             <FormLabel className="flex">Phone<sup className="text-sm text-red-600">*</sup></FormLabel>
                                             <FormControl>
                                                 <Input type="number" placeholder="Contact No" {...field}
+                                                    onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
+                                                 />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="vendor_alt_mobile"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="flex">Alternate Phone</FormLabel>
+                                            <FormControl>
+                                                <Input type="number" placeholder="Alternate Contact No (optional)" {...field}
+                                                    value={field.value ?? ""}
                                                     onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
                                                  />
                                             </FormControl>
