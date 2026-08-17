@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-07-31. The active feature is **BoQ Upload & Management**. **Live status + full
+The active feature is **BoQ Upload & Management**. **Live status + full
 per-slice as-built detail: `frontend/.claude/plans/boq-upload-plan.md`** — one file, design spec
 followed by every as-built record in order. Backend as-built detail (endpoints, doctypes, commit
 pipeline + the relocated slice changelog): **`.claude/context/domain/boq-backend.md`**. Frontend conventions:
@@ -440,7 +440,7 @@ Why `[:19]` truncation: `frappe.utils.now()` returns microsecond-precision strin
 
 | Feature | Branch | Spec | Status |
 |---|---|---|---|
-| BoQ Upload & Management | `feature/boq-phase-3` | `frontend/.claude/plans/boq-upload-plan.md` | Phases 1.x (parser) + Phase 3 (wizard) + Phase 4 (committed BoQ-model rebuild) COMPLETE; Phase 5 (commit gate + pricing editor) active. Full slice-by-slice status + as-built detail: `plans/boq-upload-plan.md` + `.claude/context/domain/boq-backend.md`. Do NOT duplicate the changelog here. |
+| BoQ Upload & Management | `feature/boq-pricing-helper` | `frontend/.claude/plans/boq-upload-plan.md` | **Which phase/slice is active is NOT recorded here — read the plan doc.** A status written in this cell dates the moment the next slice lands. Full slice-by-slice status + as-built detail: `plans/boq-upload-plan.md` + `.claude/context/domain/boq-backend.md`. Do NOT duplicate the changelog here. |
 
 **Always read `frontend/.claude/plans/boq-upload-plan.md` + `.claude/context/domain/boq-backend.md` before working on BoQ.**
 
@@ -611,7 +611,8 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   **GOLDENS-AS-CONFIG-DATA:** the config carries a `goldens` array (attrs + expected finals per pipeline)
   seeded via ONE audited endpoint call; the vitest golden files stay INDEPENDENT pins. The frontend Pipelines
   tab's PREVIEW GATE computes the goldens against a draft before save (confirm-not-block). Interpreter
-  EXECUTION semantics untouched. Tests `test_rate_master` 14→22.
+  EXECUTION semantics untouched. **The `test_rate_master` count is NOT recorded here — read it from
+  `nirmaan_stack/api/boq/test_rate_master.py` itself.**
 - **Multi-category import + scoped supersede (owner-locked; full detail in the plan doc's "Build slice
   EA-1").** A rate-master payload may carry a `category_configs` LIST (each config a `BoQ Rate Category
   Config` row, discipline stamped from the top-level payload, per-category goldens merged in as RM-4b
@@ -1005,8 +1006,10 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   in particular is the ONLY coverage the discipline-wide `_deactivate_prior` path has, because that path
   is reachable only through the SINGULAR `category_config` key.
 - **⚠️ THERE IS ONE ELECTRICAL ASSET, AND THE SPLIT THAT PRECEDED IT WAS A LIVE HAZARD (merged
-  2026-08-13, owner ruling).** `rate_master_electrical_all_v30.json` carries **all 1,382 items and all
-  12 configs**, wiring included. The two-asset split was **SEQUENCING, NOT DESIGN** — wiring was built
+  2026-08-13, owner ruling).** The ONE merged Electrical asset — **named by `CURRENT_EALL_ASSET` in
+  `nirmaan_stack/api/boq/test_rate_master.py`, the one authoritative pin** — carries every Electrical
+  item and every category config, wiring included; **read the counts from the asset that constant
+  names, never from here.** The two-asset split was **SEQUENCING, NOT DESIGN** — wiring was built
   first as a trial — and it must not be reintroduced "for safety". **THE REASON IT HAD TO GO: the two
   assets took DIFFERENT loader paths with DIFFERENT supersede semantics.** The wiring asset carried the
   **SINGULAR `category_config`** key, which routes to `load_rate_master`'s single-config path, whose
@@ -1027,7 +1030,8 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   `db_switchgear_item` / `TPN FLEXI DB 4 ROW 14M (DOUBLE DOOR IP 43)` existed **twice** with two prices;
   the **12,881 copy (source row 17) is KEPT**, the **12,133 copy (source row 14) is DROPPED**. It is
   simply **absent from the asset** and is superseded naturally on import — this module has never had a
-  delete and the merge did not introduce one. Item count is therefore **1,382, not 1,383**. ⚠️ **The
+  delete and the merge did not introduce one. The dropped copy is therefore absent from the asset's
+  item count — **read that count from the asset `CURRENT_EALL_ASSET` names, never from here.** ⚠️ **The
   mint gate CANNOT see this**: its item vocabulary is `kind:<k>`, so a dropped *individual item* is
   below its resolution and it reported "No atoms disappeared". An `intentional_removals` entry is
   therefore inapplicable — the gate never emits an atom string for it.
@@ -1060,7 +1064,7 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   warns that a file must have been exported minutes earlier because a load is a supersede, and points at
   the admin export endpoint. **The "reload BY EXPLICIT PATH" interim rule is RETIRED — the loader
   enforces it now.** ⚠️ The export endpoint still emits a differently-named file
-  (`rate_master_electrical_v5.json`) from the on-disk lineage (`..._all_v31.json`); the two names never
+  (`rate_master_electrical_v5.json`) from the on-disk lineage (`..._all_v<N>.json`); the two names never
   converge on their own, which is exactly why a load must always name its file.
 - **⚠️ ONE AUTHORITATIVE VERSION PIN: `CURRENT_EALL_ASSET` (in `api/boq/test_rate_master.py`).** The
   loader now carries none, and the F-20 sweep fixed the third one
@@ -1178,10 +1182,10 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   this by coincidence. Post-F-18 no NaN can leave the interpreter as `ok`, so the gap is closed at
   source rather than in depth. Do NOT treat the absence of a second check as evidence it is unneeded.
 - **29-Jul truth-file cycle (EA-DIFF, owner-locked; the E-ALL benchmark of THAT cycle was
-  `rate_master_electrical_all_v12.json` — the CURRENT asset is the MERGED
-  `rate_master_electrical_all_v30.json`, sha256 prefix `63628d6a15a33796`; asset lineage v9->v12,
-  v10/v11 skipped. ⚠️ This line read `v22` / `f1344c1853614d75` until 2026-08-13 — SEVEN versions
-  behind, the doc twin of the stale test pins the merge slice found):** four
+  `rate_master_electrical_all_v12.json` — for the CURRENT asset read `CURRENT_EALL_ASSET` in
+  `nirmaan_stack/api/boq/test_rate_master.py`, the one authoritative pin; asset lineage v9->v12,
+  v10/v11 skipped. ⚠️ This line has twice carried a stale version + sha256 prefix — write NEITHER
+  here; the pin is the only place a version belongs):** four
   data changes + two owner-ruled invariants. (1) **Synonyms** — a config may carry top-level `synonyms`
   `{attr_id:{variant:canonical}}` (conduit `{conduit_type:{GI:MS}}`); consumed TWICE (defence in depth) — the
   extraction prompt INJECTION (`extraction._extract_batch`, `.md` assets untouched) AND `_coerce_value`

@@ -21810,6 +21810,18 @@ only from part 1's pointer, not from the register.
 
 ## WBC-S6c — the structural carve of both `CLAUDE.md` files
 
+> ### ⚠️ NEVER-LANDED — this record describes work that is not in the repository
+> **Verified 2026-08-17.** The carve below never landed on any branch. `.claude/context/conventions/`
+> and `frontend/.claude/context/conventions/` do not exist in the working tree, and no commit on any
+> branch ever created them. Five checks, all negative: (1) scanned all 29 refs (15 local heads + 14
+> remote) — no tree contains those paths; (2) `git log --all --diff-filter=A` on both paths returns
+> nothing; (3) 460 reflog entries, none matching the carve; (4) 22 dangling commits, none carrying
+> those paths; (5) 4 stashes (2026-07-01/07/15/24 — **none from 2026-07-30**), none containing them.
+> **Do NOT treat any figure below as describing this repository.** Its byte counts, file list and
+> "0 lost" losslessness claim describe a state that does not exist here. At the time of verification
+> both files were far LARGER than the pre-carve sizes it quotes. The section is left as written so the
+> discrepancy stays legible; the plan doc's own line ~21943 ("published nowhere") is the likely cause.
+
 **Date:** 2026-07-30 · **Tier:** Full · **Branch:** `feature/boq-within-boq-carry`
 **Supersedes:** `WBC-S6b-correct-and-prune` — byte-by-byte pruning to buy room for
 corrections. S6b was not wrong; it was working at the wrong altitude. The carve
@@ -30442,3 +30454,56 @@ v38 round trip **byte-identical** · 12 configs / 1364 items / 0 `TEST_RM` resid
    click, so converting computed-`None` to stated-`None` by hand may need a detour through another
    value. Pre-existing nuance, flagged at the 2c recon.
 5. **The Derivation screen can no longer test unstated attributes** (the Q5a cost, accepted).
+
+## Fact-correction slice — four stale facts in `CLAUDE.md`, and WBC-S6c marked never-landed (2026-08-17)
+
+**Date:** 2026-08-17 · **Tier:** Documentation only · **Branch:** `feature/boq-pricing-helper`
+**Found by:** the read-only CLAUDE.md trim recon of 2026-08-17 (no code read this slice; verification
+was four reads — V1-V4 below — plus five git checks).
+
+No code, schema, API or config changed. No test suite was run: this slice changes no behaviour, so a
+run would prove nothing. One commit, documentation only.
+
+### The five corrections
+
+| # | File | Was | Now |
+|---|---|---|---|
+| C1 | `CLAUDE.md` (4 sites) | Named `rate_master_electrical_all_v30.json` as the CURRENT asset with sha prefix `63628d6a15a33796`, "1,382 items and 12 configs", "1,382, not 1,383", and `..._all_v31.json` as the on-disk lineage | Every one replaced by a pointer to `CURRENT_EALL_ASSET` in `nirmaan_stack/api/boq/test_rate_master.py`. **No version, sha or item count is written anywhere** — a number written today is stale at the next mint |
+| C2 | `CLAUDE.md` ~614 | "Tests `test_rate_master` 14→22" | Pointer: read the count from the test file (it was **152**, wrong by 130) |
+| C3 | `CLAUDE.md` Active Features | Branch `feature/boq-phase-3`; "Phase 5 … active" | Branch `feature/boq-pricing-helper`; the phase/slice sentence removed for a pointer to this plan doc |
+| C4 | `CLAUDE.md` header | "**Last updated:** 2026-07-31" | Removed. Newest dated content in the file was 2026-08-15; an unmaintained date claims a freshness the file does not have. Not replaced with today's date |
+| C5 | this plan doc | WBC-S6c recorded as completed fact | A `NEVER-LANDED` block inserted directly under its heading. **The section itself is unaltered**, so the discrepancy stays legible |
+
+**Why C1 is a pointer and not a fresh number.** `CLAUDE.md` already declared, in its own text, that
+`CURRENT_EALL_ASSET` is the ONE authoritative version pin and that "any new file naming an asset
+version must justify itself against this line" — while naming v30 in three places. It had drifted
+this way once before (the line self-documents having read `v22` for seven versions). Writing v38 in
+would restart the same clock; the fix is that no version number lives in `CLAUDE.md` at all.
+
+**Left untouched deliberately:** five other mentions of v30/v31/v32 (lines ~834, ~1055-1056, ~1071,
+~1120) are HISTORICAL narrative about past merges and past fixes, not assertions of current state,
+and one is inside an F-20 block. The wiring-asset invariant sha at ~731 pins a RETIRED, frozen
+artefact and cannot drift. Nothing marked SUPERSEDED / HISTORICAL / RETIRED was edited — four of
+those markers describe CURRENT rulings.
+
+### WBC-S6c: five checks, all negative
+
+Scanned all 29 refs (15 local heads + 14 remote): no tree contains `.claude/context/conventions/` or
+`frontend/.claude/context/conventions/`. `git log --all --diff-filter=A` on both paths: empty. 460
+reflog entries: no match. 22 dangling commits: none carry those paths. 4 stashes (2026-07-01, 07-07,
+07-15, 07-24): none contain them.
+
+⚠️ **Two figures from the commissioning brief did not survive verification and the block records the
+measured values instead:** dangling commits are **22**, not 23; and there is **no 2026-07-30 stash at
+all** — the four stashes are dated as above. Neither changes the conclusion; all five check families
+agree the carve never landed.
+
+### Verified values (V1-V4)
+
+`CURRENT_EALL_ASSET = "rate_master_electrical_all_v38.json"` (`test_rate_master.py:147`) ·
+152 test methods in that file · branch `feature/boq-pricing-helper` · newest dated content in
+`CLAUDE.md` 2026-08-15 vs a header reading 2026-07-31.
+
+**Still owed:** the CLAUDE.md trim itself (root is ~1,683 lines / ~200 KB; `frontend/CLAUDE.md`
+~1,782 / ~179 KB). That is a separate slice, and its orphan list — rules recorded nowhere else — is
+the gate on what it may cut.
