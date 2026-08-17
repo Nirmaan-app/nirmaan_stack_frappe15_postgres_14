@@ -30507,3 +30507,151 @@ agree the carve never landed.
 **Still owed:** the CLAUDE.md trim itself (root is ~1,683 lines / ~200 KB; `frontend/CLAUDE.md`
 ~1,782 / ~179 KB). That is a separate slice, and its orphan list — rules recorded nowhere else — is
 the gate on what it may cut.
+
+## Build slice 3a -- cable tray width fits NEXT HIGHER (F-9, pricing half) (2026-08-17)
+
+**Commits:** `feat(boq-rate-master): cable tray width fits next higher - asset v39 (slice 3a)` +
+`docs(boq): record slice 3a as built`. Branch `feature/boq-pricing-helper`, parent `15fd210e`.
+**Asset v39** (`rate_master_electrical_all_v39.json`, sha256 `40840ccfb21b4644`).
+
+**This slice stopped TWICE before shipping, both times correctly.** The record of why is the most
+useful part of it.
+
+### What shipped
+
+- **`fit_into`** -- ONE additive optional param on `CatalogFitStep`. On the FITTED path only, it
+  writes the fitted rung's SIZE (a NUMBER) into the run-local selection overlay, so
+  `match_master_row` can see it. ABSENT => byte-identical; `industrial_sockets` carries none.
+- **Asset v39** -- one `catalog_fit` step at the head of each of the four tray pipelines
+  (`bind`/`fit_into` both `width_mm`, `direction: "up"`, `on_miss: "no_compute"`, ladder filtered by
+  `@tray_type` / `@material` / `@thickness_mm`).
+- **9 tests** in `ratePipelineInterpreter.test.ts` (305 -> 314).
+- **R1** -- the four F-16 assertions re-anchored by step TYPE and component NAME.
+
+### ⚠️ THE GAP, AND WHY IT WAS NOT "ZERO NEW CAPABILITY"
+
+The pre-slice note predicted tray width would ride `catalog_fit` with no interpreter change. **That
+was wrong, and the reason is a TYPE.** `catalog_fit`'s `bind` publishes the rung's LABEL into
+`fitLabels`, declared `Record<string, string>` and stringified through `String(label)`. That is
+correct for `industrial_sockets`, whose ladder binds a catalog `item` NAME consumed by a
+`component_ref` "@ref". `match_master_row` is a different consumer: `matchMasterRow` reads
+**`selected` and nothing else**, comparing with `===`. Cable tray stores `width_mm` as a NUMBER, so a
+bound `"100"` matches nothing -- **silently**. Exactly two steps wrote into `selected`
+(`derive_attribute`, `map_attribute`); `fit_into` is the third.
+
+### R1 -- the first stop, and how it was cleared
+
+`test_f16a` anchored on `steps[0]` / `steps[1]`, and `_merged_payload` reads `CURRENT_EALL_ASSET`
+directly -- so bumping the pin to v39 broke four assertions the moment the fit step took index 0.
+The slice STOPPED rather than editing them. **Owner ruled: re-anchor by name.** F-9 does not repeal
+F-16 -- install is still read verbatim off the matched `cable_tray` row; only the index moved. The
+four assertions now locate the steps by TYPE (`match_master_row`) and NAME (`width_install`), which
+asserts the same guarantee and cannot be moved by a later insertion. Each carries an inline comment
+naming F-9 and stating that index-anchoring was incidental.
+
+### R2 -- the second stop: a requirement that was WITHDRAWN
+
+The resume brief required the tray derivation screen to stay unchanged, naming `industrial_sockets`
+as a compliant exemplar with a mechanism to copy. **Both halves of that premise were false, and the
+slice stopped rather than building against it:**
+
+- **No mechanism exists.** `RateMasterDerivation.tsx:508` renders `{r.steps.map(...)}` unconditionally.
+  Searched `RateMasterDerivation.tsx`, `rateMasterTypes.ts`, `rateMasterStructure.ts` for `hidden` /
+  `internal_only` / `hide_step` / `suppress`: **nothing**.
+- **The two screens filter on DIFFERENT AXES.** Derivation =
+  `selector !== false && !derivedAttrIds(config).has(id)` (`RateMasterDerivation.tsx:207-211`);
+  helper = `selector !== false` then `panel !== false` (`pricingSheetHelper.ts:147-149`, `:455`).
+  They coincide only by accident.
+- **Measured on the live v38 asset, three of twelve categories already diverged** --
+  `industrial_sockets` **by 5** (helper 5 / derivation 8; helper-only `paired_mcb`, derivation-only
+  the four MCB facts), `point_wiring` by 3, `switches_sockets` by 2. The named exemplar was the
+  worst offender.
+- **It contradicted slice 2d's Q4(i)**, encoded at `RateMasterDerivation.tsx:190-205`: *"THIS TAB IS
+  A PURE CALCULATOR: you state the INPUTS, and every attribute the pipeline DERIVES leaves the
+  selects, appearing only in the step lines below."* Q4(i) is what CREATES the mismatch R2 forbade.
+
+**Owner ruling 2026-08-17: the brief was wrong and is withdrawn. Q4(i) STANDS.** The derivation
+screen is wrong across categories and the owner will redesign it himself, all categories together.
+Slice 3a does not fix it, work around it, or touch it. Width leaving the tray derivation input list,
+and one step row appearing in its step lines, are accepted consequences of the calculator rule.
+
+### DEFERRED -- owner rulings recorded, NOT BUILT in this slice
+
+> **(i) SLICE 3b:** the stated SWG gauge must NOT appear on the derivation screen OR the helper
+> screen. It is internal to the model. **The only thickness a user sees or edits is the value in
+> millimetres.** 3b's design must be drafted against this, not against the withdrawn R2.
+>
+> **(ii)** The same rule applies to `industrial_sockets`' internal fields. **Deferred, not touched.**
+
+### Verification (P1-P4, all re-measured, all confirmed)
+
+| | Result |
+|---|---|
+| P1 retained work | 4 products intact; v39 sha256 `40840ccfb21b4644` unaltered (the prior report's 698,095-byte figure was a transcription slip; actual **698,152**) |
+| P2 DB state | live export **byte-identical to committed v38** before loading |
+| P3 baselines | vitest **2461 pass / 1** (known `writeOffControl` timeout) - `ratePipelineInterpreter.test.ts` **314** - `pricingSheetHelper.test.ts` **138** - `test_rate_master` **152 OK** |
+| P4 cert rows | 141 (w 65, t 1.6) and 9 (w 750, t 2) both unchanged; editor-path baseline **36 of 79** |
+
+### The mint (documented procedure: root `CLAUDE.md:993-998`)
+
+Export -> edit -> reload, never a stale file. **v39 was minted in the prior session, so its currency
+was PROVED rather than assumed:** a fresh export taken immediately before loading equalled committed
+v38, and re-applying the identical insertion to that fresh export reproduced the retained v39
+**byte-for-byte** (`40840ccfb21b4644`). The file was never hand-edited. Load by explicit path,
+`replace=True`; stored-vs-asset verified **KEY BY KEY across all 12 configs -- zero mismatches**;
+1,364 items; goldens t1/t2/t3 unchanged.
+
+⚠️ **A first load attempt died on `psycopg2.errors.SerializationFailure`** because the backend suite
+was still running against the SAME database (`test_rate_master` creates `TEST_RM_*` disciplines
+there, not in an isolated test DB). The transaction rolled back cleanly -- the DB was re-verified
+still exactly v38 -- and the load succeeded once the suite finished. **Do not run a loader and that
+suite concurrently.**
+
+### Measured counts
+
+| Suite | Baseline | After |
+|---|---|---|
+| vitest | 2461 pass / 1 fail (2462) | **2461 pass / 1 fail (2462)** -- unchanged, same known timeout |
+| `ratePipelineInterpreter.test.ts` | 314 | **314 / 314 pass** |
+| `test_rate_master` (v39 pin) | 152 OK | **152 OK** -- re-anchored assertions green |
+| `tsc` in the changed dirs | -- | **0 errors** |
+
+**Vacuity proof (prior session, carried):** disabling the `fit_into` line turned exactly **3 of 9**
+red -- including the type-bridge test -- and restoring returned 314/314.
+
+### Browser cert -- ALL PASS
+
+De-staled: service worker unregistered (1 found), caches + storage cleared, tab CLOSED and reopened,
+session re-verified live (`frappe.auth.get_logged_user` -> `admins@nirmaan.app`).
+**BUNDLE MARKER:** `fit_into` present in the module Vite served (261,161 B, HTTP 200) **and**
+`catalog_fit` present at step 0 of all four tray pipelines in the served config.
+
+| # | Step | Result |
+|---|---|---|
+| 1 | BOQ-26-00106 / ELECTRICAL BOQ / **141** (w 65) | **PASS** -- panel reads `Row 141 - Combined rate`, **560** (supply 440 + install 120). **Width (mm) `(computed)` 95% -> 100**. Before: no rate at all |
+| 2 | BOQ-26-00169 / E2E CERT / **9** (w 750) | **PASS** -- panel reads `Pricing sheet  --  >` / **"no match for these attributes"**; the cell area shows only the sparkle opener, `0`, and `Add note`. That basis string is PRE-EXISTING (`pricingSheetHelper.ts:574-575`) -- **no message, no new text** |
+| 3 | Row **140** (w 100, exact) | **PASS** -- `Width (mm) 95% -> 100`, **NO `(computed)` tag**, plain editable field, same 560 |
+| 4 | `industrial_sockets` row 98 shape | **PASS** -- supply **10618**, install 3720, fitted `25A FP MCB C CURVE`; its config carries no `fit_into` |
+| 5 | Editor-path count | **PASS** -- **36 -> 37, delta exactly ONE**; the gained row is 141 (w 65) pricing at 440 |
+| 6 | Derivation screen (REPORT ONLY) | Recorded below |
+
+**Cert 6 -- the record for the owner's later redesign.**
+*Before (v38):* input list = all 8 (Type, Material, Thickness (mm), **Width (mm)**, Cover,
+Installation Type, Floor Cutting, Floor Refilling); step lines began `match_master_row`.
+*After (v39):* input list = **7 -- Width (mm) is GONE** (Type, Material, Thickness (mm), Cover,
+Installation Type, Floor Cutting, Floor Refilling, + Brand fixed); each of the four pipelines now
+shows a leading `catalog_fit` step reading *"attribute 'width_mm' missing or non-numeric -- no
+width_mm computed"*, and **all four report `no match`.**
+⚠️ **Consequence worth the redesign's attention: with width no longer settable there, the cable-tray
+derivation screen can no longer compute anything at all.** The helper panel is unaffected and prices
+normally -- this is a derivation-screen limitation, not a pricing one.
+
+### Backwards compatibility
+
+| Risk | Proof |
+|---|---|
+| `industrial_sockets` string path | No `fit_into` in its config (asserted in-browser); supply **10618** matches the standing pin; regression-guard test green |
+| tray goldens t1/t2/t3 | All at exact width 100 -> fit hits exactly, writes the same 100 back; byte-identical v38 -> v39 |
+| the 36 rows pricing today | All exact widths -> `exact: true`, `substituted: false`; cert 3 confirms no marker and the same price |
+| every other category | Only `cabletray_raceway` differs from v38; `fit_into` absent from all 11 others |
+| runtime / schema / API | None. One optional TS param + one config step. No doctype JSON, no migrate, no Python |

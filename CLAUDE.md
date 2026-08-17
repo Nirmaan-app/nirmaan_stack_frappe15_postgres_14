@@ -1571,11 +1571,24 @@ invariants:
   (owner-locked standing principle).** Two generic steps carry it: **`map_attribute`** (resolve one
   STRING attribute — stated wins, else a config table, else a default; `derive_attribute` cannot
   serve, its formula language is arithmetic) and **`catalog_fit`** (fit a stated NUMBER onto a
-  ladder derived FROM THE CATALOG and bind the chosen row's label). Both are generic: slice 3's tray
-  width rides `catalog_fit` with ZERO new capability, F-10's SWG→mm rides `map_attribute`.
+  ladder derived FROM THE CATALOG and bind the chosen row's label). Both are generic: slice 3a's tray
+  width rides `catalog_fit` (it needed ONE additive param, `fit_into` — see below; the earlier "ZERO
+  new capability" prediction was wrong), F-10's SWG→mm rides `map_attribute`.
   **A ladder can only filter on STORED attributes** — that is why the 106 `family: Switchgear` rows
   were minted with `device`/`pole`/`amp_a`/`curve`, and why a discriminator living inside an item
   NAME must become an attribute before any ladder can use it.
+- **⚠️ A `catalog_fit` REACHES `match_master_row` ONLY THROUGH `fit_into`, AND THE REASON IS A TYPE
+  (owner-locked, slice 3a).** `bind` publishes the fitted rung's LABEL into `fitLabels`, which is
+  `Record<string, string>` and stringifies through `String(label)` — right for `industrial_sockets`,
+  whose ladder binds a catalog `item` NAME consumed by a `component_ref` "@ref". `match_master_row`
+  is a DIFFERENT consumer: `matchMasterRow` reads **`selected` and nothing else** and compares with
+  `===`. Cable tray stores `width_mm` as a NUMBER, so a bound `"100"` matches nothing — **silently,
+  with a green suite.** `fit_into` writes the fitted SIZE (a number) into the run-local selection
+  overlay, on the FITTED path ONLY: never on stated-wins (the selection already holds the stated
+  value), never on a positive absence, never on a miss — nothing was fitted there, and writing a
+  size would MANUFACTURE a match. **Deleting it does not fail loudly; it un-prices every fitted row.**
+  Exactly two steps write into `selected` (`derive_attribute`, `map_attribute`) and this is the
+  third — **do not "tidy" a fitted value back onto `fitLabels` alone.**
 - **⚠️ THE `"None"` SENTINEL IS TREATED DIFFERENTLY BY `map_attribute` AND `catalog_fit`, AND THE
   ASYMMETRY IS DELIBERATE (owner-locked, test-pinned).** `map_attribute`'s stated-check EXCLUDES the
   sentinel (a "None" pole is not a pole, so the mapping still runs); `catalog_fit`'s INCLUDES it (a
