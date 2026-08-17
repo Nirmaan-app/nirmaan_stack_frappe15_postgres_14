@@ -413,7 +413,7 @@ export function NewSidebar() {
     //   ]
     // : []),
 
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile", "Nirmaan Project Lead Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Design Lead Profile", "Nirmaan Design Executive Profile"].includes(role as string)
       ? [
         {
           key: '/item-price',
