@@ -19,6 +19,7 @@ import {
 import {
   blanksQtyAttr,
   derivedAttrIds,
+  mapAttributeSources,
   derivedQtyAttrs,
 } from "@/pages/pricing/rate-master/rateMasterStructure";
 import { NONE_SENTINEL } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
@@ -2029,5 +2030,240 @@ describe("SLICE 2d -- Q4(i): derived binds leave the Derivation input selects", 
     const cfg = moduleFitConfig();
     expect(derivedQtyAttrs(cfg).has("plate_item")).toBe(false);  // not a superseded QUANTITY...
     expect(derivedAttrIds(cfg).has("plate_item")).toBe(true);    // ...but it IS a derived bind
+  });
+});
+
+// ---- SLICE 3b: the CONDITIONAL exemption (owner rulings R8 + R9) ----
+//
+// A `map_attribute` is the first derivation mechanism that CANNOT always run: it fills its target
+// from a SOURCE attribute, and on a row where that source is blank it fills nothing. Exempting its
+// target from the missing-attribute gate WHOLESALE would replace "Complete the missing attributes
+// to price" -- an instruction the pricer can act on -- with "no match for these attributes", which
+// they cannot, on 35 of 79 live tray rows. The owner ruled the message is worth keeping, so the
+// exemption is narrowed PER ROW to rows the pipeline can actually serve.
+const TRAY3B_ITEMS_H: RateMasterItem[] = [
+  { discipline: "Electrical", kind: "cable_tray",
+    attributes: { tray_type: "Solid", material: "GI", thickness_mm: 2, width_mm: 100 },
+    rates: { without_cover_list: 400, cover_only_list: 0, install_rate: 30 } },
+  { discipline: "Electrical", kind: "cable_tray",
+    attributes: { tray_type: "Solid", material: "GI", thickness_mm: 1.6, width_mm: 100 },
+    rates: { without_cover_list: 200, cover_only_list: 0, install_rate: 30 } },
+];
+
+const TRAY3B_CONFIG: RateCategoryConfig = {
+  discipline: "Electrical", category_id: "cabletray_raceway",
+  attribute_definitions: [
+    { id: "tray_type", label: "Type", type: "choice", values: ["Solid"] },
+    { id: "material", label: "Material", type: "choice", values: ["GI"] },
+    { id: "thickness_mm", label: "Thickness (mm)", type: "number_choice",
+      values_from: { kind: "cable_tray", attr: "thickness_mm" } },
+    // B1: the hidden gauge FACT -- selector on (the model reads it), panel:false (never on the panel).
+    { id: "thickness_swg", label: "Thickness gauge (SWG)", type: "number", panel: false },
+    { id: "width_mm", label: "Width (mm)", type: "number" },
+  ],
+  pipelines: {
+    tray_boq_supply: {
+      output: ["supply_per_rmt"],
+      steps: [
+        { step: "map_attribute", params: { result_attr: "thickness_mm", prefer_attr: "thickness_mm",
+          from_attr: "thickness_swg", table: { "14": 2.0, "16": 1.6 } } },
+        { step: "catalog_fit", params: { bind: "width_mm", fit_into: "width_mm", kind: "cable_tray",
+          where: { tray_type: "@tray_type", material: "@material", thickness_mm: "@thickness_mm" },
+          label_attr: "width_mm", size_from: { attr: "width_mm" }, fit_from: { attr: "width_mm" },
+          direction: "up", on_miss: "no_compute" } },
+        { step: "match_master_row", params: { kind: "cable_tray" } },
+        { step: "component", name: "base", target: "without_cover_list", params: {}, formula: "base" },
+        { step: "sum_components", result: "supply_per_rmt" },
+      ],
+    },
+  },
+} as unknown as RateCategoryConfig;
+
+const trayCtx = (excelRow: number): RateHelperRowContext => ({
+  excelRow, description: "cable tray", nodeType: "Line Item",
+  category: "cabletray_raceway", discipline: "Electrical", rateKinds: ["supply_rate"],
+});
+const trayHelper = (attrs: Record<string, string | number | null>) =>
+  makePricingSheetHelper({
+    config: TRAY3B_CONFIG, items: TRAY3B_ITEMS_H,
+    extractionByRow: buildExtractionByRow([{ excel_row: 7, description: "cable tray", attributes: ext(attrs) }]),
+  }).compute(trayCtx(7));
+const attrOf = (r: ReturnType<ReturnType<typeof makePricingSheetHelper>["compute"]>, id: string) =>
+  (isSuggestion(r) ? r.workings?.attributes ?? [] : []).find((a) => a.id === id);
+
+describe("SLICE 3b -- R8: the gate exemption is CONDITIONAL, not blanket", () => {
+  it("POSITIVE: a gauge but NO millimetres is NOT gated -- the pipeline can fill it, so it does", () => {
+    const r = trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_swg: 14 });
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    // Not the gate's message, and it actually PRICES -- 14 SWG -> 2.0 -> the 400 row.
+    expect(r.basis).not.toBe("Complete the missing attributes to price");
+    expect(r.values.supply_rate).toBe(400);
+  });
+
+  it("NEGATIVE: NEITHER millimetres NOR a gauge -- still gated, with the ORIGINAL message", () => {
+    // ⚠️ THE REGRESSION THE OWNER ASKED TO PRESERVE. A blanket exemption would have turned this into
+    // "no match for these attributes" on 35 of 79 live rows. Pinned so it cannot be lost again.
+    const r = trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100 });
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.basis).toBe("Complete the missing attributes to price");
+  });
+
+  it("R9: on that gated row the thickness field still LOOKS like it needs filling", () => {
+    // Border and message must agree. Without the display narrowing the field would render as
+    // derived -- no red border -- while the message still asked for it.
+    const r = trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100 });
+    expect(attrOf(r, "thickness_mm")?.derived).toBeFalsy();
+    expect(attrOf(r, "thickness_mm")?.value).toBe("");
+  });
+
+  it("R9: on a gauge-bearing row the thickness field IS derived, and shows the mapped value", () => {
+    const r = trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_swg: 16 });
+    expect(attrOf(r, "thickness_mm")?.derived).toBe(true);
+  });
+
+  it("R3: the gauge attribute NEVER reaches the helper panel", () => {
+    // `panel: false` keeps it off the pricer's screen on every row -- gauge-bearing or not -- while
+    // `selector` stays on so the model still reads it.
+    const shapes: Record<string, string | number | null>[] = [
+      { tray_type: "Solid", material: "GI", width_mm: 100, thickness_swg: 14 },
+      { tray_type: "Solid", material: "GI", width_mm: 100 },
+    ];
+    for (const attrs of shapes) {
+      expect(attrOf(trayHelper(attrs), "thickness_swg")).toBeUndefined();
+    }
+  });
+
+  it("SCOPING: a config with NO map_attribute is byte-identical -- width is untouched", () => {
+    // The narrowing can only ever remove a `map_attribute` target. A `catalog_fit` bind is
+    // unconditionally derived on every path, which is what keeps slice 3a's width -- and
+    // point_wiring, switches_sockets and industrial_sockets -- exactly as they were.
+    const noMap = {
+      ...TRAY3B_CONFIG,
+      pipelines: { tray_boq_supply: {
+        ...TRAY3B_CONFIG.pipelines!.tray_boq_supply,
+        steps: TRAY3B_CONFIG.pipelines!.tray_boq_supply.steps.filter(
+          (s) => (s as { step?: string }).step !== "map_attribute"),
+      } },
+    } as unknown as RateCategoryConfig;
+    const r = makePricingSheetHelper({
+      config: noMap, items: TRAY3B_ITEMS_H,
+      extractionByRow: buildExtractionByRow([{ excel_row: 8, description: "t",
+        attributes: ext({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_mm: 2 }) }]),
+    }).compute({ ...trayCtx(8), excelRow: 8 });
+    expect(isSuggestion(r) && r.values.supply_rate).toBe(400);
+    // width_mm is a catalog_fit bind -> derived on every path, narrowing or not
+    expect(attrOf(r, "width_mm")?.derived).toBe(true);
+  });
+});
+
+describe("SLICE 3b -- mapAttributeSources (the pure half of R8)", () => {
+  it("reads result_attr + from_attr FROM CONFIG, never by hardcoded id", () => {
+    const m = mapAttributeSources(TRAY3B_CONFIG);
+    expect(m.get("thickness_mm")).toEqual({ fromAttr: "thickness_swg", hasDefault: false });
+  });
+
+  it("a step carrying a DEFAULT is unconditionally fillable and is never narrowed", () => {
+    // industrial_sockets' curve-else-C shape: nothing to be absent, so nothing to narrow.
+    const cfg = { pipelines: { p: { output: ["x"], steps: [
+      { step: "map_attribute", params: { result_attr: "mcb_curve", prefer_attr: "mcb_curve_stated", default: "C" } },
+    ] } } } as unknown as RateCategoryConfig;
+    expect(mapAttributeSources(cfg).get("mcb_curve")).toEqual({ fromAttr: undefined, hasDefault: true });
+  });
+
+  it("EMPTY for a config with no map_attribute -- the no-op guarantee", () => {
+    expect(mapAttributeSources(CONFIG).size).toBe(0);
+  });
+
+  it("derivedAttrIds now collects a map_attribute result_attr (the FIFTH mechanism)", () => {
+    expect(derivedAttrIds(TRAY3B_CONFIG).has("thickness_mm")).toBe(true);
+    // ...and still collects the catalog_fit bind beside it, unchanged.
+    expect(derivedAttrIds(TRAY3B_CONFIG).has("width_mm")).toBe(true);
+  });
+});
+
+// ---- SLICE 3b FINISH: the map_attribute DISPLAY branch ----
+//
+// THE DEFECT THIS CLOSES, caught by the owner during the 3b cert: row 513 priced at 1068 off a
+// thickness of 1.6 converted from a stated "16SWG", while the Thickness field rendered an empty
+// "-- select --". `derivedAttrIds` marked the attribute derived (correctly exempting it from the
+// missing-input gate) but `applyDerivedDisplay` had no `map_attribute` branch, so nothing filled its
+// `derivedValue`. Same shape as the row-98 defect slice 2c fixed for `catalog_fit`, and the same
+// rule: THE PANEL SHOWS WHAT PRICING USED.
+describe("SLICE 3b FINISH -- a mapped thickness is SHOWN, and a stated one stays plain", () => {
+  it("POSITIVE: a gauge-derived thickness renders the resolved MILLIMETRE value, tagged (computed)", () => {
+    const r = trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_swg: 16 });
+    const t = attrOf(r, "thickness_mm");
+    expect(t?.derived).toBe(true);
+    expect(t?.derivedValue).toBe("1.6");        // the mapped mm value, not the gauge
+    expect(t?.substituted).toBe(true);          // -> the "(computed)" tag
+  });
+
+  it("POSITIVE: 14 SWG shows 2, the other live gauge", () => {
+    const t = attrOf(trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_swg: 14 }), "thickness_mm");
+    expect(t?.derivedValue).toBe("2");
+    expect(t?.substituted).toBe(true);
+  });
+
+  it("B3 NEGATIVE: a STATED millimetre thickness renders PLAIN -- no marker, no derivedValue", () => {
+    // The row supplied it and the mapping never ran, so nothing was substituted. Tagging it would
+    // credit the pipeline with the pricer's own entry -- the option-B rule, and the reason the
+    // stated branch publishes no display value at all.
+    const t = attrOf(trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_mm: 1.6 }), "thickness_mm");
+    expect(t?.substituted).toBeFalsy();
+    expect(t?.derivedValue).toBeUndefined();
+    expect(t?.value).toBe("1.6");               // the row's own entry is what shows
+  });
+
+  it("B3 NEGATIVE: millimetres AND a gauge -- the stated value shows, still PLAIN", () => {
+    // R6: stated wins. 1.6 is shown; the 14 SWG that would have mapped to 2 is not, and no marker.
+    const t = attrOf(trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_mm: 1.6, thickness_swg: 14 }), "thickness_mm");
+    expect(t?.substituted).toBeFalsy();
+    expect(t?.derivedValue).toBeUndefined();
+  });
+
+  it("UNREGRESSED (R8/R9): neither millimetres nor a gauge -- blank, and still gated", () => {
+    // The narrowing must survive this branch: with nothing to map, the field renders as a genuine
+    // missing input (no `derived`) and the ORIGINAL message stands.
+    const r = trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100 });
+    expect(isSuggestion(r) && r.basis).toBe("Complete the missing attributes to price");
+    const t = attrOf(r, "thickness_mm");
+    expect(t?.derived).toBeFalsy();
+    expect(t?.derivedValue).toBeUndefined();
+  });
+
+  it("NO PRICED VALUE MOVES: the display branch is display-only", () => {
+    // The whole slice moves no numbers. A gauge row and a stated-mm row both price exactly as they
+    // did before this branch existed -- 14 SWG -> 2.0 -> the 400 row, 1.6 stated -> the 200 row.
+    const gauge = trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_swg: 14 });
+    expect(isSuggestion(gauge)).toBe(true);
+    if (isSuggestion(gauge)) expect(gauge.values.supply_rate).toBe(400);
+
+    const statedMm = trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_mm: 1.6 });
+    expect(isSuggestion(statedMm)).toBe(true);
+    if (isSuggestion(statedMm)) expect(statedMm.values.supply_rate).toBe(200);
+  });
+
+  it("SCOPING: width still renders through the catalog_fit branch, NOT this one", () => {
+    // width_mm is a `catalog_fit` bind, not a map target, so branch 4 keeps owning it and its
+    // fitted label is unchanged. The new branch cannot reach it.
+    const t = attrOf(trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_swg: 16 }), "width_mm");
+    expect(t?.derived).toBe(true);
+    expect(t?.derivedValue).toBe("100");        // 3a's fitted label, unchanged
+  });
+
+  it("width INHERITS the substitution when its ladder rests on an inferred thickness", () => {
+    // ⚠️ NOT a change from this branch -- it is the slice-2d option-B rule, already live in 3b and
+    // visible in that cert (row 513 showed "Width (mm) (computed) 600" at an EXACT catalog width).
+    // The tray `catalog_fit` filters its ladder on `@thickness_mm`, so `whereRefs` joins into the
+    // map outcomes: an exact width fit that rests on a gauge-inferred thickness is still a value we
+    // worked out, and the panel says so. A fit can be exact and still rest on an inferred fact.
+    const inferred = attrOf(trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_swg: 16 }), "width_mm");
+    expect(inferred?.substituted).toBe(true);
+
+    // THE CONTRAST: with the thickness STATED, nothing behind the fit was substituted -> PLAIN.
+    const stated = attrOf(trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_mm: 1.6 }), "width_mm");
+    expect(stated?.substituted).toBe(false);
   });
 });

@@ -483,6 +483,25 @@ export function derivedAttrIds(config: RateCategoryConfig): Set<string> {
         // field stays EDITABLE and `readOnly` is never set. That is what keeps the pricer's override
         // surface -- the mechanism that corrected two live rows by hand in slice 2.
         if (typeof s.params?.bind === "string" && s.params.bind) out.add(s.params.bind);
+      } else if (s.step === "map_attribute") {
+        // THE FIFTH MECHANISM (slice 3b). A `map_attribute` RESOLVES its target -- a stated value,
+        // else a config table, else a default -- so a blank one means "the row did not state it",
+        // never "the row is incomplete". Without this branch a row stating a gauge but no
+        // millimetre value is gated as incomplete BEFORE the pipeline that would fill it ever runs.
+        //
+        // ⚠️ INERT FOR EVERY SHIPPED CATEGORY EXCEPT CABLE TRAY, and that is not luck: the only
+        // other `map_attribute` steps (industrial_sockets' `mcb_pole` / `mcb_curve`) resolve ids
+        // that are NOT declared attributes, and every consumer of this set iterates
+        // `attribute_definitions`. An id no consumer iterates cannot change anything.
+        //
+        // ⚠️ Unlike the four other mechanisms, membership here is NOT sufficient on its own: a
+        // `map_attribute` can only fill its target when its SOURCE is present on the row, so the
+        // missing-attribute gate narrows it PER ROW via `mapAttributeSources` below. This set stays
+        // the CONFIG-level answer ("could this ever be derived?"); the row-level answer is the
+        // caller's.
+        if (typeof s.params?.result_attr === "string" && s.params.result_attr) {
+          out.add(s.params.result_attr);
+        }
       } else if (s.step === "derive_attribute") {
         // THE THIRD MECHANISM. A `derive_attribute` COMPUTES its target attribute from other
         // attributes, so a blank one means "the row did not state it", never "the row is incomplete".
@@ -499,6 +518,48 @@ export function derivedAttrIds(config: RateCategoryConfig): Set<string> {
           out.add(s.params.result_attr);
         }
       }
+    }
+  }
+  return out;
+}
+
+/**
+ * SLICE 3b -- the PURE half of the CONDITIONAL exemption (owner ruling R8).
+ *
+ * `derivedAttrIds` answers "could the pipeline ever fill this?" at CONFIG level. For the four
+ * original mechanisms that is also the row-level answer: a ladder, a fit and a formula can always
+ * run. A `map_attribute` is the first mechanism that CANNOT -- it fills its target from a SOURCE
+ * attribute, and on a row where that source is blank it fills nothing.
+ *
+ * ⚠️ THIS IS WHY THE EXEMPTION HAD TO BE CONDITIONAL. Exempting a `map_attribute` target
+ * wholesale would drop "Complete the missing attributes to price" on every row where nothing can
+ * fill it -- 35 of 79 live cable-tray rows -- replacing an instruction the pricer can act on with
+ * a refusal they cannot. The owner ruled the message is worth keeping.
+ *
+ * Returns result_attr -> what it needs. `hasDefault` means the step can always fill it (the
+ * curve-else-C shape), so such a target is unconditionally derived and never narrowed.
+ *
+ * PURE, config-only. The per-row decision belongs to the caller, which is the only place row
+ * values exist -- see `pricingSheetHelper`'s pre-pass.
+ */
+export function mapAttributeSources(
+  config: RateCategoryConfig
+): Map<string, { fromAttr?: string; hasDefault: boolean }> {
+  const out = new Map<string, { fromAttr?: string; hasDefault: boolean }>();
+  for (const pl of Object.values(config.pipelines ?? {})) {
+    for (const raw of pl.steps ?? []) {
+      const s = raw as {
+        step?: string;
+        params?: { result_attr?: unknown; from_attr?: unknown; default?: unknown };
+      };
+      if (s.step !== "map_attribute") continue;
+      const resultAttr = s.params?.result_attr;
+      if (typeof resultAttr !== "string" || !resultAttr) continue;
+      const fromAttr = typeof s.params?.from_attr === "string" ? s.params.from_attr : undefined;
+      const hasDefault = s.params?.default !== undefined;
+      // FIRST WINS, matching every other reader over a set of steps: supply and install carry the
+      // identical map steps, so the first occurrence answers for all of them.
+      if (!out.has(resultAttr)) out.set(resultAttr, { fromAttr, hasDefault });
     }
   }
   return out;

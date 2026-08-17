@@ -4205,3 +4205,165 @@ describe("SLICE 3a -- cable tray width fits NEXT HIGHER and reaches the matcher"
     expect(typeof cfTrace(r)?.catalogFit?.fitted).toBe("string");
   });
 });
+
+// ---- SLICE 3b: cable tray thickness -- the SWG map, and the order it must run in ----
+//
+// The tray catalog is rectangular (10 widths x 5 thicknesses x tray_type x material); these rows
+// carry only what these cases need. The SWG values are the STANDARD table, pre-converted and
+// pre-rounded to one decimal in CONFIG -- 14 SWG = 0.080 in = 2.032 mm -> 2.0, 16 SWG = 0.064 in =
+// 1.626 mm -> 1.6. Both land on real catalog rows, so the conversion introduces no refusals.
+const tray3b = (
+  tray_type: string, material: string, thickness_mm: number, width_mm: number, list: number
+): RateMasterItem => ({
+  discipline: "Electrical",
+  kind: "cable_tray",
+  attributes: { tray_type, material, thickness_mm, width_mm },
+  rates: { without_cover_list: list, cover_only_list: 0, install_rate: 30 },
+});
+
+const TRAY3B_ITEMS: RateMasterItem[] = [
+  tray3b("Solid", "GI", 1.6, 100, 200),
+  tray3b("Solid", "GI", 1.6, 150, 300),
+  tray3b("Solid", "GI", 2.0, 100, 400),
+  tray3b("Solid", "GI", 2.0, 150, 600),
+];
+
+/** The shipped SWG table, abbreviated to the rungs these tests exercise plus two neighbours. */
+const SWG_TABLE = { "12": 2.6, "14": 2.0, "16": 1.6, "18": 1.2 };
+
+const SWG_MAP = {
+  step: "map_attribute" as const,
+  params: {
+    result_attr: "thickness_mm",
+    prefer_attr: "thickness_mm",
+    from_attr: "thickness_swg",
+    table: SWG_TABLE,
+  },
+};
+const TRAY3B_FIT = {
+  step: "catalog_fit" as const,
+  params: {
+    bind: "width_mm", fit_into: "width_mm", kind: "cable_tray",
+    where: { tray_type: "@tray_type", material: "@material", thickness_mm: "@thickness_mm" },
+    label_attr: "width_mm", size_from: { attr: "width_mm" }, fit_from: { attr: "width_mm" },
+    direction: "up", on_miss: "no_compute",
+  },
+};
+/** THE SHIPPED ORDER: map_attribute -> catalog_fit -> match_master_row. */
+const tray3bSupply = (steps?: unknown[]): Pipeline =>
+  ({
+    output: ["supply_per_rmt"],
+    steps: steps ?? [
+      SWG_MAP,
+      TRAY3B_FIT,
+      { step: "match_master_row", params: { kind: "cable_tray" } },
+      { step: "component", name: "base", target: "without_cover_list", params: {}, formula: "base" },
+      { step: "sum_components", result: "supply_per_rmt" },
+    ],
+  } as unknown as Pipeline);
+
+const TRAY3B_ROW = { tray_type: "Solid", material: "GI" };
+const mapTrace = (r: ReturnType<typeof runPipeline>) => r.steps.find((s) => s.step === "map_attribute");
+
+describe("SLICE 3b -- the SWG map converts, defers and orders correctly", () => {
+  it("POSITIVE: a row stating ONLY a gauge converts and prices at the catalog thickness", () => {
+    // The live cert shape: BOQ-26-00106 / 154 states "14 gauge" and nothing in millimetres.
+    // 14 -> 2.0, which the catalog carries, so the row prices off the 2.0 rows.
+    const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
+      { ...TRAY3B_ROW, thickness_swg: 14, width_mm: 100 });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply_per_rmt).toBe(400);              // the 2.0 row, not the 1.6 row
+    expect(r.matchedItem?.attributes.thickness_mm).toBe(2);
+    // A mapped value is a SUBSTITUTION -- this is what puts "(computed)" on the thickness field.
+    // SLICE 3b FINISH: the outcome now also carries the RESOLVED value, so the panel can show it.
+    expect(mapTrace(r)?.mapAttribute).toEqual({ result_attr: "thickness_mm", stated: false, value: 2 });
+  });
+
+  it("POSITIVE: 16 SWG converts to 1.6 -- the second live gauge, a different catalog row", () => {
+    const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
+      { ...TRAY3B_ROW, thickness_swg: 16, width_mm: 150 });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply_per_rmt).toBe(300);              // the 1.6 row
+    expect(r.matchedItem?.attributes.thickness_mm).toBe(1.6);
+  });
+
+  it("R6: a row stating BOTH millimetres and a gauge takes the MILLIMETRE value", () => {
+    // `prefer_attr` is checked FIRST, before the source is read. The row says 1.6 mm and 14 SWG
+    // (which would map to 2.0); the stated millimetre value wins and 1.6 is what prices.
+    const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
+      { ...TRAY3B_ROW, thickness_mm: 1.6, thickness_swg: 14, width_mm: 100 });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply_per_rmt).toBe(200);              // the 1.6 row, NOT the 2.0 row
+    expect(r.matchedItem?.attributes.thickness_mm).toBe(1.6);
+    // STATED -- the panel renders it PLAIN, with no "(computed)" tag.
+    // SLICE 3b FINISH: `value` echoes the STATED value on this branch.
+    expect(mapTrace(r)?.mapAttribute).toEqual({ result_attr: "thickness_mm", stated: true, value: 1.6 });
+  });
+
+  it("NEGATIVE: the table is an EXACT KEY lookup -- an unlisted gauge does NOT fuzzy-match", () => {
+    // 15 SWG sits between two listed rungs. `hasOwnProperty(String(src))` is exact, so an unlisted
+    // gauge resolves to nothing and the row refuses. It must NEVER round to a neighbour.
+    const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
+      { ...TRAY3B_ROW, thickness_swg: 15, width_mm: 100 });
+    expect(r.status).toBe("no_match");
+    expect(r.finals.supply_per_rmt).toBeUndefined();
+  });
+
+  it("NEGATIVE (R7): a mapped thickness the catalog does not carry refuses -- silently", () => {
+    // 12 SWG -> 2.6, which is a real conversion but not a catalog thickness. The six live 2.6 mm
+    // rows behave the same way. `no_match` is the SAME status a pre-3b unmatched row produced, so
+    // the helper renders the identical wording and no new text appears.
+    const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
+      { ...TRAY3B_ROW, thickness_swg: 12, width_mm: 100 });
+    expect(r.status).toBe("no_match");
+    expect(r.finals.supply_per_rmt).toBeUndefined();
+  });
+
+  it("ORDER: the map must run BEFORE the width fit, which reads @thickness_mm in its `where`", () => {
+    // THE LOAD-BEARING ORDER. `catalog_fit` filters its ladder on thickness; if the map has not run
+    // the "@thickness_mm" ref is unresolved, the fit bails, and the row dies before the matcher --
+    // even though every fact needed to price it was present.
+    const wrongOrder = [
+      TRAY3B_FIT,
+      SWG_MAP,
+      { step: "match_master_row", params: { kind: "cable_tray" } },
+      { step: "component", name: "base", target: "without_cover_list", params: {}, formula: "base" },
+      { step: "sum_components", result: "supply_per_rmt" },
+    ];
+    const sel = { ...TRAY3B_ROW, thickness_swg: 14, width_mm: 100 };
+    expect(runPipeline("wrong", tray3bSupply(wrongOrder), TRAY3B_ITEMS, { ...sel }).status).toBe("no_match");
+    // The SAME inputs in the shipped order price perfectly well.
+    expect(runPipeline("right", tray3bSupply(), TRAY3B_ITEMS, { ...sel }).status).toBe("ok");
+  });
+
+  it("ORDER: with the map first, the width fit still hops -- 3a's behaviour is intact underneath", () => {
+    // 120 is not a catalog width; it must still fit UP to 150, now against the MAPPED thickness.
+    const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
+      { ...TRAY3B_ROW, thickness_swg: 16, width_mm: 120 });
+    expect(r.status).toBe("ok");
+    expect(r.matchedItem?.attributes.width_mm).toBe(150);
+    expect(r.matchedItem?.attributes.thickness_mm).toBe(1.6);
+    expect(cfTrace(r)?.catalogFit?.substituted).toBe(true);   // the 3a hop, unchanged
+  });
+
+  it("NEGATIVE: neither millimetres nor a gauge -- the pipeline refuses, nothing is invented", () => {
+    const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
+      { ...TRAY3B_ROW, width_mm: 100 });
+    expect(r.status).toBe("no_match");
+    expect(r.finals.supply_per_rmt).toBeUndefined();
+  });
+});
+
+describe("SLICE 3b FINISH -- MapAttributeOutcome carries the resolved value", () => {
+  it("the STATED branch publishes the stated value", () => {
+    const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
+      { ...TRAY3B_ROW, thickness_mm: 1.6, thickness_swg: 14, width_mm: 100 });
+    expect(mapTrace(r)?.mapAttribute).toEqual({ result_attr: "thickness_mm", stated: true, value: 1.6 });
+  });
+
+  it("the TABLE branch publishes the MAPPED value, not the source gauge", () => {
+    const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
+      { ...TRAY3B_ROW, thickness_swg: 14, width_mm: 100 });
+    expect(mapTrace(r)?.mapAttribute).toEqual({ result_attr: "thickness_mm", stated: false, value: 2 });
+  });
+});

@@ -804,6 +804,18 @@ export interface MapAttributeOutcome {
   result_attr: string;
   /** The row stated it, so nothing was substituted. */
   stated: boolean;
+  /**
+   * SLICE 3b FINISH -- THE RESOLVED VALUE, so the panel can show what pricing actually used.
+   *
+   * ⚠️ WITHOUT THIS THE OUTCOME COULD SAY A VALUE WAS SUBSTITUTED BUT NEVER SAY WHAT IT WAS, and
+   * `applyDerivedDisplay` had no way to fill the field: a tray row stating "16SWG" priced correctly
+   * off a converted 1.6 mm while the Thickness field rendered an empty "-- select --". That breaks
+   * the slice-2c rule that the panel shows what pricing used, and the owner caught it on sight.
+   *
+   * It is the same contract `CatalogFitOutcome.fitted` already carries -- read the STRUCTURED data,
+   * never the trace prose, never re-derive the mapping.
+   */
+  value: string | number;
 }
 
 export interface StepTrace {

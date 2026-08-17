@@ -40,6 +40,7 @@ import {
   derivedAttrIds,
   derivedQtyAttrs,
   isDropdownAttributeType,
+  mapAttributeSources,
 } from "@/pages/pricing/rate-master/rateMasterStructure";
 // DERIVED-ATTRIBUTE GATE: the `<name>_qty` half of derivation has ONE definition and this reuses
 // it rather than repeating it (see derivedAttrIds below).
@@ -206,9 +207,23 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
   attrs: WorkingsAttribute[],
   config: RateCategoryConfig,
   results: PipelineResult[],
+  /**
+   * SLICE 3b (owner ruling R9) -- the row-level derived set, when the caller has one.
+   *
+   * The gate and this display must agree: if a blank attribute is being asked for, it has to LOOK
+   * like it is being asked for. Without this the field would render as derived (no red border)
+   * while the message still said "Complete the missing attributes to price" -- border and message
+   * disagreeing about the same field.
+   *
+   * ⚠️ OPTIONAL BY DESIGN, and that is what protects slice 3a's width. Absent => the config-level
+   * set, byte-identical to pre-3b: `computeWiring` passes nothing and is unaffected, and a
+   * `catalog_fit` bind is unconditionally derived on every path, so width renders exactly as it did.
+   * The narrowing can only ever REMOVE a `map_attribute` target on a row whose source is blank.
+   */
+  rowDerivedIds?: ReadonlySet<string>,
 ): WorkingsAttribute[] {
   // The ONE derived predicate (both mechanisms) -- reused, never re-implemented (#179).
-  const derivedIds = derivedAttrIds(config);
+  const derivedIds = rowDerivedIds ?? derivedAttrIds(config);
   const supersededQty = derivedQtyAttrs(config);
   const fit = moduleFitOutcome(results);
   const byBind = new Map((fit?.ladders ?? []).map((l) => [l.bind, l]));
@@ -320,6 +335,28 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
           substituted: cf.substituted || restsOnASubstitutedFact,
         };
       }
+      // 5. SLICE 3b FINISH -- a `map_attribute` TARGET (the tray thickness). The FIFTH mechanism
+      //    reaching this display, read through the interpreter's own reader (`mapAttributeOutcomes`)
+      //    exactly as the four above are.
+      //
+      //    ⚠️ THIS BRANCH IS WHY THE FIELD WAS BLANK. `derivedAttrIds` marked the attribute derived
+      //    -- correctly exempting it from the missing-input gate -- but with no branch here nothing
+      //    filled its `derivedValue`, so a row that priced off a gauge-converted 1.6 mm rendered an
+      //    empty "-- select --". It is the exact shape of the row-98 defect slice 2c fixed for
+      //    `catalog_fit`, and the same rule: THE PANEL SHOWS WHAT PRICING USED.
+      //
+      //    OPTION B, and the two cases are opposite on purpose:
+      //      * STATED -- the row supplied the millimetre value and the mapping never ran, so nothing
+      //        was substituted. PLAIN, no marker. Tagging it would credit the pipeline with the
+      //        pricer's own entry.
+      //      * MAPPED (from the table, or from a default) -- an inference. Marked "(computed)".
+      const mapOut = mapAttributeOutcomes(results).get(a.id);
+      if (mapOut) {
+        // A STATED value publishes no display value: `attrDisplayValue` shows the row's own entry,
+        // which is what actually prices -- the same rule the `derive_attribute` branch above follows.
+        if (mapOut.stated) return { ...a, derived: true };
+        return { ...a, derived: true, derivedValue: String(mapOut.value), substituted: true };
+      }
       return { ...a, derived: true }; // derived by config, but nothing fitted/computed this run
     }
     return {
@@ -415,6 +452,38 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     const defaulted: string[] = []; // EA-4a: attrs the extraction filled from a config default
     // The attributes THIS config computes rather than accepts -- a blank one is not missing input.
     const derived = derivedAttrIds(category);
+    // SLICE 3b (owner ruling R8) -- THE CONDITIONAL EXEMPTION, resolved PER ROW.
+    //
+    // Four of the five derivation mechanisms can always run, so config membership IS the answer. A
+    // `map_attribute` is the exception: it fills its target from a SOURCE attribute, and on a row
+    // where that source is blank it fills nothing. Exempting such a target wholesale would replace
+    // "Complete the missing attributes to price" -- an instruction the pricer can act on -- with a
+    // refusal they cannot, on every row where nothing can fill it. The owner ruled the message is
+    // worth keeping, so the exemption is narrowed to rows the pipeline can actually serve.
+    //
+    // ⚠️ PRE-PASS, in the `disabledByNone` idiom directly above, and for the SAME reason: the source
+    // attribute may sit AFTER its target in the definition list, so this cannot be decided inside the
+    // main loop. `valueOfDef` reads any def's row value independently of loop order.
+    //
+    // ⚠️ THE NARROWING TOUCHES ONLY THE `map_attribute` MECHANISM. A `catalog_fit` bind (slice 3a's
+    // tray width), a `module_fit` ladder bind, a `derive_attribute` target and a superseded qty are
+    // all left exactly as they were -- which is what keeps width, point_wiring, switches_sockets and
+    // industrial_sockets byte-identical. A config with no `map_attribute` produces an EMPTY set here
+    // and `fillableDerived` is `derived`.
+    const unfillableDerived = new Set<string>();
+    for (const [resultAttr, src] of mapAttributeSources(category)) {
+      if (src.hasDefault) continue; // the curve-else-C shape: always fillable, never narrowed
+      const srcDef = src.fromAttr ? defs.find((d) => d.id === src.fromAttr) : undefined;
+      // A source we cannot resolve is NOT evidence of absence -- leave the exemption alone rather
+      // than narrow on a guess. Only a source we can read AND find empty narrows it.
+      if (!srcDef) continue;
+      const v = valueOfDef(srcDef);
+      if (v === null || v === NONE_SENTINEL) unfillableDerived.add(resultAttr);
+    }
+    const fillableDerived =
+      unfillableDerived.size === 0
+        ? derived
+        : new Set([...derived].filter((id) => !unfillableDerived.has(id)));
     let missing = false;
     for (const d of defs) {
       const cell = ext?.attributes[d.id];
@@ -433,7 +502,9 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       // `absent_when` unfired and `fit_from` unreadable, and `on_missing_fact: "none"` zeroes that
       // line rather than inventing one.
       if (coerced === null) {
-        if (!disabled && !derived.has(d.id) && d.panel !== false) missing = true;
+        // SLICE 3b: `fillableDerived`, not `derived` -- see the pre-pass above. Identical to
+        // `derived` for every config without a `map_attribute`.
+        if (!disabled && !fillableDerived.has(d.id) && d.panel !== false) missing = true;
       }
       else selected[d.id] = coerced;
       // A defaulted attribute is one the model filled from the config default (no positive text
@@ -485,7 +556,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
           // but the derived attributes must still not be flagged as the thing that is missing. The
           // red borders that remain are the GENUINE missing inputs, which is exactly the narrowing
           // this slice is: fewer fields flagged, and every one that still is, really is.
-          attributes: applyDerivedDisplay(workingsAttrs, category, []),
+          attributes: applyDerivedDisplay(workingsAttrs, category, [], fillableDerived),
           matchedRows: [],
           derivation: [
             inRun
@@ -575,7 +646,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         ? `Rate master: ${category.category_id} @ ${attrLine}`
         : "no match for these attributes",
       workings: {
-        attributes: applyDerivedDisplay(workingsAttrs, category, pipelineResults),
+        attributes: applyDerivedDisplay(workingsAttrs, category, pipelineResults, fillableDerived),
         matchedRows: flatMatched,
         derivation: flatDerivation,
         finalValues: { ...values },

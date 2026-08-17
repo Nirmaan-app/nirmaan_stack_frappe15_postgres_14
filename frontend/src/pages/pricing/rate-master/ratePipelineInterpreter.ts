@@ -885,7 +885,7 @@ export function runPipeline(
           label: s.explain || `map ${p.result_attr}`,
           matchedCondition: `${p.prefer_attr} stated as ${String(stated)} -- kept (a stated value wins)`,
           // SLICE 2d: the row supplied it, so nothing was substituted -- the option-B "plain" case.
-          mapAttribute: { result_attr: p.result_attr, stated: true },
+          mapAttribute: { result_attr: p.result_attr, stated: true, value: stated as string | number },
           runningValues: snapshot(),
         });
         continue;
@@ -929,7 +929,7 @@ export function runPipeline(
         matchedCondition: `${how} -> ${p.result_attr} = ${String(mapped)}`,
         // SLICE 2d: this value came from the TABLE or from a DEFAULT, not from the row. Both are
         // substitutions, and option B marks the item they feed as "(computed)".
-        mapAttribute: { result_attr: p.result_attr, stated: false },
+        mapAttribute: { result_attr: p.result_attr, stated: false, value: mapped },
         runningValues: snapshot(),
       });
     } else if (stepType === "catalog_fit") {
