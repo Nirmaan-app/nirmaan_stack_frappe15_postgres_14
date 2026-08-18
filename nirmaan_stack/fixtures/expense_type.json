@@ -2,343 +2,441 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Bank Interest",
-  "modified": "2025-06-23 20:42:45.431102",
+  "modified": "2026-08-18 13:20:59.199633",
   "name": "Bank Interest",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Office Maintenance",
-  "modified": "2025-06-23 20:42:55.970975",
+  "modified": "2026-08-18 13:20:59.199179",
   "name": "Office Maintenance",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Postage & Courier",
-  "modified": "2025-06-23 20:43:23.612692",
+  "modified": "2026-08-18 13:20:59.198757",
   "name": "Postage & Courier",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Travel",
   "expense_name": "Travel Expenses (Flight)",
-  "modified": "2025-06-23 20:43:53.620935",
+  "modified": "2026-08-18 18:51:19.729045",
   "name": "Travel Expenses (Flight)",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": "{\n  \"templateId\": \"travel\",\n  \"templateVersion\": 4,\n  \"title\": \"Travel\",\n  \"description_template\": \"{traveller_name} – flight from {from_location} to {to_location} on {depart_date}[[ for {purpose}]].\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Trip\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"traveller_name\",\n          \"label\": \"Traveller Name\",\n          \"type\": \"text\",\n          \"required\": true,\n          \"bind\": \"user.full_name\"\n        },\n        {\n          \"key\": \"purpose\",\n          \"label\": \"Purpose\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"from_location\",\n          \"label\": \"From\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"to_location\",\n          \"label\": \"To\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"depart_date\",\n          \"label\": \"Departure Date\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    },\n    {\n      \"id\": \"proof\",\n      \"type\": \"image_attachments\",\n      \"title\": \"Proof\",\n      \"columns\": 2,\n      \"slots\": [\n        {\n          \"key\": \"bill\",\n          \"label\": \"Ticket / Invoice\",\n          \"accept\": \"image/*,application/pdf\",\n          \"maxSizeMb\": 5,\n          \"maps_to\": \"invoice_attachment\"\n        }\n      ]\n    }\n  ]\n}"
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Electricity Expenses",
-  "modified": "2025-06-23 20:44:18.983952",
+  "modified": "2026-08-18 13:20:59.198263",
   "name": "Electricity Expenses",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Repair & Maintenance",
-  "modified": "2025-06-23 20:44:34.711493",
+  "modified": "2026-08-18 13:20:59.197824",
   "name": "Repair & Maintenance",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "GST Payment",
-  "modified": "2025-06-23 20:44:58.150142",
+  "modified": "2026-08-18 13:20:59.196985",
   "name": "GST Payment",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "TDS Payment",
-  "modified": "2025-06-23 20:45:06.280801",
+  "modified": "2026-08-18 13:20:59.196606",
   "name": "TDS Payment",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Printing & Stationery",
-  "modified": "2025-06-23 20:45:33.296985",
+  "modified": "2026-08-18 13:20:59.195960",
   "name": "Printing & Stationery",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Pooja Expenses",
-  "modified": "2025-06-23 20:45:45.331787",
+  "modified": "2026-08-18 13:20:59.195427",
   "name": "Pooja Expenses",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Other Financial Expenses",
-  "modified": "2025-06-23 20:46:06.786873",
+  "modified": "2026-08-18 13:20:59.194683",
   "name": "Other Financial Expenses",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Rent Expenses",
-  "modified": "2025-06-23 20:46:15.638641",
+  "modified": "2026-08-18 13:20:59.194380",
   "name": "Rent Expenses",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Salaries & Employee Wages",
-  "modified": "2025-06-23 20:46:32.120799",
+  "modified": "2026-08-18 13:20:59.194049",
   "name": "Salaries & Employee Wages",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Bank Fees & Charges",
-  "modified": "2025-06-23 16:09:12.362624",
+  "modified": "2026-08-18 13:20:59.201038",
   "name": "Bank Fees & Charges",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Fixed Deposit",
-  "modified": "2025-07-01 18:40:25.701957",
+  "modified": "2026-08-18 13:20:59.192654",
   "name": "Fixed Deposit",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Staff Welfare Expenses",
-  "modified": "2025-07-01 18:40:19.765398",
+  "modified": "2026-08-18 13:20:59.193014",
   "name": "Staff Welfare Expenses",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Loan Repayment",
-  "modified": "2025-07-01 18:20:02.279200",
+  "modified": "2026-08-18 13:20:59.193336",
   "name": "Loan Repayment",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Professional Charges",
-  "modified": "2025-07-01 18:10:22.512039",
+  "modified": "2026-08-18 13:20:59.193680",
   "name": "Professional Charges",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Loading & Unloading Charges",
-  "modified": "2025-07-01 19:14:42.021344",
+  "modified": "2026-08-18 13:20:59.191864",
   "name": "Loading & Unloading Charges",
   "non_project": 0,
-  "project": 1
+  "project": 1,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Material Transportation Charges",
-  "modified": "2025-07-01 19:15:01.232812",
+  "modified": "2026-08-18 13:20:59.191440",
   "name": "Material Transportation Charges",
   "non_project": 0,
-  "project": 1
+  "project": 1,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Scaffolding Rent",
-  "modified": "2025-07-01 19:15:18.985910",
+  "modified": "2026-08-18 13:20:59.191031",
   "name": "Scaffolding Rent",
   "non_project": 0,
-  "project": 1
+  "project": 1,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Project Insurance Charges",
-  "modified": "2025-07-01 19:18:16.496043",
+  "modified": "2026-08-18 13:20:59.190322",
   "name": "Project Insurance Charges",
   "non_project": 0,
-  "project": 1
+  "project": 1,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Project Printing Charges",
-  "modified": "2025-07-01 19:18:34.086064",
+  "modified": "2026-08-18 13:20:59.189927",
   "name": "Project Printing Charges",
   "non_project": 0,
-  "project": 1
+  "project": 1,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Other Project Related Charges",
-  "modified": "2025-07-01 19:18:51.698059",
+  "modified": "2026-08-18 13:20:59.189476",
   "name": "Other Project Related Charges",
   "non_project": 0,
-  "project": 1
+  "project": 1,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Advertising & Marketing",
-  "modified": "2025-06-23 20:42:30.347237",
+  "modified": "2026-08-18 13:20:59.200040",
   "name": "Advertising & Marketing",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Internet & Mobile Charges",
-  "modified": "2025-06-23 20:44:48.584868",
+  "modified": "2026-08-18 13:20:59.197371",
   "name": "Internet & Mobile Charges",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Audit Fee",
-  "modified": "2025-06-23 20:45:52.296115",
+  "modified": "2026-08-18 13:20:59.195024",
   "name": "Audit Fee",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Labour Charges",
-  "modified": "2025-07-01 19:14:23.310134",
+  "modified": "2026-08-18 13:20:59.192280",
   "name": "Labour Charges",
   "non_project": 0,
-  "project": 1
+  "project": 1,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Material Purchases",
-  "modified": "2025-07-01 19:18:00.942831",
+  "modified": "2026-08-18 13:20:59.190662",
   "name": "Material Purchases",
   "non_project": 0,
-  "project": 1
+  "project": 1,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Software Chagres",
-  "modified": "2025-06-23 16:09:26.895699",
+  "modified": "2026-08-18 13:20:59.200417",
   "name": "Software Chagres",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Hotel & Accommodation",
   "expense_name": "Hotel Expenses",
-  "modified": "2025-07-22 18:24:55.581781",
+  "modified": "2026-08-18 18:11:49.499944",
   "name": "Hotel Expenses",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": "{\n  \"templateId\": \"hotel-stay\",\n  \"templateVersion\": 3,\n  \"title\": \"Hotel Stay\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Stay\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"guest_name\",\n          \"label\": \"Guest Name\",\n          \"type\": \"text\",\n          \"required\": true,\n          \"bind\": \"user.full_name\"\n        },\n        {\n          \"key\": \"hotel_name\",\n          \"label\": \"Hotel\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"City\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"check_in\",\n          \"label\": \"Check-in\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"check_out\",\n          \"label\": \"Check-out\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    },\n    {\n      \"id\": \"proof\",\n      \"type\": \"image_attachments\",\n      \"title\": \"Proof\",\n      \"columns\": 2,\n      \"slots\": [\n        {\n          \"key\": \"bill\",\n          \"label\": \"Bill / Receipt\",\n          \"accept\": \"image/*,application/pdf\",\n          \"maxSizeMb\": 5,\n          \"maps_to\": \"invoice_attachment\"\n        }\n      ]\n    }\n  ]\n}"
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Manpower Rent",
-  "modified": "2025-07-22 18:25:07.718037",
+  "modified": "2026-08-18 13:20:59.189080",
   "name": "Manpower Rent",
   "non_project": 0,
-  "project": 1
+  "project": 1,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Fixed Assets",
-  "modified": "2025-08-08 08:54:57.438943",
+  "modified": "2026-08-18 13:20:59.188636",
   "name": "Fixed Assets",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Loan",
-  "modified": "2026-07-04 18:40:12.399476",
+  "modified": "2026-08-18 13:20:59.188089",
   "name": "Loan",
   "non_project": 1,
-  "project": 0
+  "project": 0,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Hotel & Accommodation",
   "expense_name": "Accommodation Deposit",
-  "modified": "2026-07-22 18:31:02.584605",
+  "modified": "2026-08-18 18:39:56.297904",
   "name": "Accommodation Deposit",
   "non_project": 0,
-  "project": 1
+  "project": 1,
+  "source_format": null
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Hotel & Accommodation",
   "expense_name": "Labour Accommodation Rent",
-  "modified": "2026-07-22 18:31:22.465176",
+  "modified": "2026-08-18 13:20:59.203900",
   "name": "Labour Accommodation Rent",
   "non_project": 0,
-  "project": 1
+  "project": 1,
+  "source_format": "{\n  \"templateId\": \"labour-accommodation\",\n  \"templateVersion\": 3,\n  \"title\": \"Labour Accommodation\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Labour Accommodation\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"accommodation_type\",\n          \"label\": \"Accommodation Type\",\n          \"type\": \"select\",\n          \"options\": [\n            \"PG\",\n            \"Hotel\",\n            \"Flat / House\",\n            \"Guest House\",\n            \"Other\"\n          ],\n          \"required\": true\n        },\n        {\n          \"key\": \"building_name\",\n          \"label\": \"Building Name\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"city\",\n          \"label\": \"City\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"rent_period_from\",\n          \"label\": \"Rent Period From\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"rent_period_to\",\n          \"label\": \"Rent Period To\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"no_of_occupants\",\n          \"label\": \"No. of Occupants\",\n          \"type\": \"number\",\n          \"min\": 1,\n          \"required\": true\n        },\n        {\n          \"key\": \"rent_per_occupant\",\n          \"label\": \"Rent per Occupant\",\n          \"type\": \"number\",\n          \"min\": 0\n        }\n      ]\n    },\n    {\n      \"id\": \"proof\",\n      \"type\": \"image_attachments\",\n      \"title\": \"Proof\",\n      \"columns\": 2,\n      \"slots\": [\n        {\n          \"key\": \"bill\",\n          \"label\": \"Bill / Receipt\",\n          \"accept\": \"image/*,application/pdf\",\n          \"maxSizeMb\": 5,\n          \"maps_to\": \"invoice_attachment\"\n        }\n      ]\n    }\n  ]\n}"
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Hotel & Accommodation",
   "expense_name": "Staff Accommodation Rent",
-  "modified": "2026-07-22 18:31:39.499736",
+  "modified": "2026-08-18 17:00:39.601281",
   "name": "Staff Accommodation Rent",
   "non_project": 0,
-  "project": 1
+  "project": 1,
+  "source_format": "{\n  \"templateId\": \"staff-accommodation\",\n  \"templateVersion\": 4,\n  \"title\": \"Staff Accommodation\",\n  \"description_template\": \"{person_name} – {accommodation_type} accommodation at {building_name}[[, {city}]][[, from {rent_period_from} to {rent_period_to}]].\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Staff Accommodation\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"person_name\",\n          \"label\": \"Person Name\",\n          \"type\": \"text\",\n          \"required\": true,\n          \"bind\": \"user.full_name\"\n        },\n        {\n          \"key\": \"accommodation_type\",\n          \"label\": \"Accommodation Type\",\n          \"type\": \"select\",\n          \"options\": [\n            \"PG\",\n            \"Hotel\",\n            \"Flat / House\",\n            \"Guest House\",\n            \"Other\"\n          ],\n          \"required\": true\n        },\n        {\n          \"key\": \"building_name\",\n          \"label\": \"Building Name\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"city\",\n          \"label\": \"City\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"rent_period_from\",\n          \"label\": \"Rent Period From\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"rent_period_to\",\n          \"label\": \"Rent Period To\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    },\n    {\n      \"id\": \"proof\",\n      \"type\": \"image_attachments\",\n      \"title\": \"Proof\",\n      \"columns\": 2,\n      \"slots\": [\n        {\n          \"key\": \"bill\",\n          \"label\": \"Bill / Receipt\",\n          \"accept\": \"image/*,application/pdf\",\n          \"maxSizeMb\": 5,\n          \"maps_to\": \"invoice_attachment\"\n        }\n      ]\n    }\n  ]\n}"
  },
  {
   "docstatus": 0,
   "doctype": "Expense Type",
+  "expense_category": "Other",
   "expense_name": "Petty Cash",
-  "modified": "2026-08-13 00:00:00.000000",
+  "modified": "2026-08-18 13:20:59.187027",
   "name": "Petty Cash",
   "non_project": 1,
-  "project": 1
+  "project": 1,
+  "source_format": null
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_category": "Travel",
+  "expense_name": "Travel Expenses (Bus)",
+  "modified": "2026-08-18 18:51:19.441955",
+  "name": "Travel Expenses (Bus)",
+  "non_project": 1,
+  "project": 0,
+  "source_format": "{\n  \"templateId\": \"travel\",\n  \"templateVersion\": 4,\n  \"title\": \"Travel\",\n  \"description_template\": \"{traveller_name} – bus travel from {from_location} to {to_location} on {depart_date}[[ for {purpose}]].\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Trip\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"traveller_name\",\n          \"label\": \"Traveller Name\",\n          \"type\": \"text\",\n          \"required\": true,\n          \"bind\": \"user.full_name\"\n        },\n        {\n          \"key\": \"purpose\",\n          \"label\": \"Purpose\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"from_location\",\n          \"label\": \"From\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"to_location\",\n          \"label\": \"To\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"depart_date\",\n          \"label\": \"Departure Date\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    },\n    {\n      \"id\": \"proof\",\n      \"type\": \"image_attachments\",\n      \"title\": \"Proof\",\n      \"columns\": 2,\n      \"slots\": [\n        {\n          \"key\": \"bill\",\n          \"label\": \"Ticket / Invoice\",\n          \"accept\": \"image/*,application/pdf\",\n          \"maxSizeMb\": 5,\n          \"maps_to\": \"invoice_attachment\"\n        }\n      ]\n    }\n  ]\n}"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_category": "Travel",
+  "expense_name": "Travel Expenses (Train)",
+  "modified": "2026-08-18 18:51:19.731430",
+  "name": "Travel Expenses (Train)",
+  "non_project": 1,
+  "project": 0,
+  "source_format": "{\n  \"templateId\": \"travel\",\n  \"templateVersion\": 4,\n  \"title\": \"Travel\",\n  \"description_template\": \"{traveller_name} – train travel from {from_location} to {to_location} on {depart_date}[[ for {purpose}]].\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Trip\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"traveller_name\",\n          \"label\": \"Traveller Name\",\n          \"type\": \"text\",\n          \"required\": true,\n          \"bind\": \"user.full_name\"\n        },\n        {\n          \"key\": \"purpose\",\n          \"label\": \"Purpose\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"from_location\",\n          \"label\": \"From\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"to_location\",\n          \"label\": \"To\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"depart_date\",\n          \"label\": \"Departure Date\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    },\n    {\n      \"id\": \"proof\",\n      \"type\": \"image_attachments\",\n      \"title\": \"Proof\",\n      \"columns\": 2,\n      \"slots\": [\n        {\n          \"key\": \"bill\",\n          \"label\": \"Ticket / Invoice\",\n          \"accept\": \"image/*,application/pdf\",\n          \"maxSizeMb\": 5,\n          \"maps_to\": \"invoice_attachment\"\n        }\n      ]\n    }\n  ]\n}"
  }
 ]

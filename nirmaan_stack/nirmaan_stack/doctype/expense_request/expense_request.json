@@ -1,0 +1,139 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "EXR-.YY.-.#####",
+ "creation": "2026-08-18 10:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "request_details_section",
+  "type",
+  "type_allows_project",
+  "projects",
+  "amount",
+  "comment",
+  "form_response_section",
+  "source_data",
+  "review_section",
+  "status",
+  "reviewed_by",
+  "reviewed_on",
+  "review_comment"
+ ],
+ "fields": [
+  {
+   "fieldname": "request_details_section",
+   "fieldtype": "Section Break",
+   "label": "Request Details"
+  },
+  {
+   "fieldname": "type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Expense Type",
+   "options": "Expense Type",
+   "reqd": 1
+  },
+  {
+   "description": "Mirror of Expense Type.project, fetched so `depends_on` can read it -- Frappe cannot evaluate a linked doctype's field. Not user data; never edit it directly.",
+   "fetch_from": "type.project",
+   "fieldname": "type_allows_project",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Type Allows Project",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.type_allows_project",
+   "description": "Shown only for an Expense Type flagged `project`. Its PRESENCE decides which ledger Approve writes to -- set means Project Expenses, blank means Non Project Expenses. There is deliberately no separate `expense_kind` field.",
+   "fieldname": "projects",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Projects"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "reqd": 1
+  },
+  {
+   "description": "Mirrors the ledgers' own `comment` field. The REQUESTER's note -- the reviewer's is `review_comment`.",
+   "fieldname": "comment",
+   "fieldtype": "Small Text",
+   "label": "Comment"
+  },
+  {
+   "fieldname": "form_response_section",
+   "fieldtype": "Section Break",
+   "label": "Form Response"
+  },
+  {
+   "description": "Answers to the Expense Type's source_format, as JSON. NULL is normal and valid -- a type that declares no format is still fully requestable on the native fields alone.",
+   "fieldname": "source_data",
+   "fieldtype": "Long Text",
+   "label": "Source Data"
+  },
+  {
+   "fieldname": "review_section",
+   "fieldtype": "Section Break",
+   "label": "Review"
+  },
+  {
+   "default": "Pending Approval",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Pending Approval\nApproved\nRejected\nPaid"
+  },
+  {
+   "fieldname": "reviewed_by",
+   "fieldtype": "Link",
+   "label": "Reviewed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "When the decision was made. NOT `modified`, which any later edit bumps.",
+   "fieldname": "reviewed_on",
+   "fieldtype": "Datetime",
+   "label": "Reviewed On",
+   "read_only": 1
+  },
+  {
+   "description": "The REVIEWER's reason. Required on Reject -- it is the only thing the requester gets back.",
+   "fieldname": "review_comment",
+   "fieldtype": "Small Text",
+   "label": "Review Comment"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-18 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Expense Request",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {"create":1,"delete":1,"email":1,"export":1,"print":1,"read":1,"report":1,"role":"System Manager","share":1,"write":1},
+  {"create":1,"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan Project Manager","share":1,"write":1},
+  {"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan HR Executive","share":1,"write":1},
+  {"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan HR Lead","share":1,"write":1},
+  {"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan Accountant","share":1,"write":1},
+  {"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan Accountant Lead","share":1,"write":1},
+  {"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan PMO Executive","share":1},
+  {"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan Project Lead","share":1}
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
