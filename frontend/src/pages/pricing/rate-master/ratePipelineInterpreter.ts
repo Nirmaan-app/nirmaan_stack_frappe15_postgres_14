@@ -16,7 +16,9 @@
 //  - ROUNDUP is Excel ROUNDUP (away from zero) at `digits`: digits -1 => tens.
 
 import type {
+  CatalogFitOutcome,
   DerivedAttrOutcome,
+  MapAttributeOutcome,
   ModuleFitOutcome,
   Pipeline,
   PipelineResult,
@@ -105,7 +107,19 @@ export function evalFormula(expr: string, env: Record<string, number>): number {
     }
     if (tk.t === "id") {
       pos++;
-      if (!(tk.v in env)) throw new Error(`Unknown identifier '${tk.v}' in formula '${expr}'`);
+      // F-18 (R4) -- THE RIDER THAT MAKES THE DOC COMMENT ABOVE TRUE.
+      // `in` tests KEY PRESENCE, not value-hood: `"base" in { base: undefined }` is TRUE. So a
+      // binding assigned `undefined` used to sail past this guard, return `undefined` into the
+      // arithmetic, and reach the caller as NaN under `status: "ok"` -- the exact opposite of
+      // "surfaces config problems rather than silently mis-computing". An identifier bound to
+      // NOTHING says no more than an unbound one, so it raises the SAME error and degrades through
+      // the Option-C wrapper to the honest `unsupported`.
+      // This is a BACKSTOP, not the primary fix: every call site that could bind an absent rate now
+      // guards its own target first (E1/E2/E3 below) and returns the better-worded `no_match`. What
+      // this covers is a FUTURE formula site written without that guard.
+      if (!(tk.v in env) || env[tk.v] === undefined) {
+        throw new Error(`Unknown identifier '${tk.v}' in formula '${expr}'`);
+      }
       return env[tk.v];
     }
     if (tk.t === "lp") {
@@ -368,20 +382,75 @@ export function moduleSizesFromLabel(label: string): number[] {
  */
 export function buildModuleLadder(
   items: RateMasterItem[],
-  spec: { kind: string; where?: Record<string, string | number>; label_attr?: string }
+  spec: {
+    kind: string;
+    /** SLICE 2b: a value may be a LIST, matching any member. Values arrive ALREADY "@"-resolved --
+     * resolution needs the run's binding scopes, and keeping it out here keeps this pure. */
+    where?: Record<string, string | number | Array<string | number>>;
+    label_attr?: string;
+    /** SLICE 2b: where a rung's SIZE comes from. Absent => parse the label, the behaviour every
+     * pre-2b caller relies on and the reason `module_fit` is byte-unaffected by this change. */
+    size_from?: { attr: string } | { label: true };
+  }
 ): ModuleRung[] {
   const labelAttr = spec.label_attr || "item";
   const where = spec.where ?? {};
-  const rungs: ModuleRung[] = [];
+  const sizeAttr =
+    spec.size_from && "attr" in spec.size_from ? spec.size_from.attr : undefined;
+  // SLICE 2b: list-valued `where` keys, in sorted key order, define the PREFERENCE vector -- the
+  // index of the member each row matched. Two rows tying on the same SIZE are settled by comparing
+  // those vectors lexicographically (earlier member wins), and only then by the original (size,
+  // label) order. With no list-valued key every vector is empty and the comparison collapses to the
+  // pre-2b sort exactly.
+  const listKeys = Object.keys(where).filter((k) => Array.isArray(where[k])).sort();
+  const rungs: Array<ModuleRung & { pref: number[] }> = [];
   for (const it of items) {
     if (it.kind !== spec.kind) continue;
-    if (!Object.entries(where).every(([k, v]) => it.attributes?.[k] === v)) continue;
+    let matched = true;
+    const pref: number[] = [];
+    for (const [k, v] of Object.entries(where)) {
+      const got = it.attributes?.[k];
+      if (Array.isArray(v)) {
+        const idx = v.indexOf(got as string | number);
+        if (idx < 0) { matched = false; break; }
+      } else if (got !== v) {
+        matched = false;
+        break;
+      }
+    }
+    if (!matched) continue;
+    for (const k of listKeys) {
+      pref.push((where[k] as Array<string | number>).indexOf(it.attributes?.[k] as string | number));
+    }
     const label = it.attributes?.[labelAttr];
     if (typeof label !== "string" && typeof label !== "number") continue;
-    for (const size of moduleSizesFromLabel(String(label))) rungs.push({ size, label: String(label) });
+    if (sizeAttr) {
+      // SIZE FROM A NUMERIC ATTRIBUTE. A row whose size attribute is missing or non-numeric is not a
+      // rung -- it is skipped silently here, and an EMPTY ladder is what the caller reports.
+      const raw = it.attributes?.[sizeAttr];
+      const n = typeof raw === "number" ? raw : Number(raw);
+      if (!Number.isFinite(n)) continue;
+      rungs.push({ size: n, label: String(label), pref });
+    } else {
+      for (const size of moduleSizesFromLabel(String(label))) rungs.push({ size, label: String(label), pref });
+    }
   }
-  rungs.sort((a, b) => (a.size - b.size) || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
-  return rungs.filter((r, i) => i === 0 || rungs[i - 1].size !== r.size);
+  const prefCmp = (a: number[], b: number[]) => {
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      const d = (a[i] ?? 0) - (b[i] ?? 0);
+      if (d !== 0) return d;
+    }
+    return 0;
+  };
+  rungs.sort(
+    (a, b) =>
+      (a.size - b.size) ||
+      prefCmp(a.pref, b.pref) ||
+      (a.label < b.label ? -1 : a.label > b.label ? 1 : 0)
+  );
+  return rungs
+    .filter((r, i) => i === 0 || rungs[i - 1].size !== r.size)
+    .map(({ size, label }) => ({ size, label }));
 }
 
 /**
@@ -396,9 +465,25 @@ export function buildModuleLadder(
  * then re-checks with `circuits <= 0`, so an unusable fit is still caught downstream; here there is no
  * such second gate.) PURE.
  */
-export function fitModuleLadder(rungs: ModuleRung[], count: number): { label: string; modules: number; exact: boolean } | null {
+export function fitModuleLadder(
+  rungs: ModuleRung[],
+  count: number,
+  /** SLICE 2b. "up" (the DEFAULT, and every pre-2b caller's behaviour) = exact else the next HIGHER
+   * rung. "down" = exact else the next LOWER, for a future consumer whose oversize is the unsafe
+   * direction. `module_fit` never passes this and is byte-unaffected. */
+  direction: "up" | "down" = "up"
+): { label: string; modules: number; exact: boolean } | null {
   const exact = rungs.find((r) => r.size === count);
   if (exact) return { label: exact.label, modules: exact.size, exact: true };
+  if (direction === "down") {
+    // rungs are ascending, so the last one below the count is the nearest lower.
+    let lower: ModuleRung | undefined;
+    for (const r of rungs) {
+      if (r.size < count) lower = r;
+      else break;
+    }
+    return lower ? { label: lower.label, modules: lower.size, exact: false } : null;
+  }
   const next = rungs.find((r) => r.size > count);
   return next ? { label: next.label, modules: next.size, exact: false } : null;
 }
@@ -442,6 +527,59 @@ export function derivedAttrOutcomes(
   for (const r of results) {
     for (const st of r.steps ?? []) {
       if (st.derivedAttr && !out.has(st.derivedAttr.attr)) out.set(st.derivedAttr.attr, st.derivedAttr);
+    }
+  }
+  return out;
+}
+
+/**
+ * SLICE 2c: the `catalog_fit` OUTCOMES carried by a set of pipeline results, keyed by the attribute
+ * each ladder BINDS -- the third reader of a structured step outcome, mirroring `moduleFitOutcome`
+ * and `derivedAttrOutcomes` exactly.
+ *
+ * WHY A READER AND NOT A NEW RESULT FIELD: `runPipeline` builds its result at 28 separate return
+ * sites and its selection overlay / label binds are function-local, so publishing an "effective
+ * selection" would mean touching every one of them. The outcome each step already publishes on its
+ * own trace is the established channel -- so this adds a pure function and changes NO existing code
+ * path. A caller that ignores it is not merely byte-identical; it is untouched.
+ *
+ * FIRST-WINS, like `derivedAttrOutcomes`: a category may run the same `catalog_fit` in several
+ * pipelines (supply + install), and they compute the identical bind, so the first is the answer.
+ *
+ * ⚠️ IT RETURNS EVERY VERDICT, NOT ONLY A FITTED ONE. A stated-wins outcome (`stated` set,
+ * `fitted` null) and a positively-absent one (`absent` true) are both real answers about what
+ * pricing used -- a consumer that wants "was a value computed?" must test `fitted`, never mere
+ * presence in this map. PURE.
+ */
+export function catalogFitOutcomes(
+  results: Array<{ steps: StepTrace[] }>
+): Map<string, CatalogFitOutcome> {
+  const out = new Map<string, CatalogFitOutcome>();
+  for (const r of results) {
+    for (const st of r.steps ?? []) {
+      if (st.catalogFit && !out.has(st.catalogFit.bind)) out.set(st.catalogFit.bind, st.catalogFit);
+    }
+  }
+  return out;
+}
+
+/**
+ * SLICE 2d -- the ONE reader over `StepTrace.mapAttribute`, keyed by `result_attr`, first-wins across
+ * pipelines (supply and install carry the identical map steps). The `catalogFitOutcomes` shape, third
+ * instance of the same contract: read the structured data, never the prose, never re-derive.
+ *
+ * It exists so option B can answer *"was the fact this item rests on STATED, or did we work it out?"*
+ * -- the question that separates a plain marker from "(computed)" when the ladder itself hit exactly.
+ */
+export function mapAttributeOutcomes(
+  results: Array<{ steps: StepTrace[] }>
+): Map<string, MapAttributeOutcome> {
+  const out = new Map<string, MapAttributeOutcome>();
+  for (const r of results) {
+    for (const st of r.steps ?? []) {
+      if (st.mapAttribute && !out.has(st.mapAttribute.result_attr)) {
+        out.set(st.mapAttribute.result_attr, st.mapAttribute);
+      }
     }
   }
   return out;
@@ -542,7 +680,23 @@ export function runPipeline(
         // no matching condition -> treat as a data gap, honestly (no value produced)
         return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
       }
-      const value = ctx[s.target] * evalFormula(s.formula, { ...cond.params });
+      // F-18 (E3) -- the matched row must actually CARRY the rate this step multiplies.
+      // ⚠️ THE MULTIPLY IS OUTSIDE `evalFormula`, so the identifier guard up in the evaluator can
+      // never see this one: `undefined * <number>` is NaN with nothing thrown, and that NaN reached
+      // `finals` under `status: "ok"`. Guarded here, in the `component_ref` idiom (its check AND its
+      // message shape), because a missing rate on a row we DID match is a data gap -- `no_match` --
+      // not a config gap (`unsupported`).
+      const effBase = ctx[s.target];
+      if (typeof effBase !== "number" || !Number.isFinite(effBase)) {
+        steps.push({
+          step: stepType,
+          label: s.explain || "apply effective multiplier",
+          matchedCondition: `${s.target} not on the matched row -- not computed`,
+          runningValues: snapshot(),
+        });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
+      const value = effBase * evalFormula(s.formula, { ...cond.params });
       ctx[s.result] = value;
       steps.push({
         step: stepType,
@@ -701,9 +855,287 @@ export function runPipeline(
         produced: { key: p.result_attr, value: derived },
         runningValues: snapshot(),
       });
+    } else if (stepType === "map_attribute") {
+      // SLICE 2b: resolve ONE string attribute -- stated wins, else a config table, else a default.
+      // A CONVERSION belongs in code (the owner's standing principle), and `derive_attribute` cannot
+      // serve because its formula language is arithmetic and a pole is a string.
+      const s = raw as import("./rateMasterTypes").MapAttributeStep;
+      const p = s.params;
+      // Same shape as every other step's local refusal (bail is block-scoped by design, so each
+      // step owns its own and none can leak into another).
+      const bail = (label: string) => {
+        steps.push({ step: stepType, label, runningValues: snapshot() });
+        return { pipelineId, outputs: pipeline.output, status: "no_match" as const, steps, finals: {}, matchedItem, note: pipeline.note };
+      };
+      if (!p || typeof p.result_attr !== "string" || !p.result_attr) {
+        // OPTION C: a malformed step declared no target. Its own honest refusal, distinct from
+        // "the inputs could not be read".
+        return bail("map_attribute declares no result_attr -- no value computed");
+      }
+      const isStated = (v: string | number | undefined) =>
+        v !== undefined && v !== null && v !== "" && v !== NONE_SENTINEL;
+
+      // (a) STATED-WINS, checked FIRST -- before the source is even read, so a stated value resolves
+      // even when the attribute the table would have mapped is blank or unreadable.
+      const stated = p.prefer_attr ? selected[p.prefer_attr] : undefined;
+      if (isStated(stated)) {
+        selected[p.result_attr] = stated as string | number;
+        steps.push({
+          step: stepType,
+          label: s.explain || `map ${p.result_attr}`,
+          matchedCondition: `${p.prefer_attr} stated as ${String(stated)} -- kept (a stated value wins)`,
+          // SLICE 2d: the row supplied it, so nothing was substituted -- the option-B "plain" case.
+          mapAttribute: { result_attr: p.result_attr, stated: true, value: stated as string | number },
+          runningValues: snapshot(),
+        });
+        continue;
+      }
+
+      // (b) the table, then the default. An unmapped source is NOT an error when a default exists --
+      // that is the curve-else-C shape, where "nothing stated" has a right answer.
+      let mapped: string | number | undefined;
+      let how = "";
+      const src = p.from_attr ? selected[p.from_attr] : undefined;
+      if (p.table && isStated(src) && Object.prototype.hasOwnProperty.call(p.table, String(src))) {
+        mapped = p.table[String(src)];
+        how = `${p.from_attr} ${String(src)} -> ${String(mapped)}`;
+      } else if (p.default !== undefined) {
+        mapped = p.default;
+        how = `nothing stated -> ${String(mapped)} (default)`;
+      }
+
+      if (mapped === undefined) {
+        if (p.on_miss === "skip") {
+          steps.push({
+            step: stepType,
+            label: s.explain || `map ${p.result_attr}`,
+            matchedCondition: `${p.result_attr} not resolved -- skipped`,
+            runningValues: snapshot(),
+          });
+          continue;
+        }
+        // HONEST NO-COMPUTE, naming the attribute -- never a guess and never a silent blank.
+        return bail(
+          p.from_attr
+            ? `${p.from_attr} ("${String(src ?? "")}") maps to no ${p.result_attr} -- no value computed`
+            : `${p.result_attr} has nothing to resolve from -- no value computed`
+        );
+      }
+
+      selected[p.result_attr] = mapped;
+      steps.push({
+        step: stepType,
+        label: s.explain || `map ${p.result_attr}`,
+        matchedCondition: `${how} -> ${p.result_attr} = ${String(mapped)}`,
+        // SLICE 2d: this value came from the TABLE or from a DEFAULT, not from the row. Both are
+        // substitutions, and option B marks the item they feed as "(computed)".
+        mapAttribute: { result_attr: p.result_attr, stated: false, value: mapped },
+        runningValues: snapshot(),
+      });
+    } else if (stepType === "catalog_fit") {
+      // SLICE 2b: fit a stated NUMBER onto a catalog-derived ladder and BIND the chosen row's label.
+      // The generic half of `module_fit`, reusable by slice 3's tray width and F-10's converted
+      // thickness. Binds into `fitLabels`, so "@<bind>" resolves through the ONE existing order.
+      const s = raw as import("./rateMasterTypes").CatalogFitStep;
+      const p = s.params;
+      const bail = (label: string) => {
+        steps.push({ step: stepType, label, runningValues: snapshot() });
+        return { pipelineId, outputs: pipeline.output, status: "no_match" as const, steps, finals: {}, matchedItem, note: pipeline.note };
+      };
+      if (!p || typeof p.bind !== "string" || !p.bind || typeof p.kind !== "string" || !p.kind
+          || !p.fit_from || typeof p.fit_from.attr !== "string" || !p.fit_from.attr) {
+        // OPTION C: "declared nothing to fit" is not the same statement as "the inputs were
+        // unreadable", so a malformed step keeps its own refusal.
+        return bail("catalog_fit declares no bind / kind / fit_from -- no value computed");
+      }
+      const isStated = (v: string | number | undefined) =>
+        v !== undefined && v !== null && v !== "";
+
+      // SLICE 2d -- the attribute ids behind this step's `where` "@" references, collected ONCE and in
+      // config order. Computed here, before any early return, so the stated and absent paths publish
+      // the same join key as the fitted path: a consumer must never have to care WHICH branch ran to
+      // know which facts this fit rests on. List members are included -- `["@mcb_curve", "NA"]` rests
+      // on the curve just as much as a bare ref does.
+      const whereRefs: string[] = [];
+      for (const v of Object.values(p.where ?? {})) {
+        for (const m of Array.isArray(v) ? v : [v]) {
+          if (typeof m === "string" && m.startsWith("@")) whereRefs.push(m.slice(1));
+        }
+      }
+
+      const pushFit = (
+        matchedCondition: string,
+        outcome: import("./rateMasterTypes").CatalogFitOutcome
+      ) => {
+        steps.push({
+          step: stepType,
+          label: s.explain || `catalog fit: ${p.bind}`,
+          matchedCondition,
+          catalogFit: outcome,
+          runningValues: snapshot(),
+        });
+      };
+
+      // (a) STATED-WINS. Bind NOTHING, so `resolveAtRef` falls through to the selection and the
+      // stated item is what prices. THIS IS WHAT KEEPS THE PRICER'S OVERRIDE SURFACE ALIVE -- the
+      // mechanism that corrected rows 98 and 87 by hand. Checked before anything is read.
+      const statedItem = p.prefer_attr ? selected[p.prefer_attr] : undefined;
+      if (isStated(statedItem)) {
+        pushFit(`${p.prefer_attr} stated as ${String(statedItem)} -- kept (a stated value wins)`, {
+          bind: p.bind, fitted: null, size: null, requested: null, exact: false,
+          absent: statedItem === NONE_SENTINEL, stated: String(statedItem),
+          // OPTION B: the row's own value is what prices -- this step fitted nothing, so it
+          // substituted nothing. The panel renders it PLAIN.
+          substituted: false, whereRefs,
+        });
+        continue;
+      }
+
+      // (b) POSITIVE ABSENCE. Bind the sentinel so a `none_skips` component zeroes its line; an
+      // UNBOUND "@" ref would be a bindMiss and refuse the whole row (the module_fit lesson).
+      if (p.absent_when && selected[p.absent_when.attr] === p.absent_when.equals) {
+        fitLabels[p.bind] = NONE_SENTINEL;
+        pushFit(`${p.absent_when.attr} is ${String(p.absent_when.equals)} -> no ${p.bind}`, {
+          bind: p.bind, fitted: null, size: null, requested: null, exact: false, absent: true,
+          // A CONCLUDED ABSENCE is a computed verdict, not a missing one -- "None (computed)".
+          substituted: false, whereRefs,
+        });
+        continue;
+      }
+
+      // (c) resolve every `where` value: literals pass through, "@refs" resolve, LISTS resolve
+      // member-wise. An unresolved ref is an HONEST no-compute NAMING THE KEY -- never a silent skip,
+      // which would quietly widen the ladder to the whole family.
+      const resolvedWhere: Record<string, string | number | Array<string | number>> = {};
+      let whereMiss: string | null = null;
+      const resolveOne = (v: string | number): string | number | undefined =>
+        typeof v === "string" && v.startsWith("@") ? resolveAtRef(v.slice(1)) : v;
+      for (const [k, v] of Object.entries(p.where ?? {})) {
+        if (Array.isArray(v)) {
+          const members: Array<string | number> = [];
+          for (const m of v) {
+            const r = resolveOne(m);
+            // A list member that does not resolve is DROPPED, not fatal: `["@mcb_curve", "NA"]` must
+            // still offer "NA" when no curve was resolved. An empty list IS fatal (below).
+            if (r !== undefined && r !== null && r !== "") members.push(r);
+          }
+          if (!members.length) { whereMiss = k; break; }
+          resolvedWhere[k] = members;
+        } else {
+          const r = resolveOne(v);
+          if (r === undefined || r === null || r === "") { whereMiss = k; break; }
+          resolvedWhere[k] = r;
+        }
+      }
+      if (whereMiss !== null) {
+        return bail(`'${whereMiss}' not provided -- no ${p.bind} computed`);
+      }
+
+      // (d) the value being fitted.
+      const rawFit = selected[p.fit_from.attr];
+      const want = typeof rawFit === "number" ? rawFit : Number(rawFit);
+      if (!isStated(rawFit) || !Number.isFinite(want)) {
+        // SLICE 2b (owner ruling A-ii): a category may OPT IN to treating an unreadable fact as
+        // POSITIVE ABSENCE rather than a refusal. Refusing discards the rest of the row -- the socket
+        // priced perfectly well and only its pairing is unknown -- which is the over-wide action the
+        // PW-FIX ruling reversed for module_fit. With `on_missing_fact: "none"` the bind takes the
+        // sentinel, `none_skips` zeroes the MCB line, and the row prices honestly short.
+        //
+        // ⚠️ DEFAULT IS UNCHANGED: absent the key this still refuses, so every other config is
+        // byte-identical. The opt-in is per-step CONFIG, never a global softening.
+        //
+        // The two cases are handled together on purpose. A `number` attribute cannot reach here
+        // "present but unreadable" from extraction -- `_coerce_value` already nulls a non-numeric --
+        // so the only way in is a hand-typed override, and inventing a third behaviour for it would
+        // add a branch no row exercises.
+        if (p.on_missing_fact === "none") {
+          fitLabels[p.bind] = NONE_SENTINEL;
+          pushFit(`${p.fit_from.attr} not stated -> no ${p.bind}`, {
+            bind: p.bind, fitted: null, size: null, requested: null, exact: false, absent: true,
+            substituted: false, whereRefs,
+          });
+          continue;
+        }
+        return bail(`attribute '${p.fit_from.attr}' missing or non-numeric -- no ${p.bind} computed`);
+      }
+
+      // (e) build + fit.
+      const rungs = buildModuleLadder(items, {
+        kind: p.kind, where: resolvedWhere, label_attr: p.label_attr, size_from: p.size_from,
+      });
+      if (!rungs.length) {
+        return bail(`no '${p.kind}' rows match -- no ${p.bind} computed`);
+      }
+      const fit = fitModuleLadder(rungs, want, p.direction);
+      if (!fit) {
+        // A MISS IS NOT AUTOMATICALLY FATAL. `on_miss: "none"` binds the sentinel so the rest of the
+        // row still prices -- a missing MCB leaves the socket un-paired, it does not make the socket
+        // wrong. `module_fit`'s refusal is the other choice, kept available for a plate-like ladder.
+        if (p.on_miss === "no_compute") {
+          const top = rungs[rungs.length - 1];
+          return bail(
+            `${fmtNum(want)} exceeds the largest '${p.bind}' the catalog carries (${top.label}) -- no value computed`
+          );
+        }
+        fitLabels[p.bind] = NONE_SENTINEL;
+        pushFit(`${fmtNum(want)} -> nothing in the catalog fits -> no ${p.bind}`, {
+          bind: p.bind, fitted: null, size: null, requested: want, exact: false, absent: true,
+          substituted: false, whereRefs,
+        });
+        continue;
+      }
+
+      fitLabels[p.bind] = fit.label;
+      // SLICE 3a -- THE NUMERIC HALF. `fitLabels` is string-typed by contract (a rung's LABEL), and
+      // `match_master_row` compares `selected` values with `===` against the stored attribute. A
+      // category whose ladder attribute IS its match key (cable tray's `width_mm`, stored as a
+      // NUMBER) therefore needs the fitted SIZE, not the label, and it needs it in `selected` --
+      // the only state `matchMasterRow` reads. Writing it here, on the FITTED path alone, is what
+      // makes next-higher reach the matcher at all.
+      //
+      // `selected` is the run-local overlay (`{ ...selectedInput }`), so the caller's object is
+      // never mutated and `value` keeps meaning "what the user or extraction supplied" -- the same
+      // contract `derive_attribute` writes under.
+      if (p.fit_into) selected[p.fit_into] = fit.modules;
+      // THE WORKING: the request, the hop (or its absence), and the row chosen -- one line. The
+      // " (next higher)" wording is the SAME string module_fit emits, so the two read alike.
+      const whereParts = Object.entries(resolvedWhere)
+        .map(([k, v]) => `${k} ${Array.isArray(v) ? v.join("/") : String(v)}`)
+        .join(", ");
+      pushFit(
+        `${p.fit_from.attr} ${fmtNum(want)} at ${whereParts} -> ` +
+          (fit.exact
+            ? `${fit.label}`
+            : `${fmtNum(want)} not carried -> ${fmtNum(fit.modules)} (next ${p.direction === "down" ? "lower" : "higher"}) -> ${fit.label}`),
+        { bind: p.bind, fitted: fit.label, size: fit.modules, requested: want, exact: fit.exact, absent: false,
+          // OPTION B: a HOP is a substitution -- the catalog did not carry what was asked for, so a
+          // different rung is being priced and the panel must say so.
+          substituted: !fit.exact, whereRefs }
+      );
     } else if (stepType === "roundup") {
       const s = raw as import("./rateMasterTypes").RoundupStep;
-      const value = roundUp(ctx[s.target], s.params.digits);
+      // F-18 (E4) -- THE CHAIN, and the one site that must NOT refuse.
+      // `roundUp(undefined, d)` is `Math.ceil(undefined * f - 1e-9) / f` = NaN, written straight back
+      // into `ctx`. The absence it reads is almost never this step's fault: an upstream `scale` that
+      // HONESTLY declined to write its result (the EA-1b honest partial) leaves exactly this hole,
+      // and the next unguarded step turned that honesty into a NaN. That is why the same missing key
+      // used to give an honest partial in `conduit_bcs` and a NaN in `conduit_boq` -- the two differ
+      // only in having a `roundup` downstream.
+      // ⚠️ HONEST PARTIAL, NOT A REFUSAL (owner ruling): refusing the pipeline would discard sibling
+      // outputs that computed correctly -- `conduit_boq`'s `supply_per_mtr` is right even when
+      // `install_per_mtr` was never produced. That is the over-wide action the PW-FIX ruling reversed
+      // for `module_fit`. So this takes `scale`'s own `continue` shape: skip, leave the output
+      // ABSENT (renders "-"), and SAY SO in the trace -- never a zero, never a NaN.
+      const roundBase = ctx[s.target];
+      if (typeof roundBase !== "number" || !Number.isFinite(roundBase)) {
+        steps.push({
+          step: stepType,
+          label: `${s.target} not available to round -- ${s.target} not computed`,
+          runningValues: snapshot(),
+        });
+        continue;
+      }
+      const value = roundUp(roundBase, s.params.digits);
       ctx[s.target] = value;
       steps.push({
         step: stepType,
@@ -716,10 +1148,29 @@ export function runPipeline(
       const s = raw as import("./rateMasterTypes").ComponentStep;
       const env: Record<string, number> = {};
       if (s.target !== undefined) {
+        // F-18 (E1) -- THE ORIGINAL FINDING. The matched row must CARRY the rate this component
+        // prices. Without this, `ctx[s.target]` is `undefined`, both bindings below are `undefined`,
+        // the evaluator's `in` guard passes (the KEY exists), the formula returns NaN, and
+        // `sum_components` carries that NaN into `finals` under `status: "ok"`.
+        // Guarded in the `component_ref` idiom -- the same check and the same message shape it has
+        // used at two sites all along; the only thing new here is applying it to the MATCHED row.
+        // ⚠️ REFUSAL, not a partial (unlike E4): this value feeds `sum_components`, so a missing
+        // component does not merely lose one line -- it makes the SUM wrong, which is precisely why
+        // `component_ref` refuses the whole pipeline in the same situation.
+        const compBase = ctx[s.target];
+        if (typeof compBase !== "number" || !Number.isFinite(compBase)) {
+          steps.push({
+            step: stepType,
+            label: s.explain || `component: ${s.name}`,
+            matchedCondition: `${s.target} not on the matched row -- not computed`,
+            runningValues: { ...snapshot(), ...componentEntries(components) },
+          });
+          return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+        }
         // Bind the target value under BOTH `base` (the normalized contract) and its own name (the
         // legacy wiring `lug` component's formula references `lug_list`).
-        env.base = ctx[s.target];
-        env[s.target] = ctx[s.target];
+        env.base = compBase;
+        env[s.target] = compBase;
       }
       let params: Record<string, number> = s.params ?? {};
       if (Array.isArray(s.conditions)) {
@@ -1337,9 +1788,25 @@ export function runPipeline(
         steps.push({ step: stepType, label: s.explain || `component: ${s.name}`, runningValues: snapshot() });
         return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
       }
+      // F-18 (E2) -- the band CHOSE a column; the matched row must carry it. Guarded BEFORE the bind
+      // below, which would otherwise plant the same `undefined` under THREE identifiers at once and
+      // let the evaluator's `in` guard wave all three through into a NaN.
+      // Same `component_ref` check and message shape as E1, and a refusal for the same reason: this
+      // value feeds `sum_components`, so losing it makes the sum wrong rather than merely shorter.
+      const bandBase = ctx[chosen.target];
+      if (typeof bandBase !== "number" || !Number.isFinite(bandBase)) {
+        steps.push({
+          step: stepType,
+          label: s.explain || `component: ${s.name} (banded)`,
+          bandChosen: `${s.band_on} ${chosen.label} -> ${chosen.target}`,
+          matchedCondition: `${chosen.target} not on the matched row -- not computed`,
+          runningValues: { ...snapshot(), ...componentEntries(components) },
+        });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
       // Bind the chosen column under `base` (the normalized contract), plus the legacy `gland_list`
       // and the column's own name (the wiring gland formula references gland_list).
-      const value = evalFormula(s.formula, { base: ctx[chosen.target], gland_list: ctx[chosen.target], [chosen.target]: ctx[chosen.target], ...s.params });
+      const value = evalFormula(s.formula, { base: bandBase, gland_list: bandBase, [chosen.target]: bandBase, ...s.params });
       components[s.name] = value;
       steps.push({
         step: stepType,
@@ -1361,8 +1828,26 @@ export function runPipeline(
       });
     } else if (stepType === "install_as_ratio") {
       const s = raw as import("./rateMasterTypes").InstallAsRatioStep;
+      // F-18 (E5) -- THE ONE SITE THAT DID NOT FAIL INTO NaN, IT ASSIGNED ONE.
+      // `const base = supplyKey ? ctx[supplyKey] : NaN` was a deliberate literal: with no `supply_*`
+      // key in `ctx` this step multiplied NaN by the ratio and handed the result on under
+      // `status: "ok"`. There is nothing to take a ratio OF, so it refuses -- and it NAMES the
+      // missing key, because "install is a share of supply" is unreadable without saying which
+      // supply was looked for.
       const supplyKey = Object.keys(ctx).find((k) => k.startsWith("supply_"));
-      const base = supplyKey ? ctx[supplyKey] : NaN;
+      const base = supplyKey === undefined ? undefined : ctx[supplyKey];
+      if (typeof base !== "number" || !Number.isFinite(base)) {
+        steps.push({
+          step: stepType,
+          label: s.explain || `install as ${s.params.ratio * 100}% of supply`,
+          matchedCondition:
+            supplyKey === undefined
+              ? "no supply_* value computed -- install not computed"
+              : `${supplyKey} not computed -- install not computed`,
+          runningValues: snapshot(),
+        });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
       const value = base * s.params.ratio;
       ctx[s.result] = value;
       steps.push({
@@ -1469,8 +1954,41 @@ export function runPipeline(
     return { pipelineId, outputs: pipeline.output, status: "unsupported", steps, finals: {}, matchedItem, note: pipeline.note };
   }
 
+  // F-18 (R3) -- THE BACKSTOP. `status: "ok"` used to mean only "the step loop ran to the end without
+  // an early return and without throwing"; it made NO claim about the numbers, while every consumer
+  // reads it as "these numbers are good". A non-finite number is now never labelled ok, whatever
+  // route produced it -- including one no per-step guard above covers, such as a malformed config
+  // value reaching `stageRate` (the loader does not validate; only `update_rate_config` does).
+  //
+  // ⚠️ THE PREDICATE IS `typeof v === "number" && !Number.isFinite(v)` -- A NUMBER THAT IS NOT
+  // FINITE, NEVER A MISSING VALUE. An `undefined` final passes through UNTOUCHED, because
+  // `status: "ok"` with an absent output is the SHIPPED EA-1b honest-partial contract, live today on
+  // the `miscellaneous` CEIG / AS Built rows (4 combinations across misc_boq + misc_bcs, measured).
+  // A backstop written as "no non-value may pass with ok" would break those four while fixing
+  // nothing that was ever broken. The two cases look alike and mean opposite things: absent is "this
+  // row has no such rate", NaN is "we computed nonsense".
   const finals: Record<string, number> = {};
-  for (const o of pipeline.output) finals[o] = ctx[o];
+  const nonFinite: string[] = [];
+  for (const o of pipeline.output) {
+    const v = ctx[o];
+    if (typeof v === "number" && !Number.isFinite(v)) {
+      // Drop it. Consumers read finals BY `outputs`, so an absent key and a present-undefined one
+      // are indistinguishable to every one of them -- the output renders "-" exactly as an honest
+      // partial does, which is the truthful rendering for a value we could not compute.
+      nonFinite.push(o);
+      continue;
+    }
+    finals[o] = v;
+  }
+  if (nonFinite.length) {
+    // Never silent: something upstream produced a non-finite number and the trace has to say so, or
+    // the dropped output is indistinguishable from a rate the row genuinely does not carry.
+    steps.push({
+      step: "(finalize)",
+      label: `${nonFinite.join(", ")} computed to a non-finite value -- dropped, not priced`,
+      runningValues: snapshot(),
+    });
+  }
   return { pipelineId, outputs: pipeline.output, status: "ok", steps, finals, matchedItem, note: pipeline.note };
 }
 

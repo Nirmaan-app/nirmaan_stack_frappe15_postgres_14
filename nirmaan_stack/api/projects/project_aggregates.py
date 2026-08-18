@@ -605,7 +605,7 @@ def get_projects_financial_rollup():
     Byte-identical to the client math (rows fetched then summed with `flt`, mirroring the
     frontend `parseNumber`, so NULL/blank -> 0 and mixed text/numeric storage is safe):
       - total_project_invoiced = Σ Project Invoices.amount
-      - po_wo_amount           = Σ PO.total_amount (status NOT IN Merged,Inactive) + Σ SR.total_amount (status=Approved)
+      - po_wo_amount           = Σ PO.total_amount (status NOT IN Merged,Cancelled,Inactive) + Σ SR.total_amount (status=Approved)
       - inflow                 = Σ Project Inflows.amount
       - outflow                = Σ Project Payments.amount (status=Paid) + Σ Project Expenses.amount (status=Paid; link field 'projects')
       - liabilities            = Σ po_amount_delivered − Σ min(amount_paid, po_amount_delivered)   (min is PER-PO, then summed)
@@ -636,7 +636,7 @@ def get_projects_financial_rollup():
     valid_po_project = {}
     pos = frappe.get_all(
         "Procurement Orders",
-        filters={"status": ["not in", ["Merged", "Inactive"]]},
+        filters={"status": ["not in", ["Merged", "Cancelled", "Inactive"]]},
         fields=["name", "project", "total_amount", "po_amount_delivered", "amount_paid"],
         limit_page_length=0,
     )

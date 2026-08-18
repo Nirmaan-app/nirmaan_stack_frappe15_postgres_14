@@ -5,6 +5,7 @@ import { Vendors } from '@/types/NirmaanStack/Vendors'; // Adjust path
 import { Address } from '@/types/NirmaanStack/Address';   // Adjust path
 import { Category } from '@/types/NirmaanStack/Category'; // Assuming you fetch this for names
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
 interface VendorOverviewCardProps {
     vendor?: Vendors;
@@ -61,22 +62,30 @@ export const VendorOverviewCard: React.FC<VendorOverviewCardProps> = ({
                  <CardTitle className="text-primary">Vendor Details</CardTitle>
                </CardHeader>
                <CardContent className="flex flex-col gap-10 w-full">
-                 <div className="flex lg:justify-between max-lg:flex-col max-lg:gap-10">
-                   <div className="space-y-6 max-sm:space-y-4">
+                 {/* ONE grid, not two side-by-side stacks. Real grid rows are what
+                     put each right-hand value on the card's RIGHT EDGE and keep it
+                     level with its left-hand pair; a nested grid inside the left
+                     stack only spans that stack's content width, which is why the
+                     pairs sat hugging the left. Two independent `space-y` stacks
+                     also only lined up by luck -- a wrapping Address shifted every
+                     row below it out of alignment. */}
+                 <div className="grid lg:grid-cols-2 gap-x-10 gap-y-6 max-sm:gap-y-4">
                     <InfoItem label="Vendor ID" value={vendor?.name} />
+                    <InfoItem label="Address" value={`${vendorAddress?.address_line1}, ${vendorAddress?.address_line2}, ${vendorAddress?.city}, ${vendorAddress?.state}`} className="lg:text-end" />
+
                     <InfoItem label="Nickname" value={vendor?.vendor_nickname} />
+                    <InfoItem label="City" value={vendorAddress?.city} className="lg:text-end" />
+
                     <InfoItem label="Contact Person" value={vendor?.vendor_contact_person_name} />
+                    <InfoItem label="State" value={vendorAddress?.state} className="lg:text-end" />
+
                     <InfoItem label="Contact Number" value={vendor?.vendor_mobile} />
+                    {/* Optional -- the "--" keeps this cell occupied so the row
+                        cannot collapse and unpair the column. */}
+                    <InfoItem label="Alternate Contact Number" value={vendor?.vendor_alt_mobile || "--"} className="lg:text-end" />
+
                     <InfoItem label="GST Number" value={vendor?.vendor_gst} />
-                  </div>
-
-                  <div className="space-y-6 max-sm:space-y-4 lg:text-end">
-                    <InfoItem label="Address" value={`${vendorAddress?.address_line1}, ${vendorAddress?.address_line2}, ${vendorAddress?.city}, ${vendorAddress?.state}`} />
-                    <InfoItem label="City" value={vendorAddress?.city} />
-                    <InfoItem label="State" value={vendorAddress?.state} />
-                    <InfoItem label="pincode" value={vendorAddress?.pincode} />
-
-                  </div>
+                    <InfoItem label="Pincode" value={vendorAddress?.pincode} className="lg:text-end" />
                 </div>
               </CardContent>
             </Card>
@@ -118,8 +127,8 @@ export const VendorOverviewCard: React.FC<VendorOverviewCardProps> = ({
     );
 };
 
-const InfoItem: React.FC<{ label: string; value?: string | number | null }> = ({ label, value }) => (
-    <CardDescription className="space-y-1">
+const InfoItem: React.FC<{ label: string; value?: string | number | null; className?: string }> = ({ label, value, className }) => (
+    <CardDescription className={cn("space-y-1", className)}>
         <p className="text-sm font-medium text-primary">{label}</p>
         <span className="text-sm text-foreground">{value || "N/A"}</span>
     </CardDescription>

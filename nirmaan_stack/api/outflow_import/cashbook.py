@@ -67,7 +67,11 @@ from nirmaan_stack.services.outflow_import.cashbook import (
 )
 from nirmaan_stack.services.outflow_import.duplicates import row_identity
 from nirmaan_stack.services.outflow_import.ledgers import PROJECT_EXPENSE_DOCTYPE
-from nirmaan_stack.services.outflow_import.parser import StatementFormatError, parse_statement
+from nirmaan_stack.services.outflow_import.parser import (
+    BANK_TERMINAL_STATUSES,
+    StatementFormatError,
+    parse_statement,
+)
 from nirmaan_stack.services.outflow_import.project_match import build_project_index
 from nirmaan_stack.services.outflow_import.settle import create_expense_from_row
 from nirmaan_stack.services.outflow_import.status import (
@@ -363,18 +367,42 @@ def _already_imported(parsed) -> dict:
     Keyed on `duplicates.row_identity`, the same key the parser's in-file check and the Cashfree
     staging path use -- so all three can never call one pair of rows duplicates while another calls
     them distinct, about the same file.
+
+    ⚠️ ONLY A **TERMINAL** STORED ROW COUNTS, AND THIS IS A SECOND COPY OF THE CASHFREE CLAUSE.
+    A spend that had not gone through when the last statement was exported stages here and settles
+    nothing; when the next export carries it completed, the triple matches and it was skipped as
+    "already imported" -- money silently lost, permanently, because `Skipped` is frozen against
+    re-matching. Both sources write to the ONE `Outflow Import Row` table, so fixing only the
+    Cashfree lookup would leave the identical defect live for wallet statements.
+
+    TERMINAL, not successful: a spend that definitively failed is final too, and must keep counting
+    as a duplicate or a re-uploaded statement stops reading as fully imported. See the longer note
+    on `candidates.find_earlier_batches_for_rows`, which explains what that costs.
+
+    The vocabulary is bound, never spelled -- `parser.BANK_TERMINAL_STATUSES` -- and `UPPER(BTRIM(...))`
+    mirrors `parser.is_terminal_status` exactly, so this and `candidates.find_earlier_batches_for_rows`
+    cannot come to disagree about the same stored cell.
+
+    ⚠️ THIS IS THE SECOND COPY OF ONE QUESTION, AND IT IS KNOWN. `candidates.find_earlier_batches_for_rows`
+    asks the same thing, but it also narrows by period and applies `dates_agree`'s missing-date
+    fallback, neither of which this does -- so collapsing the two is a BEHAVIOUR change for Cashbook
+    and belongs in its own slice, not smuggled into a defect fix. Until then, a change to either
+    must be made to both.
     """
     ids = [row.transfer_id for row in parsed.rows if row.transfer_id]
     if not ids:
         return {}
     placeholders = ", ".join(["%s"] * len(ids))
+    terminal = sorted(BANK_TERMINAL_STATUSES)
+    terminal_placeholders = ", ".join(["%s"] * len(terminal))
     rows = frappe.db.sql(
         f"""
         SELECT transfer_id, amount, added_on, import_batch
         FROM "tabOutflow Import Row"
         WHERE transfer_id IN ({placeholders})
+          AND UPPER(BTRIM(COALESCE(status_raw, ''))) IN ({terminal_placeholders})
         """,
-        tuple(ids),
+        (*ids, *terminal),
         as_dict=True,
     )
     found = {}

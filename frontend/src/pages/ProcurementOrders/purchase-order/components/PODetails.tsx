@@ -782,8 +782,14 @@ export const PODetails: React.FC<PODetailsProps> = ({
               {["PO Approved", "Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status || "") &&
                 !isItemLocked &&
                 !PoPaymentTermsValidationSafe &&
+                // Revise PO is gated by ROLE, not by which route the PO was opened from.
+                // `summaryPage` (project PO view) and `accountsPage` (Project Payments,
+                // /project-payments/:id) describe the ENTRY PATH, not the user -- and the role
+                // list below already excludes Accountants. Blocking on the route only meant the
+                // same Admin/PMO/Procurement user lost the button depending on where they clicked
+                // from. Both are intentionally left off:
                 //!summaryPage &&
-                !accountsPage &&
+                //!accountsPage &&
                 !estimatesViewing &&
                 ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role) && (
                   <Tooltip>

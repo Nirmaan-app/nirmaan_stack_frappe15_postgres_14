@@ -459,7 +459,8 @@ export function RateMasterPipelines({ config, items, isAdmin, onSaveConfig }: Pr
                         </span>
                       )}
                     </td>
-                    <td className="py-1">{d.selector === false ? "no" : "yes"}</td></tr>
+                    <td className="py-1">{d.selector === false ? "no" : "yes"}</td>
+                    <td className="py-1">{d.panel === false ? "no" : "yes"}</td></tr>
                   );
                 })}
               </tbody>
@@ -519,6 +520,12 @@ export function RateMasterPipelines({ config, items, isAdmin, onSaveConfig }: Pr
                       </span>
                     )}
                     <label className="flex items-center gap-1"><Checkbox checked={d.selector !== false} onCheckedChange={(v) => updateDraft((dd) => { dd.attribute_definitions[di].selector = v === true ? undefined : false; })} aria-label="selectable" /> selectable</label>
+                    {/* SLICE 2d: `panel` is NOT `selector`. Unticking `selectable` also removes the
+                        attribute from the AI PROMPT; unticking `in panel` removes it from the pricing
+                        panel ONLY, leaving extraction and the pipeline untouched -- which is the whole
+                        point for a fact that drives a price without being a question for the pricer.
+                        Authorable here, else the flag can only be set by minting an asset. */}
+                    <label className="flex items-center gap-1"><Checkbox checked={d.panel !== false} onCheckedChange={(v) => updateDraft((dd) => { dd.attribute_definitions[di].panel = v === true ? undefined : false; })} aria-label="in panel" /> in panel</label>
                     <button type="button" aria-label={`remove ${d.id}`} disabled={referenced} title={referenced ? "referenced by a pipeline -- remove the references first" : "remove"} onClick={() => updateDraft((dd) => { dd.attribute_definitions.splice(di, 1); })} className="ml-auto text-muted-foreground hover:text-destructive disabled:opacity-30">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>

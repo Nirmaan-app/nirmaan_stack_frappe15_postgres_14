@@ -284,6 +284,61 @@ class TestStatus(CashbookImportCase):
         self.assertEqual(total, len(self.parsed.rows))
 
 
+class TestPendingThenSuccessfulReimport(FrappeTestCase):
+    """A wallet spend that had not gone through must import when the next statement shows it did.
+
+    ⚠️ THE SAME DEFECT AS THE CASHFREE ONE, THROUGH A SECOND COPY OF THE LOOKUP. Both sources write
+    to the ONE `Outflow Import Row` table, and `cashbook._already_imported` asked the same
+    id-amount-date question of it without asking whether the stored row recorded anything. A spend
+    still in flight at export time staged as skipped, and the completed one was then refused as
+    "already imported" -- the money silently gone, permanently, since a skipped row is frozen.
+
+    Staged directly rather than through `CashbookImportCase`, because this needs TWO batches from
+    one fixture and that base class stages exactly one in `setUp`.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.parsed = parse_statement(FIXTURE.read_bytes(), source="Cashbook")
+
+    def _stage(self, parsed):
+        batch = cb._stage(
+            parsed,
+            cb._build_plan(parsed),
+            file_url="/private/files/test-statement.csv",
+            filename="test-statement.csv",
+            user="Administrator",
+        ).name
+        frappe.db.commit()
+        self.addCleanup(_purge, batch)
+        return batch
+
+    def _statuses(self, batch):
+        return {
+            r["row_status"]
+            for r in frappe.get_all(
+                "Outflow Import Row", filters={"import_batch": batch}, fields=["row_status"]
+            )
+        }
+
+    def test_an_unsuccessful_row_does_not_block_its_own_later_success(self):
+        from dataclasses import replace
+
+        in_flight = replace(
+            self.parsed,
+            rows=tuple(replace(r, status_raw="PENDING") for r in self.parsed.rows),
+        )
+        self._stage(in_flight)
+        self.assertIn(ROW_PENDING_MATCH, self._statuses(self._stage(self.parsed)))
+
+    def test_a_successful_row_still_blocks_a_re_upload(self):
+        # ⚠️ THE GUARD AGAINST THE FIX BEING TOO LOOSE. Without this, a change that simply stopped
+        # the lookup finding anything would pass the test above and reimport every wallet spend
+        # every time -- creating a second expense for money that left once.
+        self._stage(self.parsed)
+        self.assertEqual(self._statuses(self._stage(self.parsed)), {ROW_SKIPPED})
+
+
 class TestItNeverSettlesAnExistingRecord(FrappeTestCase):
     """⚠️ A wallet statement carries no UTR and no bank account, so the tier ladder can find
     nothing -- except a real approved payment that happens to share an amount. Running it here

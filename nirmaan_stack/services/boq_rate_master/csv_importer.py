@@ -101,6 +101,7 @@ DEFAULT_SOURCE_SHEET = "CSV upload"
 # A rate change AT OR ABOVE this, IN EITHER DIRECTION, is expanded by default in the preview.
 # ⚠️ BOTH directions matter and the reason is asymmetric only in how it hurts: ₹26,100 typed for
 # ₹2,610 is invisible in a count, and ₹261 for ₹2,610 quotes catastrophically low.
+# ⚠️ "AT OR ABOVE" IS INCLUSIVE AND THE COMPARISON MUST BE ROUNDED (F-21) -- see `_diff_fields`.
 MAJOR_RATE_CHANGE_PCT = 10.0
 
 _LEAD = set(csv_exporter.LEAD_COLUMNS)          # item_uid, kind, brand, unit
@@ -591,7 +592,10 @@ def _label(payload):
 
 def _diff_fields(stored, new_payload, spec):
     """(fields, any_major_rate). One entry per column that actually moved, with the exporter's own
-    rendering on both sides so the 'old' text matches the file the user edited."""
+    rendering on both sides so the 'old' text matches the file the user edited.
+
+    Each RATE-space field also carries its own `major` verdict (F-21). The change-level flag is
+    simply "any rate field major" and still drives the preview's expand/collapse grouping."""
     fields = []
     major = False
     old = stored or {"kind": None, "brand": None, "unit": None, "attributes": {}, "rates": {},
@@ -616,11 +620,27 @@ def _diff_fields(stored, new_payload, spec):
         pct = _rate_change_pct(o, n)
         # ⚠️ An UNMEASURABLE move (a rate appearing, disappearing, or leaving zero) counts as major.
         # A percentage that cannot be computed is not the same as a change that does not matter.
-        if pct is None or abs(pct) >= MAJOR_RATE_CHANGE_PCT:
+        #
+        # F-21: ROUND BEFORE COMPARING. `(new - old) / abs(old) * 100` carries binary rounding
+        # error, and `>=` turns that error into a wrong answer whenever the result lands a hair
+        # SHORT: an exactly -10% edit computed -9.999999999999993 and was classified NOT major, so
+        # the row folded away behind a count -- in the one direction that quotes LOW. It bit 60% of
+        # integer rupee rates. Rounding to 6dp is far finer than any real rate move and far coarser
+        # than float noise (~1e-14), and it is this module's own idiom: the same value is rounded
+        # one line below for display. This is what makes the docstring's "AT OR ABOVE" promise true.
+        field_major = pct is None or round(abs(pct), 6) >= MAJOR_RATE_CHANGE_PCT
+        if field_major:
             major = True
         fields.append({"space": "rate", "column": name,
                        "old": _cell(o), "new": _cell(n),
-                       "pct": None if pct is None else round(pct, 2)})
+                       "pct": None if pct is None else round(pct, 2),
+                       # F-21 R2 -- ONE DEFINITION. The dialog used to decide its own colour from
+                       # `Math.abs(f.pct) >= 10`, reading the ROUNDED percentage; at the boundary
+                       # the two disagreed and a row rendered RED while sitting COLLAPSED. The
+                       # verdict now travels WITH the field so the client renders it, never
+                       # recomputes it. Rate-space fields only: a percentage -- and therefore this
+                       # verdict -- is meaningless on a `kind` rename or an attribute edit.
+                       "major": field_major})
     return fields, major
 
 

@@ -14,14 +14,20 @@ import {
   sortAttrNotes,
   upgradeWarningText,
 } from "./rateHelperTypes";
-import { derivedQtyAttrs } from "@/pages/pricing/rate-master/RateMasterDerivation";
-import { overridesForRow } from "./RateHelperPanel";
+// SLICE 2d: NOT_STATED_SENTINEL / toSelectValue / fromSelectValue are RETIRED with the 2c sentinel;
+// derivedQtyAttrs + derivedAttrIds relocated to the leaf both screens may import.
+import {
+  blanksQtyAttr,
+  derivedAttrIds,
+  mapAttributeSources,
+  derivedQtyAttrs,
+} from "@/pages/pricing/rate-master/rateMasterStructure";
+import { NONE_SENTINEL } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
+import { hasSessionEdits, overridesForRow } from "./RateHelperPanel";
 import {
   applyDerivedDisplay,
   attributeOptions,
-  blanksQtyAttr,
   buildExtractionByRow,
-  derivedAttrIds,
   isRunForVersion,
   makePricingSheetHelper,
   nonBcsPipelines,
@@ -933,9 +939,17 @@ describe("DERIVED DISPLAY -- R2: a too-small entry WARNS, it is never silently l
     );
   });
 
-  it("POSITIVE: the field still shows the pricer's entry -- warned, not overwritten", () => {
+  it("SLICE 2d RE-MINT: the field now shows WHAT WAS BOUGHT -- warned AND corrected", () => {
+    // ⚠️ RE-MINTED BY OWNER RULING (x). This asserted `"1M & 2M"` -- the pricer's entry, kept on
+    // screen. The PREMISE was the old flat contract "a stated value must never be overwritten on
+    // screen", which slice 2d NARROWED: a stated value the pipeline USED is still never overwritten,
+    // but a SUBSTITUTED one shows what was bought. Showing "1M & 2M" named a plate the row is not
+    // being charged for, which is the opposite of the honesty the warning was added for.
+    // The warning itself is UNCHANGED and still carries all three numbers -- see the test above.
     const plate = mfCompute({ plate_item: "1M & 2M" })("plate_item");
-    expect(attrDisplayValue(plate!)).toBe("1M & 2M");
+    expect(attrDisplayValue(plate!)).toBe("3M");
+    expect(isShowingDerived(plate!)).toBe(true);
+    expect(plate!.notes?.[0]).toMatchObject({ kind: "upgrade", stated: "1M & 2M", using: "3M" });
   });
 
   it("the singular reads correctly (a one-module rung)", () => {
@@ -1499,5 +1513,757 @@ describe("BLANKER QUANTITY -- the config-read predicate, and the two-screens dis
   it("the arbitrated quantity is never flagged as missing input, stated or blank", () => {
     expect(isAttrBlank(arbCompute({ plate_item: "6M", blank_qty: null })("blank_qty")!)).toBe(false);
     expect(isAttrBlank(arbCompute({ plate_item: "6M", blank_qty: 2 })("blank_qty")!)).toBe(false);
+  });
+});
+
+// ── SLICE 2c: THE PANEL SHOWS WHAT PRICING USED ────────────────────────────────────────────────
+// `catalog_fit` shipped in 2b computing the paired MCB correctly and showing NOTHING for it: the
+// field read "— select —" beside a line the pipeline had priced. `derivedAttrIds` already marked the
+// bind derived (so the missing-input gate was quiet -- the row priced), but no branch ever filled
+// `derivedValue`, so `attrDisplayValue` rendered empty. This is the display half.
+//
+// It is the FOURTH mechanism to reach this display, and it behaves like the ladder bind and the
+// derive_attribute target -- NOT like the blanker quantity: a stated value IS read and wins outright,
+// so the field must stay EDITABLE and `readOnly` must never be set.
+
+/** A two-rung MCB ladder at one pole/curve. 20 A is deliberately NOT carried. */
+const CF_ITEMS: RateMasterItem[] = [
+  { discipline: "Electrical", kind: "db_switchgear_item",
+    attributes: { family: "Switchgear", device: "MCB", pole: "FP", curve: "C", item: "25A FP MCB C CURVE", amp_a: 25.0 },
+    rates: { list_price: 1000 } },
+  { discipline: "Electrical", kind: "db_switchgear_item",
+    attributes: { family: "Switchgear", device: "MCB", pole: "FP", curve: "C", item: "63A FP MCB C CURVE", amp_a: 63.0 },
+    rates: { list_price: 2000 } },
+] as unknown as RateMasterItem[];
+
+function catalogFitConfig(): RateCategoryConfig {
+  return {
+    discipline: "Electrical",
+    category_id: "cf_probe",
+    attribute_definitions: [
+      { id: "mcb_present", label: "MCB present", type: "choice", values: ["Yes", "No"] },
+      { id: "mcb_amp_a", label: "MCB amps", type: "number" },
+      { id: "paired_mcb", label: "Paired MCB", type: "choice",
+        values: ["25A FP MCB C CURVE", "63A FP MCB C CURVE"], allow_none: true },
+    ],
+    pipelines: {
+      probe_boq: {
+        output: ["supply"],
+        steps: [
+          { step: "catalog_fit",
+            params: {
+              bind: "paired_mcb", kind: "db_switchgear_item",
+              where: { family: "Switchgear", device: "MCB", pole: "FP", curve: "C" },
+              size_from: { attr: "amp_a" }, fit_from: { attr: "mcb_amp_a" }, direction: "up",
+              prefer_attr: "paired_mcb", absent_when: { attr: "mcb_present", equals: "No" },
+              on_miss: "none", on_missing_fact: "none",
+            } },
+          { step: "component_ref", name: "mcb",
+            ref: { kind: "db_switchgear_item", family: "Switchgear", item: "@paired_mcb" },
+            target: "list_price", qty: 1, none_skips: true },
+          { step: "sum_components", result: "supply" },
+        ],
+      },
+    },
+  } as unknown as RateCategoryConfig;
+}
+
+const cfCtx = (excelRow: number): RateHelperRowContext => ({
+  excelRow, description: "probe row", nodeType: "Line Item",
+  category: "cf_probe", discipline: "Electrical",
+  rateKinds: ["supply_rate"] as unknown as never,
+});
+
+/** Compute one row of the catalog_fit fixture and return an attribute lookup. */
+function cfCompute(over: Record<string, string | number | null> = {}) {
+  const merged: Record<string, string | number | null> = {
+    mcb_present: "Yes", mcb_amp_a: 20, paired_mcb: null, ...over,
+  };
+  const r = makePricingSheetHelper({
+    configsByCategory: new Map([["cf_probe", catalogFitConfig()]]),
+    items: CF_ITEMS,
+    extractionByRow: buildExtractionByRow([{
+      excel_row: 1,
+      attributes: Object.fromEntries(
+        Object.entries(merged).map(([k, v]) => [k, { value: v, confidence: 0.9 }]),
+      ) as never,
+    }]),
+  }).compute(cfCtx(1));
+  if (!isSuggestion(r)) throw new Error("expected a suggestion");
+  return (id: string) => r.workings.attributes.find((a) => a.id === id);
+}
+
+describe("SLICE 2c -- a catalog_fit bind DISPLAYS what the pipeline fitted", () => {
+  it("POSITIVE (row 98's defect): a blank paired MCB shows the FITTED catalog item", () => {
+    // 20 A is not carried; the ladder's next-higher rung is 25 A. Before 2c this field was empty.
+    const mcb = cfCompute()("paired_mcb");
+    expect(mcb?.derived).toBe(true);
+    expect(mcb?.derivedValue).toBe("25A FP MCB C CURVE");
+    expect(attrDisplayValue(mcb!)).toBe("25A FP MCB C CURVE");
+  });
+
+  it("POSITIVE: it is marked as SHOWING DERIVED, so the computed marker appears", () => {
+    expect(isShowingDerived(cfCompute()("paired_mcb")!)).toBe(true);
+  });
+
+  it("POSITIVE: it is NOT blank -- no red border on a field the pipeline fitted", () => {
+    expect(isAttrBlank(cfCompute()("paired_mcb")!)).toBe(false);
+  });
+
+  it("it stays EDITABLE -- `readOnly` is never set, because a stated value WINS outright", () => {
+    // This is the whole difference from the blanker quantity. `catalog_fit`'s `prefer_attr` reads the
+    // SAME attribute and defers to it, so an edit here is the one thing that always reaches the price
+    // -- the mechanism that corrected two live rows by hand in slice 2. Locking it would be the lie
+    // the read-only contract exists to prevent, pointing the other way.
+    expect(cfCompute()("paired_mcb")!.readOnly).toBeUndefined();
+  });
+
+  it("`value` is NOT overwritten -- a fitted item stays distinguishable from a stated one", () => {
+    const mcb = cfCompute()("paired_mcb");
+    expect(mcb?.value).toBe("");             // the row supplied nothing
+    expect(mcb?.derivedValue).toBe("25A FP MCB C CURVE");
+  });
+
+  it("NEGATIVE: a STATED item is shown AS STATED and never re-labelled as computed", () => {
+    // Stated-wins bound nothing, so there IS no computed value; publishing one would claim the
+    // pipeline chose what the pricer chose.
+    const mcb = cfCompute({ paired_mcb: "63A FP MCB C CURVE" })("paired_mcb");
+    expect(mcb?.derivedValue).toBeUndefined();
+    expect(attrDisplayValue(mcb!)).toBe("63A FP MCB C CURVE");
+    expect(isShowingDerived(mcb!)).toBe(false);
+  });
+
+  // ⚠️ 2c's TWO ABSENCE-REFUSAL TESTS WERE HERE AND ARE RE-MINTED BY RULING in the slice-2d block
+  // at the end of this file ("the 2c absence refusal is REVERSED BY RULING"). They asserted that a
+  // concluded absence renders EMPTY; 2d renders it "None (computed)", because a step that fired
+  // `absent_when` reached a verdict rather than failing to reach one.
+
+  it("THE THREE STATES ARE MUTUALLY EXCLUSIVE on every path this fixture can reach", () => {
+    // blank / defaulted / showing-derived: at most one may be true at a time, or the field carries
+    // two contradictory claims about the same value.
+    const cases: Array<Record<string, string | number | null>> = [
+      {}, { paired_mcb: "63A FP MCB C CURVE" }, { mcb_present: "No" }, { mcb_amp_a: null },
+    ];
+    for (const over of cases) {
+      const a = cfCompute(over)("paired_mcb")!;
+      const flags = [isAttrBlank(a), isAttrDefaulted(a), isShowingDerived(a)].filter(Boolean);
+      expect(flags.length).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("REGRESSION BAR: a config with NO catalog_fit is byte-identical -- plate_item unchanged", () => {
+    // The 2c reader must be invisible to every pre-2c config. The module_fit face plate is the
+    // sharpest case: it reaches the SAME `if (!ladder)` region the new branch was added to.
+    const plate = mfCompute()("plate_item");
+    expect(plate?.derived).toBe(true);
+    expect(plate?.derivedValue).toBe("3M");
+    expect(plate?.readOnly).toBeUndefined();
+    expect(isShowingDerived(plate!)).toBe(true);
+    expect(isAttrBlank(plate!)).toBe(false);
+    // and the read-only blanker quantity, the other side of that region
+    expect(mfCompute()("blank_qty")?.readOnly).toBe(true);
+  });
+});
+
+// ── SLICE 2c: hasSessionEdits -- the Revert button's ONE condition ──────────────────────────────
+// Revert exists because a panel edit is a SESSION experiment: the pricer overrides an attribute to
+// see what it would cost, and until now had no way back except reloading the page. The predicate is
+// pure so the button's disabled state is testable in the node env (the component is not).
+describe("SLICE 2c -- hasSessionEdits (Revert is disabled until there is something to revert)", () => {
+  const NO_ATTRS = { row: null, byHelper: {} as Record<string, Record<string, string>> };
+  const NO_FINALS = { row: null, byHelper: {} as Record<string, string> };
+
+  it("NEGATIVE: a clean panel has nothing to revert", () => {
+    expect(hasSessionEdits(NO_ATTRS, NO_FINALS, 221)).toBe(false);
+  });
+
+  it("POSITIVE: one ATTRIBUTE override on this row counts", () => {
+    const attrs = { row: 221, byHelper: { pricing_sheet: { paired_mcb: "63A FP MCB C CURVE" } } };
+    expect(hasSessionEdits(attrs, NO_FINALS, 221)).toBe(true);
+  });
+
+  it("POSITIVE: one FINAL-VALUE override on this row counts, with no attribute edits at all", () => {
+    const finals = { row: 221, byHelper: { pricing_sheet: "1234" } };
+    expect(hasSessionEdits(NO_ATTRS, finals, 221)).toBe(true);
+  });
+
+  it("NEGATIVE: ANOTHER row's edits do not enable Revert -- it reuses `overridesForRow`", () => {
+    // The row-scoping rule this panel state was rebuilt around: an override belongs to ONE row. A
+    // Revert enabled by a different row's edits would claim there is something here to undo.
+    const attrs = { row: 235, byHelper: { pricing_sheet: { paired_mcb: "63A FP MCB C CURVE" } } };
+    expect(hasSessionEdits(attrs, NO_FINALS, 221)).toBe(false);
+  });
+
+  it("NEGATIVE: no row selected has nothing to revert", () => {
+    const attrs = { row: 221, byHelper: { pricing_sheet: { paired_mcb: "x" } } };
+    expect(hasSessionEdits(attrs, NO_FINALS, undefined)).toBe(false);
+  });
+
+  it("NEGATIVE: an EMPTY per-helper map is not an edit -- a cleared override re-disables Revert", () => {
+    // `setAttr` writes a per-helper object; clearing the last key can leave `{}` behind. Counting the
+    // container rather than its contents would leave Revert enabled with nothing to undo.
+    expect(hasSessionEdits({ row: 221, byHelper: { pricing_sheet: {} } }, NO_FINALS, 221)).toBe(false);
+  });
+});
+
+// ── SLICE 2d: ONE ANSWER PER FIELD ─────────────────────────────────────────────────────────────
+// The facts behind an MCB (`mcb_present`, `mcb_amp_a`, `mcb_pole_stated`, `mcb_curve_stated`) leave
+// the PANEL and stay in extraction and the pipeline. `paired_mcb` alone carries the answer, and
+// option B says whether that answer was the row's or ours.
+//
+// ⚠️ THE ANTI-REGRESSION PAIR BELOW IS THE POINT OF THE WHOLE SLICE. The obvious implementation --
+// filtering the definition walk -- strips the facts from `selected` too, so `absent_when` never
+// fires and the ladder never runs, and every socket row is silently mispriced with the panel looking
+// tidier than before.
+
+function panelCfg(over: Partial<Record<string, unknown>> = {}): RateCategoryConfig {
+  const cfg = catalogFitConfig() as unknown as { attribute_definitions: Array<Record<string, unknown>> };
+  for (const d of cfg.attribute_definitions) {
+    if (d.id === "mcb_present" || d.id === "mcb_amp_a") d.panel = false;
+  }
+  return Object.assign(cfg, over) as unknown as RateCategoryConfig;
+}
+
+/** Compute one row of the catalog_fit fixture with the two facts marked panel:false. */
+function panelCompute(over: Record<string, string | number | null> = {}) {
+  const merged: Record<string, string | number | null> = {
+    mcb_present: "Yes", mcb_amp_a: 20, paired_mcb: null, ...over,
+  };
+  const r = makePricingSheetHelper({
+    configsByCategory: new Map([["cf_probe", panelCfg()]]),
+    items: CF_ITEMS,
+    extractionByRow: buildExtractionByRow([{
+      excel_row: 1,
+      attributes: Object.fromEntries(
+        Object.entries(merged).map(([k, v]) => [k, { value: v, confidence: 0.9 }]),
+      ) as never,
+    }]),
+  }).compute(cfCtx(1));
+  if (!isSuggestion(r)) throw new Error("expected a suggestion");
+  return r;
+}
+
+describe("SLICE 2d -- panel:false hides the FIELD, never the FACT", () => {
+  it("POSITIVE: a panel:false attribute is absent from the rendered attributes", () => {
+    const ids = panelCompute().workings.attributes.map((a) => a.id);
+    expect(ids).not.toContain("mcb_present");
+    expect(ids).not.toContain("mcb_amp_a");
+  });
+
+  it("POSITIVE: the visible list still carries the ANSWER field and the ordinary inputs", () => {
+    const ids = panelCompute().workings.attributes.map((a) => a.id);
+    expect(ids).toContain("paired_mcb");
+  });
+
+  it("⚠️ THE ANTI-REGRESSION: the pipeline STILL RECEIVES the hidden facts and the row still prices", () => {
+    // If `panel: false` had filtered the defs WALK instead of the push, `selected[mcb_amp_a]` would be
+    // gone, `catalog_fit`'s fit_from would read nothing, and this row would price without its MCB --
+    // silently, with a tidier-looking panel. The fitted item is the proof the facts got through.
+    const r = panelCompute();
+    const mcb = r.workings.attributes.find((a) => a.id === "paired_mcb")!;
+    expect(mcb.derivedValue).toBe("25A FP MCB C CURVE");   // 20 A hopped to the 25 A rung
+    expect(Object.keys(r.values).length).toBeGreaterThan(0);
+  });
+
+  it("⚠️ AND `absent_when` still fires on a hidden fact -- the concluded absence survives hiding", () => {
+    const mcb = panelCompute({ mcb_present: "No" }).workings.attributes.find((a) => a.id === "paired_mcb")!;
+    expect(mcb.derivedValue).toBe(NONE_SENTINEL);
+  });
+
+  it("POSITIVE: the missing-attribute gate EXEMPTS a hidden blank -- no invisible dead end", () => {
+    // `mcb_present` is not derived and carries no default, so pre-2d a blank one set `missing` and
+    // refused the row. Hidden without the exemption that becomes a refusal with no field to fill.
+    const r = panelCompute({ mcb_present: null, mcb_amp_a: null });
+    expect(r.basis).not.toMatch(/Complete the missing attributes/);
+  });
+
+  it("NEGATIVE: a VISIBLE blank input still blocks -- the exemption is narrow, not a softening", () => {
+    // `enclosure` is an ordinary visible attribute of this fixture, so a blank one is still a genuine
+    // missing input. The exemption covers ONLY what the pricer cannot see.
+    const cfg = panelCfg() as unknown as { attribute_definitions: Array<Record<string, unknown>> };
+    cfg.attribute_definitions.push({ id: "enclosure", label: "Enclosure", type: "choice", values: ["IP67"] });
+    const r = makePricingSheetHelper({
+      configsByCategory: new Map([["cf_probe", cfg as unknown as RateCategoryConfig]]),
+      items: CF_ITEMS,
+      extractionByRow: buildExtractionByRow([{
+        excel_row: 1,
+        attributes: { mcb_present: { value: "Yes", confidence: 0.9 }, mcb_amp_a: { value: 20, confidence: 0.9 },
+                      enclosure: { value: null, confidence: 0.2 } } as never,
+      }]),
+    }).compute(cfCtx(1));
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    expect(r.basis).toMatch(/Complete the missing attributes|Fill the attributes/);
+  });
+
+  it("NEGATIVE: absent `panel` is byte-identical -- every pre-2d config renders every attribute", () => {
+    const ids = cfCompute()("paired_mcb") ? undefined : undefined;
+    void ids;
+    const r = makePricingSheetHelper({
+      configsByCategory: new Map([["cf_probe", catalogFitConfig()]]),
+      items: CF_ITEMS,
+      extractionByRow: buildExtractionByRow([{
+        excel_row: 1,
+        attributes: { mcb_present: { value: "Yes", confidence: 0.9 }, mcb_amp_a: { value: 20, confidence: 0.9 } } as never,
+      }]),
+    }).compute(cfCtx(1));
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const shown = r.workings.attributes.map((a) => a.id);
+    expect(shown).toContain("mcb_present");
+    expect(shown).toContain("mcb_amp_a");
+  });
+});
+
+// ── OPTION B: PLAIN vs "(computed)" ────────────────────────────────────────────────────────────
+// R-C: PLAIN when the fitted item matches the stated facts with NOTHING substituted; "(computed)"
+// when anything was substituted or inferred. The verdict composes TWO sources -- the fit's own hop
+// and the map_attribute outcomes its `where` rests on -- because a fit can land exactly on a pole we
+// inferred, and that is still a substitution.
+
+/** A ladder over pole+curve so each substitution class can be isolated. */
+const OB_ITEMS: RateMasterItem[] = [
+  { discipline: "Electrical", kind: "db_switchgear_item",
+    attributes: { family: "Switchgear", device: "MCB", pole: "FP", curve: "C", item: "25A FP MCB C CURVE", amp_a: 25.0 },
+    rates: { list_price: 1000 } },
+  { discipline: "Electrical", kind: "db_switchgear_item",
+    attributes: { family: "Switchgear", device: "MCB", pole: "FP", curve: "D", item: "25A FP MCB D CURVE", amp_a: 25.0 },
+    rates: { list_price: 1100 } },
+  { discipline: "Electrical", kind: "db_switchgear_item",
+    attributes: { family: "Switchgear", device: "MCB", pole: "FP", curve: "C", item: "63A FP MCB C CURVE", amp_a: 63.0 },
+    rates: { list_price: 2000 } },
+] as unknown as RateMasterItem[];
+
+function obConfig(): RateCategoryConfig {
+  return {
+    discipline: "Electrical", category_id: "ob_probe",
+    attribute_definitions: [
+      // panel:false MATCHES THE SHIPPED SHAPE, and is load-bearing for these tests: a visible blank
+      // input trips the missing-attribute gate, which returns BEFORE any pipeline runs -- so the
+      // substitution cases below would assert against an empty results array rather than a fit.
+      { id: "mcb_amp_a", label: "Amps", type: "number", panel: false },
+      { id: "mcb_pole_stated", label: "Pole stated", type: "choice", values: ["FP"], allow_none: true, panel: false },
+      { id: "mcb_curve_stated", label: "Curve stated", type: "choice", values: ["C", "D"], allow_none: true, panel: false },
+      { id: "paired_mcb", label: "Paired MCB", type: "choice",
+        values: ["25A FP MCB C CURVE", "25A FP MCB D CURVE", "63A FP MCB C CURVE"], allow_none: true },
+    ],
+    pipelines: {
+      ob_boq: {
+        output: ["supply"],
+        steps: [
+          { step: "map_attribute", params: { result_attr: "mcb_pole", prefer_attr: "mcb_pole_stated", default: "FP" } },
+          { step: "map_attribute", params: { result_attr: "mcb_curve", prefer_attr: "mcb_curve_stated", default: "C" } },
+          { step: "catalog_fit", params: {
+              bind: "paired_mcb", kind: "db_switchgear_item",
+              where: { family: "Switchgear", device: "MCB", pole: "@mcb_pole", curve: "@mcb_curve" },
+              size_from: { attr: "amp_a" }, fit_from: { attr: "mcb_amp_a" }, direction: "up",
+              prefer_attr: "paired_mcb", on_miss: "none", on_missing_fact: "none" } },
+          { step: "component_ref", name: "mcb",
+            ref: { kind: "db_switchgear_item", family: "Switchgear", item: "@paired_mcb" },
+            target: "list_price", qty: 1, none_skips: true },
+          { step: "sum_components", result: "supply" },
+        ],
+      },
+    },
+  } as unknown as RateCategoryConfig;
+}
+
+const obCtx = (excelRow: number): RateHelperRowContext => ({
+  excelRow, description: "probe", nodeType: "Line Item",
+  category: "ob_probe", discipline: "Electrical",
+  rateKinds: ["supply_rate"] as unknown as never,
+});
+
+function ob(over: Record<string, string | number | null>) {
+  const r = makePricingSheetHelper({
+    configsByCategory: new Map([["ob_probe", obConfig()]]),
+    items: OB_ITEMS,
+    extractionByRow: buildExtractionByRow([{
+      excel_row: 1,
+      attributes: Object.fromEntries(
+        Object.entries(over).map(([k, v]) => [k, { value: v, confidence: 0.9 }]),
+      ) as never,
+    }]),
+  }).compute(obCtx(1));
+  if (!isSuggestion(r)) throw new Error("expected a suggestion");
+  return r.workings.attributes.find((a) => a.id === "paired_mcb")!;
+}
+
+describe("SLICE 2d -- OPTION B: the marker says whether anything was substituted", () => {
+  it("POSITIVE: exact rung on STATED pole + STATED curve renders PLAIN -- nothing was substituted", () => {
+    // The row said 25 A, FP, C; the catalog carries exactly that. We computed nothing it did not say,
+    // so claiming "(computed)" would take credit for the row's own answer.
+    const a = ob({ mcb_amp_a: 25, mcb_pole_stated: "FP", mcb_curve_stated: "C" });
+    expect(a.derivedValue).toBe("25A FP MCB C CURVE");
+    expect(a.substituted).toBe(false);
+    expect(isShowingDerived(a)).toBe(false);          // no marker
+    expect(attrDisplayValue(a)).toBe("25A FP MCB C CURVE");
+  });
+
+  it('SUBSTITUTION 1 -- AMP HOP: 20 A is not carried, so a different rung is priced -> "(computed)"', () => {
+    const a = ob({ mcb_amp_a: 20, mcb_pole_stated: "FP", mcb_curve_stated: "C" });
+    expect(a.derivedValue).toBe("25A FP MCB C CURVE");
+    expect(a.substituted).toBe(true);
+    expect(isShowingDerived(a)).toBe(true);
+  });
+
+  it('SUBSTITUTION 2 -- POLE INFERRED: the ladder hit exactly, but the pole came from a default', () => {
+    // ⚠️ THE CASE THE STEP CANNOT ANSWER ALONE. `catalog_fit.exact` is TRUE here; only the
+    // map_attribute outcome knows the pole was not stated. A verdict built on the fit alone would
+    // call this plain and claim the row specified a pole it never mentioned.
+    const a = ob({ mcb_amp_a: 25, mcb_pole_stated: null, mcb_curve_stated: "C" });
+    expect(a.derivedValue).toBe("25A FP MCB C CURVE");
+    expect(a.substituted).toBe(true);
+  });
+
+  it('SUBSTITUTION 3 -- CURVE DEFAULTED: same shape, the other fact', () => {
+    const a = ob({ mcb_amp_a: 25, mcb_pole_stated: "FP", mcb_curve_stated: null });
+    expect(a.substituted).toBe(true);
+  });
+
+  it('SUBSTITUTION 4 -- on_missing_fact: an unreadable amperage concludes "None (computed)"', () => {
+    const a = ob({ mcb_amp_a: null, mcb_pole_stated: "FP", mcb_curve_stated: "C" });
+    expect(a.derivedValue).toBe(NONE_SENTINEL);
+    expect(a.substituted).toBe(true);
+    expect(isShowingDerived(a)).toBe(true);
+  });
+
+  it('POSITIVE: a HUMAN-stated "None" renders PLAIN -- their decision, not ours', () => {
+    const a = ob({ mcb_amp_a: 25, mcb_pole_stated: "FP", mcb_curve_stated: "C", paired_mcb: "None" });
+    expect(a.value).toBe("None");
+    expect(a.derivedValue).toBeUndefined();
+    expect(isShowingDerived(a)).toBe(false);
+    expect(attrDisplayValue(a)).toBe("None");
+  });
+
+  it("NEGATIVE: neither marker state is ever BLANK -- a derived field never draws the red border", () => {
+    for (const over of [
+      { mcb_amp_a: 25, mcb_pole_stated: "FP", mcb_curve_stated: "C" },
+      { mcb_amp_a: 20, mcb_pole_stated: "FP", mcb_curve_stated: "C" },
+      { mcb_amp_a: null, mcb_pole_stated: "FP", mcb_curve_stated: "C" },
+    ] as Array<Record<string, string | number | null>>) {
+      expect(isAttrBlank(ob(over))).toBe(false);
+    }
+  });
+});
+
+// ── THE 2c RE-MINTS ────────────────────────────────────────────────────────────────────────────
+describe("SLICE 2d -- the 2c absence refusal is REVERSED BY RULING", () => {
+  it('a CONCLUDED ABSENCE now renders "None (computed)" (was: renders EMPTY)', () => {
+    // ⚠️ RE-MINTED FROM 2c's "NEGATIVE: POSITIVE ABSENCE renders EMPTY, never a fitted item".
+    // 2c's PREMISE WAS THAT NOTHING WAS COMPUTED. That premise expired with slice 2d: a step that
+    // fired `absent_when` DID conclude something -- that there is no such component -- and a
+    // concluded absence is a verdict, not the lack of one. Rendering it empty was tolerable only
+    // while the facts behind it were on screen to explain the blank; 2d takes them off the panel,
+    // so the field has to speak for itself.
+    const mcb = cfCompute({ mcb_present: "No" })("paired_mcb")!;
+    expect(mcb.derivedValue).toBe(NONE_SENTINEL);
+    expect(attrDisplayValue(mcb)).toBe("None");
+    expect(isShowingDerived(mcb)).toBe(true);
+    expect(isAttrBlank(mcb)).toBe(false);
+  });
+
+  it('an UNREADABLE FACT likewise renders "None (computed)" (was: renders EMPTY)', () => {
+    // ⚠️ RE-MINTED FROM 2c's "an unreadable fact (on_missing_fact none) renders EMPTY". Same ruling.
+    // ⚠️ USES THE panel:false FIXTURE DELIBERATELY. With `mcb_amp_a` VISIBLE, a null one trips the
+    // missing-attribute gate and the helper returns before any pipeline runs -- which is why 2c's
+    // version of this test passed while asserting almost nothing about the absence path. 2d hides the
+    // fact, so the gate lets the row through and `on_missing_fact` genuinely fires.
+    const mcb = panelCompute({ mcb_amp_a: null }).workings.attributes.find((a) => a.id === "paired_mcb")!;
+    expect(mcb.derivedValue).toBe(NONE_SENTINEL);
+    expect(attrDisplayValue(mcb)).toBe("None");
+  });
+});
+
+// ── THE MODULE_FIT UPGRADE, UNDER RULING (x) ───────────────────────────────────────────────────
+describe("SLICE 2d -- take-the-larger shows WHAT WAS BOUGHT (owner ruling x)", () => {
+  it("POSITIVE: a stated plate too small shows the UPGRADED rung, marked", () => {
+    // The row says 1M and the contents need 3. Pre-2d the field showed "1M" -- a size the row is not
+    // being charged for. The upgrade NOTE is kept, so this is not a silent override.
+    const plate = mfCompute({ plate_item: "1M & 2M", switch_qty: 3 })("plate_item")!;
+    expect(plate.substituted).toBe(true);
+    expect(attrDisplayValue(plate)).toBe("3M");
+    expect(isShowingDerived(plate)).toBe(true);
+    expect(plate.notes?.some((n) => n.kind === "upgrade")).toBe(true);
+  });
+
+  it("⚠️ NEGATIVE: a stated plate the pipeline USED is still never overwritten -- the narrowing is exact", () => {
+    // This is the half of the old contract that STANDS. 6M holds 3 modules comfortably, so nothing
+    // was substituted and the pricer's own entry is what shows.
+    const plate = mfCompute({ plate_item: "6M", switch_qty: 3 })("plate_item")!;
+    expect(plate.substituted).toBeUndefined();
+    expect(attrDisplayValue(plate)).toBe("6M");
+    expect(isShowingDerived(plate)).toBe(false);
+  });
+
+  it("REGRESSION BAR: a blank plate still shows the computed rung, marked, exactly as in 2c", () => {
+    const plate = mfCompute()("plate_item")!;
+    expect(attrDisplayValue(plate)).toBe("3M");
+    expect(isShowingDerived(plate)).toBe(true);
+    expect(isAttrBlank(plate)).toBe(false);
+  });
+
+  it("REGRESSION BAR: the read-only blanker quantity is untouched by option B", () => {
+    expect(mfCompute()("blank_qty")?.readOnly).toBe(true);
+  });
+});
+
+// ── Q4(i): THE DERIVATION TAB IS A PURE CALCULATOR ─────────────────────────────────────────────
+describe("SLICE 2d -- Q4(i): derived binds leave the Derivation input selects", () => {
+  it("POSITIVE: a catalog_fit bind and a module_fit ladder bind are both derived", () => {
+    // The shared predicate is what the Derivation screen now filters on. It lives in the LEAF module
+    // (`rateMasterStructure`), because the helper already imports FROM RateMasterDerivation -- so the
+    // Derivation screen importing it back out of the helper would be a cycle.
+    expect(derivedAttrIds(catalogFitConfig()).has("paired_mcb")).toBe(true);
+    expect(derivedAttrIds(moduleFitConfig()).has("plate_item")).toBe(true);
+  });
+
+  it("NEGATIVE: a genuine INPUT is not derived, so the calculator keeps every control it needs", () => {
+    const d = derivedAttrIds(catalogFitConfig());
+    expect(d.has("mcb_present")).toBe(false);
+    expect(d.has("mcb_amp_a")).toBe(false);
+  });
+
+  it("⚠️ THE TWO PREDICATES ARE NO LONGER KEPT APART -- the superseded invariant, pinned as superseded", () => {
+    // `frontend/CLAUDE.md` used to require the Derivation screen to read `derivedQtyAttrs` ONLY. Owner
+    // ruling Q4(i) supersedes that: it now reads `derivedAttrIds`, so `plate_item` leaves its selects.
+    // The three bench capabilities that costs are pinned by tests instead -- the upgrade above,
+    // stated-wins, and stated-"None" sticking (in the interpreter suite).
+    const cfg = moduleFitConfig();
+    expect(derivedQtyAttrs(cfg).has("plate_item")).toBe(false);  // not a superseded QUANTITY...
+    expect(derivedAttrIds(cfg).has("plate_item")).toBe(true);    // ...but it IS a derived bind
+  });
+});
+
+// ---- SLICE 3b: the CONDITIONAL exemption (owner rulings R8 + R9) ----
+//
+// A `map_attribute` is the first derivation mechanism that CANNOT always run: it fills its target
+// from a SOURCE attribute, and on a row where that source is blank it fills nothing. Exempting its
+// target from the missing-attribute gate WHOLESALE would replace "Complete the missing attributes
+// to price" -- an instruction the pricer can act on -- with "no match for these attributes", which
+// they cannot, on 35 of 79 live tray rows. The owner ruled the message is worth keeping, so the
+// exemption is narrowed PER ROW to rows the pipeline can actually serve.
+const TRAY3B_ITEMS_H: RateMasterItem[] = [
+  { discipline: "Electrical", kind: "cable_tray",
+    attributes: { tray_type: "Solid", material: "GI", thickness_mm: 2, width_mm: 100 },
+    rates: { without_cover_list: 400, cover_only_list: 0, install_rate: 30 } },
+  { discipline: "Electrical", kind: "cable_tray",
+    attributes: { tray_type: "Solid", material: "GI", thickness_mm: 1.6, width_mm: 100 },
+    rates: { without_cover_list: 200, cover_only_list: 0, install_rate: 30 } },
+];
+
+const TRAY3B_CONFIG: RateCategoryConfig = {
+  discipline: "Electrical", category_id: "cabletray_raceway",
+  attribute_definitions: [
+    { id: "tray_type", label: "Type", type: "choice", values: ["Solid"] },
+    { id: "material", label: "Material", type: "choice", values: ["GI"] },
+    { id: "thickness_mm", label: "Thickness (mm)", type: "number_choice",
+      values_from: { kind: "cable_tray", attr: "thickness_mm" } },
+    // B1: the hidden gauge FACT -- selector on (the model reads it), panel:false (never on the panel).
+    { id: "thickness_swg", label: "Thickness gauge (SWG)", type: "number", panel: false },
+    { id: "width_mm", label: "Width (mm)", type: "number" },
+  ],
+  pipelines: {
+    tray_boq_supply: {
+      output: ["supply_per_rmt"],
+      steps: [
+        { step: "map_attribute", params: { result_attr: "thickness_mm", prefer_attr: "thickness_mm",
+          from_attr: "thickness_swg", table: { "14": 2.0, "16": 1.6 } } },
+        { step: "catalog_fit", params: { bind: "width_mm", fit_into: "width_mm", kind: "cable_tray",
+          where: { tray_type: "@tray_type", material: "@material", thickness_mm: "@thickness_mm" },
+          label_attr: "width_mm", size_from: { attr: "width_mm" }, fit_from: { attr: "width_mm" },
+          direction: "up", on_miss: "no_compute" } },
+        { step: "match_master_row", params: { kind: "cable_tray" } },
+        { step: "component", name: "base", target: "without_cover_list", params: {}, formula: "base" },
+        { step: "sum_components", result: "supply_per_rmt" },
+      ],
+    },
+  },
+} as unknown as RateCategoryConfig;
+
+const trayCtx = (excelRow: number): RateHelperRowContext => ({
+  excelRow, description: "cable tray", nodeType: "Line Item",
+  category: "cabletray_raceway", discipline: "Electrical", rateKinds: ["supply_rate"],
+});
+const trayHelper = (attrs: Record<string, string | number | null>) =>
+  makePricingSheetHelper({
+    config: TRAY3B_CONFIG, items: TRAY3B_ITEMS_H,
+    extractionByRow: buildExtractionByRow([{ excel_row: 7, description: "cable tray", attributes: ext(attrs) }]),
+  }).compute(trayCtx(7));
+const attrOf = (r: ReturnType<ReturnType<typeof makePricingSheetHelper>["compute"]>, id: string) =>
+  (isSuggestion(r) ? r.workings?.attributes ?? [] : []).find((a) => a.id === id);
+
+describe("SLICE 3b -- R8: the gate exemption is CONDITIONAL, not blanket", () => {
+  it("POSITIVE: a gauge but NO millimetres is NOT gated -- the pipeline can fill it, so it does", () => {
+    const r = trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_swg: 14 });
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    // Not the gate's message, and it actually PRICES -- 14 SWG -> 2.0 -> the 400 row.
+    expect(r.basis).not.toBe("Complete the missing attributes to price");
+    expect(r.values.supply_rate).toBe(400);
+  });
+
+  it("NEGATIVE: NEITHER millimetres NOR a gauge -- still gated, with the ORIGINAL message", () => {
+    // ⚠️ THE REGRESSION THE OWNER ASKED TO PRESERVE. A blanket exemption would have turned this into
+    // "no match for these attributes" on 35 of 79 live rows. Pinned so it cannot be lost again.
+    const r = trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100 });
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.basis).toBe("Complete the missing attributes to price");
+  });
+
+  it("R9: on that gated row the thickness field still LOOKS like it needs filling", () => {
+    // Border and message must agree. Without the display narrowing the field would render as
+    // derived -- no red border -- while the message still asked for it.
+    const r = trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100 });
+    expect(attrOf(r, "thickness_mm")?.derived).toBeFalsy();
+    expect(attrOf(r, "thickness_mm")?.value).toBe("");
+  });
+
+  it("R9: on a gauge-bearing row the thickness field IS derived, and shows the mapped value", () => {
+    const r = trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_swg: 16 });
+    expect(attrOf(r, "thickness_mm")?.derived).toBe(true);
+  });
+
+  it("R3: the gauge attribute NEVER reaches the helper panel", () => {
+    // `panel: false` keeps it off the pricer's screen on every row -- gauge-bearing or not -- while
+    // `selector` stays on so the model still reads it.
+    const shapes: Record<string, string | number | null>[] = [
+      { tray_type: "Solid", material: "GI", width_mm: 100, thickness_swg: 14 },
+      { tray_type: "Solid", material: "GI", width_mm: 100 },
+    ];
+    for (const attrs of shapes) {
+      expect(attrOf(trayHelper(attrs), "thickness_swg")).toBeUndefined();
+    }
+  });
+
+  it("SCOPING: a config with NO map_attribute is byte-identical -- width is untouched", () => {
+    // The narrowing can only ever remove a `map_attribute` target. A `catalog_fit` bind is
+    // unconditionally derived on every path, which is what keeps slice 3a's width -- and
+    // point_wiring, switches_sockets and industrial_sockets -- exactly as they were.
+    const noMap = {
+      ...TRAY3B_CONFIG,
+      pipelines: { tray_boq_supply: {
+        ...TRAY3B_CONFIG.pipelines!.tray_boq_supply,
+        steps: TRAY3B_CONFIG.pipelines!.tray_boq_supply.steps.filter(
+          (s) => (s as { step?: string }).step !== "map_attribute"),
+      } },
+    } as unknown as RateCategoryConfig;
+    const r = makePricingSheetHelper({
+      config: noMap, items: TRAY3B_ITEMS_H,
+      extractionByRow: buildExtractionByRow([{ excel_row: 8, description: "t",
+        attributes: ext({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_mm: 2 }) }]),
+    }).compute({ ...trayCtx(8), excelRow: 8 });
+    expect(isSuggestion(r) && r.values.supply_rate).toBe(400);
+    // width_mm is a catalog_fit bind -> derived on every path, narrowing or not
+    expect(attrOf(r, "width_mm")?.derived).toBe(true);
+  });
+});
+
+describe("SLICE 3b -- mapAttributeSources (the pure half of R8)", () => {
+  it("reads result_attr + from_attr FROM CONFIG, never by hardcoded id", () => {
+    const m = mapAttributeSources(TRAY3B_CONFIG);
+    expect(m.get("thickness_mm")).toEqual({ fromAttr: "thickness_swg", hasDefault: false });
+  });
+
+  it("a step carrying a DEFAULT is unconditionally fillable and is never narrowed", () => {
+    // industrial_sockets' curve-else-C shape: nothing to be absent, so nothing to narrow.
+    const cfg = { pipelines: { p: { output: ["x"], steps: [
+      { step: "map_attribute", params: { result_attr: "mcb_curve", prefer_attr: "mcb_curve_stated", default: "C" } },
+    ] } } } as unknown as RateCategoryConfig;
+    expect(mapAttributeSources(cfg).get("mcb_curve")).toEqual({ fromAttr: undefined, hasDefault: true });
+  });
+
+  it("EMPTY for a config with no map_attribute -- the no-op guarantee", () => {
+    expect(mapAttributeSources(CONFIG).size).toBe(0);
+  });
+
+  it("derivedAttrIds now collects a map_attribute result_attr (the FIFTH mechanism)", () => {
+    expect(derivedAttrIds(TRAY3B_CONFIG).has("thickness_mm")).toBe(true);
+    // ...and still collects the catalog_fit bind beside it, unchanged.
+    expect(derivedAttrIds(TRAY3B_CONFIG).has("width_mm")).toBe(true);
+  });
+});
+
+// ---- SLICE 3b FINISH: the map_attribute DISPLAY branch ----
+//
+// THE DEFECT THIS CLOSES, caught by the owner during the 3b cert: row 513 priced at 1068 off a
+// thickness of 1.6 converted from a stated "16SWG", while the Thickness field rendered an empty
+// "-- select --". `derivedAttrIds` marked the attribute derived (correctly exempting it from the
+// missing-input gate) but `applyDerivedDisplay` had no `map_attribute` branch, so nothing filled its
+// `derivedValue`. Same shape as the row-98 defect slice 2c fixed for `catalog_fit`, and the same
+// rule: THE PANEL SHOWS WHAT PRICING USED.
+describe("SLICE 3b FINISH -- a mapped thickness is SHOWN, and a stated one stays plain", () => {
+  it("POSITIVE: a gauge-derived thickness renders the resolved MILLIMETRE value, tagged (computed)", () => {
+    const r = trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_swg: 16 });
+    const t = attrOf(r, "thickness_mm");
+    expect(t?.derived).toBe(true);
+    expect(t?.derivedValue).toBe("1.6");        // the mapped mm value, not the gauge
+    expect(t?.substituted).toBe(true);          // -> the "(computed)" tag
+  });
+
+  it("POSITIVE: 14 SWG shows 2, the other live gauge", () => {
+    const t = attrOf(trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_swg: 14 }), "thickness_mm");
+    expect(t?.derivedValue).toBe("2");
+    expect(t?.substituted).toBe(true);
+  });
+
+  it("B3 NEGATIVE: a STATED millimetre thickness renders PLAIN -- no marker, no derivedValue", () => {
+    // The row supplied it and the mapping never ran, so nothing was substituted. Tagging it would
+    // credit the pipeline with the pricer's own entry -- the option-B rule, and the reason the
+    // stated branch publishes no display value at all.
+    const t = attrOf(trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_mm: 1.6 }), "thickness_mm");
+    expect(t?.substituted).toBeFalsy();
+    expect(t?.derivedValue).toBeUndefined();
+    expect(t?.value).toBe("1.6");               // the row's own entry is what shows
+  });
+
+  it("B3 NEGATIVE: millimetres AND a gauge -- the stated value shows, still PLAIN", () => {
+    // R6: stated wins. 1.6 is shown; the 14 SWG that would have mapped to 2 is not, and no marker.
+    const t = attrOf(trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_mm: 1.6, thickness_swg: 14 }), "thickness_mm");
+    expect(t?.substituted).toBeFalsy();
+    expect(t?.derivedValue).toBeUndefined();
+  });
+
+  it("UNREGRESSED (R8/R9): neither millimetres nor a gauge -- blank, and still gated", () => {
+    // The narrowing must survive this branch: with nothing to map, the field renders as a genuine
+    // missing input (no `derived`) and the ORIGINAL message stands.
+    const r = trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100 });
+    expect(isSuggestion(r) && r.basis).toBe("Complete the missing attributes to price");
+    const t = attrOf(r, "thickness_mm");
+    expect(t?.derived).toBeFalsy();
+    expect(t?.derivedValue).toBeUndefined();
+  });
+
+  it("NO PRICED VALUE MOVES: the display branch is display-only", () => {
+    // The whole slice moves no numbers. A gauge row and a stated-mm row both price exactly as they
+    // did before this branch existed -- 14 SWG -> 2.0 -> the 400 row, 1.6 stated -> the 200 row.
+    const gauge = trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_swg: 14 });
+    expect(isSuggestion(gauge)).toBe(true);
+    if (isSuggestion(gauge)) expect(gauge.values.supply_rate).toBe(400);
+
+    const statedMm = trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_mm: 1.6 });
+    expect(isSuggestion(statedMm)).toBe(true);
+    if (isSuggestion(statedMm)) expect(statedMm.values.supply_rate).toBe(200);
+  });
+
+  it("SCOPING: width still renders through the catalog_fit branch, NOT this one", () => {
+    // width_mm is a `catalog_fit` bind, not a map target, so branch 4 keeps owning it and its
+    // fitted label is unchanged. The new branch cannot reach it.
+    const t = attrOf(trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_swg: 16 }), "width_mm");
+    expect(t?.derived).toBe(true);
+    expect(t?.derivedValue).toBe("100");        // 3a's fitted label, unchanged
+  });
+
+  it("width INHERITS the substitution when its ladder rests on an inferred thickness", () => {
+    // ⚠️ NOT a change from this branch -- it is the slice-2d option-B rule, already live in 3b and
+    // visible in that cert (row 513 showed "Width (mm) (computed) 600" at an EXACT catalog width).
+    // The tray `catalog_fit` filters its ladder on `@thickness_mm`, so `whereRefs` joins into the
+    // map outcomes: an exact width fit that rests on a gauge-inferred thickness is still a value we
+    // worked out, and the panel says so. A fit can be exact and still rest on an inferred fact.
+    const inferred = attrOf(trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_swg: 16 }), "width_mm");
+    expect(inferred?.substituted).toBe(true);
+
+    // THE CONTRAST: with the thickness STATED, nothing behind the fit was substituted -> PLAIN.
+    const stated = attrOf(trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_mm: 1.6 }), "width_mm");
+    expect(stated?.substituted).toBe(false);
   });
 });

@@ -3,7 +3,7 @@
 """Tests for the projects financial rollup + the per-document invoice totals.
 
 Locks in the byte-identical aggregation math (the load-bearing filters: PO NOT IN
-(Merged,Inactive), SR = Approved, Payments/Expenses = Paid, Expenses grouped by the
+(Merged,Cancelled,Inactive), SR = Approved, Payments/Expenses = Paid, Expenses grouped by the
 `projects` plural link field, per-PO min() for liabilities, credit terms, and the
 Vendor-Invoice Pending+Approved reconciliation scope) so a future edit that breaks a
 number fails here.
@@ -69,6 +69,14 @@ class TestProjectFinancialRollup(FrappeTestCase):
         _raw("Procurement Orders", project=cls.P, status="Merged",
              total_amount=5000, po_amount_delivered=5000, amount_paid=0)
 
+        # Cancelled PO — must be EXCLUDED from po_wo AND liabilities. This filter was
+        # added to match the Reports -> Projects (Cash Sheet) view, which has always
+        # excluded Cancelled (`getPOForProjectInvoiceOptions` in frontend queryKeys.ts);
+        # the rollup did not, so the two screens disagreed on any project with a
+        # cancelled PO.
+        _raw("Procurement Orders", project=cls.P, status="Cancelled",
+             total_amount=7000, po_amount_delivered=7000, amount_paid=0)
+
         # Vendor invoices: Pending 100 + Approved 200 for cls.PO (Rejected 999 excluded).
         _raw("Vendor Invoices", document_type="Procurement Orders",
              document_name=cls.PO, invoice_amount=100, status="Pending")
@@ -91,8 +99,8 @@ class TestProjectFinancialRollup(FrappeTestCase):
 
     def test_merged_and_status_filters_excluded(self):
         r = get_projects_financial_rollup().get(self.P)
-        # Merged PO's 5000 must not leak into po_wo or liabilities; non-Paid / non-Approved
-        # rows must not leak into outflow / po_wo.
+        # Merged PO's 5000 and Cancelled PO's 7000 must not leak into po_wo or
+        # liabilities; non-Paid / non-Approved rows must not leak into outflow / po_wo.
         self.assertAlmostEqual(flt(r["po_wo_amount"]), 1200)
         self.assertAlmostEqual(flt(r["liabilities"]), 0)
         self.assertAlmostEqual(flt(r["outflow"]), 80)

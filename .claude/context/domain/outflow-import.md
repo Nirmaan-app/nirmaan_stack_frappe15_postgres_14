@@ -1385,6 +1385,11 @@ ceiling stops the table filling a very tall monitor and pushing the same control
 
 ### D3 — duplicate identity is `(transfer_id, amount, date)`
 
+> ⚠️ **AMENDED BY D4 (2026-08-17), AND THE AMENDMENT IS NOT TO THE KEY.** The identity below is
+> UNCHANGED. What changed is which STORED ROWS are allowed to be a duplicate at all — see
+> [D4](#d4--a-stored-row-must-be-terminal-before-it-can-be-a-duplicate-2026-08-17). Read both
+> before touching either.
+
 **What it was:** `transfer_id` alone — one column, read verbatim from the sheet's *Transfer Id*
 header, `.strip()`ed. Not a computed fingerprint. No amount, no date, no beneficiary, no reference.
 
@@ -1432,6 +1437,111 @@ cannot tell the old behaviour from the new is evidence of neither, so six tests 
 three of them were **proven to fail** against a temporarily reverted key before being accepted. The
 other three assert behaviour that is the same either way (same-day different time still duplicate,
 the missing-date fallback, an unchanged re-upload) and are regression guards, not change-detectors.
+
+---
+
+### D4 — a stored row must be TERMINAL before it can be a duplicate (2026-08-17)
+
+**The defect, found in production data.** A transfer still `QUEUED` when a statement was exported
+stages with **no bank reference** and settles nothing. Nothing about its identity changes when it
+later completes — same `transfer_id`, same amount, same *Added On* — so the next export's `SUCCESS`
+row matched the queued placeholder on all three axes of D3 and was skipped as *"Already imported in
+batch X."*
+
+The money then **never reached a record, and could not**:
+
+- `Skipped` is in `review._FROZEN_ROW_STATUSES`, so `match_batch` never revisits it;
+- there is no unskip endpoint;
+- `expenses._load_settleable_row` **refuses** a skipped row outright;
+- every later export repeats the same collision.
+
+So the loss is **permanent, not late**. Measured live on `OFI-26-00002`: **2 transfers stranded**
+(₹8,142 *IN Engineering Works*, ₹7,500 *PARVATHAMA LABOUR CONTRACTOR*), both against payments still
+sitting at `Approved`.
+
+⚠️ **THE USER-FACING SYMPTOM IS MISLEADING, WHICH IS WHY IT WENT UNNOTICED.** On the sheet it reads
+as *"two rows, same vendor, same amount, different UTRs, both skipped"* — one a genuine repeat, one
+the completed transfer. Nothing on screen distinguishes them, and the reported cause ("already
+imported") is true of the wrong one.
+
+**The fix — eligibility, not identity.** `duplicates.row_identity` is **untouched**. A queued row and
+its later success ARE the same transfer, and saying otherwise would be a lie that happened to produce
+the right outcome. The corrected question is whether the stored row is the **final account** of that
+transfer. Both duplicate lookups now require it:
+
+| Site | Source |
+|---|---|
+| `candidates.find_earlier_batches_for_rows` | Cashfree |
+| `api/outflow_import/cashbook._already_imported` | Cashbook |
+| `upload._stage_batch`'s `seen_in_file` | the in-file half of the same rule |
+
+⚠️ **TERMINAL, *NOT* SUCCESSFUL — and the first cut got this wrong.** Filtering on `= SUCCESS` is the
+intuitive reading and is a **regression**: a `FAILED` transfer moved no money either, but it is
+final (a retry gets a NEW transfer id), so excluding it stops a re-uploaded statement being
+recognised as fully imported. `assess_duplicates` then sees one "new" row that is skipped anyway,
+declines to refuse, and stages a batch with nothing in it to action — precisely what the refusal
+exists to prevent. **Nine `test_upload` tests went red at once**, which is what the negative half of
+a guard is for.
+
+`parser.BANK_TERMINAL_STATUSES` = `{SUCCESS, FAILED, REJECTED, REVERSED}`, with
+`parser.is_terminal_status` as its predicate, bound into SQL rather than spelled — the same
+discipline `review.get_import_summary` already applies to `BANK_SUCCESS_STATUS`.
+
+⚠️ **AN UNRECOGNISED STATUS IS TREATED AS IN FLIGHT, DELIBERATELY.** The two mistakes are not
+symmetric: calling an in-flight status final **loses real money with no trace and no way back**,
+while calling a final status in-flight costs a re-staged row that is skipped anyway. Only one is
+recoverable, so the unknown case falls on the recoverable side.
+
+**Direction of risk:** this can only ever make the guard **looser** — more rows import, never fewer.
+Safe for the same reason the D3 period narrowing is: the real backstop against paying twice is the
+`Outflow Row Match` unique constraint, untouched.
+
+#### The repair patch — and why a re-upload cannot do it
+
+`patches/v3_0/unstrand_outflow_queued_reimports.py` re-opens rows the defect froze, setting them back
+to `Pending match run`; the reviewer then presses **Run match**. It writes no money — a patch that
+settled at migrate time, with no screen showing what it chose, would be doing the reviewer's job
+unasked.
+
+⚠️ **RE-UPLOADING THE STATEMENT DOES NOT RECOVER THESE ROWS.** The obvious move, and it fails: the
+stranded row is itself stored `SUCCESS` (it was skipped for being a duplicate, not for failing), so
+under the corrected rule it is a valid duplicate **of itself** — a re-upload finds every row already
+imported, `new == 0`, and `assess_duplicates` **refuses** the file. A newer statement hits the same
+wall. Only re-opening the stored row works.
+
+The predicate is narrow on purpose — skipped-as-already-imported **and** itself terminal **and** the
+batch named in its own `skip_reason` holds that transfer id still in flight. All three together
+describe only rows this defect created; on the owner's database that is 2 rows beside 34 correct
+duplicates that must be left exactly as they are.
+
+⚠️ **POSTGRES GOTCHA, AND IT FAILED SILENTLY.** `SUBSTRING(string FROM x)` is **overloaded**: with an
+`INTEGER` it is the positional form, with `TEXT` it is the **POSIX-regex** form. A bound parameter
+arrives typed as text, so `FROM 27` was read as the pattern `/27/` and matched the `27` inside
+`OFI-26-00271`, yielding the batch name `27`. Nothing errored — the `EXISTS` simply never matched,
+the `UPDATE` touched 0 rows, and the patch reported success while repairing nothing. **The
+`::integer` cast is load-bearing.** Caught only because `TestUnstrandPatch` builds a row it is
+supposed to fix and then checks that it did.
+
+#### Tests
+
+`TestQueuedThenSuccessfulReimport` + `TestUnstrandPatch` (`test_upload.py`, 37 → 39) and
+`TestPendingThenSuccessfulReimport` (`test_cashbook_import.py`). Each pairs the fix with its
+**negative**: a successful row must still block a re-upload, a `FAILED` row must still count as
+imported, and the patch must leave genuine duplicates alone.
+
+⚠️ **`TestUnstrandPatch` BUILDS THE STRANDED STATE BY HAND**, because the corrected code can no
+longer produce it — a patch tested only against a database that cannot contain its target is a patch
+nobody has run. It is also the one test in that file whose writes are **not scoped to its own
+fixtures**: `execute()` sweeps the whole table by design, so it also repairs any genuinely stranded
+row the site carries. Acceptable because that is the repair it exists to perform and it is
+idempotent — but a future edit widening the patch's `WHERE` widens this blast radius with it.
+
+#### Still open
+
+`expenses._load_settleable_row` tells a user *"This row was skipped. Re-run the match to reconsider
+it."* — but `match_batch` treats `Skipped` as frozen, so re-running the match **never** reconsiders
+it. The message names a remedy that does not exist. Not fixed here; it is a separate decision about
+whether skipped rows should be re-openable from the screen at all.
 
 ---
 

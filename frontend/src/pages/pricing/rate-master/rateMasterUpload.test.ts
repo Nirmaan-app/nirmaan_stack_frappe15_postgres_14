@@ -75,6 +75,38 @@ describe("splitChanges", () => {
     expect(collapsed.map((c) => c.row)).toEqual([2]);
   });
 
+  it("grouping and colour read the SAME server flags -- red-but-collapsed is impossible", () => {
+    // F-21. The dialog used to colour a percentage from its own `Math.abs(f.pct) >= 10`, reading
+    // the ROUNDED pct while the server classified from the raw one. At the boundary they
+    // disagreed: an exactly -10% move computed -9.999999999999993 (not major -> COLLAPSED) but
+    // arrived rounded to -10.0 (>= 10 -> RED). The row shouted and hid at the same time.
+    //
+    // ⚠️ The colour itself lives in JSX and is STRUCTURALLY untestable here -- vitest runs with
+    // environment "node" and there is no DOM, by deliberate choice (frontend/CLAUDE.md). What IS
+    // testable, and is the thing that makes the contradiction impossible, is the DATA CONTRACT:
+    // the change-level flag that drives grouping must be exactly "any rate field flagged", so a
+    // collapsed change cannot contain a field the dialog would paint red. The rendered half is
+    // covered by the browser cert.
+    const boundary = { space: "rate" as const, column: "list_price", old: "491.0",
+                       new: "441.90000000000003", pct: -10, major: true };
+    const small = { space: "rate" as const, column: "install_base", old: "100.0",
+                    new: "98.0", pct: -2, major: false };
+    const big = change({ row: 1, major: true, fields: [boundary, small] });
+    const quiet = change({ row: 2, major: false, fields: [small] });
+
+    const { expanded, collapsed } = splitChanges([big, quiet]);
+    expect(expanded.map((c) => c.row)).toEqual([1]);
+    expect(collapsed.map((c) => c.row)).toEqual([2]);
+
+    for (const c of [big, quiet]) {
+      expect(c.major).toBe(c.fields.some((f) => f.space === "rate" && f.major === true));
+    }
+    // the collapsed group carries NOTHING the dialog would paint red
+    for (const c of collapsed) {
+      expect(c.fields.some((f) => f.major === true)).toBe(false);
+    }
+  });
+
   it("keeps every change in exactly one of the two groups -- collapsed is not hidden", () => {
     const all = [change({ row: 1, major: true }), change({ row: 2 }), change({ row: 3 })];
     const { expanded, collapsed } = splitChanges(all);

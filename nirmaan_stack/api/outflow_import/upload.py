@@ -39,6 +39,7 @@ from nirmaan_stack.services.outflow_import.duplicates import assess_duplicates, 
 from nirmaan_stack.services.outflow_import.parser import (
     SUPPORTED_SOURCES,
     StatementFormatError,
+    is_terminal_status,
     parse_statement,
 )
 from nirmaan_stack.services.outflow_import.status import (
@@ -289,7 +290,14 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str):
             already_imported.get(identity),
             duplicate_in_file=identity in seen_in_file,
         )
-        seen_in_file.add(identity)
+        # ⚠️ ONLY A TERMINAL ROW JOINS THE SET, matching the rule the CROSS-BATCH lookup now applies
+        # (`candidates.find_earlier_batches_for_rows`). The two ask the same question of different
+        # populations, so a row that could block a later import from an earlier BATCH but not from
+        # an earlier LINE would be the two-answers-about-one-file split the comment above exists to
+        # prevent. An export is a snapshot and should never list one transfer twice, so this is
+        # closing the shape rather than a case seen in the wild.
+        if is_terminal_status(row.status_raw):
+            seen_in_file.add(identity)
         statuses.append(outcome.status)
 
         doc = frappe.new_doc(ROW_DOCTYPE)
