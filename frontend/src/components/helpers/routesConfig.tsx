@@ -68,6 +68,8 @@ import AllProjectInvocies from "@/pages/ProjectInvoices/AllProjectInvoices";
 import NonProjectExpensesPage from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
 import AllProjectExpensesPage from "@/pages/ProjectExpenses/AllProjectExpenses";
 import ExpenseLayout from "@/pages/Expenses/ExpenseLayout";
+import ExpenseRequestsPage from "@/pages/ExpenseRequests/ExpenseRequestsPage";
+import { ExpenseIndexRedirect } from "@/pages/Expenses/ExpenseIndexRedirect";
 import AdminApprovedQuotationsTable from "@/pages/ApprovedQuotationsFlow/AdminApprovedQuotationsTable";
 import { MilestonesSummary } from "@/pages/Manpower-and-WorkMilestones/MilestonesSummary";
 import { MilestoneTab } from "@/pages/Manpower-and-WorkMilestones/MilestoneTab";
@@ -363,7 +365,14 @@ export const appRoutes: RouteObject[] = [
             path: "expense",
             element: <ExpenseLayout />,
             children: [
-              { index: true, element: <Navigate to="/expense/project" replace /> },
+              // TAB ORDER IS NOT LANDING ORDER. Expense Request renders FIRST, but the
+              // index redirect deliberately does not follow it: every role with access has
+              // landed on Misc Project Expense since the module was unified, and moving
+              // them all is not something adding a tab should do quietly. Only a PM is sent
+              // to Requests -- the ledger tabs are hidden from them, so the historical
+              // default would strand them on a page they cannot see.
+              { index: true, element: <ExpenseIndexRedirect /> },
+              { path: "requests", element: <ExpenseRequestsPage /> },
               { path: "project", element: <AllProjectExpensesPage /> },
               { path: "non-project", element: <NonProjectExpensesPage /> },
             ],

@@ -25,6 +25,12 @@ const CommissionPackages = React.lazy(() =>
   }))
 );
 
+const ExpensePackages = React.lazy(() =>
+  import("@/components/expense-packages").then((module) => ({
+    default: module.ExpensePackages,
+  }))
+);
+
 const PRHeaderPackages = React.lazy(() =>
   import("@/components/PRHeaderTagMaster").then((module) => ({
     default: module.PRHeaderTagMaster,
@@ -48,6 +54,7 @@ export const PACKAGE_SETTINGS_TABS = {
   PRODUCT_PACKAGES: "product-packages",
   DESIGN_PACKAGES: "design-packages",
   COMMISSION_PACKAGES: "commission-packages",
+  EXPENSE_PACKAGES: "expense-packages",
   PR_HEADER_PACKAGES: "pr-header-packages",
   PMO_PACKAGES: "pmo-packages",
   CRITICAL_PO_CATEGORIES: "critical-po-categories",
@@ -82,6 +89,11 @@ export const PACKAGE_SETTINGS_TAB_OPTIONS: PackageSettingsTabOption[] = [
     label: "Commission Packages",
     value: PACKAGE_SETTINGS_TABS.COMMISSION_PACKAGES,
     component: CommissionPackages,
+  },
+  {
+    label: "Expense Packages",
+    value: PACKAGE_SETTINGS_TABS.EXPENSE_PACKAGES,
+    component: ExpensePackages,
   },
   {
     label: "PR Header Packages",
