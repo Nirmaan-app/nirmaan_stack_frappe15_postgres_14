@@ -5,6 +5,12 @@
 // upsert semantics would be free to disagree with the write that actually happens, which is the one
 // failure a preview must never have.
 //
+// ⚠️ THAT WAS AN ASPIRATION UNTIL F-21, NOT A FACT. The percentage's COLOUR was decided here by
+// `Math.abs(f.pct) >= 10` -- a second definition of the threshold, reading the ROUNDED percentage
+// while the server classified from the raw one. At the boundary they disagreed and a row rendered
+// RED while sitting COLLAPSED: "big move" and "not worth showing", about the same row. The server
+// now emits `major` PER FIELD and the colour reads it. Do not reintroduce a comparison here.
+//
 // EXPANDED BY DEFAULT: every new item and every rate move of >= 10% IN EITHER DIRECTION -- the two
 // classes a count cannot convey. COLLAPSED behind a count: everything else, one click from open.
 // Nothing is hidden; the collapsing is about attention, not access.
@@ -64,7 +70,7 @@ function ChangeRow({ change }: { change: UploadChange }) {
               <span
                 className={cn(
                   "font-medium",
-                  Math.abs(f.pct) >= 10 ? "text-destructive" : "text-muted-foreground",
+                  f.major ? "text-destructive" : "text-muted-foreground",
                 )}
               >
                 {formatPct(f.pct)}

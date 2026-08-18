@@ -7,6 +7,8 @@ import type { Pipeline, RateCategoryConfig, RateMasterItem } from "./rateMasterT
 import {
   NONE_SENTINEL,
   buildModuleLadder,
+  catalogFitOutcomes,
+  mapAttributeOutcomes,
   derivedAttrOutcomes,
   evalFormula,
   fitModuleLadder,
@@ -19,7 +21,9 @@ import {
   stepFactor,
 } from "./ratePipelineInterpreter";
 import { STEP_VOCABULARY, blankStep, coerceForMatch } from "./rateMasterStructure";
-import { derivedQtyAttrs, derivedQtyValue } from "./RateMasterDerivation";
+import { derivedQtyValue } from "./RateMasterDerivation";
+// SLICE 2d: relocated to the leaf both screens may import (import-direction law).
+import { derivedQtyAttrs } from "./rateMasterStructure";
 
 // ---- the four stored pipelines (verbatim shape from RM-1 config) ----
 const PIPELINES: Record<string, Pipeline> = {
@@ -1649,7 +1653,13 @@ describe("step vocabulary pin (interpreter <-> STEP_VOCABULARY <-> server _KNOWN
       // interpreter + validator, THEN both sides were extended together -- so this diff shows
       // exactly what the vocabulary was before and after.
       "module_fit",
-      // CIRCUIT LENGTH part 1 (this slice). Same discipline: pinned green at 12 types against the
+      // SLICE 2b. Same discipline again: pinned green at 13 types against the unchanged interpreter
+      // + validator, then BOTH sides extended together in one commit. `map_attribute` is the
+      // CONVERSION primitive (pin count -> pole today, F-10's SWG -> mm next); `catalog_fit` is
+      // `module_fit`'s ladder half generalised, so slice 3's tray width rides the same step.
+      "map_attribute",
+      "catalog_fit",
+      // CIRCUIT LENGTH part 1. Same discipline: pinned green at 12 types against the
       // unchanged interpreter + validator, then BOTH sides extended together in one commit.
       "derive_attribute",
     ]);
@@ -3192,5 +3202,1168 @@ describe("BLANKER -- the item bind follows the EFFECTIVE count", () => {
     expect(r.finals).toEqual({});
     expect(r.steps.find((s) => s.step === "component_ref")?.matchedCondition)
       .toContain("no matching row(s)");
+  });
+});
+
+// =======================================================================================================
+// F-18 -- NO NON-FINITE NUMBER IS EVER LABELLED "ok".
+//
+// The recon found FIVE entry points, not one. Each bound or computed a value that could be absent and
+// let the result reach `finals` under `status: "ok"`:
+//   E1 component                  -- `ctx[target]` undefined; the evaluator's `in` guard tests KEY
+//                                    PRESENCE, so `{ base: undefined }` passed and returned NaN
+//   E2 component_band             -- the same, planted under THREE identifiers at once
+//   E3 apply_effective_multiplier -- the multiply is OUTSIDE the formula, so no guard was even on the path
+//   E4 roundup                    -- roundUp(undefined, d) = NaN, written back into ctx
+//   E5 install_as_ratio           -- did not FAIL into NaN, it ASSIGNED one (`: NaN`)
+// plus THE CHAIN: `scale`'s honest partial creates the hole that the next unguarded step converts to NaN
+// (why the same missing key gave an honest partial in conduit_bcs and a NaN in conduit_boq), and THE
+// BACKSTOP for anything none of the five cover.
+//
+// The contract these pin: a missing rate on a row we DID match REFUSES; an output that could not be
+// computed is ABSENT, never zero and never NaN; and `status: "ok"` now makes a claim about the numbers.
+//
+// WARNING: every assertion uses `Number.isNaN` / `status` / `toBeUndefined`, NEVER `JSON.stringify` --
+// NaN serialises to `null`, so a stringified assertion would pass against a genuine null.
+// =======================================================================================================
+describe("F-18 -- a non-finite number is never labelled ok", () => {
+  // ONE fixture: the row carries `list_price` and DELIBERATELY NOT `install_base`. That single absence
+  // drives every entry point below, which is the point -- it is one defect wearing five costumes.
+  const F18_ITEMS: RateMasterItem[] = [
+    { discipline: "Electrical", kind: "f18_kind", attributes: { size: "10" }, rates: { list_price: 100 } },
+  ];
+  const SEL = { size: "10" };
+  const MATCH = { step: "match_master_row", params: { kind: "f18_kind" } };
+  const run = (steps: unknown[], output: string[]) =>
+    runPipeline("f18", { output, steps } as unknown as Pipeline, F18_ITEMS, SEL);
+  const stepNamed = (r: ReturnType<typeof runPipeline>, name: string) =>
+    r.steps.find((s) => s.step === name);
+
+  // ---- E1 component -----------------------------------------------------------------------------
+  it("E1 POSITIVE: a `component` whose target is not on the matched row REFUSES (never a NaN sum)", () => {
+    const r = run([
+      MATCH,
+      { step: "component", name: "good", target: "list_price", formula: "base*f", params: { f: 1 } },
+      { step: "component", name: "missing", target: "install_base", formula: "base*f", params: { f: 1 } },
+      { step: "sum_components", result: "supply" },
+    ], ["supply"]);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+    expect(Number.isNaN(r.finals.supply)).toBe(false);
+    expect(r.steps[r.steps.length - 1].matchedCondition)
+      .toBe("install_base not on the matched row -- not computed");
+  });
+
+  it("E1 POSITIVE: the bare `base` formula (no operator) refuses too -- it returned `undefined`, not NaN", () => {
+    // The subtler half of the same hole: with no arithmetic the evaluator handed back `undefined`
+    // itself, which only became NaN once sum_components reduced over it.
+    const r = run([
+      MATCH,
+      { step: "component", name: "missing", target: "install_base", formula: "base" },
+      { step: "sum_components", result: "supply" },
+    ], ["supply"]);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+  });
+
+  it("E1 NEGATIVE: a component whose target IS on the row is byte-unchanged", () => {
+    const r = run([
+      MATCH,
+      { step: "component", name: "good", target: "list_price", formula: "base*f", params: { f: 2 } },
+      { step: "sum_components", result: "supply" },
+    ], ["supply"]);
+    expect(r.status).toBe("ok");
+    expect(r.finals).toEqual({ supply: 200 });
+  });
+
+  it("E1 NEGATIVE: a param-only component (NO target at all) still prices -- the guard is inside the target branch", () => {
+    // The tray ceiling-accessories shape: a conditional component carrying no `target`. The F-18 guard
+    // must not touch it, or every fixed-scalar adder in the catalog stops computing.
+    const r = run([
+      MATCH,
+      { step: "component", name: "fixed", formula: "amount", params: { amount: 106 } },
+      { step: "sum_components", result: "supply" },
+    ], ["supply"]);
+    expect(r.status).toBe("ok");
+    expect(r.finals).toEqual({ supply: 106 });
+  });
+
+  // ---- E2 component_band ------------------------------------------------------------------------
+  it("E2 POSITIVE: a `component_band` whose CHOSEN column is not on the matched row REFUSES", () => {
+    const r = run([
+      MATCH,
+      { step: "component_band", name: "b", band_on: "size", formula: "base*f", params: { f: 1 },
+        bands: [{ when: "10", target: "install_base" }] },
+      { step: "sum_components", result: "supply" },
+    ], ["supply"]);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+    const st = stepNamed(r, "component_band");
+    expect(st?.matchedCondition).toBe("install_base not on the matched row -- not computed");
+    // the band it CHOSE is still reported -- refusing must not hide which column was asked for
+    expect(st?.bandChosen).toBe("size 10 -> install_base");
+  });
+
+  it("E2 NEGATIVE: a band landing on a column the row DOES carry is byte-unchanged", () => {
+    const r = run([
+      MATCH,
+      { step: "component_band", name: "b", band_on: "size", formula: "base*f", params: { f: 3 },
+        bands: [{ when: "10", target: "list_price" }] },
+      { step: "sum_components", result: "supply" },
+    ], ["supply"]);
+    expect(r.status).toBe("ok");
+    expect(r.finals).toEqual({ supply: 300 });
+  });
+
+  // ---- E3 apply_effective_multiplier -------------------------------------------------------------
+  it("E3 POSITIVE: `apply_effective_multiplier` on a missing rate REFUSES -- the multiply is OUTSIDE the formula", () => {
+    const r = run([
+      MATCH,
+      { step: "apply_effective_multiplier", target: "install_base", result: "eff", formula: "(1-d)*(1+m)",
+        conditions: [{ when: { size: "10" }, params: { d: 0.1, m: 0.2 } }] },
+    ], ["eff"]);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+    expect(Number.isNaN(r.finals.eff)).toBe(false);
+    expect(stepNamed(r, "apply_effective_multiplier")?.matchedCondition)
+      .toBe("install_base not on the matched row -- not computed");
+  });
+
+  it("E3 NEGATIVE: the effective multiplier over a present rate is byte-unchanged", () => {
+    const r = run([
+      MATCH,
+      { step: "apply_effective_multiplier", target: "list_price", result: "eff", formula: "(1-d)*(1+m)",
+        conditions: [{ when: { size: "10" }, params: { d: 0.5, m: 0.0 } }] },
+    ], ["eff"]);
+    expect(r.status).toBe("ok");
+    expect(r.finals.eff).toBe(50);
+  });
+
+  // ---- E4 roundup -- HONEST PARTIAL, NOT A REFUSAL ------------------------------------------------
+  it("E4 POSITIVE: `roundup` on a target the row does not carry stays ok with the output ABSENT", () => {
+    const r = run([MATCH, { step: "roundup", target: "install_base", params: { digits: -1 } }], ["install_base"]);
+    expect(r.status).toBe("ok");                                  // partial, NOT no_match (the PW-FIX lesson)
+    expect(r.finals.install_base).toBeUndefined();
+    expect(Number.isNaN(r.finals.install_base as unknown as number)).toBe(false);
+    expect(stepNamed(r, "roundup")?.label)
+      .toBe("install_base not available to round -- install_base not computed");
+  });
+
+  it("E4 NEGATIVE: roundup over a present value is byte-unchanged", () => {
+    const r = run([MATCH, { step: "roundup", target: "list_price", params: { digits: -1 } }], ["list_price"]);
+    expect(r.status).toBe("ok");
+    expect(r.finals.list_price).toBe(100);
+  });
+
+  // ---- E5 install_as_ratio -- the literal NaN ----------------------------------------------------
+  it("E5 POSITIVE: `install_as_ratio` with no supply_* in ctx REFUSES and NAMES the gap", () => {
+    const r = run([MATCH, { step: "install_as_ratio", result: "install", params: { ratio: 0.2 } }], ["install"]);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+    expect(Number.isNaN(r.finals.install)).toBe(false);
+    expect(stepNamed(r, "install_as_ratio")?.matchedCondition)
+      .toBe("no supply_* value computed -- install not computed");
+  });
+
+  it("E5 NEGATIVE: install_as_ratio over a real supply_* value is byte-unchanged", () => {
+    const r = run([
+      MATCH,
+      { step: "scale", target: "list_price", result: "supply_per_set", params: { m: 1 }, formula: "base*m" },
+      { step: "install_as_ratio", result: "install", params: { ratio: 0.2 } },
+    ], ["install"]);
+    expect(r.status).toBe("ok");
+    expect(r.finals.install).toBe(20);
+  });
+
+  // ---- THE CHAIN -- the conduit_boq shape --------------------------------------------------------
+  it("THE CHAIN POSITIVE: an honest `scale` skip then a `roundup` on its unwritten key -- absent, ok, no NaN", () => {
+    // This is conduit_boq / jb_boq / cable_boq. Pre-F-18 the scale declined honestly and the NEXT step
+    // turned that honesty into a NaN -- which is why the SAME missing key gave an honest partial in
+    // conduit_bcs (no downstream roundup) and a NaN in conduit_boq. The sibling output must survive:
+    // refusing the pipeline would discard a supply figure that computed perfectly well.
+    const r = run([
+      MATCH,
+      { step: "scale", target: "list_price", result: "supply", params: { m: 2 }, formula: "base*m" },
+      { step: "roundup", target: "supply", params: { digits: -1 } },
+      { step: "scale", target: "install_base", result: "install", params: { m: 2 }, formula: "base*m" },
+      { step: "roundup", target: "install", params: { digits: -1 } },
+    ], ["supply", "install"]);
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply).toBe(200);                        // THE SIBLING STILL PRICES
+    expect(r.finals.install).toBeUndefined();                 // absent, never NaN
+    expect(Number.isNaN(r.finals.install as unknown as number)).toBe(false);
+  });
+
+  // ---- THE BACKSTOP ------------------------------------------------------------------------------
+  it("THE BACKSTOP POSITIVE: a non-finite `rate_stages.mult` is DROPPED, never ok-NaN", () => {
+    // The loader-does-not-validate fixture: `_validate_config` requires a finite `mult`, but it has
+    // exactly ONE caller (update_rate_config) and `_load_multi` validates nothing -- so an imported
+    // asset can carry this. No per-step guard above covers it; the tail does.
+    const r = run([
+      { step: "component_ref", name: "r", target: "list_price",
+        ref: { kind: "f18_kind", size: "10" }, rate_stages: [{ mult: Number.NaN }], qty: 1 },
+      { step: "sum_components", result: "supply" },
+    ], ["supply"]);
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply).toBeUndefined();
+    expect(Number.isNaN(r.finals.supply as unknown as number)).toBe(false);
+    expect(stepNamed(r, "(finalize)")?.label)
+      .toBe("supply computed to a non-finite value -- dropped, not priced");
+  });
+
+  it("THE BACKSTOP NEGATIVE: a clean pipeline pushes NO finalize note (every existing trace is unmoved)", () => {
+    const r = run([
+      MATCH,
+      { step: "component", name: "good", target: "list_price", formula: "base" },
+      { step: "sum_components", result: "supply" },
+    ], ["supply"]);
+    expect(r.status).toBe("ok");
+    expect(stepNamed(r, "(finalize)")).toBeUndefined();
+  });
+
+  // ---- THE ONE LIVE BEHAVIOUR THIS SLICE MUST NOT MOVE -------------------------------------------
+  it("NEGATIVE PIN: `ok` with an UNDEFINED final passes through UNTOUCHED (the CEIG / AS Built contract)", () => {
+    // R3's predicate is `typeof v === "number" && !Number.isFinite(v)` -- A NUMBER THAT IS NOT FINITE,
+    // never a MISSING value. `status: "ok"` with an absent output is the SHIPPED EA-1b honest-partial
+    // contract, live today on the `miscellaneous` CEIG / AS Built rows (4 combinations across misc_boq
+    // and misc_bcs, measured against the live catalog). A backstop written as "no non-value may pass
+    // with ok" would break those four while fixing nothing that was ever broken -- absent means "this
+    // row has no such rate", NaN means "we computed nonsense", and they must not be collapsed.
+    // See also the EA-1b describe above, which pins the same rows from the honest-partial side.
+    const partialItems: RateMasterItem[] = [
+      { discipline: "Electrical", kind: "f18_misc", attributes: { description: "CEIG" },
+        rates: { boq_supply: null as unknown as number, boq_install: 225000 } },
+    ];
+    const r = runPipeline("misc_boq", { output: ["supply", "install"], steps: [
+      { step: "match_master_row", params: { kind: "f18_misc" } },
+      { step: "scale", target: "boq_supply", result: "supply", params: { f: 1 }, formula: "base*f" },
+      { step: "scale", target: "boq_install", result: "install", params: { f: 1 }, formula: "base*f" },
+    ] } as unknown as Pipeline, partialItems, { description: "CEIG" });
+    expect(r.status).toBe("ok");
+    expect(r.finals.install).toBe(225000);
+    expect(r.finals.supply).toBeUndefined();
+    expect(stepNamed(r, "(finalize)")).toBeUndefined();      // nothing dropped -- nothing was non-finite
+  });
+
+  // ---- THE TEMPLATE THE FIVE GUARDS COPY ---------------------------------------------------------
+  it("CONTROL: `component_ref`'s own guard -- the idiom these copy -- is byte-unchanged", () => {
+    const r = run([
+      { step: "component_ref", name: "r", target: "install_base",
+        ref: { kind: "f18_kind", size: "10" }, rate_stages: [{ mult: 1 }], qty: 1 },
+      { step: "sum_components", result: "supply" },
+    ], ["supply"]);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+    // "referenced row" here vs "matched row" in the new guards -- the idiom is copied, the WORDING
+    // stays honest about WHICH row was short. Both are pinned so neither drifts into the other.
+    expect(stepNamed(r, "component_ref")?.matchedCondition)
+      .toBe("install_base not on the referenced row -- not computed");
+  });
+
+  // ---- NO FUTURE STEP MAY JOIN THE CLASS SILENTLY -------------------------------------------------
+  it("NEGATIVE: every step reading a possibly-absent number is accounted for, so a new step forces a choice", () => {
+    // The two lists must PARTITION the vocabulary. Adding a step type breaks this test, which is the
+    // point: whoever adds it has to say which side it falls on rather than inheriting F-18 by default.
+    const READS_A_POSSIBLY_ABSENT_NUMBER = [
+      // a rate key off a matched or referenced row, or a ctx value another step may not have written
+      "apply_effective_multiplier", "scale", "roundup", "component", "component_ref",
+      "component_band", "install_as_ratio", "lookup_or_ratio",
+    ];
+    const READS_NO_POSSIBLY_ABSENT_NUMBER = [
+      // these read the row itself, the component bag, or ATTRIBUTES (already honest no-computes)
+      "match_master_row", "sum_components", "circuit_fit", "module_fit", "derive_attribute",
+      // SLICE 2b -- THE CHOICE THIS TEST EXISTS TO FORCE, stated rather than inherited.
+      // `map_attribute` reads a STRING attribute and writes a string; there is no number on its path
+      // at all. `catalog_fit` reads ONE numeric ATTRIBUTE (`fit_from`) and refuses by name when it is
+      // missing or non-numeric, and derives rung sizes from catalog attributes, skipping any row whose
+      // size attribute is unreadable. NEITHER reads a rate key off a matched row, and neither reads a
+      // `ctx` value some other step may not have written -- which is what puts them on this side.
+      "map_attribute", "catalog_fit",
+    ];
+    for (const s of READS_A_POSSIBLY_ABSENT_NUMBER) expect(STEP_VOCABULARY).toContain(s);
+    expect([...READS_A_POSSIBLY_ABSENT_NUMBER, ...READS_NO_POSSIBLY_ABSENT_NUMBER].sort())
+      .toEqual([...STEP_VOCABULARY].sort());
+  });
+
+  // ---- THE RIDER (R4) ----------------------------------------------------------------------------
+  it("R4 POSITIVE: evalFormula rejects a present-but-undefined binding exactly like an unbound one", () => {
+    expect(() => evalFormula("base * 2", { base: undefined as unknown as number }))
+      .toThrow(/Unknown identifier 'base'/);
+    expect(() => evalFormula("base * 2", {})).toThrow(/Unknown identifier 'base'/);
+  });
+
+  it("R4 NEGATIVE: a legitimately bound 0 still evaluates -- falsy is not absent", () => {
+    expect(evalFormula("base * 2", { base: 0 })).toBe(0);
+    expect(evalFormula("base + 1", { base: 0 })).toBe(1);
+  });
+});
+
+// ---- SLICE 2b: catalog_fit + map_attribute -- the deterministic MCB ladder ----
+//
+// THE CATALOG IS REAL, mirroring the v36 mint (db_switchgear_item, family Switchgear, the four new
+// stored attributes device / pole / amp_a / curve). The FP MCB grid carries 25/32/40/63 at curve C
+// and NOTHING below 25 -- which is exactly why the model kept inventing "20A FP MCB C CURVE" and why
+// the ladder has to hop. `80 FP MCB` is the ONE grammar exception: an MCB with no curve, above the
+// C grid, reachable only through the value-list `where`.
+const mcbRow = (
+  item: string, device: string, pole: string, amp: number, curve: string, list: number
+): RateMasterItem => ({
+  discipline: "Electrical",
+  kind: "db_switchgear_item",
+  attributes: { family: "Switchgear", item, device, pole, amp_a: amp, curve },
+  rates: { list_price: list },
+});
+const sockRow = (
+  item: string, enclosure: string, rating: string, pole: string, list: number
+): RateMasterItem => ({
+  discipline: "Electrical",
+  kind: "industrial_socket",
+  attributes: { item, enclosure, rating, pole },
+  rates: { list_price: list },
+});
+
+const CF_ITEMS: RateMasterItem[] = [
+  mcbRow("25A FP MCB C CURVE", "MCB", "FP", 25, "C", 2820),
+  mcbRow("32A FP MCB C CURVE", "MCB", "FP", 32, "C", 2820),
+  mcbRow("40A FP MCB C CURVE", "MCB", "FP", 40, "C", 4012),
+  mcbRow("63A FP MCB C CURVE", "MCB", "FP", 63, "C", 4012),
+  mcbRow("25A FP MCB D CURVE", "MCB", "FP", 25, "D", 2820),
+  mcbRow("80 FP MCB", "MCB", "FP", 80, "NA", 7650),
+  mcbRow("20A SP MCB C CURVE", "MCB", "SP", 20, "C", 390),
+  mcbRow("25A SP MCB C CURVE", "MCB", "SP", 25, "C", 449),
+  mcbRow("25A DP MCB C CURVE", "MCB", "DP", 25, "C", 1472),
+  // DECOYS. A 16A device DOES exist at FP -- as an RCBO, which is what the v35 model reached for on
+  // row 87. `device: "MCB"` in the where is the only thing keeping it out of the ladder.
+  mcbRow("16A RCBO 30mA (FP)", "RCBO", "FP", 16, "NA", 3852),
+  mcbRow("20A RCBO 30mA (FP)", "RCBO", "FP", 20, "NA", 3852),
+  sockRow("Industrial Socket with MCB", "IP67 - Water Proof", "16/20A", "5 Pin / 3P+N+E", 9410),
+  sockRow("Plug + Socket in Enclosure Box", "IP44/54 - Splash Proof", "16/20A", "3 Pin / 2P+E", 2240),
+];
+
+const MCB_WHERE = {
+  family: "Switchgear",
+  device: "MCB",
+  pole: "@mcb_pole",
+  curve: ["@mcb_curve", "NA"],
+};
+const catFit = (over: Record<string, unknown> = {}) => ({
+  step: "catalog_fit" as const,
+  params: {
+    bind: "paired_mcb",
+    kind: "db_switchgear_item",
+    where: MCB_WHERE,
+    size_from: { attr: "amp_a" },
+    fit_from: { attr: "mcb_amp_a" },
+    direction: "up",
+    prefer_attr: "paired_mcb",
+    absent_when: { attr: "mcb_present", equals: "No" },
+    on_miss: "none",
+    ...over,
+  },
+});
+const POLE_MAP = {
+  step: "map_attribute" as const,
+  params: {
+    result_attr: "mcb_pole",
+    prefer_attr: "mcb_pole_stated",
+    from_attr: "pole",
+    table: { "3 Pin / 2P+E": "SP", "5 Pin / 3P+N+E": "FP" },
+  },
+};
+const CURVE_MAP = {
+  step: "map_attribute" as const,
+  params: { result_attr: "mcb_curve", prefer_attr: "mcb_curve_stated", default: "C" },
+};
+const SOCKET_REF = {
+  step: "component_ref" as const,
+  name: "socket",
+  ref: { kind: "industrial_socket", item: "@item", enclosure: "@enclosure", rating: "@rating", pole: "@pole" },
+  target: "list_price",
+  rate_stages: [{ mult: 0.98, round: "up0" }],
+  qty: 1,
+};
+const MCB_REF = {
+  step: "component_ref" as const,
+  name: "paired_mcb",
+  ref: { kind: "db_switchgear_item", family: "Switchgear", item: "@paired_mcb" },
+  target: "list_price",
+  rate_stages: [{ mult: 0.495, round: "up0" }],
+  qty: { if_attr: { item: "Industrial Socket with Socket Outlet Interlocked" }, then: 0, else: 1 },
+  none_skips: true,
+};
+const indsockSupply = (over: Record<string, unknown> = {}): Pipeline =>
+  ({
+    output: ["supply"],
+    steps: [POLE_MAP, CURVE_MAP, catFit(over), SOCKET_REF, MCB_REF, { step: "sum_components", result: "supply" }],
+  } as unknown as Pipeline);
+const indsockInstall = (): Pipeline =>
+  ({
+    output: ["install"],
+    steps: [
+      POLE_MAP, CURVE_MAP, catFit(), SOCKET_REF, MCB_REF,
+      { step: "sum_components", result: "supply" },
+      { step: "scale", target: "supply", result: "install", params: { m: 0.35 }, formula: "base*m" },
+      { step: "roundup", target: "install", params: { digits: -1 } },
+    ],
+  } as unknown as Pipeline);
+/** Row 98's real attribute set: a 5-pin IP67 socket whose text says "with MCB" at 16/20 A. */
+const ROW98 = {
+  item: "Industrial Socket with MCB",
+  enclosure: "IP67 - Water Proof",
+  rating: "16/20A",
+  pole: "5 Pin / 3P+N+E",
+  mcb_present: "Yes",
+  mcb_amp_a: 20,
+  mcb_pole_stated: NONE_SENTINEL,
+  mcb_curve_stated: NONE_SENTINEL,
+};
+const cfTrace = (r: ReturnType<typeof runPipeline>) => r.steps.find((s) => s.step === "catalog_fit");
+
+describe("SLICE 2b -- the ladder helpers, generalised", () => {
+  it("buildModuleLadder: size_from an ATTRIBUTE builds numeric rungs (POSITIVE, the new source)", () => {
+    const rungs = buildModuleLadder(CF_ITEMS, {
+      kind: "db_switchgear_item",
+      where: { family: "Switchgear", device: "MCB", pole: "FP", curve: "C" },
+      size_from: { attr: "amp_a" },
+    });
+    expect(rungs.map((r) => r.size)).toEqual([25, 32, 40, 63]);
+    expect(rungs[0].label).toBe("25A FP MCB C CURVE");
+  });
+
+  it("buildModuleLadder: a LIST where matches ANY member -- the merged C+NA ladder reaches 80", () => {
+    const rungs = buildModuleLadder(CF_ITEMS, {
+      kind: "db_switchgear_item",
+      where: { family: "Switchgear", device: "MCB", pole: "FP", curve: ["C", "NA"] },
+      size_from: { attr: "amp_a" },
+    });
+    expect(rungs.map((r) => r.size)).toEqual([25, 32, 40, 63, 80]);
+    expect(rungs[4].label).toBe("80 FP MCB");
+  });
+
+  it("buildModuleLadder: LIST ORDER is preference -- an earlier member wins a same-size tie", () => {
+    // Both curves carry 25 at FP. ["C","NA"] must pick C; ["D","C"] must pick D.
+    const cFirst = buildModuleLadder(CF_ITEMS, {
+      kind: "db_switchgear_item",
+      where: { family: "Switchgear", device: "MCB", pole: "FP", curve: ["C", "D"] },
+      size_from: { attr: "amp_a" },
+    });
+    const dFirst = buildModuleLadder(CF_ITEMS, {
+      kind: "db_switchgear_item",
+      where: { family: "Switchgear", device: "MCB", pole: "FP", curve: ["D", "C"] },
+      size_from: { attr: "amp_a" },
+    });
+    expect(cFirst.find((r) => r.size === 25)!.label).toBe("25A FP MCB C CURVE");
+    expect(dFirst.find((r) => r.size === 25)!.label).toBe("25A FP MCB D CURVE");
+  });
+
+  it("buildModuleLadder REGRESSION: with NO size_from it still parses the LABEL (module_fit's path)", () => {
+    const rungs = buildModuleLadder(LADDER_ITEMS, { kind: "switch_socket_item", where: { family: "Back Box" } });
+    expect(rungs.map((r) => r.size)).toEqual([1, 2, 3, 4, 6, 8, 12, 18]);
+  });
+
+  it("fitModuleLadder: direction 'down' takes the next LOWER; 'up' stays the default", () => {
+    const rungs = [
+      { size: 25, label: "a" }, { size: 32, label: "b" }, { size: 63, label: "c" },
+    ];
+    expect(fitModuleLadder(rungs, 40)!.modules).toBe(63);            // default = up
+    expect(fitModuleLadder(rungs, 40, "up")!.modules).toBe(63);
+    expect(fitModuleLadder(rungs, 40, "down")!.modules).toBe(32);
+    expect(fitModuleLadder(rungs, 32, "down")!.modules).toBe(32);    // exact still wins
+    expect(fitModuleLadder(rungs, 10, "down")).toBeNull();           // nothing below
+  });
+});
+
+describe("SLICE 2b -- map_attribute (the CONVERSION, in code)", () => {
+  it("POSITIVE: the pin count converts to a pole through the config table", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    const t = r.steps.find((s) => s.step === "map_attribute")!;
+    expect(t.matchedCondition).toContain("5 Pin / 3P+N+E -> FP");
+  });
+
+  it("POSITIVE: a STATED pole WINS over the pin-count mapping -- row 470 is 3-pin and states DP", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, {
+      ...ROW98,
+      pole: "3 Pin / 2P+E",              // pin count would map to SP...
+      mcb_pole_stated: "DP",             // ...but the BoQ says DP, and the BoQ wins
+      mcb_amp_a: 20,
+    });
+    // 20A is absent at DP too, so the ladder hops to 25 -- at DP, not SP.
+    expect(cfTrace(r)!.catalogFit!.fitted).toBe("25A DP MCB C CURVE");
+  });
+
+  it("POSITIVE: curve defaults to C when nothing is stated, and a stated curve wins", () => {
+    const dflt = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    expect(dflt.steps[1].matchedCondition).toContain("nothing stated -> C (default)");
+    const stated = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, mcb_curve_stated: "D", mcb_amp_a: 25 });
+    expect(cfTrace(stated)!.catalogFit!.fitted).toBe("25A FP MCB D CURVE");
+  });
+
+  it("NEGATIVE: an unmapped source with NO default is an honest no-compute NAMING the attribute", () => {
+    const pl = { output: ["supply"], steps: [
+      { step: "map_attribute", params: { result_attr: "mcb_pole", from_attr: "pole", table: { "3 Pin / 2P+E": "SP" } } },
+    ] } as unknown as Pipeline;
+    const r = runPipeline("t", pl, CF_ITEMS, { pole: "9 Pin / nonsense" });
+    expect(r.status).toBe("no_match");
+    expect(r.steps[0].label).toContain("pole");
+    expect(r.steps[0].label).toContain("no mcb_pole");
+  });
+
+  it("NEGATIVE: a malformed step declaring no result_attr refuses on its own terms", () => {
+    const pl = { output: ["supply"], steps: [{ step: "map_attribute", params: {} }] } as unknown as Pipeline;
+    const r = runPipeline("t", pl, CF_ITEMS, {});
+    expect(r.status).toBe("no_match");
+    expect(r.steps[0].label).toContain("declares no result_attr");
+  });
+});
+
+describe("SLICE 2b -- catalog_fit (the ladder)", () => {
+  it("POSITIVE -- THE WHOLE POINT: 20A is not carried at FP, so the ladder HOPS to 25A FP MCB C CURVE", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    const t = cfTrace(r)!;
+    // ⚠️ SLICE 2d EXTENDED THIS SHAPE, ADDITIVELY: `substituted` (this step's own option-B verdict --
+    // the ladder hopped, so a different rung is priced) and `whereRefs` (the join key into the
+    // map_attribute outcomes the fit rests on). No pre-existing field moved, and the PRICE below is
+    // unchanged.
+    expect(t.catalogFit).toEqual({
+      bind: "paired_mcb", fitted: "25A FP MCB C CURVE", size: 25, requested: 20, exact: false, absent: false,
+      substituted: true, whereRefs: ["mcb_pole", "mcb_curve"],
+    });
+    expect(t.matchedCondition).toContain("not carried");
+    expect(t.matchedCondition).toContain("next higher");
+    // row 98's real numbers: socket 9222 + mcb 1396
+    expect(r.finals.supply).toBe(10618);
+  });
+
+  it("POSITIVE: it holds the DEVICE CLASS -- a 16A RCBO exists at FP and must NOT be chosen (row 87)", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, mcb_amp_a: 16 });
+    expect(cfTrace(r)!.catalogFit!.fitted).toBe("25A FP MCB C CURVE");
+    expect(r.finals.supply).toBe(10618);
+  });
+
+  it("POSITIVE: an EXACT rung does not hop, and the trace says so", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, mcb_amp_a: 32 });
+    const t = cfTrace(r)!;
+    expect(t.catalogFit!.exact).toBe(true);
+    expect(t.matchedCondition).not.toContain("next higher");
+  });
+
+  it("POSITIVE: 80A reaches the curve-less exception through the value list (row 103)", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, mcb_amp_a: 80 });
+    expect(cfTrace(r)!.catalogFit!.fitted).toBe("80 FP MCB");
+  });
+
+  it("POSITIVE: golden i4 -- the full install pipeline lands on 3720", () => {
+    const r = runPipeline("indsock_install", indsockInstall(), CF_ITEMS, ROW98);
+    expect(r.finals.install).toBe(3720);
+  });
+
+  it("POSITIVE: golden i5 -- mcb_present No binds the sentinel and the socket prices ALONE", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, {
+      item: "Plug + Socket in Enclosure Box",
+      enclosure: "IP44/54 - Splash Proof",
+      rating: "16/20A",
+      pole: "3 Pin / 2P+E",
+      mcb_present: "No",
+    });
+    const t = cfTrace(r)!;
+    expect(t.catalogFit!.absent).toBe(true);
+    expect(t.catalogFit!.fitted).toBeNull();
+    expect(r.finals.supply).toBe(2196); // socket alone -- i1's answer, by a different route
+  });
+
+  it("POSITIVE: STATED-WINS -- a stated paired_mcb is kept and the ladder does not fire", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, paired_mcb: "63A FP MCB C CURVE" });
+    const t = cfTrace(r)!;
+    expect(t.catalogFit!.stated).toBe("63A FP MCB C CURVE");
+    expect(t.catalogFit!.fitted).toBeNull();
+    expect(t.matchedCondition).toContain("a stated value wins");
+    // 9222 + ceil(4012 * 0.495) = 9222 + 1986
+    expect(r.finals.supply).toBe(11208);
+  });
+
+  it("STATED 'None' STICKS -- the sentinel is a DECISION, and catalog_fit defers to it (owner-locked)", () => {
+    // ⚠️ THE PREDICATE ASYMMETRY IS DELIBERATE. `map_attribute`'s isStated EXCLUDES the sentinel
+    // (a "None" pole is not a pole, so the mapping should still run); `catalog_fit`'s INCLUDES it,
+    // because "None" here is the pricer saying "this row has no MCB" -- a DECISION to defer to, not
+    // a gap to fill. The two layers differ on purpose: `mcb_present = "No"` corrects a FACT, while
+    // `paired_mcb = "None"` overrides the DECISION.
+    //
+    // The alternative -- letting the ladder overwrite a stated "None" -- would make a valid panel
+    // selection silently do nothing, which is the trapdoor this codebase's own conventions
+    // disqualify ("a control that accepts edits and discards their effect is worse than an absent
+    // one"). Pinned so no later reader "harmonises" the two predicates.
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, {
+      ...ROW98, paired_mcb: NONE_SENTINEL,   // the pricer's override, on a row whose facts WOULD fit 25A FP
+    });
+    const t = cfTrace(r)!;
+    expect(t.catalogFit!.stated).toBe(NONE_SENTINEL); // stated-wins fired
+    expect(t.catalogFit!.absent).toBe(true);
+    expect(t.catalogFit!.fitted).toBeNull();          // the step bound NOTHING...
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply).toBe(9222);               // ...so the selection's sentinel reached none_skips
+  });
+
+  it("POSITIVE: extra stored attributes on a referenced row are IGNORED by component_ref", () => {
+    // The mint adds device/pole/amp_a/curve to every switchgear row; the MCB ref matches only
+    // {kind, family, item}. If extra attributes narrowed a ref, every db_switchgear slot would break.
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    expect(r.status).toBe("ok");
+  });
+
+  it("NEGATIVE: a missing fit value is an honest no-compute NAMING the attribute", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, mcb_amp_a: "" });
+    expect(r.status).toBe("no_match");
+    expect(r.steps.at(-1)!.label).toContain("mcb_amp_a");
+    expect(r.steps.at(-1)!.label).toContain("missing or non-numeric");
+  });
+
+  it("OPT-IN (ruling A-ii): on_missing_fact 'none' -- a blank fact binds None and the socket STILL PRICES", () => {
+    // Row 78's shape: the text names an MCB but states no current OF ITS OWN. Refusing discarded a
+    // socket that priced perfectly well; with the opt-in the MCB line is honestly unpriced instead.
+    const r = runPipeline("indsock_boq", indsockSupply({ on_missing_fact: "none" }), CF_ITEMS, {
+      ...ROW98, mcb_amp_a: "",
+    });
+    const t = cfTrace(r)!;
+    expect(t.catalogFit!.absent).toBe(true);
+    expect(t.catalogFit!.fitted).toBeNull();
+    expect(t.matchedCondition).toContain("not stated");
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply).toBe(9222); // socket alone -- the MCB line zeroed by none_skips
+  });
+
+  it("NEGATIVE twin: WITHOUT the opt-in the same blank fact still REFUSES -- the default is unchanged", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, mcb_amp_a: "" });
+    expect(r.status).toBe("no_match");
+    expect(r.steps.at(-1)!.label).toContain("mcb_amp_a");
+  });
+
+  it("NEGATIVE: nothing fits -> the None sentinel, NOT a refusal -- the socket still prices", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, mcb_amp_a: 500 });
+    const t = cfTrace(r)!;
+    expect(t.catalogFit!.absent).toBe(true);
+    expect(t.matchedCondition).toContain("nothing in the catalog fits");
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply).toBe(9222); // socket alone
+  });
+
+  it("NEGATIVE: on_miss no_compute refuses instead, naming the top rung (the module_fit choice)", () => {
+    const r = runPipeline("indsock_boq", indsockSupply({ on_miss: "no_compute" }), CF_ITEMS, { ...ROW98, mcb_amp_a: 500 });
+    expect(r.status).toBe("no_match");
+    expect(r.steps.at(-1)!.label).toContain("80 FP MCB");
+  });
+
+  it("NEGATIVE: an unresolvable @-ref in `where` bails cleanly, NAMING the key", () => {
+    const r = runPipeline(
+      "indsock_boq",
+      indsockSupply({ where: { family: "Switchgear", device: "MCB", pole: "@nonexistent_attr" } }),
+      CF_ITEMS,
+      ROW98
+    );
+    expect(r.status).toBe("no_match");
+    expect(r.steps.at(-1)!.label).toContain("'pole' not provided");
+  });
+
+  it("NEGATIVE: a `where` matching no catalog row bails naming the kind", () => {
+    const r = runPipeline("indsock_boq", indsockSupply({ kind: "no_such_kind" }), CF_ITEMS, ROW98);
+    expect(r.status).toBe("no_match");
+    expect(r.steps.at(-1)!.label).toContain("no_such_kind");
+  });
+
+  it("NEGATIVE: a malformed step declaring no bind/kind/fit_from refuses on its own terms", () => {
+    const pl = { output: ["supply"], steps: [{ step: "catalog_fit", params: { bind: "x" } }] } as unknown as Pipeline;
+    const r = runPipeline("t", pl, CF_ITEMS, {});
+    expect(r.status).toBe("no_match");
+    expect(r.steps[0].label).toContain("declares no bind / kind / fit_from");
+  });
+
+  it("THE RENDER CAVEAT: the catalog_fit trace carries NO `params`, so its detail line is displayed", () => {
+    // RateMasterDerivation renders param CHIPS whenever the TRACE carries params and only falls
+    // through to the detail line when it does not. A step that publishes params computes its working
+    // and never shows it -- which would defeat the entire purpose of this slice.
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    for (const s of r.steps.filter((x) => x.step === "catalog_fit" || x.step === "map_attribute")) {
+      expect(s.params).toBeUndefined();
+    }
+  });
+});
+
+// ── SLICE 2c: catalogFitOutcomes -- the ONE reader ──────────────────────────────────────────────
+// `catalog_fit`'s answer was computed and then thrown away: the fitted label lives in `fitLabels`,
+// which is FUNCTION-LOCAL to `runPipeline` (28 inline return sites -- adding a result field would
+// have meant editing every one), and the trace's `matchedRows` push is gated on `st.refItem`, which
+// a `catalog_fit` step does not carry. So the panel showed a blank field beside a priced MCB.
+//
+// This reader is the `moduleFitOutcome` / `derivedAttrOutcomes` shape, third instance: READ THE
+// STRUCTURED DATA, never the prose (`matchedCondition` is a human sentence that gets reworded, and
+// making it a parsing contract fails SILENTLY) and never re-derive the fit (that would be a second
+// copy of the catalog-resolved ladder rule).
+describe("SLICE 2c -- catalogFitOutcomes (the ONE reader over StepTrace.catalogFit)", () => {
+  it("POSITIVE: it is KEYED BY BIND, not by step order -- a consumer looks up by attribute id", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    const out = catalogFitOutcomes([r]);
+    expect(out.get("paired_mcb")!.fitted).toBe("25A FP MCB C CURVE");
+    expect(out.get("paired_mcb")!.bind).toBe("paired_mcb");
+  });
+
+  it("POSITIVE: FIRST WINS across pipelines -- supply and install fit identically, so either is the answer", () => {
+    // Both `indsock_boq` and `indsock_install` carry the SAME catalog_fit step, so the panel would
+    // otherwise have to pick one arbitrarily. First-wins makes the choice explicit and stable; if the
+    // two ever disagreed, showing the first is still better than showing whichever ran last.
+    const supply = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    const install = runPipeline("indsock_install", indsockInstall(), CF_ITEMS, ROW98);
+    expect(catalogFitOutcomes([supply, install]).get("paired_mcb")!.fitted).toBe("25A FP MCB C CURVE");
+    expect(catalogFitOutcomes([install, supply]).get("paired_mcb")!.fitted).toBe("25A FP MCB C CURVE");
+  });
+
+  it("POSITIVE: an outcome is present on the ABSENT path too -- absence is an ANSWER, not silence", () => {
+    // mcb_present "No" -> the step binds the sentinel and reports absent. The panel must be able to
+    // tell "we decided there is no MCB" from "this step never ran"; a reader that only reported fits
+    // would collapse the two.
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, mcb_present: "No" });
+    const o = catalogFitOutcomes([r]).get("paired_mcb")!;
+    expect(o.absent).toBe(true);
+    expect(o.fitted).toBeNull();
+  });
+
+  it("POSITIVE: an outcome is present on the STATED path too, carrying `stated` and NO fit", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS,
+      { ...ROW98, paired_mcb: "63A FP MCB C CURVE" });
+    const o = catalogFitOutcomes([r]).get("paired_mcb")!;
+    expect(o.stated).toBe("63A FP MCB C CURVE");
+    expect(o.fitted).toBeNull();   // stated-wins bound nothing -- there is no computed value to show
+  });
+
+  it("NEGATIVE: EMPTY when no catalog_fit ran -- a config without the step is byte-identical", () => {
+    // The regression bar for this slice: every pre-2c config must be untouched by the reader.
+    const r = runPipeline("cable_boq", PIPELINES.cable_boq, ITEMS, sel("COPPER", "UNARMOURED", 1.0, 6.0));
+    expect(r.finals).toEqual({ supply_per_mtr: 120, install_per_mtr: 20 });  // g1, still exactly itself
+    expect(catalogFitOutcomes([r]).size).toBe(0);
+  });
+
+  it("NEGATIVE: EMPTY on a BAILED catalog_fit -- a refusal claims nothing (the module_fit precedent)", () => {
+    // `bail` pushes a plain trace with no `catalogFit`, exactly as a module_fit that bailed publishes
+    // no outcome. A reader inventing an entry here would report a fit the step explicitly refused.
+    const r = runPipeline("indsock_boq", indsockSupply({ kind: "no_such_kind" }), CF_ITEMS, ROW98);
+    expect(r.status).toBe("no_match");
+    expect(catalogFitOutcomes([r]).size).toBe(0);
+  });
+
+  it("NEGATIVE: a step with no steps array at all does not throw", () => {
+    expect(catalogFitOutcomes([{ steps: undefined as never }]).size).toBe(0);
+  });
+});
+
+// ── SLICE 2d: THE TWO NEW OUTCOMES ─────────────────────────────────────────────────────────────
+// Option B needs to answer "was anything SUBSTITUTED behind this item?", and no single step can:
+// `catalog_fit` knows whether IT hopped, `map_attribute` knows whether the facts were STATED. Both
+// publish structured data and the panel composes them -- the moduleFit/derivedAttr precedent, now at
+// four instances. ⚠️ NEITHER CHANGES A PRICE: these are observations of what the steps already did.
+describe("SLICE 2d -- mapAttributeOutcomes + the catalog_fit substitution discriminator", () => {
+  it("POSITIVE: a STATED fact publishes stated:true", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS,
+      { ...ROW98, mcb_pole_stated: "FP", mcb_curve_stated: "C" });
+    const m = mapAttributeOutcomes([r]);
+    expect(m.get("mcb_pole")!.stated).toBe(true);
+    expect(m.get("mcb_curve")!.stated).toBe(true);
+  });
+
+  it("POSITIVE: a TABLE-mapped fact publishes stated:false -- inferred is not stated", () => {
+    // ROW98 states neither pole nor curve: the pole comes from the socket's pin count via `table`
+    // and the curve from `default`. Both are substitutions, and option B marks the item they feed.
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    const m = mapAttributeOutcomes([r]);
+    expect(m.get("mcb_pole")!.stated).toBe(false);
+    expect(m.get("mcb_curve")!.stated).toBe(false);
+  });
+
+  it("POSITIVE: keyed by result_attr, first-wins across pipelines", () => {
+    const supply = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    const install = runPipeline("indsock_install", indsockInstall(), CF_ITEMS, ROW98);
+    expect(mapAttributeOutcomes([supply, install]).get("mcb_pole")!.stated).toBe(false);
+    expect(mapAttributeOutcomes([install, supply]).size).toBe(2);
+  });
+
+  it("NEGATIVE: EMPTY when no map_attribute ran", () => {
+    const r = runPipeline("cable_boq", PIPELINES.cable_boq, ITEMS, sel("COPPER", "UNARMOURED", 1.0, 6.0));
+    expect(mapAttributeOutcomes([r]).size).toBe(0);
+  });
+
+  it("POSITIVE: a HOP sets substituted:true; an exact rung sets it false", () => {
+    const hop = catalogFitOutcomes([runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98)]).get("paired_mcb")!;
+    expect(hop.fitted).toBe("25A FP MCB C CURVE");   // 20 A -> the 25 A rung
+    expect(hop.substituted).toBe(true);
+    const exact = catalogFitOutcomes([
+      runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, mcb_amp_a: 25 }),
+    ]).get("paired_mcb")!;
+    expect(exact.exact).toBe(true);
+    expect(exact.substituted).toBe(false);
+  });
+
+  it("POSITIVE: whereRefs is the JOIN KEY -- the attribute ids behind the where's @refs, list members included", () => {
+    // Without it a consumer would have to re-read the config and re-resolve the refs, which is a
+    // second copy of resolution logic. `curve` is declared as ["@mcb_curve", "NA"], so the ref inside
+    // the LIST must be collected too -- the fit rests on the curve either way.
+    const cf = catalogFitOutcomes([runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98)]).get("paired_mcb")!;
+    expect(cf.whereRefs).toEqual(["mcb_pole", "mcb_curve"]);
+  });
+
+  it("POSITIVE: whereRefs is published on the STATED and ABSENT paths too, not only on a fit", () => {
+    // A consumer must never have to know WHICH branch ran to learn which facts the verdict rests on.
+    const stated = catalogFitOutcomes([
+      runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, paired_mcb: "63A FP MCB C CURVE" }),
+    ]).get("paired_mcb")!;
+    expect(stated.whereRefs).toEqual(["mcb_pole", "mcb_curve"]);
+    expect(stated.substituted).toBe(false);
+    const absent = catalogFitOutcomes([
+      runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, mcb_present: "No" }),
+    ]).get("paired_mcb")!;
+    expect(absent.absent).toBe(true);
+    expect(absent.whereRefs).toEqual(["mcb_pole", "mcb_curve"]);
+  });
+
+  it("⚠️ NEGATIVE: NO PRICE MOVED -- the outcomes are observations, and row 98 still prices as it did", () => {
+    // The same 10618 the slice-2b block pins (socket 9222 + mcb 1396), asserted again from the 2d
+    // side: publishing a step's reasoning must not change its arithmetic.
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply).toBe(10618);
+  });
+});
+
+// ---- SLICE 3a: cable tray width -- next-higher, and the NUMERIC bridge to the matcher ----
+//
+// THE GAP THIS PINS. `catalog_fit` publishes its answer as a rung LABEL into `fitLabels`, which is
+// `Record<string, string>` and stringifies through `String(label)`. That is right for
+// `industrial_sockets`, whose ladder binds a genuinely-string catalog `item` name consumed by a
+// `component_ref` "@ref". `match_master_row` is a DIFFERENT consumer: it reads `selected` and nothing
+// else, and compares with `===` against the stored attribute. Cable tray stores `width_mm` as a
+// NUMBER, so a bound "100" matches nothing -- silently, with a green suite. `fit_into` is the numeric
+// half, and these tests fail without it.
+//
+// The catalog mirrors the live shape (rectangular: widths x thicknesses x tray_type x material) but
+// carries only what these cases need. The 450 -> 600 jump is REAL, which is why an in-between width
+// is not a contrived case.
+const trayRow = (
+  tray_type: string, material: string, thickness_mm: number, width_mm: number, list: number
+): RateMasterItem => ({
+  discipline: "Electrical",
+  kind: "cable_tray",
+  attributes: { tray_type, material, thickness_mm, width_mm },
+  rates: { without_cover_list: list, cover_only_list: 0, install_rate: 30 },
+});
+
+const TRAY_ITEMS: RateMasterItem[] = [
+  trayRow("Solid", "GI", 1.6, 50, 100),
+  trayRow("Solid", "GI", 1.6, 100, 200),
+  trayRow("Solid", "GI", 1.6, 150, 300),
+  trayRow("Solid", "GI", 1.6, 450, 900),
+  trayRow("Solid", "GI", 1.6, 600, 1200),
+  // A SECOND thickness, so the ladder `where` filter is doing real work rather than passing
+  // everything through: a 1.6 row must never fit against a 2.0 rung.
+  trayRow("Solid", "GI", 2.0, 100, 250),
+  trayRow("Solid", "GI", 2.0, 600, 1500),
+];
+
+const TRAY_FIT = {
+  step: "catalog_fit" as const,
+  params: {
+    bind: "width_mm",
+    fit_into: "width_mm",
+    kind: "cable_tray",
+    where: { tray_type: "@tray_type", material: "@material", thickness_mm: "@thickness_mm" },
+    label_attr: "width_mm",
+    size_from: { attr: "width_mm" },
+    fit_from: { attr: "width_mm" },
+    direction: "up",
+    on_miss: "no_compute",
+  },
+};
+
+/** The tray supply shape: fit the width, THEN match, then read the matched row rate. */
+const traySupply = (): Pipeline =>
+  ({
+    output: ["supply_per_rmt"],
+    steps: [
+      TRAY_FIT,
+      { step: "match_master_row", params: { kind: "cable_tray" } },
+      { step: "component", name: "base", target: "without_cover_list", params: {}, formula: "base" },
+      { step: "sum_components", result: "supply_per_rmt" },
+    ],
+  } as unknown as Pipeline);
+
+const TRAY_ROW = { tray_type: "Solid", material: "GI", thickness_mm: 1.6 };
+
+describe("SLICE 3a -- cable tray width fits NEXT HIGHER and reaches the matcher", () => {
+  it("POSITIVE: a width BETWEEN two catalog values fits UP to the next one and PRICES", () => {
+    // The live cert row: BOQ-26-00106 / ELECTRICAL BOQ / 141 states 65 mm, which the catalog does not
+    // carry. 65 -> 100, and the 100 row rate is what prices. Before slice 3a this row produced
+    // nothing at all.
+    const r = runPipeline("tray_boq_supply", traySupply(), TRAY_ITEMS, { ...TRAY_ROW, width_mm: 65 });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply_per_rmt).toBe(200);
+    const cf = cfTrace(r);
+    expect(cf?.catalogFit?.fitted).toBe("100");
+    expect(cf?.catalogFit?.exact).toBe(false);
+    // A HOP IS A SUBSTITUTION -- this is what puts the "(computed)" tag on the width field.
+    expect(cf?.catalogFit?.substituted).toBe(true);
+  });
+
+  it("POSITIVE (THE TYPE BRIDGE): the fitted value reaches `selected` as a NUMBER, not a string", () => {
+    // THE TEST THAT FAILS WITHOUT `fit_into`. `fitLabels` is string-typed, the catalog stores
+    // width_mm as a number, and `matchMasterRow` compares with `===`. If the bridge ever regresses to
+    // publishing the LABEL into the selection, "100" === 100 is false, `match_master_row` returns
+    // no_match, and the row silently stops pricing with every other assertion still green.
+    const r = runPipeline("tray_boq_supply", traySupply(), TRAY_ITEMS, { ...TRAY_ROW, width_mm: 65 });
+    expect(r.status).toBe("ok");
+    // The matched row is the 100-wide one, proving the numeric write landed where the matcher reads.
+    expect(r.matchedItem?.attributes.width_mm).toBe(100);
+    expect(typeof r.matchedItem?.attributes.width_mm).toBe("number");
+    // And the ladder own size is numeric too -- the value `fit_into` writes.
+    expect(cfTrace(r)?.catalogFit?.size).toBe(100);
+    expect(typeof cfTrace(r)?.catalogFit?.size).toBe("number");
+  });
+
+  it("NEGATIVE: a width ABOVE the catalog top produces NO value -- and no new message", () => {
+    // The live cert row: BOQ-26-00169 / E2E CERT / 9 states 750 mm; the catalog stops at 600. The row
+    // must stay blank, SILENTLY (owner ruling). `on_miss: "no_compute"` refuses, the pipeline reports
+    // `no_match`, and `no_match` is EXACTLY what this row already produced before slice 3a via
+    // `match_master_row` -- so the helper renders the identical wording and nothing new appears.
+    const r = runPipeline("tray_boq_supply", traySupply(), TRAY_ITEMS, { ...TRAY_ROW, width_mm: 750 });
+    expect(r.status).toBe("no_match");
+    expect(r.finals.supply_per_rmt).toBeUndefined();
+    // Nothing was fitted, so nothing is claimed -- the field renders empty rather than inventing a size.
+    expect(cfTrace(r)?.catalogFit).toBeUndefined();
+  });
+
+  it("NEGATIVE: nothing is written into the selection on the refusal path", () => {
+    // If the miss path wrote anything into `selected`, `match_master_row` could match a row the pricer
+    // never asked for. It must leave the selection untouched.
+    const sel = { ...TRAY_ROW, width_mm: 750 };
+    runPipeline("tray_boq_supply", traySupply(), TRAY_ITEMS, sel);
+    expect(sel.width_mm).toBe(750);
+  });
+
+  it("UNCHANGED: an EXACT catalog width prices as before and is NOT marked substituted", () => {
+    // UI rule 3: a tray whose width is in the rate list shows no marker and the same price.
+    const r = runPipeline("tray_boq_supply", traySupply(), TRAY_ITEMS, { ...TRAY_ROW, width_mm: 150 });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply_per_rmt).toBe(300);
+    expect(cfTrace(r)?.catalogFit?.exact).toBe(true);
+    expect(cfTrace(r)?.catalogFit?.substituted).toBe(false);
+  });
+
+  it("THE LADDER IS FILTERED: a 1.6 row fits against 1.6 rungs only, never a 2.0 rung", () => {
+    // 450 -> 600 is the real jump. At thickness 1.6 the 600 row costs 1200; at 2.0 it costs 1500. If
+    // the `where` filter were dropped the ladder would carry both and the tie-break, not the spec,
+    // would decide the price.
+    const r = runPipeline("tray_boq_supply", traySupply(), TRAY_ITEMS, { ...TRAY_ROW, width_mm: 500 });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply_per_rmt).toBe(1200);
+    expect(r.matchedItem?.attributes.thickness_mm).toBe(1.6);
+  });
+
+  it("THE PANEL JOIN: the outcome is keyed by BIND, so the tag lands on the width field", () => {
+    // `catalogFitOutcomes` keys by `bind`, and `applyDerivedDisplay` looks it up by ATTRIBUTE ID.
+    // bind === "width_mm" is what makes the "(computed)" tag appear on Width and nowhere else.
+    const r = runPipeline("tray_boq_supply", traySupply(), TRAY_ITEMS, { ...TRAY_ROW, width_mm: 65 });
+    const out = catalogFitOutcomes([r]);
+    expect(out.get("width_mm")?.fitted).toBe("100");
+    expect(out.get("width_mm")?.substituted).toBe(true);
+    expect(out.has("thickness_mm")).toBe(false);
+  });
+
+  it("ABSENT `fit_into` IS BYTE-IDENTICAL: nothing is written into the selection", () => {
+    // The default-off guarantee. Every pre-slice-3a config carries no `fit_into`, so the selection is
+    // untouched and only `fitLabels` receives the bind -- exactly as industrial_sockets relies on.
+    const noWrite = { ...TRAY_FIT, params: { ...TRAY_FIT.params, fit_into: undefined } };
+    const pl = {
+      output: ["supply_per_rmt"],
+      steps: [
+        noWrite,
+        { step: "match_master_row", params: { kind: "cable_tray" } },
+        { step: "component", name: "base", target: "without_cover_list", params: {}, formula: "base" },
+        { step: "sum_components", result: "supply_per_rmt" },
+      ],
+    } as unknown as Pipeline;
+    const sel = { ...TRAY_ROW, width_mm: 65 };
+    const r = runPipeline("tray_boq_supply", pl, TRAY_ITEMS, sel);
+    // The fit still HAPPENS (the label binds) but never reaches the matcher, so the row does not price
+    // -- which is precisely the gap slice 3a closes.
+    expect(cfTrace(r)?.catalogFit?.fitted).toBe("100");
+    expect(r.status).toBe("no_match");
+    expect(sel.width_mm).toBe(65);
+  });
+
+  it("REGRESSION GUARD: the STRING-valued catalog_fit path (industrial_sockets) is unchanged", () => {
+    // The one shipped consumer binds a catalog ITEM NAME and is consumed by a component_ref "@ref".
+    // It carries no `fit_into`, so slice 3a must be invisible to it -- same status, same total, same
+    // bound label as the slice-2b/2d pins assert elsewhere in this file.
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply).toBe(10618);
+    expect(cfTrace(r)?.catalogFit?.fitted).toBe("25A FP MCB C CURVE");
+    expect(typeof cfTrace(r)?.catalogFit?.fitted).toBe("string");
+  });
+});
+
+// ---- SLICE 3b: cable tray thickness -- the SWG map, and the order it must run in ----
+//
+// The tray catalog is rectangular (10 widths x 5 thicknesses x tray_type x material); these rows
+// carry only what these cases need. The SWG values are the STANDARD table, pre-converted and
+// pre-rounded to one decimal in CONFIG -- 14 SWG = 0.080 in = 2.032 mm -> 2.0, 16 SWG = 0.064 in =
+// 1.626 mm -> 1.6. Both land on real catalog rows, so the conversion introduces no refusals.
+const tray3b = (
+  tray_type: string, material: string, thickness_mm: number, width_mm: number, list: number
+): RateMasterItem => ({
+  discipline: "Electrical",
+  kind: "cable_tray",
+  attributes: { tray_type, material, thickness_mm, width_mm },
+  rates: { without_cover_list: list, cover_only_list: 0, install_rate: 30 },
+});
+
+const TRAY3B_ITEMS: RateMasterItem[] = [
+  tray3b("Solid", "GI", 1.6, 100, 200),
+  tray3b("Solid", "GI", 1.6, 150, 300),
+  tray3b("Solid", "GI", 2.0, 100, 400),
+  tray3b("Solid", "GI", 2.0, 150, 600),
+];
+
+/** The shipped SWG table, abbreviated to the rungs these tests exercise plus two neighbours. */
+const SWG_TABLE = { "12": 2.6, "14": 2.0, "16": 1.6, "18": 1.2 };
+
+const SWG_MAP = {
+  step: "map_attribute" as const,
+  params: {
+    result_attr: "thickness_mm",
+    prefer_attr: "thickness_mm",
+    from_attr: "thickness_swg",
+    table: SWG_TABLE,
+  },
+};
+const TRAY3B_FIT = {
+  step: "catalog_fit" as const,
+  params: {
+    bind: "width_mm", fit_into: "width_mm", kind: "cable_tray",
+    where: { tray_type: "@tray_type", material: "@material", thickness_mm: "@thickness_mm" },
+    label_attr: "width_mm", size_from: { attr: "width_mm" }, fit_from: { attr: "width_mm" },
+    direction: "up", on_miss: "no_compute",
+  },
+};
+/** THE SHIPPED ORDER: map_attribute -> catalog_fit -> match_master_row. */
+const tray3bSupply = (steps?: unknown[]): Pipeline =>
+  ({
+    output: ["supply_per_rmt"],
+    steps: steps ?? [
+      SWG_MAP,
+      TRAY3B_FIT,
+      { step: "match_master_row", params: { kind: "cable_tray" } },
+      { step: "component", name: "base", target: "without_cover_list", params: {}, formula: "base" },
+      { step: "sum_components", result: "supply_per_rmt" },
+    ],
+  } as unknown as Pipeline);
+
+const TRAY3B_ROW = { tray_type: "Solid", material: "GI" };
+const mapTrace = (r: ReturnType<typeof runPipeline>) => r.steps.find((s) => s.step === "map_attribute");
+
+describe("SLICE 3b -- the SWG map converts, defers and orders correctly", () => {
+  it("POSITIVE: a row stating ONLY a gauge converts and prices at the catalog thickness", () => {
+    // The live cert shape: BOQ-26-00106 / 154 states "14 gauge" and nothing in millimetres.
+    // 14 -> 2.0, which the catalog carries, so the row prices off the 2.0 rows.
+    const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
+      { ...TRAY3B_ROW, thickness_swg: 14, width_mm: 100 });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply_per_rmt).toBe(400);              // the 2.0 row, not the 1.6 row
+    expect(r.matchedItem?.attributes.thickness_mm).toBe(2);
+    // A mapped value is a SUBSTITUTION -- this is what puts "(computed)" on the thickness field.
+    // SLICE 3b FINISH: the outcome now also carries the RESOLVED value, so the panel can show it.
+    expect(mapTrace(r)?.mapAttribute).toEqual({ result_attr: "thickness_mm", stated: false, value: 2 });
+  });
+
+  it("POSITIVE: 16 SWG converts to 1.6 -- the second live gauge, a different catalog row", () => {
+    const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
+      { ...TRAY3B_ROW, thickness_swg: 16, width_mm: 150 });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply_per_rmt).toBe(300);              // the 1.6 row
+    expect(r.matchedItem?.attributes.thickness_mm).toBe(1.6);
+  });
+
+  it("R6: a row stating BOTH millimetres and a gauge takes the MILLIMETRE value", () => {
+    // `prefer_attr` is checked FIRST, before the source is read. The row says 1.6 mm and 14 SWG
+    // (which would map to 2.0); the stated millimetre value wins and 1.6 is what prices.
+    const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
+      { ...TRAY3B_ROW, thickness_mm: 1.6, thickness_swg: 14, width_mm: 100 });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply_per_rmt).toBe(200);              // the 1.6 row, NOT the 2.0 row
+    expect(r.matchedItem?.attributes.thickness_mm).toBe(1.6);
+    // STATED -- the panel renders it PLAIN, with no "(computed)" tag.
+    // SLICE 3b FINISH: `value` echoes the STATED value on this branch.
+    expect(mapTrace(r)?.mapAttribute).toEqual({ result_attr: "thickness_mm", stated: true, value: 1.6 });
+  });
+
+  it("NEGATIVE: the table is an EXACT KEY lookup -- an unlisted gauge does NOT fuzzy-match", () => {
+    // 15 SWG sits between two listed rungs. `hasOwnProperty(String(src))` is exact, so an unlisted
+    // gauge resolves to nothing and the row refuses. It must NEVER round to a neighbour.
+    const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
+      { ...TRAY3B_ROW, thickness_swg: 15, width_mm: 100 });
+    expect(r.status).toBe("no_match");
+    expect(r.finals.supply_per_rmt).toBeUndefined();
+  });
+
+  it("NEGATIVE (R7): a mapped thickness the catalog does not carry refuses -- silently", () => {
+    // 12 SWG -> 2.6, which is a real conversion but not a catalog thickness. The six live 2.6 mm
+    // rows behave the same way. `no_match` is the SAME status a pre-3b unmatched row produced, so
+    // the helper renders the identical wording and no new text appears.
+    const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
+      { ...TRAY3B_ROW, thickness_swg: 12, width_mm: 100 });
+    expect(r.status).toBe("no_match");
+    expect(r.finals.supply_per_rmt).toBeUndefined();
+  });
+
+  it("ORDER: the map must run BEFORE the width fit, which reads @thickness_mm in its `where`", () => {
+    // THE LOAD-BEARING ORDER. `catalog_fit` filters its ladder on thickness; if the map has not run
+    // the "@thickness_mm" ref is unresolved, the fit bails, and the row dies before the matcher --
+    // even though every fact needed to price it was present.
+    const wrongOrder = [
+      TRAY3B_FIT,
+      SWG_MAP,
+      { step: "match_master_row", params: { kind: "cable_tray" } },
+      { step: "component", name: "base", target: "without_cover_list", params: {}, formula: "base" },
+      { step: "sum_components", result: "supply_per_rmt" },
+    ];
+    const sel = { ...TRAY3B_ROW, thickness_swg: 14, width_mm: 100 };
+    expect(runPipeline("wrong", tray3bSupply(wrongOrder), TRAY3B_ITEMS, { ...sel }).status).toBe("no_match");
+    // The SAME inputs in the shipped order price perfectly well.
+    expect(runPipeline("right", tray3bSupply(), TRAY3B_ITEMS, { ...sel }).status).toBe("ok");
+  });
+
+  it("ORDER: with the map first, the width fit still hops -- 3a's behaviour is intact underneath", () => {
+    // 120 is not a catalog width; it must still fit UP to 150, now against the MAPPED thickness.
+    const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
+      { ...TRAY3B_ROW, thickness_swg: 16, width_mm: 120 });
+    expect(r.status).toBe("ok");
+    expect(r.matchedItem?.attributes.width_mm).toBe(150);
+    expect(r.matchedItem?.attributes.thickness_mm).toBe(1.6);
+    expect(cfTrace(r)?.catalogFit?.substituted).toBe(true);   // the 3a hop, unchanged
+  });
+
+  it("NEGATIVE: neither millimetres nor a gauge -- the pipeline refuses, nothing is invented", () => {
+    const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
+      { ...TRAY3B_ROW, width_mm: 100 });
+    expect(r.status).toBe("no_match");
+    expect(r.finals.supply_per_rmt).toBeUndefined();
+  });
+});
+
+describe("SLICE 3b FINISH -- MapAttributeOutcome carries the resolved value", () => {
+  it("the STATED branch publishes the stated value", () => {
+    const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
+      { ...TRAY3B_ROW, thickness_mm: 1.6, thickness_swg: 14, width_mm: 100 });
+    expect(mapTrace(r)?.mapAttribute).toEqual({ result_attr: "thickness_mm", stated: true, value: 1.6 });
+  });
+
+  it("the TABLE branch publishes the MAPPED value, not the source gauge", () => {
+    const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
+      { ...TRAY3B_ROW, thickness_swg: 14, width_mm: 100 });
+    expect(mapTrace(r)?.mapAttribute).toEqual({ result_attr: "thickness_mm", stated: false, value: 2 });
   });
 });

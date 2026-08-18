@@ -24,13 +24,27 @@
  * Its group LABELS come from `pipeline_labels` (config data), so only the pairing BEHAVIOUR is
  * special-cased, not the strings. Every OTHER category goes through the generic path.
  */
-import { derivedAttrOutcomes, moduleFitOutcome, NONE_SENTINEL, runPipeline } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
+import {
+  catalogFitOutcomes,
+  derivedAttrOutcomes,
+  mapAttributeOutcomes,
+  moduleFitOutcome,
+  NONE_SENTINEL,
+  runPipeline,
+} from "@/pages/pricing/rate-master/ratePipelineInterpreter";
 // CP2: `coerceForMatch` moved to the shared rate-master module (the single point where an attribute
 // value becomes a match key); this file imports it and no longer defines it.
-import { coerceForMatch, isDropdownAttributeType } from "@/pages/pricing/rate-master/rateMasterStructure";
+import {
+  blanksQtyAttr,
+  coerceForMatch,
+  derivedAttrIds,
+  derivedQtyAttrs,
+  isDropdownAttributeType,
+  mapAttributeSources,
+} from "@/pages/pricing/rate-master/rateMasterStructure";
 // DERIVED-ATTRIBUTE GATE: the `<name>_qty` half of derivation has ONE definition and this reuses
 // it rather than repeating it (see derivedAttrIds below).
-import { derivedQtyAttrs, derivedQtyValue } from "@/pages/pricing/rate-master/RateMasterDerivation";
+import { derivedQtyValue } from "@/pages/pricing/rate-master/RateMasterDerivation";
 import type {
   AttributeDefinition,
   Pipeline,
@@ -165,90 +179,6 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
 }
 
 /**
- * The attribute ids this config COMPUTES rather than accepts as user input.
- *
- * ⚠️ A DERIVED ATTRIBUTE IS NEVER "MISSING INPUT". Leaving one blank means the pricer did not state
- * it, not that the row is incomplete -- the pipeline derives it. Counting one as missing refuses a
- * row the pipeline can price perfectly well, which is exactly what happened: `module_fit`'s ladders
- * BIND `plate_item`, the helper counted it as required, and 26 rows across switches_sockets and
- * point_wiring showed "Complete the missing attributes to price" while the pipeline computed
- * 380/80, 500/100, 290/60 and 1238/667.4 for them.
- *
- * TWO derivation mechanisms, ONE definition of each -- this composes, it does NOT re-implement:
- *   1. `derivedQtyAttrs` (the blanker slice) -- a component taking `qty: {from_fit}` supersedes its
- *      `<name>_qty` attribute. REUSED verbatim; the risk of two copies drifting (#179, three
- *      coercion sites that agreed until they did not) is why this imports rather than repeats it.
- *   2. `module_fit` LADDER BINDS -- `ladders[].bind` names the attribute the fitted rung binds to.
- *      This half is new and lives here only.
- *
- * ⚠️ `bind` IS NOT `floor_from`, and one attribute is BOTH. `plate_item` is its own ladder's
- * `floor_from` (a STATED plate is a floor -- the take-the-larger rule) AND its `bind` (the fitted
- * rung). **Being a bind WINS**: the pipeline can always compute the value, so a blank one is "no
- * floor stated", never "input missing". A `floor_from` attribute that is NOT also a bind stays a
- * genuine input and still blocks when blank.
- *
- * ⚠️ READ FROM CONFIG, never hardcoded by id. `plate_item` / `box_item` are today's binds; a future
- * ladder may bind anything, and a category with no `module_fit` is byte-unaffected. PURE.
- */
-/**
- * PURE. The attribute a `module_fit` `blanks` block ARBITRATES on -- the blanker quantity the row
- * states, which the step weighs against the plate's spare capacity.
- *
- * ⚠️ THIS IS WHY THAT FIELD IS NOT READ-ONLY DESPITE LOOKING SUPERSEDED. Its component still takes
- * `qty: {from_fit}`, so `derivedQtyAttrs` -- which keys purely on that shape -- reports it as fully
- * superseded, and branch 1 of `applyDerivedDisplay` would lock it. But `module_fit` now READS the
- * attribute, so it IS an input: the pipeline arbitrates between it and the computed spare, and an
- * edit genuinely reaches the price. A locked field would be the lie the read-only contract exists to
- * prevent, only pointing the other way.
- *
- * ⚠️ READ FROM CONFIG, never by attribute id. A config with no `qty_attr` is byte-unaffected and its
- * quantity stays read-only exactly as before. PURE.
- */
-export function blanksQtyAttr(config: RateCategoryConfig): string | undefined {
-  for (const pl of Object.values(config.pipelines ?? {})) {
-    for (const raw of pl.steps ?? []) {
-      const s = raw as { step?: string; params?: { blanks?: { qty_attr?: unknown } } };
-      const qa = s.params?.blanks?.qty_attr;
-      if (s.step === "module_fit" && typeof qa === "string" && qa) return qa;
-    }
-  }
-  return undefined;
-}
-
-export function derivedAttrIds(config: RateCategoryConfig): Set<string> {
-  const out = new Set<string>(derivedQtyAttrs(config).keys());
-  for (const pl of Object.values(config.pipelines ?? {})) {
-    for (const raw of pl.steps ?? []) {
-      const s = raw as {
-        step?: string;
-        params?: { ladders?: Array<{ bind?: unknown }>; result_attr?: unknown };
-      };
-      if (s.step === "module_fit") {
-        for (const ladder of s.params?.ladders ?? []) {
-          if (typeof ladder.bind === "string" && ladder.bind) out.add(ladder.bind);
-        }
-      } else if (s.step === "derive_attribute") {
-        // THE THIRD MECHANISM. A `derive_attribute` COMPUTES its target attribute from other
-        // attributes, so a blank one means "the row did not state it", never "the row is incomplete".
-        //
-        // ⚠️ This is NOT cosmetic. point_wiring's `circuit_length_m` used to arrive pre-filled by an
-        // `extraction_defaults` entry of 15; removing that default (which is what makes the derivation
-        // reachable at all -- an injected value is a STATED value and would win forever) leaves the
-        // field blank on every future row. Without this branch the missing-attribute gate below fires
-        // and the row prices NOTHING while the pipeline can compute the length perfectly well.
-        //
-        // Same shape as the two mechanisms above, and the same lesson for the THIRD time: a no-op
-        // measured before a dependency lands is not a no-op afterwards.
-        if (typeof s.params?.result_attr === "string" && s.params.result_attr) {
-          out.add(s.params.result_attr);
-        }
-      }
-    }
-  }
-  return out;
-}
-
-/**
  * DERIVED DISPLAY -- give every DERIVED attribute the value the pipeline actually computed.
  *
  * ⚠️ THE SCREEN IS THE AUTHORITY. The derived-attribute GATE (above) stopped these attributes
@@ -273,14 +203,27 @@ export function derivedAttrIds(config: RateCategoryConfig): Set<string> {
  *
  * ⚠️ NOTHING is written back into `selected` (it is not even in scope here) -- these fields are
  * DISPLAY, and `value` still means "what the row supplied". PURE: returns a new array.
- */
-export function applyDerivedDisplay(
+ */export function applyDerivedDisplay(
   attrs: WorkingsAttribute[],
   config: RateCategoryConfig,
   results: PipelineResult[],
+  /**
+   * SLICE 3b (owner ruling R9) -- the row-level derived set, when the caller has one.
+   *
+   * The gate and this display must agree: if a blank attribute is being asked for, it has to LOOK
+   * like it is being asked for. Without this the field would render as derived (no red border)
+   * while the message still said "Complete the missing attributes to price" -- border and message
+   * disagreeing about the same field.
+   *
+   * ⚠️ OPTIONAL BY DESIGN, and that is what protects slice 3a's width. Absent => the config-level
+   * set, byte-identical to pre-3b: `computeWiring` passes nothing and is unaffected, and a
+   * `catalog_fit` bind is unconditionally derived on every path, so width renders exactly as it did.
+   * The narrowing can only ever REMOVE a `map_attribute` target on a row whose source is blank.
+   */
+  rowDerivedIds?: ReadonlySet<string>,
 ): WorkingsAttribute[] {
   // The ONE derived predicate (both mechanisms) -- reused, never re-implemented (#179).
-  const derivedIds = derivedAttrIds(config);
+  const derivedIds = rowDerivedIds ?? derivedAttrIds(config);
   const supersededQty = derivedQtyAttrs(config);
   const fit = moduleFitOutcome(results);
   const byBind = new Map((fit?.ladders ?? []).map((l) => [l.bind, l]));
@@ -350,6 +293,70 @@ export function applyDerivedDisplay(
           ...(computed.value === null ? {} : { derivedValue: String(computed.value) }),
         };
       }
+      // 4. SLICE 2c -- a `catalog_fit` LADDER BIND. The FOURTH mechanism reaching this display, read
+      //    through the interpreter's own reader (`catalogFitOutcomes`) exactly as the three above are.
+      //    Before this, `derivedAttrIds` already marked such an attribute `derived` -- so it was
+      //    correctly exempt from the missing-input gate -- but nothing ever filled its `derivedValue`,
+      //    and `attrDisplayValue` therefore rendered EMPTY. That is the whole reason row 98's paired
+      //    MCB read "— select —" while the pipeline priced a 25A FP MCB C CURVE behind it.
+      //
+      //    It behaves like the ladder bind and the derive_attribute target, NOT like the blanker
+      //    quantity: a stated value IS read and wins outright, so `readOnly` must never be set here.
+      const cf = catalogFitOutcomes(results).get(a.id);
+      if (cf) {
+        // SLICE 2d, OPTION B -- ONE FIELD, FOUR HONEST STATES.
+        //
+        // (1) STATED: the row's own value prices. `a.value` is non-empty, so it renders plain with no
+        //     marker; publishing a computed value here would credit the pipeline with the pricer's
+        //     choice. Unchanged from 2c.
+        if (cf.stated !== undefined) return { ...a, derived: true };
+
+        // (2) CONCLUDED ABSENCE -> "None (computed)". ⚠️ THIS REVERSES 2c's REFUSAL, BY RULING, AND
+        //     THE PREMISE IS WHAT CHANGED: 2c published nothing because "nothing was computed". But a
+        //     step that fired `absent_when` DID conclude something -- that there is no such component
+        //     -- and a concluded absence is a verdict, not the lack of one. Rendering it empty made
+        //     the panel silent about the one thing the pricer most needs to see, now that the facts
+        //     behind it have left the screen.
+        if (cf.absent) return { ...a, derived: true, derivedValue: NONE_SENTINEL, substituted: true };
+
+        // (3) NOTHING FITTED and no verdict -- render empty rather than invent.
+        if (cf.fitted === null) return { ...a, derived: true };
+
+        // (4) FITTED. Plain iff NOTHING was substituted anywhere behind it: the ladder hit exactly
+        //     AND every fact its `where` rests on was STATED by the row. A fit can be exact and still
+        //     rest on an inferred pole or a defaulted curve, which is why the step's own verdict is
+        //     not enough on its own -- `whereRefs` is the join key into the map outcomes.
+        const maps = mapAttributeOutcomes(results);
+        const restsOnASubstitutedFact = cf.whereRefs.some((id) => maps.get(id)?.stated === false);
+        return {
+          ...a,
+          derived: true,
+          derivedValue: cf.fitted,
+          substituted: cf.substituted || restsOnASubstitutedFact,
+        };
+      }
+      // 5. SLICE 3b FINISH -- a `map_attribute` TARGET (the tray thickness). The FIFTH mechanism
+      //    reaching this display, read through the interpreter's own reader (`mapAttributeOutcomes`)
+      //    exactly as the four above are.
+      //
+      //    ⚠️ THIS BRANCH IS WHY THE FIELD WAS BLANK. `derivedAttrIds` marked the attribute derived
+      //    -- correctly exempting it from the missing-input gate -- but with no branch here nothing
+      //    filled its `derivedValue`, so a row that priced off a gauge-converted 1.6 mm rendered an
+      //    empty "-- select --". It is the exact shape of the row-98 defect slice 2c fixed for
+      //    `catalog_fit`, and the same rule: THE PANEL SHOWS WHAT PRICING USED.
+      //
+      //    OPTION B, and the two cases are opposite on purpose:
+      //      * STATED -- the row supplied the millimetre value and the mapping never ran, so nothing
+      //        was substituted. PLAIN, no marker. Tagging it would credit the pipeline with the
+      //        pricer's own entry.
+      //      * MAPPED (from the table, or from a default) -- an inference. Marked "(computed)".
+      const mapOut = mapAttributeOutcomes(results).get(a.id);
+      if (mapOut) {
+        // A STATED value publishes no display value: `attrDisplayValue` shows the row's own entry,
+        // which is what actually prices -- the same rule the `derive_attribute` branch above follows.
+        if (mapOut.stated) return { ...a, derived: true };
+        return { ...a, derived: true, derivedValue: String(mapOut.value), substituted: true };
+      }
       return { ...a, derived: true }; // derived by config, but nothing fitted/computed this run
     }
     return {
@@ -358,6 +365,16 @@ export function applyDerivedDisplay(
       // POSITIVELY ABSENT (a "None" plate, or nothing to fit at all) publishes NO display value --
       // the field renders empty rather than inventing a size for a plate that does not exist.
       ...(ladder.absent || ladder.label === null ? {} : { derivedValue: ladder.label }),
+      // SLICE 2d, OPTION B + OWNER RULING (x) -- TAKE-THE-LARGER IS A SUBSTITUTION, so the field shows
+      // WHAT WAS BOUGHT, marked "(computed)", with the upgrade note below explaining why.
+      //
+      // ⚠️ This is the one place 2d overwrites a stated value on screen, and it is deliberate: the row
+      // says 1M, the pipeline buys 3M, and showing 1M named a size the row is not being charged for.
+      // It is NOT a silent override -- the note still carries the stated capacity, the contents and
+      // the size priced, which is what the "warns rather than being silently overridden" rule asked
+      // for. The narrowed contract lives in `attrDisplayValue`: a stated value the pipeline USED is
+      // still never overwritten; only a SUBSTITUTED one is.
+      ...(ladder.upgraded && ladder.label ? { substituted: true } : {}),
       ...(ladder.upgraded && ladder.label
         ? {
             notes: [
@@ -435,6 +452,38 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     const defaulted: string[] = []; // EA-4a: attrs the extraction filled from a config default
     // The attributes THIS config computes rather than accepts -- a blank one is not missing input.
     const derived = derivedAttrIds(category);
+    // SLICE 3b (owner ruling R8) -- THE CONDITIONAL EXEMPTION, resolved PER ROW.
+    //
+    // Four of the five derivation mechanisms can always run, so config membership IS the answer. A
+    // `map_attribute` is the exception: it fills its target from a SOURCE attribute, and on a row
+    // where that source is blank it fills nothing. Exempting such a target wholesale would replace
+    // "Complete the missing attributes to price" -- an instruction the pricer can act on -- with a
+    // refusal they cannot, on every row where nothing can fill it. The owner ruled the message is
+    // worth keeping, so the exemption is narrowed to rows the pipeline can actually serve.
+    //
+    // ⚠️ PRE-PASS, in the `disabledByNone` idiom directly above, and for the SAME reason: the source
+    // attribute may sit AFTER its target in the definition list, so this cannot be decided inside the
+    // main loop. `valueOfDef` reads any def's row value independently of loop order.
+    //
+    // ⚠️ THE NARROWING TOUCHES ONLY THE `map_attribute` MECHANISM. A `catalog_fit` bind (slice 3a's
+    // tray width), a `module_fit` ladder bind, a `derive_attribute` target and a superseded qty are
+    // all left exactly as they were -- which is what keeps width, point_wiring, switches_sockets and
+    // industrial_sockets byte-identical. A config with no `map_attribute` produces an EMPTY set here
+    // and `fillableDerived` is `derived`.
+    const unfillableDerived = new Set<string>();
+    for (const [resultAttr, src] of mapAttributeSources(category)) {
+      if (src.hasDefault) continue; // the curve-else-C shape: always fillable, never narrowed
+      const srcDef = src.fromAttr ? defs.find((d) => d.id === src.fromAttr) : undefined;
+      // A source we cannot resolve is NOT evidence of absence -- leave the exemption alone rather
+      // than narrow on a guess. Only a source we can read AND find empty narrows it.
+      if (!srcDef) continue;
+      const v = valueOfDef(srcDef);
+      if (v === null || v === NONE_SENTINEL) unfillableDerived.add(resultAttr);
+    }
+    const fillableDerived =
+      unfillableDerived.size === 0
+        ? derived
+        : new Set([...derived].filter((id) => !unfillableDerived.has(id)));
     let missing = false;
     for (const d of defs) {
       const cell = ext?.attributes[d.id];
@@ -446,7 +495,17 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       // A DERIVED attribute (a module_fit ladder bind, or a superseded `<name>_qty`) is likewise not
       // missing input: blank means "not stated", and the pipeline computes it. A stated value is
       // still passed through in `selected`, where the ladder reads it as its FLOOR.
-      if (coerced === null) { if (!disabled && !derived.has(d.id)) missing = true; }
+      // SLICE 2d -- a PANEL-HIDDEN attribute is exempt from the gate, for the same reason a derived
+      // one is: A FIELD THE PRICER CANNOT SEE IS NOT MISSING USER INPUT. Without this, a blank
+      // `mcb_present` would refuse the row with "Complete the missing attributes to price" and no
+      // visible field to fill -- a dead end. Downstream stays honest: a blank fact leaves
+      // `absent_when` unfired and `fit_from` unreadable, and `on_missing_fact: "none"` zeroes that
+      // line rather than inventing one.
+      if (coerced === null) {
+        // SLICE 3b: `fillableDerived`, not `derived` -- see the pre-pass above. Identical to
+        // `derived` for every config without a `map_attribute`.
+        if (!disabled && !fillableDerived.has(d.id) && d.panel !== false) missing = true;
+      }
       else selected[d.id] = coerced;
       // A defaulted attribute is one the model filled from the config default (no positive text
       // identification); the pricer should see WHICH values came from a default, not read (EA-4a). An
@@ -459,6 +518,12 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       if (isDefaulted) {
         defaulted.push(`${d.label}=${coerced}`);
       }
+      // SLICE 2d -- THE ONE PLACE THE PANEL NARROWS. `selected` and `missing` above are computed from
+      // the FULL walk and are deliberately untouched: `catalog_fit` reads `selected[mcb_present]` and
+      // `selected[mcb_amp_a]`, and `map_attribute` reads the two stated-pole/curve attributes, so
+      // filtering the walk instead would leave `absent_when` unfired and the ladder unrun -- every
+      // socket row silently mispriced. The facts keep working; they just stop being asked about.
+      if (d.panel === false) continue;
       workingsAttrs.push({
         id: d.id,
         label: d.label,
@@ -491,7 +556,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
           // but the derived attributes must still not be flagged as the thing that is missing. The
           // red borders that remain are the GENUINE missing inputs, which is exactly the narrowing
           // this slice is: fewer fields flagged, and every one that still is, really is.
-          attributes: applyDerivedDisplay(workingsAttrs, category, []),
+          attributes: applyDerivedDisplay(workingsAttrs, category, [], fillableDerived),
           matchedRows: [],
           derivation: [
             inRun
@@ -581,7 +646,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         ? `Rate master: ${category.category_id} @ ${attrLine}`
         : "no match for these attributes",
       workings: {
-        attributes: applyDerivedDisplay(workingsAttrs, category, pipelineResults),
+        attributes: applyDerivedDisplay(workingsAttrs, category, pipelineResults, fillableDerived),
         matchedRows: flatMatched,
         derivation: flatDerivation,
         finalValues: { ...values },

@@ -16,7 +16,12 @@ import type { AttributeDefinition, RateCategoryConfig, RateMasterItem, StepTrace
 import { NONE_SENTINEL, runAllPipelines } from "./ratePipelineInterpreter";
 import { isEditableParam, matchedConditionIndex, parseFiniteInput } from "./rateMasterEdit";
 // CP2: the two type axes (dropdown affordance / numeric coercion) have ONE definition each.
-import { isDropdownAttributeType, isNumericAttributeType } from "./rateMasterStructure";
+import {
+  derivedAttrIds,
+  derivedQtyAttrs,
+  isDropdownAttributeType,
+  isNumericAttributeType,
+} from "./rateMasterStructure";
 
 /**
  * CP2: the Derivation screen's own coercion of a picked/typed value into `selected`.
@@ -31,66 +36,6 @@ function coerceSelected(def: AttributeDefinition, raw: string): string | number 
   if (def.allow_none && raw === NONE_SENTINEL) return NONE_SENTINEL;
   if (isNumericAttributeType(def.type)) return raw === "" ? "" : Number(raw);
   return raw;
-}
-
-// ---- BLANKER SLICE: DERIVED, READ-ONLY attribute displays ----
-//
-// THE DEFECT: `blank_qty` sat inert at 0 in the form while the blank line priced at 1, because slice
-// 2 part 2 moved that line onto the COMPUTED count (`qty: {from_fit: "blank_count"}`) and stopped
-// reading the attribute. The form said one thing and the price said another.
-//
-// ⚠️ THE DERIVED-NESS IS READ FROM THE CONFIG THAT ALREADY EXISTS -- no new config key, and nothing
-// hardcoded by attribute id. An attribute is DERIVED exactly when a component takes its quantity
-// from a computed binding INSTEAD of from that attribute, which the stored `qty` already declares:
-//   {from_fit: "blank_count"}  -> the attribute is superseded  -> derived, read-only
-//   {from_attr: "blank_qty"}   -> the attribute IS the input   -> stays editable
-// The rule is READ PER CONFIG, so each category answers for itself and no asset mint is needed:
-// switches_sockets and point_wiring carry the from_fit form and their `blank_qty` is derived, while a
-// config that still declares {from_attr: "blank_qty"} OPTS OUT AUTOMATICALLY and keeps that field
-// editable. ⚠️ Hardcoding `d.id === "blank_qty"` would freeze the field for EVERY config, including one
-// that genuinely reads it -- which is why the shape, not the id, is what decides. (The from_attr case
-// was live on `switches_point` until that category was retired in 2026-08; the RULE does not depend on
-// an example existing, and must keep working the moment another config declares that shape.)
-//
-// The `_qty` suffix ties a component to its attribute (`blank` -> `blank_qty`), the SAME convention
-// every shipped config already uses (switch/switch_qty, socket1/socket1_qty, plate/plate_qty). The
-// second guard makes it airtight: an attribute ANY step still reads via from_attr is never derived,
-// so a config that both computes and reads a value keeps the user in control.
-
-/** One derived attribute: the def it covers, and the pipeline ctx key holding its computed value. */
-export interface DerivedQtyBinding {
-  attrId: string;
-  ctxKey: string;
-}
-
-/**
- * PURE. The attributes this config DERIVES rather than accepts as input, keyed by attribute id.
- * Empty for every config whose components read their quantities from attributes (the pre-slice
- * shape), so a category that was never migrated is byte-unaffected.
- */
-export function derivedQtyAttrs(config: RateCategoryConfig): Map<string, DerivedQtyBinding> {
-  const defIds = new Set((config.attribute_definitions ?? []).map((d) => d.id));
-  const readAsInput = new Set<string>();
-  const candidates = new Map<string, string>();
-  for (const pl of Object.values(config.pipelines ?? {})) {
-    for (const raw of pl.steps ?? []) {
-      const s = raw as { name?: string; qty?: unknown };
-      const qty = s.qty as { from_attr?: string; from_fit?: string } | undefined;
-      if (!qty || typeof qty !== "object") continue;
-      if (typeof qty.from_attr === "string") readAsInput.add(qty.from_attr);
-      if (typeof qty.from_fit === "string" && typeof s.name === "string" && s.name) {
-        const attrId = `${s.name}_qty`;
-        if (defIds.has(attrId)) candidates.set(attrId, qty.from_fit);
-      }
-    }
-  }
-  const out = new Map<string, DerivedQtyBinding>();
-  for (const [attrId, ctxKey] of candidates) {
-    // an attribute ANY step still reads as an input stays the user's to set
-    if (readAsInput.has(attrId)) continue;
-    out.set(attrId, { attrId, ctxKey });
-  }
-  return out;
 }
 
 /**
@@ -242,9 +187,27 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
     () => (Array.isArray(config.rules) ? config.rules : []),
     [config]
   );
+  /**
+   * SLICE 2d, OWNER RULING Q4(i) -- THIS TAB IS A PURE CALCULATOR: you state the INPUTS, and every
+   * attribute the pipeline DERIVES leaves the selects, appearing only in the step lines below.
+   *
+   * ⚠️ THIS EXPLICITLY SUPERSEDES the `frontend/CLAUDE.md` "THE TWO SCREENS STAY APART" invariant,
+   * which required this screen to read `derivedQtyAttrs` (the superseded-qty half) and never
+   * `derivedAttrIds` (both halves). That rule existed to stop a genuinely editable field being
+   * frozen; the ruling accepts that cost in exchange for a screen on which every control is an input.
+   *
+   * ⚠️ IT COSTS THREE BENCH CAPABILITIES, each now pinned by a unit test rather than by this screen:
+   * take-the-larger's UPGRADE (a stated plate too small for its contents), `derive_attribute`'s
+   * STATED-WINS (a stated circuit length), and `catalog_fit`'s stated-"None" STICKING. None can be
+   * exercised here any more, because none of their attributes has a control.
+   *
+   * The predicate is the SHARED one from `rateMasterStructure` -- never a second copy, which would be
+   * free to disagree with the panel about whether a field is an input.
+   */
+  const derivedBinds = useMemo(() => derivedAttrIds(config), [config]);
   const selectableDefs = useMemo(
-    () => config.attribute_definitions.filter((d) => d.selector !== false),
-    [config]
+    () => config.attribute_definitions.filter((d) => d.selector !== false && !derivedBinds.has(d.id)),
+    [config, derivedBinds]
   );
   const brandDef = useMemo(
     () => config.attribute_definitions.find((d) => d.id === "brand"),
@@ -439,7 +402,11 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
                       </span>
                     )}
                   </label>
-                  <Select value={String(selected[d.id] ?? "")} onValueChange={(v) => setAttr(d, v)} disabled={disabledByNone.has(d.id)}>
+                  <Select
+                    value={String(selected[d.id] ?? "")}
+                    onValueChange={(v) => setAttr(d, v)}
+                    disabled={disabledByNone.has(d.id)}
+                  >
                     <SelectTrigger className="h-8 w-44 disabled:opacity-50">
                       <SelectValue placeholder={`Select ${d.label}`} />
                     </SelectTrigger>

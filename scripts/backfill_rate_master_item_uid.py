@@ -51,8 +51,14 @@ os.chdir("/workspace/development/frappe-bench/sites")
 import frappe  # noqa: E402
 
 APP = "/workspace/development/frappe-bench/apps/nirmaan_stack/nirmaan_stack"
+# F-20 sweep (2026-08-14): v30 -> v31. This was the THIRD place naming an asset version, found by
+# the F-20 recon. The uids it stamps are UNAFFECTED by the bump: pairing is on
+# (kind, brand, attributes), and F-16 changed only a RATE key (`install_rate`) plus the retirement
+# of `tray_install_rate`, so every active row still pairs to exactly one asset item -- and v31
+# inherited v30's uids anyway. `CURRENT_EALL_ASSET` in test_rate_master.py is the ONE authoritative
+# current pin; any new file naming a version must justify itself against it.
 ASSET = os.path.join(APP, "services", "boq_rate_master", "data",
-                     "rate_master_electrical_all_v30.json")
+                     "rate_master_electrical_all_v31.json")
 ITEM_DOCTYPE = "BoQ Rate Master Item"
 
 # `rmi-` + 12 lowercase hex. Opaque so it never has to change when an attribute is edited; the

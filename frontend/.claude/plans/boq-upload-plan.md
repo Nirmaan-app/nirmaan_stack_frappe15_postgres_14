@@ -21810,6 +21810,18 @@ only from part 1's pointer, not from the register.
 
 ## WBC-S6c — the structural carve of both `CLAUDE.md` files
 
+> ### ⚠️ NEVER-LANDED — this record describes work that is not in the repository
+> **Verified 2026-08-17.** The carve below never landed on any branch. `.claude/context/conventions/`
+> and `frontend/.claude/context/conventions/` do not exist in the working tree, and no commit on any
+> branch ever created them. Five checks, all negative: (1) scanned all 29 refs (15 local heads + 14
+> remote) — no tree contains those paths; (2) `git log --all --diff-filter=A` on both paths returns
+> nothing; (3) 460 reflog entries, none matching the carve; (4) 22 dangling commits, none carrying
+> those paths; (5) 4 stashes (2026-07-01/07/15/24 — **none from 2026-07-30**), none containing them.
+> **Do NOT treat any figure below as describing this repository.** Its byte counts, file list and
+> "0 lost" losslessness claim describe a state that does not exist here. At the time of verification
+> both files were far LARGER than the pre-carve sizes it quotes. The section is left as written so the
+> discrepancy stays legible; the plan doc's own line ~21943 ("published nowhere") is the likely cause.
+
 **Date:** 2026-07-30 · **Tier:** Full · **Branch:** `feature/boq-within-boq-carry`
 **Supersedes:** `WBC-S6b-correct-and-prune` — byte-by-byte pruning to buy room for
 corrections. S6b was not wrong; it was working at the wrong altitude. The carve
@@ -28395,3 +28407,2422 @@ is `replace=True` and supersedes everything in scope, so a stale file wipes ever
 was exported; and any asset older than the `item_uid` slice carries no `item_uid`, so loading one
 would BLANK every id -- which breaks this slice's round trip outright, since a blank uid reads as
 "add this item".
+
+---
+
+## Build slice F-16 -- cable tray install moves ON-ROW (2026-08-13/14)
+
+**Status: SHIPPED.** Branch `feature/boq-pricing-helper`. Asset **v31**
+(`rate_master_electrical_all_v31.json`), batch `rmbulk-4b375e513b9d`, 1,372 active Electrical items.
+
+### The change
+
+Tray install was a **second lookup** into a parallel kind `tray_install_rate` (10 width-keyed rows),
+multiplied by 4 in the pipeline. A width absent from those 10 rows priced supply, **skipped install,
+and warned about nothing** -- a silent no-compute.
+
+Each `cable_tray` row now carries `install_rate` holding the **FINAL effective per-metre figure, x4
+already baked in** (never multiply it again), read VERBATIM off the row the supply match already
+found. The install pipeline became:
+
+```
+1. match_master_row  kind = cable_tray      "install rate carried on the tray row itself (F-16)"
+2. component width_install  target=install_rate  params {}  formula "base"
+3. UNCHANGED (floor_cutting, 200 x 1.45 = 290)
+4. UNCHANGED (sum_components -> install_per_rmt)
+```
+
+Step 2's shape is copied verbatim from the supply pipeline's existing `base` component. **No
+interpreter change** -- the mechanism already existed and the tray's own supply pipeline already used
+it (one `match_master_row`, two rate keys read off the matched row: `without_cover_list` and
+`cover_only_list`). `item_kinds` is now `["cable_tray"]`.
+
+The ten figures: `50->100 100->120 150->140 200->160 250->180 300->220 350->260 400->300 450->340
+600->380`.
+
+### Prices unchanged -- measured, not assumed
+
+A BEFORE ledger was captured **PRE-RELOAD** through the running app (owner's Chrome over CDP, the
+app's own interpreter resolved through the page's live module graph, the production read endpoints),
+then re-priced after. Six rows, six widths including 50 and 600, every adder branch exercised:
+
+| row | w | cover | install | cut | refill | supply | install | total |
+|---|---|---|---|---|---|---|---|---|
+| L1 | 50 | No | Ceiling | No | No | 321 | 100 | 421 |
+| L2 | 100 | Yes | Floor | No | No | 282 | 120 | 402 |
+| L3 | 200 | No | Floor | Yes | Yes | 459 | 450 | 909 |
+| L4 | 300 | Yes | Ceiling | No | No | 641 | 220 | 861 |
+| L5 | 450 | No | Ceiling | Yes | No | 414 | 630 | 1044 |
+| L6 | 600 | Yes | Floor | Yes | Yes | 1060 | 670 | 1730 |
+
+**All eighteen figures identical to the rupee after the change.** The three stored goldens t1/t2/t3
+all sit at width 100, where the retired table said `30 x 4` and the row now says `120` -- the same
+number by construction, which is exactly why **no golden needed editing**.
+
+### The retirement, and the orphan-active lesson
+
+**The kind is RETIRED BY DECLARATION, never by omission.** `_load_multi` computes its supersede scope
+from the PAYLOAD's own kinds, so dropping the 10 items alone would have left them **ORPHAN-ACTIVE**.
+`retired_kinds` is the only mechanism; it is **ADDED to, never replaced** (replacing would un-retire
+an existing entry), and it is self-sustaining because the exporter rebuilds the list from the
+retirement TABLE. F-16 is the fifth Electrical retirement.
+
+The retirement row carries a **BLANK reason** -- owner ruling (option C). `record_retirements` accepts
+no reason parameter, and its docstring's refusal is specifically of **back-inference** for the four
+backfilled rows (whose only signal was an approximate batch timestamp); it does not forbid recording
+going forward. The reason lives in the feat commit message and here:
+*Superseded by F-16: tray install moved on-row (2026-08-13).* Threading it to the row is **F-19**.
+
+### The parallel-row sweep (2026-08-13)
+
+Governing principle, owner-worded: **adding ONE item must never require a second, hidden row for that
+item to price completely.** Boundary test: *could the referenced row plausibly appear on a BoQ line?*
+
+The census is **EXHAUSTIVE** -- the rate-table-wearing-an-item-costume pattern existed in exactly TWO
+places: `tray_install_rate` (silent no-compute; fixed here) and `db_install_rate` (fails safe to a
+0.15 ratio; **F-17**). `popup_box_module` is a rate-table row by the boundary test but carries **both
+rates on its one row** -- NO ACTION. Everything else resolves to a real product.
+
+**A ratio was REJECTED FOR TRAY ON MEASUREMENT:** the implied install/supply ratio spans
+**0.1083 - 1.3077** across all real combinations, a **1107% spread**. Do not propose one.
+
+### Procedure notes
+
+Export -> edit -> reload, by **explicit path**. The loaded file **round-trips BYTE-IDENTICALLY**
+against a fresh export of the database (679,570 bytes), which is the real gate -- the mint gate's
+atom vocabulary is `kind:<k>` and is blind below kind level. Verified after reload: 1,372 active;
+**exactly** the 10 rows deactivated, proven by comparing full active `item_uid` SETS rather than
+counts (a count can balance while content swaps); 450 tray rows carrying `install_rate` matching the
+table, 45 per width; exactly ONE new retirement row with the existing four unchanged.
+
+The asset was minted as **v31 in the existing lineage**, not edited in place -- a commit-based mint
+comparison cannot see an in-place edit. `CURRENT_EALL_ASSET` was bumped in the same change, which is
+the whole point of that single pin.
+
+### Tests: 132 -> 137, all passing
+
+Five new (three positive, two negative):
+
+- **`test_f16a`** POSITIVE -- at width 100 all 45 rows carry `install_rate = 120`, supply rates
+  untouched, install step 1 matches `cable_tray`, step 2 is `target=install_rate` / `formula="base"`.
+- **`test_f16b`** POSITIVE -- the same at width 600 (380), then **every** tray row against the full
+  table, 45 per width, no eleventh width. All three goldens sit at width 100, so this is the only
+  coverage away from it and a hard-coded 120 would otherwise pass everything.
+- **`test_f16c`** NEGATIVE -- the kind is absent from items AND `item_kinds` AND present in
+  `retired_kinds`, the ups pair preserved; a scratch-discipline load then proves it deactivates.
+- **`test_f16d`** NEGATIVE -- no `per_run_factor` anywhere in the install pipeline; `width_install`
+  params `{}`; the cutting adder and `sum_components` byte-unchanged. A re-introduced multiplier would
+  **quadruple every tray install**, and the goldens alone could not catch it -- they would move
+  together and look self-consistent.
+- **`test_f16e`** -- the goldens reproduce UNCHANGED; the prices-must-not-move instrument.
+
+**⚠️ SCOPE NOTE:** the interpreter is TypeScript and there is deliberately no Python implementation,
+and frontend tests were out of scope, so these pin the **data and config that determine the price**;
+the **executed** finals are proven by the browser cert (C2-C4). Recorded inline in the test file so a
+later reader cannot mistake a data pin for an execution pin.
+
+Four existing pins were updated to match the ruling, each with an inline comment naming F-16:
+`test_24b`/`test_24e` (retirement lists), `test_24m` (460 -> 450), `test_72`, `test_92`, plus ten
+`1382 -> 1372` count pins that follow `CURRENT_EALL_ASSET`.
+
+### Test-debt found on the way (recorded, not restructured)
+
+- **`test_24b` / `test_24e` HARDCODE the retirement lists**, outside the `CURRENT_EALL_ASSET`
+  single-pin discipline -- they will need editing on **every future retirement**. They also encoded the
+  hand-built `["ups", "switches_point"]` ORDER; an EXPORTED asset is **sorted**
+  (`get_retirement_lists` returns `sorted(...)`, "sorted for a stable export"), so the pin is now
+  `["switches_point", "ups"]`. That mismatch was **invisible** until the `retired_kinds` line above it
+  was corrected, because that line failed first.
+- **`test_72`'s absence pin encoded a HAND-BUILT-FILE property.** An EXPORTED asset legitimately GAINS
+  a config-level `goldens` copy (the loader stamps it at ingest, the export reproduces what is stored
+  -- already documented), so `assertNotIn("goldens", ss)` fails on **every** exported asset while never
+  having guarded the real hazard. Replaced (owner ruling R2) with: for every config carrying a
+  config-level copy, a top-level entry **must exist** and the two **must agree exactly**. The actual
+  hazard is an **orphan** copy -- the overwrite fires only when a top-level twin exists, so an orphan
+  survives the load and goes silently stale. The new form holds for hand-built and exported assets
+  alike; the #178 invariant (top-level is the authority) is unchanged.
+- **`test_92`'s fixture borrowed its blanks from the retired rows.** It needed a blank
+  `cover_only_list` to exercise "a rate APPEARING -- no percentage exists", and those blanks came from
+  the 10 `tray_install_rate` rows sharing the tray category. F-16 made `cabletray_raceway` **fully
+  dense** (all 450 rows carry all four rates), so no appearing-rate case exists in it at all. Moved
+  (owner ruling R3) to `wiring_cabling`, whose sparsity is **structural and permanent**: two kinds with
+  disjoint rate keys, so 292 cable rows carry no lug/gland rates and 296 termination rows carry no
+  per-metre rates. Survey of every category for genuine blank RATE cells: `db_switchgear` (171),
+  `miscellaneous` (2), `wiring_cabling` (588) -- everything else zero.
+
+### Browser live cert (2026-08-14) -- PASSED
+
+Bench and Vite restarted by explicit PID (never a pattern-kill loop); fresh worker verified
+**behaviourally** (a real method returned a real 403 "is not whitelisted"; a bogus method returned
+`has no attribute 'f16_definitely_not_real'`). **The first bench restart looked wedged and was not:**
+`:8000` was listening with a climbing `Recv-Q` and returned nothing for 30 s, then answered in 4 ms
+once warm -- a **cold start**, exactly the case the ritual tells you to re-check before concluding.
+Browser over CDP against the owner's already-running Chrome; 2 app tabs closed and a fresh one opened;
+site data cleared **excluding cookies** with the HttpOnly `sid` verified surviving (read via the CDP
+cookie API); service workers 0; bare root then deep route; CSRF recovered via the proxied `/app`.
+
+- **C1** -- the changed module resolved through the page's OWN module graph and **behaved**:
+  `evalFormula('base', {base: 340}) = 340`; live config `item_kinds ["cable_tray"]`, install match kind
+  `cable_tray`, step 2 `{target: install_rate, params: {}, formula: "base"}`, **`per_run_factor` absent
+  from the whole pipeline**; 1,372 active / 450 tray / 450 carrying `install_rate` / **0**
+  `tray_install_rate`.
+- **C2** -- all six ledger rows re-priced **identical to the rupee**.
+- **C3 / C4** -- traces at width 300 and width 50: **ONE** `match_master_row`, kind `cable_tray`, and
+  the install row's `item_uid` is the **SAME row the supply match found** (`rmi-3ccffdd36f70`,
+  `rmi-0d8d96363342`), with `install_rate` read verbatim (220, 100). Verified across all six.
+- **C5** -- **zero residual**: the cert made NO writes (reads plus pure in-browser interpreter runs),
+  so no throwaway BoQ was created. Confirmed: 0 TEST BoQs, snapshots still `[1..5]`, batch
+  `rmbulk-4b375e513b9d` unchanged, 1,372 active, 5 retirement rows, 0 leftover `TEST_RM_` disciplines.
+
+### Open items raised by this slice
+
+- **F-20 — ✅ CLOSED 2026-08-14** (was: HAZARD, owner-sequenced next). `loader.DEFAULT_DATA_FILE`
+  pointed at **v30**, the pre-F-16 shape; a path-less `replace=True` load would have **re-activated the
+  10 retired rows and stripped `install_rate` from all 450**. The constant is now DELETED and a
+  source-less load refuses by name. See the F-20 slice record below.
+- **F-21 (NEW)** -- the `>=10%` "major" boundary is float-fragile downward: an exactly -10% edit can
+  compute `-9.999999999999993` and be classified **not major**, collapsing behind a count (measured
+  `491.0 -> 441.90000000000003`). Masked until now because the tray fixture used round numbers
+  (`120 -> 108.0` is exact). Lives in `csv_importer`; `test_92` accommodates the boundary as it IS and
+  must not be "fixed" by loosening the comparison.
+- **F-19** -- `record_retirements` carries no reason (above).
+- **F-18** -- a `component` whose `target` names a rate key the matched row lacks binds
+  `base = undefined`; the unknown-identifier guard does **not** fire (the key IS in `env`);
+  `sum_components` yields **NaN**; the pipeline returns `status: "ok"` with a NaN final that
+  `pricingSheetHelper` adopts. **General interpreter exposure, NOT introduced by F-16.** Its own slice.
+
+### Earlier E2E cert findings carried forward (2026-08-13)
+
+- A **sub-rounding rate edit is visible in the WORKINGS and invisible in the final rate** -- a +4.65%
+  edit was absorbed entirely by the roundup-to-tens. **Verify small edits in the workings**, not the
+  final figure.
+- The **:8080 CSRF mystery is ROOT-CAUSED** (mechanism recorded above in the interim-procedure
+  section): Vite serves the raw Jinja template, so the inline `frappe.boot = {{ boot }}` line is a JS
+  syntax error and `window.csrf_token` NEVER SETS. The opaque 400 appears only once a desk tab has
+  stored a token, which is why it was intermittent. The token must be **re-set per navigation** on
+  :8080.
+- The **suggest-run eligible set needs a reload after a hand-set category.**
+
+---
+
+## Build slice F-20 -- remove the loader's default asset (2026-08-14)
+
+**Status: SHIPPED.** Branch `feature/boq-pricing-helper`. Tests **137 -> 138**, all passing. No
+schema, no migrate, no asset mint, no DB change of any kind -- the live catalog was verified
+untouched (1,372 active, batch `rmbulk-4b375e513b9d`).
+
+### The trap
+
+`_load_payload` fell back to a `DEFAULT_DATA_FILE` constant whenever no payload and no path were
+given:
+
+```python
+DEFAULT_DATA_FILE = os.path.join(os.path.dirname(__file__), "data",
+                                 "rate_master_electrical_all_v30.json")
+...
+with open(path or DEFAULT_DATA_FILE, "r", encoding="utf-8") as fh:
+```
+
+It named a **FIXED filename**, so it went stale the moment a new asset was minted. After F-16 shipped
+v31 it still pointed at v30, and a path-less `load_rate_master(replace=True)` would have **silently
+reverted the WHOLE v30 scope** -- 12 categories, 15 kinds, 1,382 items -- re-activating the 10 retired
+`tray_install_rate` rows and stripping `install_rate` from all 450 trays, **while reporting a
+successful load**.
+
+⚠️ **The shape matters and was mis-stated in the F-16 note: it is a scope-wide REVERT through the
+SCOPED multi path, never a catalog wipe.** v30 carries the LIST form, so a path-less load takes
+`_load_multi`'s scoped supersede and never reaches the discipline-wide `_deactivate_prior`. A
+NON-replace path-less load is harmless -- the scope refusal fires.
+
+### What the recon established (all machine-checked, read-only)
+
+- **The default was opened by NOTHING.** All **68** call sites pass `payload=`, so `_load_payload`
+  returns at `if payload is not None` before reaching the `open()`. **`path=` was passed by nobody** --
+  its only occurrence in the repo was the parameter in the definition itself, making the file-reading
+  branch dead code in-repo.
+- **Strictly human-invoked.** `after_install` is commented out; there is no `before_install` /
+  `after_migrate` / `before_tests`; `fixtures` carries no rate-master doctype; `patches.txt` has no
+  rate-master patch; CI runs `run-tests` whose 68 loader calls all pass `payload=`; and
+  `api/boq/rate_master.py` imports `loader` **only** for `_canonicalize_attributes`, never
+  `load_rate_master`. The CSV upload is explicitly routed around the loader.
+- **THE DANGER WAS THE INVITATION, NOT THE TRAFFIC.** An optional argument documented as *"defaults to
+  the committed data asset"* reads like a safe convenience. Nothing would ever have tripped it on its
+  own; a human would have typed it.
+- **A THIRD stale v30 pin existed:** `scripts/backfill_rate_master_item_uid.py:55`.
+
+### The fix -- shape (b)
+
+**Shape (a) was rejected as unbuildable, and this is worth keeping.** "Make `path` required at the
+signature" cannot work: the function takes `payload` **OR** `path`, every caller uses `payload`, and
+Python cannot express "exactly one of these two" without splitting the function -- so requiring `path`
+would break all 68 call sites. The nearest literal (a) -- delete the constant and let `open(None)`
+raise -- reports a stdlib `TypeError` at file access, which is precisely the unhelpful failure this
+codebase's honest-refusal ethos rejects.
+
+Shape (b), confined to `_load_payload`:
+
+```python
+if payload is not None:
+    return payload
+if not path:
+    # Refuse BEFORE anything is read or written -- this is the first statement of the load.
+    frappe.throw(<teaching message>, title="Rate master: no payload and no path")
+with open(path, "r", encoding="utf-8") as fh:
+    return json.load(fh)
+```
+
+**The message TEACHES rather than merely refusing** (owner ruling): it names the two valid call shapes,
+warns that a file must have been **exported minutes earlier** because a load is a supersede, and points
+at `nirmaan_stack.api.boq.rate_master.export_rate_master_asset` as the way to obtain a current one.
+
+Also in the same pass:
+
+- `import os` removed -- the deleted constant was its **only** user.
+- The `_load_payload` docstring's *"(defaults to the committed data asset)"* is replaced with the truth;
+  `load_rate_master` gains an explicit SOURCE paragraph (payload or explicit path, no default, never
+  load a file you did not just export).
+- The comment block that justified the constant is **RETAINED and re-anchored.** It records why the
+  payload's SHAPE picks the loader path and why the two supersede differently (LIST -> scoped,
+  SINGULAR -> discipline-wide), plus why `rate_master_wiring_cabling_v3.json` stays on disk as a
+  mint-gate operand. That is load-bearing history with nothing to do with the default, and deleting the
+  constant must not take it along.
+- A standing `⚠️ F-20` note sits where the constant was, so the next reader learns why there is no
+  default instead of helpfully adding one back.
+- `scripts/backfill_rate_master_item_uid.py`: **v30 -> v31**, with a comment recording the sweep and
+  why the uids are unaffected -- pairing is on `(kind, brand, attributes)` and F-16 changed only a RATE
+  key plus a retirement, so every active row still pairs to exactly one asset item, and v31 inherited
+  v30's uids anyway.
+- The stale comment at `test_rate_master.py:118-123` ("this was loader.DEFAULT_DATA_FILE; that now
+  points at ...") asserted a fact that had just stopped being true; corrected in the same pass.
+
+### The test: 137 -> 138
+
+**`test_f20_a_source_less_load_refuses_by_name_and_writes_nothing`** -- NEGATIVE, and it carries four
+assertions:
+
+1. **Refuses by name** on the DANGEROUS shape specifically (`load_rate_master(replace=True)`, path-less)
+   and the message TEACHES -- pins "needs an explicit source", `payload=`, `path=`, and
+   `export_rate_master_asset`.
+2. **An EMPTY-STRING path refuses identically.** This pins `not path` rather than `path is None`;
+   without it, `path=""` would sail through to `open("")` and raise a bare `OSError`.
+3. **Row counts unchanged** across both doctypes.
+4. **The constant is GONE** (`hasattr` check). Without this, a re-introduced default would restore the
+   trap **silently** -- no other test takes that branch, so nothing else would notice.
+
+⚠️ **Why nothing is written is true BY CONSTRUCTION, not by luck:** `_load_payload` is called on
+`load_rate_master`'s FIRST line, before the shape branch and before any count or insert, so the refusal
+precedes every DB statement. The row counts are belt-and-braces on that ordering, **not** the proof of
+it. The isolated run takes **0.030 s**, which is itself evidence that no DB work occurs.
+
+Calling the loader in a test is safe here precisely because the call is refused before it can read or
+write anything: no asset is opened and no discipline is touched.
+
+### Cert -- measured, browser omitted with rationale
+
+**No browser cert, deliberately.** The change has **no rendered surface**: it deletes a constant nothing
+opens and adds a refusal on a path nothing takes. Precedent: the EA-7 measured cert and the Gemini
+cut-rule slice. The cert IS:
+
+1. the negative test demonstrating the refusal **by name** (and passing in isolation);
+2. the full suite **138 OK**, baseline **137 OK** -- **+1 exactly**, so the recon's zero-breakage claim
+   held on contact;
+3. a **read-only** live confirmation that Electrical is untouched: 1,372 active, batch
+   `rmbulk-4b375e513b9d`, 450 `cable_tray`, **0** `tray_install_rate`, 5 retirement rows, 5 snapshots
+   (this slice wrote none).
+
+### The bootstrap ground (recon Q5 -- banked so item 5 need not re-derive it)
+
+- **"Empty" is measurable today**, from two tables filtered `active = 1`: `BoQ Rate Master Item` and
+  `BoQ Rate Category Config`. `_active_item_count` reads discipline-wide; `_load_multi` reads the
+  payload SCOPE (`kind in payload_kinds`, `category_id in payload_cat_ids`).
+- **The empty-check + explicit-force contract ALREADY EXISTS** -- `_load_multi` refuses a non-replace
+  load over a populated scope, so `replace=False` IS the empty check and `replace=True` IS the force.
+  **Item 5 is a COMMAND WRAPPER, not a new guarantee.** The one real gap: the check is scope-relative,
+  so "fresh site" and "site missing exactly this scope" look alike.
+- **A fresh site can only bootstrap from the REPO asset** -- there is no database to export from, and
+  `exporter.build_asset` would return an empty payload. **Therefore the committed asset's currency is a
+  CORRECTNESS property, not housekeeping.** This qualifies the F-16-era framing that the on-disk file is
+  "stale but harmless while the DATABASE is the source of truth": true for an established site, **false
+  for a new one**. The mint-and-bump-the-pin discipline applies to every future change that moves the
+  catalog.
+- A complete bootstrap also needs **retirement state**, which is documented as not derivable -- it comes
+  free, because `_load_multi` calls `record_retirements` from the payload's lists, and v31 carries the 3
+  kinds + 2 categories that make up the 5 live retirements.
+
+### Version-pin inventory after this slice
+
+| pin | file | state |
+|---|---|---|
+| `CURRENT_EALL_ASSET` | `api/boq/test_rate_master.py` | **v31 -- the ONE authoritative current pin** |
+| `DEFAULT_DATA_FILE` | `services/boq_rate_master/loader.py` | **DELETED** |
+| `ASSET` | `scripts/backfill_rate_master_item_uid.py` | **v31** (swept here) |
+| `LEGACY_WIRING_ASSET`, `cls.eall`, the two v17 reads | `api/boq/test_rate_master.py` | deliberately HISTORICAL -- must NOT follow the current pin |
+
+**Any new file naming an asset version must justify itself against `CURRENT_EALL_ASSET`** -- three
+independent pins had already drifted apart once, which is the C4 trap the single-pin rule exists for.
+
+### Scope discipline
+
+This slice did **not** grow into the bootstrap command (no bench command, no endpoint), and **F-21 was
+not touched** -- `csv_importer.py` is byte-unchanged. Both remain owner-parked.
+
+---
+
+## Build slice F-17 -- db_switchgear install becomes a plain RATIO (2026-08-13/14)
+
+**Status: SHIPPED.** Asset **v32** (`rate_master_electrical_all_v32.json`), batch
+`rmbulk-4dd065713fd2`, **1,364** active Electrical items. Tests **138 -> 143**, all passing.
+Browser cert PASSED against a pre-computed contract.
+
+### The change
+
+Install was `lookup_or_ratio`: a flat per-shell figure from an 8-row `db_install_rate` table (x1.5)
+for 8 shells, and a 0.15 ratio fallback for the other 19. It is now **ONE rule for all 27** --
+`ROUNDUP(supply x 0.20, -1)` -- where `supply` is the WHOLE assembly (shell + 5 MCB slots +
+enclosure, x0.495, roundup tens). **A flat per-shell figure could not see the MCBs; that is the
+point of the change.**
+
+```
+[10] scale     target=supply  result=install  params {m: 0.20}  formula "base*m"
+[11] roundup   target=install params {digits: -1}
+```
+
+Steps [0]-[9] (the build-up itself) are byte-identical to `db_buildup_supply` and untouched.
+
+### ⚠️ Shape C, and why the alternatives were rejected -- MEASURED, not reasoned
+
+Three candidate edits were probed through the real interpreter against the live catalog before
+choosing (TPN DB 8WAY, loaded; the contract says 2,640):
+
+| variant | install | status | verdict |
+|---|---|---|---|
+| **A** keep `lookup_or_ratio`, `ratio.mult` 0.20, rows retired | 2,640 | ok | works, but leaves a **dangling reference** to a retired kind and traces *"table miss"* against a table that no longer exists |
+| **B** delete the step's `lookup` key | **null** | **`unsupported`** | **FATAL** -- the interpreter reads `s.lookup.item` unconditionally; Option-C degrades the pipeline and **every DB install blanks**. Never attempt it. |
+| **C** replace step with `scale` + `roundup` | 2,640 | ok | **CHOSEN** -- existing vocabulary, no interpreter change, reference GONE not dormant |
+| **D** control: keep step, rows still present | 1,500 | ok | table-hit -- proves retiring the rows is what routes A to the ratio |
+
+A and C are **numerically identical everywhere**. `round_ratio: -1` is retained as **BEHAVIOUR** by
+the explicit `roundup` step, not as a key. **`lookup_or_ratio` now has NO shipped consumer** -- it
+stays in the interpreter vocabulary, executed by nothing.
+
+⚠️ **A substring search still finds `lookup_or_ratio` in `db_switchgear`'s `notes`** -- the v16c
+build record. That is archaeology and is meant to stay. **Assert over STEP TYPES, never over the
+serialized config**; the first version of `test_f17d` did the latter and failed on documentation
+prose while the product was correct.
+
+### The repricing -- deliberate, and it moves BOTH ways
+
+| assembly | rises | falls |
+|---|---|---|
+| **BARE** (all MCB slots + enclosure `"None"`) | 21 shells | **6 shells** |
+| **LOADED** (`63A FP MCB C CURVE` x4) | all 27 | none |
+
+The six that fall are table-path shells whose flat lookup (750 / 1,275 / 1,500) exceeded 20% of a
+*bare* supply. A bare SPN DB 6WAY falls **750 -> 280**; the same shell loaded rises **750 -> 1,870**.
+"Prices must rise" would have been the wrong cert expectation.
+
+### R1 -- Finding B was a MISREAD, and the fix is a new decision
+
+The ledger said a merge dedup "missed a twin": `rmi-867d1c6a5d6b` still at 12,133 while
+`rmi-46031e57924f` held 12,881. **Both uids were read in full and they are DIFFERENT KINDS** --
+`db_shell` (`shell_rate`) and `db_switchgear_item` (`list_price`), one row in each of two catalogs
+for the same product name.
+
+The v30 merge deduplicated **`db_switchgear_item`** ("KEPT the 12881 copy (row 17); DROPPED the
+12133 copy (row 14)") and **completed correctly** -- exactly one active row of that kind carries the
+name, at 12,881. Corroborated: **no duplicate `item` among the 27 active shells**, and **exactly one
+active row anywhere carried 12,133** -- the shell. So the surviving figure was the shell catalog's
+**own** row, never part of that dedup.
+
+**Owner ruling R1: the shell adopts 12,881, the higher figure, for safety -- a NEW pricing decision,
+not a repair.** 26 of the 27 shells have no `db_switchgear_item` counterpart at all, so "these two
+numbers differ" is not by itself evidence of a defect.
+
+| assembly | supply before | supply after | install before | install after |
+|---|---|---|---|---|
+| bare | 6,010 | **6,380** | 910 | **1,280** |
+| loaded | 13,950 | **14,320** | 2,100 | **2,870** |
+
+### The retirement
+
+The 8 `db_install_rate` rows are **RETIRED BY DECLARATION** -- the **sixth** Electrical retirement,
+**blank reason** per option C (the reason rides the feat commit body). `retired_kinds` is **ADDED**
+to: `["db_install_rate", "tray_install_rate", "ups_per_kva", "ups_reference"]`. Omission alone would
+have left them orphan-active -- the F-16 lesson, applied.
+
+### The goldens, re-minted (each re-derived BEFORE editing)
+
+| golden | shell | was | branch | **now** |
+|---|---|---|---|---|
+| dbu1 | VTPN DB 6WAY WITH MCB INCOMER | 3,660 | ratio 0.15 | **4,880** |
+| dbu2 | TPN DB 8WAY | 1,500 | table hit | **2,640** |
+| dbu3 | shell `"None"` | 3,580 | ratio 0.15 | **4,770** |
+| dbu4 | TPN DB 6WAY | 1,275 | table hit | **1,670** |
+
+**Supplies are unchanged** -- none of the four uses the R1 shell, and **`dbu3` was checked, not
+assumed**: its `db_shell_item` is `"None"`, so its supply stays 23,840.
+
+⚠️ **Both golden copies were updated.** The exported asset carries `goldens` at the top level **and**
+on the config, and they agreed before the edit; `test_72` (rewritten at F-16) requires that where a
+config-level copy exists it has a top-level twin and **agrees exactly**. Editing one would have
+broken that invariant.
+
+### The contract, and how it was computed
+
+`f17_expected_after_2026-08-14.md` (Desktop) -- **27 shells x 2 assemblies** plus the four goldens --
+was computed and written **before any export, edit or reload**. Every figure came from **the
+application's own interpreter**, resolved through the running page's module graph and driven with the
+live catalog; the R1 reprice was applied to a **copy** of the items array so nothing live was touched.
+
+**The chain was validated before it was trusted:** all four stored goldens were re-derived and every
+computed BEFORE value matched the stored value exactly. A chain that reproduces four shipped figures
+to the rupee is the chain producing the AFTER column.
+
+⚠️ **A per-shell table is only well defined against a DECLARED assembly.** `supply` sums the shell,
+five MCB slots and the enclosure, so install is per-ROW, not per-shell. Only the 8 table-path shells
+had a supply-independent install *before*. Hence R2's two assemblies, identical across all 27 shells.
+
+### Verification after reload
+
+1,364 active; **exactly the 8 rows deactivated**, proven by comparing active `item_uid` SETS (a count
+can balance while content swaps); `item_kinds` `["db_switchgear_item", "db_shell"]`; **exactly ONE new
+retirement row** with the five existing unchanged and a blank reason; the R1 row active at 12,881 with
+its predecessors **retained** inactive; and the **450 `cable_tray` rows byte-identical** -- the canary
+for "nothing outside db_switchgear moved". The loaded asset **round-trips BYTE-IDENTICALLY** against a
+fresh export (677,041 bytes).
+
+### Tests: 138 -> 143
+
+- **`test_f17a`** POSITIVE -- install is `scale(m 0.20)` off the CALCULATED supply plus `roundup(-1)`;
+  build-up steps [0]-[9] identical to the supply pipeline.
+- **`test_f17b`** POSITIVE -- R1: the shell prices from 12,881, exactly one active row for that
+  product, and no active row anywhere still carries 12,133.
+- **`test_f17c`** NEGATIVE -- retired by declaration: absent from items AND `item_kinds`, present in
+  `retired_kinds`, the other three preserved; a scratch-discipline load proves it deactivates.
+- **`test_f17d`** NEGATIVE -- no `lookup_or_ratio` step and no `db_install_rate` reference survive,
+  checked **structurally over step types** across every config.
+- **`test_f17e`** POSITIVE -- the four goldens carry the re-minted figures and the supplies did not move.
+
+Known-debt pins updated with F-17 comments: `test_24b`/`test_24e` retirement lists (**and** their
+`get_retirement_lists` twin and the created/existing counts 5 -> 6 -- the debt is wider than the two
+sites previously recorded), plus the `1372 -> 1364` count pins that follow `CURRENT_EALL_ASSET`.
+
+### Browser cert -- PASSED
+
+Bench and Vite restarted by explicit PID. ⚠️ **`pgrep -af vite` matched MY OWN SHELL** (its command
+line contained the pattern) and was excluded by hand -- exactly the case the ritual warns about; the
+same shell also appeared in the honcho lookup. The bench watcher survived. `:8000` again showed the
+**cold-start** pattern (three 000s, then 200 at 17 ms) -- restart-again would have been the wrong
+move. Fresh worker verified behaviourally (real method -> 403; bogus method -> `has no attribute
+'f17_not_a_real_method'`).
+
+- **C1** -- the changed shape resolved through the page's module graph and **behaved**:
+  `evalFormula('base*m', {13190, 0.20}) = 2638` -> `roundUp(2638, -1) = 2640`; live config
+  `item_kinds ["db_switchgear_item","db_shell"]`, last two steps the scale/roundup pair, **no**
+  `lookup_or_ratio`, **no** `db_install_rate`, 0 active, 1,364 total.
+- **C2** -- **six shells spanning BOTH prior populations, each in BOTH assemblies: all 24 figures
+  identical to the contract**, and no `lookup_or_ratio` step ran on any of them. The R1 shell was one
+  of the six (6,380 / 14,320 -- the 12,881-derived supplies).
+- **C3** -- trace for TPN DB 8WAY loaded: `supply=13190` -> the ratio explain line -> `install=2638`
+  -> `round up (to tens) => install=2640`. No lookup.
+- **C4** -- NEGATIVE canary: F-16 tray ledger rows L1 (321/100/421) and L6 (1060/670/1730)
+  **identical to their before figures**.
+- **C5** -- zero residual: no writes (reads + pure interpreter runs), 0 TEST BoQs, batch unchanged,
+  1,364 active, 6 retirement rows, 0 leftover `TEST_RM_` disciplines.
+
+### Queue state
+
+**F-16 ✅ · F-20 ✅ · F-17 ✅** -- the parallel-row pattern is CLOSED (both census instances fixed).
+Next: **F-21** (the >=10% major boundary, float-fragile downward, `csv_importer`), **F-19** (the
+retirement reason channel), **F-18** (a `component` target naming a missing rate key -> NaN through
+`status: "ok"`), then the seven cleared audit fixes behind the combined recon.
+
+---
+
+## Build slice F-21 -- the 10% preview boundary keeps its own promise (2026-08-14)
+
+**Status: SHIPPED.** Backend **143 -> 147**, frontend **23 -> 24**, browser cert PASSED
+**preview-only with zero writes**. No asset, no catalog change -- the live Electrical catalog is
+byte-untouched at 1,364 active.
+
+### The defect
+
+The CSV upload preview promises, in three places, to expand *"every rate move of 10% or more in
+either direction"*. It did not.
+
+```python
+pct = (new - old) / abs(old) * 100.0
+if pct is None or abs(pct) >= MAJOR_RATE_CHANGE_PCT:   # 10.0
+```
+
+`>=` against a value carrying binary rounding error is wrong whenever the result lands a hair
+**SHORT**. An exactly −10% edit computes `-9.999999999999993` and was classified **not major**, so
+the row folded away behind a count.
+
+**Measured over integer rupee rates 1..20000:**
+
+| direction | misclassified |
+|---|---|
+| downward (`×0.90`) | **11,999 / 20,000 = 60.0%** |
+| upward (`×1.10`) | **0 / 20,000** |
+
+The asymmetry has a mechanism, not a coincidence: `491.0 * 1.10` is
+`540.1000000000000227…` (a hair ABOVE — harmless against `>=`) while `491.0 * 0.90` is
+`441.90000000000003410…` (a hair BELOW — fatal). **It bit only in the direction that quotes LOW.**
+
+⚠️ **The honest generalisation is NOT "the bug is downward-only":** the comparison fails for any
+construction landing short. `×0.90` simply lands short most of the time.
+
+### ⚠️ The finding the recon earned: the threshold lived in TWO places
+
+The premise named one site. The census found a second — `RateMasterUploadDialog.tsx` decided the
+percentage's **colour** from its own `Math.abs(f.pct) >= 10`.
+
+**And the two saw different numbers.** The server classifies from the **raw** float, then sends
+`round(pct, 2)`. At the boundary:
+
+| old → new | server pct | server `major` | pct SENT | client `>= 10` | |
+|---|---|:--:|---:|:--:|---|
+| 491 → 441.90000000000003 | −9.999999999999993 | **False** | **−10.0** | **True** | ⚠️ **CONTRADICTION** |
+| 2610 → 2349.0 | −10.0 | True | −10.0 | True | agree |
+
+So the user saw **"−10%" in destructive red, folded away behind a count** — the UI saying "big move"
+and "not worth showing" about the same row. That is the symptom a pricer would actually notice, and
+it was not in the ledger.
+
+The module's own doctrine, stated in three files — *"a second client-side copy of the 10% rule …
+would be free to disagree with the write that actually happens, which is the one failure a preview
+must never have"* — **was an aspiration, not a fact.**
+
+### The fix
+
+**R1 — round then compare** (`csv_importer._diff_fields`):
+
+```python
+field_major = pct is None or round(abs(pct), 6) >= MAJOR_RATE_CHANGE_PCT
+```
+
+Six decimals is far finer than any real rate move and far coarser than float noise (~1e-14), and it
+is **this module's own idiom** — the same value is rounded to 2dp one line below for display. An
+epsilon (`>= 10.0 - 1e-9`) behaves identically on every case measured and was the second choice only
+because it reads as a magic constant. Restructuring the arithmetic was rejected: any rearrangement
+still lands on binary floats and would obscure an obvious formula.
+
+**R2 — one definition.** The server emits `major` **per rate field** beside `pct`. Change-level
+`major` remains "any rate field major" and still drives grouping. The dialog **renders** the flag;
+the inline `10` is gone. **Non-rate fields carry no verdict** — a percentage, and therefore the
+verdict, is meaningless on a `kind` rename or an attribute edit.
+
+**R3 — the digest is untouched, and it is PROVEN not assumed** (`test_f21d`): `_digest` fingerprints
+`(row, kind, uid, name, (column, old, new))`. Had the flag leaked in, every in-flight preview would
+have been refused with "the catalog moved" — a false alarm about the wrong thing.
+
+### Blast radius — narrow, and worth fixing anyway
+
+`major` gates the **expand/collapse grouping and nothing else**: the headline counts derive from
+`any(f["space"] == "rate")`, `_digest` omits it, and `apply_plan` never consults it. A misclassified
+row only ever changed its display grouping — **but the preview exists to catch a mistyped rate**, and
+the ≥10% rule is its attention mechanism. A ₹2,610 → ₹2,349 typo is exactly the case it was written
+for, and it was being folded away.
+
+### Tests: 143 -> 147 backend, 23 -> 24 frontend
+
+Written **first** and run against the UNFIXED code, per the prompt:
+
+| test | pre-fix | post-fix |
+|---|---|---|
+| `test_f21a` exactly −10% on a short-landing value is MAJOR | FAILED | OK |
+| `test_f21b` −9.99% STAYS minor (the threshold moved, not dissolved) | FAILED | OK |
+| `test_f21c` per-field flags differ; change-level is "any" | FAILED | OK |
+| `test_f21d` the new key does NOT move the digest | **OK** | **OK** |
+
+`test_f21d` passing on both sides is the point — R3 is a *no-change* claim.
+
+⚠️ **A fixture bug of mine, caught before it could mislead.** The first version hardcoded
+`F21_SHORT_OLD = 491.0` from the recon's example; the first tray row is actually **605.0**, so the
+test computed −26.95% and failed for the wrong reason. Worse: had 605 happened to land short, it
+would have **passed while testing nothing**. Rewritten so `_f21_short_row` **derives** the row from
+live data and fails loudly if no short-landing row exists. **234 of the 450 tray rows** are in that
+class today, but *which* ones is a property of the catalog — `605.0 → 544.5` is exactly −10.0 and
+proves nothing; `399.0 → 359.1` is `-9.999999999999993` and is the case under test.
+
+**Frontend companion** (`rateMasterUpload.test.ts`): *grouping and colour read the SAME server flags
+— red-but-collapsed is impossible.* ⚠️ The colour itself lives in JSX and is **structurally
+untestable** here — vitest runs `environment: "node"` with no DOM, by deliberate choice. What is
+testable, and is what makes the contradiction impossible, is the **data contract**: the change-level
+flag must be exactly "any rate field flagged", so a collapsed change cannot carry a field the dialog
+would paint red. The rendered half is the browser cert's job.
+
+**R4:** `_picks_measurable_at_ten_percent`'s docstring rewritten — the accommodates-the-boundary
+language is gone, F-21 is named as FIXED, and the picker is recorded as **belt-and-braces value
+hygiene** whose surviving `>= 10.0` comparisons are a fixture filter, not the product's rule. The
+**zero exclusion is still load-bearing** and is kept.
+
+### Browser cert -- PASSED, preview-only, zero writes
+
+Bench + Vite restarted by explicit PID; `pgrep -af vite` again matched **my own shell** and was
+excluded by hand; the bench watcher survived. `:8000` showed the **cold-start** pattern a third time
+in this arc (two 000s, then 200 at 11.4 s ttfb, then 18 ms) — restart-again would have been wrong.
+Fresh worker verified behaviourally (real method → 403; bogus → `has no attribute
+'f21_not_a_real_method'`).
+
+- **C1** — `rateMasterUpload.ts` resolved through the page's module graph and **behaved**:
+  `splitChanges` → expanded `[1]`, collapsed `[2]`; `formatPct(-10)` → `'-10%'`; the real
+  `preview_rate_master_csv` endpoint answered (`mode category`, `encoding utf-8`).
+- **C2** — a genuine three-row CSV built from the exporter's own download against live uids:
+  `rmi-01012d5f2023` edited to **exactly −10%** (276.0 → 248.4, raw pct `-9.999999999999998`, i.e. it
+  really does land short), `rmi-02e4f6875ec4` at **−9.99%**, `rmi-00b8e3d1d6f3` **unchanged**.
+  Result: `change.major=True` / `field.major=True` / `pct=-10` on the boundary row;
+  `False` / `False` / `-9.99` on the near row; the unchanged row absent from `changes`;
+  `counts {rates_changed: 2, items_added: 0, unchanged: 1, other_changed: 0, errors: 0}`.
+- **C3** — **the contradiction is DEAD**: no change is collapsed while carrying a field flagged
+  major, and `change.major == any(rate field major)` on every row.
+- **C4** — **zero residual**, and proven rather than asserted: only `preview_rate_master_csv` was
+  called (read-only, opens no transaction); 1,364 active; the only active batch is
+  `rmbulk-4dd065713fd2`; snapshots still 7 (an apply would add one); all three cert rows still at
+  276.0 / 399.0 / 605.0. Two inactive `csvup-` batches exist — **checked, and they are from
+  2026-08-13**, a day before this session, with **zero Electrical items modified in the last 30
+  minutes**.
+
+### Queue state
+
+**F-16 ✅ · F-20 ✅ · F-17 ✅ · F-21 ✅.** Next: **F-19** (the retirement reason channel), then
+**F-18** (a `component` target naming a missing rate key → NaN through `status: "ok"`), then the
+seven cleared audit fixes behind the combined recon.
+
+---
+
+## Build slice F-19 -- retirements can carry a reason (2026-08-14)
+
+**Status: SHIPPED.** Tests **147 -> 152**. Measured cert (no browser -- nothing renders retirement).
+**No asset change, no v33, no reload of the live catalog** (R7): 1,364 active, batch
+`rmbulk-4dd065713fd2` unchanged. The only live write is the two-row reason backfill.
+
+### The gap
+
+The loader recorded WHAT was retired and nothing about WHY. The reason lived only in a commit
+message -- which the database cannot show anyone, and which does not exist at all on a fresh site
+bootstrapped from the repo asset (the F-20 finding that the committed asset IS the catalog there).
+
+### The channel
+
+ONE optional top-level asset key:
+
+```json
+"retirement_reasons": {"kinds": {"<kind>": "<reason>"},
+                       "categories": {"<category_id>": "<reason>"}}
+```
+
+**Two sub-maps, not one flat map.** A KIND and a CATEGORY can share a name -- which is precisely why
+`retired_kinds` and `retired_category_ids` are two lists -- so a flat map would reintroduce an
+ambiguity the rest of the module is careful to avoid. `retirement.reason_map` is the ONE place that
+knows the shape.
+
+⚠️ **The shape was FORCED, not chosen.** `_deactivate_scope` interpolates the list entries straight
+into SQL (`[discipline, *kinds]` against an `IN (...)` placeholder run), so entries **must stay plain
+strings**. The tempting alternative -- `retired_kinds` entries becoming `{kind, reason}` objects --
+would have broken the deactivation query itself, plus the `isinstance` guard and both `test_24b` /
+`test_24e` pins, and would have required carrying a dual shape forever so old assets kept loading.
+
+**And no doctype change was needed:** `reason` (Small Text), `retired_at` and `retired_by` already
+existed as optional fields in a section labelled *"Provenance (optional)"*. **No migration, no
+coordination** -- the whole slice is code. `track_changes: 1` means every write is audited for free.
+
+### The four rulings, and why each is the way it is
+
+- **R2 -- a reasonless retirement is LEGAL and records blank.** Refusing would have been tidier and
+  was rejected: **every asset up to and including v32 declares retirements and carries no reasons**,
+  so the shipped catalog would have stopped loading -- exactly the trap class F-20 had just removed.
+  The lever against forgetting is VISIBILITY: the load summary now reports
+  `retirements_without_reason`.
+- **R3 -- a reason naming something the payload does not retire REFUSES BY NAME.** The map
+  **annotates** a declaration; it must never **make** one. `retired_kinds` stays the single
+  instruction (the standing *payload is the instruction, table is the record* rule), and without the
+  refusal a typo'd key would sit in the asset looking effective while doing nothing -- the
+  silent-no-op class this module keeps paying to remove.
+- **R4 -- export emits `reason` ONLY.** A timestamp in the payload would break `test_24h`'s
+  two-consecutive-exports-are-byte-identical guarantee the moment two exports straddled a new
+  retirement, and `retired_by` records an actor the table never observed. Both sub-maps are emitted
+  **sorted**; a blank reason contributes nothing, so a discipline with none exports two empty maps --
+  the same inherit-nothing discipline the two lists already keep.
+- **R5 -- skip semantics UNCHANGED**, and this was the recon's key finding. `record_retirements`
+  SKIPS an entry that already exists, so it is **structurally unable** to fill a row minted blank: a
+  replay reports it as `existing` and changes nothing. That skip is what makes a re-load safe;
+  turning it into an upsert to fill two historical fields would trade a real guarantee for a cosmetic
+  one. Pinned by `test_f19e`.
+
+### The backfill -- copying recorded fact, not inventing history
+
+`scripts/backfill_retirement_reasons.py`, sibling in style to `backfill_rate_master_retirement.py`:
+**dry-run by default**, `--apply` to write, **idempotent**, and it **refuses per row** rather than
+guessing -- a missing row, or one already carrying a DIFFERENT reason, is reported and left alone
+(a row someone has since annotated by hand is not ours to overwrite).
+
+It fills `reason` on exactly two rows, from text recorded verbatim in the commit bodies:
+
+| row | reason |
+|---|---|
+| `Electrical::kind::tray_install_rate` | *Superseded by F-16: tray install moved on-row (2026-08-13).* (`77f54f4f`) |
+| `Electrical::kind::db_install_rate` | *Superseded by F-17: db install as ratio 0.20 (2026-08-13).* (`6e0af13a`) |
+
+⚠️ **The original refusal still stands where it bites.** Its rationale is BACK-INFERENCE -- *"the
+only available signal is the `creation` timestamp of the last batch in which each was still active,
+which is approximate"*. Nothing here is inferred: both reasons were authored at the time of the
+decision and written down. But **`retired_at` and `retired_by` are NOT touched** -- `retired_at`
+would timestamp the LOAD rather than the decision, and `retired_by` would name an actor the table
+never observed. Those two remain exactly the fields the refusal is about.
+
+**Executed live:** dry run listed both rows and wrote nothing; `--apply` wrote 2; a second `--apply`
+reported *"already carries this reason"* and wrote 0. All six rows still blank on
+`retired_at`/`retired_by`.
+
+### Tests: 147 -> 152
+
+| test | polarity | pins |
+|---|---|---|
+| `test_f19a` | POSITIVE | a declared reason is recorded VERBATIM, on **only** the row it names; the other four record blank and `retirements_without_reason` is 4; `retired_at`/`retired_by` untouched |
+| `test_f19b` | POSITIVE | the reason survives export -> re-load (extends `test_24g`'s axes), and the export carries **no** `retired_at`/`retired_by` |
+| `test_f19c` | R2 | a payload with no reasons at all still records six rows, all blank, and the summary counts 6 |
+| `test_f19d` | NEGATIVE | a reason for an undeclared kind refuses BY NAME (message names the kind AND `retired_kinds`); malformed maps refuse by shape |
+| `test_f19e` | NEGATIVE | **a replay does NOT fill an existing blank row** -- the recon's finding, pinned |
+
+**`test_24e` was NARROWED, not weakened:** only its `reason` clause changed meaning;
+`retired_at`/`retired_by` are still asserted blank for every row, and the comment now records why the
+three fields are no longer alike. Two `get_retirement_lists` equality pins gained the new key -- that
+read now returns the reasons in the same shape the asset uses, so its docstring stays true.
+
+### Cert -- measured, browser omitted with rationale
+
+**0c swept for a rendered surface and found none:** the only references to the retirement doctype are
+in `test_rate_master.py` and a **comment** in `rateMasterRegistry.ts`. No endpoint, no screen, no
+frontend code reads it. Precedent: F-20. The cert IS the suite (152 OK), the live backfill read back,
+and a read-only confirmation that the catalog is untouched -- 1,364 active, one batch, 7 snapshots
+(no export this slice), six retirement rows of which exactly two are now reasoned.
+
+### Queue state
+
+**F-16 ✅ · F-20 ✅ · F-17 ✅ · F-21 ✅ · F-19 ✅.** Next: **F-18** (a `component` whose `target`
+names a rate key the matched row lacks binds `base = undefined` -> NaN through `status: "ok"`), then
+the seven cleared audit fixes behind the combined recon. *(F-18 closed 2026-08-14 -- see the slice
+below; it turned out to be FIVE entry points plus a chain, not one.)*
+
+---
+
+## Build slice F-18 -- no non-finite number is ever labelled "ok" (2026-08-14)
+
+**Branch:** `feature/boq-pricing-helper`. **One source file:** the pure
+`frontend/src/pages/pricing/rate-master/ratePipelineInterpreter.ts`, plus its test file. No type
+change, no new status, no consumer change, no config change, no backend change, no migrate.
+
+### What was actually wrong
+
+`status: "ok"` meant only *"the step loop ran to the end without an early return and without
+throwing"*. It made **no claim about the numbers**, while `pricingSheetHelper`, the Rate Master
+Derivation tab and the RM-4b preview gate all read it as *"these numbers are good"*. A NaN in `ctx`
+was copied into `finals` and labelled `ok`.
+
+The banked F-16 note described ONE step (`component`). The recon
+(`f18_nan_recon_2026-08-14.md`) found **five entry points and a chain**, and the breadth is the
+reason a fix framed around the identifier guard alone would have missed most of it:
+
+| # | Step | What it did |
+|---|---|---|
+| E1 | `component` | `env.base = ctx[target]` -- `undefined` survived `evalFormula`'s `in` test, which checks KEY PRESENCE (`"base" in { base: undefined }` is TRUE) |
+| E2 | `component_band` | the same `undefined`, planted under **three** identifiers at once (`base`, `gland_list`, the column's own name) |
+| E3 | `apply_effective_multiplier` | `ctx[target] * evalFormula(...)` -- **the multiply is OUTSIDE the formula**, so no evaluator guard was ever on the path |
+| E4 | `roundup` | `roundUp(undefined, d)` = `Math.ceil(undefined * f - 1e-9) / f` = NaN, written straight back into `ctx` |
+| E5 | `install_as_ratio` | **did not FAIL into NaN -- it ASSIGNED one**: `const base = supplyKey ? ctx[supplyKey] : NaN` |
+| P1 | `sum_components` | the propagator, never an origin |
+
+**THE CHAIN was the finding the premise did not contain.** `scale`'s EA-1b honest partial (`continue`,
+output left absent) creates a hole, and the next unguarded step converts that honesty into a NaN. It
+is live-shaped in three pipelines, and it produced an asymmetry nobody chose: **the same missing key
+gave an honest partial in `conduit_bcs` and a NaN in `conduit_boq`, differing only in having a
+`roundup` downstream.** Absence-honesty depended on step order.
+
+**The check already existed in the file, twice.** `component_ref` has always done
+`typeof base !== "number" || !Number.isFinite(base)` -> `no_match` with
+`` `${s.target} not on the referenced row -- not computed` ``, at two sites. F-18 was never a missing
+idea; it was a missing application of an idea the file already held.
+
+### The rulings (owner, adopting the recon's recommendation in full)
+
+- **R1 -- per-step guards, the `component_ref` idiom copied (its CHECK and its MESSAGE SHAPE)** at E1,
+  E2, E3, E5 -> `no_match`. All four refuse because their value feeds `sum_components`: losing it makes
+  the **SUM wrong**, not merely shorter, which is exactly why `component_ref` refuses in the same
+  situation. The message says **"matched row"** where `component_ref` says **"referenced row"** -- the
+  idiom is copied, the wording stays honest about WHICH row was short, and both are pinned so neither
+  drifts into the other.
+- **R2 -- E4 `roundup` is an HONEST PARTIAL, not a refusal.** The absence it reads is almost never its
+  own fault. Refusing would discard a sibling output that computed correctly (`conduit_boq`'s
+  `supply_per_mtr` is right even when `install_per_mtr` was never produced) -- the over-wide action the
+  PW-FIX ruling reversed for `module_fit`. It takes `scale`'s own `continue` shape: skip, leave the
+  output ABSENT, and SAY SO in the trace.
+- **R3 -- the tail backstop**, `typeof v === "number" && !Number.isFinite(v)`. Class-complete by
+  construction, and the only mechanism that does not depend on config being well-formed -- **the loader
+  does not validate, only `update_rate_config` does**, so a bad `rate_stages.mult` reaching `stageRate`
+  is caught here and nowhere else. A dropped output pushes a `(finalize)` trace note; a clean pipeline
+  pushes none, so every existing trace is byte-unmoved.
+- **R4 -- the `evalFormula` rider:** a present-but-`undefined` binding raises the same error as an
+  unbound one, finally making the doc comment (*"Throws on unknown identifiers ... rather than silently
+  mis-computing"*) true. A **backstop for a future formula site**, not the primary fix -- every current
+  call site now guards its own target first and returns the better-worded `no_match`.
+- **R5** -- one source file; no new status (a fourth would fall into `RateMasterDerivation`'s
+  `unsupported` branch and be mislabelled, since its render is an `ok ? ... : no_match ? ... : ...`
+  chain).
+- **R6** -- `applyRate`'s missing finiteness check is **BANKED, deliberately not built**: post-fix no
+  NaN can leave the interpreter as `ok`, so the gap is closed at source rather than in depth.
+
+### THE ONE LIVE BEHAVIOUR THIS SLICE MUST NOT MOVE
+
+`status: "ok"` with an **`undefined`** final is the SHIPPED EA-1b honest-partial contract -- live on the
+`miscellaneous` **CEIG** and **AS Built** rows, 4 combinations across `misc_boq` + `misc_bcs`. A backstop
+phrased as *"no non-value may pass with ok"* would have broken all four while fixing nothing that was
+ever broken. **Absent means "this row has no such rate"; NaN means "we computed nonsense".** Pinned by
+`NEGATIVE PIN: ok with an UNDEFINED final passes through UNTOUCHED`.
+
+### Phase 0 baselines (all measured, none from memory)
+
+| | |
+|---|---|
+| tip | `53fbe65d`, five standing-noise entries, `patches.txt` clean |
+| backend `test_rate_master` | **152 OK** |
+| vitest full suite | **2352 passed / 1 failed (2353)**, 67 files -- the failure is the known pre-existing `writeOffControl.test.ts > mirrors the sibling admin predicates` 5 s timeout |
+| interpreter suite | 242 cases |
+
+**Phase 0d -- THE LIVE-DB CROSS-CHECK the recon could not do.** For each of the 16 exposed read sites,
+every ACTIVE row of the kind was checked for the key against the live database (read-only). Result:
+**1,364 active Electrical rows -- exactly matching the v32 asset -- and 0 rows short**, with per-kind
+counts identical to the asset census (`cable_tray` 450, `conduit` 8, `earthing_item` 25,
+`junction_box` 6, `cable` 292, `termination` 296). **The exposure was LATENT, confirmed against live
+data, not merely against the asset.** Had any row been short the fix order would have changed.
+
+### The fix -- seven sites, one file
+
+| Site | Step | Shape |
+|---|---|---|
+| `evalFormula` | R4 rider | reject a present-but-`undefined` binding |
+| `apply_effective_multiplier` | E3 | guard `ctx[target]` **before the multiply** -> `no_match` |
+| `roundup` | E4 | non-finite/absent target -> skip, output absent, trace note |
+| `component` | E1 | guard inside the `target !== undefined` branch -> `no_match` |
+| `component_band` | E2 | guard **before** the three-identifier bind -> `no_match` |
+| `install_as_ratio` | E5 | the literal `NaN` dies -> `no_match` NAMING the missing supply key |
+| tail | R3 | drop any output that is a NUMBER and not finite; `undefined` untouched |
+
+**Diff: 143 insertions, 8 deletions (77 code + 66 comment).** Larger than the recon's ~70-90 estimate,
+which under-costed each guard as a bare `if`: R1 requires the `component_ref` idiom *including* its
+message, and that lives in a multi-line `steps.push({...})` plus the full `no_match` return -- ~11 code
+lines per site x 5, plus ~20 for the backstop. Scope was exactly R1-R4, no extra sites, one file;
+the overage was surfaced and accepted before Phase 2 rather than absorbed silently.
+
+### Tests -- 20 new, 242 -> **262**
+
+Every assertion uses `Number.isNaN` / `status` / `toBeUndefined`, **never `JSON.stringify`** -- NaN
+serialises to `null`, so a stringified assertion would pass against a genuine null.
+
+| Test | Polarity | Pins |
+|---|---|---|
+| E1 target missing | POSITIVE | `no_match`, empty finals, the "matched row" message |
+| E1 bare `base` formula | POSITIVE | the subtler half -- the evaluator returned `undefined`, NaN only appeared at `sum_components` |
+| E1 target present | NEGATIVE | byte-unchanged (supply 200) |
+| E1 **param-only component (no `target`)** | NEGATIVE | the tray ceiling-accessories shape still prices -- the guard sits INSIDE the target branch |
+| E2 chosen column missing | POSITIVE | `no_match`; **`bandChosen` still reported** -- refusing must not hide which column was asked for |
+| E2 column present | NEGATIVE | byte-unchanged (supply 300) |
+| E3 missing rate | POSITIVE | `no_match` -- and the comment records that the multiply is outside the formula |
+| E3 present rate | NEGATIVE | byte-unchanged (eff 50) |
+| E4 target absent | POSITIVE | **`ok` with the output ABSENT**, not `no_match` |
+| E4 present value | NEGATIVE | byte-unchanged (100) |
+| E5 no `supply_*` | POSITIVE | `no_match`, message NAMES the gap |
+| E5 real `supply_*` | NEGATIVE | byte-unchanged (install 20) |
+| **THE CHAIN** | POSITIVE | `ok`; **sibling `supply` = 200 still prices**; `install` absent, not NaN |
+| **THE BACKSTOP** | POSITIVE | non-finite `rate_stages.mult` -> dropped + `(finalize)` note |
+| backstop on a clean run | NEGATIVE | **no `(finalize)` note** -- every existing trace unmoved |
+| **THE HONEST-PARTIAL PIN** | NEGATIVE | `ok` + `undefined` final passes UNTOUCHED (CEIG shape) |
+| `component_ref` CONTROL | NEGATIVE | the template is byte-unchanged, "referenced row" wording intact |
+| STEP_VOCABULARY partition | NEGATIVE | the two lists must PARTITION the 13-member vocabulary, so **a new step type breaks the test and forces a classification** rather than inheriting F-18 by default |
+| R4 undefined binding | POSITIVE | throws `Unknown identifier`, same as unbound |
+| R4 bound `0` | NEGATIVE | **falsy is not absent** -- `0` still evaluates |
+
+**Plain-English coverage:** the five entry points each get a failing-input case proving the honest
+outcome and a working-input case proving nothing else moved; the chain proves a sibling output
+survives; the backstop proves a route no per-step guard covers is still caught; the honest-partial pin
+and the `component_ref` control are the two "must not move" anchors; the vocabulary partition stops a
+future step joining the class silently.
+
+### Cert -- MEASURED, browser omitted with rationale
+
+**Rationale (recon Q4):** no NaN can reach persisted state today -- `RateHelperPanel`'s
+`Number.isFinite` disables "Use this value" -- so there is no amount, rollup, BCS margin, export or
+tender document to inspect, and the only visible delta is panel text on a row that would first have to
+be manufactured by breaking the catalog. The honest gate is the interpreter. Precedent: F-20, F-19.
+
+**(i) Suites.** interpreter **262 passed**; full vitest **2372 passed / 1 failed (2373)** vs the 2352/1
+baseline -- exactly **+20**, same single pre-existing failure, same 66/67 file counts, zero other
+movement. Backend `test_rate_master` **152 OK**, unchanged (no backend change).
+
+**(ii) Sensitivity sweep, A/B against the pre-fix module extracted from `git HEAD`.** All 18 exposed
+read sites, each driven with its key artificially absent in memory:
+
+| | count |
+|---|---|
+| sites measured | **18** (12 item-attribute driven + 6 golden-driven) |
+| PRE-FIX NaN-through-ok | **18** |
+| **POST-FIX NaN-through-ok** | **0** |
+| post-fix outcome: `honest no_match` | 15 |
+| post-fix outcome: `ok, output ABSENT` (the three chain sites) | 3 |
+
+The four `cabletray_raceway` sites and both `gland_band2_list` sites need the configs' own goldens to
+build a clean run (tray needs pipeline-level choices; band 2 needs a >=35 sqmm row), so they were
+driven that way -- the same route the recon used to reach them.
+
+**(iii) The four honest partials -- byte-identical.** `misc_boq` CEIG `ok {supply:<absent>,
+install:225000}` · `misc_boq` AS Built `ok {supply:24500, install:<absent>}` · `misc_bcs` CEIG
+`ok {bcs_supply:<absent>, bcs_install:0}` · `misc_bcs` AS Built `ok {bcs_supply:19600,
+bcs_install:<absent>}`. **4 of 4 identical pre and post.**
+
+**(iv) Catalog sweep + goldens, A/B.**
+
+| | runs | status changes | newly non-ok | value changes | post NaN-through-ok |
+|---|---|---|---|---|---|
+| catalog sweep | **3,075** | 0 | **0** | **0** | **0** |
+| golden output slots | **95** | 0 | 0 | **0** | **0** |
+
+**Zero live movement.** The fix converts a latent cliff into a guardrail and moves nothing that ships
+today -- which is what the Phase 0d live-DB census predicted and what makes it safe to land.
+
+### Queue state
+
+**F-16 ✅ · F-20 ✅ · F-17 ✅ · F-21 ✅ · F-19 ✅ · F-18 ✅ -- ALL SIX STANDALONE FINDINGS ARE
+CLOSED.** Next: the **combined recon for the seven cleared audit fixes**.
+
+**Constraint recorded for every future frontend slice: vitest runs IN THE CONTAINER ONLY.**
+`frontend/node_modules` is populated for `linux-arm64`, so esbuild -- and therefore vitest -- refuses
+to start on the Windows host (*"You installed esbuild for another platform than the one you're
+currently using"*). The recon hit this and drove the interpreter through Node 24's native TypeScript
+type-stripping instead, which is also how the A/B cert above loaded the pre-fix module from
+`git show HEAD:...` without touching the working tree.
+
+
+## Build slice F-3 -- junction box prices by FACE SIZE (2026-08-15)
+
+**Status: SHIPPED.** Branch `feature/boq-pricing-helper`. Asset **v33**
+(`rate_master_electrical_all_v33.json`, sha `1d410de109668c3b`), batch `rmbulk-545b33565f1c`,
+1,364 active Electrical items -- **no row added, none retired, no rate moved.**
+
+### The defect
+
+`junction_box_raceway` declared ONE attribute, `size`, a `choice` over six COMPOSITE strings
+(`"100x50mm"` ... `"350x50mm"`). Every real BoQ line is THREE-dimensional -- `300 mm x 300 x 60 mm
+(height)` -- so the model could not honestly map one onto the other and returned null. **All 12 live
+junction-box rows across the confirmed BoQ set extracted `size = None`, every one at confidence 0.9:
+the model was not confused, it was confident there was no value it could give.** The category had
+never priced a single row.
+
+### The change (five parts, one asset)
+
+| part | before | after |
+|---|---|---|
+| attribute definition | `{"id":"size","type":"choice","values":[6 strings]}` | `{"id":"face_mm","label":"Face size (mm)","type":"number_choice","values_from":{"kind":"junction_box","attr":"face_mm"}}` |
+| six catalog rows | `{"size":"300x50mm"}` | `{"face_mm":300.0}` -- **`size` REMOVED** |
+| estimator rules | (none -- the config had no `rules` key) | **R11**, placed immediately before `goldens` (house position in all four categories that carry rules) |
+| golden `j1` | `attrs {"size":"150x50mm"}` | `attrs {"face_mm":150.0}` -- **expected 430/90 UNCHANGED** |
+| top-level goldens dict | same | same, kept in step |
+
+`jb_boq` is untouched: it matches on `kind` and never names an attribute.
+
+**`number_choice` is required, not stylistic.** `face_mm` is a numeric catalog column and
+`matchMasterRow` compares with `===`, so a plain `choice` would emit `"150"` against a stored `150`
+and match nothing, silently.
+
+### FLOATS, NOT INTS -- and the CSV round trip is why
+
+The first mint stored `face_mm` as INTEGERS, matching the owner-approved text literally. **Three
+tests failed** (`test_91`, `test_94`, `test_95`), all asserting that an unedited download -> upload of
+the junction-box CSV is a no-op. They reported all six rows changed, `old: '300', new: '300.0'`: the
+CSV emits the value AS STORED, the importer parses the cell to `float`, and changed-ness is decided
+**type-strictly** by design. **The tests were right and the data was wrong.** Every other numeric
+attribute in the whole Electrical catalog is a float (`conduit.size_mm 50.0`, `cable_tray.width_mm
+100.0`, `cable.core 1.0`) *because* the round-trip guarantee depends on it. Owner ruled floats;
+re-minted. **An int in this catalog can never survive a round trip -- do not reintroduce one.**
+
+Floats change nothing else: server `float(raw)`, client `Number()`, `===` on a JS number (JSON `100.0`
+parses to `100`), and the dropdown still renders `100`, not `100.0` (cert V1).
+
+### `size` was REMOVED from the rows, not left alongside (owner ruling)
+
+`matchMasterRow` iterates the ROW's keys and short-circuits `!(k in selected)`, so a stale `size` with
+`size` absent from the selection is IGNORED -- functionally either choice works. It was removed
+because it would be **inert**, and an inert key here tells three different stories: the Data tab
+derives its columns from `attribute_definitions` (invisible), the CSV attribute space is **declared
+UNION observed** (visible AND editable), and the matcher ignores it. A column that accepts edits and
+discards their effect is worse than an absent one. Verified first: `junction_box` is the only kind
+carrying a `size` attribute, referenced by one config, named by no `values_from`.
+
+### Phase 4b -- the assembled prompt, built with ZERO AI calls
+
+`run_extraction(boq, sheet, client=...)` already exposes `client` as an injectable parameter "for
+tests (a mock Anthropic client)", so **no refactoring was needed**: a double captured
+`messages.create(**kw)` and raised a **`BaseException`** subclass -- `_extract_batch`'s retry loop
+catches `Exception`, so it propagated immediately with no retries, no sleeps and no `log_error` write.
+9,353 characters, reviewed and approved by the owner before Phase 5.
+
+**The coverage sentence in R11 is voiced in the extraction prompt's OWN vocabulary** (owner amendment):
+`_ROW_CONTEXT_SHAPE_GUIDANCE` (`extraction.py:776-790`) defines `description`, `notes` (kind-keyed) and
+`ancestor_chain`, and R11 names exactly those. It says `notes` rather than enumerating
+`own`/`attached`/`appended` because the prompt DEFINES `notes` as the kind-keyed container -- naming
+two of three would imply the third does not count.
+
+### Phase 5 -- scoped re-extraction, and what it uncovered
+
+**BOQ-26-00066 (rows 347-351):** `BRSR-26-00581` complete + active. 5 rows changed, **0 outside the
+junction-box set**, **141 untouched rows byte-identical**. All five correct at **0.98**.
+
+**BOQ-26-00114 (rows 246-248, 258-261):** the scoped pass extracted all seven correctly at 0.98 --
+and could not go active. Two causes, found in that order:
+
+1. **SR-1 x SELROW.** The carry source `BRSR-26-00031` (2026-07-30) had `attempted_rows = NULL` while
+   SR-1's migrate backfilled `status` to `"complete"`. `_carry_source_run` (`rate_master.py:532`) seeds
+   `acc_attempted` from that field, so a scoped pass starts EMPTY, `complete = ... and not (population
+   - acc_attempted)` (`:754`) can never be satisfied, and `active` only flips at complete (`:548`,
+   R-SUPERSEDE). The work stranded in an `active=0` partial.
+2. **The population had GROWN.** After repairing (1), the run STILL went partial: `assemble_population`
+   now returns **125** rows against the old run's **107**. The extra **18 are all `point_wiring`** -- a
+   category that went live at EA-4a, AFTER that run. The document was telling the truth; those 18 rows
+   had never been extracted at all.
+
+**OWNER RULING (2026-08-15): KNOWN BEHAVIOUR, no fix.** Runs predating 2026-08-10 are test-era, no
+production BoQ depends on them, and the sanctioned remedy for any such sheet needed in testing is a
+**full re-extraction**. A backlog slice to seed `attempted_rows` from the results set was proposed and
+**WITHDRAWN**. This paragraph exists so a future stranded run is explained in one search.
+
+**VERIFICATION GATE (owner-upgraded), all 43 run rows:** 8 NULL `attempted_rows` / 35 populated
+(reading `BRSR-26-00031` at its pre-repair NULL). Newest NULL `BRSR-26-00047` **2026-07-31 20:11:27**;
+oldest populated `BRSR-26-00130` **2026-08-03 00:10:41** -- a clean split with a two-day gap, so the
+SR-1 boundary sits between them. **(1) every NULL predates the boundary: PASS. (2) every row created
+after it carries `attempted_rows`: PASS**, across ALL states -- complete+scoped 2, complete+whole 29,
+**partial+scoped 2, partial+whole 2**. No state and no shape reproduces the NULL. All 8 NULL rows are
+complete + whole-sheet and every one predates 2026-08-10.
+
+**The (c) repair, as performed (reversible):** `BRSR-26-00031.attempted_rows` **NULL -> its own 107
+result rows** via `set_value(update_modified=False)` (`track_changes:0` doctype + the list-valued-JSON
+wall). To restore: set it back to `None`. Then the sanctioned full re-extraction produced
+`BRSR-26-00584` -- complete, active, 125 rows, all 7 junction-box rows correct at 0.98.
+
+**What the full re-extraction cost, measured honestly:** of the 100 carried non-junction-box rows,
+**67 differ because the CONFIG moved** since 2026-07-30 (attribute sets changed -- e.g. `runs` added
+to `wiring_cabling`), **19 are genuine model drift** (19%, squarely in the standing 15-18% band), 11
+identical, 3 confidence-only. A raw "89% changed" headline would have been mostly schema evolution.
+
+**Extraction capture, all 12 rows:** `raw -> coerced` with `reason='ok'` on every one, `attempt=1`,
+`stop_reason=end_turn`, and **all eight drop classes empty**. The model returned `300.0` and the
+pipeline stored `300` -- `_coerce_value_ex`'s float normalisation working as designed.
+
+### Gates
+
+| gate | result |
+|---|---|
+| G1 backend | `test_rate_master` **152, OK** (baseline 152 OK). Isolating run first: 6 failures + 1 error, all reported for rulings, none auto-fixed |
+| G1 vitest | **2372 passed / 1 failed (67 files)** -- baseline-identical; the one failure is the known `writeOffControl` dynamic-import timeout, untouched by this slice |
+| G2 round trip | export -> v33 -> load -> re-export **BYTE-IDENTICAL** (`1d410de109668c3b`), 1364 items / 12 configs, all six `item_uid`s preserved |
+| G3 goldens | 26 goldens / 78 expect-rows; `j1` re-minted on INPUT only, 430/90 unchanged |
+| G4 diff | vs the pre-F-3 export: **23 insertions / 19 deletions, one file** -- exactly the approved change set |
+| G5 AI spend | 3 batch calls (2 scoped + 1 full re-extraction) |
+
+### Pin re-mints (Ruling 2, owner 2026-08-15) -- each reported, none auto-fixed
+
+Four tests pinned "the current asset carries no retirement reasons" -- true only because **v32 was
+minted at F-17, before F-19 added the channel and backfilled the two reasons. v33 is the first asset
+exported after F-19**, so it is the first to carry them. They were guaranteed to fail on the next mint
+by anyone, for any reason.
+
+- **`test_24e`** -- asserts `retirement_reasons == payload["retirement_reasons"]` instead of two empty
+  maps. Asserting against the PAYLOAD states the actual rule (the loader records what the asset
+  declares) and is immune to every future mint. **A SECOND assertion in this test moved too** -- a
+  blanket `assertFalse(row["reason"])`, masked until the first was fixed -- now each row carries
+  exactly what the payload declared for its scope, blank where it declared nothing. **The
+  `retired_at` / `retired_by` clauses are UNTOUCHED and are the load-bearing half.**
+- **`test_f19c`** / **`test_f19e`** -- the FIXTURE is re-minted, not the ruling: both `pop`
+  `retirement_reasons`, so "declares retirements and no reasons" / "minted blank" is the fixture's own
+  property rather than borrowed from whichever asset is current.
+- **`test_24j`** -- also blanks `retirement_reasons` alongside the two lists it already blanks. **F-19
+  made reasons a THIRD retirement input**, and its R3 refuses a reason naming something the payload
+  does not retire, so emptying only two of three left the payload self-contradictory and the loader
+  threw, correctly. Latent since F-19.
+- **`test_98`** -- docstring only: `100x50mm` dropped from the mangling-prone list (prose; the test
+  exercises earthing / industrial_sockets / wiring_cabling).
+
+### Cert (live, CDP against the owner's Chrome)
+
+De-stale ran in full: bench restarted; the three LISTED vite PIDs killed (never pattern-killed);
+confirmed empty; `node_modules/.vite` cleared; both detached-restarted; **:8080 and :8000 both 200**;
+caches + service workers + storage cleared with **cookies preserved**; ROOT loaded before the deep
+route. **No frontend source changed in this slice, so the marker is the SERVED CONFIG, not the
+bundle** -- and it is green both directions: NEW `face_mm` / `number_choice` / `values_from` / `R11` /
+golden `{face_mm:150}` / catalog 100-350 present; OLD `size` definition and `size` on any catalog row
+**absent**; batch `rmbulk-545b33565f1c`.
+
+- **V1 PASS** -- Face size (mm) renders as a DROPDOWN offering **exactly** `100, 150, 200, 250, 300,
+  350` plus the "select" placeholder, as clean integers (the float storage renders correctly).
+- **V2** -- BEFORE on record from Phase 1d: all 12 rows blank, each at confidence 0.9.
+- **V3 PASS** -- three rows quoted to the rupee: **row 258** (300x300x50) `supply 920 / install 190 /
+  combined 1110`; **row 246** (300x300x60) `1110`; **row 247** (200x200x60) `supply 540 / install 110 /
+  combined 650`. Each matches the catalog by hand (630 -> ROUNDUP(913.5,-1)=920, ROUNDUP(184,-1)=190;
+  370 -> ROUNDUP(536.5,-1)=540, ROUNDUP(108,-1)=110).
+- **V4 PASS** -- **rows 246 (depth 60) and 258 (depth 50), same face, price IDENTICALLY at 1110.**
+  R11's depth-is-ignored rule, on real data.
+- **V5 PASS** -- the panel names the basis in plain terms: *"Rate master: junction_box_raceway @ Face
+  size (mm) = 200"*, with `supply = 540 / install = 110 / combined_rate = supply + install = 650`.
+  "Use this value" is ENABLED.
+- **V6 PARTIAL, stated honestly** -- the browser spot-check landed on two **`wiring_cabling`** rows
+  (row 186 -> 570, row 190 -> 318, both rendering their full Cable + Termination groups), **not on a
+  tray row and a conduit row as specified**. The categorical proof that no other category moved is the
+  **asset diff** (only junction_box items + config differ, 23/19 lines) and **26/26 goldens green**
+  inside the 152-test suite; the browser half is confirmatory and is short of the letter of V6.
+
+### Known leftover (not a defect, reported)
+
+BOQ-26-00114 still carries two inactive partial runs (`BRSR-26-00582`, `BRSR-26-00583`), so the pricing
+editor shows the SR-1 resume strip -- *"Rate suggestions stopped early ... Resume run"* -- even though
+`BRSR-26-00584` is complete and active and "Use this value" is enabled. `get_active_suggestion_run`
+returns the newest resumable partial under its own `partial_run` key by design; the banner is telling
+the truth about a document that is now obsolete in substance.
+
+## Build slice F-5 + F-6 -- sockets pair their MCB and default their enclosure (2026-08-15)
+
+**Status: SHIPPED.** Branch `feature/boq-pricing-helper`. Asset **v35**
+(`rate_master_electrical_all_v35.json`, sha `60b133eb7b14fa69`), batch `rmbulk-d849360d0a81`,
+1,364 active Electrical items / 12 configs -- **no item added, none retired, no rate moved.**
+**v34 is committed too** (`rate_master_electrical_all_v34.json`, sha `3814d292d4cc6e88`): it was
+minted, loaded and re-extracted in-session, then superseded before cert. The lineage stays honest.
+
+### The two defects
+
+**F-5.** `industrial_sockets` carried no `rules` key. On the 23 live socket rows the model defaulted
+`paired_mcb` to the `"None"` sentinel on every row that named an MCB (via `extraction_defaults`), or
+guessed a **D** curve with no basis, or returned null where the stated amperage was absent from the
+catalog at the derived pole. The MCB line was therefore wrong or missing on most rows.
+
+**F-6.** `enclosure` had no default. On BOQ-26-00113's six rows (`enclosed in sheet metal box`, no IP
+rating stated) it extracted `null`, and the socket `component_ref` matches on `enclosure` -- so **all
+six rows were unpriceable by construction.**
+
+### THE CATALOG GRID -- the fact that decided the whole slice
+
+The `paired_mcb` dropdown resolves `db_switchgear_item` names where `family = Switchgear` (**106** of
+136 active rows). The MCB names follow a strict grammar `{amperage}A {pole} MCB {curve} CURVE`, and
+**exactly two curves (C, D)** are live. The amperages available per pole:
+
+| Pole | available amperages |
+|---|---|
+| SP | 6, 10, 16, 20, 25, 32, 40, 63 |
+| DP / TP / FP | **25, 32, 40, 63** |
+
+**DP/TP/FP start at 25A**, so every 16A or 20A four-pole or double-pole derivation needs the
+next-higher substitution -- which is exactly where both wordings struggled. The grid is also
+**rectangular** (C and D exist at every rung), so R12's *curve* substitution clause cannot fire on
+today's catalog; it is retained as forward protection (owner Q3), recorded here so a later reader does
+not mistake it for dead wording that slipped through.
+
+Two names sit OUTSIDE that grammar and matter: **`80 FP MCB`** (an 80A four-pole MCB, named without a
+curve) and `80A FP MCCB` (a different device class). Row 103 (`5 pin 80 A`) derives 80A/FP, which the
+curve grid cannot reach -- owner ruling **Q1(a)**: use `80 FP MCB`, keep the MCCB out of it.
+
+### The change (two parts, one config)
+
+| part | before | after |
+|---|---|---|
+| estimator rules | (no `rules` key) | **R12**, placed immediately before `goldens` (house position) |
+| `extraction_defaults` | `{"paired_mcb": "None"}` | `+ "enclosure": {default: "IP44/54 - Splash Proof", text_overrides: [IP67, IP 67, waterproof, water proof]}` |
+| goldens | `i1` only | `+ i2` (real paired MCB, 8348/2930) `+ i3` (interlocked WITH an MCB set, 13426/4700) |
+
+Both goldens are carried in the config **and** the top-level `goldens` dict (the loader reads the top
+level). Goldens 26 -> 28. `paired_mcb: "None"` STAYS -- it is R12 step 3's mechanical half.
+
+**`text_overrides` lists BOTH `IP67` and `IP 67` deliberately.** There is **no server-side matcher**:
+the whole `extraction_defaults` dict is serialised into the prompt and the MODEL does the matching
+(`extraction.py:923-931`), so nothing normalises the space. Owner Q2 added the spaced `water proof`
+on the same reasoning. Live-verified: rows whose text reads `IP 67` resolved correctly.
+
+### IT TOOK TWO WORDINGS, AND THE FIRST ONE'S FAILURE IS THE LESSON
+
+**v34's R12** told the model the name FORMAT and said "take the NEXT HIGHER rating". The model derived
+the pole correctly, kept the STATED amperage, and **constructed a catalog name that does not exist**:
+
+| row | model returned | exists? | required |
+|---|---|---|---|
+| 98 | `20A FP MCB C CURVE` | no (FP starts at 25A) | `25A FP MCB C CURVE` |
+| 87 | `16A FP MCB C CURVE` | no | `25A FP MCB C CURVE` |
+| 470 / 472 / 480 | the 20A/16A/20A DP or FP rung | no | the 25A rung |
+
+`_coerce_value` dropped all five as `not_an_allowed_choice`. **A null is NOT the `"None"` sentinel**,
+so `none_skips` does not catch it, `@paired_mcb` cannot bind, and **the WHOLE row goes unpriceable --
+socket line included.** Rows 98 and 87 priced before the slice and stopped pricing. That is *worse*
+than the defect being fixed, which is why v34 was held and reworded rather than shipped.
+
+**v35 replaces steps 3/4/5 only** (steps 1 and 2 byte-unchanged). Step 5 now LEADS with *"Your answer
+MUST be a name from the allowed values list - never construct a name that is not in the list"*, carries
+the worked example *'20A DP MCB C CURVE' does not exist, so record '25A DP MCB C CURVE'*, and ends with
+a `"None"`-rather-than-outside-the-list floor. Step 4 is blunt: *"the curve is C - always C, never D."*
+Step 3 adds *"Never invent an MCB."*
+
+**The old step-4 sentence naming the name GRAMMAR was dropped, not re-homed** -- plausibly it was what
+invited the model to construct names in the first place, and step 5's list rule replaces its function.
+
+### Measured outcome (23 live rows, re-extracted per BoQ via `only_rows`)
+
+| axis | pre-slice | v34 | **v35** |
+|---|---|---|---|
+| priceable rows | 11 / 23 | 15 / 23 | **18 / 23** |
+| coercion drops | -- | 5 | **0** |
+| rows below pre-slice priceability | -- | 2 | **0** |
+
+**Six of the ten watch-list rows were fixed by the rewording:** 470 / 472 / 480 (null -> the 25A rung,
+470 landing exactly on step 5's worked example) and 474 / 476 / 478 (D -> **C**). Rows 95 / 103 / 79 did
+not regress. **Carry-forward integrity was perfect on every run: 567 untouched rows, 0 differing**, and
+no row outside the scoped set was touched.
+
+### FOUR ROWS REMAIN WRONG, AND THEY ARE SLICE 2b's ACCEPTANCE CASES
+
+The residual is a NEW failure mode the fix introduced -- **"sideways, not up"**. The model satisfied
+"must be from the list" by changing something OTHER than the amperage until a name existed:
+
+| row | required | returned | what it changed | money |
+|---|---|---|---|---|
+| 98 | `25A FP MCB C CURVE` (1396) | `20A SP MCB C CURVE` (223) | the **pole** | **-1,173 under** |
+| 87 | `25A FP MCB C CURVE` (1396) | `16A RCBO 30mA (FP)` (3,852) | the **device class** | **+2,456 over** |
+
+These now PRICE, so nothing on screen flags them -- *quieter* than the v34 null, and wrong in both
+directions. Plus **row 97** (`40A SP MCB D CURVE`, byte-identical across both wordings, no curve stated)
+and **row 589** (invents an MCB on a trolley row naming none; **accepted by owner ruling C** -- it does
+not price, `item` is null, and its confidence is honestly low).
+
+**Owner ruling A: the amperage/pole/curve ladder moves into the PIPELINE as slice 2b.** What the
+rewording fixed, it fixed completely and repeatably; what it did not fix is precisely the part requiring
+*choice between catalog rows under constraint* -- hold pole and device fixed, walk amperage up. That is
+ladder work, and `module_fit` / `circuit_fit` already exist to make exactly that deterministic **and
+visible in the derivation trace**, which a model choice never is.
+
+### The two manual corrections are part of the shipped state
+
+Rows **98** (BOQ-26-00066) and **87** (BOQ-26-00114) were corrected by hand in the pricing editor to
+`25A FP MCB C CURVE` and applied via "Use this value":
+
+| | before | after |
+|---|---|---|
+| row 98 | `20A SP MCB C CURVE` 223 -> supply 9445 / install 3310 | **1396 -> supply 10618 / install 3720** |
+| row 87 | `16A RCBO 30mA (FP)` 3852 -> supply 13074 / install 4580 | **1396 -> supply 10618 / install 3720** |
+
+Combined rate **14338** on both; persisted with freeze-and-supersede (row 98: pricing_version 1 ->
+`is_current 0` retaining 6800, version 2 `is_current 1`), and **verified across a page reload**.
+
+WARNING: **The build prompt's expected figure of "supply 12372" was WRONG and was corrected before
+applying.** 12372 belongs to the *rating-32A* rows (99 / 100 / 86, socket line 10976). Rows 98 and 87
+carry rating `16/20A`, so their socket line is **9222** (catalog 9410 x 0.98) and the correct answer is
+**10618**. The MCB half (2820 x 0.495 -> 1396) was right as stated.
+
+### Cert (browser, live, v35)
+
+Ritual: bench restart; vite PIDs killed (listed only) -> confirmed empty -> detached restart; :8080 and
+:8000 both 200 from container AND host; site data cleared keeping cookies; ROOT then deep route.
+**Config-served marker green BOTH directions** -- v35 strings present, v34 strings absent; the Rate
+Master screen independently shows batch `rmbulk-d849360d0a81` and renders R12 in full on the Derivation
+tab.
+
+- **V1 PASS** -- row 95: `Enclosure = IP67 - Water Proof`, `Paired MCB = 25A SP MCB C CURVE`; socket
+  8125 + mcb 223 = supply **8348**, install **2930**, combined **11278**.
+- **V2** -- BEFORE on record: `paired_mcb "None"` (defaulted) on every with-MCB row; 00113's six
+  enclosures `null`.
+- **V3 PASS** -- to the rupee, two rows: 449 x 0.495 = 222.255 -> **223** (row 95); 390 x 0.495 =
+  193.05 -> **194** (row 96).
+- **V4 PASS** -- row 79 (`plug top`, no MCB): `Paired MCB = None` with a **"default"** chip, and the
+  trace carries **NO paired_mcb line at all** -- supply 3078 = socket alone.
+- **V5 PASS** -- no live interlocked row exists, so demonstrated through the Rate Master Derivation
+  with golden i3's attributes: `ref: Switchgear 32A SP MCB C CURVE (rate 194 x qty 0)` -> `paired_mcb =
+  0`. **The MCB RESOLVES at 194 and is then zeroed by the interlocked gate** -- the `qty -> 0` path, NOT
+  `none_skips` (which is what a `"None"` would have exercised). supply **13426** / install **4700**.
+- **V6 PASS both halves** -- row 470's `Enclosure` carries a `default` chip in the **amber** attention
+  token (`bg-amber-100` / `text-amber-800`) at 50% confidence; overriding it to IP67 **clears the chip**
+  and re-prices 8638 -> **8854**.
+- **V7 PASS** -- row 258 -> `junction_box_raceway @ Face size (mm) = 300` = **1110** (the F-3 figure,
+  unmoved); cable-tray row 239 = **1017**. Stronger than the browser half: **11 of 12 configs and all
+  1,364 items are byte-identical v34 -> v35**, so no untouched category *can* have moved.
+
+**BOTH NEW GOLDENS ARE MACHINE-VERIFIED THROUGH THE REAL INTERPRETER** -- i3 at V5, and i2 via row 95
+in the pricing editor (same attribute set -> 8348/2930). The vitest goldens are independent hand-written
+pins and read no asset, so a new config golden is NOT covered by a green vitest run; the interpreter
+path is the only thing that proves one.
+
+### Tests
+
+`bench --site localhost run-tests --module nirmaan_stack.api.boq.test_rate_master` -- **152 OK**, twice
+(after the v34 load and again after v35). **Zero pin re-mints were needed beyond `CURRENT_EALL_ASSET`**:
+no test hardcodes a golden count, so 26 -> 28 flowed through untouched. Vitest **2372 passed / 1 failed**
+(the known `writeOffControl` timeout), unchanged. Post-suite: 12 configs, 1,364 items, zero `TEST_RM`
+residue.
+
+**F-5's extraction half is certified by RE-RUN + CAPTURE, never by test.** No unit test can see what the
+model returns; the evidence is the scoped re-extraction plus the always-on JSONL capture, which is what
+made the v34 diagnosis exact (it named `not_an_allowed_choice` per row and preserved the raw value the
+model actually sent). Treat a wording change here as unverifiable until re-run.
+
+### Env note
+
+An "Invalid Request" during the cert was **`frappe.exceptions.CSRFTokenError`**, caused by clearing site
+data (which wipes the `localStorage`-held CSRF token) WITHOUT the re-login the documented recipe pairs
+with it. GETs keep working and every POST fails, so it presents as a broken write path. A plain reload
+does NOT re-issue the token -- only a login does. Nothing was written while it was in force (verified
+server-side), so it is safe, but it costs a cert if not recognised.
+
+### R12 as shipped -- the approved wording, VERBATIM
+
+Steps 1 and 2 are byte-identical between v34 and v35; steps 3, 4 and 5 are the owner's replacement
+text, applied verbatim and not re-voiced. The single `guidance` string, as it sits in the v35 asset and
+as the model receives it inside the `ESTIMATOR_RULES` block:
+
+> Industrial socket lines are often billed together with the MCB that controls them. Decide the paired
+> MCB as follows. (1) If the row's `description`, its `notes`, or any `ancestor_chain` entry names a
+> specific MCB with its details, record exactly that MCB - the BoQ always wins. (2) If an MCB is
+> mentioned without full details (for example 'with MCB'), derive it. The amperage is the HIGHEST
+> current stated in the text - '25/20/16 A' gives 25A - read from the text itself, never from the
+> `rating` attribute, whose values are ranges that lose the individual figures. The pole comes from the
+> pin count: a 3-pin socket takes a single-pole MCB (SP), a 5-pin socket takes a four-pole MCB (FP).
+> (3) If no MCB is mentioned at all in the row's `description`, its `notes`, or any `ancestor_chain`
+> entry, record "None". Never invent an MCB - a row that does not mention one gets "None", whatever the
+> socket's size. (4) Curve: use the curve the text states. If the text states no curve, the curve is C -
+> always C, never D. (5) Your answer MUST be a name from the allowed values list - never construct a
+> name that is not in the list. If the name you derive does not exist because that amperage is absent
+> at that pole, move UP to the next higher amperage that exists in the list at the same pole and curve -
+> for example '20A DP MCB C CURVE' does not exist, so record '25A DP MCB C CURVE'. Never move down.
+> Above 63A at four pole there is no next-higher MCB in the curve grid; use the catalog item '80 FP
+> MCB', which is named without a curve. If no allowed name fits at all, record "None" rather than a
+> name outside the list. If the stated curve does not exist at that rating, take the other curve. These
+> substitutions are independent - neither forces the other.
+
+The coverage phrasing in (1) and (3) is voiced in the extraction prompt's OWN vocabulary
+(`description` / `notes` / `ancestor_chain`, defined by `_ROW_CONTEXT_SHAPE_GUIDANCE`) -- the R11 house
+style from slice F-3.
+
+### NEXT QUEUED: slice 2b -- the amperage/pole/curve ladder moves into the pipeline
+
+Scoped separately, not started. Owner ruling A (2026-08-15). The model would extract only the FACTS a
+BoQ line states -- stated amperage, pin count, stated curve (if any) -- and the PIPELINE would resolve
+the catalog row: hold pole and device class FIXED, walk the amperage UP to the next rung that exists,
+`80 FP MCB` above the four-pole grid, `"None"` when nothing fits. The precedent already exists in
+`module_fit` / `circuit_fit`, including the property that makes it worth doing: **a ladder hop appears
+in the derivation trace, and a model's choice never does.**
+
+**Acceptance cases are the three rows this slice could not fix**, all reproducible today:
+
+| row | BoQ | text | required | v35 returns |
+|---|---|---|---|---|
+| 98 | 00066 | `5 pin 16/20 A ... with MCB` | `25A FP MCB C CURVE` | `20A SP MCB C CURVE` (pole changed) |
+| 87 | 00114 | `5 pin 6/16 A ... with mcb` | `25A FP MCB C CURVE` | `16A RCBO 30mA (FP)` (device class changed) |
+| 97 | 00066 | `3 pin 40 A ... with MCB` | `40A SP MCB C CURVE` | `40A SP MCB D CURVE` (curve) |
+
+Rows 98 and 87 currently carry a MANUAL correction (see above); a correct ladder must reproduce
+`25A FP MCB C CURVE` on both without one. **Row 589 is explicitly OUT of scope** (owner ruling C,
+accepted as the known residual of the extract-facts model half: it invents an MCB on a row naming none,
+it does not price, and its confidence is honestly low).
+
+## Build slice 2b -- catalog_fit, the deterministic MCB ladder (2026-08-15)
+
+**Status: SHIPPED.** Branch `feature/boq-pricing-helper`. Asset **v37**
+(`rate_master_electrical_all_v37.json`, sha `e8ca8139…`), batch `rmbulk-a0f9cd44b028`,
+1,364 active Electrical items / 12 configs. **v36 is committed too** -- minted, loaded and
+re-extracted in-session, then superseded before cert. The lineage stays honest.
+
+### The principle this slice exists to apply
+
+**The model reads facts; every substitution, ladder, conversion and fit is deterministic code that
+shows its working.** Slice 2 proved the alternative does not hold: R12 told the model how to CHOOSE a
+catalog item, and two successive wordings could not make it reliable. The model constructed names the
+catalog does not carry (`20A FP MCB C CURVE` -- the FP grid starts at 25A), or moved **sideways**,
+changing the pole or the device class until some name existed.
+
+### ⚠️ THE FINDING THAT REFRAMED THE SLICE: `decomposition_rules` IS PROSE, NOT CODE
+
+`db_switchgear` appears to carry an amperage ladder (`exact_or_next_higher`, `take_highest_first`,
+`default_C`). **It does not.** The key has exactly ONE consumer: `extraction.py:1325` reads it
+(gated on `matching_mode == "composite_decomposition"`) and `_extract_batch:905-906` serialises it
+into the prompt as a `RESOLUTION_RULES` block. **Nothing anywhere executes it** -- verified by
+grepping the whole service + api tree; the only other hits are the config JSON and three tests
+asserting the key survives validation.
+
+So there was no ladder to reuse, only an instruction of exactly the kind slice 2 had just disproved.
+**db_switchgear's own resolution should migrate onto `catalog_fit` -- logged as backlog, not done
+here** (it is a composite category with five MCB slots; a different shape of work).
+
+### The two new steps, both generic
+
+**`map_attribute`** -- resolve ONE string attribute: a stated value wins, else a config conversion
+table, else a config default. A pin-count -> pole mapping (`"5 Pin / 3P+N+E"` -> `FP`) is a
+CONVERSION, so it belongs in code. `derive_attribute` could not serve: its formula language is
+arithmetic and a pole is a string. **This is also F-10's SWG -> mm shape**, so that slice inherits the
+mechanism rather than inventing one.
+
+**`catalog_fit`** -- fit a stated NUMBER onto a ladder derived FROM THE CATALOG and bind the chosen
+row's label into the existing `fitLabels` scope, so `"@paired_mcb"` resolves through the ONE existing
+order. `module_fit`'s ladder half, generalised by three extensions that **all default to pre-2b
+behaviour**:
+
+| extension | absent means |
+|---|---|
+| `size_from: {attr}` | parse the label (`moduleSizesFromLabel`) -- `module_fit`'s path, byte-unchanged |
+| `where` value LISTS with `@`-refs, **list order = preference** | a scalar `where` keeps the old (size, label) dedupe byte-for-byte |
+| `direction: "up" \| "down"` | `"up"` |
+
+**Slice 3's tray width rides this with ZERO new capability** -- `cable_tray` already stores `width_mm`
+as a number, so its ladder is `size_from: {attr: "width_mm"}` and nothing else changes.
+
+### THE CATALOG MINT -- why a data change was unavoidable
+
+A ladder can only filter on **stored** attributes. `db_switchgear_item` carried `{family, item}`
+only: amperage, pole, curve and device class all lived inside the item NAME. All **106**
+`family: Switchgear` rows gained `device` / `pole` / `amp_a` / `curve`, classified with **zero
+unparsed**:
+
+| device | count | curve |
+|---|---|---|
+| MCB | 41 | C 20 · D 20 · **NA 1** |
+| RCBO | 34 | NA |
+| RCCB | 18 | NA |
+| MCCB | 13 | NA |
+
+`curve: "NA"` where a device carries none -- including the ONE grammar exception, **`80 FP MCB`** =
+`{MCB, FP, 80.0, NA}`. **106 rows EDITED, none added: the count stays 1,364.**
+
+The merged value list `curve: ["@mcb_curve", "NA"]` is what lets ONE ladder reach both the requested
+curve and that exception with no second pass: the FP ladder becomes `[25, 32, 40, 63, 80]`, so
+`fit(20) = 25` and `fit(80) = 80`. No size collision exists today, so the list-order preference rule
+is forward protection -- stated so it is not later read as dead.
+
+### ⚠️ THE MANDATORY DELETION
+
+`extraction_defaults.paired_mcb` was **DELETED** in the same mint. **An injected default is a STATED
+value**: it would have won on every row forever and made the whole ladder inert **while every test
+stayed green** -- the documented `circuit_length_m` trap, one layer over.
+
+### STATED-WINS, AND THE DELIBERATE PREDICATE ASYMMETRY (owner-locked)
+
+`paired_mcb` remains an editable attribute and `catalog_fit`'s `prefer_attr`, because it is the
+pricer's override surface -- the mechanism that corrected two rows by hand in slice 2.
+
+**The two steps' stated-checks differ ON PURPOSE:**
+
+| step | sentinel treatment | why |
+|---|---|---|
+| `map_attribute` | `"None"` **skips** stated-wins | a "None" pole is not a pole; the mapping should still run |
+| `catalog_fit` | `"None"` **counts as stated** | a stated "None" is a DECISION to defer to -- it sticks and zeroes the line |
+
+Letting the ladder overwrite a stated `"None"` would make a valid panel selection silently do
+nothing -- the trapdoor this codebase's own conventions disqualify. **Pinned by a named test** so no
+later reader "harmonises" the two predicates.
+
+**TWO LAYERS, TWO MEANINGS:** `mcb_present = "No"` corrects a **FACT** (evaluated before the ladder);
+`paired_mcb = "None"` overrides a **DECISION**. Both are legitimate; they are not duplicates.
+
+### It took THREE R12 wordings, and both corrections are recorded
+
+| version | what changed | measured outcome |
+|---|---|---|
+| **v35** (slice 2) | the model chooses the catalog item | 5 rows null (constructed names), 4 wrong curves |
+| **v36** | fact-reading only; steps 3/4/5 rewritten | rows 78/80 lost their amperage -> `catalog_fit` refused the WHOLE row; **pre-emption on 4 of 6 rows of 00113** |
+| **v37** | step 2 REVERTED + step (0) added | **pre-emption ZERO across all 23 rows**; 78 prices again |
+
+* **A-i** -- step 2 reverted: *a socket's stated current serves the MCB when no separate MCB current
+  is given.* v36's stricter "stated FOR that MCB" left `mcb_amp_a` blank on rows whose only current
+  is the socket's.
+* **A-ii** -- new per-step opt-in **`catalog_fit.on_missing_fact: "none"`**: an unreadable fact binds
+  the None sentinel so the socket still prices with its MCB honestly unpriced, instead of discarding a
+  row that priced perfectly well. **DEFAULT UNCHANGED** -- absent the key the step still refuses.
+* **B** -- step **(0)**: *"`paired_mcb`: ALWAYS return null for this attribute, even when the text
+  names a specific MCB."* The ONE compliance sharpening; a third wording was pre-ruled out in favour
+  of a structural fix.
+
+### R12 as shipped (v37), VERBATIM
+
+> Industrial socket lines are often billed together with the MCB that controls them. Report what the
+> line SAYS about that MCB; the pairing itself is computed downstream. (0) `paired_mcb`: ALWAYS return
+> null for this attribute, even when the text names a specific MCB - the pairing is computed
+> downstream from the facts you report. (1) `mcb_present`: "Yes" if the row's `description`, its
+> `notes`, or any `ancestor_chain` entry mentions an MCB at all, "No" otherwise. Never infer one from
+> the socket's size. (2) `mcb_amp_a`: if the text states a current specifically for the MCB, use it;
+> otherwise the HIGHEST current stated anywhere in the text (a socket's stated current serves the MCB
+> when no separate MCB current is given). '25/20/16 A' gives 25. Read it from the text itself, never
+> from the `rating` attribute, whose values are ranges that lose the individual figures. Leave it
+> blank only when the text states no current at all. (3) `mcb_pole_stated`: the pole the text states
+> for the MCB (for example 'DP', '4P' meaning FP). Leave it "None" when the text does not state one; do
+> not infer it from the socket's pin count. (4) `mcb_curve_stated`: the curve the text states (C or D).
+> Leave it "None" when none is stated.
+
+**Not one substitution sentence remains.** No next-higher, no pole derivation, no curve default, no
+`80 FP MCB`, no allowed-values instruction -- all five now live in code.
+
+### ⚠️ THE CORRECTED F-3 RULE
+
+F-3 recorded: *"a numeric catalog attribute is stored as a FLOAT, and the CSV round trip is why."*
+**That is true only for a DECLARED attribute.** `csv_importer.coerce_attribute` (`:261-273`) floats a
+cell only when the attribute has a **declared numeric type**; an undeclared key *"keeps the text
+EXACTLY as it appears."* `amp_a` was the **first undeclared NUMERIC catalog attribute** -- the three
+pre-existing undeclared keys (`family`, `location`, `pricing_mode`) are all strings, which is why they
+round-trip. The importer returned the string `"25.0"` against the stored float `25.0`, and `_canon` is
+type-strict, so **all 106 rows reported as changed** and an unedited round trip stopped being a no-op.
+
+**THE RULE IS NOW: a numeric catalog attribute is a FLOAT *and is declared in the same mint*, with
+`selector: false` when it is not an extraction input.** `amp_a` is declared on `db_switchgear` as
+`{type: "number", selector: false}` -- `column_spaces` reads every definition and does NOT filter on
+`selector`, so the importer types it, while `selector: false` keeps it out of the prompt, the panel
+and the Derivation configurator. `device` and `curve` stay undeclared strings.
+
+**Declined backlog:** teaching `coerce_attribute` to infer the type from the stored value would retire
+this hazard class entirely, but it is a `csv_importer` change and was out of scope. Recorded, not done.
+
+### Logged observations (not defects)
+
+* **The mode-B CSV now has ONE `pole` column carrying two vocabularies** -- `"3 Pin / 2P+E"` on socket
+  rows, `"FP"` on switchgear rows. The union has always been per-row, so this is legible rather than
+  wrong, but a reader of the file will see mixed values in one column.
+* **Row 84 -- a rating-bucket ambiguity, unruled.** Its socket `rating` drifted `16/20A -> 32A`
+  between runs while **the MCB line held identical across all three**. A candidate rating rule for the
+  matching-layer arc: which stated current identifies the SOCKET when a line carries several.
+* **Row 589** -- a trolley line naming no MCB extracts `mcb_present = Yes`. Ruled acceptable; fixed by
+  hand in the cert (below).
+
+### Tests -- 28 added
+
+**Positive (15):** size-from-attribute rungs · the merged C+NA ladder reaching 80 · list-order
+preference on a tie · direction up/down · **the hop 20 -> `25A FP MCB C CURVE`** · device class held
+so a 16A RCBO is not chosen · exact rung does not hop · 80A reaching the curve-less exception ·
+golden i4 (10618/3720) · golden i5 (socket alone) · stated-wins · **stated `"None"` STICKS** · extra
+stored attributes ignored by `component_ref` · pin-count -> pole conversion · the `on_missing_fact`
+opt-in.
+
+**Negative (11):** stated pole beating the pin-count map (row 470: 3-pin stating DP) · curve default C
+and stated override · unmapped source with no default · malformed `map_attribute` · missing fit value
+naming the attribute · nothing fits -> sentinel not refusal · `on_miss: no_compute` refusing · an
+unresolvable `@`-ref naming the key · `where` matching no row · malformed `catalog_fit` · **the
+`on_missing_fact` default is unchanged**.
+
+**Regression (2):** `buildModuleLadder` without `size_from` still parses labels · **the trace carries
+no `params`**, so the Derivation detail line is displayed.
+
+`bench --site localhost run-tests --module nirmaan_stack.api.boq.test_rate_master` -- **152 OK**.
+Vitest **2400 passed / 1** (the known `writeOffControl` timeout); baseline 2372/1, so +28 exactly.
+
+### Re-extraction -- pre-emption ZERO, integrity clean
+
+Four BoQs, one window per wording. **567 untouched rows, 0 differing** on every run; nothing outside
+the scope touched. Under v37 **all 23 rows returned `paired_mcb = null`** and the ladder resolved
+every one.
+
+### Cert (browser, live, v37)
+
+Full de-stale ritual **including re-login** (the slice-2 CSRF lesson): bench restart; vite PIDs killed
+-> confirmed empty -> detached restart; :8080 and :8000 both 200 from container AND host; site data
+cleared keeping cookies; owner re-login; POST probe 200. Config marker green both directions; the Rate
+Master screen independently shows batch `rmbulk-a0f9cd44b028`.
+
+- **C1 PASS (value)** -- row 98: socket 9222 + `25A FP MCB C CURVE` 1396 = supply **10618**, install
+  **3720**, combined **14338** -- **converging exactly on the override banked by hand in slice 2.**
+- **C2 PASS** -- row 87 `25A FP MCB C CURVE`; a 16A **RCBO exists at FP and was NOT chosen**.
+- **C3 / C5-103** -- the ladder resolves `40A SP MCB C CURVE` and `80 FP MCB` in the data; both rows
+  are **socket-side** blocked (`rating` null) and the panel says so honestly.
+- **C4 PASS** -- row 79 `MCB mentioned = No`, **no `paired_mcb` line at all**, 3078/1080 = 4158.
+- **C5 PASS** -- row 95 **11278** unchanged.
+- **C6 PASS** -- junction-box 258 = **1110**, tray 239 = **1017**. Stronger: v35 -> v37 has **ZERO
+  items with a changed kind or rates**, the only attribute delta being the four keys on exactly 106
+  items -- so no untouched category's price CAN have moved.
+- **C7 PASS** -- the Derivation tab **displays** the `map_attribute` and `catalog_fit` detail lines
+  (the no-`StepTrace.params` caveat, proven on screen).
+- **`paired_mcb = "None"` STICKS** -- `catalog_fit | paired_mcb stated as None -- kept (a stated value
+  wins)` -> socket alone 2196/770.
+- **Row 589 fact-fix** -- `MCB mentioned` -> **No** -> sentinel -> no MCB line -> **16580**
+  (12280 + 4300), persisted at `is_current` v5. `mcb_amp_a` stays 63 and is ignored, because
+  `absent_when` is evaluated BEFORE the ladder: the fact / decision layering, visible.
+- **Rows 98 and 87 overrides intact** at **14338** each.
+
+### ⚠️ KNOWN GAP -- the ladder's working is not visible in the product (banked as SLICE 2c)
+
+This slice's rationale is *"a ladder hop shows its working."* It currently does not, in either surface:
+
+* **Pricing editor panel** -- `pricingSheetHelper.ts:559` surfaces only steps carrying BOTH `produced`
+  and `refItem`. `catalog_fit` has neither, so it is structurally invisible **where the pricer actually
+  works**.
+* **Derivation tab** -- `optionsFor` (`:279-283`) offers no empty option and the initial state takes
+  `opts[0]` (`:319-320`), which for `paired_mcb` is `"None"`. That screen therefore **cannot express
+  "no stated MCB"**, so `catalog_fit` always reports stated-wins and the ladder can never run there.
+
+The hop is correct and proven three ways -- run data, priced results, and the unit tests -- but not
+observable by a human using the product. **Owner ruling: bank as slice 2c, commit 2b as-is.**
+
+### NEXT SLICE -- 2c (scope ruled 2026-08-15, BEFORE slice 3)
+
+1. The panel shows the **EFFECTIVE value pricing used** for every attribute -- stated /
+   defaulted-amber / computed-muted -- read from the interpreter's published effective selection,
+   **single-source**.
+2. A **computed placeholder** on ladder-bound attributes: row 98 shows `25A FP MCB C CURVE - computed`
+   instead of `- select -`.
+3. **Instant recompute on any panel edit, both directions**: override -> stated, clear -> computed
+   restored.
+4. **Revert-to-suggestion**: one click discards session edits and the pipeline re-derives the full
+   suggested calculation.
+5. The **Derivation tab select gains a blank option**, so "no stated MCB" is expressible and the
+   ladder can fire there.
+
+**Saved cell prices stay behind the explicit "Use this value" click, unchanged.**
+
+Then **slice 3** (tray width next-higher) rides `catalog_fit` with no new capability, and **F-10**
+(SWG -> mm) rides `map_attribute`.
+
+---
+
+## Build slice 2c -- the panel shows what pricing used (2026-08-15)
+
+**Commits:** `feat(boq-rate-master): the panel shows what pricing used (slice 2c)` +
+`docs(boq): record slice 2c as built`. Branch `feature/boq-pricing-helper`, parent `24759105`.
+**Frontend only** -- no backend file, no asset mint, no config edit. Six files:
+`ratePipelineInterpreter.ts` / `.test.ts`, `pricingSheetHelper.ts` / `.test.ts`,
+`RateHelperPanel.tsx`, `RateMasterDerivation.tsx`.
+
+### ⚠️ RECON CORRECTION -- clearing was NOT selectable pre-2c
+
+The 2c recon reported that clearing a derived attribute back to blank *"already works
+mechanically"*. **That was wrong, and it changed the shape of build item 3.** The panel's placeholder
+option is `<option value="" disabled>` -- **`disabled`, therefore not selectable** -- so once a value
+was in the select there was **no way back to blank at all**. The recompute path existed; the
+affordance did not, and a path with no affordance is not a feature.
+
+**The fix is the enabled-when-derived placeholder:**
+
+```tsx
+<option value="" disabled={!a.derived}>{a.derived ? "— use computed —" : "— select —"}</option>
+```
+
+Blank becomes selectable **exactly where it is a legitimate instruction** (*let the pipeline decide*)
+and stays unselectable where blank still just means missing input. Verified on screen both ways in the
+Phase-4 cert: on the derived `Paired MCB`, `Home` reached `— use computed —`; on the non-derived
+`Rating`, `Home` **skipped** the greyed `— select —` and landed on `125A`.
+
+**Lesson, and it is the recurring one:** a recon premise about a *rendered* affordance cannot be
+settled by reading the recompute path. Read the element that the user has to click.
+
+### The reader -- why a reader and not a result field
+
+`catalog_fit` binds its fitted label into `fitLabels`, which is **function-local to `runPipeline`**,
+and `runPipeline` has **28 inline `return { pipelineId, ... }` sites**. Publishing the fit as a new
+`PipelineResult` field would have meant editing all 28. So the value is surfaced by a pure reader over
+the traces:
+
+```ts
+export function catalogFitOutcomes(results): Map<string, CatalogFitOutcome>
+```
+
+Keyed by `bind`, **first-wins** across pipelines (supply and install carry the identical step), empty
+when no `catalog_fit` ran. This is the **third instance of an existing shape** -- `moduleFitOutcome`,
+`derivedAttrOutcomes` -- not a new concept, and it obeys the same standing rule: **read the structured
+`StepTrace` data, never the prose `matchedCondition`** (a human sentence that gets reworded; making it
+a parsing contract fails silently) and **never re-derive the fit** (a second copy of the
+catalog-resolved ladder is exactly the drift #179 exists to prevent).
+
+`applyDerivedDisplay` consumes it in a new branch inside the `if (!ladder)` region, after the
+`derive_attribute` case. `catalog_fit` is the **FOURTH mechanism** to reach this display.
+
+### ⚠️ TWO DISPLAY REFUSALS -- PINNED CONTRACTS (owner-locked)
+
+Both paths publish **no** `derivedValue`, for the *same* reason: **nothing was computed.**
+
+1. **A STATED value NEVER renders as computed.** Stated-wins bound nothing, so there is no computed
+   value; publishing one would claim the pipeline chose what the *pricer* chose. The `(computed)`
+   marker disappears and the muted-italic tone reverts to upright, so the two are distinguishable at a
+   glance. Certified on screen: `Paired MCB` set to `63A DP MCB D CURVE` rendered upright with **no**
+   marker, and the derivation read `paired_mcb: Switchgear 63A DP MCB D CURVE = 1015`.
+2. **POSITIVE ABSENCE renders EMPTY, never a fitted item.** `absent_when` firing means "there is
+   deliberately no such component" -- a **decision, not a value** -- so the field shows nothing and the
+   component line vanishes from the derivation. Inventing a size for a component that is not there
+   would be confidently wrong, which is worse than visibly absent. Certified on screen: `MCB
+   mentioned = No` emptied the field, dropped the `paired_mcb` line, and took the total to **16580**.
+
+Neither state is `isAttrBlank` -- **an attribute the pipeline derives is never missing user input**,
+so no red border in either case. The three states (blank / defaulted-amber / showing-derived) are
+**mutually exclusive**, pinned over every path the fixture can reach.
+
+### ⚠️ IT BEHAVES LIKE A LADDER BIND, NOT LIKE THE BLANKER QUANTITY
+
+`readOnly` is **never set** on this path. `catalog_fit`'s `prefer_attr` reads the **same** attribute
+and a stated value **wins outright**, so an edit here is the one thing that always reaches the price --
+the mechanism that corrected two live rows by hand in slice 2. Locking it would be the lie the
+read-only contract exists to prevent, only pointing the other way.
+
+### Revert-to-suggestion
+
+New pure exported predicate in `RateHelperPanel.tsx`:
+
+```ts
+export function hasSessionEdits(attrState, finalState, excelRow): boolean
+```
+
+It **reuses `overridesForRow`**, so it inherits the row-scoping rule rather than re-deriving it -- a
+Revert enabled by *another* row's edits would claim there is something here to undo. An **empty
+per-helper map is not an edit** (clearing the last override leaves `{}` behind; counting the container
+rather than its contents would leave Revert enabled with nothing to undo). A ghost button after *Use
+this value*, `disabled={!sessionEdited}`; it resets both override states and **deliberately does not
+touch `expanded` / `panelWidth`** -- those are layout, not edits. Placed **after** the `EMPTY_*`
+module constants (a TDZ footgun caught during the edit).
+
+### The Derivation tab's blank option
+
+Radix forbids `value=""` on a `SelectItem` (it reserves the empty string for clearing the selection and
+showing the placeholder), so the OPTION carries a sentinel and the two boundaries translate. Extracted
+as **two pure functions** rather than left inline in JSX -- **there is no DOM test environment here**,
+so an inline mapping could not be pinned at all:
+
+```ts
+export const NOT_STATED_SENTINEL = "__not_stated__";
+export function toSelectValue(v)   // "" | undefined -> sentinel, else String(v)
+export function fromSelectValue(v) // sentinel -> "", else v
+```
+
+**The sentinel never reaches `selected`, `runPipeline`, or a catalog match key.** If it leaked it would
+become a match key, match nothing, and price the row wrong -- *silently*, because `matchMasterRow`
+compares with `===` and reports a miss, not an error. It is also **a different thing from the `"None"`
+sentinel** and must never be collapsed with it: `"None"` is positive absence (a decision), `— not
+stated —` is the absence of one.
+
+### Tests -- 28 added, all green
+
+| Where | N | Pinned |
+|---|---|---|
+| `ratePipelineInterpreter.test.ts` | 7 | reader keyed by bind · first-wins · present on fitted/stated/absent **alike** · empty when no `catalog_fit` ran · empty on a **bailed** step (a refusal claims nothing) · no throw on a missing steps array |
+| `pricingSheetHelper.test.ts` | 10 | fitted item displays · `isShowingDerived` · not blank · **stays editable** · `value` never overwritten · **stated never renders computed** · absence empty · unreadable fact empty · three states mutually exclusive · **REGRESSION BAR** |
+| `pricingSheetHelper.test.ts` | 6 | `hasSessionEdits` -- clean / attr / final-only / other row / no row / empty per-helper map |
+| `pricingSheetHelper.test.ts` | 5 | sentinel round trip · absent displays as sentinel · ordinary values untouched · **never leaks** · distinct from `"None"` |
+
+**REGRESSION BAR:** a config with no `catalog_fit` is byte-identical. Pinned three ways -- `plate_item`
+(which reaches the *same* `if (!ladder)` region) keeps its display, marks and editability; the
+read-only `blank_qty` stays read-only; and the `g1` wiring golden still returns
+`{supply_per_mtr: 120, install_per_mtr: 20}` with the reader returning an empty map over it.
+
+**Runs:** vitest **2428 passed / 1 failed (2429)** against a 2400/1 baseline -- exactly +28, and the one
+failure is the known pre-existing `writeOffControl` 5 s timeout. `tsc` **0 errors** in `rate-helper/`
+and `rate-master/` (3233 repo-wide, the unmoved baseline). Backend
+`test_rate_master` **152 OK, no movement** (this slice touches no backend file).
+
+### Phase-4 cert (browser, BOQ-26-00106 / ELECTRICAL BOQ, row 589)
+
+Vite restarted with `node_modules/.vite` cleared; owner logged in; AI toggle confirmed ON. **No AI call
+was spent** -- the cert reads the panel and the Derivation screen against the stored run.
+
+One row exercised **all three states**, each labelled honestly:
+
+| Panel state | `Paired MCB` renders | Derivation | Total |
+|---|---|---|---|
+| computed | `(computed)` `63A DP MCB C CURVE`, muted italic | `paired_mcb: ... = 1147` | **18127** |
+| stated | `63A DP MCB D CURVE`, upright, no marker | `paired_mcb: ... = 1015` | 17955 |
+| absent (`MCB mentioned = No`) | empty | line **absent** | **16580** |
+
+Also verified: the clear affordance both halves (above); instant recompute in **both** directions
+(`Rating` 63A -> 125A took the suggestion to an honest `—` / "no match for these attributes", and
+Revert restored `18127`); Revert enabled only with a session edit and greyed when clean; the
+Derivation tab's `— not stated —` clearing `Insulation` to four honest `no match` cards and
+**round-tripping back as the checked option**; `wiring_cabling` unchanged at 110/20 + 70/20; console
+free of app errors throughout.
+
+### ⚠️ FINDING RAISED BY THE OWNER DURING THE CERT -- row 589's MCB is an EXTRACTION defect
+
+Row 589's text **never mentions an MCB**. The active run `BRSR-26-00600` returned:
+
+```
+paired_mcb        = null   @ 0.95   <- R12 step (0) worked exactly as designed
+mcb_present       = "Yes"  @ 0.90   <- THE DEFECT
+mcb_amp_a         = 63     @ 0.60   <- the SOCKET's incomer rating, reused
+mcb_pole_stated   = "DP"   @ 0.70   <- contradicts the 5-pin (3P+N+E) socket it also read
+```
+
+`mcb_present = Yes` is false, so `absent_when` never fires, `catalog_fit` runs, and **+1147 lands on a
+row that has no MCB**. **Slice 2b moved the failure without removing it:** the model no longer *picks*
+an MCB (R12 step (0) is holding, at 0.95) -- it now *asserts one exists* and the deterministic ladder
+picks it. The wrong ANSWER survived because the wrong FACT did.
+
+**This is neither a 2c defect nor a pipeline defect** -- the pipeline is faithfully pricing what
+extraction asserted. **What 2c changed is that it is now VISIBLE**: pre-2c that field was blank, so the
+MCB was being added invisibly; the owner spotted it within a minute of the field being populated. That
+is the slice working, not failing.
+
+**Fix direction (OUT OF 2c's scope -- `extraction.py`, assets and category configs are all excluded):**
+`mcb_present` needs its own instruction making it a **literal-mention test, not a judgement** -- an
+"incomer", a current rating, or a distribution context is **not** a mention; default `No`. Per the
+standing invariant, **an extraction-side rule is certified by re-run + capture, never by test.**
+Queued as its own slice ahead of slice 3.
+
+---
+
+## Build slice 2d -- one answer per field, in the user's language (2026-08-16)
+
+**Commits:** `feat(boq-rate-master): one answer per field - panel and derivation speak the user's
+language (slice 2d) - asset v38` + `docs(boq): record slice 2d as built`. Branch
+`feature/boq-pricing-helper`, parent `37d81239`. **Asset v38** (`rate_master_electrical_all_v38.json`).
+
+### What shipped
+
+- **`panel: false`** on `AttributeDefinition` — hides an attribute from the PRICING PANEL only. The
+  four `industrial_sockets` MCB facts (`mcb_present`, `mcb_amp_a`, `mcb_pole_stated`,
+  `mcb_curve_stated`) leave the panel; `paired_mcb` alone carries the answer.
+- **Option B markers** — plain / `(computed)` / `None (computed)` / plain `None` / the amber
+  `default` badge, composed from two structured outcomes.
+- **Two new outcomes:** `CatalogFitOutcome.substituted` + `.whereRefs`, and the new
+  `MapAttributeOutcome {result_attr, stated}` with the `mapAttributeOutcomes` reader — the fourth
+  instance of the moduleFit "read the structured data, never the prose" contract.
+- **B3 per-attribute reset** — a hover-revealed icon that DELETES the override.
+- **Q4(i)** — derived binds leave the Derivation input selects; the 2c sentinel is reverted for all
+  12 categories.
+- **Predicates relocated** to `rateMasterStructure.ts` (`derivedQtyAttrs`, `derivedAttrIds`,
+  `blanksQtyAttr`) — the leaf both screens may import.
+- **RM-4b `in panel` checkbox**; server shape-guard for `panel`.
+
+### ⚠️ THE LOAD-BEARING IMPLEMENTATION FACT
+
+`pricingSheetHelper`'s single defs loop builds THREE things: the panel list, the `selected` map handed
+to `runPipeline`, and the missing-attribute gate. **The filter goes on the PUSH, never the walk** —
+filtering the walk strips the facts from `selected`, so `absent_when` never fires and `fit_from` never
+reads, and **every socket row is silently mispriced with the panel looking tidier than before.** The
+gate exempts a hidden attribute for the same reason the derived exemption exists: a field the pricer
+cannot see is not missing user input.
+
+### ⚠️ OPTION B NEEDS TWO STEPS TO ANSWER ONE QUESTION
+
+A `catalog_fit` can hit its ladder EXACTLY and still rest on a substituted fact. The verdict is
+`substituted || any whereRef's map outcome was not stated`. **Live proof: row 474** (BOQ-26-00113) —
+the row states 32 A and DP, the ladder hits 32 A exactly, and only the CURVE is defaulted; it
+correctly reads `32A DP MCB C CURVE (computed)`. Built from the fit alone it would have read PLAIN and
+claimed the row specified a curve it never mentioned.
+
+### ⚠️ THE C6 DEFECT — SHIPPED, CAUGHT BY THE BROWSER CERT, FIXED
+
+The B3 reset icon **never rendered**, on any attribute, on any row. One line:
+
+```tsx
+- {attrOverrides[a.id] !== undefined && (        // WRONG KEY SPACE
++ {attrOverrides[helper.id]?.[a.id] !== undefined && (
+```
+
+`attrOverrides` is keyed **by helper id THEN attribute id**; `attrOverrides["rating"]` is always
+`undefined`. The handler on the next line (`resetAttr(helper.id, a.id)`) was already correct — so it
+was a dead control, not a wrong action.
+
+**Six unit tests covered `hasSessionEdits` and the delete-not-clear semantics and all passed.** The
+render guard is a React semantic and this repo has NO DOM test environment — the blind spot
+`frontend/CLAUDE.md` documents in its own words. **The browser cert is the only thing that could have
+caught it, and it did.**
+
+### ⚠️ THE FAST-REFRESH STALENESS TRAP (found while re-verifying the fix)
+
+`RateHelperPanel.tsx` exports non-component values (`overridesForRow`, `hasSessionEdits`,
+`RowScoped`), so **React Fast Refresh cannot hot-swap it** — the edited module does not take effect
+and the old one keeps running. My first re-check after the fix still showed no button. **A cert
+re-check after editing such a file requires the FULL Vite de-stale** (restart with
+`node_modules/.vite` cleared, then a hard reload), not an HMR update. Bench is not in this path for a
+frontend-only change.
+
+### THE STANDING CERT RULE (adopted this slice)
+
+**Every slice NAMES its unpinnable interactions — render guards, affordances, anything whose
+correctness is a React semantic — and the cert checks those FIRST.** They are the only items where a
+green suite carries no information. C6 was ordered first for exactly this reason and was the only
+cert item that failed.
+
+### WORKING AGREEMENT #57 (owner, VERBATIM)
+
+> **"No user-facing UI change ships without prior owner discussion — surfaced at draft time as a named
+> list, in user language, before any prompt is sent. Adding or removing an attribute definition IS a
+> user-facing change."**
+
+**Founding case 1 — the 2c `— not stated —` sentinel.** A new option on every attribute select on the
+Rate Master Derivation screen, introduced as a Radix/type-system detail. **Founding case 2 — the 2b
+four fact fields** (`mcb_present`, `mcb_amp_a`, `mcb_pole_stated`, `mcb_curve_stated`), four new
+controls on the pricing panel, introduced as extraction schema. **Both were UI changes framed as
+plumbing, and the owner ruled both out on first sight.**
+
+⚠️ **THE TEST IS WHAT THE USER SEES, NOT WHICH LAYER THE DIFF LANDS IN.** "It's a type", "it's a
+config key", "it's the extraction schema" are all descriptions of the DIFF; the agreement asks what
+appears on someone's screen. An attribute definition is the clearest trap in this codebase precisely
+because it reads as data: adding one puts a control in front of a pricer, removing one takes it away,
+and neither is visible in the word "definition".
+
+⚠️ **AND THE OBLIGATION IS TIMED: "at draft time … before any prompt is sent."** A named list in user
+language, up front — not a mention inside a build report after the work exists, when the cost of
+saying no has already been paid.
+
+**Slice 2d is the remediation of both founding cases** — `panel: false` takes the four fact fields off
+the pricing panel, and Q5(a) reverts the sentinel across all 12 categories — which is why the
+agreement is recorded here rather than anywhere earlier.
+
+### WORKING AGREEMENT #58 (owner, VERBATIM — ratified 2026-08-16)
+
+> **"A negative claim states its search space; where the space has a dimension the reader would not
+> think to ask about, name it explicitly or do not claim the negative."**
+
+**Founding case 1 — the ancestor chain.** The Phase-3 corpus measurement searched `description` +
+`notes` and reported row 589 as *"Yes on text with no MCB word"*. It never searched the
+`ancestor_chain`, whose immediate parent reads *"9 Nos. 40 amp DP MCB of 10 KA service breaking
+capacity."* The row was never a no-mention row, and the entire defect framing rested on that gap.
+
+**Founding case 2 — the trailing space.** The follow-up ancestor sweep returned 16 of 23 rows and
+nearly shipped that number. BOQ-26-00114's sheet is named **`'Electrical '`** — with a trailing space
+(the standing verbatim-#152 gotcha) — so a probe passing `"Electrical"` got **silently nothing back**.
+Phase 6 itself was unaffected because it read the name from the database.
+
+⚠️ **THE TWO CASES ARE DIFFERENT FAILURES AND BOTH ARE COVERED.** The first is a dimension NOT
+SEARCHED (ancestors were never in the query); the second is a dimension searched with a KEY THAT
+SILENTLY MATCHED NOTHING. In both, the tooling returned a clean, confident, wrong negative — which is
+why the agreement puts the burden on the CLAIM rather than on spotting the gap.
+
+⚠️ **IT APPLIES TO THIS SLICE'S OWN EVIDENCE.** The `blank_item` static proof (§R-B) states its search
+space explicitly — every interpreter read path for a selection key, including the non-obvious
+`match_master_row` intersection — and states its limit (a proof, not a numeric A/B). That is the shape
+#58 asks for.
+
+### R-A — "None" IS UNTOUCHED EVERYWHERE
+
+No `None` option, label, attribute or sentinel was removed, renamed, reclassified or hidden. All 20
+`allow_none` attributes across `db_switchgear` / `industrial_sockets` / `point_wiring` /
+`switches_sockets` remain. **The thing removed was the 2c `— not stated —` sentinel** — the pair
+confusion, not `None` itself. Verified on screen at C7 (`MCB pole stated` and `MCB curve stated` both
+still offer `None`; the plate ladder still offers `None`).
+
+### R-B — `blank_item` REPORT-ONLY FINDING (no action taken, by owner ruling)
+
+`"blank_item"` appears in **zero pipeline steps** in either `point_wiring` or `switches_sockets`, and
+**zero active Electrical items carry it as an attribute key** — which closes `match_master_row`'s
+stored-vs-selected intersection, the one route by which a selection key bites without appearing in a
+step. Both routes closed ⇒ varying it, `"None"` included, cannot move any figure.
+
+⚠️ **Honest limit:** this is an exhaustive static proof over the interpreter's read paths, **not a
+numeric A/B**. The goldens cannot supply one — `s1` and `ss1` differ on TEN attributes. Owner ruling:
+**don't change what isn't broken**; the finding is recorded, nothing was touched, and no
+numeric-sweep test was added.
+
+### PHASE 6 — the scoped re-extraction, and the ruling that came out of it
+
+23 rows, one window, `only_rows` per sheet (accepted and echoed: 1 / 6 / 7 / 9). New runs
+`BRSR-26-00601`–`604`, all `complete` / `ai_status: ran`, each carrying its untouched rows forward
+**byte-identically (drift 0 across 567 rows)**.
+
+**THE REGRESSION BAR HELD: 0 flips.** All 21 correct `Yes` rows stayed `Yes`, at HIGHER confidence
+(0.97, up from ~0.90). Row 79 stayed `No`.
+
+**589 did not flip — and OWNER RULING A is that this is CORRECT.** Its parent preamble names an MCB,
+which the approved rule admits. The sharpening still did its job: `mcb_amp_a` moved **63 → 40**, from
+the socket's incomer rating (the borrow old step (2) invited) to the parent MCB's own rating.
+**Acceptance criterion "589 → No" was wrong as written and is corrected to:** 589 shows its MCB
+`(computed)` — 40 A, DP stated by the parent, curve defaulted C — with no fact fields visible; **the
+saved 16580 stays untouched as a standing human override**, the owner may re-apply at discretion.
+
+### PHASE 7 — cert, all ten
+
+Chrome was killed and relaunched mid-cert (renderer corruption in the first attempt — one fully tiled
+frame; nothing was read off it). C1 row 589 `40A DP MCB C CURVE (computed)` · C2 row 98 `25A FP MCB C
+CURVE (computed)`, amp hop 20→25 · C3 row 474 `(computed)` from the defaulted curve alone · C4 row 79
+`None (computed)`, **and a human re-selecting None renders plain `None`** · C5 row 97 refuses with the
+red border on `Rating` ONLY while the derived `Paired MCB` is correctly unflagged · C6 fixed and
+verified twice (Rating on 98, Paired MCB on 79) · C7 in full · C8 point_wiring `1M & 2M (computed)`,
+prices unchanged · C9 589=16580, 98=14338, 87=14338 · C10 below.
+
+**C10 — the dev-shell console exception is a KNOWN NON-FINDING.** One exception per page load,
+`SyntaxError: Unexpected token '{'` at the page document line 32, traced to
+`frappe.boot = {{ boot }};` — an **unrendered Jinja placeholder** in the dev `index.html` that Vite
+serves raw. Pre-existing on every page in dev, unrelated to any slice, harmless.
+
+### Gates
+
+vitest **2452 / 1** (the known `writeOffControl` timeout), **+24** over the 2428 baseline · `tsc` **0
+errors** in both changed directories · backend `test_rate_master` **152 OK** before AND after the
+mint, the only moved pin being `CURRENT_EALL_ASSET` v37→v38 · two consecutive exports byte-identical ·
+v38 round trip **byte-identical** · 12 configs / 1364 items / 0 `TEST_RM` residue.
+
+### FOLLOW-UP LEDGER
+
+1. **The absent-reason discriminator.** `absent_when` fired ("the text says no MCB") and
+   `on_missing_fact` ("we could not read the facts") both produce `{fitted: null, absent: true}` and
+   both render `None (computed)`. With the facts off the panel the second is otherwise unobservable.
+   Needs a discriminator on `CatalogFitOutcome` — an interpreter change, deferred.
+2. **R12 step (0)** still returns `paired_mcb` null ALWAYS, so a "plain value (direct BoQ match)" is
+   unreachable by extraction — only a human override produces it. If a directly-named MCB should be
+   stated, that is its own ruling.
+3. **`— select —` on a computed field.** A derived attribute with a computed value shows its value,
+   but the placeholder still reads `— select —` if opened. Cosmetic, unruled.
+4. **Same-option re-selection.** Choosing the option already displayed fires no DOM change in a real
+   click, so converting computed-`None` to stated-`None` by hand may need a detour through another
+   value. Pre-existing nuance, flagged at the 2c recon.
+5. **The Derivation screen can no longer test unstated attributes** (the Q5a cost, accepted).
+
+## Fact-correction slice — four stale facts in `CLAUDE.md`, and WBC-S6c marked never-landed (2026-08-17)
+
+**Date:** 2026-08-17 · **Tier:** Documentation only · **Branch:** `feature/boq-pricing-helper`
+**Found by:** the read-only CLAUDE.md trim recon of 2026-08-17 (no code read this slice; verification
+was four reads — V1-V4 below — plus five git checks).
+
+No code, schema, API or config changed. No test suite was run: this slice changes no behaviour, so a
+run would prove nothing. One commit, documentation only.
+
+### The five corrections
+
+| # | File | Was | Now |
+|---|---|---|---|
+| C1 | `CLAUDE.md` (4 sites) | Named `rate_master_electrical_all_v30.json` as the CURRENT asset with sha prefix `63628d6a15a33796`, "1,382 items and 12 configs", "1,382, not 1,383", and `..._all_v31.json` as the on-disk lineage | Every one replaced by a pointer to `CURRENT_EALL_ASSET` in `nirmaan_stack/api/boq/test_rate_master.py`. **No version, sha or item count is written anywhere** — a number written today is stale at the next mint |
+| C2 | `CLAUDE.md` ~614 | "Tests `test_rate_master` 14→22" | Pointer: read the count from the test file (it was **152**, wrong by 130) |
+| C3 | `CLAUDE.md` Active Features | Branch `feature/boq-phase-3`; "Phase 5 … active" | Branch `feature/boq-pricing-helper`; the phase/slice sentence removed for a pointer to this plan doc |
+| C4 | `CLAUDE.md` header | "**Last updated:** 2026-07-31" | Removed. Newest dated content in the file was 2026-08-15; an unmaintained date claims a freshness the file does not have. Not replaced with today's date |
+| C5 | this plan doc | WBC-S6c recorded as completed fact | A `NEVER-LANDED` block inserted directly under its heading. **The section itself is unaltered**, so the discrepancy stays legible |
+
+**Why C1 is a pointer and not a fresh number.** `CLAUDE.md` already declared, in its own text, that
+`CURRENT_EALL_ASSET` is the ONE authoritative version pin and that "any new file naming an asset
+version must justify itself against this line" — while naming v30 in three places. It had drifted
+this way once before (the line self-documents having read `v22` for seven versions). Writing v38 in
+would restart the same clock; the fix is that no version number lives in `CLAUDE.md` at all.
+
+**Left untouched deliberately:** five other mentions of v30/v31/v32 (lines ~834, ~1055-1056, ~1071,
+~1120) are HISTORICAL narrative about past merges and past fixes, not assertions of current state,
+and one is inside an F-20 block. The wiring-asset invariant sha at ~731 pins a RETIRED, frozen
+artefact and cannot drift. Nothing marked SUPERSEDED / HISTORICAL / RETIRED was edited — four of
+those markers describe CURRENT rulings.
+
+### WBC-S6c: five checks, all negative
+
+Scanned all 29 refs (15 local heads + 14 remote): no tree contains `.claude/context/conventions/` or
+`frontend/.claude/context/conventions/`. `git log --all --diff-filter=A` on both paths: empty. 460
+reflog entries: no match. 22 dangling commits: none carry those paths. 4 stashes (2026-07-01, 07-07,
+07-15, 07-24): none contain them.
+
+⚠️ **Two figures from the commissioning brief did not survive verification and the block records the
+measured values instead:** dangling commits are **22**, not 23; and there is **no 2026-07-30 stash at
+all** — the four stashes are dated as above. Neither changes the conclusion; all five check families
+agree the carve never landed.
+
+### Verified values (V1-V4)
+
+`CURRENT_EALL_ASSET = "rate_master_electrical_all_v38.json"` (`test_rate_master.py:147`) ·
+152 test methods in that file · branch `feature/boq-pricing-helper` · newest dated content in
+`CLAUDE.md` 2026-08-15 vs a header reading 2026-07-31.
+
+**Still owed:** the CLAUDE.md trim itself (root is ~1,683 lines / ~200 KB; `frontend/CLAUDE.md`
+~1,782 / ~179 KB). That is a separate slice, and its orphan list — rules recorded nowhere else — is
+the gate on what it may cut.
+
+## Build slice 3a -- cable tray width fits NEXT HIGHER (F-9, pricing half) (2026-08-17)
+
+**Commits:** `feat(boq-rate-master): cable tray width fits next higher - asset v39 (slice 3a)` +
+`docs(boq): record slice 3a as built`. Branch `feature/boq-pricing-helper`, parent `15fd210e`.
+**Asset v39** (`rate_master_electrical_all_v39.json`, sha256 `40840ccfb21b4644`).
+
+**This slice stopped TWICE before shipping, both times correctly.** The record of why is the most
+useful part of it.
+
+### What shipped
+
+- **`fit_into`** -- ONE additive optional param on `CatalogFitStep`. On the FITTED path only, it
+  writes the fitted rung's SIZE (a NUMBER) into the run-local selection overlay, so
+  `match_master_row` can see it. ABSENT => byte-identical; `industrial_sockets` carries none.
+- **Asset v39** -- one `catalog_fit` step at the head of each of the four tray pipelines
+  (`bind`/`fit_into` both `width_mm`, `direction: "up"`, `on_miss: "no_compute"`, ladder filtered by
+  `@tray_type` / `@material` / `@thickness_mm`).
+- **9 tests** in `ratePipelineInterpreter.test.ts` (305 -> 314).
+- **R1** -- the four F-16 assertions re-anchored by step TYPE and component NAME.
+
+### ⚠️ THE GAP, AND WHY IT WAS NOT "ZERO NEW CAPABILITY"
+
+The pre-slice note predicted tray width would ride `catalog_fit` with no interpreter change. **That
+was wrong, and the reason is a TYPE.** `catalog_fit`'s `bind` publishes the rung's LABEL into
+`fitLabels`, declared `Record<string, string>` and stringified through `String(label)`. That is
+correct for `industrial_sockets`, whose ladder binds a catalog `item` NAME consumed by a
+`component_ref` "@ref". `match_master_row` is a different consumer: `matchMasterRow` reads
+**`selected` and nothing else**, comparing with `===`. Cable tray stores `width_mm` as a NUMBER, so a
+bound `"100"` matches nothing -- **silently**. Exactly two steps wrote into `selected`
+(`derive_attribute`, `map_attribute`); `fit_into` is the third.
+
+### R1 -- the first stop, and how it was cleared
+
+`test_f16a` anchored on `steps[0]` / `steps[1]`, and `_merged_payload` reads `CURRENT_EALL_ASSET`
+directly -- so bumping the pin to v39 broke four assertions the moment the fit step took index 0.
+The slice STOPPED rather than editing them. **Owner ruled: re-anchor by name.** F-9 does not repeal
+F-16 -- install is still read verbatim off the matched `cable_tray` row; only the index moved. The
+four assertions now locate the steps by TYPE (`match_master_row`) and NAME (`width_install`), which
+asserts the same guarantee and cannot be moved by a later insertion. Each carries an inline comment
+naming F-9 and stating that index-anchoring was incidental.
+
+### R2 -- the second stop: a requirement that was WITHDRAWN
+
+The resume brief required the tray derivation screen to stay unchanged, naming `industrial_sockets`
+as a compliant exemplar with a mechanism to copy. **Both halves of that premise were false, and the
+slice stopped rather than building against it:**
+
+- **No mechanism exists.** `RateMasterDerivation.tsx:508` renders `{r.steps.map(...)}` unconditionally.
+  Searched `RateMasterDerivation.tsx`, `rateMasterTypes.ts`, `rateMasterStructure.ts` for `hidden` /
+  `internal_only` / `hide_step` / `suppress`: **nothing**.
+- **The two screens filter on DIFFERENT AXES.** Derivation =
+  `selector !== false && !derivedAttrIds(config).has(id)` (`RateMasterDerivation.tsx:207-211`);
+  helper = `selector !== false` then `panel !== false` (`pricingSheetHelper.ts:147-149`, `:455`).
+  They coincide only by accident.
+- **Measured on the live v38 asset, three of twelve categories already diverged** --
+  `industrial_sockets` **by 5** (helper 5 / derivation 8; helper-only `paired_mcb`, derivation-only
+  the four MCB facts), `point_wiring` by 3, `switches_sockets` by 2. The named exemplar was the
+  worst offender.
+- **It contradicted slice 2d's Q4(i)**, encoded at `RateMasterDerivation.tsx:190-205`: *"THIS TAB IS
+  A PURE CALCULATOR: you state the INPUTS, and every attribute the pipeline DERIVES leaves the
+  selects, appearing only in the step lines below."* Q4(i) is what CREATES the mismatch R2 forbade.
+
+**Owner ruling 2026-08-17: the brief was wrong and is withdrawn. Q4(i) STANDS.** The derivation
+screen is wrong across categories and the owner will redesign it himself, all categories together.
+Slice 3a does not fix it, work around it, or touch it. Width leaving the tray derivation input list,
+and one step row appearing in its step lines, are accepted consequences of the calculator rule.
+
+### DEFERRED -- owner rulings recorded, NOT BUILT in this slice
+
+> **(i) SLICE 3b:** the stated SWG gauge must NOT appear on the derivation screen OR the helper
+> screen. It is internal to the model. **The only thickness a user sees or edits is the value in
+> millimetres.** 3b's design must be drafted against this, not against the withdrawn R2.
+>
+> **(ii)** The same rule applies to `industrial_sockets`' internal fields. **Deferred, not touched.**
+
+### Verification (P1-P4, all re-measured, all confirmed)
+
+| | Result |
+|---|---|
+| P1 retained work | 4 products intact; v39 sha256 `40840ccfb21b4644` unaltered (the prior report's 698,095-byte figure was a transcription slip; actual **698,152**) |
+| P2 DB state | live export **byte-identical to committed v38** before loading |
+| P3 baselines | vitest **2461 pass / 1** (known `writeOffControl` timeout) - `ratePipelineInterpreter.test.ts` **314** - `pricingSheetHelper.test.ts` **138** - `test_rate_master` **152 OK** |
+| P4 cert rows | 141 (w 65, t 1.6) and 9 (w 750, t 2) both unchanged; editor-path baseline **36 of 79** |
+
+### The mint (documented procedure: root `CLAUDE.md:993-998`)
+
+Export -> edit -> reload, never a stale file. **v39 was minted in the prior session, so its currency
+was PROVED rather than assumed:** a fresh export taken immediately before loading equalled committed
+v38, and re-applying the identical insertion to that fresh export reproduced the retained v39
+**byte-for-byte** (`40840ccfb21b4644`). The file was never hand-edited. Load by explicit path,
+`replace=True`; stored-vs-asset verified **KEY BY KEY across all 12 configs -- zero mismatches**;
+1,364 items; goldens t1/t2/t3 unchanged.
+
+⚠️ **A first load attempt died on `psycopg2.errors.SerializationFailure`** because the backend suite
+was still running against the SAME database (`test_rate_master` creates `TEST_RM_*` disciplines
+there, not in an isolated test DB). The transaction rolled back cleanly -- the DB was re-verified
+still exactly v38 -- and the load succeeded once the suite finished. **Do not run a loader and that
+suite concurrently.**
+
+### Measured counts
+
+| Suite | Baseline | After |
+|---|---|---|
+| vitest | 2461 pass / 1 fail (2462) | **2461 pass / 1 fail (2462)** -- unchanged, same known timeout |
+| `ratePipelineInterpreter.test.ts` | 314 | **314 / 314 pass** |
+| `test_rate_master` (v39 pin) | 152 OK | **152 OK** -- re-anchored assertions green |
+| `tsc` in the changed dirs | -- | **0 errors** |
+
+**Vacuity proof (prior session, carried):** disabling the `fit_into` line turned exactly **3 of 9**
+red -- including the type-bridge test -- and restoring returned 314/314.
+
+### Browser cert -- ALL PASS
+
+De-staled: service worker unregistered (1 found), caches + storage cleared, tab CLOSED and reopened,
+session re-verified live (`frappe.auth.get_logged_user` -> `admins@nirmaan.app`).
+**BUNDLE MARKER:** `fit_into` present in the module Vite served (261,161 B, HTTP 200) **and**
+`catalog_fit` present at step 0 of all four tray pipelines in the served config.
+
+| # | Step | Result |
+|---|---|---|
+| 1 | BOQ-26-00106 / ELECTRICAL BOQ / **141** (w 65) | **PASS** -- panel reads `Row 141 - Combined rate`, **560** (supply 440 + install 120). **Width (mm) `(computed)` 95% -> 100**. Before: no rate at all |
+| 2 | BOQ-26-00169 / E2E CERT / **9** (w 750) | **PASS** -- panel reads `Pricing sheet  --  >` / **"no match for these attributes"**; the cell area shows only the sparkle opener, `0`, and `Add note`. That basis string is PRE-EXISTING (`pricingSheetHelper.ts:574-575`) -- **no message, no new text** |
+| 3 | Row **140** (w 100, exact) | **PASS** -- `Width (mm) 95% -> 100`, **NO `(computed)` tag**, plain editable field, same 560 |
+| 4 | `industrial_sockets` row 98 shape | **PASS** -- supply **10618**, install 3720, fitted `25A FP MCB C CURVE`; its config carries no `fit_into` |
+| 5 | Editor-path count | **PASS** -- **36 -> 37, delta exactly ONE**; the gained row is 141 (w 65) pricing at 440 |
+| 6 | Derivation screen (REPORT ONLY) | Recorded below |
+
+**Cert 6 -- the record for the owner's later redesign.**
+*Before (v38):* input list = all 8 (Type, Material, Thickness (mm), **Width (mm)**, Cover,
+Installation Type, Floor Cutting, Floor Refilling); step lines began `match_master_row`.
+*After (v39):* input list = **7 -- Width (mm) is GONE** (Type, Material, Thickness (mm), Cover,
+Installation Type, Floor Cutting, Floor Refilling, + Brand fixed); each of the four pipelines now
+shows a leading `catalog_fit` step reading *"attribute 'width_mm' missing or non-numeric -- no
+width_mm computed"*, and **all four report `no match`.**
+⚠️ **Consequence worth the redesign's attention: with width no longer settable there, the cable-tray
+derivation screen can no longer compute anything at all.** The helper panel is unaffected and prices
+normally -- this is a derivation-screen limitation, not a pricing one.
+
+### Backwards compatibility
+
+| Risk | Proof |
+|---|---|
+| `industrial_sockets` string path | No `fit_into` in its config (asserted in-browser); supply **10618** matches the standing pin; regression-guard test green |
+| tray goldens t1/t2/t3 | All at exact width 100 -> fit hits exactly, writes the same 100 back; byte-identical v38 -> v39 |
+| the 36 rows pricing today | All exact widths -> `exact: true`, `substituted: false`; cert 3 confirms no marker and the same price |
+| every other category | Only `cabletray_raceway` differs from v38; `fit_into` absent from all 11 others |
+| runtime / schema / API | None. One optional TS param + one config step. No doctype JSON, no migrate, no Python |
+
+## Build slice 3b -- cable tray thickness dropdown + SWG conversion (F-9 second half, F-10) (2026-08-17)
+
+**Commits:** `feat(boq-rate-master): cable tray thickness dropdown + SWG conversion - asset v40 (slice
+3b)` + `docs(boq): record slice 3b as built`. Branch `feature/boq-pricing-helper`, parent `22578b80`.
+**Asset v40** (`rate_master_electrical_all_v40.json`, sha256 `ae156d6a28cc1b9a`).
+
+**This slice STOPPED once, at the cert, and the stop was right.** ONE record, per #59.
+
+### What shipped
+
+- **`thickness_swg`** -- the hidden gauge FACT. `selector` on (the model reads it), `panel: false`
+  (never on the pricer's screen). The user sees and edits ONE thickness field, in millimetres.
+- **`thickness_mm` -> `number_choice` + `values_from {kind: cable_tray, attr: thickness_mm}`** -- a
+  catalogue-fed dropdown offering exactly `1, 1.2, 1.4, 1.6, 2`.
+- **The SWG `map_attribute`**, FIRST in all four tray pipelines. 27-entry table (gauges 0-26),
+  PRE-CONVERTED from the standard inch values and PRE-ROUNDED to one decimal in CONFIG -- no runtime
+  arithmetic. **14 -> 2.0, 16 -> 1.6**, both real catalog rows.
+- **`derivedAttrIds` gained a `map_attribute` branch** -- the FIFTH derivation mechanism.
+- **`mapAttributeSources`** -- the pure, config-only half of the conditional exemption.
+- **The CONDITIONAL gate exemption (R8)** and **the display narrowing (R9)**.
+- **`MapAttributeOutcome.value`** + **the `applyDerivedDisplay` map branch** -- the finish.
+- **Estimator rule R13**, owner text.
+
+### ⚠️ THE PIPELINE ORDER IS LOAD-BEARING AND SILENT WHEN WRONG
+
+Required: **`map_attribute` -> `catalog_fit` -> `match_master_row`.** The 3a width fit filters its
+ladder on `where: {thickness_mm: "@thickness_mm"}`, so if the map has not yet resolved the thickness
+the "@" ref is unresolved, the fit BAILS, and the row dies before the matcher -- with every fact
+needed to price it present. Nothing in the config declares this dependency; it is discoverable only
+by reading both steps. Pinned by a test that runs the SAME inputs in both orders.
+
+### ⚠️ R6: `prefer_attr` AND `result_attr` ARE THE SAME ATTRIBUTE
+
+A stated millimetre value beats a stated gauge. The stated-wins branch is checked FIRST, before the
+source is read, so `prefer_attr: thickness_mm` on `result_attr: thickness_mm` short-circuits and the
+row's own value survives untouched. **This adds no field** -- a separate `thickness_mm_stated` would
+have grown the pricer's screen for nothing.
+
+### THE CONDITIONAL EXEMPTION (R8/R9) -- why it is not a blanket one
+
+`derivedAttrIds` answers "could the pipeline EVER fill this?" at CONFIG level. For the four original
+mechanisms that is also the row-level answer -- a ladder, a fit and a formula can always run. **A
+`map_attribute` is the first that CANNOT**: it fills from a SOURCE, and on a row where the source is
+blank it fills nothing.
+
+Exempting the target wholesale would have replaced *"Complete the missing attributes to price"* --
+an instruction the pricer can act on -- with *"no match for these attributes"*, which they cannot,
+on **35 of 79** live tray rows. The owner ruled the message is worth keeping.
+
+**Shape A**: a per-row pre-pass in the existing `disabledByNone` idiom builds `fillableDerived`; the
+gate reads that instead of `derived`. **`derivedAttrIds`' signature never changed**, so its other two
+consumers -- `applyDerivedDisplay` and the Derivation input list -- were untouched. `applyDerivedDisplay`
+takes the row-level set as an OPTIONAL 4th param; absent, it is byte-identical (which is why
+`computeWiring` passes nothing and is unaffected).
+
+⚠️ **INERT FOR EVERY OTHER CATEGORY, and not by luck.** The only other `map_attribute` steps
+(`industrial_sockets`' `mcb_pole` / `mcb_curve`) resolve ids that are **NOT declared attributes**, and
+every consumer of `derivedAttrIds` iterates `attribute_definitions`. An id no consumer iterates cannot
+change anything. Proven twice: by census, and by a vitest run taken after the code changes but BEFORE
+the config landed -- **2461/1, identical to baseline**.
+
+### ⚠️ THE STOP -- the panel showed a blank where pricing used a value
+
+The cert found row 513 pricing at **1068** off a thickness of **1.6 converted from a stated 16SWG**,
+while the Thickness field rendered an empty `-- select --`. **The owner spotted it during the run.**
+
+Cause: `applyDerivedDisplay` had branches for `module_fit`, `catalog_fit` and `derive_attribute` but
+**none for `map_attribute`**, so the attribute fell through to `{...a, derived: true}` -- derived,
+with no value. And it could not simply be added, because **`MapAttributeOutcome` carried only
+`{result_attr, stated}`** -- it never said WHAT the value was.
+
+**This is the same defect shape slice 2c fixed for `catalog_fit`** (row 98's paired MCB reading
+"-- select --" beside a priced 25A MCB), and the same rule: **THE PANEL SHOWS WHAT PRICING USED.**
+
+**Why it was missed, and why the stop was right:** R9 in the brief scoped the display work to the
+gauge-LESS row. Nothing covered the gauge-BEARING row's display. The approved UI list promised item 2;
+the build list did not construct it. **A brief defect, not an implementation one.**
+
+**The finish:** `MapAttributeOutcome.value` populated at both write sites, plus branch 5 in
+`applyDerivedDisplay` reading it through the existing `mapAttributeOutcomes` reader -- the fourth
+instance of the moduleFit contract (read the STRUCTURED data, never the prose, never re-derive).
+**Option B, two opposite cases:** MAPPED -> `(computed)`; STATED -> **PLAIN**, because tagging a value
+the row supplied would credit the pipeline with the pricer's own entry.
+
+### ⚠️ WIDTH INHERITS THE SUBSTITUTION -- already 3b behaviour, now pinned
+
+On a gauge row the width shows `(computed)` **even at an exact catalog width**. That is the slice-2d
+option-B rule, not a regression: the tray `catalog_fit` filters on `@thickness_mm`, so `whereRefs`
+joins into the map outcomes and an exact fit resting on an INFERRED thickness is still a value we
+worked out. Visible in the 3b cert (row 513: `Width (mm) (computed) 600`). A first test expectation
+here was WRONG and was corrected, with the contrast pinned: thickness STATED -> width PLAIN.
+
+### The mint + the re-extraction (ONE atomic operation)
+
+Procedure read: root `CLAUDE.md:993-998`. Export -> edit -> reload; currency **re-proved immediately
+before loading** by re-applying the identical edit to a fresh export and matching v40 byte-for-byte.
+Never hand-edited. Stored-vs-asset verified **key-by-key across all 12 configs, zero mismatches**;
+1,364 items; only `cabletray_raceway` differs from v39; tray goldens unchanged.
+
+**Scoped re-extraction over the 37 gauge-bearing rows** (`only_rows`, three sheets, three runs, all
+`complete` / `ai=ran`). **36 of 37 gauges read correctly:**
+
+| Rows | Read | Reading exercised |
+|---|---|---|
+| `BOQ-26-00106` 154-160 | 14 | own description ("14 gauge") |
+| `BOQ-26-00113` 511-519 | 16 | **nearest ancestor** -- parent's 16SWG beat grandparent's 14SWG |
+| `BOQ-26-00113` 498 | 14 | grandparent, no nearer gauge |
+| `BOQ-26-00019` 364-428 + `00113` 535-539/569-574 | 16 | **body-vs-cover** -- took the BODY gauge |
+| `BOQ-26-00113` 583 | null | wire-mesh tray, parent states no gauge -- **declined rather than borrowing** |
+
+`thickness_mm` came back null on all 37 -- R13 sentence 1 working (*record the gauge, do not convert*).
+**Untouched rows: 86 + 137 + 153 = 376 byte-identical, ZERO differing.**
+
+### The wording (W1-W3) -- terminology alignment only
+
+Two sentences went in VERBATIM. The third was aligned to the prompt's own vocabulary, TERMS ONLY:
+
+| | Text |
+|---|---|
+| BEFORE | "...or **on a section heading above it**. When more than **one heading** states a gauge, use the nearest one." |
+| AFTER | "...or **on an ancestor header**. When more than **one ancestor** states a gauge, use the nearest one." |
+
+`the row itself` and `the nearest one` were left alone -- the prompt already uses the first phrase
+verbatim (line 9) and `_ROW_CONTEXT_SHAPE_GUIDANCE` already states *"A nearer ancestor's text describes
+this row more specifically than a farther one's"*. The alignment REINFORCES an existing sentence; no
+replacement text was authored.
+
+### Counts
+
+| Suite | Baseline | After |
+|---|---|---|
+| vitest | 2461 / 1 -> (3b) 2479 / 1 | **2489 / 1 (2490)** -- +28 across the whole slice, same known `writeOffControl` timeout |
+| `ratePipelineInterpreter.test.ts` | 314 | **324** |
+| `pricingSheetHelper.test.ts` | 138 | **156** |
+| `test_rate_master` | 152 OK (v39 pin) | **152 OK (v40 pin)** |
+| `tsc` in both changed dirs | -- | **0 errors** |
+
+**Vacuity proofs, five mechanisms, both runs each:** B4 (`map_attribute` in `derivedAttrIds`) -> 3 red ·
+B5 (gate narrowing) -> 1 red, exactly the message-preserving test · B6 (display narrowing) -> 1 red ·
+B1 (`value` populated) -> 6 red · B2 (display branch) -> 2 red. All restored, all green.
+
+### Cert -- all pass
+
+⚠️ **The de-stale FIRED, twice.** The first bundle-marker check in 3b came back FALSE: Vite was serving
+pre-slice modules. These files export non-component values, so Fast Refresh cannot hot-swap them --
+the full recipe (kill Vite, delete `node_modules/.vite`, restart) is mandatory, and was applied again
+for the finish. **The owner's standalone `yarn dev` was restarted both times.**
+
+| # | Step | Result |
+|---|---|---|
+| 1 | `BOQ-26-00113` / 513 | **PASS** -- `Thickness (mm) (computed) 1.6`, price unchanged 1068 / 380. **The row the owner reported** |
+| 2 | `BOQ-26-00106` / 154 | **PASS** -- `(computed) 2`. Does not price: width 900 exceeds the catalog top (3a refusing correctly) |
+| 3 | `BOQ-26-00113` / 498 | **PASS** -- `(computed) 2`, same width refusal |
+| 4 | `BOQ-26-00113` / 583 (neither) | **PASS** -- blank, NOT derived, and *"Complete the missing attributes to price"*. **Never observed in the 3b cert; observed here** |
+| 5 | `BOQ-26-00114` / 239 (stated mm) | **PASS** -- shows `1.6` PLAIN, no marker, no `derivedValue` |
+| 6 | `BOQ-26-00106` / 141 (3a width) | **PASS** -- still 440 + 120 = 560 |
+| 7 | Editor-path count | **PASS** -- **63 of 79, unchanged** from the 3b cert. No priced value moved |
+| -- | Thickness dropdown | `-- select --, 1, 1.2, 1.4, 1.6, 2` |
+| -- | Gauge on the panel | **Absent on every row shape** |
+
+The tray population now: 63 price · 8 blocked by width above the catalog top · 4 by a thickness the
+catalog lacks (the 2.6 mm rows) · 4 by having neither thickness nor gauge.
+
+### Backwards compatibility
+
+Every other category using `map_attribute` -- census showed only `industrial_sockets`, whose
+result_attrs are undeclared and therefore unreachable by any consumer. Slice 3a's width -- unchanged
+(cert 6; and width renders through branch 4, pinned). The three tray goldens -- byte-identical v39 ->
+v40, `test_rate_master` 152 OK. The 63 pricing rows -- count identical before and after the finish.
+No doctype JSON, no migrate, no endpoint, no production Python.

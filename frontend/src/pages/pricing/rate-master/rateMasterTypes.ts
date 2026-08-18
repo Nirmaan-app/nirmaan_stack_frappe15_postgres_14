@@ -27,6 +27,24 @@ export interface AttributeDefinition {
   values?: (string | number)[];
   /** brand carries selector:false -- shown but not selectable. Absent => selectable. */
   selector?: boolean;
+  /**
+   * SLICE 2d -- hidden from the PRICING PANEL only. Absent => shown, so every pre-2d config is
+   * byte-identical.
+   *
+   * ⚠️ THIS IS NOT `selector`, AND THE DIFFERENCE IS THE WHOLE POINT. `selector: false` hides an
+   * attribute from all THREE surfaces including the AI prompt (`extraction.py` skips it), which is
+   * the opposite of what this flag is for: the four `industrial_sockets` MCB facts must keep being
+   * EXTRACTED and keep driving the pipeline while leaving the pricer's screen, so that one field --
+   * `paired_mcb` -- carries the whole answer.
+   *
+   * ⚠️ IT NARROWS THE RENDERED LIST ONLY, NEVER THE DEFINITION WALK. `pricingSheetHelper`'s one loop
+   * builds three things from the same defs: the panel list, the `selected` map handed to
+   * `runPipeline`, and the missing-attribute gate. Filtering the WALK would strip these facts from
+   * `selected`, so `absent_when` would never fire and `fit_from` would never read -- every socket row
+   * silently mispriced. The filter belongs on the push, and the gate exempts a hidden attribute
+   * because a field the pricer cannot see is not missing user input.
+   */
+  panel?: boolean;
   note?: string;
   // EA-4a: a choice whose allowed values are RESOLVED FROM the live master (distinct `attr` values of the
   // `kind` rows matching `where`), exactly like the item-identity catalogs. The BACKEND resolves these at
@@ -442,11 +460,130 @@ export interface DeriveAttributeStep {
   explain?: string;
 }
 
+// SLICE 2b: resolve ONE string attribute -- a stated value if there is one, else a config table
+// lookup, else a config default. THE OWNER'S STANDING PRINCIPLE: the model reads facts; every
+// substitution / ladder / CONVERSION / fit is deterministic code. A pin-count -> pole mapping
+// ("5 Pin / 3P+N+E" -> "FP") is a CONVERSION, so it lives here and not in a prompt sentence.
+//
+// It writes into the run-local SELECTION OVERLAY (the `derive_attribute` crossing), so a later
+// `catalog_fit` reads the result through the ordinary "@" resolution with no coupling between the
+// two steps. `derive_attribute` could not serve: its formula language is arithmetic, and a pole is
+// a string.
+//
+// ⚠️ `prefer_attr` IS STATED-WINS AND IS CHECKED FIRST. The BoQ always wins: row 470 is a 3-pin
+// socket whose text states DP, and DP is the correct answer -- so a text-stated pole must beat the
+// pin-count mapping. Blank / absent / the "None" sentinel all mean "not stated" and fall through.
+//
+// This is also F-10's SWG -> mm shape (`from_attr` gauge, `table`, `result_attr` thickness), so the
+// mechanism is general rather than socket-specific.
+export interface MapAttributeStep {
+  step: "map_attribute";
+  params: {
+    /** The ATTRIBUTE ID the resolved value lands on -- in the selection overlay, NOT in ctx. */
+    result_attr: string;
+    /** STATED-WINS: when this attribute carries a real value, it is used verbatim and no mapping runs. */
+    prefer_attr?: string;
+    /** The attribute whose value is looked up in `table`. Omitted => `default` alone decides. */
+    from_attr?: string;
+    /** The conversion, READ FROM CONFIG. Exact string match on the source value. */
+    table?: Record<string, string | number>;
+    /** Used when nothing is stated and the table does not answer (or there is no table). */
+    default?: string | number;
+    /** "no_compute" (default) = an honest no-compute naming the attribute. "skip" = leave the target
+     * unset and carry on, for a mapping that is genuinely optional. */
+    on_miss?: "no_compute" | "skip";
+  };
+  explain?: string;
+}
+
+// SLICE 2b: fit a stated NUMBER onto a ladder derived FROM THE CATALOG, and bind the chosen row's
+// label. The generalisation of `module_fit`'s ladder half, with three differences that make it
+// reusable by the next two consumers (slice 3's tray width, F-10's converted thickness):
+//   * the rung size may come from a numeric ATTRIBUTE (`size_from`), not only from parsing the label;
+//   * `where` values may be "@"-REFS and VALUE LISTS (see CatalogWhere);
+//   * `direction` is explicit.
+//
+// ⚠️ IT CARRIES CONFIG `params` BUT MUST NEVER SET `StepTrace.params`. RateMasterDerivation renders
+// param CHIPS whenever the TRACE carries params and only falls through to the detail line when it
+// does not -- so a step that publishes params computes its working and never shows it. `module_fit`
+// is the precedent: config params, trace without.
+export interface CatalogFitStep {
+  step: "catalog_fit";
+  params: {
+    /** The key the fitted row's LABEL binds to, readable later as "@<bind>". */
+    bind: string;
+    /** The master-item kind holding the ladder rows. */
+    kind: string;
+    /** Exact-match filters selecting the ladder's family. Values may be literals, "@refs" or LISTS. */
+    where?: CatalogWhere;
+    /** The attribute carrying each rung's LABEL. Default "item". */
+    label_attr?: string;
+    /** Where a rung's SIZE comes from: a numeric attribute, or the label parsed for integers
+     * (`module_fit`'s existing behaviour, kept so the two share one ladder builder). */
+    size_from: { attr: string } | { label: true };
+    /** The attribute carrying the number being fitted. */
+    fit_from: { attr: string };
+    /** "up" = exact, else the NEXT HIGHER rung, never lower. "down" = exact, else the next LOWER. */
+    direction: "up" | "down";
+    /**
+     * SLICE 3a -- ALSO write the fitted rung's SIZE (a NUMBER) into the run-local selection overlay
+     * under this attribute id, so `match_master_row` can see it.
+     *
+     * ⚠️ THIS EXISTS BECAUSE `bind` CANNOT SERVE, AND THE REASON IS A TYPE. `bind` publishes the
+     * rung's LABEL into `fitLabels`, which is `Record<string, string>` and stringifies through
+     * `String(label)` -- correct for `industrial_sockets`, whose ladder binds a genuinely-string
+     * catalog `item` name and is consumed by a `component_ref` "@ref". `match_master_row` is a
+     * different consumer: it reads `selected` and NOTHING else, and compares with `===` against the
+     * stored attribute. Cable tray stores `width_mm` as a NUMBER, so a bound `"100"` matches
+     * nothing -- silently. This param is the numeric half, and it is what lets a category whose
+     * ladder attribute IS its match key (tray width) use the same step as one whose ladder binds an
+     * item name (the paired MCB).
+     *
+     * ABSENT => byte-identical: nothing is written and every pre-slice-3a config is unaffected.
+     * Written ONLY on the FITTED path -- never on stated-wins (the selection already holds the
+     * stated value), never on a positive absence, and never on a miss (nothing was fitted, so there
+     * is no size to write and inventing one would manufacture a match).
+     */
+    fit_into?: string;
+    /** STATED-WINS: when this attribute carries a real value the step binds NOTHING, so the ordinary
+     * selection lookup finds the stated one. This is what keeps the pricer's override surface alive. */
+    prefer_attr?: string;
+    /** POSITIVE ABSENCE: when this attribute equals this value, bind the "None" sentinel so a
+     * `none_skips` component zeroes its line instead of the row refusing. */
+    absent_when?: { attr: string; equals: string | number };
+    /** What a MISS (nothing at or beyond the fitted value) means. "none" = bind the sentinel, so the
+     * rest of the row still prices. "no_compute" = refuse, the `module_fit` behaviour. */
+    on_miss?: "none" | "no_compute";
+    /** What an UNREADABLE `fit_from` means -- DISTINCT from `on_miss`, which is about a value that
+     * WAS read and simply exceeds the ladder. "none" = bind the sentinel (the row prices, this line
+     * honestly unpriced); ABSENT (the default) = refuse the pipeline. Opt-in per step: a category
+     * whose fact is genuinely required keeps the refusal. */
+    on_missing_fact?: "none";
+  };
+  explain?: string;
+}
+
+/**
+ * A `catalog_fit` filter. Each value is matched EXACTLY against the row's stored attribute, and may be:
+ *   * a literal (`"Switchgear"`) -- byte-identical to `module_fit`'s `where`;
+ *   * an "@ref" (`"@mcb_pole"`) resolved through the ordinary binding order before matching;
+ *   * a LIST of either (`["@mcb_curve", "NA"]`), matching if the row equals ANY member.
+ *
+ * ⚠️ A LIST IS ORDERED BY PREFERENCE. When two rows tie on the same ladder SIZE, the one whose value
+ * appears EARLIER wins. That is what lets one ladder carry both the curve the row asked for and the
+ * curve-less exception above it (`80 FP MCB`) without a second pass, and settles the tie
+ * deterministically if the catalog ever grows one. A scalar `where` keeps the existing (size, label)
+ * dedupe byte-for-byte.
+ */
+export type CatalogWhere = Record<string, string | number | Array<string | number>>;
+
 export type PipelineStep =
   | MatchMasterRowStep
   | ApplyEffectiveMultiplierStep
   | ScaleStep
   | DeriveAttributeStep
+  | MapAttributeStep
+  | CatalogFitStep
   | RoundupStep
   | ComponentStep
   | ComponentRefStep
@@ -609,6 +746,78 @@ export interface ModuleFitOutcome {
   blanks?: ModuleFitBlanksOutcome;
 }
 
+/**
+ * SLICE 2b: the `catalog_fit` outcome, as STRUCTURED DATA beside the prose line.
+ *
+ * The `moduleFit` precedent: a surface that must RENDER what was fitted reads this, and never parses
+ * the sentence or re-derives the ladder. Present on every `catalog_fit` that reached a verdict --
+ * fitted, stated, or positively absent -- so "why is this line zero?" is answerable from data.
+ */
+export interface CatalogFitOutcome {
+  /** The key the label bound to (echoes the step's `bind`). */
+  bind: string;
+  /** The catalog label chosen, or null when nothing was (absent / miss / stated elsewhere). */
+  fitted: string | null;
+  /** The rung size actually used. Null when nothing fitted. */
+  size: number | null;
+  /** The value the step was asked to fit. Null when the row stated the item outright. */
+  requested: number | null;
+  /** True when the ladder carried the requested size exactly; false when it hopped. */
+  exact: boolean;
+  /** True when the step bound the "None" sentinel (`absent_when`, or a miss under on_miss "none"). */
+  absent: boolean;
+  /** Set when STATED-WINS fired: the value the row supplied, which the step deferred to. */
+  stated?: string;
+  /**
+   * SLICE 2d, OPTION B -- did THIS step substitute anything? True when the ladder HOPPED (the catalog
+   * did not carry the requested size, so a different rung is being priced). False when the rung was
+   * carried exactly, and on the stated / absent paths, where the step fitted nothing at all.
+   *
+   * ⚠️ THIS ANSWERS FOR THIS STEP ONLY -- it is deliberately NOT the whole option-B verdict. A fit can
+   * be exact and still rest on a substituted FACT (a pole inferred from the pin count, a curve taken
+   * from a default), and those substitutions happen in `map_attribute`, a different step. The panel
+   * composes the two: `substituted || any whereRef's map outcome was not stated`. Computing the whole
+   * verdict here would need this step to reach into another's business.
+   */
+  substituted: boolean;
+  /**
+   * SLICE 2d -- the attribute ids this step's `where` resolved through "@" references, in config
+   * order. It is the JOIN KEY the panel needs to find the `map_attribute` outcomes that feed this
+   * fit; without it a consumer would have to re-read the config and re-resolve the refs, which is a
+   * second copy of resolution logic. Empty when the `where` carries only literals.
+   */
+  whereRefs: string[];
+}
+
+/**
+ * SLICE 2d -- the outcome of one `map_attribute` step, published as STRUCTURED DATA exactly as
+ * `moduleFit` / `derivedAttr` / `catalogFit` are. MINIMAL BY DESIGN: the only question any surface
+ * asks of this step is *"did the row STATE this, or did we work it out?"*, because that is what
+ * decides whether the item it fed into is plain or `(computed)`.
+ *
+ * `stated` is TRUE only when the step's `prefer_attr` path fired -- the row supplied the value and the
+ * mapping never ran. It is FALSE when the value came from the `table` (inferred from another
+ * attribute) or from `default`. Both of those are substitutions, and option B marks them.
+ */
+export interface MapAttributeOutcome {
+  /** The attribute id this step resolved (echoes the step's `result_attr`). */
+  result_attr: string;
+  /** The row stated it, so nothing was substituted. */
+  stated: boolean;
+  /**
+   * SLICE 3b FINISH -- THE RESOLVED VALUE, so the panel can show what pricing actually used.
+   *
+   * ⚠️ WITHOUT THIS THE OUTCOME COULD SAY A VALUE WAS SUBSTITUTED BUT NEVER SAY WHAT IT WAS, and
+   * `applyDerivedDisplay` had no way to fill the field: a tray row stating "16SWG" priced correctly
+   * off a converted 1.6 mm while the Thickness field rendered an empty "-- select --". That breaks
+   * the slice-2c rule that the panel shows what pricing used, and the owner caught it on sight.
+   *
+   * It is the same contract `CatalogFitOutcome.fitted` already carries -- read the STRUCTURED data,
+   * never the trace prose, never re-derive the mapping.
+   */
+  value: string | number;
+}
+
 export interface StepTrace {
   /** The step type token from config. */
   step: string;
@@ -636,6 +845,13 @@ export interface StepTrace {
    * derive_attribute step that reached a verdict -- computed OR stated-wins -- so a surface can show
    * the value, and say whose it is, without reading the prose. */
   derivedAttr?: DerivedAttrOutcome;
+  /** For catalog_fit: the STRUCTURED outcome (see CatalogFitOutcome). Same contract as moduleFit --
+   * the prose stays the human sentence, this stays the machine one. */
+  catalogFit?: CatalogFitOutcome;
+  /** For map_attribute: the STRUCTURED outcome (see MapAttributeOutcome). Present on every
+   * map_attribute step that resolved a value -- stated, mapped or defaulted -- so option B can tell
+   * a fact the row supplied from one we worked out, without reading the prose. */
+  mapAttribute?: MapAttributeOutcome;
   /** Snapshot of every named value after this step (for the running-value column). */
   runningValues: Record<string, number>;
   /** Set when the step type is not recognized (forward-compat honesty). */
