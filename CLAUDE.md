@@ -93,6 +93,7 @@ First worked proof: the `sidebar_counts` aggregate rewrite + the shared `service
 2. **JSON field filters:** `frappe.get_all()` cannot use `!=` or `is set` on JSON fields. Use raw SQL: `WHERE json_col IS NOT NULL` with double-quoted table names (`"tabDoctype"`).
 3. **Child table filtering:** `frappe.get_all()` filters at the **parent** level — if any child row matches, all rows of that parent are returned. For row-level filtering, use SQL JOINs. See `api/credits/get_credits_list.py`.
 4. **rename_doc():** Only updates Link fields. Data fields storing document names need manual SQL.
+5. **`SUBSTRING(x FROM y)` is OVERLOADED, and a bound parameter picks the WRONG overload — silently.** With an `INTEGER` it is the positional form; with `TEXT` it is the **POSIX-regex** form. A `%s` parameter arrives typed as text, so `SUBSTRING(col FROM %s)` with `27` is read as the pattern `/27/` — it matches the `27` inside `OFI-26-00271` and returns `27`. Nothing errors, the surrounding predicate just never matches. **Always cast: `SUBSTRING(col FROM %s::integer)`.**
 
 ---
 
