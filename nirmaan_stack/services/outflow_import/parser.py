@@ -83,12 +83,33 @@ __all__ = [
     "parse_statement",
     "SUPPORTED_SOURCES",
     "BANK_SUCCESS_STATUS",
+    "BANK_TERMINAL_STATUSES",
     "is_success_status",
+    "is_terminal_status",
 ]
 
 # The one word the gateway uses for money that actually left the account. Everything else -- FAILED,
 # PENDING, REVERSED -- is a transfer that did not happen.
 BANK_SUCCESS_STATUS = "SUCCESS"
+
+# The statuses that are the LAST WORD on a transfer -- its story is over, whichever way it went.
+#
+# ⚠️ THIS IS A DIFFERENT QUESTION FROM `is_success_status`, AND CONFLATING THEM COSTS MONEY IN ONE
+# DIRECTION AND CLARITY IN THE OTHER. "Did money move?" decides whether a row can SETTLE anything.
+# "Is this the final account of the transfer?" decides whether a stored row may be treated as an
+# IMPORT -- see `candidates.find_earlier_batches_for_rows`. A transfer still QUEUED is neither: it
+# settles nothing today AND tomorrow's export will say something new about it, so freezing it as
+# "already imported" strands the money permanently. A FAILED transfer also settles nothing, but it
+# IS final -- a retry gets a new transfer id, so that row will never say anything else -- and it must
+# keep counting as a duplicate, or a re-uploaded statement stops being recognised as fully imported
+# and stages a batch with nothing in it to action.
+#
+# ⚠️ ANYTHING NOT LISTED HERE IS TREATED AS STILL IN FLIGHT, AND THE DEFAULT LEANS THAT WAY ON
+# PURPOSE. The two mistakes are not symmetric: calling an in-flight status final loses real money
+# with no trace and no way back (a skipped row is frozen against re-matching), while calling a final
+# status in-flight costs a re-staged row that is skipped anyway. Only one of those is recoverable,
+# so an unrecognised status must fall on the recoverable side.
+BANK_TERMINAL_STATUSES = frozenset({BANK_SUCCESS_STATUS, "FAILED", "REJECTED", "REVERSED"})
 
 
 def is_success_status(status_raw: str | None) -> bool:
@@ -104,6 +125,19 @@ def is_success_status(status_raw: str | None) -> bool:
     reason: the SQL and this function compare against the same literal, from here.
     """
     return (status_raw or "").strip().upper() == BANK_SUCCESS_STATUS
+
+
+def is_terminal_status(status_raw: str | None) -> bool:
+    """Is this the LAST thing the statement will ever say about this transfer?
+
+    True for a transfer that succeeded AND for one that definitively did not. False while it is
+    still in flight, and false for a status we do not recognise -- see `BANK_TERMINAL_STATUSES` for
+    why the unknown case leans that way.
+
+    Normalises identically to `is_success_status`, so the two can never disagree about the same
+    cell, and the SQL that binds this set uses `UPPER(BTRIM(...))` to match.
+    """
+    return (status_raw or "").strip().upper() in BANK_TERMINAL_STATUSES
 
 
 class StatementFormatError(ValueError):

@@ -65,6 +65,10 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 )
 from nirmaan_stack.services.outflow_import.matcher import TargetRef, VendorIndex, VendorRef, build_vendor_index
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount, normalize_reference
+# ⚠️ THE BANK'S OWN VOCABULARY FOR "this transfer's story is over", bound into the duplicate lookup
+# rather than spelled a second time. See `find_earlier_batches_for_rows`. `parser` imports only
+# `duplicates` and `normalize`, so this direction adds no cycle.
+from nirmaan_stack.services.outflow_import.parser import BANK_TERMINAL_STATUSES
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, build_project_index
 
 __all__ = [
@@ -439,13 +443,53 @@ def find_earlier_batches_for_rows(
     ⚠️ A BATCH WITH NO RECORDED PERIOD IS ALWAYS SEARCHED. It cannot be excluded on evidence we do
     not have, and dropping it would turn "we could not date this batch" into "this batch contains
     nothing".
+
+    ⚠️ ONLY A **TERMINAL** STORED ROW CAN BE A DUPLICATE, AND THIS IS THE ONE CLAUSE THAT SAYS SO.
+    A transfer still QUEUED when yesterday's sheet was exported stages with no bank reference and
+    settles nothing -- it is a placeholder, not an import. When the next export carries that same
+    transfer id, now SUCCESS and with a UTR, the triple matches exactly (the id, the amount and the
+    Added On date are all unchanged by the transfer completing) and the row was skipped as "Already
+    imported". The money then never reached a record, and could not: `Skipped` is in
+    `review._FROZEN_ROW_STATUSES`, so re-matching never revisits it, there is no unskip endpoint,
+    and every later export repeats the same collision forever. Measured live: 2 transfers stranded,
+    Rs 8,142 and Rs 7,500, both against payments still sitting at Approved.
+
+    ⚠️ TERMINAL, **NOT** SUCCESSFUL, AND THE DIFFERENCE IS NOT PEDANTRY -- IT IS THE WHOLE RULE.
+    The first cut of this filter said `= SUCCESS`, which is the intuitive reading of "did this
+    really get imported?" and is wrong: a FAILED transfer is equally final (a retry gets a NEW
+    transfer id, so that row will never say anything else), so excluding it stops a re-uploaded
+    statement being recognised as fully imported. `assess_duplicates` then finds one "new" row that
+    is skipped anyway, declines to refuse, and stages a batch with nothing in it to action -- which
+    is precisely the outcome the refusal exists to prevent. Nine tests in `test_upload` caught it;
+    they are the reason the negative half of a guard is worth writing.
+
+    ⚠️ WHAT NARROWED IS **ELIGIBILITY**, NOT IDENTITY. `duplicates.row_identity` is untouched and
+    stays `(transfer_id, amount, date)` -- a QUEUED row and its later SUCCESS are the SAME transfer,
+    and saying otherwise would be a lie that happened to produce the right outcome. The question
+    this clause answers is the other one: is the row we found the FINAL account of that transfer?
+
+    ⚠️ THE VOCABULARY IS BOUND, NEVER SPELLED. `parser.BANK_TERMINAL_STATUSES` is the single source,
+    exactly as `review.get_import_summary` and `review._row_filters` bind `BANK_SUCCESS_STATUS`
+    rather than writing 'SUCCESS' a second time -- two spellings of the bank's words is how one side
+    later learns about `REVERSED` and the other does not. `UPPER(BTRIM(...))` mirrors
+    `parser.is_terminal_status`'s `.strip().upper()` exactly, so the SQL and the Python predicate
+    cannot disagree about the same cell.
+
+    THIS CAN ONLY EVER MAKE THE GUARD LOOSER -- more rows import, never fewer -- and that direction
+    is safe for the same reason the period narrowing above is: the real backstop against paying
+    twice is the `Outflow Row Match` unique constraint, which this does not touch.
     """
     wanted = sorted({row.transfer_id for row in rows if row.transfer_id})
     if not wanted:
         return {}
 
     placeholders = ", ".join(["%s"] * len(wanted))
-    params: list = list(wanted)
+    # Sorted so the parameter order is deterministic; the set is small and fixed.
+    terminal = sorted(BANK_TERMINAL_STATUSES)
+    terminal_placeholders = ", ".join(["%s"] * len(terminal))
+    # Order matters: every param is appended in the order its clause appears in the SQL below, and
+    # the status ones sit directly after the id list because their clause does too.
+    params: list = [*wanted, *terminal]
     exclude_clause = ""
     if exclude_batch:
         exclude_clause = " AND import_batch <> %s"
@@ -467,6 +511,7 @@ def find_earlier_batches_for_rows(
         SELECT transfer_id, amount, added_on, import_batch, creation
         FROM "tabOutflow Import Row"
         WHERE transfer_id IN ({placeholders})
+          AND UPPER(BTRIM(COALESCE(status_raw, ''))) IN ({terminal_placeholders})
           {exclude_clause}
           {period_clause}
         ORDER BY creation ASC
