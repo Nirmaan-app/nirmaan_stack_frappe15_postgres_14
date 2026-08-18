@@ -144,7 +144,24 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # SLICE 2d: v38 = v37 + `panel: false` on the four industrial_sockets MCB FACT attributes
 # (hidden from the pricing panel ONLY -- still extracted, still driving the pipeline) + the
 # R12 literal-mention rewrite of step (1) and its steps-(2)-(4) guard. Nothing else moved.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v40.json"
+# DEPLOYMENT RE-MINT (2026-08-18): v41 = v40 with the PRODUCTION cable list prices. This mint did
+# NOT come from a slice -- it came from the DATABASE. v40 was loaded into production, the cable
+# prices were re-entered there, and the result was exported and committed here VERBATIM. It is the
+# first asset in this lineage whose content originates in production rather than in a dev mint,
+# which is precisely why it had to be committed: the live prices existed in NO asset, so every
+# future export from dev would have silently reverted them.
+# Exactly ONE field moved -- `cable.list_price_per_mtr`, on 265 of 292 rows. All 12 category
+# configs, every golden, both retirement lists and all 1,364 item_uids are byte-identical to v40;
+# no item was added, removed or re-keyed, and NO other rate on any kind changed.
+# 234 rows restored the pre-load live price, 31 previously-0.0 rows became NULL (an absent rate
+# REFUSES, where 0.0 silently priced supply at zero -- a correction, not a loss).
+# ⚠️ FOUR WIRING GOLDENS ARE NOW STALE AGAINST THIS DATA (g1, g2, g3, g5 -- g4 is
+# termination-only and unaffected). They still carry the values the OLD cable prices produced, so
+# the RM-4b preview gate will show deltas on wiring_cabling. That staleness is REAL and lives in
+# PRODUCTION already; committing this asset records it faithfully rather than creating it. The
+# goldens must be re-banked in-product and re-exported -- they are ORACLES and must never be
+# recomputed from our own interpreter, which would make them pass by construction and pin nothing.
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v41.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -4115,7 +4132,14 @@ class TestRateMaster(FrappeTestCase):
         do arithmetic on. Its live-behaviour half is inert post-fix -- every non-zero row qualifies
         -- and it is kept because the ZERO EXCLUSION is still load-bearing: `x1.05` leaves a zero
         UNCHANGED, so such a row never appears in plan["changes"] and the lookup would KeyError,
-        and its percentage would be a divide-by-zero. 31 rows in this column are zeros.
+        and its percentage would be a divide-by-zero.
+
+        ⚠️ FACT UPDATED AT THE v41 DEPLOYMENT RE-MINT (2026-08-18). This line used to read "31 rows
+        in this column are zeros". Those same 31 cable rows are now NULL, not 0.0 -- the production
+        re-entry cleared them, and an absent rate REFUSES where 0.0 silently priced supply at zero.
+        The picker is UNAFFECTED and needed no code change: the blank guard immediately below runs
+        BEFORE the zero check, so an empty cell was always skipped first. The zero exclusion stays
+        because it guards a real shape, not because this column still contains one.
 
         ⚠️ Do NOT read the surviving `>= 10.0` comparisons below as the product's rule. They are a
         fixture filter; the product's rule lives in `csv_importer._diff_fields` and is rounded."""
