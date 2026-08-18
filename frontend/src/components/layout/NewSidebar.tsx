@@ -568,6 +568,17 @@ export function NewSidebar() {
         },
       ]
       : []),
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan HR Executive Profile", "Nirmaan Project Manager Profile"].includes(role as string)
+      ? [
+        {
+          // Unified Expense module: Misc Project + Non-Project tabs. Links to the
+          // default (Misc Project) tab; the tab strip handles switching.
+          key: '/expense',
+          icon: Landmark,
+          label: 'Expense',
+        },
+      ]
+      : []),
     // Payment TDS Deduction (Tax Deducted at Source) has NO sidebar item of its own -- the ledger
     // lives in the Reports hub as the "Payment TDS Deduction" tab (pages/reports), gated there by
     // the same PAYMENT_TDS_ACCESS constant. `/payment-tds-deductions` still resolves; routesConfig
@@ -875,7 +886,9 @@ export function NewSidebar() {
     "/non-project-inflows": ["non-project-inflows"],
     "/invoice-reconciliation": ["invoice-reconciliation"],
     "/project-invoices": ["project-invoices"],
-    "/expense/project": ["expense"],
+    // Keyed on the module ROOT so every tab (requests / project / non-project) keeps the
+    // sidebar entry highlighted -- they share the first path segment.
+    "/expense": ["expense"],
     "/reports": ["reports"],
     '/design-tracker': ['design-tracker'],
     '/snag-list': ['snag-list'],

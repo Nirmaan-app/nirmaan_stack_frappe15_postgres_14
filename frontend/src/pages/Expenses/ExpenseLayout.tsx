@@ -13,9 +13,16 @@
 import React from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { useCounts } from "@/hooks/useCounts";
+import { useUserData } from "@/hooks/useUserData";
+
+// A Project Manager reaches this module ONLY to raise expense requests -- the Expense
+// sidebar entry was opened to them for that alone, so the two ledger tabs stay hidden.
+const REQUESTS_ONLY_ROLES = ["Nirmaan Project Manager Profile"];
 
 const ExpenseLayout: React.FC = () => {
   const { pathname } = useLocation();
+  const { role } = useUserData();
+  const requestsOnly = REQUESTS_ONLY_ROLES.includes(role as string);
 
   // Both tab totals (global, no filters) in ONE batch round-trip via useCounts.
   const { data: countsData } = useCounts(
@@ -28,9 +35,17 @@ const ExpenseLayout: React.FC = () => {
   const projectCount = countsData?.message?.project as number | undefined;
   const nonProjectCount = countsData?.message?.nonProject as number | undefined;
 
+  // Expense Request sits FIRST (owner ruling). It carries NO count badge: the other two are
+  // whole-table totals, while a request list is scoped per viewer (own + routed), so one
+  // global number would be wrong for everyone who is not an Admin.
   const tabs: { label: string; to: string; count?: number }[] = [
-    { label: "Misc Project Expense", to: "/expense/project", count: projectCount },
-    { label: "Non-Project Expense", to: "/expense/non-project", count: nonProjectCount },
+    { label: "Expense Request", to: "/expense/requests" },
+    ...(requestsOnly
+      ? []
+      : [
+          { label: "Misc Project Expense", to: "/expense/project", count: projectCount },
+          { label: "Non-Project Expense", to: "/expense/non-project", count: nonProjectCount },
+        ]),
   ];
 
   return (
