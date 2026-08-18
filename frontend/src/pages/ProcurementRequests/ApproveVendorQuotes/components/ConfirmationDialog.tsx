@@ -25,15 +25,20 @@ export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
 }) => {
     return (
         <AlertDialog open={isOpen} onOpenChange={onClose}>
-            <AlertDialogContent>
+            {/* Bounded height + a scrollable body row, so tall content (e.g. the
+                invoice-approval comparison with its line-item mapping table) can
+                never push the Cancel/Confirm footer off-screen. The 1fr row only
+                bites once the content exceeds max-h, so short dialogs are
+                unchanged. */}
+            <AlertDialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)_auto]">
                 <AlertDialogHeader>
                     <AlertDialogTitle className='text-center'>{title}</AlertDialogTitle>
-                     {children && (
-                         <AlertDialogDescription asChild>
-                             <div>{children}</div>
-                         </AlertDialogDescription>
-                    )}
                 </AlertDialogHeader>
+                {children && (
+                    <AlertDialogDescription asChild>
+                        <div className="overflow-y-auto pr-1">{children}</div>
+                    </AlertDialogDescription>
+                )}
                  <AlertDialogFooter>
                      <AlertDialogCancel disabled={isLoading} className="flex items-center gap-1">
                          <Undo2 className="h-4 w-4" />

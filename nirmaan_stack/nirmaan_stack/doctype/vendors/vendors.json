@@ -18,6 +18,7 @@
   "vendor_contact_details_section",
   "vendor_contact_person_name",
   "vendor_mobile",
+  "vendor_alt_mobile",
   "vendor_email",
   "vendor_bank_details_section",
   "account_name",
@@ -104,6 +105,11 @@
    "fieldname": "vendor_mobile",
    "fieldtype": "Data",
    "label": "Vendor Mobile"
+  },
+  {
+   "fieldname": "vendor_alt_mobile",
+   "fieldtype": "Data",
+   "label": "Vendor Alternate Mobile"
   },
   {
    "fieldname": "vendor_email",

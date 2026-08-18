@@ -143,6 +143,16 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
             })
             .max(10, { message: "Mobile number must be of 10 digits" })
             .min(10, { message: "Mobile number must be of 10 digits" }),
+        // Optional alternate number. The empty-string branch matters: Frappe
+        // stores an unset Data field as "" rather than NULL, so without it a
+        // vendor with no alternate number would fail validation on an
+        // otherwise-untouched form.
+        vendor_alt_mobile: z
+            .string()
+            .max(10, { message: "Alternate mobile number must be of 10 digits" })
+            .min(10, { message: "Alternate mobile number must be of 10 digits" })
+            .optional()
+            .or(z.literal("")),
         // vendor_gst: z
         //     .string({
         //         required_error: "Vendor GST Required"
@@ -246,6 +256,7 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
         pin: vendorAddress?.pincode,
         vendor_email: data?.vendor_email,
         vendor_mobile: data?.vendor_mobile,
+        vendor_alt_mobile: data?.vendor_alt_mobile,
         vendor_gst: data?.vendor_gst,
         account_number: data?.account_number,
         confirm_account_number: data?.account_number,
@@ -356,6 +367,9 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
         vendor_email: values.vendor_email,
         vendor_gst: values.vendor_gst,
         vendor_mobile: values.vendor_mobile,
+        // Vendors doc only — deliberately NOT mirrored into the linked Address
+        // doc, which carries a single `phone` that belongs to the primary.
+        vendor_alt_mobile: values.vendor_alt_mobile,
         vendor_name: values.vendor_name,
         vendor_nickname: values.vendor_nickname,
         vendor_state: state,
@@ -576,6 +590,22 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
                 <FormLabel>Phone<sup className="text-sm text-red-600">*</sup></FormLabel>
                 <FormControl>
                   <Input type="number" placeholder="Contact No" {...field}
+                       onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
+                    />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="vendor_alt_mobile"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Alternate Phone</FormLabel>
+                <FormControl>
+                  <Input type="number" placeholder="Alternate Contact No (optional)" {...field}
+                       value={field.value ?? ""}
                        onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
                     />
                 </FormControl>

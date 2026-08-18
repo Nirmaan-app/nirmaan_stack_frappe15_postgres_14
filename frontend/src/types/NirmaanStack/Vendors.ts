@@ -31,6 +31,8 @@ export interface Vendors{
 	vendor_contact_person_name?: string
 	/**	Vendor Mobile : Data	*/
 	vendor_mobile?: string
+	/**	Vendor Alternate Mobile : Data	*/
+	vendor_alt_mobile?: string
 	/**	Vendor Email : Data	*/
 	vendor_email?: string
 	/**	Vendor GST : Data	*/
