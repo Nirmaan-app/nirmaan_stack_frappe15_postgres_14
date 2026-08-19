@@ -16,11 +16,13 @@ export const INVOICE_TASK_TAB_OPTIONS = [
  *
  * These two tabs are the RECONCILIATION views (2B reconciliation status, proof,
  * reconciled-by/date), as distinct from the approval-flow tabs above — the
- * labels say "Recon" so the split is legible from the tab strip alone.
+ * labels name 2B explicitly, so the tab strip alone tells a reviewer which
+ * reconciliation is meant: GSTR-2B here, not the auto-approve checks that the
+ * Pending Invoice Approvals tab reports.
  */
 export const INVOICE_TYPE_TAB_OPTIONS = [
-  { label: "WO Invoices Recon", value: INVOICE_TASK_TABS.SR_INVOICES },
-  { label: "PO Invoice Recon", value: INVOICE_TASK_TABS.PO_INVOICES },
+  { label: "WO Invoices 2B Recon", value: INVOICE_TASK_TABS.SR_INVOICES },
+  { label: "PO Invoices 2B Recon", value: INVOICE_TASK_TABS.PO_INVOICES },
 ] as const;
 
 /**
