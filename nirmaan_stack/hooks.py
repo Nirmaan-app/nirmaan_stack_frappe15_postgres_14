@@ -251,7 +251,9 @@ doc_events = {
     # migration, a desk edit). `after_delete`, never `on_trash`: on_trash fires
     # before the row is gone, so the sum would still count the deleted invoice.
     "Vendor Invoices": {
-        "after_insert": "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
+        # No `after_insert`: Document.insert() runs after_insert AND then
+        # run_post_save_methods() -> on_update, so binding both fired the recompute
+        # TWICE per saved invoice. on_update alone covers insert.
         "on_update": "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
         "after_delete": "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
     },

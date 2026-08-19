@@ -51,8 +51,12 @@ def recompute_po_invoice_qty(po_name: str) -> None:
     """Self-classify invoice_qty on every `Purchase Order Item` row of `po_name`.
 
     Resolves the PO to EXACT / ORDERED / ZERO (see module docstring) and writes each
-    row via db.set_value (update_modified=False) so the PO's on_update controller does
-    NOT fire — invoice_qty is a derived cache, not a PO edit. No-op for blank/missing PO.
+    row via db.set_value, which stamps `modified` / `modified_by` on the child rows.
+    That stamp is the POINT: a runtime hook must leave a trace a user can find, so the
+    row visibly moved. Only PATCHES suppress it with `update_modified=False`, because a
+    migration rewriting history should not look like everyone edited every document.
+    The PO's own `on_update` controller does NOT fire either way — `set_value` runs no
+    doc events at all, whatever `update_modified` says. No-op for blank/missing PO.
     """
     if not po_name:
         return
@@ -175,9 +179,15 @@ def recompute_document_amount_invoiced(document_type: str, document_name: str) -
     above, which counts Pending+Approved and skips credit notes entirely.)
 
     RECOMPUTED FROM SOURCE on every call, never incremented by a delta, so it
-    cannot drift. Written with `update_modified=False` so the parent's own
-    `on_update` chain (cashflow hold, action items, versioning) does NOT fire —
-    this is a derived cache write, not an edit to the order.
+    cannot drift. Written with `set_value`, which STAMPS `modified` / `modified_by`
+    (the default) — deliberately, so the parent row carries a visible trace that it
+    moved, exactly as `amount_paid` already does at its own write sites.
+
+    `update_modified` does NOT gate the parent's `on_update` chain, and never did:
+    `frappe.db.set_value` runs no controller method, no doc event, no versioning and
+    publishes no realtime event whatever the flag is set to. It controls the two
+    timestamp columns and nothing else. (Verified against
+    `frappe/database/database.py::set_value`.)
 
     Does NOT commit: it runs inside the transaction of the invoice event that
     triggered it. No-op for a blank name or a doctype without the field.
@@ -200,7 +210,6 @@ def recompute_document_amount_invoiced(document_type: str, document_name: str) -
     # matches zero rows here — a silent no-op, not an error.
     frappe.db.set_value(
         document_type, document_name, "amount_invoiced", flt(total),
-        update_modified=False,
     )
 
     # amount_due is derived from this value, so it moves with it.
@@ -240,8 +249,8 @@ def recompute_document_amount_due(document_type: str, document_name: str) -> Non
     stale on arrival.
 
     Reads the operands straight back from the row (same transaction, so it sees the
-    write that triggered it) and writes with `update_modified=False` — a derived
-    cache write, not an edit. Does NOT commit.
+    write that triggered it) and lets `set_value` stamp `modified` / `modified_by`,
+    matching `amount_invoiced` above and `amount_paid` elsewhere. Does NOT commit.
     """
     operands = _AMOUNT_DUE_OPERANDS.get(document_type)
     if not operands or not document_name:
@@ -259,5 +268,5 @@ def recompute_document_amount_due(document_type: str, document_name: str) -> Non
 
     frappe.db.set_value(
         document_type, document_name, "amount_due",
-        flt(row[0].a) - flt(row[0].b), update_modified=False,
+        flt(row[0].a) - flt(row[0].b),
     )

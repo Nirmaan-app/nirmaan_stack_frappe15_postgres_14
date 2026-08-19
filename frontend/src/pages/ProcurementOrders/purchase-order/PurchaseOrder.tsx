@@ -702,14 +702,6 @@ export const PurchaseOrder = ({
     [vendorInvoices]
   );
 
-  const totalApprovedInvoiceAmount = useMemo(
-    () =>
-      vendorInvoices
-        ?.filter((inv) => inv.status === "Approved")
-        .reduce((sum, inv) => sum + (inv.invoice_amount || 0), 0) || 0,
-    [vendorInvoices]
-  );
-
   // Calculate invoice count from Vendor Invoices
   const invoiceCount = useMemo(
     () => vendorInvoices?.length || 0,
@@ -1034,7 +1026,6 @@ export const PurchaseOrder = ({
         totalInvoice={totalInvoiceAmount}
         totalUploadedInvoiceAmount={totalInvoiceAmount}
         totalPendingInvoiceAmount={totalPendingInvoiceAmount}
-        totalApprovedInvoiceAmount={totalApprovedInvoiceAmount}
         amountPaid={PO?.amount_paid}
         poMutate={poMutate}
         onAdjustPayments={() => setIsAdjustmentDialogOpen(true)}
