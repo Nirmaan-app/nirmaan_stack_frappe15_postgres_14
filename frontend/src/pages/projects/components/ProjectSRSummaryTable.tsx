@@ -51,6 +51,7 @@ export const SR_SUMMARY_LIST_FIELDS_TO_FETCH: (
     "gst",
     "total_amount",
     "amount_paid",
+    "amount_due",
     "is_finalized"
   ];
 
@@ -327,27 +328,24 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
             size: 120,
           } as ColumnDef<ServiceRequests>,
           {
-            id: "amount_payable",
+            // A stored SR field (total_amount - amount_paid, maintained by the same
+            // events that write its operands), so the id IS the backend field name and
+            // `order_by` works: the database orders the whole set, not just the page.
+            accessorKey: "amount_due",
             header: ({ column }) => (
               <DataTableColumnHeader column={column} title="Amt payable" />
             ),
             cell: ({ row }) => (
               <div className="font-medium pr-2">
-                {formatToRoundedIndianRupee(
-                  parseNumber(row.original.total_amount) -
-                  parseNumber(row.original.amount_paid)
-                )}
+                {formatToRoundedIndianRupee(parseNumber(row.original.amount_due))}
               </div>
             ),
             enableColumnFilter: true,
             size: 120,
             meta: {
               exportHeaderName: "Amt payable",
-              exportValue: (row: ServiceRequests) => {
-                return formatToRoundedIndianRupee(
-                  parseNumber(row.total_amount) - parseNumber(row.amount_paid)
-                );
-              },
+              exportValue: (row: ServiceRequests) =>
+                formatToRoundedIndianRupee(parseNumber(row.amount_due)),
             },
           } as ColumnDef<ServiceRequests>,
         ]

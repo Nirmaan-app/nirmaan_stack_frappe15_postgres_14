@@ -705,9 +705,9 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   <p className="text-sm font-medium">{formatToRoundedIndianRupee(po?.amount)}</p>
                 </div>
 
-                {/* Total Approved Invoice Amount */}
+                {/* Total Amount Invoiced */}
                 <div className="space-y-0.5">
-                  <p className="text-xs text-gray-500">Approved Invoice Amount</p>
+                  <p className="text-xs text-gray-500">Total Amount Invoiced</p>
                   <p className="text-sm font-medium text-green-600">{totalApprovedInvoiceAmount ? formatToRoundedIndianRupee(totalApprovedInvoiceAmount) : "--"}</p>
                 </div>
 

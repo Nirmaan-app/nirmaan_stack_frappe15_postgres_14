@@ -5,7 +5,6 @@ import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { Projects } from "@/types/NirmaanStack/Projects";
-import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 // import { getPOTotal } from "@/utils/getAmounts";
@@ -175,29 +174,9 @@ export const ReleasePOSelect: React.FC = () => {
         return unsubscribe; // Cleanup subscription
     }, [initialTab]); // Depend on `tab` to avoid stale closures
 
-    // Fetch Vendor Invoices for all POs to calculate invoice totals
-    const { data: vendorInvoices, isLoading: vendorInvoicesLoading } = useFrappeGetDocList<VendorInvoice>(
-        "Vendor Invoices",
-        {
-            filters: [
-                ["document_type", "=", "Procurement Orders"],
-                ["status", "=", "Approved"],
-            ],
-            fields: ["name", "document_name", "invoice_amount", "invoice_no", "invoice_date", "invoice_attachment", "status"],
-            limit: 0,
-        },
-        "VendorInvoices-PO-ReleasePOSelect"
-    );
-
-    // Group invoice totals by PO name
-    const invoiceTotalsMap = useMemo(() => {
-        if (!vendorInvoices) return new Map<string, number>();
-        return vendorInvoices.reduce((acc, inv) => {
-            const current = acc.get(inv.document_name) ?? 0;
-            acc.set(inv.document_name, current + parseNumber(inv.invoice_amount));
-            return acc;
-        }, new Map<string, number>());
-    }, [vendorInvoices]);
+    // `amount_invoiced` is a stored field on Procurement Orders now, kept current by
+    // the Vendor Invoices doc events. The whole-table invoice fetch that used to be
+    // here (4,884 rows on every page open, just to fill one column) is gone.
 
     // useFrappeDocTypeEventListener("Procurement Orders", async (event) => {
     //     await mutate()
@@ -251,6 +230,7 @@ export const ReleasePOSelect: React.FC = () => {
     const fieldsToFetch = useMemo<string[]>(() => [
         ...DEFAULT_PO_FIELDS_TO_FETCH,     // spread keeps array flat
         "creation",
+        "amount_invoiced",
         "modified",
         "amount",
         // "loading_charges",
@@ -413,15 +393,16 @@ export const ReleasePOSelect: React.FC = () => {
         },
         ...([PO_TABS.ALL_POS, PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any) ? [
             {
-                id: "invoice_amount",
+                accessorKey: "amount_invoiced",
                 header: ({ column }) => {
                     return (
                         <DataTableColumnHeader column={column} title="Inv Amt" />
                     )
                 },
                 cell: ({ row }) => {
-                    // Use Vendor Invoices lookup instead of old invoice_data JSON
-                    const invoiceAmount = invoiceTotalsMap.get(row.original?.name) ?? 0;
+                    // Stored on the PO: sum of its APPROVED Vendor Invoices, maintained by
+                    // the invoice doc events. No client-side grouping, no invoice fetch.
+                    const invoiceAmount = parseNumber(row.original?.amount_invoiced);
                     return (
                         <div className={`font-medium pr-2 ${invoiceAmount ? "underline cursor-pointer text-blue-600 hover:text-blue-800" : ""}`} onClick={() => invoiceAmount && setSelectedInvoicePO(row.original)} >
                             {formatToRoundedIndianRupee(invoiceAmount || 0)} {/* Show 0 if no amount */}
@@ -429,21 +410,12 @@ export const ReleasePOSelect: React.FC = () => {
                     )
                 },
                 size: 200,
-                sortingFn: (a, b) => {
-                    // Use Vendor Invoices lookup instead of old invoice_data JSON
-                    const invoiceAmountA = invoiceTotalsMap.get(a?.original?.name) ?? 0;
-                    const invoiceAmountB = invoiceTotalsMap.get(b?.original?.name) ?? 0;
-
-                    return invoiceAmountA - invoiceAmountB;
-                },
-                enableSorting: false,
+                // A real column now, so the DATABASE orders all 6,928 POs - no client
+                // sortingFn, and no ceiling at the fetched page.
+                enableSorting: true,
                 meta: {
                     exportHeaderName: "Invoice Amount",
-                    exportValue: (row: ProcurementOrdersType) => {
-                        // Use Vendor Invoices lookup instead of old invoice_data JSON
-                        const invoiceAmount = invoiceTotalsMap.get(row.name) ?? 0;
-                        return formatForReport(invoiceAmount);
-                    }
+                    exportValue: (row: ProcurementOrdersType) => formatForReport(parseNumber(row.amount_invoiced)),
                 }
             } as ColumnDef<ProcurementOrdersType>,
         ] : []),
@@ -555,7 +527,7 @@ export const ReleasePOSelect: React.FC = () => {
                 enableColumnFilter: true
             } as ColumnDef<ProcurementOrdersType>
         ] : []),
-    ],[tab, userList, vendorsList, projects, invoiceTotalsMap]);
+    ],[tab, userList, vendorsList, projects]);
     // [tab, userList, getAmountPaid, vendorsList, projects, getPOTotal, posMap, invoiceTotalsMap]);
 
     // Legacy static facet path — Status is a curated list (PO_STATUS_OPTIONS), not a useFacetValues

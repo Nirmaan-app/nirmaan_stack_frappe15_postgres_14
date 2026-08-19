@@ -183,7 +183,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
               Amounts
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
               {/* Total Value */}
               <div className="space-y-0.5">
                 <p className="text-xs text-gray-500">
@@ -191,6 +191,14 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
                 </p>
                 <p className="text-sm font-semibold text-blue-600">
                   {formatToIndianRupee(Math.floor(getTotal * (gstEnabled ? 1.18 : 1)))}
+                </p>
+              </div>
+
+              {/* Total Amount Invoiced */}
+              <div className="space-y-0.5">
+                <p className="text-xs text-gray-500">Total Amount Invoiced</p>
+                <p className="text-sm font-medium text-blue-600">
+                  {formatToIndianRupee(orderData?.amount_invoiced || 0)}
                 </p>
               </div>
 
