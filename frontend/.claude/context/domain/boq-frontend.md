@@ -2759,3 +2759,29 @@ The hub's THIRD export item, "Download priced tender with BCS". Backend as-built
 - ⚠️ **`onDownloaded` MUST NOT call `mutateCommittedState()`.** The client export's handler does,
   because it stamps `last_exported_at`. This one never stamps anything, so there is no staleness
   chip to refresh — and refetching anyway would quietly suggest there is.
+
+## BCS-EXP-6 — the `% Margin` column reaches the internal export (2026-08-19)
+
+The export gained a live `% Margin` column, so the dialog **reverses its own earlier message**.
+Server half: `.claude/context/domain/boq-backend.md` § BCS-EXP-6. Slice record:
+`plans/boq-upload-plan.md` § BCS-EXP-6.
+
+- **`ExportPricedBcsWorkbookResponse.cost_blocks[sheet]` gained `margin_column` +
+  `margin_skipped`, both REQUIRED** — the server always sends them. ⚠️ **`margin_skipped` rides
+  the BLOCK, not `cost_skipped`**: such a sheet got its costs and its Total, so calling it a
+  skipped block would be false — and nothing else in the report would mention the missing column.
+- **`summariseCostBlocks`** appends `, margin in <letter>` or `, no margin -- <reason>`, passing
+  the server's sentence through **verbatim**. Three reasons reach here and only the server knows
+  which applied; re-wording client-side would be a fourth voice for one fact. An absent pair
+  (a pre-slice-6 payload) prints NOTHING — absence must read as "no information", never as "no
+  margin".
+- **`BCS_EXPORT_COPY.marginTitle` / `marginBody` REVERSED** — from *"% Margin is not included,
+  add it in Excel"* to *"% Margin is a live formula"*, naming what blanks it (no amount, or an
+  amount that is zero or negative). ⚠️ **Its test reversed with it and now asserts the old
+  sentence is GONE**, so the panel cannot drift back to instructing a user to duplicate a column
+  that already ships. `description` names all three column families.
+- The panel's job changed from an apology to a **warning**: the figures are FORMULAS, so an edit
+  anywhere in the workbook moves them — a genuine difference from a pasted number, and the first
+  thing someone editing the file needs to know.
+- `bcsColumns.ts` is **logic-unchanged**; only its test file gained the shared parity cases for
+  `bcsAmountColumns` (now pinned against the server twin — `parity_cases.json` v3).

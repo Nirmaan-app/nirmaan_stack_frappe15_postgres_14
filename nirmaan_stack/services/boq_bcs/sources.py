@@ -628,3 +628,68 @@ def live_rate_kinds(descriptors: list | None) -> list:
     if halves:
         return halves
     return ["combined"] if "combined" in present else []
+
+
+# ── WHICH COLUMNS HOLD THIS SHEET'S AMOUNT -- the % Margin DENOMINATOR ───────────
+#
+# The third derivation, and it exists for the same reason as the other two: the BCS export
+# writes a % Margin formula into the client's workbook, so the server has to know which
+# cells the denominator reads. Until the export there was no server-side consumer, because
+# nothing on the server ever computed a BCS number.
+#
+# ⚠️ THIS IS THE THIRD MIRROR OF A BCS RULE, AND THE LIABILITY IS THE SAME ONE. At BCS-S2b
+# the server widened to eight amount shapes while the browser silently refused six of them
+# for a whole slice, with every test on both sides green. That is why this is pinned by
+# `parity_cases.json` -> `derived_amount_cases`, read by BOTH suites. Do not add a fourth
+# copy, and do not change this without changing `bcsColumns.bcsAmountColumns` and the table
+# in the SAME edit.
+#
+# THE TIER ORDER IS THE SPEC, not a preference, and it mirrors the kind-axis ruling the
+# confirmations already enforce: a TOTAL ALREADY CONTAINS ITS HALVES, so a sheet mapping
+# both must resolve to the total ALONE. Summing them would double-count the row -- exactly
+# the harm `decide_amount_source` refuses under `mixed_kinds` when a human picks both. The
+# fallback must not be able to express what the confirmation forbids.
+#
+# A LONE HALF IS ACCEPTED, and that is the standing owner ruling (2026-08-02): one-sided
+# packages are genuine commercial shapes, not data gaps, and the safety comes from
+# DISCLOSURE rather than from blocking. Tier 3 therefore returns whichever halves exist,
+# one or two.
+_AMOUNT_SCALAR_TOTAL_VALUE_FIELD = "amount_total"
+_AMOUNT_SCALAR_HALF_VALUE_FIELDS = ("amount_supply", "amount_install")
+
+
+def derive_amount_columns(source: dict | None, descriptors: list | None) -> list:
+    """★ WHICH COLUMNS HOLD THIS SHEET'S AMOUNT -- what we charge the client, and the
+    denominator of % Margin.
+
+    A stored CONFIRMATION wins wherever one exists, so a sheet configured before BCS-S12
+    resolves exactly as it always has. Otherwise the sheet's own amount columns are used, in
+    a STRICT tier order:
+
+        1. the confirmed pick;
+        2. else the scalar Total Amount column(s);
+        3. else the supply / install HALVES (one or both);
+        4. else the per-area amount columns.
+
+    ⚠️ THE TIERS ARE EXCLUSIVE AND THE FIRST HIT WINS. A total already contains its halves,
+    so a sheet mapping both must never sum them -- see the block comment above.
+
+    Returns entries in the `_entry` shape, so ONE reader resolves either branch without
+    asking which one it got. An EMPTY list is a real answer, not an error: this sheet has no
+    amount at all, so there is nothing to measure a margin against and the caller writes no
+    margin column rather than inventing a denominator.
+
+    Mirrors `bcsColumns.bcsAmountColumns`. Pinned by `parity_cases.json`
+    -> `derived_amount_cases`.
+    """
+    confirmed = (source or {}).get("columns") or []
+    if confirmed:
+        return list(confirmed)
+    ds = descriptors or []
+    total = [d for d in ds if d.get("value_field") == _AMOUNT_SCALAR_TOTAL_VALUE_FIELD]
+    if total:
+        return [_entry(d) for d in total]
+    halves = [d for d in ds if d.get("value_field") in _AMOUNT_SCALAR_HALF_VALUE_FIELDS]
+    if halves:
+        return [_entry(d) for d in halves]
+    return [_entry(d) for d in ds if d.get("value_field") == _AMOUNT_AREA_VALUE_FIELD]

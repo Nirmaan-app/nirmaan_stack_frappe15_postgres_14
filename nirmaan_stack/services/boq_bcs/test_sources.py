@@ -65,6 +65,7 @@ from nirmaan_stack.services.boq_bcs.sources import (
     build_qty_source,
     decide_amount_source,
     decide_qty_source,
+    derive_amount_columns,
     derive_qty_columns,
     live_rate_kinds,
 )
@@ -1019,6 +1020,20 @@ class TestTheTwoDerivations(unittest.TestCase):
                     live_rate_kinds(case["descriptors"]), case["expect"]["kinds"], case["why"]
                 )
 
+    def test_every_derived_amount_case_in_the_shared_table(self):
+        """★ The THIRD derivation (BCS export slice 6): which columns hold what we CHARGE --
+        the denominator of % Margin. Same net, same table, same failure mode if the browser
+        twin drifts."""
+        for case in self._PARITY["derived_amount_cases"]:
+            with self.subTest(case=case["id"]):
+                out = derive_amount_columns(case["confirmed"], case["descriptors"])
+                self.assertEqual(
+                    [(c.get("col"), c.get("value_field"), c.get("value_key")) for c in out],
+                    [(c["col"], c["value_field"], c["value_key"])
+                     for c in case["expect"]["columns"]],
+                    case["why"],
+                )
+
     # -- the fixtures are REAL, anchored to the module that writes them ----
     def test_every_fixture_descriptor_has_the_shape_the_builder_emits(self):
         """A descriptor with an invented shape is how the browser twin's fixtures came to
@@ -1075,6 +1090,60 @@ class TestTheTwoDerivations(unittest.TestCase):
         self.assertIn("qty_by_area", fields, "no case lands on the per-area branch")
         self.assertTrue(any(out == [] for out in outs.values()),
                         "no case lands on the empty branch")
+
+    def test_the_derived_amount_cases_exercise_every_tier(self):
+        """FIVE branches, and two of them exist solely to prevent a double count -- so a
+        table missing one is not merely thin, it leaves a hole through the refusals
+        `mixed_kinds` and `mixed_shapes` enforce on the pick path.
+
+        ⚠️ TIER PRECEDENCE IS ASSERTED ADVERSARIALLY, not merely exercised. A case whose
+        descriptors happen to list the winning tier first would pass against a function that
+        simply returned the first descriptor it saw, so the two precedence cases put the
+        LOSING tier first and this test insists such a case exists."""
+        cases = {c["id"]: c for c in self._PARITY["derived_amount_cases"]}
+        outs = {i: derive_amount_columns(c["confirmed"], c["descriptors"])
+                for i, c in cases.items()}
+        self.assertTrue(any(c["confirmed"] and c["confirmed"].get("columns")
+                            for c in cases.values()), "no case exercises the confirmed branch")
+        fields = {f for out in outs.values() for f in (c.get("value_field") for c in out)}
+        for field, tier in (("amount_total", "scalar-total"),
+                            ("amount_supply", "halves"),
+                            ("amount_by_area", "per-area")):
+            self.assertIn(field, fields, f"no case lands on the {tier} tier")
+        self.assertTrue(any(out == [] for out in outs.values()),
+                        "no case lands on the empty branch")
+
+        # The two precedence cases, each with the LOSING tier listed first.
+        def first_field(case_id):
+            return cases[case_id]["descriptors"][0]["value_field"]
+        self.assertEqual(first_field("amount-derived-total-beats-the-halves"), "amount_supply",
+                         "the total-beats-halves case must list a HALF first, or it would "
+                         "also pass against a function that returned the first descriptor")
+        self.assertEqual(first_field("amount-derived-scalar-half-beats-per-area"),
+                         "amount_by_area",
+                         "the scalar-beats-per-area case must list a per-area column first")
+
+    def test_a_total_is_never_returned_alongside_its_own_halves(self):
+        """★ THE ONE THAT PROTECTS A NUMBER. This is the double count `decide_amount_source`
+        refuses under `mixed_kinds`, arriving by the back door: the fallback must not be able
+        to express what the confirmation forbids. Asserted over EVERY case rather than the
+        one fixture, so a tier added later inherits it."""
+        for case in self._PARITY["derived_amount_cases"]:
+            with self.subTest(case=case["id"]):
+                fields = {c.get("value_field")
+                          for c in derive_amount_columns(case["confirmed"], case["descriptors"])}
+                if "amount_total" in fields:
+                    self.assertFalse(
+                        fields & {"amount_supply", "amount_install"},
+                        "a scalar total was returned beside a half it already contains -- "
+                        "the row's amount would be counted twice, and % Margin would read "
+                        "against a denominator no column on the sheet holds",
+                    )
+                self.assertFalse(
+                    fields & {"amount_by_area"} and fields - {"amount_by_area"},
+                    "per-area amounts were mixed with a scalar -- the shape-axis twin of "
+                    "the same double count",
+                )
 
     def test_the_rate_kinds_cases_exercise_every_kind_and_both_shapes(self):
         """Every box a sheet can get, the empty answer, and BOTH column shapes. The per-area
@@ -1143,6 +1212,10 @@ class TestTheTwoDerivations(unittest.TestCase):
         self.assertEqual(derive_qty_columns({}, []), [])
         self.assertEqual(live_rate_kinds(None), [])
         self.assertEqual(live_rate_kinds([]), [])
+        self.assertEqual(derive_amount_columns(None, None), [])
+        self.assertEqual(derive_amount_columns({}, []), [])
 
     def _all_cases(self):
-        return list(self._PARITY["derived_qty_cases"]) + list(self._PARITY["rate_kinds_cases"])
+        return (list(self._PARITY["derived_qty_cases"])
+                + list(self._PARITY["rate_kinds_cases"])
+                + list(self._PARITY["derived_amount_cases"]))

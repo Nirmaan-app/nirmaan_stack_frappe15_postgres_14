@@ -54,7 +54,7 @@
     "in `unconstructible_adjacencies` below -- so a NAMED case cannot be dropped in silence, and",
     "no hand-maintained number has to be bumped when a case is added."
   ],
-  "version": 2,
+  "version": 3,
 
   "codes": {
     "no_pick": "Nothing was picked at all.",
@@ -294,7 +294,21 @@
     "its own unit fixtures carried the same wrong spelling, so both were green together.",
     "That is exactly the failure this table exists to make impossible, which is why the",
     "Python suite additionally asserts these fixtures against the classifier's own maps",
-    "rather than against agreement between the two mirrors."
+    "rather than against agreement between the two mirrors.",
+    "",
+    "THE THIRD DERIVATION (BCS export slice 6, the % Margin column). `sources.",
+    "derive_amount_columns` / `bcsColumns.bcsAmountColumns` answer 'which columns hold what",
+    "we CHARGE' -- the denominator of % Margin. It joins this net for the same reason the",
+    "other two did: the export writes a margin formula into the workbook, so the server has",
+    "to resolve the denominator's cells.",
+    "",
+    "ITS TIER ORDER IS THE SPEC AND IS WHAT THESE CASES MOSTLY PIN. Confirmed pick, else",
+    "the scalar total, else the supply/install halves, else per-area. Two of the tiers exist",
+    "purely to prevent a DOUBLE COUNT -- a total already contains its halves, and a scalar",
+    "already contains its per-area parts -- which are the same two harms the pick path",
+    "refuses as `mixed_kinds` and `mixed_shapes`. A fallback that could express what the",
+    "confirmation forbids would be a hole straight through those refusals, so the",
+    "tier-precedence cases order their descriptors ADVERSARIALLY (the losing tier first)."
   ],
 
   "derived_qty_cases": [
@@ -346,5 +360,48 @@
      "why": "BCS cannot be done on a sheet with no rate column, and the empty set is how that is said. 173 of 681 current sheets are in this state."},
     {"id": "rate-kinds-an-amount-column-mints-nothing", "descriptors": [{"col": "Q", "role": "amount_supply_by_area", "area": "Zone A", "value_field": "amount_by_area", "value_key": "Zone A", "rate_subkey": "supply"}], "expect": {"kinds": []},
      "why": "ANTI-CONFUSION, and it is the exact shape of the bug: a per-area AMOUNT descriptor legitimately carries rate_subkey 'supply'. It must mint no box, because it is not a rate."}
+  ],
+
+  "derived_amount_cases": [
+    {"id": "amount-derived-confirmed-wins", "descriptors": [{"col": "G", "role": "amount_total", "area": null, "value_field": "amount_total", "value_key": null, "rate_subkey": null}, {"col": "H", "role": "amount_supply", "area": null, "value_field": "amount_supply", "value_key": null, "rate_subkey": null}, {"col": "I", "role": "amount_install", "area": null, "value_field": "amount_install", "value_key": null, "rate_subkey": null}],
+     "confirmed": {"mode": "amount_halves", "columns": [{"col": "H", "role": "amount_supply", "area": null, "value_field": "amount_supply", "value_key": null, "rate_subkey": null}, {"col": "I", "role": "amount_install", "area": null, "value_field": "amount_install", "value_key": null, "rate_subkey": null}]},
+     "expect": {"columns": [{"col": "H", "value_field": "amount_supply", "value_key": null}, {"col": "I", "value_field": "amount_install", "value_key": null}]},
+     "why": "A stored confirmation wins even on a sheet that also maps a scalar total, so a sheet configured before BCS-S12 resolves exactly as it always has. Note the pick here is one the FALLBACK could never produce -- tier 2 would have returned G -- so this proves the confirmation is read rather than merely agreed with."},
+    {"id": "amount-derived-total-beats-the-halves", "descriptors": [{"col": "H", "role": "amount_supply", "area": null, "value_field": "amount_supply", "value_key": null, "rate_subkey": null}, {"col": "G", "role": "amount_total", "area": null, "value_field": "amount_total", "value_key": null, "rate_subkey": null}, {"col": "I", "role": "amount_install", "area": null, "value_field": "amount_install", "value_key": null, "rate_subkey": null}],
+     "confirmed": null,
+     "expect": {"columns": [{"col": "G", "value_field": "amount_total", "value_key": null}]},
+     "why": "★ THE LOAD-BEARING TIER. A total ALREADY CONTAINS its halves, so returning all three would double-count the row -- the same harm `decide_amount_source` refuses under `mixed_kinds` when a human picks both. The fallback must not be able to express what the confirmation forbids. Descriptor order is deliberately half-first, so a tier honoured only by list position would fail here."},
+    {"id": "amount-derived-both-halves-when-no-total", "descriptors": [{"col": "H", "role": "amount_supply", "area": null, "value_field": "amount_supply", "value_key": null, "rate_subkey": null}, {"col": "I", "role": "amount_install", "area": null, "value_field": "amount_install", "value_key": null, "rate_subkey": null}],
+     "confirmed": null,
+     "expect": {"columns": [{"col": "H", "value_field": "amount_supply", "value_key": null}, {"col": "I", "value_field": "amount_install", "value_key": null}]},
+     "why": "Most real sheets carry no single Amount (Total) column at all, which is why the halves tier exists -- refusing them left the confirmation card empty on most sheets and made the feature unusable rather than merely strict."},
+    {"id": "amount-derived-a-lone-half-is-accepted", "descriptors": [{"col": "H", "role": "amount_supply", "area": null, "value_field": "amount_supply", "value_key": null, "rate_subkey": null}],
+     "confirmed": null,
+     "expect": {"columns": [{"col": "H", "value_field": "amount_supply", "value_key": null}]},
+     "why": "OWNER RULING 2026-08-02, and it REVERSED an earlier refusal: one-sided packages are genuine commercial shapes, not data gaps, and the safety comes from DISCLOSURE rather than from blocking. Do not reinstate the refusal. On the margin this is the case that makes the denominator smaller than the whole job, so the percentage reads LOWER -- which is the visible collapse the disclosure promises."},
+    {"id": "amount-derived-per-area-only-when-no-scalar", "descriptors": [{"col": "J", "role": "amount", "area": "Zone A", "value_field": "amount_by_area", "value_key": "Zone A", "rate_subkey": "total"}, {"col": "K", "role": "amount", "area": "Zone B", "value_field": "amount_by_area", "value_key": "Zone B", "rate_subkey": "total"}],
+     "confirmed": null,
+     "expect": {"columns": [{"col": "J", "value_field": "amount_by_area", "value_key": "Zone A"}, {"col": "K", "value_field": "amount_by_area", "value_key": "Zone B"}]},
+     "why": "The last tier. Per-area amounts SUM to the row's figure, so all of them are returned."},
+    {"id": "amount-derived-scalar-half-beats-per-area", "descriptors": [{"col": "J", "role": "amount", "area": "Zone A", "value_field": "amount_by_area", "value_key": "Zone A", "rate_subkey": "total"}, {"col": "H", "role": "amount_supply", "area": null, "value_field": "amount_supply", "value_key": null, "rate_subkey": null}, {"col": "K", "role": "amount", "area": "Zone B", "value_field": "amount_by_area", "value_key": "Zone B", "rate_subkey": "total"}],
+     "confirmed": null,
+     "expect": {"columns": [{"col": "H", "value_field": "amount_supply", "value_key": null}]},
+     "why": "Tier 3 is reached before tier 4, so a sheet mapping both shapes never mixes them -- the shape-axis twin of the total-beats-halves rule, and the same double count `mixed_shapes` refuses on a human pick."},
+    {"id": "amount-derived-order-follows-the-descriptor-list", "descriptors": [{"col": "I", "role": "amount_install", "area": null, "value_field": "amount_install", "value_key": null, "rate_subkey": null}, {"col": "H", "role": "amount_supply", "area": null, "value_field": "amount_supply", "value_key": null, "rate_subkey": null}],
+     "confirmed": null,
+     "expect": {"columns": [{"col": "I", "value_field": "amount_install", "value_key": null}, {"col": "H", "value_field": "amount_supply", "value_key": null}]},
+     "why": "Within a tier the sheet's own descriptor order is preserved, not a canonical one. The result is SUMMED, so order changes no number -- but both sides must agree on it or the parity net is comparing sorted noise. Contrast `live_rate_kinds`, which DOES impose a canonical order because its output positions columns on screen."},
+    {"id": "amount-derived-empty-confirmation-is-not-a-confirmation", "descriptors": [{"col": "G", "role": "amount_total", "area": null, "value_field": "amount_total", "value_key": null, "rate_subkey": null}],
+     "confirmed": {"mode": "amount_total", "columns": []},
+     "expect": {"columns": [{"col": "G", "value_field": "amount_total", "value_key": null}]},
+     "why": "A stored record whose column list is empty falls through to the derivation. It asserts nothing, so honouring it would answer 'this sheet has no amount' on a sheet that plainly has one."},
+    {"id": "amount-derived-no-amount-column-at-all", "descriptors": [{"col": "D", "role": "qty_total", "area": null, "value_field": "qty_total", "value_key": null, "rate_subkey": null}, {"col": "E", "role": "rate_supply", "area": null, "value_field": "rate_supply", "value_key": null, "rate_subkey": null}],
+     "confirmed": null,
+     "expect": {"columns": []},
+     "why": "A real answer, not an error: there is nothing to measure a margin against, so the caller writes NO margin column rather than inventing a denominator. An invented denominator is the one outcome worse than an absent column here."},
+    {"id": "amount-derived-two-scalar-totals-are-both-returned", "descriptors": [{"col": "G", "role": "amount_total", "area": null, "value_field": "amount_total", "value_key": null, "rate_subkey": null}, {"col": "L", "role": "amount_total", "area": null, "value_field": "amount_total", "value_key": null, "rate_subkey": null}],
+     "confirmed": null,
+     "expect": {"columns": [{"col": "G", "value_field": "amount_total", "value_key": null}, {"col": "L", "value_field": "amount_total", "value_key": null}]},
+     "why": "The derivation does not police duplicates -- that is `aliased_columns`' job on the PICK path, and only a human pick can be wrong in that way. A sheet whose role map genuinely carries two total columns has both summed, which is what the browser does too."}
   ]
 }

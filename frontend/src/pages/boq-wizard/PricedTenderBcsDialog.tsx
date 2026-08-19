@@ -64,12 +64,18 @@ export const BCS_EXPORT_COPY = {
   title: "Download priced tender with BCS",
   description:
     "Download the original tender workbook with your rates stamped in, plus the internal cost " +
-    "columns and BCS Total Amount added at the end of each sheet. This file is for internal " +
-    "use -- it shows what the work costs us.",
-  marginTitle: "% Margin is not included",
+    "columns, BCS Total Amount and % Margin added at the end of each sheet. This file is for " +
+    "internal use -- it shows what the work costs us.",
+  // ⚠️ THIS PANEL REVERSES ITS OWN EARLIER MESSAGE. It used to say % Margin was NOT included
+  // and tell the user to add it themselves. The column now ships, so the panel's job changed
+  // from an apology to a warning: the figures are LIVE, which is a genuine difference from a
+  // pasted number and is the first thing someone editing the file needs to know.
+  marginTitle: "% Margin is a live formula",
   marginBody:
-    "This file carries the cost columns and BCS Total Amount. Add a % Margin column in Excel " +
-    "after downloading, against whichever amount column you want to measure against.",
+    "The cost, BCS Total Amount and % Margin columns are Excel formulas, not fixed numbers -- " +
+    "edit a cost in the workbook and the total and the margin follow. A margin is left blank " +
+    "where the row has no amount to measure against, or where that amount is zero or negative " +
+    "(a percentage against a negative amount would read backwards, showing a loss as a profit).",
   noneToExport: "No committed sheets to export.",
   gridOnly: "(no rates to write)",
   bcsOn: "cost tracking on",
@@ -106,7 +112,17 @@ export function summariseCostBlocks(result: ExportPricedBcsWorkbookResponse): {
   const written = Object.entries(result.cost_blocks ?? {}).map(([sheet, block]) => {
     const cols = Object.values(block.cost_columns ?? {}).join(", ");
     const total = block.total_column ? `, total in ${block.total_column}` : "";
-    return `${sheet.trim() || sheet}: ${block.rows} costed row${block.rows === 1 ? "" : "s"} in ${cols}${total}`;
+    // A missing margin is NAMED, never left to be noticed. This sheet got a cost block, so
+    // it is absent from `cost_skipped` and nothing else in the report would mention it --
+    // and a column silently missing from an internal cost file is the exact failure this
+    // whole module is built to avoid. The server's own sentence is used verbatim: it knows
+    // which of the three reasons applied and the client must not guess.
+    const margin = block.margin_column
+      ? `, margin in ${block.margin_column}`
+      : block.margin_skipped
+        ? `, no margin -- ${block.margin_skipped}`
+        : "";
+    return `${sheet.trim() || sheet}: ${block.rows} costed row${block.rows === 1 ? "" : "s"} in ${cols}${total}${margin}`;
   });
   const skipped = Object.entries(result.cost_skipped ?? {}).map(
     ([sheet, reason]) => `${sheet.trim() || sheet}: ${reason}`,

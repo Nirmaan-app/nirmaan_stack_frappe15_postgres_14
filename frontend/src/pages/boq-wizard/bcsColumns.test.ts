@@ -1844,6 +1844,13 @@ const PARITY = PARITY_RAW as unknown as {
     expect: { kinds: string[] };
     why: string;
   }>;
+  derived_amount_cases: Array<{
+    id: string;
+    descriptors: ColumnDescriptor[];
+    confirmed: BcsSource | null;
+    expect: { columns: Array<{ col: string; value_field: string; value_key: string | null }> };
+    why: string;
+  }>;
 };
 
 describe("rule parity -- the shared case table, this side", () => {
@@ -2674,6 +2681,53 @@ describe("derivation parity -- the shared case table, this side", () => {
     }
   });
 
+  it("agrees with the shared table on every derived-amount case", () => {
+    // ★ The THIRD derivation (BCS export slice 6). `bcsAmountColumns` decides what % Margin
+    // divides BY, and the export now writes that division into the client's workbook as a
+    // live Excel formula -- so a drift between the two sides is a wrong PERCENTAGE in a file
+    // sent to a human, not merely an inconsistency.
+    for (const c of PARITY.derived_amount_cases) {
+      const out = bcsAmountColumns(c.confirmed, c.descriptors);
+      expect(
+        out.map((e) => [e.col, e.value_field, e.value_key ?? null]),
+        `${c.id}: ${c.why}`,
+      ).toEqual(c.expect.columns.map((e) => [e.col, e.value_field, e.value_key]));
+    }
+  });
+
+  it("runs an amount table that exercises every tier -- anti-vacuity", () => {
+    // Two of the tiers exist ONLY to prevent a double count (a total already contains its
+    // halves; a scalar already contains its per-area parts), which are the same two harms
+    // the pick path refuses as `mixed_kinds` and `mixed_shapes`. A table missing one leaves
+    // a hole straight through those refusals.
+    const outs = PARITY.derived_amount_cases.map(
+      (c) => [c, bcsAmountColumns(c.confirmed, c.descriptors)] as const,
+    );
+    const fields = new Set(outs.flatMap(([, out]) => out.map((e) => e.value_field)));
+    for (const f of ["amount_total", "amount_supply", "amount_by_area"]) {
+      expect(fields.has(f), `no case lands on the ${f} tier`).toBe(true);
+    }
+    expect(
+      PARITY.derived_amount_cases.some((c) => c.confirmed && c.confirmed.columns.length > 0),
+      "no case exercises the confirmed branch",
+    ).toBe(true);
+    expect(outs.some(([, out]) => out.length === 0)).toBe(true);
+
+    // The double count itself, asserted over every case rather than the one fixture.
+    for (const [c, out] of outs) {
+      const got = new Set(out.map((e) => e.value_field));
+      if (got.has("amount_total")) {
+        expect(
+          got.has("amount_supply") || got.has("amount_install"),
+          `${c.id}: a total was returned beside a half it already contains`,
+        ).toBe(false);
+      }
+      if (got.has("amount_by_area")) {
+        expect(got.size, `${c.id}: per-area mixed with a scalar`).toBe(1);
+      }
+    }
+  });
+
   it("runs a table that exercises both shapes and every box -- anti-vacuity", () => {
     // The mirror of the Python suite's guard. A table of only scalar cases would compare
     // nothing about the half that was broken, and would have been green throughout the bug.
@@ -2700,7 +2754,11 @@ describe("derivation parity -- the shared case table, this side", () => {
     // Same guard as the Python side: a descriptor with an invented shape is how this file's
     // own fixtures came to agree with its own bug.
     const keys = ["area", "col", "rate_subkey", "role", "value_field", "value_key"];
-    for (const c of [...PARITY.derived_qty_cases, ...PARITY.rate_kinds_cases]) {
+    for (const c of [
+      ...PARITY.derived_qty_cases,
+      ...PARITY.rate_kinds_cases,
+      ...PARITY.derived_amount_cases,
+    ]) {
       for (const d of c.descriptors) {
         expect(Object.keys(d).sort(), `${c.id}: ${d.col}`).toEqual(keys);
       }

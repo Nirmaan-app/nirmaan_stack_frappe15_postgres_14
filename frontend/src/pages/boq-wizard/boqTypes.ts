@@ -1468,10 +1468,26 @@ export interface ExportPricedBcsWorkbookResponse {
   skipped_formula_columns: Record<string, string[]>;
   /** {sheetName: colLetter} -- where a "Nirmaan Remarks" column was appended. */
   remark_columns: Record<string, string>;
-  /** {sheetName: {cost_columns: {kind: colLetter}, total_column: colLetter|null, rows: n}} */
+  /**
+   * {sheetName: {cost_columns, total_column, margin_column, margin_skipped, rows}} -- one
+   * entry per sheet that GOT a cost block.
+   *
+   * ⚠️ `margin_skipped` lives HERE rather than in `cost_skipped`, and the distinction is
+   * real: such a sheet did get its costs and its Total, so calling it a skipped block would
+   * be false. A sheet can be perfectly healthy and still have no margin -- there is simply no
+   * column on it saying what we CHARGE, which is the only thing a margin can measure against.
+   */
   cost_blocks: Record<
     string,
-    { cost_columns: Record<string, string>; total_column: string | null; rows: number }
+    {
+      cost_columns: Record<string, string>;
+      total_column: string | null;
+      /** Where the `% Margin` column landed, or null when it was skipped. */
+      margin_column: string | null;
+      /** Why there is no margin column, or null when there is one. */
+      margin_skipped: string | null;
+      rows: number;
+    }
   >;
   /** {sheetName: reason} -- every sheet that got NO cost block, and why. */
   cost_skipped: Record<string, string>;

@@ -29,7 +29,10 @@ from frappe.tests.utils import FrappeTestCase
 from openpyxl import load_workbook
 
 from nirmaan_stack.api.boq.wizard.export_bcs_writeback import (
+    _BCS_FILLED_HEX,
+    _amount_body,
     _builtin_total,
+    _margin_body,
     _next_empty_col,
     _generate_internal_workbook,
     _guarded,
@@ -95,6 +98,64 @@ class TestExcelEmitters(FrappeTestCase):
         body, cells = _ref_to_excel(_ref("qty_total")["ref"], 9, self._COST, ["C"], self._ROLE)
         self.assertEqual(body, "C9")
         self.assertEqual(cells, ["C9"], "a CLIENT cell can be blank, so it must be guarded on")
+
+    def test_the_bcs_total_operand_resolves_to_the_total_column(self):
+        """`bcs_total` is BOTH a target and an operand -- choosing "BCS Total Amount" in a
+        margin numerator must mean "whatever that column currently computes". As an Excel
+        REFERENCE it means exactly that, and stays live."""
+        body, cells = _ref_to_excel(
+            _ref("bcs_total")["ref"], 5, self._COST, ["C"], self._ROLE, total_col="I")
+        self.assertEqual(body, "I5")
+        self.assertEqual(cells, [], "a formula WE wrote is already guarded; it is not a "
+                                    "client cell that might be blank")
+
+    def test_the_bcs_total_operand_fails_safe_when_there_is_no_total_column(self):
+        """A numerator naming the Total on a sheet that got none. Blank is the honest answer:
+        there is no such column to divide by, and any number here would be invented."""
+        body, cells = _ref_to_excel(
+            _ref("bcs_total")["ref"], 5, self._COST, ["C"], self._ROLE, total_col=None)
+        self.assertIsNone(body)
+        self.assertEqual(cells, [])
+
+    def test_the_default_denominator_sums_the_amount_columns_and_guards_every_one(self):
+        """Each amount cell belongs to the CLIENT's workbook and may legitimately be blank, so
+        every one is returned for guarding -- unlike a cost cell we wrote ourselves."""
+        body, cells = _amount_body(7, ["F"], self._ROLE)
+        self.assertEqual(body, "F7", "one column needs no parentheses")
+        self.assertEqual(cells, ["F7"])
+        body, cells = _amount_body(7, ["F", "K"], self._ROLE)
+        self.assertEqual(body, "(F7+K7)")
+        self.assertEqual(cells, ["F7", "K7"])
+        self.assertEqual(_amount_body(7, [], self._ROLE), (None, []))
+
+    def test_the_margin_body_divides_by_the_amount_and_never_the_other_way_round(self):
+        """★ THE DIRECTION IS OWNER-SETTLED AND WAS ONCE RELAYED BACKWARDS. Dividing by the
+        AMOUNT is what makes a one-sided sheet read LOWER and go sharply negative once cost
+        passes amount; cost-over-amount and mark-up-on-cost both read HIGHER on exactly the
+        sheets that need a warning."""
+        self.assertEqual(_margin_body(2, "I2", "F2"), "((F2-I2)/F2)*100")
+
+    def test_the_margin_body_is_the_owners_formula_rearranged(self):
+        """The owner states it as `(1 - cost/amount) x 100`; this emits `(amount - cost) /
+        amount x 100`. The same expression, and this form needs no literal 1. Checked
+        numerically rather than by eye, because the MISREAD of the owner's form --
+        `1 - (c/a) x 100` -- returns -59 where the answer is +40, and reads plausible."""
+        amount, cost = 100.0, 60.0
+        emitted = ((amount - cost) / amount) * 100
+        self.assertAlmostEqual(emitted, (1 - cost / amount) * 100)
+        self.assertAlmostEqual(emitted, 40.0)
+        self.assertNotAlmostEqual(emitted, 1 - (cost / amount) * 100)
+
+    def test_a_guard_with_an_extra_test_ors_them_into_one_if(self):
+        """One builder emits every guard in this module, so there is no second place a guard
+        could be written differently. A single test skips the `OR`, which is what keeps the
+        ordinary Total byte-identical to what it emitted before the parameter existed."""
+        self.assertEqual(_guarded("X", ["C2"], False), '=IF(COUNT(C2)=0,"",X)')
+        self.assertEqual(_guarded("X", ["C2"], False, extra_tests=["F2<=0"]),
+                         '=IF(OR(COUNT(C2)=0,F2<=0),"",X)')
+        self.assertEqual(_guarded("X", [], False, extra_tests=["F2<=0"]),
+                         '=IF(F2<=0,"",X)', "no cells to count, so no COUNT term")
+        self.assertEqual(_guarded("X", [], False), "=X", "nothing to guard at all")
 
     def test_an_unresolvable_ref_fails_safe_to_blank(self):
         for ref in (
@@ -336,58 +397,201 @@ class TestInternalWorkbookEndToEnd(FrappeTestCase):
         super().tearDownClass()
 
     # -- placement ---------------------------------------------------------
-    def test_the_block_lands_immediately_after_the_true_data_edge(self):
-        """F is the rightmost MAPPED column, so the block starts at G -- the same rule the
-        remark column uses, and deliberately NOT openpyxl's max_column."""
+    def test_the_block_lands_after_the_remark_column_at_the_true_data_edge(self):
+        """F is the rightmost MAPPED column and `Nirmaan Remarks` now takes G, so the block
+        starts at H -- the same scan-right rule, one column further along. Deliberately NOT
+        openpyxl's max_column, and deliberately not an offset from F either.
+
+        ⚠️ REVERSED AT THE LIVE CHECK (owner 2026-08-19). The block used to come first. All
+        that changed is which of the two placers is CALLED first; neither knows about the
+        other, and no arithmetic anywhere was adjusted."""
         block = self.result["cost_blocks"]["Elec "]
-        self.assertEqual(block["cost_columns"], {"supply": "G", "install": "H"})
-        self.assertEqual(block["total_column"], "I")
+        self.assertEqual(block["cost_columns"], {"supply": "H", "install": "I"})
+        self.assertEqual(block["total_column"], "J")
 
     def test_the_headers_read_exactly_as_the_grids_columns_read(self):
         ws = self.wb["Elec "]
-        self.assertEqual(ws["G1"].value, "BCS Cost (Supply)")
-        self.assertEqual(ws["H1"].value, "BCS Cost (Installation)")
-        self.assertEqual(ws["I1"].value, "BCS Total Amount")
+        self.assertEqual(ws["H1"].value, "BCS Cost (Supply)")
+        self.assertEqual(ws["I1"].value, "BCS Cost (Installation)")
+        self.assertEqual(ws["J1"].value, "BCS Total Amount")
 
-    def test_the_remark_column_comes_after_the_block(self):
-        """Owner ruling: the block first, `Nirmaan Remarks` last -- the position people already
-        know it by. It falls out of the pass order, because the remark scan steps right past
-        anything non-empty."""
-        self.assertEqual(self.result["remark_columns"]["Elec "], "J")
-        self.assertEqual(self.wb["Elec "]["J1"].value, "Nirmaan Remarks")
+    def test_the_remark_column_comes_BEFORE_the_block(self):
+        """★ OWNER RULING 2026-08-19, after the live check -- this REVERSES the original
+        "block first, remarks last". `Nirmaan Remarks` keeps the position it holds in the
+        CLIENT export, at the right-hand edge of the client's own data, and everything
+        INTERNAL sits beyond it: costs, then the Total, then the margin.
+
+        The whole layout falls out of the CALL ORDER. Both placers scan rightward past any
+        occupied column, so whichever runs first claims the nearer one -- which is why this
+        reversal touched no arithmetic and why the full left-to-right order is asserted here
+        rather than each column in isolation."""
+        ws = self.wb["Elec "]
+        self.assertEqual(self.result["remark_columns"]["Elec "], "G")
+        self.assertEqual(
+            [ws[f"{c}1"].value for c in ("G", "H", "I", "J", "K")],
+            ["Nirmaan Remarks", "BCS Cost (Supply)", "BCS Cost (Installation)",
+             "BCS Total Amount", "% Margin"],
+            "the internal block must sit entirely to the RIGHT of the shared remark column",
+        )
 
     # -- values + formulas -------------------------------------------------
     def test_the_cost_cells_hold_the_stored_numbers_verbatim(self):
         ws = self.wb["Elec "]
-        self.assertEqual(ws["G2"].value, _SUPPLY)
-        self.assertEqual(ws["H2"].value, _INSTALL)
-        self.assertEqual(ws["G3"].value, _SUPPLY)
+        self.assertEqual(ws["H2"].value, _SUPPLY)
+        self.assertEqual(ws["I2"].value, _INSTALL)
+        self.assertEqual(ws["H3"].value, _SUPPLY)
 
     def test_the_total_is_a_formula_and_not_a_number(self):
         """The whole design: no server code computes a BCS number."""
-        cell = self.wb["Elec "]["I2"]
+        cell = self.wb["Elec "]["J2"]
         self.assertEqual(cell.data_type, "f")
-        self.assertEqual(cell.value, '=IF(COUNT(C2)=0,"",(G2+H2)*(C2))')
+        self.assertEqual(cell.value, '=IF(COUNT(C2)=0,"",(H2+I2)*(C2))')
 
     def test_a_declared_formula_is_translated_rather_than_replaced_by_the_builtin(self):
         """HVAC declares `(bcs_supply + bcs_install) * qty_total`, so its Total must read that
         shape -- and take the ANY-operand-missing guard, not the built-in's NOTHING-numeric
         one."""
+        # ⚠️ HVAC CARRIES NO REMARKS, so its block still starts at G and its Total is I --
+        # one column left of Elec's. That the two sheets differ is the placement rule working:
+        # each sheet's layout follows ITS OWN occupied columns, never a workbook-wide offset.
         self.assertEqual(self.wb["HVAC "]["I2"].value, '=IF(COUNT(C2)<1,"",((G2+H2)*C2))')
 
     def test_an_uncosted_row_gets_no_cost_and_no_total(self):
         """Row 4 has no `BoQ Row BCS Rate` record, so the screen shows a blank. `(blank+blank)
         x qty` would be a confident 0 -- a claim that the row costs nothing."""
         ws = self.wb["Elec "]
-        for addr in ("G4", "H4", "I4"):
+        for addr in ("H4", "I4", "J4", "K4"):
             self.assertIsNone(ws[addr].value, addr)
 
     def test_a_costed_row_with_no_quantity_blanks_through_the_guard(self):
         """Row 5 IS costed but C5 is empty. Excel reads an empty cell as 0, so without the
         guard the Total would render 0 where the screen renders blank + `no quantity`."""
         ws = self.wb["Elec "]
-        self.assertEqual(ws["G5"].value, _SUPPLY, "the cost itself is still written")
-        self.assertEqual(ws["I5"].value, '=IF(COUNT(C5)=0,"",(G5+H5)*(C5))')
+        self.assertEqual(ws["H5"].value, _SUPPLY, "the cost itself is still written")
+        self.assertEqual(ws["J5"].value, '=IF(COUNT(C5)=0,"",(H5+I5)*(C5))')
+
+    # -- the % Margin column (slice 6) -------------------------------------
+    def test_the_margin_column_lands_after_the_total_and_is_headed_plainly(self):
+        """Column order is cost boxes, Total, margin -- the same order the grid presents them
+        in, so a pricer reading the file left to right reads the same story they read on
+        screen."""
+        block = self.result["cost_blocks"]["Elec "]
+        self.assertEqual(block["total_column"], "J")
+        self.assertEqual(block["margin_column"], "K")
+        self.assertIsNone(block["margin_skipped"])
+        self.assertEqual(self.wb["Elec "]["K1"].value, "% Margin")
+
+    def test_the_margin_is_a_formula_and_carries_the_sign_guard(self):
+        """★ THE CENTRAL CASE. `(amount - cost) / amount x 100`, dividing by the AMOUNT cell
+        and by the Total column this module wrote -- and wrapped in BOTH guards.
+
+        ⚠️ THE `<=0` IS THE WHOLE REASON THIS COLUMN SHIPS instead of being left to a user to
+        add by hand. A NEGATIVE denominator flips the inequality, so an amount of -100 against
+        a cost of 50 computes +150%: a loss displayed as a profit. A hand-typed
+        `=(F2-I2)/F2*100` computes the identical number on every ordinary row and gets that
+        one catastrophically wrong, silently. The zero case rides the same test.
+
+        The COUNT guard is the second half: Excel reads an empty amount cell as 0, which WOULD
+        reach `<=0` and blank correctly -- but by the wrong route, and indistinguishably from
+        a genuine zero."""
+        cell = self.wb["Elec "]["K2"]
+        self.assertEqual(cell.data_type, "f")
+        self.assertEqual(cell.value, '=IF(OR(COUNT(F2)=0,F2<=0),"",((F2-J2)/F2)*100)')
+
+    def test_the_margin_names_the_denominator_identically_in_the_guard_and_the_body(self):
+        """The guard and the division must test the SAME expression. Written separately they
+        could drift -- guarding one column while dividing by another is a blank that arrives
+        for a reason unrelated to the number on the row, which is worse than no guard because
+        it looks deliberate."""
+        import re
+
+        value = self.wb["Elec "]["K2"].value
+        guard = re.search(r"OR\(COUNT\(([^)]+)\)=0,([^<]+)<=0\)", value)
+        self.assertIsNotNone(guard, value)
+        self.assertEqual(guard.group(1), guard.group(2))
+        self.assertIn(f"({guard.group(2)}-", value)
+        self.assertIn(f")/{guard.group(2)})", value)
+
+    def test_the_margins_numerator_defaults_to_the_total_column_by_reference(self):
+        """NOT a copy of the Total's rule -- a REFERENCE to its cell. That is what keeps the
+        margin live: edit a cost in the workbook and both the Total and the margin follow. A
+        second copy of `(G+H)*C` inlined here would compute the same number today and drift
+        the moment anyone touched the Total."""
+        self.assertIn("J2", self.wb["Elec "]["K2"].value)
+        self.assertNotIn("H2+I2", self.wb["Elec "]["K2"].value)
+
+    def test_a_declared_bcs_total_flows_into_the_margin_through_the_same_reference(self):
+        """HVAC's Total is a DECLARED formula, and its margin still just points at the Total
+        column. So the numerator inherits whatever that sheet declared, with no second
+        translation and nothing to keep in step."""
+        # HVAC has no remark column, so its margin is J and it divides by the Total in I.
+        self.assertEqual(self.wb["HVAC "]["J2"].value,
+                         '=IF(OR(COUNT(F2)=0,F2<=0),"",((F2-I2)/F2)*100)')
+
+    def test_an_uncosted_row_gets_no_margin_either(self):
+        """Row 4 has no cost record, so it gets no cost, no Total and no margin. A margin on
+        an uncosted row would read 100% -- 'this row is pure profit' -- which is the most
+        confidently wrong number this column could produce."""
+        self.assertIsNone(self.wb["Elec "]["K4"].value)
+
+    def test_a_costed_row_with_no_quantity_still_gets_a_margin_cell(self):
+        """⚠️ DELIBERATE, and it is not an oversight. Row 5 has no QUANTITY, so its Total
+        blanks -- but the margin's guard is about the AMOUNT, and F5 is a different question.
+        The formula is written and Excel resolves it: with a real amount and a blank Total it
+        reads 100%, and with no amount the COUNT guard blanks it. The row is not special-cased
+        here because the margin does not depend on quantity; inventing a dependency would make
+        the column lie about which fact it is missing."""
+        self.assertEqual(self.wb["Elec "]["K5"].value,
+                         '=IF(OR(COUNT(F5)=0,F5<=0),"",((F5-J5)/F5)*100)')
+
+    # -- the light-blue fill on filled BCS cells (owner 2026-08-19) --------
+    def _fill_of(self, sheet, addr):
+        f = self.wb[sheet][addr].fill
+        return (f.fgColor.rgb or "")[-6:] if f and f.fill_type == "solid" else None
+
+    def test_every_filled_bcs_cell_carries_the_light_blue_fill(self):
+        """★ OWNER RULING after the live check: a BCS cell holding a figure is marked, the way
+        a stamped rate cell is marked -- so a reader can see at a glance which rows were costed
+        without reading the numbers. Costs, the Total and the margin all count as figures."""
+        for addr in ("H2", "I2", "J2", "K2", "H3", "I3", "J3", "K3"):
+            self.assertEqual(self._fill_of("Elec ", addr), _BCS_FILLED_HEX, addr)
+
+    def test_an_uncosted_row_is_left_UNFILLED(self):
+        """⚠️ THE FILL MARKS CELLS, NOT COLUMNS, and this is the case that proves it. Row 4 has
+        no cost record, so its BCS cells are empty and stay unfilled. Filling the column's full
+        height would say "every row is costed" -- the same false claim in colour that the COUNT
+        guard exists to stop the Total making in numbers."""
+        for addr in ("H4", "I4", "J4", "K4"):
+            self.assertIsNone(self._fill_of("Elec ", addr), addr)
+
+    def test_the_header_row_is_not_filled(self):
+        """A header is a label, not a figure -- and the rate highlight this mirrors marks no
+        header either."""
+        for addr in ("H1", "I1", "J1", "K1"):
+            self.assertIsNone(self._fill_of("Elec ", addr), addr)
+
+    def test_a_costed_row_with_no_quantity_is_still_filled_where_it_has_figures(self):
+        """Row 5 is costed but has no quantity. Its COSTS are real figures and are filled; its
+        Total and margin are formulas we wrote, so they are filled too -- what those formulas
+        RESOLVE to is Excel's business and is not something the fill can or should predict."""
+        self.assertEqual(self._fill_of("Elec ", "H5"), _BCS_FILLED_HEX)
+        self.assertEqual(self._fill_of("Elec ", "J5"), _BCS_FILLED_HEX)
+
+    def test_the_fill_never_reaches_the_clients_own_columns(self):
+        """The mark belongs to the internal block. A client column -- including the shared
+        remark column now sitting immediately left of it -- must be untouched by it."""
+        for addr in ("A2", "C2", "F2"):
+            self.assertNotEqual(self._fill_of("Elec ", addr), _BCS_FILLED_HEX, addr)
+        self.assertNotEqual(self._fill_of("Elec ", "G2"), _BCS_FILLED_HEX,
+                            "the remark column is shared, not internal")
+
+    def test_the_fill_leaves_the_value_alone(self):
+        """A fill sets `.fill` and nothing else -- the number and the formula both survive it.
+        Asserted because a styling pass that quietly rewrote a cell would be invisible until a
+        pricer opened the file."""
+        ws = self.wb["Elec "]
+        self.assertEqual(ws["H2"].value, _SUPPLY)
+        self.assertEqual(ws["J2"].data_type, "f")
 
     # -- skips, reported not silent ---------------------------------------
     def test_a_grid_only_sheet_gets_no_block_and_says_why(self):
@@ -452,16 +656,23 @@ class TestInternalWorkbookEndToEnd(FrappeTestCase):
     def test_the_fidelity_delta_is_really_exercised(self):
         """★ THE GUARD IS ONLY WORTH SOMETHING IF THIS EXPORT ADDS FORMULAS, and it does: the
         source carries 9 (three amount formulas on each of three sheets) and the product
-        carries 15, the six Totals on the two costed sheets. Without this, `before + 0` would
-        be the plain equality guard and the delta path would be untested -- a guard that looks
-        adjusted and is not. Miscounting fails LOUDLY: dropping the count aborts the export
-        with `formulas: 9 -> 15` and produces no file, which is the reject-mutates-nothing
-        behaviour the client export already has."""
+        carries 21: the six Totals AND the six % Margins on the two costed sheets. Without
+        this, `before + 0` would be the plain equality guard and the delta path would be
+        untested -- a guard that looks adjusted and is not. Miscounting fails LOUDLY: dropping
+        the count aborts the export with `formulas: 9 -> 21` and produces no file, which is
+        the reject-mutates-nothing behaviour the client export already has.
+
+        ⚠️ 15 -> 21 AT SLICE 6. The split below is asserted per KIND, not as one total, so a
+        slice that silently stopped writing Totals while adding Margins would keep the sum and
+        still go red here."""
         produced = [c for ws in self.wb.worksheets for row in ws.iter_rows()
                     for c in row if c.data_type == "f"]
-        self.assertEqual(len(produced), 15)
-        ours = [c for c in produced if str(c.value).startswith("=IF(COUNT(")]
-        self.assertEqual(len(ours), 6, "three costed rows on each of the two costed sheets")
+        self.assertEqual(len(produced), 21)
+        ours = [c for c in produced if str(c.value).startswith("=IF(")]
+        self.assertEqual(len(ours), 12, "a Total and a Margin on three costed rows, twice")
+        margins = [c for c in ours if str(c.value).endswith(")*100)")]
+        self.assertEqual(len(margins), 6, "three costed rows on each of the two costed sheets")
+        self.assertEqual(len(ours) - len(margins), 6, "and a Total beside each one")
 
     def test_the_filename_says_the_file_is_internal(self):
         self.assertIn("priced_bcs_internal", self.result["filename"])
@@ -581,6 +792,15 @@ _NO_QTY_ROLE_MAP = {
 _BAD_LETTER_ROLE_MAP = {
     "??": {"role": "rate_supply", "area": None},
 }
+# Rates, a quantity and therefore a Total -- but NO amount column anywhere, so there is
+# nothing to measure a margin against. The sheet is otherwise entirely healthy, which is the
+# point: it gets its full cost block and its Total, and only the margin is absent.
+_NO_AMOUNT_ROLE_MAP = {
+    "A": {"role": "description", "area": None},
+    "C": {"role": "qty_total", "area": None},
+    "D": {"role": "rate_supply", "area": None},
+    "E": {"role": "rate_install", "area": None},
+}
 
 
 class TestPlacementCombinedRateAndEverySkip(FrappeTestCase):
@@ -615,6 +835,10 @@ class TestPlacementCombinedRateAndEverySkip(FrappeTestCase):
             ("NoCosts ", _ROLE_MAP, False),
             ("NoQty ", _NO_QTY_ROLE_MAP, True),
             ("BadLetter ", _BAD_LETTER_ROLE_MAP, True),
+            ("NoAmount ", _NO_AMOUNT_ROLE_MAP, True),
+            ("BadAmount ", _ROLE_MAP, True),
+            ("DeclAmt ", _ROLE_MAP, True),
+            ("DeclCost ", _ROLE_MAP, True),
         ):
             _seed_committed_sheet(cls.boq, sheet, "data", 1, role_map, [], 1, sheet.strip(),
                                   now, grid, [], None)
@@ -639,7 +863,36 @@ class TestPlacementCombinedRateAndEverySkip(FrappeTestCase):
                 doc.insert(ignore_permissions=True)
         frappe.db.commit()
 
-        cls.sheets = ["Stray ", "Combined ", "NoRate ", "NoCosts ", "NoQty ", "BadLetter "]
+        # BadAmount declares a `boq_total` naming `amount_supply`, which its role map does NOT
+        # carry -- so the denominator tree resolves on no row and the margin is skipped for a
+        # reason distinct from "this sheet maps no amount column". The sheet DOES map
+        # amount_total, so it never reaches that earlier branch.
+        for sheet, target, tree in (
+            # A denominator that cannot resolve -- its own skip reason.
+            ("BadAmount ", "boq_total", _ref("amount_supply")),
+            # A denominator that CAN: the same column the default would have found, declared
+            # explicitly, so the two paths are told apart by the GUARD they take rather than
+            # by the cells they name.
+            ("DeclAmt ", "boq_total", _ref("amount_total")),
+            # A numerator naming the raw cost boxes instead of the Total column.
+            ("DeclCost ", "bcs_margin_cost",
+             {"op": "+", "operands": [_ref("bcs_supply"), _ref("bcs_install")]}),
+        ):
+            af = frappe.new_doc("BoQ Cell Amount Formula")
+            af.boq = cls.boq
+            af.sheet_name = sheet
+            af.committed_version = 1
+            af.target_value_field = target
+            af.target_col = None
+            af.formula = json.dumps(tree)
+            af.formula_version = 1
+            af.is_current = 1
+            af.defined_at = frappe.utils.now()
+            af.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        cls.sheets = ["Stray ", "Combined ", "NoRate ", "NoCosts ", "NoQty ", "BadLetter ",
+                      "NoAmount ", "BadAmount ", "DeclAmt ", "DeclCost "]
         cls.result = _generate_internal_workbook(
             cls.boq, cls.sheets, cls._workbook(), "Placement And Skips BoQ"
         )
@@ -651,7 +904,8 @@ class TestPlacementCombinedRateAndEverySkip(FrappeTestCase):
     def _workbook(cls):
         wb = openpyxl.Workbook()
         wb.remove(wb.active)
-        for title in ("Stray ", "Combined ", "NoRate ", "NoCosts ", "NoQty ", "BadLetter "):
+        for title in ("Stray ", "Combined ", "NoRate ", "NoCosts ", "NoQty ", "BadLetter ",
+                      "NoAmount ", "BadAmount ", "DeclAmt ", "DeclCost "):
             ws = wb.create_sheet(title=title)
             for r in (2, 3):
                 ws[f"A{r}"] = f"item {r}"
@@ -745,6 +999,71 @@ class TestPlacementCombinedRateAndEverySkip(FrappeTestCase):
         self.assertNotIn("BadLetter ", self.result["cost_blocks"])
         self.assertIn("no mapped columns", self.result["cost_skipped"]["BadLetter "])
 
+    # -- the % Margin column's DECLARED-formula paths (slice 6) -------------
+    def test_a_declared_denominator_takes_the_all_operands_guard(self):
+        """DeclAmt declares `boq_total = amount_total` -- the same column the DEFAULT path
+        finds. The cells are therefore identical and the GUARD is what differs: a declared
+        formula blanks when ANY operand is missing (`COUNT < n`), the default when NOTHING
+        resolves (`COUNT = 0`). Same shape as the Total's two paths, for the same reason --
+        `evaluateBcsTotalFormula` returns on the first unresolved ref while `bcsRowAmount`
+        sums whatever it finds."""
+        self.assertEqual(self.wb["DeclAmt "]["J2"].value,
+                         '=IF(OR(COUNT(F2)<1,F2<=0),"",((F2-I2)/F2)*100)')
+
+    def test_a_declared_numerator_replaces_the_reference_to_the_total_column(self):
+        """DeclCost measures against the raw cost boxes rather than the Total. So the
+        numerator reads `(G+H)` and the Total column is not mentioned at all -- the sheet said
+        which cost figure it means, and it is not the Total."""
+        value = self.wb["DeclCost "]["J2"].value
+        self.assertEqual(value, '=IF(OR(COUNT(F2)=0,F2<=0),"",((F2-(G2+H2))/F2)*100)')
+        self.assertNotIn("I2", value, "the Total column is deliberately not read here")
+        self.assertEqual(self.wb["DeclCost "]["I1"].value, "BCS Total Amount",
+                         "and the Total column still exists -- it is simply not the numerator")
+
+    def test_the_combined_rate_sheet_gets_a_margin_over_its_one_box(self):
+        """A single undifferentiated cost box, so the Total multiplies only G -- and the
+        margin divides that Total into the amount exactly as anywhere else. The margin needs
+        no combined-rate special case, because it never touches the boxes."""
+        self.assertEqual(self.wb["Combined "]["I2"].value,
+                         '=IF(OR(COUNT(F2)=0,F2<=0),"",((F2-H2)/F2)*100)')
+        self.assertEqual(self.result["cost_blocks"]["Combined "]["margin_column"], "I")
+
+    # -- the % Margin column's OWN skips (slice 6) -------------------------
+    def test_a_sheet_with_no_amount_column_gets_its_costs_and_total_but_no_margin(self):
+        """★ THE MARGIN SKIPS ON ITS OWN, and this sheet is why the reason had to be separate
+        rather than folded into the block's. Rates, a quantity, costs and a Total -- nothing
+        about it is wrong -- and simply no column saying what we CHARGE. Reporting "no Total"
+        here would be false, and reporting nothing would be the silent absence this whole
+        module refuses."""
+        block = self.result["cost_blocks"]["NoAmount "]
+        self.assertEqual(block["cost_columns"], {"supply": "F", "install": "G"})
+        self.assertEqual(block["total_column"], "H", "the Total is unaffected")
+        self.assertIsNone(block["margin_column"])
+        self.assertIn("maps no amount column", block["margin_skipped"])
+
+    def test_a_declared_denominator_that_resolves_on_no_row_is_its_own_reason(self):
+        """A `boq_total` naming `amount_supply` on a sheet that maps only `amount_total`. The
+        sheet DOES have an amount column, so it never reaches the earlier branch -- the
+        formula simply cannot be resolved, which is a different fact and gets a different
+        sentence.
+
+        ⚠️ IT FAIL-SAFES TO BLANK RATHER THAN FALLING BACK to the sheet's own amount columns.
+        A declared formula is a statement about which figure the margin measures against;
+        quietly substituting a different one would produce a percentage nobody asked for, and
+        it would look right."""
+        block = self.result["cost_blocks"]["BadAmount "]
+        self.assertEqual(block["total_column"], "I", "the Total still lands")
+        self.assertIsNone(block["margin_column"])
+        self.assertIn("could not be resolved on any", block["margin_skipped"])
+
+    def test_a_sheet_with_no_total_column_has_no_margin_to_measure(self):
+        """The margin's DEFAULT numerator IS the Total column, so a sheet that got none has no
+        cost figure to divide. Not a zero -- a zero would claim the row costs nothing."""
+        block = self.result["cost_blocks"]["NoQty "]
+        self.assertIsNone(block["total_column"])
+        self.assertIsNone(block["margin_column"])
+        self.assertIn("no BCS Total Amount column", block["margin_skipped"])
+
     def test_every_sheet_is_still_reported_as_exported(self):
         """A skipped BLOCK is not a skipped SHEET -- each of these still went through the
         client-facing passes and still belongs in the file."""
@@ -767,6 +1086,13 @@ class TestPlacementCombinedRateAndEverySkip(FrappeTestCase):
             "this is a general-specs sheet, which carries no priced rows",
             "cost tracking is switched off for this sheet",
         }
+        # ⚠️ A MARGIN SKIP IS REPORTED ON THE BLOCK, NOT IN `cost_skipped` -- the sheet DID get
+        # a cost block, so it is not a skipped block. Slice 6 added three such reasons, and
+        # without this line the guard would have gone on comparing only the block's own set
+        # and called itself complete: an anti-drift guard that quietly stopped covering a
+        # whole family is worse than none, because it still reads as green.
+        covered |= {b["margin_skipped"] for b in self.result["cost_blocks"].values()
+                    if b.get("margin_skipped")}
         for reason in reasons:
             with self.subTest(reason=reason):
                 self.assertTrue(any(c.startswith(reason[:40]) for c in covered),

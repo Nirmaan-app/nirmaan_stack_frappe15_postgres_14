@@ -1931,3 +1931,99 @@ to green is to delete the explanation. A presence-side grep is worse still: it f
 a comment naming the path satisfies it while the import it guards is gone. The `ast` form asks the
 real questions — *does this module DEFINE this name?*, *does this module IMPORT that module?* — and
 leaves prose alone in both directions. **Write the next one this way from the start.**
+
+### BCS-EXP-6 — the `% Margin` column on the internal export (2026-08-19)
+
+A fourth column after `BCS Total Amount`, as a live Excel formula. **REVERSES owner ruling Q8.**
+
+⚠️ **THE Q8 BLOCKER WAS MISATTRIBUTED, AND THE MISREADING IS THE REUSABLE LESSON.** `CLAUDE.md`
+said the ratio "cannot" be a formula because it needs the literals `1` and `100`. That is a fact
+about the **in-app builder**, which has no literal token — never about the EXPORT, which had been
+writing literals (`COUNT(...)<n`, `""`) since BCS-EXP-2. A constraint stated without its scope
+reads as absolute.
+
+**`_write_margin_column`** — its own function, returning `{column, formulas, reason}`:
+
+- **Numerator (cost).** A declared `bcs_margin_cost` wins; else a REFERENCE to the Total column
+  this module just wrote. ⚠️ **A reference, never a re-derivation** — that is what keeps the file
+  live (edit a cost, the Total and the margin both follow) and what stops a second copy of the
+  Total's rule drifting. `bcs_total` is both a TARGET and an OPERAND, and it translates to Excel
+  perfectly for exactly that reason.
+- **Denominator (amount).** A declared `boq_total` wins — and needed **zero new code**, because
+  every operand it may name (`_BOQ_OPERAND_FIELDS = _AMOUNT_VALUE_FIELDS`) already resolves
+  through the shared `resolve_ref_col`. Else the new `sources.derive_amount_columns`.
+- ⚠️ **A declared denominator that resolves on no row does NOT fall back to the default.** It
+  states which figure the margin measures against; substituting another produces a percentage
+  nobody asked for, and it looks right.
+
+**★ THE SIGN GUARD IS WHY THE COLUMN SHIPS.** `=IF(OR(COUNT(F2)=0,F2<=0),"",((F2-I2)/F2)*100)`.
+A negative denominator flips the inequality — amount -100 against cost 50 gives **+150%**, a loss
+shown as a profit — so a hand-typed `=(F2-I2)/F2*100` is right on every ordinary row and
+catastrophically wrong on that one, silently. Zero rides the same test. **NOT-FINITE gets no
+guard deliberately**: unreachable in Excel once the denominator is non-zero, and a dead branch in
+a guard chain reads as a fourth rule.
+
+**`_guarded` gained `extra_tests`, not a second wrapper** — ONE guard builder in the module. A
+single test skips the `OR`, so the ordinary Total's string is **byte-identical** to before.
+
+⚠️ **THE BLANK-WITH-A-REASON PROPERTY IS THE ONE CASUALTY, and it is stated rather than glossed.**
+`BcsComputedCell` explains every blank in a tooltip; a workbook has none. The guard is therefore
+left LEGIBLE IN THE CELL, so clicking a blank margin shows which test refused it.
+
+**Three skips, each its own sentence** (`maps no amount column` · `has no BCS Total Amount
+column` · `could not be resolved on any costed row`), reported on the **BLOCK** as
+`margin_skipped` — **never in `cost_skipped`**, because such a sheet DID get a cost block. The
+anti-drift reason guard was widened to read block-level reasons; without that it would have gone
+on comparing only `cost_skipped` and still read green.
+
+**`derive_amount_columns` (services/boq_bcs/sources.py)** — the THIRD mirrored BCS rule. Tiers:
+confirmed pick → scalar total → supply/install halves → per-area. **Two tiers exist only to stop
+a double count** (a total contains its halves; a scalar contains its per-area parts) — the same
+harms the pick path refuses as `mixed_kinds` / `mixed_shapes`, so the fallback must not express
+what the confirmation forbids. Pinned by `parity_cases.json` **v3** → `derived_amount_cases` (10),
+read by BOTH suites, with the two precedence cases ordered **adversarially** (losing tier first)
+and a test asserting they are.
+
+Tests: `test_export_bcs_writeback` **67** (was 48), `test_sources` **75** (was 72). Client modules
+still **zero-diff**. No schema change — `bcs_amount_source` already existed.
+
+### BCS-EXP-7 — two corrections from the live check (2026-08-19)
+
+Owner's live click-through produced two changes. Both are in `export_bcs_writeback.py` only;
+the client modules stay **zero-diff**.
+
+**1. `Nirmaan Remarks` moves BEFORE the BCS block — REVERSES planning Q9.** The final layout is
+`… client data | Nirmaan Remarks | BCS Cost(s) | BCS Total Amount | % Margin`: the remark column
+keeps the position it holds in the CLIENT export, and everything INTERNAL sits beyond it.
+
+⚠️ **THE REVERSAL TOUCHED NO ARITHMETIC — ONLY THE CALL ORDER.** `_write_remark_column` and
+`_write_bcs_block` both scan rightward from the true data edge past any occupied column, so
+whichever runs first claims the nearer one. Neither knows the other exists, and there is no
+offset anywhere. The mutation that swaps the two calls back turns **14 tests red**.
+
+⚠️ **THE LAYOUT IS PER SHEET, NEVER WORKBOOK-WIDE.** A sheet with no remarks has no remark
+column, so its block still starts one column earlier — the `Elec ` / `HVAC ` fixtures differ for
+exactly this reason and a test pins both. Reading a single workbook-wide offset off one sheet is
+the mistake this guards against.
+
+**2. A filled BCS cell carries a light-blue fill** (`_BCS_FILLED_HEX` / `_fill_bcs_cells`) — the
+counterpart of `export_writeback._apply_priced_highlight`'s teal on a stamped rate cell: mark
+what actually got written, so a reader sees which rows were costed without reading numbers.
+Costs, Totals and margins all count as figures.
+
+- ⚠️ **CELLS, NEVER COLUMNS.** An uncosted row's BCS cells are empty and stay **unfilled**.
+  Filling the column's full height would claim every row is costed — the same false statement in
+  colour that the COUNT guard exists to stop the Total making in numbers. The **header is not
+  filled** either (a label, not a figure; the rate highlight marks no header).
+- ⚠️ **IT DELIBERATELY REUSES THE USER PALETTE'S `blue` (`BDD7EE`), which the rate highlight
+  deliberately AVOIDS.** The rate highlight sits on a SHEET column where a user colour tag can
+  also land, so a shared hex there would make a system mark read as a user tag. The BCS columns
+  are ones this module APPENDS, and a user tag is addressed by `(col_letter, excel_row)` against
+  the committed grid — it can never resolve to a column that did not exist when the grid was
+  committed. The collision is **structurally unreachable here**, which is what makes matching the
+  palette's own "light blue" the least surprising choice rather than a near-miss shade.
+- A fill sets `.fill` and nothing else; the number or formula in the cell is untouched (pinned).
+- ONE fill pass runs LAST over the collected cells, so a cell is marked exactly once.
+
+Tests: `test_export_bcs_writeback` **73** (was 67). Mutations: swap the call order → 14 red; fill
+the whole column height → 1 red; drop the fill pass → 2 red.

@@ -31147,3 +31147,185 @@ missing cost block must never be silent.
   inner seam instead.
 * **Nothing has been run in a browser.** There is no DOM test environment in this repo, so the
   dialog, the menu gating and the badge are verified by types + pure-function tests only.
+
+---
+
+## Build slice BCS-EXP-6 -- the `% Margin` column (2026-08-19)
+
+Adds the fourth column to the internal export: `% Margin`, after `BCS Total Amount`, as a live
+Excel formula. **This REVERSES owner ruling Q8** ("no % Margin column -- the dialog says so").
+
+### ★ The ruling was reversed because the blocker was misattributed
+
+`CLAUDE.md` said the ratio "cannot" be a formula: it needs the literals `1` and `100`, which the
+formula system rejects by design. **That is true of the in-app BUILDER and was never true of the
+export.** The export has always written literals -- `_guarded` emitted `COUNT(C2)<3` and `""`
+before this slice existed. Q8 was therefore a product call (add it yourself in Excel), not a
+technical wall, and re-reading it as a wall is what kept the column out.
+
+### What each half actually needed
+
+| half | how it resolves | new code |
+|---|---|---|
+| numerator, default | a REFERENCE to the Total column just written | one branch in `_ref_to_excel` |
+| numerator, declared (`bcs_margin_cost`) | the existing `_tree_to_excel` | none |
+| denominator, declared (`boq_total`) | the existing `_tree_to_excel` + `resolve_ref_col` | **none** |
+| denominator, default | `bcsAmountColumns`, ported | `sources.derive_amount_columns` |
+
+Every operand a `boq_total` may name (`_BOQ_OPERAND_FIELDS = _AMOUNT_VALUE_FIELDS`) was already
+handled by the shared `resolve_ref_col`, so the declared path needed nothing at all. Only the
+DEFAULT denominator was genuinely missing, which is the one mirror this slice adds.
+
+### The third mirror, and why it is pinned rather than avoided
+
+`derive_amount_columns` is the THIRD BCS rule to exist on both sides (after `derive_qty_columns`
+and `live_rate_kinds`). `parity_cases.json` -> **v3**, new `derived_amount_cases` (10), read by
+BOTH suites. The tier order IS the spec -- confirmed pick, else scalar total, else the
+supply/install halves, else per-area -- and **two of those tiers exist only to prevent a double
+count** (a total already contains its halves; a scalar already contains its per-area parts),
+which are the same harms the pick path refuses as `mixed_kinds` / `mixed_shapes`. A fallback able
+to express what the confirmation forbids would be a hole straight through those refusals, so the
+two precedence cases order their descriptors **adversarially** (losing tier first) and a test
+asserts they do -- otherwise they would also pass against a function returning its first input.
+
+### ★ The sign guard is the whole reason the column ships
+
+`=IF(OR(COUNT(F2)=0,F2<=0),"",((F2-I2)/F2)*100)`
+
+A NEGATIVE denominator flips the inequality: amount -100 against cost 50 computes **+150%**, a
+loss displayed as a profit. A hand-typed `=(F2-I2)/F2*100` computes the identical number on every
+ordinary row and gets that one catastrophically wrong, silently -- so leaving the column to a
+pricer was never the safe option it looked like. Zero rides the same test. **Not-finite needs no
+guard and gets none**: Excel cannot reach it once the denominator is known non-zero, and a dead
+branch in a guard chain reads as a fourth rule. The COUNT guard is the second half -- a blank
+amount cell reads as 0 in Excel, which WOULD blank correctly but by the wrong route and
+indistinguishably from a genuine zero.
+
+`_guarded` gained an `extra_tests` parameter rather than a second wrapper, so ONE builder emits
+every guard in the module. A single test skips the `OR`, which keeps the ordinary Total's string
+**byte-identical** to before the parameter existed.
+
+### ⚠️ What is lost in the move to Excel, stated rather than glossed
+
+On screen every blank BCS cell explains itself in a tooltip (`BcsComputedCell`'s
+blank-with-a-reason). **A workbook has no tooltip.** The guard is therefore left LEGIBLE IN THE
+CELL, where a reader who clicks a blank margin sees exactly which test refused it. That is the
+Excel-native form of the same promise -- not an abandonment of it, and not a reason to ship the
+column without saying so.
+
+### Three skips, each with its own sentence
+
+`maps no amount column` · `has no BCS Total Amount column` · `amount columns could not be
+resolved on any costed row`. **A margin skip is reported on the BLOCK (`margin_skipped`), never
+in `cost_skipped`** -- that sheet got its costs and its Total, so calling it a skipped block
+would be false, and nothing else in the report would have mentioned the absence. The anti-drift
+guard was widened to read block-level reasons too; without that line it would have gone on
+comparing only `cost_skipped` and called itself complete, which is worse than no guard because it
+still reads green.
+
+⚠️ **A declared denominator that fails to resolve does NOT fall back to the default.** A declared
+formula states which figure the margin measures against; substituting another would produce a
+percentage nobody asked for, and it would look right.
+
+### Frontend
+
+`margin_column` / `margin_skipped` on the response type (REQUIRED -- the server always sends
+both); `summariseCostBlocks` names the column or passes the server's own sentence through
+verbatim. The dialog panel **reverses its own message**: from "% Margin is not included, add it
+yourself" to "% Margin is a live formula", naming what blanks it. Its test reversed with it and
+now asserts the old sentence is GONE.
+
+### Cert
+
+| gate | result |
+|---|---|
+| `test_export_bcs_writeback` | **67 pass** (was 48) |
+| `boq_bcs.test_sources` | **75 pass** (was 72) |
+| `bcsColumns.test.ts` | **252 pass** (was 250) |
+| `PricedTenderBcsDialog.test.ts` | **19 pass** (was 15) |
+| `test_export_writeback` / `test_commit_gate` / `test_bcs` | 49 / 37 / 80 pass |
+| all `boq-wizard` vitest | 1600 pass, 46 files |
+| `tsc` | **3227** — repo baseline, unchanged; **0** in touched files |
+| `export_writeback.py` + 2 others | still **0 lines** changed |
+| mutation: drop the sign guard | **7 red** |
+| mutation: invert the ratio | **8 red** |
+| mutation: drop the COUNT guard | **7 red** |
+| mutation: fall back on a failed declared denominator | 2 red |
+| mutation: margin on an uncosted row | 2 red |
+| mutation: swap the amount tier order | 1 red (parity) |
+| mutation: return a total beside its halves | 2 red (parity + double-count) |
+
+### Still open
+
+* **Nothing has been run in a browser** -- unchanged from BCS-EXP-5, and now covering one more
+  column. The live click-through is still owed.
+* The whitelisted endpoint's happy path remains untested (it fetches from S3); both exports are
+  tested at their injectable inner seam.
+
+---
+
+## Build slice BCS-EXP-7 -- two corrections from the live check (2026-08-19)
+
+The owner ran the export in a browser -- the click-through BCS-EXP-2..6 each recorded as owed --
+and it produced two changes. **Both are confined to `export_bcs_writeback.py`**; the client
+modules keep their zero-line diff.
+
+### 1. `Nirmaan Remarks` moves BEFORE the BCS block (REVERSES planning Q9)
+
+Final layout: `… client data | Nirmaan Remarks | BCS Cost(s) | BCS Total Amount | % Margin`.
+The remark column keeps the position it holds in the CLIENT export, and everything internal sits
+beyond it -- so the internal file reads as the client file plus a block on the end, rather than
+the client file with something wedged into the middle of it.
+
+★ **THE REVERSAL TOUCHED NO ARITHMETIC.** Both placers scan rightward from the true data edge
+past any occupied column, so the CALL ORDER alone decides the layout -- swapping two statements
+was the entire change. That is the property the original design was worth having: a layout ruling
+can be reversed after shipping without anyone recomputing an offset. The mutation that swaps them
+back turns **14 tests red**.
+
+⚠️ **THE LAYOUT IS PER SHEET, NOT WORKBOOK-WIDE.** `Elec ` carries remarks and `HVAC ` does not,
+so their blocks legitimately start one column apart. Both are pinned. Reading one sheet's columns
+and assuming the workbook shares them is the mistake this guards against, and it is why the
+remark test now asserts the whole left-to-right header sequence rather than one letter.
+
+### 2. A filled BCS cell carries a light-blue fill
+
+The counterpart of the rate highlight (`export_writeback._apply_priced_highlight`, muted teal on
+a stamped rate cell): mark what actually got written, so a reader sees which rows were costed
+without reading the numbers. Costs, Totals and margins all count as figures.
+
+⚠️ **CELLS, NEVER COLUMNS -- and that is the load-bearing half.** An uncosted row's BCS cells are
+empty and stay UNFILLED. Filling the column's full height would claim every row is costed: the
+same false statement in colour that the COUNT guard exists to stop the Total making in numbers,
+and it would be a claim nobody could see was wrong. The header is not filled either -- a label is
+not a figure, and the rate highlight marks no header.
+
+⚠️ **IT REUSES THE USER PALETTE'S `blue` (`BDD7EE`) -- which the rate highlight deliberately
+avoids doing, so the divergence is worth stating.** That highlight lives on a SHEET column where
+a user colour tag can also land, so a shared hex there would let a system mark read as a user tag.
+The BCS columns are ones this module APPENDS, and a user tag is addressed by `(col_letter,
+excel_row)` against the committed grid -- it can never resolve to a column that did not exist when
+the grid was committed. The collision is structurally unreachable here, which is what makes
+matching the codebase's own "light blue" the least surprising choice rather than a near-miss shade
+nobody can name.
+
+A fill sets `.fill` and nothing else -- pinned, because a styling pass that quietly rewrote a cell
+would stay invisible until a pricer opened the file.
+
+### Cert
+
+| gate | result |
+|---|---|
+| `test_export_bcs_writeback` | **73 pass** (was 67) |
+| `test_export_writeback` / `test_commit_gate` / `test_bcs` / `test_sources` | 49 / 37 / 80 / 75 pass |
+| full vitest | 2801 pass, 76 files |
+| `export_writeback.py` + 3 others | still **0 lines** changed |
+| mutation: swap the two placer calls back | **14 red** |
+| mutation: fill the whole column height | 1 red |
+| mutation: drop the fill pass | 2 red |
+
+### Still open
+
+* The fill and the new column order are **not themselves browser-verified** -- they came FROM a
+  live check, and a second one is worth doing on the produced file.
+* The whitelisted endpoint's happy path remains untested (it fetches from S3).
