@@ -31117,3 +31117,93 @@ green. Slices 3a and 3b, certified against v40 rates, are re-certified here agai
 
 **Open item for the owner: the two `switches_sockets` goldens (s1, ss1) need re-banking in-product
 and re-exporting.** Until then the switches_sockets preview gate shows 4 changed goldens by design.
+
+---
+
+## CLAUDE.md trim -- STEP 1: create the rate-master destination (COPY ONLY) -- 2026-08-19
+
+**Documentation only. Nothing was deleted, no code was touched, no test suite was run.** This is the
+ADDITIVE half of the root-`CLAUDE.md` trim. After it the repository deliberately holds the
+rate-master content TWICE; that duplication IS the safety property -- step 2 may delete from
+`CLAUDE.md` only what this step has proven exists elsewhere.
+
+**Why the proof shape matters.** The earlier attempt at this job (**WBC-S6c**, 2026-07-30) recorded
+itself complete with "0 lost, losslessness verified" and **NEVER LANDED** -- no commit on any branch
+ever created its destination files. So this slice's proof is **mechanically re-derivable by a third
+party**, not asserted in prose.
+
+### What was created
+
+`.claude/context/domain/boq-rate-master.md` -- **1,496 lines / 137,380 bytes**. It holds the whole
+rate-master + rate-suggestion record: the priced-item catalog and category configs, the
+derivation-pipeline interpreter vocabulary, the asset export/import round trip, retirement, the CSV
+round trip, the RMF-1 deployment freeze, and BoQ Rate Suggestion (AI attribute extraction + the
+pricing helper).
+
+### Block accounting
+
+Three source bands in root `CLAUDE.md` at tip `30822d2b`, cut into **33 segments at bullet
+boundaries** and copied **VERBATIM** in source order. Only topic headings were inserted between
+blocks -- no sentence was reworded, summarised, merged, reordered or corrected.
+
+| Band | Source | CLAUDE.md span | Lines |
+|---|---|---|---|
+| A | rate-master bullets under `## Domain Gotchas` | 147-325 | 179 |
+| B | `## BoQ Rate Master (RM-1)` | 560-1470 | 911 |
+| C | `## BoQ Rate Suggestion (RM-3)` | 1472-1756 | 285 |
+| | | **total** | **1,375** |
+
+**1,375 source lines in scope; 1,375 landed; 0 unaccounted; 0 differ.** All 33 segments are present
+in the destination as contiguous verbatim runs, and the destination minus its preamble and inserted
+headings is byte-identical to the three bands concatenated (no duplication, no reordering, no
+reflow).
+
+The recon's `~1,022` line estimate was **six commits stale**. Every one of those six touched a
+`CLAUDE.md` file, and five added content inside these bands -- `15fd210e` (fact corrections),
+`22578b80` (slice 3a, `fit_into`), `063e589c` (slice 3b, step ordering + `applyDerivedDisplay`),
+`97f21cc3` (RMF-1 deployment freeze, 46 lines), `30822d2b` (the mint-gate filename regex + the
+legitimately-absent-version ruling, 16 lines). All were re-derived from the file as it stands and are
+copied like everything else. **Step 2 must not treat any of them as stale narrative** -- they are the
+newest and most load-bearing lines in the file.
+
+### Verification script
+
+`/tmp/trim1/verify_rate_master_copy.py` (Windows: `C:/Users/nites/AppData/Local/Temp/trim1/`; a copy
+sits beside the Desktop report). Run with `NS_ROOT=<repo root>`; exits 0 only when clean. It does not
+import the builder and does not trust it -- it re-extracts every span from `CLAUDE.md` and checks
+four independent things: per-line accounting, per-segment verbatim contiguity, segment reassembly
+(tiling with no gaps or overlaps), and the strip-and-compare byte equality.
+
+### Registration
+
+One row added to `.claude/context/_index.md` and one to the Reference Docs table in root `CLAUDE.md`.
+**That single table row is the ONLY change to `CLAUDE.md` in this slice** -- proven by a byte
+comparison in the edit script itself and by `git diff --numstat` reporting `1 0`.
+
+### CORRECTIONS OWED -- copied unchanged ON PURPOSE (B2a)
+
+Content believed WRONG was copied verbatim anyway; fixing during a copy destroys the losslessness
+proof that makes the later deletion safe. **Corrections ride a later slice.** The owner retired the
+pricing sheet on 2026-08-19 and reclassified goldens from ORACLES to **regression canaries, re-banked
+mechanically** -- **Deployment Mode v1.1 is the authority.** Affected blocks, by destination heading:
+
+| # | Destination heading | Source | What is now stale |
+|---|---|---|---|
+| 1 | Runs, cores, and item matching | 1295-1300 | "**Multi-run goldens (runs > 1) are OWED from the owner and must NOT be computed from our own code** ... the guiding sheet carries no runs concept, so a multi-run value has no sheet basis." The sharpest goldens-as-oracle claim in the file. |
+| 2 | The guiding-sheet authority rule, and retirement by declaration | 739-756 | "**THE GUIDING-SHEET AUTHORITY RULE (owner-locked standing law, 2026-07-29)** ... a category gets FINALIZED rules ONLY if it has a block on the **ALL ITEM WISE RATE** sheet; no block -> no rules." Its premise -- a live guiding sheet -- is gone. |
+| 3 | Interpreter step vocabulary | 641 | "**oracle goldens** t1/t2/t3 ... are the pins" (cable tray). |
+| 4 | Interpreter step vocabulary | 658, 703-730 | "PER-STAGE ROUNDING is **faithful to the guiding sheet**"; the EA-4c DB build-up's "implement **the sheet's** IFERROR install EXACTLY", "the sheet's I10:I14", "sheet-faithful". |
+| 5 | The 29-Jul truth-file cycle, and estimator rules | 1256 | "a banked EA-4 **oracle** `1869/735/2604`". |
+| 6 | Stored-config pipelines, numeric attributes, and known behaviour | 1436 | "The four **faithfulness goldens** ... are the STANDING instrument any pipeline change must still reproduce EXACTLY." |
+| 7 | Composite assemblies | 155-159 | "Both are **sheet-faithful**"; point_wiring's unit rounding "INTENTIONAL, **per the sheet**". |
+| 8 | One Electrical asset - the merge, its rulings, and the benchmark | 1048-1052 | "**Benchmark data (owner ruling):** the committed data asset is the **28-Jul benchmark workbook**" -- predates the v41/v43 production adoptions. |
+
+Adjacent and **already consistent** with the new ruling, listed so step 2 does not sweep it up by
+mistake: line 732's "the wiring + point_wiring + switches_sockets goldens are the **standing
+regression pins**" already uses the regression framing. Its asset sha `645a81d6841254e4` is a separate
+staleness question, not a goldens-as-oracle one.
+
+### Backwards compatibility
+
+No runtime behaviour, API, schema or config change -- documentation only. **Because nothing was
+deleted, no session can lose access to any rule as a result of this slice.**

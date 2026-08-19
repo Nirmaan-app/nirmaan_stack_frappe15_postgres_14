@@ -1,149 +1,32 @@
-# CLAUDE.md — Nirmaan Stack
+# BoQ Rate Master - full reference
 
-The active feature is **BoQ Upload & Management**. **Live status + full
-per-slice as-built detail: `frontend/.claude/plans/boq-upload-plan.md`** — one file, design spec
-followed by every as-built record in order. Backend as-built detail (endpoints, doctypes, commit
-pipeline + the relocated slice changelog): **`.claude/context/domain/boq-backend.md`**. Frontend conventions:
-`frontend/CLAUDE.md` + **`frontend/.claude/context/domain/boq-frontend.md`**. Load the relevant reference doc
-before BoQ work — the always-loaded `CLAUDE.md` files intentionally hold only stable conventions + load-bearing
-invariants, NOT per-commit detail (context-hygiene split 2026-06-25).
+**What this file holds.** Every load-bearing rule for the **BoQ Rate Master** (the priced-item
+catalog, its category configs, the derivation-pipeline interpreter, the asset export/import round
+trip, retirement, the CSV round trip, and the deployment freeze) and for **BoQ Rate Suggestion**
+(the AI attribute-extraction engine and the pricing helper that consumes it).
 
-**Frontend conventions file: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
+**Why it exists.** Root `CLAUDE.md` loads into every session before any code is read. It is being
+trimmed to a **router**: it will keep the stable conventions and point here for rate-master detail.
+**This file is the full record.**
 
-## Overview
+**Provenance.** Every block below was copied **VERBATIM** from root `CLAUDE.md` at commit
+`30822d2b`, in source order, with only topic headings inserted between blocks. Nothing was
+reworded, summarised, merged or corrected during the copy - verbatim copy is what makes the
+losslessness provable, and it is what makes the later deletion from `CLAUDE.md` safe.
 
-Nirmaan Stack is a construction project management and procurement ERP built on Frappe v15+ (Python 3.10+, PostgreSQL 14). The backend exposes whitelisted Python APIs consumed by a React 18 + TypeScript SPA. Core domains: Procurement (PR → RFQ → PO → DC/DN), Projects, Vendor Management, Service Requests, Financial Tracking, Inventory, and Document AI invoice autofill.
-
----
-
-## Tech Stack
-
-- **Backend:** Frappe v15+, Python 3.10+, PostgreSQL 14.11 (never MariaDB), Redis, Socket.IO
-- **Frontend:** React 18, TypeScript 5, Vite 5, React Router v6, `frappe-react-sdk 1.7`
-- **UI:** shadcn/ui (primary) + Ant Design 5 (selective), TailwindCSS 3
-- **State:** Zustand 5, React Hook Form + Zod, TanStack Table v8
-- **Infra:** Firebase 10 (FCM push), GCP Document AI (invoice OCR), Sentry 10
+**Corrections owed.** Some content copied here is known to be stale - most notably the blocks
+describing **goldens as ORACLES that must never be recomputed from our own interpreter**. The owner
+retired the pricing sheet on 2026-08-19 and reclassified goldens as **regression canaries**,
+re-banked mechanically; **Deployment Mode v1.1 is the authority.** Those blocks were copied
+unchanged on purpose. Corrections ride a later slice - see the plan doc entry for this slice for
+the full corrections-owed list.
 
 ---
 
-## App / Module Map
+## Rate-master invariants filed under Domain Gotchas
 
-```
-nirmaan_stack/
-├── nirmaan_stack/doctype/   # 84 custom doctypes — data models and JSON schemas
-├── api/                     # @frappe.whitelist() endpoints (35+ files, snake_case names)
-├── integrations/
-│   ├── controllers/         # ALL doc lifecycle hooks — after_insert, on_update, etc.
-│   ├── firebase/            # FCM push notification dispatch
-│   └── Notifications/       # In-app notification logic
-├── services/                # Reusable business logic (document_ai.py, finance.py)
-├── tasks/                   # Scheduled jobs: daily item status, 10 AM vendor credit cron
-├── www/                     # Serves frontend.html (SPA entry) and boot API
-├── patches/                 # DB migrations v1_5 → v3_0 (append-only)
-└── hooks.py                 # App wiring: doc_events, scheduled tasks, fixtures
-```
+### Extraction matching mode - item_identity
 
-Frontend lives in `frontend/src/`:
-- `pages/` — route-level components, one folder per domain
-- `components/ui/` — shadcn/ui primitives (generated, don't hand-edit)
-- `zustand/` — global state stores
-- `components/helpers/routesConfig.tsx` — all route definitions
-
----
-
-## Coding Conventions
-
-### Python
-- **Lifecycle hooks:** Always in `integrations/controllers/<doctype>.py`. Never in doctype `*.py` files.
-- **Doctype `*.py` files:** Only `autoname` and simple `validate`. Nothing else.
-- **API modules:** `snake_case` filenames under `api/<feature>/`. Never hyphens.
-  - Subdirectories under `api/<feature>/` are acceptable for sub-area grouping (e.g. `api/boq/wizard/upload_file.py`). Use them when a feature has multiple sub-areas that benefit from logical grouping.
-- **File size:** Split any file exceeding ~500 lines into focused submodules.
-- **Child Tables:** For relational, queryable data (items, payment terms, ledger entries).
-- **JSON Fields:** For flexible, UI-driven data (category lists, RFQ metadata).
-- **Transactions:** `frappe.db.commit()` after any DML in whitelisted methods. Call it **before** `publish_realtime()` to avoid race conditions.
-
-### TypeScript
-- All Frappe data access via `frappe-react-sdk`: `useFrappeGetDocList`, `useFrappeGetDoc`, `useFrappePostCall`.
-- Backend mutations: `useFrappePostCall('nirmaan_stack.api.<module>.<method>')`.
-- Real-time events named `{doctype}:{action}` (e.g. `po:new`, `pr:approved`).
-- **Do not introduce new UI libraries.** Stay within shadcn/ui + TanStack Table + Zustand + React Hook Form + Zod.
-
----
-
-## Module Residence (ADR-0010 — Proposed)
-
-Before writing backend code, consult the **residence map** in [ADR-0010](docs/adr/0010-module-residence-rules.md): a concept must have **one owning module**, never scattered across call sites (this complements the *placement* rules above — folder vs owner). Load-bearing rules:
-
-- **Calculations/decisions the business names** (Benchmark, Loss %, awaiting-approval) → a **pure module** in `services/` (no `frappe.db`, no request ctx) — B1.
-- **A JSON / child-table shape** → **one accessor** that parses + types + keys it — B2.
-- **`workflow_state` / status** → **one deriver** `f(items, descendants)`, never written ad-hoc across endpoints — B3.
-- **Whitelisted endpoints** → **thin orchestrators** (lock → load → call → persist → commit → publish); an endpoint must not reach into a controller validator — B4.
-- **A count/aggregate over many rows** → **the database** (`GROUP BY` / `EXISTS`), never a `get_doc`/row-loop in Python.
-
-First worked proof: the `sidebar_counts` aggregate rewrite + the shared `services/procurement_approval.py` predicate home. Frontend rules F1–F5 and the deferred backlog live in ADR-0010.
-
-**Enforcement:** run `python3 scripts/residence_check.py` before committing backend or frontend changes — it ratchets per-rule violation counts against `scripts/residence_baseline.json` (fail on increase; auto-tighten on decrease). Before creating a helper for an existing domain concept, consult the domain doc's **`## Residence — concept → owner`** manifest (first one: `.claude/context/domain/procurement.md`); an UNASSIGNED owner means ask, don't pick one ad-hoc.
-
----
-
-## PostgreSQL Gotchas
-
-1. **Reserved keyword:** Always quote `"user"` in raw SQL.
-2. **JSON field filters:** `frappe.get_all()` cannot use `!=` or `is set` on JSON fields. Use raw SQL: `WHERE json_col IS NOT NULL` with double-quoted table names (`"tabDoctype"`).
-3. **Child table filtering:** `frappe.get_all()` filters at the **parent** level — if any child row matches, all rows of that parent are returned. For row-level filtering, use SQL JOINs. See `api/credits/get_credits_list.py`.
-4. **rename_doc():** Only updates Link fields. Data fields storing document names need manual SQL.
-
----
-
-## Domain Gotchas
-
-- **PO Delivery Documents** are polymorphic: `parent_doctype` = `"Procurement Orders"` or `"Internal Transfer Memo"`. Always filter by `parent_doctype`; use `parent_docname` (not legacy `procurement_order` field).
-- **Vendor credit status:** `recalculate_vendor_credit()` never sets `vendor_status` to On-Hold. Only the daily 10 AM cron does that. The function can auto-clear On-Hold → Active.
-- **CEO Hold:** Only `nitesh@nirmaan.app` may set/unset — enforced in `integrations/controllers/projects.py`, not role-based.
-- **Invoice Autofill:** Opt-in only via InvoiceDialog. Never recreate `services/file_extractor.py` or the `DocumentSearch` page — both intentionally deleted.
-- **Email ops:** Use `api/users.create_user` and `api/users.reset_password` — these decouple email from the core operation.
-- **Administrator user:** Name is the literal string `"Administrator"`, not an email. Handle explicitly in rename/delete logic.
-- **Frappe child-table serialization depth:** `frappe.get_doc` / the REST resource API hydrate child tables ONE LEVEL DEEP ONLY. A child-of-a-child (grandchild) Table field is NOT returned. When a doctype has a child table that itself has a child table, the grandchild needs an explicit read path (a whitelisted endpoint querying the grandchild doctype directly via `frappe.db.get_all`). Example: BoQ Sheet Draft.work_packages required `get_boq_work_packages` (`api/boq/wizard/update_sheet_draft.py`).
-- **BoQ Description role is multi-column:** a sheet may map the `description` role on MULTIPLE columns (it is intentionally NOT in the parser's `_SINGLETON_ROLES`). The classifier JOINS all mapped description columns, in Excel column order, with the separator `" | "`, into the one canonical `description` string the whole pipeline uses, and ALSO records each original column in the per-row `description_parts_raw` list -- an ordered list of `(col_letter, header_label, cell_text)` triples in Excel column order (col_letter is unique so identical headers never collide; original headers preserved; duplicate labels get ` 2`/` 3` suffixes only at RENDER time, MC-4/MC-5) -- for faithful display. `header_label` is the real per-column header text, captured at PARSE time from the sheet's `header_row` cells by `orchestrator._enrich_column_headers` (MC-3b) into the in-memory `SheetConfig.column_headers` (stored-wins; blank header cell -> the bare column letter; never written back to the stored blob); MC-4/5 read these labels from the persisted `description_parts_raw` triples. A single-description sheet's joined string stays byte-identical (no separator). Owner-locked; the shared `_description_columns` / `_description_parts` helpers in `services/boq_parser/classifier.py` are the single source of truth.
-- **BoQ note parenting is NEAREST-PREAMBLE-OR-LINE-ITEM (EA-6a, owner-locked):** a NOTE attaches to the nearest **preamble OR line item** above it, not the nearest preamble. Selection is a plain three-way nearest-wins over `(_top_non_none(stack), last_line_item_index, level0_ancestor)` — **`level0_ancestor` is a FULL CANDIDATE, never an `else` fallback** (a level-0 section header IS a PREAMBLE, merely absent from the stack; the fallback form mis-attaches to a stale line item preceding the header — 42 measured). **The marker is READ ONLY in the note branch** — the LINE_ITEM branch only records it, so all other parenting/level logic is byte-unchanged. Reset at `SUBTOTAL_MARKER` ONLY (root-preamble / any-preamble resets are provable no-ops). Notes keep `path=None` and carry no level, so the demotion pass is unaffected; `attached_to_index == parent_index` for every note. Flag `hierarchy.NOTE_PARENT_NEAREST_ROW_ENABLED` (default True). Full detail: `.claude/context/domain/boq-backend.md`.
-- **Both review-tree parenting PROMPTS are TEST-PINNED (owner-locked):** the load-bearing passages of
-  `boq_ai_assist._AI_PASS_PROMPT_TEMPLATE` and `boq_gemini_assist._BOQ_CLASSIFY_PROMPT` are frozen by
-  `TestPromptParentingPins` in **both** service test files. **A wording change must UPDATE the pins
-  deliberately** — pin first, reword second, so the diff shows exactly what the model was told before and
-  after. Both prompts state the parser's real rule (*a note's parent is the nearest preamble or line_item
-  above it*) and the identical line-item rule (*only a preamble may parent a line_item* — matching the
-  finalize gate, which hard-blocks an item under any non-heading parent). Both stay **SILENT on
-  note-under-note**: silence is the mechanism, enforced by a NEGATIVE pin on each engine — never add a
-  prohibition sentence.
-- **Both AI-assist chunkers cut on the EFFECTIVE CLASSIFICATION (EA-6b, owner-locked):** Claude via
-  `_is_preamble_payload`, Gemini via the `section_flags` parallel list the API layer resolves
-  (`gemini_assist._section_flags`). Gemini previously cut on `preamble_candidate_score > 0` -- a derived
-  SIGNAL -- which landed cuts MID-SECTION and stranded **774 notes across 97 of 110 sheets** (118 with a
-  line-item target, median 2 rows behind the cut, plus 19 blind hard-max cuts); the classification-based
-  rule takes every one of those to **0**. **Gemini's WIRE PAYLOAD NEVER carries the parser's verdict**
-  (owner ruling: independence = (a), WIRE independence -- the model must never be shown a prior
-  classification). The verdict IS now fetched for cutting, so the old structural guarantee (simply not
-  fetching it) is gone: **the invariant is enforced by `services/test_boq_gemini_assist.TestWirePayloadPin`,
-  which freezes the 11-key payload contract -- a wording change must never make it red.** `chunk_rows`
-  with ABSENT `section_flags` degrades to ceiling-only cuts, never back to the score rule.
-- **Committed `attached_notes` is DERIVED, not carried (EA-6a slice 2, owner-locked):** at commit,
-  `commit_pipeline._derive_attached_notes` rebuilds every node's `attached_notes` from the EFFECTIVE
-  tree (effective parent + effective classification, row_index order -- order is load-bearing,
-  `hierarchy._notes_text` pipe-joins it). **The `BoQ Review Row` copy is DISPLAY-TIER only**; a
-  disagreement emits ONE `frappe.logger("boq_commit")` warning and **NEVER fails the commit**. This is
-  what makes the forward-only policy safe -- a historical sheet SELF-HEALS on re-commit, so there is no
-  backfill. The review tier is kept in step at the ONE chokepoint `_apply_and_save_row_edit`, which
-  fires on a `human_parent` move of a note **AND** on a `human_classification` transition INTO or OUT OF
-  "note" (a re-label); a classification change touching "note" on neither side rebuilds nothing. **The
-  rebuild keys on the EFFECTIVE PARENT, never `attached_to_index`** -- that field's 0 means "not
-  attached", so keying on it silently dropped the text of every note parented to `row_index` 0; the
-  sentinel ambiguity is now confined to the pointer field and can never reach the text or the AI
-  engines. The C4 reconciliation asserts the DERIVED value **at its call site only** -- the shared
-  `_jsn` helper still guards `append_notes_raw` / `edit_log` / `description_parts_raw` and must not be
-  touched. `BUG_24_NOTE_PARENT_INDEX_ENABLED` is **RETIRED** (slice 1 made one `target` drive pointer,
-  parent and notes-key, so setting it False would MANUFACTURE a divergence). **An item cannot be the
-  parent of another item** -- the finalize gate refuses it ("Item not under a section heading").
 - **`matching_mode: "item_identity"` routes a category to the composite-REFUSAL prompt (owner-locked).**
   `extraction.select_prompt_text` hands such a category `prompts/boq_rate_item_identity_prompt.md`, which
   instructs the model to return null for any row describing "MULTIPLE items or an assembled unit". It must
@@ -152,6 +35,9 @@ First worked proof: the `sidebar_counts` aggregate rewrite + the shared `service
   Removing it means removing `identity_attribute_id` in the SAME edit (that key is read only when the mode
   is `item_identity`, so leaving it is a dangling key); `item_kinds` is SEPARATE and must stay -- it is what
   records which category OWNS a catalog kind.
+
+### Composite assemblies - module fit, the blanker, plates and the back box
+
 - **`switches_sockets` is a PER-COMPONENT COMPOSITE and rounds to TENS; `point_wiring` rounds to UNITS
   (owner-locked, deliberately different).** Both are sheet-faithful: switches_sockets sums the RAW component
   lines, multiplies once, then rounds to tens; point_wiring multiplies and rounds per component. Do NOT
@@ -262,6 +148,9 @@ First worked proof: the `sidebar_counts` aggregate rewrite + the shared `service
   Greying the box out makes such a row UNPRICEABLE, which is a wrong answer and not merely a wrong UI.
   The back_box component's `@plate_item` binding is SEPARATE and stays: **box module = the PLATE's module
   when a plate exists**; the no-plate fallback needs the module computation and is a later slice.
+
+### Derived attributes and the computed circuit length
+
 - **A COMPUTED ATTRIBUTE VALUE MUST REACH THE SELECTION, because `circuit_fit` and `resolveQty` read
   there and never consult `ctx` (owner-locked).** `circuit_fit` takes its length from
   `selected[length_attr]` and a component's `{from_attr}` quantity from `selected[qty.from_attr]`,
@@ -316,6 +205,9 @@ First worked proof: the `sidebar_counts` aggregate rewrite + the shared `service
   read and wins outright, so the field stays **EDITABLE** and `readOnly` is never set. **The gate
   NARROWS, it does not open** — a genuinely absent input, including the SOURCE attribute the formula
   reads, must still block.
+
+### Goldens residence and where estimator rules are read from
+
 - **Goldens live in the asset's TOP-LEVEL `goldens` dict, keyed by category_id, and NOWHERE ELSE.**
   `loader.load_rate_master` reads `payload["goldens"]` and OVERWRITES each config's `goldens` key from it, so
   a golden written into a `category_configs[*].goldens` entry is SILENTLY IGNORED. A golden added in-system
@@ -323,244 +215,14 @@ First worked proof: the `sidebar_counts` aggregate rewrite + the shared `service
   **Verify an apply by comparing `stored == asset` KEY BY KEY, never by golden COUNT** -- a swap can leave the
   count identical while replacing the content.
 - **Estimator rules are read from the DB, not the asset:** `extraction._load_active_configs` reads `BoQ Rate Category Config`, so editing `services/boq_rate_master/data/rate_master_*.json` is **INERT at runtime** until re-imported or applied via the audited RM-4b `update_rate_config`. The asset is the record; the config row is what the model reads.
-- **Loss Justification (PR/SB):** a written reason is required for any approval item whose **Loss % > 10%** (strict). One field `loss_justification` (Small Text) on the SHARED child `Procurement Request Item Detail` covers both PR and SB. Terms in `CONTEXT.md`; scope/rationale in `docs/adr/0002-loss-justification-scope.md` (PR/SB approval surfaces ONLY — NOT on `Purchase Order Item`, no Loss% snapshot, no PO/print). Loss % = `(-savingLoss / benchmark) * 100`, **benchmark = Target Amount (target rate ×0.98) if available else Lowest Quoted L1 (Target-prioritized)**. Gate is server-authoritative: `send_vendor_quotes.handle_delayed_items` accepts `loss_justifications`, writes them onto `order_list`, and re-computes Loss % (`compute_item_loss_percent`) to `frappe.throw` on a blank >10% reason. **GOTCHA 1 — `rfq_data.details` is keyed by `item_id`, NOT the order_list child-row `name`** (verified against live data); the L1 lookup must use `item.item_id`. **GOTCHA 2 — dual benchmark on the approval screen:** the existing ₹ "Savings/Loss" column keeps its `min(Target, L1)` benchmark (unchanged), but the new Loss % uses the Target-prioritized benchmark to match capture and keep the >10% gate identical end-to-end — so the ₹ and the % on that one screen can come from different benchmarks; don't "fix" it.
-
----
-
-## Commands
-
-```bash
-# Dev server (from frappe-bench directory)
-bench start                          # Backend :8000, Socket.IO :9000
-
-# Database
-bench --site localhost migrate        # Run pending patches
-bench --site localhost clear-cache    # Flush Redis
-
-# Assets / doctypes
-bench build
-bench new-doctype "Name"
-
-# Tests
-bench run-tests --app nirmaan_stack
-# A single module (the canonical BoQ pricing-suite invocation):
-bench --site localhost run-tests --module nirmaan_stack.api.boq.wizard.test_pricing
-```
-
-**BoQ test-runner note (post boq-ai-validations merge):** run the pricing suite via
-`bench --site localhost run-tests --module nirmaan_stack.api.boq.wizard.test_pricing` (in-container).
-The raw `python -m unittest nirmaan_stack.api.boq.wizard.test_pricing` path now FAILS at import —
-the merged `services/boq_ai_assist.py` calls `frappe.logger("boq_ai")` at module load, which opens
-`/workspace/development/logs/boq_ai.log` before a bench context exists. Use the bench runner.
-
-**Ad-hoc DB queries from host** (bench CLI broken on host — click version mismatch):
-```bash
-cat > /tmp/q.py <<'EOF'
-import os; os.chdir('/workspace/development/frappe-bench/sites')
-import frappe; frappe.init(site='localhost'); frappe.connect()
-# ... query ...
-frappe.destroy()
-EOF
-docker cp /tmp/q.py frappe_docker_devcontainer-frappe-1:/tmp/q.py
-docker exec -w /workspace/development/frappe-bench frappe_docker_devcontainer-frappe-1 env/bin/python /tmp/q.py
-```
-`os.chdir` to `sites/` is **required** before `frappe.init()`.
-
-**Windows quirk:** prefix `MSYS_NO_PATHCONV=1` on all `docker exec` and `docker cp` commands when passing UNIX-style paths through Git Bash. Bash tool on Windows otherwise translates `/tmp/...` → `C:/Users/.../Temp/...`. See handover §9 #93 + §11 #33.
-
-### BoQ env / testing procedures
-
-For BoQ Upload dev-environment setup, clean bench-restart sequence, the CSRF clear-site-data login fix, the two-port (:8080 live / :8000 stale) rule, and manual read-only DB-inspect (PostgreSQL, run-from-sites-dir): see `BoQ_Environment_Testing_Runbook_v1_0.md` (in project knowledge). Source of truth remains handover doc §9 #118-#123 + caveats TT/UU/VV/WW; the Runbook is a convenience digest.
-
----
-
-## Testing Conventions
-
-- **Framework:** `frappe.tests.utils.FrappeTestCase` (Python unittest subclass).
-- **Location:** `nirmaan_stack/nirmaan_stack/doctype/<name>/test_<name>.py` — co-located with each doctype.
-- **Existing tests:** Nearly all are empty stubs. Don't rely on them to catch regressions.
-- **New code:** Pure-Python modules (parsers, services) must have real unit tests with fixture files. No stubs for logic-bearing code.
-- **Frontend E2E:** Cypress 13.7 configured in `frontend/cypress.config.ts` — largely unimplemented.
-- **Single-doctype state (STANDING RULE):** a test that mutates a field on a Single doctype MUST capture the
-  site's original value and restore **that** — never a hardcoded restore constant. These suites run against the
-  LIVE localhost site, so a hardcoded restore rewrites the owner's real setting whenever it differs. The failure
-  is SILENT because `frappe.db.set_single_value` bypasses the doc lifecycle and writes **no `Version` row**: a
-  `track_changes` audit cannot see it, so the setting appears to change by itself. Correct pattern:
-  `test_ai_settings.py` (capture + `addCleanup`) or a `setUpClass` capture restored in `tearDownClass`.
-- **After editing any doctype JSON:** Always run `bench --site localhost migrate`. Tests use a separate test database that auto-migrates, so **passing tests do not guarantee the runtime database has the new column**. Verify with `frappe.db.has_column("DocType Name", "field_name")` in the bench console after migration.
-
-### Projects row fixture pattern
-
-Tests that need a Projects row in `setUpClass` must satisfy the legacy `Projects.after_insert` hook (`generate_pwm` in `doctype/project_work_milestones/project_work_milestones.py`). The hook requires `project_start_date` + `project_end_date` in `"YYYY-MM-DD HH:MM:SS"` format and `project_scopes` as a dict with a `"scopes"` key.
-
-Working pattern:
-
-```python
-@classmethod
-def setUpClass(cls):
-    super().setUpClass()
-    cls.test_project = frappe.new_doc("Projects")
-    cls.test_project.project_name = f"TEST_<feature>_{frappe.generate_hash(length=6)}"
-    cls.test_project.project_start_date = frappe.utils.now()[:19]
-    cls.test_project.project_end_date = frappe.utils.add_to_date(frappe.utils.now()[:19], years=1)[:19]
-    cls.test_project.project_scopes = {"scopes": []}
-    cls.test_project.insert(ignore_permissions=True)
-    frappe.db.commit()
-
-@classmethod
-def tearDownClass(cls):
-    # Delete child rows (BOQs etc.) first, then the project
-    frappe.delete_doc("Projects", cls.test_project.name, force=True, ignore_permissions=True)
-    frappe.db.commit()
-    super().tearDownClass()
-```
-
-Why `[:19]` truncation: `frappe.utils.now()` returns microsecond-precision strings (e.g. `"2026-05-29 12:30:45.581159"`); `generate_pwm` calls `strptime(..., "%Y-%m-%d %H:%M:%S")` which rejects them. `add_to_date` return values need the same truncation. Empty `{"scopes": []}` makes `generate_pwm` run but produce zero milestones — correct for test isolation. Origin: Module 1a 2026-05-29.
-
----
-
-## Don't Touch
-
-| Path | Reason |
-|---|---|
-| `nirmaan_stack/nirmaan_stack/doctype/*/*.json` | Auto-generated by Frappe — edit via Desk UI or bench tooling only |
-| `patches/` | Append-only migration history — never modify existing files |
-| `www/frontend.html` | Auto-generated SPA shell |
-| `frontend/src/components/ui/` | shadcn/ui generated components — update via shadcn CLI |
-| `nirmaan_stack/public/` | Compiled frontend assets — edit source in `frontend/src/` instead |
-| `services/file_extractor.py` | Intentionally deleted — do not recreate |
-
-**Sanctioned exception:** A doctype JSON field's `fieldtype` MAY be changed via a deliberate, reviewed, committed CC edit + `bench migrate` when a schema constraint must be corrected (e.g. `source_file_url` Data->Small Text, fix 3815ea3f, 2026-05-30; `description` Data->Text on BOTH `Project Expenses` and `Non Project Expenses`, 2026-07-28 — all four expense dialogs already rendered a `<Textarea>` against a `varchar(140)` column, so a >140-char description hard-failed the save with Frappe's `CharacterLengthExceededError`). Any such change must be isolated to the minimum field diff and explicitly noted here.
-
-**The same exception covers a field's `description` text, on the same terms** (minimum diff, reviewed, committed, a migrate run afterwards) — **OWNER-RATIFIED, and not to be narrowed back to `fieldtype`-only by a later reader who reads the widening as drift.** A description is what the next implementer reads before touching the field, so a stale one is a defect in the same class as a wrong `fieldtype` — and correcting it changes no column at all, which is exactly what makes it safe. It has been used this way on the two BCS doctypes, `BoQ Sheet` and `BoQ Row BCS Rate`, whose descriptions had outlived the widening that gave the cost layer a third stored rate. Such a diff must stay description-ONLY, verified by comparing the doctype JSON structurally with `description` stripped: identical field lists, identical everything else.
-
----
-
-## Active Features
-
-| Feature | Branch | Spec | Status |
-|---|---|---|---|
-| BoQ Upload & Management | `feature/boq-pricing-helper` | `frontend/.claude/plans/boq-upload-plan.md` | **Which phase/slice is active is NOT recorded here — read the plan doc.** A status written in this cell dates the moment the next slice lands. Full slice-by-slice status + as-built detail: `plans/boq-upload-plan.md` + `.claude/context/domain/boq-backend.md`. Do NOT duplicate the changelog here. |
-
-**Always read `frontend/.claude/plans/boq-upload-plan.md` + `.claude/context/domain/boq-backend.md` before working on BoQ.**
-
-**Active BoQ doctypes** (full per-doctype detail in `.claude/context/domain/boq-backend.md`):
-- `BOQs` — root BoQ doc; `BoQ Sheet Draft` (child) — per-sheet wizard config (`wizard_status`, `sheet_config`); `BoQ General Specs Sheet` / `BoQ Sheet Work Package` — child tables.
-- `BoQ Review Row` — transient per-parse review rows (human-edit layer; **-1 sentinel** for no-parent/no-override).
-- `BoQ Sheet` — committed, VERSIONED sheet tier (`commit_version`/`is_current`); `BOQ Nodes` (+ `BOQ Node Qty By Area`) — committed node tree, **CAPTURE-ONLY** controllers (no amount/parent-rate recompute).
-- `BoQ Committed Sheet Grid` (+ `... Row`) — faithful committed cell grid (all 6 classifications).
-- `BoQ Cell Pricing` — per-cell pricing layer; `BoQ Cell Amount Formula` — per-column amount formulas; `BoQ Cell Remark` / `BoQ Cell Color` — annotations; `BoQ Cell Dismissal` — per-row review-flag dismissal; `BoQ Cell Reconciliation Choice` — per-cell formula-vs-document choice; `BoQ Sheet Pricing Lock` — single-editor lock. (No separate audit doctype — audit goes through `Nirmaan Versions`.)
-- `BoQ Row Category` — per-row classification overlay (classifier service `services/boq_category/`, backend-only; wired into the pricing editor at a later slice). Mirrors `BoQ Cell Remark`'s durable-address shape but with `discipline` IN the identity tuple (a second engine's row for the same Excel address coexists); freeze-and-supersede lifecycle via `persist.write_row_categories` (+ `set_human_verdict`, which UPSERTS: creates a current record when none exists for the address — CL-6, so a verdict on an eligible row that was never classified persists — else annotates the current record IN PLACE and does NOT mint a new version). `context_builder.build_sheet_context` rebuilds the committed-tree feed (`anc_texts`/`anc_headers` byte-identical to the certified harness, plus a structured per-ancestor list incl. every ancestor's notes; work headers PARKED, not fed this slice). `routing.route_r3d` = config-driven R3d router (`routing_config.json`); `ai_voter.classify_rows_ai` = independent Option-B voter (AI feed = description/ancestor_chain/notes only; fails closed when AI settings disabled). **Single-row-batch parse tolerance (HV-2, all disciplines, owner-locked):** the voter's `_extract_json_array` accepts a lone-row reply returned as a bare JSON OBJECT (wraps it as a one-element list) as well as the normal array; parse-shape ONLY — id/category validation stays downstream unchanged, and a genuinely non-JSON reply still RAISES loudly (error-swallowing is the harness's job, never the voter's). The eval harness (`harness/electrical_classification_harness.py`) IMPORTS this same `_extract_json_array` (HV-2b) — one source of truth, no duplicate; do NOT reintroduce a local copy. Effective category = `human_category_id` if set else `final_category_id`; a blank `final_category_id` means route-to-human, never a category. **AI-off fail-safe (CL-5, owner-locked, Option A):** when the voter did NOT run (`ai_status` in `{"disabled","no_key"}`) the `orchestrator` OVERRIDES routing per-row — `final_category_id` = the RULE category (a genuine rule-abstain stays honestly blank) and EVERY row is flagged `Needs review`. The override lives in `orchestrator.classify_sheet_rows` (a run-level flag the pure `route_r3d` is blind to); `route_r3d` + `persist` stay untouched. When `ai_status == "ran"` there is NO override (consensus auto-accepts, disagreement blanks final as before). **Endpoints (CL-1b, `api/boq/wizard/classify.py`):** `list_engines` / `start_classify` / `get_classify_status` / `get_sheet_categories` / `set_row_category`, plus `_classify_worker` on the `parse_run` long-job pattern (raw 32-char job_id, commit-before-publish, self-heal). Its in-progress marker + terminal payload live in REDIS keyed by `(boq, sheet_name, discipline)` (schema-free -- no doctype field -- fitting the committed tier). `orchestrator.classify_sheet_rows` does context->rule+AI->route->persist per sheet; range scoping is ELIGIBLE-ONLY + SILENT and the summary reports honest N-of-M plus a `skipped_by_reason` count rollup. Engines come from the `engines.py` registry (adding one = a registry edit; `available` gates start/verdict -- no hardcoded engine names). **Progress (CL-2):** the worker emits `boq:classify_sheet_progress` `{boq, sheet_name, discipline, done, total}` once per 20-row AI batch (the orchestrator drives the batching in slices of `_AI_BATCH`=20 -- IDENTICAL to `ai_voter._BATCH` -- so AI behaviour stays byte-identical; `ai_voter` is untouched); the terminal `boq:classify_sheet_done` is unchanged. **Progress poll is authoritative (CL-4):** the per-batch `_progress` closure ALSO merges `done`/`total` into the Redis in-progress marker (`_update_marker_progress`, preserving job identity; silent no-op if the marker is gone), and `get_classify_status`'s `running` branch returns them -- so the 3-second poll drives the progress bar even when the socket does not deliver (owner-env fact). Progress renders as a BLOCKING centered modal (`ClassifyProgressModal`) that is dismissable ONLY at a terminal state (success OR error) -- never mid-run. The terminal `_status_key`-then-clear ordering guarantees a `running` poll can never race a `done`. **Catalog (CL-3):** `get_category_catalog(discipline)` is a read-only endpoint returning `{discipline, categories:[{id,label}]}` from `load_ruleset` (engine-scoped -- unavailable engine throws); it drives the frontend verdict picker + the Category-column label. `set_row_category` (the human-verdict write, `""`=clear) is the CL-3 write path (unchanged since CL-1b). **Second-discipline seam (HV-1, owner-locked):** adding a classification discipline = 3 NEW asset files (`categories_<disc>.json`, `rules_<disc>.json`, `prompts/<disc>_ai_category_prompt.md`) + 3 one-line map edits (`runner._DISCIPLINE_ASSETS`, `ai_voter._DISCIPLINE_PROMPTS`, harness `BOQ_HARNESS_DISCIPLINE` env switch); `scoring.json` + `routing_config.json` stay SHARED across disciplines, and `load_ruleset(discipline)` / `_read_prompt(discipline)` RAISE for an unshipped discipline. HVAC assets exist (**17** categories `hvac_*` — the 17th, `hvac_raceway`, is an OWNER RULING at HV-3: cable trays/raceways price separately, so `hvac_cables` is cabling only and the tray vocabulary lives in Raceway with a false-friend guard each way — ruleset `4.2-hv7`, prompt `hvac-v1.3`; the ruleset is MEASURED OUT-OF-SAMPLE at the Set-2 exam — rules 63.58% on Set-2 vs 71.13% on Set-1 (the overfit bill, −7.56 pp) and 68.39% on the combined 2,354-row corpus after HV-6, vs the owner's 80% bar; AI prompt v1.2 measured 91.57% / 90.29% (Set-1/Set-2) and GENERALISES where the ruleset does not, so **further ruleset tuning is closed** — see `_classification_review/hvac_set2_exam/SET2_EXAM.md` and `hvac_rules_v4_verify/VERIFY_V4.md`. **Set-1 and Set-2 are both SPENT: the next honest out-of-sample measurement is production Set-3, and nothing further may be tuned against this corpus.** Prompt v1.3 is UNMEASURED, certified at HV-7) and **the HVAC engine is LIVE — `engines.py` `available=True` (HV-9, owner GO 2026-07-22), which CLOSES the HVAC build arc.** `is_discipline_available("HVAC")` now admits `start_classify` / `set_row_category` / `get_category_catalog`; ELV remains listed-but-unavailable and is the gate's negative exemplar. Certified stack behind the switch: rules `4.2-hv7` + notes-fallback surface + prompt `hvac-v1.3` + `consensus_floor_v1` routing. First production classify (`BOQ-26-00017 | Piping `): 14 auto-accepted / 9 review, both invariants holding on real data, tier shape 18/18 identical to the HV-8 certification. **PRODUCTION ERA: Set-3 accrual is now live — every production classify is unseen out-of-sample evidence, so the held Ducting demotion call and the demotion-list re-derivation must ride PRODUCTION data, never a re-fit on the spent Set-1/Set-2 corpus.** **OPERATIONAL WARNING: an AI-off run looks successful — always check `ai_status`; when it is `disabled`/`no_key` the CL-5 fail-safe adopts the RULE category as `final_category_id` and flags every row for review, so review rows carry a NON-blank final (correct, but the opposite of the certified blank-review shape).** **AI settings changes are now attributable (HV-11): `BOQ Upload Review AI Settings` carries `track_changes: 1`, so every toggle flip lands in the Version log (field change + user + timestamp) — the instrument for the standing unattributed-self-flip incident; and an AI-off run's completion modal + post-close toast now show a plain "AI voter was OFF for <discipline>" warning (healthy path silent), so the fallback is visible, not silent.** **Multi-engine pricing editor (HV-10):** the pricing editor reads the NEW `get_sheet_categories_resolved(boq, sheet_name)` — one index-covered query across every discipline with current rows, resolving an effective verdict PER ROW via the owner-locked server-side ladder (human wins, most-recent between disciplines > auto-accepted > higher-confidence between multiple autos, row flagged `cross_engine_conflict` > blank). `get_sheet_categories` (single-discipline) is BYTE-UNTOUCHED; it now backs ONLY `freeze_classification`'s stamping/banking. **Freeze summary reads the resolved ladder (Slice 1a):** `get_freeze_summary`'s blank counts come from the shared SERVICE helper `persist.blank_category_eligible_rows(boq, sheet_name, committed_version)` — eligible rows (node_type in {Line Item, Preamble}) whose RESOLVED effective category is blank across EVERY discipline; **a row with NO `BoQ Row Category` record is BLANK (the load-bearing fail-open guard — never-classified rows are ABSENT from the resolved read, so the count keys on the eligible NODE set, not on returned rows).** The ladder itself was relocated `classify._resolve_row_ladder` → `persist.resolve_row_ladder` so the resolved read AND this helper share ONE ladder (no service→api import; mirrors the frozen-reader precedent). `get_freeze_summary`'s `discipline` param is now accepted-but-IGNORED (resolves across all disciplines; single-discipline counts unchanged). `freeze_classification` stamping is deliberately deferred to its own slice. **`cross_engine_conflict` is TELEMETRY-ONLY — computed, never persisted, NEVER rendered** (owner ruling, same as `review_priority`). The whole pathway is N-ENGINE GENERIC — no discipline is named in code (the HV-10 bug was a hardcoded `discipline="Electrical"`); a future engine flipping `available` flows through with zero code change. The picker groups by the disciplines that ran and a human pick carries its group's discipline; the write (`set_row_category`, unchanged — it validates vocabulary + upserts) lands on that engine's row identity. Category picks on HVAC sheets are safe from HV-10 on. **`rules_version` provenance is WHOLE (HV-11): `load_ruleset` now surfaces `version` (the one additive loader line the HV-9 note owed — the same gap class as `routing_policy`), so `orchestrator` stamps it and new rows carry the real ruleset version (HVAC `4.2-hv7`, Electrical `2.1-tuning2`) beside `prompt_version`/`model`. The row-stamp chain (`orchestrator.classify_sheet_rows` reads `ruleset.get("version")` → row dict → `persist.write_row_categories`) was already correct; only the loader was blind.** **Ancestor-aware attribute guard (HV-5, rules side, HVAC-GATED):** an `exclusion` rule may carry `"applies_to_ancestor": true`, which moves its patterns off the line's own text and onto the **RESOLUTION POINT** — the ancestor nearest-hit settled on. Such a rule FORBIDS its category for that ancestor's children. It is consumed ONLY on the nearest-hit path, so a legacy discipline (no resolution point) is structurally unable to reach it, and `rules_electrical.json` carries none — proven byte-identical on the 2,888-row electrical corpus. This is how the owner's **4A composite ruling** is enforced at section level (`INS-COMPOSITE-ANC-EXCL`): a header describing a HOST item (pipe/duct/valve) that mentions insulation only as an ATTRIBUTE cannot yield Insulation for its children. **The discriminator is DISTANCE, not vocabulary** — the pattern requires ≥2 intervening words, so compound-noun item forms (`duct insulation`, `pipe insulation`, `underdeck insulation`) never match and insulation-is-the-item still wins. **The HVAC Boundary Rulings register (R1–R10, owner-dated 2026-07-21) is encoded in `rules_hvac.json` AND `prompts/hvac_ai_category_prompt.md` — the two must be changed together or the voters diverge.** **HV-6 final rulings (owner-dated 2026-07-21, in rules v4 + prompt v1.3):** (1) the **CHW/DX boundary is the FEED MEDIUM, never the form factor** — cassette/hi-wall/ductable/split are FORM words that resolve only with a water-fed or refrigerant-fed context, taken from the line's own text **OR its section header**, and bare form with neither context stays LOW/contested on purpose; **VRF keeps precedence** because VRF is refrigerant-fed too (`DX-VRF-EXCL`), and the bare token `refrigerant` is deliberately NOT a `DX-ANC` token (measured: it collides with VRF and cost 4 rows); (2) **a VRF system's own controls are `hvac_vrf`** (`VRF-CONTROLS`), with Sensors keeping the BMS basket only (`SNS-VRFCTRL-EXCL`); (3) **Misc is UNCHANGED** by explicit owner ruling. **`PNL-ANC-TYPE` is RETAINED by measurement** — despite its 18.8% Set-2 precision, deleting it costs 23 correct rows and fixes none (it resolves bare fragment leaves under a panel header); the distance-restricted fix needs a per-rule distance field in `runner.py` and is deferred to HV-7. **Notes-as-fallback matching surface (HV-6b, rules side, OPT-IN PER DISCIPLINE):** a discipline's `rules_<disc>.json` may declare top-level `"matching_surface": "notes_fallback"`, which makes rule matching TWO-PASS — pass 1 is NOTES-FREE (item/exclusion rules see the row description only; ancestor rules see ancestor descriptions only, each at its own level), and the LEGACY full surface (descriptions + all notes, own and ancestor) re-runs ONLY when pass 1 abstains outright; a pass-1 verdict wins as-is. **ABSENT = the legacy single pass, byte-identical.** The gate sits OUTSIDE every existing mechanism and changes none — each pass runs the complete unmodified pipeline (nearest-hit, decay, guards, exclusions, tie-break, band, geometry override); pass 1 re-enters `classify_line` with `ancestor_texts := ancestor_headers`, so NO `context_builder` change was needed, and a private `_notes_fallback_pass` kwarg guards recursion (without `ancestor_headers` the gate cannot engage and legacy runs). Verdicts carry a `matching_pass` stamp. **GATING IS LOAD-BEARING: HVAC carries the flag; Electrical does NOT and is proven byte-identical across the `runner.py` change itself (1,384 corpus line items, 0 differ, verdict hash `818dd8f1…1a5f`) — Electrical adopts this surface only via its own measured re-run, a rider on the Set-3 item.** Measured on the combined 2,354-row corpus: 68.39% → **75.49%** (Set-2 64.13% → 73.07%), AI agreement 69.80% → 77.74%, review share 37.6% → **29.6%** at 98.67% auto-accept. Owner WAIVED the per-category gate (ADP −6 rows) on 2026-07-21, accepting ADP precision 67.4% → 82.1%. **THE AI FEED IS DELIBERATELY UNTOUCHED — the voter still reads notes in full because it reads them semantically; this surface divergence between the two voters is intentional and must not be "tidied up".** Set-3 confirmation is OWED. **Per-discipline routing policy (HV-7, OPT-IN):** a discipline's `rules_<disc>.json` may declare a top-level `routing_policy` block (`policy_id`, `min_ai_confidence`, `demoted_categories`, `priority_max_ai_confidence`), consumed by the pure `routing.route_policy_v1`; **ABSENT = the legacy `route_r3d` path, byte-identical** (`route_r3d` is untouched, and `rules_electrical.json` carries no block). The orchestrator resolves it ONCE per run via `ruleset.get("routing_policy")` — **which only works because `load_ruleset` explicitly surfaces the key: the loader returns a HAND-BUILT dict, so any gating key missing from that return is invisible to every caller and its feature is SILENTLY INERT** (this exact gap stopped HV-7 mid-slice; a negative test now pins that Electrical reads it present-and-None). Signed HVAC values (owner 2026-07-21): auto-accept iff both voters agree on a non-blank category AND `ai_conf ≥ 0.80` AND the category is not in `{hvac_ahu, hvac_cables, hvac_sensors}`; everything else routes to review with a **BLANK** `final_category_id`. **THE DEMOTION LIST IS DATA, NEVER CODE** — it is re-derived from the in-segment grid every eval cycle (it already moved once at HV-6b) and a test asserts no `hvac_` id appears in `routing.py`. Measured: auto-accept 70.4% @ 98.67% combined / 67.8% @ 98.53% Set-2, review 29.6%. **`review_priority` (Check on `BoQ Row Category`, migrate-carrying) is TELEMETRY ONLY — owner amendment 2026-07-22: every review row is presented identically (blank final, `Needs review`), exactly as Electrical; the field must NEVER drive reviewer-facing UI and the HV-7f frontend slice is CANCELLED.** It is stamped 0 on auto-accepted rows, 0 on the legacy R3d path, and explicitly 0 on the AI-off fail-safe (the AI never ran, so its absent confidence is not evidence of doubt). Certification runs use the tracked `BOQ_HARNESS_MODE=certify` harness mode (no DB writes).
-
-**Nearest-hit ancestor resolution (HV-4, rules side, OPT-IN PER DISCIPLINE):** the runner can resolve ancestor signals at the NEAREST ancestor that fires anything instead of flattening the whole chain into one blob — only signals firing AT that resolution point contribute, and farther ancestors contribute **nothing** (not a decayed remnant; this is the distinction from D1 decay). Config is the discipline's `rules_<disc>.json` top-level `ancestor_resolution: "nearest_hit"`; **ABSENT = the legacy blob path, byte-identical.** The same flag also switches that discipline onto the deterministic tie-break chain (score → rule weight → distinct signal types → declaration order) in place of the legacy **alphabetical-by-`category_id`** tiebreak. **Gating is load-bearing and must not be widened casually: HVAC carries the flag; Electrical does NOT and is proven unchanged on its 2,888-row labelled corpus (identical sweep + per-category CSVs, 86.88%).** Decay COMPOSES with it (the resolution point's one distance is scaled by `m**d`); it does not compete.
-
-**Proximity decay (D1, rules side):** the runner supports PER-DISCIPLINE ancestor proximity decay — an ancestor signal weakens with degree of separation as `weight * rules_multiplier ** distance` (immediate parent `d=0`), contributing ONCE at the nearest matching ancestor. Config is the discipline's `rules_<disc>.json` top-level `decay` key; **default is FLAT (`{"rules_multiplier": 1.0}`) so every shipped discipline is byte-identical to pre-decay**. `classify_line(decay_override=...)` overrides it (the offline-sweep lever); the decay code path runs ONLY for `0 < m < 1.0`. AI-side decay is deliberately HELD (rules side only). **BOTH shipped disciplines are MEASURED FLAT and neither may be changed without a fresh sweep:** Electrical carries NO `decay` block (locked flat by its D2/D2b sweep — do not wire one); HVAC carries an EXPLICIT block at `1.0` stamped **`PROVISIONAL-FIT`** (HV-3 swept the certified ladder over the 1,366 labelled Set-1 rows — flat won, best non-flat `m=0.90` was −8 rows). PROVISIONAL-FIT means fitted on the team's provisional labels: a re-sweep is OWED at clean labels and the value is NOT certified until then.
-- `BoQ Category Truth Snapshot` — permanent per-(snapshot event × row) ground-truth labels for the classifier eval (D3a). **Truth model = FREEZE SNAPSHOTS, not live edits:** live `BoQ Row Category` rows are WORKING STATE (a re-classify supersedes them and human verdicts do NOT carry forward — stranding is INTENTIONAL, the carry-forward plan is dropped), while ground truth is BANKED here at explicit events and is PERMANENT (never deleted; unfreeze/re-classify never touches prior snapshots). Identity mirrors Row Category's durable Excel address (`boq`, `sheet_name` VERBATIM #152, `excel_row`, `discipline`, `committed_version`) + a `snapshot_batch` per event + `source` (`Bulk-loaded ground truth` / `Frozen in product`); the cockpit joins a snapshot row to the current Row Category row by `(boq, sheet_name, excel_row, discipline)`. Loaded out-of-band by `services/boq_category/harness/corpus_classify_and_label.py` (modes `resolve` / `classify` / `label`; `label` writes SNAPSHOTS, NOT `human_category_id`, so live rows are untouched). The in-product **Freeze/Unfreeze button is SHIPPED** (`classify.freeze_classification` / `unfreeze_classification` / `get_freeze_summary`): Freeze banks one `source="Frozen in product"` batch (`snapshot_batch = "gtfreeze-"+hash`) consuming this doctype AS-IS AND stamps each categorised eligible row's effective category into `human_category_id`; the "human write-back at a new committed_version" is a re-freeze after a re-classify (the durable-address stamp lands on the new version's rows).
-
-- **Committed read indexes (deploy invariant):** the two D3d read indexes -- `BoQ Committed Sheet Grid Row` `parent` and `BoQ Row Category` composite `(boq, sheet_name, committed_version, discipline, is_current)` -- are declared in each controller's `on_doctype_update` and applied to ALREADY-DEPLOYED databases by the patch module `nirmaan_stack.patches.v3_0.add_boq_read_indexes` (it CALLS the hooks -- single source of truth, not a re-inlined `add_index` -- and is idempotent). A plain migrate does NOT fire `on_doctype_update` for a controller-only change, so existing DBs need this patch; `BoQ Category Truth Snapshot`'s index is EXCLUDED (its hook shipped atomically with the new doctype, so a fresh sync always creates it). The `patches.txt` wiring line is added EXTERNALLY by the maintainer -- it is intentionally not part of the patch.
-
-**BoQ pricing-editor load-bearing invariants** (full rules in `.claude/context/domain/boq-backend.md`):
-- **Single-editor lock:** deterministic PK `sha1(boq \x00 sheet_name \x00 int(version))`; reject marker `BOQ_PRICING_LOCKED`; 2-min edit-driven expiry (`LOCK_STALE_SECONDS = 120`); a lock reject mutates NOTHING.
-- **Priceability gate (owner-locked, ASYMMETRIC):** a rate is editable iff override OR `node_type == "Line Item"` (always) OR (`node_type == "Preamble"` AND qty-bearing). Enforced BOTH client + server (`save_cell_price`); do NOT collapse the Preamble/Line-Item asymmetry. **The server qty-bearing test lives in the SERVICE layer (`persist.node_is_qty_bearing` / `persist.is_nonzero_qty`, relocated from `pricing.py` in Slice G1) so it is defined ONCE and reachable by both `pricing.py` (imports UP, api->service) and the coming rate-editable category count; the client `isRowQtyBearing` in `PricingGrid.tsx` is a DELIBERATE cross-language duplication, NOT the same code.** **Rate-editable blank-category count (G2a, ADDITIVE, no gate):** `persist.blank_category_eligible_rows` takes a `population` param — `"eligible"` (default, classification set {Line Item, Preamble}, BYTE-IDENTICAL to pre-G2a; `get_freeze_summary` keeps this) or `"rate_editable"` (Line Item ALWAYS + qty-bearing Preamble). The rate_editable path batches the qty test via `persist._qty_bearing_node_names(nodes)` — ONE `BOQ Node Qty By Area` child query, reusing `is_nonzero_qty`; `node_is_qty_bearing` is UNCHANGED (a consistency test pins the batched set == the single-row test per node). `get_priced_rows` ADDITIVELY surfaces `rate_editable_blank_category_count` (int) + `categories_complete` (bool, count==0) — PAYLOAD keys, not schema; **NO gate/lock/override ships in G2a.** **Category gate + admin override (G2b, SHIPPED, MIGRATE-carrying):** `save_cell_price` REJECTS a rate write while any RATE-EDITABLE row has a blank RESOLVED category — `_guard_categories_complete` in `_resolve_and_guard_cell`, placed AFTER the mandatory formula gate and OUTSIDE the priceability override block, so **"Price any row" can NEVER bypass it** (owner ruling; ABSOLUTE like the formula gate; the formula gate still wins precedence). It REUSES the G2a `blank_category_eligible_rows` (same fn `get_priced_rows` counts from → gate + banner can't disagree; short-circuits when the override is set). **The ONLY escape is an admin override:** `pricing.set_category_override` / `clear_category_override` (admin = the EXISTING `_is_nirmaan_admin`, NOT re-minted; non-admin → `PermissionError`), persisted per-sheet-per-version on 4 new `BoQ Sheet` fields `category_gate_override`/`category_override_by`/`category_override_at`/`category_override_reason` (mirrors the freeze trio; reason optional, capped `_CATEGORY_OVERRIDE_REASON_MAX_LEN=250`, NULL when absent; `set_value(update_modified=False)`+commit). `get_priced_rows` surfaces those 4 keys. **NO grandfathering** (uniform on all committed sheets incl. already-priced; a rate revision on an uncategorised sheet must categorise first). **The WITHIN-BoQ rate carry-forward path is GATED too (G2c, owner ruling): `apply_copy_forward`. The DESTINATION sheet's categories govern.** ⚠️ **`cross_boq_carry._apply_sheet_carry` (the cross-BoQ REVISION carry) is NO LONGER GATED — ADR-0014 Amendment E (2026-07-28) removed it from that path ONLY.** Once that action CARRIES categories, gating it on categories being complete blocks its own remedy: a freshly committed revision has ZERO category rows, so the gate is shut, so the carry that would populate them cannot run. `save_cell_price` + `apply_copy_forward` KEEP the gate — it exists to stop a HAND-TYPED rate landing on an uncategorised row, and a carry moves known values from a known-good source. **Do NOT "restore consistency" by re-adding it to the carry path** (`test_h_categories_block_is_gone_from_the_message_family` guards the message maps; a re-added branch `KeyError`s loudly, which is intended). ONE shared condition `pricing._categories_gate_ok` (override OR no ELIGIBLE blank — the SAME `blank_category_eligible_rows` the save gate + banner use) drives the remaining call sites; each keeps its OWN voiced messaging over that one condition: the save path throws via `_guard_categories_complete`, `apply_copy_forward` throws an inline copy-forward-voiced message. The carry gate is SHEET-LEVEL, checked ONCE per call, never per-row (never calls `_resolve_and_guard_cell` in the loop; per-row was rejected on cost ~15 ms×K + failure-shape mismatch). ⚠️ **The two seams now differ DELIBERATELY:** cross-BoQ REMOVED the gate (Amendment E) while within-BoQ REORDERED it — on `apply_copy_forward` ADR-0014 **Amendment F** moved it to AFTER the lock acquire and AFTER the layer carry, one transaction, rollback on refusal. The mandatory-formula gate keeps precedence in both. Both carries stay ATOMIC (rollback, nothing written on a block) and fully REPLAYABLE + idempotent (freeze-and-supersede; nothing stranded), and the admin override unlocks carry too. **The gate covers the ELIGIBLE MASTER SET ("empty is empty", owner-locked): `node_type` in {Line Item, Preamble}; PRICEABILITY is NOT part of the gate — a qty-less Preamble IS in the set.** BLANK = the category cell the user SEES is EMPTY, whatever the path to empty (never-classified, classified-and-blank, AI-never-ran, human-cleared, whitespace id). `_categories_gate_ok` + `get_priced_rows` pass `population="eligible"` (the DEFAULT), so **the gate count == `get_freeze_summary`'s count == the surfaced `eligible_blank_category_count`** — ONE number, never diverging. The `"rate_editable"` mode of `blank_category_eligible_rows` (+ its batched qty helper + its mode tests) is RETAINED but currently UNUSED — kept because the future tendering-module rate helpers operate on exactly that population; do NOT delete it. The client `isPriceableType` (`PricingGrid.tsx`) TRIMS `node_type`, so the server/client master set is byte-identical (the server always strips). **ONE shared frontend predicate `PricingGrid.isMasterSetBlank(row, cat)` = `isPriceableType(node_type) && deriveVerdictState(cat) === "unclassified"` drives BOTH the grid's amber Category-cell fill AND the page's Check-Category view filter, so they can never drift** — it REPLACED `isNeedsReviewCategory`, which returned FALSE for a never-classified row and so could not surface rows the gate now counts. The real-data cost of the widening is owner-ACCEPTED; do NOT re-raise it. Test fixtures satisfy the gate by CATEGORISING (`_categorise_fixture_eligible_rows`), never by override. **VISIBLE HALF (frontend):** the page derives a LIVE blank COUNT client-side from the SAME `isMasterSetBlank` predicate (now FOUR surfaces over one predicate: the server gate/count, the grid amber fill, the Check-Category filter, and this count) via `PricingGrid.countMasterSetBlankRows(rows, categoriesByExcelRow)` -- iterating the ROWS, NEVER the categories map, so a never-classified row (absent from the map) is still counted. Only a BOOLEAN `categoryGateOpen = (count === 0) || override` (`isCategoryGateOpen`) reaches `PricingGrid` -- NEVER the count (a count changes on every pick and would re-render every row; the boolean flips only when editability actually flips). `categoryGateOpen` is ANDed OUTSIDE `isRateEditableRow` in ALL THREE rate-write gates (inline edit, paste, undo/redo), exactly like `formulasComplete`, so "Price any row" can never reach past it. **DELIBERATE asymmetry: the count keeps counting blanks under the override (an admin sees how many remain) but the gate opens.** The category-pick handler writes an optimistic override for BOTH a pick AND a clear (`buildOptimisticVerdict`): a clear yields a BLANK verdict so the count RISES instantly and the sheet re-locks in the same interaction (closing the pick-drops-but-clear-rises-late window). The amber banner shows the count with the owner-approved copy (a distinct OVERRIDE variant naming who/when); it NAMES the existing "Check Category" control (no new button, no click-to-jump). The **save/copy-forward/cross-BoQ refusal messages drop the pre-G2e "priceable"/"rate-editable" wording** (those terms remain correct only for the SEPARATE priceability gate); the save message threads the blank count. `GetPricedRowsResponse` declares the `eligible_blank_category_count` / `categories_complete` / `category_gate_override` (+`_by`/`_at`/`_reason`) keys. **OVERRIDE REMOVAL CONDITION: remove the override once classification engines cover all disciplines.** **The override is CLEARED on a successful WHOLE-SHEET re-classify (G2d, owner-locked): `classify._classify_worker` calls `pricing.reset_category_gate_override_on_reclassify` after the classify commit — SUCCESS-ONLY (never in the `except`), WHOLE-SHEET-ONLY (`scope.mode == "sheet"`; a partial row-range run leaves it INTACT), IDEMPOTENT (no override => no-op), and it MUST NEVER fail the classify run (wrapped in `_clear_override_after_reclassify`, which logs + swallows and returns False — the gate fails SAFE). RATIONALE: a re-classify changes which rows have categories, so an override granted against the OLD picture must not silently carry forward; the admin re-asserts. `set_row_category`, freeze/unfreeze, and partial runs do NOT clear it. The clear write is the SHARED `pricing._write_category_gate_override_cleared` (also used by the `clear_category_override` endpoint — one write, not a third `set_value`). PER-ENGINE by design: a re-classify fires once per selected engine (`ClassifySheetDialog` loops `start_classify` → N independent `_classify_worker` runs; NO all-engines completion barrier), so each engine's worker clears independently and an override re-set between two engines' completions is wiped by the later one.**
-- **Mandatory amount-formula gate (ABSOLUTE):** every amount column needs a covering formula before ANY rate is editable; the `allow_non_priceable` override does NOT bypass it. **It also gates the whole revision carry (ADR-0014 Amendment C)** — see below.
-- **Revision carry (owner-locked, ADR-0014 Amendment C + Amendment E):** a revision COMMIT carries **nothing** but the D2 provenance triple (`committed_carry.stamp_revision_provenance`; the stamp must stay — it is how the carry finds its source). Formulas are **hand-declared per sheet**, exactly as in the normal phase, and that declaration gates ONE explicit per-sheet action in the pricing editor (`cross_boq_carry.apply_sheet_carry` — synchronous, atomic). **Amendment E (2026-07-28) REVERSED Amendment D and restored the four row-addressed layers, OPT-IN + ATTRIBUTED**: that action moves rates **plus** any ticked subset of `LAYER_KEYS = ("categories", "remarks", "colors", "remark_dismissals")`, riding the SAME transaction. Amendment D's objection was that carried records arrived **un-asked-for** and **un-attributed** — BOTH halves must stay answered or the original defect returns: (1) every layer is opt-in (dialog defaults categories ON, annotations OFF — a **UI default, never a backend one**; an omitted payload carries rates only), and (2) every carried record is stamped `carried_from_boq`/`carried_from_version`/`carried_at`, **keyword-REQUIRED on `persist.carry_row_categories`** so no path can produce an unstamped record — do NOT soften it to an optional kwarg. **⚠️ The carried `human_verdict_at` keeps the SOURCE's older timestamp — never freshen it**: `resolve_row_ladder` breaks a human-vs-human tie on the most recent verdict, so keeping it old is exactly what makes a verdict made ON the revision outrank a carried one, with no precedence code anywhere. **⚠️ `carry_category_layer`'s classification-freeze guard is the ONLY one on this path** (`cross_boq_carry` gates the freeze nowhere) — it is NOT defence in depth and must not be removed as redundant. Formulas NEVER carry, in either seam. The source read is **version-pinned** to the original's current committed version, and `revision._carry_counts` is pinned identically — **never pin one without the other** (that divergence is the defect Amendment B W6 was written for). ⚠️ Frappe **STRIPS every value in an `["in", [...]]` filter** (an `=` comparison is not), so any committed-sheet read filtering on `sheet_name` must filter names **in Python** — use the shared `revision_carry.current_committed_sheets`.
-- **Committed controllers are CAPTURE-ONLY** (Phase 5 Slice 2.5): no amount = qty×rate recompute, no parent-rate overwrite — the future tendering module owns calculations.
-- **Classification freeze (owner-locked, SEPARATE from the pricing lock):** a per-sheet freeze on the committed `BoQ Sheet` (`classification_frozen`/`frozen_by`/`frozen_at`, set via `frappe.db.set_value(update_modified=False)` — NEVER `doc.save`). While frozen, category verdict writes AND re-classify are rejected via `_guard_classification_not_frozen` (primary in `set_row_category` + `start_classify`; defence-in-depth in `persist.set_human_verdict` + `orchestrator.classify_sheet_rows`); the ONE frozen-reader is `persist.is_sheet_classification_frozen`. **Pricing is NOT touched by this guard — it is NOT ORed into the pricing `locked`/`is_locked` gate; a classification-frozen sheet is still fully priceable.** Freeze is ATOMIC (single end-commit, rollback-on-failure): it stamps effective categories via the no-commit `persist.stamp_human_verdicts_bulk` (NOT `set_human_verdict`, which commits per call) + banks a `Frozen in product` snapshot batch. **The stamp SOURCE is the MULTI-ENGINE resolved read (Slice ST-1, owner Option A 2026-07-26): `persist.resolved_category_stamp_targets` — the exact INVERSE of `blank_category_eligible_rows`, sharing the ONE `persist.resolve_row_ladder` — so a sheet classified under N disciplines stamps rows from EVERY vocabulary in one freeze, each on its RESOLVING discipline's `is_current` row (grouped through `stamp_human_verdicts_bulk` per discipline). ONE FIFTH-SURFACE NUMBER: snapshot_count == the resolved non-blank eligible count == `get_freeze_summary`'s number. On a single-discipline sheet the stamped set + snapshot content are BYTE-EQUIVALENT to the prior single-discipline stamp (pinned by test). `get_sheet_categories` is BYTE-UNTOUCHED (the freeze trap — it now backs ONLY the tests' regression pin). The `discipline` parameter is accepted but drives ONLY the availability guard, NO LONGER the stamp set (mirrors `get_freeze_summary`'s accepted-but-unused disposition). Re-freeze after a re-classify inherits automatically through the SAME resolved read — a fresh run banks a NEW snapshot batch while prior batches stay permanent.** Re-commit resets the flag (a fresh `BoQ Sheet` row defaults 0). Frontend reads `classification_frozen` off `get_priced_rows` beside `is_locked`.
-- **BCS — the INTERNAL cost layer of a committed sheet.** BCS records what the work costs US (hand-typed Supply / Installation / Combined cost rates per row on `BoQ Row BCS Rate`) against the BoQ amount we charge the CLIENT; Total Amount and % Margin (renamed from % Profit, owner 2026-08-07 -- a RENAME, the arithmetic is unchanged) are ALWAYS computed downstream from those stored rates and never persisted. **BCS Total Amount AND BOTH % Margin operands are editable per-sheet FORMULAS since BCS-S9/S10/S11** — the margin's `(1 − cost/amount) × 100` RATIO is not, and cannot be: it needs numeric literals, which the formula system rejects by design, and it carries the sign guard that stops a loss rendering as a positive margin.  **BCS Total Amount's rule is itself an editable per-sheet FORMULA since BCS-S9** (green f on its header, stored in the existing `BoQ Cell Amount Formula` as target `bcs_total` -- no schema change); an absent formula means the built-in `(cost boxes) x quantity`. Full as-built: `.claude/context/domain/boq-backend.md` (storage, endpoints, carry) + `frontend/.claude/context/domain/boq-frontend.md` (the cost block, the % Margin header filter + sort, summary axis). ⚠️ BCS-S4's separate flat **margin VIEW is DELETED** (owner 2026-08-07) — filtering to a % Margin range and ordering by it are now two controls ON the % Margin column header, and are FRONTEND-ONLY view state (no endpoint, no schema). ⚠️ **NAME COLLISION — READ THIS BEFORE GREPPING.** "BCS" in the **BoQ Rate Master** sections further down means something else entirely (a stored derivation pipeline: discounted product cost plus wastage, no install). Same three letters, unrelated concept, different owner; a search for BCS lands on both and they must never be reconciled with each other. The four invariants below are the ones that are NOT obvious from reading the code:
-  - **THE IMPORT-DIRECTION LAW — the readiness predicate lives in `services/`, and it had to.** `services/boq_bcs/readiness.py` documents a ring verified at module level: `committed_carry -> bcs -> pricing -> committed_carry`. **NO placement anywhere inside `api/` avoids it** (`cross_boq_carry` imports both; `commit_pipeline` is a third dependent), so the predicate moved DOWN to the layer both sides may import — api -> service is the one legal direction, and the `boq_category.persist` relocations are the exact precedent. `api/boq/wizard/bcs.py` imports the name straight back, so `bcs.bcs_is_ready` still resolves and no caller changed. **Do NOT "tidy" it back into `api/`, and never add a second copy:** two copies would sit on either side of a carry and could disagree about the same sheet at exactly the moment it mattered — the plan read offering a layer the apply then silently drops. Correspondingly, **nothing under `services/boq_bcs/` may import from `api/` or read request context**; a DB read there is fine and is not the same thing.
-  - **THE SCOPE FENCE (owner-locked) — BCS readiness gates BCS CELLS ONLY.** It must **NEVER** be ANDed into `save_cell_price`'s rate gate. **State the failure mode, because that is what makes this load-bearing: get it wrong and a BCS section that is merely switched OFF silently freezes ordinary client-facing pricing in production** — every rate cell read-only, for a reason no one on the screen can see. The BCS write path is deliberately independent of the three client gates (mandatory-formula, priceability, category) for the same reason: someone must be able to cost a job while the amount formulas are still being declared and the rows are still being categorised. A qty-less Preamble IS costable. The asymmetry IS the decision — do not "restore consistency" with `save_cell_price`.
-    ⚠️ **THE READINESS CONDITION ITSELF CHANGED AT BCS-S12 (owner 2026-08-07): `bcs_is_ready` is now simply `bcs_enabled`.** It used to also require the two column confirmations, and those moved into the BCS Total / % Margin formula dialogs together with the pickers that produced them. **The two changes must NEVER be separated**: `save_row_bcs_rates` refuses every cost write while readiness is false, so re-adding the confirmation requirement without re-adding the pickers makes readiness permanently FALSE — BCS switches on and stays silently read-only forever, with no message anywhere saying why. `confirm_bcs_columns` and both JSON fields still exist and are still read as the pre-S12 defaults' seed, so nothing is orphaned. Detail: `.claude/context/domain/boq-backend.md` § BCS-S12.
-  - **THE EXPORT-LEAK BOUNDARY — BCS cost, every BCS-derived total, and the margin must NEVER reach the client workbook.** `export_priced_workbook` is handed to the CLIENT, so a BCS value appearing in it leaks what the job costs us. The export reads `BoQ Cell Pricing` and names its fields explicitly, while BCS lives in its own doctype with no `col_letter` at all. **Anything that folds BCS onto `BoQ Cell Pricing`, adds a BCS stamping pass, or widens the export's field list breaks it.** ⚠️ **A NEW STORED COST FIELD MUST BE SEEDED INTO THAT GUARD'S FIXTURE, or the guard passes on an empty axis** — an unseeded field has nothing to leak, which is the precise vacuity the guard exists to avoid, and it has happened once already on this layer.
-    ⚠️ **THIS BOUNDARY IS NO LONGER "BY CONSTRUCTION" (BCS-S9, owner-accepted).** It used to be: the formula layer had no way to NAME a cost, so nothing could carry one into a client column. S9 gave the shared formula vocabulary BCS operands (`bcs_supply`/`bcs_install`/`bcs_combined`/`bcs_qty`) so `BCS Total Amount` could become an editable formula, and **two DIRECTIONAL rules in `pricing._validate_formula_operands` now hold the line instead**: a `bcs_total` target may use ONLY those operands, and an AMOUNT target may use NONE of them. **The second is the leak-facing one** — an amount column's computed VALUE is what the export writes, so a cost operand in a client amount formula leaks the cost as a NUMBER, invisible to any field-list audit. A second, independent stop lives in `export_template_workbook.resolve_target_col` (internal-only targets return `None` before either resolution path). **Enforcement replaced construction, so both stops must survive every refactor — and neither may be relaxed "for symmetry".** Full reasoning: `.claude/context/domain/boq-backend.md` § BCS-S9.
-
----
-
-## Working with Claude Code
-
-- Read `docs/<feature>/spec.md` and the latest entries in `decisions.md` before starting any feature phase.
-- **Output a written plan before writing any code. Never write code in the same turn as the plan.** Wait for user review.
-- One branch per phase: `feature/<feature>-phase-<N>`. Commit at end of each phase.
-- New doctypes: controllers go in `integrations/controllers/`. Doctype `*.py` stays minimal.
-- New APIs: `nirmaan_stack/api/<feature>/<file>.py`, snake_case.
-- Frontend: stay within the existing stack (shadcn/ui + TanStack Table + Zustand + frappe-react-sdk + React Hook Form + Zod). Do not introduce new UI libraries.
-- Pure-Python modules (parsers, services) get real unit tests with fixture files — not stubs.
-
-**Docs discipline -- DOCS-UPDATE RULE (revised 2026-06-25, context-hygiene split):** Per-slice / per-commit as-built detail (feat hashes, test/vitest/tsc counts, build logs, dated slice narratives) goes into the on-demand reference docs ONLY: `frontend/.claude/plans/boq-upload-plan.md` (live status, source of truth) + `.claude/context/domain/boq-backend.md` (backend) + `frontend/.claude/context/domain/boq-frontend.md` (frontend). The always-loaded `CLAUDE.md` files get a MINIMAL touch ONLY when a STABLE convention or a load-bearing / owner-locked invariant changes — never a per-slice changelog entry. **Do NOT re-grow `CLAUDE.md` with commit data** (that bloat is exactly what this split removed). **Enforced in-session by the `.claude/hooks/guard_claude_md.py` PreToolUse hook** — it blocks changelog-style appends to CLAUDE.md and redirects them to the reference docs (see `.claude/hooks/README.md`; tune the patterns there). **Frontend conventions file: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
-
----
-
-## BoQ File Reading (S3 safety)
-
-The BoQ upload worker (`api/boq/wizard/upload_file.py`) reads the uploaded file from a `NamedTemporaryFile` written from the in-memory bytes at the endpoint — NOT by constructing a local path from `file_url`. `Frappe File.get_content()` reads local disk only and breaks when `frappe_s3_attachment` is active (it replaces `file_url` with an `/api/method/...` API URL after insert). Any future code that needs to read an uploaded file's bytes should follow the same pattern: capture bytes before `save_file()`, write to a tempfile, clean up in a `finally` block.
-
-
----
-
-## Wizard scope discipline (Phase 3 onward)
-
-When a wizard decision has two paths — (a) build the capability inside the wizard, or (b) defer to or extend an existing app-wide flow — surface the fork explicitly in chat before writing code. Default lean: if the capability has reach beyond the Upload BoQ flow (i.e., other Nirmaan features would benefit from it), keep it outside wizard scope. The lean is a starting point only; the final call is case-by-case after discussion.
-
-Common triggers: anything touching shared doctypes (Projects, Customers, Work Headers) in ways other features would also want; new app-wide UI patterns (sidebar items, top nav, modals); auth checks, audit, or notification flows other modules would benefit from.
-
-Origin: Module 1a 2026-05-29 — `create_tendering_project` was initially scoped into the wizard, then dropped when this principle surfaced: tendering project creation has reach beyond the wizard and belongs in the existing Nirmaan new-project workflow.
-
----
-
-## Wizard Endpoints Reference
-
-All wizard endpoints live in `nirmaan_stack/api/boq/wizard/` (snake_case files; most are `@frappe.whitelist(methods=["POST"])`, return `{"status": "saved"}`, and call `frappe.db.commit()` after DML). The FULL per-endpoint reference — `update_sheet_draft`, `sheet_preview`, `parse_run`, `commit_gate`, `commit_pipeline`, `review_screen` — plus the `BoQ Review Row` schema, the `wizard_status` enum, and the load-bearing gotchas (the `_LIST_JSON_FIELDS` pre-serialize rule, the **-1** parent/root sentinel, the list-valued-JSON `doc.save()`/`delete_doc` wall, the commit freeze-and-supersede + per-sheet failure isolation) lives in **`.claude/context/domain/boq-backend.md`**. Load it before touching wizard backend code.
-
----
-
-## Pricing Module
-
-Standalone estimation-pricing module (separate from the BoQ wizard). Frontend serves a spreadsheet
-editor (Luckysheet-as-static-assets planned) whose workbook state is persisted server-side. Live status
-+ roadmap: **`frontend/.claude/plans/pricing-module-plan.md`**.
-
-- **Doctypes** (`nirmaan_stack/nirmaan_stack/doctype/`): `Pricing Workbook` (title, `workbook_json`,
-  `current_version`, `checked_out_by`/`checked_out_at`), `Pricing Workbook Version` (per-save snapshot),
-  `Pricing Access Log` (open/save/checkout/release/create audit). **All three are `System Manager`-only** —
-  the whitelisted API is the single-point access gate, so endpoints read/write with `ignore_permissions=True`.
-- **API** (`nirmaan_stack/api/pricing/workbook.py`): `list_workbooks` / `get_workbook` / `checkout` /
-  `release` / `save_workbook` / `create_workbook`, all `@frappe.whitelist()` and all gated by
-  `_require_pricing_access()`.
-- **Transport (FR-5/FR-6):** `create_workbook(title)` and `save_workbook(name)` take **NO `workbook_json`
-  param**. They are thin wrappers that read + gunzip the `workbook_json_gz` **`multipart/form-data`** file from
-  the request (`_read_gzip_payload` / `_gunzip_payload`, with a 200 MB decompressed guard) and delegate to
-  `_create_workbook` / `_save_workbook`, which hold all logic unchanged. Single path, no fallback — the old
-  nested-JSON body escaped every quote (1.23x) and 413'd a real workbook against the 25 MiB `max_file_size`;
-  gzipped it is ~0.7 MB. Other endpoints unchanged.
-- **Access rule — READ/WRITE SPLIT (owner decision, DB-discovered names; PW-2a):** two gates, the write one
-  LAYERED on the read one so an outsider and an in-module read-only user get different, honest messages.
-  - **READ** (`_require_pricing_access`, used by `list_workbooks` / `get_workbook`): ALLOW if session user is
-    `Administrator`, OR `role_profile_name` is in `PRICING_ACCESS_SET`, OR `frappe.get_roles(user)` intersects
-    it. The set holds the EXACT DB-verified strings (2026-07-22): `Nirmaan Admin Profile`,
-    `Nirmaan Estimates Executive Profile`, `Nirmaan Estimates Executive` — **admins + estimation**.
-  - **WRITE** (`_require_pricing_write_access`, used by `checkout` / `release` / `_save_workbook` /
-    `_create_workbook`): read gate first, then `Administrator` OR profile/role in
-    `PRICING_WRITE_SET = {"Nirmaan Admin Profile"}` — **admins only**. Estimation users get read + the
-    client-side Sandbox (a local, never-persisted edit session) and no write path at all.
-
-  Re-query the DB before editing either set. The frontend mirrors the split for UX only — **this module is the
-  enforcement boundary**, and `PricingRoute` stays wide (estimation users must still enter the module). Only
-  `workbook_json` parsing is validated; structure is frontend-owned.
-- **Lock semantics:** `checkout` grants when the lock is free, already the caller's, or held >30 min
-  (auto-expiry) — otherwise it throws naming the holder. `save_workbook` requires a live (non-expired) lock,
-  bumps `current_version`, writes a Version row, and prunes to the newest 20 snapshots. `release` clears the
-  lock for the holder or Administrator.
-- **Tests:** `nirmaan_stack/api/pricing/test_pricing_workbook.py` (**20 tests**). Run:
-  `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.pricing.test_pricing_workbook`.
-  Writes run as admin-role fixtures (`ADMIN_USER`/`ADMIN_USER2`); `POS_USER` is the estimation actor used for
-  the read + negative-write assertions. Every workbook creation MUST go through `_create_as` — the suite runs
-  against the LIVE site DB and its purge is scoped to rows it created.
-
----
 
 ## BoQ Rate Master (RM-1)
 
 Backend rate-master for the pricing helper (the standalone estimation data behind cable/termination
 rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backend.md`.
+
+
+### Storage, ingest, and the admin editing endpoints (RM-1 / RM-4a / RM-4b)
 
 - **Two committed doctypes hold it:** `BoQ Rate Master Item` — discipline-wide priced-item master,
   addressed by `(discipline, kind)`, with a keyed `attributes` JSON (matched EXACT) + a keyed `rates`
@@ -623,6 +285,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   the WIRING-UNTOUCHED invariant.** Non-wiring Electrical categories are loaded by PATH from a separate
   asset. (HISTORICAL: this line used to add "`DEFAULT_DATA_FILE` stays the wiring asset" — that constant
   no longer exists, F-20; there is no default and **every** load names its file.)
+
+### Interpreter step vocabulary
+
 - **Interpreter step vocabulary (owner-locked, MINIMAL — no loose-formula generalization; the asset
   normalizes every formula to `base` = the step's target value + EXACT param names).** Beyond the wiring
   set, the pure `ratePipelineInterpreter.ts` supports: `component_band` STRING-EQUALITY bands (band_on read
@@ -736,6 +401,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   TARGET RATE is missing (`null`/`NaN`) SKIPS that output (renders absent, never invented as 0) while the
   pipeline's other outputs still compute — the HONEST-PARTIAL rule (a source row with supply but no install,
   or vice-versa, prices only what exists).
+
+### The guiding-sheet authority rule, and retirement by declaration
+
 - **THE GUIDING-SHEET AUTHORITY RULE (owner-locked standing law, 2026-07-29).** A rate-master category gets
   FINALIZED rules ONLY if it has a block on the **ALL ITEM WISE RATE** sheet; no block → no rules. Every
   future category/discipline inherits this. **Corollary:** where the guiding block carries its rates
@@ -773,6 +441,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   leave `rateMasterRegistry.ts` in the SAME change.** The list the picker renders comes from the
   registry; retiring the config alone leaves the category on offer and renders
   "No active config found for …" when it is chosen.
+
+### The asset is exported from the database
+
 - **⚠️ THE ASSET IS EXPORTED FROM THE DATABASE — `services/boq_rate_master/exporter.py`
   (owner-locked).** The DB is the source of truth and the asset is BOOTSTRAP-AND-SNAPSHOT only.
   Running the export is what keeps a re-import safe: the file provably matches the DB, so a load can
@@ -809,6 +480,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   the category rule above, and it is SELF-SUSTAINING once declared: the exporter rebuilds the list from
   the retirement TABLE, so every later export carries it. **Replacing rather than appending would
   silently UN-RETIRE an existing entry.** The retirement row is minted with a BLANK reason — see F-19.
+
+### The parallel-row pattern (F-16 / F-17)
+
 - **✅ THE PARALLEL-ROW PATTERN IS CLOSED (F-16 + F-17). The governing principle STANDS AS DESIGN LAW
   for every future kind: adding ONE item must never require a second, hidden row for that item to price
   completely.** The census was EXHAUSTIVE and both instances are now fixed — `tray_install_rate` (F-16,
@@ -850,6 +524,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   `tray_install_rate` (silent no-compute, fixed here) and `db_install_rate` (fails safe to a 0.15
   ratio; **fixed at F-17**); `popup_box_module` is a rate-table row by the boundary test but carries both
   rates on its one row — NO ACTION. Boundary test: *could the referenced row plausibly appear on a BoQ line?*
+
+### Export fidelity, the mint gate, snapshots, and the export endpoint
+
 - **⚠️ `source_row` IS ALWAYS EMITTED, INCLUDING 0.** The 27 db_shell items hold `source_row = 0` in
   the database and 0 is what the database says; omitting it to reproduce the old asset's absent `row`
   would be the export inventing an absence, and it would conflate a genuine row 0 with "no row" —
@@ -876,6 +553,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   uses the existing `_require_rate_admin` (`pricing._is_nirmaan_admin`), because an export hands over
   the whole priced catalog. **A web request cannot write into the repo and nothing tries**; the file
   is returned for download and retained as a snapshot, and committing it stays a human act.
+
+### BoQ Rate Master Retirement - the retirement table
+
 - **⚠️ RETIREMENT STATE LIVES IN `BoQ Rate Master Retirement`, BECAUSE IT CANNOT BE DERIVED
   (owner-locked).** One row per retired thing: `discipline` + `scope_type` (`kind` | `category`) +
   `scope_value`, with OPTIONAL `retired_at` / `retired_by` / `reason`. `retired_kinds` and
@@ -914,6 +594,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   `retired_kinds` / `retired_category_ids` are read only inside `_load_multi`; `load_rate_master`'s
   singular `category_config` branch never reads them and therefore never records them. No shipped
   asset takes that branch, but the gap is real and is pinned by an assertion in the cert.
+
+### item_uid - the stable item identity, and its backfill
+
 - **⚠️ `item_uid` IS THE STABLE ITEM IDENTITY, AND `name` STRUCTURALLY CANNOT SERVE (owner-locked).**
   `BoQ Rate Master Item.item_uid` (`Data`, `search_index`) is the durable handle a CSV round trip
   (download -> edit -> upload) matches on — "matched ids replace, blank ids add" is undefined without
@@ -944,6 +627,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   the identity rather than minting a new one; the loader carries `item_uid` through at both insert
   sites exactly as it carries `brand`/`unit`. A legacy asset carrying no uid still loads, with the
   field left BLANK — never a fabricated value.
+
+### The CSV round trip - upsert, preview, and the interim config procedure
+
 - **⚠️ THE CSV UPLOAD UPSERT IS UID-KEYED, AND ABSENT ITEMS ARE LEFT UNTOUCHED (owner-locked).**
   `services/boq_rate_master/csv_importer.py` reads back the CSV `csv_exporter` emits: a row whose
   `item_uid` MATCHES an active item **REPLACES** it, a row with a **BLANK** `item_uid` is **ADDED**
@@ -996,6 +682,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   everything in scope, so a stale file wipes every change made since it was exported; and any asset
   older than the `item_uid` slice carries no `item_uid`, so loading one would BLANK every id — which
   breaks the CSV round trip outright, since a blank uid reads as "add this item".
+
+### One Electrical asset - the merge, its rulings, and the benchmark
+
 - **⚠️ A TEST IS UPDATED TO MATCH A RULING, NEVER A RULING TO MATCH A TEST (owner-locked).** An
   asset-pinned test that disagrees with the live asset is asserting the shape a ruling REPLACED — i.e.
   a defect — so the assertion moves and carries an INLINE COMMENT naming the ruling it now encodes and
@@ -1050,6 +739,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   reference; **its content now lives inside the merged asset** (above). A benchmark refresh is a
   `replace=True` re-import of a new asset (freeze-and-supersede: the prior `rmbulk-` batch goes inactive,
   rows retained).
+
+### F-20 - no default asset; the version pin, the filename shape, the bootstrap ground
+
 - **✅ F-20 — CLOSED (2026-08-14). THERE IS NO DEFAULT ASSET, AND A SOURCE-LESS LOAD REFUSES BY NAME.**
   `loader.DEFAULT_DATA_FILE` is **DELETED**. It named a FIXED filename, so it went stale on every mint:
   it still pointed at **v30** after F-16 shipped v31, and a path-less `load_rate_master(replace=True)`
@@ -1095,6 +787,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   This qualifies the "the on-disk file is stale but harmless while the DATABASE is the source of truth"
   framing: true for an established site, **false for a new one**. The mint-and-bump-the-pin discipline
   applies to every future change that moves the catalog.
+
+### F-21 - the 10% major-change boundary
+
 - **✅ F-21 — CLOSED (2026-08-14). THE ≥10% "MAJOR" BOUNDARY ROUNDS BEFORE COMPARING, AND THE
   THRESHOLD HAS EXACTLY ONE DEFINITION.** `_rate_change_pct` is `(new - old) / abs(old) * 100.0`, and
   `abs(pct) >= 10.0` turned binary rounding error into a wrong answer whenever the result landed a
@@ -1124,6 +819,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   UNCHANGED, so such a row never reaches `plan["changes"]` and the lookup would `KeyError`, and its
   percentage would divide by zero. The `>= 10.0` comparisons inside it are a FIXTURE FILTER and must
   not be read as the product's rule.
+
+### F-19 - retirement reasons
+
 - **✅ F-19 — CLOSED (2026-08-14). A RETIREMENT CAN CARRY THE REASON IT HAPPENED.** The asset gains
   ONE optional top-level key — **`retirement_reasons: {"kinds": {…}, "categories": {…}}`** — read by
   the loader and stored on the minted row. **TWO sub-maps, not one flat map:** a kind and a category
@@ -1159,6 +857,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
 - **OPTION C IS RETIRED GOING FORWARD.** F-16 and F-17 put their reason in the commit body because
   the channel did not exist. It does now: a future retirement declares its reason **in the asset**,
   and the commit body is a copy rather than the only record.
+
+### RMF-1 - the deployment freeze
+
 - **⚠️ THE DEPLOYMENT FREEZE GUARDS THE **WRITE SUBSET ONLY**, AND MUST NEVER BE FOLDED INTO
   `_require_rate_admin` (owner-locked, R3 2026-08-18).** That gate covers **NINE** endpoints, **THREE
   of which are READS** — `export_rate_master_asset`, `export_rate_master_csv`,
@@ -1205,6 +906,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   doing. `ai_settings.get_boq_ai_settings` fails closed because there inaction is the safe outcome;
   here **inaction IS the block**, so the safe direction reverses. ⚠️ `tabSingles` values are **TEXT**,
   so the reader uses `cint`, never `bool` — `bool("0")` is `True`.
+
+### F-18 - no non-finite number is ever labelled ok
+
 - **✅ F-18 — CLOSED (2026-08-14). NO NON-FINITE NUMBER IS EVER LABELLED `"ok"`, AND THE THREE-PART
   CONTRACT IS NOW STATED (owner-locked).** `status: "ok"` used to mean only *"the step loop ran to the
   end without an early return and without throwing"* — it made **no claim about the numbers**, while
@@ -1243,6 +947,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   which disables "Use this value" — a guard that exists to reject a user typing nonsense and catches
   this by coincidence. Post-F-18 no NaN can leave the interpreter as `ok`, so the gap is closed at
   source rather than in depth. Do NOT treat the absence of a second check as evidence it is unneeded.
+
+### The 29-Jul truth-file cycle, and estimator rules
+
 - **29-Jul truth-file cycle (EA-DIFF, owner-locked; the E-ALL benchmark of THAT cycle was
   `rate_master_electrical_all_v12.json` — for the CURRENT asset read `CURRENT_EALL_ASSET` in
   `nirmaan_stack/api/boq/test_rate_master.py`, the one authoritative pin; asset lineage v9->v12,
@@ -1276,6 +983,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   it is passed through VERBATIM and nothing in the app rewords it. Rendered read-only on the Derivation
   tab, with an explicit "No rules configured for this category." empty state (that tab had no
   empty-state precedent). Live: `db_switchgear` R2/R3/R4, `cabletray_raceway` R7.
+
+### Runs, cores, and item matching
+
 - **Cable RUNS and CORES are SEPARATE and are NEVER multiplied together (owner-locked).**
   `wiring_cabling` carries BOTH a `runs` and a `core` attribute, each defaulting to **1** via
   `extraction_defaults`. **The core count IDENTIFIES the cable in the catalog; the run count
@@ -1357,6 +1067,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   A number before a size is a RUN count, never a core count; wire 2 is recorded only where the line
   describes two distinct wires, and is `"None"` otherwise -- which is why `wire2_thickness_sqmm`
   must keep `allow_none` + its `disables_when_none` targets.
+
+### Config validation, wholesale replace, and mint comparison
+
 - **`_validate_config` must not be stricter than the interpreter (EA-4 ext-a).** Three shapes the
   interpreter explicitly executes are valid config and must stay accepted: a `component` with **no
   `params`** (a conditional component carries them per-condition), a `component` with **no `target`**
@@ -1397,6 +1110,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   **Intent is machine-readable ONLY at category/kind granularity (`retired_category_ids` /
   `retired_kinds`); `slice_note` and `excluded_categories` have ZERO code consumers, and a note nobody
   verifies is not a declaration.**
+
+### The EA-7 extraction payload
+
 - **The extraction payload is TIERED, LABELLED and NEVER DEDUPED (EA-7, owner-locked; SUPERSEDES the
   banked EA-6 note, whose boundary sat one level higher).** The rate-extraction payload
   (`extraction._ai_item`) keeps its four top-level keys (`id` / `description` / `notes` /
@@ -1429,6 +1145,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   MUST NOT), the no-dedup rule, and the omit-empty-kinds rule. Before EA-7 this builder was pinned by
   NOTHING. **Pin first, change second** — the pins were proven green against the unchanged code, then
   updated in the same commit, so the test diff shows what the payload carried before and after.
+
+### Stored-config pipelines, numeric attributes, and known behaviour
+
 - **Pipelines are STORED CONFIG, not code:** the four derivation pipelines (cable/termination × BoQ/BCS)
   live in the config JSON and are interpreted downstream — RM-1 stores them faithfully; no interpreter
   ships this slice. Owner-decoded shapes: effective = `(1-discount)*(1+markup)`; termination = lug +
@@ -1475,6 +1194,9 @@ The extraction engine + the REAL `wiring_cabling` pricing helper. Full as-built:
 `frontend/.claude/plans/boq-upload-plan.md` ("Build slice RM-3") + `frontend/CLAUDE.md`. Load-bearing
 invariants:
 
+
+### Doctypes, the extract/compute split, endpoints, and SR-1 run resilience
+
 - **Two more migrate-carrying doctypes** (fresh sync creates their composite indexes; NO patches.txt
   line, but they GROW the pullers' migrate obligation): `BoQ Rate Suggestion Run` (freeze-and-supersede
   via an `active` Check — a new run deactivates the prior active one, retained not deleted) and
@@ -1517,6 +1239,9 @@ invariants:
   production consumers BY DESIGN** — the classifier voter (def site), the certified harness (by import
   identity), rate extraction. ⚠️ The same-named function at `services/boq_ai_assist.py:431` returns a `str` and
   is a DIFFERENT function — do not confuse them.
+
+### SR-2 - the reply ceiling
+
 - **The reply ceiling (SR-2, owner-locked, EXTRACTION ONLY):** `extraction._AI_MAX_TOKENS` is an EXPLICIT
   constant and is deliberately **NOT** the configured `ai_settings.max_tokens` — the call is NON-STREAMING
   with a fixed timeout and the higher configured region is UNTESTED, so extraction still does not read the
@@ -1534,6 +1259,9 @@ invariants:
   is unchanged. **The trigger was ANY high-attribute-count category at the full batch size, NOT
   `composite_decomposition` specifically** — the failing batch was a non-composite assembly category, so a fix
   scoped to composite mode would have missed it.
+
+### Scoped runs, byte-identical carry-forward, and the count that drives the work
+
 - **A PARTIAL-SCOPE SUGGEST RUN SCOPES THE PROCESSING, NEVER THE POPULATION (owner-locked).**
   `start_suggest`/`run_extraction` take a POSITIVE `only_rows` (a tick box says "do these";
   `skip_rows` is the resume's done-marker lever and says the opposite — inverting it on the client
@@ -1586,6 +1314,9 @@ invariants:
   unfinished. The pass's own set is `env["attempted_rows"]`, published as `pass_attempted_count`;
   anything reporting what a PASS did must read that. Keep the two names distinct — they answer
   different questions and collapsing them re-creates the defect silently.
+
+### Extraction capture, non-determinism, and prompt rulings
+
 - **Extraction capture is ALWAYS-ON and is the ONLY way a DROP is distinguishable from an ABSENCE
   (owner-locked).** `_coerce_value` returns `None` for every failure and discards the raw value, so
   a value the model RETURNED and we then dropped is byte-identical, in storage, to one it never
@@ -1629,6 +1360,9 @@ invariants:
   executes `exact_or_next_higher` / `take_highest_first` / `default_C`.** A category needing a real
   ladder uses `catalog_fit`; do NOT point a new category at `decomposition_rules` expecting
   deterministic resolution. db_switchgear's own migration onto `catalog_fit` is BACKLOG.
+
+### Deterministic resolution steps - map_attribute and catalog_fit
+
 - **THE MODEL READS FACTS; EVERY SUBSTITUTION / LADDER / CONVERSION / FIT IS DETERMINISTIC CODE
   (owner-locked standing principle).** Two generic steps carry it: **`map_attribute`** (resolve one
   STRING attribute — stated wins, else a config table, else a default; `derive_attribute` cannot
@@ -1670,6 +1404,9 @@ invariants:
   it prices correctly — it is finished when the panel can say what it used**, which also means the
   outcome type must CARRY the resolved value, not merely report that one was substituted. Read it
   through the step's own structured reader; never parse the trace prose, never re-derive.
+
+### Sentinels, coercion, hidden attributes, and how an extraction rule is certified
+
 - **⚠️ THE `"None"` SENTINEL IS TREATED DIFFERENTLY BY `map_attribute` AND `catalog_fit`, AND THE
   ASYMMETRY IS DELIBERATE (owner-locked, test-pinned).** `map_attribute`'s stated-check EXCLUDES the
   sentinel (a "None" pole is not a pole, so the mapping still runs); `catalog_fit`'s INCLUDES it (a
@@ -1731,6 +1468,9 @@ invariants:
   capture, which preserves the RAW value per row beside its coerced result and its drop reason — that
   pairing is what turns "the rows came back blank" into a named cause. Treat any `rules` /
   `extraction_defaults` / prompt wording change as UNVERIFIED until re-run on live rows.
+
+### The pricing-sheet helper - category scoping and the N-category runner
+
 - **Frontend attributes are CATEGORY-SCOPED (owner):** the `Pricing sheet` helper shows the row's CATEGORY
   attributes; a category with no attribute set defined yet shows a "coming soon" note, not the wrong fields.
   A badge-less rate-editable cell exposes an always-on faint opener for manual fill.
@@ -1754,29 +1494,3 @@ invariants:
 - **CLASSIFICATION-VOCABULARY GAP (standing):** `popup_boxes` + `lighting_mgmt_system` are rate-master
   categories the Electrical CLASSIFIER does not emit yet, so ZERO production rows resolve to them; the
   helper is ready but they need a classifier vocabulary update first.
-
----
-
-## Reference Docs
-
-| Domain | File |
-|---|---|
-| Full context index | `.claude/context/_index.md` |
-| Doctypes | `.claude/context/doctypes.md` |
-| APIs | `.claude/context/apis.md` |
-| **BoQ backend (endpoints, doctypes, commit pipeline, slice changelog)** | **`.claude/context/domain/boq-backend.md`** |
-| **BoQ Rate Master + Rate Suggestion** (catalog, category configs, interpreter vocabulary, asset export/import, retirement, CSV round trip, deployment freeze, AI extraction) | **`.claude/context/domain/boq-rate-master.md`** |
-| **BoQ frontend** (wizard, hub, review, pricing) | **`frontend/.claude/context/domain/boq-frontend.md`** |
-| BoQ live status / full as-built plan | `frontend/.claude/plans/boq-upload-plan.md` |
-| Procurement (PR/PO/RFQ) | `.claude/context/domain/procurement.md` |
-| Projects | `.claude/context/domain/projects.md` |
-| Service Requests | `.claude/context/domain/service-requests.md` |
-| Internal Transfer Memos | `.claude/context/domain/internal-transfer-memos.md` |
-| Expenses (approval workflow, Paid-only, unified module) | `.claude/context/domain/expenses.md` |
-| Invoice Autofill | `.claude/context/domain/invoice-autofill.md` |
-| **Invoice Qty** (derived `invoice_qty`, recompute classifier, backfill + Gemini extraction, cache, Resolve UI) | `.claude/context/domain/invoice-qty.md` |
-| **Bulk Import Outflow** (bank statement → settles Approved→Paid across Project Payments / Project + Non Project Expenses; matcher, status deriver, ±₹1 tolerance, decision screen) | `.claude/context/domain/outflow-import.md` |
-| Vendor Hold | `frontend/.claude/context/domain/vendor-hold.md` |
-| **Monthly WIP & Handover report** (Reports hub → Projects → "Monthly WIP"; 5-group/15-col compliance table: DPR-daily / Inventory-weekly / lifetime PO-dispatch + DC; active-days from Version history) | `.claude/plans/monthly-wip-plan.md` |
-| Frontend domain context (full) | `frontend/.claude/context/_index.md` |
-| Session changelog | `.claude/CHANGELOG.md` |
