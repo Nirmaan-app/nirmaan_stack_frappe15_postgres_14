@@ -42,6 +42,22 @@ Module records at PW-2b-i: the tests assert the emitted formula TEXT and cannot 
 mis-reads it at runtime.) When a change turns on a React semantic, the honest verification is a
 live browser A/B — revert, reproduce, restore, re-verify — not a unit test.
 
+**⚠️ A CONTROLLED `<select>` WITH NO MATCHING OPTION DOES NOT GO BLANK — IT FALLS BACK TO THE FIRST
+*SELECTABLE* OPTION, SO A DISABLED PLACEHOLDER SILENTLY DISPLAYS A WRONG VALUE (owner-locked).**
+React does not assign `.value` on a controlled select; it sets
+`option.selected = (option.value === props.value)` per option. When nothing matches, every option
+ends unselected, and a single-select must still show something — so the browser picks the first
+option the user could have picked. **A `<option value="" disabled>` placeholder is therefore
+skipped, and the field displays a real value the row never held**, beside whatever names the true
+one. On an `allow_none` def it is worse: the fallback is the `"None"` SENTINEL, a positive decision
+the row never made. **Keep every such placeholder SELECTABLE** — blank is then genuinely blank, and
+the user can clear any field by hand, which is the standing rule that the user is the ultimate
+authority over an attribute value. A blank value needs no special case: it MATCHES the placeholder,
+so it already selects it.
+⚠️ **This is invisible to `vitest`** — see the DOM note above. The data layer reports the correct
+value and option list while the rendered control shows something else, so a green suite proves
+nothing here; only a live browser check can see it.
+
 **App-shell invariant (guarded by nothing but this note + a comment in the file):** the navigation
 reset in `components/common/ErrorBoundaryWrapper.tsx` MUST NOT be a React `key`. A changing `key`
 is an unmount instruction, and that boundary wraps `<Outlet />` in `MainLayout` — keying it on the

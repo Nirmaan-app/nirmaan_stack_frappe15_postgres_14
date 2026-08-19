@@ -138,12 +138,32 @@ corrections-owed list.
   Revert is unchanged and remains the all-at-once escape.
 - **⚠️ MACHINE VOCABULARY DOES NOT APPEAR IN A PRICER-FACING CONTROL (owner-locked, slice 2d).** The
   2c `— use computed —` placeholder and the Rate Master Derivation `— not stated —` sentinel are both
-  **RETIRED**: every placeholder is the plain disabled `— select —`, and the Derivation screen offers
+  **RETIRED**: every placeholder is the plain `— select —`, and the Derivation screen offers
   no empty option at all. The clear-back affordance is the reset icon above, which carries **no text**
   -- so there is no wording to get wrong. ⚠️ **The COST is recorded deliberately:** no attribute on the
   Derivation screen can be unset any more, so that screen can no longer answer *"what does this
   category do when this attribute is not stated?"*. That was accepted as a vocabulary decision, not
   overlooked.
+- **⚠️ THE `— select —` PLACEHOLDER IS ALWAYS SELECTABLE (owner ruling R9, 2026-08-19) -- THIS
+  SUPERSEDES THE SLICE-2c RULING ABOVE.** 2c made the placeholder `disabled` for a genuine input,
+  on the reasoning that blank there IS incomplete so offering it invites a dead end. That reasoning
+  was sound for the case 2c had, and wrong for a case it never contemplated: **a stored value that
+  matches NO option.** React does not assign `.value` on a controlled select -- it sets
+  `option.selected = (option.value === props.value)` per option -- so when nothing matches, every
+  option ends unselected and the browser falls back to the first *selectable* one. The disabled
+  placeholder was skipped, and the field displayed **a real catalogue value the row never held**,
+  directly beside a derivation line naming the true one. On an `allow_none` def the fallback was the
+  `"None"` SENTINEL -- a positive decision the row never made. Owner: *"in case of no match with
+  catalogue..it needs to show blank"* and *"the user can edit the value all the time whether it is
+  blank or it matches something from catalog. the user is the ultimate authority."*
+  **Consequences to keep straight:** a BLANK value needs no special case (it matches the placeholder,
+  so it already selected it -- only non-empty unmatched values ever displayed wrongly); clearing a
+  field writes `""`, which `coerceForMatch` maps to `null` BEFORE its `allow_none` check, so a clear
+  is ABSENCE (gated incomplete) and is NEVER the `"None"` sentinel; and the reset icon remains the
+  all-at-once escape, unchanged. ⚠️ **`vitest` is structurally blind to this** (no DOM environment):
+  the data layer reports the right value and option list while the control renders another. It was
+  found by the browser cert, and that is the only instrument that can find it -- do not add a unit
+  test that appears to cover the rendering.
 - **THE FACE PLATE STAYS EDITABLE, AND A TOO-SMALL ENTRY WARNS RATHER THAN BEING SILENTLY
   OVERRIDDEN (owner-locked).** A stated value keeps the screen and still feeds the pipeline as the
   take-the-larger FLOOR. When the computation overrides it, the panel must SAY so, naming the

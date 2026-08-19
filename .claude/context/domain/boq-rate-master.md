@@ -1419,6 +1419,42 @@ invariants:
   outcome type must CARRY the resolved value, not merely report that one was substituted. Read it
   through the step's own structured reader; never parse the trace prose, never re-derive.
 
+### Catalogue-fed pick-lists for conduit size and wiring core/thickness (F-1 / F-8)
+
+- **⚠️ A `values_from` LIST IS GLOBAL AND THERE IS NO ROW-FILTERING SUPPORT (owner ruling R3,
+  owner-locked).** `where` accepts LITERAL constants only -- all three resolvers
+  (`extraction.values_from_catalog`, the panel's `attributeOptions`, the Derivation screen's
+  `valuesFromOptions`) compare `a[k] === v`. **There is no `@attr` indirection anywhere**, so a list
+  cannot be narrowed by the row's own other attributes. `conduit_piping.size_mm`,
+  `wiring_cabling.core` and `wiring_cabling.thickness_sqmm` therefore carry **NO `where` key at all**,
+  and a test asserts that absence. point_wiring's equivalents DO carry one (`{material: COPPER,
+  insulation: UNARMOURED}`) -- **that asymmetry IS the ruling, not an oversight**: those constants are
+  correct for every point_wiring row, whereas wiring_cabling spans four material/insulation
+  combinations. A "consistency" pass adding a `where` to the three would silently hide catalogue
+  values the owner ruled must be offered; one removing point_wiring's would widen its wire lists to
+  every cable in the catalogue, armoured ones included.
+- **KNOWN AND ACCEPTED CONSEQUENCE of R3: a COMBINATION gap is invisible.** `3.5` core and `150` sqmm
+  are both in their global lists while `COPPER / UNARMOURED / 3.5 / 150` has no cable row -- so the
+  pricer can pick two offered values and the row still refuses, with nothing on screen explaining why.
+  Surfacing it needs row-filtered lists, i.e. `@attr` support in all three resolvers. **A separate
+  finding, deliberately out of scope.**
+- **⚠️ WIRING'S LISTS COME FROM THE `cable` KIND, NEVER `termination` (owner ruling R2, owner-locked).**
+  The two kinds' domains DIFFER: `cable` carries cores to 24 and thicknesses 0.5/0.75/1.0 that
+  `termination` (cores to 4 only) does not. **Accepted consequence: a termination-shaped row can be
+  offered a value termination cannot price** -- e.g. an 8-core row keeps displaying 8 and keeps
+  refusing. Pinned by the DISCRIMINATORS `core 8` and `thickness 0.75`, because the two domains
+  overlap heavily and a list built from the wrong kind still looks entirely plausible.
+- **`number_choice`, never `choice`, for a numeric column.** `matchMasterRow` compares with `===`, so
+  a plain `choice` emits the STRING `"25"` against a stored `25.0` and matches nothing, silently.
+- **The server half of "the catalogue is the boundary" is `_coerce_value_ex`'s
+  `COERCE_OUTSIDE_DOMAIN` branch**: on a FRESH extraction a value outside the resolved domain is
+  discarded before storage -- no message, no near-miss substitution -- and the row arrives blank.
+  ⚠️ **The shipped attribute-extraction prompt still describes the type vocabulary as
+  `type (choice|number)` and scopes its allowed-values instruction to `choice` only** -- the model is
+  handed a `values` list it was never told to obey, and the domain is enforced server-side after the
+  reply. That has been true since the first `number_choice` shipped; it works, but do not mistake the
+  prompt for the guarantee.
+
 ### Sentinels, coercion, hidden attributes, and how an extraction rule is certified
 
 - **⚠️ THE `"None"` SENTINEL IS TREATED DIFFERENTLY BY `map_attribute` AND `catalog_fit`, AND THE

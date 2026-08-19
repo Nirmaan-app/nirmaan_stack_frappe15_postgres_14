@@ -31735,3 +31735,237 @@ instruction is not to auto-fix on failure.
 
 The final C2 change (deleting the law) landed AFTER these runs, but it edits a `.md` context document
 only -- no suite reads it, so the measured counts still hold.
+
+## Build slice 4 -- conduit size + wiring core/thickness become catalogue-fed pick-lists (F-1, F-8) (2026-08-19)
+
+Three free NUMBER fields become catalogue-driven pick-lists on the shipped `number_choice` +
+`values_from` mechanism. Configuration, one mint, one golden re-bank -- **plus one authorised
+code change (R9) that the browser cert forced, and which turned out to fix a defect that had
+shipped latent since slice 3b.** Branch `feature/boq-pricing-helper`, from tip `7c4e8aeb`.
+
+### The rulings, in the order they were made
+
+| | Ruling |
+|---|---|
+| **R1** | STRICT, not permissive. A value the catalogue does not carry is not a usable value: blank plus the standard completeness message is the honest state. *"this is ok. this gives the true picture to the user"* |
+| **R2** | Wiring draws from the **CABLE** kind. Accepted consequence: cable's domain is richer than termination's, so a termination-only row can be offered a value termination cannot price. |
+| **R3** | **GLOBAL** lists, not row-filtered. Accepted consequence: the 3.5-core / 150 sqmm COMBINATION gap is NOT surfaced by this slice -- both values appear in their lists, the combination has no row, and the row refuses with nothing on screen explaining why. A separate finding. |
+| **R4** | Standing: exact matching only; blank when genuinely unstated with NO default; the catalogue is the boundary and a non-match refuses SILENTLY. |
+| **R5** | The derivation screen is a separate owner redesign -- not touched. |
+| **R6** | Authorised ONE assertion (`test_rate_suggest.py`, `core` type). |
+| **R7** | Authorised SIX more (the switch-socket golden values). |
+| **R8** | Authorised THREE more (the same, masked by unittest's first-failure-per-test behaviour). |
+| **R9** | **The `— select —` placeholder is ALWAYS selectable.** Forced by the cert. See below. |
+
+**Ten assertion lines were authorised across R6+R7+R8, all on the switches_sockets golden axis, all
+consequences of B4's mechanical re-bank.** The enumeration took three rounds and that is the lesson
+recorded below.
+
+### P1-P5
+
+- **P1** Tree: exactly the five known-harmless entries, before and after. Never restored, never cleaned.
+- **P2** Live DB matched committed v43 byte-for-byte (`5d17cf7d...`, 702345 bytes) -- re-confirmed after the baseline suite, so the suite does not disturb the Electrical scope.
+- **P3** Baselines measured in-session: `test_rate_master` **170 OK**; vitest **2504 tests, 1 pre-existing failure** (`writeOffControl` timeout, unrelated, present in every run).
+- **P4** ⚠️ **THE VISIBILITY PREMISE.** R1 rests on the pricer still seeing what the customer asked for once the field goes blank. Verified in code -- Description is a FIXED FROZEN-LEFT ANCHOR column (`PricingGrid.tsx`, `FIXED_ROLE_DEDUPE`, slot `a4`, inside the frozen pane at every horizontal scroll position) and the rate-helper panel is a flex SIBLING of the grid, never an overlay (`SheetPricingPage.tsx`). **Certified live at cert step 3.**
+- **P5** All 8 candidate rows produce NO price today -- unchanged by this slice.
+
+⚠️ **P5 PREMISE CORRECTION, accepted by the owner: SIX rows blank, not eight.** Measured against the
+lists this slice actually builds: 5 x conduit Size + 1 x wiring Thickness. The two `core = 8` rows
+keep displaying 8 because **cable** carries it (R2's named consequence), and the 180 sqmm row blanks
+only its Thickness -- its 3.5 core is in cable's list.
+
+### What was built
+
+**B1-B3** -- through the audited RM-4b `update_rate_config` (admin-gated, full `_validate_config`,
+`doc.save(ignore_version=False)`), never `set_value`. Attribute ids read from the live config.
+
+```
+conduit_piping.size_mm        number -> number_choice, values_from {kind: conduit, attr: size_mm}
+wiring_cabling.core           number -> number_choice, values_from {kind: cable,   attr: core}
+wiring_cabling.thickness_sqmm number -> number_choice, values_from {kind: cable,   attr: thickness_sqmm}
+```
+
+**R3 is enforced by ABSENCE: no `where` key on any of the three**, and a test asserts that absence.
+point_wiring's equivalents DO carry a `where` -- that asymmetry IS the ruling, and a later
+"consistency" pass stripping it would silently widen point_wiring's wire lists to every cable in the
+catalogue, armoured ones included.
+
+**B5 -- the mint.** Procedure from `.claude/context/domain/boq-rate-master.md`: edit in-system ->
+**export from the DB** -> commit the export verbatim -> mint gate on COMMITS -> round trip -> repin.
+The file was never hand-edited. Conventional name kept (`..._all_v44.json`), measured: a marked name
+does not match `mint_completeness_check.EALL_RE` and would silently drop out of the census.
+
+- Key-by-key v43 -> v44: **1364 -> 1364 items, 0 changed / 0 added / 0 removed**; 12 configs, no keys added or removed; only the three attribute defs, the switches_sockets goldens, and the top-level goldens entry.
+- **Mint gate PASS** -- "No atoms disappeared". Uninspectable window is the known `v15, v16, v16a, v16b, v42`.
+- **Round trip PASS** -- loaded into a scratch discipline, re-exported, every axis identical (items with `item_uid`, all 12 configs, goldens, retirements, source_workbook). Scratch discipline purged to 0 residual rows.
+
+**B6** -- `CURRENT_EALL_ASSET` repinned to v44; the stale-goldens warning above it replaced with a
+record of the re-bank.
+
+### B4 -- the switch-socket golden re-bank, with its arithmetic
+
+Rate stages (live `swsock_boq` / `swsock_bcs`): `sum_components` -> `scale m=0.3625` -> `roundup -1`
+=> supply; `scale m=0.2` on supply -> `roundup -1` => install; `scale m=0.25` on the raw sum ->
+`roundup -1` => bcs_supply. **There is no discount and no markup in this pipeline** -- those three
+multipliers are the whole stack over raw catalogue list prices.
+
+Live list prices (was -> is): 6A 3-Pin Socket White 282 -> **309** · 16A 1 WAY SWITCH White 258 ->
+**290** · 6A/16A 3-Pin Socket White 425 -> **464** · 1M Blanker White 61 -> **70** · Grid 8M White
+396 -> **446** · Back Box 8M NA 320 -> **362**.
+
+```
+s1  (lone 6A 3-Pin Socket; plate None, back box No)
+    modules    = 1 x 2 = 2 ; plate "None" -> absent, blank_count 0
+    raw sum    = 309 x 1                                          = 309
+    supply     = roundup(309 x 0.3625, -1) = roundup(112.013, -1) = 120   [was 110]  CHANGES
+    install    = roundup(120 x 0.2,    -1) = roundup(24,      -1) =  30   [was  30]  unchanged
+    bcs_supply = roundup(309 x 0.25,   -1) = roundup(77.25,   -1) =  80   [was  80]  unchanged
+
+ss1 (8M plate, 7 modules occupied, 1 blank, back box Yes)
+    modules     = socket1(1)x2 + socket2(2)x2 + switch(1)x1 = 7 ; stated 8M is the FLOOR -> 8M
+    blank_count = 8 - 7 = 1 ; box = the SELECTED plate's module count (8) re-fit -> Back Box 8M
+    raw sum     = 290 + 464 + (309 x 2) + 70 + 446 + 362            = 2250
+    supply      = roundup(2250 x 0.3625, -1) = roundup(815.625, -1) = 820  [was 740]  CHANGES
+    install     = roundup(820  x 0.2,    -1) = roundup(164,     -1) = 170  [was 150]  CHANGES
+    bcs_supply  = roundup(2250 x 0.25,   -1) = roundup(562.5,   -1) = 570  [was 510]  CHANGES
+```
+
+**Three independent confirmations:** (1) the OLD prices reproduce the banked goldens exactly
+(`282 x 0.3625 = 102.225 -> 110`; `2024 x 0.3625 = 733.70 -> 740`, `-> 150`, `-> 510`); (2) the v43
+dev-sync's own RM-4b preview gate reported the identical four moves; (3) the live interpreter, run
+read-only against the live catalogue at cert step 6, reproduces all six golden keys with **zero
+deltas**. Both locations updated (live config + the asset's top-level `goldens`), both `oracle`
+strings rewritten. **The vitest interpreter pins were NOT touched** -- they run on inline fixture
+catalogues carrying the old prices and are independent regression pins.
+
+### R9 -- the cert finding, and the code change it forced
+
+**The first cert run FAILED at step 2.** R1 was ruled on the premise that the field goes blank. It
+did not: row 87 of `BOQ-26-00106` (stored `size_mm = 40`) displayed **`20`** -- a size the BoQ never
+asked for -- while the same card's derivation line read *"...Size (mm) = 40"* and the frozen
+Description column read *"40 mm dia..."*. Slice 4 as it then stood made those rows **less** truthful
+than before, which is the opposite of its purpose.
+
+**Mechanism, isolated in-page:** React does not assign `.value` on a controlled `<select>`; it sets
+`option.selected = (option.value === props.value)` per option. When nothing matches, every option
+ends unselected and the browser falls back to the first **selectable** option. Slice 2c's `disabled`
+placeholder was therefore skipped. Proven both ways in isolation: placeholder disabled -> `"20"`;
+placeholder enabled -> blank.
+
+**R9 removes `disabled` from the placeholder. Always, not conditionally.** Owner: *"in case of no
+match with catalogue..it needs to show blank"* and *"the user can edit the value all the time whether
+it is blank or it matches something from catalog. the user is the ultimate authority."*
+
+**Blast radius, measured before building** -- that `<select>` renders every dropdown attribute in
+every category (10 categories, 45 attributes):
+
+- **12 live rows change display**, from a wrong first-option value to blank: `conduit_piping.size_mm` 5, `wiring_cabling.thickness_sqmm` 1, and **`cabletray_raceway.thickness_mm` 6 -- which PREDATE slice 4 and had shipped latent since 3b** (six rows storing 2.6 mm, a thickness the catalogue does not carry). R9 fixes those too.
+- **A BLANK value needs no special case** and never did: it matches the placeholder, so it already selected it. Only non-empty unmatched values were ever displayed wrongly.
+- **`allow_none` defs had a worse latent form**: the fallback was the `"None"` SENTINEL -- a positive decision the row never made. 20 such attributes exist across 4 categories; no live row was in that state, so this is a latent fix.
+- **Nothing else moves**: no default, no coercion, no gate. Clearing writes `""`, which `coerceForMatch` maps to `null` BEFORE its `allow_none` check -- so a clear is ABSENCE (gated incomplete), never the sentinel.
+
+### Tests
+
+**Backend (`test_rate_master.py`), 6 new:** `test_102` the three defs are catalogue-fed dropdowns
+with the load-bearing NEGATIVE `assertNotIn("where", ...)` · `test_103` R2 pinned by the
+DISCRIMINATORS `core 8` / `thickness 0.75` (in cable, not termination -- the kinds overlap heavily,
+so a list built from the wrong kind still looks plausible and only these values expose it) ·
+`test_104` R3 pinned by values from MUTUALLY EXCLUSIVE combinations coexisting in one list ·
+`test_105` the four shipped `number_choice` precedents unchanged, point_wiring KEEPS its `where` ·
+`test_106` the four re-banked numbers, with the negative half that s1's install and BCS did NOT move
+· `test_107` R1/R4's server half -- 80 mm and 180 sqmm refused with `COERCE_OUTSIDE_DOMAIN`, pinned
+against the REAL resolved domains so it tracks the catalogue.
+
+**Frontend (`pricingSheetHelper.test.ts`), 10 new:** list resolution for all three · R2 with its
+negative · R3 with the proof that adding a `where` DOES narrow (so its absence is load-bearing, not
+decorative) · an in-catalogue value prices unchanged · both R1 halves · conduit's own case · and
+three R9 tests.
+
+⚠️ **THE R9 TESTS CARRY AN EXPLICIT LIMIT, AND THE FILE SAYS SO IN A HEADER COMMENT.** What R9 fixes
+is a React/DOM semantic; vitest runs `environment: "node"` with no DOM, so nothing here can observe
+`select.selectedIndex`. The slice-4 tests asserting `options` excludes the stored value were GREEN
+while row 87 displayed `20`. **The browser cert is the honest instrument and the only one that could
+find it.** What IS pinned is the consequence: **clearing a field yields the same state as never
+having filled it** -- both blank, both gated incomplete, same message -- plus the distinction that a
+clear is NOT the `"None"` sentinel, plus a positive control proving a cleared field genuinely reaches
+the price (without it the equivalence test could pass for the wrong reason).
+
+**Vacuity proofs -- five, each with a verified restore:**
+
+| # | Disabled | Measured |
+|---|---|---|
+| A | `values_from` stripped from the frontend `S4_CORE` fixture | 4 failed / 159 passed -- exactly the list/R2/R3/prices tests |
+| B | 180 sqmm ADDED to the cable fixture (value becomes stocked) | 1 failed / 162 passed -- exactly the R1 "not offered" test; proves it keys on the catalogue, not a tautology |
+| C1 | `values_from` stripped from the SHIPPED v44 asset's wiring core def | `test_102` FAILED, `test_105` OK (correctly scoped); file sha256 verified changed during the run and byte-restored after |
+| C2 | the `COERCE_OUTSIDE_DOMAIN` branch in `extraction._coerce_value_ex` | `test_107` FAILED; production file byte-restored |
+| D | `coerceForMatch`'s `"" -> null` mapping | 2 failed / 164 passed -- exactly the two R9 equivalence tests; the positive control stayed green |
+
+⚠️ **One failed vacuity ATTEMPT is disclosed rather than counted:** C1's first try used a wrong
+indentation anchor, so the file was never modified and the tests passed against unmodified code. That
+run proved nothing. The real formatting was found, the sha256 confirmed changed, and only then was the
+result trusted.
+
+### Measured counts
+
+| Suite | Before | After |
+|---|---|---|
+| `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.boq.test_rate_master` | **170 OK** (454 s) | **176 OK** (583 s) |
+| `npx vitest run` (in container, from `frontend/`) | 68 files: 1 failed / 67 passed; **2504 tests: 1 failed / 2503 passed** | 68 files: 1 failed / 67 passed; **2514 tests: 1 failed / 2513 passed** |
+
+`npx tsc --noEmit`: **0 errors in either edited frontend file** (the repo-wide pre-existing count is
+unchanged). The single vitest failure is the pre-existing `writeOffControl.test.ts > the three admin
+predicates stay in step > mirrors the sibling admin predicates` timeout -- identical in every run this
+session, unrelated to this slice, reported not fixed.
+
+### Browser live cert -- all eight steps plus two added, all PASS
+
+De-stale in full: service worker unregistered, caches deleted, storage cleared, IndexedDB deleted,
+**tab closed and reopened**, bare root first then the deep route. ⚠️ **`RateHelperPanel.tsx` exports
+non-component values (`kindLabel`, `overridesForRow`, `hasSessionEdits`), so the full Vite kill +
+`node_modules/.vite` delete + restart was required** -- and was done.
+
+**Bundle-marker check, both halves.** HALF A (code): the served module renders
+`jsxDEV("option", { value: "", children: "— select —" })` -- **no `disabled`**, so R9 is live in the
+bundle. HALF B (data): all three defs `number_choice` + `values_from` with no `where`, and goldens
+120/820/170/570, read through the app's own authenticated API from the live page.
+
+| # | Step | Result |
+|---|---|---|
+| 1 | Conduit row, IN-catalogue size | **PASS.** Row 89, `Size (mm)` pick-list `[20,25,32,50]`, value **25**; `supply 42 / install 10 / combined 52` -- unchanged. |
+| 2 | An affected row: field BLANK | **PASS.** Row 87, `Size (mm)` = **`— select —`**; basis *"no match for these attributes"*; derivation *"No conduit_boq rate row matches Conduit Type = PVC, Size (mm) = 40."* The card is now coherent. |
+| 3 | ⚠️ The BoQ's own description still visible | **PASS.** Row 87's Description reads *"40 mm dia 2mm Thick FRLS PVC Conduit"* in the frozen anchor column, in the same frame as the blank field and the derivation naming 40. **P4's premise certified live.** |
+| 4 | A wiring row: Core + Thickness pick-lists, prices unchanged | **PASS.** `BOQ-26-00114` row 48: Material COPPER, Insulation UNARMOURED, **Core 3**, **Thickness 1.5**, Runs 1 (still a free number Input, correctly untouched); `supply_per_set 70 / install_per_set 20 / combined 90`. |
+| 5 | Every value the Core list offers | **PASS.** 15 values `2,3,4,5,6,7,8,10,12,14,16,19,24,3.5,1` -- **including 8, which termination does not carry** (R2 live). Thickness offers 20 including **0.5 and 0.75**, also termination-absent. Values from mutually exclusive combinations coexist (R3 live). |
+| 6 | switches_sockets goldens show NO deltas | **PASS -- zero deltas on all six keys.** The Pipelines preview gate only runs behind an edit+save (a WRITE, forbidden in a read-only cert), so the SAME pure interpreter was run read-only in-page against the SAME live catalogue: s1 120/30/80 and ss1 820/170/570, all `status: ok`, all matching. |
+| 7 | A cable tray row and a point_wiring row unchanged | **PASS.** Tray row 135: all 7 dropdowns correct (`Solid / GI / 1.6 / 400 / Yes / Floor / No / No`). point_wiring row 59 unchanged, `Socket = None` sentinel correctly preserved and its genuinely-absent plate/blank fields blank as before. |
+| 8 | Editor-path row counts, before vs after | **PASS -- identical.** conduit_piping 51 total: **44 priced**, 2 blocked at the missing-attribute gate, 5 no_match. wiring_cabling 265 total: **153 priced**, 108 blocked at gate, 4 no_match. Identical before and after by construction: the pricing path reads `coerceForMatch`, which treats `number` and `number_choice` identically. |
+| **+A** | Clear a HEALTHY field by hand, then restore | **PASS.** Row 89 Size 25 -> `— select —` (blank), basis flips to *"Complete the missing attributes to price"*, per-field undo arrow appears; undo restores **25** and `42 / 10 / 52`, arrow disappears. **Impossible before R9** -- the option was disabled. Nothing saved. |
+| **+B** | Another category behaves correctly | **PASS.** cabletray_raceway row 135 renders all 7 dropdowns correctly, and **row 146 -- one of the six 2.6 mm rows carrying the PRE-EXISTING defect -- now shows `— select —` where it previously displayed a wrong catalogue thickness.** |
+
+**READ ONLY on real data throughout: nothing saved, "Use this value" never clicked, no BoQ modified.**
+⚠️ One accidental interaction disclosed: an early mis-aimed click opened a remark editor on a grid
+row. Nothing was typed; Escape discarded it.
+
+### #57 UI CHANGE CONTROL -- the corrected list
+
+1. Conduit **Size (mm)** becomes a pick-list.
+2. Wiring **Core** becomes a pick-list.
+3. Wiring **Thickness (sqmm)** becomes a pick-list.
+4. ⚠️ **CORRECTED ON TWO COUNTS.** On an existing run, a value the catalogue does not carry stops being visible and the field goes **blank** -- **6 live rows**, not 8 (R2 keeps the two `core = 8` rows visible because cable carries that value), and **the blank is delivered by R9, not by the type flip alone**: with the type flip alone the field displayed a WRONG catalogue value, which is what the cert caught.
+5. On a fresh run, those rows change message -- from *"no match for these attributes"* to *"Complete the missing attributes to price"*, with the incomplete border.
+6. ⚠️ **WITHDRAWN AND REPLACED.** It read *"the pricer can no longer clear the field by hand"*. That was a consequence of the disabled placeholder, never something the owner asked for. **Replaced by: the pricer can clear any attribute field back to blank, on any row.**
+
+### Lessons recorded
+
+- **An enumeration is only as good as the instrument that produced it.** The assertion count went 1 -> 7 -> 10 across three rounds. The first miss was scope (I swept the attribute axis and never swept B4's golden axis); the second was instrument (unittest reports only the FIRST failing assertion per test, so three lines hid behind one). The fix was a **parser-based sweep that does not depend on running the suite** -- it joins multi-line assertions and reads every assertion regardless of execution order.
+- **A green suite is not evidence about a rendered control.** The R1 data-layer tests were correct and green while the browser showed the wrong number. This is the `frontend/CLAUDE.md` no-DOM-environment note landing on a real defect; the mandatory cert is what earns its place here.
+- **Measure a blast radius before building, not after.** R9 touches every dropdown in every category; the pre-existing cable-tray instance was only found because the radius was measured across all 10 categories rather than the three the slice named.
+
+### Backwards compatibility
+
+Nothing that priced before prices differently: 0 items changed in the mint; the three lists are
+supersets of every value live rows carry; `coerceForMatch` treats both types identically; editor-path
+counts identical before and after (cert step 8); the four shipped `number_choice` precedents pinned by
+`test_105` and confirmed correctly scoped by vacuity C1; tray and point_wiring certified unchanged
+(cert step 7); the only `goldens` that moved are switches_sockets', with zero interpreter deltas.
+**The one deliberate behaviour change is the 12 rows that stop displaying a value they never held.**

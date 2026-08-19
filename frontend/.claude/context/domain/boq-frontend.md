@@ -2597,6 +2597,17 @@ attribute and staying **`— select —`** (greyed) elsewhere: blank becomes sel
 a legitimate instruction. **A recon premise about a rendered affordance cannot be settled by reading
 the recompute path** -- read the element the user clicks.
 
+⚠️ **SUPERSEDED TWICE, AND THE SECOND TIME REVERSED IT — the placeholder is now ALWAYS SELECTABLE
+(owner ruling R9, 2026-08-19).** Slice 2d retired the `— use computed —` wording, leaving the plain
+`— select —`; **the shipped code then carried a bare `disabled`, NOT the `disabled={!a.derived}`
+recorded above** -- so for a period NO attribute in this panel was clearable, derived or not, and
+this paragraph described a shape that never reached the browser. R9 removed `disabled` outright.
+The reason is not preference: a controlled `<select>` whose value matches no option does **not** go
+blank -- React sets `option.selected` per option, nothing matches, and the browser falls back to the
+first *selectable* option, so a disabled placeholder made the field display **a value the row never
+held**. Full reasoning, the `allow_none` sentinel case, and the vitest blindness that hid it:
+`pricing-rate-master-frontend.md`, the R9 bullet. **Do not restore a conditional `disabled` here.**
+
 ### Revert-to-suggestion
 
 `hasSessionEdits(attrState, finalState, excelRow)` is pure and **reuses `overridesForRow`**, so it
