@@ -609,7 +609,8 @@ in the plan doc.
   config and evaluated by a tiny safe arithmetic evaluator (no `eval()`, CSP-safe) -- never hardcode the
   arithmetic.** EXACT matching on canonical values (no case-insensitive matching anywhere). **RM-3's
   pricer-facing helper consumes this module UNCHANGED -- there must never be a second implementation of
-  this arithmetic.** The four RM-1 goldens are its standing test fixtures.
+  this arithmetic.** The four RM-1 goldens are its standing REGRESSION CANARIES (stable snapshots of
+  what the system produces, not oracles).
 - **Dynamic columns come FROM the config's `attribute_definitions`** (kind, brand, one column per
   definition, the rate fields present, unit, source) -- never a hardcoded column list.
 - **Unknown step type = an explicit "unsupported" state, never a silent skip** (forward-compat honesty for
@@ -642,8 +643,9 @@ in the plan doc.
   via AlertDialog confirm -- freeze-and-supersede, dropped from active view, NEVER deleted) + an `AddItemDialog`
   built from the attribute definitions + rate keys; manual rows carry "Manual entry" provenance. Each write
   refetches its collection so the derivation/viewer recompute live -- and the persistence split carries the
-  edit into the next pricing-panel compute with NO AI re-run. The interpreter goldens stay the invariant any
-  edit must still reproduce after an edit-and-revert.
+  edit into the next pricing-panel compute with NO AI re-run. The interpreter goldens are REGRESSION
+  CANARIES: an edit-and-revert must still reproduce them, which is what makes an unintended change
+  visible.
 - **Data Viewer per-column-header faceted filters (`RateMasterDataViewer.tsx`):** EVERY column header
   (kind / brand / every category attribute / every rate key / unit / source sheet / row) carries a filter
   funnel opening a `ColumnFilter` Popover -- a type-to-search box over that column's DISTINCT values + a
@@ -704,7 +706,7 @@ in the plan doc.
   `tray_boq_install` / `tray_bcs` / `tray_bcs_install`): conditional-`component` adders (cover /
   ceiling-accessories 106 / refill 180 / cutting 200) + a **width-table install match** (kind
   `tray_install_rate`, ×4). The old single `tray_boq` (install = supply ×0.2, golden 280/60) was WRONG and
-  is DELETED; the oracle goldens t1/t2/t3 (431/120/297/0, 415/120/286, 410/200) are the standing pins (the
+  is DELETED; the regression-canary goldens t1/t2/t3 (431/120/297/0, 415/120/286, 410/200) are the standing pins (the
   dead 280/60 interpreter-test fixture was replaced). **EA-2c — `component_ref` (a NEW interpreter step):
   base from a SEPARATELY-REFERENCED master row** matched by `ref.kind` AND every `ref.attributes` (exact
   canonical, this discipline); UNIQUE resolution (zero OR multiple -> HONEST no-compute); the referenced
@@ -760,7 +762,8 @@ in the plan doc.
   owner ruling that MCB-only is real. **EA-4d (owner-locked) SPLIT the `lookup_or_ratio` rounding: `round_lookup`
   (the install-table-hit branch) + `round_ratio` (the shell-absent + IFERROR-fallback ratio branches) round
   SEPARATELY; the legacy single `round` stays the fallback for both (backwards-compat).** v17's step sets
-  `round_lookup: null` -> the table-hit is UNROUNDED `matched[target] x mult` (sheet-faithful), while
+  `round_lookup: null` -> the table-hit is UNROUNDED `matched[target] x mult` (sheet-faithful BY ORIGIN
+  -- the sheet was retired 2026-08-19 and the behaviour stands), while
   `round_ratio: -1` rounds the ratio branches to tens. This corrected the EA-4c drift: **dbu4 TPN-6WAY table-hit
   install `850 x 1.5` = 1275 UNROUNDED** (was over-rounded to 1280); goldens are now dbu1 (fallback 24360/3660/
   14760) / dbu2 (TPN-8WAY table-hit 1500) / **dbu4 (TPN-6WAY 1275)**, d1/d2/dbu3-single-item removed. **The wiring + point_wiring + switches_sockets + DB-build-up goldens are the standing regression pins for every addition** (`switches_point` was RETIRED 2026-08-08; its `sp1` golden went with it). The Rate Master

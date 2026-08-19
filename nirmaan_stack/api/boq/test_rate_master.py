@@ -3069,7 +3069,8 @@ class TestRateMaster(FrappeTestCase):
         grey = blankers[("1M Blanker", "Grey")]
         self.assertNotEqual(white, grey)
         self.assertGreater(grey, white)
-        # it lives under family "Switch" -- there is NO blanker family (root CLAUDE.md invariant)
+        # it lives under family "Switch" -- there is NO blanker family
+        # (invariant: .claude/context/domain/boq-rate-master.md)
         self.assertEqual(families, {"Switch"})
 
     # ---- CP2: the NUMERIC DROPDOWN attribute type (`number_choice`) ----

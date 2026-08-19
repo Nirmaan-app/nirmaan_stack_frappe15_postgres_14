@@ -1846,7 +1846,8 @@ leaves prose alone in both directions. **Write the next one this way from the st
 ## RMF-1 -- the rate-master DEPLOYMENT FREEZE (backend as-built, 2026-08-18/19)
 
 Commit `df40227e`. Full slice record incl. cert: `frontend/.claude/plans/boq-upload-plan.md`
-("Build slice RMF-1"). Load-bearing invariants are in root `CLAUDE.md`; this is the as-built.
+("Build slice RMF-1"). Load-bearing invariants are in
+`.claude/context/domain/boq-rate-master.md`; this is the as-built.
 
 ### Doctype -- `BoQ Rate Master Freeze` (Single, MIGRATE-CARRYING)
 
@@ -1900,7 +1901,7 @@ than being told to contact someone about a freeze they could never have worked a
 build, snapshot or write; `test_rmf_05` pins that a refused CSV apply writes no snapshot either.
 
 The three READ endpoints and `build_plan` are UNGUARDED, deliberately -- see the R3 invariant in
-root `CLAUDE.md`.
+`.claude/context/domain/boq-rate-master.md`.
 
 ### Tests -- `TestRateMasterFreeze` in `api/boq/test_rate_master.py` (152 -> 170)
 

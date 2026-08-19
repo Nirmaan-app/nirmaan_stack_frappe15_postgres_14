@@ -195,7 +195,8 @@ export function RateMasterDerivation({ items, config, isAdmin, frozen, onSavePar
    * SLICE 2d, OWNER RULING Q4(i) -- THIS TAB IS A PURE CALCULATOR: you state the INPUTS, and every
    * attribute the pipeline DERIVES leaves the selects, appearing only in the step lines below.
    *
-   * ⚠️ THIS EXPLICITLY SUPERSEDES the `frontend/CLAUDE.md` "THE TWO SCREENS STAY APART" invariant,
+   * ⚠️ THIS EXPLICITLY SUPERSEDES the "THE TWO SCREENS STAY APART" invariant in
+   * `frontend/.claude/context/domain/pricing-rate-master-frontend.md`,
    * which required this screen to read `derivedQtyAttrs` (the superseded-qty half) and never
    * `derivedAttrIds` (both halves). That rule existed to stop a genuinely editable field being
    * frozen; the ruling accepts that cost in exchange for a screen on which every control is an input.

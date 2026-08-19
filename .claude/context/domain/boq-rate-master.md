@@ -39,7 +39,8 @@ the full corrections-owed list.
 ### Composite assemblies - module fit, the blanker, plates and the back box
 
 - **`switches_sockets` is a PER-COMPONENT COMPOSITE and rounds to TENS; `point_wiring` rounds to UNITS
-  (owner-locked, deliberately different).** Both are sheet-faithful: switches_sockets sums the RAW component
+  (owner-locked, deliberately different).** Both are sheet-faithful BY ORIGIN (the guiding sheet was
+  retired 2026-08-19; the rounding behaviour described here is the standing rule): switches_sockets sums the RAW component
   lines, multiplies once, then rounds to tens; point_wiring multiplies and rounds per component. Do NOT
   "harmonise" them -- point_wiring's own notes record its unit rounding as "INTENTIONAL, per the sheet", and
   the tens convention is what keeps switches_sockets' standing golden value-identical across the rebuild.
@@ -303,7 +304,7 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   conditional-component adders (cover / ceiling 106 / refill 180 / cutting 200) + an install rate read
   **OFF THE TRAY ROW ITSELF** (**SUPERSEDED at F-16 2026-08-13** — this was a width-table match into the
   parallel kind `tray_install_rate` ×4; see the F-16 invariant below). The old single `tray_boq` (install = supply ×0.2, golden 280/60)
-  was WRONG and is DELETED; oracle goldens t1/t2/t3 (431/120/297/0, 415/120/286, 410/200) are the pins,
+  was WRONG and is DELETED; the regression-canary goldens t1/t2/t3 (431/120/297/0, 415/120/286, 410/200) are the pins,
   machine-verified (config-data preview gate + vitest + live Derivation), so the tray is OFF the manual
   verification list. **EA-2c — `component_ref` (a NEW step): base from a SEPARATELY-REFERENCED master row**
   matched by `ref.kind` AND every `ref.attributes` (exact canonical, this discipline). UNIQUE resolution:
@@ -320,8 +321,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   ROUNDUP(length/circuits)`; binds into ctx) and **`component_ref` extended** (ref attrs literal | `@attr` |
   `@fitted_size`; `rate_stages [{mult,round?:up0|up-1}]` with PER-STAGE rounding; `qty` = number |
   `{from_attr}` | `{from_fit}` | `{if_attr,then,else}`; `value = staged_rate * qty`; UNIQUE resolution else
-  honest no-compute; both obey Option-C never-throws). **PER-STAGE ROUNDING is faithful to the guiding sheet
-  and INTENTIONAL** (install switch `ceil(list*0.3625)` THEN `*0.2` UNROUNDED — pw1 `155*0.2=31`, pw2 White
+  honest no-compute; both obey Option-C never-throws). **PER-STAGE ROUNDING is INTENTIONAL and is the
+  STANDING RULE** -- it ORIGINATED in the guiding sheet, retired 2026-08-19, and the behaviour is
+  unchanged (install switch `ceil(list*0.3625)` THEN `*0.2` UNROUNDED — pw1 `155*0.2=31`, pw2 White
   `131*0.2=26.2`); do NOT collapse to one final round. **`point_wiring` is LIVE** (14 defs, 3 pipelines);
   goldens **pw1 1869/735/1370** + **pw2 1823/722.2/1342** (MS→3 circuits; the fractional 722.2 pins per-stage
   rounding) are config data AND standing pins — a golden's attrs are an ATOMIC SET. **A switch-only light
@@ -354,9 +356,10 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   socket-only row prices instead of refusing (absent=unknown->no_match; "None"=positive-absence->0 line -- the
   EA-4a-r distinction, owner-locked). Tray ceiling-accessories are a CONFIRMED FIXED 106 scalar (do not make
   adjustable this era). **EA-4c SHIPPED the DB build-up + the `lookup_or_ratio` interpreter step (owner-ruled
-  ONE new capability -- implement the sheet's IFERROR install EXACTLY):** the build-up is FIVE FIXED None-able
-  MCB slots (mirroring the sheet's I10:I14) + a `db_shell` slot (allow_none -- **MCB-only, shell None, is a REAL
-  product = the sheet's `IF(J9=0)` branch**, the same module pricing bare MCBs) + enclosure, summed x0.495
+  ONE new capability -- the IFERROR install, whose ORIGIN was the guiding sheet, retired 2026-08-19; the
+  behaviour described here is the standing rule):** the build-up is FIVE FIXED None-able
+  MCB slots (originally mirroring the sheet's I10:I14) + a `db_shell` slot (allow_none -- **MCB-only, shell None, is a REAL
+  product = the sheet's former `IF(J9=0)` branch**, the same module pricing bare MCBs) + enclosure, summed x0.495
   (supply) / x0.3 (bcs); supply + bcs are EXISTING vocabulary (`component_ref none_skips` cross-kind to the NEW
   `db_shell` kind, `sum_components`, `scale`, `roundup`), so the earlier "variable-length list step +
   extraction-payload extension" prediction was WRONG -- the scalar one-attribute-set-per-row payload carries the
@@ -388,7 +391,8 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   (never lower), range takes highest; PARTIAL pricing (un-cataloguable components -- ATS, standalone bus bar,
   weatherproof enclosure, module-flexi shell, bespoke DB -- left out, never a wrong pick; whole-row no-match ->
   all null). (3) `lookup_or_ratio` now honors `round_lookup` (table-hit) + `round_ratio` (ratio branches)
-  SEPARATELY; v17 sets `round_lookup: null` (table-hit UNROUNDED `VLOOKUP*1.5`, sheet-faithful) + `round_ratio:
+  SEPARATELY; v17 sets `round_lookup: null` (table-hit UNROUNDED `VLOOKUP*1.5`, sheet-faithful BY ORIGIN -- the
+  sheet was retired 2026-08-19 and the behaviour stands) + `round_ratio:
   -1`; the legacy single `round` stays the fallback for both. Goldens: dbu1 fallback 24360/3660/14760, dbu2
   table-hit 1500, **dbu4 TPN-6WAY table-hit install 1275 UNROUNDED** (the fix; the EA-4c 1280 was the drift);
   d1/d2 removed.
@@ -404,10 +408,11 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
 
 ### The guiding-sheet authority rule, and retirement by declaration
 
-- **THE GUIDING-SHEET AUTHORITY RULE (owner-locked standing law, 2026-07-29).** A rate-master category gets
-  FINALIZED rules ONLY if it has a block on the **ALL ITEM WISE RATE** sheet; no block → no rules. Every
-  future category/discipline inherits this. **Corollary:** where the guiding block carries its rates
-  DIRECTLY, the block IS the table (no background-sheet dependency) — **miscellaneous** is the first such
+- **RETIRED 2026-08-19 -- THE GUIDING-SHEET AUTHORITY RULE.** A standing law (2026-07-29) required a
+  rate-master category to have a block on the **ALL ITEM WISE RATE** sheet before it could get
+  FINALIZED rules; no block meant no rules. The owner RETIRED it with the sheet on 2026-08-19.
+  **NOTHING replaces it: a category needs no external authority to get finalised rules.**
+  **Corollary:** where the guiding block carries its rates DIRECTLY, the block IS the table (no background-sheet dependency) — **miscellaneous** is the first such
   case (its items carry `boq_supply`/`boq_install` that ARE the BoQ rates; `misc_boq` is direct factor 1.0,
   `misc_bcs` = `boq*0.8` with install 0). The EA-1 "UPS" decode was a misread **Floor BOX** block: UPS is
   removed (excluded-by-ruling) and **popup_boxes** is the corrected decode (per-module, the
@@ -734,11 +739,15 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   `match_master_row` (`cable`, `termination`) and the derivation is byte-equal to a declared list, so
   adding one is behaviour-neutral — but it would make the stored config differ from the live DB for no
   gain. Left absent; `test_24b` pins both the absence and the derivation.
-- **Benchmark data (owner ruling):** the committed data asset is the **28-Jul benchmark workbook**
-  (`rate_master_wiring_cabling_v3.json`) — the reference going forward, superseding the earlier 25-Jul
-  reference; **its content now lives inside the merged asset** (above). A benchmark refresh is a
-  `replace=True` re-import of a new asset (freeze-and-supersede: the prior `rmbulk-` batch goes inactive,
-  rows retained).
+- **Benchmark data -- CORRECTED 2026-08-19. PRODUCTION is the authority for item rates.** Deployment
+  Mode made production the source of truth: **v41** adopted production cable prices (2026-08-18) and
+  **v43** adopted production asset wholesale (2026-08-19). The committed asset is the one
+  **`CURRENT_EALL_ASSET`** names in `nirmaan_stack/api/boq/test_rate_master.py` -- read it there,
+  never from here. HISTORICAL: this entry used to name the **28-Jul benchmark workbook**
+  (`rate_master_wiring_cabling_v3.json`) as the reference going forward, superseding the earlier
+  25-Jul reference; **its content now lives inside the merged asset** (above). A refresh is still a
+  `replace=True` re-import of a new asset (freeze-and-supersede: the prior `rmbulk-` batch goes
+  inactive, rows retained).
 
 ### F-20 - no default asset; the version pin, the filename shape, the bootstrap ground
 
@@ -960,7 +969,7 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   extraction prompt INJECTION (`extraction._extract_batch`, `.md` assets untouched) AND `_coerce_value`
   variant->canonical mapping BEFORE the allowed-values check. ABSENT => byte-identical. (2) **GI conduit rows
   EXCLUDED** (`conduit_type` now [PVC,MS]); a GI row prices at MS via the synonym. (3) **point_wiring** — a
-  DATA-ONLY category (`pipelines:{}`, `item_kinds:[]`) with a banked EA-4 oracle `1869/735/2604` in
+  DATA-ONLY category (`pipelines:{}`, `item_kinds:[]`) with a banked EA-4 regression canary `1869/735/2604` in
   `config.notes`; it is the FIRST kind-less category. (4) **DB install three-way split** (db_switchgear): kind
   `db_install_rate` + pipelines `db_install_db` (DB-family, scale x1.5) / `db_install_nondb` (switchgear+enclosure,
   15% of BoQ supply). ⚠️ **HISTORICAL — BOTH PIPELINES WERE DELETED AT EA-4d** (the DB single-item path had no
@@ -1006,8 +1015,13 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   Introducing `runs` made all five wiring goldens no-compute (`attribute 'runs' missing or
   non-numeric` — the interpreter's honest no-compute) until each golden's `attrs` gained `runs: 1`;
   the expected VALUES are untouched, since the goldens are invariant at runs=1 by construction.
-  ⚠️ **Multi-run goldens (runs > 1) are OWED from the owner and must NOT be computed from our own
-  code:** the guiding sheet carries no runs concept, so a multi-run value has no sheet basis.
+  ⚠️ **CORRECTED by the owner ruling of 2026-08-19: multi-run goldens (runs > 1) ARE banked from
+  our own interpreter.** A golden is a REGRESSION CANARY -- a snapshot of what the system currently
+  produces, whose job is to answer "did this config edit change something I did not intend". It must
+  be STABLE, not CORRECT, so re-banking one from our own interpreter is CORRECT rather than circular.
+  This REVERSES the earlier rule, which said such a value was OWED from the owner and must NOT be
+  computed from our own code because the guiding sheet carried no runs concept; that premise went
+  when the sheet was retired.
 - **`rules` remains an UNGATED `_KNOWN_CONFIG_KEYS` pass-through** reaching every category regardless
   of `matching_mode`; an absent/empty array yields a byte-identical prompt. Rule text is owner-authored
   and passes through VERBATIM — nothing in the app rewords it.
@@ -1152,9 +1166,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   live in the config JSON and are interpreted downstream — RM-1 stores them faithfully; no interpreter
   ships this slice. Owner-decoded shapes: effective = `(1-discount)*(1+markup)`; termination = lug +
   banded gland (`thickness_sqmm` < 35 vs ≥ 35); BCS = discounted product cost + 5% wastage, no install
-  (electrical labour is per-sqft, added at project level). The four faithfulness goldens (e.g.
-  COPPER/UNARMOURED/1C/6.0 → cable 120/20, termination 80/20, BCS 87) are the STANDING instrument any
-  pipeline change must still reproduce EXACTLY.
+  (electrical labour is per-sqft, added at project level). The four RM-1 goldens (e.g.
+  COPPER/UNARMOURED/1C/6.0 → cable 120/20, termination 80/20, BCS 87) are REGRESSION CANARIES and the
+  STANDING instrument any pipeline change must still reproduce EXACTLY.
 - **Migrate obligation grows:** these two doctypes add to the pullers' migrate obligation (Abhishek
   heads-up) — pulling requires a DB migrate.
 - **⚠️ A NUMERIC CATALOG ATTRIBUTE IS STORED AS A FLOAT, AND THE CSV ROUND TRIP IS WHY (owner-locked,

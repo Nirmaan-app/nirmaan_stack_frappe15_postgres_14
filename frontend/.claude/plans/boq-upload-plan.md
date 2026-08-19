@@ -31627,3 +31627,111 @@ a pointer at each of the three sites the rules occupied, a row in
 
 **Nothing was lost from the repository** -- all 837 lines are in the destination, proven byte for byte
 before and after the deletion, and its blob is bit-identical across both commits.
+
+---
+
+## Trim cleanup -- broken references and stale claims -- 2026-08-19
+
+**The debt the four trim slices deliberately left.** Two kinds, sixteen items: **four cross-references**
+that broke when content moved, and **twelve stale claims** copied verbatim on purpose so the
+losslessness proofs held. This slice CORRECTS; it restructures, moves and deletes nothing.
+
+**The governing ruling (owner, 2026-08-19).** The pricing sheet was retired and goldens were
+reclassified from ORACLES to **REGRESSION CANARIES**: a golden is a snapshot of what the system
+currently produces, its job is to answer *"did this config edit change something I did not intend"*,
+it needs to be **STABLE not CORRECT**, and re-banking one from our own interpreter is **CORRECT rather
+than circular**. Deployment Mode v1.1 is the authority.
+
+### Part 1 -- the four broken cross-references (repointed, nothing else on the line changed)
+
+| # | Location | Was | Now |
+|---|---|---|---|
+| X1 | `.claude/context/domain/boq-backend.md:1849` | RMF-1 "Load-bearing invariants are in root `CLAUDE.md`" | `.claude/context/domain/boq-rate-master.md` |
+| X2 | `.claude/context/domain/boq-backend.md:1903` | "see the R3 invariant in root `CLAUDE.md`" | same destination |
+| X3 | `nirmaan_stack/api/boq/test_rate_master.py:3072` | "(root CLAUDE.md invariant)" on the no-blanker-family rule | "(invariant: `.claude/context/domain/boq-rate-master.md`)" |
+| X4 | `frontend/src/pages/pricing/rate-master/RateMasterDerivation.tsx:198` | "SUPERSEDES the `frontend/CLAUDE.md` THE TWO SCREENS STAY APART invariant" | `frontend/.claude/context/domain/pricing-rate-master-frontend.md` |
+
+### Part 2 -- the twelve stale claims
+
+| # | File | What changed |
+|---|---|---|
+| C1 | boq-rate-master.md | **REVERSED.** "Multi-run goldens are OWED from the owner and must NOT be computed from our own code" -> they ARE banked from our own interpreter, with the canary definition and the 2026-08-19 ruling named. The old rule is retained as history with its reason. |
+| C2 | boq-rate-master.md | **THE LAW IS DELETED.** Owner ruling of 2026-08-19, received mid-slice and superseding the annotate-only instruction: the guiding-sheet authority rule is RETIRED and NOTHING replaces it. A 4-line retirement marker stands in its place. See below. |
+| C3 | boq-rate-master.md | "oracle goldens t1/t2/t3" -> "the regression-canary goldens t1/t2/t3". Values 431/120/297/0, 415/120/286, 410/200 untouched. |
+| C4a | boq-rate-master.md | "PER-STAGE ROUNDING is faithful to the guiding sheet and INTENTIONAL" -> "is INTENTIONAL and is the STANDING RULE -- it ORIGINATED in the guiding sheet, retired 2026-08-19, and the behaviour is unchanged". |
+| C4b | boq-rate-master.md | EA-4c "implement the sheet's IFERROR install EXACTLY" / "mirroring the sheet's I10:I14" / "the sheet's `IF(J9=0)` branch" -> the sheet recorded as ORIGIN, the behaviour as the standing rule. |
+| C4c | boq-rate-master.md | "(table-hit UNROUNDED `VLOOKUP*1.5`, sheet-faithful)" -> "sheet-faithful BY ORIGIN -- the sheet was retired 2026-08-19 and the behaviour stands". |
+| C5 | boq-rate-master.md | "a banked EA-4 oracle `1869/735/2604`" -> "a banked EA-4 regression canary `1869/735/2604`". |
+| C6 | boq-rate-master.md | "The four faithfulness goldens ... are the STANDING instrument" -> "The four RM-1 goldens ... are REGRESSION CANARIES and the STANDING instrument". The reproduce-EXACTLY requirement stands. |
+| C7 | boq-rate-master.md | "Both are sheet-faithful" -> "sheet-faithful BY ORIGIN (the guiding sheet was retired 2026-08-19; the rounding behaviour described here is the standing rule)". ⚠️ The clause reporting that point_wiring's own config notes SAY "INTENTIONAL, per the sheet" was left ALONE -- that is accurate reportage of what the config records, not a claim of this doc. |
+| C8 | boq-rate-master.md | **Factually stale, not a goldens issue.** "the committed data asset is the 28-Jul benchmark workbook" -> PRODUCTION is the authority for item rates (v41 adopted production cable prices 2026-08-18; v43 adopted production's asset wholesale 2026-08-19), and the committed asset is whatever `CURRENT_EALL_ASSET` names -- **verified as `rate_master_electrical_all_v43.json`, read from the pin, not typed.** The 28-Jul text is kept as HISTORICAL. |
+| C9 | pricing-rate-master-frontend.md | twin of C3. |
+| C10 | pricing-rate-master-frontend.md | twin of C4c. |
+| C11 | pricing-rate-master-frontend.md | "The four RM-1 goldens are its standing test fixtures" -> "its standing REGRESSION CANARIES (stable snapshots of what the system produces, not oracles)". |
+| C12 | pricing-rate-master-frontend.md | "The interpreter goldens stay the invariant any edit must still reproduce" -> "are REGRESSION CANARIES: an edit-and-revert must still reproduce them, which is what makes an unintended change visible." The edit-and-revert check itself stays. |
+
+**Every golden VALUE was preserved and verified present afterwards** -- 431/120/297/0, 415/120/286,
+410/200, 1869/735/2604, cable 120/20, BCS 87, `155*0.2=31`, `131*0.2=26.2`. Only the described STATUS
+changed; no behaviour description was altered.
+
+**Left alone as instructed, verified untouched by the diff:** boq-rate-master.md's "standing
+regression pins", pricing-rate-master-frontend.md's "config data + standing pins" and its
+"standing regression pins" line, and the two live rules about the LIMITS of goldens
+("THE PRICING-EDITOR ROW COUNT IS THE GATE FOR ANYTHING THE GOLDENS BYPASS", "the goldens cannot catch
+this class of break").
+
+### C2 -- THE GUIDING-SHEET AUTHORITY RULE IS RETIRED (owner ruling, 2026-08-19)
+
+**This instruction changed mid-slice.** The slice began with "ANNOTATE ONLY -- do not correct, delete
+or rewrite; an owner ruling on what replaces it is OWED". A five-line annotation to that effect was
+written and then **REMOVED** when the owner ruled: **the law is RETIRED, and NOTHING replaces it.**
+
+**What was deleted** -- the law itself, verbatim: *"THE GUIDING-SHEET AUTHORITY RULE (owner-locked
+standing law, 2026-07-29). A rate-master category gets FINALIZED rules ONLY if it has a block on the
+ALL ITEM WISE RATE sheet; no block -> no rules. Every future category/discipline inherits this."*
+
+**What stands in its place** -- a 4-line retirement marker recording that the law existed, what it
+required, that the owner retired it with the sheet on 2026-08-19, and that **NOTHING replaces it: a
+category needs no external authority to get finalised rules.** No replacement gate is proposed and
+nothing is described as owed. **It is settled.**
+
+**What was NOT deleted.** The law's bullet also carried live facts that are not the law and that
+survive byte-unchanged: the **Corollary** about a guiding block carrying its rates directly (with
+miscellaneous's `misc_boq` factor 1.0 and `misc_bcs` = `boq*0.8`, install 0), the EA-1 UPS ->
+**popup_boxes** decode correction, the DATA-ONLY category rule and **lighting_mgmt_system**, the EA-2
+in-system authoring path, and the four `_KNOWN_CONFIG_KEYS` pass-through keys.
+
+⚠️ **One observation, not acted on:** the topic heading above the marker still reads
+*"The guiding-sheet authority rule, and retirement by declaration"*. That heading was introduced by
+the trim (it is not source content) and it now names a retired law; the marker directly beneath it
+explains the retirement, so nothing is misleading for more than a line. Renaming it was outside this
+slice's scope and is left for the owner.
+
+### Backwards compatibility
+
+**No runtime behaviour, API, schema or config change.** Two code files were touched in COMMENTS ONLY,
+and that is PROVEN mechanically rather than asserted:
+
+- **`test_rate_master.py` -- the Python AST is BYTE-IDENTICAL before and after** (797,639 chars each).
+  Comments do not appear in a Python AST, so an identical AST proves no statement, assertion, import
+  or expression moved.
+- **`RateMasterDerivation.tsx` -- with ALL `/* */` block comments stripped, the file is IDENTICAL**
+  before and after (24,163 chars each; the raw file grew 26,945 -> 26,998). The whole change therefore
+  lies inside a comment block.
+
+### Tests -- measured before and after, UNCHANGED
+
+| Suite | Command | BEFORE | AFTER |
+|---|---|---|---|
+| Python rate master | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.boq.test_rate_master` | **Ran 170 tests, OK** (498s) | **Ran 170 tests, OK** (528s) |
+| Frontend vitest | `npx vitest run` (in container, from `frontend/`) | **68 files: 1 failed / 67 passed; 2504 tests: 1 failed / 2503 passed** | **identical** |
+
+⚠️ **The single frontend failure is PRE-EXISTING and unrelated:**
+`src/pages/POAdjustment/writeOffControl.test.ts > the three admin predicates stay in step > mirrors
+the sibling admin predicates` (~9.1 s, reads like a timeout). It fails identically in the BEFORE run,
+measured before any edit in this slice. Nothing in this cleanup touches POAdjustment. **It is
+reported, not fixed** -- fixing it is a behaviour question outside this slice, and the standing
+instruction is not to auto-fix on failure.
+
+The final C2 change (deleting the law) landed AFTER these runs, but it edits a `.md` context document
+only -- no suite reads it, so the measured counts still hold.
