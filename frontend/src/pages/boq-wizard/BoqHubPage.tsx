@@ -40,7 +40,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import type { BOQsDoc, BoQSheetDraft, CommitBoqResponse, CommittableSheet, CommittedSheetState, ExportPricedWorkbookResponse, GetCommittableSheetsResponse, GetCommittedStateResponse, GetReviewRowsResponse, GetStaleSheetsResponse, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
+import type { BOQsDoc, BoQSheetDraft, CommitBoqResponse, CommittableSheet, CommittedSheetState, ExportPricedBcsWorkbookResponse, ExportPricedWorkbookResponse, GetCommittableSheetsResponse, GetCommittedStateResponse, GetReviewRowsResponse, GetStaleSheetsResponse, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
 import type { RevisionCarryReport } from "./revisionCarryReport";
 import { summarizeRevisionCarry } from "./revisionCarryReport";
 import { ParseRunDialog } from "./ParseRunDialog";
@@ -49,6 +49,15 @@ import { ExportWorkbookDialog } from "./ExportWorkbookDialog";
 import { CommitDialog } from "./CommitDialog";
 import { CommitResultsModal } from "./CommitResultsModal";
 import { PricedTenderDialog } from "./PricedTenderDialog";
+// BCS-EXP-4: the INTERNAL export. A SIBLING of PricedTenderDialog, never a flag on it -- one
+// file goes to the client and one carries what the job costs us, and a shared component with a
+// boolean would put those two outcomes one mis-set flag apart.
+import {
+  BCS_EXPORT_COPY,
+  PricedTenderBcsDialog,
+  canDownloadBcsExport,
+  summariseCostBlocks,
+} from "./PricedTenderBcsDialog";
 import { buildAndDownloadReviewCsv } from "./exportReviewCsv";
 
 // Keyword list for presentation-only "likely non-data" hint.
@@ -172,6 +181,12 @@ const BoqHubPage = () => {
   const [pricedDialogOpen, setPricedDialogOpen] = useState(false);
   const [pricedResult, setPricedResult] = useState<ExportPricedWorkbookResponse | null>(null);
   const [pricedResultsOpen, setPricedResultsOpen] = useState(false);
+  // BCS-EXP-4: the internal export's own dialog + acknowledge-only report. SEPARATE state from
+  // the client export's -- the two payloads are different shapes and one modal branching on
+  // which export ran is how the wrong report gets shown for the wrong file.
+  const [bcsDialogOpen, setBcsDialogOpen] = useState(false);
+  const [bcsResult, setBcsResult] = useState<ExportPricedBcsWorkbookResponse | null>(null);
+  const [bcsResultsOpen, setBcsResultsOpen] = useState(false);
 
   // A-T6 "Set as master template" (ADR-0013 A1): confirm dialog + inline error state.
   const [setMasterOpen, setSetMasterOpen] = useState(false);
@@ -557,6 +572,22 @@ const BoqHubPage = () => {
     setPricedResult(result);
     setPricedResultsOpen(true);
   };
+
+  // BCS-EXP-4. ⚠️ NO mutateCommittedState() HERE, unlike handleDownloaded above: this export
+  // never stamps `last_exported_at`, so there is no staleness chip to refresh -- and refetching
+  // anyway would quietly suggest there is.
+  const handleBcsDownloaded = (result: ExportPricedBcsWorkbookResponse) => {
+    setBcsResult(result);
+    setBcsResultsOpen(true);
+  };
+
+  // BCS-EXP-4: may this user see the internal export at all? HIDDEN, never disabled -- a
+  // disabled control tells someone a margin file exists. The server is the boundary.
+  const canSeeBcsExport = canDownloadBcsExport(role as string, user_id as string);
+
+  const bcsLines = bcsResult
+    ? summariseCostBlocks(bcsResult)
+    : { written: [] as string[], skipped: [] as string[] };
 
   // The skipped-formula columns as flat "Sheet: A, B" lines (empty when none skipped).
   const pricedSkippedLines = pricedResult
@@ -1310,6 +1341,22 @@ const BoqHubPage = () => {
                     No committed sheets to price yet
                   </DropdownMenuLabel>
                 )}
+                {/* BCS-EXP-4: the INTERNAL export. HIDDEN outside admin + estimation, never
+                    disabled -- a greyed-out "with BCS" item tells everyone a margin file
+                    exists. Same gate the server applies, mirrored for UX only. */}
+                {canSeeBcsExport && (
+                  <>
+                    <DropdownMenuItem
+                      disabled={committedMap.size === 0}
+                      onClick={() => setBcsDialogOpen(true)}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      {BCS_EXPORT_COPY.menuItem}
+                    </DropdownMenuItem>
+                    {/* No second "No committed sheets" label: it would repeat the identical
+                        sentence directly above it. The reason is already on screen. */}
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </TooltipProvider>
@@ -1360,6 +1407,66 @@ const BoqHubPage = () => {
         committedState={committedMap}
         onDownloaded={handleDownloaded}
       />
+
+      {/* ── Internal (with BCS) export dialog (BCS-EXP-4) ────────────────────── */}
+      {/* Rendered only for entitled users, so an unentitled session cannot reach it even by
+          holding a stale open flag. The server gate is the real boundary. */}
+      {canSeeBcsExport && (
+        <PricedTenderBcsDialog
+          open={bcsDialogOpen}
+          onOpenChange={setBcsDialogOpen}
+          boqName={boq.name}
+          committedState={committedMap}
+          onDownloaded={handleBcsDownloaded}
+        />
+      )}
+
+      {/* ── Internal export results note (BCS-EXP-4) ──────────────────────────── */}
+      {/* Acknowledge-only, mirroring the priced-tender note below. It reports where each cost
+          block landed AND every sheet that got none, with the reason -- on a cost file a
+          silently absent block reads as "this sheet costs nothing". */}
+      <AlertDialog
+        open={bcsResultsOpen}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setBcsResultsOpen(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{BCS_EXPORT_COPY.resultsTitle}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {bcsResult
+                ? `Downloaded ${bcsResult.filename} (${bcsResult.exported_sheets.length} sheet${bcsResult.exported_sheets.length !== 1 ? "s" : ""}).`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {bcsLines.written.length > 0 && (
+            <div className="rounded-md border px-3 py-2">
+              <p className="text-sm font-medium">Cost columns added:</p>
+              <ul className="mt-1.5 space-y-0.5 pl-4 text-sm text-muted-foreground">
+                {bcsLines.written.map((line) => (
+                  <li key={line}>&middot; {line}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {bcsLines.skipped.length > 0 && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-700 dark:bg-amber-950/40">
+              <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                No cost columns were added to these sheets:
+              </p>
+              <ul className="mt-1.5 space-y-0.5 pl-4 text-sm text-amber-700 dark:text-amber-400">
+                {bcsLines.skipped.map((line) => (
+                  <li key={line}>&middot; {line}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setBcsResultsOpen(false)}>OK</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── Priced-tender results note (Phase 5 Slice 5b) ───────────────────── */}
       {/* Acknowledge-only (single OK), mirrors the commit-results modal. Confirms the

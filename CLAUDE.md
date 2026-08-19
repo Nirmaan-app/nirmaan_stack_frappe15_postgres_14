@@ -472,6 +472,7 @@ Why `[:19]` truncation: `frappe.utils.now()` returns microsecond-precision strin
   - **THE SCOPE FENCE (owner-locked) — BCS readiness gates BCS CELLS ONLY.** It must **NEVER** be ANDed into `save_cell_price`'s rate gate. **State the failure mode, because that is what makes this load-bearing: get it wrong and a BCS section that is merely switched OFF silently freezes ordinary client-facing pricing in production** — every rate cell read-only, for a reason no one on the screen can see. The BCS write path is deliberately independent of the three client gates (mandatory-formula, priceability, category) for the same reason: someone must be able to cost a job while the amount formulas are still being declared and the rows are still being categorised. A qty-less Preamble IS costable. The asymmetry IS the decision — do not "restore consistency" with `save_cell_price`.
     ⚠️ **THE READINESS CONDITION ITSELF CHANGED AT BCS-S12 (owner 2026-08-07): `bcs_is_ready` is now simply `bcs_enabled`.** It used to also require the two column confirmations, and those moved into the BCS Total / % Margin formula dialogs together with the pickers that produced them. **The two changes must NEVER be separated**: `save_row_bcs_rates` refuses every cost write while readiness is false, so re-adding the confirmation requirement without re-adding the pickers makes readiness permanently FALSE — BCS switches on and stays silently read-only forever, with no message anywhere saying why. `confirm_bcs_columns` and both JSON fields still exist and are still read as the pre-S12 defaults' seed, so nothing is orphaned. Detail: `.claude/context/domain/boq-backend.md` § BCS-S12.
   - **THE EXPORT-LEAK BOUNDARY — BCS cost, every BCS-derived total, and the margin must NEVER reach the client workbook.** `export_priced_workbook` is handed to the CLIENT, so a BCS value appearing in it leaks what the job costs us. The export reads `BoQ Cell Pricing` and names its fields explicitly, while BCS lives in its own doctype with no `col_letter` at all. **Anything that folds BCS onto `BoQ Cell Pricing`, adds a BCS stamping pass, or widens the export's field list breaks it.** ⚠️ **A NEW STORED COST FIELD MUST BE SEEDED INTO THAT GUARD'S FIXTURE, or the guard passes on an empty axis** — an unseeded field has nothing to leak, which is the precise vacuity the guard exists to avoid, and it has happened once already on this layer.
+    ⚠️ **AMENDED 2026-08-19 — THERE IS NOW A SECOND, SANCTIONED EXPORT THAT DOES CARRY BCS, AND THE BOUNDARY IS UNCHANGED BECAUSE IT LIVES IN ITS OWN MODULE.** `api/boq/wizard/export_bcs_writeback.export_priced_workbook_with_bcs` is the INTERNAL priced workbook (admin + estimation only, reusing the Pricing Module's `PRICING_ACCESS_SET`); `export_writeback.py` has a **zero-line diff** and its grep guard — the module source may not contain `bcs` in any casing — still holds. **Do NOT merge the two, and never add an `include_bcs` flag to the client endpoint:** the flag would break the guard that makes this boundary structural rather than careful. Every STAMPING helper is shared by import (one definition each); only the orchestration loop is duplicated, deliberately. The separation is pinned from BOTH sides — one test greps the client module for BCS tokens **and** asserts the internal module names them, and another exports the SAME BoQ both ways, so the "no BCS in the client file" guard can never pass merely because there was nothing to find. The internal export writes NOTHING to the database (in particular it never stamps `last_exported_at`, which means "when the CLIENT last got this sheet"), and it carries NO `%` Margin column by owner ruling.
     ⚠️ **THIS BOUNDARY IS NO LONGER "BY CONSTRUCTION" (BCS-S9, owner-accepted).** It used to be: the formula layer had no way to NAME a cost, so nothing could carry one into a client column. S9 gave the shared formula vocabulary BCS operands (`bcs_supply`/`bcs_install`/`bcs_combined`/`bcs_qty`) so `BCS Total Amount` could become an editable formula, and **two DIRECTIONAL rules in `pricing._validate_formula_operands` now hold the line instead**: a `bcs_total` target may use ONLY those operands, and an AMOUNT target may use NONE of them. **The second is the leak-facing one** — an amount column's computed VALUE is what the export writes, so a cost operand in a client amount formula leaks the cost as a NUMBER, invisible to any field-list audit. A second, independent stop lives in `export_template_workbook.resolve_target_col` (internal-only targets return `None` before either resolution path). **Enforcement replaced construction, so both stops must survive every refactor — and neither may be relaxed "for symmetry".** Full reasoning: `.claude/context/domain/boq-backend.md` § BCS-S9.
 
 ---
@@ -1718,3 +1719,26 @@ invariants:
 | **Monthly WIP & Handover report** (Reports hub → Projects → "Monthly WIP"; 5-group/15-col compliance table: DPR-daily / Inventory-weekly / lifetime PO-dispatch + DC; active-days from Version history) | `.claude/plans/monthly-wip-plan.md` |
 | Frontend domain context (full) | `frontend/.claude/context/_index.md` |
 | Session changelog | `.claude/CHANGELOG.md` |
+
+---
+
+## Agent skills
+
+Per-repo configuration read by the installed engineering skills (`/triage`, `/to-tickets`, `/to-spec`,
+`/code-review`, `/wayfinder`, `/domain-modeling`, …). Edit the files under `docs/agents/` directly to change
+any of it.
+
+### Issue tracker
+
+Issues and specs live as **GitHub issues** on `Nirmaan-app/nirmaan_stack_frappe15_postgres_14`, managed with
+the `gh` CLI. PRs are NOT treated as a request surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles use their default label strings: `needs-triage`, `needs-info`,
+`ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+**Single-context** — root `CONTEXT.md` + root `docs/adr/` — plus this repo's own per-domain reference docs
+under `.claude/context/domain/` and `frontend/.claude/context/`. See `docs/agents/domain.md`.

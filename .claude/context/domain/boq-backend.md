@@ -1790,6 +1790,98 @@ anywhere saying why. Re-adding the condition requires re-adding the pickers in t
   built-in defaults' seed on pre-S12 sheets). Nothing is orphaned and no sheet's numbers moved.
   `services/boq_bcs/sources.py` + `parity_cases.json` therefore stay live — do not delete them as
   dead code; the endpoint is still their caller.
+  ⚠️ **AMENDED AT BCS-EXP-1: `confirm_bcs_columns` calls them, but NOTHING CALLS
+  `confirm_bcs_columns`.** Grep the frontend — the UI calls `set_bcs_enabled`, `get_bcs_state`,
+  `get_sheet_bcs_rates` and `save_row_bcs_rates`, and nothing else. So a sheet enabled after S12
+  carries no `bcs_qty_source` **and there is no way in the product to give it one**. Measured
+  2026-08-19: six of the seven BCS-enabled current sheets have none. Anything reading the
+  confirmation must therefore have a fallback — see below.
+
+### BCS-EXP-1 — the two DERIVATIONS moved onto the server (2026-08-19)
+
+`services/boq_bcs/sources.py` gained `derive_qty_columns(source, descriptors)` and
+`live_rate_kinds(descriptors)`, mirroring `bcsColumns.bcsQuantityColumns` / `bcsLiveRateKinds`.
+They answer the question that comes BEFORE a pick exists: given only the sheet's own shape,
+which columns does BCS use? Needed because the coming BCS export writes cost columns and an Excel
+`BCS Total Amount` formula, and **no server code has ever computed a BCS number**.
+
+- **`derive_qty_columns`** — a stored confirmation wins where one exists (pre-S12 sheets are
+  unchanged); else the scalar `qty_total` column; else the per-area quantity columns. ⚠️ **SCALAR
+  BEATS PER-AREA IS NOT A PREFERENCE** — concatenating both is the double count
+  `decide_qty_source` refuses as `mixed_shapes`. The fallback must not be able to express what
+  the confirmation forbids.
+- **`live_rate_kinds`** — the halves-beat-combined ruling, server-side. 22 of 553 sheets map all
+  three; BOQ-26-00161's Electrical sheet is one, so it fires on real data.
+- The module docstring's purity line was **widened honestly** — it claimed every function is
+  `(picks, descriptor index) -> dict`, and these two are not.
+- Both are pinned by `parity_cases.json` (`version` 2) → `derived_qty_cases` (7) /
+  `rate_kinds_cases` (11), read by `test_sources.TestTheTwoDerivations` AND
+  `bcsColumns.test.ts`'s `derivation parity` group. **Each case carries its OWN `descriptors`**,
+  unlike the pick cases: these rules describe a WHOLE SHEET's shape.
+
+⚠️ **THE DEFECT IT UNCOVERED, AND WHY THE GUARD IS SHAPED AS IT IS.** The browser's
+`PER_AREA_SUBKEY_TO_BCS_KIND` keyed `supply` / `install` / `total` — the per-area **AMOUNT**
+vocabulary. A per-area **RATE** spells its kind `supply_rate` / `install_rate` / `combined_rate`
+(`classifier._RATE_ROLE_TO_KIND`), and `review_screen._build_column_descriptors` writes whichever
+applies into the SAME generic `rate_subkey` slot. So a per-area-rate sheet got **no cost boxes at
+all**, silently. It was invisible because the browser's own fixtures carried the same wrong
+spelling — mirror and test green together. Fixed on both sides here; **0 of 681 current sheets map
+a per-area rate role**, so nothing shipped changed shape.
+`test_the_fixture_subkeys_come_from_the_producer` now asserts the fixtures and the maps against
+**`classifier`'s own maps**, not against the other mirror — agreement between two mirrors is
+exactly what did not catch this — and asserts the two vocabularies are disjoint, without which
+the guard would be toothless.
+
+### BCS-EXP-2 — `export_bcs_writeback.py`, the INTERNAL priced workbook (2026-08-19)
+
+`api/boq/wizard/export_bcs_writeback.export_priced_workbook_with_bcs` — the client export PLUS
+the cost block, appended as new columns exactly the way `Nirmaan Remarks` is appended.
+
+⚠️ **A SEPARATE MODULE, AND `export_writeback.py` HAS ZERO DIFF.** The standing guard greps that
+module's source for `bcs` case-insensitively, so a flag on the existing endpoint would break the
+thing that makes the client boundary structural; and the owner asked for the two to be separate.
+**Every stamping helper is IMPORTED** (one definition each); only the ~40-line orchestration loop
+is duplicated. A stamping RULE changes once and both exports inherit it — the pass ORDER must be
+changed in both.
+
+- **Columns:** `BCS Cost (Supply)` + `BCS Cost (Installation)` (or one `BCS Cost`), then
+  `BCS Total Amount`, then `Nirmaan Remarks`. The block is written BEFORE the remarks, which is
+  what puts remarks last — the remark scan steps right past anything non-empty.
+- ⚠️ **THE TOTAL IS AN EXCEL FORMULA, NOT A NUMBER.** No server code has ever computed a BCS
+  number; the arithmetic lives in `bcsColumns.ts` and depends on the screen's live drafts and
+  reconciliation choices. Emitting Excel means no second implementation of an owner-locked rule.
+  A DECLARED `bcs_total` formula is translated (4 of the 5 costed bench sheets carry one);
+  `_ref_to_excel` maps the cost operands to the columns just written, `bcs_qty` to the derived
+  quantity cells summed, and everything else through the SHARED `resolve_ref_col`.
+- ⚠️ **THE `COUNT` GUARD IS WHAT KEEPS A BLANK A BLANK.** Excel reads an empty cell as 0, so an
+  unguarded Total would render a confident `0` where the screen renders blank + *no quantity*.
+  Built-in rule ⇒ `=IF(COUNT(<qty>)=0,"",…)` (`bcsRowQuantity` blanks only when NOTHING
+  resolves); declared formula ⇒ `=IF(COUNT(<refs>)<n,"",…)` (`evaluateBcsTotalFormula` returns on
+  the FIRST unresolved ref). **Not interchangeable.** `COUNT` counts numerics, so a genuine 0
+  quantity still computes and still reads 0 — as it does on screen.
+- **A row with no `BoQ Row BCS Rate` record gets nothing at all.** Presence is the whole test,
+  and it mirrors the browser: a stored row always carries three numbers (the whole-row snapshot
+  coerces absent ones to 0.0), an absent record yields null on all three.
+- **Fidelity:** the client guard reused with one term adjusted — `before + exactly the formulas
+  written`. Miscounting ABORTS the export and produces no file (reject-mutates-nothing).
+- ⚠️ **IT WRITES NOTHING TO THE DATABASE — `last_exported_at` is NOT stamped** (owner ruling).
+  That field means "when the CLIENT last got this sheet" and drives the changed-since-export
+  chip; stamping it internally would make the chip claim the client holds something they never
+  got. No DB write means no commit — both pinned by a grep test.
+- **Access:** `_require_bcs_export_access` REUSES `api/pricing/workbook._require_pricing_access`
+  (admins + estimation, the DB-verified `PRICING_ACCESS_SET`) and re-voices only the refusal, so
+  who-may-see-a-margin has ONE definition while the message still names what was attempted.
+  Gated FIRST, before the BoQ is resolved.
+- **Refusals:** a template-origin BoQ by name (it has no source workbook — its priced export is
+  built from scratch by a different generator); a BCS-off / grid-only / rate-column-less /
+  cost-less sheet is exported PLAIN with its reason in `cost_skipped`.
+- **No `% Margin` column** (owner ruling): the denominator is "the figure on screen", which on
+  an unpriced-source workbook is the formula value rather than the document's 0 — not
+  reproducible in Excel. The dialog tells the user to add the column.
+- Tests: `test_export_bcs_writeback.py` (37). **The separation is pinned from BOTH sides** — one
+  test greps the client module for BCS tokens AND asserts this module names them, and another
+  exports the same BoQ both ways, so the standing "no BCS in the client file" guard can never
+  pass merely because there was nothing to find.
 
 ### F5 — the operator vocabulary widened to `+ − × ÷`
 

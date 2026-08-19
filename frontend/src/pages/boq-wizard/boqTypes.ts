@@ -1220,6 +1220,16 @@ export interface CommittedSheetState {
    */
   pricing_changed_since_export?: boolean;
   /**
+   * BCS-EXP-3 (ADDITIVE). The per-sheet cost-tracking switch (`BoQ Sheet.bcs_enabled`), off
+   * the SAME is_current=1 lookup `last_exported_at` and `is_locked` ride. Drives the
+   * "cost tracking on / off" badge in the internal-export picker, so someone choosing sheets
+   * can see which of them will actually carry a cost block BEFORE they download.
+   *
+   * ⚠️ IT IS A BADGE, NOT A GATE. A sheet with cost tracking off is still tickable and still
+   * exports -- just without the block (owner ruling). Do not use this to disable a row.
+   */
+  bcs_enabled?: boolean;
+  /**
    * Deliberate per-sheet read-only lock (the lock/unlock slice, ADDITIVE). true when this
    * committed sheet is locked. Rides the SAME is_current=1 BoQ Sheet lookup last_exported_at
    * uses. For a future hub lock indicator; the editor reads its own is_locked from get_priced_rows.
@@ -1438,6 +1448,35 @@ export interface CrossBoqCarryDecision {
  * Response shape of export_priced_workbook (Phase 5 Slice 5a endpoint; consumed by 5b).
  * content_base64 is the stamped .xlsx bytes; the frontend decodes -> Blob -> download.
  */
+/**
+ * Response shape of `export_bcs_writeback.export_priced_workbook_with_bcs` -- the INTERNAL
+ * priced workbook (the client export PLUS the cost block).
+ *
+ * ⚠️ IT IS NOT `ExportPricedWorkbookResponse` WITH EXTRAS, AND THE DIFFERENCE IS DELIBERATE.
+ * There is NO `last_exported_at`: that field means "when the CLIENT last got this sheet" and
+ * this export never stamps it, so carrying the key would invite a caller to read one. What it
+ * adds instead is the per-sheet cost report -- where the block landed, and for any sheet that
+ * did not get one, WHY. A silently absent cost block on a cost file is worse than a visible
+ * refusal, so `cost_skipped` is rendered, never dropped.
+ */
+export interface ExportPricedBcsWorkbookResponse {
+  filename: string;
+  content_type: string;
+  content_base64: string;
+  exported_sheets: string[];
+  /** {sheetName: [colLetter, ...]} -- rate columns left untouched because they hold formulas. */
+  skipped_formula_columns: Record<string, string[]>;
+  /** {sheetName: colLetter} -- where a "Nirmaan Remarks" column was appended. */
+  remark_columns: Record<string, string>;
+  /** {sheetName: {cost_columns: {kind: colLetter}, total_column: colLetter|null, rows: n}} */
+  cost_blocks: Record<
+    string,
+    { cost_columns: Record<string, string>; total_column: string | null; rows: number }
+  >;
+  /** {sheetName: reason} -- every sheet that got NO cost block, and why. */
+  cost_skipped: Record<string, string>;
+}
+
 export interface ExportPricedWorkbookResponse {
   filename: string;
   content_type: string;

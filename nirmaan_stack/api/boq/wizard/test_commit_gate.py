@@ -412,6 +412,95 @@ class TestGetCommittedStateDisposition(FrappeTestCase):
         self.assertEqual(by_sheet["Electrical"]["sheet_disposition"], "grid_and_nodes")
 
 
+class TestGetCommittedStateBcsFlag(FrappeTestCase):
+    """BCS-EXP-3: get_committed_state surfaces the per-sheet cost-tracking switch, so the
+    internal-export picker can badge each sheet BEFORE the download rather than after.
+
+    ⚠️ IT IS A BADGE, NOT A GATE (owner ruling). A sheet with cost tracking off is still
+    tickable and still exports -- just without the cost block -- so this must never be used
+    to disable a row. The flag rides the SAME is_current=1 `BoQ Sheet` lookup `sheet_order`,
+    `last_exported_at` and `is_locked` already ride: one more field, no extra query.
+
+    ⚠️ THE DEFAULT IS THE HALF WORTH PINNING. A committed grid row whose `BoQ Sheet` is
+    missing -- and every sheet that simply never switched BCS on -- must read False, never
+    None, because the picker renders a badge from it. `bool()` on the lookup and a `False`
+    default are what guarantee that."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        boq = frappe.new_doc("BOQs")
+        boq.project = _TEST_PROJECT_COMMITTED
+        boq.boq_name = "Shared Test BoQ for Committed State BCS Flag"
+        boq.insert(ignore_permissions=True, ignore_links=True)
+        cls.boq_name = boq.name
+
+        # Three sheets: one with cost tracking ON, one explicitly OFF, and one with NO
+        # committed BoQ Sheet row at all (the defensive default path).
+        for name, enabled, with_sheet in (
+            ("Costed", 1, True), ("Uncosted", 0, True), ("Orphan", None, False),
+        ):
+            grid = frappe.new_doc("BoQ Committed Sheet Grid")
+            grid.boq = cls.boq_name
+            grid.source_sheet_name = name
+            grid.sheet_disposition = "grid_and_nodes"
+            grid.commit_version = 1
+            grid.is_current = 1
+            grid.committed_at = "2026-08-19 10:00:00"
+            grid.insert(ignore_permissions=True, ignore_links=True)
+            if not with_sheet:
+                continue
+            sheet = frappe.new_doc("BoQ Sheet")
+            sheet.boq = cls.boq_name
+            sheet.sheet_name = name
+            sheet.sheet_order = 1
+            sheet.treat_as = "data"
+            sheet.commit_version = 1
+            sheet.is_current = 1
+            sheet.committed_at = "2026-08-19 10:00:00"
+            sheet.bcs_enabled = enabled
+            sheet.insert(ignore_permissions=True, ignore_links=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        name = getattr(cls, "boq_name", None)
+        if name:
+            frappe.db.delete("BoQ Sheet", {"boq": name})
+            frappe.db.delete("BoQ Committed Sheet Grid", {"boq": name})
+            frappe.db.delete("BOQs", {"name": name})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _by_sheet(self):
+        return {r["sheet_name"]: r
+                for r in get_committed_state(self.boq_name)["committed_state"]}
+
+    def test_the_flag_surfaces_per_sheet(self):
+        by_sheet = self._by_sheet()
+        self.assertIs(by_sheet["Costed"]["bcs_enabled"], True)
+        self.assertIs(by_sheet["Uncosted"]["bcs_enabled"], False)
+
+    def test_a_sheet_with_no_committed_config_row_reads_False_not_None(self):
+        """The picker renders a badge from this, and `None` is not a badge."""
+        self.assertIs(self._by_sheet()["Orphan"]["bcs_enabled"], False)
+
+    def test_it_is_always_a_real_bool(self):
+        """`bcs_enabled` is a Check, so the DB hands back 0/1. A truthy int would render as
+        a badge just fine and compare wrongly everywhere else."""
+        for row in self._by_sheet().values():
+            self.assertIsInstance(row["bcs_enabled"], bool)
+
+    def test_the_existing_keys_are_untouched(self):
+        """ADDITIVE means additive: every key this endpoint returned before is still there,
+        so no existing consumer can be broken by the new one."""
+        row = self._by_sheet()["Costed"]
+        for key in ("sheet_name", "committed_at", "commit_version", "sheet_order",
+                    "sheet_disposition", "last_exported_at",
+                    "pricing_changed_since_export", "is_locked"):
+            self.assertIn(key, row)
+
+
 class TestGetCommittedStateStaleness(FrappeTestCase):
     """Slice 5b: get_committed_state additionally returns last_exported_at + a computed
     pricing_changed_since_export boolean. Seeds, per scenario, a current grid row + a matching
