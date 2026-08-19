@@ -31500,3 +31500,130 @@ edit script and by `git diff --numstat` reporting `1 0`.
 Documentation only -- no runtime behaviour, API, schema or config change. **Because nothing was
 deleted, no session can lose access to any rule as a result of this slice**; the content is
 deliberately present twice until the deletion slice runs.
+
+---
+
+## frontend/CLAUDE.md trim -- STEP 2: delete the proven bands -- 2026-08-19
+
+**Documentation only. No code touched, no test suite run.** The deletion half. Step 1 (`ee6c04cc`)
+copied 837 lines into `pricing-rate-master-frontend.md` and proved every line landed; this slice
+removes those same lines and leaves a one-line pointer at each of the three sites.
+
+**`frontend/CLAUDE.md`: 1,802 -> 972 lines (181,156 -> 98,140 bytes). A 46% reduction.**
+
+### The gate ran FIRST, and it mattered here more than it did on the root file
+
+Step 1 found that **74 of 87 rules in these bands (85%) exist nowhere else in the repository** -- the
+opposite of the root trim, which was safe by construction because every orphan sat OUTSIDE its bands.
+**The copy was the only thing standing between this deletion and permanent loss.** So the proof was
+re-run BEFORE anything was touched: **exit 0, 12/12 segments, 837 accounted, 0 unaccounted.** Only
+then was a byte written.
+
+### What was deleted
+
+Spans were **re-derived by content**, and doing so was load-bearing: **step 1's own pointer line at
+237 shifted every band DOWN by exactly +1.** Trusting step 1's numbers would have deleted a
+neighbouring line and left a band line behind, on all three bands.
+
+| Band | Content | Step 1 span | **Re-derived span** | Lines | Left behind |
+|---|---|---|---|---|---|
+| B1 | rate-helper panel + attribute semantics | 877-1130 | **878-1131** | 254 | one bullet |
+| B2 | `### Pricing Module (HVAC / Electrical / ELV)` | 1170-1399 | **1171-1400** | 230 | heading + one line |
+| B3 | `### Rate Master (RM-2)` | 1401-1753 | **1402-1754** | 353 | heading + one line |
+| | | | **total** | **837** | **7 pointer lines** |
+
+Deletion was by **content match**, never by line number, behind three gates that all had to pass
+before any write: (1) the text at the re-derived span had to equal, **BYTE FOR BYTE**, the band text
+step 1 copied -- read from the immutable `fce408db` blob at step-1 spans; (2) every segment had to be
+present verbatim in the destination; (3) the band had to occur exactly once in the file.
+
+**Left untouched, as promised in step 1:** the 106 AMBIGUOUS rate-helper chassis lines
+(U1 / RM-3 / RM-3a / RM-3b / RM-3c, incl. the `RATE_HELPER_ENABLED` kill-switch), the 112-line BCS
+cost block, the 600 kept lines of the Pricing-editor section, `## Important Notes`, and everything
+above line 277. All verified still present by probe after the deletion.
+
+### The four proofs
+
+- **B4a** -- all three bands **ABSENT** from `frontend/CLAUDE.md`; all **12/12 segments (837 lines)
+  still present verbatim** in the destination. **The source half changed; the destination half did
+  not.**
+- **B4b** -- `1802 - 837 + 7 = 972`, actual **972**. **Reconciles exactly.**
+- **B4c** -- `git diff --numstat` reports `3 833`. Reconciled below.
+- **B4d** -- strongest form: the expected AFTER file rebuilt from the BEFORE blob using ONLY the three
+  band-to-pointer substitutions, compared **byte for byte**. **IDENTICAL** -- no line outside the
+  bands changed.
+
+**⚠️ THE BLOB-ANCHORED SCRIPT PAID OFF, WHICH IS THE POINT OF BUILDING IT THAT WAY.** The root trim's
+step-1 script was source-line-anchored: after its deletion it sliced lines out of a shrunken file,
+reported 126 bogus misses and died on an encoding error, and a replacement had to be written
+mid-slice. **This one was re-run UNCHANGED and answered correctly** -- and its `SOURCE STATE` line
+flipped by itself from `bands still present ... : 3 of 3 => COPIED, NOT YET DELETED` to
+`0 of 3 => DELETED (step 2 state)`.
+
+### B4c reconciliation -- why 833, not 837
+
+B2 instructs that the two `###` headings be KEPT, but those headings are band lines. Four band lines
+therefore survive as unchanged context: the two headings and the blank line beneath each, which is
+identical in the pointer block. It reconciles exactly in both directions:
+
+- deletions **833** + **4** retained = **837 band lines**
+- additions **3** + **4** retained = **7 pointer-block lines**
+
+The same shape the root trim hit. No figure was adjusted; the attribution is asserted by the proof
+script, not by hand.
+
+### B3 -- cross-references (REPORTED ONLY, deliberately NOT fixed)
+
+Fixing these is content editing outside the bands. They join the root trim's three broken references
+in a later cleanup slice.
+
+**BROKEN -- the referent moved to `pricing-rate-master-frontend.md`:**
+
+| # | Location | Reference | Verified |
+|---|---|---|---|
+| 1 | `frontend/src/pages/pricing/rate-master/RateMasterDerivation.tsx:198` | "THIS EXPLICITLY SUPERSEDES the `frontend/CLAUDE.md` **THE TWO SCREENS STAY APART** invariant" | probe: 0 hits in `frontend/CLAUDE.md`, 1 in the destination |
+| 2 | `frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.test.ts:2026` | "`frontend/CLAUDE.md` used to require the Derivation screen to read `derivedQtyAttrs` ONLY" | probe: `derivedQtyAttrs` 0 hits in `frontend/CLAUDE.md`, 5 in the destination |
+| 3 | `.claude/context/domain/boq-rate-master.md:1194` | the RM-3 preamble: "Full as-built: ... + `frontend/CLAUDE.md`. Load-bearing invariants:" | the RM-3 rate-helper invariants were band B1 |
+| 4 | `frontend/.claude/context/domain/boq-frontend.md:2245` | the BCS name-collision note pointing at `frontend/CLAUDE.md` for the rate-master derivation-pipeline sense of "BCS" | that sense now lives in the destination |
+
+**PARTIAL -- the heading survives, the content moved:**
+
+| # | Location | Reference | Status |
+|---|---|---|---|
+| 5 | `frontend/CLAUDE.md:691` (its own BCS block) | "**NAME COLLISION**: `BCS` in the Rate Master section **below** is a derivation pipeline" | The section still exists, now as a pointer. The note is **self-contained** -- it carries the description itself -- so no reader is stranded, but "below" now means "in the linked doc". Exactly the root trim's item #5. |
+| 6 | `.claude/context/domain/boq-backend.md:1514` | "`BCS` in the **BoQ Rate Master** material (root `CLAUDE.md`, `frontend/CLAUDE.md`)" | Already flagged by the root trim; **now BOTH named files are pointers.** |
+| 7 | `frontend/.claude/plans/boq-upload-plan.md` (many slice records) | "Docs: this entry + `frontend/CLAUDE.md` (rate-helper section)" etc. | Historical slice records; arguably correct as written history. |
+
+**STILL RESOLVE -- referent stayed in `frontend/CLAUDE.md`** (spot-checked by probe, not assumed):
+the vitest `environment: "node"` / no-DOM convention (3 test files), the memo-shield
+identity-stable-props rule (`PricingGrid.tsx:3763`, `SheetPricingPage.tsx:123`), "gating = PRESENCE of
+the save callback" (`MarginRangeFilter.tsx:17`), the row-memo anti-defeat rule
+(`boq-revised-upload-plan.md:1127`), `bcsLiveRateKinds` and the whole BCS block, the `swrKey` gotcha
+(`useReportTemplate.ts:39`), the `dd-MMM-yyyy` app-wide rule (`ImportStatementDialog.tsx:352`), and
+the SWR-loops note (`ExportWorkbookDialog.tsx:15`). All sit outside the three bands.
+
+**No script parses `frontend/CLAUDE.md` by section or line number.** `.claude/hooks/guard_claude_md.py`
+inspects only the ADDED text of an edit and is indifferent to file structure. The `Rate Master (RM-2)`
+hits in `routesConfig.tsx`, `NewSidebar.tsx` and four `rate-master/*` source files are code comments
+naming the FEATURE, not references to the doc section.
+
+### Backwards compatibility
+
+Documentation only -- no runtime behaviour, API, schema or config change.
+
+**What a future frontend session LOSES, and the exposure named plainly.** `frontend/CLAUDE.md` no
+longer auto-loads any rate-helper attribute rule, any Pricing Module rule, or any Rate Master screen
+rule. A session must now open **`frontend/.claude/context/domain/pricing-rate-master-frontend.md`**
+before touching the rate-helper panel, the workbook pages, or the RM-2 / RM-4a / RM-4b screens.
+
+**⚠️ THE EXPOSURE IS SHARPER HERE THAN ON THE ROOT FILE, AND IT IS NOT HYPOTHETICAL.** 85% of what was
+removed exists nowhere else, so an agent that ignores the pointer can now change rate-helper or Rate
+Master code **without any chance of encountering the invariant governing it** -- there is no second
+copy to stumble across. Concretely at risk: `derivedAttrIds` owing a branch in `applyDerivedDisplay`
+(a defect that has already shipped **twice**), the conditional `map_attribute` gate exemption, and
+`coerceForMatch` needing every new attribute type taught to it at every coercion site. Three defences:
+a pointer at each of the three sites the rules occupied, a row in
+`frontend/.claude/context/_index.md`, and the pointer line step 1 added near the top of the file.
+
+**Nothing was lost from the repository** -- all 837 lines are in the destination, proven byte for byte
+before and after the deletion, and its blob is bit-identical across both commits.
