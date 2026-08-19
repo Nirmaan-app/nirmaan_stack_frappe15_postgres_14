@@ -117,6 +117,9 @@ export interface ProcurementOrder {
 	// }
 	po_amount_delivered?: number
 
+	/**	Amount Invoiced (Approved) : Currency — derived, sum of this PO's Approved Vendor Invoices	*/
+	amount_invoiced?: number
+
 	amount_paid?: number
 
 	items: PurchaseOrderItem[]

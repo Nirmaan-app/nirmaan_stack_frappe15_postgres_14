@@ -35,6 +35,7 @@
   "notes",
   "note_points",
   "po_amount_delivered",
+  "amount_invoiced",
   "amount_paid",
   "tracking_details_section",
   "status",
@@ -289,13 +290,22 @@
    "fieldname": "payment_type",
    "fieldtype": "Data",
    "label": "Payment Type"
+  },
+  {
+   "default": "0",
+   "description": "Total of this order's Vendor Invoices with status Approved. Maintained automatically from the invoice events - do not edit. Credit notes are stored with a negative amount and net out here. This is NOT the Pending+Approved figure used by the invoice-approval screens.",
+   "fieldname": "amount_invoiced",
+   "fieldtype": "Currency",
+   "label": "Amount Invoiced (Approved)",
+   "no_copy": 1,
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-31 18:30:00.342919",
- "modified_by": "nitesh@nirmaan.app",
+ "modified": "2026-08-19 13:33:00.038336",
+ "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",
  "owner": "Administrator",

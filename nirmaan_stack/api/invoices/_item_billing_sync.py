@@ -1,7 +1,18 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Keep the stored `Purchase Order Item.invoice_qty` in sync — SELF-CLASSIFYING.
+"""Keep the fields DERIVED FROM VENDOR INVOICES in sync.
+
+Two of them live here, with deliberately DIFFERENT rules:
+  `Purchase Order Item.invoice_qty`  -- per-PO-ROW invoiced QUANTITY, counted over
+                                        Pending+Approved, credit notes EXCLUDED.
+  `Procurement Orders` /
+  `Service Requests`.amount_invoiced -- per-DOCUMENT invoiced AMOUNT, summed over
+                                        APPROVED only, credit notes INCLUDED (they are
+                                        stored negative and net out).
+Do not "harmonise" the two — they answer different questions.
+
+--- invoice_qty: SELF-CLASSIFYING ---
 
 `invoice_qty` is a DERIVED per-PO-row field, RECOMPUTED FROM SOURCE on every call
 (never incremented by deltas, so it cannot drift). Per PO, `counted` = Pending+
@@ -29,6 +40,7 @@ event (create / approve / reject / delete / edit), BEFORE the commit.
 """
 
 import frappe
+from frappe.utils import flt
 
 # Invoice statuses that represent real billing exposure (mirror get_po_item_billing).
 _COUNTED_STATUSES = ("Pending", "Approved")
@@ -141,4 +153,52 @@ def _project_is_completed(po_name: str) -> bool:
     project = frappe.db.get_value("Procurement Orders", po_name, "project")
     return bool(project) and (
         frappe.db.get_value("Projects", project, "status") == "Completed"
+    )
+
+
+# ---------------------------------------------------------------------------
+# `Procurement Orders` / `Service Requests` .amount_invoiced
+# ---------------------------------------------------------------------------
+
+# The only doctypes a Vendor Invoice can be parented to that carry the field.
+_TOTAL_PARENT_DOCTYPES = ("Procurement Orders", "Service Requests")
+
+
+def recompute_document_amount_invoiced(document_type: str, document_name: str) -> None:
+    """Re-derive `amount_invoiced` on ONE Procurement Order / Service Request.
+
+    Value = SUM of that document's Vendor Invoices with status 'Approved'.
+
+    Credit notes are NOT filtered out: they are stored with a NEGATIVE
+    `invoice_amount`, so a plain sum nets them off — which is exactly what every
+    screen showing this figure already does. (Contrast `recompute_po_invoice_qty`
+    above, which counts Pending+Approved and skips credit notes entirely.)
+
+    RECOMPUTED FROM SOURCE on every call, never incremented by a delta, so it
+    cannot drift. Written with `update_modified=False` so the parent's own
+    `on_update` chain (cashflow hold, action items, versioning) does NOT fire —
+    this is a derived cache write, not an edit to the order.
+
+    Does NOT commit: it runs inside the transaction of the invoice event that
+    triggered it. No-op for a blank name or a doctype without the field.
+    """
+    if document_type not in _TOTAL_PARENT_DOCTYPES or not document_name:
+        return
+
+    total = frappe.db.sql(
+        """
+        SELECT COALESCE(SUM(COALESCE(vi.invoice_amount, 0)), 0)
+        FROM "tabVendor Invoices" vi
+        WHERE vi.document_type = %(dt)s
+          AND vi.document_name = %(dn)s
+          AND vi.status = 'Approved'
+        """,
+        {"dt": document_type, "dn": document_name},
+    )[0][0]
+
+    # A parent that no longer exists (an order deleted along with its invoices)
+    # matches zero rows here — a silent no-op, not an error.
+    frappe.db.set_value(
+        document_type, document_name, "amount_invoiced", flt(total),
+        update_modified=False,
     )

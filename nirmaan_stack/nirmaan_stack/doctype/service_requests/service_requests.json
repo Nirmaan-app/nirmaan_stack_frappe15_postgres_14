@@ -22,6 +22,7 @@
   "latest_payment_date",
   "service_request_totals_section",
   "total_amount",
+  "amount_invoiced",
   "amount_paid",
   "finalization_section",
   "is_finalized",
@@ -145,12 +146,21 @@
    "fieldtype": "Datetime",
    "label": "Finalized On",
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Total of this order's Vendor Invoices with status Approved. Maintained automatically from the invoice events - do not edit. Credit notes are stored with a negative amount and net out here. This is NOT the Pending+Approved figure used by the invoice-approval screens.",
+   "fieldname": "amount_invoiced",
+   "fieldtype": "Currency",
+   "label": "Amount Invoiced (Approved)",
+   "no_copy": 1,
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-13 21:00:14.754525",
+ "modified": "2026-08-19 13:33:01.177507",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Service Requests",
@@ -253,21 +263,21 @@
    "write": 1
   },
   {
-   "role": "Nirmaan HR Executive",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan HR Executive",
    "share": 1
   },
   {
-   "role": "Nirmaan PMO Executive",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan PMO Executive",
    "share": 1
   },
   {
@@ -367,12 +377,12 @@
    "write": 1
   },
   {
-   "role": "Nirmaan HR Lead",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan HR Lead",
    "share": 1
   }
  ],

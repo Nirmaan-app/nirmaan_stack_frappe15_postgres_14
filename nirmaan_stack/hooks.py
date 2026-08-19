@@ -245,6 +245,16 @@ doc_events = {
     "Project Estimates" : {
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
     },
+    # `invoice_amount` on the parent PO / SR is maintained HERE, on the doctype,
+    # not by hand-placed calls in the invoice endpoints — three of the nine ways an
+    # invoice changes run no application code (the backfill patch, the legacy
+    # migration, a desk edit). `after_delete`, never `on_trash`: on_trash fires
+    # before the row is gone, so the sum would still count the deleted invoice.
+    "Vendor Invoices": {
+        "after_insert": "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
+        "on_update": "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
+        "after_delete": "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
+    },
     "Project Payments": {
         "validate": "nirmaan_stack.integrations.controllers.project_payments.validate",
         "after_insert": "nirmaan_stack.integrations.controllers.project_payments.after_insert",

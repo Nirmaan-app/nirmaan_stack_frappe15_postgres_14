@@ -145,3 +145,4 @@ nirmaan_stack.patches.v3_0.add_tds_membership_indexes
 nirmaan_stack.patches.v3_0.backfill_tds_member_mirror
 nirmaan_stack.patches.v3_0.backfill_boq_source_file_links
 nirmaan_stack.patches.v3_0.backfill_progress_report_attachment_links
+nirmaan_stack.patches.v3_0.backfill_document_amount_invoiced
