@@ -165,6 +165,18 @@ export interface ServerDataTableConfig<TData> {
     /** Optional Frappe orderBy string (e.g., "creation desc") */
     defaultSort?: string;
 
+    /**
+     * Column ids that are DERIVED client-side (not real backend fields) and must
+     * therefore be sorted in the browser. While one of these is the active sort,
+     * the server query keeps using `defaultSort` and TanStack sorts the fetched
+     * page itself. Only the CURRENT PAGE is ordered - pair with a large
+     * `defaultPageSize` where the whole set should fit on one page.
+     */
+    clientSortColumnIds?: string[];
+
+    /** Fallback rows-per-page when nothing is stored in the URL. Defaults to 50. */
+    defaultPageSize?: number;
+
     /** Configuration for summary card aggregations. Can be a mix of simple and custom aggregation types. */
     aggregatesConfig?: (SimpleAggregationConfig | CustomAggregationConfig)[];
     groupByConfig?: GroupByConfig; // NEW
@@ -294,6 +306,8 @@ export function useServerDataTable<TData extends { name: string }>({
     enableRowSelection: configEnableRowSelection = false,
     onRowSelectionChange,
     defaultSort = 'creation desc',
+    clientSortColumnIds,
+    defaultPageSize = 50,
     urlSyncKey,
     // --- NEW ---
     // enableItemSearch = false, // Default to false
@@ -371,13 +385,32 @@ export function useServerDataTable<TData extends { name: string }>({
     // --- State Management ---
     const [pagination, setPagination] = useState<PaginationState>(() => ({
         pageIndex: urlSyncKey ? getUrlIntParam(`${urlSyncKey}_pageIdx`, 0) : (initialState.pagination?.pageIndex ?? 0),
-        pageSize: urlSyncKey ? getUrlIntParam(`${urlSyncKey}_pageSize`, 50) : (initialState.pagination?.pageSize ?? 50),
+        pageSize: urlSyncKey ? getUrlIntParam(`${urlSyncKey}_pageSize`, defaultPageSize) : (initialState.pagination?.pageSize ?? defaultPageSize),
     }));
 
     const [sorting, setSorting] = useState<SortingState>(() =>
         urlSyncKey
             ? getUrlJsonParam<SortingState>(`${urlSyncKey}_sort`, initialState.sorting ?? [])
             : (initialState.sorting ?? [])
+    );
+
+    // --- Client-sorted derived columns ---------------------------------------
+    // A column listed in `clientSortColumnIds` is computed in the browser, so its id
+    // is NOT a backend field and must never reach `order_by`. While such a column is
+    // the active sort we keep the server on `defaultSort` and let TanStack order the
+    // fetched page (see `manualSorting` below).
+    const isClientSortActive = useMemo(
+        () => !!clientSortColumnIds?.length && sorting.length > 0 && clientSortColumnIds.includes(sorting[0].id),
+        [clientSortColumnIds, sorting]
+    );
+
+    // The order_by the SERVER is asked for. Also used as a fetch dependency, so
+    // toggling a client-sorted column re-orders the page without a network round trip.
+    const serverOrderBy = useMemo(
+        () => (sorting.length > 0 && !isClientSortActive
+            ? `${sorting[0].id} ${sorting[0].desc ? 'desc' : 'asc'}`
+            : defaultSort),
+        [sorting, isClientSortActive, defaultSort]
     );
 
     // --- NEW: Search State ---
@@ -586,9 +619,7 @@ export function useServerDataTable<TData extends { name: string }>({
         resetApiState(); // Reset error/completion state of useFrappePostCall
 
         // --- Parameter preparation for YOUR backend API ---
-        const orderByForApi = sorting.length > 0
-            ? `${sorting[0].id} ${sorting[0].desc ? 'desc' : 'asc'}`
-            : defaultSort; // Send simple field name, backend can prefix if needed for reportview
+        const orderByForApi = serverOrderBy; // Send simple field name, backend can prefix if needed for reportview
 
         // --- FIX TypeScript Errors ---
         // Call convertTanstackFiltersToFrappe with only one argument
@@ -697,7 +728,7 @@ export function useServerDataTable<TData extends { name: string }>({
     }, [
         isClientSideMode,
         triggerFetch, resetApiState, doctype, JSON.stringify(fetchFields),
-        pagination.pageIndex, pagination.pageSize, JSON.stringify(sorting),
+        pagination.pageIndex, pagination.pageSize, serverOrderBy,
         JSON.stringify(columnFilters), debouncedSearchTermForApi,
         // isGlobalSearchEnabled,
         // defaultSearchField, 
@@ -796,7 +827,7 @@ export function useServerDataTable<TData extends { name: string }>({
         columns: userDefinedDisplayColumns,
         // Manual server-side operations
         manualPagination: !isClientSideMode,
-        manualSorting: !isClientSideMode,
+        manualSorting: !isClientSideMode && !isClientSortActive,
         manualFiltering: !isClientSideMode, // We handle filtering via API call
         // Page count calculation
         pageCount: isClientSideMode
@@ -873,9 +904,7 @@ export function useServerDataTable<TData extends { name: string }>({
         // Server-side mode: make a separate API call with no pagination
         setIsExporting(true);
         try {
-            const orderByForApi = sorting.length > 0
-                ? `${sorting[0].id} ${sorting[0].desc ? 'desc' : 'asc'}`
-                : defaultSort;
+            const orderByForApi = serverOrderBy;
 
             const tanstackGeneratedFilters = convertTanstackFiltersToFrappe(columnFilters);
             let combinedBaseFilters = [...additionalFilters];
@@ -915,7 +944,7 @@ export function useServerDataTable<TData extends { name: string }>({
             setIsExporting(false);
         }
     }, [
-        isClientSideMode, table, sorting, defaultSort, columnFilters,
+        isClientSideMode, table, sorting, serverOrderBy, columnFilters,
         additionalFilters, debouncedSearchTermForApi, searchableFields,
         selectedSearchField, doctype, fetchFields, requirePendingItems,
         customParams, triggerExportFetch

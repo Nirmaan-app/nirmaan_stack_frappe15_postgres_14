@@ -58,6 +58,13 @@ const PO_AGGREGATES_CONFIG: SimpleAggregationConfig[] = [
   { field: "po_amount_delivered", function: "sum" },
 ];
 
+// Total Invoiced and Amount Due are computed in the browser (from the separate
+// Vendor Invoices fetch), so they have no backend field to order by. The table sorts
+// them over the CURRENT PAGE - which is why the page size below is large enough that
+// a vendor's whole order list normally fits on one page.
+const CLIENT_SORT_COLUMN_IDS = ["total_invoiced", "amount_due"];
+const VENDOR_PO_PAGE_SIZE = 500;
+
 const PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
   { value: "name", label: "PO ID", default: true },
   { value: "project_name", label: "Project" },
@@ -328,6 +335,10 @@ export const VendorMaterialOrdersTable: React.FC<
       },
       {
         id: "total_invoiced",
+        // Derived in the browser from `invoiceTotalsMap`, so it is sorted client-side
+        // via `CLIENT_SORT_COLUMN_IDS` below - never sent to the backend as order_by.
+        accessorFn: (row) => invoiceTotalsMap.get(row.name) ?? 0,
+        sortingFn: "basic",
         header: ({ column }) => (
           <DataTableColumnHeader
             column={column}
@@ -347,7 +358,7 @@ export const VendorMaterialOrdersTable: React.FC<
           );
         },
         size: 150,
-        enableSorting: false,
+        enableSorting: true,
         meta: {
           exportHeaderName: "Total Invoiced",
           exportValue: (row: ProcurementOrder) => {
@@ -404,7 +415,17 @@ export const VendorMaterialOrdersTable: React.FC<
       },
       {
         id: "amount_due",
-        header: "Amount Due",
+        // invoiced - paid, so likewise derived and client-sorted.
+        accessorFn: (row) =>
+          (invoiceTotalsMap.get(row.name) ?? 0) - (parseNumber(row.amount_paid) || 0),
+        sortingFn: "basic",
+        header: ({ column }) => (
+          <DataTableColumnHeader
+            column={column}
+            title="Amount Due"
+            className="justify-end"
+          />
+        ),
         cell: ({ row }) => {
           const invoiced = invoiceTotalsMap.get(row.original.name) ?? 0;
           const paid = parseNumber(row.original.amount_paid) || 0;
@@ -415,7 +436,7 @@ export const VendorMaterialOrdersTable: React.FC<
             </div>
           );
         },
-        enableSorting: false,
+        enableSorting: true,
         size: 150,
         meta: {
           exportHeaderName: "Amount Due",
@@ -501,6 +522,8 @@ export const VendorMaterialOrdersTable: React.FC<
     urlSyncKey: `vendor_po_list_${vendorId}`,
     additionalFilters: staticFilters,
     aggregatesConfig: PO_AGGREGATES_CONFIG,
+    clientSortColumnIds: CLIENT_SORT_COLUMN_IDS,
+    defaultPageSize: VENDOR_PO_PAGE_SIZE,
   });
 
   if (tableError) return <AlertDestructive error={tableError} />;
