@@ -31207,3 +31207,118 @@ staleness question, not a goldens-as-oracle one.
 
 No runtime behaviour, API, schema or config change -- documentation only. **Because nothing was
 deleted, no session can lose access to any rule as a result of this slice.**
+
+---
+
+## CLAUDE.md trim -- STEP 2: delete the proven bands -- 2026-08-19
+
+**Documentation only. No code touched, no test suite run.** The deletion half. Step 1 (`19a98728`)
+copied 1,375 lines into `.claude/context/domain/boq-rate-master.md` and proved every line landed;
+this slice removes those same lines from root `CLAUDE.md` and leaves a one-line pointer in each place.
+
+**Root `CLAUDE.md`: 1,782 -> 414 lines (210,151 -> 76,601 bytes). A 77% reduction.**
+
+### What was deleted
+
+Spans were **re-derived by content**, not taken from step 1, because step 1's own B4 row shifted the
+file. They came out **UNSHIFTED** -- that row landed at line 1768, after band C ends at 1756.
+
+| Band | Content | Span | Lines | Left behind |
+|---|---|---|---|---|
+| A | rate-master bullets inside `## Domain Gotchas` | 147-325 | 179 | one bullet |
+| B | `## BoQ Rate Master (RM-1)` | 560-1470 | 911 | heading + one line |
+| C | `## BoQ Rate Suggestion (RM-3)` | 1472-1756 | 285 | heading + one line |
+| | | **total** | **1,375** | **7 pointer lines** |
+
+Deletion was by **content match**, never by line number: each band had to occur EXACTLY ONCE in the
+file, and every one of its segments had to be present verbatim in the destination, before any removal
+was made. The other `## Domain Gotchas` bullets were untouched.
+
+### The four proofs
+
+- **B4a** -- all three bands are now **ABSENT** from `CLAUDE.md` and **all 33 segments (1,375 lines)
+  are still present verbatim** in the destination. **The source half changed; the destination half did
+  not.**
+- **B4b** -- `1782 - 1375 + 7 = 414`, actual 414. **Reconciles exactly.**
+- **B4c** -- `git diff --numstat` reports `3 1371`. See the reconciliation note below.
+- **B4d** -- strongest form: the expected AFTER file was rebuilt from the BEFORE blob using ONLY the
+  three band-to-pointer substitutions and compared **byte for byte** to the real file. **IDENTICAL** --
+  no line outside the three bands changed.
+
+Proof script: `/tmp/trim1/verify_step2.py`, run with `NS_ROOT` and `BEFORE_FILE` (the latter being
+`git show 19a98728:CLAUDE.md`). It is anchored on the BEFORE blob, so editing the working file cannot
+invalidate it.
+
+### Two honest notes on the instruments
+
+**1. Step 1's verification script cannot serve as the post-deletion proof, and its failure is not a
+defect.** It is **line-number anchored on the source**: after deletion it slices lines 147-325 of a
+414-line file and compares unrelated content, then dies on a console-encoding error. It is the right
+instrument for the pre-deletion check (it passed, exit 0, 33/33, 1,375 accounted) and the wrong one
+afterwards. `verify_step2.py` replaces it for that purpose.
+
+**2. B4c cannot literally equal 1,375, and the reason is a spec tension worth recording.** B2 says to
+KEEP the two `##` headings, but those headings are lines 560 and 1472 -- **inside the bands**. So four
+band lines survive as pointer anchors and git counts them as unchanged context: the two headings plus
+the two blank lines beneath them, which are identical in the pointer blocks. The arithmetic reconciles
+exactly in both directions:
+
+- deletions `1371` + `4` retained as context = **1,375 band lines**
+- additions `3` + `4` retained as context = **7 pointer-block lines**
+
+The numbers were not adjusted to balance; the 4-line attribution is stated because it is the whole
+difference between the spec's expected `1375` and git's reported `1371`.
+
+### B3 -- cross-references (REPORTED ONLY, deliberately NOT fixed)
+
+Fixing these is content editing outside the bands, so it belongs to the next step.
+
+**BROKEN -- the referent moved to `boq-rate-master.md`:**
+
+| # | Location | Reference | Why it no longer resolves |
+|---|---|---|---|
+| 1 | `.claude/context/domain/boq-backend.md:1849` | RMF-1: "Load-bearing invariants are in root `CLAUDE.md`; this is the as-built." | All five RMF-1 freeze invariants were band B (1162-1207). |
+| 2 | `.claude/context/domain/boq-backend.md:1903` | "see the R3 invariant in root `CLAUDE.md`" | R3 (the freeze guards the write subset only) was band B. |
+| 3 | `nirmaan_stack/api/boq/test_rate_master.py:3072` | "there is NO blanker family (root CLAUDE.md invariant)" | The `1M Blanker` / `family: "Switch"` rule was band A (160-162). Verified: 0 hits in root now, present in the new doc. |
+
+**PARTIAL -- the heading survives, the content moved:**
+
+| # | Location | Reference | Status |
+|---|---|---|---|
+| 4 | `frontend/.claude/plans/boq-upload-plan.md:14134` | RM-4b slice record: "root CLAUDE.md (new `BoQ Rate Master (RM-1)` section)" | The section still exists, now as a pointer. Historical slice record; arguably correct as history. |
+| 5 | root `CLAUDE.md:291` (the BCS name-collision note) | "BCS in the **BoQ Rate Master** sections further down means something else entirely" | Those sections are now pointers. The note is **self-contained** (it carries the derivation-pipeline description itself), so a reader is not stranded, but "further down" now means "in the linked doc". |
+
+**STILL RESOLVE -- referent stayed in root `CLAUDE.md` (spot-checked, not merely assumed):**
+the BoQ File Reading / S3 safety rule (`api/boq/wizard/revision.py:366`,
+`docs/boq/HANDOFF-*.md`), the commit-before-publish rule (5 API call sites), the doctype-controller
+convention (5 controllers), the Single-doctype STANDING RULE (`test_rate_master.py:4907`), the
+`get_all` JSON-field restriction (`api/tds/members.py:28`), the Priceability gate and the review /
+pricing freeze notes referenced from `frontend/.claude/context/domain/boq-frontend.md` (lines 1151,
+1200, 1497, 1511), and the Reference Docs table (`docs/outflow-import/HANDOFF.md:209`). All of these
+sit outside the three bands.
+
+**No script parses `CLAUDE.md` by section or line number.** `.claude/hooks/guard_claude_md.py`
+inspects only the *added* text of an edit and is indifferent to file structure, so the trim does not
+affect it. `.claude/settings.local.json` carries two permission entries that grep
+`frontend/CLAUDE.md`; those are tool-permission strings, not documentation cross-references, and that
+file is out of scope.
+
+**Pre-existing and unrelated:** `nirmaan_stack/api/outflow_import/upload.py:25` already records that
+the root `CLAUDE.md` "BoQ File Reading (S3 safety)" section is STALE about the BoQ worker. That
+section was never in a band and is untouched here.
+
+### Backwards compatibility
+
+Documentation only -- no runtime behaviour, API, schema or config change.
+
+**What a future session LOSES, stated plainly.** This is the first slice in the trim that removes
+anything. Root `CLAUDE.md` no longer auto-loads any rate-master or rate-suggestion rule. A session
+that previously had all 1,375 lines in context for free must now **open
+`.claude/context/domain/boq-rate-master.md`** before touching: the priced-item catalog or category
+configs, the derivation-pipeline interpreter, asset export/import, retirement, the CSV round trip, the
+deployment freeze, or AI attribute extraction. **The risk is real and is the point of the trade:** an
+agent that does not read the pointer can now make a rate-master change without ever seeing the
+owner-locked invariant that governs it. Three defences: the pointers name the file at each of the
+three sites the rules used to occupy, the Reference Docs table carries a row for it, and
+`.claude/context/_index.md` lists it. **Nothing was lost from the repository** -- every line is in the
+new document, proven byte for byte.
