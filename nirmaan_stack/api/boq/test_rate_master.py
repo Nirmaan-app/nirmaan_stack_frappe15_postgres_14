@@ -80,7 +80,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq import rate_master
-from nirmaan_stack.services.boq_rate_master import extraction, loader
+from nirmaan_stack.services.boq_rate_master import csv_importer, extraction, freeze, loader
 
 # The UTF-8 BOM the CSV writer prepends so Excel renders non-ASCII correctly.
 BOM = "\ufeff"
@@ -4868,3 +4868,454 @@ class TestRateMaster(FrappeTestCase):
         _s, collide = csv_importer.classify_columns(
             ["item_uid", "kind", "material"], {"material"}, {"material"})
         self.assertTrue(any("both an attribute and a rate key" in e["message"] for e in collide))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE RMF-1 -- THE RATE-MASTER DEPLOYMENT FREEZE
+#
+# WHY: on 2026-08-18, 235 hand-entered production cable prices were overwritten by a dev-minted
+# asset. The freeze is step one of Deployment Mode (freeze, export, merge, deploy) and was until
+# now an unenforced manual discipline.
+#
+# ⚠️ THIS CLASS MUTATES A **SINGLE** DOCTYPE ON THE **LIVE** SITE, so every test captures the
+# site's CURRENT freeze state and restores THAT -- never a hardcoded "unfrozen". The standing rule
+# in CLAUDE.md exists because the failure is SILENT: a hardcoded restore would quietly lift a
+# freeze the owner had genuinely set, and the two provenance fields would be destroyed with it.
+# `_freeze_sandbox` also purges only the Version rows THIS test created, never pre-existing ones.
+#
+# THE TWO HALVES BOTH MATTER AND ARE TESTED TOGETHER:
+#   the six WRITE endpoints refuse (R1)   AND   the three READ endpoints still succeed (R3)
+# The second half is not a nicety -- the export is the action the freeze exists to protect, so a
+# guard folded into the shared `_require_rate_admin` would defeat the whole feature. test_rmf_04
+# is the test that would catch that refactor.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+def _rmf_source(mod):
+    import inspect
+    return inspect.getsource(mod)
+
+
+def _rmf_source_of(fn):
+    import inspect
+    return inspect.getsource(fn)
+
+
+# A param path that genuinely EXISTS in the legacy wiring fixture's cable_boq pipeline. Using a
+# real one matters: `update_rate_config_param` validates the path AFTER the freeze guard, so a
+# bogus path would let the frozen-refusal test pass for the wrong reason and would break the
+# post-unfreeze call (it did, on the first run of this suite).
+_RMF_PARAM_STEP = 4
+_RMF_PARAM_KEY = "install_markup"
+
+
+def _rmf_csv_text(discipline):
+    """The discipline's editable CSV, unedited -- so an apply is a genuine no-op and any refusal
+    can only be the freeze, never a validation error wearing the same clothes."""
+    from nirmaan_stack.services.boq_rate_master import csv_exporter
+    text, _headers, _n = csv_exporter.build_category_csv(discipline, "wiring_cabling")
+    return text
+
+
+class TestRateMasterFreeze(FrappeTestCase):
+    FREEZE_DT = "BoQ Rate Master Freeze"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(LEGACY_WIRING_ASSET), "r", encoding="utf-8") as fh:
+            cls.raw = json.load(fh)
+        cls._disciplines = set()
+
+    @classmethod
+    def tearDownClass(cls):
+        for disc in cls._disciplines:
+            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item",
+                       "BoQ Rate Master Retirement"):
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
+            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    # ---- helpers ----
+    def _new_disc(self):
+        disc = "TEST_RMF_" + frappe.generate_hash(length=8)
+        type(self)._disciplines.add(disc)
+        return disc
+
+    def _loaded(self):
+        """A scratch discipline with the real wiring payload loaded, plus its config + an item."""
+        disc = self._new_disc()
+        p = copy.deepcopy(type(self).raw)
+        p["category_config"]["discipline"] = disc
+        loader.load_rate_master(payload=p)
+        cfg = frappe.db.get_value("BoQ Rate Category Config",
+                                  {"discipline": disc, "active": 1}, "name")
+        item = frappe.db.get_value("BoQ Rate Master Item",
+                                   {"discipline": disc, "active": 1, "kind": "cable"}, "name")
+        return disc, cfg, item
+
+    def _freeze_sandbox(self):
+        """Capture the LIVE site's freeze state + its existing Version rows, and restore EXACTLY
+        those on cleanup. THE STANDING SINGLE-DOCTYPE RULE -- restoring a hardcoded 'unfrozen'
+        would silently lift a real freeze, and `set_single_value` writes no Version row, so a
+        `track_changes` audit could not even show that it had happened."""
+        dt = type(self).FREEZE_DT
+        original = {
+            f: frappe.db.get_value(dt, dt, f) for f in ("frozen", "frozen_by", "frozen_at")
+        }
+        pre_versions = {
+            r.name for r in frappe.get_all("Version", filters={"ref_doctype": dt}, fields=["name"])
+        }
+
+        def _restore():
+            for field, value in original.items():
+                frappe.db.set_single_value(dt, field, value)
+            for r in frappe.get_all("Version", filters={"ref_doctype": dt}, fields=["name"]):
+                if r.name not in pre_versions:  # only OUR rows, never the owner's history
+                    frappe.db.delete("Version", {"name": r.name})
+            frappe.db.commit()
+
+        self.addCleanup(_restore)
+        return original, pre_versions
+
+    def _new_versions(self, pre_versions):
+        return [
+            r for r in frappe.get_all(
+                "Version", filters={"ref_doctype": type(self).FREEZE_DT},
+                fields=["name", "owner", "creation"], order_by="creation asc")
+            if r.name not in pre_versions
+        ]
+
+    def _set_frozen(self, user="rmf-test-admin@example.com"):
+        """Freeze via the service, stamping an EXPLICIT actor -- used where the test needs a freeze
+        that somebody ELSE set (test_rmf_08, owner ruling R6). `frozen_by` is Data, not Link, so a
+        synthetic address is legal and touches no User row."""
+        freeze.set_freeze_state(True, user)
+        frappe.db.commit()
+
+    def _write_calls(self, cfg, item, disc):
+        """(label, callable) for EVERY rate-master WRITE reachable from the app: the SIX endpoints
+        plus the service-level csv apply. Every call is given VALID arguments, so a refusal can
+        only be the freeze."""
+        b64 = base64.b64encode(_rmf_csv_text(disc).encode("utf-8")).decode("ascii")
+        cfg_json = frappe.db.get_value("BoQ Rate Category Config", cfg, "config")
+        return [
+            ("update_rate_config_param", lambda: rate_master.update_rate_config_param(
+                name=cfg, pipeline_id="cable_boq", step_index=_RMF_PARAM_STEP,
+                param_key=_RMF_PARAM_KEY, new_value=0.5)),
+            ("update_rate_master_item", lambda: rate_master.update_rate_master_item(
+                name=item, rates_patch=json.dumps({"list_rate": 123.0}))),
+            ("create_rate_master_item", lambda: rate_master.create_rate_master_item(
+                discipline=disc, kind="cable", attributes=json.dumps({"material": "COPPER"}),
+                rates=json.dumps({"list_rate": 1.0}))),
+            ("deactivate_rate_master_item", lambda: rate_master.deactivate_rate_master_item(
+                name=item)),
+            ("update_rate_config", lambda: rate_master.update_rate_config(
+                name=cfg, config=cfg_json)),
+            ("apply_rate_master_csv", lambda: rate_master.apply_rate_master_csv(
+                discipline=disc, content_base64=b64)),
+            # THE SERVICE PATH, called directly and NOT through the endpoint. This is the one a
+            # guard on the audited doc.save endpoints alone would miss entirely.
+            ("csv_importer.apply_plan", lambda: csv_importer.apply_plan(
+                disc, base64.b64decode(b64))),
+        ]
+
+    # ---- tests ----
+    def test_rmf_01_default_state_is_unfrozen_and_an_absent_single_reads_as_unfrozen(self):
+        """POSITIVE: the feature is INERT by default. A never-written Single reads as not frozen, so
+        a database nobody has touched behaves byte-identically to pre-freeze."""
+        self._freeze_sandbox()
+        for field in ("frozen", "frozen_by", "frozen_at"):
+            frappe.db.set_single_value(type(self).FREEZE_DT, field, None)
+        frappe.db.commit()
+        self.assertFalse(freeze.is_frozen())
+        self.assertEqual(
+            freeze.get_freeze_state(), {"frozen": False, "frozen_by": None, "frozen_at": None})
+
+    def test_rmf_02_the_blocked_message_is_the_owners_text_verbatim(self):
+        """POSITIVE PIN: the owner supplied this string on 2026-08-18. It must not be reworded,
+        expanded, or given a second sentence -- including the space after the slash, which is
+        theirs."""
+        self.assertEqual(
+            freeze.BLOCKED_MESSAGE,
+            "Rate master is locked for deployment. Contact Nitesh/ Abhishek.")
+
+    def test_rmf_02b_the_frontend_constant_is_byte_identical(self):
+        """POSITIVE: the client renders this same message (as the disabled-control tooltip), so the
+        two copies sit either side of a language boundary. Pinned by READING the .ts source, so a
+        reword on one side cannot pass unnoticed. Cross-language duplication is deliberate here
+        (the `isRowQtyBearing` precedent); silent DIVERGENCE is not."""
+        here = os.path.dirname(os.path.abspath(__file__))            # .../nirmaan_stack/api/boq
+        app = os.path.abspath(os.path.join(here, "..", "..", ".."))  # .../apps/nirmaan_stack
+        ts = os.path.join(app, "frontend", "src", "pages", "pricing", "rate-master",
+                          "rateMasterFreeze.ts")
+        self.assertTrue(os.path.exists(ts), ts)
+        with open(ts, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn(freeze.BLOCKED_MESSAGE, src)
+
+    def test_rmf_03_every_write_refuses_while_frozen_with_the_exact_message(self):
+        """NEGATIVE, the core of the feature (R1). All SIX write endpoints AND the service-level csv
+        apply refuse, each with the owner's exact message and nothing appended."""
+        disc, cfg, item = self._loaded()
+        self._freeze_sandbox()
+        self._set_frozen()
+        for label, call in self._write_calls(cfg, item, disc):
+            with self.subTest(endpoint=label):
+                with self.assertRaises(frappe.ValidationError) as ctx:
+                    call()
+                self.assertEqual(str(ctx.exception), freeze.BLOCKED_MESSAGE, label)
+
+    def test_rmf_04_the_three_read_endpoints_still_succeed_while_frozen(self):
+        """POSITIVE, and THE test that catches the tempting refactor (owner ruling R3). The export is
+        THE ACTION THE FREEZE EXISTS TO PROTECT -- Deployment Mode is freeze-then-export. If a future
+        reader folds `guard_not_frozen` into the shared `_require_rate_admin`, which gates all nine
+        endpoints, this goes red and says why."""
+        disc, _cfg, _item = self._loaded()
+        self._freeze_sandbox()
+        self._set_frozen()
+
+        asset = rate_master.export_rate_master_asset(discipline=disc)
+        self.assertTrue(asset["content_base64"])
+        self.assertEqual(asset["discipline"], disc)
+
+        csv_out = rate_master.export_rate_master_csv(discipline=disc)
+        self.assertTrue(csv_out["content_base64"])
+
+        b64 = base64.b64encode(_rmf_csv_text(disc).encode("utf-8")).decode("ascii")
+        plan = rate_master.preview_rate_master_csv(discipline=disc, content_base64=b64)
+        self.assertEqual(plan["errors"], [])
+        self.assertIn("digest", plan)
+
+    def test_rmf_05_a_frozen_write_mutates_nothing(self):
+        """NEGATIVE: reject-mutates-nothing. A refusal must not half-apply -- and the CSV apply is
+        the one with real blast radius, since it supersedes by raw SQL and writes a snapshot."""
+        disc, cfg, item = self._loaded()
+        before_rates = frappe.db.get_value("BoQ Rate Master Item", item, "rates")
+        before_cfg = frappe.db.get_value("BoQ Rate Category Config", cfg, "config")
+        before_items = frappe.db.count("BoQ Rate Master Item", {"discipline": disc, "active": 1})
+        before_snaps = frappe.db.count("BoQ Rate Master Snapshot", {"discipline": disc})
+        self._freeze_sandbox()
+        self._set_frozen()
+        for label, call in self._write_calls(cfg, item, disc):
+            with self.subTest(endpoint=label):
+                with self.assertRaises(frappe.ValidationError):
+                    call()
+        self.assertEqual(frappe.db.get_value("BoQ Rate Master Item", item, "rates"), before_rates)
+        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg, "config"), before_cfg)
+        self.assertEqual(
+            frappe.db.count("BoQ Rate Master Item", {"discipline": disc, "active": 1}), before_items)
+        # No snapshot either: the csv guard fires BEFORE the snapshot is taken.
+        self.assertEqual(
+            frappe.db.count("BoQ Rate Master Snapshot", {"discipline": disc}), before_snaps)
+
+    def test_rmf_06_unfreezing_restores_every_blocked_path(self):
+        """POSITIVE: the lift is complete. Every write refused while frozen works again after --
+        proving the guard is a gate, not a latch that leaves something broken behind it."""
+        disc, cfg, item = self._loaded()
+        self._freeze_sandbox()
+        self._set_frozen()
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.update_rate_master_item(
+                name=item, rates_patch=json.dumps({"list_rate": 7.0}))
+
+        res = rate_master.unfreeze_rate_master()
+        self.assertTrue(res["ok"])
+        self.assertFalse(res["frozen"])
+
+        rate_master.update_rate_master_item(name=item, rates_patch=json.dumps({"list_rate": 7.0}))
+        rate_master.update_rate_config_param(
+            name=cfg, pipeline_id="cable_boq", step_index=_RMF_PARAM_STEP,
+            param_key=_RMF_PARAM_KEY, new_value=0.5)
+        b64 = base64.b64encode(_rmf_csv_text(disc).encode("utf-8")).decode("ascii")
+        applied = rate_master.apply_rate_master_csv(discipline=disc, content_base64=b64)
+        self.assertIn("applied", applied)
+
+    def test_rmf_07_freezing_records_who_and_when(self):
+        """POSITIVE: attribution. The live fields say who SET the freeze and when, and the flip lands
+        a Version row -- which happens only because the doctype is track_changes:1 AND the writer
+        goes through doc.save(ignore_version=False) rather than set_single_value."""
+        _o, pre = self._freeze_sandbox()
+        before = frappe.utils.now_datetime().replace(microsecond=0)
+        res = rate_master.freeze_rate_master()
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["changed"])
+        self.assertTrue(res["frozen"])
+        self.assertEqual(res["frozen_by"], frappe.session.user)
+        self.assertIsNotNone(res["frozen_at"])
+        self.assertGreaterEqual(frappe.utils.get_datetime(res["frozen_at"]), before)
+
+        state = freeze.get_freeze_state()   # persisted, via the ONE reader
+        self.assertTrue(state["frozen"])
+        self.assertEqual(state["frozen_by"], frappe.session.user)
+
+        new = self._new_versions(pre)       # audited
+        self.assertEqual(len(new), 1)
+        self.assertEqual(new[0].owner, frappe.session.user)
+
+    def test_rmf_08_any_admin_may_lift_another_admins_freeze_and_the_lift_is_attributed(self):
+        """POSITIVE, owner ruling R6. There is DELIBERATELY no check that the lifter is the user who
+        set the freeze -- what makes that safe is that the lift is attributable. The freeze here is
+        stamped to a DIFFERENT actor, and the session admin lifts it."""
+        _o, pre = self._freeze_sandbox()
+        self._set_frozen(user="some-other-admin@example.com")
+        self.assertEqual(freeze.get_freeze_state()["frozen_by"], "some-other-admin@example.com")
+
+        res = rate_master.unfreeze_rate_master()
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["changed"])
+        self.assertFalse(res["frozen"])
+        self.assertIsNone(res["frozen_by"])     # provenance cleared with the flag
+        self.assertIsNone(res["frozen_at"])
+
+        new = self._new_versions(pre)           # the LIFT is in the audit, naming the lifter
+        self.assertTrue(new)
+        self.assertEqual(new[-1].owner, frappe.session.user)
+
+    def test_rmf_09_a_non_admin_can_neither_freeze_nor_lift(self):
+        """NEGATIVE: the freeze population IS the rate-master edit population (R5). A non-admin is
+        refused with PermissionError -- NOT with the freeze message, which would be a confusing
+        answer to a question they were never allowed to ask."""
+        self._freeze_sandbox()
+        original = frappe.session.user
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.freeze_rate_master()
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.unfreeze_rate_master()
+        finally:
+            frappe.set_user(original)
+        self.assertFalse(freeze.is_frozen())    # nothing was written
+
+    def test_rmf_09b_a_non_admin_hitting_a_frozen_write_still_gets_permission_denied(self):
+        """NEGATIVE: gate ORDER. The admin check runs FIRST, so a non-admin never learns about the
+        freeze -- they are simply not permitted, frozen or not."""
+        _disc, _cfg, item = self._loaded()
+        self._freeze_sandbox()
+        self._set_frozen()
+        original = frappe.session.user
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.update_rate_master_item(
+                    name=item, rates_patch=json.dumps({"list_rate": 1.0}))
+        finally:
+            frappe.set_user(original)
+
+    def test_rmf_10_freeze_is_idempotent_and_never_restarts_the_clock(self):
+        """POSITIVE + the reason it matters: the banner renders `frozen_at` as ELAPSED time, so a
+        second Freeze click must NOT re-stamp it. Re-freezing reports changed=False, preserves the
+        original provenance, and writes no Version row."""
+        _o, pre = self._freeze_sandbox()
+        first = rate_master.freeze_rate_master()
+        self.assertTrue(first["changed"])
+        after_first = {r.name for r in self._new_versions(pre)}
+
+        again = rate_master.freeze_rate_master()
+        self.assertFalse(again["changed"])
+        self.assertEqual(again["frozen_at"], first["frozen_at"])   # the clock did NOT restart
+        self.assertEqual(again["frozen_by"], first["frozen_by"])
+        self.assertEqual({r.name for r in self._new_versions(pre)}, after_first)  # no write, no row
+
+    def test_rmf_10b_unfreeze_is_idempotent(self):
+        """POSITIVE: lifting an unfrozen catalog is a clean no-op, not an error."""
+        self._freeze_sandbox()
+        rate_master.unfreeze_rate_master()
+        res = rate_master.unfreeze_rate_master()
+        self.assertTrue(res["ok"])
+        self.assertFalse(res["changed"])
+        self.assertFalse(res["frozen"])
+
+    def test_rmf_11_the_read_endpoint_reports_state_and_hides_stale_provenance(self):
+        """POSITIVE: `get_rate_master_freeze` is what the banner reads. Provenance is reported ONLY
+        while frozen, so a half-cleared row can never render a banner claiming a live freeze."""
+        self._freeze_sandbox()
+        self._set_frozen(user="banner-test@example.com")
+        got = rate_master.get_rate_master_freeze()
+        self.assertTrue(got["frozen"])
+        self.assertEqual(got["frozen_by"], "banner-test@example.com")
+        self.assertIsNotNone(got["frozen_at"])
+
+        frappe.db.set_single_value(type(self).FREEZE_DT, "frozen", 0)   # flag off, provenance left
+        frappe.db.commit()
+        got = rate_master.get_rate_master_freeze()
+        self.assertFalse(got["frozen"])
+        self.assertIsNone(got["frozen_by"])
+        self.assertIsNone(got["frozen_at"])
+
+    def test_rmf_12_pricing_is_unaffected_by_the_freeze(self):
+        """POSITIVE, owner ruling R2 -- and it holds BY CONSTRUCTION, not by exemption: no pricing
+        path writes the rate master. Exercised under a LIVE freeze: the two rate-master READS the
+        pricing screen needs to compute a rate at all, and a real pricing-path WRITE ("Use this
+        value" telemetry). If any of these refused, a freeze would stop pricers working."""
+        disc, _cfg, _item = self._loaded()
+        self._freeze_sandbox()
+        self._set_frozen()
+
+        items = rate_master.get_rate_master_items(discipline=disc)
+        self.assertTrue(items["items"])
+        cfg = rate_master.get_rate_category_config(discipline=disc, category_id="wiring_cabling")
+        self.assertTrue(cfg["config"])
+
+        # A third real pricing-screen endpoint, invoked under the live freeze. It tolerates an
+        # unknown BoQ (pure read, no existence check), so it needs no fixture.
+        evs = rate_master.get_suggestion_events(boq="RMF-FREEZE-NONE", sheet_name="Sheet1")
+        self.assertEqual(evs["events"], [])
+
+        # The "Use this value" telemetry is a genuine WRITE on a pricing path. Its `boq` field is
+        # a LINK to BOQs, so exercising it would need a real BoQ (and behind it the Projects
+        # fixture chain) to assert a fact these two lines state exactly: it is login-gated, not
+        # admin-gated, and carries NO freeze guard. Asserted structurally, and said so plainly.
+        write_src = _rmf_source_of(rate_master.record_rate_suggestion_event)
+        self.assertNotIn("guard_not_frozen", write_src)
+        self.assertNotIn("_require_rate_admin", write_src)
+        self.assertIn("_require_login()", write_src)
+
+        # ...and the pricing module does not even NAME the rate-master doctypes, which is why R2
+        # needs no exemption anywhere in this feature.
+        from nirmaan_stack.api.boq.wizard import pricing as pricing_api
+        src = _rmf_source(pricing_api)
+        self.assertNotIn("BoQ Rate Master Item", src)
+        self.assertNotIn("BoQ Rate Category Config", src)
+        self.assertNotIn("guard_not_frozen", src)
+
+    def test_rmf_13_the_guard_is_one_definition_called_at_both_write_mechanisms(self):
+        """POSITIVE: ONE predicate, two call sites. The five audited doc.save endpoints plus the csv
+        endpoint are guarded inline in the api module; `csv_importer.apply_plan` guards itself,
+        because it supersedes by RAW SQL and never touches doc.save. A guard on only one mechanism
+        would leave the other wide open -- and the csv path has the larger blast radius."""
+        self.assertEqual(_rmf_source(rate_master).count("freeze.guard_not_frozen()"), 6)
+        self.assertEqual(_rmf_source(csv_importer).count("freeze.guard_not_frozen()"), 1)
+        self.assertIs(rate_master.freeze.guard_not_frozen, freeze.guard_not_frozen)
+        self.assertIs(csv_importer.freeze.guard_not_frozen, freeze.guard_not_frozen)
+
+    def test_rmf_14_the_guard_is_not_in_require_rate_admin_and_not_on_the_reads(self):
+        """NEGATIVE, structural (owner ruling R3). `_require_rate_admin` gates nine endpoints, three
+        of them reads. This asserts the guard is NOT inside it -- the single refactor that would
+        silently make Deployment Mode impossible, because you could no longer export the catalog you
+        had just frozen."""
+        gate = _rmf_source_of(rate_master._require_rate_admin)
+        self.assertNotIn("guard_not_frozen", gate)
+        self.assertNotIn("frozen", gate)
+        for fn in (rate_master.export_rate_master_asset, rate_master.export_rate_master_csv,
+                   rate_master.preview_rate_master_csv):
+            with self.subTest(endpoint=fn.__name__):
+                self.assertNotIn("guard_not_frozen", _rmf_source_of(fn))
+        # build_plan is SHARED with the preview, so it must stay unguarded too
+        self.assertNotIn("guard_not_frozen", _rmf_source_of(csv_importer.build_plan))
+
+    def test_rmf_15_set_single_value_is_never_used_to_write_the_freeze(self):
+        """NEGATIVE, and it protects the ONE thing that makes R6 safe. `set_single_value` is a raw
+        UPDATE: it bypasses the doc lifecycle and writes NO Version row, so a lift would become
+        unattributable while every other test stayed green. The writer must use doc.save with an
+        EXPLICIT ignore_version=False -- Frappe defaults that to frappe.flags.in_test, which would
+        suppress the audit under exactly this runner."""
+        writer = _rmf_source_of(freeze.set_freeze_state)
+        code = writer.split('"""')[-1]          # body only, past the docstring that NAMES the trap
+        self.assertNotIn("set_single_value", code)
+        self.assertIn("ignore_version=False", code)
+        self.assertIn("doc.save(", code)

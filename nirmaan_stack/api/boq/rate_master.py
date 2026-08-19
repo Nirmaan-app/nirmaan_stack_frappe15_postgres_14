@@ -115,6 +115,7 @@ from frappe.utils.background_jobs import get_job_status  # noqa: E402
 
 from nirmaan_stack.services.boq_rate_master import extraction  # noqa: E402
 from nirmaan_stack.services.boq_rate_master import loader  # noqa: E402  (RM-4a: reuse _canonicalize_attributes)
+from nirmaan_stack.services.boq_rate_master import freeze  # noqa: E402  (deployment freeze guard)
 from nirmaan_stack.api.boq.wizard import pricing  # noqa: E402  (D8 gate reuse; import UP api->api)
 
 RUN_DOCTYPE = "BoQ Rate Suggestion Run"
@@ -1048,6 +1049,7 @@ def update_rate_config_param(
           ...steps[step_index].conditions[condition_index].params[param_key].
     Returns {ok, config}. URL: .../rate_master.update_rate_config_param"""
     _require_rate_admin()  # BEFORE resolution/write
+    freeze.guard_not_frozen()  # DEPLOYMENT FREEZE -- WRITE subset ONLY (R3: never on export/preview)
     if not name:
         frappe.throw("name is required.", title="Missing field: name")
     if not pipeline_id:
@@ -1107,6 +1109,7 @@ def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None):
     attribute-definitions where determinable, and material/insulation canonicalised to UPPERCASE.
     Audited (doc.save). Returns {ok, item}. URL: .../rate_master.update_rate_master_item"""
     _require_rate_admin()  # BEFORE resolution/write
+    freeze.guard_not_frozen()  # DEPLOYMENT FREEZE -- WRITE subset ONLY (R3: never on export/preview)
     if not name:
         frappe.throw("name is required.", title="Missing field: name")
     rates_patch = _parse_json(rates_patch, None)
@@ -1171,6 +1174,7 @@ def create_rate_master_item(
     numeric-or-null. Audited on insert. Returns {ok, item}.
     URL: .../rate_master.create_rate_master_item"""
     _require_rate_admin()  # BEFORE resolution/write
+    freeze.guard_not_frozen()  # DEPLOYMENT FREEZE -- WRITE subset ONLY (R3: never on export/preview)
     if not discipline:
         frappe.throw("discipline is required.", title="Missing field: discipline")
     if not kind:
@@ -1235,6 +1239,7 @@ def deactivate_rate_master_item(name=None):
     deleted). Idempotent. Audited (doc.save). Returns {ok, active:0}.
     URL: .../rate_master.deactivate_rate_master_item"""
     _require_rate_admin()  # BEFORE resolution/write
+    freeze.guard_not_frozen()  # DEPLOYMENT FREEZE -- WRITE subset ONLY (R3: never on export/preview)
     if not name:
         frappe.throw("name is required.", title="Missing field: name")
     doc = frappe.get_doc(ITEM_DOCTYPE, name)  # 404s cleanly if missing
@@ -1901,6 +1906,7 @@ def update_rate_config(name=None, config=None):
     stored doc's (no identity repoint). Audited (doc.save -> Version diff). Returns {ok, config}.
     URL: .../rate_master.update_rate_config"""
     _require_rate_admin()  # BEFORE resolution/write
+    freeze.guard_not_frozen()  # DEPLOYMENT FREEZE -- WRITE subset ONLY (R3: never on export/preview)
     if not name:
         frappe.throw("name is required.", title="Missing field: name")
     cfg = _parse_json(config, None)
@@ -2105,6 +2111,7 @@ def apply_rate_master_csv(discipline=None, content_base64=None, csv_text=None,
     URL: .../rate_master.apply_rate_master_csv
     """
     _require_rate_admin()  # BEFORE any read or write
+    freeze.guard_not_frozen()  # DEPLOYMENT FREEZE -- WRITE subset ONLY (R3: never on export/preview)
     if not discipline:
         frappe.throw("discipline is required.", title="Missing field: discipline")
 
@@ -2116,3 +2123,98 @@ def apply_rate_master_csv(discipline=None, content_base64=None, csv_text=None,
     frappe.db.commit()  # the ONE commit -- snapshot + every write, or neither
     result["plan"] = csv_importer.public_plan(result["plan"])
     return result
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════
+# SLICE RMF-1: THE DEPLOYMENT FREEZE -- the first USER-FACING control this arc has added.
+#
+# WHY. On 2026-08-18, 235 hand-entered production cable prices were overwritten by a
+# dev-minted asset, because they existed in no committed asset. The remedy is Deployment
+# Mode -- freeze production, export, merge dev's config with production's items, deploy --
+# and the freeze was until now an unenforced manual discipline.
+#
+# ⚠️ THE GUARD IS ON THE WRITE SUBSET ONLY, AND MUST NEVER MOVE INTO `_require_rate_admin`
+# (owner ruling R3). That gate covers NINE endpoints, THREE of which are reads --
+# `export_rate_master_asset`, `export_rate_master_csv`, `preview_rate_master_csv` -- and
+# THE EXPORT IS THE ACTION THE FREEZE EXISTS TO PROTECT. Folding the guard into the shared
+# admin gate looks like an obvious tidy-up and would make the feature self-defeating.
+# `test_rmf_*` pins both halves: the six writes refuse, the three reads succeed.
+#
+# ⚠️ BOTH WRITE MECHANISMS ARE COVERED, at two places, deliberately. The five audited
+# `doc.save` endpoints above are guarded inline; `csv_importer.apply_plan` guards ITSELF,
+# because it supersedes by raw SQL and never touches `doc.save`, so an endpoint-only guard
+# would miss the largest write in the module. The predicate is ONE function in
+# `services/boq_rate_master/freeze.py` -- a service, because `csv_importer` is a service
+# and may not import from `api/` (the `services/boq_bcs/readiness.py` precedent).
+#
+# ⚠️ THE DESK GAP IS ACCEPTED (owner ruling R8, 2026-08-18). Doctype permissions grant
+# write to `System Manager`, and Frappe Desk plus the generic `/api/resource/...` REST API
+# bypass every app gate. This freeze covers the APP SURFACE ONLY. That is a DECISION, not
+# an oversight -- do not "fix" it by editing doctype permissions or adding a controller
+# guard.
+#
+# LIFTING IS MANUAL ONLY (R7): no expiry, no timeout, no automatic lift on deploy.
+# ANY admin may lift ANY freeze, including another admin's (R6) -- the Version audit is
+# what records who did, which is why the write goes through `doc.save`, never
+# `set_single_value`.
+# ══════════════════════════════════════════════════════════════════════════════════════
+
+
+@frappe.whitelist()
+def get_rate_master_freeze():
+    """The live deployment-freeze state. Login-required READ, matching the two RM-1 read
+    endpoints -- it drives the Rate Master banner, and every user who can reach that page
+    (admins AND the read-only Estimates population) should be able to see that the catalog
+    is frozen rather than guess why an edit is refused.
+
+    Returns {frozen: bool, frozen_by: str|None, frozen_at: str|None}. Provenance is
+    reported only while actually frozen. URL: .../rate_master.get_rate_master_freeze
+    """
+    _require_login()
+    return freeze.get_freeze_state()
+
+
+@frappe.whitelist(methods=["POST"])
+def freeze_rate_master():
+    """ADMIN-ONLY: set the deployment freeze, recording who and when.
+
+    IDEMPOTENT, AND THE NO-OP IS LOAD-BEARING: freezing an ALREADY-frozen catalog changes
+    NOTHING and returns the existing provenance untouched. Re-stamping would reset
+    `frozen_at`, and the banner renders that as ELAPSED time -- so a second click would
+    silently restart the clock and report a freeze as newer than it is, which is precisely
+    the fact a deployment window needs to be able to trust. No write, so no Version row
+    either (the `reset_category_gate_override_on_reclassify` idempotency contract).
+
+    NOT guarded by the freeze itself, obviously. Returns {ok, ...state}.
+    URL: .../rate_master.freeze_rate_master
+    """
+    user = _require_rate_admin()
+    state = freeze.get_freeze_state()
+    if state["frozen"]:
+        return {"ok": True, "changed": False, **state}
+    state = freeze.set_freeze_state(True, user)
+    frappe.db.commit()
+    return {"ok": True, "changed": True, **state}
+
+
+@frappe.whitelist(methods=["POST"])
+def unfreeze_rate_master():
+    """ADMIN-ONLY: lift the deployment freeze, clearing the flag and its provenance.
+
+    ANY admin may lift ANY freeze, including one another's (owner ruling R6) -- there is
+    deliberately NO owner-only restriction and no check that the caller is the user who
+    set it. What makes that safe is attribution: this write goes through
+    `doc.save(ignore_version=False)` on a `track_changes:1` doctype, so the lift lands in
+    the Version log naming the actor. `frappe.db.set_single_value` would have written no
+    Version row at all and is forbidden in `freeze.set_freeze_state` for exactly this
+    reason.
+
+    IDEMPOTENT: lifting an unfrozen catalog is a clean no-op. Returns {ok, ...state}.
+    URL: .../rate_master.unfreeze_rate_master
+    """
+    user = _require_rate_admin()
+    if not freeze.is_frozen():
+        return {"ok": True, "changed": False, **freeze.get_freeze_state()}
+    state = freeze.set_freeze_state(False, user)
+    frappe.db.commit()
+    return {"ok": True, "changed": True, **state}

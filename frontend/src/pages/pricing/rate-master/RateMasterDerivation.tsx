@@ -62,6 +62,10 @@ interface Props {
   config: RateCategoryConfig;
   // RM-4a: admin-only inline param editing. Non-admins render today's read-only view (controls HIDDEN).
   isAdmin?: boolean;
+  // RMF-1: while the deployment freeze is on, the inline param edit is a WRITE
+  // (update_rate_config_param) and is refused server-side, so the field renders read-only with
+  // the owner's approved message as its tooltip rather than accepting a keystroke it will lose.
+  frozen?: boolean;
   onSaveParam?: (
     pipelineId: string,
     stepIndex: number,
@@ -180,7 +184,7 @@ function detailFor(s: StepTrace): string {
   return "";
 }
 
-export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Props) {
+export function RateMasterDerivation({ items, config, isAdmin, frozen, onSaveParam }: Props) {
   // EA-4 ext-a: tolerate a config with no rules key at all (every category except the two that
   // carry one) -- an absent key renders the empty state, never a crash.
   const rules = useMemo(
@@ -534,7 +538,7 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
                                 {whenLabel && <div className="text-muted-foreground">{whenLabel}</div>}
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   {entries.map(([key, value]) =>
-                                    isAdmin && onSaveParam && isEditableParam(value) ? (
+                                    isAdmin && !frozen && onSaveParam && isEditableParam(value) ? (
                                       <InlineParamEdit
                                         key={key}
                                         paramKey={key}

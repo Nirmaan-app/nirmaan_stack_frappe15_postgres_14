@@ -83,7 +83,7 @@ import json
 
 import frappe
 
-from nirmaan_stack.services.boq_rate_master import csv_exporter, exporter, loader
+from nirmaan_stack.services.boq_rate_master import csv_exporter, exporter, freeze, loader
 
 ITEM_DOCTYPE = "BoQ Rate Master Item"
 CONFIG_DOCTYPE = "BoQ Rate Category Config"
@@ -683,6 +683,18 @@ def apply_plan(discipline, raw, expected_digest=None):
     not optional. It is skipped in exactly one case -- a plan with nothing to apply -- because there
     is then nothing to roll back to, and writing one would evict a real snapshot from the keep-10.
     """
+    # ⚠️ THE DEPLOYMENT FREEZE, GUARDED HERE AND NOT ONLY AT THE ENDPOINT (slice RMF-1).
+    # This function is the SECOND of the two write mechanisms that reach the rate master, and it
+    # is the one that does NOT go through `doc.save`: it supersedes by RAW SQL and inserts fresh
+    # documents. A guard placed only on the audited `doc.save` endpoints would therefore miss the
+    # entire CSV upload -- the single largest-blast-radius write in the module, and the exact
+    # shape of the 2026-08-18 incident this freeze exists to prevent.
+    #
+    # It sits FIRST, ahead of `build_plan`, so a frozen system reads nothing and writes nothing
+    # (reject-mutates-nothing). `build_plan` is deliberately NOT guarded: `preview_rate_master_csv`
+    # calls it, and the preview must keep working while frozen (owner ruling R3) -- previewing a
+    # file is how you find out what the deploy will do.
+    freeze.guard_not_frozen()
     plan = build_plan(discipline, raw)
     if plan["errors"]:
         first = plan["errors"][0]
