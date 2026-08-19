@@ -161,7 +161,32 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # PRODUCTION already; committing this asset records it faithfully rather than creating it. The
 # goldens must be re-banked in-product and re-exported -- they are ORACLES and must never be
 # recomputed from our own interpreter, which would make them pass by construction and pin nothing.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v41.json"
+# DEV SYNC (2026-08-19): v43 = PRODUCTION's current export, adopted VERBATIM. Like v41 this did
+# NOT come from a slice -- it came from production's DATABASE, and it is the SECOND asset in this
+# lineage whose content originates there. Dev's DB was still on v40 (v41 was committed but never
+# loaded here), so the load moved TWO independent rate sets at once:
+#   - 265 `cable.list_price_per_mtr` values -- the v40 -> v41 production cable re-mint, finally
+#     landing in dev's database rather than only in the repo.
+#   - 55 of 58 `switch_socket_item.list_price` values -- production's switch/socket revision, which
+#     existed in NO asset before this file. This is the change the sync exists to capture.
+# Plus the four wiring goldens g1/g2/g3/g5, RE-BANKED IN PRODUCTION against the corrected cable
+# prices. The v41 note below predicted this: it recorded those goldens as stale and said they must
+# be re-banked in-product and re-exported. They were. g4 is termination-only and is unchanged.
+# NOTHING ELSE MOVED: all 12 category configs are byte-identical (checked key by key -- pipelines,
+# attribute definitions, item_kinds, rules, extraction_defaults), all 1,364 item_uids are unchanged,
+# no item was added, removed or re-keyed, both retirement lists and every other golden are identical.
+# A load-then-re-export reproduced production's file BYTE-FOR-BYTE (sha256 5d17cf7d...), so the DB,
+# the repo asset and production provably agree.
+# ⚠️ v42 IS ABSENT FROM THIS REPO BY CONSTRUCTION. Production minted it (the goldens re-bank) and
+# dev never received it; this file is production's NEXT mint. `mint_completeness_check` will
+# therefore report v42 as UNINSPECTABLE, which is true and is exactly what that report is for.
+# ⚠️ TWO switches_sockets goldens (s1, ss1) ARE NOW STALE against the revised switch/socket rates --
+# s1 expects supply 110 where the new prices give 120, ss1 expects 740/150/510 where they give
+# 820/170/570. They are ORACLES: they must be re-banked in-product and re-exported, NEVER recomputed
+# from our own interpreter, which would make them pass by construction and pin nothing. Reported to
+# the owner; not fixed here. The vitest interpreter pins are unaffected -- they carry their own
+# inline catalogs and read no asset.
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v43.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose

@@ -34,12 +34,13 @@ export const FREEZE_BLOCKED_MESSAGE =
   "Rate master is locked for deployment. Contact Nitesh/ Abhishek.";
 
 /**
- * ⚠️⚠️ PROPOSED WORDING -- AWAITING OWNER APPROVAL (working agreement #57).
- * The owner approved exactly ONE user-visible string for this feature: FREEZE_BLOCKED_MESSAGE
- * above. Every string in this object is a DRAFT written to make the approved UI buildable and
- * certifiable, and each is reported to the owner as a proposal. Change freely on their ruling --
- * they are isolated here, in one object, for exactly that reason, and nothing else in the feature
- * hardcodes a label.
+ * ⚠️ OWNER-APPROVED (2026-08-18). All four strings below were proposed at RMF-1 under
+ * working agreement #57 and APPROVED AS WRITTEN on the same day -- none was reworded. They are no
+ * longer drafts; treat them like FREEZE_BLOCKED_MESSAGE above and change them only on a fresh
+ * owner ruling.
+ *
+ * They remain isolated in this one object because that is what made the approval reviewable in a
+ * single place, and nothing else in the feature hardcodes a label.
  */
 export const FREEZE_COPY = {
   /** The control that sets the freeze (admin-only). */
