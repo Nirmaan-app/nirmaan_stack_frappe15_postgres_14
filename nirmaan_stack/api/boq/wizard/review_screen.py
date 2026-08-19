@@ -380,9 +380,9 @@ def check_structural_integrity(rows: list[dict]) -> list[dict]:
     and #8 (an item under a non-heading row) are NOT computed here -- they come from the
     SHARED commit validators (commit_validation.structural_errors_for_sheet) so the review
     screen and the real commit can never diverge (S2 commit-preflight). The old
-    LINE_ITEM_AS_PARENT check was REMOVED: the shared #8 (line_item_parent_not_preamble) is
-    a strict superset -- it also catches an item filed under a note/subtotal, not only under
-    another line_item.
+    LINE_ITEM_AS_PARENT check was REMOVED -- and as of the 2026-08-19 narrowing the shared
+    #8 no longer covers item-under-item at all: an item may now sit under another ITEM, and
+    #8 catches only an item filed under a note / subtotal marker / repeated header.
 
     ORPHAN (a line_item with no effective parent group) is NOT a structural break --
     it is a soft, dismissable advisory flag only (see _compute_advisory_flags). Such a

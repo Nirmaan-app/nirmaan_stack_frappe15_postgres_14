@@ -1,9 +1,13 @@
 import json
 import frappe
 from frappe import _
-# The relaxed-#7 preamble-parent predicate is SHARED with the pre-commit preflight
-# (commit_validation) so this durable backstop and the previewable validator agree.
-from nirmaan_stack.api.boq.wizard.commit_validation import preamble_parent_ok
+# The relaxed-#7 preamble-parent and narrowed-#8 line-item-parent predicates are SHARED
+# with the pre-commit preflight (commit_validation) so this durable backstop and the
+# previewable validator agree -- one definition each, never a re-inlined copy.
+from nirmaan_stack.api.boq.wizard.commit_validation import (
+    line_item_parent_ok,
+    preamble_parent_ok,
+)
 
 
 def validate(doc, method):
@@ -77,10 +81,15 @@ def validate(doc, method):
                         "(one with a smaller level number). Re-parent it in review."
                     ))
             elif doc.node_type == "Line Item":
-                if parent.node_type != "Preamble":
+                # NARROWED #8 (shared with the preflight via line_item_parent_ok): an item
+                # may sit under a section heading OR under another ITEM (owner ruling
+                # 2026-08-19 -- nesting a sub-item under its parent item is legitimate and
+                # the review screen has always allowed a human to pick it). Only a note /
+                # subtotal marker / repeated header remains an unacceptable parent.
+                if not line_item_parent_ok(parent.node_type):
                     frappe.throw(_(
-                        "An item must sit under a section heading, not under another "
-                        "item or a note."
+                        "An item must sit under a section heading or another item, "
+                        "not under a note or marker row."
                     ))
     # (The soft "standalone Line Item has no parent" advisory -- the orphan msgprint -- is
     # moved into the preflight as a soft warning; the real commit no longer msgprints it.)

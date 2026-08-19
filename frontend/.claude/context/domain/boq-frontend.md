@@ -2785,3 +2785,16 @@ Server half: `.claude/context/domain/boq-backend.md` § BCS-EXP-6. Slice record:
   thing someone editing the file needs to know.
 - `bcsColumns.ts` is **logic-unchanged**; only its test file gained the shared parity cases for
   `bcsAmountColumns` (now pinned against the server twin — `parity_cases.json` v3).
+
+**Review #8 narrowed -- "Item under a note or marker row" (2026-08-19, ADR-0008 Amendment A).**
+Backend-driven; the frontend change is a LABEL and two comments, no logic. `ReviewTree.tsx`
+`WARN_BREAK_LABELS.line_item_parent_not_preamble` moved from "Item not under a section heading" to
+**"Item under a note or marker row"** -- an item nested under ANOTHER ITEM no longer produces a break
+at all, so the old label implied a heading was the only legal parent. The must-fix panel still renders
+`break.reason` from the server, so the sentence itself needed no frontend edit. The `boqTypes.ts`
+union member `StructuralBreakLineItemParentNotPreamble` KEEPS its historical `...NotPreamble` spelling
+because the wire CODE does -- renaming the discriminant would be a breaking contract change for no
+gain. Nothing else moved: the parent picker (`ReviewRowParentPicker`) never filtered on classification
+(cycle-safety only), `RestructureModal`'s `PARENT_CAPABLE` already included `line_item`, and the
+Finalize disable is still `breaks.length > 0`. Net effect on screen: picking an Item as another Item's
+parent now simply works -- no red must-fix entry, Finalize stays enabled, commit succeeds.

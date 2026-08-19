@@ -2027,3 +2027,24 @@ Costs, Totals and margins all count as figures.
 
 Tests: `test_export_bcs_writeback` **73** (was 67). Mutations: swap the call order → 14 red; fill
 the whole column height → 1 red; drop the fill pass → 2 red.
+
+**#8 NARROWED -- an item MAY parent an item (2026-08-19, owner ruling; ADR-0008 Amendment A).**
+Structural ERROR #8 `line_item_parent_not_preamble` no longer fires for item-under-ITEM. It fires
+ONLY when a Line Item's parent is a note / subtotal marker / repeated header (`node_type == "Other"`).
+Rationale: bills genuinely nest a sub-item under its parent item, the review parent picker has always
+allowed the move (it greys out cycle-unsafe rows only), and the fully-hard gate then refused to
+finalize with no override -- a dead end reachable in two clicks. **ONE predicate, TWO sites:**
+`commit_validation.line_item_parent_ok(parent_node_type)` (mirroring `preamble_parent_ok`) is read by
+`validate_node_plan` #8 AND by the durable `integrations/controllers/boq_nodes.py` backstop --
+relaxing either alone re-opens the review-finalizes/commit-throws asymmetry ADR-0008 exists to close.
+**The wire code string is UNCHANGED** (`line_item_parent_not_preamble`): it is the discriminant of the
+frontend `StructuralBreak` union; only its user-facing sentence moved. #7 is UNTOUCHED, so a
+sub-heading under an item still blocks. **WARNING #16 widened to Line Item in the same change and must
+stay** -- `pricingRollup` sums a node's own amount PLUS its descendants', so a priced parent item
+double-counts exactly as a priced heading with children does; advisory only, never blocking, voiced
+per node type. Tests: `test_commit_validation` 51->55, `test_review_screen` 273->275 (new
+`NestedItemSheet`/`NestedItemSheet2` fixtures assert the positive case at BOTH the gate and the
+read endpoint), `test_boq_nodes` 78 (the controller test flipped to assert item-under-item INSERTS),
+`test_is_excluded_filter` 7 (its #8 producer moved to a note parent -- only the is_excluded filter is
+under test there). The AI/Gemini classification prompts are DELIBERATELY unchanged (they govern what
+the parser proposes, not what a human may override to).

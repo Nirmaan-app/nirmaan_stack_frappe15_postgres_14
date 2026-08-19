@@ -1091,7 +1091,11 @@ export interface StructuralBreakOrphan {
 }
 
 // S2 hard gate: the two shared commit-validator breaks (#7 / #8), replacing the retired
-// `line_item_as_parent`. `parent_row_index` is the row's effective_parent_index from the
+// `line_item_as_parent`. NARROWED 2026-08-19: #8 no longer covers item-under-ITEM (an item
+// may parent an item); it fires only for an item under a note / subtotal marker / repeated
+// header. The type NAME keeps its historical `...NotPreamble` spelling because the wire code
+// does -- renaming the code would be a breaking contract change for no behavioural gain.
+// `parent_row_index` is the row's effective_parent_index from the
 // errored plan entry; typed `number | null` defensively (in practice always a real int when
 // either error fires, since the validator only emits these when an in-plan parent exists).
 export interface StructuralBreakPreambleParentLevel {

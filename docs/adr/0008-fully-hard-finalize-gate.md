@@ -28,3 +28,50 @@ The crux: `#7`/`#8`/`cycle` are genuine commit-blockers that **cannot be acknowl
 - The soft "warn & confirm" finalize affordance is gone — intentional. Scope decision (S2): review surfaces **errors only** (`#7`/`#8`); the soft commit warnings (`#15`/`#16`/`#20`/`#22`) stay in the commit dialog's "Looks OK" gate, not duplicated in review.
 - `review_screen` + `commit_validation` share one cycle-free import path (the merge calls `structural_errors_for_sheet` via a lazy function-level import, since `commit_validation` imports `resolve_effective` from `review_screen` at module load). `test_review_screen` 232 → 236.
 - The commit-side controller `frappe.throw` guards + the preflight are unchanged — they remain the durable backstop / defense-in-depth.
+
+---
+
+## Amendment A — `#8` narrowed: an item MAY parent an item (2026-08-19, owner ruling)
+
+**This amends Decision point 4 only. The gate stays fully hard; points 1–3 are untouched.**
+
+Point 4 generalized `#8` from *item-under-item* to *item under **any** non-heading*, calling the
+new rule "a strict superset". The superset half was right and stays. The premise underneath it —
+that an item under another item is a defect at all — was wrong.
+
+**What was wrong with it.** Real bills nest a sub-item under its parent item: a rate breakdown, an
+accessory line, a sub-component priced separately beneath the assembly it belongs to. The review
+screen has *always* allowed a human to pick that parenting — the parent picker only greys out
+cycle-unsafe rows — so the product offered the move and then refused to finalize the sheet, with no
+override (point 1 removed the escape hatch, correctly, for genuine blockers). The result was a
+dead end reachable in two clicks, and the only way out was to undo work the user meant to do.
+
+**The narrowing.** `#8` now fires only when a Line Item's parent is a note, a subtotal marker, or a
+repeated header (`node_type == "Other"`). Those are text/marker rows that hold no children in any
+meaningful sense, so an item filed under one is almost always an accident — the case `#8` can still
+speak to. The wire code `line_item_parent_not_preamble` is **unchanged**: it is the discriminant of
+the frontend `StructuralBreak` union, and renaming it would be a breaking contract change for no
+behavioural gain. Its user-facing sentence changed; its identity did not.
+
+**One predicate, two sites.** `commit_validation.line_item_parent_ok(parent_node_type)` is the single
+definition, mirroring the existing `preamble_parent_ok`. It is read by the previewable validator
+(`validate_node_plan` `#8`) **and** by the durable `BOQ Nodes` controller backstop. Relaxing either
+alone re-opens exactly the review↔commit asymmetry this ADR exists to close — review would finalize a
+sheet the controller then throws on.
+
+**`#16` widened in the same change.** `pricingRollup` sums a node's own amount **plus** its
+descendants', so a priced parent double-counts. That is precisely why `#16` already warned about a
+priced *heading* with children; once an item can be a parent, a priced parent *item* is the identical
+shape. `#16` now covers both, voiced per type. It stays **advisory** — nesting a breakdown under a
+priced parent is sometimes what the bill genuinely says, so this informs, it never blocks.
+
+**Deliberately NOT changed:** the AI-pass and Gemini classification prompts still tell the model that
+only a preamble may parent a line_item. Those prompts govern what the parser *proposes*; this ruling
+governs what a human may *override to*. Relaxing the prompts is a separate, test-pinned change
+(pin first, reword second) needing its own re-certification, and there is no reason to want the
+classifier volunteering nested items.
+
+**Consequence — an accepted loss.** Item-under-item is now unverified by any structural gate. If a
+parser or AI regression started emitting it, nothing would flag it. That is the cost of the ruling and
+was accepted: the shape is legitimate, so a gate cannot tell an intended nesting from an accidental
+one. `#16` is the only remaining signal, and only when the parent is priced.

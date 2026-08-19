@@ -266,6 +266,35 @@ def preamble_parent_ok(node_level: Any, parent_node_type: Any, parent_level: Any
 
 
 # ---------------------------------------------------------------------------
+# SHARED #8 line-item-parent predicate (used by the controller AND validator).
+# ---------------------------------------------------------------------------
+
+_LINE_ITEM_PARENT_OK_TYPES = ("Preamble", "Line Item")
+
+
+def line_item_parent_ok(parent_node_type: Any) -> bool:
+    """Is a Line Item's parent acceptable? (NARROWED #8.)
+
+    OK iff the parent is a section heading (node_type == "Preamble") OR another item
+    (node_type == "Line Item"). A note / subtotal marker / repeated header (node_type
+    "Other") is NOT an acceptable parent.
+
+    THE NARROWING (owner ruling 2026-08-19): an item under ANOTHER ITEM used to be
+    blocked -- the whole point of the old rule -- and is now ALLOWED. Real bills nest a
+    sub-item under its parent item (a rate breakdown, an accessory line), and the review
+    screen has always let a human PICK that parenting; the gate then refused to finalize,
+    with no way to proceed. #8 now only catches the case it can still speak to: an item
+    filed under a text/marker row that was never meant to hold children -- which is
+    almost always an accident, not an intent.
+
+    This is the single definition used by BOTH the BOQ Nodes controller (durable
+    frappe.throw backstop) and validate_node_plan, mirroring preamble_parent_ok above,
+    so the two enforcement sites can never drift.
+    """
+    return parent_node_type in _LINE_ITEM_PARENT_OK_TYPES
+
+
+# ---------------------------------------------------------------------------
 # Plan builder -- finalized review rows -> a pure node plan (NO doc, NO insert).
 # ---------------------------------------------------------------------------
 
@@ -391,11 +420,14 @@ def validate_node_plan(
       #7  a section heading (Preamble, level > 1) whose parent fails the relaxed
           preamble_parent_ok rule (parent must be a strictly-shallower section heading).
           Mirrors the controller backstop: only checked when the row HAS an in-plan parent.
-      #8  an item (Line Item) whose in-plan parent is not a section heading.
+      #8  an item (Line Item) whose in-plan parent is neither a section heading nor
+          another item (i.e. a note / subtotal marker / repeated header). An item
+          under another item is ALLOWED -- see line_item_parent_ok.
 
     WARNINGS (advisory):
       #15 a section heading nested unusually deep (level > 5).
-      #16 a section heading that carries its own qty/any-rate AND has >=1 child in the plan.
+      #16 a PARENT row (section heading OR item) that carries its own qty/any-rate AND
+          has >=1 child in the plan.
       #20 a qty_by_area area name not in declared_areas -- identical area names across
           rows are folded into ONE finding with a row count (only checked when the BoQ
           declares areas at all).
@@ -432,12 +464,15 @@ def validate_node_plan(
                     what_to_do="Re-parent it under a higher-level heading in review.",
                 ))
 
-        # --- ERROR #8: an item's parent must be a section heading ---
-        if nt == "Line Item" and parent is not None and parent.get("node_type") != "Preamble":
+        # --- ERROR #8: an item's parent must be a heading OR another item ---
+        # NARROWED (owner ruling 2026-08-19): an item under ANOTHER ITEM is now ALLOWED and
+        # is no longer a finding -- see line_item_parent_ok. What remains is an item filed
+        # under a note / subtotal marker / repeated header (node_type "Other").
+        if nt == "Line Item" and parent is not None and not line_item_parent_ok(parent.get("node_type")):
             errors.append(_row_finding(
                 "error", "line_item_parent_not_preamble", sheet_name, p,
-                body="this item sits under a non-heading row (another item or a note) instead of a section heading.",
-                what_to_do="Move it under a section heading in review.",
+                body="this item sits under a note or marker row instead of a section heading.",
+                what_to_do="Move it under a section heading (or under its parent item) in review.",
             ))
 
         # --- WARNING #15: section heading nested unusually deep ---
@@ -448,16 +483,27 @@ def validate_node_plan(
                 what_to_do="Check the heading hierarchy in review.",
             ))
 
-        # --- WARNING #16: a priced section heading that also has children ---
-        if nt == "Preamble":
+        # --- WARNING #16: a priced PARENT row that also has children ---
+        # Widened past Preamble to Line Item alongside the #8 narrowing (owner ruling
+        # 2026-08-19): now that an item may parent another item, a priced parent ITEM is
+        # exactly the shape this warning already existed to catch for headings -- the
+        # summary rollup sums a node's own amount PLUS its descendants' (pricingRollup),
+        # so a priced parent with priced children is counted on both lines. Advisory only:
+        # it never blocks, because nesting a breakdown under a priced parent is sometimes
+        # genuinely what the bill says.
+        if nt in ("Preamble", "Line Item"):
             priced = any([
                 p.get("qty"), p.get("supply_rate"),
                 p.get("install_rate"), p.get("combined_rate"),
             ])
             if priced and idx in parent_idxs:
+                if nt == "Preamble":
+                    body = "this section heading carries its own quantity/rate but also contains sub-rows."
+                else:
+                    body = "this item carries its own quantity/rate but also contains sub-rows."
                 warnings.append(_row_finding(
                     "warning", "preamble_priced_with_children", sheet_name, p,
-                    body="this section heading carries its own quantity/rate but also contains sub-rows.",
+                    body=body,
                     what_to_do="Usually only the lowest-level rows carry quantities — verify in review.",
                 ))
 
@@ -521,11 +567,12 @@ _STRUCTURAL_ERROR_REASON_BY_CODE: dict[str, str] = {
         "This sub-heading isn't under a higher-level section heading — "
         "re-parent it under a higher-level heading."
     ),
-    # #8 -- an item under a non-heading row. STRICT SUPERSET of the retired line_item_as_parent:
-    # also catches an item filed under a note/subtotal, not only under another line_item.
+    # #8 -- an item under a note / subtotal marker / repeated header. NARROWED 2026-08-19:
+    # an item under ANOTHER ITEM is allowed and no longer produces this break. The code
+    # string is UNCHANGED (it is a wire contract the frontend break union + label map read).
     "line_item_parent_not_preamble": (
-        "This item is under a non-heading row (another item or a note) — "
-        "move it under a section heading."
+        "This item is under a note or marker row — "
+        "move it under a section heading, or under its parent item."
     ),
 }
 

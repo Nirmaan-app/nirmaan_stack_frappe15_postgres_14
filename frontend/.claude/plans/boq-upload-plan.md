@@ -31329,3 +31329,63 @@ would stay invisible until a pricer opened the file.
 * The fill and the new column order are **not themselves browser-verified** -- they came FROM a
   live check, and a second one is worth doing on the produced file.
 * The whitelisted endpoint's happy path remains untested (it fetches from S3).
+
+---
+
+## Build slice REV-#8N — an item may parent an item (2026-08-19, owner ruling)
+
+**ADR-0008 Amendment A.** Structural ERROR #8 stopped covering item-under-ITEM. Review had always
+*offered* the move (the parent picker greys out cycle-unsafe rows only, and `RestructureModal`'s
+`PARENT_CAPABLE` already listed `line_item`) and the fully-hard finalize gate then refused it with no
+override — a dead end reachable in two clicks. Scope was narrowed on the owner's call: item-under-note
+and item-under-marker still block, because a text row holds no children in any meaningful sense.
+
+### What changed
+
+| File | Change |
+|---|---|
+| `commit_validation.py` | NEW shared `line_item_parent_ok(parent_node_type)` (mirrors `preamble_parent_ok`); #8 reads it; #16 widened to `("Preamble", "Line Item")` with per-type wording; #8 finding body + `_STRUCTURAL_ERROR_REASON_BY_CODE` reworded |
+| `integrations/controllers/boq_nodes.py` | durable backstop imports + reads the SAME predicate; throw message reworded |
+| `review_screen.py` / `ai_assist.py` | stale prose comments only |
+| `ReviewTree.tsx` | `WARN_BREAK_LABELS` → "Item under a note or marker row" |
+| `boqTypes.ts` | comment: the `...NotPreamble` type name keeps the wire code's spelling |
+
+**The wire code `line_item_parent_not_preamble` is unchanged** — it discriminates the frontend
+`StructuralBreak` union. #7 untouched, so a sub-heading under an item still blocks.
+
+**#16 widened in the same change, deliberately:** `pricingRollup` sums a node's own amount plus its
+descendants', so a priced parent item double-counts exactly as a priced heading with children does.
+Advisory only — it never blocks, because a breakdown under a priced parent is sometimes what the bill
+says.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `test_commit_validation` | 51 → **55 pass** |
+| `test_review_screen` | 273 → **275 pass** |
+| `test_boq_nodes` | **78 pass** (controller test flipped: item-under-item now asserts a successful INSERT + correct `path`) |
+| `test_is_excluded_filter` | **7 pass** (#8 producer moved to a note parent — only the `is_excluded` filter is under test there) |
+| `test_commit_pipeline` / `test_commit_gate` | **64 / 37 pass** (downstream, untouched) |
+| full vitest (in-container) | **2801 pass, 76 files** |
+| `tsc` | **0 errors in `boq-wizard`** (3227 pre-existing elsewhere, unrelated) |
+| `residence_check.py` | F5/F2 already red at 119/220 **before** this change — verified identical with these files stashed out; this slice contributes 0 |
+
+New positive tests pin the ruling at every tier so it cannot be silently re-tightened:
+`test_error8_line_item_under_line_item_is_clean` (validator), `test_nested_item_finalises` (gate),
+`test_item_under_item_surfaces_no_break` (read endpoint), `test_line_item_under_line_item_is_accepted`
+(durable controller).
+
+### Deliberately not changed
+
+* **The AI-pass and Gemini prompts** still say only a preamble may parent a line_item. They govern what
+  the parser *proposes*; this ruling governs what a human may *override to*. Both are test-pinned —
+  changing them is a pin-first-reword-second slice with its own re-certification.
+
+### Still open
+
+* **Not browser-verified.** The whole change is server-side rule + one label; the suites cover every
+  tier including the durable controller. A live pass (reparent an Item under an Item in review →
+  no must-fix entry → Finalize → commit) is still worth doing.
+* **Accepted loss:** item-under-item is now unverified by any structural gate. A parser/AI regression
+  emitting it would not be flagged. #16 is the only remaining signal, and only when the parent is priced.

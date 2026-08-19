@@ -511,9 +511,10 @@ def accept_ai_suggestion(
     # AI-3c-3 SCOPE GUARD: a CLASSIFICATION accept on a row WITH children is ALSO the modal
     # path. Reclassifying a parent-capable row (e.g. preamble) to a non-parent class (note/
     # spacer/line_item) while it still has children would leave them under a now-non-parent
-    # row -- a broken tree. (Post-S2: the shared structural check now flags an item under ANY
-    # non-heading parent -- note/spacer included -- via #8 line_item_parent_not_preamble, and the
-    # finalize gate hard-blocks it; the modal still re-places the children cleanly up front.) The
+    # row -- a broken tree. (Post-S2: the shared structural check flags an item under a
+    # note/spacer parent via #8 line_item_parent_not_preamble and the finalize gate hard-blocks
+    # it; since the 2026-08-19 narrowing an item under another ITEM is allowed and no longer
+    # flagged. The modal still re-places the children cleanly up front.) The
     # children need disposition via the
     # RestructureModal -> save_review_restructure (the frontend routes there). Mirrors the
     # manual onPickClass rule: ANY with-children reclassify goes through the modal.

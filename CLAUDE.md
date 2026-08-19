@@ -143,8 +143,15 @@ First worked proof: the `sidebar_counts` aggregate rewrite + the shared `service
   engines. The C4 reconciliation asserts the DERIVED value **at its call site only** -- the shared
   `_jsn` helper still guards `append_notes_raw` / `edit_log` / `description_parts_raw` and must not be
   touched. `BUG_24_NOTE_PARENT_INDEX_ENABLED` is **RETIRED** (slice 1 made one `target` drive pointer,
-  parent and notes-key, so setting it False would MANUFACTURE a divergence). **An item cannot be the
-  parent of another item** -- the finalize gate refuses it ("Item not under a section heading").
+  parent and notes-key, so setting it False would MANUFACTURE a divergence). **An item MAY be the
+  parent of another item** (owner ruling 2026-08-19, REVERSING the prior "cannot"): review has always
+  let a human pick that parenting and the gate then refused it, with no way forward. Structural error
+  #8 now fires ONLY for an item under a note / subtotal marker / repeated header. The rule has exactly
+  TWO enforcement sites and they share ONE predicate, `commit_validation.line_item_parent_ok` -- the
+  previewable validator and the durable `BOQ Nodes` controller backstop; relaxing either alone lets
+  review finalize a sheet the commit then rejects. **Warning #16 widened to Line Item in the SAME
+  change and must stay:** `pricingRollup` sums a node's own amount PLUS its descendants', so a priced
+  parent item double-counts -- advisory only, it never blocks.
 - **`matching_mode: "item_identity"` routes a category to the composite-REFUSAL prompt (owner-locked).**
   `extraction.select_prompt_text` hands such a category `prompts/boq_rate_item_identity_prompt.md`, which
   instructs the model to return null for any row describing "MULTIPLE items or an assembled unit". It must
