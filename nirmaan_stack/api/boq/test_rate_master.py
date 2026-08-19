@@ -180,13 +180,15 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # ⚠️ v42 IS ABSENT FROM THIS REPO BY CONSTRUCTION. Production minted it (the goldens re-bank) and
 # dev never received it; this file is production's NEXT mint. `mint_completeness_check` will
 # therefore report v42 as UNINSPECTABLE, which is true and is exactly what that report is for.
-# ⚠️ TWO switches_sockets goldens (s1, ss1) ARE NOW STALE against the revised switch/socket rates --
-# s1 expects supply 110 where the new prices give 120, ss1 expects 740/150/510 where they give
-# 820/170/570. They are ORACLES: they must be re-banked in-product and re-exported, NEVER recomputed
-# from our own interpreter, which would make them pass by construction and pin nothing. Reported to
-# the owner; not fixed here. The vitest interpreter pins are unaffected -- they carry their own
-# inline catalogs and read no asset.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v43.json"
+# ✅ THE TWO STALE switches_sockets GOLDENS ARE RE-BANKED (slice 4, 2026-08-19, v44).
+# s1 supply 110 -> 120; ss1 740/150/510 -> 820/170/570, against the switch/socket rates adopted with
+# v43. The 2026-08-19 reclassification governs: goldens are REGRESSION CANARIES, not oracles, and
+# re-banking one from our own interpreter is CORRECT -- Deployment Mode v1.1 is the authority. (The
+# superseded "they are ORACLES, never recompute" wording stood here until that ruling.) Both values
+# were derived twice and agreed: by hand from the catalog list prices x the rate stages, and by the
+# product's own RM-4b preview gate. The vitest interpreter pins are unaffected -- they carry their
+# own inline catalogs and read no asset.
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v44.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -2475,8 +2477,12 @@ class TestRateMaster(FrappeTestCase):
         by_id = {g["id"]: g for g in (cfg.get("goldens") or [])}
         self.assertIn("s1", by_id)
         s1 = by_id["s1"]
-        # the VALUES are the invariant -- they must read identically before and after the rebuild
-        self.assertEqual(s1["expect"]["swsock_boq"]["supply"], 110.0)
+        # The VALUES had to read identically before and after THE REBUILD -- that was a claim about
+        # the rebuild, never a claim that these prices are permanent.
+        # SLICE 4 / B4 (owner ruling R7, 2026-08-19): RE-BANKED for the switch/socket rates adopted
+        # with v43. Goldens are REGRESSION CANARIES (2026-08-19), re-banked mechanically.
+        # supply 110 -> 120 (raw 309 x 0.3625 = 112.0125 -> tens 120); install + BCS did NOT move.
+        self.assertEqual(s1["expect"]["swsock_boq"]["supply"], 120.0)
         self.assertEqual(s1["expect"]["swsock_boq"]["install"], 30.0)
         self.assertEqual(s1["expect"]["swsock_bcs"]["bcs_supply"], 80.0)
         # AFTER: re-stated as ONE socket, every other component POSITIVELY ABSENT ("None", not blank)
@@ -2500,9 +2506,17 @@ class TestRateMaster(FrappeTestCase):
         #   2024 x0.25   = 506.00 -> tens 510
         self.assertIn("ss1", by_id)
         ss1 = by_id["ss1"]
-        self.assertEqual(ss1["expect"]["swsock_boq"]["supply"], 740.0)
-        self.assertEqual(ss1["expect"]["swsock_boq"]["install"], 150.0)
-        self.assertEqual(ss1["expect"]["swsock_bcs"]["bcs_supply"], 510.0)
+        # SLICE 4 / B4 (owner ruling R8, 2026-08-19): RE-BANKED for the switch/socket rates adopted
+        # with v43. Goldens are REGRESSION CANARIES (2026-08-19), re-banked mechanically; the block
+        # above recites the SUPERSEDED 2024-raw arithmetic and is kept as the re-mint's own record.
+        # The v43 rates give: 290 + 464 + 309x2 + 70 + 446(8M plate) + 362(8M box) = raw 2250;
+        #   2250 x0.3625 = 815.625 -> tens 820 ; 820 x0.2 = 164 -> tens 170 ;
+        #   2250 x0.25   = 562.5   -> tens 570.
+        # ⚠️ These three were MASKED last round: unittest reports only the FIRST failing assertion
+        # per test, so the s1 failure above hid them. Found by an execution-independent sweep.
+        self.assertEqual(ss1["expect"]["swsock_boq"]["supply"], 820.0)
+        self.assertEqual(ss1["expect"]["swsock_boq"]["install"], 170.0)
+        self.assertEqual(ss1["expect"]["swsock_bcs"]["bcs_supply"], 570.0)
         # the re-mint is COHERENT: an 8M plate holding the 7 modules its contents occupy, leaving 1
         self.assertEqual(ss1["attrs"]["plate_item"], "8M")
         self.assertEqual(ss1["attrs"]["blank_item"], "1M Blanker")
@@ -2659,11 +2673,15 @@ class TestRateMaster(FrappeTestCase):
             {"discipline": "Electrical", "category_id": "switches_sockets", "active": 1}, "config",
         ))
         ssg = {g["id"]: g for g in ss["goldens"]}
-        self.assertEqual(ssg["s1"]["expect"]["swsock_boq"], {"supply": 110.0, "install": 30.0})
+        # SLICE 4 / B4 (owner ruling R7, 2026-08-19): these four were "UNMOVED by the back_box fix"
+        # cross-checks -- a claim about THAT slice's blast radius, not about the prices themselves.
+        # RE-BANKED for the v43 switch/socket rates; goldens are REGRESSION CANARIES (2026-08-19).
+        # s1 supply 110 -> 120 (BCS unmoved); ss1 740/150/510 -> 820/170/570 (raw sum 2024 -> 2250).
+        self.assertEqual(ssg["s1"]["expect"]["swsock_boq"], {"supply": 120.0, "install": 30.0})
         self.assertEqual(ssg["s1"]["expect"]["swsock_bcs"], {"bcs_supply": 80.0})
         # ss1 was RE-MINTED coherent by slice 2 part 2 (8M plate, 7 occupied, 1 computed blank)
-        self.assertEqual(ssg["ss1"]["expect"]["swsock_boq"], {"supply": 740.0, "install": 150.0})
-        self.assertEqual(ssg["ss1"]["expect"]["swsock_bcs"], {"bcs_supply": 510.0})
+        self.assertEqual(ssg["ss1"]["expect"]["swsock_boq"], {"supply": 820.0, "install": 170.0})
+        self.assertEqual(ssg["ss1"]["expect"]["swsock_bcs"], {"bcs_supply": 570.0})
 
     # ---- SLICE 2 part 1: the STEP-VOCABULARY PIN (C5) ----
     #
@@ -3483,8 +3501,11 @@ class TestRateMaster(FrappeTestCase):
         ss1 = {g["id"]: g for g in payload["goldens"]["switches_sockets"]}["ss1"]
         self.assertEqual(ss1["attrs"]["plate_item"], "8M")
         self.assertEqual(ss1["attrs"]["blank_qty"], 1.0)
-        self.assertEqual(ss1["expect"]["swsock_boq"], {"supply": 740.0, "install": 150.0})
-        self.assertEqual(ss1["expect"]["swsock_bcs"], {"bcs_supply": 510.0})
+        # SLICE 4 / B4 (owner ruling R7, 2026-08-19): incidental value pins beside the SHAPE pins
+        # above -- this test's subject is config-level-vs-top-level AGREEMENT (#178), which is
+        # unaffected. RE-BANKED for the v43 rates; goldens are REGRESSION CANARIES (2026-08-19).
+        self.assertEqual(ss1["expect"]["swsock_boq"], {"supply": 820.0, "install": 170.0})
+        self.assertEqual(ss1["expect"]["swsock_bcs"], {"bcs_supply": 570.0})
 
         # NEGATIVE: no OTHER category may carry a divergent second copy either
         for cfg in payload["category_configs"]:
@@ -4894,6 +4915,196 @@ class TestRateMaster(FrappeTestCase):
         _s, collide = csv_importer.classify_columns(
             ["item_uid", "kind", "material"], {"material"}, {"material"})
         self.assertTrue(any("both an attribute and a rate key" in e["message"] for e in collide))
+
+    # ── SLICE 4 (F-1 / F-8): three free NUMBER fields become CATALOGUE-FED pick-lists ──────────
+    #
+    # Configuration only -- the `number_choice` + `values_from` mechanism already shipped four
+    # times. What these pin is the three OWNER RULINGS, each with its negative half, because each
+    # one is a choice that a later reader could plausibly "tidy" the wrong way:
+    #
+    #   R1 STRICT   -- a value the catalogue does not carry is refused, not offered (frontend half)
+    #   R2 CABLE    -- wiring draws from the `cable` kind, NOT `termination`
+    #   R3 GLOBAL   -- the lists are unfiltered; there is deliberately NO `where` key
+    #
+    # These read the SHIPPED asset, not a synthetic fixture, so they fail if a future mint drops
+    # the change. The vitest suite covers the panel/gate behaviour on the other side of the wire.
+
+    def test_102_the_three_slice4_attributes_are_catalogue_fed_dropdowns(self):
+        """POSITIVE + NEGATIVE. The three attributes are `number_choice` bound to the live catalogue.
+
+        The NEGATIVE half is the load-bearing one: R3 (GLOBAL) means these carry NO `where` key.
+        point_wiring's equivalents DO carry one ({material: COPPER, insulation: UNARMOURED}), so a
+        reader copying that shape across would silently narrow these lists and start hiding
+        catalogue values the owner ruled must be offered. `assertNotIn("where", ...)` is what stops
+        that, and it must not be deleted as redundant.
+
+        `number_choice`, not `choice`, is equally deliberate: matchMasterRow compares with `===`, so
+        a plain `choice` emits the STRING "25" against a stored 25.0 and matches nothing, silently.
+        """
+        payload = self._current_eall_asset()
+        cfgs = {c["category_id"]: c for c in payload["category_configs"]}
+        expected = {
+            ("conduit_piping", "size_mm"): {"kind": "conduit", "attr": "size_mm"},
+            ("wiring_cabling", "core"): {"kind": "cable", "attr": "core"},
+            ("wiring_cabling", "thickness_sqmm"): {"kind": "cable", "attr": "thickness_sqmm"},
+        }
+        for (cid, aid), vf in expected.items():
+            d = {x["id"]: x for x in cfgs[cid]["attribute_definitions"]}[aid]
+            self.assertEqual(d["type"], "number_choice", f"{cid}.{aid} must be a NUMERIC dropdown")
+            self.assertEqual(d["values_from"], vf, f"{cid}.{aid} values_from")
+            # NEGATIVE -- R3: global, never row-filtered. No `where`, and no static list either.
+            self.assertNotIn("where", d["values_from"], f"{cid}.{aid} must stay GLOBAL (R3)")
+            self.assertIsNone(d.get("values"), f"{cid}.{aid} must never carry a static list")
+
+    def test_103_wiring_lists_resolve_from_cable_never_termination(self):
+        """R2, pinned by the values that DISTINGUISH the two kinds -- the only way to pin it.
+
+        Asserting "the list resolves" proves nothing: cable and termination overlap heavily, so a
+        list built from the wrong kind still looks plausible. These two values are the discriminator:
+        `core 8` and `thickness 0.75` exist in cable and NOT in termination. Repoint either
+        values_from at `termination` and exactly these assertions go red.
+
+        The accepted consequence (owner, R2) is that a termination-only row can now be offered a
+        value termination cannot price -- e.g. the two live 8-core rows. That is deliberate.
+        """
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._asset_payload(disc))
+        cable_core = extraction.values_from_catalog(disc, {"kind": "cable", "attr": "core"})
+        cable_th = extraction.values_from_catalog(disc, {"kind": "cable", "attr": "thickness_sqmm"})
+        term_core = extraction.values_from_catalog(disc, {"kind": "termination", "attr": "core"})
+        term_th = extraction.values_from_catalog(
+            disc, {"kind": "termination", "attr": "thickness_sqmm"})
+
+        # POSITIVE: the cable-only values ARE offered
+        self.assertIn(8.0, cable_core, "core 8 is a cable value and must be offered")
+        self.assertIn(0.75, cable_th, "thickness 0.75 is a cable value and must be offered")
+        # NEGATIVE: they are absent from termination -- which is what makes them discriminators
+        self.assertNotIn(8.0, term_core)
+        self.assertNotIn(0.75, term_th)
+        # and the cable domain is a strict SUPERSET here, so "wrong kind" is always detectable
+        self.assertTrue(set(term_core) < set(cable_core))
+        self.assertTrue(set(term_th) < set(cable_th))
+
+    def test_104_the_lists_are_global_and_ignore_the_rows_other_attributes(self):
+        """R3. A GLOBAL list is the union across every material/insulation combination.
+
+        Pinned by a value that exists under ONE combination only: `core 24` is COPPER/ARMOURED-only,
+        and `thickness 0.5` is COPPER/UNARMOURED-only. A row-filtered list would drop whichever one
+        did not match the row -- so their simultaneous presence proves no filtering is happening.
+
+        This is what makes the 3.5-core/150 COMBINATION gap invisible to this slice, which the owner
+        ruled is a separate finding and explicitly NOT this slice's job.
+        """
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._asset_payload(disc))
+        cores = extraction.values_from_catalog(disc, {"kind": "cable", "attr": "core"})
+        ths = extraction.values_from_catalog(disc, {"kind": "cable", "attr": "thickness_sqmm"})
+        # values from DIFFERENT, mutually exclusive combinations coexist in one list
+        self.assertIn(24.0, cores)    # COPPER/ARMOURED only
+        self.assertIn(3.5, cores)     # ARMOURED only (either material)
+        self.assertIn(0.5, ths)       # COPPER/UNARMOURED only
+        self.assertIn(400.0, ths)     # ARMOURED-heavy end
+        # the union is strictly larger than any single combination's own domain
+        one_combo = {
+            it["attributes"]["core"]
+            for it in frappe.get_all(
+                "BoQ Rate Master Item",
+                filters={"discipline": disc, "kind": "cable", "active": 1},
+                fields=["attributes"])
+            if _obj(it["attributes"]).get("material") == "ALUMINIUM"
+            and _obj(it["attributes"]).get("insulation") == "UNARMOURED"
+        }
+        self.assertTrue(set(cores) > {float(c) for c in one_combo})
+
+    def test_105_the_four_already_shipped_number_choice_attributes_are_unchanged(self):
+        """NEGATIVE / regression. Slice 4 must not disturb the four precedents it copied.
+
+        point_wiring's two keep their `where` filter -- that asymmetry with the slice-4 three IS the
+        R3 ruling, and a later "consistency" pass that stripped it would silently widen point_wiring's
+        wire lists to every cable in the catalogue, including armoured ones a point wire never uses.
+        """
+        cfgs = {c["category_id"]: c for c in self._current_eall_asset()["category_configs"]}
+        pw = {d["id"]: d for d in cfgs["point_wiring"]["attribute_definitions"]}
+        where = {"material": "COPPER", "insulation": "UNARMOURED"}
+        for aid, attr in (("wire1_core", "core"), ("wire1_thickness_sqmm", "thickness_sqmm"),
+                          ("wire2_core", "core"), ("wire2_thickness_sqmm", "thickness_sqmm")):
+            self.assertEqual(pw[aid]["type"], "number_choice", aid)
+            self.assertEqual(pw[aid]["values_from"]["kind"], "cable", aid)
+            self.assertEqual(pw[aid]["values_from"]["attr"], attr, aid)
+            # POSITIVE: point_wiring KEEPS its filter -- the deliberate asymmetry with slice 4
+            self.assertEqual(pw[aid]["values_from"]["where"], where, aid)
+        jb = {d["id"]: d for d in cfgs["junction_box_raceway"]["attribute_definitions"]}
+        self.assertEqual(jb["face_mm"]["type"], "number_choice")
+        self.assertEqual(jb["face_mm"]["values_from"], {"kind": "junction_box", "attr": "face_mm"})
+        ct = {d["id"]: d for d in cfgs["cabletray_raceway"]["attribute_definitions"]}
+        self.assertEqual(ct["thickness_mm"]["type"], "number_choice")
+        self.assertEqual(ct["thickness_mm"]["values_from"],
+                         {"kind": "cable_tray", "attr": "thickness_mm"})
+
+    def test_106_the_switch_socket_goldens_are_rebanked_to_the_current_rates(self):
+        """B4. The two stale switches_sockets goldens, re-banked against the rates adopted with v43.
+
+        Goldens are REGRESSION CANARIES (2026-08-19), so recomputing them from our own interpreter is
+        correct. Both values were derived TWICE and agreed -- by hand from the catalog list prices x
+        the rate stages, and by the product's own RM-4b preview gate.
+
+        The arithmetic, so a future reader can re-check it without re-deriving the pipeline:
+          s1  = 309 (6A 3-Pin Socket White) -> roundup(309 x 0.3625, -1) = 120 supply
+          ss1 = 290 + 464 + 309x2 + 70 + 446 + 362 = 2250 raw
+                -> roundup(2250 x 0.3625, -1) = 820 ; roundup(820 x 0.2, -1) = 170
+                -> roundup(2250 x 0.25, -1)   = 570
+
+        NEGATIVE half: s1's install and BCS did NOT move (30 / 80). Exactly four numbers changed, and
+        asserting the two that held is what proves this was a re-bank and not a blanket overwrite.
+        """
+        goldens = {g["id"]: g for g in self._current_eall_asset()["goldens"]["switches_sockets"]}
+        self.assertEqual(goldens["s1"]["expect"], {
+            "swsock_boq": {"supply": 120.0, "install": 30.0},
+            "swsock_bcs": {"bcs_supply": 80.0},
+        })
+        self.assertEqual(goldens["ss1"]["expect"], {
+            "swsock_boq": {"supply": 820.0, "install": 170.0},
+            "swsock_bcs": {"bcs_supply": 570.0},
+        })
+
+    def test_107_an_out_of_catalogue_value_is_refused_silently_at_coercion(self):
+        """R1 + R4, the SERVER half of "the catalogue is the boundary".
+
+        This is what makes the three attributes a real boundary rather than a cosmetic dropdown: on a
+        FRESH extraction, a value outside the resolved domain is discarded before it is ever stored,
+        with reason COERCE_OUTSIDE_DOMAIN, and the row arrives BLANK. No message, no new text, no
+        near-miss substitution -- the owner ruled a non-match refuses SILENTLY and the pricer decides.
+
+        Pinned against the REAL resolved domains, not a hand-written list, so it tracks the catalogue.
+        The values are the live ones this slice was built for: conduit 80 mm (5 live rows ask for a
+        size we do not stock) and cable 180 sqmm (1 live row).
+
+        NEGATIVE half: an IN-catalogue value survives coercion untouched and keeps its numeric type --
+        which is the whole reason these are `number_choice` and not `choice` (matchMasterRow compares
+        with `===`, so a string "25" would match a stored 25.0 nowhere, silently).
+        """
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._asset_payload(disc))
+        size_def = {"id": "size_mm", "label": "Size (mm)", "type": "number_choice",
+                    "values": extraction.values_from_catalog(
+                        disc, {"kind": "conduit", "attr": "size_mm"})}
+        th_def = {"id": "thickness_sqmm", "label": "Thickness (sqmm)", "type": "number_choice",
+                  "values": extraction.values_from_catalog(
+                      disc, {"kind": "cable", "attr": "thickness_sqmm"})}
+
+        # NEGATIVE: outside the domain -> dropped, and the REASON says which check dropped it
+        for defn, bad in ((size_def, 80), (th_def, 180)):
+            value, reason = extraction._coerce_value_ex(defn, bad)
+            self.assertIsNone(value, f"{defn['id']}={bad} must be refused")
+            self.assertEqual(reason, extraction.COERCE_OUTSIDE_DOMAIN, f"{defn['id']}={bad}")
+
+        # POSITIVE: inside the domain -> kept, numeric, and equal to what the catalog stores
+        value, reason = extraction._coerce_value_ex(size_def, 25)
+        self.assertEqual(value, 25)
+        self.assertEqual(reason, extraction.COERCE_OK)
+        self.assertIsInstance(value, (int, float))
+        # ...and the string form the model may return is accepted too (like compared with like)
+        self.assertEqual(extraction._coerce_value_ex(th_def, "2.5")[0], 2.5)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════════════════════
