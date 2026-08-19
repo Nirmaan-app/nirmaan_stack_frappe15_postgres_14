@@ -53,6 +53,11 @@ import { useUserData } from "@/hooks/useUserData";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 
 // --- Constants ---
+// Total Invoiced and Amount Due are computed in the browser, so they have no backend
+// field to order by and are sorted over the current page instead.
+const CLIENT_SORT_COLUMN_IDS = ["total_invoiced", "amount_due"];
+const VENDOR_SCOPED_PAGE_SIZE = 500;
+
 const DOCTYPE = "Service Requests";
 
 interface AllSRListProps {
@@ -397,7 +402,14 @@ export const AllSRList: React.FC<AllSRListProps> = ({
       },
       {
         id: "amount_due",
-        header: "Amount Due",
+        // total_amount - amount_paid, computed in the browser, so it is sorted
+        // client-side via `CLIENT_SORT_COLUMN_IDS` - never sent as a backend order_by.
+        accessorFn: (row) =>
+          (parseNumber(row.total_amount) || 0) - (parseNumber(row.amount_paid) || 0),
+        sortingFn: "basic",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Amount Due" />
+        ),
         cell: ({ row }) => {
           const total = parseNumber(row.original.total_amount) || 0;
           const paid = parseNumber(row.original.amount_paid) || 0;
@@ -408,7 +420,7 @@ export const AllSRList: React.FC<AllSRListProps> = ({
             </div>
           );
         },
-        enableSorting: false,
+        enableSorting: true,
         size: 150,
         meta: {
           exportHeaderName: "Amount Due",
@@ -421,6 +433,10 @@ export const AllSRList: React.FC<AllSRListProps> = ({
       },
       {
         id: "total_invoiced",
+        // Derived from the separate Vendor Invoices fetch (`invoiceTotalsMap`);
+        // likewise client-sorted.
+        accessorFn: (row) => invoiceTotalsMap.get(row.name) ?? 0,
+        sortingFn: "basic",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Total Invoiced" className="justify-end" />
         ),
@@ -433,7 +449,7 @@ export const AllSRList: React.FC<AllSRListProps> = ({
           );
         },
         size: 150,
-        enableSorting: false,
+        enableSorting: true,
         meta: { exportHeaderName: "Total Invoiced", exportValue: (row: ServiceRequests) => invoiceTotalsMap.get(row.name) ?? 0 },
       },
       {
@@ -471,6 +487,11 @@ export const AllSRList: React.FC<AllSRListProps> = ({
     defaultSort: "modified desc",
     enableRowSelection: true,
     additionalFilters: staticFilters,
+    clientSortColumnIds: CLIENT_SORT_COLUMN_IDS,
+    // The client-side sort only orders the CURRENT PAGE, so the vendor tab - where a
+    // single vendor's whole work-order list normally fits - gets a large page. The
+    // standalone Service Requests page keeps the default.
+    defaultPageSize: for_vendor ? VENDOR_SCOPED_PAGE_SIZE : undefined,
   });
 
   // project / vendor facets migrated to the self-fetching facet interface (ADR-0010 "Option 2")

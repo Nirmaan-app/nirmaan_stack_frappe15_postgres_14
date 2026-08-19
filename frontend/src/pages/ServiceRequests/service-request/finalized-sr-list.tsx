@@ -55,6 +55,11 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useUserData } from "@/hooks/useUserData";
 
 // --- Constants ---
+// Total Invoiced and Amount Due are computed in the browser, so they have no backend
+// field to order by and are sorted over the current page instead.
+const CLIENT_SORT_COLUMN_IDS = ["total_invoiced", "amount_due"];
+const VENDOR_SCOPED_PAGE_SIZE = 500;
+
 const DOCTYPE = "Service Requests";
 
 interface FinalizedSRListProps {
@@ -426,7 +431,14 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
       },
       {
         id: "amount_due",
-        header: "Amount Due",
+        // total_amount - amount_paid, computed in the browser, so it is sorted
+        // client-side via `CLIENT_SORT_COLUMN_IDS` - never sent as a backend order_by.
+        accessorFn: (row) =>
+          (parseNumber(row.total_amount) || 0) - (parseNumber(row.amount_paid) || 0),
+        sortingFn: "basic",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Amount Due" />
+        ),
         cell: ({ row }) => {
           const total = parseNumber(row.original.total_amount) || 0;
           const paid = parseNumber(row.original.amount_paid) || 0;
@@ -437,7 +449,7 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
             </div>
           );
         },
-        enableSorting: false,
+        enableSorting: true,
         size: 150,
         meta: {
           exportHeaderName: "Amount Due",
@@ -450,6 +462,10 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
       },
       {
         id: "total_invoiced",
+        // Derived from the separate Vendor Invoices fetch (`invoiceTotalsMap`);
+        // likewise client-sorted.
+        accessorFn: (row) => invoiceTotalsMap.get(row.name) ?? 0,
+        sortingFn: "basic",
         header: ({ column }) => (
           <DataTableColumnHeader
             column={column}
@@ -466,7 +482,7 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
           );
         },
         size: 150,
-        enableSorting: false,
+        enableSorting: true,
         meta: {
           exportHeaderName: "Total Invoiced",
           exportValue: (row: ServiceRequests) =>
@@ -516,6 +532,11 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
     defaultSort: "modified desc",
     enableRowSelection: true,
     additionalFilters: staticFilters,
+    clientSortColumnIds: CLIENT_SORT_COLUMN_IDS,
+    // The client-side sort only orders the CURRENT PAGE, so the vendor tab - where a
+    // single vendor's whole work-order list normally fits - gets a large page. The
+    // standalone Service Requests page keeps the default.
+    defaultPageSize: for_vendor ? VENDOR_SCOPED_PAGE_SIZE : undefined,
   });
 
   // --- Static Faceted Filter Options ---
