@@ -1070,6 +1070,22 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   loader now carries none, and the F-20 sweep fixed the third one
   (`scripts/backfill_rate_master_item_uid.py`, v30 → v31). **Any new file naming an asset version must
   justify itself against this line** — three independent pins had already drifted apart once.
+- **⚠️ THE E-ALL ASSET FILENAME SHAPE IS LOAD-BEARING — A RENAME IS INVISIBLE, NOT LOUD.**
+  `scripts/mint_completeness_check.py` compiles the series regex
+  `^rate_master_electrical_all_v(\d+)([a-z]*)\.json$` and `uninspectable_versions()` matches **every
+  file in the data directory** against it to derive which mints cannot be inspected. A file named
+  outside that shape — an environment marker such as `..._dev_v43.json`, a discipline rename, any
+  decoration — **does not match, so the gate never sees it**: the series appears to stop at the last
+  conforming file, and that mint plus every later one silently drops out of the census. Nothing
+  fails; the report is simply wrong. **A proposal to re-shape these filenames must change the regex
+  in the same edit, or be declined.** Declined once already, on 2026-08-19, when a dev/prod
+  environment-marker convention was proposed and the conventional name was kept instead.
+- **⚠️ A VERSION MAY BE LEGITIMATELY ABSENT FROM THIS REPO, AND THE GATE IS RIGHT TO SAY SO.**
+  PRODUCTION mints into the same numeric series (a rate re-entry there is exported and adopted here —
+  v41 and v43 both originate in production's database, not in a dev mint), so a version production
+  minted and dev never received is **genuinely uninspectable** and belongs in that report. Do NOT
+  "close the gap" by renumbering an adopted asset to fill the hole: the number would then name a file
+  whose content is not what production called by that name, which is worse than an honest absence.
 - **⚠️ THE BOOTSTRAP GROUND (measured by the F-20 recon; do not re-derive it).** The
   *empty-check + explicit-force* contract **ALREADY EXISTS** one layer down: `_load_multi` counts the
   active scope and **refuses a non-replace load over a populated scope**, so `replace=False` IS the

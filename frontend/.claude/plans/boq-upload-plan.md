@@ -30996,3 +30996,124 @@ live freeze and asserts `pricing.py` names neither rate-master doctype. `test_rm
 positively pin that exports and preview survive a freeze and that the guard is absent from
 `_require_rate_admin`. A database without the doctype degrades to inert, proven live against an empty
 `tabSingles`.
+
+---
+
+## Dev sync -- adopt production's asset as v43 (2026-08-19)
+
+**This was a Deployment Mode dev-sync, NOT a feature slice.** It changes DATA, not behaviour. No
+config was touched, no re-extraction was run, no AI call was made. Branch
+`feature/boq-pricing-helper`, from tip `97f21cc3`.
+
+**Why it had to happen first.** Dev's rate-master DATABASE was still on **v40**. v41 (production's
+cable re-mint) was committed to the repo yesterday but **never loaded here**, and production had since
+moved two changes further -- a goldens re-bank (its v42) and a switch/socket rate revision. Anything
+minted from dev today would have carried stale rates and reverted production on the next deployment:
+the exact failure that lost 235 cable prices on 2026-08-18.
+
+### V1-V3 -- the Deployment Mode comparison (Check A)
+
+Production's export (`rate_master_electrical_v14.json`, 702,345 bytes, sha256 `5d17cf7d...`, LF-only)
+compared against committed `rate_master_electrical_all_v41.json`, key by key.
+
+| | Finding |
+|---|---|
+| **V1** items | **1364 both sides. 0 added, 0 removed, 0 re-keyed.** Exactly ONE field moved: `switch_socket_item.rates.list_price`, on **55 of 58** rows. No other kind moved -- `cable_tray` included, which is why the tray certs below are unchanged. |
+| **V1** top level | `discipline`, `retired_kinds`, `retired_category_ids`, `retirement_reasons`, `source_workbook` all identical. |
+| **V2** configs | **NO COLLISION.** 12 configs both sides, same ids. **11 byte-identical**; `wiring_cabling` differs on **`goldens` ONLY** -- the known, expected exception. Attribute definitions, pipelines, `item_kinds`, `rules`, `extraction_defaults` are untouched everywhere. |
+| **V3** wiring goldens | **g1, g2, g3, g5 differ; g4 unchanged** -- exactly as the spec anticipated. g1 120/87 -> **130/97**, g2 200/150 -> **170/127**, g3 210/160 -> **200/150**, g5 630/469 -> **720/537**. These are production's re-banked values; the v41 note predicted this and asked for exactly it. |
+| **V3** switch/socket goldens | **WARNING -- BOTH ARE NOW STALE.** They are byte-identical between v41 and production, while 55 of the 58 rates beneath them moved. Confirmed by the product's OWN preview gate, which reports **4 changed goldens**: **s1** supply 110 -> **120**; **ss1** 740/150/510 -> **820/170/570**. Predicted by hand first and matched exactly. **NOT FIXED HERE** -- goldens are ORACLES and must be re-banked in-product and re-exported, never recomputed from our own interpreter, which would make them pass by construction and pin nothing. Owner decision owed. |
+
+The 3 switch/socket rows that did NOT move are all USB chargers (`USB Charger - A Type` White + Grey,
+`USB Charger - C+C Type` White).
+
+### P1-P4 -- verify first
+
+| | Result |
+|---|---|
+| **P1** tree | Exactly the five known-harmless entries. |
+| **P2** DB state | **WARNING -- Dev's live DB was byte-identical to v40, NOT v41** -- established by exporting and comparing, without loading anything. So the delta that actually landed is **320 item rows: 265 `cable` + 55 `switch_socket_item`**, plus the wiring goldens. |
+| **P3** baselines | `test_rate_master` **170 OK** (the plan's older "152" is stale). vitest **2503 pass / 1 fail** -- `writeOffControl.test.ts` "the three admin predicates stay in step", a 5s timeout on a dynamic `SheetPricingPage` import. **Reproduced in isolation, so not flaky; pre-existing at `97f21cc3` and unrelated to rate data.** |
+| **P4** backup | `/tmp/devsync_backup_dev_electrical_pre_v43.json`, 702,327 bytes, sha256 `ae156d6a28cc1b9a8ec139dd07d42ad15c3f3e383587d59f0309cae1d3724e44`. Byte-identical to committed v40, which is how P2 was answered. |
+
+### B1 -- naming: the owner's ruling is NOT applied, deliberately
+
+The owner ruled that dev and production keep separate version sequences with an environment marker in
+the filename. **The spec's own fallback applies instead**, because something DOES pattern-match on the
+name shape -- `scripts/mint_completeness_check.py:105` compiles the series regex
+`^rate_master_electrical_all_v(\d+)([a-z]*)\.json$`.
+
+`uninspectable_versions()` iterates the data directory and matches every file against it. A name
+carrying an environment marker would not match, so the file would be **invisible to the mint gate's
+version census** and the series would appear to stop at v41 -- silently, and for every future mint.
+The file therefore lands as **`rate_master_electrical_all_v43.json`**.
+
+**v42 is absent from this repo by construction** -- production minted it and dev never received it.
+The mint gate now reports `v15, v16, v16a, v16b, v42` as uninspectable, which is TRUE and is precisely
+what that report exists to say. Gate result on v41 -> v43: **PASS, no atoms disappeared, every removal
+declared.**
+
+### B2-B4 -- what was done
+
+- **B2** Committed verbatim: byte-identical to production's export (same sha256), LF-only. The repo's
+  `.gitattributes` sets `* text=auto eol=lf`, so the Windows CRLF hazard cannot bite.
+- **B3** Loaded by explicit path, `replace=True`, via `loader.load_rate_master` (procedure read from
+  the loader's own docstring). Summary: 1364 items across 13 kinds, 12 configs, 1364 items + 12
+  configs superseded, `retirements_without_reason: 0`. **Verified key by key AND by round trip: a
+  fresh export of the live DB is BYTE-IDENTICAL to the committed file (sha256 `5d17cf7d...`).** The
+  database, the repo asset and production provably agree.
+- **B4** `CURRENT_EALL_ASSET` repinned to v43, with a lineage note recording the two rate sets, the
+  v42 gap and the stale switch/socket goldens.
+- **B5** `FREEZE_COPY`'s "AWAITING OWNER APPROVAL" marker now records the four strings as
+  owner-approved 2026-08-18. **Marker only -- no string changed** (proven: the diff contains no line
+  carrying a quote).
+
+### Tests
+
+| Suite | Before | After |
+|---|---|---|
+| `bench --site localhost run-tests --module nirmaan_stack.api.boq.test_rate_master` | **170 OK** | **170 OK** |
+| `npx vitest run` (in container) | 2503 pass / 1 fail | **2503 pass / 1 fail** -- the same pre-existing `writeOffControl` timeout |
+| `npx tsc --noEmit` | -- | 3233 pre-existing errors repo-wide, **0 in rate-master or `rateMasterFreeze`** |
+
+**No test asserts an asset-derived rate or golden value, so none failed legitimately.** The vitest
+interpreter pins carry their OWN inline catalogs (`SS_ITEMS`, `SS2_ITEMS`) and read no asset -- which
+is exactly why the switch/socket golden staleness is invisible to a green suite and had to be caught
+by the preview gate. `test_rate_master._GOLDENS` is a seeding fixture for `update_rate_config`, not an
+interpreter assertion.
+
+### Browser live cert -- all six steps pass
+
+De-staled in full (Vite killed and restarted). **Bundle-marker check, stated honestly: the B5 edit is
+COMMENT-ONLY and Vite strips comments in transform, so neither the old nor the new marker appears in
+the served module -- there is genuinely no marker to check.** What was verified instead: the served
+module carries both approved strings intact, and the freeze control works live (step 6).
+
+| # | Step | Result |
+|---|---|---|
+| 1 | `BOQ-26-00113` / `Elect - BOQ` / 513 | **PASS** -- `Thickness (mm) (computed) 1.6`, `Width (computed) 600`, **1068 / 380, unchanged**. Tray rates did not move. |
+| 2 | `BOQ-26-00106` / `ELECTRICAL BOQ` / 141 | **PASS** -- `Width (mm) (computed) 100` (stated 65 fits NEXT HIGHER), **560, unchanged**. |
+| 3 | `BOQ-26-00113` / 435, a switch/socket row | **PASS -- this is the change landing.** Derivation names the revised rates outright: switch `16A 1 WAY SWITCH` White = **290** (was 258), socket1 `6A 3-Pin Socket` White = **618** (309x2, was 282x2), blank `1M Blanker` = **70** (was 61), plate `6M` = **340** (was 302) -> supply **480**, install **100**. The cell's STORED rate is still 430 / 90, the v40-era figure -- the two side by side are the revision. |
+| 4a | A wiring row (`BOQ-26-00113` / 621) | **PASS** -- prices: cable supply **2630** / install **56**, termination **850** / **220**. |
+| 4b | Wiring preview gate | **PASS -- all 20 golden keys GREEN, zero deltas**, across g1-g5. This is the point of adopting production's goldens; before the sync this gate showed deltas on four of them. |
+| 5 | Editor-path tray count | **PASS -- 63 of 79, unchanged.** Population reassembled independently (79 tray rows carrying extraction results) and run through the REAL modules (`ratePipelineInterpreter` + `pricingSheetHelper.nonBcsPipelines`) imported live from the dev server: 63 price, 16 do not -- matching the recorded 8 width-above-catalog-top + 4 thickness-not-in-catalog + 4 neither. |
+| 6 | Freeze control | **PASS** -- freeze set (banner: "Rate master frozen for deployment / Frozen less than a minute ago by admins@nirmaan.app"), a write REFUSED with the approved locked-for-deployment message, the export READ still returning 200 while frozen (owner ruling R3), then lifted: banner gone, `frozen=0`, `frozen_by`/`frozen_at` NULL. |
+
+**WARNING -- one unintended write, found and fully reversed.** The step-6 post-lift probe re-used
+`create_rate_master_item` to prove the write path was restored -- and it did what it says, creating an
+empty `cable_tray` row (`BRMI-26-8258883`, `manual-2f0eb4f79b6a`), taking the active count to 1365.
+Deleted under an attribute guard, and the fix was **proven, not asserted**: the count is back to 1364
+and a fresh export is once more BYTE-IDENTICAL to committed v43 (same sha256). **The lesson is
+specific: a "is the write path back?" probe must use a read-only or self-reverting call, never a
+creating one.**
+
+### Backwards compatibility
+
+Every price in dev moved to production's values, so anything pinned to a v40-era rate was exposed.
+What proves nothing broke: both suites measured before and after with identical results; no test reads
+an asset rate; the tray certs (1068/380, 560) and the tray editor-path count (63/79) are unchanged
+because no `cable_tray` rate moved; and the wiring preview gate went from four stale goldens to all
+green. Slices 3a and 3b, certified against v40 rates, are re-certified here against production's.
+
+**Open item for the owner: the two `switches_sockets` goldens (s1, ss1) need re-banking in-product
+and re-exporting.** Until then the switches_sockets preview gate shows 4 changed goldens by design.
