@@ -30826,3 +30826,173 @@ result_attrs are undeclared and therefore unreachable by any consumer. Slice 3a'
 (cert 6; and width renders through branch 4, pinned). The three tray goldens -- byte-identical v39 ->
 v40, `test_rate_master` 152 OK. The 63 pricing rows -- count identical before and after the finish.
 No doctype JSON, no migrate, no endpoint, no production Python.
+
+---
+
+## Build slice RMF-1 -- the rate-master DEPLOYMENT FREEZE (2026-08-18/19)
+
+**The first user-facing control this arc has added.** Commit `df40227e` (feat).
+
+### Why
+
+On **2026-08-18, 235 hand-entered production cable prices were overwritten** by a dev-minted asset,
+because they existed in no committed asset. The remedy is **Deployment Mode** -- freeze production,
+export, merge dev's config with production's items, deploy. The freeze is step one, and until this
+slice it was an unenforced manual discipline.
+
+### Owner rulings built to (2026-08-18)
+
+| # | Ruling |
+|---|---|
+| R1 | BLOCKED while frozen: CSV upload of rates / SKU list, and manual rate-master edits from the frontend |
+| R2 | NOT BLOCKED: all BoQ pricing, in every form |
+| R3 | NOT BLOCKED: the EXPORT endpoints -- the export is the action the freeze exists to protect |
+| R5 | Freeze/lift population = the existing rate-master edit population (Administrator + Nirmaan Admin Profile) |
+| R6 | ANY admin may lift ANY freeze, including another's. The record of who lifted it is what makes that safe |
+| R7 | Lifting is MANUAL ONLY -- no expiry, no timeout, no automatic lift on deploy |
+| R8 | The Desk gap is ACCEPTED, not closed |
+
+Approved user-visible string, verbatim and byte-pinned in both languages:
+`Rate master is locked for deployment. Contact Nitesh/ Abhishek.`
+
+### P1-P3
+
+- **P1** tree: exactly the five known-harmless entries. `boq_parser` fixtures clean at PRE and POST.
+- **P2** re-verified: **NINE** `_require_rate_admin` call sites, **6 writes + 3 reads** (the RMF recon
+  prose had said "eight" while its own table listed nine -- the table was right). Permission
+  resolution unchanged (`Nirmaan Users.role_profile`, a **Data** field). Zero rate-master doctype
+  references anywhere in `api/boq/wizard/`. `csv_importer.apply_plan` confirmed to supersede by raw
+  SQL, never `doc.save`.
+- **P3** measured baselines BEFORE any edit: `test_rate_master` **152 OK**, `test_pricing` **262 OK**,
+  vitest **2489 pass / 1 known fail**. (The recorded doc figures had drifted: `test_pricing` 230 ->
+  262, vitest 2461 -> 2489. Measured values reported.)
+
+### What was built
+
+**Lock state -- a Single, `BoQ Rate Master Freeze`** (`frozen` Check / `frozen_by` Data /
+`frozen_at` Datetime, `issingle:1`, `track_changes:1`, System Manager permissions). Precedent:
+`BOQ Upload Review AI Settings`. The `BoQ Sheet` lock / classification-freeze / category-override
+triples were the **field shape** precedent but the wrong **scope** (per-sheet); Redis was rejected as
+the wrong **lifetime**, on the same reasoning already recorded for the SR-1 run doc.
+
+MIGRATE-CARRYING. **No `patches.txt` entry** -- a new doctype is created by sync, exactly as
+`BoQ Rate Master Snapshot` and `BoQ Rate Master Retirement` were; that file was not touched.
+
+**Guard -- `services/boq_rate_master/freeze.py`**, one predicate, two call sites. It lives in
+`services/` because `csv_importer` is a service and may not import from `api/` (the
+`services/boq_bcs/readiness.py` relocation precedent). Six inline calls in `api/boq/rate_master.py`
+(the write endpoints), plus a self-guard at the top of `csv_importer.apply_plan` -- that path
+supersedes by RAW SQL and never touches `doc.save`, so an endpoint-only guard would have missed the
+largest write in the module. `build_plan` is deliberately unguarded: `preview_rate_master_csv` shares
+it, and the preview must survive a freeze.
+
+Gate order is **admin first, freeze second**, so a non-admin gets the honest "Not permitted" rather
+than being told to contact someone about a freeze they could never have worked around.
+
+**The read fails OPEN** (a failed/absent read = not frozen). Before migrate the doctype does not
+exist, so failing open makes the feature inert -- byte-identical to pre-freeze. Failing closed would
+refuse every write on a transient DB error while naming a deployment nobody is doing, and the writes
+it would "protect" are themselves DB writes. This is deliberately the OPPOSITE direction to
+`ai_settings.get_boq_ai_settings`: there inaction is the safe outcome, here inaction IS the block.
+
+**Values in `tabSingles` are TEXT**, so the reader uses `cint`, never `bool` -- `bool("0")` is `True`.
+
+**Three endpoints:** `get_rate_master_freeze` (login-only, drives the banner),
+`freeze_rate_master` / `unfreeze_rate_master` (admin). Both writes are **idempotent**, and the freeze
+no-op is load-bearing: re-freezing preserves `frozen_at`, because the banner renders it as ELAPSED
+time and a second click would otherwise silently restart the clock.
+
+**Frontend:** admin-only control in the header (reachable from all three tabs, since the writes it
+governs span them); teal + `ShieldCheck` banner reusing the product's established colour for a
+deliberate, persistent, cross-user lock; write controls **disabled, never hidden**, each carrying the
+approved message as its tooltip. `canManageRateMasterFreeze` **delegates** to `isRateMasterAdmin`
+(R5), never a second predicate. The freeze is deliberately NOT folded into `canEdit`, which decides
+whether the actions COLUMN exists -- folding it in would change the table's shape rather than
+disabling a control.
+
+### Tests
+
+`test_rate_master` **152 -> 170** (new class `TestRateMasterFreeze`, 18 methods);
+vitest **2489 -> 2503** (`rateMasterFreeze.test.ts`, 14); `test_pricing` **262 unchanged**;
+**0 tsc errors** in the changed directory.
+
+Every freeze test captures the LIVE site's Single state and restores **that** (the standing rule),
+and purges only the `Version` rows it created.
+
+**VACUITY PROOF.** Guard body disabled (`if False and is_frozen():`):
+
+| Test | Guard disabled | Restored |
+|---|---|---|
+| `test_rmf_03` (all writes refuse) | **FAILED, 7 failures** -- one per guarded write path | OK |
+| `test_rmf_05` (mutates nothing) | **FAILED, 8 failures** | OK |
+| `test_rmf_04` (exports survive) | OK -- control | OK |
+| `test_rmf_07` (attribution) | OK -- control | OK |
+| `test_rmf_12` (pricing) | OK -- control | OK |
+
+Restored immediately, `diff` IDENTICAL, re-run green. The three controls staying green is the other
+half of the proof: disabling the guard must not affect exports, attribution or pricing.
+
+**Two failures on the first full run, both defects in the NEW test fixtures, neither in the feature:**
+a param path (`discount`@step 0) that does not exist in the wiring fixture, and a fabricated `boq`
+name against a **Link** field. In both cases the product correctly rejected bad input. Fixing the
+first also revealed that `test_rmf_03` had been passing for a **weaker reason than intended** (the
+guard fires before path resolution), so it now uses a real path (`install_markup`@step 4) and the
+freeze is the only possible refusal. No feature code changed; no pre-existing assertion touched.
+
+### Browser live cert (2026-08-19, `admins@nirmaan.app`)
+
+Servers were not running (container held only `sleep infinity`); `bench start` and `yarn dev` were
+started for the cert. Full de-stale applied (`node_modules/.vite` deleted -- the edited files export
+non-component values -- 1 service worker unregistered, caches/storage/IDB cleared, tab closed and
+reopened, bare root then deep route). **Bundle-marker check passed** before judging anything.
+
+| # | Step | Result |
+|---|---|---|
+| 1 | admin sees the control | **PASS** |
+| 2 | freeze -> banner, elapsed + who | **PASS** -- *"Frozen less than a minute ago by admins@nirmaan.app"*, later *"1 minute ago"* (live) |
+| 3 | upload + edit controls disabled | **PASS** -- `disabled:true` + approved message as `title`; downloads and asset export `disabled:false` on the same panel |
+| 4 | blocked action returns the exact message | **PASS** -- all 6 write endpoints, byte-for-byte |
+| 5 | **export while frozen SUCCEEDS** | **PASS** -- snapshot v8 written, 7 -> 8, nothing pruned |
+| 6 | price a row + "Use this value" | **PASS** -- helper computed 42+10=52 off the FROZEN catalog; rate **auto-saved**, amount 5200 |
+| 7 | lift -> everything works again | **PASS** -- the identical step-4 call now returns `404 ... not found`, i.e. it reached target resolution |
+| 8 | non-admin sees no control | **PROVEN BY TEST + SERVER-SIDE, not eyeballed** -- see below |
+
+Step 4 deliberately aimed at **non-existent** targets, so a broken guard would have 404'd harmlessly
+instead of touching a real rate; receiving the *freeze* message rather than "not found" is itself
+evidence the guard fires before target resolution.
+
+**Audit trail (R6's safety property) on real infrastructure** -- two `Version` rows, both attributed:
+`frozen 0->1` with provenance set, then `frozen 1->0` with provenance cleared, each naming
+`admins@nirmaan.app` with a timestamp. That is exactly what `set_single_value` would have destroyed.
+
+**Step 8** could not be eyeballed: it needs a non-admin browser session, the owner could not provide
+one, and creating accounts / setting passwords is out of scope for the agent. `pricing-test@nirmaan.app`
+was suggested but **does not exist** (zero users match "pricing" or "test"). Proven instead under a
+REAL non-admin identity via `frappe.set_user` (no credentials): `vilas@nirmaan.app`,
+`Nirmaan Estimates Executive Profile` -- `_is_nirmaan_admin` False, both endpoints `PermissionError`,
+the READ still working (a non-admin must still SEE a banner), state unchanged. Owner accepted this on
+2026-08-19. **Residual risk, stated: if the React gate were wired to the wrong variable, every test
+would still pass.**
+
+**Zero residual.** All cert writes were on the SYNTHETIC `BOQ-26-00169` (project
+`G2D_CERT_SYNTH_1e2134`) or were the step-5 snapshot, all removed: Electrical snapshots 7 -> 8 -> **7**,
+synthetic cell pricing 1 -> **0**, suggestion events 1 -> **0**, freeze Single restored to the captured
+pre-cert `frozen=0`, 1364 active Electrical items and 12 configs untouched. The two freeze `Version`
+rows were deliberately KEPT -- they are a genuine audit record, and deleting an audit trail is not
+cleanup. One artefact left for the owner: the exported `.json` in their Downloads folder.
+
+### Wording still awaiting owner approval
+
+Only `Rate master is locked for deployment. Contact Nitesh/ Abhishek.` is approved. Four drafted
+strings are isolated in `FREEZE_COPY` (`rateMasterFreeze.ts`), marked awaiting approval in-source:
+`Freeze for deployment` / `Lift freeze` / `Working...` / `Rate master frozen for deployment`.
+Nothing else in the feature hardcodes a label.
+
+### Backwards compatibility
+
+Default state is OFF, so with no admin action the feature is a no-op. Unfrozen, the guard is a single
+falsy DB read. `test_pricing` 262 unchanged; `test_rmf_12` invokes real pricing endpoints under a
+live freeze and asserts `pricing.py` names neither rate-master doctype. `test_rmf_04` + `test_rmf_14`
+positively pin that exports and preview survive a freeze and that the guard is absent from
+`_require_rate_admin`. A database without the doctype degrades to inert, proven live against an empty
+`tabSingles`.

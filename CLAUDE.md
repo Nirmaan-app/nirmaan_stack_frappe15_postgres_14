@@ -1143,6 +1143,52 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
 - **OPTION C IS RETIRED GOING FORWARD.** F-16 and F-17 put their reason in the commit body because
   the channel did not exist. It does now: a future retirement declares its reason **in the asset**,
   and the commit body is a copy rather than the only record.
+- **⚠️ THE DEPLOYMENT FREEZE GUARDS THE **WRITE SUBSET ONLY**, AND MUST NEVER BE FOLDED INTO
+  `_require_rate_admin` (owner-locked, R3 2026-08-18).** That gate covers **NINE** endpoints, **THREE
+  of which are READS** — `export_rate_master_asset`, `export_rate_master_csv`,
+  `preview_rate_master_csv`. **THE EXPORT IS THE ACTION THE FREEZE EXISTS TO PROTECT**: Deployment
+  Mode is freeze-*then*-export, so a freeze that blocked the export would make the feature
+  self-defeating — and silently, because the export button and the upload button sit in the SAME
+  dashed panel on the Rate Master screen. Guarding the shared admin gate is the one refactor that
+  must never happen here, however tidy it looks. `build_plan` stays unguarded for the same reason
+  (the preview shares it). Pinned by `test_rmf_04` (reads succeed while frozen) and `test_rmf_14`
+  (the guard is absent from `_require_rate_admin` and from each read).
+- **⚠️ A RATE-MASTER GUARD MUST BE APPLIED TWICE, BECAUSE `csv_importer` BYPASSES `doc.save`
+  (owner-locked).** Two independent write mechanisms reach the catalog: the audited
+  `doc.save(ignore_permissions=True, ignore_version=False)` endpoints in `api/boq/rate_master.py`,
+  and `services/boq_rate_master/csv_importer.apply_plan`, which is freeze-and-supersede via **RAW
+  SQL** plus fresh inserts and never touches `doc.save` at all. **A guard placed only on the audited
+  path misses the entire CSV upload — the largest blast radius in the module**, and the exact shape of
+  the 2026-08-18 incident. The predicate therefore lives in `services/boq_rate_master/freeze.py`, not
+  in `api/`: `csv_importer` is a service and may not import from `api/` (the
+  `services/boq_bcs/readiness.py` precedent). ONE definition, two call sites, pinned by identity in
+  `test_rmf_13`. A controller-level `validate` guard is NOT a substitute — it would miss the raw-SQL
+  supersede in both `csv_importer` and `loader`.
+- **⚠️ THE FREEZE IS WRITTEN THROUGH `doc.save`, NEVER `frappe.db.set_single_value` (owner-locked).**
+  `set_single_value` is a raw UPDATE: it bypasses the doc lifecycle and writes **NO `Version` row**.
+  That audit is the ONLY thing that makes owner ruling R6 safe — **any admin may lift any other
+  admin's freeze**, with no check on who set it, and the record of who lifted it is what makes
+  granting that safe. The live `frozen_by` / `frozen_at` fields say who SET the current freeze; the
+  Version log is the only place a LIFT is attributable. `ignore_version=False` is EXPLICIT because
+  Frappe defaults it to `frappe.flags.in_test`, which would suppress the audit under exactly the test
+  runner that asserts it. **Lifting is MANUAL ONLY** — no expiry, no timeout, no automatic lift on
+  deploy; there is deliberately no staleness concept anywhere in the module. Re-freezing an
+  already-frozen catalog is a **no-op that preserves `frozen_at`**, because the banner renders it as
+  ELAPSED time and a second click would otherwise silently restart the clock.
+- **⚠️ THE FREEZE COVERS THE APP SURFACE AND **NOT** FRAPPE DESK OR THE GENERIC REST API — AN ACCEPTED
+  OWNER DECISION OF 2026-08-18, NOT AN OVERSIGHT.** The doctype permissions on the rate-master
+  doctypes grant write to **`System Manager`** (30 users at the time of the ruling, of whom **22 are
+  NOT rate-master admins**), while every app gate resolves `Nirmaan Users.role_profile ==
+  "Nirmaan Admin Profile"` (7 users) — so Desk and `/api/resource/...` bypass the freeze entirely.
+  **Do NOT "close the gap"** by changing doctype permissions or adding a controller guard: both were
+  considered and ruled out. A future reader must not read this as a defect.
+- **⚠️ THE FREEZE STATE READ FAILS *OPEN*, DELIBERATELY REVERSING THE `ai_settings` CONVENTION.** An
+  absent doctype (pre-migrate) or a transient error reads as **NOT frozen**, so the feature is INERT
+  on such a database — byte-identical to pre-freeze, the standing preference for a new gate. Failing
+  CLOSED would refuse every rate-master write while displaying a message naming a deployment nobody is
+  doing. `ai_settings.get_boq_ai_settings` fails closed because there inaction is the safe outcome;
+  here **inaction IS the block**, so the safe direction reverses. ⚠️ `tabSingles` values are **TEXT**,
+  so the reader uses `cint`, never `bool` — `bool("0")` is `True`.
 - **✅ F-18 — CLOSED (2026-08-14). NO NON-FINITE NUMBER IS EVER LABELLED `"ok"`, AND THE THREE-PART
   CONTRACT IS NOW STATED (owner-locked).** `status: "ok"` used to mean only *"the step loop ran to the
   end without an early return and without throwing"* — it made **no claim about the numbers**, while
