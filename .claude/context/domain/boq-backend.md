@@ -2046,5 +2046,14 @@ per node type. Tests: `test_commit_validation` 51->55, `test_review_screen` 273-
 `NestedItemSheet`/`NestedItemSheet2` fixtures assert the positive case at BOTH the gate and the
 read endpoint), `test_boq_nodes` 78 (the controller test flipped to assert item-under-item INSERTS),
 `test_is_excluded_filter` 7 (its #8 producer moved to a note parent -- only the is_excluded filter is
-under test there). The AI/Gemini classification prompts are DELIBERATELY unchanged (they govern what
-the parser proposes, not what a human may override to).
+under test there). **The AI/Gemini prompts FOLLOWED (owner Option B, same day):** both stated the
+prohibition, which had become false. ONE sentence, VERBATIM-IDENTICAL on both engines, replaces it --
+"- A line_item may be the parent of another line_item when the child row is a sub-component or a
+breakdown of it; otherwise a line_item's parent is the preamble heading its section." Gemini's row-type
+line dropped its "Never a parent of another line_item" clause too (it says the rule TWICE). Done
+pin-first-reword-second (3 pins moved, shown RED against the unchanged prompts, then the prompts
+edited). NEW `test_line_item_parent_rule_is_identical_on_both_engines` mechanically guards the
+cross-engine drift the two per-file pins could not see. Note-under-note silence untouched + still
+negative-pinned. `test_boq_ai_assist` 32, `test_boq_gemini_assist` 15->16, `test_ai_assist` 50,
+`test_gemini_assist` 36. **UNVERIFIED against real model behaviour** -- no test sees a model reply and
+the classification corpus is spent; a live AI pass is owed.

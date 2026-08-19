@@ -65,11 +65,27 @@ priced *heading* with children; once an item can be a parent, a priced parent *i
 shape. `#16` now covers both, voiced per type. It stays **advisory** — nesting a breakdown under a
 priced parent is sometimes what the bill genuinely says, so this informs, it never blocks.
 
-**Deliberately NOT changed:** the AI-pass and Gemini classification prompts still tell the model that
-only a preamble may parent a line_item. Those prompts govern what the parser *proposes*; this ruling
-governs what a human may *override to*. Relaxing the prompts is a separate, test-pinned change
-(pin first, reword second) needing its own re-certification, and there is no reason to want the
-classifier volunteering nested items.
+**The prompts followed (owner Option B, same day).** Both classification prompts stated the
+prohibition and it had become false, so leaving them would have told the models a rule the product no
+longer enforces. The owner chose to state the permission EXPLICITLY rather than fall silent — so the
+models can propose the nesting where a bill genuinely shows one — over the alternative of deleting the
+sentence and saying nothing (the mechanism note-under-note uses). ONE sentence, verbatim-identical on
+both engines:
+
+> `- A line_item may be the parent of another line_item when the child row is a sub-component or a`
+> `breakdown of it; otherwise a line_item's parent is the preamble heading its section.`
+
+Done pin-first-reword-second: the three pins were moved to the new wording and shown RED against the
+unchanged prompts before either prompt was touched. A NEW cross-engine drift guard
+(`test_line_item_parent_rule_is_identical_on_both_engines`) asserts both prompts carry the identical
+literal — previously each pin repeated it in its own file and nothing checked they still matched, so
+editing one engine left the other green and the drift was invisible. Note-under-note silence is
+untouched and still negative-pinned on both engines.
+
+**Unverified against real model behaviour.** No test can see what a model returns, and the
+classification corpus (Set-1/Set-2) is spent, so this ships on reasoning rather than measurement. It
+compounds the accepted loss below: the models are now *invited* to nest items, and no structural gate
+checks the result. A live AI pass on a real sheet is owed.
 
 **Consequence — an accepted loss.** Item-under-item is now unverified by any structural gate. If a
 parser or AI regression started emitting it, nothing would flag it. That is the cost of the ruling and

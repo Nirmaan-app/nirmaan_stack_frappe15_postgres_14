@@ -31389,3 +31389,43 @@ New positive tests pin the ruling at every tier so it cannot be silently re-tigh
   no must-fix entry → Finalize → commit) is still worth doing.
 * **Accepted loss:** item-under-item is now unverified by any structural gate. A parser/AI regression
   emitting it would not be flagged. #16 is the only remaining signal, and only when the parent is priced.
+
+### REV-#8N follow-up — the AI prompts (owner Option B, 2026-08-19)
+
+The prior slice deliberately left both classification prompts stating *"A line_item is never the
+parent of another line_item. Only a preamble may parent a line_item."* With #8 narrowed that sentence
+told the models a rule the product no longer enforces. Owner chose **Option B (state the permission
+explicitly)** over Option A (delete it and stay silent, the mechanism note-under-note uses).
+
+**ONE sentence, VERBATIM-IDENTICAL on both engines**, replacing the prohibition:
+
+> `- A line_item may be the parent of another line_item when the child row is a sub-component or a`
+> `breakdown of it; otherwise a line_item's parent is the preamble heading its section.`
+
+Gemini stated the rule **twice** — its row-type line also dropped the false clause:
+`- line_item: a priced/quantified work entry. May be the parent of a note that describes it, or of
+another line_item that is a sub-component of it.`
+
+**Pin-first-reword-second, demonstrated:** the 3 pins were moved to the new wording and run FIRST —
+red (1 Claude, 2 Gemini) against untouched prompts — proving they actually read the prompt; only then
+were the prompts edited.
+
+**NEW cross-engine drift guard.** `test_line_item_parent_rule_is_identical_on_both_engines` asserts
+both prompts carry the same literal. The two per-file pins each repeated it independently, so editing
+one engine moved that pin, left the other green, and the drift was invisible — and this sentence has
+now been reworded across both engines twice. Mutation-tested: casing one engine's copy turns it red.
+
+| Gate | Result |
+|---|---|
+| `test_boq_ai_assist` / `test_boq_gemini_assist` | 32 / **15 → 16** pass |
+| `test_ai_assist` / `test_gemini_assist` | 50 / 36 pass |
+| `test_commit_validation` / `test_review_screen` | 55 / 275 pass |
+| runtime check | shared sentence byte-identical in both prompts; old prohibition absent from both; note-under-note silence intact on both |
+
+### Still open
+
+* **UNVERIFIED against real model behaviour.** No test sees a model reply, and the classification
+  corpus (Set-1/Set-2) is spent — this shipped on reasoning, not measurement. A live AI pass on a real
+  sheet is owed, for the prompts AND for the gate change itself.
+* **Compounded risk, accepted:** the models are now actively invited to nest items, and no structural
+  gate checks the result (#8 no longer fires, #16 warns only when the parent is priced).

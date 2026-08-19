@@ -113,8 +113,13 @@ First worked proof: the `sidebar_counts` aggregate rewrite + the shared `service
   `TestPromptParentingPins` in **both** service test files. **A wording change must UPDATE the pins
   deliberately** — pin first, reword second, so the diff shows exactly what the model was told before and
   after. Both prompts state the parser's real rule (*a note's parent is the nearest preamble or line_item
-  above it*) and the identical line-item rule (*only a preamble may parent a line_item* — matching the
-  finalize gate, which hard-blocks an item under any non-heading parent). Both stay **SILENT on
+  above it*) and the identical line-item rule — which since 2026-08-19 (ADR-0008 Amendment A) reads
+  *a line_item MAY be the parent of another line_item when the child row is a sub-component or a
+  breakdown of it; otherwise a line_item's parent is the preamble heading its section*, replacing the
+  retired *only a preamble may parent a line_item*. It tracks the NARROWED finalize gate, which now
+  hard-blocks an item only under a note/marker parent. **The sentence is VERBATIM-IDENTICAL on both
+  engines and `test_line_item_parent_rule_is_identical_on_both_engines` now enforces that
+  mechanically** — the two per-file pins each repeat the literal and cannot see cross-engine drift. Both stay **SILENT on
   note-under-note**: silence is the mechanism, enforced by a NEGATIVE pin on each engine — never add a
   prohibition sentence.
 - **Both AI-assist chunkers cut on the EFFECTIVE CLASSIFICATION (EA-6b, owner-locked):** Claude via
