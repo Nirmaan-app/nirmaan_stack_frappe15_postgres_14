@@ -37,6 +37,7 @@
   "po_amount_delivered",
   "amount_invoiced",
   "amount_paid",
+  "amount_due",
   "tracking_details_section",
   "status",
   "billing_status",
@@ -299,12 +300,21 @@
    "label": "Amount Invoiced (Approved)",
    "no_copy": 1,
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Amount Invoiced (Approved) minus Amount Paid - i.e. billed to us but not yet paid. Maintained automatically whenever either operand changes - do not edit. NOTE: this formula DIFFERS from Service Requests, which subtracts from Total Amount instead.",
+   "fieldname": "amount_due",
+   "fieldtype": "Currency",
+   "label": "Amount Due",
+   "no_copy": 1,
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-19 13:33:00.038336",
+ "modified": "2026-08-19 15:00:21.099497",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",

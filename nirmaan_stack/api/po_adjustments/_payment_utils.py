@@ -79,6 +79,15 @@ def _recalculate_amount_paid(po_id):
     total_paid = sum(flt(p.amount) for p in paid_payments)
     frappe.db.set_value("Procurement Orders", po_id, "amount_paid", total_paid)
 
+    # `amount_due` on the PO is amount_invoiced - amount_paid, so it moves with the
+    # write above. It has to be called HERE and not left to Project Payments: the
+    # payments this function follows were created with `from_adjustment=True`, which
+    # skips every project_payments.py hook -- including the one that would have done it.
+    from nirmaan_stack.api.invoices._item_billing_sync import (
+        recompute_document_amount_due,
+    )
+    recompute_document_amount_due("Procurement Orders", po_id)
+
 
 def _append_return_payment_term(po_doc, payment_doc, term_label, amt):
     """

@@ -62,6 +62,8 @@ export interface ServiceRequests {
 	/** Amount Invoiced (Approved) : Currency — derived, sum of this SR's Approved Vendor Invoices */
 	amount_invoiced?: number
 	amount_paid?: string
+	/** Amount Due : Currency — derived, total_amount - amount_paid (NOT amount_invoiced) */
+	amount_due?: number
 	/** Is Finalized : Check */
 	is_finalized?: 0 | 1
 	/** Finalized By : Data (stores full name) */

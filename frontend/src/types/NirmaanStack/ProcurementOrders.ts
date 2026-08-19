@@ -122,6 +122,9 @@ export interface ProcurementOrder {
 
 	amount_paid?: number
 
+	/**	Amount Due : Currency — derived, amount_invoiced - amount_paid	*/
+	amount_due?: number
+
 	items: PurchaseOrderItem[]
 	// payment_terms:
 	/**	Category List : JSON	*/

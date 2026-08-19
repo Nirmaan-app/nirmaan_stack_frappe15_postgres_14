@@ -202,3 +202,62 @@ def recompute_document_amount_invoiced(document_type: str, document_name: str) -
         document_type, document_name, "amount_invoiced", flt(total),
         update_modified=False,
     )
+
+    # amount_due is derived from this value, so it moves with it.
+    recompute_document_amount_due(document_type, document_name)
+
+# ---------------------------------------------------------------------------
+# `Procurement Orders` / `Service Requests` .amount_due
+# ---------------------------------------------------------------------------
+
+# The two doctypes use DELIBERATELY DIFFERENT formulas (owner decision 2026-08-19):
+#   Procurement Orders   amount_invoiced - amount_paid   -> billed to us, not yet paid
+#   Service Requests     total_amount    - amount_paid   -> ordered value, not yet paid
+# The SR screens have always shown ordered-minus-paid and say so in their own footnote
+# ("Amount Due = Total WO Value - Amt Paid"); switching them to invoiced-minus-paid
+# would move 761 of 862 rows (measured 2026-08-19). Do NOT "harmonise" the two.
+_AMOUNT_DUE_OPERANDS = {
+    "Procurement Orders": ("amount_invoiced", "amount_paid"),
+    "Service Requests": ("total_amount", "amount_paid"),
+}
+
+
+def recompute_document_amount_due(document_type: str, document_name: str) -> None:
+    """Re-derive `amount_due` on ONE Procurement Order / Service Request.
+
+    Called from every place that writes one of its operands — there is no single
+    owner, because the operands are maintained by different subsystems:
+
+        amount_invoiced  <- recompute_document_amount_invoiced (this module)
+        total_amount     <- the Service Request's own save
+        amount_paid      <- Project Payments' update_parent_amount_paid
+
+    A Postgres GENERATED column was tried first and REJECTED: `bench migrate`
+    re-asserts the type of every Currency column, and Postgres refuses to alter a
+    column that a generated column depends on, so every migrate would fail.
+    A `validate` hook was rejected too — both operands are written with
+    `db.set_value`, which bypasses the document lifecycle, so such a field would be
+    stale on arrival.
+
+    Reads the operands straight back from the row (same transaction, so it sees the
+    write that triggered it) and writes with `update_modified=False` — a derived
+    cache write, not an edit. Does NOT commit.
+    """
+    operands = _AMOUNT_DUE_OPERANDS.get(document_type)
+    if not operands or not document_name:
+        return
+    minuend, subtrahend = operands
+
+    # Column and table names come from the constant above, never from a caller.
+    row = frappe.db.sql(
+        'SELECT COALESCE("{0}", 0) AS a, COALESCE("{1}", 0) AS b '
+        'FROM "tab{2}" WHERE name = %(n)s'.format(minuend, subtrahend, document_type),
+        {"n": document_name}, as_dict=True,
+    )
+    if not row:
+        return
+
+    frappe.db.set_value(
+        document_type, document_name, "amount_due",
+        flt(row[0].a) - flt(row[0].b), update_modified=False,
+    )

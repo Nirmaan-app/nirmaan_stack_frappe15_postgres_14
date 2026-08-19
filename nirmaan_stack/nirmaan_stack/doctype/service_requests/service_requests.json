@@ -24,6 +24,7 @@
   "total_amount",
   "amount_invoiced",
   "amount_paid",
+  "amount_due",
   "finalization_section",
   "is_finalized",
   "finalized_by",
@@ -155,12 +156,21 @@
    "label": "Amount Invoiced (Approved)",
    "no_copy": 1,
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Total Amount minus Amount Paid - i.e. ordered value not yet paid. Maintained automatically whenever either operand changes - do not edit. NOTE: this deliberately uses Total Amount (the ordered value), NOT Amount Invoiced - unlike Procurement Orders.",
+   "fieldname": "amount_due",
+   "fieldtype": "Currency",
+   "label": "Amount Due",
+   "no_copy": 1,
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-19 13:33:01.177507",
+ "modified": "2026-08-19 15:00:22.466899",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Service Requests",
