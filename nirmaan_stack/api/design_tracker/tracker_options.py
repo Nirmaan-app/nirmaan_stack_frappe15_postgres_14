@@ -23,6 +23,11 @@ def get_all_master_data():
         ["name", "not in", tracked_project_names or []], 
         # Exclude projects whose status is Halted or Completed (assuming standard ERPNext Project status fields)
         ["status", "not in", ["Halted", "Completed", "On Hold"]], 
+        # v3 dual-field model: only awarded projects get a design tracker. The `status`
+        # clause above CANNOT do this -- a pre-Won stub carries `status = ""`, which is
+        # not in that list and therefore passes. `tendering_status` is the bid dimension
+        # and the only reliable gate.
+        ["tendering_status", "=", "Won"],
     ]
 
     # Fetch eligible projects
