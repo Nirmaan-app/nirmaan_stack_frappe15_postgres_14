@@ -31422,10 +31422,52 @@ now been reworded across both engines twice. Mutation-tested: casing one engine'
 | `test_commit_validation` / `test_review_screen` | 55 / 275 pass |
 | runtime check | shared sentence byte-identical in both prompts; old prohibition absent from both; note-under-note silence intact on both |
 
+### Live verification — DONE (2026-08-19, read-only)
+
+Both owed checks were run against the real Anthropic model (`claude-opus-4-8`) on real production
+sheets, driving the `run_ai_pass` SERVICE directly so **nothing was persisted** (the endpoint is what
+writes `ai_*`; the service just returns suggestions).
+
+| Check | Result |
+|---|---|
+| Prompt actually loaded in-process | new sentence present, old prohibition **absent** — on both engines |
+| AI pass, `BOQ-26-00181 / Electrical` (225 rows) | 38 suggestions, **0** nest an item under an item |
+| AI pass, `BOQ-26-00188 / HVAC Lowside Works` (243 rows) | 42 suggestions, **0** nest an item under an item |
+| Model shown an EXISTING item-under-item | left it alone on both sheets — it does not fight a human edit |
+| Gate, `BOQ-26-00181 / Electrical` | **0 breaks** now; simulating the old predicate reports **1** — this real sheet was hard-blocked from finalizing before the change and is clean after |
+
+**The over-nesting risk did not materialise** on 80 suggestions across two disciplines. Option B's
+explicit permission did not make the model volunteer nested items.
+
+### Corpus scan — where item-under-item actually comes from
+
+510 sheets scanned: **3 sheets, 3 rows** carry an item-under-item. **All three are HUMAN overrides,
+not parser output** — `parent_index` points at a preamble in every case and `human_parent` was written
+later. All three carry the same `edit_log` reason shape:
+
+> `row moved: row N reclassified to line_item`
+
+i.e. a human reclassified a PREAMBLE to a line_item and the RestructureModal carried its children
+along — leaving items under an item, which the gate then hard-blocked. **That is exactly the dead end
+this ruling was made to remove, observed three times in live data.**
+
+⚠️ **Caveat on the strength of that evidence:** all three edits are dated 2026-08-19 by
+`Administrator`, so they are almost certainly the owner's own testing of this very flow rather than
+independent field usage. It demonstrates the mechanism, not its frequency. The honest reading is that
+this shape is RARE (3 in 510 sheets) and arises from reclassification, not from bills that natively
+nest sub-items.
+
+⚠️ **This partly undercuts the prompt wording.** Both prompts now describe the child as *"a
+sub-component or a breakdown of it"*. No such case was found in the corpus — the observed cause is a
+preamble→item reclassification. The sentence is not wrong, but it names a shape the data does not yet
+show. Worth revisiting if a future pass finds the model inventing sub-component nestings.
+
 ### Still open
 
-* **UNVERIFIED against real model behaviour.** No test sees a model reply, and the classification
-  corpus (Set-1/Set-2) is spent — this shipped on reasoning, not measurement. A live AI pass on a real
-  sheet is owed, for the prompts AND for the gate change itself.
+* **Not browser-verified.** Everything above was driven through the service layer. The actual review
+  screen (pick an Item as another Item's parent → no must-fix entry → Finalize → commit) has still not
+  been clicked through.
+* **Gemini is UNMEASURED.** AI settings carry `provider = Anthropic` and only an `anthropic_api_key`,
+  so the Gemini prompt change ships on its pins alone — no live call was possible.
 * **Compounded risk, accepted:** the models are now actively invited to nest items, and no structural
   gate checks the result (#8 no longer fires, #16 warns only when the parent is priced).
