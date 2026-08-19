@@ -234,6 +234,7 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
 **stable conventions + load-bearing / owner-locked invariants**. The FULL per-slice as-built detail
 (component contracts, per-slice changelog, feat hashes) is in
 `frontend/.claude/context/domain/boq-frontend.md` — load it first. Live status = `frontend/.claude/plans/boq-upload-plan.md`.
+**Pricing Module + Rate Master frontend detail** (the rate-helper panel's attribute semantics, the workbook pages, the RM-2 screens): `frontend/.claude/context/domain/pricing-rate-master-frontend.md`.
 
 **Docs discipline -- DOCS-UPDATE RULE:** full rule, and the `guard_claude_md.py` hook enforcing it, in root
 `CLAUDE.md`. Per-slice / per-commit as-built detail goes to `frontend/.claude/plans/boq-upload-plan.md` +

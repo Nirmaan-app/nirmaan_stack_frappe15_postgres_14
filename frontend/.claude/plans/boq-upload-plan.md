@@ -31322,3 +31322,181 @@ owner-locked invariant that governs it. Three defences: the pointers name the fi
 three sites the rules used to occupy, the Reference Docs table carries a row for it, and
 `.claude/context/_index.md` lists it. **Nothing was lost from the repository** -- every line is in the
 new document, proven byte for byte.
+
+---
+
+## frontend/CLAUDE.md trim -- STEP 1: measure, band, copy, prove -- 2026-08-19
+
+**Documentation only. Nothing deleted, no code touched, no test suite run.** The additive half of the
+frontend trim, the same two-step method the root file used (`19a98728` copy, `fce408db` delete). A
+later slice deletes, using this slice's proof.
+
+**The bands were DERIVED here, not inherited.** For the root file they were handed over pre-decided
+and the estimate was 34% under the truth; nothing was taken on trust this time.
+
+### What was created
+
+`frontend/.claude/context/domain/pricing-rate-master-frontend.md` -- **899 lines / 86,184 bytes.**
+Named for what it holds: the FRONTEND detail of the three pricing surfaces. It is the frontend twin of
+`.claude/context/domain/boq-rate-master.md`. **It is a NEW file, not an addition to
+`boq-frontend.md`** -- that doc is already **2,734 lines / 315 KB**, the largest context document in
+the repository, and has grown past the 287.4 KB the handover records for it.
+
+### M1 -- measurements
+
+| File | Lines | Bytes |
+|---|---|---|
+| `frontend/CLAUDE.md` | 1,801 | 180,955 |
+| `frontend/.claude/context/domain/boq-frontend.md` | 2,734 | 322,816 |
+| `CLAUDE.md` (after the root trim) | 414 | 76,601 |
+
+**No numeric size ceiling for context docs is recorded anywhere in the repo** -- the handover says they
+are "large by design" and lists sizes rather than limits. So "oversized" is a comparative judgement,
+not a threshold breach; `boq-frontend.md` is simply the largest of them and still growing.
+
+### M3 -- what landed since the recon
+
+**Only ONE commit touched `frontend/CLAUDE.md` since 2026-08-17: `063e589c` (+25/-6).** The freeze
+commit `97f21cc3` did NOT touch this file -- it was root-only. Its additions, all inside band B1 and
+all copied:
+
+- the `derivedAttrIds` bullet went from **THREE mechanisms to FIVE** (adding a `catalog_fit` bind and a
+  `map_attribute` `result_attr`), and the "two mechanisms" sentence at line 919 was corrected to five;
+- **the gate exemption is CONDITIONAL for a `map_attribute` and must not be flattened** -- it fills
+  from a SOURCE attribute, so on a row with a blank source it fills nothing;
+- **every mechanism added to `derivedAttrIds` owes a branch in `applyDerivedDisplay`** -- membership
+  exempts an attribute from the gate but does not fill its `derivedValue`, and this has shipped broken
+  twice (slice 2c on `catalog_fit`, slice 3b on `map_attribute`).
+
+**These are the newest and most load-bearing lines in the file and must not be read as stale
+narrative.**
+
+### M4 -- the bands, and what was deliberately LEFT IN
+
+| Band | Content | Span | Lines |
+|---|---|---|---|
+| B1 | rate-helper panel + attribute semantics, a bullet-aligned run inside the Pricing-editor section | 877-1130 | 254 |
+| B2 | `### Pricing Module (HVAC / Electrical / ELV Pricing)` | 1170-1399 | 230 |
+| B3 | `### Rate Master (RM-2)` | 1401-1753 | 353 |
+| | | **total** | **837 (46.5% of the file)** |
+
+Each is domain detail that only matters when working on those screens. B2 and B3 are whole sections
+for standalone surfaces. B1 is the frontend half of the rate-master pricing pipeline -- attribute
+coercion, `derivedAttrIds`, `module_fit` / `circuit_fit` / `derive_attribute` semantics - the twin of
+what the root trim moved to `boq-rate-master.md`.
+
+**UNBANDED, with reason** -- the spec's rule is that leaving something in costs a few lines while
+banding a working rule loses it from every session:
+
+- **The rest of the Pricing-editor section (277-876, 600 lines).** Genuine load-bearing frontend
+  invariants: the row-memo anti-defeat rule, read-only gating as PRESENCE of the save callback, the
+  asymmetric rate-edit gate, the mandatory-formula gate, `PricingGrid`'s identity-stable prop shield,
+  reconnect-gated sockets, the virtualizer rules, popover-close-on-visibility. These are exactly the
+  "invisible in the code" class.
+- **The rate-helper chassis slice records U1 / RM-3 / RM-3a / RM-3b / RM-3c (513-618, 106 lines).**
+  **AMBIGUOUS and therefore left in:** they read as per-slice as-built and point at the plan doc, but
+  the U1 block also carries the `RATE_HELPER_ENABLED` runtime kill-switch invariant and the memo-shield
+  and virtualizer-math guarantees, interleaved rather than separable at a clean bullet edge.
+- **The BCS cost block (686-797, 112 lines).** It says "The load-bearing invariants:" and then gives
+  them -- the halves-win STRUCTURAL narrowing, the test-pinned column headers, the `Record`-vs-`Map`
+  compile-error guard, the carry layer defaulting OFF, and the BCS name-collision warning.
+- **`## Important Notes` (1755-1801)** and everything above line 277 -- app-wide working rules,
+  commands, conventions, directory structure, RBAC.
+
+### M5 -- the orphan question, and it is the finding of this slice
+
+**All three bands contain rules that exist NOWHERE ELSE in the repository.** Search space: all
+**3,052 tracked files**, excluding `frontend/CLAUDE.md` itself.
+
+| Band | Top-level bullets | Found elsewhere | **Found NOWHERE else** |
+|---|---|---|---|
+| B1 | 33 | 2 | **31** |
+| B2 | 30 | 5 | **23** |
+| B3 | 24 | 4 | **20** |
+| | **87** | **11** | **74 (85%)** |
+
+The method finds matches when they exist -- the 11 hits landed in `boq-upload-plan.md`,
+`pricing-module-plan.md`, `.claude/context/domain/boq-rate-master.md` and even
+`RateMasterDerivation.tsx` -- so a null result is meaningful rather than an artefact.
+**This is what makes copy-before-delete load-bearing here rather than ceremonial: unlike the root
+trim, whose orphans all sat outside the bands, these bands ARE the only home for most of their
+content.** The deletion slice must not run without this proof passing.
+
+### B5 -- the proof
+
+**837 source lines; 837 landed; 0 unaccounted; 0 differ.** All 12 segments present as contiguous
+verbatim runs; all three bands reassemble with no gaps or overlaps; the destination minus its preamble
+and inserted headings is identical to the three bands concatenated (833 non-blank lines each side).
+
+Script: `/tmp/trimfe/verify_frontend_trim.py`, run with `NS_ROOT` (and optional `BEFORE_REF`, default
+`fce408db`). **⚠️ It is anchored on an IMMUTABLE GIT BLOB** -- it reads the band text via
+`git show fce408db:frontend/CLAUDE.md`, never from live line numbers. The root trim's step-1 script
+was line-anchored and became meaningless the moment the source shrank; **this one is designed for the
+deletion slice to re-run UNCHANGED**, and it prints a SOURCE STATE line that distinguishes
+"copied, not yet deleted" from "deleted" on its own.
+
+### Block accounting
+
+Three bands cut into **12 segments at bullet boundaries**, copied VERBATIM in source order with only
+topic headings inserted. **Splits made:** B1 into 5, B2 into 3, B3 into 4. Every cut falls immediately
+before a line beginning `- **`, so no bullet is divided; segments 6 and 9 carry the source's own `###`
+heading and preamble and received no inserted heading. **No block had to be rewritten to be copied.**
+
+| # | Band | Span | Lines | Destination |
+|---|---|---|---|---|
+| 1 | B1 | 877-918 | 42 | The rate-helper panel - attribute state, defaults and overrides |
+| 2 | B1 | 919-998 | 80 | Derived attributes - the missing-input gate, the display, and its refusals |
+| 3 | B1 | 999-1040 | 42 | Structured step outcomes, the row-count gate, and where a value is coerced |
+| 4 | B1 | 1041-1101 | 61 | Computed attributes reaching the selection, stated-wins, and derivedAttrIds |
+| 5 | B1 | 1102-1130 | 29 | Attribute domains, bound values, and losable types |
+| 6 | B2 | 1170-1260 | 91 | (the source's own Pricing Module heading + preamble) |
+| 7 | B2 | 1261-1345 | 85 | Dropdowns, access gating, the sandbox, and the import pipeline |
+| 8 | B2 | 1346-1399 | 54 | Helper columns, criterion ranges, and save-time advisories |
+| 9 | B3 | 1401-1464 | 64 | (the source's own Rate Master (RM-2) heading + preamble) |
+| 10 | B3 | 1465-1530 | 66 | The interpreter surface, the Data Viewer, and RM-4a admin editing |
+| 11 | B3 | 1531-1682 | 152 | RM-4b structure editor - the Pipelines tab |
+| 12 | B3 | 1683-1753 | 71 | Derivation-screen field semantics - blank_qty, veto, and warnings |
+| | | | **837** | **837 landed, 12/12 verbatim** |
+
+### CORRECTIONS OWED -- copied unchanged ON PURPOSE (B2a)
+
+The owner retired the pricing sheet on 2026-08-19 and reclassified goldens from ORACLES to
+**regression canaries, re-banked mechanically**; **Deployment Mode v1.1 is the authority.** Fixing
+during a copy destroys the proof that makes the later deletion safe, so these were copied verbatim.
+**Corrections ride a later slice.** Fewer than the root trim's eight, because most goldens language
+lives on the backend side:
+
+| # | Source line | Destination heading | What is now stale |
+|---|---|---|---|
+| 1 | 1564 | RM-4b structure editor - the Pipelines tab | "the **oracle goldens** t1/t2/t3 (431/120/297/0, 415/120/286, 410/200) are the standing pins" -- the direct twin of the root trim's correction #3. |
+| 2 | 1620 | RM-4b structure editor - the Pipelines tab | "the table-hit is UNROUNDED `matched[target] x mult` (**sheet-faithful**)" -- sheet-faithful framing. |
+| 3 | 1472 | The interpreter surface, the Data Viewer, and RM-4a admin editing | "The four RM-1 goldens are its **standing test fixtures**" -- the twin of the root trim's correction #6. |
+| 4 | 1505 | The interpreter surface, the Data Viewer, and RM-4a admin editing | "The interpreter goldens stay **the invariant any edit must still reproduce** after an edit-and-revert" -- treats a golden as an oracle rather than a canary. |
+
+**Listed so a later slice does not sweep them up by mistake -- these need NO correction:**
+line 1623's "standing pins" already uses the regression framing the owner ruled for; and lines 1012 /
+1037 ("THE PRICING-EDITOR ROW COUNT IS THE GATE FOR ANYTHING THE GOLDENS BYPASS" and "the goldens
+cannot catch this class of break") are live, correct rules ABOUT the limits of goldens, not oracle
+claims.
+
+**Also copied unchanged:** the blocks marked SUPERSEDED / RETIRED inside B3 (lines 1683, 1692, 1720)
+and B1 (981). Several describe CURRENT rulings -- 1683's "SUPERSEDED -- `blank_qty` IS EDITABLE AGAIN"
+is the live rule, and 1720 states outright that it is "retained because the MECHANISM it describes
+still governs". Judging them is not this slice's job.
+
+### B4 -- registration, and one adaptation reported rather than guessed
+
+One row added to `frontend/.claude/context/_index.md`.
+
+**⚠️ `frontend/CLAUDE.md` has NO "Reference Docs" table** -- unlike root `CLAUDE.md`, which does. The
+spec's instruction assumed one. Rather than invent a table, the pointer was added as ONE line to the
+file's existing "where the detail lives" block (after the `boq-frontend.md` pointer at line 236),
+which serves the identical function and sits early in the file where it is discoverable. **That single
+line is the only change to `frontend/CLAUDE.md` in this slice** -- proven by a byte comparison in the
+edit script and by `git diff --numstat` reporting `1 0`.
+
+### Backwards compatibility
+
+Documentation only -- no runtime behaviour, API, schema or config change. **Because nothing was
+deleted, no session can lose access to any rule as a result of this slice**; the content is
+deliberately present twice until the deletion slice runs.
