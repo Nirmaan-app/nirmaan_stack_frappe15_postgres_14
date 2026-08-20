@@ -121,6 +121,14 @@ class ProjectPayments(Document):
         # --- 3. Update the parent document ---
 		try:
 			frappe.db.set_value(self.document_type, self.document_name, "amount_paid", total_paid)
+
+			# `amount_due` on the parent is derived from `amount_paid`, so it moves with it.
+			# PO: amount_invoiced - amount_paid | SR: total_amount - amount_paid -- deliberately
+			# different formulas; the helper owns that split.
+			from nirmaan_stack.api.invoices._item_billing_sync import (
+				recompute_document_amount_due,
+			)
+			recompute_document_amount_due(self.document_type, self.document_name)
 			# print(f"DEBUGGPS: Updated amount_paid for {self.document_type} {self.document_name} to {total_paid}")
 
 			# ⚠️ THE COMMIT IS SKIPPED FOR THE OUTFLOW IMPORT, AND ONLY FOR IT.

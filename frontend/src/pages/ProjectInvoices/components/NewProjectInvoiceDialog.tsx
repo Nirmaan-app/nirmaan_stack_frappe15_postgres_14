@@ -603,7 +603,6 @@ export function NewProjectInvoiceDialog({ listMutate, ProjectId, onClose }: NewP
                                     onChange={handleProjectChange}
                                     disabled={isLoading}
                                     universal={false}
-                                    all
                                     usePortal
                                 />
                                 {formErrors.project && (
