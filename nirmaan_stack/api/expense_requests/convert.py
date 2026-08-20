@@ -30,8 +30,6 @@ from nirmaan_stack.api.expense_requests.flatten import (
 )
 from nirmaan_stack.services.outflow_import.settle import format_amount_for
 
-APPROVED = "Approved"
-
 
 def target_doctype(req) -> str:
 	"""Which ledger this request becomes.
@@ -84,21 +82,51 @@ def compose_description(req, source_format=None) -> str:
 	return " · ".join(p for p in (body, f"[{req.name}]") if p)
 
 
+def target_status(req) -> str:
+	"""What status the ledger row WILL be born at, without creating it.
+
+	The reviewer is told the outcome before they commit to it, and since 2026-08-20 that
+	outcome depends on the amount -- so the dialog can no longer say "Approved" and be right.
+
+	⚠️ IT READS THE LEDGER'S OWN CONSTANT rather than repeating the number. Both doctypes
+	declare an identical `AUTO_APPROVE_LIMIT`, so importing one keeps the THRESHOLD single-
+	sourced; only the comparison shape is restated here, and it is three lines long. A
+	hardcoded 5000 in this module -- or worse, in TypeScript -- is how the screen would come
+	to promise one thing while `validate` did another.
+	"""
+	from nirmaan_stack.nirmaan_stack.doctype.project_expenses.project_expenses import (
+		AUTO_APPROVE_LIMIT,
+	)
+
+	amount = flt(req.amount)
+	return "Approved" if 0 < amount < AUTO_APPROVE_LIMIT else "Requested"
+
+
 def create_ledger_row(req):
 	"""Write the ledger row for an approved request.
 
-	`status` is set EXPLICITLY to `Approved`, and that is what bypasses the `< ₹5,000`
-	auto-approve in both doctypes' `validate` — they return early once status is anything
-	other than `Requested`. A senior already sanctioned this, and the `Requested` queue is
-	measurably dead. Same explicit-status trick the outflow import uses to land rows at
-	`Paid`.
+	⚠️ `status` IS DELIBERATELY NOT SET (owner ruling, 2026-08-20, REVERSING the earlier
+	explicit `Approved`). The row is born at the ledger's own default, `Requested`, and each
+	doctype's `validate` then applies ITS OWN rule — identical on both:
+
+	    0 < amount < ₹5,000   ->  auto-approved
+	    ₹5,000 or more        ->  stays Requested, awaiting a second approval on the ledger
+	    zero or negative      ->  stays Requested (a refund is never auto-approved)
+
+	Setting the status here is precisely what USED to bypass that rule: `validate` returns
+	early once the status is anything other than `Requested`. So the fix is a DELETION, not a
+	new branch -- a request-born row is now governed by the same threshold as one keyed in
+	directly, which is the point.
+
+	⚠️ CONSEQUENCE, ACCEPTED: an expense of ₹5,000 or more is NOT payable on approval alone.
+	It needs the ledger's own Approve, which is admin-only -- and that queue held 7 stranded
+	rows when this shipped. If nobody works it, a large approved request never gets paid.
 	"""
 	doctype = target_doctype(req)
 	source_format = _source_format_for(req)
 
 	values = {
 		"type": req.type,
-		"status": APPROVED,
 		# The ONE link between a request and its expense, and it points BACKWARDS on
 		# purpose: `Non Project Expenses` rows are also raised directly, so the ledger is
 		# the side that may or may not have a request -- not the other way round. It also

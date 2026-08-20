@@ -333,10 +333,20 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   of `Expense Type.project`, existing ONLY so `depends_on` can hide the field — Frappe cannot
   evaluate a linked doctype's field. Never treat the mirror as authority; `validate` reads
   the master.
-- **The ledger row is created at `Approved`, never `Requested`.** That explicit status is
-  what bypasses the `<₹5,000` auto-approve (both doctypes return early once status is
-  anything but `Requested`). Measured 2026-08-17: all 8 rows at `Requested` were stranded,
-  the oldest 3+ weeks, while 99% of expenses go straight to `Paid`.
+- **⚠️ THE LEDGER'S OWN THRESHOLD DECIDES THE STATUS (owner ruling, 2026-08-20 — REVERSING
+  the earlier "created at `Approved`, never `Requested`").** `create_ledger_row` no longer
+  sets `status`, so the row is born at the ledger default `Requested` and each doctype's
+  `validate` applies the rule it applies to any directly-entered row — identical on both:
+  `0 < amount < ₹5,000` auto-approves, `₹5,000` or more stays `Requested`, and a zero or
+  negative (a refund) stays `Requested`. **The fix was a DELETION, not a new branch:** setting
+  the status was precisely what bypassed the rule, because `validate` returns early once the
+  status is anything other than `Requested`.
+  **⚠️ CONSEQUENCE, ACCEPTED BY THE OWNER: an expense of ₹5,000 or more is NOT payable on
+  approval alone** — it needs the ledger's own Approve, which is admin-only. The prior
+  measurement that argued against this still stands as a RISK, not a refutation: on
+  2026-08-17 all 8 rows at `Requested` were stranded, the oldest 3+ weeks, while 99% of
+  expenses went straight to `Paid`. If nobody works that queue, a large approved request
+  never gets paid.
 - **The reviewer gate is SERVER-SIDE** (`api/expense_requests/access.guard_reviewer`), unlike
   the rest of this module. It refuses two distinct ways — wrong role, and own request — and
   runs before any write, so a refusal mutates nothing. Admin passes both (they are the

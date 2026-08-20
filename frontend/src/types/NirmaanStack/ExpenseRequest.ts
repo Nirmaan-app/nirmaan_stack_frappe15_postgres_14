@@ -37,6 +37,9 @@ export interface ExpenseRequest {
   detail?: { label: string; value: string }[];
   /** Which ledger approval will write to. Resolved server-side, not re-derived here. */
   target_doctype?: string;
+  /** What status the ledger row will be BORN at — server-resolved, because it depends on the
+   *  amount and the threshold lives on the ledger doctypes. Never re-derive it here. */
+  target_status?: "Approved" | "Requested";
 }
 
 export interface GetMyExpenseRequestsResponse {

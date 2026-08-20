@@ -11,7 +11,7 @@ URLs:
 import frappe
 
 from nirmaan_stack.api.expense_requests.access import ADMIN_PROFILE, caller_role_profile
-from nirmaan_stack.api.expense_requests.convert import target_doctype
+from nirmaan_stack.api.expense_requests.convert import target_doctype, target_status
 from nirmaan_stack.api.expense_requests.flatten import flatten_pairs
 from nirmaan_stack.services.expense_request_routing import (
 	category_for_type,
@@ -78,9 +78,12 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 			{"label": label, "value": value}
 			for label, value in flatten_pairs(r.get("source_data"), formats.get(r["type"]))
 		]
-		# Which ledger this becomes, resolved server-side so the dialog states the outcome
-		# rather than re-deriving the rule.
+		# Which ledger this becomes, AND what status it will land at -- both resolved
+		# server-side so the dialog states the outcome rather than re-deriving the rule.
+		# The status is amount-dependent since 2026-08-20, and the threshold lives on the
+		# ledger doctypes; a TypeScript copy of it would be free to disagree with `validate`.
 		r["target_doctype"] = target_doctype(frappe._dict(r))
+		r["target_status"] = target_status(frappe._dict(r))
 
 	return {"role_profile": profile, "requests": rows}
 
