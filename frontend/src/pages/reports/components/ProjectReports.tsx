@@ -42,6 +42,7 @@ import { InflowReportTable } from "./InflowReportTable";
 import { OutflowReportTable } from "./outflowReportTable";
 import { NonProjectExpensesPage } from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
 import { ProjectProgressReports } from "./ProjectProgressReports";
+import { ProjectInvoicesReport } from "./ProjectInvoicesReport";
 import { ProjectGSTReport } from "./ProjectGSTReport";
 
 const InventoryReport = lazy(() => import('./InventoryReport'));
@@ -610,6 +611,10 @@ export default function ProjectReports() {
   }
   if (selectedReportType === "Outflow Report(Non-Project)") {
     return <NonProjectExpensesPage DisableAction={true} />;
+  }
+
+  if (selectedReportType === "Project Invoices") {
+    return <ProjectInvoicesReport />;
   }
 
   if (selectedReportType === "Project Progress Report") {
