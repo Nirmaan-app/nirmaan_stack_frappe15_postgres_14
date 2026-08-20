@@ -12,6 +12,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useFrappeFileUpload, useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
+import { AlertTriangle } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 
 import {
@@ -32,7 +33,9 @@ import ProjectSelect from "@/components/custom-select/project-select";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
 import { parseNumber } from "@/utils/parseNumber";
+import { getFrappeError } from "@/utils/frappeErrors";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatDate } from "@/utils/FormatDate";
 import type {
     GetRequestCatalogResponse, RequestCatalogType,
 } from "@/types/NirmaanStack/ExpenseRequest";
@@ -89,6 +92,29 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
         () => parseFormat(formatRes?.message?.source_format),
         [formatRes]
     );
+
+    // ⚠️ WARN, NEVER BLOCK (owner, 2026-08-20). Debounced while the form is filled, because
+    // the answers that identify a duplicate -- the person and the period -- are typed late.
+    // A type with no rule, or a half-filled form, returns nothing, so this never nags.
+    const [duplicates, setDuplicates] = useState<{ subject: string; overlapping: any[] } | null>(null);
+    const { call: checkDuplicates } = useFrappePostCall(
+        "nirmaan_stack.api.expense_requests.similar.check_new_request"
+    );
+    const answersKey = JSON.stringify(toResponses(answers));
+    useEffect(() => {
+        if (!form.expense_type || !parsedFormat) { setDuplicates(null); return; }
+        let live = true;
+        const t = setTimeout(async () => {
+            try {
+                const res = await checkDuplicates({
+                    expense_type: form.expense_type,
+                    source_data: JSON.stringify({ responses: JSON.parse(answersKey) }),
+                });
+                if (live) setDuplicates(res?.message ?? null);
+            } catch { if (live) setDuplicates(null); }
+        }, 500);
+        return () => { live = false; clearTimeout(t); };
+    }, [form.expense_type, answersKey, parsedFormat, checkDuplicates]);
 
     const categories = catalogRes?.message?.categories ?? [];
 
@@ -204,9 +230,12 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
             close();
             onSuccess?.();
         } catch (e: any) {
+            // ⚠️ Frappe puts the useful text in `_server_messages` / `exception`, NEVER in
+            // `message` -- so `e?.message` rendered the duplicate refusal as the entirely
+            // uninformative "There was an error." `getFrappeError` is the shared reader.
             toast({
                 title: "Could not raise the request",
-                description: e?.message || "Something went wrong.",
+                description: getFrappeError(e),
                 variant: "destructive",
             });
         } finally {
@@ -316,6 +345,30 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
                         />
                     </div>
                 </div>
+
+                {(duplicates?.overlapping?.length ?? 0) > 0 && (
+                    <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm dark:border-amber-900 dark:bg-amber-950/30">
+                        <p className="flex items-center gap-1.5 font-medium text-amber-800 dark:text-amber-300">
+                            <AlertTriangle className="h-4 w-4 shrink-0" />
+                            {duplicates!.subject} already has a {form.expense_type} for this period
+                        </p>
+                        <ul className="mt-1 space-y-0.5 pl-5.5 text-amber-900/90 dark:text-amber-200/90">
+                            {duplicates!.overlapping.map((d) => (
+                                <li key={d.name}>
+                                    {formatDate(d.period_from)}
+                                    {d.period_to !== d.period_from && ` – ${formatDate(d.period_to)}`}
+                                    {" · "}{formatToRoundedIndianRupee(d.amount)}
+                                    {" · "}{d.name}{" · "}{d.status}
+                                    {d.context && <span className="text-xs"> ({d.context})</span>}
+                                </li>
+                            ))}
+                        </ul>
+                        {/* Informational ONLY -- `canSubmit` is untouched, so this never blocks. */}
+                        <p className="mt-1 text-xs text-amber-800/80 dark:text-amber-300/80">
+                            You can still send this for approval.
+                        </p>
+                    </div>
+                )}
 
                 <Separator />
                 <AlertDialogFooter className="gap-2">
