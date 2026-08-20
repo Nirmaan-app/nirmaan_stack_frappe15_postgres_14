@@ -31,6 +31,9 @@ export const ASSET_MASTER_FIELDS = [
     'asset_condition',
     'asset_serial_number',
     'asset_value',
+    'project',
+    'asset_city',
+    'asset_state',
     'asset_email',
     'current_assignee',
     'creation',
@@ -53,6 +56,14 @@ export const ASSET_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "name", label: "Asset ID", placeholder: "Search by asset ID..." },
     { value: "asset_serial_number", label: "Serial Number", placeholder: "Search by serial number..." },
     { value: "asset_category", label: "Category", placeholder: "Search by category..." },
+];
+
+// Extra searchable fields shown only on the Project Assets tab
+export const PROJECT_ASSET_SEARCHABLE_FIELDS: SearchFieldOption[] = [
+    ...ASSET_SEARCHABLE_FIELDS,
+    { value: "project", label: "Project", placeholder: "Search by project ID..." },
+    { value: "asset_city", label: "City", placeholder: "Search by city..." },
+    { value: "asset_state", label: "State", placeholder: "Search by state..." },
 ];
 
 // Date columns for filtering
@@ -111,6 +122,9 @@ export const ASSET_CACHE_KEYS = {
 
     // Category dropdowns (shared across all dialogs)
     CATEGORIES_DROPDOWN: `${ASSET_CATEGORY_DOCTYPE}_dropdown`,
+
+    // Projects dropdown (Project-Asset project/city/state picker)
+    PROJECTS_DROPDOWN: `${ASSET_MASTER_DOCTYPE}_projects_dropdown`,
 
     // Category-name lists by type (used by useAssetCategoryNamesByType)
     PROJECT_CATEGORIES_NAMES: `${ASSET_CATEGORY_DOCTYPE}_names_project`,

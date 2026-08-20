@@ -12,6 +12,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { UserPlus, Calendar, CheckCircle2, Download, FileText } from 'lucide-react';
@@ -19,8 +20,10 @@ import { UserPlus, Calendar, CheckCircle2, Download, FileText } from 'lucide-rea
 import {
     ASSET_MASTER_DOCTYPE,
     ASSET_MANAGEMENT_DOCTYPE,
+    ASSET_CATEGORY_DOCTYPE,
 } from '../assets.constants';
 import { useAssetDataRefresh } from '../hooks/useAssetDataRefresh';
+import { useAssetProjectOptions } from '../hooks/useAssetProjectOptions';
 import { getRoleLabel } from '../utils/permissions';
 
 interface AssignAssetDialogProps {
@@ -37,6 +40,17 @@ interface NirmaanUser {
     role_profile: string | null;
 }
 
+interface AssetProjectRef {
+    name: string;
+    project: string;
+    asset_category: string;
+}
+
+interface AssetCategoryTypeRow {
+    name: string;
+    category_type: string;
+}
+
 export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
     isOpen,
     onOpenChange,
@@ -45,6 +59,7 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
     onAssigned,
 }) => {
     const [selectedUser, setSelectedUser] = useState<string>('');
+    const [selectedProject, setSelectedProject] = useState<string>('');
     const [assignedDate, setAssignedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSuccessDialog, setShowSuccessDialog] = useState(false);
@@ -79,6 +94,71 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
         [usersList]
     );
 
+    // The dialog is opened from three different surfaces, none of which carry the
+    // asset's project or category — resolve them here so every entry point behaves
+    // identically instead of threading the same two values through three call sites.
+    const { data: assetRows } = useFrappeGetDocList<AssetProjectRef>(
+        ASSET_MASTER_DOCTYPE,
+        {
+            fields: ['name', 'project', 'asset_category'],
+            filters: [['name', '=', assetId]],
+            limit: 1,
+        },
+        isOpen && assetId ? `asset_assign_context_${assetId}` : null
+    );
+
+    const assetRow = assetRows?.[0];
+    const assetCategory = assetRow?.asset_category || '';
+
+    const { data: categoryRows } = useFrappeGetDocList<AssetCategoryTypeRow>(
+        ASSET_CATEGORY_DOCTYPE,
+        {
+            fields: ['name', 'category_type'],
+            filters: [['name', '=', assetCategory]],
+            limit: 1,
+        },
+        assetCategory ? `asset_category_type_${assetCategory}` : null
+    );
+
+    // Project/City/State are Project-asset concepts — IT assets have no project.
+    const isProjectAsset = categoryRows?.[0]?.category_type === 'Project';
+
+    const { projectOptions, projectsById, isLoading: projectsLoading } = useAssetProjectOptions(isProjectAsset);
+
+    // Only Won tenders are offered. If the asset already carries a project that is
+    // no longer Won, merge it in so the pre-filled value is visible instead of the
+    // picker rendering blank against a required field.
+    const pickerProjectOptions = useMemo(() => {
+        if (!selectedProject || projectOptions.some((opt) => opt.value === selectedProject)) {
+            return projectOptions;
+        }
+        const row = projectsById[selectedProject];
+        return [
+            ...projectOptions,
+            {
+                value: selectedProject,
+                label: row?.project_name || selectedProject,
+                city: row?.project_city || '',
+                state: row?.project_state || '',
+            },
+        ];
+    }, [projectOptions, projectsById, selectedProject]);
+
+    const selectedProjectOption = useMemo(
+        () => pickerProjectOptions.find((opt) => opt.value === selectedProject) || null,
+        [pickerProjectOptions, selectedProject]
+    );
+
+    // Pre-fill with whatever the asset already carries; the assigner can change it.
+    useEffect(() => {
+        if (!isOpen) return;
+        setSelectedProject(assetRow?.project || '');
+    }, [isOpen, assetRow?.project]);
+
+    // NOTE: selectedProject is deliberately NOT reset here. resetForm runs from an
+    // effect declared *after* the pre-fill effect, so clearing it here would wipe
+    // the asset's existing project on open — and with the asset row already in the
+    // SWR cache the pre-fill effect would never re-run to restore it.
     const resetForm = () => {
         setSelectedUser('');
         setAssignedDate(format(new Date(), 'yyyy-MM-dd'));
@@ -102,6 +182,15 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
             return;
         }
 
+        if (isProjectAsset && !selectedProject) {
+            toast({
+                title: 'Project Required',
+                description: 'Please select the project this asset is being assigned to.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
         setIsSubmitting(true);
 
         try {
@@ -112,9 +201,12 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
                 asset_assigned_on: assignedDate,
             });
 
-            // Update Asset Master with current assignee
+            // Update Asset Master with current assignee, and — for Project assets —
+            // the project this assignment is for. City/State are read-only fetch
+            // fields, so the server derives them from the project's address.
             await updateDoc(ASSET_MASTER_DOCTYPE, assetId, {
                 current_assignee: selectedUser,
+                ...(isProjectAsset ? { project: selectedProject } : {}),
             });
 
             // Get the assigned user's display name
@@ -270,6 +362,57 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
                         />
                     </div>
 
+                    {/* Project + auto-filled location - Project-type assets only */}
+                    {isProjectAsset && (
+                        <>
+                            <div className="space-y-1.5">
+                                <Label className="text-sm font-medium text-gray-700">
+                                    Project <span className="text-red-500">*</span>
+                                </Label>
+                                <ReactSelect
+                                    options={pickerProjectOptions}
+                                    value={selectedProjectOption}
+                                    onChange={(val) => setSelectedProject(val?.value || '')}
+                                    placeholder={projectsLoading ? 'Loading...' : 'Select project...'}
+                                    isClearable
+                                    isDisabled={projectsLoading}
+                                    classNames={{
+                                        control: () => 'border-gray-200 hover:border-gray-300',
+                                    }}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1.5">
+                                    <Label className="text-sm font-medium text-gray-700">
+                                        City
+                                        <span className="ml-1 text-xs text-gray-400">(auto)</span>
+                                    </Label>
+                                    <Input
+                                        value={selectedProjectOption?.city || ''}
+                                        readOnly
+                                        disabled
+                                        placeholder="From project address"
+                                        className="bg-gray-50"
+                                    />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label className="text-sm font-medium text-gray-700">
+                                        State
+                                        <span className="ml-1 text-xs text-gray-400">(auto)</span>
+                                    </Label>
+                                    <Input
+                                        value={selectedProjectOption?.state || ''}
+                                        readOnly
+                                        disabled
+                                        placeholder="From project address"
+                                        className="bg-gray-50"
+                                    />
+                                </div>
+                            </div>
+                        </>
+                    )}
+
                     {/* Assignment Date */}
                     <div className="space-y-1.5">
                         <Label htmlFor="assignedDate" className="text-sm font-medium text-gray-700">
@@ -298,7 +441,7 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
                     </Button>
                     <Button
                         onClick={handleSubmit}
-                        disabled={isSubmitting || !selectedUser}
+                        disabled={isSubmitting || !selectedUser || (isProjectAsset && !selectedProject)}
                         className="gap-2 bg-emerald-600 hover:bg-emerald-700"
                     >
                         {isSubmitting ? 'Assigning...' : 'Assign Asset'}

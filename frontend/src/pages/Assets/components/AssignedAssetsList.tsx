@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ColumnDef } from '@tanstack/react-table';
 import { Link } from 'react-router-dom';
 import { useFrappeGetDocList } from 'frappe-react-sdk';
@@ -9,7 +9,7 @@ import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from '@/utils/FormatDate';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Hash, User, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react';
+import { Hash, User, CheckCircle2, AlertCircle, ExternalLink, Briefcase, MapPin } from 'lucide-react';
 
 import {
     ASSET_MANAGEMENT_DOCTYPE,
@@ -19,6 +19,8 @@ import {
     AssetCategoryType,
 } from '../assets.constants';
 import { useAssetMasterNamesByType } from '../hooks/useAssetMasterNamesByType';
+import { useAssetProjectOptions } from '../hooks/useAssetProjectOptions';
+import { AssetLookupFacetFilter } from './AssetLookupFacetFilter';
 
 interface AssetManagement {
     name: string;
@@ -33,6 +35,9 @@ interface AssetMaster {
     name: string;
     asset_name: string;
     asset_category: string;
+    project: string;
+    asset_city: string;
+    asset_state: string;
 }
 
 interface NirmaanUser {
@@ -64,11 +69,14 @@ interface AssignedAssetsListInnerProps {
 }
 
 const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ assetType, masterNames }) => {
+    // Project / City / State are Project-asset concepts. An IT asset never carries
+    // a project, so on the IT tab these would be three columns of em-dashes.
+    const isProjectTab = assetType === 'Project';
     // Fetch asset details — scope to typed asset names when filtering
     const { data: assetsList } = useFrappeGetDocList<AssetMaster>(
         'Asset Master',
         {
-            fields: ['name', 'asset_name', 'asset_category'],
+            fields: ['name', 'asset_name', 'asset_category', 'project', 'asset_city', 'asset_state'],
             filters: assetType ? [['name', 'in', masterNames.length ? masterNames : ['__none__']]] : [],
             limit: 0,
         },
@@ -82,6 +90,10 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
         });
         return map;
     }, [assetsList]);
+
+    // Project names for the Project column (assignments carry the project via
+    // their Asset Master row, so it is resolved through assetsMap like Category).
+    const { projectsById } = useAssetProjectOptions(true);
 
     // Fetch user details
     const { data: usersList } = useFrappeGetDocList<NirmaanUser>(
@@ -100,6 +112,54 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
         });
         return map;
     }, [usersList]);
+
+    // Project / City / State come from the linked Asset Master, so their funnels
+    // live in the columns' own `header` render props with the selection held here
+    // (see AssetLookupFacetFilter) and resolved into the `asset` scope below.
+    const [projectFilter, setProjectFilter] = useState<string[]>([]);
+    const [cityFilter, setCityFilter] = useState<string[]>([]);
+    const [stateFilter, setStateFilter] = useState<string[]>([]);
+
+    // Option lists (with counts) built from the same assets the tab is scoped to.
+    const lookupFacetOptions = useMemo(() => {
+        const project = new Map<string, number>();
+        const city = new Map<string, number>();
+        const state = new Map<string, number>();
+        (assetsList ?? []).forEach((a) => {
+            if (a.project) project.set(a.project, (project.get(a.project) ?? 0) + 1);
+            const c = a.asset_city?.trim();
+            if (c) city.set(c, (city.get(c) ?? 0) + 1);
+            const st = a.asset_state?.trim();
+            if (st) state.set(st, (state.get(st) ?? 0) + 1);
+        });
+
+        const toOptions = (counts: Map<string, number>, label?: (v: string) => string) =>
+            Array.from(counts.entries())
+                .map(([value, count]) => ({
+                    label: `${label ? label(value) : value} (${count})`,
+                    value,
+                }))
+                .sort((a, b) => a.label.localeCompare(b.label));
+
+        return {
+            project: toOptions(project, (id) => projectsById[id]?.project_name || id),
+            city: toOptions(city),
+            state: toOptions(state),
+        };
+    }, [assetsList, projectsById]);
+
+    // Asset names matching every active lookup filter — null means "no constraint".
+    const lookupScopedAssetNames = useMemo<string[] | null>(() => {
+        if (!projectFilter.length && !cityFilter.length && !stateFilter.length) return null;
+        return (assetsList ?? [])
+            .filter((a) => {
+                if (projectFilter.length && !projectFilter.includes(a.project || '')) return false;
+                if (cityFilter.length && !cityFilter.includes((a.asset_city || '').trim())) return false;
+                if (stateFilter.length && !stateFilter.includes((a.asset_state || '').trim())) return false;
+                return true;
+            })
+            .map((a) => a.name);
+    }, [assetsList, projectFilter, cityFilter, stateFilter]);
 
     // Source for facets — distinct `asset` + `asset_assigned_to` for this
     // scope, taken from Asset Management directly (mirrors the table query
@@ -227,6 +287,98 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
             },
             size: 180,
         },
+        ...(isProjectTab ? ([
+            {
+                // Lookup columns off the linked Asset Master (same shape as Category):
+                // display-only, so they are id-based rather than accessorKey-based.
+                id: 'project',
+                enableSorting: false,
+                header: ({ column }) => (
+                    <div className="flex items-center gap-1">
+                        <AssetLookupFacetFilter
+                            title="Project"
+                            options={lookupFacetOptions.project}
+                            onChange={setProjectFilter}
+                        />
+                        <DataTableColumnHeader column={column} title="Project" />
+                    </div>
+                ),
+                meta: {
+                    exportHeaderName: 'Project',
+                    exportValue: (row: any) => {
+                        const projectId = assetsMap[row.asset]?.project;
+                        return projectId ? (projectsById[projectId]?.project_name || projectId) : '';
+                    },
+                },
+                cell: ({ row }) => {
+                    const projectId = assetsMap[row.original.asset]?.project;
+                    if (!projectId) return <span className="text-gray-400">—</span>;
+                    return (
+                        <span className="inline-flex items-center gap-1.5 text-sm text-gray-700">
+                            <Briefcase className="h-3.5 w-3.5 text-gray-400" />
+                            {projectsById[projectId]?.project_name || projectId}
+                        </span>
+                    );
+                },
+                size: 200,
+            },
+            {
+                id: 'asset_city',
+                enableSorting: false,
+                header: ({ column }) => (
+                    <div className="flex items-center gap-1">
+                        <AssetLookupFacetFilter
+                            title="City"
+                            options={lookupFacetOptions.city}
+                            onChange={setCityFilter}
+                        />
+                        <DataTableColumnHeader column={column} title="City" />
+                    </div>
+                ),
+                meta: {
+                    exportHeaderName: 'City',
+                    exportValue: (row: any) => assetsMap[row.asset]?.asset_city || '',
+                },
+                cell: ({ row }) => {
+                    const city = assetsMap[row.original.asset]?.asset_city;
+                    if (!city) return <span className="text-gray-400">—</span>;
+                    return (
+                        <span className="inline-flex items-center gap-1.5 text-sm text-gray-700">
+                            <MapPin className="h-3.5 w-3.5 text-gray-400" />
+                            {city}
+                        </span>
+                    );
+                },
+                size: 140,
+            },
+            {
+                id: 'asset_state',
+                enableSorting: false,
+                header: ({ column }) => (
+                    <div className="flex items-center gap-1">
+                        <AssetLookupFacetFilter
+                            title="State"
+                            options={lookupFacetOptions.state}
+                            onChange={setStateFilter}
+                        />
+                        <DataTableColumnHeader column={column} title="State" />
+                    </div>
+                ),
+                meta: {
+                    exportHeaderName: 'State',
+                    exportValue: (row: any) => assetsMap[row.asset]?.asset_state || '',
+                },
+                cell: ({ row }) => {
+                    const state = assetsMap[row.original.asset]?.asset_state;
+                    return state ? (
+                        <span className="text-sm text-gray-700">{state}</span>
+                    ) : (
+                        <span className="text-gray-400">—</span>
+                    );
+                },
+                size: 140,
+            },
+        ] as ColumnDef<AssetManagement>[]) : []),
         {
             accessorKey: 'asset_assigned_on',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Assigned On" />,
@@ -262,13 +414,26 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
             },
             size: 120,
         },
-    ], [assetsMap, usersMap]);
+        // NOTE: projectFilter / cityFilter / stateFilter are deliberately NOT deps.
+        // The funnels own their own selection (see AssetLookupFacetFilter); listing
+        // the selection here would rebuild these column defs on every checkbox,
+        // remounting the popover and closing it after a single pick.
+    ], [assetsMap, usersMap, projectsById, lookupFacetOptions, isProjectTab]);
 
     const additionalFilters = useMemo(() => {
-        if (!assetType) return [];
-        if (masterNames.length === 0) return [['asset', 'in', ['__none__']]];
-        return [['asset', 'in', masterNames]];
-    }, [assetType, masterNames]);
+        // Intersect the type scope (Project/IT tab) with the lookup-filter scope.
+        // '__none__' is the existing sentinel for "match nothing" — an empty `in`
+        // list would otherwise be dropped and silently show every row.
+        let names: string[] | null = assetType ? masterNames : null;
+
+        if (lookupScopedAssetNames) {
+            const allowed = new Set(lookupScopedAssetNames);
+            names = names ? names.filter((n) => allowed.has(n)) : lookupScopedAssetNames;
+        }
+
+        if (names === null) return [];
+        return [['asset', 'in', names.length ? names : ['__none__']]];
+    }, [assetType, masterNames, lookupScopedAssetNames]);
 
     const {
         table,

@@ -50,9 +50,13 @@ export const UnassignAssetDialog: React.FC<UnassignAssetDialogProps> = ({
         setIsSubmitting(true);
 
         try {
-            // Clear current_assignee in Asset Master
+            // Clear the assignee AND the project this asset was assigned for.
+            // asset_city / asset_state are read-only fetch fields on `project`, and
+            // Frappe does not re-fetch when a link is cleared — the Asset Master
+            // validate hook blanks them whenever the project is empty.
             await updateDoc(ASSET_MASTER_DOCTYPE, assetId, {
                 current_assignee: '',
+                project: '',
             });
 
             // Delete the Asset Management record if it exists
@@ -98,7 +102,8 @@ export const UnassignAssetDialog: React.FC<UnassignAssetDialogProps> = ({
                         <span className="font-medium text-gray-700">{assigneeName}</span>?
                         <br />
                         <span className="text-xs text-gray-400 mt-2 block">
-                            This action will remove the current assignment record.
+                            This action will remove the current assignment record and
+                            clear the asset's project, city and state.
                         </span>
                     </AlertDialogDescription>
                 </AlertDialogHeader>

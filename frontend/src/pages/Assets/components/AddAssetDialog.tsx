@@ -177,6 +177,9 @@ export const AddAssetDialog: React.FC<AddAssetDialogProps> = ({
                 asset_condition: assetCondition || undefined,
                 asset_serial_number: serialNumber.trim() || undefined,
                 asset_value: assetValue ? parseFloat(assetValue) : undefined,
+                // Project / City / State are NOT captured at creation — they are set
+                // when the asset is assigned (AssignAssetDialog) and cleared on
+                // unassign, so the location always reflects the live assignment.
                 // Only persist IT credential fields for IT-type assets — the section
                 // is hidden for Project assets, so any residual state must not leak.
                 asset_email: isITAsset ? (assetEmail.trim() || undefined) : undefined,

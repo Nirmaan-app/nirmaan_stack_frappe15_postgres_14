@@ -62,6 +62,7 @@ import {
     Download,
     Briefcase,
     Laptop,
+    MapPin,
 } from 'lucide-react';
 
 import { AssignAssetDialog } from './components/AssignAssetDialog';
@@ -75,6 +76,7 @@ import {
     ASSET_CACHE_KEYS,
     AssetCategoryType,
 } from './assets.constants';
+import { useAssetProjectOptions } from './hooks/useAssetProjectOptions';
 import { getAssetPermissions } from './utils/permissions';
 
 interface AssetMaster {
@@ -85,6 +87,9 @@ interface AssetMaster {
     asset_condition: string;
     asset_serial_number: string;
     asset_value: number;
+    project: string;
+    asset_city: string;
+    asset_state: string;
     asset_email: string;
     asset_email_password: string;
     asset_pin: string;
@@ -213,6 +218,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
         asset_condition: '',
         asset_serial_number: '',
         asset_value: '',
+        project: '',
         asset_email: '',
         asset_email_password: '',
         asset_pin: '',
@@ -300,6 +306,42 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                 ? 'Edit IT Asset'
                 : 'Edit Asset';
 
+    // Projects only matter to Project-type assets — skip the fetch for IT ones.
+    const { projectOptions, projectsById, isLoading: projectsLoading } = useAssetProjectOptions(
+        currentCategoryType === 'Project' || editingCategoryType === 'Project'
+    );
+
+    // `projectOptions` is Won-only. An asset already linked to a project that has
+    // since left "Won" must still render (and stay selected on save), so the
+    // current value is merged in rather than silently dropping out of the picker.
+    const editProjectOptions = useMemo(() => {
+        const current = editForm.project;
+        if (!current || projectOptions.some((opt) => opt.value === current)) {
+            return projectOptions;
+        }
+        const row = projectsById[current];
+        return [
+            ...projectOptions,
+            {
+                value: current,
+                label: row?.project_name || current,
+                city: row?.project_city || '',
+                state: row?.project_state || '',
+            },
+        ];
+    }, [projectOptions, projectsById, editForm.project]);
+
+    const editProjectOption = useMemo(
+        () => editProjectOptions.find((opt) => opt.value === editForm.project) || null,
+        [editProjectOptions, editForm.project]
+    );
+
+    // Display-side resolution reads the FULL map, never the Won-filtered options.
+    const assetProjectLabel = useMemo(
+        () => (asset?.project ? projectsById[asset.project]?.project_name || asset.project : ''),
+        [projectsById, asset?.project]
+    );
+
     const { updateDoc, loading: isUpdating } = useFrappeUpdateDoc();
     const { upload } = useFrappeFileUpload();
 
@@ -337,6 +379,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                 asset_condition: asset.asset_condition || '',
                 asset_serial_number: asset.asset_serial_number || '',
                 asset_value: asset.asset_value ? String(asset.asset_value) : '',
+                project: asset.project || '',
                 asset_email: asset.asset_email || '',
                 asset_email_password: '',
                 asset_pin: '',
@@ -354,6 +397,12 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                 asset_serial_number: editForm.asset_serial_number.trim() || null,
                 asset_value: editForm.asset_value ? parseFloat(editForm.asset_value) : null,
             };
+
+            // Project is Project-asset only; City/State are read-only fetch fields
+            // that the server refreshes from the project's address on save.
+            if (editingCategoryType === 'Project') {
+                updateData.project = editForm.project || null;
+            }
 
             // IT credential fields only persist when the (selected) category is IT —
             // matches the visible form. For a Project asset, email/password/pin are
@@ -651,6 +700,41 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                                     )
                                 }
                             />
+                            {currentCategoryType === 'Project' && (
+                                <>
+                                    <DetailRow
+                                        icon={<Briefcase className="h-4 w-4" />}
+                                        label="Project"
+                                        value={
+                                            asset?.project ? (
+                                                <span className="font-medium text-gray-700">
+                                                    {assetProjectLabel}
+                                                </span>
+                                            ) : (
+                                                <span className="text-gray-400">Not specified</span>
+                                            )
+                                        }
+                                    />
+                                    <DetailRow
+                                        icon={<MapPin className="h-4 w-4" />}
+                                        label="City"
+                                        value={
+                                            asset?.asset_city || (
+                                                <span className="text-gray-400">Not specified</span>
+                                            )
+                                        }
+                                    />
+                                    <DetailRow
+                                        icon={<MapPin className="h-4 w-4" />}
+                                        label="State"
+                                        value={
+                                            asset?.asset_state || (
+                                                <span className="text-gray-400">Not specified</span>
+                                            )
+                                        }
+                                    />
+                                </>
+                            )}
                             <DetailRow
                                 icon={<Calendar className="h-4 w-4" />}
                                 label="Created"
@@ -944,6 +1028,52 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                                 />
                             </div>
                         </div>
+
+                        {/* Project + auto-filled location - Project-type only */}
+                        {editingCategoryType === 'Project' && (
+                            <>
+                                <div className="space-y-1.5">
+                                    <Label className="text-sm font-medium">Project</Label>
+                                    <ReactSelect
+                                        options={editProjectOptions}
+                                        value={editProjectOption}
+                                        onChange={(val) => setEditForm({ ...editForm, project: val?.value || '' })}
+                                        placeholder={projectsLoading ? 'Loading...' : 'Select project'}
+                                        isClearable
+                                        isDisabled={projectsLoading}
+                                    />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1.5">
+                                        <Label className="text-sm font-medium">
+                                            City
+                                            <span className="ml-1 text-xs text-gray-400">(auto)</span>
+                                        </Label>
+                                        <Input
+                                            value={editProjectOption?.city || ''}
+                                            readOnly
+                                            disabled
+                                            placeholder="From project address"
+                                            className="bg-gray-50"
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label className="text-sm font-medium">
+                                            State
+                                            <span className="ml-1 text-xs text-gray-400">(auto)</span>
+                                        </Label>
+                                        <Input
+                                            value={editProjectOption?.state || ''}
+                                            readOnly
+                                            disabled
+                                            placeholder="From project address"
+                                            className="bg-gray-50"
+                                        />
+                                    </div>
+                                </div>
+                            </>
+                        )}
 
                         {/* Description */}
                         <div className="space-y-1.5">
