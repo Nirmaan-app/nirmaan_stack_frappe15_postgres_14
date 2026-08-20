@@ -47,6 +47,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { usePODeliveryDocuments } from "@/pages/DeliveryChallansAndMirs/hooks/usePODeliveryDocuments";
 import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
 import type { PODeliveryDocuments as PODeliveryDoc } from "@/types/NirmaanStack/PODeliveryDocuments";
+import { canDeleteDeliveryDocument } from "@/constants/roles";
 
 // Define a union type for the document data
 type DocumentType = ProcurementOrder | ServiceRequests;
@@ -394,6 +395,74 @@ export const DocumentAttachments = <T extends DocumentType>({
     );
   }, [mutatePDD, mutateAttachments, docMutate]);
 
+  // --- PDD Delete ---
+  // Admin + procurement + billing only. Deliberately NOT keyed off
+  // `isEstimatesExecutive`: that prop is true for BOTH Estimates Executive and
+  // Billing Executive (see PurchaseOrder.tsx `estimatesViewing`), and billing
+  // must be able to delete a wrong DC/MIR even though it cannot upload one.
+  // The role profile itself is what separates them.
+  const canDeletePDD = useMemo(
+    () => canDeleteDeliveryDocument(role, user_id),
+    [role, user_id]
+  );
+
+  const [deletingPddName, setDeletingPddName] = useState<string | null>(null);
+
+  const { call: deletePDDApi } = useFrappePostCall(
+    "nirmaan_stack.api.po_delivery_documentss.delete_po_delivery_documents"
+  );
+
+  const handlePDDDelete = useCallback(
+    async (doc: PODeliveryDoc) => {
+      setDeletingPddName(doc.name);
+      try {
+        const response = await deletePDDApi({ document_name: doc.name });
+        const result = response?.message;
+
+        if (result?.status === 200) {
+          toast({
+            title: "Deleted",
+            description: result.message,
+            variant: "success",
+          });
+        } else {
+          // 403 (role) / 404 (already gone in another tab) / 400 (server error).
+          // A 404 still falls through to the refetch below so the stale row goes.
+          toast({
+            title: "Deletion Failed",
+            description: result?.message || "Could not delete this document.",
+            variant: "destructive",
+          });
+          if (result?.status === 403) return;
+        }
+
+        await mutatePDD();
+        await mutateAttachments();
+        await docMutate();
+        // Material Usage tab, DN-vs-DC report and the DCs & MIRs report all read
+        // PO Delivery Documents through their own SWR keys — without this they
+        // keep showing the deleted row until a hard reload.
+        await globalMutate(
+          (key) =>
+            (typeof key === "string" &&
+              (key.includes("delivery_docs") || key.includes("po_delivery_documentss"))) ||
+            (Array.isArray(key) && JSON.stringify(key).includes("Nirmaan Attachments")),
+          undefined,
+          { revalidate: true }
+        );
+      } catch (err: any) {
+        toast({
+          title: "Deletion Failed",
+          description: err?.message || "Could not delete this document.",
+          variant: "destructive",
+        });
+      } finally {
+        setDeletingPddName(null);
+      }
+    },
+    [deletePDDApi, toast, mutatePDD, mutateAttachments, docMutate]
+  );
+
   // --- Loading and Error States ---
   if (attachmentsLoading || invoicesLoading) {
     return (
@@ -715,6 +784,9 @@ export const DocumentAttachments = <T extends DocumentType>({
                 <DeliveryChallanTable
                   documents={pddDocs || []}
                   onEdit={handlePDDEdit}
+                  onDelete={handlePDDDelete}
+                  canDelete={() => canDeletePDD}
+                  deletingName={deletingPddName}
                 />
               </div>
             </CardContent>

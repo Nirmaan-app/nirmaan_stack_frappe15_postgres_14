@@ -124,3 +124,31 @@ def has_role_profile(user: str, profiles, *, superuser_passes: bool = True) -> b
 def is_nirmaan_admin(user: str) -> bool:
     """True for the Administrator superuser or a `Nirmaan Admin Profile` user."""
     return has_role_profile(user, (ADMIN_PROFILE,))
+
+
+BILLING_EXECUTIVE_PROFILE = "Nirmaan Billing Executive Profile"
+BILLING_LEAD_PROFILE = "Nirmaan Billing Lead Profile"
+
+# The billing desk. Distinct from Accountant (`Nirmaan Accountant Profile` /
+# `Nirmaan Accountant Lead Profile`), which owns the INVOICE side of a PO.
+BILLING_PROFILES = (
+    BILLING_EXECUTIVE_PROFILE,
+    BILLING_LEAD_PROFILE,
+)
+
+# May delete a DC / MIR (`PO Delivery Documents`) off a PO -- admin, procurement
+# (they file them) and billing (they catch the wrong/duplicate ones).
+#
+# This is the ENFORCEMENT boundary. It has to be, because every write endpoint in
+# `api/po_delivery_documentss.py` saves with `flags.ignore_permissions = True`,
+# so the doctype's own permission rows are bypassed and a bare `@frappe.whitelist()`
+# would otherwise be reachable by ANY logged-in user.
+#
+# Mirrored client-side by `frontend/src/constants/roles.ts::PDD_DELETE_PROFILES`,
+# which only decides whether the trash icon renders. Keep the two in sync.
+PDD_DELETE_PROFILES = (ADMIN_PROFILE,) + PROCUREMENT_PROFILES + BILLING_PROFILES
+
+
+def can_delete_delivery_document(user: str) -> bool:
+    """True when `user` may delete a DC / MIR. Administrator always passes."""
+    return has_role_profile(user, PDD_DELETE_PROFILES)
