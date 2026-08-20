@@ -173,8 +173,19 @@ export function BoqDropZone() {
       <div className="space-y-3">
         <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm">
           <p className="font-medium text-destructive">File could not be read</p>
+          {/*
+            Copy rule: do NOT say "corrupted". The measured cases were valid
+            workbooks Excel opens fine, written slightly out-of-spec by a non-Excel
+            tool -- calling them corrupted is both wrong and sounds unrecoverable,
+            so users stopped rather than trying the one thing that works. The two
+            known defects are now auto-repaired server-side, so anything reaching
+            this screen is unknown AND logged; re-saving from Excel is the correct
+            first move for the user while we read the traceback.
+          */}
           <p className="mt-1 text-muted-foreground">
-            The file appears to be corrupted or is not a valid Excel workbook.
+            We couldn&apos;t open this workbook. It may use a format Excel accepts but
+            our reader doesn&apos;t. Try opening it in Excel and using{" "}
+            <span className="font-medium">Save As &rarr; .xlsx</span>, then upload again.
           </p>
         </div>
         <button
