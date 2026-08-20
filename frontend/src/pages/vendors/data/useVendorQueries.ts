@@ -242,7 +242,9 @@ export const useExistingVendors = (excludeId?: string) => {
   const filters: any[] = excludeId ? [["name", "!=", excludeId]] : [];
   const response = useFrappeGetDocList<Vendors>("Vendors",
     {
-      fields: ["vendor_gst"],
+      // vendor_name is needed to NAME the vendor a duplicate GST / account number
+      // already belongs to; account_number drives the (non-blocking) bank warning.
+      fields: ["name", "vendor_name", "vendor_gst", "account_number"],
       filters: filters.length > 0 ? filters : undefined,
       limit: 10000,
     },

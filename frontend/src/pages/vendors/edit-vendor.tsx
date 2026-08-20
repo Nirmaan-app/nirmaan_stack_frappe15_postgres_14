@@ -14,6 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import { GST_REGEX, IFSC_REGEX, NAME_REGEX, PAN_REGEX } from "@/constants/vendorFormRegex";
+import { accountNumberDuplicateMessage, findVendorByGst } from "./utils/vendorDuplicates";
 import { SERVICECATEGORIES } from "@/lib/ServiceCategories";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -26,7 +27,7 @@ import { useParams } from "react-router-dom";
 import ReactSelect from "react-select";
 import * as z from "zod";
 
-const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNumber: string | undefined, confirmAccountNumber: string | undefined, existingVendors: Vendors[] | undefined, bank_details: any, pincode_data: any) => {
+const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNumber: string | undefined, confirmAccountNumber: string | undefined, existingVendors: Vendors[] | undefined, bank_details: any, pincode_data: any, originalAccountNumber?: string | number | null) => {
     const vendorGstSchema = isTaxGSTType
         ? z
             .string({
@@ -34,13 +35,13 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
             })
             .regex(GST_REGEX, {
               message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
-            }).refine((value) => {
-              if (value && existingVendors?.some((vendor) => vendor.vendor_gst === value)) {
-                return false;
-              }
-              return true;
-            }, {
-              message: "Vendor with this GST already exists.",
+            }).refine((value) => !findVendorByGst(existingVendors, value), (value) => {
+              const owner = findVendorByGst(existingVendors, value);
+              return {
+                message: owner
+                  ? `This GST is already registered to ${owner.vendor_name || owner.name}.`
+                  : "This GST is already registered to another vendor.",
+              };
             })
         : z
             .string({
@@ -48,18 +49,30 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
             })
             .regex(PAN_REGEX, {
               message: "Invalid PAN format. Example: ABCDE1234F",
-            }).refine((value) => {
-              if (value && existingVendors?.some((vendor) => vendor.vendor_gst === value)) {
-                return false;
-              }
-              return true;
-            }, {
-              message: "Vendor with this PAN already exists.",
+            }).refine((value) => !findVendorByGst(existingVendors, value), (value) => {
+              const owner = findVendorByGst(existingVendors, value);
+              return {
+                message: owner
+                  ? `This PAN is already registered to ${owner.vendor_name || owner.name}.`
+                  : "This PAN is already registered to another vendor.",
+              };
             });
   
     const finalVendorGstSchema = service ? vendorGstSchema.optional() : vendorGstSchema;
 
-    let accountNumberSchema = z.string().optional();
+    // Stays OPTIONAL here (legacy vendors hold no bank details), but a number
+  // belonging to ANOTHER vendor is refused. The record's own current number is
+  // always allowed — see accountNumberDuplicateMessage.
+  let accountNumberSchema = z
+      .string()
+      .optional()
+      .refine(
+          (value) => !accountNumberDuplicateMessage(existingVendors, value, originalAccountNumber),
+          (value) => ({
+              message: accountNumberDuplicateMessage(existingVendors, value, originalAccountNumber)
+                  ?? "This account number is already registered to another vendor.",
+          })
+      );
       let confirmAccountNumberSchema = accountNumber ? (confirmAccountNumber !== accountNumber ? z.string(
           {
               required_error: "Confirm account number is required",
@@ -218,11 +231,11 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
   const { data: pincode_data } = usePincodeData(pincode);
   const [IFSC, setIFSC] = useState(data?.ifsc || "");
 
-  const { data: bank_details } = useBankDetails(IFSC);
+  const { data: bank_details, isLoading: bankDetailsLoading } = useBankDetails(IFSC);
 
   const { data: existingVendors } = useExistingVendors(id);
 
-  const VendorFormSchema = getVendorFormSchema(data?.vendor_type === "Service" && !vendorChange, taxationType === "GST", accountNumber, confirmAccountNumber, existingVendors, bank_details, pincode_data);
+  const VendorFormSchema = getVendorFormSchema(data?.vendor_type === "Service" && !vendorChange, taxationType === "GST", accountNumber, confirmAccountNumber, existingVendors, bank_details, pincode_data, data?.account_number);
 
   const form = useForm<VendorFormValues>({
     resolver: zodResolver(VendorFormSchema),
@@ -712,21 +725,26 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
                                                 }}
                                                 />
                                             </FormControl>
+                                            {IFSC.length === 11 && bankDetailsLoading ? (
+                                              <p className="text-xs text-muted-foreground">Looking up bank details...</p>
+                                            ) : (
+                                              <p className="text-xs text-muted-foreground">Bank Name and Branch fill in automatically from this code.</p>
+                                            )}
                                             <FormMessage />
                                         </FormItem>
                                     )}
                                 />
                                         <FormItem>
-                                            <FormLabel>Bank Name</FormLabel>
+                                            <FormLabel className="flex items-center gap-1">Bank Name<span className="text-xs font-normal text-muted-foreground">(auto-filled from IFSC)</span></FormLabel>
                                             <FormControl>
-                                                <Input disabled={true}  placeholder="Enter Bank Name"  value={bankAndBranch.bank} />
+                                                <Input disabled={true}  placeholder="Fills in from IFSC Code"  value={bankAndBranch.bank} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
                                         <FormItem>
-                                            <FormLabel>Bank Branch</FormLabel>
+                                            <FormLabel className="flex items-center gap-1">Bank Branch<span className="text-xs font-normal text-muted-foreground">(auto-filled from IFSC)</span></FormLabel>
                                             <FormControl>
-                                                <Input disabled={true} placeholder="Enter Bank Branch" value={bankAndBranch.branch} />
+                                                <Input disabled={true} placeholder="Fills in from IFSC Code" value={bankAndBranch.branch} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>

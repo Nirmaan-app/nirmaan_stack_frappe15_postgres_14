@@ -21,7 +21,32 @@ export const VENDOR_LIST_FIELDS_TO_FETCH: (keyof VendorsType | 'name' | 'vendor_
     'credit_limit',
     'credit_used',
     'available_credit',
+    // Optional columns — hidden by default, revealed via the "Toggle columns" menu.
+    // Fetched always because both the grid and `exportAllRows` read from this list.
+    'account_name',
+    'account_number',
+    'ifsc',
+    'bank_name',
+    'bank_branch',
+    'vendor_contact_person_name',
+    'vendor_mobile',
 ];
+
+/**
+ * Bank / GST / contact columns start unchecked in the "Toggle columns" menu.
+ * The user opts in per session (visibility is not persisted), and the CSV export
+ * mirrors whatever is visible at the time of export.
+ */
+export const VENDOR_HIDDEN_COLUMNS: Record<string, boolean> = {
+    account_name: false,
+    account_number: false,
+    ifsc: false,
+    bank_name: false,
+    bank_branch: false,
+    vendor_gst: false,
+    vendor_contact_person_name: false,
+    vendor_mobile: false,
+};
 
 export const VENDOR_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "vendor_name", label: "Vendor Name", placeholder: "Search by name...", default: true },
