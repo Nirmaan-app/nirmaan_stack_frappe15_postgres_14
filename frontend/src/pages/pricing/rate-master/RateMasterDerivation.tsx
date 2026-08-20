@@ -62,6 +62,10 @@ interface Props {
   config: RateCategoryConfig;
   // RM-4a: admin-only inline param editing. Non-admins render today's read-only view (controls HIDDEN).
   isAdmin?: boolean;
+  // RMF-1: while the deployment freeze is on, the inline param edit is a WRITE
+  // (update_rate_config_param) and is refused server-side, so the field renders read-only with
+  // the owner's approved message as its tooltip rather than accepting a keystroke it will lose.
+  frozen?: boolean;
   onSaveParam?: (
     pipelineId: string,
     stepIndex: number,
@@ -180,7 +184,7 @@ function detailFor(s: StepTrace): string {
   return "";
 }
 
-export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Props) {
+export function RateMasterDerivation({ items, config, isAdmin, frozen, onSaveParam }: Props) {
   // EA-4 ext-a: tolerate a config with no rules key at all (every category except the two that
   // carry one) -- an absent key renders the empty state, never a crash.
   const rules = useMemo(
@@ -191,7 +195,8 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
    * SLICE 2d, OWNER RULING Q4(i) -- THIS TAB IS A PURE CALCULATOR: you state the INPUTS, and every
    * attribute the pipeline DERIVES leaves the selects, appearing only in the step lines below.
    *
-   * ⚠️ THIS EXPLICITLY SUPERSEDES the `frontend/CLAUDE.md` "THE TWO SCREENS STAY APART" invariant,
+   * ⚠️ THIS EXPLICITLY SUPERSEDES the "THE TWO SCREENS STAY APART" invariant in
+   * `frontend/.claude/context/domain/pricing-rate-master-frontend.md`,
    * which required this screen to read `derivedQtyAttrs` (the superseded-qty half) and never
    * `derivedAttrIds` (both halves). That rule existed to stop a genuinely editable field being
    * frozen; the ruling accepts that cost in exchange for a screen on which every control is an input.
@@ -534,7 +539,7 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
                                 {whenLabel && <div className="text-muted-foreground">{whenLabel}</div>}
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   {entries.map(([key, value]) =>
-                                    isAdmin && onSaveParam && isEditableParam(value) ? (
+                                    isAdmin && !frozen && onSaveParam && isEditableParam(value) ? (
                                       <InlineParamEdit
                                         key={key}
                                         paramKey={key}

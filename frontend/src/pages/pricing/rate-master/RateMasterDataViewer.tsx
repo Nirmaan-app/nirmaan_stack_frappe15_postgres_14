@@ -23,6 +23,7 @@ import type { AttributeDefinition, RateCategoryConfig, RateMasterItem } from "./
 import { parseFiniteInput } from "./rateMasterEdit";
 import { DOWNLOAD_COPY, downloadErrorMessage } from "./rateMasterDownload";
 import { RateMasterUploadDialog } from "./RateMasterUploadDialog";
+import { FREEZE_BLOCKED_MESSAGE } from "./rateMasterFreeze";
 import type { UploadPlan, UploadResult } from "./rateMasterUpload";
 import {
   categoryItemKinds,
@@ -69,6 +70,14 @@ interface Props {
   // RM-4a: admin-only editing (owner option (a)). When !isAdmin the actions column + Add control are
   // HIDDEN and the table renders exactly as the RM-2 read-only viewer.
   isAdmin?: boolean;
+  // RMF-1: the DEPLOYMENT FREEZE. While true the rate-master WRITE controls are DISABLED (never
+  // hidden -- a hidden control teaches nothing, and B5's whole point is that the user meets the
+  // state before they meet an error). Each disabled control carries the owner's approved message
+  // as its tooltip, so the reason is on screen without a new string.
+  // ⚠️ THE DOWNLOADS AND THE UPLOAD PREVIEW ARE NOT GATED BY THIS (owner ruling R3) -- exporting
+  // is the action the freeze exists to protect, and both buttons live in the same dashed panel as
+  // the upload, so this distinction is easy to lose and must not be.
+  frozen?: boolean;
   onSaveItem?: (
     name: string,
     patch: { rates_patch?: Record<string, number | null>; attributes_patch?: Record<string, string | number> },
@@ -98,7 +107,7 @@ function cellText(v: unknown): string {
 }
 
 export function RateMasterDataViewer({
-  items, config, disciplineLabel, categoryLabel, isAdmin, onSaveItem, onCreateItem, onDeactivateItem,
+  items, config, disciplineLabel, categoryLabel, isAdmin, frozen, onSaveItem, onCreateItem, onDeactivateItem,
   onDownloadCsv, onDownloadAsset, onPreviewCsv, onApplyCsv, onUploadApplied,
 }: Props) {
   // SLICE 5: which download is in flight, so a slow one cannot be double-fired. One string rather
@@ -120,6 +129,11 @@ export function RateMasterDataViewer({
   const [kind, setKind] = useState<KindFilter>("all");
   const [search, setSearch] = useState("");
   const canEdit = !!isAdmin && !!onSaveItem;
+  // RMF-1: DELIBERATELY NOT folded into `canEdit`. canEdit decides whether the actions COLUMN
+  // exists at all; folding the freeze in would make the column vanish and the table change shape,
+  // which is a hidden control, not a disabled one. The freeze disables the BUTTONS and leaves the
+  // layout alone.
+  const writeBlocked = !!frozen;
   // RM-4a edit state: the row being inline-edited + its draft attr/rate values (strings, per input).
   const [editingRow, setEditingRow] = useState<string | null>(null);
   const [draftAttrs, setDraftAttrs] = useState<Record<string, string>>({});
@@ -437,6 +451,7 @@ export function RateMasterDataViewer({
         )}
         {onPreviewCsv && onApplyCsv && (
           <RateMasterUploadDialog
+            frozen={writeBlocked}
             onPreview={onPreviewCsv}
             onApply={onApplyCsv}
             onApplied={onUploadApplied}
@@ -506,7 +521,12 @@ export function RateMasterDataViewer({
         )}
         {/* RM-4a: admin-only Add control (HIDDEN for non-admins). */}
         {isAdmin && onCreateItem && (
-          <Button size="sm" variant="outline" onClick={() => setAddOpen(true)}>
+          <Button
+            size="sm" variant="outline"
+            disabled={writeBlocked}
+            title={writeBlocked ? FREEZE_BLOCKED_MESSAGE : undefined}
+            onClick={() => setAddOpen(true)}
+          >
             <Plus className="mr-1 h-3.5 w-3.5" /> Add row
           </Button>
         )}
@@ -561,12 +581,19 @@ export function RateMasterDataViewer({
                       </div>
                     ) : (
                       <div className="flex items-center justify-end gap-1">
-                        <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Edit row" onClick={() => beginEdit(r.it)}>
+                        <Button
+                          size="icon" variant="ghost" className="h-7 w-7" aria-label="Edit row"
+                          disabled={writeBlocked}
+                          title={writeBlocked ? FREEZE_BLOCKED_MESSAGE : undefined}
+                          onClick={() => beginEdit(r.it)}
+                        >
                           <Pencil className="h-4 w-4" />
                         </Button>
                         {onDeactivateItem && (
                           <Button
                             size="icon" variant="ghost" className="h-7 w-7 text-destructive" aria-label="Deactivate row"
+                            disabled={writeBlocked}
+                            title={writeBlocked ? FREEZE_BLOCKED_MESSAGE : undefined}
                             onClick={() => setConfirmDeactivate({ name: r.it.name ?? "", label: `${r.it.kind} ${cellText(r.it.attributes?.material)}` })}
                           >
                             <Trash2 className="h-4 w-4" />

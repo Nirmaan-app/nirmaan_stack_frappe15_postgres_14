@@ -1,0 +1,67 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-18 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "freeze_section",
+  "frozen",
+  "frozen_by",
+  "frozen_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "freeze_section",
+   "fieldtype": "Section Break",
+   "label": "Deployment Freeze"
+  },
+  {
+   "default": "0",
+   "description": "System-wide deployment freeze on the rate master. While set, the rate-master WRITE endpoints refuse (CSV upload apply + the manual edit endpoints); the EXPORT and PREVIEW endpoints keep working, because the export is the action this freeze exists to protect. BoQ pricing is NOT affected -- no pricing path writes the rate master. Lifting is MANUAL ONLY: there is no expiry and no automatic lift. NOTE (owner ruling 2026-08-18): this covers the APP surface only, NOT Frappe Desk or the generic REST resource API -- an accepted gap, not an oversight.",
+   "fieldname": "frozen",
+   "fieldtype": "Check",
+   "label": "Frozen"
+  },
+  {
+   "description": "The user who last SET the freeze (frappe.session.user). Cleared on unfreeze. Typed Data (not Link) to match the BoQ Sheet lock/freeze/override precedent. Who LIFTED a freeze is recorded by the Version audit, not here -- this doctype is track_changes:1 and every flip goes through doc.save.",
+   "fieldname": "frozen_by",
+   "fieldtype": "Data",
+   "label": "Frozen By",
+   "read_only": 1
+  },
+  {
+   "description": "When the freeze was last set (now_datetime()). Cleared on unfreeze. The Rate Master banner renders this as ELAPSED time.",
+   "fieldname": "frozen_at",
+   "fieldtype": "Datetime",
+   "label": "Frozen At",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 0,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-08-18 00:00:01.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Rate Master Freeze",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

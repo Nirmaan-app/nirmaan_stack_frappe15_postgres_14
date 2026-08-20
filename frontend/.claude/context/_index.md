@@ -17,6 +17,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | File | Domain | When to Load |
 |------|--------|--------------|
 | [domain/boq-frontend.md](./domain/boq-frontend.md) | BoQ frontend | Upload wizard + pricing editor + review-screen conventions, full per-slice as-built detail (relocated from frontend/CLAUDE.md 2026-06-25). Backend: `../../.claude/context/domain/boq-backend.md` |
+| [domain/pricing-rate-master-frontend.md](./domain/pricing-rate-master-frontend.md) | Pricing Module + Rate Master (frontend) | Rate-helper panel attribute semantics, the HVAC/Electrical/ELV workbook pages, and the Rate Master (RM-2) screens incl. RM-4a/RM-4b admin editing. Relocated from frontend/CLAUDE.md 2026-08-19 |
 | [data-tables.md](./data-tables.md) | DataTable System | useServerDataTable hook, DataTable component, export, backend API, search strategies |
 | [coding-standards.md](./coding-standards.md) | Standards | Date formats, react-select patterns, Radix dialog fixes |
 | [react-patterns.md](./react-patterns.md) | React | useEffect anti-patterns, TanStack Table deps, Vercel best practices |

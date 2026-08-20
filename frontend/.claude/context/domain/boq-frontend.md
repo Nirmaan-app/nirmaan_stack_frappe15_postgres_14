@@ -2597,6 +2597,17 @@ attribute and staying **`— select —`** (greyed) elsewhere: blank becomes sel
 a legitimate instruction. **A recon premise about a rendered affordance cannot be settled by reading
 the recompute path** -- read the element the user clicks.
 
+⚠️ **SUPERSEDED TWICE, AND THE SECOND TIME REVERSED IT — the placeholder is now ALWAYS SELECTABLE
+(owner ruling R9, 2026-08-19).** Slice 2d retired the `— use computed —` wording, leaving the plain
+`— select —`; **the shipped code then carried a bare `disabled`, NOT the `disabled={!a.derived}`
+recorded above** -- so for a period NO attribute in this panel was clearable, derived or not, and
+this paragraph described a shape that never reached the browser. R9 removed `disabled` outright.
+The reason is not preference: a controlled `<select>` whose value matches no option does **not** go
+blank -- React sets `option.selected` per option, nothing matches, and the browser falls back to the
+first *selectable* option, so a disabled placeholder made the field display **a value the row never
+held**. Full reasoning, the `allow_none` sentinel case, and the vitest blindness that hid it:
+`pricing-rate-master-frontend.md`, the R9 bullet. **Do not restore a conditional `disabled` here.**
+
 ### Revert-to-suggestion
 
 `hasSessionEdits(attrState, finalState, excelRow)` is pure and **reuses `overridesForRow`**, so it
@@ -2798,3 +2809,55 @@ gain. Nothing else moved: the parent picker (`ReviewRowParentPicker`) never filt
 (cycle-safety only), `RestructureModal`'s `PARENT_CAPABLE` already included `line_item`, and the
 Finalize disable is still `breaks.length > 0`. Net effect on screen: picking an Item as another Item's
 parent now simply works -- no red must-fix entry, Finalize stays enabled, commit succeeds.
+
+---
+
+## RMF-1 -- the rate-master DEPLOYMENT FREEZE (frontend as-built, 2026-08-18/19)
+
+Commit `df40227e`. Slice record: `.claude/plans/boq-upload-plan.md` ("Build slice RMF-1").
+
+### `rateMasterFreeze.ts` (new, pure -- 14 vitest cases)
+
+`FREEZE_BLOCKED_MESSAGE` (the owner's APPROVED text, byte-pinned against the server copy by a backend
+test) · `FREEZE_COPY` (four DRAFT strings, marked awaiting owner approval) · `RateMasterFreezeState` ·
+`canManageRateMasterFreeze` · `frozenSinceText` · `freezeBannerDetail` · `isRateMasterWriteBlocked` ·
+`UNFROZEN`.
+
+- **`canManageRateMasterFreeze` DELEGATES to `isRateMasterAdmin`** -- owner ruling R5 is that the
+  freeze population IS the rate-master edit population, so this must never become a second predicate
+  that could drift. Pinned across 15 role/user combinations.
+- `frozenSinceText` uses `formatDistanceToNow` and swaps the space in Frappe's naive
+  `"YYYY-MM-DD HH:MM:SS"` for a `T` (Safari rejects the space). Unparseable/absent -> `null`, so the
+  banner omits the phrase rather than rendering "Invalid Date" -- a freeze whose age we cannot state
+  is still a freeze.
+- A failed/missing read degrades to `UNFROZEN`, mirroring the server's fail-open direction.
+
+### `RateMasterPage.tsx`
+
+Fetches `get_rate_master_freeze` (key `rate-master-freeze`, **not** keyed on discipline -- the freeze
+is system-wide). Only a BOOLEAN `writesBlocked` is threaded to the three tabs as `frozen`.
+
+- **Control** (approved UI item 1): header row, `{canManageFreeze && ...}` -- ONE gate, admin-only,
+  HIDDEN for everyone else like every other write affordance here. It sits in the header because the
+  writes it governs span all three tabs.
+- **Banner** (item 2): **teal + `ShieldCheck`**, reusing `SheetPricingPage`'s established colour for a
+  DELIBERATE, persistent, cross-user lock; amber there means transient concurrency, which this is
+  not. Rendered for EVERY viewer of the page, including read-only Estimates users -- item 2 scopes no
+  audience, and someone seeing "frozen" is better served than one left guessing. **Rate Master page
+  only.**
+- The toggle reads the CURRENT state to choose direction, so a stale render cannot invert the action;
+  both endpoints are idempotent server-side anyway.
+
+### Disabled write controls (item 3) -- DISABLED, never hidden
+
+`RateMasterDataViewer` (row edit, deactivate, Add row), `RateMasterUploadDialog` (the CSV chooser),
+`RateMasterDerivation` (inline param edit), `RateMasterPipelines` ("Edit structure"). **Each carries
+the owner's APPROVED message as its `title`**, so the reason is on screen and the feature needed no
+new string for it.
+
+- ⚠️ **The freeze is deliberately NOT folded into `canEdit`.** `canEdit` decides whether the actions
+  COLUMN exists at all; folding the freeze in would make the column vanish and the table change
+  shape -- a hidden control, not a disabled one, and the opposite of what item 3 asks for. A separate
+  `writeBlocked` drives the BUTTONS and leaves the layout alone.
+- ⚠️ **The two downloads and the asset backup are NOT gated** (owner ruling R3). They sit in the SAME
+  dashed panel as the upload, so the distinction is easy to lose and must not be.

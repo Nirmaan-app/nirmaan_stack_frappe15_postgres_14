@@ -2057,3 +2057,77 @@ cross-engine drift the two per-file pins could not see. Note-under-note silence 
 negative-pinned. `test_boq_ai_assist` 32, `test_boq_gemini_assist` 15->16, `test_ai_assist` 50,
 `test_gemini_assist` 36. **UNVERIFIED against real model behaviour** -- no test sees a model reply and
 the classification corpus is spent; a live AI pass is owed.
+
+---
+
+## RMF-1 -- the rate-master DEPLOYMENT FREEZE (backend as-built, 2026-08-18/19)
+
+Commit `df40227e`. Full slice record incl. cert: `frontend/.claude/plans/boq-upload-plan.md`
+("Build slice RMF-1"). Load-bearing invariants are in
+`.claude/context/domain/boq-rate-master.md`; this is the as-built.
+
+### Doctype -- `BoQ Rate Master Freeze` (Single, MIGRATE-CARRYING)
+
+| Field | Type | Notes |
+|---|---|---|
+| `freeze_section` | Section Break | "Deployment Freeze" |
+| `frozen` | Check, default `0` | the flag |
+| `frozen_by` | Data, read_only | who SET the current freeze; `Data` not `Link` (the `BoQ Sheet` precedent) |
+| `frozen_at` | Datetime, read_only | when; the banner renders it as ELAPSED time |
+
+`issingle: 1`, `track_changes: 1`, permissions `System Manager` only. Minimal controller, no
+`validate` (a Single has no identity to validate, and the two provenance fields are only ever
+stamped together by the service writer). **No `patches.txt` entry** -- a new doctype is created by
+sync, as `BoQ Rate Master Snapshot` / `BoQ Rate Master Retirement` already were. It DOES grow the
+pullers' migrate obligation.
+
+### Service -- `services/boq_rate_master/freeze.py`
+
+`FREEZE_DOCTYPE` · `BLOCKED_MESSAGE` · `get_freeze_state()` · `is_frozen()` · `guard_not_frozen()` ·
+`set_freeze_state(frozen, user)`.
+
+- Lives in `services/` because `csv_importer` (a service) must import it and may not reach into
+  `api/` -- the `services/boq_bcs/readiness.py` relocation precedent.
+- **Never reads request context.** `set_freeze_state` takes the actor as a PARAMETER; the admin gate
+  stays in `api/`, where `frappe.session.user` belongs.
+- `get_freeze_state` **fails OPEN** and reports provenance ONLY while `frozen` is true, so a
+  half-cleared row can never render a banner claiming a live freeze.
+- `set_freeze_state` does NOT commit -- the caller commits (the
+  `_write_category_gate_override_cleared` contract).
+
+### Endpoints (`api/boq/rate_master.py`)
+
+| Endpoint | Gate | Notes |
+|---|---|---|
+| `get_rate_master_freeze` | `_require_login` | drives the banner; a non-admin must be able to SEE a freeze |
+| `freeze_rate_master` | `_require_rate_admin` | idempotent; a re-freeze preserves `frozen_at` and writes no Version row |
+| `unfreeze_rate_master` | `_require_rate_admin` | idempotent; NO check on who set it (R6) |
+
+Both writes return `{ok, changed, frozen, frozen_by, frozen_at}`.
+
+### Guard placement -- SIX inline + ONE self-guard
+
+`freeze.guard_not_frozen()` sits immediately AFTER `_require_rate_admin()` in the six WRITE
+endpoints (`update_rate_config_param`, `update_rate_master_item`, `create_rate_master_item`,
+`deactivate_rate_master_item`, `update_rate_config`, `apply_rate_master_csv`), and at the TOP of
+`csv_importer.apply_plan`, ahead of `build_plan`.
+
+**Gate order is admin-first, freeze-second** so a non-admin gets the honest "Not permitted" rather
+than being told to contact someone about a freeze they could never have worked around
+(`test_rmf_09b`). **Reject mutates nothing** -- every call site guards before target resolution, plan
+build, snapshot or write; `test_rmf_05` pins that a refused CSV apply writes no snapshot either.
+
+The three READ endpoints and `build_plan` are UNGUARDED, deliberately -- see the R3 invariant in
+`.claude/context/domain/boq-rate-master.md`.
+
+### Tests -- `TestRateMasterFreeze` in `api/boq/test_rate_master.py` (152 -> 170)
+
+`test_rmf_01` inert-by-default · `02`/`02b` message verbatim + cross-language pin (reads the `.ts`) ·
+`03` all 7 write paths refuse · `04` **the three reads succeed while frozen** · `05` mutates nothing ·
+`06` lift restores everything · `07` who+when+Version · `08` any admin lifts another's, attributed ·
+`09`/`09b` non-admin refused, gate order · `10`/`10b` idempotence, clock not restarted · `11` stale
+provenance hidden · `12` pricing unaffected · `13` one definition, two call sites · `14` guard absent
+from `_require_rate_admin` and the reads · `15` `set_single_value` never used.
+
+⚠️ Every test captures the LIVE Single's state and restores **that** (the standing rule), and purges
+only the `Version` rows it created -- never the owner's history.
