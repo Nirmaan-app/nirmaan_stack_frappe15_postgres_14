@@ -1025,6 +1025,13 @@ def _fetch_boq_file_to_tempfile(source_file_url: str) -> str:
         Unlike sheet_preview._fetch_boq_file_to_tempfile (which hardcodes '.xlsx'), this
         version correctly handles '.xlsm' workbooks.
     """
+    # Shared with sheet_preview's twin so the openpyxl-hostile-workbook repair has ONE
+    # definition. Local import: sheet_preview does not import parse_run, so there is no
+    # cycle, and this mirrors how upload_file/revision reach the same module.
+    from nirmaan_stack.api.boq.wizard.sheet_preview import (  # noqa: PLC0415
+        _repair_fetched_workbook,
+    )
+
     if "frappe_gcp_attachment" not in source_file_url:
         # Local path (dev / test)
         if source_file_url.startswith("/private/") or source_file_url.startswith("/files/"):
@@ -1042,6 +1049,7 @@ def _fetch_boq_file_to_tempfile(source_file_url: str) -> str:
             except OSError:
                 pass
             frappe.throw(f"Failed to read local BoQ file: {exc}", title="File access failed")
+        _repair_fetched_workbook(tmp.name, source_file_url)
         return tmp.name
 
     # S3 path
@@ -1086,6 +1094,7 @@ def _fetch_boq_file_to_tempfile(source_file_url: str) -> str:
         tmp.write(file_bytes)
     finally:
         tmp.close()
+    _repair_fetched_workbook(tmp.name, source_file_url)
     return tmp.name
 
 
