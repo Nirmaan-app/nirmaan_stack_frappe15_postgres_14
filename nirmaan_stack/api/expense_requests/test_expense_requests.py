@@ -292,7 +292,23 @@ class TestExpenseRequests(FrappeTestCase):
 		self.assertEqual(out["created_expense_doctype"], "Project Expenses")
 		row = frappe.get_doc("Project Expenses", out["created_expense"])
 		self.assertEqual(row.projects, self.project)
-		self.assertEqual(row.status, "Approved")
+		# ₹5,000 EXACTLY is not below the limit -- the rule is a strict `<`.
+		self.assertEqual(row.status, "Requested")
+
+	def test_the_ledger_rule_decides_the_status_not_the_approval(self):
+		"""Owner ruling 2026-08-20: approval no longer forces `Approved`.
+
+		The row is born at the ledger default and each doctype's own `validate` applies the
+		SAME threshold it applies to a directly-entered row.
+		"""
+		for amount, expected in ((900, "Approved"), (4999, "Approved"),
+		                         (5000, "Requested"), (20000, "Requested")):
+			with self.subTest(amount=amount):
+				out = approve_expense_request(self._raise_as(PM_USER, amount=amount)["name"])
+				self.assertEqual(
+					frappe.db.get_value(out["created_expense_doctype"],
+					                    out["created_expense"], "status"),
+					expected)
 
 	def test_amount_is_formatted_per_target_ledger(self):
 		npo = approve_expense_request(self._raise_as(PM_USER, amount=7500)["name"])
@@ -552,6 +568,131 @@ class TestExpenseRequests(FrappeTestCase):
 		self.addCleanup(frappe.delete_doc, "Non Project Expenses", row.name,
 		                force=True, ignore_permissions=True)
 		self.assertEqual(frappe.db.count("Nirmaan Notifications"), before)
+
+	# --- duplicate detection -------------------------------------------------
+
+	def _travel(self, user, traveller, depart):
+		return self._raise_as(user, source_data={
+			"responses": {"detail": {"traveller_name": traveller, "depart_date": depart}}})
+
+	def _travel_direct(self, traveller, depart):
+		"""Insert a request BYPASSING the endpoint, so a duplicate pair can exist to display.
+
+		The submission guard refuses the second one, which is the point of it -- but the
+		reviewer's panel must still render a pair raised before the guard existed.
+		"""
+		doc = frappe.new_doc("Expense Request")
+		doc.update({
+			"type": NON_PROJECT_TYPE, "amount": 4300, "status": "Pending Approval",
+			# ⚠️ OWNER must be a test user: `tearDownClass` cleans by ownership, so a row
+			# inserted as Administrator survives the run and accumulates into the next one --
+			# which is exactly how this test started seeing five hits instead of one.
+			"owner": PM_USER,
+			"source_data": json.dumps({
+				"responses": {"detail": {"traveller_name": traveller, "depart_date": depart}}}),
+		})
+		doc.insert(ignore_permissions=True)
+		frappe.db.commit()
+		return doc
+
+	def test_overlap_is_a_shared_day_not_an_equal_range(self):
+		"""1--31 Aug against 15 Aug--14 Sep is still a double payment for the shared days."""
+		from nirmaan_stack.api.expense_requests.duplicates import overlaps
+		from frappe.utils import getdate as d
+		aug = (d("2026-08-01"), d("2026-08-31"))
+		self.assertTrue(overlaps(aug, (d("2026-08-15"), d("2026-09-14"))))   # partial
+		self.assertTrue(overlaps(aug, aug))                                   # identical
+		self.assertTrue(overlaps(aug, (d("2026-08-31"), d("2026-09-30"))))   # one shared day
+		self.assertFalse(overlaps(aug, (d("2026-09-01"), d("2026-09-30"))))  # adjacent
+		# An unknown period is NOT an overlap -- absence is not evidence, and this decides
+		# a refusal.
+		self.assertFalse(overlaps(aug, (None, None)))
+
+	def test_subject_ignores_spacing_and_case_but_never_spelling(self):
+		from nirmaan_stack.api.expense_requests.duplicates import normalise, subject_of
+		rule = {"match_on": ["a"]}
+		self.assertEqual(normalise("  Sri Sai   Annapoorana PG "), "sri sai annapoorana pg")
+		self.assertEqual(subject_of({"a": "Shahbaj Khan"}, rule),
+		                 subject_of({"a": " shahbaj  KHAN "}, rule))
+		# Two DIFFERENT spellings of one building stay different -- that is a judgement,
+		# not a normalisation, which is why the property is shown and never matched.
+		self.assertNotEqual(subject_of({"a": "Sri Sai Annapoorana PG"}, rule),
+		                    subject_of({"a": "Sri Sai"}, rule))
+		# A blank subject can never match: two unnamed requests are not the same person.
+		self.assertIsNone(subject_of({"a": "  "}, rule))
+		self.assertIsNone(subject_of({}, rule))
+
+	def _check(self, expense_type, answers):
+		from nirmaan_stack.api.expense_requests.similar import check_new_request
+		return check_new_request(expense_type, json.dumps({"responses": {"detail": answers}}))
+
+	def test_a_duplicate_is_WARNED_ABOUT_and_never_refused(self):
+		"""Owner ruling 2026-08-20, REVERSING the submission block.
+
+		A duplicate cannot be told from a legitimate repeat with certainty, so the judgement
+		belongs to a human -- and a refusal the requester disagrees with has nowhere to go.
+		"""
+		first = self._travel(PM_USER, "Asha Traveller", "2026-09-01")
+		warned = self._check(NON_PROJECT_TYPE,
+		                     {"traveller_name": "Asha Traveller", "depart_date": "2026-09-01"})
+		self.assertEqual([h["name"] for h in warned["overlapping"]], [first["name"]])
+		self.assertEqual(warned["subject"], "Asha Traveller")
+		# ...and the second one still goes through.
+		second = self._travel(PM_USER, "Asha Traveller", "2026-09-01")
+		self.assertTrue(frappe.db.exists("Expense Request", second["name"]))
+
+	def test_the_warning_fires_on_an_overlap_not_only_an_exact_match(self):
+		"""Hotel: 18--19 Aug against 19--20 Aug shares a night."""
+		frappe.set_user(PM_USER)
+		first = create_expense_request(expense_type="Hotel Expenses", amount=3000, source_data={
+			"responses": {"detail": {"guest_name": "Ivy Guest",
+			                         "check_in": "2026-09-18", "check_out": "2026-09-19"}}})
+		frappe.set_user("Administrator")
+		warned = self._check("Hotel Expenses", {"guest_name": "Ivy Guest",
+		                                        "check_in": "2026-09-19", "check_out": "2026-09-20"})
+		self.assertEqual([h["name"] for h in warned["overlapping"]], [first["name"]])
+
+	def test_a_later_trip_raises_no_warning(self):
+		"""The monthly-recurring case: same subject, different period, must stay SILENT."""
+		self._travel(PM_USER, "Bela Traveller", "2026-09-02")
+		self.assertEqual(self._check(NON_PROJECT_TYPE, {
+			"traveller_name": "Bela Traveller", "depart_date": "2026-10-02"})["overlapping"], [])
+
+	def test_a_different_person_raises_no_warning(self):
+		self._travel(PM_USER, "Chandra Traveller", "2026-09-03")
+		self.assertEqual(self._check(NON_PROJECT_TYPE, {
+			"traveller_name": "Divya Traveller", "depart_date": "2026-09-03"})["overlapping"], [])
+
+	def test_a_rejected_request_raises_no_warning(self):
+		"""It never became money, so it cannot be double-paid."""
+		first = self._travel(PM_USER, "Esha Traveller", "2026-09-04")
+		reject_expense_request(first["name"], "not needed")
+		self.assertEqual(self._check(NON_PROJECT_TYPE, {
+			"traveller_name": "Esha Traveller", "depart_date": "2026-09-04"})["overlapping"], [])
+
+	def test_a_type_with_no_rule_is_never_warned_about(self):
+		"""34 of 40 types have no answers to compare -- a guess would nag on real work."""
+		self._raise_as(PM_USER, expense_type=BOTH_TYPE)
+		self.assertEqual(self._check(BOTH_TYPE, {"description": "x"})["overlapping"], [])
+
+	def test_an_unanswered_form_is_never_warned_about(self):
+		"""No subject and no period means nothing to compare -- a half-filled form never nags."""
+		self._travel(PM_USER, "", "")
+		self.assertEqual(self._check(NON_PROJECT_TYPE,
+		                             {"traveller_name": "", "depart_date": ""})["overlapping"], [])
+
+	def test_the_reviewer_panel_shows_an_existing_pair(self):
+		"""`get_similar` is DISPLAY -- it must still render a pair raised before the guard."""
+		from nirmaan_stack.api.expense_requests.similar import get_similar
+		# A subject unique to THIS run: the assertion is about the pair just created, and
+		# must not depend on the table being empty.
+		who = f"Farah Traveller {frappe.generate_hash(length=6)}"
+		first = self._travel_direct(who, "2026-09-05")
+		second = self._travel_direct(who, "2026-09-05")
+		res = get_similar(second.name)
+		self.assertEqual([e["name"] for e in res["overlapping"]], [first.name])
+		self.assertEqual(res["subject"], who)
+		self.assertTrue(res["has_period_check"])
 
 	# --- read visibility -----------------------------------------------------
 

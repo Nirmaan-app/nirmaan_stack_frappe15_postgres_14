@@ -39,6 +39,13 @@ def create_expense_request(
 	if source_data is not None and not isinstance(source_data, str):
 		source_data = json.dumps(source_data)
 
+	# ⚠️ A DUPLICATE IS NEVER REFUSED HERE (owner ruling, 2026-08-20, REVERSING the 2026-08-19
+	# submission block). Both surfaces WARN and neither stops anyone: the create dialog calls
+	# `similar.check_new_request` while the form is being filled, and the review dialog shows
+	# the same finding to the approver. A duplicate is genuinely hard to tell from a legitimate
+	# repeat, so the judgement belongs to a human at both ends -- and a refusal the requester
+	# disagrees with has nowhere to go.
+
 	doc = frappe.new_doc("Expense Request")
 	doc.update(
 		{
