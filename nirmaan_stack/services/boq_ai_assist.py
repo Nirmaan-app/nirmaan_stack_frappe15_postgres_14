@@ -98,7 +98,7 @@ A BoQ lists construction work items grouped into sections. Each row has been cla
 - "level" applies to preambles only: level 1 = top-level section, level 2 = sub-section under a level-1, level 3 = sub-sub-section, etc. Level is derived from the parent chain.
 - line_items are parented to the preamble (section) they belong to.
 - A preamble's children are the rows that sit under it until the next preamble of equal or higher level.
-- A line_item is never the parent of another line_item. Only a preamble may parent a line_item.
+- A line_item may be the parent of another line_item when the child row is a sub-component or a breakdown of it; otherwise a line_item's parent is the preamble heading its section.
 - A note is parented to the nearest preamble or line_item above it - whichever row it actually describes.
 
 ## The sl_no signal (read this carefully)

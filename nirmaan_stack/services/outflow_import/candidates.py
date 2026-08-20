@@ -42,22 +42,33 @@ screen can never offer a record the write path would refuse, or the reverse.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Sequence
 
 import frappe
+from frappe.utils import getdate
 
 from nirmaan_stack.services.outflow_import.amounts import tolerance_bounds
+from nirmaan_stack.services.outflow_import.duplicates import (
+    RowIdentity,
+    dates_agree,
+    row_identity,
+)
 from nirmaan_stack.services.outflow_import.ledgers import (
     NON_PROJECT_EXPENSE_DOCTYPE,
     PAID,
     PAYMENT_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
+    decided_on_sql,
     settleable_statuses,
 )
 from nirmaan_stack.services.outflow_import.matcher import TargetRef, VendorIndex, VendorRef, build_vendor_index
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount, normalize_reference
+# ⚠️ THE BANK'S OWN VOCABULARY FOR "this transfer's story is over", bound into the duplicate lookup
+# rather than spelled a second time. See `find_earlier_batches_for_rows`. `parser` imports only
+# `duplicates` and `normalize`, so this direction adds no cycle.
+from nirmaan_stack.services.outflow_import.parser import BANK_TERMINAL_STATUSES
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, build_project_index
 
 __all__ = [
@@ -67,7 +78,10 @@ __all__ = [
     "load_paid_payments_by_reference",
     "load_payments_by_amount",
     "load_expense_targets",
-    "find_earlier_batches_for_transfers",
+    # ⚠️ RENAMED FROM `find_earlier_batches_for_transfers` AT SLICE D3. It takes ROWS now, because
+    # duplicate identity is `(transfer_id, amount, date)` and a list of ids can no longer express
+    # the question. The old name is deliberately not kept as an alias -- see the function.
+    "find_earlier_batches_for_rows",
     "amount_window_sql",
     "PAYMENT_DOCTYPE",
     "PROJECT_EXPENSE_DOCTYPE",
@@ -80,6 +94,13 @@ __all__ = [
 _PAYMENT_STATUSES = settleable_statuses(PAYMENT_DOCTYPE)
 _PROJECT_EXPENSE_STATUSES = settleable_statuses(PROJECT_EXPENSE_DOCTYPE)
 _NON_PROJECT_EXPENSE_STATUSES = settleable_statuses(NON_PROJECT_EXPENSE_DOCTYPE)
+
+# The M4 nearest-date input, selected under one alias on every ledger so the target builders read
+# one key. The EXPRESSIONS live in `ledgers.DECIDED_ON_SQL` -- see the warning there about why this
+# value may be matched on but must never be displayed as an approval.
+_PAYMENT_DECIDED_ON = f"{decided_on_sql(PAYMENT_DOCTYPE)} AS decided_on"
+_PROJECT_EXPENSE_DECIDED_ON = f"{decided_on_sql(PROJECT_EXPENSE_DOCTYPE)} AS decided_on"
+_NON_PROJECT_EXPENSE_DECIDED_ON = f"{decided_on_sql(NON_PROJECT_EXPENSE_DOCTYPE)} AS decided_on"
 
 
 def amount_window_sql(column: str, amounts: Sequence[Decimal]) -> tuple[str, list]:
@@ -149,6 +170,59 @@ def load_project_index() -> ProjectIndex:
     return build_project_index([(r["name"], r.get("project_name") or "") for r in rows])
 
 
+def load_project_aliases() -> tuple[tuple[str, str], ...]:
+    """Active `(phrase, project_id)` pairs for `build_project_index(..., aliases=...)`.
+
+    ⚠️ NOT WIRED INTO `load_project_index`, AND THAT IS THE POINT. Cashfree's tier 2 settles money
+    against an approved record, and its remarks are system-generated and name a project in full --
+    it has never needed an alias and must not silently acquire one, because widening what tier 2
+    recognises widens what settles unattended. The Cashbook path passes these in explicitly.
+    """
+    rows = frappe.db.sql(
+        """
+        SELECT keyword, project
+        FROM "tabOutflow Import Project Alias"
+        WHERE active = 1 AND keyword IS NOT NULL AND project IS NOT NULL
+        """,
+        as_dict=True,
+    )
+    return tuple((r["keyword"], r["project"]) for r in rows)
+
+
+def load_expense_rules() -> dict[str, tuple[tuple[str, str], ...]]:
+    """Active keyword -> expense type rules, grouped by ledger and LONGEST KEYWORD FIRST.
+
+    Returned as `{"Project": ((keyword, expense_type), ...), "Non Project": (...)}`. Both keys are
+    always present, so a caller never has to guard on a ledger having no rules at all.
+
+    ⚠️ THE ORDER IS THE RULE, not a presentation choice. "print" and "printout charges" can both
+    sit in the table, and the more specific phrase has to be tried first or it can never win. The
+    sort happens HERE rather than at the call site so there is one answer to "which rule applies",
+    and the caller cannot accidentally iterate a dict in insertion order and get a different one.
+
+    ⚠️ Keywords are lowercased here because that is the form they are matched in. The stored value
+    keeps whatever case its author typed, which is what the editing screen shows back to them.
+    """
+    rows = frappe.db.sql(
+        """
+        SELECT keyword, ledger, expense_type
+        FROM "tabOutflow Import Expense Rule"
+        WHERE active = 1 AND keyword IS NOT NULL AND expense_type IS NOT NULL
+        """,
+        as_dict=True,
+    )
+    grouped: dict[str, list[tuple[str, str]]] = {"Project": [], "Non Project": []}
+    for row in rows:
+        if row["ledger"] in grouped:
+            grouped[row["ledger"]].append(
+                ((row["keyword"] or "").strip().lower(), row["expense_type"])
+            )
+    return {
+        ledger: tuple(sorted(pairs, key=lambda pair: (-len(pair[0]), pair[0])))
+        for ledger, pairs in grouped.items()
+    }
+
+
 def load_payments_by_reference(references: Sequence[str]) -> tuple[TargetRef, ...]:
     """Pass A, SETTLE CANDIDATES: APPROVED payments whose normalised UTR is one of these.
 
@@ -193,7 +267,8 @@ def _payments_by_reference(
     status_ph = ", ".join(["%s"] * len(statuses))
     rows = frappe.db.sql(
         f"""
-        SELECT name, amount, status, vendor, utr, payment_date, project, document_type, document_name
+        SELECT name, amount, status, vendor, utr, payment_date, project, document_type,
+               document_name, {_PAYMENT_DECIDED_ON}
         FROM "tabProject Payments"
         WHERE utr IS NOT NULL AND utr <> ''
           AND upper(btrim(utr)) IN ({reference_ph})
@@ -233,7 +308,8 @@ def load_payments_by_amount(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]
 
     rows = frappe.db.sql(
         f"""
-        SELECT name, amount, status, vendor, utr, payment_date, project, document_type, document_name
+        SELECT name, amount, status, vendor, utr, payment_date, project, document_type,
+               document_name, {_PAYMENT_DECIDED_ON}
         FROM "tabProject Payments"
         WHERE {amount_clause}
           AND status IN ({status_ph})
@@ -274,7 +350,8 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
     project_ph = ", ".join(["%s"] * len(_PROJECT_EXPENSE_STATUSES))
     project_rows = frappe.db.sql(
         f"""
-        SELECT name, amount, status, projects, description, payment_ref, payment_date, type, vendor
+        SELECT name, amount, status, projects, description, payment_ref, payment_date, type,
+               vendor, {_PROJECT_EXPENSE_DECIDED_ON}
         FROM "tabProject Expenses"
         WHERE status IN ({project_ph})
           AND amount IS NOT NULL AND btrim(amount) <> ''
@@ -295,13 +372,15 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
                 txn_date=r.get("payment_date"),
                 project=r.get("projects") or None,
                 description=r.get("description") or "",
+                decided_on=_decided_on(r),
             )
         )
 
     non_project_ph = ", ".join(["%s"] * len(_NON_PROJECT_EXPENSE_STATUSES))
     non_project_rows = frappe.db.sql(
         f"""
-        SELECT name, amount, status, description, payment_ref, payment_date, type
+        SELECT name, amount, status, description, payment_ref, payment_date, type,
+               {_NON_PROJECT_EXPENSE_DECIDED_ON}
         FROM "tabNon Project Expenses"
         WHERE status IN ({non_project_ph})
           AND {non_project_amount_clause}
@@ -321,23 +400,35 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
                 txn_date=r.get("payment_date"),
                 project=None,
                 description=r.get("description") or "",
+                decided_on=_decided_on(r),
             )
         )
 
     return tuple(out)
 
 
-def find_earlier_batches_for_transfers(
-    transfer_ids: Sequence[str],
+def find_earlier_batches_for_rows(
+    rows: Sequence,
     exclude_batch: str | None = None,
     period_from: date | None = None,
     period_to: date | None = None,
-) -> dict[str, str]:
-    """Map transfer_id -> the earliest OTHER batch that already staged it.
+) -> dict[RowIdentity, str]:
+    """Map each row's `RowIdentity` -> the earliest OTHER batch that already staged that transfer.
 
     This is the precise duplicate guard. The batch-level Added-On overlap only warns; two exports
     can carry the same transfer without their periods overlapping at all, and can carry different
     transfers with periods that do.
+
+    ⚠️ IT TAKES ROWS, NOT TRANSFER IDS (slice D3), AND THE RENAME IS THE POINT. Identity is now
+    `(transfer_id, amount, date)` -- see `duplicates.row_identity` -- so a caller handing over a
+    list of ids can no longer ask this question at all. Leaving the old name and signature in place
+    would have let a caller keep passing ids and quietly get the OLD, looser answer.
+
+    ⚠️ THE SQL STILL NARROWS ON `transfer_id` ONLY, AND THE TRIPLE IS APPLIED IN PYTHON. That is
+    deliberate twice over: `transfer_id` is the indexed column and remains the cheap first cut, and
+    `amount` is a **Currency** column -- a float in Postgres -- so an `=` against it in SQL is the
+    binary-floating-point comparison that `normalize_amount` returning `Decimal` exists to avoid.
+    Both sides go through `normalize_amount` here, so the comparison is exact and symmetric.
 
     ⚠️ PERIOD NARROWING IS OPT-IN AND IS ERGONOMICS, NOT SAFETY (owner-directed, slice V3). Supply
     both dates and the search is restricted to batches whose recorded period overlaps this sheet's,
@@ -352,13 +443,53 @@ def find_earlier_batches_for_transfers(
     ⚠️ A BATCH WITH NO RECORDED PERIOD IS ALWAYS SEARCHED. It cannot be excluded on evidence we do
     not have, and dropping it would turn "we could not date this batch" into "this batch contains
     nothing".
+
+    ⚠️ ONLY A **TERMINAL** STORED ROW CAN BE A DUPLICATE, AND THIS IS THE ONE CLAUSE THAT SAYS SO.
+    A transfer still QUEUED when yesterday's sheet was exported stages with no bank reference and
+    settles nothing -- it is a placeholder, not an import. When the next export carries that same
+    transfer id, now SUCCESS and with a UTR, the triple matches exactly (the id, the amount and the
+    Added On date are all unchanged by the transfer completing) and the row was skipped as "Already
+    imported". The money then never reached a record, and could not: `Skipped` is in
+    `review._FROZEN_ROW_STATUSES`, so re-matching never revisits it, there is no unskip endpoint,
+    and every later export repeats the same collision forever. Measured live: 2 transfers stranded,
+    Rs 8,142 and Rs 7,500, both against payments still sitting at Approved.
+
+    ⚠️ TERMINAL, **NOT** SUCCESSFUL, AND THE DIFFERENCE IS NOT PEDANTRY -- IT IS THE WHOLE RULE.
+    The first cut of this filter said `= SUCCESS`, which is the intuitive reading of "did this
+    really get imported?" and is wrong: a FAILED transfer is equally final (a retry gets a NEW
+    transfer id, so that row will never say anything else), so excluding it stops a re-uploaded
+    statement being recognised as fully imported. `assess_duplicates` then finds one "new" row that
+    is skipped anyway, declines to refuse, and stages a batch with nothing in it to action -- which
+    is precisely the outcome the refusal exists to prevent. Nine tests in `test_upload` caught it;
+    they are the reason the negative half of a guard is worth writing.
+
+    ⚠️ WHAT NARROWED IS **ELIGIBILITY**, NOT IDENTITY. `duplicates.row_identity` is untouched and
+    stays `(transfer_id, amount, date)` -- a QUEUED row and its later SUCCESS are the SAME transfer,
+    and saying otherwise would be a lie that happened to produce the right outcome. The question
+    this clause answers is the other one: is the row we found the FINAL account of that transfer?
+
+    ⚠️ THE VOCABULARY IS BOUND, NEVER SPELLED. `parser.BANK_TERMINAL_STATUSES` is the single source,
+    exactly as `review.get_import_summary` and `review._row_filters` bind `BANK_SUCCESS_STATUS`
+    rather than writing 'SUCCESS' a second time -- two spellings of the bank's words is how one side
+    later learns about `REVERSED` and the other does not. `UPPER(BTRIM(...))` mirrors
+    `parser.is_terminal_status`'s `.strip().upper()` exactly, so the SQL and the Python predicate
+    cannot disagree about the same cell.
+
+    THIS CAN ONLY EVER MAKE THE GUARD LOOSER -- more rows import, never fewer -- and that direction
+    is safe for the same reason the period narrowing above is: the real backstop against paying
+    twice is the `Outflow Row Match` unique constraint, which this does not touch.
     """
-    wanted = sorted({t for t in transfer_ids if t})
+    wanted = sorted({row.transfer_id for row in rows if row.transfer_id})
     if not wanted:
         return {}
 
     placeholders = ", ".join(["%s"] * len(wanted))
-    params: list = list(wanted)
+    # Sorted so the parameter order is deterministic; the set is small and fixed.
+    terminal = sorted(BANK_TERMINAL_STATUSES)
+    terminal_placeholders = ", ".join(["%s"] * len(terminal))
+    # Order matters: every param is appended in the order its clause appears in the SQL below, and
+    # the status ones sit directly after the id list because their clause does too.
+    params: list = [*wanted, *terminal]
     exclude_clause = ""
     if exclude_batch:
         exclude_clause = " AND import_batch <> %s"
@@ -375,11 +506,12 @@ def find_earlier_batches_for_transfers(
         """
         params.extend([period_to, period_from])
 
-    rows = frappe.db.sql(
+    stored = frappe.db.sql(
         f"""
-        SELECT transfer_id, import_batch, creation
+        SELECT transfer_id, amount, added_on, import_batch, creation
         FROM "tabOutflow Import Row"
         WHERE transfer_id IN ({placeholders})
+          AND UPPER(BTRIM(COALESCE(status_raw, ''))) IN ({terminal_placeholders})
           {exclude_clause}
           {period_clause}
         ORDER BY creation ASC
@@ -387,10 +519,60 @@ def find_earlier_batches_for_transfers(
         tuple(params),
         as_dict=True,
     )
-    seen: dict[str, str] = {}
-    for r in rows:
-        seen.setdefault(r["transfer_id"], r["import_batch"])
+
+    # Grouped by the two axes that must match EXACTLY, so the only per-row work left is the date
+    # rule -- which cannot be a dict lookup, because a missing date has to match a present one.
+    by_id_amount: dict[tuple[str, Decimal], list] = {}
+    for r in stored:
+        key = (r["transfer_id"], normalize_amount(r.get("amount")))
+        by_id_amount.setdefault(key, []).append(r)
+
+    seen: dict[RowIdentity, str] = {}
+    for row in rows:
+        if not row.transfer_id:
+            continue
+        identity = row_identity(row.transfer_id, row.amount, row.added_on_date)
+        if identity in seen:
+            continue
+        for r in by_id_amount.get((row.transfer_id, row.amount), ()):
+            if dates_agree(row.added_on_date, _stored_date(r.get("added_on"))):
+                # `stored` is already ordered by `creation ASC`, so the first agreeing row is the
+                # EARLIEST batch -- which is the one the message names.
+                seen[identity] = r["import_batch"]
+                break
     return seen
+
+
+def _stored_date(value) -> date | None:
+    """The DATE of a stored `added_on`, tolerating the shapes the DB layer hands back.
+
+    Frappe returns a Datetime column as `datetime`, but a raw SQL read can hand back a `date` or a
+    string depending on driver and column, and this comparison must not depend on which. A value it
+    cannot read becomes `None`, which `dates_agree` then treats as "cannot compare on this axis" --
+    the same fallback an unreadable Added On gets at parse time, and for the same reason.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    parsed = getdate(value) if value else None
+    return parsed or None
+
+
+def _decided_on(row: dict) -> date | None:
+    """The `decided_on` column as a plain `date`.
+
+    ⚠️ THE COERCION IS NOT COSMETIC. On a payment this is a `Date` column and arrives as a `date`;
+    on either expense it is `modified`, a `Datetime`, and arrives as a `datetime`. M4 subtracts this
+    from the transfer's date, and `date - datetime` raises `TypeError` -- so without this the rule
+    would work on payments and blow up on the first expense candidate it ever saw.
+    """
+    value = row.get("decided_on")
+    if value is None:
+        return None
+    return value.date() if hasattr(value, "date") else value
 
 
 def _payment_target(row: dict) -> TargetRef:
@@ -404,4 +586,5 @@ def _payment_target(row: dict) -> TargetRef:
         txn_date=row.get("payment_date"),
         project=row.get("project") or None,
         description="",
+        decided_on=_decided_on(row),
     )

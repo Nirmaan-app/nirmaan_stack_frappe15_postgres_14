@@ -4,6 +4,11 @@
 they conflict.
 **Status:** **v3 is BUILT and committed** through T1–T5 (`6567d2e4`); the live browser walk and the
 production migrate are still owed. **v4 (§H) is PLANNED, NOT STARTED — no code written.**
+**§P1 — the period-scoped summary — is BUILT (2026-08-12), browser walk owed. See §P1 below.**
+**CASHBOOK — the second source — is BUILT and committed (2026-08-13), browser walk owed.**
+Eight slices on `feature/outflow-cashbook-import`; see **§CB** at the end of this file.
+Design + the four accepted risks: **`docs/adr/0015-cashbook-import-creates-expenses.md`**.
+As-built: `.claude/context/domain/outflow-import.md` § Cashbook.
 **Fresh-session brief:** `docs/outflow-import/HANDOFF.md` — read it first.
 **Branch (proposed):** `feature/outflow-import`
 **Spec + all 13 owner rulings:** `docs/outflow-import/workflow.html` **section 0** (7 tabs).
@@ -371,6 +376,140 @@ UTR and so only ever exercised tier 0) · `test_expenses` 21 · `test_settle_pay
 real statement.** The dev DB carries **0 outflow import rows and 5 Approved payments**, so neither
 the table nor the tiers have been seen against real data; T3 is verified against fixtures only. One
 real statement's remarks column is what would tell us how often a remark actually names a project.
+
+---
+
+## §P1 — the period-scoped summary (BUILT 2026-08-12)
+
+**Owner request:** *"Currently the summary section shows the summary of an import. Change it to the
+overall summary of all the imports in the system, with a period selector that changes the summary as
+well as the tabs having all the transactions"* — plus *"the date filter for the `added_on` column
+should be the date filter we provide for other screens."*
+
+### The ruling it reverses, stated plainly
+
+The domain doc recorded, as the design and dated 2026-08-10: *"the summary panel above summarises ONE
+import while the table spans all of them. That is the design: 'how did that statement go?' and 'what
+do I still owe a decision on?' are different questions."* **The owner took the other side on
+2026-08-12.** It is recorded as a reversal rather than quietly overwritten, because the next reader
+is entitled to see that both positions were held deliberately.
+
+**The 2026-08-10 ruling had two halves and only one is reversed.**
+- The POPULATION-MISMATCH half — *"a panel describing ONE import silently rewrote the filters of a
+  table spanning ALL of them"* — **dissolves**: there is one population now, so the objection has
+  nothing to attach to. The reasoning arguably endorses the new shape.
+- The MOVED-THE-TAB half **stands and is kept**: reading a figure must never navigate away from the
+  work in progress. `SummaryTile.statuses` and `tabForStatus` stay deleted, the status figures still
+  REPORT, and changing the period does not change the tab.
+
+### The seam that made it cheap
+
+`status.derive_import_summary` folds a stream of `StatusTally` and **has never known what a batch
+is**, so widening it to a period was a WHERE-clause change and nothing else — no deriver change, no
+tile change, no change to how a number is rendered. Everything else followed from routing every read
+through the one `_row_filters` builder that already existed.
+
+### Decisions
+
+| Decision | Why |
+|---|---|
+| The period filters **`row.added_on`** (when the money moved) | The only one of the schema's THREE "periods" the transaction table can filter on. A batch's declared `period_from`/`period_to` is not a fact about where its rows fall, and `overlaps_batch` exists precisely because declared periods overlap. |
+| The summary honours **every table filter except the scope** | Not just the period — search, funnels, amount too. `tab_counts` already works this way. Anything less lets the panel and the tabs disagree the moment somebody types in the search box, which is the defect the reversed ruling was protecting against. |
+| **ONE date value, TWO editors** | The `Period` control and the `Payment Date` column funnel read/write the same store entry. Two filters over one column would AND: "Last 30 days" + "Is 01-Jan" selects nothing and neither control looks wrong. |
+| The period lives in a **store**, not page state | Four surfaces need it, and one of them — the Skipped dialog's own `useOutflowRows` instance — is not a child of the page. |
+| Presets are the app's **`timespanOptions`**, NOT the reports' `datePresets` | ⚠️ MEASURED CONFLICT: the two vocabularies define the SAME WORDS differently. `datePresets`' "Last 30 days" is `today-29 → today`; the timespan is `today-30 → today`. Its "This month" runs to the END of the month; the timespan runs to TODAY. With one value and two editors, mapping between them would move the window every time it passed between the controls. |
+| A preset is stored as the **word**, resolved live | A relative window frozen into two dates at click time is a bookmark that means something different tomorrow — the same trap `datePresets` documents. Only the fixed FYs and a hand-picked range are stored as dates. |
+| `_MAX_CONFIRMABLE` **refuses**, never truncates | A `LIMIT` shows a list shorter than the button that opened it, over a set nobody chose, with the missing rows sharing no property the screen can name. |
+| Matching stays **per batch**, looped | `match_batch`'s four global passes reason over a whole import at once; a partial picture breaks claims and stacks. The overspill is stated in the UI instead. |
+
+### What was found by building it
+
+⚠️ **A TRANSFER WITH AN UNPARSEABLE DATE WOULD HAVE BECOME INVISIBLE.** The bank's date column is
+free text; the parser stores NULL rather than guessing, and `cashfree_sample.csv` carries a literal
+`not-a-date` row for the case. Under a plain `>=` / `<` bound it matches **no** period — so once the
+period became the screen's SCOPE it would have vanished from the summary, all three tabs and the
+Skipped dialog at once, **with no filter on screen able to bring it back**. `_row_filters`' two date
+clauses now carry `OR r.added_on IS NULL`. Found by a test (`9 != 10`), not by the screen, and
+pinned by `test_an_undated_transfer_is_visible_in_EVERY_period`.
+
+⚠️ **`added_on` HAD SHIPPED AS A FACET FILTER** — a tick box per distinct calendar day, growing
+without limit, unable to express "everything after the 14th". Removed from `SERVER_FACET_COLUMNS`
+and from the server's `_FACET_COLUMNS`; caught by a test written for the new behaviour.
+
+### Files
+
+**Backend** (`api/outflow_import/review.py`): NEW `get_outflow_summary` (+ `_imports_in_scope`),
+NEW `match_period`, NEW `_assert_confirmable_size` / `_MAX_CONFIRMABLE`; `get_confirmable_rows`
+widened batch→filters; `get_import_summary` becomes a thin wrapper (the regression pin);
+`_row_filters` date clauses widened for NULL; `added_on` dropped from `_FACET_COLUMNS`.
+
+**Frontend**: NEW `components/data-table/dateFilterModel.ts` (pure) +
+`date-filter-popover.tsx` (controlled popover, with `data-table-date-filter.tsx` now a thin TanStack
+binding over it — every other screen untouched); NEW `utils/dateFilterRange.ts`; NEW
+`outflow-import/outflowPeriod.ts`, `useOutflowPeriodStore.ts`,
+`components/OutflowPeriodFilter.tsx`; `ImportSummaryPanel` rebuilt around the period;
+`outflowTableModel` gains the `date` filter kind, `PERIOD_COLUMN_ID`, `isDateFilterValue`,
+`importsCoveredLabel`, `rematchWarning`; `useOutflowRows` routes `added_on` to the store and exposes
+`filterQuery`; `OutflowRowsTable` renders the app-standard date popover for the date column;
+`SkippedRowsDialog` and `ConfirmAllMatchedDialog` rescoped batch→period.
+
+### The import selector (owner follow-up, same day)
+
+The period-only screen lost the ability to ask "how did *that* statement go" — the question the
+reversed 2026-08-10 ruling was built around. The owner asked for the selector back, **demoted**: a
+top-level `Import` control, **empty by default meaning every import**, which switches the whole
+screen to one statement's summary when set. System-wide by default, per-statement on demand.
+
+| Decision | Why |
+|---|---|
+| Selecting an import **IGNORES** the period | Owner ruling. "That sheet's summary" is the WHOLE statement, not a slice of it. `useOutflowRows` withholds the period when a batch is pinned — the same rule that fixed the deep link, so there is one rule rather than two. |
+| The period control is **disabled, not hidden** | A vanishing control cannot distinguish "no period applies" from "a period applies and you cannot see it". The second is a defect this screen actually shipped. It also stops NAMING a window while greyed (`Not applied`), because a greyed "Last 30 days" reads as applied-but-locked. |
+| The **route param IS the selection** | No second copy in page state, so the URL and the control can never contradict each other. `/bulk-import-outflow/:id` stops being a mode you cannot leave and becomes just "the selector has chosen this". |
+| Remount on switch is **fine** | Two route entries, so switching remounts — correct, because a different import is a different set of rows and the ticked selection / un-confirmed decisions belong to the rows they were made on. The period survives in the store. |
+| `import` metadata moved INTO `get_outflow_summary` | Filled only when a batch is selected (absent across a period — no single filename or uploader to name). This let `get_import_summary` become a **pure delegate**, so there is no second query that could answer the same question differently. |
+
+### What the browser walk found
+
+The walk was the real gate, and it earned its place — **three defects, none visible to a green suite**:
+
+1. ⚠️ **THE DEEP LINK WAS SILENTLY FILTERED.** `/bulk-import-outflow/OFI-26-00289` reported **274
+   transfers out of 1,043**: a period left in the store by an earlier visit was still applied while
+   the control was hidden. Every number wrong, everything looking right, nothing on screen able to
+   reveal or clear it. This is what produced the disabled-not-hidden rule above.
+2. **`"1 of them extend past this period"`** — broken grammar on the one sentence whose job is to
+   warn that a button reaches further than it looks, and "1 of them" is clumsy for a set of one.
+   Subject and verb are now chosen separately.
+3. **The selector's label rendered raw ISO** (`2026-05-02 → 2026-08-06`) directly above a metadata
+   line already showing `02-May-2026` — two date conventions on one panel. `importOptionLabel` now
+   uses the app-wide `dd-MMM-yyyy`; `dateOnly` stays ISO because it also feeds the Payment Date
+   column's SORT value, where a `dd-MMM-yyyy` string would order by day-of-month.
+
+All three are pinned by tests written after the fact.
+
+### Verified live
+
+Period drives summary + tabs together with every figure reconciling at each setting (All 274 /
+Not-Matched 36 / 238 settled against the chips; All 516 / 95 / 421 at Last Quarter; All 996 / 152 /
+844 at All time, where All = total − skipped and the Skipped chip = skipped + failed). The tab never
+moves. Presets persist as WORDS (`?ofl_period_op=Timespan&ofl_period_from=last+quarter`); All time
+persists as an explicit `none`. The column funnel opens the app-standard date filter already showing
+the Period's value, and clearing there moved the Period control — the one-value-two-editors design.
+Import selector round-trips to `/OFI-26-00289` and back, restoring the period from the store. Skipped
+chip 47 → dialog 47 (20 already paid / 27 bank refused). Console clean (its one error also fires on
+`/rate-master`).
+
+### Gates run
+
+- `tsc --noEmit`: **no errors in any touched file** (the repo carries ~3,200 pre-existing elsewhere).
+- vitest: **309 pass** (was 226) — 7 files, incl. new `dateFilterRange.test.ts` (16) and
+  `outflowPeriod.test.ts` (18).
+- pure services: **409 pass**, untouched.
+- `test_review`: **137 pass** (was 121). `test_upload` 25, `test_expenses` 31,
+  `test_settle_payment` 24, `test_approved` 16 — all green.
+- `yarn build`: succeeds.
+- ✅ **The live browser walk is DONE** (see above) and found three defects the suite could not —
+  there is no DOM test environment in this repository, so the panel, the two-editor date value and
+  the tab wiring are structurally untestable here.
 
 ---
 
@@ -1597,3 +1736,233 @@ into a blind pre-commit gate for this feature.
 
 The reconciliation report will make the first two visible for the first time. Repairing them is
 a separate decision — the owner has ruled this feature **reports, never fixes**.
+
+---
+
+# §CB — Cashbook, the second source (2026-08-13)
+
+**BUILT and committed** on `feature/outflow-cashbook-import`, eight slices, browser walk owed.
+**Design, measurements and the four accepted risks: `docs/adr/0015-cashbook-import-creates-expenses.md`.**
+As-built invariants: `.claude/context/domain/outflow-import.md` § Cashbook.
+
+A Cashfree import **pays** what someone approved. A Cashbook import **creates** what a wallet already
+spent. The prime directive is now source-scoped rather than absolute — ADR-0015 is the document to
+read before touching any of it.
+
+## The slices
+
+| # | Commit | What |
+|---|---|---|
+| 1 | `78415209` | Parser adapter, `RawRow.row_kind`, multi-column field map, the totals-block rule |
+| 2 | `59d65935` | `food`/`old`/`pro` as generic words + curated project aliases |
+| 3 | `532c1910` | Two lookup doctypes, `Petty Cash`, the seed patch, the generated rules doc |
+| 4 | `49deafab` | `services/outflow_import/cashbook.py` — the pure plan |
+| 5 | `b3f13edd` | Four endpoints + the background job; `payment_by` / `payment_ref` |
+| 6 | `40058299` | The read-only review tree + the dialog height fix |
+| 7 | `fd63a601` | Source filter (five parts + a backfill) and the post-import tab |
+| 8 | this | ADR-0015, the domain-doc section, the disjointness correction |
+
+## Measured, on the real 137-row export
+
+| | |
+|---|---|
+| Staged / created / skipped | 131 / 115 / 16 |
+| Project vs Non-Project | 87 (₹72,678) / 28 (₹31,507) |
+| `Petty Cash` fallback | 26 (22%) |
+| Project matching, before → after slice 2 | 73 matched, 7 ambiguous, 35 none → **87 / 1 / 27** |
+| Misfile rate | ~16% → **~1–2%** |
+
+The one known wrong match that survives is `Courier charges from bngl to Kolkata` → `Maersk Kolkata`,
+where a destination city reads as a project.
+
+## Three things that were planned and did NOT happen
+
+Each was built or attempted, measured, and dropped for a reason worth keeping:
+
+1. **The one-token project-name guard** (slice 2). Broke two documented behaviours — `Fujitsu`
+   beside `Fujitsu Chennai`, and a remark naming two projects — because `ANSR - 2` and `Fujitsu`
+   are structurally identical. Bought one row. The real fix is renaming such projects in the master.
+2. **`court` in `GENERIC_PROJECT_TOKENS`** (slice 2). Measured +0/+0. A negative test pins it out so
+   nobody completes the set later.
+3. **Extracting the `ConfirmAllMatchedDialog` tree** (slice 6). It is a three-level shape built
+   around tri-state selection; remove those and no component remains. `CashbookReviewTree` copies
+   the visual grammar and shares no logic.
+
+## Still owed
+
+- **A live browser walk.** Everything here was proven by staging the real statement, running the
+  worker and reading the database back — never through the actual dialog. Slices 6 and 7 have no
+  DOM tests, because this repo has no DOM test environment.
+- **Two `patches.txt` lines** (maintainer, per the existing convention):
+  `nirmaan_stack.patches.v3_0.seed_cashbook_import_rules` and
+  `nirmaan_stack.patches.v3_0.backfill_outflow_row_source`.
+- **A production migrate** — two new doctypes, two row fields, one widened Select.
+
+---
+
+# §CF — The Cashfree wizard and the summary refinements (2026-08-14)
+
+Eight owner asks, settled over four grilling rounds before a line was written. The rounds are the
+record: every recommendation below was put to the owner and either taken or overturned, and the
+overturned ones are named where they mattered.
+
+## The eight asks, and what each became
+
+| # | Ask | Became |
+|---|---|---|
+| 1 | Cashfree gets Cashbook's multi-step check + confirm | A 4-step wizard, confirm **in place** (no dialog swap) |
+| 2 | A Source Type selector on the summary | Scopes the WHOLE screen, not only the Import dropdown |
+| 3 | Imports sorted newest-first by the file's date | `period_to DESC` on the two READING surfaces only |
+| 4 | Move the filename list into a History dialog | Clock icon beside Import statement; last 10; extends `list_imports` |
+| 5 | Drop "the summary above and the tabs below…" | Both variants deleted |
+| 6 | Reference is the Payment Ref for expenses | Falls back to `transfer_id`; last 12 chars, DISPLAY ONLY |
+| 7 | Remove the Import column | HIDDEN by default, not removed — the funnel lives in the header |
+| 8 | Re-run drops its count; finished imports auto-close | Auto-close is DERIVED (`Completed`), not stamped |
+
+## The four decisions worth keeping
+
+**AUTO-CLOSE IS DERIVED AND REVERSES NOTHING.** The 2026-08-10 ruling — *there is no close import* —
+stands. `derive_batch_status` already returns `Completed` for a batch with zero open rows, and
+`_refresh_batch_rollup` runs on every settle and every skip, so a batch closes itself. Excluding
+`Completed` batches from `match_period` needs no field, no patch and no backfill. ⚠️ **Do not
+resurrect `closed_at` / `closed_by` / `close_reason` to implement this** — they are still on the
+doctype, still never written, and writing them would re-create exactly the control that ruling
+deleted. Also worth stating: re-matching a finished batch was ALREADY a no-op (`match_batch` skips
+`_FROZEN_ROW_STATUSES`), so this is a cost-and-noise change, never a correctness one.
+
+**THE CONFIRM STEP IS DELIBERATELY UNFILTERED.** Step 4 asks `get_confirmable_rows` for every
+confirmable row in the system — any import, any period — because the whole reason to press Re-run
+after an upload is that a payment approved yesterday belongs to a statement from last month. A
+confirmable row is `Matched` **with a stored suggestion**, which only ever exists inside an open
+batch, so "no filters" already yields the open-import set with no new server concept. Two accepted
+costs, both designed for: a six-month-old unconfirmed statement appears in step 4, and the
+`_MAX_CONFIRMABLE` (2,000) refusal is reachable — so the step renders that refusal and sends the
+reviewer to the summary, where the narrowing controls actually are.
+
+**⚠️ `match_period` MUST SORT ITSELF, AND THIS IS THE TRAP THE SLICE ALMOST SHIPPED.** It called
+`_imports_in_scope` and `.reverse()`d the result to get oldest-first — and that order decides which
+transfer wins a record contested by two imports (`resolve_claims` orders by `(added_on, row name)`,
+so the batch matched first places the claim). Changing `_imports_in_scope`'s `ORDER BY` to
+`period_to` for the picker would therefore have silently changed money outcomes, with nothing
+failing anywhere. `match_period` now carries its **own explicit** `uploaded_at ASC`, so the coupling
+is visible and a future re-ordering of a reading surface cannot reach it.
+
+**TRUNCATION NEVER TOUCHES A STORED VALUE, AND NEVER TOUCHES `column.get`.** The wallet's
+`transfer_id` is the only thing that finds a petty-cash spend in the wallet's own records — the
+Cashbook slice already shipped 115 expenses with blank references once — so the last-12 rule is a
+render concern and the full value stays in storage and in the cell's `title`. It stays out of
+`column.get` for a second reason: that function feeds sort, filter and the facet values, so
+truncating there would make searching a full UTR find nothing.
+
+## Two smaller rulings
+
+- **One value, two editors — again.** The Source selector and the Source column funnel read and
+  write ONE store entry, copying the Period ↔ Payment-Date pattern (P1). Two filters over one column
+  AND together, so "Cashfree" above and "Cashbook" in the funnel would select nothing while neither
+  control looked wrong. Where the funnel holds both values the selector reads **Mixed**, never
+  "All" — a control reading "All" under an applied filter is the invisible-filter defect this
+  screen has already shipped once.
+- **Two safety signals became one, knowingly.** Today the `(N imports)` on the button AND the
+  filename list under the card both warn that Re-run reaches past the period. The count comes off
+  the button (owner: not in the button) and the list moves behind an icon, so the caption *"Re-run
+  reaches N open imports."* is now the only pre-click statement of scope. It counts OPEN imports
+  only — naming statements the button will not touch is the same class of lie as "button 688, table
+  893", pointing the other way.
+
+## ⚠️ S6 is NOT the extraction the Cashbook slice rejected
+
+The Cashbook record above lists *"extracting the `ConfirmAllMatchedDialog` tree"* as tried and
+dropped: the three-level tri-state tree is the component, and `CashbookReviewTree` shares none of
+its logic. **That finding stands and is not being reversed.** S6 extracts something different — the
+whole panel BODY out of its `<Dialog>` shell, tree and selection and safety bar together, unchanged
+— so one implementation can render in two places. Nothing is shared with `CashbookReviewTree`.
+
+## The slices
+
+| # | Slice | Touches |
+|---|---|---|
+| S1 | Table & copy trims | frontend only |
+| S2 | Source Type selector | frontend only — `source` is already a server facet |
+| S3 | Import ordering | backend; carries the `match_period` fix |
+| S4 | History dialog | `list_imports` + a new dialog |
+| S5 | Auto-close + re-run caption | `status.py` predicate, `match_period`, the panel |
+| S6 | Extract `ConfirmMatchedPanel` | frontend refactor, zero behaviour change |
+| S7 | The Cashfree wizard | frontend |
+
+S6 ships alone and carries no features on purpose: if the browser walk shows any difference, it is a
+regression rather than a feature interaction.
+
+## As-built, per slice
+
+| # | Slice | What landed |
+|---|---|---|
+| S1 | Table & copy trims | `referenceValue` + `shortReference` (display-only, out of `column.get`); `Reference (UTR)` -> `Reference`; `import_batch` hidden-by-default; both "same period" sentences deleted |
+| S2 | Source Type selector | `useOutflowSourceStore` (mirrors the period store, URL-linkable, unknown values dropped); `SOURCE_COLUMN_ID` routed in `useOutflowRows`; **Mixed** state; withheld when a batch is pinned; **zero backend work** |
+| S3 | Import ordering | `list_imports` + `_imports_in_scope` -> `period_to DESC`; **`_match_order` extracted** so `match_period` stops borrowing a picker's sort |
+| S4 | History dialog | `list_imports` gained `source` / `gross_amount` / `successful_rows` (`FILTER` + `LEFT JOIN`); `ImportHistoryDialog` behind a clock icon; the card's filename list removed, the pinned footer kept |
+| S5 | Auto-close + caption | `status.batch_is_open` (pure); `is_open` on `_imports_in_scope`; `match_period` skips `Completed`; count off the button, `rematchReachLabel` under it, disabled when nothing is open |
+| S6 | `ConfirmMatchedPanel` | The whole panel moved out of its `<Dialog>` shell; chrome passed in as `Title`/`Description`/`Footer`; `running` reported up through `onRunningChange`. Zero behaviour change |
+| S7 | The wizard | `importWizard.ts` (pure step model, step DERIVED from server facts); 4 Cashfree steps / 3 Cashbook; step 4 renders `ConfirmMatchedPanel` unfiltered; failed match holds step 3 |
+
+**Verification.** 2,569 vitest (up from 2,535 — 34 new), `test_review` 162 (up from 150 — 12 new),
+`test_status` 85 (up from 78 — 7 new), `tsc` clean across `pages/outflow-import`, production build
+green. `residence_check.py` unchanged by this work (its two failing rules fail identically on the
+pristine tree — verified by stashing).
+
+⚠️ **One pre-existing failure is NOT ours and was proven so by stashing:**
+`test_review.TestTheOrderNameForLinking::test_the_master_table_carries_it_too` calls
+`get_outflow_rows(scope="all", limit=200)` UNSCOPED against the live dev database and expects its own
+fixture row in the first 200 by date. It fails identically on the untouched tree. Worth fixing on its
+own terms — it is a test coupled to live data — but not inside this arc.
+
+## The browser walk (2026-08-14) — what it confirmed, and the FOUR defects it found
+
+Walked on :8080 against the live dev site with two throwaway Cashfree statements. **Every one of
+these defects was invisible to a fully green suite**, which is the standing point about this repo
+having no DOM environment.
+
+**Confirmed working:** the 4-step wizard end to end; the dialog staying open past the match; the page
+behind refreshing to the statement's own period; step 4's unfiltered scope note; the History dialog
+(sorted `period_to DESC`, source chips, status tones, `successful_rows` + `gross_amount` agreeing
+with the summary exactly); Source scoping the whole screen and riding the URL (`?src=Cashbook`); the
+Reference fallback rendering on all 115 Cashbook rows that were **blank before this arc**, at
+12 characters with the full 22-character id intact in storage; and auto-close — the Cashbook import
+reads `Completed`, Re-run is disabled with a tooltip that says why, and once a second open import
+existed the caption appeared reading **"Re-run reaches 2 open imports."** over *three* imports.
+
+| # | Defect | Fix |
+|---|---|---|
+| 1 | The disabled-Re-run tooltip read **"all 1 statement has"** | The SUBJECT is chosen, not pluralised — the same trap `rematchWarning`'s "1 of them extend" hit before, in a new place |
+| 2 | Step 4's empty state said **"in this import"** — directly contradicting the scope note above it | `emptyNote` is now the host's to set; the wizard passes `confirmEmptyCopy`, which names the count and where the work went |
+| 3 | Step 4 rendered a **Cancel** button beside Finish later | `showCancel={false}` in the wizard. At step 4 the rows are already written, so "Cancel" read as an offer to undo them — the opposite of the truth, on the screen where a reviewer is deciding whether their work was saved |
+| 4 | Importing Cashfree while Source was pinned to Cashbook landed on a screen that did not list it | `handleImported` clears the source scope, for the period rule's exact reason. **Cleared, not set to the imported source** — clearing can only widen, so it cannot hide anything |
+
+⚠️ **Defect 3 is the one worth remembering.** It was not a duplicate-button tidy-up: two controls
+that both close the dialog are harmless, but one of them was NAMED as though it reverted an import
+that had already happened.
+
+## Two things found while building, not while planning
+
+1. **The `match_period` ordering trap (S3), which the plan caught but only just.** `.reverse()` on a
+   picker's sort order was load-bearing for **where a contested record lands**. Re-ordering that
+   picker was asked for as a cosmetic change and would have moved money quietly. It now sorts itself.
+2. **The step-gated drop zone hid the filename (S7).** Gating the source picker and drop zone to
+   step 1 silently took the filename with them, leaving a reviewer on the last screen before a write
+   unable to see WHICH statement they were confirming. A compact file line now renders from step 2 on.
+
+## Still owed
+
+- **Three paths the walk did NOT reach**, each needing a state the dev site did not have:
+  - **A non-empty step 4.** Every confirmable row on the site was already settled (`0 matched`), so
+    the vendor tree, the safety bar and the settle loop rendered only their empty state. The panel
+    is byte-unchanged from the shipped dialog apart from its shell, but that is an argument, not a
+    walk.
+  - **The `_MAX_CONFIRMABLE` refusal** above 2,000 confirmable rows.
+  - **A deliberately failed match** holding step 3 with its Re-run.
+  - **The Source selector's `Mixed` state**, which needs both sources ticked in the column funnel.
+- **Nothing to migrate.** No doctype changed, no patch, no backfill — auto-close is derived and the
+  Source scope rides an existing facet.
+- **Two throwaway imports are on the dev site** from the walk (`walkthrough-cashfree.csv`,
+  `walkthrough-cashfree-2.csv`, 6 successful rows, all `Not-Matched`, beneficiaries prefixed
+  `Walkthrough`/`Walk Two`). They settle nothing and touch no ledger; delete the two
+  `Outflow Import Batch` rows to remove them.

@@ -38,8 +38,16 @@ def get_my_reminders():
 	user = frappe.session.user
 	profile = frappe.db.get_value("Nirmaan Users", {"email": user}, "role_profile")
 	
-	is_admin = "Administrator" in frappe.get_roles(user)
-	
+	# The Administrator SUPERUSER sees every enabled schedule (it has no role
+	# profile of its own, so the profile-scoped branch would return nothing).
+	# This is a user check, not a role check: `"Administrator"` is not a Role
+	# anyone holds, so the previous `in frappe.get_roles(user)` was always False
+	# and even the superuser fell through to the profile branch.
+	# NOTE: deliberately NOT widened to "Nirmaan Admin Profile" users — reminders
+	# are role-profile-scoped by design, so an admin sees the schedules that
+	# target admins, not every profile's.
+	is_admin = user == "Administrator"
+
 	if is_admin:
 		schedule_names = frappe.get_all("Reminder Schedule", filters={"enabled": 1}, pluck="name")
 	else:

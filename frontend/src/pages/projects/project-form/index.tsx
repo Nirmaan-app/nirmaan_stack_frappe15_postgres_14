@@ -235,6 +235,13 @@ export const ProjectForm = () => {
                 ...projectValues
             } = values;
 
+            // PO-driven mode (default): never send a project value — Projects.before_save derives it
+            // from the Customer PO rows. Only manual mode keeps the entered values.
+            if (projectValues.manual_project_value !== 1) {
+                projectValues.project_value = "";
+                projectValues.project_value_gst = "";
+            }
+
             // Collect unique users from assignees
             const uniqueUsers = new Set<string>();
             assignees?.project_leads?.forEach((u) => uniqueUsers.add(u.value));

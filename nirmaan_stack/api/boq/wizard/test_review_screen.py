@@ -581,19 +581,23 @@ class TestCheckStructuralIntegrity(unittest.TestCase):
                 self.assertEqual(check_structural_integrity(rows), [],
                                  f"{cls} with no parent must not be a structural break")
 
-    def test_item_under_line_item_no_longer_a_pure_break(self):
-        """An item whose parent is a line_item is NO LONGER a break from
-        check_structural_integrity (S2): the old LINE_ITEM_AS_PARENT check was REMOVED.
-        Detection moved to the SHARED commit validator #8 (line_item_parent_not_preamble),
-        exercised at the DB level in TestMarkSheetParsedCheckDone / TestGetStructuralBreaks."""
+    def test_item_under_line_item_is_not_a_break_anywhere(self):
+        """An item whose parent is a line_item is not a break here -- and, since the
+        2026-08-19 narrowing, not a break in the SHARED #8 validator either.
+
+        Two rulings stacked on this test. S2 first moved detection OUT of
+        check_structural_integrity into the shared #8; the 2026-08-19 ruling then removed
+        item-under-item from #8 altogether (an item may parent an item). So this shape is
+        clean end to end -- the DB-level proof is TestMarkSheetParsedCheckDone
+        .test_nested_item_finalises.
+        """
         rows = [
             self._row(0, "preamble", parent=None),
             self._row(1, "line_item", parent=0),
-            self._row(2, "line_item", parent=1),  # parent is a line_item -> shared #8 (DB), not here
+            self._row(2, "line_item", parent=1),  # parent is a line_item -> VALID, not a break
         ]
         self.assertEqual(check_structural_integrity(rows), [],
-                         "check_structural_integrity must no longer flag item-under-line_item "
-                         "(the shared #8 validator owns it now)")
+                         "check_structural_integrity must not flag item-under-line_item")
 
     def test_cycle_detected_for_all_cycle_members(self):
         """A 2-node cycle (0->1, 1->0) produces CYCLE breaks for both nodes."""
@@ -1883,10 +1887,12 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
     CleanSheet: preamble (row 0) + line_item with parent=0 (row 1) -> no breaks -> finalises.
     OrphanSheet: orphan line_item (row 0, parent=None) -> NO break (orphan is a soft advisory
                  now, not a structural break) -> finalises.
-    BreakSheet: an item under a line_item (row 2's parent is a line_item) -> SHARED #8
+    BreakSheet: an item under a SUBTOTAL MARKER (row 2's parent is a marker row) -> SHARED #8
                 (line_item_parent_not_preamble) break -> blocks finalize.
-    NoteParentSheet: an item under a NOTE (#8b) -> SHARED #8 break -> blocks finalize (proves
-                the shared #8 is a strict superset of the retired line_item_as_parent).
+    NoteParentSheet: an item under a NOTE (#8b) -> SHARED #8 break -> blocks finalize (the
+                second "Other" parent kind).
+    NestedItemSheet: an item under ANOTHER ITEM -> NO break -> finalises. RULING 2026-08-19:
+                item-under-item was the ORIGINAL #8 case and is now explicitly ALLOWED.
     PreambleParentSheet: a level-3 sub-heading under a line_item (#7 preamble_parent_level) ->
                 blocks finalize.
     """
@@ -1902,7 +1908,7 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
         boq.tax_treatment = "Pre-tax"
         for i, name in enumerate((
             "CleanSheet", "OrphanSheet", "BreakSheet",
-            "NoteParentSheet", "PreambleParentSheet",
+            "NoteParentSheet", "PreambleParentSheet", "NestedItemSheet",
         ), start=1):
             boq.append("sheet_drafts", {
                 "sheet_name": name, "sheet_order": i, "wizard_status": "Parsed",
@@ -1922,11 +1928,23 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
             _minimal_row("OrphanSheet", 0, "line_item", parent_index=None),
         ])
 
-        # BreakSheet: item under a line_item -> SHARED #8 break (line_item_parent_not_preamble)
+        # BreakSheet: item under a SUBTOTAL MARKER -> SHARED #8 break.
+        # RULING 2026-08-19: this fixture used to be item-under-item, which #8 no longer
+        # flags (an item may parent an item). The break shape moved to a marker parent --
+        # a second "Other" parent kind beside NoteParentSheet's note.
         _insert_rows(cls.boq_name, [
             _minimal_row("BreakSheet", 0, "preamble", parent_index=None),
-            _minimal_row("BreakSheet", 1, "line_item", parent_index=0),
-            _minimal_row("BreakSheet", 2, "line_item", parent_index=1),  # parent is a line_item
+            _minimal_row("BreakSheet", 1, "subtotal_marker", parent_index=0),
+            _minimal_row("BreakSheet", 2, "line_item", parent_index=1),  # parent is a marker
+        ])
+
+        # NestedItemSheet: item under ANOTHER ITEM -> NO break, finalises (the POSITIVE half
+        # of the 2026-08-19 narrowing; without it the rule could be silently re-tightened).
+        _insert_rows(cls.boq_name, [
+            _minimal_row("NestedItemSheet", 0, "preamble", parent_index=None),
+            _minimal_row("NestedItemSheet", 1, "line_item", parent_index=0),
+            _minimal_row("NestedItemSheet", 2, "line_item", parent_index=1),  # under an ITEM
+            _minimal_row("NestedItemSheet", 3, "line_item", parent_index=2),  # two deep
         ])
 
         # NoteParentSheet (#8b): an item filed under a NOTE -> SHARED #8 (proves the superset).
@@ -2010,7 +2028,7 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
         self.assertGreater(len(result["breaks"]), 0)
         types = [b["type"] for b in result["breaks"]]
         self.assertIn("line_item_parent_not_preamble", types,
-                      "BreakSheet has an item under a line_item -- expect the SHARED #8 break")
+                      "BreakSheet has an item under a marker row -- expect the SHARED #8 break")
         self.assertEqual(self._get_wizard_status("BreakSheet"), "Parsed",
                          "Status must NOT change when breaks exist")
 
@@ -2029,9 +2047,25 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
         self.assertEqual(self._get_wizard_status("BreakSheet"), "Parsed",
                          "wizard_status must remain 'Parsed' -- a break can never be confirmed past")
 
+    def test_nested_item_finalises(self):
+        """RULING 2026-08-19: an item nested under ANOTHER ITEM must finalise cleanly.
+
+        This is the exact shape #8 used to hard-block. It is now valid: a sub-item under its
+        parent item is a real bill shape, and the review screen has always let a human pick
+        that parenting -- the gate then refused, with no way forward.
+        """
+        result = mark_sheet_parsed_check_done(
+            boq_name=self.boq_name, sheet_name="NestedItemSheet", confirm=False,
+        )
+        self.assertTrue(result["ok"],
+                        "an item under another item must NOT block finalize")
+        self.assertEqual(result["status"], "Finalized")
+        self.assertEqual(self._get_wizard_status("NestedItemSheet"), "Finalized")
+
     def test_note_parent_item_hard_blocks(self):
-        """#8b: an item filed under a NOTE is caught by the SHARED #8 (strict superset of the
-        retired line_item_as_parent) and HARD-BLOCKS finalize regardless of confirm."""
+        """#8b: an item filed under a NOTE is caught by the SHARED #8 and HARD-BLOCKS
+        finalize regardless of confirm. Item-under-item is NOT this case (see
+        test_nested_item_finalises) -- only a text/marker parent remains a break."""
         result = mark_sheet_parsed_check_done(
             boq_name=self.boq_name, sheet_name="NoteParentSheet", confirm=True,
         )
@@ -2357,6 +2391,7 @@ class TestGetStructuralBreaks(FrappeTestCase):
                     #7 (preamble_parent_level) break.
       NoteParentSheet2 (#8b): an item under a note -> surfaces the SHARED #8
                     (line_item_parent_not_preamble) break.
+      NestedItemSheet2: an item under ANOTHER ITEM -> NO break (RULING 2026-08-19).
 
     Naming is distinct from TestMarkSheetParsedCheckDone fixtures (CleanSheet / BreakSheet)
     so both test classes can coexist in the same test database run without interference.
@@ -2373,6 +2408,7 @@ class TestGetStructuralBreaks(FrappeTestCase):
         boq.tax_treatment = "Pre-tax"
         for i, name in enumerate((
             "CleanSheet2", "OrphanSheet2", "PreambleParentSheet2", "NoteParentSheet2",
+            "NestedItemSheet2",
         ), start=1):
             boq.append("sheet_drafts", {
                 "sheet_name": name, "sheet_order": i, "wizard_status": "Parsed",
@@ -2400,6 +2436,13 @@ class TestGetStructuralBreaks(FrappeTestCase):
             _minimal_row("PreambleParentSheet2", 0, "preamble", parent_index=None),
             _minimal_row("PreambleParentSheet2", 1, "line_item", parent_index=0),
             pp_row,
+        ])
+
+        # NestedItemSheet2: an item under ANOTHER ITEM -> NO break (RULING 2026-08-19).
+        _insert_rows(cls.boq_name, [
+            _minimal_row("NestedItemSheet2", 0, "preamble", parent_index=None),
+            _minimal_row("NestedItemSheet2", 1, "line_item", parent_index=0),
+            _minimal_row("NestedItemSheet2", 2, "line_item", parent_index=1),  # under an ITEM
         ])
 
         # NoteParentSheet2 (#8b): an item filed under a note.
@@ -2468,8 +2511,11 @@ class TestGetStructuralBreaks(FrappeTestCase):
         self.assertTrue(pp[0]["reason"], "a #7 break must carry a human-readable reason")
 
     def test_item_under_note_surfaced_as_shared_8(self):
-        """#8b: an item under a note surfaces the SHARED #8 (line_item_parent_not_preamble) --
-        proving the generalized check is a strict superset of the retired line_item_as_parent."""
+        """#8b: an item under a note surfaces the SHARED #8 (line_item_parent_not_preamble).
+
+        A note is a text row that was never meant to hold children, so an item filed under
+        one is almost always an accident -- which is the case #8 still exists to catch.
+        """
         result = get_structural_breaks(
             boq_name=self.boq_name, sheet_name="NoteParentSheet2")
         types = [b["type"] for b in result["breaks"]]
@@ -2477,6 +2523,18 @@ class TestGetStructuralBreaks(FrappeTestCase):
                       "an item under a note must surface the SHARED #8 break")
         self.assertNotIn("line_item_as_parent", types,
                          "the retired line_item_as_parent break type must no longer appear")
+
+    def test_item_under_item_surfaces_no_break(self):
+        """RULING 2026-08-19: an item under another item surfaces NO structural break.
+
+        The read-side twin of TestMarkSheetParsedCheckDone.test_nested_item_finalises: the
+        review screen's must-fix panel must show nothing for this shape, so the "Item not
+        under a section heading" entry can never reappear for a nested item.
+        """
+        result = get_structural_breaks(
+            boq_name=self.boq_name, sheet_name="NestedItemSheet2")
+        self.assertEqual(result["breaks"], [],
+                         "an item nested under another item must produce NO break")
 
 
 # ===========================================================================

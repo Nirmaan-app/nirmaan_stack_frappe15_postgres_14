@@ -419,7 +419,6 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
                                 Select Project <span className="text-red-500">*</span>
                             </Label>
                             <ProjectSelect
-                                all={true}
                                 onChange={handleProjectChange}
                                 universal={false}
                                 usePortal

@@ -38,7 +38,6 @@ import {
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
-import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
@@ -56,6 +55,7 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useUserData } from "@/hooks/useUserData";
 
 // --- Constants ---
+
 const DOCTYPE = "Service Requests";
 
 interface ApprovedSRListProps {
@@ -122,28 +122,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     limit: 100000,
   });
 
-  // Fetch Vendor Invoices for SRs to calculate total invoiced per SR
-  const vendorInvoiceFilters = useMemo(() => {
-    const filters: Array<[string, string, string | string[]]> = [
-      ["document_type", "=", "Service Requests"],
-      ["status", "=", "Approved"],
-    ];
-    if (for_vendor) {
-      filters.push(["vendor", "=", for_vendor]);
-    }
-    return filters;
-  }, [for_vendor]);
-
-  const { data: vendorInvoices } = useFrappeGetDocList<VendorInvoice>(
-    "Vendor Invoices",
-    {
-      filters: vendorInvoiceFilters,
-      fields: ["name", "document_name", "invoice_amount"],
-      limit: 0,
-    } as GetDocListArgs<FrappeDoc<VendorInvoice>>,
-    `VendorInvoices-SR-${for_vendor || "all"}`
-  );
-
   const { notifications, mark_seen_notification } = useNotificationStore();
 
   // --- Memoized Options & Calculations ---
@@ -191,16 +169,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     );
   }, [projectPayments]);
 
-  // Group invoice totals by SR name
-  const invoiceTotalsMap = useMemo(() => {
-    if (!vendorInvoices) return new Map<string, number>();
-    return vendorInvoices.reduce((acc, inv) => {
-      const current = acc.get(inv.document_name) ?? 0;
-      acc.set(inv.document_name, current + parseNumber(inv.invoice_amount));
-      return acc;
-    }, new Map<string, number>());
-  }, [vendorInvoices]);
-
   // --- Notification Handling ---
   const handleNewSRSeen = useCallback(
     (notification: NotificationType | undefined) => {
@@ -233,6 +201,8 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         "total_amount",
         "amount_paid",
         "gst",
+        "amount_invoiced",
+        "amount_due",
       ]),
     []
   );
@@ -477,31 +447,31 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         },
       },
       {
-        id: "amount_due",
-        header: "Amount Due",
+        // A stored SR field (total_amount - amount_paid, maintained by the same events
+        // that write its operands), so the database orders the whole set.
+        accessorKey: "amount_due",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Amount Due" />
+        ),
         cell: ({ row }) => {
-          const total = parseNumber(row.original.total_amount) || 0;
-          const paid = parseNumber(row.original.amount_paid) || 0;
-          const value = total - paid;
+          const value = parseNumber(row.original.amount_due);
           return (
             <div className={cn("font-medium pr-2", value < 0 ? "text-red-600" : "text-amber-600")}>
               {formatToRoundedIndianRupee(value)}
             </div>
           );
         },
-        enableSorting: false,
+        enableSorting: true,
         size: 150,
         meta: {
           exportHeaderName: "Amount Due",
-          exportValue: (row: ServiceRequests) => {
-            const total = parseNumber(row.total_amount) || 0;
-            const paid = parseNumber(row.amount_paid) || 0;
-            return total - paid;
-          },
+          exportValue: (row: ServiceRequests) => parseNumber(row.amount_due),
         },
       },
       {
-        id: "total_invoiced",
+        // A stored SR field, so the id IS the backend field name and `order_by` works:
+        // the database orders the whole set, not just the fetched page.
+        accessorKey: "amount_invoiced",
         header: ({ column }) => (
           <DataTableColumnHeader
             column={column}
@@ -510,7 +480,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
           />
         ),
         cell: ({ row }) => {
-          const invoiceTotal = invoiceTotalsMap.get(row.original.name) ?? 0;
+          const invoiceTotal = parseNumber(row.original.amount_invoiced);
           return (
             <div className="text-center font-medium text-blue-600">
               {formatToRoundedIndianRupee(invoiceTotal)}
@@ -518,12 +488,10 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
           );
         },
         size: 150,
-        enableSorting: false,
+        enableSorting: true,
         meta: {
           exportHeaderName: "Total Invoiced",
-          exportValue: (row: ServiceRequests) => {
-            return invoiceTotalsMap.get(row.name) ?? 0;
-          },
+          exportValue: (row: ServiceRequests) => parseNumber(row.amount_invoiced),
         },
       },
       {
@@ -558,7 +526,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
       handleNewSRSeen,
       getVendorName,
       for_vendor,
-      invoiceTotalsMap,
     ]
   ); //, getTotalAmount, getAmountPaidForSR,
 
@@ -586,6 +553,9 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     enableRowSelection: true, // Or true if bulk actions needed for approved SRs
     additionalFilters: staticFilters,
     // requirePendingItems: false, // Not applicable for "Approved" SR list
+    // The client-side sort only orders the CURRENT PAGE, so the vendor tab - where a
+    // single vendor's whole work-order list normally fits - gets a large page. The
+    // standalone Service Requests page keeps the default.
   });
 
   // --- Faceted Filter Options ---

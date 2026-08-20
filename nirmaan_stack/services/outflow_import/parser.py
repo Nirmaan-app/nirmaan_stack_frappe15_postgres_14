@@ -26,8 +26,28 @@ MONEY IS `Decimal` THROUGHOUT. These figures are compared for exact equality aga
 and then differenced; binary floating point makes both unreliable at the paisa level. The conversion
 to `float` happens once, at the persistence boundary.
 
-Adding a source (e.g. Cashbook) is a new entry in `_ADAPTERS` -- a column map plus its required
-set. No other code in this module is source-aware.
+Adding a source is a new entry in `_ADAPTERS` -- a column map plus its required set. No other code
+in this module is source-aware.
+
+⚠️ CASHBOOK NEEDED TWO GENERAL CAPABILITIES, AND BOTH ARE DELIBERATELY GENERAL RATHER THAN
+CASHBOOK-SHAPED. The parked note that adding a second source was "one adapter entry" was optimistic;
+it was one adapter entry plus these two, each of which is a rule about statements in general:
+
+1. **A field may be mapped to SEVERAL columns.** A map value may be one header or a tuple of them,
+   whose non-empty values join with `_MULTI_COLUMN_JOIN`. Cashbook splits its free text across
+   `Remark` and `Note` -- 7 rows in a 115-row sample carry a `Note` saying more than the `Remark`
+   does ("Pay to BharatPe Merchant" / "VR mall site") -- and both feed the same matcher, so they
+   have to arrive as one string. The join is visible, so the two halves stay legible; the file
+   itself is attached to the batch, so the exact cells stay recoverable.
+
+2. **A row carrying NO transfer id, NO amount and NO status is file furniture, not a transfer.**
+   Statements end in a totals block -- Cashbook's is six rows reading "Opening VA Balance",
+   "Ending Total Balance" and so on down the date column. Those were being reported as six
+   "has no Transfer Id" warnings on every single import, which is exactly how a warning list stops
+   being read. A row with no id but a real amount or status is still warned about, because that one
+   is a genuine data problem: see `_build_row`.
+
+⚠️ SOURCE AND FORMAT ARE DIFFERENT AXES -- see below. Neither capability above is a format concern.
 
 FORMAT IS SNIFFED FROM THE BYTES, NOT DECLARED (Q10, slice V3). `.csv` and `.xlsx` both arrive here
 as bytes and are told apart by the ZIP magic number that starts every xlsx -- a CSV cannot begin
@@ -49,6 +69,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
+from nirmaan_stack.services.outflow_import.duplicates import row_identity
 from nirmaan_stack.services.outflow_import.normalize import (
     normalize_account,
     normalize_amount,
@@ -62,12 +83,33 @@ __all__ = [
     "parse_statement",
     "SUPPORTED_SOURCES",
     "BANK_SUCCESS_STATUS",
+    "BANK_TERMINAL_STATUSES",
     "is_success_status",
+    "is_terminal_status",
 ]
 
 # The one word the gateway uses for money that actually left the account. Everything else -- FAILED,
 # PENDING, REVERSED -- is a transfer that did not happen.
 BANK_SUCCESS_STATUS = "SUCCESS"
+
+# The statuses that are the LAST WORD on a transfer -- its story is over, whichever way it went.
+#
+# ⚠️ THIS IS A DIFFERENT QUESTION FROM `is_success_status`, AND CONFLATING THEM COSTS MONEY IN ONE
+# DIRECTION AND CLARITY IN THE OTHER. "Did money move?" decides whether a row can SETTLE anything.
+# "Is this the final account of the transfer?" decides whether a stored row may be treated as an
+# IMPORT -- see `candidates.find_earlier_batches_for_rows`. A transfer still QUEUED is neither: it
+# settles nothing today AND tomorrow's export will say something new about it, so freezing it as
+# "already imported" strands the money permanently. A FAILED transfer also settles nothing, but it
+# IS final -- a retry gets a new transfer id, so that row will never say anything else -- and it must
+# keep counting as a duplicate, or a re-uploaded statement stops being recognised as fully imported
+# and stages a batch with nothing in it to action.
+#
+# ⚠️ ANYTHING NOT LISTED HERE IS TREATED AS STILL IN FLIGHT, AND THE DEFAULT LEANS THAT WAY ON
+# PURPOSE. The two mistakes are not symmetric: calling an in-flight status final loses real money
+# with no trace and no way back (a skipped row is frozen against re-matching), while calling a final
+# status in-flight costs a re-staged row that is skipped anyway. Only one of those is recoverable,
+# so an unrecognised status must fall on the recoverable side.
+BANK_TERMINAL_STATUSES = frozenset({BANK_SUCCESS_STATUS, "FAILED", "REJECTED", "REVERSED"})
 
 
 def is_success_status(status_raw: str | None) -> bool:
@@ -83,6 +125,19 @@ def is_success_status(status_raw: str | None) -> bool:
     reason: the SQL and this function compare against the same literal, from here.
     """
     return (status_raw or "").strip().upper() == BANK_SUCCESS_STATUS
+
+
+def is_terminal_status(status_raw: str | None) -> bool:
+    """Is this the LAST thing the statement will ever say about this transfer?
+
+    True for a transfer that succeeded AND for one that definitively did not. False while it is
+    still in flight, and false for a status we do not recognise -- see `BANK_TERMINAL_STATUSES` for
+    why the unknown case leans that way.
+
+    Normalises identically to `is_success_status`, so the two can never disagree about the same
+    cell, and the SQL that binds this set uses `UPPER(BTRIM(...))` to match.
+    """
+    return (status_raw or "").strip().upper() in BANK_TERMINAL_STATUSES
 
 
 class StatementFormatError(ValueError):
@@ -120,6 +175,21 @@ class RawRow:
     added_by_raw: str
     normalized_account: str
     normalized_reference: str
+    row_kind: str = ""
+    """What KIND of movement the statement says this is, verbatim, or "" where it does not say.
+
+    Cashbook mixes spends with wallet top-ups and bank loads in one file and tells them apart in a
+    `Type` column; only `Wallet Spend` is money leaving on someone's behalf. Cashfree's export is
+    transfers only, so it has no such column and this stays blank there.
+
+    ⚠️ THE PARSER STILL NEVER FILTERS -- this field only RECORDS what the statement said. Deciding
+    that a top-up is not importable is a downstream judgement, and it stays downstream so the skip
+    is visible on a staged row rather than being an absence nobody can account for. Same contract
+    the FAILED transfer above already follows, for the same reason.
+
+    It carries a default because it is the one field a statement may genuinely not have, and every
+    caller that builds a `RawRow` by hand predates it.
+    """
 
     @property
     def is_success(self) -> bool:
@@ -178,9 +248,49 @@ _CASHFREE_REQUIRED = frozenset(
     {"Transfer Id", "Added On", "Amount", "Status", "Beneficiary Name", "Bank Reference No"}
 )
 
+# Cashbook is a PETTY-CASH WALLET statement, not a bank transfer export, and the difference shows
+# in what is absent: no bank reference, no beneficiary account, no IFSC, no gateway charges. Match
+# tiers 0 and 1 read exactly those fields, so they can find nothing here -- which is the mechanical
+# reason this source gets its own downstream path rather than a widened matcher.
+#
+# ⚠️ `Date` IS TAKEN WITHOUT `Time`, WHICH SITS BESIDE IT (owner ruling). `%d/%m/%Y` is already in
+# `_DATETIME_FORMATS`, so the cell parses to midnight and the clock time is dropped. Two spends to
+# one payee on one day therefore share a timestamp and are told apart by their transfer ids, which
+# are unique -- verified across a 115-row sample.
+_CASHBOOK_COLUMNS = {
+    "transfer_id": "Txn Id",
+    "added_on": "Date",
+    "amount": "Debit",
+    "status_raw": "Payment Status",
+    "beneficiary_name": "To",
+    # Who spent it. On a wallet statement this is a real person holding the card, and it becomes the
+    # created expense's `payment_by` -- so the record says who spent the money rather than who
+    # imported the file.
+    "added_by_raw": "From",
+    # See capability 1 in the module docstring. `Note` is genuinely optional and often blank.
+    "remarks": ("Remark", "Note"),
+    "row_kind": "Type",
+}
+
+# ⚠️ `Remark` IS REQUIRED, AND IT IS THE ONE ENTRY HERE THAT IS NOT ABOUT IDENTIFYING A ROW. It is
+# the ONLY signal this source carries for choosing a project or an expense type -- there is no
+# account number to resolve and no reference to look up. A file missing it would parse perfectly and
+# then book every single row to a fallback, which is the silent-loss-of-a-signal case the note above
+# `_CASHFREE_REQUIRED` exists to prevent, in its most complete form.
+#
+# `Debit` is required as a COLUMN, not as a value: it is blank on every top-up row by design.
+_CASHBOOK_REQUIRED = frozenset(
+    {"Txn Id", "Date", "Type", "Debit", "Payment Status", "To", "Remark"}
+)
+
 _ADAPTERS = {
     "Cashfree": (_CASHFREE_COLUMNS, _CASHFREE_REQUIRED),
+    "Cashbook": (_CASHBOOK_COLUMNS, _CASHBOOK_REQUIRED),
 }
+
+# Visible on purpose: a reader of a joined remark can see where one cell ended and the next began,
+# and it matches the separator `settle._default_description` already composes with.
+_MULTI_COLUMN_JOIN = " - "
 
 SUPPORTED_SOURCES = tuple(sorted(_ADAPTERS))
 
@@ -264,16 +374,35 @@ def _build_row(
     header_lookup: dict,
     warnings: list[str],
 ) -> RawRow | None:
-    def raw(field: str) -> str:
-        header = column_map.get(field)
-        if header is None:
-            return ""
+    def cell(header: str) -> str:
         value = record.get(header_lookup.get(header, header))
         return "" if value is None else str(value)
 
+    def raw(field: str) -> str:
+        """This field's value, joining several columns into one where the map names several.
+
+        A tuple joins only the parts that carry something, so a blank optional column leaves no
+        dangling separator and a row with one of the two reads exactly as it would have if the
+        other column did not exist.
+        """
+        header = column_map.get(field)
+        if header is None:
+            return ""
+        if isinstance(header, tuple):
+            parts = [part for part in (cell(name).strip() for name in header) if part]
+            return _MULTI_COLUMN_JOIN.join(parts)
+        return cell(header)
+
     transfer_id = raw("transfer_id").strip()
     if not transfer_id:
-        warnings.append(f"Row {position} has no Transfer Id and was not staged.")
+        # ⚠️ TWO DIFFERENT THINGS ARRIVE HERE AND ONLY ONE IS WORTH A WARNING. A row with no id but
+        # a real amount or status is a TRANSFER WE CANNOT IDENTIFY -- a genuine defect in the export
+        # and exactly what this warning was written for. A row with no id, no amount and no status
+        # is the totals block at the foot of the sheet: it was never a transfer, so reporting it
+        # says nothing and, at six lines per import, trains people to skip the warning list
+        # entirely. See capability 2 in the module docstring.
+        if raw("amount").strip() or raw("status_raw").strip():
+            warnings.append(f"Row {position} has no Transfer Id and was not staged.")
         return None
 
     added_on = _parse_datetime(raw("added_on"))
@@ -304,6 +433,7 @@ def _build_row(
         added_by_raw=raw("added_by_raw").strip(),
         normalized_account=normalize_account(bank_account),
         normalized_reference=normalize_reference(bank_reference_no),
+        row_kind=raw("row_kind").strip(),
     )
 
 
@@ -399,12 +529,28 @@ def _read_xlsx(content: bytes) -> tuple[list[str], list[dict]]:
 
 
 def _duplicate_transfer_ids(rows: list[RawRow]) -> tuple[str, ...]:
-    seen: set[str] = set()
+    """Transfer ids that appear MORE THAN ONCE AS THE SAME TRANSFER within this one statement.
+
+    ⚠️ IT REPEATS ON IDENTITY BUT REPORTS THE ID (slice D3). The two halves are deliberate:
+
+    * Repeats are counted on `(transfer_id, amount, date)`, because `_stage_batch` marks its
+      `duplicate_in_file` rows on exactly that key. Leaving this on `transfer_id` alone would let
+      the preview call two rows repeated while staging called them distinct -- the same file,
+      two answers.
+    * What comes BACK is still the transfer id, because `duplicate_transfer_ids` is an API payload
+      field typed `string[]` on the client. Returning tuples would be a wire change for a list
+      nothing currently renders.
+
+    A consequence worth being explicit about: one id carried twice at two DIFFERENT amounts is no
+    longer reported here, because those are now two different transfers that happen to share an id.
+    """
+    seen: set = set()
     repeated: list[str] = []
     for row in rows:
-        if row.transfer_id in seen and row.transfer_id not in repeated:
+        identity = row_identity(row.transfer_id, row.amount, row.added_on_date)
+        if identity in seen and row.transfer_id not in repeated:
             repeated.append(row.transfer_id)
-        seen.add(row.transfer_id)
+        seen.add(identity)
     return tuple(repeated)
 
 

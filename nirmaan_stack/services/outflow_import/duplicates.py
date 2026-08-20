@@ -25,20 +25,85 @@ twice is the DB unique constraint on `Outflow Row Match (transfer_id, target_doc
 This module is ERGONOMICS -- a clear message and saved work. That is precisely what makes it safe
 for the caller to narrow its duplicate lookup by period first: a missed duplicate here costs a
 confusing row, not double-paid money.
+
+⚠️ NOTE THE TWO KEYS ARE DIFFERENT, AND THAT IS DELIBERATE. `Outflow Row Match`'s constraint is on
+`transfer_id` alone (with the target); THIS module's identity is `(transfer_id, amount, date)` --
+see `row_identity`. They answer different questions: the constraint asks "has this transfer already
+been used to settle this record?", which is about money and must stay as tight as possible, while
+the identity asks "have we seen this line of this statement before?", which is about work and may
+be more discriminating. Do not "align" them -- widening the constraint to a triple would let the
+same transfer settle the same record twice under a corrected amount.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
 
 __all__ = [
     "DUPLICATE_WARN_RATIO",
     "DuplicateVerdict",
+    "RowIdentity",
     "assess_duplicates",
+    "dates_agree",
+    "row_identity",
 ]
 
 # Owner ruling Q2. One number, deliberately.
 DUPLICATE_WARN_RATIO = 0.90
+
+
+# --- what makes two staged transfers THE SAME transfer (slice D3) --------------------------------
+
+#: `(transfer_id, amount, date)`. The date is `None` when the statement's Added On was unreadable.
+RowIdentity = tuple[str, Decimal, "date | None"]
+
+
+def row_identity(transfer_id: str, amount: Decimal, added_on_date: "date | None") -> RowIdentity:
+    """The identity of one staged transfer -- THE one definition, used by both duplicate checks.
+
+    ⚠️ THIS WIDENED FROM `transfer_id` ALONE (owner, slice D3), AND WIDENING MEANS **STRICTER**.
+    It is worth stating in that direction because the instinct runs the other way: a longer key
+    matches FEWER things, so this catches FEWER duplicates than it used to, not more. A statement
+    re-issued with the same transfer id but a corrected amount now imports as new work instead of
+    being silently skipped -- which is the point, since a different amount is a different fact.
+
+    ⚠️ THE AMOUNT IS COMPARED EXACTLY, AND MUST NOT ACQUIRE A TOLERANCE. `AMOUNT_TOLERANCE` is the
+    SETTLE window -- what may be WRITTEN against a record -- and it has no business deciding whether
+    two rows are the same row: at Rs 5 two genuinely different Rs 3 transfers would collapse into
+    one and the second would never import. `amounts.py` also guards this structurally, by failing
+    any `Decimal` constant declared outside it, so a fourth tolerance cannot be added here quietly.
+    Both sides reach this through `normalize_amount`, which returns `Decimal` precisely so an exact
+    comparison is safe.
+
+    ⚠️ THE DATE, NOT THE DATETIME. `Outflow Import Row.added_on` is a Datetime and two exports of
+    the same transfer can carry different clock times; `RawRow.added_on_date` already exists for
+    exactly this. Comparing the full timestamp would make a re-export look like new work.
+    """
+    return (transfer_id, amount, added_on_date)
+
+
+def dates_agree(left: "date | None", right: "date | None") -> bool:
+    """Whether two staged transfers' dates are compatible -- with the MISSING-DATE FALLBACK.
+
+    ⚠️ A MISSING DATE FALLS BACK TO `transfer_id` + amount (owner ruling, slice D3), which is what
+    this function exists to say. It is deliberately NOT SQL `NULL = NULL` semantics, and the
+    difference is not academic: the parser tolerates an unreadable Added On and stages the row with
+    `None` anyway, so under `NULL = NULL is false` a sheet whose dates we failed to read would stop
+    being recognised on re-upload and **import a second time, silently**.
+
+    The reasoning is that a missing date is OUR failure to read the sheet, not evidence that the
+    transfer is a different one. Treating it as a difference lets a parsing gap become a duplicate
+    import; treating it as "cannot compare on this axis" costs at most a row skipped that a
+    reviewer can see and query. Only one of those two mistakes is invisible.
+
+    It is symmetric on purpose -- either side may be the unreadable one, since the stored row was
+    parsed by this same tolerant parser on some earlier day.
+    """
+    if left is None or right is None:
+        return True
+    return left == right
 
 
 @dataclass(frozen=True)

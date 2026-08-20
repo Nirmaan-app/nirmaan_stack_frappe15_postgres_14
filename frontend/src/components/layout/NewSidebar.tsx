@@ -413,7 +413,7 @@ export function NewSidebar() {
     //   ]
     // : []),
 
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile", "Nirmaan Project Lead Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Design Lead Profile", "Nirmaan Design Executive Profile"].includes(role as string)
       ? [
         {
           key: '/item-price',
@@ -900,7 +900,10 @@ export function NewSidebar() {
           className={`${state === "expanded" ? "bg-gray-100" : "mx-auto"}`}
         />
       </SidebarHeader>
-      <SidebarContent className="scrollbar-container overflow-x-hidden">
+      <SidebarContent
+        className={`scrollbar-container overflow-x-hidden group-data-[collapsible=icon]:overflow-y-auto ${state === "collapsed" ? "scrollbar-hide" : ""
+          }`}
+      >
         <SidebarGroup>
           <SidebarMenu>
             {items.map((item) => (

@@ -13,13 +13,28 @@
 import frappe
 import json
 
+from nirmaan_stack.services.role_profiles import is_nirmaan_admin
+
 
 def _require_admin():
-    if frappe.session.user == "Administrator":
+    """Nirmaan-admin-only gate. Mirrors the page's own `isAdmin`
+    (Administrator OR role profile "Nirmaan Admin Profile") — PMO is deliberately
+    excluded, matching `pages/temp/ResolveInvoices.tsx`.
+
+    The previous check gated on `frappe.get_roles()` with a role-PROFILE name,
+    which matched nobody, AND fell through without raising — so this gate
+    admitted every logged-in user.
+    """
+    if is_nirmaan_admin(frappe.session.user):
         return
-    if "Nirmaan Admin Profile" in frappe.get_roles(frappe.session.user):
-        return
-   
+
+    frappe.throw(
+        "Only an admin may use Resolve Invoices.",
+        frappe.PermissionError,
+        title="Not permitted",
+    )
+
+
 
 # Autofill fields written on save so a resolved invoice is identical to a normally
 # AI-autofilled one (recon UI + auto-approve gates read these). Mirrors the patch's

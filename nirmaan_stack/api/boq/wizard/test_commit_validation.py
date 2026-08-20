@@ -467,15 +467,42 @@ class TestValidateNodePlanPure(unittest.TestCase):
 
     # -- ERROR #8 ------------------------------------------------------------
 
-    def test_error8_line_item_under_non_heading_fails(self):
+    def test_error8_line_item_under_note_fails(self):
+        """#8 fires for an item under a NOTE/marker row ("Other").
+
+        RULING 2026-08-19 (owner): an item under ANOTHER ITEM is ALLOWED and is no longer a
+        finding -- see line_item_parent_ok. This test previously used item-under-item as its
+        failing case; that shape was WRONG to block (a sub-item under its parent item is a
+        real bill shape the review screen has always let a human pick), so the failing case
+        moved to the one #8 can still speak to: a text/marker parent.
+        """
+        plan = [
+            _node(0, "Preamble", level=1),
+            _node(1, "Other", parent_index=0),               # a note row
+            _node(2, "Line Item", parent_index=1),           # item under a NOTE -> FAIL #8
+        ]
+        errs = _by_code(self._validate(plan)["errors"], "line_item_parent_not_preamble")
+        self.assertEqual(len(errs), 1, "only the item-under-a-note is flagged")
+        self.assertEqual(errs[0]["source_row_number"], 4)   # row_index 2 -> source 4
+
+    def test_error8_line_item_under_line_item_is_clean(self):
+        """RULING 2026-08-19: an item nested under another item is VALID -- no #8, no error.
+
+        The positive half of the narrowing. Without this the rule could be silently
+        re-tightened and only the (now-moved) negative test would notice.
+        """
         plan = [
             _node(0, "Preamble", level=1),
             _node(1, "Line Item", parent_index=0),           # item under heading -> OK
-            _node(2, "Line Item", parent_index=1),           # item under an ITEM -> FAIL #8
+            _node(2, "Line Item", parent_index=1),           # item under an ITEM -> OK now
+            _node(3, "Line Item", parent_index=2),           # ...and two deep -> still OK
         ]
-        errs = _by_code(self._validate(plan)["errors"], "line_item_parent_not_preamble")
-        self.assertEqual(len(errs), 1, "only the item-under-an-item is flagged")
-        self.assertEqual(errs[0]["source_row_number"], 4)   # row_index 2 -> source 4
+        res = self._validate(plan)
+        self.assertEqual(
+            _by_code(res["errors"], "line_item_parent_not_preamble"), [],
+            "an item under another item must produce NO #8 finding",
+        )
+        self.assertEqual(res["errors"], [], "the whole plan is error-free")
 
     # -- a clean plan yields nothing ----------------------------------------
 
@@ -512,6 +539,47 @@ class TestValidateNodePlanPure(unittest.TestCase):
     def test_warning16_priced_heading_childless_no_warning(self):
         # A priced heading with NO children must NOT warn (only priced + has-child fires).
         plan = [_node(0, "Preamble", level=1, combined_rate=99.0)]
+        warns = _by_code(self._validate(plan)["warnings"], "preamble_priced_with_children")
+        self.assertEqual(warns, [])
+
+    def test_warning16_priced_parent_item_with_children(self):
+        """#16 WIDENED to Line Item alongside the 2026-08-19 #8 narrowing.
+
+        Now that an item may parent another item, a PRICED parent item is exactly the shape
+        this warning already caught for headings: pricingRollup sums a node's own amount PLUS
+        its descendants', so the parent's money is counted on two lines. Advisory ONLY -- it
+        must never block, because a breakdown under a priced parent is sometimes what the
+        bill genuinely says.
+        """
+        plan = [
+            _node(0, "Preamble", level=1),
+            _node(1, "Line Item", parent_index=0, qty=10.0),  # priced parent ITEM
+            _node(2, "Line Item", parent_index=1, qty=4.0),   # ...with a priced child
+        ]
+        res = self._validate(plan)
+        warns = _by_code(res["warnings"], "preamble_priced_with_children")
+        self.assertEqual(len(warns), 1)
+        self.assertEqual(warns[0]["source_row_number"], 3)   # the parent item (row_index 1)
+        self.assertIn("this item carries", warns[0]["message"],
+                      "an ITEM must be voiced as an item, never as a section heading")
+        self.assertEqual(res["errors"], [], "#16 is ADVISORY -- it must never block")
+
+    def test_warning16_childless_parent_item_no_warning(self):
+        # A priced item with NO children is the ordinary priced line -- it must NOT warn.
+        plan = [
+            _node(0, "Preamble", level=1),
+            _node(1, "Line Item", parent_index=0, qty=10.0),
+        ]
+        warns = _by_code(self._validate(plan)["warnings"], "preamble_priced_with_children")
+        self.assertEqual(warns, [])
+
+    def test_warning16_unpriced_parent_item_no_warning(self):
+        # A parent item carrying NO qty/rate double-counts nothing -> no warning.
+        plan = [
+            _node(0, "Preamble", level=1),
+            _node(1, "Line Item", parent_index=0),            # unpriced parent item
+            _node(2, "Line Item", parent_index=1, qty=4.0),
+        ]
         warns = _by_code(self._validate(plan)["warnings"], "preamble_priced_with_children")
         self.assertEqual(warns, [])
 

@@ -50,7 +50,10 @@ export default function RequestFromWarehouse() {
     useFrappeGetDocList<Projects>(
       "Projects",
       {
+        // Destination must be a WON project -- a tender-stage project has no site to
+        // receive material (same rule as CreateITMPage).
         fields: ["name", "project_name", "creation"],
+        filters: [["tendering_status", "=", "Won"]],
         limit: 0,
         orderBy: { field: "creation", order: "desc" },
       },

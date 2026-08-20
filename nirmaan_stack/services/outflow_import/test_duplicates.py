@@ -9,11 +9,97 @@ a refusal is a different OUTCOME from a warning, not a louder one. A caller that
 """
 
 import unittest
+from datetime import date
+from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.duplicates import (
     DUPLICATE_WARN_RATIO,
     assess_duplicates,
+    dates_agree,
+    row_identity,
 )
+
+
+class TestRowIdentity(unittest.TestCase):
+    """`(transfer_id, amount, date)` -- the widened duplicate key (slice D3)."""
+
+    def test_the_same_transfer_has_the_same_identity(self):
+        a = row_identity("TXN-1", Decimal("1000.00"), date(2026, 8, 1))
+        b = row_identity("TXN-1", Decimal("1000.00"), date(2026, 8, 1))
+        self.assertEqual(a, b)
+        # Hashable, because both duplicate checks use it as a dict/set key.
+        self.assertEqual(len({a, b}), 1)
+
+    def test_a_different_amount_is_a_different_transfer(self):
+        self.assertNotEqual(
+            row_identity("TXN-1", Decimal("1000.00"), date(2026, 8, 1)),
+            row_identity("TXN-1", Decimal("1001.00"), date(2026, 8, 1)),
+        )
+
+    def test_a_different_date_is_a_different_transfer(self):
+        self.assertNotEqual(
+            row_identity("TXN-1", Decimal("1000.00"), date(2026, 8, 1)),
+            row_identity("TXN-1", Decimal("1000.00"), date(2026, 8, 2)),
+        )
+
+    def test_the_amount_is_compared_EXACTLY_with_no_tolerance(self):
+        # ⚠️ THE SETTLE WINDOW HAS NO BUSINESS HERE. At Rs 5 two genuinely different Rs 3
+        # transfers would collapse into one identity and the second would never import.
+        one_rupee_apart = (
+            row_identity("TXN-1", Decimal("1000.00"), date(2026, 8, 1)),
+            row_identity("TXN-1", Decimal("1001.00"), date(2026, 8, 1)),
+        )
+        self.assertEqual(len(set(one_rupee_apart)), 2)
+        one_paisa_apart = (
+            row_identity("TXN-1", Decimal("1000.00"), date(2026, 8, 1)),
+            row_identity("TXN-1", Decimal("1000.01"), date(2026, 8, 1)),
+        )
+        self.assertEqual(len(set(one_paisa_apart)), 2)
+
+    def test_decimal_scale_does_not_split_one_transfer_in_two(self):
+        # ⚠️ THE QUIET ONE. `Decimal("1000") == Decimal("1000.00")` is True and both hash the
+        # same, so a Currency column read back as 1000.0 still matches a sheet that wrote 1000.
+        # If this ever became a string compare, every re-upload would import again.
+        self.assertEqual(
+            row_identity("TXN-1", Decimal("1000"), date(2026, 8, 1)),
+            row_identity("TXN-1", Decimal("1000.00"), date(2026, 8, 1)),
+        )
+        self.assertEqual(
+            len(
+                {
+                    row_identity("TXN-1", Decimal("1000"), date(2026, 8, 1)),
+                    row_identity("TXN-1", Decimal("1000.00"), date(2026, 8, 1)),
+                }
+            ),
+            1,
+        )
+
+
+class TestDatesAgree(unittest.TestCase):
+    """The missing-date fallback (owner ruling, slice D3)."""
+
+    def test_equal_dates_agree_and_different_ones_do_not(self):
+        self.assertTrue(dates_agree(date(2026, 8, 1), date(2026, 8, 1)))
+        self.assertFalse(dates_agree(date(2026, 8, 1), date(2026, 8, 2)))
+
+    def test_a_MISSING_date_falls_back_to_id_plus_amount(self):
+        # ⚠️ DELIBERATELY NOT SQL `NULL = NULL`. The parser stages a row whose Added On it could
+        # not read, so under NULL semantics a sheet with unreadable dates would stop being
+        # recognised on re-upload and import a SECOND time, silently. A missing date is our
+        # failure to read the sheet, not evidence of a different transfer.
+        self.assertTrue(dates_agree(None, date(2026, 8, 1)))
+        self.assertTrue(dates_agree(date(2026, 8, 1), None))
+        self.assertTrue(dates_agree(None, None))
+
+    def test_it_is_symmetric(self):
+        # Either side may be the unreadable one -- the stored row went through this same tolerant
+        # parser on some earlier day.
+        for left, right in (
+            (None, date(2026, 8, 1)),
+            (date(2026, 8, 1), date(2026, 8, 1)),
+            (date(2026, 8, 1), date(2026, 8, 2)),
+        ):
+            self.assertEqual(dates_agree(left, right), dates_agree(right, left))
 
 
 class TestRefusal(unittest.TestCase):

@@ -313,7 +313,7 @@ export default function RemindersPage() {
                     <span className="text-muted-foreground">
                       Those kept entries will{" "}
                       <span className="font-medium text-foreground">
-                        no longer appear in the Compliance History
+                        no longer appear in the Reminders History
                       </span>
                       .
                     </span>

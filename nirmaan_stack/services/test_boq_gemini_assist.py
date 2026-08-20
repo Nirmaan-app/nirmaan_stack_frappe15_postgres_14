@@ -205,14 +205,21 @@ class TestPromptParentingPins(unittest.TestCase):
         self.assertNotIn("The ONLY valid parent", _BOQ_CLASSIFY_PROMPT)
 
     def test_line_item_line_is_pinned(self):
-        """W1 target #2 -- REWORDED by EA-6c. Was the blanket "Never a parent"; now the
-        narrower truth: never of another line_item, but may parent a note."""
+        """W1 target #2 -- REWORDED AGAIN 2026-08-19 (ADR-0008 Amendment A, owner Option B).
+
+        EA-6c narrowed the blanket "Never a parent" to "never of another line_item, but may
+        parent a note". The surviving "never of another line_item" clause became FALSE when
+        structural error #8 was narrowed, so it is replaced by the positive statement. This
+        is the row-type line; the Parenting-block sentence is pinned separately below and the
+        two must agree.
+        """
         self.assertIn(
-            "- line_item: a priced/quantified work entry. Never a parent of another "
-            "line_item, but may be the parent of a note that describes it.\n",
+            "- line_item: a priced/quantified work entry. May be the parent of a note that "
+            "describes it, or of another line_item that is a sub-component of it.\n",
             _BOQ_CLASSIFY_PROMPT,
         )
         self.assertNotIn("(a leaf). Never a parent.", _BOQ_CLASSIFY_PROMPT)
+        self.assertNotIn("Never a parent of another line_item", _BOQ_CLASSIFY_PROMPT)
 
     def test_parenting_rule_is_pinned(self):
         """W1 target #3 -- REPLACED by EA-6c. Was "Only preambles are valid parents"
@@ -226,12 +233,24 @@ class TestPromptParentingPins(unittest.TestCase):
         self.assertNotIn("Only preambles are valid parents", _BOQ_CLASSIFY_PROMPT)
 
     def test_line_item_parent_rule_is_pinned(self):
-        """W3 -- ADDED by EA-6c, IDENTICAL sentence on both engines (one rule, zero drift).
-        Verbatim-equal to the Claude pin in services/test_boq_ai_assist.py."""
+        """W3 -- REWORDED 2026-08-19 (ADR-0008 Amendment A, owner Option B). Still
+        VERBATIM-EQUAL to the Claude pin in services/test_boq_ai_assist.py -- one rule, zero
+        drift across the two engines.
+
+        WAS the prohibition "A line_item is never the parent of another line_item. Only a
+        preamble may parent a line_item." Structural error #8 no longer enforces that, so the
+        sentence stated a rule the product had stopped applying.
+        """
         self.assertIn(
-            "- A line_item is never the parent of another line_item. Only a preamble may "
-            "parent a line_item.\n",
+            "- A line_item may be the parent of another line_item when the child row is a "
+            "sub-component or a breakdown of it; otherwise a line_item's parent is the "
+            "preamble heading its section.\n",
             _BOQ_CLASSIFY_PROMPT,
+        )
+        self.assertNotIn(
+            "A line_item is never the parent of another line_item",
+            _BOQ_CLASSIFY_PROMPT,
+            "the retired prohibition must not survive anywhere in the prompt",
         )
 
     def test_note_line_is_pinned_and_stays_untouched(self):
@@ -252,6 +271,29 @@ class TestPromptParentingPins(unittest.TestCase):
             "Do NOT invent ids that are not a row in this request or a KNOWN PREAMBLE.\n",
             _BOQ_CLASSIFY_PROMPT,
         )
+
+    def test_line_item_parent_rule_is_identical_on_both_engines(self):
+        """CROSS-ENGINE DRIFT GUARD -- ADDED 2026-08-19 (ADR-0008 Amendment A).
+
+        The item-parenting rule is meant to be ONE rule stated in the SAME words to both
+        models, and the two pins above have asserted that only by each repeating the literal
+        in its own file. Nothing checked they still MATCH -- so editing one engine's wording
+        moved that engine's pin, left the other green, and the drift was invisible. This
+        sentence has now been reworded across both engines twice (EA-6c, then this ruling),
+        which is exactly the pattern that earns a mechanical guard.
+
+        Imports the Claude template directly: both prompts are module-level constants, and
+        test_boq_ai_assist.py already imports this one, so nothing new is loaded.
+        """
+        from nirmaan_stack.services.boq_ai_assist import _AI_PASS_PROMPT_TEMPLATE
+
+        sentence = (
+            "- A line_item may be the parent of another line_item when the child row is a "
+            "sub-component or a breakdown of it; otherwise a line_item's parent is the "
+            "preamble heading its section.\n"
+        )
+        self.assertIn(sentence, _BOQ_CLASSIFY_PROMPT, "Gemini must carry the shared sentence")
+        self.assertIn(sentence, _AI_PASS_PROMPT_TEMPLATE, "Claude must carry the shared sentence")
 
     def test_prompt_is_silent_on_note_under_note(self):
         """W6 NEGATIVE, pinned BOTH sides of the reword: the prompt must never discuss a

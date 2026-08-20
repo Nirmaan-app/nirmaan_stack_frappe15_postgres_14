@@ -1,6 +1,8 @@
 import frappe
 from frappe import _
 
+from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, is_nirmaan_admin
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Why this module exists (Phase 2 — group-driven approval/promotion, ADR-0003):
@@ -45,24 +47,14 @@ PROJECT_ROW_DOCTYPE = "Project TDS Item List"
 ENTRY_DOCTYPE = "TDS Repository"
 GROUP_DOCTYPE = "TDS Items"
 
-ADMIN_ROLE = "Nirmaan Admin Profile"
+ADMIN_ROLE = ADMIN_PROFILE  # back-compat alias; prefer ADMIN_PROFILE
 
 
-def _is_admin(user: str) -> bool:
-	"""True for the Administrator superuser or a Nirmaan admin.
-
-	Admin is identified by the user's ROLE PROFILE (`Nirmaan Users.role_profile`
-	== "Nirmaan Admin Profile"), NOT by `frappe.get_roles()`. "Nirmaan Admin
-	Profile" is a Role *Profile* that bundles roles like System Manager / Nirmaan
-	Project Lead — its name never appears in `get_roles()`, so a get_roles check
-	would reject every real admin (only the Administrator superuser would pass).
-	This mirrors the frontend `useUserData().role` (also the role profile) and the
-	canonical backend pattern (e.g. `api/sidebar_counts.py`, `delivery_notes/
-	_permission_utils.py`).
-	"""
-	if user == "Administrator":
-		return True
-	return frappe.db.get_value("Nirmaan Users", user, "role_profile") == ADMIN_ROLE
+# Admin is identified by the user's ROLE PROFILE, never by `frappe.get_roles()` —
+# see the warning above the resolvers in `services/role_profiles.py`. This module
+# had its own correct copy of that rule; it now delegates to the shared one so
+# there is a single definition to keep right.
+_is_admin = is_nirmaan_admin
 
 
 def _require_admin():

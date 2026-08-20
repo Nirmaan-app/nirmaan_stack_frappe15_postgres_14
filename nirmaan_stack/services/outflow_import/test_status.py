@@ -29,6 +29,10 @@ from nirmaan_stack.services.outflow_import.matcher import (
     VendorResolution,
 )
 from nirmaan_stack.services.outflow_import.status import (
+    ORIGIN_ACCEPTED,
+    ORIGIN_NO_SUGGESTION,
+    ORIGIN_OVERRIDDEN,
+    settlement_origin,
     BATCH_COMPLETED,
     BATCH_DRAFT,
     BATCH_IN_REVIEW,
@@ -47,10 +51,12 @@ from nirmaan_stack.services.outflow_import.status import (
     StatusTally,
     Suggestion,
     derive_batch_counters,
+    batch_is_open,
     derive_batch_status,
     derive_import_summary,
     derive_row_outcome,
     derive_staged_row_outcome,
+    several_found_note,
     sole_suggestion,
 )
 
@@ -508,6 +514,36 @@ class TestNothingFound(unittest.TestCase):
         self.assertIn("Already recorded as Paid", disagreement)
         self.assertNotIn("No approved payment or expense matches", disagreement)
 
+    def test_all_THREE_mismatched_causes_stay_distinguishable(self):
+        """⚠️ THE MERGE TEST, WIDENED -- `Mismatched` now carries a THIRD fact (2026-08-11).
+
+        The sweep that moves "several records matched and nothing separated them" out of `Matched`
+        put a third cause under one status, so the note carries a three-way distinction where it
+        used to carry a two-way one:
+
+            found nothing        -> record or link one
+            already Paid, delta  -> a deduction such as TDS
+            several, none chosen -> pick which one
+
+        The dangerous pair is the FIRST and THIRD. Both are open rows in the Not-Matched tab, and
+        telling a reviewer "no approved payment or expense matches this transfer" about a transfer
+        that matched six sends them to create a duplicate expense for money already approved and
+        waiting to be paid.
+        """
+        nothing_found = derive_row_outcome(_Row(), _match()).note
+        several = several_found_note(6)
+
+        self.assertIn("No approved payment or expense matches", nothing_found)
+        self.assertNotIn("6", nothing_found)
+
+        self.assertIn("6 approved records match", several)
+        self.assertNotIn("No approved payment or expense matches", several)
+        self.assertNotIn("Already recorded as Paid", several)
+
+    def test_the_several_note_says_what_to_do_not_just_what_happened(self):
+        """Same obligation `_nothing_found_note` carries: the reader has nothing else to go on."""
+        self.assertIn("pick which one", several_found_note(3).lower())
+
     def test_a_non_approved_payment_never_reaches_this_module_as_matched(self):
         """Rule 1 is enforced UPSTREAM, in candidates.py -- the pool is Approved only, so a
         CEO Pending payment is simply absent and the row is Mismatched. Pinned here because the
@@ -582,6 +618,44 @@ class TestBatchStatus(unittest.TestCase):
 
     def test_an_errored_row_keeps_the_batch_open(self):
         self.assertEqual(derive_batch_status([ROW_SETTLED, ROW_ERROR]), BATCH_PARTIALLY_SETTLED)
+
+    def test_batch_is_open_reads_the_status_derive_already_produces(self):
+        """`batch_is_open` IS "auto-close" (slice CF/S5), and it adds no state.
+
+        The 2026-08-10 ruling deleted `close_batch` because it stamped three fields nobody read.
+        Nothing here writes anything: a batch closes itself the moment `derive_batch_status` returns
+        `Completed`, and `_refresh_batch_rollup` runs on every settle and every skip.
+        """
+        self.assertFalse(batch_is_open(derive_batch_status([ROW_SETTLED, ROW_SKIPPED])))
+        self.assertTrue(batch_is_open(derive_batch_status([ROW_SETTLED, ROW_MATCHED])))
+        self.assertTrue(batch_is_open(derive_batch_status([])))
+
+    def test_an_unknown_or_missing_status_is_OPEN(self):
+        """⚠️ THE FAILURE DIRECTION IS THE POINT.
+
+        A batch whose rollup has never run carries no status. Reading that as finished would drop it
+        from every re-match silently -- the invisible-exclusion class this feature keeps fixing.
+        Failing towards "still has work" costs one wasted pass; failing the other way loses the work.
+        """
+        self.assertTrue(batch_is_open(None))
+        self.assertTrue(batch_is_open(""))
+        self.assertTrue(batch_is_open("   "))
+        self.assertTrue(batch_is_open("Something Else"))
+
+    def test_it_does_not_resurrect_the_deleted_close_fields(self):
+        """The ruling this slice had to work around, pinned.
+
+        `closed_at` / `closed_by` / `close_reason` are still on the doctype and still never written.
+        "Auto-close" is a READ of a derived status -- if a future change makes it a WRITE, that is
+        the deleted control coming back and it should be a deliberate decision, not a drift.
+        """
+        import inspect
+
+        from nirmaan_stack.services.outflow_import import status as S
+
+        source = inspect.getsource(S.batch_is_open)
+        for field in ("closed_at", "closed_by", "close_reason"):
+            self.assertNotIn(f"{field} =", source)
 
     def test_derive_batch_status_takes_no_force_closed_argument(self):
         """Retired with `Completed with exceptions`. Pinned so a well-meaning re-add fails loudly
@@ -818,3 +892,56 @@ class TestPurity(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSettlementOrigin(unittest.TestCase):
+    """The three-way verdict shared by the settle path and the backfill patch (slice Q1)."""
+
+    def test_the_matchers_pick_confirmed_unchanged_is_ACCEPTED(self):
+        self.assertEqual(settlement_origin("PAY-1", "PAY-1"), ORIGIN_ACCEPTED)
+
+    def test_a_different_record_is_OVERRIDDEN(self):
+        self.assertEqual(settlement_origin("PAY-1", "PAY-2"), ORIGIN_OVERRIDDEN)
+
+    def test_no_suggestion_is_ITS_OWN_ANSWER_not_an_override(self):
+        # ⚠️ THE DISTINCTION THAT MATTERS. A fan-out has no single suggestion by design and a row
+        # the matcher never touched has none either -- both are "the person found it", which is a
+        # different fact from "the person disagreed with us". Collapsing them would report every
+        # hand-found settlement as a disagreement with a machine that never spoke.
+        for blank in (None, "", "   "):
+            self.assertEqual(settlement_origin(blank, "PAY-1"), ORIGIN_NO_SUGGESTION)
+
+    def test_it_trims_before_comparing(self):
+        self.assertEqual(settlement_origin("  PAY-1 ", "PAY-1"), ORIGIN_ACCEPTED)
+
+    def test_the_three_values_are_the_doctype_Select_options(self):
+        # A value outside the Select silently fails to save on a Frappe insert.
+        self.assertEqual(
+            {ORIGIN_ACCEPTED, ORIGIN_OVERRIDDEN, ORIGIN_NO_SUGGESTION},
+            {"Suggestion accepted", "Suggestion overridden", "No suggestion"},
+        )
+
+
+class TestSettledFromSuggestionInTheSummary(unittest.TestCase):
+    def test_it_counts_only_SETTLED_tallies(self):
+        # ⚠️ NOT `with_suggestion`, WHICH COUNTS A DIFFERENT MOMENT. That one counts rows CARRYING a
+        # pick (only ever non-zero on `Matched`) -- work waiting to be confirmed. This counts
+        # settlements where a person confirmed that pick. A row moves from one to the other by being
+        # confirmed, so summing them double-counts the same transfer twice in its life.
+        summary = derive_import_summary([
+            StatusTally(status=ROW_SETTLED, count=10, from_suggestion=8),
+            StatusTally(status=ROW_MATCHED, count=5, with_suggestion=5, from_suggestion=99),
+        ])
+        self.assertEqual(summary["settled_rows"], 10)
+        self.assertEqual(summary["settled_from_suggestion"], 8)
+
+    def test_it_defaults_to_zero_so_an_unaware_caller_still_derives(self):
+        summary = derive_import_summary([StatusTally(status=ROW_SETTLED, count=3)])
+        self.assertEqual(summary["settled_from_suggestion"], 0)
+
+    def test_the_hand_found_count_is_the_remainder_and_is_not_sent_separately(self):
+        summary = derive_import_summary([
+            StatusTally(status=ROW_SETTLED, count=849, from_suggestion=843),
+        ])
+        self.assertEqual(summary["settled_rows"] - summary["settled_from_suggestion"], 6)
+        self.assertNotIn("settled_by_hand", summary)

@@ -17,6 +17,7 @@
   "classification_section",
   "match_kind",
   "match_basis",
+  "settlement_origin",
   "provenance_section",
   "matched_at",
   "matched_by"
@@ -96,12 +97,21 @@
    "reqd": 1
   },
   {
-   "description": "How the match was found. Bank reference = the strong key (normalized bank_reference_no equals the target's normalized utr). Vendor+amount+date = the weak second pass, needed because 12.6% of Paid payments carry a UTR that is not a bank reference. Manual = a person chose the target outright.",
+   "description": "HOW the counterpart was FOUND -- the tier of the matching ladder, copied from the import row at settlement. 'reference' = the bank reference equals a stored UTR; 'account+IFSC' = the transfer went to a vendor's bank account and the amounts agree within Re 1; 'project in remark' = the amounts agree within Rs 5 and the remark names the record's project; 'Manual' = the matcher found nothing and a person chose the target outright. WARNING: the options were previously 'Bank reference / Vendor+amount+date / Manual', which named NO tier the matcher actually produces -- so 'Manual' was the only valid value and every settlement was stamped with it, including 843 of 849 that the machine had found. The vocabulary is now the matcher's own (services/outflow_import/matcher.py TIER_* constants), the same one Outflow Import Row.match_basis has always used. Whether a PERSON accepted or overrode that suggestion is a DIFFERENT question and lives in settlement_origin.",
    "fieldname": "match_basis",
    "fieldtype": "Select",
    "label": "Match Basis",
-   "options": "Bank reference\nVendor+amount+date\nManual",
+   "options": "reference\naccount+IFSC\nproject in remark\nManual\ncashbook remark",
    "reqd": 1
+  },
+  {
+   "description": "Whether this settlement took the machine's suggestion. 'Suggestion accepted' = the matcher proposed this exact record and a person confirmed it unchanged. 'Suggestion overridden' = the matcher proposed a DIFFERENT record and the person chose this one instead. 'No suggestion' = the matcher offered nothing and the person found the record themselves. DELIBERATELY NOT CALLED 'AUTO': a human clicks confirm on every one of these, so 'accepted' is true where 'automatic' would not be. This is a DIFFERENT question from match_basis, which says which TIER found the counterpart, and from Outflow Import Row.auto_matched, which says only that a suggestion existed at all. Written in the same insert as match_basis so the two cannot drift.",
+   "fieldname": "settlement_origin",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Settlement Origin",
+   "options": "\nSuggestion accepted\nSuggestion overridden\nNo suggestion",
+   "read_only": 1
   },
   {
    "fieldname": "provenance_section",

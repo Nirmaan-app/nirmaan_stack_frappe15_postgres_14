@@ -5,11 +5,15 @@ No bench needed:
 """
 
 import unittest
+from datetime import date, timedelta
 from decimal import Decimal
 
+from nirmaan_stack.services.outflow_import import disambiguate as _disambiguate
 from nirmaan_stack.services.outflow_import.disambiguate import (
+    NEAREST_DATE_WINDOW_DAYS,
     RULE_INTERCHANGEABLE,
     RULE_NEAREST_AMOUNT,
+    RULE_NEAREST_DATE,
     RULE_PROJECT_IN_REMARK,
     Candidate,
     pick_from_several,
@@ -17,7 +21,15 @@ from nirmaan_stack.services.outflow_import.disambiguate import (
 )
 
 PAY = "Project Payments"
+EXP = "Project Expenses"
 D = Decimal
+
+MOVED = date(2026, 8, 11)
+
+
+def _on(days: int) -> date:
+    """A decision date `days` away from the day the money moved."""
+    return MOVED + timedelta(days=days)
 
 
 class _Index:
@@ -34,8 +46,19 @@ def _c(name, amount, project="PROJ-1"):
     return Candidate(doctype=PAY, name=name, amount=D(str(amount)), project=project)
 
 
+def _dc(name, amount, gap_days, project="PROJ-1", doctype=PAY):
+    """A candidate carrying a decision date `gap_days` from the day the money moved."""
+    return Candidate(
+        doctype=doctype,
+        name=name,
+        amount=D(str(amount)),
+        project=project,
+        decided_on=_on(gap_days),
+    )
+
+
 def _pick(candidates, *, bank="1000", remark="", index=None, claimed=frozenset(),
-          allow_interchangeable=True):
+          allow_interchangeable=True, transfer_date=None):
     return pick_from_several(
         bank_amount=D(bank),
         candidates=candidates,
@@ -43,6 +66,7 @@ def _pick(candidates, *, bank="1000", remark="", index=None, claimed=frozenset()
         project_index=index,
         claimed=claimed,
         allow_interchangeable=allow_interchangeable,
+        transfer_date=transfer_date,
     )
 
 
@@ -261,3 +285,166 @@ class TestM3IsFencedOffStacks(unittest.TestCase):
         cands = [_c("NEAR", "9000.10"), _c("FAR", "8995.00")]
         pick = _pick(cands, bank="9000.00", allow_interchangeable=False)
         self.assertEqual((pick.name, pick.rule), ("NEAR", RULE_NEAREST_AMOUNT))
+
+
+class TestM4NearestDecisionDate(unittest.TestCase):
+    """M4: the candidate decided strictly nearest the day the money actually moved."""
+
+    def test_it_picks_the_strictly_nearest(self):
+        cands = [_dc("NEAR", 1000, 0), _dc("FAR", 1000, 7)]
+        pick = _pick(cands, allow_interchangeable=False, transfer_date=MOVED)
+        self.assertEqual((pick.name, pick.rule), ("NEAR", RULE_NEAREST_DATE))
+
+    def test_a_tie_abstains(self):
+        """⚠️ A COMMON OUTCOME ON REAL DATA, not a corner case: a batch approved on one day gives
+        every candidate the identical gap. The rule stays silent rather than breaking the tie on
+        something that is not evidence."""
+        cands = [_dc("A", 1000, 1), _dc("B", 1000, 1)]
+        self.assertIsNone(_pick(cands, allow_interchangeable=False, transfer_date=MOVED))
+
+    def test_it_reads_the_window_either_side(self):
+        for gap in (-NEAREST_DATE_WINDOW_DAYS, NEAREST_DATE_WINDOW_DAYS):
+            cands = [_dc("IN", 1000, gap), _dc("OUT", 1000, 40)]
+            pick = _pick(cands, allow_interchangeable=False, transfer_date=MOVED)
+            self.assertEqual(pick.name, "IN", f"gap {gap} should be inside the window")
+
+    def test_nearest_but_outside_the_window_abstains(self):
+        cands = [_dc("A", 1000, NEAREST_DATE_WINDOW_DAYS + 1), _dc("B", 1000, 60)]
+        self.assertIsNone(_pick(cands, allow_interchangeable=False, transfer_date=MOVED))
+
+    def test_the_window_is_checked_on_the_winner_not_used_to_filter_first(self):
+        """⚠️ FILTERING FIRST WOULD LET A LONE IN-WINDOW CANDIDATE WIN UNOPPOSED. The runner-up has
+        to stay visible or "strictly nearest" is a comparison against an empty set. Here A is inside
+        and B outside, so a filter-first implementation would return A against nothing; the correct
+        answer is still A, but it must be reached by BEATING B."""
+        cands = [_dc("A", 1000, 1), _dc("B", 1000, 9)]
+        pick = _pick(cands, allow_interchangeable=False, transfer_date=MOVED)
+        self.assertEqual(pick.name, "A")
+
+    def test_no_transfer_date_abstains(self):
+        cands = [_dc("A", 1000, 0), _dc("B", 1000, 9)]
+        self.assertIsNone(_pick(cands, allow_interchangeable=False, transfer_date=None))
+
+    def test_an_undated_candidate_is_dropped_not_ranked_last(self):
+        """"We do not know when this was decided" is not "this was decided far away". Ranking an
+        undated candidate as distant would let a missing value lose a contest it never entered --
+        so with only ONE dated candidate there is nothing to be nearer than, and M4 abstains."""
+        cands = [_dc("DATED", 1000, 0), _c("UNDATED", 1000)]
+        self.assertIsNone(_pick(cands, allow_interchangeable=False, transfer_date=MOVED))
+
+    def test_a_claimed_nearer_candidate_does_not_hand_its_place_over(self):
+        """The nearest record is held by another transfer. What is left is a single free candidate,
+        which is not a measurement -- M4 abstains rather than awarding the runner-up by default."""
+        cands = [_dc("TAKEN", 1000, 0), _dc("FREE", 1000, 2)]
+        self.assertIsNone(
+            _pick(cands, claimed={(PAY, "TAKEN")}, allow_interchangeable=False,
+                  transfer_date=MOVED)
+        )
+
+
+class TestM4RunsLastAndIsAdditive(unittest.TestCase):
+    """⚠️ THE PROPERTY THAT LET M4 SHIP WITHOUT RE-MEASURING M1/M2/M3. It fires only where the
+    function previously returned None, so no pick already in the database moves because of it."""
+
+    def test_M1_wins_over_a_nearer_date(self):
+        index = _Index({"Zephyrline": "PROJ-2"})
+        cands = [_dc("NEAR", 1000, 0, "PROJ-1"), _dc("NAMED", 1000, 8, "PROJ-2")]
+        pick = _pick(cands, remark="Zephyrline", index=index, transfer_date=MOVED)
+        self.assertEqual((pick.name, pick.rule), ("NAMED", RULE_PROJECT_IN_REMARK))
+
+    def test_M2_wins_over_a_nearer_date(self):
+        """An exact amount is near-identity; a date is circumstantial. Amount keeps precedence."""
+        cands = [_dc("NEARDATE", "8995.00", 0), _dc("NEARAMOUNT", "1000.10", 8)]
+        pick = _pick(cands, bank="1000.00", transfer_date=MOVED)
+        self.assertEqual((pick.name, pick.rule), ("NEARAMOUNT", RULE_NEAREST_AMOUNT))
+
+    def test_M3_wins_over_a_nearer_date_when_it_is_allowed_to_fire(self):
+        cands = [_dc("A", 1000, 0), _dc("B", 1000, 8)]
+        pick = _pick(cands, allow_interchangeable=True, transfer_date=MOVED)
+        self.assertEqual(pick.rule, RULE_INTERCHANGEABLE)
+
+
+class TestM4IsNotBlockedByTheStackFence(unittest.TestCase):
+    """⚠️ A LIVE BUG FOR THE LENGTH OF ONE SLICE, and the regression guard for it.
+
+    M3's fence used to `return None` for a stack member, which short-circuited before M4 could run.
+    Declining M3 says ONE thing -- do not pick ARBITRARILY between interchangeable records -- and
+    says nothing about evidence. Measured cost: two rows whose candidates were decided SEVEN DAYS
+    apart were handed to a person as though nothing distinguished them.
+    """
+
+    def test_a_stack_member_still_reaches_M4(self):
+        cands = [_dc("NEAR", 9000, 0), _dc("FAR", 9000, 7)]
+        pick = _pick(cands, bank="9000", allow_interchangeable=False, transfer_date=MOVED)
+        self.assertEqual((pick.name, pick.rule), ("NEAR", RULE_NEAREST_DATE))
+
+    def test_and_still_abstains_where_the_ruling_says_it_must(self):
+        """The ruling is untouched: interchangeable records with nothing to separate them are the
+        stack machinery's business, and M4 does not quietly take that over."""
+        cands = [_dc("A", 9000, 2), _dc("B", 9000, 2)]
+        self.assertIsNone(
+            _pick(cands, bank="9000", allow_interchangeable=False, transfer_date=MOVED)
+        )
+
+
+class TestM4IsUnfenced(unittest.TestCase):
+    """The owner ruling, pinned in both directions so flipping the constant is a one-line change
+    with a test that says what it costs."""
+
+    def test_it_fires_across_projects(self):
+        cands = [_dc("NEAR", 1000, 0, "PROJ-1"), _dc("FAR", 1000, 9, "PROJ-2")]
+        pick = _pick(cands, transfer_date=MOVED)
+        self.assertEqual((pick.name, pick.rule), ("NEAR", RULE_NEAREST_DATE))
+
+    def test_the_fence_constant_restores_the_M2_behaviour(self):
+        cands = [_dc("NEAR", 1000, 0, "PROJ-1"), _dc("FAR", 1000, 9, "PROJ-2")]
+        original = _disambiguate.NEAREST_DATE_FENCE_TO_ONE_PROJECT
+        _disambiguate.NEAREST_DATE_FENCE_TO_ONE_PROJECT = True
+        try:
+            self.assertIsNone(_pick(cands, transfer_date=MOVED))
+        finally:
+            _disambiguate.NEAREST_DATE_FENCE_TO_ONE_PROJECT = original
+
+    def test_a_blank_project_does_not_block_it(self):
+        """Unlike M2 and M3, which fail the single-project fence on any blank."""
+        cands = [_dc("NEAR", 1000, 0, ""), _dc("FAR", 1000, 9, "")]
+        self.assertEqual(_pick(cands, transfer_date=MOVED).name, "NEAR")
+
+
+class TestTheM4Note(unittest.TestCase):
+    def _note(self, pick, cands):
+        return pick_note(pick, cands, D("1000"), MOVED)
+
+    def test_it_names_the_gap_and_the_runner_up(self):
+        cands = [_dc("NEAR", 1000, 1), _dc("FAR", 1000, 6)]
+        pick = _pick(cands, allow_interchangeable=False, transfer_date=MOVED)
+        note = self._note(pick, cands)
+        self.assertIn("1 day apart", note)
+        self.assertIn("against 6 for the next nearest", note)
+        self.assertIn("Check the project", note)
+
+    def test_a_payment_says_approved(self):
+        cands = [_dc("NEAR", 1000, 0), _dc("FAR", 1000, 6)]
+        pick = _pick(cands, allow_interchangeable=False, transfer_date=MOVED)
+        note = self._note(pick, cands)
+        self.assertIn("approved closest to the day", note)
+        self.assertIn("the same day", note)
+
+    def test_an_expense_says_last_updated_and_never_approved(self):
+        """⚠️ LOAD-BEARING, NOT WORDING. Neither expense doctype has an approval date, an approver
+        or an approval step -- `decided_on` is `modified` there. Calling that "approved" on the
+        screen where money is authorised states something false about the record, and it is the one
+        thing that keeps the merged matching value compatible with the display rule."""
+        cands = [
+            _dc("NEAR", 1000, 0, doctype=EXP),
+            _dc("FAR", 1000, 6, doctype=EXP),
+        ]
+        pick = _pick(cands, allow_interchangeable=False, transfer_date=MOVED)
+        note = self._note(pick, cands)
+        self.assertIn("last updated closest to the day", note)
+        # ⚠️ THE ASSERTION IS ABOUT THE DATE PHRASE, NOT THE WORD. The note's opening sentence says
+        # "N approved records match this amount", which is true of any ledger -- Approved is the
+        # only status this import may settle from. What must never appear on an expense is the
+        # claim that the DATE is an approval.
+        self.assertNotIn("approved closest", note)
+        self.assertNotIn("approved nearest", note)

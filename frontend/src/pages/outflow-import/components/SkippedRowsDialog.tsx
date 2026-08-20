@@ -17,7 +17,13 @@ import { ClearFiltersButton, OutflowRowsTable, TablePagination } from "./Outflow
 import { useOutflowRows } from "../useOutflowRows";
 
 interface Props {
-    /** The import the summary panel is describing. The dialog never spans imports. */
+    /**
+     * The import to scope to, when the screen is pinned to one by a deep link.
+     *
+     * ⚠️ ABSENT MEANS "THE CURRENT PERIOD", NOT "EVERY IMPORT". Undefined lets `useOutflowRows` apply
+     * the shared period, which is what the Skipped chip counted; a deep-linked page passes the batch
+     * so this dialog and that chip keep describing the same rows. What they must never do is differ.
+     */
     batch?: string;
     /**
      * The SAME figures the chip that opened this dialog is showing.
@@ -48,9 +54,12 @@ const NO_ORIGINS = new Map();
  * does not put them back into the worklist; you come looking for them, from a chip that already
  * told you how many there were. Out of the way was the ruling. Invisible was not.
  *
- * ⚠️ IT SCOPES TO ONE IMPORT, because the chip it opens from does. The summary panel describes a
- * single statement while the table behind it spans every one -- a dialog opened from that panel
- * that then showed every import's skipped rows would be answering a question nobody asked.
+ * ⚠️ IT SCOPES TO THE SCREEN'S PERIOD, because the chip it opens from does (slice P1). It used to
+ * scope to ONE IMPORT for exactly the same reason -- the panel described one statement then. What
+ * the chip counts and what this dialog lists must be the same population, whatever that population
+ * currently is; that is the whole lesson of the "chip reading 20 opening a list of 47" defect. It
+ * needs no prop for it: the period lives in `useOutflowPeriodStore` and `useOutflowRows` reads it
+ * directly, so this dialog's table and the page's table cannot be looking at different windows.
  *
  * ⚠️ READ-ONLY BY CONSTRUCTION RATHER THAN BY A FLAG. `Skipped` is terminal, so `OutflowRowsTable`
  * already renders no action for it, and passing an empty `selectableRowNames` removes the checkbox
@@ -62,23 +71,18 @@ const NO_ORIGINS = new Map();
  * terminal cell already falls back `outcome_note || skip_reason`, which is why this dialog needs no
  * column of its own.
  */
-export const SkippedRowsDialog = ({
-    batch,
-    skippedRows,
-    failedRows,
-    open,
-    onOpenChange,
-}: Props) => {
+export const SkippedRowsDialog = ({ batch, skippedRows, failedRows, open, onOpenChange }: Props) => {
     // ⚠️ `enabled` MATTERS HERE. A dialog that is mounted but closed must not query -- this one sits
     // in the page's tree for the whole session and would otherwise fetch on every filter change
     // behind it.
     const table = useOutflowRows({
         scope: "skipped",
         batch,
-        enabled: open && Boolean(batch),
-        // Every row carries the same filename here — the dialog is one import's. The width belongs
-        // to Outcome, which is the only column that says WHY a row was skipped.
-        alsoHidden: ["import_batch"],
+        enabled: open,
+        // ⚠️ THE IMPORT COLUMN IS NOW SHOWN (slice P1). It was hidden because every row carried the
+        // same filename -- true when the dialog was one import's, false now that a period can span
+        // several, where "which statement did this come from" is a real question. Outcome keeps its
+        // width; the Columns menu is still there for anyone who wants it back.
     });
 
     const bank = (String(table.filters.failed ?? "") as BankFilter) || "";

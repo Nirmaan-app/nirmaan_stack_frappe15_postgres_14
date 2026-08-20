@@ -368,19 +368,53 @@ class TestBOQNodes(FrappeTestCase):
             node.parent_node = l3_parent.name
             node.insert(ignore_permissions=True)
 
-    def test_line_item_parent_must_be_a_preamble(self):
-        """Line Item whose parent is another Line Item must be rejected."""
-        li_parent = self._make_line_item(qty=5, supply_rate=100,
-                                         description="Line Item Parent")
+    def test_line_item_parent_must_not_be_a_note(self):
+        """NARROWED #8: a Line Item under an "Other" row (note / marker) is rejected.
+
+        RULING 2026-08-19 (owner): this test previously asserted that a Line Item under
+        ANOTHER LINE ITEM was rejected. That was the shape being blocked, and it is now
+        ALLOWED -- see test_line_item_under_line_item_is_accepted below. What the durable
+        backstop still refuses is an item filed under a text/marker row, which cannot hold
+        children in any meaningful sense.
+        """
+        note_parent = frappe.new_doc("BOQ Nodes")
+        note_parent.sheet = self.sheet_name
+        note_parent.node_type = "Other"
+        note_parent.description = "A note row"
+        note_parent.insert(ignore_permissions=True)
+
         with self.assertRaises(frappe.ValidationError):
             node = frappe.new_doc("BOQ Nodes")
             node.sheet = self.sheet_name
             node.node_type = "Line Item"
-            node.description = "Line Item child of Line Item"
+            node.description = "Line Item child of a note"
             node.qty = 3
             node.supply_rate = 50
-            node.parent_node = li_parent.name
+            node.parent_node = note_parent.name
             node.insert(ignore_permissions=True)
+
+    def test_line_item_under_line_item_is_accepted(self):
+        """RULING 2026-08-19: a Line Item may sit under another Line Item.
+
+        The durable backstop is the LAST thing that can refuse a commit, so the narrowing has
+        to land here too -- removing it from the previewable validator alone would let review
+        finalize a sheet the commit then rejects, which is the exact review/commit divergence
+        the shared predicates exist to prevent.
+        """
+        li_parent = self._make_line_item(qty=5, supply_rate=100,
+                                         description="Line Item Parent")
+        node = frappe.new_doc("BOQ Nodes")
+        node.sheet = self.sheet_name
+        node.node_type = "Line Item"
+        node.description = "Line Item child of Line Item"
+        node.qty = 3
+        node.supply_rate = 50
+        node.parent_node = li_parent.name
+        node.insert(ignore_permissions=True)
+        self.assertIsNotNone(node.name)
+        self.assertEqual(node.parent_node, li_parent.name)
+        self.assertEqual(node.path, f"{li_parent.path}/{node.name}",
+                         "the nested item's path must extend its parent item's path")
 
     def test_standalone_line_item_with_no_parent_succeeds(self):
         """

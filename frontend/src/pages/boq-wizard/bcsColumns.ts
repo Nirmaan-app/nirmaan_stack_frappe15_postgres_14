@@ -869,13 +869,30 @@ const SCALAR_RATE_FIELD_TO_BCS_KIND: Record<string, BcsRateKind> = {
   rate_combined: "combined",
 };
 const PER_AREA_RATE_FIELD = "rate_by_area";
-// A per-area rate carries its kind in `rate_subkey`, where the COMBINED one is spelled
-// "total" (PER_AREA_AMOUNT_TO_RATE_KIND: total -> combined_rate). Same three-hop asymmetry the
-// amount side has, for the same reason: all per-area rates share one value_field.
+// A per-area rate carries its kind in `rate_subkey`. Same three-hop asymmetry the amount side
+// has, for the same reason: all per-area rates share one value_field.
+//
+// ⚠️ CORRECTED (BCS export slice 1). This map used to key `supply` / `install` / `total` -- the
+// AMOUNT side's spelling -- and the comment here cited PER_AREA_AMOUNT_TO_RATE_KIND as its
+// authority, which is the map from an AMOUNT subkey to a rate kind, read backwards. The
+// producer is `review_screen._build_column_descriptors`, and it fills this slot from
+// `classifier._RATE_ROLE_TO_KIND` for a rate (`supply_rate` / `install_rate` /
+// `combined_rate`) and from `_AMOUNT_ROLE_TO_KIND` for an amount (`supply` / `install` /
+// `total`). The two vocabularies are disjoint and share one generic slot, so the old keys
+// matched NO per-area rate column: a sheet whose rates are mapped per-area got NO cost boxes
+// at all, silently, and BCS was simply unusable there. It was invisible because the unit
+// fixtures below carried the same wrong spelling -- mirror and test were green together.
+//
+// NOT A LIVE REGRESSION WHEN FIXED: measured on the bench 2026-08-19, 0 of 681 current
+// committed sheets map any per-area rate role (508 map scalar rates, 173 map none), so no
+// shipped sheet changes shape. The vocabulary is now pinned against the PRODUCER, not against
+// the server twin, by `test_sources.TestTheTwoDerivations.
+// test_the_fixture_subkeys_come_from_the_producer` -- agreement between two mirrors is exactly
+// what failed to catch this.
 const PER_AREA_SUBKEY_TO_BCS_KIND: Record<string, BcsRateKind> = {
-  supply: "supply",
-  install: "install",
-  total: "combined",
+  supply_rate: "supply",
+  install_rate: "install",
+  combined_rate: "combined",
 };
 /** Canonical box order -- NEVER the sheet's Excel column order, so two sheets that map the same
  *  two rates in different orders present the same two boxes in the same places. */

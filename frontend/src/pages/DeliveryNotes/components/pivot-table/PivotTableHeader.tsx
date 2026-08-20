@@ -145,38 +145,39 @@ export function PivotTableHeader({
                       </Tooltip>
                     )}
                     
-                    {!editingDnName && viewMode === "full" && (
-                      <>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-5 w-5 text-muted-foreground hover:text-foreground"
-                              onClick={() => onOpenVendorDC?.(col)}
-                            >
-                              <PrinterCheck className="h-3 w-3" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Vendor Delivery Challan {col.isReturn ? "RN" : "DN"}-{col.noteNo}</TooltipContent>
-                        </Tooltip>
-                        
-                        {isAdmin && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-5 w-5 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
-                                onClick={() => onDeleteDn?.(col)}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Delete {col.isReturn ? "RN" : "DN"}-{col.noteNo}</TooltipContent>
-                          </Tooltip>
-                        )}
-                      </>
+                    {/* Vendor Delivery Challan is a print action, not an edit, so it
+                        follows the same rule as Download DN above (visible in every
+                        non-create mode) rather than the edit-only `full` gate. */}
+                    {!editingDnName && onOpenVendorDC && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                            onClick={() => onOpenVendorDC(col)}
+                          >
+                            <PrinterCheck className="h-3 w-3" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Vendor Delivery Challan {col.isReturn ? "RN" : "DN"}-{col.noteNo}</TooltipContent>
+                      </Tooltip>
+                    )}
+
+                    {!editingDnName && viewMode === "full" && isAdmin && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
+                            onClick={() => onDeleteDn?.(col)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Delete {col.isReturn ? "RN" : "DN"}-{col.noteNo}</TooltipContent>
+                      </Tooltip>
                     )}
                   </div>
                 </div>

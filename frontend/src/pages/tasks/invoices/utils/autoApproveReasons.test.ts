@@ -5,6 +5,9 @@ import {
     describeApprovalNarrative,
     describeReason,
     humanizeReasonToken,
+    listReasonsByTier,
+    REASON_TIER_ORDER,
+    RETIRED_REASONS,
     parseSkipReasons,
     summariseSkipReasons,
 } from "./autoApproveReasons";
@@ -26,8 +29,8 @@ const inv = (
 
 describe("parseSkipReasons", () => {
     it("splits the stored comma-joined list", () => {
-        expect(parseSkipReasons("po_number_mismatch,nothing_delivered_yet")).toEqual([
-            "po_number_mismatch",
+        expect(parseSkipReasons("duplicate_invoice_no,nothing_delivered_yet")).toEqual([
+            "duplicate_invoice_no",
             "nothing_delivered_yet",
         ]);
     });
@@ -42,21 +45,27 @@ describe("parseSkipReasons", () => {
 });
 
 describe("describeReason", () => {
-    it("resolves a known token to its label and tier", () => {
-        expect(describeReason("invoice_date_in_future")).toEqual({
-            token: "invoice_date_in_future",
-            label: "Invoice is dated in the future",
-            tier: "blocker",
-        });
+    it("resolves a known token to its label, gate, breakdown and tier", () => {
+        const r = describeReason("invoice_date_in_future");
+        expect(r.token).toBe("invoice_date_in_future");
+        expect(r.label).toBe("Invoice is dated in the future");
+        expect(r.tier).toBe("blocker");
+        expect(r.gate).toContain("Gate 11");
+        expect(r.detail).toContain("later than today");
+        expect(r.impact).toContain("tax period");
+        expect(r.action).toContain("document");
     });
 
     // Silently dropping an unrecognised reason would hide real signal.
     it("humanizes an unknown token as a visible check", () => {
-        expect(describeReason("some_future_gate")).toEqual({
-            token: "some_future_gate",
-            label: "Some future gate",
-            tier: "check",
-        });
+        const r = describeReason("some_future_gate");
+        expect(r.token).toBe("some_future_gate");
+        expect(r.label).toBe("Some future gate");
+        expect(r.tier).toBe("check");
+        // The key still says something useful rather than rendering blank.
+        expect(r.detail.length).toBeGreaterThan(0);
+        expect(r.impact.length).toBeGreaterThan(0);
+        expect(r.action.length).toBeGreaterThan(0);
     });
 
     it("keeps the retired low-confidence tokens readable", () => {
@@ -67,7 +76,7 @@ describe("describeReason", () => {
 
 describe("humanizeReasonToken", () => {
     it("converts snake_case to a sentence", () => {
-        expect(humanizeReasonToken("po_number_mismatch")).toBe("Po number mismatch");
+        expect(humanizeReasonToken("would_exceed_po_total")).toBe("Would exceed po total");
     });
 });
 
@@ -124,7 +133,6 @@ describe("summariseSkipReasons", () => {
     // A mismatch is unreachable without an extraction, so seeing one on a
     // manual invoice is anomalous and must survive the collapse.
     it.each([
-        "po_number_mismatch",
         "supplier_gstin_mismatch",
         "receiver_gstin_mismatch",
         "file_swap_detected",
@@ -145,10 +153,11 @@ describe("summariseSkipReasons", () => {
     });
 
     it("handles the common live shapes", () => {
-        // VI-2026-05100
+        // VI-2026-05100 — two tokens stored, but po_number_mismatch is retired,
+        // so a reviewer is left with the one flag that still means something.
         expect(
             summariseSkipReasons(inv("po_number_mismatch,nothing_delivered_yet")).flags
-        ).toHaveLength(2);
+        ).toHaveLength(1);
         // VI-2026-05103 — the single most common reason in production
         const single = summariseSkipReasons(inv("nothing_delivered_yet"));
         expect(single.flags).toHaveLength(1);
@@ -174,6 +183,79 @@ describe("map integrity", () => {
             expect(entry.label.length, token).toBeGreaterThan(0);
         }
     });
+
+    // The reason key is only worth opening if every chip explains itself.
+    it("gives every mapped token a real breakdown, not a restated label", () => {
+        for (const [token, entry] of Object.entries(AUTO_APPROVE_REASON_LABELS)) {
+            for (const part of ["detail", "impact", "action"] as const) {
+                expect(entry[part].length, `${token}.${part}`).toBeGreaterThan(40);
+                expect(entry[part], `${token}.${part}`).not.toBe(entry.label);
+            }
+            // The three parts answer different questions — never the same text.
+            expect(new Set([entry.detail, entry.impact, entry.action]).size, token).toBe(3);
+        }
+    });
+
+    // The gate tag is what lets a reviewer trace a flag back to _auto_approve.py.
+    it("tags every mapped token with the gate that recorded it", () => {
+        for (const [token, entry] of Object.entries(AUTO_APPROVE_REASON_LABELS)) {
+            expect(entry.gate, token).toMatch(/^Gate \d+ · /);
+        }
+    });
+});
+
+describe("listReasonsByTier", () => {
+    it("covers every mapped token exactly once", () => {
+        const listed = listReasonsByTier().flatMap((g) => g.reasons.map((r) => r.token));
+        expect(listed.slice().sort()).toEqual(
+            Object.keys(AUTO_APPROVE_REASON_LABELS).sort()
+        );
+    });
+
+    it("groups in severity order and never returns an empty group", () => {
+        const groups = listReasonsByTier();
+        const order = groups.map((g) => g.tier);
+        expect(order).toEqual(REASON_TIER_ORDER.filter((t) => order.includes(t)));
+        for (const g of groups) expect(g.reasons.length).toBeGreaterThan(0);
+    });
+
+    it("carries the tier down onto each reason", () => {
+        for (const g of listReasonsByTier()) {
+            for (const r of g.reasons) expect(r.tier, r.token).toBe(g.tier);
+        }
+    });
+});
+
+describe("retired reasons", () => {
+    it("is gone from the catalogue entirely", () => {
+        for (const token of RETIRED_REASONS) {
+            expect(AUTO_APPROVE_REASON_LABELS[token], token).toBeUndefined();
+        }
+        const listed = listReasonsByTier().flatMap((g) => g.reasons.map((r) => r.token));
+        for (const token of RETIRED_REASONS) expect(listed).not.toContain(token);
+    });
+
+    it("drops the token from the flags a reviewer sees", () => {
+        const s = summariseSkipReasons(inv("po_number_mismatch,duplicate_invoice_no"));
+        expect(s.flags.map((r) => r.token)).toEqual(["duplicate_invoice_no"]);
+    });
+
+    // Not "suppressed" — suppression is the manual-entry cascade note, and this
+    // did not get folded into anything. It simply no longer exists.
+    it("does not count as a suppressed cascade token", () => {
+        const s = summariseSkipReasons(inv("autofill_not_used,po_number_mismatch"));
+        expect(s.suppressedCount).toBe(0);
+        expect(s.flags).toEqual([]);
+    });
+
+    // No live invoice carries it alone (checked against 140 rows), but the
+    // degenerate case must still read honestly rather than as a flagged one.
+    it("reads as clean when it was the only reason recorded", () => {
+        const i = inv("po_number_mismatch", "Pending", 0);
+        const s = summariseSkipReasons(i);
+        expect(s.flags).toEqual([]);
+        expect(describeApprovalNarrative(i, s)).toBe("clean");
+    });
 });
 
 describe("describeApprovalNarrative", () => {
@@ -184,7 +266,7 @@ describe("describeApprovalNarrative", () => {
 
     // 116 already-Approved invoices carry a blocker-grade flag a human waved past.
     it("reports a human approval that carried flags", () => {
-        const i = inv("po_number_mismatch", "Approved", 0);
+        const i = inv("duplicate_invoice_no", "Approved", 0);
         expect(describeApprovalNarrative(i, summariseSkipReasons(i))).toBe(
             "approved-with-flags"
         );

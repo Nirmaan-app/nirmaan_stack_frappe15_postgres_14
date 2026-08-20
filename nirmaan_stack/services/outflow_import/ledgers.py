@@ -40,7 +40,9 @@ __all__ = [
     "SETTLEABLE_STATUSES",
     "PAID",
     "APPROVED",
+    "DECIDED_ON_SQL",
     "settleable_statuses",
+    "decided_on_sql",
     "is_expense_doctype",
 ]
 
@@ -80,3 +82,47 @@ def settleable_statuses(doctype: str) -> tuple[str, ...]:
 def is_expense_doctype(doctype: str) -> bool:
     """Whether the import may CREATE a record here. Never true for `Project Payments`."""
     return doctype in EXPENSE_DOCTYPES
+
+
+# --- when was this record DECIDED? (M4, the nearest-date rule) ------------------------------------
+#
+# THE SINGLE DEFINITION, read by `candidates.py` when it builds the candidate pools. It lives here
+# for the same reason `SETTLEABLE_STATUSES` does: two copies of a per-ledger column fact is how one
+# gets corrected and the other does not.
+#
+# ⚠️ THIS MERGES AN APPROVAL DATE AND A MODIFICATION TIMESTAMP INTO ONE VALUE, WHICH THE APPROVED
+# INBOX IS FORBIDDEN TO DO -- and the distinction is the whole licence for this constant. That rule
+# (`ledger_read.py`, and the invariant behind it) governs a DISPLAY surface: a human reads that
+# column, and showing them a modification under a heading saying "approved" states something false
+# about 82 of 1,164 records. THIS value is a MATCHING INPUT. Nobody reads it as a label, so it
+# carries no such claim -- but the note M4 writes IS read, so **every note built from this must name
+# which date it used**. That is what keeps the display rule intact where it actually applies, and it
+# is not optional politeness: without it a reviewer cannot tell an approval from someone editing a
+# description, on the screen where they authorise money.
+#
+# ⚠️ `ledger_read.py` KEEPS ITS OWN TWO SEPARATE KEYS (`approved_on` / `updated_on`) and must not be
+# rewritten to read this. The two answer different questions and the split there is the ruling.
+#
+# ⚠️ ONLY `Project Payments` HAS AN APPROVAL DATE AT ALL. Neither expense doctype has a field, an
+# approver, or an approval step -- so `modified` is a PROXY, and a deliberately weak one: it moves
+# whenever anyone edits the row. M4 is correspondingly weaker on expenses than on payments, which is
+# why the note names the date's source rather than presenting all three ledgers as equivalent.
+#
+# CEO date first, then the accounts one: a payment needing CEO sign-off is not payable until that
+# signature exists, and the two differ by days on exactly the high-value payments where a wrong pick
+# costs most (owner ruling 2026-08-11).
+DECIDED_ON_SQL: dict[str, str] = {
+    PAYMENT_DOCTYPE: "COALESCE(ceo_approval_date, approval_date)",
+    PROJECT_EXPENSE_DOCTYPE: "modified",
+    NON_PROJECT_EXPENSE_DOCTYPE: "modified",
+}
+
+
+def decided_on_sql(doctype: str) -> str:
+    """The SQL expression for "when was this record decided?", aliased by the caller.
+
+    Returns `"NULL"` for anything that is not one of the three ledgers, so a caller that forgets to
+    check selects a null column rather than building broken SQL. A null date makes M4 abstain, which
+    is the honest outcome for a record whose decision date we cannot establish.
+    """
+    return DECIDED_ON_SQL.get(doctype, "NULL")

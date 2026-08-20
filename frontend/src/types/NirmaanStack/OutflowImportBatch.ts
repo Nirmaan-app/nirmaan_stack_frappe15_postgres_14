@@ -72,6 +72,14 @@ export interface OutflowRowMatch {
     target_amount: number;
     match_kind: "Settled";
     match_basis: "Bank reference" | "Vendor+amount+date" | "Manual";
+    /**
+     * The ORDER this payment is against (`Project Payments.document_name`), stamped server-side so
+     * the screen can use the app's own `/project-payments/<order>` route (slice E3).
+     *
+     * ⚠️ PAYMENTS ONLY, and blank when the payment carries no order. Absent means the link falls
+     * back to the older search-param scheme rather than disappearing -- see `settlementLink`.
+     */
+    order_name?: string;
 }
 
 /** One staged transfer, as `get_batch_rows` returns it. */
@@ -118,7 +126,31 @@ export interface OutflowImportRow {
      * `get_batch_rows` from the same loader the duplicate guard uses, so the screen can link the
      * payment its note only names in prose.
      */
-    related_payments?: { target_doctype: string; target_name: string }[];
+    related_payments?: {
+        target_doctype: string;
+        target_name: string;
+        /** The order this payment is against, for the app's own route (slice E3). */
+        order_name?: string;
+    }[];
+    /**
+     * The order behind `suggested_name`, for the app's own route (slice E3).
+     *
+     * ⚠️ ITS OWN KEY BECAUSE THE SUGGESTION IS NOT A LIST. `matches` and `related_payments` carry
+     * their order stamped onto each entry; the suggestion is two scalar columns on the row, so
+     * there is no entry to stamp.
+     */
+    suggested_order_name?: string;
+    /**
+     * Whether this settlement took the matcher's pick: "Suggestion accepted" / "Suggestion
+     * overridden" / "No suggestion". Blank until the row is settled (slice Q1).
+     *
+     * ⚠️ NOT `auto_matched`, which means only that a suggestion EXISTED and says nothing about
+     * whether a person accepted it. Denormalised from `Outflow Row Match` so the table can filter
+     * and count on it without a join.
+     */
+    settlement_origin?: string;
+    /** Denormalised from the batch, so the table can filter by source without a join. */
+    source?: string;
     /**
      * Which import staged this row.
      *
@@ -176,15 +208,58 @@ export interface OutflowImportOption {
     period_from?: string;
     period_to?: string;
     status?: string;
+    /**
+     * Which kind of statement this was (slice CF/S2).
+     *
+     * ⚠️ OPTIONAL, AND `importsForSource` TREATS A BLANK AS MATCHING EVERY SCOPE. A batch predating
+     * the column — or on a site where the backfill has not run — would otherwise vanish from the
+     * picker with no control able to bring it back, while its transfers still needed settling.
+     */
+    source?: string;
     total_rows?: number;
+    /**
+     * How many of this statement's transfers the bank actually moved (slice CF/S4).
+     *
+     * ⚠️ NOT `total_rows`, WHICH INCLUDES REFUSED TRANSFERS. It pairs with `gross_amount`, which has
+     * excluded them since parse time — printing `total_rows` beside that amount would put a count
+     * and a figure describing different populations on one line.
+     */
+    successful_rows?: number;
+    /** Money that actually left the account. Bank-refused transfers were never in it. */
+    gross_amount?: number;
     uploaded_at?: string;
     uploaded_by?: string;
 }
 
 /** `review.get_import_summary` (slice X2). Every money figure crosses the wire as a number. */
 export interface OutflowImportSummary {
-    batch: string;
-    import: OutflowImportOption & {
+    /**
+     * The import this summary is pinned to, or `null` when it describes a PERIOD spanning several
+     * (slice P1). `get_outflow_summary` is the period-scoped read; `get_import_summary` is the thin
+     * wrapper that pins it to one statement and is what fills `import` below.
+     */
+    batch: string | null;
+    /**
+     * Which statements the selected transfers came from.
+     *
+     * ⚠️ DERIVED FROM THE ROWS, not from batches whose declared period overlaps. Three different
+     * "periods" exist in this schema and they do not coincide; reading the imports back off the same
+     * rows the figures were computed from is the only answer that cannot disagree with them.
+     *
+     * `row_count` is how many of the batch's rows are IN scope; `total_rows` is how many it holds.
+     * The gap is what "Re-run match" overspills, and the screen says so before the click.
+     */
+    imports?: {
+        name: string;
+        original_filename?: string;
+        period_from?: string;
+        period_to?: string;
+        uploaded_at?: string;
+        row_count: number;
+        total_rows: number;
+    }[];
+    /** Only present on the batch-pinned read — a period has no single statement's metadata. */
+    import?: OutflowImportOption & {
         source?: string;
         gross_amount?: number;
         charges_amount?: number;
@@ -200,6 +275,15 @@ export interface OutflowImportSummary {
         decided_percent: number;
         settled_rows: number;
         settled_value: number;
+        /**
+         * Of `settled_rows`, how many took the matcher's own pick (slice Q1).
+         *
+         * ⚠️ OPTIONAL, so an older payload renders the tile exactly as it did before rather than
+         * claiming "0 auto-matched" on data that simply predates the field. The hand-found count is
+         * `settled_rows - settled_from_suggestion` and is deliberately not sent: two numbers that
+         * must sum to a third are two chances to disagree with it.
+         */
+        settled_from_suggestion?: number;
         skipped_rows: number;
         skipped_value: number;
         matched_rows: number;

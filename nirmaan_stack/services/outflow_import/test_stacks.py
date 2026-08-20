@@ -163,7 +163,7 @@ class TestPairing(unittest.TestCase):
                 [_Target("PAY-2"), _Target("PAY-1")],
             )
         )
-        self.assertEqual([(t.name, r.name) for t, r in pairs], [("A", "PAY-1"), ("B", "PAY-2")])
+        self.assertEqual([(p.transfer.name, p.record.name) for p in pairs], [("A", "PAY-1"), ("B", "PAY-2")])
 
     def test_an_unbalanced_stack_pairs_NOTHING_not_partially(self):
         """⚠️ A PARTIAL PAIRING WOULD DECIDE THE ONE QUESTION THIS MODULE CANNOT ANSWER. With 3
@@ -180,13 +180,13 @@ class TestPairing(unittest.TestCase):
                 [_Target("P1"), _Target("P2"), _Target("P3")],
             )
         )
-        assigned = [r.name for _, r in pairs]
+        assigned = [p.record.name for p in pairs]
         self.assertEqual(len(assigned), len(set(assigned)))
 
     def test_every_transfer_gets_exactly_one_record(self):
         transfers = [_Row("A"), _Row("B"), _Row("C")]
         pairs = pair_stack(_stack(transfers, [_Target("P1"), _Target("P2"), _Target("P3")]))
-        self.assertEqual([t.name for t, _ in pairs], ["A", "B", "C"])
+        self.assertEqual([p.transfer.name for p in pairs], ["A", "B", "C"])
 
     def test_the_pairing_is_IDENTICAL_across_runs_whatever_the_input_order(self):
         """⚠️ THE LOAD-BEARING TEST OF THIS MODULE. The pairing is arbitrary by owner ruling, which
@@ -206,8 +206,8 @@ class TestPairing(unittest.TestCase):
         forward = pair_stack(_stack(transfers, records))
         backward = pair_stack(_stack(list(reversed(transfers)), list(reversed(records))))
         self.assertEqual(
-            [(t.name, r.name) for t, r in forward],
-            [(t.name, r.name) for t, r in backward],
+            [(p.transfer.name, p.record.name) for p in forward],
+            [(p.transfer.name, p.record.name) for p in backward],
         )
 
     def test_identical_timestamps_still_pair_deterministically(self):
@@ -216,7 +216,7 @@ class TestPairing(unittest.TestCase):
         key."""
         transfers = [_Row(n, added_on="2026-05-05 10:00:00") for n in ("C", "A", "B")]
         pairs = pair_stack(_stack(transfers, [_Target("P1"), _Target("P2"), _Target("P3")]))
-        self.assertEqual([t.name for t, _ in pairs], ["A", "B", "C"])
+        self.assertEqual([p.transfer.name for p in pairs], ["A", "B", "C"])
 
     def test_a_row_with_no_timestamp_does_not_raise(self):
         """`None` cannot be compared to a datetime. One such row would otherwise take down the
@@ -225,7 +225,7 @@ class TestPairing(unittest.TestCase):
         pairs = pair_stack(_stack(transfers, [_Target("P1"), _Target("P2")]))
         self.assertEqual(len(pairs), 2)
         # The timestamped row sorts first; the one with nothing to sort by goes last.
-        self.assertEqual([t.name for t, _ in pairs], ["B", "A"])
+        self.assertEqual([p.transfer.name for p in pairs], ["B", "A"])
 
     def test_records_of_different_doctypes_order_deterministically(self):
         """A stack's candidates can span ledgers. `(doctype, name)` is total across the mix."""
@@ -234,7 +234,7 @@ class TestPairing(unittest.TestCase):
             _Target("PAY-1", doctype="Project Payments"),
         ]
         pairs = pair_stack(_stack([_Row("A"), _Row("B")], records))
-        self.assertEqual([r.name for _, r in pairs], ["PE-1", "PAY-1"])
+        self.assertEqual([p.record.name for p in pairs], ["PE-1", "PAY-1"])
 
 
 class TestTheNote(unittest.TestCase):
@@ -259,3 +259,175 @@ class TestTheNote(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# --- nearest-date pairing (2026-08-11) -----------------------------------------------------------
+#
+# ⚠️ EVERY FIXTURE ABOVE THIS LINE IS DATELESS ON PURPOSE, AND THAT IS THE REGRESSION GUARD FOR THIS
+# WHOLE CHANGE. `_Target` carries no `decided_on` and `_Row.added_on` never meets one, so the date
+# pass finds nothing and the arbitrary zip runs exactly as it did before. Those tests assert the
+# same pairings they always did -- if a future edit makes the date pass fire on absent dates, they
+# are what goes red.
+
+from datetime import date as _date  # noqa: E402
+
+from nirmaan_stack.services.outflow_import.stacks import (  # noqa: E402
+    PAIR_BASIS_ARBITRARY,
+    PAIR_BASIS_DATE,
+    stack_surplus_note,
+)
+
+_MOVED = "2026-05-05 10:00:00"
+
+
+class _DatedTarget(_Target):
+    def __init__(self, name, decided_on, **kw):
+        super().__init__(name, **kw)
+        self.decided_on = _date(2026, 5, 5) + __import__("datetime").timedelta(days=decided_on)
+
+
+class TestNearestDatePairing(unittest.TestCase):
+    def test_the_nearer_record_goes_to_the_transfer_it_is_nearer_to(self):
+        """Two transfers a week apart, two records decided on those two days. The arbitrary zip
+        would pair them by name; the dates pair them by what actually happened."""
+        t_early = _Row("A", added_on="2026-05-05 10:00:00")
+        t_late = _Row("B", added_on="2026-05-12 10:00:00")
+        # Named so the ARBITRARY zip would pair A->R-EARLY, B->R-LATE... which is also the right
+        # answer, so the names are swapped to make the two orders differ.
+        r_for_late = _DatedTarget("R-1", 7)
+        r_for_early = _DatedTarget("R-2", 0)
+        pairs = pair_stack(_stack([t_early, t_late], [r_for_late, r_for_early]))
+        self.assertEqual(
+            [(p.transfer.name, p.record.name) for p in pairs],
+            [("A", "R-2"), ("B", "R-1")],
+        )
+        self.assertTrue(all(p.is_evidence for p in pairs))
+
+    def test_all_gaps_tied_reproduces_the_arbitrary_zip(self):
+        """⚠️ THE COMMONEST LIVE SHAPE -- a batch approved on one day. The greedy is keyed on the
+        indices of already-ordered sequences, so a total tie IS the zip. 76 of the 112 live stack
+        pairings come out arbitrary, and every one of them must land exactly where it used to."""
+        rows = [_Row("A"), _Row("B"), _Row("C")]
+        recs = [_DatedTarget("PAY-1", 0), _DatedTarget("PAY-2", 0), _DatedTarget("PAY-3", 0)]
+        pairs = pair_stack(_stack(rows, recs))
+        self.assertEqual(
+            [(p.transfer.name, p.record.name) for p in pairs],
+            [("A", "PAY-1"), ("B", "PAY-2"), ("C", "PAY-3")],
+        )
+
+    def test_a_tie_is_never_called_evidence(self):
+        """It still PAIRS -- the stack is balanced and every transfer gets a record. What it must
+        not do is claim a date decided it, because none did."""
+        rows = [_Row("A"), _Row("B")]
+        recs = [_DatedTarget("PAY-1", 0), _DatedTarget("PAY-2", 0)]
+        pairs = pair_stack(_stack(rows, recs))
+        self.assertEqual([p.basis for p in pairs], [PAIR_BASIS_ARBITRARY] * 2)
+
+    def test_undated_records_fall_through_to_the_zip_unchanged(self):
+        rows = [_Row("A"), _Row("B")]
+        recs = [_Target("PAY-1"), _Target("PAY-2")]
+        pairs = pair_stack(_stack(rows, recs))
+        self.assertEqual(
+            [(p.transfer.name, p.record.name) for p in pairs],
+            [("A", "PAY-1"), ("B", "PAY-2")],
+        )
+        self.assertEqual([p.basis for p in pairs], [PAIR_BASIS_ARBITRARY] * 2)
+
+    def test_a_record_outside_the_window_is_paired_but_not_as_evidence(self):
+        """Balanced means everyone gets one. A record decided 60 days out still takes its place in
+        the pairing -- it is just not EVIDENCE, and the note must not say it is."""
+        rows = [_Row("A"), _Row("B")]
+        recs = [_DatedTarget("PAY-1", 60), _DatedTarget("PAY-2", 90)]
+        pairs = pair_stack(_stack(rows, recs))
+        self.assertEqual(len(pairs), 2)
+        self.assertEqual([p.basis for p in pairs], [PAIR_BASIS_ARBITRARY] * 2)
+
+    def test_a_mixed_stack_pairs_everyone_exactly_once(self):
+        """Some dated, some not. The date pass speaks for what it can and the zip covers the rest --
+        and no record may be handed out twice by the seam between them."""
+        rows = [_Row("A", added_on="2026-05-05 10:00:00"), _Row("B", added_on=None), _Row("C")]
+        recs = [_DatedTarget("PAY-1", 20), _Target("PAY-2"), _DatedTarget("PAY-3", 0)]
+        pairs = pair_stack(_stack(rows, recs))
+        self.assertEqual(len(pairs), 3)
+        self.assertEqual(len({p.record.name for p in pairs}), 3)
+        self.assertEqual(len({p.transfer.name for p in pairs}), 3)
+
+    def test_it_is_deterministic_whatever_the_input_order(self):
+        """⚠️ THE SAME GUARANTEE THE ARBITRARY ZIP CARRIED. A reshuffle between runs would move a
+        suggestion out from under a reviewer mid-decision -- dates do not soften that."""
+        rows = [_Row("A"), _Row("B", added_on="2026-05-09 10:00:00"), _Row("C")]
+        recs = [_DatedTarget("PAY-1", 4), _DatedTarget("PAY-2", 0), _DatedTarget("PAY-3", 30)]
+        forward = pair_stack(_stack(rows, recs))
+        backward = pair_stack(_stack(list(reversed(rows)), list(reversed(recs))))
+        self.assertEqual(
+            [(p.transfer.name, p.record.name) for p in forward],
+            [(p.transfer.name, p.record.name) for p in backward],
+        )
+
+    def test_an_unbalanced_stack_still_pairs_nothing(self):
+        """⚠️ THE OWNER RULING IS UNTOUCHED BY ANY OF THIS. Dates decide WHICH record goes with
+        which transfer; they never decide which transfer settles nothing."""
+        rows = [_Row("A"), _Row("B"), _Row("C")]
+        recs = [_DatedTarget("PAY-1", 0), _DatedTarget("PAY-2", 1)]
+        self.assertEqual(pair_stack(_stack(rows, recs)), ())
+
+
+class TestTheDateNote(unittest.TestCase):
+    def test_the_arbitrary_note_is_unchanged(self):
+        stack = _stack([_Row("A"), _Row("B")], [_Target("PAY-1"), _Target("PAY-2")])
+        note = stack_note(stack, "PAY-1")
+        self.assertIn("the pairing between them is arbitrary", note)
+        self.assertIn("Check the project before confirming", note)
+
+    def test_the_date_note_states_the_evidence(self):
+        stack = _stack([_Row("A"), _Row("B")], [_Target("PAY-1"), _Target("PAY-2")])
+        note = stack_note(stack, "PAY-1", PAIR_BASIS_DATE)
+        self.assertIn("decided closest to the day", note)
+        self.assertNotIn("arbitrary", note)
+
+    def test_the_date_note_still_asks_for_the_project_check(self):
+        """⚠️ LOAD-BEARING. A decision date says the records are distinguishable; it does NOT say
+        the pairing is on the right project, which is where a wrong pick bills the wrong job. The
+        evidence changes the claim, never the caution."""
+        stack = _stack([_Row("A"), _Row("B")], [_Target("PAY-1"), _Target("PAY-2")])
+        self.assertIn(
+            "Check the project before confirming", stack_note(stack, "PAY-1", PAIR_BASIS_DATE)
+        )
+
+
+class TestTheSurplusNote(unittest.TestCase):
+    """⚠️ THIS NOTE REPLACED A WHOLE SCREEN. The "Resolve N stacks" dialog stated the surplus in
+    words before it was deleted; its rows now land in the ordinary worklist, where a generic
+    "could not choose" would send a reviewer hunting for a record that does not exist."""
+
+    def test_more_transfers_than_records_says_how_many_go_without(self):
+        note = stack_surplus_note(_stack([_Row("A"), _Row("B"), _Row("C")],
+                                         [_Target("PAY-1"), _Target("PAY-2")]))
+        self.assertIn("3 identical transfers", note)
+        self.assertIn("2 approved records", note)
+        self.assertIn("1 more transfer than records", note)
+        self.assertIn("settles nothing", note)
+
+    def test_it_says_WHY_nothing_was_paired(self):
+        """The owner ruling in the reviewer's language: not "the system failed", but "choosing
+        which one goes without is a judgement about money"."""
+        note = stack_surplus_note(_stack([_Row("A"), _Row("B"), _Row("C")],
+                                         [_Target("PAY-1"), _Target("PAY-2")]))
+        self.assertIn("judgement about money", note)
+
+    def test_more_records_than_transfers_is_a_different_sentence(self):
+        note = stack_surplus_note(_stack([_Row("A"), _Row("B")],
+                                         [_Target("P1"), _Target("P2"), _Target("P3")]))
+        self.assertIn("1 more record than transfers", note)
+        self.assertIn("stay unpaid", note)
+
+    def test_no_records_left_says_so_rather_than_counting_a_surplus(self):
+        """Every record claimed by another transfer is not the same fact as "there were never
+        enough" -- the reviewer's next move differs, so the sentence has to."""
+        note = stack_surplus_note(_stack([_Row("A"), _Row("B")], []))
+        self.assertIn("already spoken for", note)
+        self.assertNotIn("more transfers than records", note)
+
+    def test_it_pluralises_rather_than_saying_1_records(self):
+        self.assertIn("1 approved record.", stack_surplus_note(
+            _stack([_Row("A"), _Row("B")], [_Target("P1")])))

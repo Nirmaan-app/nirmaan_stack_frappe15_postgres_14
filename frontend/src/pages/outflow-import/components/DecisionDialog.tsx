@@ -8,6 +8,7 @@ import { AlertTriangle, Check, ExternalLink, Loader2, X } from "lucide-react";
 import {
     AlertDialog,
     AlertDialogAction,
+    AlertDialogCancel,
     AlertDialogContent,
     AlertDialogDescription,
     AlertDialogFooter,
@@ -30,19 +31,40 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
+    AMOUNT_GAP_HINT,
+    INTENT_DEDUCTION,
+    INTENT_PART_PAYMENT,
     amountVerdict,
+    candidateKeySet,
+    deductionOffer,
+    deductionRefusalText,
     isConfirmable,
-    orderBySuggestion,
+    matcherCandidateLine,
     parseRecordKey,
+    partialOffer,
     recordKey,
     settlementLink,
+    settleBlockText,
     settleBlocker,
     type DecisionTarget,
+    type DeductionOffer,
+    type MatcherCandidate,
+    type PartialIntent,
+    type PartialOffer,
     type RowDecision,
     type SettleBlock,
     type SettleableRecord,
 } from "../outflowTableModel";
-import { ROW_MISMATCHED } from "../outflowImportStatus";
+import {
+    EMPTY_FILTERS,
+    facetValues,
+    hasActiveFilters,
+    nextSortState,
+    visibleRecords,
+    type RecordFilters,
+    type RecordSort,
+    type RecordSortColumn,
+} from "../recordPickerView";
 import { SettleableRecordTable } from "./SettleableRecordTable";
 
 const PROJECT_EXPENSE = "Project Expenses";
@@ -73,6 +95,14 @@ const SHOW_CREATE_NEW_EXPENSE = false;
  */
 const SHOW_SKIP_ROW = false;
 
+/**
+ * ⚠️ THE KILL SWITCH FOR PARTIAL SETTLEMENT (slice PS), in the same place and the same style as the
+ * two above. Flipping it to `false` restores the pre-PS dead-end dialog exactly: the offer is the
+ * ONLY entry point to `settle_row_partial`, so the endpoint becomes unreachable from the product
+ * without it. Nothing already written rolls back — see the plan's §7.
+ */
+const SHOW_PARTIAL_SETTLE = true;
+
 const CREATE_NEW_TARGET: { id: DecisionTarget; label: string; hint: string } = {
     id: "new",
     label: "Create a new expense",
@@ -84,6 +114,13 @@ interface Props {
     decision: RowDecision | undefined;
     onChange: (decision: RowDecision) => void;
     onConfirm: () => Promise<void> | void;
+    /**
+     * Settle PART of the picked record, carrying the balance forward (slice PS).
+     *
+     * ⚠️ THE INTENT IS PASSED UP RATHER THAN ASSUMED. The endpoint requires it and has no default,
+     * so the reviewer's answer has to travel with the call — see `PartialIntentChoice`.
+     */
+    onPartialSettle: (record: SettleableRecord, intent: PartialIntent) => Promise<void> | void;
     onSkip: (reason: string) => Promise<void> | void;
     onRerun: () => Promise<void> | void;
     onClose: () => void;
@@ -119,6 +156,7 @@ export const DecisionDialog = ({
     decision,
     onChange,
     onConfirm,
+    onPartialSettle,
     onSkip,
     onRerun,
     onClose,
@@ -130,6 +168,25 @@ export const DecisionDialog = ({
     const [skipping, setSkipping] = useState(false);
     const [picked, setPicked] = useState<SettleableRecord | null>(null);
     const [blocked, setBlocked] = useState<SettleBlock | null>(null);
+
+    // ⚠️ FETCHED HERE, AT THE TOP, AND NOT INSIDE THE PICKER (slice N3). It used to have two
+    // consumers -- the picker's row markers and the "Why the system suggests this" block, which
+    // stood its stored sentence down once this live count replaced it. That block is GONE (slice
+    // D2) and the picker is now the only consumer, so this could in principle move down into it.
+    // It stays here deliberately: one fetch, at the level that owns the row, is what guarantees a
+    // single count on screen -- and a second fetch lower down is exactly the disagreement slice N3
+    // was written to remove.
+    const { data: candidateData } = useFrappeGetCall<{
+        message: { settleable_candidates?: MatcherCandidate[] };
+    }>(
+        "nirmaan_stack.api.outflow_import.review.get_row_candidates",
+        { row: row?.name },
+        row?.name ? `row-candidates-${row.name}` : null
+    );
+    const matcherCandidates = useMemo(
+        () => candidateKeySet(candidateData?.message?.settleable_candidates),
+        [candidateData]
+    );
 
     useEffect(() => {
         setSkipReason("");
@@ -163,6 +220,11 @@ export const DecisionDialog = ({
      * control with no explanation. A click that opens a dialog SAYING why is the honest shape --
      * the reviewer gets an answer at the moment they ask the question.
      */
+    // The SHAPE both answers share, computed once. `deductionOffer` layers its two extra rules on
+    // top of it, exactly as `deduction_eligibility` layers on `partial_eligibility` server-side —
+    // one copy of the shared half on each side of the wire.
+    const partialShape = SHOW_PARTIAL_SETTLE ? partialOffer(picked, row?.amount ?? 0) : null;
+
     const handleConfirmClick = useCallback(() => {
         const block = settleBlocker(picked, row?.amount ?? 0);
         if (block) {
@@ -201,8 +263,6 @@ export const DecisionDialog = ({
                 </header>
 
                 <div className="min-h-0 space-y-4 overflow-y-auto px-6 py-4">
-                    <WhyThisSuggestion row={row} />
-
                     {/* ⚠️ ONE SECTION, ALWAYS OPEN. It replaced three cards -- one per ledger --
                         that made the reviewer say WHICH KIND of record this was before they were
                         shown any. That is a question the bank statement does not answer: a transfer
@@ -215,6 +275,7 @@ export const DecisionDialog = ({
                         onChange={onChange}
                         dimmed={decision?.target === "new"}
                         onSelectedRecordChange={handleSelectedRecordChange}
+                        matcherCandidates={matcherCandidates}
                     />
 
                     {SHOW_CREATE_NEW_EXPENSE && (
@@ -300,7 +361,18 @@ export const DecisionDialog = ({
 
             <AmountOutsideWindowDialog
                 block={blocked}
+                // ⚠️ COMPUTED FROM THE PICKED RECORD, NOT FROM THE BLOCK. `SettleBlock` carries
+                // amounts but not the LEDGER or the parent order, and both gates need those —
+                // reading them off the block would offer to split an expense and to deduct on a PO.
+                offer={partialShape}
+                deduction={deductionOffer(picked, partialShape)}
+                busy={busy}
                 onClose={() => setBlocked(null)}
+                onPartialSettle={async (intent) => {
+                    if (!picked) return;
+                    await onPartialSettle(picked, intent);
+                    setBlocked(null);
+                }}
             />
         </Dialog>
     );
@@ -324,99 +396,259 @@ export const DecisionDialog = ({
  */
 const AmountOutsideWindowDialog = ({
     block,
+    offer,
+    deduction,
     onClose,
+    onPartialSettle,
+    busy,
 }: {
     block: SettleBlock | null;
+    /** Non-null when this pick may be settled in parts. See `partialOffer`. */
+    offer: PartialOffer | null;
+    /** Whether the shortfall may be recorded as TDS, and if not, why. See `deductionOffer`. */
+    deduction: DeductionOffer;
     onClose: () => void;
-}) => (
-    <AlertDialog open={Boolean(block)} onOpenChange={(open) => !open && onClose()}>
-        <AlertDialogContent>
-            <AlertDialogHeader>
-                <AlertDialogTitle>This record cannot be settled here</AlertDialogTitle>
-                <AlertDialogDescription asChild>
-                    <div className="space-y-3 text-sm">
-                        <p>
-                            <span className="font-mono">{block?.recordName}</span> is for{" "}
-                            <span className="font-medium tabular-nums">
-                                {formatToIndianRupee(block?.recordAmount ?? 0)}
-                            </span>
-                            , but{" "}
-                            <span className="font-medium tabular-nums">
-                                {formatToIndianRupee(block?.bankAmount ?? 0)}
-                            </span>{" "}
-                            left the bank — a difference of{" "}
-                            <span className="font-medium tabular-nums">
-                                {formatToIndianRupee(Math.abs(block?.difference ?? 0))}
-                            </span>
-                            .
-                        </p>
-                        <p>
-                            An import may only settle a record whose amount matches the transfer,
-                            give or take bank rounding. This gap is far larger than that, so the
-                            server would refuse it.
-                        </p>
-                        {/* The reassurance is the point of the whole dialog. */}
-                        <p className="font-medium text-foreground">
-                            Nothing has been recorded, and nothing will be.
-                        </p>
-                        <p className="text-muted-foreground">
-                            A deduction such as TDS looks exactly like this — settle those in the
-                            payments screen. Otherwise pick the record that matches this transfer,
-                            or record it as a new expense.
-                        </p>
-                    </div>
-                </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-                <AlertDialogAction onClick={onClose}>Choose another record</AlertDialogAction>
-            </AlertDialogFooter>
-        </AlertDialogContent>
-    </AlertDialog>
-);
+    onPartialSettle: (intent: PartialIntent) => void;
+    busy: boolean;
+}) => {
+    /**
+     * ⚠️ NEITHER ANSWER IS PRE-SELECTED, AND NOTHING MAY EVER DEFAULT IT.
+     *
+     * A shortfall is either a part payment (the balance is still owed) or a deduction such as TDS
+     * (nothing more is owed). NOTHING IN THIS SYSTEM CAN TELL THEM APART — `Project Payments.tds`
+     * is blank until a human writes it at fulfilment. A default is the screen guessing, and the
+     * wrong guess in the part-payment direction creates an approved payment that will never be
+     * paid, inflating what the PO thinks it still owes, forever. That is worse than the dead end
+     * this replaces, which is why the primary button stays disabled until a person answers.
+     */
+    const [intent, setIntent] = useState<PartialIntent | null>(null);
 
-/**
- * Why the system suggests this, in plain English (owner ruling).
- *
- * Derived from the row's own status and note rather than a second copy of the matching rules --
- * `status.py` already wrote the sentence a reviewer needs, and re-deriving it here would give the
- * screen an opinion the server does not share.
- */
-const WhyThisSuggestion = ({ row }: { row: OutflowImportRow }) => {
-    const bullets: string[] = [];
-    if (row.bank_reference_no) {
-        bullets.push(
-            `The bank reference ${row.bank_reference_no} is not recorded on any payment yet.`
-        );
-    }
-    if (row.outcome_note) bullets.push(row.outcome_note);
-    // ⚠️ THIS USED TO BRANCH ON `row_status === "Unmatched"`, AND THAT STATUS IS GONE (merged into
-    // `Mismatched`, owner 2026-08-10). The line only makes sense for ONE of the merged status's two
-    // causes -- the FOUND-NOTHING one, where "we looked and offered you nothing" needs explaining.
-    // On the other cause a record WAS found, and is already recorded as Paid; telling that reader
-    // "only approved records are offered here" answers a question they did not ask.
-    //
-    // The two are told apart by `related_payments`, which the endpoint populates precisely when an
-    // already-Paid record shares this transfer's reference. Keying on the NOTE TEXT would have
-    // worked too and is exactly the guessing `rowSettlementLinks` documents as forbidden: the
-    // sentence is written for a person, and the database already holds the fact.
-    if (row.row_status === ROW_MISMATCHED && !(row.related_payments ?? []).length) {
-        bullets.push("Only approved records are ever offered here.");
-    }
-    if (!bullets.length) return null;
+    // A different pick is a different question. Carrying an answer across would let a click meant
+    // for one record settle another.
+    useEffect(() => setIntent(null), [block?.recordName]);
+
+    const canOffer = SHOW_PARTIAL_SETTLE && Boolean(block) && Boolean(offer);
 
     return (
-        <div className="rounded-md border bg-muted/30 p-3">
-            <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Why the system suggests this
-            </p>
-            <ul className="list-inside list-disc space-y-1 text-sm">
-                {bullets.map((b) => (
-                    <li key={b}>{b}</li>
-                ))}
-            </ul>
+        <AlertDialog open={Boolean(block)} onOpenChange={(open) => !open && onClose()}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>
+                        {canOffer
+                            ? "This record is larger than the transfer"
+                            : "This record cannot be settled here"}
+                    </AlertDialogTitle>
+                    <AlertDialogDescription asChild>
+                        <div className="space-y-3 text-sm">
+                            <p>
+                                <span className="font-mono">{block?.recordName}</span> is for{" "}
+                                <span className="font-medium tabular-nums">
+                                    {formatToIndianRupee(block?.recordAmount ?? 0)}
+                                </span>
+                                , but{" "}
+                                <span className="font-medium tabular-nums">
+                                    {formatToIndianRupee(block?.bankAmount ?? 0)}
+                                </span>{" "}
+                                left the bank — a difference of{" "}
+                                <span className="font-medium tabular-nums">
+                                    {formatToIndianRupee(Math.abs(block?.difference ?? 0))}
+                                </span>
+                                .
+                            </p>
+
+                            {canOffer && offer ? (
+                                <>
+                                    <p>Which of these happened?</p>
+                                    <PartialIntentChoice
+                                        offer={offer}
+                                        deduction={deduction}
+                                        intent={intent}
+                                        onChange={setIntent}
+                                    />
+                                    {/* ⚠️ A WARNING BESIDE THE CHOICE, NEVER A CHANGE TO IT. A part
+                                        payment can land on 2% by coincidence, so this must not
+                                        gate, default or pre-select anything -- it exists so
+                                        somebody about to create a phantom balance looks twice. */}
+                                    {offer.tdsLike && (
+                                        <p className="rounded-md border border-amber-500/40 bg-amber-50 px-3 py-2 text-amber-900">
+                                            {formatToIndianRupee(offer.remainder)} is{" "}
+                                            {offer.impliedPct.toFixed(2)}% of the payment — a common
+                                            TDS rate. Check before choosing a part payment.
+                                        </p>
+                                    )}
+                                    {intent === INTENT_PART_PAYMENT && (
+                                        // The confirmation names what will be CREATED, because
+                                        // there is no undo from inside the import (ruling Q9).
+                                        <p className="font-medium text-foreground">
+                                            This settles{" "}
+                                            {formatToIndianRupee(offer.keep)} and creates a new
+                                            approved payment of{" "}
+                                            {formatToIndianRupee(offer.remainder)} for the balance.
+                                        </p>
+                                    )}
+                                    {intent === INTENT_DEDUCTION && (
+                                        <p className="font-medium text-foreground">
+                                            This records{" "}
+                                            {formatToIndianRupee(deduction.tds)} as TDS on{" "}
+                                            <span className="font-mono">{block?.recordName}</span>{" "}
+                                            and marks it Paid. The payment amount stays{" "}
+                                            {formatToIndianRupee(block?.recordAmount ?? 0)}.
+                                        </p>
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    {/* ⚠️ THE REASON, NOT A GENERIC PARAGRAPH (slice D1). This
+                                        branch used to print one fixed explanation for every
+                                        blocked pick, and three of its claims had gone stale --
+                                        see `settleBlockText`, which owns the wording and is the
+                                        one place to change it. */}
+                                    <p>{settleBlockText(block)}</p>
+                                    {/* The reassurance is the point of the whole dialog. */}
+                                    <p className="font-medium text-foreground">
+                                        Nothing has been recorded, and nothing will be.
+                                    </p>
+                                    <p className="text-muted-foreground">
+                                        Pick the record that matches this transfer instead.
+                                    </p>
+                                </>
+                            )}
+                        </div>
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={onClose}>
+                        {canOffer ? "Cancel" : "Choose another record"}
+                    </AlertDialogCancel>
+                    {canOffer && (
+                        // One button, whose LABEL and payload follow the answer. Two buttons would
+                        // let a stray click take the other branch — and the two branches write
+                        // opposite things: one carries a balance forward, the other declares that
+                        // nothing more is owed.
+                        <AlertDialogAction
+                            disabled={intent === null || busy}
+                            onClick={() => intent && onPartialSettle(intent)}
+                        >
+                            {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            {intent === INTENT_DEDUCTION
+                                ? `Record ${formatToRoundedIndianRupee(deduction.tds)} TDS and settle`
+                                : `Settle ${formatToRoundedIndianRupee(
+                                      offer?.keep ?? 0
+                                  )} and carry the rest`}
+                        </AlertDialogAction>
+                    )}
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+    );
+};
+
+/**
+ * The two readings of one shortfall, as a radio group.
+ *
+ * ⚠️ A REAL `<input type="radio">` IN A REAL RADIOGROUP, for the reason `SettleableRecordTable`
+ * gives about the record picker: arrow-key navigation, the roving tab stop and the announced group
+ * name all come free from the platform, and this is a control that decides where money goes.
+ */
+const PartialIntentChoice = ({
+    offer,
+    deduction,
+    intent,
+    onChange,
+}: {
+    offer: PartialOffer;
+    deduction: DeductionOffer;
+    intent: PartialIntent | null;
+    onChange: (next: PartialIntent) => void;
+}) => {
+    const options = [
+        {
+            id: INTENT_PART_PAYMENT as PartialIntent,
+            title: "A part payment",
+            body: `${formatToIndianRupee(offer.keep)} left the bank. ${formatToIndianRupee(
+                offer.remainder
+            )} is still owed and stays approved.`,
+            disabled: false,
+            reason: "",
+        },
+        {
+            id: INTENT_DEDUCTION as PartialIntent,
+            title: "A deduction (TDS or similar)",
+            body: `The payment was settled in full and ${formatToIndianRupee(
+                offer.remainder
+            )} was withheld. Nothing more is owed.`,
+            // ⚠️ DISABLED, NEVER HIDDEN, AND THIS IS THE SAFETY ARGUMENT OF THE WHOLE SLICE.
+            // A reviewer looking at a real 2% TDS on a materials PO, offered only "part payment",
+            // will take it — and that creates an approved balance for money nobody owes, which is
+            // precisely the phantom the partial-settlement slice was built to prevent. Removing the
+            // option is what would cause that; showing it greyed with its reason is what stops it.
+            disabled: !deduction.eligible,
+            reason: deductionRefusalText(deduction),
+        },
+    ];
+
+    return (
+        <div
+            role="radiogroup"
+            aria-label="What happened to the rest of this payment?"
+            className="space-y-2"
+        >
+            {options.map((option) => (
+                <label
+                    key={option.id}
+                    className={`flex items-start gap-2 rounded-md border px-3 py-2 transition-colors ${
+                        option.disabled
+                            ? "cursor-not-allowed border-muted-foreground/20 opacity-60"
+                            : intent === option.id
+                              ? "cursor-pointer border-primary bg-primary/5"
+                              : "cursor-pointer border-muted-foreground/20 hover:bg-muted/50"
+                    }`}
+                >
+                    <input
+                        type="radio"
+                        name="partial-intent"
+                        className="mt-1 h-3.5 w-3.5 accent-primary disabled:cursor-not-allowed"
+                        checked={intent === option.id}
+                        disabled={option.disabled}
+                        onChange={() => onChange(option.id)}
+                    />
+                    <span>
+                        <span className="block font-medium text-foreground">{option.title}</span>
+                        <span className="block text-xs text-muted-foreground">{option.body}</span>
+                        {/* The reason travels WITH the disabled option. A greyed control with no
+                            explanation is the dead-button complaint this dialog already exists to
+                            answer once. */}
+                        {option.disabled && option.reason && (
+                            <span className="mt-0.5 block text-xs font-medium text-amber-700">
+                                {option.reason}
+                            </span>
+                        )}
+                    </span>
+                </label>
+            ))}
         </div>
     );
 };
+
+/*
+ * ⚠️ `WhyThisSuggestion` WAS DELETED HERE (slice D2, owner 2026-08-12), and this note is what
+ * stops it being rebuilt by someone reading the fetch above and wondering where the second
+ * consumer went.
+ *
+ * It was a bulleted "Why the system suggests this" card at the top of the body, carrying at most
+ * three sentences: the bank reference not being on any payment yet, the row's stored
+ * `outcome_note`, and "Only approved records are ever offered here." All three predate the record
+ * TABLE. Since slice N2 the table prints a per-row similarity reason and since N3 it marks the
+ * rows the match run actually found, so the card restated -- one level less precisely, and for the
+ * whole row rather than per record -- what the reviewer can now read against each candidate.
+ *
+ * It also cost vertical space the dialog does not have: it sat above a 420px table with "Clear
+ * selection" below it, which is how that control ended up under the fold.
+ *
+ * NOTHING SERVER-SIDE CHANGED. `outcome_note`, `related_payments` and `bank_reference_no` are all
+ * still written, still returned, and still read elsewhere -- the Skipped tab and the row table use
+ * them. Only this one rendering is gone.
+ */
 
 /**
  * The one way to resolve a row: find the approved record this transfer paid, in any ledger.
@@ -431,6 +663,7 @@ const LinkPaymentSection = ({
     onChange,
     dimmed,
     onSelectedRecordChange,
+    matcherCandidates,
 }: {
     row: OutflowImportRow;
     decision: RowDecision | undefined;
@@ -439,6 +672,8 @@ const LinkPaymentSection = ({
     // Passed straight through to `RecordPicker`, which is where the candidate list -- and so the
     // server's `suggested` flag -- actually lives.
     onSelectedRecordChange: (record: SettleableRecord | null) => void;
+    /** `recordKey`s the match run found for this transfer (slice N3). */
+    matcherCandidates: ReadonlySet<string>;
 }) => (
     <div className={`rounded-md border border-muted-foreground/20 ${dimmed ? "opacity-40" : ""}`}>
         <div className="px-3 py-2.5">
@@ -453,6 +688,7 @@ const LinkPaymentSection = ({
                 decision={decision ?? {}}
                 onChange={onChange}
                 onSelectedRecordChange={onSelectedRecordChange}
+                matcherCandidates={matcherCandidates}
             />
         </div>
     </div>
@@ -541,32 +777,59 @@ const RecordPicker = ({
     decision,
     onChange,
     onSelectedRecordChange,
+    matcherCandidates,
 }: {
     row: OutflowImportRow;
     decision: RowDecision;
     onChange: (decision: RowDecision) => void;
     onSelectedRecordChange: (record: SettleableRecord | null) => void;
+    matcherCandidates: ReadonlySet<string>;
 }) => {
-    const [search, setSearch] = useState("");
+    const [filters, setFilters] = useState<RecordFilters>(EMPTY_FILTERS);
+    const [sort, setSort] = useState<RecordSort | null>(null);
+
+    // A different transfer is a different question -- carrying one row's filters onto the next
+    // would hide records for a reason that is no longer on screen.
+    useEffect(() => {
+        setFilters(EMPTY_FILTERS);
+        setSort(null);
+    }, [row.name]);
 
     // ⚠️ NO `target_doctype`, WHICH IS WHAT MAKES THIS ONE LIST. A blank one means all three
-    // ledgers, merged and ordered server-side by how close the amount is -- so the reviewer
-    // recognises a record instead of first classifying the transfer.
+    // ledgers, merged and RANKED server-side by how much each record looks like this transfer --
+    // so the reviewer recognises a record instead of first classifying the transfer.
+    //
+    // ⚠️ NO `search` AND NO `limit` EITHER, AND THE SWR KEY IS THEREFORE STABLE PER ROW (slice N1).
+    // It used to carry the search text, which minted a new key -- and so a new REQUEST -- on every
+    // keystroke. The whole approved pool now arrives in one call and every narrowing below is
+    // local, which is what makes filtering and sorting instant.
     const { data, isLoading } = useFrappeGetCall<{ message: SettleableRecord[] }>(
         "nirmaan_stack.api.outflow_import.review.search_settleable_records",
-        { row: row.name, search },
-        `settleable-${row.name}-${search}`
+        { row: row.name },
+        `settleable-${row.name}`
     );
 
-    const options = useMemo(
-        () => orderBySuggestion(data?.message ?? [], row.amount),
-        [data, row.amount]
+    // ⚠️ THE SERVER'S ORDER IS THE RANKING, SO IT IS NOT RE-SORTED HERE. This used to call
+    // `orderBySuggestion`, which re-sorted by amount and would now silently undo the similarity
+    // ranking it arrives in.
+    const pool = useMemo(() => data?.message ?? [], [data]);
+    const facets = useMemo(() => facetValues(pool), [pool]);
+    const options = useMemo(() => visibleRecords(pool, filters, sort), [pool, filters, sort]);
+
+    const handleSort = useCallback(
+        (column: RecordSortColumn) => setSort((current) => nextSortState(current, column)),
+        []
     );
 
-    // Matched on BOTH halves: a bare name is not unique across three ledgers.
-    const selected = options.find(
+    // ⚠️ LOOKED UP IN THE WHOLE POOL, NOT THE FILTERED VIEW. A reviewer who picks a record and then
+    // narrows the list would otherwise watch their own choice become invisible AND unconfirmable --
+    // the footer reads the selection from here, so a filtered-out pick would disable Confirm with
+    // nothing on screen explaining why. Matched on BOTH halves: a bare name is not unique across
+    // three ledgers.
+    const selected = pool.find(
         (o) => o.name === decision.linkTo && o.target_doctype === decision.target
     );
+    const selectedHidden = Boolean(selected) && !options.some((o) => o === selected);
 
     // ⚠️ REPORTED UPWARD BECAUSE THE FOOTER HAS TO KNOW WHAT WAS PICKED. The candidate list, and
     // therefore the server's `suggested` flag, lives only in here -- the page's `RowDecision`
@@ -577,30 +840,98 @@ const RecordPicker = ({
         onSelectedRecordChange(selected ?? null);
     }, [selected, onSelectedRecordChange]);
 
+    const candidateLine = matcherCandidateLine(matcherCandidates.size);
+
     return (
         <div className="space-y-3">
+            {/* ⚠️ WHAT THE MATCH RUN FOUND -- NOT WHAT MAY BE PICKED (slice N3). `get_row_candidates`
+                re-runs the match live and skips the four global passes, so one of these may already
+                be claimed by another open row. The sentence states provenance for exactly that
+                reason; promising availability would surface as a confirm that fails with
+                `AlreadyPaidError` after the click. It is now the ONLY count on screen: the stored
+                note it used to stand down (slice N3) was rendered by `WhyThisSuggestion`, which
+                slice D2 deleted, so nothing else can disagree with this line. */}
+            {candidateLine && (
+                <p className="rounded-md border border-muted-foreground/20 bg-muted/30 px-3 py-2 text-xs">
+                    {candidateLine}
+                </p>
+            )}
+
             <div className="space-y-1.5">
                 <Label className="text-xs">Find an approved record</Label>
                 <Input
                     className="h-8"
-                    placeholder="Search by id, vendor, PO number or project…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    // It searches the nickname and the contact person too, and says so: those two
+                    // are how a vendor is found by someone who knows the person rather than the
+                    // registered name.
+                    placeholder="Search by id, vendor, nickname, contact, PO number or project…"
+                    value={filters.text}
+                    onChange={(e) => setFilters({ ...filters, text: e.target.value })}
                 />
             </div>
 
+            {/* ⚠️ THE COUNT LINE AND THE CLEAR CONTROL SIT TOGETHER, ABOVE THE TABLE. A filtered
+                table that does not say it is filtered is how a reviewer concludes a record does
+                not exist -- and the way out has to be beside the number that reports it. */}
+            {!isLoading && pool.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <span>
+                        {options.length === pool.length
+                            ? `${pool.length} approved record${pool.length === 1 ? "" : "s"}`
+                            : `Showing ${options.length} of ${pool.length} approved records`}
+                    </span>
+                    {hasActiveFilters(filters, sort) && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs"
+                            onClick={() => {
+                                setFilters(EMPTY_FILTERS);
+                                setSort(null);
+                            }}
+                        >
+                            <X className="mr-1 h-3 w-3" />
+                            Clear filters
+                        </Button>
+                    )}
+                </div>
+            )}
+
             {isLoading ? (
                 <p className="text-sm text-muted-foreground">Loading records…</p>
-            ) : !options.length ? (
+            ) : !pool.length ? (
                 <p className="text-sm text-muted-foreground">
-                    {search
-                        ? "No approved record matches that search."
-                        : "There are no approved payments or expenses to link to."}
+                    There are no approved payments or expenses to link to.
                 </p>
+            ) : !options.length ? (
+                // ⚠️ "NOTHING MATCHES" IS A DIFFERENT SENTENCE FROM "THERE IS NOTHING", and the
+                // difference decides what the reviewer does next. This branch also has to offer the
+                // way back, because the filters that emptied the table are in a header the table no
+                // longer renders -- the control that caused this can hide itself.
+                <div className="space-y-2 rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
+                    <p>No approved record matches the filters you have set.</p>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => {
+                            setFilters(EMPTY_FILTERS);
+                            setSort(null);
+                        }}
+                    >
+                        Clear filters
+                    </Button>
+                </div>
             ) : (
                 <SettleableRecordTable
                     records={options}
                     bankAmount={row.amount}
+                    matcherCandidates={matcherCandidates}
+                    sort={sort}
+                    onSort={handleSort}
+                    filters={filters}
+                    facets={facets}
+                    onFiltersChange={setFilters}
                     selected={
                         decision.target && decision.linkTo
                             ? recordKey({
@@ -618,6 +949,15 @@ const RecordPicker = ({
                         onChange({ ...decision, target: picked.target, linkTo: picked.name });
                     }}
                 />
+            )}
+
+            {/* The chosen record is still chosen and still confirmable -- but it is no longer on
+                screen, so say so rather than let the verdict line below describe a row the reviewer
+                cannot see. */}
+            {selectedHidden && (
+                <p className="text-xs text-amber-700">
+                    Your chosen record is hidden by the current filters.
+                </p>
             )}
 
             {selected && <RecordVerdict record={selected} bankAmount={row.amount} />}
@@ -670,7 +1010,8 @@ const RecordVerdict = ({
 }) => {
     const verdict = amountVerdict(record.amount, bankAmount);
     const settleable = record.suggested;
-    const link = settlementLink(record.target_doctype, record.name);
+    // `document_name` is the ORDER this payment is against -- the app's own route (slice E3).
+    const link = settlementLink(record.target_doctype, record.name, false, record.document_name);
     return (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background px-3 py-2">
             <p
@@ -703,9 +1044,7 @@ const RecordVerdict = ({
                         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                         <span>
                             <span className="font-mono">{record.name}</span> differs by{" "}
-                            {formatToIndianRupee(Math.abs(verdict.difference))} — too far
-                            apart to settle here. A deduction such as TDS looks like this; settle it
-                            in the payments screen
+                            {formatToIndianRupee(Math.abs(verdict.difference))} — {AMOUNT_GAP_HINT}
                         </span>
                     </>
                 )}

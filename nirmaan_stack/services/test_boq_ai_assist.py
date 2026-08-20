@@ -412,13 +412,26 @@ class TestPromptParentingPins(unittest.TestCase):
         )
 
     def test_line_item_parent_rule_is_pinned(self):
-        """W3 -- ADDED by EA-6c, IDENTICAL sentence on both engines (one rule, zero drift).
-        Hardens what was previously only implied, and matches the finalize gate, which
-        hard-blocks an item under any non-heading parent."""
+        """W3 -- REWORDED 2026-08-19 (ADR-0008 Amendment A, owner Option B). Still the
+        IDENTICAL sentence on both engines (one rule, zero drift).
+
+        WAS: "A line_item is never the parent of another line_item. Only a preamble may
+        parent a line_item." That matched the finalize gate at the time. The gate has since
+        been NARROWED -- structural error #8 no longer fires for item-under-item -- so the
+        old sentence told the model a prohibition the product no longer enforces. The owner
+        chose to state the permission EXPLICITLY (Option B) rather than fall silent, so the
+        model can propose the nesting where a bill genuinely shows one.
+        """
         self.assertIn(
-            "- A line_item is never the parent of another line_item. Only a preamble may "
-            "parent a line_item.\n",
+            "- A line_item may be the parent of another line_item when the child row is a "
+            "sub-component or a breakdown of it; otherwise a line_item's parent is the "
+            "preamble heading its section.\n",
             _AI_PASS_PROMPT_TEMPLATE,
+        )
+        self.assertNotIn(
+            "A line_item is never the parent of another line_item",
+            _AI_PASS_PROMPT_TEMPLATE,
+            "the retired prohibition must not survive anywhere in the prompt",
         )
 
     def test_children_instruction_is_pinned(self):

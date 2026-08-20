@@ -10,6 +10,7 @@ import { getPendingTaskColumns } from "./columns";
 import { ConfirmationDialog } from "@/pages/ProcurementRequests/ApproveVendorQuotes/components/ConfirmationDialog";
 import { InvoiceRejectionDialog } from "./InvoiceRejectionDialog";
 import { InvoiceApprovalComparison } from "./InvoiceApprovalComparison";
+import { AutoApproveReasonKey } from "./AutoApproveReasonKey";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { NirmaanAttachment } from "@/types/NirmaanStack/NirmaanAttachment";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
@@ -227,6 +228,11 @@ export const PendingTasksTable: React.FC = () => {
                         : ""
             )}
         >
+            {/* Reason key for the "Not Auto-Approved Reason" column below —
+                every reason the gates can record, with the full write-up on
+                hover/click. Collapsed by default so it costs no table rows. */}
+            <AutoApproveReasonKey />
+
             {isLoadingOverall && !invoices?.length ? (
                 <TableSkeleton />
             ) : (

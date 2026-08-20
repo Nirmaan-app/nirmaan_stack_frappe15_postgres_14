@@ -15,7 +15,6 @@ import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocList, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import { useServerDataTable, SimpleAggregationConfig } from "@/hooks/useServerDataTable";
-import { useVendorInvoices } from "../data/useVendorQueries";
 import { formatDate } from "@/utils/FormatDate";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { parseNumber } from "@/utils/parseNumber";
@@ -50,6 +49,8 @@ const PO_TABLE_FIELDS: (keyof ProcurementOrder | "name")[] = [
   "expected_delivery_date",
   "latest_delivery_date",
   "po_amount_delivered",
+  "amount_invoiced",
+  "amount_due",
 ];
 const PO_AGGREGATES_CONFIG: SimpleAggregationConfig[] = [
   { field: "amount", function: "sum" },
@@ -57,6 +58,7 @@ const PO_AGGREGATES_CONFIG: SimpleAggregationConfig[] = [
   { field: "amount_paid", function: "sum" },
   { field: "po_amount_delivered", function: "sum" },
 ];
+
 
 const PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
   { value: "name", label: "PO ID", default: true },
@@ -95,25 +97,28 @@ export const VendorMaterialOrdersTable: React.FC<
     []
   );
 
-  // Fetch Vendor Invoices for this vendor to calculate total invoiced per PO
-  const { data: vendorInvoices } = useVendorInvoices(vendorId);
+  // Per-row Total Invoiced comes straight off the PO now (`amount_invoiced`, kept
+  // current by the Vendor Invoices doc events), so the whole-invoice-table fetch is gone.
+  //
+  // The tile below still needs a VENDOR-GLOBAL total. The table's aggregates ride the
+  // same payload as its filters, so they shrink as the user filters - hence this
+  // separate one-field read over every PO of the vendor, which is what keeps the
+  // "(all POs)" label honest. Proven equal to the old invoice-keyed sum on all 1,104
+  // vendors before the switch.
+  const { data: vendorPoInvoiceTotals } = useFrappeGetDocList<ProcurementOrder>(
+    "Procurement Orders",
+    {
+      filters: [["vendor", "=", vendorId]],
+      fields: ["name", "amount_invoiced"],
+      limit: 0,
+    } as GetDocListArgs<FrappeDoc<ProcurementOrder>>,
+    `VendorPOInvoiceTotals-${vendorId}`
+  );
 
-  // Group invoice totals by PO name
-  const invoiceTotalsMap = useMemo(() => {
-    if (!vendorInvoices) return new Map<string, number>();
-    return vendorInvoices.reduce((acc, inv) => {
-      const current = acc.get(inv.document_name) ?? 0;
-      acc.set(inv.document_name, current + parseNumber(inv.invoice_amount));
-      return acc;
-    }, new Map<string, number>());
-  }, [vendorInvoices]);
-
-  // Total invoiced across all vendor POs (vendor-global, not filter-reactive)
-  const totalInvoiced = useMemo(() => {
-    let sum = 0;
-    invoiceTotalsMap.forEach((v) => { sum += v; });
-    return sum;
-  }, [invoiceTotalsMap]);
+  const totalInvoiced = useMemo(
+    () => (vendorPoInvoiceTotals ?? []).reduce((sum, po) => sum + parseNumber(po.amount_invoiced), 0),
+    [vendorPoInvoiceTotals]
+  );
 
   // Fetch Project Payments for this vendor (for payments dialog)
   const { data: projectPayments } = useFrappeGetDocList<ProjectPayments>(
@@ -327,7 +332,9 @@ export const VendorMaterialOrdersTable: React.FC<
         },
       },
       {
-        id: "total_invoiced",
+        // A stored PO field, so the id IS the backend field name and `order_by`
+        // works: the database orders the whole set, not just the fetched page.
+        accessorKey: "amount_invoiced",
         header: ({ column }) => (
           <DataTableColumnHeader
             column={column}
@@ -336,7 +343,7 @@ export const VendorMaterialOrdersTable: React.FC<
           />
         ),
         cell: ({ row }) => {
-          const invoiceTotal = invoiceTotalsMap.get(row.original.name) ?? 0;
+          const invoiceTotal = parseNumber(row.original.amount_invoiced);
           return (
             <div
               className={cn("text-center font-medium", invoiceTotal ? "underline cursor-pointer text-blue-600 hover:text-blue-800" : "")}
@@ -347,13 +354,10 @@ export const VendorMaterialOrdersTable: React.FC<
           );
         },
         size: 150,
-        enableSorting: false,
+        enableSorting: true,
         meta: {
           exportHeaderName: "Total Invoiced",
-          exportValue: (row: ProcurementOrder) => {
-            const invoiceTotal = invoiceTotalsMap.get(row.name) ?? 0;
-            return invoiceTotal;
-          },
+          exportValue: (row: ProcurementOrder) => parseNumber(row.amount_invoiced),
         },
       },
       {
@@ -403,27 +407,29 @@ export const VendorMaterialOrdersTable: React.FC<
         },
       },
       {
-        id: "amount_due",
-        header: "Amount Due",
+        // A stored PO field (amount_invoiced - amount_paid, maintained by the same
+        // events that write its operands), so the database orders the whole set.
+        accessorKey: "amount_due",
+        header: ({ column }) => (
+          <DataTableColumnHeader
+            column={column}
+            title="Amount Due"
+            className="justify-end"
+          />
+        ),
         cell: ({ row }) => {
-          const invoiced = invoiceTotalsMap.get(row.original.name) ?? 0;
-          const paid = parseNumber(row.original.amount_paid) || 0;
-          const value = invoiced - paid;
+          const value = parseNumber(row.original.amount_due);
           return (
             <div className={cn("text-center font-medium", value < 0 ? "text-red-600" : "text-amber-600")}>
               {formatToRoundedIndianRupee(value)}
             </div>
           );
         },
-        enableSorting: false,
+        enableSorting: true,
         size: 150,
         meta: {
           exportHeaderName: "Amount Due",
-          exportValue: (row: ProcurementOrder) => {
-            const invoiced = invoiceTotalsMap.get(row.name) ?? 0;
-            const paid = parseNumber(row.amount_paid) || 0;
-            return invoiced - paid;
-          },
+          exportValue: (row: ProcurementOrder) => parseNumber(row.amount_due),
         },
       },
       {
@@ -477,7 +483,7 @@ export const VendorMaterialOrdersTable: React.FC<
       //     }, size: 220,
       // }
     ],
-    [projectOptions, invoiceTotalsMap]
+    [projectOptions]
   );
 
   const {

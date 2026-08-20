@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { formatDate } from "@/utils/FormatDate";
+import { VendorDCOverrides } from "../components/VendorDCDialog";
 
 /**
  * Hook for downloading Delivery Note PDFs via Frappe's print format API.
@@ -74,11 +75,11 @@ export function useDownloadDN(poId?: string) {
   );
 
   const downloadVendorDC = useCallback(
-    async (dnId: string, modifiedItems: any[]) => {
+    async (dnId: string, modifiedItems: any[], vendorOverrides?: VendorDCOverrides) => {
       try {
-        toast({ 
-          title: "Generating Vendor Challan", 
-          description: `Generating PDF for ${dnId}...` 
+        toast({
+          title: "Generating Vendor Challan",
+          description: `Generating PDF for ${dnId}...`
         });
 
         const formatName = "Vendor Delivery Challan";
@@ -88,7 +89,18 @@ export function useDownloadDN(poId?: string) {
             unit: item.unit
         })));
 
-        const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Delivery%20Notes&name=${dnId}&format=${encodeURIComponent(formatName)}&no_letterhead=0&items_json=${encodeURIComponent(itemsJson)}`;
+        let printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Delivery%20Notes&name=${dnId}&format=${encodeURIComponent(formatName)}&no_letterhead=0&items_json=${encodeURIComponent(itemsJson)}`;
+
+        // Vendor overrides ride the same query-param channel as items_json. An omitted
+        // param means "no override" — the print format falls back to the vendor master.
+        if (vendorOverrides?.hideVendor) {
+          printUrl += `&hide_vendor=1`;
+        } else {
+          const overrideName = vendorOverrides?.vendorName?.trim();
+          const overrideAddress = vendorOverrides?.vendorAddress?.trim();
+          if (overrideName) printUrl += `&vendor_name=${encodeURIComponent(overrideName)}`;
+          if (overrideAddress) printUrl += `&vendor_address=${encodeURIComponent(overrideAddress)}`;
+        }
 
         const response = await fetch(printUrl);
         if (!response.ok) throw new Error("Failed to generate PDF");

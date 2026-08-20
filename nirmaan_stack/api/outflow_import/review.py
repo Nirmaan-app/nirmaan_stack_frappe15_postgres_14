@@ -43,6 +43,7 @@ from nirmaan_stack.services.outflow_import.claims import (
 )
 from nirmaan_stack.services.outflow_import.disambiguate import (
     RULE_SOLE,
+    RULE_STACK_NEAREST_DATE,
     RULE_STACK_PAIRING,
     Candidate,
     pick_from_several,
@@ -56,14 +57,25 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.parser import BANK_SUCCESS_STATUS
+# ⚠️ THE BROWSE LIST'S RANKING, AND NOTHING ELSE IN THIS MODULE MAY USE IT. `similarity` orders the
+# records a person chooses from in the Resolve dialog; it must never reach `match_batch` or anything
+# it calls. See the rule at the top of `similarity.py` -- its weights exist to be tuned against
+# reviewer feedback, and a tuning change must not be able to alter what settles unattended.
+from nirmaan_stack.services.outflow_import.similarity import (
+    RecordSignals,
+    build_row_signals,
+    ranked_records,
+)
 from nirmaan_stack.services.outflow_import.stacks import (
     Stack,
     group_into_stacks,
     pair_stack,
     stack_key,
     stack_note,
+    stack_surplus_note,
 )
 from nirmaan_stack.services.outflow_import.status import (
+    ORIGIN_ACCEPTED,
     OPEN_ROW_STATUSES,
     settleable_candidates,
     ROW_ERROR,
@@ -74,8 +86,10 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_SKIPPED,
     ROW_STATUSES,
     StatusTally,
+    batch_is_open,
     derive_batch_counters,
     derive_batch_status,
+    several_found_note,
     derive_import_summary,
     derive_row_outcome,
     sole_suggestion,
@@ -143,6 +157,7 @@ def match_batch(batch: str):
     paired = 0
     released = 0
     picked = 0
+    swept = 0
     if matchable:
         pools = _load_pools(matchable, batch)
         results: dict = {}
@@ -177,7 +192,12 @@ def match_batch(batch: str):
         # re-find (see `_persist_row_outcome`), so a pairing written mid-loop would be wiped by the
         # next row's clear. The stack pass also needs the loop's finished output -- which rows ended
         # up with a sole suggestion -- to know which records are already spoken for.
-        paired = _resolve_stacks(matchable, pools)
+        paired, noted_surplus = _resolve_stacks(matchable, pools)
+
+        # ⚠️ LAST, AFTER ALL THREE PASSES. "Several candidates and nobody picked one" only becomes
+        # a fact once every pass entitled to pick has declined -- deciding it in the per-row loop
+        # would sweep rows the stack pass was about to pair.
+        swept = _sweep_unresolved_to_mismatched(results, noted_surplus)
 
     statuses = _refresh_batch_rollup(batch)
     frappe.db.commit()
@@ -191,6 +211,9 @@ def match_batch(batch: str):
         # Rows where a rule separated several approved records (Option B). Reported so a run that
         # leans hard on the rules is visible rather than silently pre-selecting more than usual.
         "rule_picked_rows": picked,
+        # Rows that found approved records but ended with no pre-selection, and now read as
+        # Not-Matched. Reported so a run leaving a lot of decisions on the table is visible.
+        "swept_to_mismatched_rows": swept,
         "counters": derive_batch_counters(statuses),
         "status": derive_batch_status(statuses),
     }
@@ -349,6 +372,7 @@ def _disambiguation_candidates(result) -> list:
                 name=target.name,
                 amount=normalize_amount(target.amount),
                 project=(getattr(target, "project", "") or ""),
+                decided_on=getattr(target, "decided_on", None),
             )
         )
     return out
@@ -453,6 +477,10 @@ def _disambiguate_matched(results: dict, pools: dict) -> int:
             # Either way there is nothing here to disambiguate.
             continue
 
+        # ⚠️ `added_on_date`, NOT `added_on`. M4 subtracts this from a candidate's `date`, and a
+        # `datetime` on either side raises rather than comparing.
+        transfer_date = getattr(row, "added_on_date", None)
+
         pick = pick_from_several(
             bank_amount=normalize_amount(row.amount),
             candidates=candidates,
@@ -460,6 +488,7 @@ def _disambiguate_matched(results: dict, pools: dict) -> int:
             project_index=pools.get("projects"),
             claimed=claimed,
             allow_interchangeable=not _in_a_stack(row),
+            transfer_date=transfer_date,
         )
         if pick is None:
             continue
@@ -475,7 +504,9 @@ def _disambiguate_matched(results: dict, pools: dict) -> int:
                 # The tier that FOUND the candidates. Option B chose between them; it did not find
                 # them, so the basis is still the ladder's.
                 "match_basis": (getattr(result, "tier", "") or None),
-                "outcome_note": pick_note(pick, candidates, normalize_amount(row.amount)),
+                "outcome_note": pick_note(
+                    pick, candidates, normalize_amount(row.amount), transfer_date
+                ),
             },
             update_modified=False,
         )
@@ -626,16 +657,42 @@ def _resolve_stacks(matchable, pools) -> int:
     stacks = group_into_stacks(staged, _records_for)
 
     paired = 0
+    # Rows this pass explained as an unbalanced stack. Handed back so the final sweep does not
+    # overwrite the specific reason with its generic one -- it runs after this and would.
+    noted_surplus: set[str] = set()
     for stack in stacks:
         available = tuple(t for t in stack.records if t.name not in claimed)
         candidate = Stack(key=stack.key, transfers=stack.transfers, records=available)
         pairs = pair_stack(candidate)
         if not pairs:
             # Unbalanced: some transfer would settle nothing, or some record would go unclaimed.
-            # Choosing which is a judgement about money, and it belongs to a person -- these rows
-            # keep exactly the outcome the per-row matcher gave them.
+            # Choosing which is a judgement about money, and it belongs to a person -- so nothing is
+            # paired and no suggestion is written.
+            #
+            # ⚠️ THE ROWS DO GET A NOTE, AND THAT NOTE IS WHAT THE DELETED "Resolve N stacks" SCREEN
+            # USED TO SAY. Its rows now land in the ordinary worklist, where "several matched and
+            # nothing separated them" would send a reviewer hunting for a record that does not
+            # exist. Only the STATUS is left alone here; the explanation is the point.
+            #
+            # ⚠️ ONLY WHEN THE STACK ACTUALLY HAS RECORDS, and this guard cost a red test to find.
+            # An EMPTY record set means one of two things and this pass cannot tell them apart:
+            # every record was claimed by another transfer, OR the stack was DISQUALIFIED because
+            # its candidates include a fan-out (`_stack_records` returns nothing for one, ruling
+            # Q4). In the second case the row is a perfectly good fan-out MATCH carrying
+            # `_matched_note` -- "one transfer settling 2 approved payments" -- and writing a
+            # surplus note over it replaces a true statement with a false one, on a row that needs
+            # no attention at all. A note that cannot tell those two apart must assert neither.
+            if not candidate.records:
+                continue
+            surplus = stack_surplus_note(candidate)
+            for transfer in candidate.transfers:
+                frappe.db.set_value(
+                    ROW_DOCTYPE, transfer.name, {"outcome_note": surplus}, update_modified=False
+                )
+                noted_surplus.add(transfer.name)
             continue
-        for transfer, record in pairs:
+        for pair in pairs:
+            transfer, record = pair.transfer, pair.record
             frappe.db.set_value(
                 ROW_DOCTYPE,
                 transfer.name,
@@ -643,20 +700,99 @@ def _resolve_stacks(matchable, pools) -> int:
                     "suggested_doctype": record.doctype,
                     "suggested_name": record.name,
                     # ⚠️ THIS IS THE ROW CLASS THE PROVENANCE FIELDS WERE ADDED FOR. A stack pairing
-                    # is deterministic but ARBITRARY -- identical transfers zipped against identical
-                    # records -- and until now it carried a blank rule, so the confirm dialog filed
-                    # all 112 of them under "Only candidate": the arbitrary picks presented as the
-                    # safest kind there is.
-                    "suggestion_rule": RULE_STACK_PAIRING,
+                    # is deterministic but was ALWAYS ARBITRARY -- identical transfers zipped against
+                    # identical records -- and until the fields existed it carried a blank rule, so
+                    # the confirm dialog filed all 112 of them under "Only candidate": the arbitrary
+                    # picks presented as the safest kind there is.
+                    #
+                    # ⚠️ TWO VALUES NOW, AND THEY MUST NOT BE COLLAPSED. A pair the decision dates
+                    # actually separated is not the same fact as a coin flip between twins, and the
+                    # whole reason this field exists is that one value covering two facts is how the
+                    # arbitrary ones hid. Measured on the live statement: of 112 stack pairings, 25
+                    # are evidence, 76 arbitrary, 11 in stacks that no longer balance.
+                    "suggestion_rule": (
+                        RULE_STACK_NEAREST_DATE if pair.is_evidence else RULE_STACK_PAIRING
+                    ),
                     "auto_matched": 1,
                     "match_basis": basis_by_key.get(stack.key) or None,
-                    "outcome_note": stack_note(candidate, record.name),
+                    "outcome_note": stack_note(candidate, record.name, pair.basis),
                 },
                 update_modified=False,
             )
             claimed.add(record.name)
             paired += 1
-    return paired
+    return paired, noted_surplus
+
+
+def _sweep_unresolved_to_mismatched(results: dict, keep_notes: set) -> int:
+    """Any row still `Matched` with NO suggestion becomes `Mismatched` (owner ruling 2026-08-11).
+
+    ⚠️ IT CANNOT LIVE IN `derive_row_outcome`, AND THAT IS WHY IT IS A SWEEP. That function runs in
+    the per-row loop, BEFORE the claim pass, Option B and the stack pass have had their say -- at
+    that moment "several candidates and no pick" is not yet a fact, because three passes are still
+    entitled to make one. The status can only be decided once they have all finished.
+
+    WHY THE ROWS MOVE AT ALL. `Matched` shares a tab with `Settled` under the reviewer's heading
+    "this transfer has a record". A row that found six records and chose none has NOT got a record;
+    it has a decision waiting, and it belongs in the worklist with the rest of the open work.
+
+    ⚠️ IT NEVER TOUCHES A ROW THAT HAS A SUGGESTION. A pre-selected row is exactly the case
+    `Matched` is for, and sweeping one into `Not-Matched` would hide the confirmable work.
+
+    ⚠️ NOR A FAN-OUT, NOR A SINGLE-CANDIDATE ROW. Both are `Matched` with no suggestion for reasons
+    that are not "nothing could be chosen" -- see the guard in the loop. Only a row the matcher gave
+    SEVERAL comparable records, none of which any pass would pick, has a decision genuinely waiting.
+
+    ⚠️ `keep_notes` IS NOT AN OPTIMISATION. The stack pass has already written the SPECIFIC reason
+    on unbalanced-stack rows -- seven transfers, six records -- and this pass's generic sentence is
+    strictly less informative. Overwriting it would delete the explanation that the deleted stack
+    screen was replaced by, one pass after writing it.
+
+    ⚠️ THE COUNT COMES FROM THE MATCH RESULT, NOT FROM A STORED COLUMN -- there is no
+    `candidate_count` field on the doctype, and adding one to carry a sentence would be a migrate
+    for a number this function already holds. `settleable_candidates` is the SAME list
+    `_matched_note` counts and `sole_suggestion` reads, so the note cannot disagree with the one the
+    row carried a moment earlier.
+    """
+    names = [name for name, (_row, _res, outcome) in results.items() if outcome.status == ROW_MATCHED]
+    if not names:
+        return 0
+
+    placeholders = ", ".join(["%s"] * len(names))
+    stale = frappe.db.sql(
+        f"""
+        SELECT name FROM "tabOutflow Import Row"
+        WHERE name IN ({placeholders})
+          AND row_status = %s
+          AND COALESCE(suggested_name, '') = ''
+        """,
+        (*names, ROW_MATCHED),
+        as_dict=True,
+    )
+    swept = 0
+    for row in stale:
+        _row, result, _outcome = results[row["name"]]
+
+        # ⚠️ A FAN-OUT IS `Matched` WITH NO SUGGESTION *BY DESIGN*, AND MUST NOT BE SWEPT. One
+        # transfer covering several approved payments is a genuine match -- it carries no
+        # `suggested_name` only because a `(doctype, name)` pair cannot hold a GROUP, not because
+        # nothing could be chosen. Fan-out is report-only by ruling Q4, so the row is meant to sit
+        # in `Matched` and say what it found; moving it to `Not-Matched` would report a successful
+        # match as an unresolved one and invite someone to book the money a second time.
+        #
+        # `_disambiguation_candidates` returns [] for a set containing a fan-out -- the same
+        # abstention Option B makes -- so this reuses that judgement rather than re-deriving
+        # "is this a fan-out", which is exactly the second opinion that list's docstring warns of.
+        candidates = _disambiguation_candidates(result)
+        if len(candidates) < 2:
+            continue
+
+        payload = {"row_status": ROW_MISMATCHED}
+        if row["name"] not in keep_notes:
+            payload["outcome_note"] = several_found_note(len(candidates))
+        frappe.db.set_value(ROW_DOCTYPE, row["name"], payload, update_modified=False)
+        swept += 1
+    return swept
 
 
 def _stack_records_with_basis(representative, pools) -> tuple:
@@ -738,135 +874,6 @@ def _load_open_rows_for_keys(keys) -> list:
     )
 
 
-@frappe.whitelist()
-def get_unpaired_stacks(limit=25):
-    """The stacks a person still has to resolve: same vendor, same amount, counts do NOT match.
-
-    ⚠️ THIS IS THE LEFTOVER OF `_resolve_stacks`, AND ONLY THE LEFTOVER. A balanced stack is already
-    paired and needs no screen; what lands here is the shape no rule can settle -- 7 transfers
-    against 6 approved payments, where SOME transfer settles nothing and choosing which is a
-    judgement about money. Three such stacks survived on the owner's first real statement, and they
-    are the reason this endpoint exists rather than the pass simply reporting a number.
-
-    ⚠️ IT SPANS EVERY IMPORT, exactly as the pass does. A stack does not respect batch boundaries,
-    so scoping this to one would show a person half of their own problem.
-
-    It writes NOTHING. Resolving a stack goes through `settle_row`, one call per pair, so the lock,
-    the already-Paid guard and the X1 amount rewrite all apply unchanged -- and a failure on the
-    third pair leaves the first two written and the rest attemptable.
-    """
-    require_outflow_access()
-    limit = max(1, min(int(limit or 25), 100))
-
-    rows = _load_unstacked_open_rows()
-    if not rows:
-        return {"stacks": [], "total": 0}
-
-    staged = [_StagedRow(r) for r in rows]
-    # ⚠️ `_load_pools` IGNORES ITS `batch` ARGUMENT -- it filters by the ROWS it is given, never by
-    # the batch. Passing None is honest about that rather than inventing a batch this read has no
-    # business naming; a stack spans imports and there is no single batch to pass.
-    pools = _load_pools(staged, None)
-    by_name = {r["name"]: r for r in rows}
-
-    stacks = group_into_stacks(staged, lambda key, transfers: _stack_records(transfers[0], pools))
-    unpaired = [s for s in stacks if not s.is_balanced and s.records]
-
-    return {
-        "stacks": [_stack_payload(s, by_name) for s in unpaired[:limit]],
-        "total": len(unpaired),
-    }
-
-
-def _load_unstacked_open_rows() -> list:
-    """OPEN rows with no suggestion that share an (account, amount) with at least one other.
-
-    ⚠️ THE `HAVING COUNT(*) > 1` IS IN THE DATABASE, not in Python. A read that pulled every open
-    row and grouped them in a loop would get slower every month the feature is used, and ADR-0010
-    puts a count over many rows in the database. The subquery narrows to the handful of keys that
-    can possibly form a stack before a single row is materialised.
-
-    ⚠️ ROWS THAT ALREADY CARRY A SUGGESTION ARE EXCLUDED HERE, which is what makes this read agree
-    with `_resolve_stacks`. That pass skips them too -- a row the per-row matcher spoke for is not
-    ambiguous -- so counting them would show a person a stack the pass has a different view of.
-    """
-    status_ph = ", ".join(["%s"] * len(OPEN_ROW_STATUSES))
-    statuses = sorted(OPEN_ROW_STATUSES)
-
-    return frappe.db.sql(
-        f"""
-        SELECT r.name, r.transfer_id, r.added_on, r.amount, r.status_raw, r.beneficiary_name,
-               r.bank_account, r.ifsc, r.remarks, r.bank_reference_no, r.normalized_account,
-               r.normalized_reference, r.row_status, r.import_batch,
-               b.original_filename AS import_filename
-        FROM "tabOutflow Import Row" r
-        LEFT JOIN "tabOutflow Import Batch" b ON b.name = r.import_batch
-        WHERE r.row_status IN ({status_ph})
-          AND COALESCE(r.suggested_name, '') = ''
-          AND COALESCE(r.normalized_account, '') <> ''
-          AND (r.normalized_account, r.amount) IN (
-              SELECT normalized_account, amount
-              FROM "tabOutflow Import Row"
-              WHERE row_status IN ({status_ph})
-                AND COALESCE(suggested_name, '') = ''
-                AND COALESCE(normalized_account, '') <> ''
-              GROUP BY normalized_account, amount
-              HAVING COUNT(*) > 1
-          )
-        ORDER BY r.normalized_account, r.amount, r.added_on, r.name
-        """,
-        tuple(statuses) * 2,
-        as_dict=True,
-    )
-
-
-def _stack_payload(stack, by_name: dict) -> dict:
-    """One unpaired stack, as the screen reads it.
-
-    The records carry the facts a reviewer picks by -- vendor, project, status -- loaded through the
-    SAME `_targets_by_name` the confirm list uses, so the two screens can never describe one record
-    differently. Status is RE-READ rather than trusted from the match run: a payment ticked Paid by
-    hand since then must not be offered here as though it were still available.
-    """
-    details: dict = {}
-    for doctype in {t.doctype for t in stack.records}:
-        names = [t.name for t in stack.records if t.doctype == doctype]
-        details.update({(doctype, k): v for k, v in _targets_by_name(doctype, names).items()})
-
-    first = by_name.get(stack.transfers[0].name, {})
-    return {
-        "account": stack.key.account,
-        "amount": float(stack.key.amount),
-        "beneficiary_name": first.get("beneficiary_name") or "",
-        "surplus_transfers": stack.surplus_transfers,
-        "surplus_records": stack.surplus_records,
-        "transfers": [
-            {
-                "name": t.name,
-                "transfer_id": t.transfer_id,
-                "added_on": by_name.get(t.name, {}).get("added_on"),
-                "amount": float(t.amount),
-                "remarks": t.remarks,
-                "bank_reference_no": t.bank_reference_no,
-                "import_batch": by_name.get(t.name, {}).get("import_batch"),
-                "import_filename": by_name.get(t.name, {}).get("import_filename"),
-            }
-            for t in stack.transfers
-        ],
-        "records": [
-            {
-                "target_doctype": t.doctype,
-                "target_name": t.name,
-                "amount": float(normalize_amount(details.get((t.doctype, t.name), {}).get("amount", t.amount))),
-                "status": details.get((t.doctype, t.name), {}).get("status") or "",
-                "vendor_name": details.get((t.doctype, t.name), {}).get("vendor_name") or "",
-                "project_name": details.get((t.doctype, t.name), {}).get("project_name") or "",
-            }
-            for t in stack.records
-        ],
-    }
-
-
 def _sole_vendor(result):
     """Persist a resolved vendor ONLY when it is unambiguous.
 
@@ -937,6 +944,16 @@ def get_batch_rows(batch: str):
         by_row.setdefault(match["import_row"], []).append(match)
 
     related = _related_paid_payments(rows)
+    # Stamps `order_name` onto matches and related payments in place, and gives us the map the
+    # suggestion needs below -- see `_with_order_names` for why all three share one lookup.
+    suggested_orders = _payment_order_names(
+        [
+            r.get("suggested_name")
+            for r in rows
+            if (r.get("suggested_doctype") or "") == C.PAYMENT_DOCTYPE
+        ]
+    )
+    _with_order_names(rows, by_row, related)
 
     return {
         "batch": batch,
@@ -948,6 +965,9 @@ def get_batch_rows(batch: str):
                 "service_tax": float(row.get("service_tax") or 0),
                 "matches": by_row.get(row["name"], []),
                 "related_payments": related.get(row.get("normalized_reference") or "", []),
+                # The suggestion is a pair of scalar columns on the row, not a list, so it takes
+                # its own key rather than being stamped in place like the two lists above.
+                "suggested_order_name": suggested_orders.get(row.get("suggested_name") or "", ""),
             }
             for row in rows
         ],
@@ -986,6 +1006,78 @@ def _related_paid_payments(rows: list) -> dict[str, list]:
     return by_reference
 
 
+def _payment_order_names(names) -> dict:
+    """`Project Payments` name -> the ORDER it is against (`document_name`), for LINKING (slice E3).
+
+    ⚠️ THE SCREEN LINKS TO THE ORDER, NOT TO THE PAYMENT, because that is what every other screen in
+    this app does: twelve call sites navigate to `/project-payments/<PO-or-SR id>` with the slashes
+    escaped as `&=`. The outflow feature had invented its own scheme instead -- pre-seeding the
+    payments TABLE's search params with the payment name -- which only lands correctly while four
+    separate things agree (the tab name, the url-sync key format, `name` being a searchable field,
+    and the table reading the seeded params before overwriting them). `paymentHref`'s own docstring
+    already recorded that it "fails SILENTLY by landing on an unfiltered table".
+
+    ⚠️ SO THE ID THE SCREEN NEEDS IS THE ORDER'S, AND THE ROW PAYLOAD DID NOT CARRY IT. Matches,
+    related payments and the stored suggestion all travel as `(doctype, name)` pairs naming the
+    PAYMENT. One query per page adds the order beside them; without it the row table could not use
+    the app's own route at all and would have been left on the scheme this slice exists to retire.
+
+    A payment with no `document_name` maps to nothing and the client falls back -- see
+    `settlementLink`. Blank rather than absent is not distinguished: both mean "no order to open".
+    """
+    wanted = sorted({str(n).strip() for n in names if n and str(n).strip()})
+    if not wanted:
+        return {}
+    placeholders = ", ".join(["%s"] * len(wanted))
+    rows = frappe.db.sql(
+        f"""
+        SELECT name, document_name
+        FROM "tabProject Payments"
+        WHERE name IN ({placeholders})
+        """,
+        tuple(wanted),
+        as_dict=True,
+    )
+    return {r["name"]: (r.get("document_name") or "") for r in rows if r.get("document_name")}
+
+
+def _with_order_names(rows: list, by_row: dict, related: dict) -> None:
+    """Stamp `order_name` onto every payment link source, IN PLACE (slice E3).
+
+    ⚠️ ONE LOOKUP FOR ALL THREE SOURCES. A row can link through a match, through an already-Paid
+    related payment, or through its stored suggestion, and all three end up in the same
+    `rowSettlementLinks` on the client. Enriching them separately would be three queries and, worse,
+    three chances for one of them to be forgotten -- which presents as a link that silently keeps
+    the old behaviour on some rows and not others.
+    """
+    payment_names = []
+    for matches in by_row.values():
+        payment_names += [
+            m["target_name"] for m in matches if m.get("target_doctype") == C.PAYMENT_DOCTYPE
+        ]
+    for entries in related.values():
+        payment_names += [
+            e["target_name"] for e in entries if e.get("target_doctype") == C.PAYMENT_DOCTYPE
+        ]
+    payment_names += [
+        r.get("suggested_name")
+        for r in rows
+        if (r.get("suggested_doctype") or "") == C.PAYMENT_DOCTYPE
+    ]
+
+    orders = _payment_order_names(payment_names)
+    if not orders:
+        return
+    for matches in by_row.values():
+        for m in matches:
+            if m.get("target_doctype") == C.PAYMENT_DOCTYPE:
+                m["order_name"] = orders.get(m["target_name"], "")
+    for entries in related.values():
+        for e in entries:
+            if e.get("target_doctype") == C.PAYMENT_DOCTYPE:
+                e["order_name"] = orders.get(e["target_name"], "")
+
+
 @frappe.whitelist()
 def get_row_candidates(row: str):
     """Ranked candidates for ONE row, fetched on demand when a reviewer opens it.
@@ -993,6 +1085,29 @@ def get_row_candidates(row: str):
     Per-row rather than bundled into `get_batch_rows`: candidates are only ever looked at for the
     row being worked on, and shipping every row's candidate set would make the review payload
     an order of magnitude larger for information nobody reads.
+
+    ⚠️ `settleable_candidates` WAS ADDED AT N3, AND IT IS THE ONE KEY THE SCREEN READS. It is the
+    list `_disambiguation_candidates` builds -- which is `status.settleable_candidates`, the SAME
+    list `sole_suggestion` reads and `_matched_note` / `several_found_note` count. It is emphatically
+    NOT re-derived from `payment_groups` below, in this function or in the client: the note says "6
+    approved records match this transfer and nothing could separate them", and a second list built
+    from a different source is exactly how the sentence and the marks come to disagree about the
+    same row. That failure has a name in this feature's history -- it is the `best_payment_group`
+    collapse, the worst defect it has shipped.
+
+    ⚠️ IT IS `[]` FOR A FAN-OUT, inheriting Option B's abstention rather than restating it: one
+    transfer covering several payments is a genuine match with no single name to offer, so it is not
+    a set of comparable alternatives.
+
+    ⚠️ A SINGLE CANDIDATE COMES BACK AS A LIST OF ONE, NOT AS `[]`. The `< 2` threshold belongs to
+    `_sweep_unresolved_to_mismatched`, which is asking a different question ("is there a decision
+    genuinely waiting?"). Copying it here would put a screen's rule inside an endpoint and give this
+    feature a second place to change it.
+
+    ⚠️ THIS RE-RUNS THE MATCH LIVE AND DOES NOT APPLY THE FOUR GLOBAL PASSES -- no claim pass, no
+    Option B, no stack pairing. So a candidate here may ALREADY BE CLAIMED by another open row. That
+    is honest (it WAS a candidate for this transfer) but it is not a promise, which is why the
+    screen's wording is "the match run found these" and never "you may pick these".
     """
     require_outflow_access()
     doc = frappe.db.get_value(ROW_DOCTYPE, row, "*", as_dict=True)
@@ -1062,12 +1177,20 @@ def get_row_candidates(row: str):
             }
             for c in result.expense_candidates
         ],
+        # N3. Additive -- every key above is untouched, so no existing caller can break. Only the
+        # (doctype, name) pair is sent: it is what the screen matches a browse row on, and a bare
+        # name is not unique across three ledgers. The amounts and projects these candidates carry
+        # are already on the browse row the mark lands on.
+        "settleable_candidates": [
+            {"doctype": c.doctype, "name": c.name}
+            for c in _disambiguation_candidates(result)
+        ],
     }
 
 
 @frappe.whitelist()
 def search_settleable_records(
-    row: str, target_doctype: str = "", search: str = "", limit: int = 50
+    row: str, target_doctype: str = "", search: str = "", limit: int = 0
 ):
     """Approved records a reviewer may link to this row BY HAND (slice V4a; all-ledger at R2).
 
@@ -1077,14 +1200,37 @@ def search_settleable_records(
     dialog used to make you pick a ledger FIRST -- three cards, one per doctype -- and only then
     showed you records. That asked the reviewer to answer a question they often cannot: a transfer
     to a vendor may have been raised as a Project Payment or booked as a Project Expense, and the
-    only way to find out was to open each card in turn. One list, ordered by how close the amount
-    is, lets them recognise the record instead of classifying it first.
+    only way to find out was to open each card in turn. One list lets them recognise the record
+    instead of classifying it first.
 
-    ⚠️ THE CAP IS APPLIED AFTER THE MERGE, NOT PER LEDGER. Each ledger is asked for `limit` rows and
-    the merged list is cut to `limit` -- so the records you get are the globally closest, not a
-    third from each. Sorting before the cut is what makes the cut meaningful, and it uses the same
-    order the screen renders in (suggested first, then closest) so the two never disagree about
-    which records "the top of the list" means.
+    ⚠️ IT RETURNS THE WHOLE APPROVED POOL, AND THE CAP IS NOW A SAFETY CEILING (slice N1, owner
+    decision Q6). `limit=0` -- the default -- means everything, bounded only by `_MAX_BROWSE`. The
+    pool is small enough to hand over once and let the screen filter and sort it with no further
+    round trip.
+
+    ⚠️ HOW SMALL IS NOT A FIXED FACT, AND MEASURING IT ONCE IS A TRAP. It is whatever is APPROVED
+    and not yet paid, so it DRAINS as an import is confirmed and refills as approvals happen. It was
+    measured twice on 2026-08-11, five hours apart: 1,164 records, then 322 -- the same pool, after
+    a batch was settled. Both are comfortably inside the ceiling and either would be fine to send;
+    what would NOT be fine is sizing a future decision on one reading of a number that moves by 4x
+    in an afternoon.
+
+    THE OLD BEHAVIOUR WAS A REAL DEFECT, NOT MERELY A LIMIT. It asked each ledger for 50 rows
+    ORDERED BY AMOUNT CLOSENESS and cut the merge to 50. Two consequences, both live:
+      * the record a reviewer wanted was INVISIBLE unless its amount happened to be near -- the
+        vendor could be right, the project could be right, and it would not be in the list;
+      * 50 near-amount payments filled the merge before the 14 approved project expenses could get
+        in, so an entire ledger could vanish from a list that claims to span all three.
+    A positive `limit` still caps, so the existing callers and tests are unaffected.
+
+    ⚠️ THE ORDER IS NOW A SIMILARITY RANKING, NOT AMOUNT CLOSENESS (owner decision Q1b, slice N1).
+    `similarity.ranked_records` weighs project, vendor name, vendor nickname / contact person and
+    amount, in that priority -- INSIDE a hard settleable/unsettleable split, so a record the write
+    path would refuse can never sit above one it would accept. Every record carries its own
+    `similarity` and `similarity_reasons` so the screen can say why it is where it is.
+
+    ⚠️ THE RANKING MUST NOT LEAK INTO THE MATCHER. `similarity` decides nothing; it orders a list a
+    person confirms. See the import comment at the top of this module.
 
     ⚠️ THIS EXISTS BECAUSE `get_row_candidates` IS THE MATCHER'S OUTPUT, NOT A BROWSABLE LIST, and
     the decision dialog was built on it. When the matcher found nothing the dropdowns were EMPTY --
@@ -1106,12 +1252,14 @@ def search_settleable_records(
     top without hiding anything else.
     """
     require_outflow_access()
-    doc = frappe.db.get_value(ROW_DOCTYPE, row, ["amount", "beneficiary_name"], as_dict=True)
+    doc = frappe.db.get_value(
+        ROW_DOCTYPE, row, ["amount", "beneficiary_name", "remarks"], as_dict=True
+    )
     if not doc:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
 
     bank_amount = normalize_amount(doc.get("amount"))
-    limit = max(1, min(int(limit or 50), 200))
+    cap = _browse_cap(limit)
 
     wanted = (target_doctype or "").strip()
     if wanted:
@@ -1126,12 +1274,82 @@ def search_settleable_records(
 
     records: list[dict] = []
     for ledger in ledgers:
-        records.extend(_search_one_ledger(ledger, bank_amount, search, limit))
+        records.extend(_search_one_ledger(ledger, bank_amount, search, cap))
 
-    # The SAME order the screen renders in -- suggested first, then closest by amount -- so the cut
-    # below keeps the records a reviewer would actually have looked at.
-    records.sort(key=lambda r: (not r["suggested"], abs(r["amount"] - float(bank_amount))))
-    return records[:limit]
+    return _rank_browse_records(records, doc, bank_amount)[:cap]
+
+
+# The ceiling `limit=0` resolves to. Not a page size -- a guard, so that a ledger which grows by an
+# order of magnitude degrades into a truncated list rather than an unbounded query. The live pool
+# has been measured between 322 and 1,164 (it drains as an import is confirmed), so it does not bind
+# today; it exists for the day the shape of the ledger changes and nobody re-checks this file.
+_MAX_BROWSE = 5000
+
+
+def _browse_cap(limit) -> int:
+    """How many records to return. `0` or blank means "everything", up to `_MAX_BROWSE`.
+
+    ⚠️ `0` MEANS EVERYTHING, WHICH IS THE OPPOSITE OF WHAT `int(limit or 50)` USED TO DO. The old
+    expression turned a falsy limit into the default page of 50; the browse list now wants the whole
+    pool by default, and a caller that genuinely wants a page still passes a positive number.
+    """
+    try:
+        wanted = int(limit or 0)
+    except (TypeError, ValueError):
+        wanted = 0
+    if wanted <= 0:
+        return _MAX_BROWSE
+    return min(wanted, _MAX_BROWSE)
+
+
+def _rank_browse_records(records: list[dict], doc: dict, bank_amount) -> list[dict]:
+    """Order the merged pool by how much each record looks like this transfer.
+
+    ⚠️ THE PROJECT INDEX IS BUILT ONCE PER CALL, not per record. It is 194 names; tokenising them
+    1,164 times over would be the redundant work `candidates.load_project_index` exists to avoid.
+
+    ⚠️ THE SCORE AND ITS REASONS ARE ATTACHED TO THE RECORD THE SCREEN ALREADY RENDERS, rather than
+    returned alongside. A parallel array indexed by position is one filter or sort away from
+    describing the wrong row, and this list is about to be filtered and sorted by the client.
+    """
+    row_signals = build_row_signals(
+        doc.get("beneficiary_name"),
+        doc.get("remarks"),
+        bank_amount,
+        C.load_project_index(),
+    )
+
+    # `(doctype, name)` -- a bare name is not unique across three ledgers, which is the same reason
+    # the frontend's `recordKey` carries both halves.
+    by_key = {(r["target_doctype"], r["name"]): r for r in records}
+    ordered: list[dict] = []
+    for signals, score in ranked_records(row_signals, [_record_signals(r) for r in records]):
+        record = by_key[(signals.doctype, signals.name)]
+        record["similarity"] = round(score.total, 3)
+        record["similarity_reasons"] = list(score.reasons)
+        ordered.append(record)
+    return ordered
+
+
+def _record_signals(record: dict) -> RecordSignals:
+    """One row of the browse payload, as the ranker needs to see it.
+
+    ⚠️ `settleable` IS THE PAYLOAD'S OWN `suggested` FLAG, never a second amount comparison. That
+    flag is `amounts.amounts_match` against the settle window, computed where the record was built;
+    re-deriving it here would be a second opinion about what may be settled, which is exactly what
+    `amounts.py` warns its call-site list against.
+    """
+    return RecordSignals(
+        doctype=record["target_doctype"],
+        name=record["name"],
+        amount=normalize_amount(record.get("amount")),
+        settleable=bool(record.get("suggested")),
+        vendor_name=record.get("vendor_name") or "",
+        vendor_nickname=record.get("vendor_nickname") or "",
+        contact_person=record.get("contact_person") or "",
+        project=record.get("project") or "",
+        project_name=record.get("project_name") or "",
+    )
 
 
 def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int) -> list[dict]:
@@ -1152,17 +1370,28 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
         # still be findable -- dropping it would hide a settleable record for a reason invisible on
         # the screen. Both names are resolved server-side so the dropdown does not have to make N
         # more round trips to render N options.
+        # ⚠️ THE COLUMN LIST DRIVES THE PLACEHOLDER COUNT, exactly as the two expense branches below
+        # already do. It was a hand-written OR chain with a hand-counted `[needle] * 5` beside it,
+        # and slice N1 had to add two more columns to it -- which is the moment a hand-counted
+        # parameter list silently goes wrong.
+        search_cols = [
+            "p.name", "v.vendor_name", "p.document_name", "pr.project_name", "p.project",
+            # The nickname and the contact person are how a payment is FOUND by someone who knows
+            # the vendor by neither its registered name nor its id. Same two fields the similarity
+            # ranking reads.
+            "v.vendor_nickname", "v.vendor_contact_person_name",
+        ]
         search_sql = (
-            "AND (lower(p.name) LIKE %s OR lower(coalesce(v.vendor_name,'')) LIKE %s"
-            " OR lower(coalesce(p.document_name,'')) LIKE %s"
-            " OR lower(coalesce(pr.project_name,'')) LIKE %s"
-            " OR lower(coalesce(p.project,'')) LIKE %s)"
+            " AND (" + " OR ".join(f"lower(coalesce({c}::text,'')) LIKE %s" for c in search_cols)
+            + ")"
             if has_search
             else ""
         )
         sql = f"""
-            SELECT p.name, p.amount, p.status, p.project, p.document_name,
-                   v.vendor_name, pr.project_name,
+            SELECT p.name, p.amount, p.status, p.project,
+                   p.document_type, p.document_name,
+                   v.vendor_name, v.vendor_nickname, v.vendor_contact_person_name,
+                   pr.project_name,
                    COALESCE(p.ceo_approval_date, p.approval_date) AS approved_on
             FROM "tabProject Payments" p
             LEFT JOIN "tabVendors" v ON v.name = p.vendor
@@ -1174,7 +1403,7 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
         """
         params = [*statuses]
         if has_search:
-            params.extend([needle] * 5)
+            params.extend([needle] * len(search_cols))
         params.extend([float(bank_amount), limit])
         return [
             {
@@ -1184,7 +1413,19 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
                 # The facts a reviewer picks a payment BY (owner ruling 2026-08-06), each its own
                 # field so the dropdown can lay them out rather than parse a joined string.
                 "vendor_name": r.get("vendor_name") or "",
+                "vendor_nickname": r.get("vendor_nickname") or "",
+                "contact_person": r.get("vendor_contact_person_name") or "",
+                # ⚠️ THE ID, BESIDE THE DISPLAY NAME AND NOT INSTEAD OF IT. `project_name` falls
+                # back to the id when the join finds nothing, so it cannot be compared against what
+                # `ProjectIndex` reports -- that speaks in ids. The ranking needs the id; the screen
+                # needs the name; conflating them loses one of the two.
+                "project": r.get("project") or "",
                 "project_name": r.get("project_name") or r.get("project") or "",
+                # ⚠️ `document_type` IS THE PARENT (Procurement Orders / Service Requests). IT IS
+                # NOT `target_doctype`, WHICH IS THE LEDGER and is always "Project Payments" here.
+                # Two lookalike keys one line apart, and the deduction gate (slice TD) turns on this
+                # one: reading the other would make every payment pass the service check silently.
+                "document_type": r.get("document_type") or "",
                 "document_name": r.get("document_name") or "",
                 "approved_on": str(r["approved_on"]) if r.get("approved_on") else "",
                 "updated_on": "",
@@ -1214,6 +1455,7 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
         search_cols = [
             "e.name", "e.description", "e.type", "e.projects",
             "v.vendor_name", "pr.project_name",
+            "v.vendor_nickname", "v.vendor_contact_person_name",
         ]
         where_search = (
             " AND (" + " OR ".join(f"lower(coalesce({c}::text,'')) LIKE %s" for c in search_cols)
@@ -1223,7 +1465,9 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
         )
         sql = f"""
             SELECT e.name, e.amount, e.status, e.description, e.type,
-                   e.projects AS project, v.vendor_name, pr.project_name, e.modified
+                   e.projects AS project, v.vendor_name,
+                   v.vendor_nickname, v.vendor_contact_person_name,
+                   pr.project_name, e.modified
             FROM "tabProject Expenses" e
             LEFT JOIN "tabVendors" v ON v.name = e.vendor
             LEFT JOIN "tabProjects" pr ON pr.name = e.projects
@@ -1241,9 +1485,15 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
             if has_search
             else ""
         )
+        # ⚠️ THIS LEDGER HAS NO VENDOR AND NO PROJECT AT ALL -- not blank values, no columns and no
+        # join to make. All 68 approved Non Project Expenses therefore score ZERO on three of the
+        # ranking's four axes, and that is a fact about the data rather than evidence about the
+        # transfer: `similarity` treats a missing field as no signal, never as a penalty.
         sql = f"""
             SELECT name, amount, status, description, type,
-                   NULL AS project, NULL AS vendor_name, NULL AS project_name, modified
+                   NULL AS project, NULL AS vendor_name,
+                   NULL AS vendor_nickname, NULL AS vendor_contact_person_name,
+                   NULL AS project_name, modified
             FROM "tabNon Project Expenses"
             WHERE status IN ({status_ph})
               AND amount IS NOT NULL
@@ -1262,7 +1512,13 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
             "name": r["name"],
             "amount": float(normalize_amount(r.get("amount"))),
             "vendor_name": r.get("vendor_name") or "",
+            "vendor_nickname": r.get("vendor_nickname") or "",
+            "contact_person": r.get("vendor_contact_person_name") or "",
+            "project": r.get("project") or "",
             "project_name": r.get("project_name") or r.get("project") or "",
+            # Blank on both expense ledgers -- an expense has no parent order at all, which is also
+            # why neither can carry a deduction (slice TD, ruling R6).
+            "document_type": "",
             "document_name": r.get("type") or "",
             "approved_on": "",
             "updated_on": str(r["modified"]) if r.get("modified") else "",
@@ -1362,16 +1618,50 @@ _FACET_COLUMNS = {
     "bank_account": "r.bank_account",
     "ifsc": "r.ifsc",
     "import_batch": "r.import_batch",
-    # The screen facets on the DAY, not the timestamp -- which is what a person means by "the
-    # payment date". `added_on` is a Datetime, so the cast is what makes the facet's values match
-    # the cell's text.
-    "added_on": "CAST(r.added_on AS date)",
+    # ⚠️ ONE LINE, AND EVERY CONSUMER INHERITS IT (slice Q1) -- the page query, its count, the tab
+    # counts, the facet values AND the summary all read `_row_filters`. That is the whole payoff of
+    # the shared builder, and the reason this needed no new query.
+    #
+    # It reads the row's DENORMALISED copy, not a join to `Outflow Row Match`. The copy exists for
+    # exactly this: a facet over a joined table would need an EXISTS subquery in a builder whose
+    # every other clause is single-table, and the two tiers are written in one call so they cannot
+    # disagree. Blank on every unsettled row, which is honest -- an open transfer has no settlement
+    # to have an origin.
+    "settlement_origin": "r.settlement_origin",
+    # ⚠️ THE ROW'S OWN COPY, NOT `b.source` THROUGH THE JOIN, for the reason two entries above:
+    # `_row_filters` builds single-table clauses shared by the page query, its count, the tab
+    # counts, the facet values and the summary, and not all of those carry the batch join. A
+    # denormalised column keeps every one of them working with no new query. It is written at
+    # staging by both sources, and `v3_0.backfill_outflow_row_source` fills the rows that predate
+    # the field -- without which the funnel would draw itself over 1,043 blanks.
+    "source": "r.source",
+    # ⚠️ `added_on` WAS REMOVED AT P1 AND MUST NOT COME BACK. The payment date is a DATE FILTER now
+    # (`date_from` / `date_to`, applied in `_row_filters`), which is the one shape a facet cannot
+    # serve: an IN list over distinct days grows without limit as the table does, and cannot express
+    # "everything after the 14th" at all. It also became the SCREEN'S PERIOD, so offering a second
+    # way to filter the same column would let two controls contradict each other.
+    #
+    # Removing it is safe rather than breaking: `_parsed_facets` drops an unknown column SILENTLY, so
+    # a stale bookmark carrying an `added_on` facet shows an unfiltered table instead of an error.
+    # `get_outflow_facet_values("added_on")` now throws, which is correct -- nothing asks for it.
 }
 
 # One page. Generous enough that a whole statement usually fits on one, capped so a client cannot
 # ask for the entire table and reinstate the problem this endpoint exists to solve.
 _DEFAULT_PAGE_SIZE = 50
 _MAX_PAGE_SIZE = 200
+
+# The most rows "Confirm all matched" will assemble in one go (slice P1).
+#
+# ⚠️ IT IS A REVIEWABILITY LIMIT, NOT A PERFORMANCE ONE, AND IT REFUSES RATHER THAN TRUNCATING. The
+# confirm dialog is a SAFETY CONTROL: it states what the button will write, including how many
+# approved amounts the click will REWRITE. Before P1 the set was bounded by one statement -- the
+# largest real one to date is 1,043 rows -- and a period can now select months of them. Past a few
+# thousand nobody reads the tree, and a control nobody reads is a control that is not there.
+#
+# Sized so that any single real statement always fits, so narrowing to one import is always a way
+# through. See `_assert_confirmable_size` for why truncating would be the dangerous alternative.
+_MAX_CONFIRMABLE = 2000
 
 
 @frappe.whitelist()
@@ -1443,6 +1733,12 @@ def get_outflow_rows(
                r.normalized_account, r.normalized_reference, r.resolved_vendor, r.resolved_project,
                r.suggested_doctype, r.suggested_name, r.suggestion_rule, r.match_basis,
                r.auto_matched, r.row_status, r.skip_reason, r.outcome_note,
+               -- ⚠️ ADDING A COLUMN TO `_FACET_COLUMNS` DOES NOT SHIP IT TO THE SCREEN. That map
+               -- governs FILTERING; this list governs what the row CARRIES, and slice Q1 initially
+               -- changed only the first -- so the "Settled via" column rendered an em dash on all
+               -- 849 settled rows while the summary beside it reported 843 auto-matched. Caught in
+               -- the browser, by nothing else: every suite was green.
+               r.settlement_origin, r.source,
                b.original_filename AS import_filename,
                b.period_from       AS import_period_from,
                b.period_to         AS import_period_to
@@ -1463,6 +1759,19 @@ def get_outflow_rows(
     )[0]["n"]
 
     related = _related_paid_payments(rows)
+    # ⚠️ THE SAME ENRICHMENT AS `get_batch_rows`, AND IT HAS TO BE. This is the MASTER TABLE -- the
+    # surface most of the feature's payment links are actually clicked on -- so enriching only the
+    # batch view would leave the app's own route working in one place and not the other, which is
+    # harder to diagnose than it not working at all. `matches` is empty here by design, so only the
+    # related payments and the suggestion carry an order.
+    suggested_orders = _payment_order_names(
+        [
+            r.get("suggested_name")
+            for r in rows
+            if (r.get("suggested_doctype") or "") == C.PAYMENT_DOCTYPE
+        ]
+    )
+    _with_order_names(rows, {}, related)
     tab_counts, status_counts = _tab_counts(where, params)
 
     return {
@@ -1477,6 +1786,7 @@ def get_outflow_rows(
                 # records: they mean "settled", and the Settled tab reads them per row on demand.
                 "matches": [],
                 "related_payments": related.get(row.get("normalized_reference") or "", []),
+                "suggested_order_name": suggested_orders.get(row.get("suggested_name") or "", ""),
             }
             for row in rows
         ],
@@ -1532,13 +1842,31 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
         )
         params.extend([needle] * len(_SEARCHABLE_COLUMNS))
 
+    # ⚠️ A ROW WITH NO `added_on` SURVIVES EVERY PERIOD (slice P1), AND THE `IS NULL` IS THE WHOLE
+    # POINT OF THESE TWO CLAUSES.
+    #
+    # The bank's date column is free text and does not always parse -- the parser stores NULL rather
+    # than guessing, and the test fixture carries a literal `not-a-date` for exactly this case. Under
+    # plain `>=` / `<` such a row matches NO period at all, so once the period became the SCREEN'S
+    # SCOPE (P1) it would have disappeared from the summary, from all three tabs and from the Skipped
+    # dialog simultaneously -- with no filter on screen that could bring it back, because every
+    # window excludes it equally.
+    #
+    # That is the worst available outcome for a worklist about money: the transfer still moved, it
+    # still needs settling, and a parse failure in one column is precisely the kind of row that needs
+    # a person. Showing it in every period is noisy in the rare case; hiding it is silent in the
+    # dangerous one.
+    #
+    # ⚠️ IT IS SAFE TO WIDEN THESE HERE because nothing shipped depended on the narrow reading:
+    # `date_from` / `date_to` existed on the endpoint before P1 but `serverQuery` never emitted them,
+    # so this is the first release in which any client sends a date at all.
     if date_from:
-        where.append("r.added_on >= %s")
+        where.append("(r.added_on >= %s OR r.added_on IS NULL)")
         params.append(date_from)
     if date_to:
         # Inclusive of the whole end DAY. `added_on` is a Datetime, so a bare date bound would
         # silently exclude everything after midnight on the day a person typed.
-        where.append("r.added_on < (%s::date + INTERVAL '1 day')")
+        where.append("(r.added_on < (%s::date + INTERVAL '1 day') OR r.added_on IS NULL)")
         params.append(date_to)
 
     if amount_min not in (None, ""):
@@ -1708,8 +2036,29 @@ def _tab_counts(where, params) -> tuple[dict, dict]:
 
 
 @frappe.whitelist()
-def get_confirmable_rows(batch: str):
-    """What "Confirm all matched" can and cannot act on, for one import (slice X5).
+def get_confirmable_rows(
+    batch: str = None,
+    failed=None,
+    search: str = None,
+    date_from: str = None,
+    date_to: str = None,
+    amount_min=None,
+    amount_max=None,
+    facets=None,
+):
+    """What "Confirm all matched" can and cannot act on, over the current filters (X5, widened P1).
+
+    ⚠️ IT TAKES THE SAME FILTERS AS `get_outflow_rows` AND `get_outflow_summary`, THROUGH THE SAME
+    `_row_filters`. The button is labelled with `confirmable_rows` from the summary, so the two must
+    select the same population or the button offers a number this endpoint cannot produce -- which
+    is the defect the `stale` bucket was invented to explain, and it would come straight back if
+    these two ever filtered differently. `batch=X` alone reproduces the pre-P1 behaviour exactly.
+
+    ⚠️ IT IS CAPPED (`_MAX_CONFIRMABLE`), AND THE CAP REFUSES RATHER THAN TRUNCATES. Before P1 this
+    was bounded by one statement; a period can select months. A silently truncated list would show
+    "Confirm 2,000" over a set that is not the set the summary counted, and the person clicking
+    would have no way to know. Refusing names the number and tells them to narrow -- see
+    `_assert_confirmable_size`.
 
     ⚠️ `Matched` IS NOT THE SAME AS CONFIRMABLE, AND CONFLATING THEM IS THE TRAP IN THIS FEATURE. A
     row is `Matched` when the matcher found one OR MORE approved records. When it found several it
@@ -1742,18 +2091,39 @@ def get_confirmable_rows(batch: str):
     holds.
     """
     require_outflow_access()
-    _assert_batch(batch)
+    if batch:
+        _assert_batch(batch)
+
+    where, params = _row_filters(
+        batch=batch,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        amount_min=amount_min,
+        amount_max=amount_max,
+        facets=facets,
+        failed=failed,
+    )
+    # The scope is NOT taken from the caller. "Confirm all matched" acts on `Matched` rows by
+    # definition, so the status is this endpoint's own, not a tab's -- reading a scope here would
+    # let a person on the Settled tab ask to confirm nothing, or on `all` ask to confirm the same
+    # set under a name that does not say so.
+    where = where + ["r.row_status = %s"]
+    params = params + [ROW_MATCHED]
+    clause = " WHERE " + " AND ".join(where)
+
+    _assert_confirmable_size(clause, params)
 
     rows = frappe.db.sql(
-        """
-        SELECT name, transfer_id, added_on, amount, beneficiary_name, remarks,
-               bank_reference_no, suggested_doctype, suggested_name, outcome_note,
-               suggestion_rule, match_basis, auto_matched
-        FROM "tabOutflow Import Row"
-        WHERE import_batch = %s AND row_status = %s
-        ORDER BY added_on ASC, name ASC
+        f"""
+        SELECT r.name, r.transfer_id, r.added_on, r.amount, r.beneficiary_name, r.remarks,
+               r.bank_reference_no, r.suggested_doctype, r.suggested_name, r.outcome_note,
+               r.suggestion_rule, r.match_basis, r.auto_matched
+        FROM "tabOutflow Import Row" r
+        {clause}
+        ORDER BY r.added_on ASC, r.name ASC
         """,
-        (batch, ROW_MATCHED),
+        tuple(params),
         as_dict=True,
     )
 
@@ -1840,6 +2210,118 @@ def get_confirmable_rows(batch: str):
     }
 
 
+def _assert_confirmable_size(clause: str, params) -> None:
+    """Refuse a confirm set too large to be reviewed, naming the number (slice P1).
+
+    ⚠️ IT REFUSES; IT DOES NOT TRUNCATE, AND THAT IS THE WHOLE VALUE OF IT. A `LIMIT` would hand
+    back a list shorter than the count on the button that opened it, over a set nobody chose --
+    exactly the "button 688, table 893" defect that the `stale` bucket exists to explain, except
+    unexplainable because the missing rows would have no property in common. Refusing keeps the two
+    numbers honest and hands the person a lever: narrow the period.
+
+    ⚠️ THE CAP IS ABOUT REVIEWABILITY, NOT PERFORMANCE. The dialog is a SAFETY CONTROL -- it states
+    what the button will write, including how many approved amounts it will rewrite. Past a few
+    thousand rows nobody reads it, and a control nobody reads is a control that is not there.
+    """
+    total = frappe.db.sql(
+        f"""SELECT COUNT(*) AS n FROM "tabOutflow Import Row" r {clause}""",
+        tuple(params),
+        as_dict=True,
+    )[0]["n"]
+    if int(total or 0) > _MAX_CONFIRMABLE:
+        frappe.throw(
+            f"{int(total):,} matched transfers are in view — too many to review in one go "
+            f"(the limit is {_MAX_CONFIRMABLE:,}). Narrow the period, or filter to one import, "
+            "and confirm in smaller batches.",
+            title="Too many to confirm at once",
+        )
+
+
+@frappe.whitelist(methods=["POST"])
+def match_period(
+    batch: str = None,
+    failed=None,
+    search: str = None,
+    date_from: str = None,
+    date_to: str = None,
+    amount_min=None,
+    amount_max=None,
+    facets=None,
+):
+    """Re-run the match for every import the current filters touch (slice P1).
+
+    ⚠️ IT LOOPS `match_batch` PER BATCH AND CHANGES NOTHING ABOUT IT. `match_batch` runs a per-row
+    loop and then FOUR global passes -- claims, Option B, stacks, the sweep -- whose ORDER is
+    load-bearing at every joint, and three of which reason over the whole batch's results at once.
+    Matching "just the rows in the period" would hand those passes a partial picture: the claim pass
+    could not see a rival row outside the window, and the stack pass could not tell a balanced stack
+    from an unbalanced one. So the unit of matching stays the BATCH, and this only decides which
+    batches.
+
+    ⚠️ CONSEQUENCE, STATED RATHER THAN DISCOVERED: a batch that STRADDLES the period is re-matched
+    IN FULL, including its transfers outside it. That is wider than the filter implies, and the
+    screen says so before the click -- `get_outflow_summary().imports` carries each batch's
+    `row_count` (in scope) beside its `total_rows` (in the batch) for exactly that sentence. Do not
+    "fix" this by narrowing the match; fix it by keeping the warning honest.
+
+    ⚠️ SEQUENTIAL, AND THAT IS ALREADY THE SUPPORTED SHAPE. Re-running a batch is normal and safe
+    (see the module docstring), and matching batch A then batch B is precisely what a person does
+    today clicking Re-run on each import in turn. The cross-import passes are built for it:
+    `_enforce_single_claim` READS across imports and WRITES only inside the batch being matched, and
+    `_resolve_stacks` computes the same pairing from either side.
+    """
+    require_outflow_access()
+    if batch:
+        _assert_batch(batch)
+
+    where, params = _row_filters(
+        batch=batch,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        amount_min=amount_min,
+        amount_max=amount_max,
+        facets=facets,
+        failed=failed,
+    )
+    # ⚠️ ORDERED OLDEST-UPLOADED FIRST, AND IT SORTS ITSELF RATHER THAN REVERSING THE READER
+    # (slice CF/S3). A record contested by two imports goes to the EARLIER transfer under
+    # `resolve_claims`' `(added_on, row name)` ordering, so matching oldest first means the later
+    # batch sees that claim already placed rather than placing and releasing it. The outcome is the
+    # same either way -- the claim pass is order-independent by construction -- but the run does
+    # less work and its per-batch counters read in the order things happened.
+    #
+    # ⚠️ THIS USED TO BE `_imports_in_scope(...)` FOLLOWED BY `.reverse()`, AND THAT COUPLING WAS A
+    # TRAP THAT ALMOST FIRED. It borrowed its meaning from a PICKER'S sort order, so when CF/S3
+    # re-ordered that reader by `period_to` -- a presentation change, asked for as one -- this
+    # function would silently have started matching in a different order, and a contested record
+    # could have gone to a different transfer. Nothing would have failed. The ordering that decides
+    # where money lands now lives here, in full, and cannot be moved by a change to how a dropdown
+    # reads.
+    #
+    # `_match_order` is a named, separately tested function for the same reason: an ordering that
+    # decides where money lands should not be an anonymous expression inside an endpoint.
+    #
+    # ⚠️ A `Completed` STATEMENT IS SKIPPED (slice CF/S5), AND THIS IS A COST FIX RATHER THAN A
+    # BEHAVIOUR ONE. `match_batch` already skips `_FROZEN_ROW_STATUSES` per row, so a statement
+    # whose every transfer is settled or skipped has nothing left to match -- it just walked all
+    # 1,043 rows to find that out, on every re-run, forever. `batch_is_open` is the ONE predicate;
+    # the caption above the button counts through the same `is_open` flag, so the number a reviewer
+    # reads and the set this loops over cannot disagree.
+    scoped = [b for b in _imports_in_scope(where, params) if b["is_open"]]
+    batches = _match_order(scoped)
+
+    results = []
+    for name in batches:
+        results.append({"batch": name, **(match_batch(name) or {})})
+
+    return {
+        "batches": batches,
+        "batches_matched": len(batches),
+        "results": results,
+    }
+
+
 def _targets_by_name(target_doctype: str, names: list) -> dict:
     """One ledger's records, by name, with the facts the confirm list shows.
 
@@ -1916,17 +2398,47 @@ def list_imports(limit=60):
 
     ⚠️ NOT THE BATCH ID. An accountant knows a statement by its file and the fortnight it covers;
     `OFI-26-00007` means nothing to them. The picker composes its label from these fields.
+
+    ⚠️ ORDERED BY THE STATEMENT'S OWN PERIOD, NOT BY WHEN IT WAS UPLOADED (owner ruling, slice
+    CF/S3). Statements are routinely posted weeks after the transfers moved, so `uploaded_at` put a
+    March statement above a July one purely because somebody got to it later -- and the label a
+    reader is scanning for is the period. `uploaded_at` remains the tie-break, for the batches whose
+    period did not parse.
+
+    ⚠️ THIS ORDER IS FOR READING ONLY. `match_period` sorts its own batch list -- see the warning
+    there, which is about money rather than presentation.
+
+    ⚠️ ONE READER FOR TWO SURFACES (slice CF/S4). The Import picker and the History dialog both
+    come from here. A second endpoint answering "what imports are there" would be free to disagree
+    with the dropdown about which statements exist and in what order -- and the History dialog's
+    rows are clickable, so a disagreement would offer a statement the picker cannot select.
+
+    ⚠️ `successful_rows` IS COUNTED, NOT READ OFF `total_rows`. The batch stores `total_rows`
+    including transfers the bank REFUSED, while `gross_amount` has excluded them since parse time
+    (invariant 13). Printing those two side by side would put a count and an amount describing
+    different populations on one line -- the Skipped-chip defect, in a smaller frame. The definition
+    of "successful" is BOUND from `parser.BANK_SUCCESS_STATUS`, never spelled a second time.
+
+    ⚠️ A BATCH WITH NO ROWS STILL APPEARS, at zero. `LEFT JOIN` rather than `JOIN`: an import that
+    staged nothing is exactly the one somebody goes looking for in a history, and dropping it would
+    make the failure invisible on the only screen that lists imports as imports.
     """
     require_outflow_access()
     return frappe.db.sql(
         """
-        SELECT name, original_filename, period_from, period_to, status,
-               total_rows, uploaded_at, uploaded_by
-        FROM "tabOutflow Import Batch"
-        ORDER BY uploaded_at DESC NULLS LAST, creation DESC
+        SELECT b.name, b.original_filename, b.period_from, b.period_to, b.status, b.source,
+               b.total_rows, b.gross_amount, b.uploaded_at, b.uploaded_by,
+               COUNT(r.name) FILTER (
+                   WHERE UPPER(COALESCE(r.status_raw, '')) = %s
+               ) AS successful_rows
+        FROM "tabOutflow Import Batch" b
+        LEFT JOIN "tabOutflow Import Row" r ON r.import_batch = b.name
+        GROUP BY b.name, b.original_filename, b.period_from, b.period_to, b.status, b.source,
+                 b.total_rows, b.gross_amount, b.uploaded_at, b.uploaded_by, b.creation
+        ORDER BY b.period_to DESC NULLS LAST, b.uploaded_at DESC NULLS LAST, b.creation DESC
         LIMIT %s
         """,
-        (max(1, min(int(limit or 60), 200)),),
+        (BANK_SUCCESS_STATUS, max(1, min(int(limit or 60), 200))),
         as_dict=True,
     )
 
@@ -1946,7 +2458,7 @@ def _load_rows(batch: str) -> list:
                beneficiary_id, bank_account, ifsc, remarks, bank_reference_no, service_charge,
                service_tax, added_by_raw, normalized_account, normalized_reference,
                resolved_vendor, resolved_project, suggested_doctype, suggested_name,
-               row_status, skip_reason, outcome_note
+               row_status, skip_reason, outcome_note, settlement_origin
         FROM "tabOutflow Import Row"
         WHERE import_batch = %s
         ORDER BY added_on ASC, name ASC
@@ -1979,17 +2491,43 @@ def _refresh_batch_rollup(batch: str) -> list:
 
 
 @frappe.whitelist()
-def get_import_summary(batch: str):
-    """Everything the summary section reports about one import (slice X2).
+def get_outflow_summary(
+    batch: str = None,
+    failed=None,
+    search: str = None,
+    date_from: str = None,
+    date_to: str = None,
+    amount_min=None,
+    amount_max=None,
+    facets=None,
+):
+    """The summary of EVERY transfer the current filters select (slice P1).
 
-    ⚠️ ONE `GROUP BY`, NOT A ROW LOOP. This is a count and a sum over every row of an import, which
-    ADR-0010 puts in the database. `get_batch_rows` exists for the rows themselves; using it here
-    would load the whole import to add up two columns, and would get slower every month the feature
-    is used. The pure `derive_import_summary` assembles what the query returns.
+    ⚠️ THE SCOPE REVERSED HERE, AND THE OLD SHAPE IS WORTH STATING SO THE CHANGE IS LEGIBLE. Until
+    P1 this was `get_import_summary(batch)` -- hard-scoped to ONE import, sitting above a table that
+    spanned all of them, which the 2026-08-10 ruling called the design ("how did that statement go?"
+    and "what do I still owe a decision on?" are different questions). The owner REVERSED that on
+    2026-08-12: the panel now summarises a PERIOD, and the table shows the transfers inside it.
+
+    ⚠️ IT TAKES THE SAME FILTERS AS `get_outflow_rows` AND BUILDS THEM WITH `_row_filters`, WHICH IS
+    THE WHOLE POINT. The old objection to a panel that disagreed with its table was a POPULATION
+    mismatch, and the fix is not to argue about which population is right -- it is to make there be
+    only one. This runs the identical WHERE clause the page query, its count, the tab counts and the
+    facet values all run, so the panel and the tabs beneath it cannot disagree by construction.
+    Adding a second filter path here would reinstate exactly the defect `_row_filters` exists to
+    prevent.
+
+    ⚠️ EVERY FILTER EXCEPT THE SCOPE. The scope is the TAB -- a partition OF this population, not a
+    narrowing of it -- so applying it would make the panel describe whichever tab happened to be
+    open. This is the same rule `_tab_counts` follows, for the same reason.
+
+    ⚠️ ONE `GROUP BY`, NOT A ROW LOOP. This is a count and a sum over potentially every row ever
+    staged, which ADR-0010 puts in the database. `get_batch_rows` exists for the rows themselves.
 
     ⚠️ IT DERIVES NOTHING ITSELF. Every count, sum and percentage comes out of `status.py`, which is
-    the only deriver in this feature (ADR-0010 B3). A summary that computed its own numbers could
-    disagree with the tabs directly beneath it, which is worse than showing no summary at all.
+    the only deriver in this feature (ADR-0010 B3), and `derive_import_summary` needed NO change to
+    serve a period -- it folds a stream of tallies and has never known what a batch is. A summary
+    that computed its own numbers could disagree with the tabs directly beneath it.
 
     ⚠️ THE AUTO / MANUAL SKIP SPLIT KEYS ON `decided_by`, NOT ON THE REASON TEXT. A skip written at
     upload carries a system-generated `skip_reason` and no decider; a manual one records the person.
@@ -1997,7 +2535,20 @@ def get_import_summary(batch: str):
     rule `_related_paid_payments` follows for exactly the same reason.
     """
     require_outflow_access()
-    _assert_batch(batch)
+    if batch:
+        _assert_batch(batch)
+
+    where, params = _row_filters(
+        batch=batch,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        amount_min=amount_min,
+        amount_max=amount_max,
+        facets=facets,
+        failed=failed,
+    )
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
 
     # ⚠️ GROUPED BY `(row_status, failed)`, NOT BY STATUS ALONE. A transfer the bank rejected is
     # `Skipped` -- and so is a duplicate, and so is a payment ticked Paid by hand. The owner ruled
@@ -2008,23 +2559,31 @@ def get_import_summary(batch: str):
     # `is_success_status`, which is what the parse path uses; writing `'SUCCESS'` into this SQL
     # would be a second definition of "successful" that stays right only until one of them learns
     # about a status word the other has not.
+    #
+    # ⚠️ THE `r.` ALIAS IS REQUIRED, NOT DECORATION. `_row_filters` writes every fragment against
+    # `r`, so the FROM clause has to bind that alias or the shared builder cannot be used here at
+    # all -- which is the one thing this endpoint must not fall back on.
     grouped = frappe.db.sql(
-        """
-        SELECT row_status                                        AS status,
-               UPPER(TRIM(COALESCE(status_raw, ''))) <> %s        AS failed,
-               COUNT(*)                                          AS count,
-               COALESCE(SUM(amount), 0)                          AS value,
-               COALESCE(SUM(CASE WHEN COALESCE(suggested_name, '') <> ''
-                                 THEN 1 ELSE 0 END), 0)          AS with_suggestion,
-               COALESCE(SUM(CASE WHEN COALESCE(suggested_name, '') <> ''
-                                 THEN amount ELSE 0 END), 0)     AS suggested_value,
-               COALESCE(SUM(CASE WHEN COALESCE(decided_by, '') = ''
-                                 THEN 1 ELSE 0 END), 0)          AS undecided_by_a_person
-        FROM "tabOutflow Import Row"
-        WHERE import_batch = %s
-        GROUP BY row_status, UPPER(TRIM(COALESCE(status_raw, ''))) <> %s
+        f"""
+        SELECT r.row_status                                        AS status,
+               UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s        AS failed,
+               COUNT(*)                                            AS count,
+               COALESCE(SUM(r.amount), 0)                          AS value,
+               COALESCE(SUM(CASE WHEN COALESCE(r.suggested_name, '') <> ''
+                                 THEN 1 ELSE 0 END), 0)            AS with_suggestion,
+               COALESCE(SUM(CASE WHEN COALESCE(r.suggested_name, '') <> ''
+                                 THEN r.amount ELSE 0 END), 0)     AS suggested_value,
+               COALESCE(SUM(CASE WHEN COALESCE(r.decided_by, '') = ''
+                                 THEN 1 ELSE 0 END), 0)            AS undecided_by_a_person,
+               -- Settlements that took the matcher's own pick (slice Q1). Reads the row's
+               -- denormalised copy, so this stays ONE grouped query over ONE table.
+               COALESCE(SUM(CASE WHEN r.settlement_origin = %s
+                                 THEN 1 ELSE 0 END), 0)            AS from_suggestion
+        FROM "tabOutflow Import Row" r
+        {clause}
+        GROUP BY r.row_status, UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s
         """,
-        (BANK_SUCCESS_STATUS, batch, BANK_SUCCESS_STATUS),
+        (BANK_SUCCESS_STATUS, ORIGIN_ACCEPTED) + tuple(params) + (BANK_SUCCESS_STATUS,),
         as_dict=True,
     )
 
@@ -2036,6 +2595,7 @@ def get_import_summary(batch: str):
             with_suggestion=int(g["with_suggestion"] or 0),
             suggested_value=normalize_amount(g["suggested_value"]),
             failed=bool(g["failed"]),
+            from_suggestion=int(g["from_suggestion"] or 0),
         )
         for g in grouped
     )
@@ -2051,7 +2611,25 @@ def get_import_summary(batch: str):
         if (g["status"] or "") == ROW_SKIPPED and not g["failed"]
     )
 
-    meta = frappe.db.get_value(
+    return {
+        "batch": batch,
+        "imports": _imports_in_scope(where, params),
+        # ⚠️ THE STATEMENT'S OWN METADATA, ONLY WHEN ONE IS SELECTED. A period spanning several
+        # imports has no single filename, uploader or declared period, and inventing one would be a
+        # caption that quietly describes the wrong statement. Absent is the honest shape there; the
+        # screen reads the `imports` list instead.
+        "import": _batch_meta(batch) if batch else None,
+        "totals": _jsonable_summary(summary),
+        # Which skips were the system's and which were a person's. The screen labels them
+        # differently because they mean different things: one is bookkeeping, one is a decision.
+        "auto_skipped_rows": auto_skipped,
+        "manually_skipped_rows": max(summary["skipped_rows"] - auto_skipped, 0),
+    }
+
+
+def _batch_meta(batch: str) -> dict:
+    """One statement's own facts, for the header shown when it is the selected import."""
+    return frappe.db.get_value(
         BATCH_DOCTYPE,
         batch,
         [
@@ -2062,15 +2640,109 @@ def get_import_summary(batch: str):
         as_dict=True,
     )
 
-    return {
-        "batch": batch,
-        "import": meta,
-        "totals": _jsonable_summary(summary),
-        # Which skips were the system's and which were a person's. The screen labels them
-        # differently because they mean different things: one is bookkeeping, one is a decision.
-        "auto_skipped_rows": auto_skipped,
-        "manually_skipped_rows": max(summary["skipped_rows"] - auto_skipped, 0),
-    }
+
+def _match_order(scoped: list) -> list:
+    """The order `match_period` matches batches in: OLDEST UPLOADED FIRST.
+
+    ⚠️ THIS DECIDES WHERE A CONTESTED RECORD LANDS, WHICH IS WHY IT IS ITS OWN FUNCTION. A record
+    that two imports both match goes to the EARLIER transfer under `resolve_claims`' `(added_on, row
+    name)` ordering; matching oldest first means the later batch sees that claim already placed
+    rather than placing and releasing it.
+
+    ⚠️ IT USED TO BE `_imports_in_scope(...)` FOLLOWED BY `.reverse()`, AND THAT ALMOST FIRED
+    (slice CF/S3). Borrowing the order from a PICKER'S sort meant that re-ordering the picker by
+    `period_to` -- a presentation change, asked for as one -- would silently have changed the order
+    money is matched in, with nothing failing anywhere. The rule now lives here in full and cannot
+    be moved by a change to how a dropdown reads.
+
+    ⚠️ A BATCH WITH NO `uploaded_at` STILL SORTS FIRST, reproducing the reversed clause exactly
+    (`DESC NULLS LAST` reversed is `ASC NULLS FIRST`). The tuple's first element separates the two
+    groups, so the placeholder `""` is never compared against a datetime. The name breaks the
+    remaining ties -- it is unique, which is the same guarantee `pair_stack` and `resolve_claims`
+    rely on, so no tie survives to be broken by query order.
+    """
+    return [
+        b["name"]
+        for b in sorted(
+            scoped,
+            key=lambda b: (b.get("uploaded_at") is not None, b.get("uploaded_at") or "", b["name"]),
+        )
+    ]
+
+
+def _imports_in_scope(where, params) -> list:
+    """Which statements the selected transfers actually came from.
+
+    ⚠️ DERIVED FROM THE ROWS, NEVER BY SELECTING BATCHES ON `period_from` / `period_to`. There are
+    THREE different "periods" in this schema and they do not coincide: a row's `added_on` (when the
+    money moved), a batch's declared period, and its `uploaded_at`. The screen filters on
+    `added_on`, so asking the batch table for "batches whose declared period overlaps" would return
+    a DIFFERENT set -- late uploads straddle boundaries, and `overlaps_batch` exists precisely
+    because declared periods overlap. Reading the imports back off the rows we already selected is
+    the only answer that cannot disagree with the figures beside it.
+
+    ⚠️ THIS IS WHAT `match_period` ACTS ON, so it is a fact about the action and not only a caption:
+    re-running the match touches these batches IN FULL, including their transfers outside the
+    filter. `row_count` is how many of each batch's rows are actually in scope, which is what lets
+    the screen say so honestly instead of implying the action is as narrow as the period.
+    """
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    return [
+        {
+            "name": g["name"],
+            "original_filename": g["original_filename"],
+            "period_from": g["period_from"],
+            "period_to": g["period_to"],
+            "uploaded_at": g["uploaded_at"],
+            "row_count": int(g["row_count"] or 0),
+            # How many rows the batch holds in TOTAL, so a caller can see at a glance that acting on
+            # it reaches further than the filter does.
+            "total_rows": int(g["total_rows"] or 0),
+            # ⚠️ THE DERIVED BATCH STATUS, CARRIED SO THE SCREEN CAN TELL AN OPEN STATEMENT FROM A
+            # FINISHED ONE (slice CF/S5). `match_period` skips the finished ones, so the caption
+            # above the button must count only the open ones -- naming statements the button will
+            # not touch is the same class of lie as "button 688, table 893", pointing the other way.
+            "status": g["status"],
+            "is_open": batch_is_open(g["status"]),
+        }
+        for g in frappe.db.sql(
+            f"""
+            SELECT b.name, b.original_filename, b.period_from, b.period_to, b.uploaded_at, b.status,
+                   COUNT(*) AS row_count,
+                   COALESCE(MAX(b.total_rows), 0) AS total_rows
+            FROM "tabOutflow Import Row" r
+            JOIN "tabOutflow Import Batch" b ON b.name = r.import_batch
+            {clause}
+            GROUP BY b.name, b.original_filename, b.period_from, b.period_to, b.uploaded_at,
+                     b.status
+            ORDER BY b.period_to DESC NULLS LAST, b.uploaded_at DESC NULLS LAST, b.name DESC
+            """,
+            tuple(params),
+            as_dict=True,
+        )
+    ]
+
+
+@frappe.whitelist()
+def get_import_summary(batch: str):
+    """One import's summary. KEPT as a thin wrapper over the period-scoped read (slice P1).
+
+    ⚠️ IT IS NOT DEAD CODE AND MUST NOT BE DELETED. `test_review` reads it, and it is still the
+    honest way to ask "how did that one statement go?" -- the question the 2026-08-10 ruling was
+    about. What changed is that it is no longer the ONLY question the panel can answer.
+
+    ⚠️ IT IS ALSO THE REGRESSION PIN. Because it delegates rather than keeping its own query, a
+    filtered summary and a batch summary can never drift apart: `batch=X` and nothing else IS the
+    old WHERE clause, so every number here is the number this endpoint returned before P1. A test
+    asserts exactly that.
+
+    The `import:` block it is named for now comes straight from `get_outflow_summary`, which fills it
+    whenever a batch is selected -- so this really is a pure delegate, and there is no second query
+    anywhere that could answer the same question differently.
+    """
+    require_outflow_access()
+    _assert_batch(batch)
+    return get_outflow_summary(batch=batch)
 
 
 def _jsonable_summary(summary: dict) -> dict:

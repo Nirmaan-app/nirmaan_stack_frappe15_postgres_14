@@ -973,9 +973,20 @@ describe("reading a stored confirmation", () => {
 describe("bcsLiveRateKinds -- which cost boxes a sheet gets", () => {
   const rateCol = (col: string, role: string, value_field: string) =>
     scalar(col, role, value_field);
+  // ⚠️ THE SUBKEY IS THE RATE VOCABULARY (`supply_rate` / `install_rate` / `combined_rate`),
+  // and the ROLE is derived from it rather than the other way round. This helper used to take
+  // the AMOUNT spelling and build `rate_${subkey}_by_area` from it, which produced the
+  // never-real role `rate_total_by_area` and a subkey no per-area rate column carries -- the
+  // fixture agreed with the bug it was supposed to catch. See the correction note on
+  // PER_AREA_SUBKEY_TO_BCS_KIND.
+  const AREA_ROLE: Record<string, string> = {
+    supply_rate: "rate_supply_by_area",
+    install_rate: "rate_install_by_area",
+    combined_rate: "rate_combined_by_area",
+  };
   const rateArea = (col: string, area: string, subkey: string) => ({
     col,
-    role: `rate_${subkey}_by_area`,
+    role: AREA_ROLE[subkey] ?? `rate_${subkey}_by_area`,
     area,
     value_field: "rate_by_area",
     value_key: area,
@@ -1003,10 +1014,32 @@ describe("bcsLiveRateKinds -- which cost boxes a sheet gets", () => {
 
   it("reads the per-area rate columns through rate_subkey, not just the scalar fields", () => {
     expect(
-      bcsLiveRateKinds([rateArea("E", "Zone A", "supply"), rateArea("F", "Zone A", "install")]),
+      bcsLiveRateKinds([
+        rateArea("E", "Zone A", "supply_rate"),
+        rateArea("F", "Zone A", "install_rate"),
+      ]),
     ).toEqual(["supply", "install"]);
-    // The per-area COMBINED subkey is "total", mirroring PER_AREA_AMOUNT_TO_RATE_KIND.
-    expect(bcsLiveRateKinds([rateArea("E", "Zone A", "total")])).toEqual(["combined"]);
+    // The per-area COMBINED subkey is `combined_rate` -- classifier._RATE_ROLE_TO_KIND, the
+    // module that WRITES this slot. `total` is the per-area AMOUNT's combined spelling.
+    expect(bcsLiveRateKinds([rateArea("E", "Zone A", "combined_rate")])).toEqual(["combined"]);
+  });
+
+  it("mints NO box from the AMOUNT vocabulary sharing the same rate_subkey slot", () => {
+    // ★ THE REGRESSION CASE. A per-area AMOUNT descriptor legitimately carries rate_subkey
+    // "supply"; reading it as a rate is what the old map effectively did in reverse, and it
+    // cost every per-area-rate sheet its cost boxes.
+    expect(
+      bcsLiveRateKinds([
+        {
+          col: "Q",
+          role: "amount_supply_by_area",
+          area: "Zone A",
+          value_field: "amount_by_area",
+          value_key: "Zone A",
+          rate_subkey: "supply",
+        },
+      ]),
+    ).toEqual([]);
   });
 
   it("does not mint a box from an amount or a quantity column", () => {
@@ -1329,9 +1362,9 @@ describe("the invariants BCS-S3a claimed but did not enforce", () => {
       { col: "A", role: "r", area: null, value_field: "rate_supply", value_key: null, rate_subkey: null },
       { col: "B", role: "r", area: null, value_field: "rate_install", value_key: null, rate_subkey: null },
       { col: "C", role: "r", area: null, value_field: "rate_combined", value_key: null, rate_subkey: null },
-      { col: "D", role: "r", area: null, value_field: "rate_by_area", value_key: null, rate_subkey: "supply" },
-      { col: "E", role: "r", area: null, value_field: "rate_by_area", value_key: null, rate_subkey: "install" },
-      { col: "F", role: "r", area: null, value_field: "rate_by_area", value_key: null, rate_subkey: "total" },
+      { col: "D", role: "r", area: null, value_field: "rate_by_area", value_key: null, rate_subkey: "supply_rate" },
+      { col: "E", role: "r", area: null, value_field: "rate_by_area", value_key: null, rate_subkey: "install_rate" },
+      { col: "F", role: "r", area: null, value_field: "rate_by_area", value_key: null, rate_subkey: "combined_rate" },
     ];
     let sawHalves = false;
     let sawCombined = false;
@@ -1796,6 +1829,26 @@ const PARITY = PARITY_RAW as unknown as {
     cols: string[];
     expect: { ok: true; mode: string } | { ok: false; code: string };
     beats?: string;
+    why: string;
+  }>;
+  derived_qty_cases: Array<{
+    id: string;
+    descriptors: ColumnDescriptor[];
+    confirmed: BcsSource | null;
+    expect: { columns: Array<{ col: string; value_field: string; value_key: string | null }> };
+    why: string;
+  }>;
+  rate_kinds_cases: Array<{
+    id: string;
+    descriptors: ColumnDescriptor[];
+    expect: { kinds: string[] };
+    why: string;
+  }>;
+  derived_amount_cases: Array<{
+    id: string;
+    descriptors: ColumnDescriptor[];
+    confirmed: BcsSource | null;
+    expect: { columns: Array<{ col: string; value_field: string; value_key: string | null }> };
     why: string;
   }>;
 };
@@ -2587,5 +2640,128 @@ describe("BCS-S12e -- bcsAmountColumns mirrors bcsQuantityColumns", () => {
     const viaSeed = boqTotalAmount(seeded, null, (e) => (e.value_field === "amount_supply" ? 100 : 40), ds);
     const viaFallback = boqTotalAmount(null, null, (e) => (e.value_field === "amount_supply" ? 100 : 40), ds);
     expect(viaSeed).toBe(viaFallback);
+  });
+});
+
+// ===========================================================================
+// Group: THE TWO DERIVATIONS -- this side of their half of the table
+// ===========================================================================
+/**
+ * ★ `bcsQuantityColumns` / `bcsLiveRateKinds` answer the question that comes BEFORE a pick
+ * exists: given only the sheet's own shape, which columns does BCS use? `sources.
+ * derive_qty_columns` / `sources.live_rate_kinds` answer it on the server, and the same shared
+ * table covers both.
+ *
+ * WHY THE SERVER GAINED A COPY. It never computed a BCS number before; the BCS export does, so
+ * it has to know which cost boxes a sheet has and where its quantity lives. The CONFIRMATION
+ * cannot supply that -- BCS-S12 removed both column pickers, so `confirm_bcs_columns` has had no
+ * caller in the product since and six of the seven live BCS-enabled sheets carry no
+ * `bcs_qty_source` at all.
+ *
+ * ⚠️ AND THIS SIDE WAS THE WRONG ONE. The rate map here keyed the per-area AMOUNT spelling, so a
+ * sheet whose rates are mapped per-area got NO cost boxes -- with the unit fixtures above
+ * carrying the same wrong spelling, so mirror and test were green together. The Python suite
+ * anchors the fixtures to `classifier`'s own maps rather than to this file agreeing with the
+ * server, because agreement between two mirrors is exactly what did not catch it.
+ */
+describe("derivation parity -- the shared case table, this side", () => {
+  it("agrees with the shared table on every derived-quantity case", () => {
+    for (const c of PARITY.derived_qty_cases) {
+      const out = bcsQuantityColumns(c.confirmed, c.descriptors);
+      expect(
+        out.map((e) => [e.col, e.value_field, e.value_key ?? null]),
+        `${c.id}: ${c.why}`,
+      ).toEqual(c.expect.columns.map((e) => [e.col, e.value_field, e.value_key]));
+    }
+  });
+
+  it("agrees with the shared table on every rate-kinds case", () => {
+    for (const c of PARITY.rate_kinds_cases) {
+      expect(bcsLiveRateKinds(c.descriptors), `${c.id}: ${c.why}`).toEqual(c.expect.kinds);
+    }
+  });
+
+  it("agrees with the shared table on every derived-amount case", () => {
+    // ★ The THIRD derivation (BCS export slice 6). `bcsAmountColumns` decides what % Margin
+    // divides BY, and the export now writes that division into the client's workbook as a
+    // live Excel formula -- so a drift between the two sides is a wrong PERCENTAGE in a file
+    // sent to a human, not merely an inconsistency.
+    for (const c of PARITY.derived_amount_cases) {
+      const out = bcsAmountColumns(c.confirmed, c.descriptors);
+      expect(
+        out.map((e) => [e.col, e.value_field, e.value_key ?? null]),
+        `${c.id}: ${c.why}`,
+      ).toEqual(c.expect.columns.map((e) => [e.col, e.value_field, e.value_key]));
+    }
+  });
+
+  it("runs an amount table that exercises every tier -- anti-vacuity", () => {
+    // Two of the tiers exist ONLY to prevent a double count (a total already contains its
+    // halves; a scalar already contains its per-area parts), which are the same two harms
+    // the pick path refuses as `mixed_kinds` and `mixed_shapes`. A table missing one leaves
+    // a hole straight through those refusals.
+    const outs = PARITY.derived_amount_cases.map(
+      (c) => [c, bcsAmountColumns(c.confirmed, c.descriptors)] as const,
+    );
+    const fields = new Set(outs.flatMap(([, out]) => out.map((e) => e.value_field)));
+    for (const f of ["amount_total", "amount_supply", "amount_by_area"]) {
+      expect(fields.has(f), `no case lands on the ${f} tier`).toBe(true);
+    }
+    expect(
+      PARITY.derived_amount_cases.some((c) => c.confirmed && c.confirmed.columns.length > 0),
+      "no case exercises the confirmed branch",
+    ).toBe(true);
+    expect(outs.some(([, out]) => out.length === 0)).toBe(true);
+
+    // The double count itself, asserted over every case rather than the one fixture.
+    for (const [c, out] of outs) {
+      const got = new Set(out.map((e) => e.value_field));
+      if (got.has("amount_total")) {
+        expect(
+          got.has("amount_supply") || got.has("amount_install"),
+          `${c.id}: a total was returned beside a half it already contains`,
+        ).toBe(false);
+      }
+      if (got.has("amount_by_area")) {
+        expect(got.size, `${c.id}: per-area mixed with a scalar`).toBe(1);
+      }
+    }
+  });
+
+  it("runs a table that exercises both shapes and every box -- anti-vacuity", () => {
+    // The mirror of the Python suite's guard. A table of only scalar cases would compare
+    // nothing about the half that was broken, and would have been green throughout the bug.
+    const shapes = new Set(
+      PARITY.rate_kinds_cases.flatMap((c) => c.descriptors.map((d) => d.value_field)),
+    );
+    expect(shapes.has("rate_by_area"), "no case uses a PER-AREA rate column").toBe(true);
+    const kinds = new Set(PARITY.rate_kinds_cases.flatMap((c) => c.expect.kinds));
+    expect([...kinds].sort()).toEqual(["combined", "install", "supply"]);
+    expect(PARITY.rate_kinds_cases.some((c) => c.expect.kinds.length === 0)).toBe(true);
+    const fields = new Set(
+      PARITY.derived_qty_cases.flatMap((c) => c.expect.columns.map((e) => e.value_field)),
+    );
+    expect(fields.has("qty_total"), "no case lands on the scalar branch").toBe(true);
+    expect(fields.has("qty_by_area"), "no case lands on the per-area branch").toBe(true);
+    expect(
+      PARITY.derived_qty_cases.some((c) => c.confirmed && c.confirmed.columns.length > 0),
+      "no case exercises the confirmed branch",
+    ).toBe(true);
+    expect(PARITY.derived_qty_cases.some((c) => c.expect.columns.length === 0)).toBe(true);
+  });
+
+  it("every fixture descriptor has the shape the builder emits", () => {
+    // Same guard as the Python side: a descriptor with an invented shape is how this file's
+    // own fixtures came to agree with its own bug.
+    const keys = ["area", "col", "rate_subkey", "role", "value_field", "value_key"];
+    for (const c of [
+      ...PARITY.derived_qty_cases,
+      ...PARITY.rate_kinds_cases,
+      ...PARITY.derived_amount_cases,
+    ]) {
+      for (const d of c.descriptors) {
+        expect(Object.keys(d).sort(), `${c.id}: ${d.col}`).toEqual(keys);
+      }
+    }
   });
 });

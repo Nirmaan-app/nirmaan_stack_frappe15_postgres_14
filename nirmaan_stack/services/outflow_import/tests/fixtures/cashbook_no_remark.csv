@@ -1,0 +1,3 @@
+"Date","Time","Type","From","To","Debit","Credit","Affected Wallet Balance","VA Balance","Note","Employee ID","Reporting Manager","Reporting Manager Employee ID","Payment Status","Txn Id","Category","Category Code","Location","Location Code","Department","Department Code","Title","Title Code","Bill Attached"
+"01/08/2026","11:58 AM","Wallet Spend","Asha Menon","Testvendor Alpha","180","","","","","","","","SUCCESS","OBO1700000000001AAAAAA","Office Supplies","","","","","","","","Yes"
+"01/08/2026","12:02 PM","Wallet Spend","Asha Menon","Testvendor Beta","70","","","","Printout charges beta site","","","","SUCCESS","OBO1700000000002BBBBBB","Office Supplies","","","","","","","","No"

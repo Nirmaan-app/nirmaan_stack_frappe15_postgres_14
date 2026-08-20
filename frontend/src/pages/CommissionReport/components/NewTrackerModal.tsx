@@ -96,11 +96,17 @@ export const NewTrackerModal: React.FC<NewTrackerModalProps> = ({
                          }
                     }
 
+                    // Shape must match the Handover auto-creation path
+                    // (project.tsx handleConfirmStatus) -- report_type drives the
+                    // Field/Vendor approval flow and task_phase the phase filters,
+                    // so a manually created report must carry both.
                     tasksToGenerate.push({
                         task_name: taskName,
                         commission_category: catName,
+                        report_type: taskDef.report_type || 'Field',
                         task_status: 'Pending',
                         deadline: calculatedDeadline,
+                        task_phase: 'Handover',
                     })
                 });
             }

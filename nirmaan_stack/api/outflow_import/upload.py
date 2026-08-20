@@ -34,11 +34,12 @@ import frappe
 from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
-from nirmaan_stack.services.outflow_import.candidates import find_earlier_batches_for_transfers
-from nirmaan_stack.services.outflow_import.duplicates import assess_duplicates
+from nirmaan_stack.services.outflow_import.candidates import find_earlier_batches_for_rows
+from nirmaan_stack.services.outflow_import.duplicates import assess_duplicates, row_identity
 from nirmaan_stack.services.outflow_import.parser import (
     SUPPORTED_SOURCES,
     StatementFormatError,
+    is_terminal_status,
     parse_statement,
 )
 from nirmaan_stack.services.outflow_import.status import (
@@ -204,15 +205,15 @@ def _assess_statement(parsed, filename: str):
     """
     already_imported = _already_imported(parsed)
 
-    # ⚠️ COUNT ROWS, NOT KEYS. `already_imported` is keyed by transfer_id, and a statement may
+    # ⚠️ COUNT ROWS, NOT KEYS. `already_imported` is keyed by row IDENTITY, and a statement may
     # carry the same transfer TWICE -- the fixture does, deliberately. Using `len()` of the map
     # against a row count compares two different populations, and the arithmetic is off by exactly
     # the number of in-file repeats: a fully duplicated 11-row sheet with one repeat reported 10 of
     # 11 and warned instead of refusing. Both numbers must count the same thing.
-    duplicates = sum(1 for row in parsed.rows if row.transfer_id in already_imported)
+    duplicates = sum(1 for row in parsed.rows if _row_identity(row) in already_imported)
     earliest = next(
-        (already_imported[row.transfer_id] for row in parsed.rows
-         if row.transfer_id in already_imported),
+        (already_imported[_row_identity(row)] for row in parsed.rows
+         if _row_identity(row) in already_imported),
         None,
     )
     verdict = assess_duplicates(
@@ -224,15 +225,29 @@ def _assess_statement(parsed, filename: str):
     return verdict, _find_overlapping_batch(parsed.period_from, parsed.period_to)
 
 
+def _row_identity(row):
+    """This row's duplicate identity -- `(transfer_id, amount, date)`, from the ONE definition.
+
+    A one-line shim so the three call sites in this file cannot each remember the tuple's shape
+    differently. It exists because the identity WIDENED at slice D3 and adding a fourth axis later
+    should be an edit to `duplicates.row_identity` and this line, not a hunt through the module.
+    """
+    return row_identity(row.transfer_id, row.amount, row.added_on_date)
+
+
 def _already_imported(parsed, exclude_batch: str | None = None) -> dict:
     """The duplicate lookup, NARROWED BY PERIOD FIRST (owner-directed, slice V3).
 
     One call site's worth of policy, kept in one place so the preview, the staging pass and any
     later caller all narrow identically -- a preview that searched wider than the import would
     report duplicates the import then staged anyway.
+
+    ⚠️ IT HANDS OVER THE ROWS, NOT THEIR IDS (slice D3). Identity is `(transfer_id, amount, date)`,
+    so the amount and the date have to travel with the question; the returned map is keyed by that
+    same triple, which is why every caller here looks up through `_row_identity`.
     """
-    return find_earlier_batches_for_transfers(
-        [row.transfer_id for row in parsed.rows],
+    return find_earlier_batches_for_rows(
+        parsed.rows,
         exclude_batch=exclude_batch,
         period_from=parsed.period_from,
         period_to=parsed.period_to,
@@ -263,20 +278,35 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str):
     batch.insert(ignore_permissions=True)
 
     statuses = []
-    seen_in_file: set[str] = set()
+    # ⚠️ THE IN-FILE CHECK WIDENED WITH THE CROSS-BATCH ONE (slice D3), AND HAD TO. These two ask
+    # the same question -- "is this the same transfer?" -- about different populations, so a key
+    # that differed between them would let one call a pair of rows duplicates while the other
+    # called them distinct, on one screen, about the same two lines. Both read `_row_identity`.
+    seen_in_file: set = set()
     for row in parsed.rows:
+        identity = _row_identity(row)
         outcome = derive_staged_row_outcome(
             row,
-            already_imported.get(row.transfer_id),
-            duplicate_in_file=row.transfer_id in seen_in_file,
+            already_imported.get(identity),
+            duplicate_in_file=identity in seen_in_file,
         )
-        seen_in_file.add(row.transfer_id)
+        # ⚠️ ONLY A TERMINAL ROW JOINS THE SET, matching the rule the CROSS-BATCH lookup now applies
+        # (`candidates.find_earlier_batches_for_rows`). The two ask the same question of different
+        # populations, so a row that could block a later import from an earlier BATCH but not from
+        # an earlier LINE would be the two-answers-about-one-file split the comment above exists to
+        # prevent. An export is a snapshot and should never list one transfer twice, so this is
+        # closing the shape rather than a case seen in the wild.
+        if is_terminal_status(row.status_raw):
+            seen_in_file.add(identity)
         statuses.append(outcome.status)
 
         doc = frappe.new_doc(ROW_DOCTYPE)
         doc.update(
             {
                 "import_batch": batch.name,
+                # Denormalised from the batch so the master table can filter by source without a
+                # join -- see `review._FACET_COLUMNS`.
+                "source": parsed.source,
                 "transfer_id": row.transfer_id,
                 "reference_id": row.reference_id,
                 "added_on": row.added_on,

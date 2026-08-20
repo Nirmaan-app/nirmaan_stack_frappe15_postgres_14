@@ -23,8 +23,38 @@ def _is_response_data_meaningful(task) -> bool:
 
 class ProjectCommissionReport(Document):
     def validate(self):
+        self.validate_single_tracker_per_project()
         self.validate_report_evidence_for_completed()
         self.update_last_submitted_date()
+
+    def validate_single_tracker_per_project(self):
+        """A project must have exactly one commission tracker.
+
+        The whole feature assumes it -- the project page's Commission Report tab
+        and `get_tracker_list` each resolve ONE tracker per project, so a second
+        one silently splits the project's tasks across two documents and each
+        surface shows different counts. The client-side create guards (project
+        status -> Handover auto-create, plus the manual "create tracker" entry
+        point) both read a cached list, so two near-simultaneous triggers can
+        each see "no tracker yet" and insert one. This is the server-side backstop.
+
+        Insert-only: existing duplicates stay editable so they can be cleaned up.
+        """
+        if not self.is_new() or not self.project:
+            return
+
+        import frappe
+
+        existing = frappe.db.get_value(
+            "Project Commission Report",
+            {"project": self.project, "name": ("!=", self.name or "")},
+            "name",
+        )
+        if existing:
+            frappe.throw(
+                f"A Commission Report ({existing}) already exists for project {self.project}.",
+                title="Commission Report Already Exists",
+            )
 
     def _get_old_tasks_map(self):
         """Build a lookup of task name -> old task from before save."""

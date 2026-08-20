@@ -5,7 +5,10 @@ import { PP_TABS } from './ppTabs.constants';
 
 export const DEFAULT_PP_FIELDS_TO_FETCH: (keyof ProjectPayments | 'name')[] =  [
     "name", "project", "owner", "vendor", "document_name", "document_type",
-    "status", "amount","approval_date",
+    // `split_from` is fetched for EVERY payments table, not just the CEO one: a balance carried
+    // forward by a partial approval outlives that screen, and a row whose amount is smaller than
+    // the PO term suggests is confusing anywhere it is read without this provenance.
+    "status", "amount","approval_date", "split_from",
 ];
 
 export const PP_SEARCHABLE_FIELDS: SearchFieldOption[] = [

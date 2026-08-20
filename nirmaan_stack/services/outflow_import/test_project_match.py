@@ -231,6 +231,184 @@ class TestEdges(unittest.TestCase):
         self.assertEqual(index.name_of(None), "")
 
 
+# The three live projects that made the petty-cash statement misread, plus the ones they collided
+# with. Real names, read from the live master on 2026-08-13.
+CASHBOOK_PROJECTS = [
+    ("BENGALURU-PROJ-00091", "VR Mall Food Court"),
+    ("Gurugram-PROJ-00010", "Wakefit - Airia Mall"),
+    ("BENGALURU-PROJ-00103", "Paytm Bangalore"),
+    ("Bengaluru-PROJ-00007", "Adept Pro"),
+    ("GANDHI_NAGAR-PROJ-00187", "Telus GIFT City"),
+    ("BENGALURU-PROJ-00072", "Other Old Projects"),
+    ("BENGALURU-PROJ-00098", "Ernst & Young"),
+    ("THRISSUR-PROJ-00105", "Qburst"),
+]
+
+VR_MALL = "BENGALURU-PROJ-00091"
+PAYTM = "BENGALURU-PROJ-00103"
+TELUS = "GANDHI_NAGAR-PROJ-00187"
+QBURST = "THRISSUR-PROJ-00105"
+ERNST = "BENGALURU-PROJ-00098"
+
+
+class TestTheWordsAddedForPettyCash(unittest.TestCase):
+    """`food`, `pro` and `old` (2026-08-13).
+
+    A wallet statement's free text is far looser than a bank export's, and three ordinary English
+    words turned out to be owned by exactly one project each -- so each of them was quietly
+    identifying that project on remarks that had nothing to do with it.
+    """
+
+    def setUp(self):
+        self.index = build_project_index(CASHBOOK_PROJECTS)
+
+    def test_food_no_longer_drags_in_the_food_court(self):
+        """"Food expenses paytm project" named Paytm AND `VR Mall Food Court`, so it named neither.
+
+        Five rows in a 115-row statement were lost to this one word.
+        """
+        self.assertEqual(self.index.sole_project("Food expenses paytm project"), PAYTM)
+
+    def test_pro_no_longer_drags_in_adept_pro(self):
+        """"pro" is how people abbreviate "project" halfway through typing a remark."""
+        self.assertEqual(
+            self.index.sole_project("Locally purchased sample cabletray Telus pro"), TELUS
+        )
+
+    def test_old_no_longer_books_an_office_errand_to_a_real_project(self):
+        """⚠️ THIS ONE REMOVES A MATCH, AND THAT IS THE IMPROVEMENT.
+
+        "Rapido charges new office to old" was being booked to `Other Old Projects` on the strength
+        of the word "old". A count of matches cannot tell a right match from a wrong one, so this
+        change reads as a loss in every aggregate and is the most valuable of the three.
+        """
+        self.assertIsNone(self.index.sole_project("Rapido charges new office to old"))
+
+    def test_court_was_considered_and_deliberately_left_out(self):
+        """⚠️ A NEGATIVE PIN, so nobody "completes the set" later.
+
+        `court` was proposed alongside the other three and measured at +0 matched, +0 ambiguous --
+        no remark says it. Adding a word that changes nothing still suppresses a keyword that might
+        one day matter, and still costs the next reader the time to work out why it is there.
+        """
+        self.assertNotIn("court", GENERIC_PROJECT_TOKENS)
+
+    def test_a_project_named_after_a_now_generic_word_is_still_reachable_by_its_full_name(self):
+        """Step 1 does not consult the generic list, which is what keeps these projects findable."""
+        self.assertEqual(self.index.sole_project("purchase for vr mall food court"), VR_MALL)
+
+
+class TestCuratedAliases(unittest.TestCase):
+    """Step 1.5: a hand-written statement that a phrase means a project.
+
+    It exists for the three things no rule over the project master can reach -- a project known by
+    a name it is not recorded under, an initialism shorter than a token, and a habitual
+    misspelling. All three are facts about how people write, not about the master.
+    """
+
+    def setUp(self):
+        self.aliases = [
+            ("VR Mall", VR_MALL),
+            ("EY", ERNST),
+            ("tekus", TELUS),
+            ("Qubest", QBURST),
+        ]
+        self.index = build_project_index(CASHBOOK_PROJECTS, aliases=self.aliases)
+
+    def test_no_aliases_is_the_default_and_changes_nothing(self):
+        plain = build_project_index(CASHBOOK_PROJECTS)
+        self.assertEqual(plain.aliases, {})
+        self.assertIsNone(plain.sole_project("Locally purchased for VR mall"))
+
+    def test_a_project_known_by_a_shorter_name_is_reached(self):
+        """`VR Mall Food Court` is written "VR mall" by everyone who spends money on it.
+
+        No rule over the master can get there: "mall" is shared with `Wakefit - Airia Mall`, and
+        "vr" is below `MIN_TOKEN_LENGTH`. Six rows in one statement.
+        """
+        for remark in ("Locally purchased for VR mall", "Local purchase VR MALL", "Vr mall local purchase"):
+            self.assertEqual(self.index.sole_project(remark), VR_MALL, remark)
+
+    def test_an_initialism_shorter_than_a_token_is_reached(self):
+        self.assertEqual(self.index.sole_project("EY site transportation"), ERNST)
+
+    def test_a_habitual_misspelling_is_reached(self):
+        self.assertEqual(
+            self.index.sole_project("Material unloading and shifting charges tekus"), TELUS
+        )
+        self.assertEqual(self.index.sole_project("Qubest site printout"), QBURST)
+
+    def test_an_alias_matches_on_word_boundaries_not_anywhere_in_the_text(self):
+        """⚠️ THE REASON SHORT ALIASES ARE SAFE AT ALL.
+
+        "ey" sits inside "they", "money", "survey" and "journey". Padding both sides with a space
+        is what stops a two-letter alias claiming a quarter of the English language.
+        """
+        for remark in ("they collected it", "money paid at site", "survey charges", "journey fare"):
+            self.assertIsNone(self.index.sole_project(remark), remark)
+
+    def test_an_alias_is_matched_as_a_phrase_rather_than_as_tokens(self):
+        """⚠️ TOKENISING AN ALIAS WOULD SILENTLY WIDEN IT.
+
+        `comparable_tokens("VR Mall")` is `{mall}` -- "vr" is too short to survive -- and `{mall}`
+        is inside any remark about `Wakefit - Airia Mall` too. The alias would then mean something
+        its author never wrote: this remark would be booked to the food court.
+        """
+        self.assertEqual(self.index.sole_project("purchase for airia mall"), "Gurugram-PROJ-00010")
+        self.assertNotEqual(self.index.sole_project("purchase for airia mall"), VR_MALL)
+
+    def test_punctuation_between_the_words_does_not_break_it(self):
+        self.assertEqual(self.index.sole_project("purchase for VR-Mall"), VR_MALL)
+
+    def test_a_full_project_name_in_the_remark_still_wins(self):
+        """Step 1 keeps precedence: an actual recorded name is at least as specific as an alias."""
+        index = build_project_index(CASHBOOK_PROJECTS, aliases=[("VR Mall", PAYTM)])
+        self.assertEqual(index.sole_project("spend at vr mall food court"), VR_MALL)
+
+    def test_an_alias_beats_a_bare_keyword(self):
+        """Somebody wrote the alias down deliberately; a unique keyword is only an accident of the
+        master. Here "qburst" would answer on its own, and the alias agrees -- the ordering is what
+        matters, and it is pinned by the precedence test above and this one together."""
+        self.assertEqual(self.index.sole_project("Qubest site printout"), QBURST)
+
+    def test_two_aliases_naming_two_projects_name_neither(self):
+        index = build_project_index(
+            CASHBOOK_PROJECTS, aliases=[("VR Mall", VR_MALL), ("tekus", TELUS)]
+        )
+        self.assertIsNone(index.sole_project("VR mall and tekus materials"))
+
+    def test_one_phrase_claimed_by_two_projects_is_dropped_entirely(self):
+        """The same rule a contested keyword follows -- not weighted, not tie-broken, dropped."""
+        index = build_project_index(
+            CASHBOOK_PROJECTS, aliases=[("northside", VR_MALL), ("northside", TELUS)]
+        )
+        self.assertEqual(index.aliases, {})
+        self.assertIsNone(index.sole_project("northside materials"))
+
+    def test_an_alias_for_a_project_outside_the_list_is_dropped(self):
+        """⚠️ THE CALLER'S SCOPE WINS.
+
+        The project list is already filtered -- to `Won` projects, for the petty-cash import -- so
+        an alias pointing outside it would let a phrase reach a project the caller deliberately
+        excluded.
+        """
+        index = build_project_index(CASHBOOK_PROJECTS, aliases=[("somewhere", "NOT-A-PROJECT")])
+        self.assertEqual(index.aliases, {})
+        self.assertIsNone(index.sole_project("somewhere materials"))
+
+    def test_a_blank_alias_phrase_is_ignored(self):
+        index = build_project_index(CASHBOOK_PROJECTS, aliases=[("   ", VR_MALL), ("", TELUS)])
+        self.assertEqual(index.aliases, {})
+
+    def test_the_ambiguity_is_visible_rather_than_swallowed(self):
+        index = build_project_index(
+            CASHBOOK_PROJECTS, aliases=[("VR Mall", VR_MALL), ("tekus", TELUS)]
+        )
+        self.assertEqual(
+            index.projects_mentioned("VR mall and tekus materials"), frozenset({VR_MALL, TELUS})
+        )
+
+
 class TestPurity(unittest.TestCase):
     def test_it_imports_no_frappe_and_only_the_normalize_leaf(self):
         """Same property `matcher.py` protects: this stays callable from a plain unittest with no

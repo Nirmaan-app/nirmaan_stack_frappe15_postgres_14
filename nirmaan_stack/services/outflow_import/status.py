@@ -116,9 +116,14 @@ __all__ = [
     "BATCH_PARTIALLY_SETTLED",
     "BATCH_COMPLETED",
     "BATCH_STATUSES",
+    "batch_is_open",
     "RowOutcome",
     "Suggestion",
     "StatusTally",
+    "ORIGIN_ACCEPTED",
+    "ORIGIN_OVERRIDDEN",
+    "ORIGIN_NO_SUGGESTION",
+    "settlement_origin",
     "derive_staged_row_outcome",
     "derive_row_outcome",
     "sole_suggestion",
@@ -467,6 +472,30 @@ def _nothing_found_note() -> str:
     )
 
 
+def several_found_note(count: int) -> str:
+    """The `Mismatched` note for the THIRD cause: several records found, none chosen.
+
+    ⚠️ `Mismatched` NOW CARRIES THREE FACTS, AND THE SENTENCES MUST NEVER CONVERGE. The merge that
+    folded `Unmatched` in was allowed on the explicit condition that `outcome_note` keeps the causes
+    apart, because the status no longer can:
+
+        `_nothing_found_note`  nothing matched at all           -> record or link one
+        `_delta_note`          already Paid, amounts disagree    -> a deduction such as TDS
+        `several_found_note`   several matched, none chosen      -> pick which one
+
+    ⚠️ THE FAILURE THIS PREVENTS IS SPECIFIC AND EXPENSIVE. Before the sweep that uses it, a row
+    that found six approved records sat under `Matched` -- the tab meaning "this transfer has a
+    record" -- carrying a note that read as a successful match. Moving it to `Not-Matched` without
+    a note of its own would swing it to the opposite lie: "no approved payment or expense matches
+    this transfer", said about a transfer that matched six. Both readings send the reviewer to
+    create a duplicate expense for money that is already approved and waiting.
+    """
+    return (
+        f"{count} approved records match this transfer and nothing could separate them. "
+        f"Open the row and pick which one it settled."
+    )
+
+
 def _delta_note(bank_amount: Decimal, total: Decimal, group) -> str:
     delta = total - bank_amount
     if delta > 0:
@@ -528,6 +557,70 @@ def derive_batch_status(row_statuses: Iterable[str]) -> str:
     return BATCH_IN_REVIEW
 
 
+def batch_is_open(status: str | None) -> bool:
+    """Has this statement still got work in it? (slice CF/S5)
+
+    ⚠️ THIS IS THE WHOLE OF "AUTO-CLOSE", AND IT REVERSES NOTHING. The 2026-08-10 ruling deleted
+    `close_batch` because it stamped `closed_at` / `closed_by` / `close_reason` and nothing read
+    them -- a control that writes three fields nobody consults is worse than no control, because
+    people reasonably assume it must do something. Those fields are still on the doctype, still
+    never written, and MUST STAY THAT WAY.
+
+    A batch closes ITSELF instead: `derive_batch_status` already returns `Completed` when no row is
+    open, and `_refresh_batch_rollup` runs on every settle and every skip. So there is no field to
+    add, no patch to write and no backfill -- a statement whose last transfer was settled a year ago
+    already reads `Completed` today.
+
+    ⚠️ EXCLUDING A COMPLETED BATCH FROM A RE-MATCH IS A COST FIX, NEVER A CORRECTNESS ONE, and
+    saying so is what stops somebody later "improving" it into something that skips real work.
+    `match_batch` already skips `_FROZEN_ROW_STATUSES` per row, so re-matching a finished statement
+    was ALWAYS a no-op -- it just walked every row to discover that. What this changes is the time
+    spent and the count reported, not the outcome.
+
+    ⚠️ AN UNKNOWN OR MISSING STATUS IS OPEN. A batch whose rollup has never run carries no status,
+    and treating that as finished would silently drop it from every re-match -- exactly the class of
+    invisible exclusion this feature keeps having to fix. Failing towards "still has work" costs one
+    wasted pass; failing the other way loses the work.
+    """
+    return (status or "").strip() != BATCH_COMPLETED
+
+
+# --- did a settlement take the machine's pick? (slice Q1) ----------------------------------------
+
+ORIGIN_ACCEPTED = "Suggestion accepted"
+ORIGIN_OVERRIDDEN = "Suggestion overridden"
+ORIGIN_NO_SUGGESTION = "No suggestion"
+
+
+def settlement_origin(suggested_name, settled_name) -> str:
+    """Did this settlement take the machine's suggestion? THE one definition.
+
+    ⚠️ PURE, AND SHARED BY THREE CALLERS: the settle path (`api/outflow_import/expenses.py`), the
+    summary aggregate, and the backfill patch that recovered 849 historical settlements. A second
+    copy of this three-way test is how the history and the future come to disagree about one row.
+
+    ⚠️ 'ACCEPTED', NEVER 'AUTO'. A human clicks confirm on every settlement this feature makes, so
+    "the machine's pick was accepted" is true where "automatic" would not be. The distinction is
+    the point of the field: it separates *the matcher found this* from *nobody checked it*.
+
+    ⚠️ A BLANK SUGGESTION IS NOT A MISMATCHED ONE. A fan-out has no single suggestion by design
+    (`sole_suggestion` abstains) and a row the matcher never touched has none either -- both are
+    "the person found it", which is a different fact from "the person disagreed with us".
+    Collapsing them would report every hand-found settlement as a disagreement with a machine that
+    never spoke.
+
+    ⚠️ IT LIVES HERE RATHER THAN IN `api/`, and it had to. `api/outflow_import/expenses.py` imports
+    from `review.py`, so `review.py` importing back from `expenses.py` for the summary's count
+    would be a cycle. This module is the deriver both may import -- api -> service is the one legal
+    direction -- and the verdict is a derivation, which is what this file is for.
+    """
+    suggested = (suggested_name or "").strip()
+    settled = (settled_name or "").strip()
+    if not suggested:
+        return ORIGIN_NO_SUGGESTION
+    return ORIGIN_ACCEPTED if suggested == settled else ORIGIN_OVERRIDDEN
+
+
 @dataclass(frozen=True)
 class StatusTally:
     """One `row_status` group of an import, ALREADY AGGREGATED BY THE DATABASE.
@@ -562,6 +655,14 @@ class StatusTally:
     with_suggestion: int = 0
     suggested_value: Decimal = Decimal("0")
     failed: bool = False
+    #: Settlements in this group that took the matcher's own pick (slice Q1).
+    #
+    # ⚠️ THIS IS NOT `with_suggestion`, AND THE TWO ANSWER DIFFERENT QUESTIONS. `with_suggestion`
+    # counts rows that CARRY a pick and is only ever non-zero on `Matched` -- it describes work
+    # waiting to be confirmed. This counts settlements where a person confirmed that pick
+    # UNCHANGED, and is only ever non-zero on `Settled`. A row moves from one to the other by being
+    # confirmed, so summing them would double-count the same transfer at two moments of its life.
+    from_suggestion: int = 0
 
 
 def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
@@ -609,6 +710,7 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
 
     failed_rows = 0
     failed_value = Decimal("0")
+    settled_from_suggestion = 0
 
     for tally in tallies:
         if tally.failed:
@@ -625,6 +727,8 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
         if tally.status == ROW_MATCHED:
             confirmable_rows += tally.with_suggestion
             confirmable_value += tally.suggested_value
+        if tally.status == ROW_SETTLED:
+            settled_from_suggestion += tally.from_suggestion
 
     def rows(status: str) -> int:
         return by_status.get(status, {}).get("count", 0)
@@ -650,6 +754,13 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
         ),
         "settled_rows": rows(ROW_SETTLED),
         "settled_value": value(ROW_SETTLED),
+        # ⚠️ HOW MANY SETTLEMENTS THE MATCHER ACTUALLY FOUND (slice Q1). Until then nothing on this
+        # screen could answer it: `Outflow Row Match.match_basis` was hardcoded to "Manual" on every
+        # settlement, so the money record claimed a person had found all 849 when the machine had
+        # found 843. The remainder -- `settled_rows - settled_from_suggestion` -- is the hand-found
+        # count, and is deliberately NOT reported as its own key: two numbers that must sum to a
+        # third are two chances to disagree with it.
+        "settled_from_suggestion": settled_from_suggestion,
         "skipped_rows": rows(ROW_SKIPPED),
         "skipped_value": value(ROW_SKIPPED),
         # ⚠️ REPORTED BESIDE THE TOTALS, NOT INSIDE THEM. A failed transfer is excluded from every

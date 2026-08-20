@@ -2691,6 +2691,124 @@ again.
 answer "what does this category do when this attribute is not stated?", and the three bench
 capabilities (upgrade / stated-wins / stated-`"None"` sticking) are now pinned by unit tests only.
 
+---
+
+## BCS-EXP-1 — `bcsLiveRateKinds` matched no per-area rate column (fixed 2026-08-19)
+
+Found while porting the two BCS column derivations to the server for the coming
+**Download Priced Tender with BCS** export. See `.claude/context/domain/boq-backend.md`
+§ BCS-EXP-1 for the server half and `plans/boq-upload-plan.md` § BCS-EXP-1 for the slice.
+
+⚠️ **`PER_AREA_SUBKEY_TO_BCS_KIND` KEYED THE AMOUNT VOCABULARY.** It mapped `supply` /
+`install` / `total`. A per-area **RATE** spells its kind `supply_rate` / `install_rate` /
+`combined_rate` (`classifier._RATE_ROLE_TO_KIND`); a per-area **AMOUNT** spells its kind
+`supply` / `install` / `total` (`_AMOUNT_ROLE_TO_KIND`); and
+`review_screen._build_column_descriptors` writes whichever applies into the **same generic
+`rate_subkey` slot**. The two vocabularies are disjoint and share one field name.
+
+**Effect:** a sheet whose rate columns are mapped per-area matched nothing, so
+`bcsLiveRateKinds` returned `[]` and the sheet got **no BCS cost boxes at all** — BCS silently
+unusable there, with no message. The comment cited `PricingGrid.PER_AREA_AMOUNT_TO_RATE_KIND`
+as its authority, which is the map from an AMOUNT subkey **to** a rate kind, read backwards.
+
+**Why nothing caught it:** the unit fixtures in `bcsColumns.test.ts` carried the same wrong
+spelling — its `rateArea` helper even derived the ROLE from the subkey, producing the
+never-real `rate_total_by_area`. Mirror and test were green together. The 2^6 "never a mixed
+set" sweep was effectively **2^3**, because three of its six descriptors matched nothing.
+
+**Not a live regression when fixed:** measured 2026-08-19, **0 of 681** current committed
+sheets map any per-area rate role (508 scalar, 173 none). No shipped sheet changed shape.
+
+**What keeps it fixed:** the vocabulary is pinned against the **PRODUCER**
+(`classifier._RATE_ROLE_TO_KIND`) by `test_sources.TestTheTwoDerivations
+.test_the_fixture_subkeys_come_from_the_producer`, **not** against the server twin agreeing
+with this file — agreement between two mirrors is exactly what did not catch this. A new
+regression case pins that a per-area AMOUNT descriptor (`rate_subkey: "supply"`) mints **no**
+box.
+
+⚠️ **GENERAL RULE THIS EARNS: `rate_subkey` IS A GENERIC THIRD-HOP SLOT, NOT A TYPED FIELD.**
+Before reading it, decide from `value_field` WHICH vocabulary applies. `rate_by_area` →
+`*_rate`; `amount_by_area` → `supply`/`install`/`total`.
+
+---
+
+## BCS-EXP-4 — the internal export dialog (`PricedTenderBcsDialog.tsx`, 2026-08-19)
+
+The hub's THIRD export item, "Download priced tender with BCS". Backend as-built:
+`.claude/context/domain/boq-backend.md` § BCS-EXP-2. Slice record: `plans/boq-upload-plan.md`.
+
+- ⚠️ **A SIBLING OF `PricedTenderDialog`, NEVER A PROP ON IT.** The two produce different files
+  for different audiences — one goes to the client, one carries what the job costs us — and a
+  shared component with a boolean would put those two outcomes one mis-set flag apart. The
+  backend keeps them apart the same way (a separate module, so the standing "no BCS in the
+  client export" grep guard stays true); this is that separation carried up to the UI.
+- **`canDownloadBcsExport(role, userId)`** — pure, unit-tested, mirrors the server's
+  `_require_bcs_export_access` (admins + estimation). The menu item and the dialog are BOTH
+  wrapped in it: **HIDDEN, never disabled** — a greyed-out "with BCS" item tells everyone a
+  margin file exists.
+  ⚠️ Deliberately **NARROWER than the server**, which also admits the bare
+  `Nirmaan Estimates Executive` ROLE — not visible client-side as a role_profile, the same
+  limitation `PricingRoute` has. Hiding a control from someone the server would admit is a UX
+  bug; showing one to someone it would refuse is a broken promise. Err toward the refusal that
+  never happens.
+  ⚠️ The `"Loading"` / `"Error"` guard is load-bearing, exactly as on `canAdminOverride`:
+  `useUserData` returns those literals in flight, and without it an entitled user watches the
+  item flash in and vanish.
+- **`CommittedSheetState.bcs_enabled`** (BCS-EXP-3, additive) drives the per-sheet badge.
+  ⚠️ **A BADGE, NOT A GATE** (owner ruling): a sheet with cost tracking off is still tickable
+  and still exports, just without the block. Never wire it to `disabled`. `bcsBadgeLabel`
+  returns `null` on a grid-only sheet, which already reads "no rates to write" — two absence
+  notes on one row read as a contradiction.
+- ⚠️ **THE MARGIN WARNING BELONGS IN THE DIALOG, BEFORE THE DOWNLOAD.** There is no `% Margin`
+  column (owner ruling); saying so only in the results modal would be saying it after the
+  person has gone looking for the column.
+- ⚠️ **THE RESULTS MODAL REPORTS THE SKIPS, WITH REASONS** — `summariseCostBlocks` returns
+  `{written, skipped}` and both are rendered. On a cost file a silently absent block reads as
+  *"this sheet costs nothing"* rather than *"this sheet was never costed"*: an absence
+  presented as a claim, which is the same failure the Total's Excel `COUNT` guard prevents one
+  level down.
+- ⚠️ **`onDownloaded` MUST NOT call `mutateCommittedState()`.** The client export's handler does,
+  because it stamps `last_exported_at`. This one never stamps anything, so there is no staleness
+  chip to refresh — and refetching anyway would quietly suggest there is.
+
+## BCS-EXP-6 — the `% Margin` column reaches the internal export (2026-08-19)
+
+The export gained a live `% Margin` column, so the dialog **reverses its own earlier message**.
+Server half: `.claude/context/domain/boq-backend.md` § BCS-EXP-6. Slice record:
+`plans/boq-upload-plan.md` § BCS-EXP-6.
+
+- **`ExportPricedBcsWorkbookResponse.cost_blocks[sheet]` gained `margin_column` +
+  `margin_skipped`, both REQUIRED** — the server always sends them. ⚠️ **`margin_skipped` rides
+  the BLOCK, not `cost_skipped`**: such a sheet got its costs and its Total, so calling it a
+  skipped block would be false — and nothing else in the report would mention the missing column.
+- **`summariseCostBlocks`** appends `, margin in <letter>` or `, no margin -- <reason>`, passing
+  the server's sentence through **verbatim**. Three reasons reach here and only the server knows
+  which applied; re-wording client-side would be a fourth voice for one fact. An absent pair
+  (a pre-slice-6 payload) prints NOTHING — absence must read as "no information", never as "no
+  margin".
+- **`BCS_EXPORT_COPY.marginTitle` / `marginBody` REVERSED** — from *"% Margin is not included,
+  add it in Excel"* to *"% Margin is a live formula"*, naming what blanks it (no amount, or an
+  amount that is zero or negative). ⚠️ **Its test reversed with it and now asserts the old
+  sentence is GONE**, so the panel cannot drift back to instructing a user to duplicate a column
+  that already ships. `description` names all three column families.
+- The panel's job changed from an apology to a **warning**: the figures are FORMULAS, so an edit
+  anywhere in the workbook moves them — a genuine difference from a pasted number, and the first
+  thing someone editing the file needs to know.
+- `bcsColumns.ts` is **logic-unchanged**; only its test file gained the shared parity cases for
+  `bcsAmountColumns` (now pinned against the server twin — `parity_cases.json` v3).
+
+**Review #8 narrowed -- "Item under a note or marker row" (2026-08-19, ADR-0008 Amendment A).**
+Backend-driven; the frontend change is a LABEL and two comments, no logic. `ReviewTree.tsx`
+`WARN_BREAK_LABELS.line_item_parent_not_preamble` moved from "Item not under a section heading" to
+**"Item under a note or marker row"** -- an item nested under ANOTHER ITEM no longer produces a break
+at all, so the old label implied a heading was the only legal parent. The must-fix panel still renders
+`break.reason` from the server, so the sentence itself needed no frontend edit. The `boqTypes.ts`
+union member `StructuralBreakLineItemParentNotPreamble` KEEPS its historical `...NotPreamble` spelling
+because the wire CODE does -- renaming the discriminant would be a breaking contract change for no
+gain. Nothing else moved: the parent picker (`ReviewRowParentPicker`) never filtered on classification
+(cycle-safety only), `RestructureModal`'s `PARENT_CAPABLE` already included `line_item`, and the
+Finalize disable is still `breaks.length > 0`. Net effect on screen: picking an Item as another Item's
+parent now simply works -- no red must-fix entry, Finalize stays enabled, commit succeeds.
 
 ---
 

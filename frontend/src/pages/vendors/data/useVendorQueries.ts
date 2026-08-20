@@ -1,10 +1,9 @@
 import {
-  useFrappeGetDocList, useFrappeGetDoc, useFrappeGetDocCount, useFrappeGetCall, FrappeDoc, GetDocListArgs,
+  useFrappeGetDocList, useFrappeGetDoc, useFrappeGetDocCount, useFrappeGetCall,
 } from "frappe-react-sdk";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { Category } from "@/types/NirmaanStack/Category";
-import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { Items } from "@/types/NirmaanStack/Items";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { VENDOR_DOCTYPE } from "../vendors.constants";
@@ -17,7 +16,6 @@ export const vendorKeys = {
   projects: () => ["vendor", "projects"] as const,
   procurementRequests: () => ["vendor", "procurementRequests"] as const,
   categories: () => ["vendor", "categories"] as const,
-  invoices: (vendorId: string) => ["vendor", "invoices", vendorId] as const,
   items: () => ["vendor", "items"] as const,
   docCount: () => ["vendor", "docCount"] as const,
   ledgerDoc: (vendorId: string) => ["vendor", "ledgerDoc", vendorId] as const,
@@ -149,29 +147,6 @@ export const useVendorServiceRequestCounts = (vendorId: string) => {
       await Promise.all([approvedResponse.mutate(), finalizedResponse.mutate()]);
     },
   };
-};
-
-export const useVendorInvoices = (vendorId: string) => {
-  const response = useFrappeGetDocList<VendorInvoice>("Vendor Invoices",
-    {
-      filters: [
-        ["vendor", "=", vendorId],
-        ["document_type", "=", "Procurement Orders"],
-        ["status", "=", "Approved"],
-      ],
-      fields: ["name", "document_name", "invoice_amount", "invoice_no", "invoice_date", "invoice_attachment", "status"],
-      limit: 0,
-    } as GetDocListArgs<FrappeDoc<VendorInvoice>>,
-    vendorKeys.invoices(vendorId)
-  );
-  useApiErrorLogger(response.error, {
-    hook: "useVendorInvoices",
-    api: "Vendor Invoices",
-    feature: "vendor",
-    doctype: "Vendor Invoice",
-    entity_id: vendorId,
-  });
-  return response;
 };
 
 export const useVendorItems = () => {

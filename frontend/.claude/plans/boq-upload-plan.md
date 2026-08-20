@@ -30829,6 +30829,651 @@ No doctype JSON, no migrate, no endpoint, no production Python.
 
 ---
 
+## Build slice BCS-EXP-1 -- the two BCS column DERIVATIONS, ported + parity-pinned (2026-08-19)
+
+First slice of **Download Priced Tender with BCS** (the hub's third export item). It ships NO
+export code: it moves the two rules that export will need onto the server, and pins them against
+the browser twins that already exist.
+
+### Why the server needed them at all
+
+`export_priced_workbook` writes RATES only, and no server code has ever computed a BCS number.
+The BCS export must write cost columns and an Excel `BCS Total Amount` formula, so it has to
+answer two questions the browser already answers and the server never did:
+
+* **which columns hold this sheet's quantity** (the Total's multiplicand), and
+* **which cost boxes this sheet gets** (Supply/Installation, or one combined box).
+
+The stored CONFIRMATION cannot answer the first. **BCS-S12 removed both column pickers, so
+`confirm_bcs_columns` has had no caller in the product since** -- grep the frontend: the UI calls
+`set_bcs_enabled`, `get_bcs_state`, `get_sheet_bcs_rates` and `save_row_bcs_rates`, and nothing
+else. A sheet enabled after S12 carries no `bcs_qty_source` and there is no way to give it one.
+**Measured on the live bench 2026-08-19: six of the seven BCS-enabled current sheets have none**
+(only BOQ-26-00140, pre-S12, does). A rule requiring the confirmation would answer "no quantity"
+on six sheets in seven, and on every sheet enabled from here on. This is what reversed the
+planning answer to Q11 (originally "skip the Total when there is no confirmed source").
+
+### What shipped
+
+* `services/boq_bcs/sources.py` -- `derive_qty_columns(source, descriptors)` and
+  `live_rate_kinds(descriptors)`, mirroring `bcsColumns.bcsQuantityColumns` /
+  `bcsLiveRateKinds`. The module docstring's purity line was WIDENED honestly: it claimed every
+  function is `(picks, descriptor index) -> dict`, and these two are not.
+* `parity_cases.json` (`version` 1 -> 2) -- two new case lists, `derived_qty_cases` (7) and
+  `rate_kinds_cases` (11), plus `_derived_note`. **Each case carries its OWN `descriptors`**,
+  unlike the pick cases which share one fixture: these rules are about the shape of a WHOLE
+  SHEET, and "a sheet with no scalar quantity column" is not a subset of a fixture that has one.
+* `test_sources.py` -- `TestTheTwoDerivations` (13 tests) and `bcsColumns.test.ts` -- a
+  `derivation parity` group (4 tests), both driving the same table.
+
+### ⚠️ THE DEFECT THIS UNCOVERED -- `bcsLiveRateKinds` matched NO per-area rate column
+
+`PER_AREA_SUBKEY_TO_BCS_KIND` keyed `supply` / `install` / `total`. That is the per-area **AMOUNT**
+vocabulary. A per-area **RATE** spells its kind `supply_rate` / `install_rate` / `combined_rate`
+(`classifier._RATE_ROLE_TO_KIND`), and `review_screen._build_column_descriptors` writes whichever
+applies into the SAME generic `rate_subkey` slot. So a sheet whose rates are mapped per-area got
+**no cost boxes at all**, silently -- BCS simply unusable there. The comment cited
+`PER_AREA_AMOUNT_TO_RATE_KIND` as its authority, which is the map from an amount subkey TO a rate
+kind, read backwards.
+
+**It was invisible because the unit fixtures carried the same wrong spelling** -- the mirror and
+its test were green together, and the 2^6 "never a mixed set" sweep was effectively a 2^3 sweep
+because three of its six descriptors matched nothing.
+
+**NOT a live regression when fixed:** measured 2026-08-19, **0 of 681** current committed sheets
+map any per-area rate role (508 scalar, 173 none), so no shipped sheet changes shape. Fixed here
+rather than ported, because a new module must not enshrine a defect.
+
+### The guard that makes it stay fixed
+
+`test_the_fixture_subkeys_come_from_the_producer` asserts the fixtures and the module's map
+against **`classifier`'s own maps** -- the module that WRITES the value -- not against the other
+mirror. Agreement between two mirrors is precisely what failed here. It also asserts the two
+vocabularies are disjoint, or the guard would be toothless.
+
+### Cert
+
+| gate | result |
+|---|---|
+| `test_sources` | 72 pass (was 59) |
+| `test_readiness` / `test_bcs` / `test_export_writeback` | 12 / 80 / 49 pass |
+| full vitest | 2780 pass, 75 files (`bcsColumns.test.ts` 250, was 246) |
+| mutation: revert the server map to the amount spelling | 5 assertions red, incl. the producer guard |
+| mutation: revert the browser map | 2 tests red |
+| `tsc` | 0 errors in the two touched files (repo baseline 3227, unchanged) |
+| `residence_check.py` | F2 220/207 and F5 119/116 -- **verified identical with the two frontend files stashed**, i.e. red at HEAD already and untouched by this slice |
+
+### Known shared limitation, pinned not fixed
+
+`qty-derived-two-scalar-totals-are-both-returned`: a sheet mapping TWO scalar `qty_total` columns
+has both returned and summed -- the double count `aliased_columns` refuses on the pick path, which
+the fallback has no equivalent of. UNREACHABLE on live data (490 sheets map exactly one, 191 map
+none, **none maps two**). Pinned as a case so it is visible; fix on both sides together or not at all.
+
+### Not in this slice
+
+No export module, no endpoint, no dialog, and no `CLAUDE.md` touch -- the export-leak boundary
+amendment belongs with the slice that actually adds the second export.
+
+---
+
+## Build slice BCS-EXP-2 -- the internal export module + endpoint (2026-08-19)
+
+The backend half of **Download Priced Tender with BCS**. Two NEW files, and **zero diff to
+`export_writeback.py`, `export_template_workbook.py` and `api/pricing/workbook.py`** -- every
+one of them is imported from and none is edited (verified: `git diff --numstat` empty).
+
+### Why separate, and how separate
+
+Two reasons, and they agree. `test_export_writeback.TestBcsCostRatesNeverReachTheExport
+.test_export_writeback_module_never_names_the_bcs_doctype` greps that module's SOURCE
+case-insensitively for `bcs` -- so an `include_bcs=True` flag would break the guard that makes
+the client-facing boundary structural. And the owner asked explicitly (2026-08-19) that the new
+export live separately and not affect the existing one.
+
+**What is shared:** every STAMPING helper, by import -- `_find_ws`, `_stamp_rates` (with its
+per-cell formula skip), `_apply_colors`, `_apply_priced_highlight`, `_write_remark_column`,
+`_fidelity_snapshot`, `_assert_fidelity`, `_resolve_sheet_plan`, `_safe_export_basename`,
+`_rightmost_mapped_col_index`, `_col_is_empty`, plus `_OP_INFIX` / `resolve_ref_col` from the
+template export and `_committed_descriptors` from `pricing`. **What is duplicated:** the ~40-line
+orchestration loop, and only because parameterising the client path would have edited the file
+the guard protects. A stamping RULE changes once and both inherit it; the pass ORDER must be
+changed in both.
+
+### What it writes
+
+Per ticked sheet, after everything the client export writes: the cost columns
+(`BCS Cost (Supply)` + `BCS Cost (Installation)`, or one `BCS Cost`; chosen by
+`live_rate_kinds`), then `BCS Total Amount`, then `Nirmaan Remarks`. Cost cells hold numbers
+read straight off `BoQ Row BCS Rate`. **The Total holds an EXCEL FORMULA** -- the design
+decision from planning Q1 (option B): no server code has ever computed a BCS number, and
+porting `bcsColumns.ts` would have created a second implementation of an owner-locked rule.
+
+A **declared `bcs_total` formula is translated**, not ignored: 4 of the 5 costed sheets on the
+bench carry one (all four spelling out `(bcs_supply + bcs_install) * qty_total`). `_ref_to_excel`
+resolves the three cost operands to the columns just written, `bcs_qty` to the derived quantity
+cells summed, and everything else through the SHARED `resolve_ref_col`.
+
+### ⚠️ THE COUNT GUARD -- where a blank stays a blank
+
+Excel reads an empty cell as **0**, so `(cost) x (empty quantity)` would render a confident `0`
+-- "this row costs nothing" -- where the screen renders an empty cell reading *no quantity*. A
+`0` is a claim; an absence is not. Every Total is therefore wrapped:
+
+* built-in rule -> `=IF(COUNT(<qty cells>)=0,"",<body>)` -- `bcsRowQuantity` sums whatever
+  resolves and returns null only when NOTHING does;
+* declared formula -> `=IF(COUNT(<refs>)<n,"",<body>)` -- `evaluateBcsTotalFormula` returns on
+  the FIRST unresolved ref.
+
+**The two shapes are not interchangeable.** `COUNT` counts numeric cells only, so a genuine 0
+quantity still computes and still reads 0 -- which is what the screen does with it.
+
+Separately, **a row with no `BoQ Row BCS Rate` record gets no cost cells and no Total at all.**
+Presence of the record is the whole test, and it is exactly the browser's rule: a stored row
+always carries three numbers (the whole-row snapshot write coerces absent ones to 0.0) so the
+screen shows a number, possibly 0; an absent record yields null on all three and the screen
+shows blank.
+
+### The other rulings, as built
+
+* **Fidelity** (Q10): the client guard is reused with ONE term adjusted --
+  `before + exactly the formulas we wrote`. Measured on the fixture: 9 -> 15. Miscounting aborts
+  the export and produces no file.
+* **`last_exported_at`** (Q2): NOT stamped. This export writes nothing to the database at all
+  and needs no commit -- pinned by a test that greps for both.
+* **Access** (Q7): `_require_bcs_export_access` REUSES `workbook._require_pricing_access`
+  (admins + estimation) and re-voices only the refusal, so the decision has one definition and
+  the message still names what the user tried to do. Gated FIRST, before the BoQ is resolved.
+* **Template BoQs** (Q5): refused by name.
+* **BCS-off / grid-only / no-rate-column / no-costs sheets** (Q4): exported plain, each with a
+  reason in `cost_skipped` -- a silently absent cost block on a cost file is worse than a
+  visible refusal.
+* **Filename** (Q6): `<name>_priced_bcs_internal_<ts>.xlsx`.
+* **No `% Margin` column** (Q8) -- the dialog will tell the user to add it (slice 4).
+
+### Cert
+
+| gate | result |
+|---|---|
+| `test_export_bcs_writeback` (new) | **37 pass** |
+| `test_export_writeback` / `test_bcs` / `test_pricing` | 49 / 80 / 262 pass |
+| `test_commit_pipeline` / `test_cross_boq_carry` / `test_committed_carry` | 64 / 70 / 58 pass |
+| `services.boq_bcs.test_sources` | 72 pass |
+| diff to the three modules only read from | **0 lines** |
+| mutation: drop the COUNT guard | 5 tests red |
+| mutation: write a Total on an uncosted row | 1 test red |
+| mutation: forget to count the formulas written | export ABORTS, `formulas: 9 -> 15`, no file |
+
+### The separation is pinned from BOTH sides
+
+`test_the_client_export_module_is_untouched_and_still_names_no_cost` greps the client module for
+BCS tokens **and** asserts this module DOES name them -- so the pair cannot both be deleted by
+someone merging the two exports. And `test_the_client_export_still_carries_no_cost_from_the_same
+_fixture` exports the SAME BoQ both ways: the standing "no BCS in the client file" guard could
+otherwise pass because there was nothing to find.
+
+---
+
+## Build slices BCS-EXP-3 + BCS-EXP-4 -- the badge feed and the dialog (2026-08-19)
+
+Completes **Download Priced Tender with BCS**. The feature is now reachable end to end.
+
+### BCS-EXP-3 -- one additive field
+
+`commit_gate.get_committed_state` surfaces `bcs_enabled` per sheet, riding the SAME
+`is_current=1` `BoQ Sheet` lookup `sheet_order` / `last_exported_at` / `is_locked` already ride
+-- one more field, no extra query. `CommittedSheetState.bcs_enabled?: boolean` mirrors it.
+
+⚠️ **IT IS A BADGE, NOT A GATE** (owner ruling Q4). A sheet with cost tracking off is still
+tickable and still exports, just without the block. Never wire it to `disabled`.
+
+The default is the half worth pinning: a committed grid row whose `BoQ Sheet` is missing, and
+every sheet that never switched BCS on, must read **False, never None** -- the picker renders a
+badge from it. `bool()` on the lookup plus a `False` default is what guarantees that, and
+`TestGetCommittedStateBcsFlag` covers both, plus that the flag is a real `bool` (the DB hands
+back 0/1 for a Check) and that every pre-existing key is untouched.
+
+### BCS-EXP-4 -- `PricedTenderBcsDialog.tsx`
+
+A **SIBLING** of `PricedTenderDialog`, deliberately not a prop on it: the two produce different
+files for different audiences, and a shared component with a boolean would put those outcomes
+one mis-set flag apart. The backend keeps them apart for the same reason; this is that
+separation carried up to the UI.
+
+* **Third item in the hub's Export menu**, HIDDEN outside admin + estimation -- never disabled.
+  A greyed-out "with BCS" item tells everyone a margin file exists. `canDownloadBcsExport`
+  mirrors the server's `_require_bcs_export_access`; the server is the boundary.
+  ⚠️ It is deliberately **NARROWER** than the server, which also admits the bare
+  `Nirmaan Estimates Executive` ROLE -- not visible client-side as a role_profile, the same
+  limitation `PricingRoute` has. Hiding a control from someone the server would admit is a UX
+  bug; showing one to someone it would refuse is a broken promise.
+  ⚠️ The `"Loading"` / `"Error"` guard is load-bearing, exactly as on `canAdminOverride`.
+* **The amber margin warning sits in the DIALOG, before the download** -- saying it only in the
+  results modal would be saying it after the person has gone looking for the column.
+* **Per-sheet badge** from `bcs_enabled`; `null` on a grid-only sheet, which already reads "no
+  rates to write" (two absence notes on one row read as a contradiction).
+* **Results modal reports the SKIPS with their reasons**, not just the successes. On a cost file
+  a silently absent block reads as *"this sheet costs nothing"* rather than *"this sheet was
+  never costed"* -- the same absence-presented-as-a-claim the Total's COUNT guard prevents one
+  level down.
+* ⚠️ **`onDownloaded` does NOT call `mutateCommittedState()`**, unlike the client export's
+  handler. This export never stamps `last_exported_at`, so there is no staleness chip to
+  refresh -- and refetching anyway would quietly suggest there is.
+
+### Cert
+
+| gate | result |
+|---|---|
+| `test_commit_gate` | **37 pass** (4 new) |
+| `test_export_bcs_writeback` / `test_export_writeback` / `test_bcs` | 37 / 49 / 80 pass |
+| `PricedTenderBcsDialog.test.ts` (new) | **15 pass** |
+| full vitest | **2795 pass**, 76 files (was 2780 / 75) |
+| `tsc` | 0 errors in touched files (repo baseline 3227, unchanged) |
+| `vite build` (to a throwaway dir) | clean; repo build output untouched |
+| `residence_check.py` | F2 220 / F5 119 — **identical to HEAD**, no new violations |
+
+### What is NOT built
+
+No `% Margin` column (owner ruling Q8 -- the dialog says so). Template-origin BoQs refused
+(Q5). Per-row only, no section subtotals (Q12).
+
+---
+
+## Build slice BCS-EXP-5 -- closing the coverage gaps (2026-08-19, TEST-ONLY)
+
+A self-audit after BCS-EXP-4 found four branches with no test. **No production code changed**
+(verified byte-identical); `test_export_bcs_writeback` went **37 -> 48**.
+
+### ★ The one that mattered: the placement scan had NO test
+
+`_next_empty_col` is the rule that starts the block at the true data edge and **scans RIGHT
+past any column carrying real content** -- a stray estimator note, a trailing column the role
+map never covered. It is the "never overwrite real data" safety property of the whole feature,
+and it was covered by nothing. Now covered twice: a unit case against a real worksheet (a
+genuine `0` counts as content, an empty string does not), and an end-to-end case where the
+workbook already holds a note in G -- the block must land at H/I/J and the note must survive,
+**and the Total formula must follow the shift** (a formula still reading G would point at the
+note's column).
+
+### The combined-rate shape
+
+A sheet quoting ONE undifferentiated figure gets ONE box headed `BCS Cost`, and its Total
+multiplies **only** that box. The fixture stores all three rate fields, so a formula naming
+more than the one column would be double-counting numbers genuinely present in the row -- which
+is exactly what `bcs.py`'s "never sum combined_rate with the halves" forbids.
+
+### Every remaining skip reason, each by its own case
+
+`maps no rate column` · `no costs have been entered` · `quantity columns could not be resolved`
+· `no mapped columns`. Each asserted separately: a shared "some reason came back" assertion
+would let two branches swap without a test noticing, and the reason is the whole difference
+between *"this sheet costs nothing"* and *"this sheet was never costed"*.
+
+⚠️ **A sheet whose quantity cannot be resolved still gets its COST columns** -- a partial block,
+deliberately. The costs are facts we hold; only the Total needs a quantity, and withholding
+good information would be the wrong trade.
+
+### ⚠️ The fixture that was wrong, and how it was caught
+
+`no mapped columns` is reachable only when **EVERY** key in the role map is an unparseable
+Excel column (`_build_column_descriptors` accepts any key and never parses one;
+`_rightmost_mapped_col_index` skips what it cannot parse). The first fixture also mapped a
+description on `"A"` -- which parses -- so the edge resolved to 1, the block placed normally at
+B, and the branch never fired. **The test failed and said so.** One valid column anywhere in the
+map is enough to define an edge.
+
+### An anti-drift guard on the whole family
+
+`test_every_skip_reason_in_the_module_is_covered_by_one_of_these_cases` reads the module's own
+source for `"reason"` strings and requires each to be exercised. A branch added later with a new
+reason goes RED rather than shipping a silent skip -- in a feature whose central rule is that a
+missing cost block must never be silent.
+
+### Cert
+
+| gate | result |
+|---|---|
+| `test_export_bcs_writeback` | **48 pass** (was 37) |
+| `test_export_writeback` / `test_commit_gate` / `test_bcs` | 49 / 37 / 80 pass |
+| production module diff | **0 bytes** -- test-only |
+| `export_writeback.py` + 2 others | still **0 lines** changed |
+| mutation: drop the scan loop | 3 tests red |
+| mutation: add an untested skip reason | anti-drift guard red |
+
+### Still open (accepted, not gaps in this slice)
+
+* The whitelisted endpoint's HAPPY path is untested -- it fetches from S3. Only its refusals are
+  covered. **The client export has the identical gap**; both are tested at their injectable
+  inner seam instead.
+* **Nothing has been run in a browser.** There is no DOM test environment in this repo, so the
+  dialog, the menu gating and the badge are verified by types + pure-function tests only.
+
+---
+
+## Build slice BCS-EXP-6 -- the `% Margin` column (2026-08-19)
+
+Adds the fourth column to the internal export: `% Margin`, after `BCS Total Amount`, as a live
+Excel formula. **This REVERSES owner ruling Q8** ("no % Margin column -- the dialog says so").
+
+### ★ The ruling was reversed because the blocker was misattributed
+
+`CLAUDE.md` said the ratio "cannot" be a formula: it needs the literals `1` and `100`, which the
+formula system rejects by design. **That is true of the in-app BUILDER and was never true of the
+export.** The export has always written literals -- `_guarded` emitted `COUNT(C2)<3` and `""`
+before this slice existed. Q8 was therefore a product call (add it yourself in Excel), not a
+technical wall, and re-reading it as a wall is what kept the column out.
+
+### What each half actually needed
+
+| half | how it resolves | new code |
+|---|---|---|
+| numerator, default | a REFERENCE to the Total column just written | one branch in `_ref_to_excel` |
+| numerator, declared (`bcs_margin_cost`) | the existing `_tree_to_excel` | none |
+| denominator, declared (`boq_total`) | the existing `_tree_to_excel` + `resolve_ref_col` | **none** |
+| denominator, default | `bcsAmountColumns`, ported | `sources.derive_amount_columns` |
+
+Every operand a `boq_total` may name (`_BOQ_OPERAND_FIELDS = _AMOUNT_VALUE_FIELDS`) was already
+handled by the shared `resolve_ref_col`, so the declared path needed nothing at all. Only the
+DEFAULT denominator was genuinely missing, which is the one mirror this slice adds.
+
+### The third mirror, and why it is pinned rather than avoided
+
+`derive_amount_columns` is the THIRD BCS rule to exist on both sides (after `derive_qty_columns`
+and `live_rate_kinds`). `parity_cases.json` -> **v3**, new `derived_amount_cases` (10), read by
+BOTH suites. The tier order IS the spec -- confirmed pick, else scalar total, else the
+supply/install halves, else per-area -- and **two of those tiers exist only to prevent a double
+count** (a total already contains its halves; a scalar already contains its per-area parts),
+which are the same harms the pick path refuses as `mixed_kinds` / `mixed_shapes`. A fallback able
+to express what the confirmation forbids would be a hole straight through those refusals, so the
+two precedence cases order their descriptors **adversarially** (losing tier first) and a test
+asserts they do -- otherwise they would also pass against a function returning its first input.
+
+### ★ The sign guard is the whole reason the column ships
+
+`=IF(OR(COUNT(F2)=0,F2<=0),"",((F2-I2)/F2)*100)`
+
+A NEGATIVE denominator flips the inequality: amount -100 against cost 50 computes **+150%**, a
+loss displayed as a profit. A hand-typed `=(F2-I2)/F2*100` computes the identical number on every
+ordinary row and gets that one catastrophically wrong, silently -- so leaving the column to a
+pricer was never the safe option it looked like. Zero rides the same test. **Not-finite needs no
+guard and gets none**: Excel cannot reach it once the denominator is known non-zero, and a dead
+branch in a guard chain reads as a fourth rule. The COUNT guard is the second half -- a blank
+amount cell reads as 0 in Excel, which WOULD blank correctly but by the wrong route and
+indistinguishably from a genuine zero.
+
+`_guarded` gained an `extra_tests` parameter rather than a second wrapper, so ONE builder emits
+every guard in the module. A single test skips the `OR`, which keeps the ordinary Total's string
+**byte-identical** to before the parameter existed.
+
+### ⚠️ What is lost in the move to Excel, stated rather than glossed
+
+On screen every blank BCS cell explains itself in a tooltip (`BcsComputedCell`'s
+blank-with-a-reason). **A workbook has no tooltip.** The guard is therefore left LEGIBLE IN THE
+CELL, where a reader who clicks a blank margin sees exactly which test refused it. That is the
+Excel-native form of the same promise -- not an abandonment of it, and not a reason to ship the
+column without saying so.
+
+### Three skips, each with its own sentence
+
+`maps no amount column` · `has no BCS Total Amount column` · `amount columns could not be
+resolved on any costed row`. **A margin skip is reported on the BLOCK (`margin_skipped`), never
+in `cost_skipped`** -- that sheet got its costs and its Total, so calling it a skipped block
+would be false, and nothing else in the report would have mentioned the absence. The anti-drift
+guard was widened to read block-level reasons too; without that line it would have gone on
+comparing only `cost_skipped` and called itself complete, which is worse than no guard because it
+still reads green.
+
+⚠️ **A declared denominator that fails to resolve does NOT fall back to the default.** A declared
+formula states which figure the margin measures against; substituting another would produce a
+percentage nobody asked for, and it would look right.
+
+### Frontend
+
+`margin_column` / `margin_skipped` on the response type (REQUIRED -- the server always sends
+both); `summariseCostBlocks` names the column or passes the server's own sentence through
+verbatim. The dialog panel **reverses its own message**: from "% Margin is not included, add it
+yourself" to "% Margin is a live formula", naming what blanks it. Its test reversed with it and
+now asserts the old sentence is GONE.
+
+### Cert
+
+| gate | result |
+|---|---|
+| `test_export_bcs_writeback` | **67 pass** (was 48) |
+| `boq_bcs.test_sources` | **75 pass** (was 72) |
+| `bcsColumns.test.ts` | **252 pass** (was 250) |
+| `PricedTenderBcsDialog.test.ts` | **19 pass** (was 15) |
+| `test_export_writeback` / `test_commit_gate` / `test_bcs` | 49 / 37 / 80 pass |
+| all `boq-wizard` vitest | 1600 pass, 46 files |
+| `tsc` | **3227** — repo baseline, unchanged; **0** in touched files |
+| `export_writeback.py` + 2 others | still **0 lines** changed |
+| mutation: drop the sign guard | **7 red** |
+| mutation: invert the ratio | **8 red** |
+| mutation: drop the COUNT guard | **7 red** |
+| mutation: fall back on a failed declared denominator | 2 red |
+| mutation: margin on an uncosted row | 2 red |
+| mutation: swap the amount tier order | 1 red (parity) |
+| mutation: return a total beside its halves | 2 red (parity + double-count) |
+
+### Still open
+
+* **Nothing has been run in a browser** -- unchanged from BCS-EXP-5, and now covering one more
+  column. The live click-through is still owed.
+* The whitelisted endpoint's happy path remains untested (it fetches from S3); both exports are
+  tested at their injectable inner seam.
+
+---
+
+## Build slice BCS-EXP-7 -- two corrections from the live check (2026-08-19)
+
+The owner ran the export in a browser -- the click-through BCS-EXP-2..6 each recorded as owed --
+and it produced two changes. **Both are confined to `export_bcs_writeback.py`**; the client
+modules keep their zero-line diff.
+
+### 1. `Nirmaan Remarks` moves BEFORE the BCS block (REVERSES planning Q9)
+
+Final layout: `… client data | Nirmaan Remarks | BCS Cost(s) | BCS Total Amount | % Margin`.
+The remark column keeps the position it holds in the CLIENT export, and everything internal sits
+beyond it -- so the internal file reads as the client file plus a block on the end, rather than
+the client file with something wedged into the middle of it.
+
+★ **THE REVERSAL TOUCHED NO ARITHMETIC.** Both placers scan rightward from the true data edge
+past any occupied column, so the CALL ORDER alone decides the layout -- swapping two statements
+was the entire change. That is the property the original design was worth having: a layout ruling
+can be reversed after shipping without anyone recomputing an offset. The mutation that swaps them
+back turns **14 tests red**.
+
+⚠️ **THE LAYOUT IS PER SHEET, NOT WORKBOOK-WIDE.** `Elec ` carries remarks and `HVAC ` does not,
+so their blocks legitimately start one column apart. Both are pinned. Reading one sheet's columns
+and assuming the workbook shares them is the mistake this guards against, and it is why the
+remark test now asserts the whole left-to-right header sequence rather than one letter.
+
+### 2. A filled BCS cell carries a light-blue fill
+
+The counterpart of the rate highlight (`export_writeback._apply_priced_highlight`, muted teal on
+a stamped rate cell): mark what actually got written, so a reader sees which rows were costed
+without reading the numbers. Costs, Totals and margins all count as figures.
+
+⚠️ **CELLS, NEVER COLUMNS -- and that is the load-bearing half.** An uncosted row's BCS cells are
+empty and stay UNFILLED. Filling the column's full height would claim every row is costed: the
+same false statement in colour that the COUNT guard exists to stop the Total making in numbers,
+and it would be a claim nobody could see was wrong. The header is not filled either -- a label is
+not a figure, and the rate highlight marks no header.
+
+⚠️ **IT REUSES THE USER PALETTE'S `blue` (`BDD7EE`) -- which the rate highlight deliberately
+avoids doing, so the divergence is worth stating.** That highlight lives on a SHEET column where
+a user colour tag can also land, so a shared hex there would let a system mark read as a user tag.
+The BCS columns are ones this module APPENDS, and a user tag is addressed by `(col_letter,
+excel_row)` against the committed grid -- it can never resolve to a column that did not exist when
+the grid was committed. The collision is structurally unreachable here, which is what makes
+matching the codebase's own "light blue" the least surprising choice rather than a near-miss shade
+nobody can name.
+
+A fill sets `.fill` and nothing else -- pinned, because a styling pass that quietly rewrote a cell
+would stay invisible until a pricer opened the file.
+
+### Cert
+
+| gate | result |
+|---|---|
+| `test_export_bcs_writeback` | **73 pass** (was 67) |
+| `test_export_writeback` / `test_commit_gate` / `test_bcs` / `test_sources` | 49 / 37 / 80 / 75 pass |
+| full vitest | 2801 pass, 76 files |
+| `export_writeback.py` + 3 others | still **0 lines** changed |
+| mutation: swap the two placer calls back | **14 red** |
+| mutation: fill the whole column height | 1 red |
+| mutation: drop the fill pass | 2 red |
+
+### Still open
+
+* The fill and the new column order are **not themselves browser-verified** -- they came FROM a
+  live check, and a second one is worth doing on the produced file.
+* The whitelisted endpoint's happy path remains untested (it fetches from S3).
+
+---
+
+## Build slice REV-#8N — an item may parent an item (2026-08-19, owner ruling)
+
+**ADR-0008 Amendment A.** Structural ERROR #8 stopped covering item-under-ITEM. Review had always
+*offered* the move (the parent picker greys out cycle-unsafe rows only, and `RestructureModal`'s
+`PARENT_CAPABLE` already listed `line_item`) and the fully-hard finalize gate then refused it with no
+override — a dead end reachable in two clicks. Scope was narrowed on the owner's call: item-under-note
+and item-under-marker still block, because a text row holds no children in any meaningful sense.
+
+### What changed
+
+| File | Change |
+|---|---|
+| `commit_validation.py` | NEW shared `line_item_parent_ok(parent_node_type)` (mirrors `preamble_parent_ok`); #8 reads it; #16 widened to `("Preamble", "Line Item")` with per-type wording; #8 finding body + `_STRUCTURAL_ERROR_REASON_BY_CODE` reworded |
+| `integrations/controllers/boq_nodes.py` | durable backstop imports + reads the SAME predicate; throw message reworded |
+| `review_screen.py` / `ai_assist.py` | stale prose comments only |
+| `ReviewTree.tsx` | `WARN_BREAK_LABELS` → "Item under a note or marker row" |
+| `boqTypes.ts` | comment: the `...NotPreamble` type name keeps the wire code's spelling |
+
+**The wire code `line_item_parent_not_preamble` is unchanged** — it discriminates the frontend
+`StructuralBreak` union. #7 untouched, so a sub-heading under an item still blocks.
+
+**#16 widened in the same change, deliberately:** `pricingRollup` sums a node's own amount plus its
+descendants', so a priced parent item double-counts exactly as a priced heading with children does.
+Advisory only — it never blocks, because a breakdown under a priced parent is sometimes what the bill
+says.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `test_commit_validation` | 51 → **55 pass** |
+| `test_review_screen` | 273 → **275 pass** |
+| `test_boq_nodes` | **78 pass** (controller test flipped: item-under-item now asserts a successful INSERT + correct `path`) |
+| `test_is_excluded_filter` | **7 pass** (#8 producer moved to a note parent — only the `is_excluded` filter is under test there) |
+| `test_commit_pipeline` / `test_commit_gate` | **64 / 37 pass** (downstream, untouched) |
+| full vitest (in-container) | **2801 pass, 76 files** |
+| `tsc` | **0 errors in `boq-wizard`** (3227 pre-existing elsewhere, unrelated) |
+| `residence_check.py` | F5/F2 already red at 119/220 **before** this change — verified identical with these files stashed out; this slice contributes 0 |
+
+New positive tests pin the ruling at every tier so it cannot be silently re-tightened:
+`test_error8_line_item_under_line_item_is_clean` (validator), `test_nested_item_finalises` (gate),
+`test_item_under_item_surfaces_no_break` (read endpoint), `test_line_item_under_line_item_is_accepted`
+(durable controller).
+
+### Deliberately not changed
+
+* **The AI-pass and Gemini prompts** still say only a preamble may parent a line_item. They govern what
+  the parser *proposes*; this ruling governs what a human may *override to*. Both are test-pinned —
+  changing them is a pin-first-reword-second slice with its own re-certification.
+
+### Still open
+
+* **Not browser-verified.** The whole change is server-side rule + one label; the suites cover every
+  tier including the durable controller. A live pass (reparent an Item under an Item in review →
+  no must-fix entry → Finalize → commit) is still worth doing.
+* **Accepted loss:** item-under-item is now unverified by any structural gate. A parser/AI regression
+  emitting it would not be flagged. #16 is the only remaining signal, and only when the parent is priced.
+
+### REV-#8N follow-up — the AI prompts (owner Option B, 2026-08-19)
+
+The prior slice deliberately left both classification prompts stating *"A line_item is never the
+parent of another line_item. Only a preamble may parent a line_item."* With #8 narrowed that sentence
+told the models a rule the product no longer enforces. Owner chose **Option B (state the permission
+explicitly)** over Option A (delete it and stay silent, the mechanism note-under-note uses).
+
+**ONE sentence, VERBATIM-IDENTICAL on both engines**, replacing the prohibition:
+
+> `- A line_item may be the parent of another line_item when the child row is a sub-component or a`
+> `breakdown of it; otherwise a line_item's parent is the preamble heading its section.`
+
+Gemini stated the rule **twice** — its row-type line also dropped the false clause:
+`- line_item: a priced/quantified work entry. May be the parent of a note that describes it, or of
+another line_item that is a sub-component of it.`
+
+**Pin-first-reword-second, demonstrated:** the 3 pins were moved to the new wording and run FIRST —
+red (1 Claude, 2 Gemini) against untouched prompts — proving they actually read the prompt; only then
+were the prompts edited.
+
+**NEW cross-engine drift guard.** `test_line_item_parent_rule_is_identical_on_both_engines` asserts
+both prompts carry the same literal. The two per-file pins each repeated it independently, so editing
+one engine moved that pin, left the other green, and the drift was invisible — and this sentence has
+now been reworded across both engines twice. Mutation-tested: casing one engine's copy turns it red.
+
+| Gate | Result |
+|---|---|
+| `test_boq_ai_assist` / `test_boq_gemini_assist` | 32 / **15 → 16** pass |
+| `test_ai_assist` / `test_gemini_assist` | 50 / 36 pass |
+| `test_commit_validation` / `test_review_screen` | 55 / 275 pass |
+| runtime check | shared sentence byte-identical in both prompts; old prohibition absent from both; note-under-note silence intact on both |
+
+### Live verification — DONE (2026-08-19, read-only)
+
+Both owed checks were run against the real Anthropic model (`claude-opus-4-8`) on real production
+sheets, driving the `run_ai_pass` SERVICE directly so **nothing was persisted** (the endpoint is what
+writes `ai_*`; the service just returns suggestions).
+
+| Check | Result |
+|---|---|
+| Prompt actually loaded in-process | new sentence present, old prohibition **absent** — on both engines |
+| AI pass, `BOQ-26-00181 / Electrical` (225 rows) | 38 suggestions, **0** nest an item under an item |
+| AI pass, `BOQ-26-00188 / HVAC Lowside Works` (243 rows) | 42 suggestions, **0** nest an item under an item |
+| Model shown an EXISTING item-under-item | left it alone on both sheets — it does not fight a human edit |
+| Gate, `BOQ-26-00181 / Electrical` | **0 breaks** now; simulating the old predicate reports **1** — this real sheet was hard-blocked from finalizing before the change and is clean after |
+
+**The over-nesting risk did not materialise** on 80 suggestions across two disciplines. Option B's
+explicit permission did not make the model volunteer nested items.
+
+### Corpus scan — where item-under-item actually comes from
+
+510 sheets scanned: **3 sheets, 3 rows** carry an item-under-item. **All three are HUMAN overrides,
+not parser output** — `parent_index` points at a preamble in every case and `human_parent` was written
+later. All three carry the same `edit_log` reason shape:
+
+> `row moved: row N reclassified to line_item`
+
+i.e. a human reclassified a PREAMBLE to a line_item and the RestructureModal carried its children
+along — leaving items under an item, which the gate then hard-blocked. **That is exactly the dead end
+this ruling was made to remove, observed three times in live data.**
+
+⚠️ **Caveat on the strength of that evidence:** all three edits are dated 2026-08-19 by
+`Administrator`, so they are almost certainly the owner's own testing of this very flow rather than
+independent field usage. It demonstrates the mechanism, not its frequency. The honest reading is that
+this shape is RARE (3 in 510 sheets) and arises from reclassification, not from bills that natively
+nest sub-items.
+
+⚠️ **This partly undercuts the prompt wording.** Both prompts now describe the child as *"a
+sub-component or a breakdown of it"*. No such case was found in the corpus — the observed cause is a
+preamble→item reclassification. The sentence is not wrong, but it names a shape the data does not yet
+show. Worth revisiting if a future pass finds the model inventing sub-component nestings.
+
+### Still open
+
+* **Not browser-verified.** Everything above was driven through the service layer. The actual review
+  screen (pick an Item as another Item's parent → no must-fix entry → Finalize → commit) has still not
+  been clicked through.
+* **Gemini is UNMEASURED.** AI settings carry `provider = Anthropic` and only an `anthropic_api_key`,
+  so the Gemini prompt change ships on its pins alone — no live call was possible.
+* **Compounded risk, accepted:** the models are now actively invited to nest items, and no structural
+  gate checks the result (#8 no longer fires, #16 warns only when the parent is priced).
+
+---
+
 ## Build slice RMF-1 -- the rate-master DEPLOYMENT FREEZE (2026-08-18/19)
 
 **The first user-facing control this arc has added.** Commit `df40227e` (feat).

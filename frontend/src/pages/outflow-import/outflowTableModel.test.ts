@@ -4,24 +4,32 @@ import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import {
     DEFAULT_HIDDEN_COLUMNS,
     DEFAULT_TAB,
+    PERIOD_COLUMN_ID,
+    SERVER_FACET_COLUMNS,
+    importsCoveredLabel,
+    isDateFilterValue,
+    rematchWarning,
+    type SummaryImport,
     OUTFLOW_COLUMNS,
     OUTFLOW_TABS,
     RECORD_COLUMNS,
     activeFilterCount,
     amountVerdict,
-    assignedStackPairs,
+    candidateKeySet,
+    partialOffer,
+    deductionOffer,
+    deductionRefusalText,
+    TDS_BAND_MIN_PCT,
+    TDS_BAND_MAX_PCT,
+    INTENT_PART_PAYMENT,
+    INTENT_DEDUCTION,
+    matcherCandidateLine,
     confirmFunnel,
     describeFrappeError,
+    settleBlockText,
     settleBlocker,
     previewCounts,
     statementDebit,
-    duplicateStackAssignments,
-    proposeStackPairs,
-    stackLabel,
-    stackPairsAreSubmittable,
-    stackSurplusNote,
-    stackIsCrossProject,
-    stackProjectSpread,
     tabCountParts,
     matchBasisLabel,
     ARBITRARY_SUGGESTION_RULES,
@@ -36,10 +44,10 @@ import {
     orderLabel,
     suggestionRuleLabel,
     type ConfirmableRow,
-    type UnpairedStack,
     ledgerLabel,
     parseRecordKey,
-    recordDateLabel,
+    RECORD_DATE_LABELS,
+    recordDateParts,
     recordKey,
     DEFAULT_PAGE_SIZE,
     SCOPE_FOR_TAB,
@@ -50,7 +58,19 @@ import {
     importOptionLabel,
     isConfirmable,
     orderBySuggestion,
+    orderPaymentsHref,
+    SOURCE_COLUMN_ID,
+    SOURCE_OPTIONS,
+    importPeriodLabel,
+    importStatusTone,
+    importsForSource,
+    openImports,
+    rematchReachLabel,
+    sourceSelectorValue,
+    REFERENCE_DISPLAY_MAX,
+    referenceValue,
     rowSettlementLinks,
+    shortReference,
     seedDecisions,
     serverQuery,
     settlementLink,
@@ -92,23 +112,71 @@ describe("columns", () => {
         // ⚠️ "Import" JOINED AT X3 and it only makes sense from X3 on: the batch screen showed one
         // import, so naming it in every row would have been noise. The master table spans every
         // import, and "which statement was this?" becomes a real question the moment it does.
+        //
+        // ⚠️ "Source" JOINED WHEN CASHBOOK DID, and this pin was updated deliberately rather than
+        // worked around. Two things forced it. A hidden column has no header, and in this table a
+        // funnel lives IN a header -- so hiding it would have shipped a filter nobody could reach,
+        // which is not what was asked for. And the two sources do not merely differ in origin:
+        // a Cashfree row SETTLES a record somebody approved, a Cashbook row CREATED one. Mixed in
+        // an unlabelled table they read as though they behave alike, and they do not.
+        //
+        // ⚠️ "Import" LEFT THIS LIST AT CF/S1 (owner ruling) and "Reference (UTR)" became
+        // "Reference". Both pins were updated deliberately rather than worked around: the Import
+        // selector above the summary answers "which statement?" in a control you can act on, and
+        // the header could not keep promising a UTR once a Cashbook row renders its wallet id.
         const shown = OUTFLOW_COLUMNS.filter((c) => !c.hiddenByDefault).map((c) => c.title);
         expect(shown).toEqual([
             "Payment Date",
             "Beneficiary",
             "Amount Paid",
             "Remarks",
-            "Reference (UTR)",
+            "Reference",
             "Status",
             "Outcome",
-            "Import",
+            "Source",
         ]);
     });
 
-    it("ships bank a/c, IFSC and time hidden", () => {
+    it("ships settled-via, bank a/c, IFSC and time hidden", () => {
         // Real and occasionally needed; putting them in the default row costs every reader
         // horizontal space on every visit to serve a rare lookup.
-        expect(DEFAULT_HIDDEN_COLUMNS).toEqual(["bank_account", "ifsc", "time"]);
+        //
+        // ⚠️ `settlement_origin` JOINED THIS LIST AT SLICE Q1, DELIBERATELY. The owner asked for a
+        // FILTER and a summary number, not a column -- but in this table a filter IS a column
+        // header, because the funnel lives in the `<th>`. Hidden-by-default is the honest
+        // resolution: the table looks exactly as it did and the funnel is one click away in the
+        // column picker. The alternative -- a second filter path that bypasses OUTFLOW_COLUMNS --
+        // would break the single-builder guarantee that keeps the page, its count, the tabs and
+        // the summary from disagreeing.
+        //
+        // ⚠️ `import_batch` JOINED AT CF/S1 FOR THE SAME REASON `settlement_origin` DID, AND THAT
+        // IS WHY THE OWNER'S "remove the Import column" BECAME "hide it". Deleting the column would
+        // have deleted the Import FACET with it -- there is no second filter path -- so a request
+        // about screen width would have silently cut the ability to filter by statement.
+        expect(DEFAULT_HIDDEN_COLUMNS).toEqual([
+            "import_batch",
+            "settlement_origin",
+            "bank_account",
+            "ifsc",
+            "time",
+        ]);
+    });
+
+    it("keeps the Import facet reachable although the column is hidden", () => {
+        // The point of hiding rather than deleting. If this ever stops being a facet, the Import
+        // funnel is gone and nothing else on the table can filter by statement.
+        const col = OUTFLOW_COLUMNS.find((c) => c.id === "import_batch")!;
+        expect(col.filter).toBe("facet");
+        expect(col.hiddenByDefault).toBe(true);
+    });
+
+    it("offers settled-via as a FACET, so the values come from the database", () => {
+        // The three origins are a closed vocabulary, but the facet is still the right shape: it is
+        // the one filter kind `_row_filters` already serves over the whole filtered table rather
+        // than over the loaded page.
+        const col = OUTFLOW_COLUMNS.find((c) => c.id === "settlement_origin")!;
+        expect(col.filter).toBe("facet");
+        expect(col.title).toBe("Settled via");
     });
 
     it("gives Outcome no filter, because it is a button and not text", () => {
@@ -122,6 +190,253 @@ describe("columns", () => {
         const time = OUTFLOW_COLUMNS.find((c) => c.id === "time")!;
         expect(date.get(source)).toBe("2026-08-05");
         expect(time.get(source)).toBe("14:22");
+    });
+});
+
+describe("what Re-run match will touch", () => {
+    const imp = (over: Partial<SummaryImport> = {}): SummaryImport => ({
+        name: "OFI-1",
+        original_filename: "aug.csv",
+        row_count: 10,
+        total_rows: 10,
+        is_open: true,
+        ...over,
+    });
+
+    it("skips a finished statement", () => {
+        // ⚠️ AUTO-CLOSE, AND IT IS DERIVED. `Completed` means every transfer is settled or skipped;
+        // `match_batch` already skips those rows one by one, so re-running such a statement was
+        // always a no-op that walked every row to discover it.
+        const open = openImports([
+            imp({ name: "A", is_open: true }),
+            imp({ name: "DONE", is_open: false, status: "Completed" }),
+        ]);
+        expect(open.map((b) => b.name)).toEqual(["A"]);
+    });
+
+    it("⚠️ treats a MISSING flag as open, never as finished", () => {
+        // An older server does not send `is_open`. Reading its absence as "closed" would make the
+        // button silently re-run nothing while reporting success — the failure direction that
+        // loses work rather than wasting a pass.
+        expect(openImports([imp({ is_open: undefined })])).toHaveLength(1);
+    });
+
+    it("says how far the re-run reaches, counting only the open ones", () => {
+        const label = rematchReachLabel([
+            imp({ name: "A" }),
+            imp({ name: "B" }),
+            imp({ name: "DONE", is_open: false }),
+        ]);
+        expect(label).toBe("Re-run reaches 2 open imports.");
+    });
+
+    it("is silent for a single statement, which needs no warning about its own scope", () => {
+        expect(rematchReachLabel([imp()])).toBe("");
+        expect(rematchReachLabel([])).toBe("");
+        expect(rematchReachLabel([imp({ is_open: false }), imp({ name: "B", is_open: false })])).toBe("");
+    });
+
+    it("⚠️ the tooltip names only the statements the button acts on", () => {
+        // Listing a finished statement would describe an action wider than the one that runs —
+        // the same failure as the count this replaced, pointing the other way.
+        const warning = rematchWarning([
+            imp({ name: "A", original_filename: "open.csv" }),
+            imp({ name: "B", original_filename: "open2.csv" }),
+            imp({ name: "DONE", original_filename: "finished.csv", is_open: false }),
+        ]);
+        expect(warning).toContain("open.csv");
+        expect(warning).not.toContain("finished.csv");
+        expect(warning).toContain("2 imports");
+    });
+
+    it("explains the disabled button rather than going quiet", () => {
+        const warning = rematchWarning([
+            imp({ name: "A", is_open: false }),
+            imp({ name: "B", is_open: false }),
+        ]);
+        expect(warning).toContain("finished");
+        expect(warning).toContain("nothing left to match");
+        expect(warning).toContain("All 2 statements have");
+    });
+
+    it("⚠️ picks the SUBJECT for one finished statement, never 'all 1 statement'", () => {
+        // Found in the browser walk. Interpolating the count and switching only the verb read as
+        // broken text on a tooltip whose whole job is to explain a disabled control — the same trap
+        // "1 of them extend" hit in the overspill sentence, in a new place.
+        const warning = rematchWarning([imp({ name: "A", is_open: false })]);
+        expect(warning).toContain("This statement has");
+        expect(warning).not.toContain("all 1");
+        expect(warning).not.toContain("All 1");
+    });
+
+    it("still warns about a statement that straddles the period", () => {
+        // The pre-existing overspill sentence must survive the open/closed filter — it is the other
+        // half of what this button has to state before it is pressed.
+        const warning = rematchWarning([
+            imp({ name: "A", row_count: 4, total_rows: 10 }),
+            imp({ name: "B" }),
+        ]);
+        expect(warning).toContain("6 transfers");
+        expect(warning).toContain("outside it will be re-matched too");
+    });
+});
+
+describe("the import history row", () => {
+    it("reads the declared period in the app's date format", () => {
+        expect(importPeriodLabel({ period_from: "2026-08-01", period_to: "2026-08-15" })).toBe(
+            "01-Aug-2026 – 15-Aug-2026"
+        );
+    });
+
+    it("renders one bound alone rather than a half-empty range", () => {
+        expect(importPeriodLabel({ period_from: "2026-08-01" })).toBe("01-Aug-2026");
+        expect(importPeriodLabel({ period_to: "2026-08-15" })).toBe("15-Aug-2026");
+    });
+
+    it("says em dash when a statement declared no period", () => {
+        // Legible as missing, rather than as a cell that failed to render.
+        expect(importPeriodLabel({})).toBe("—");
+    });
+
+    it("tones a finished import quietly and an open one for attention", () => {
+        // ⚠️ THE STATUS IS PRINTED ON EVERY ROW, INCLUDING `Completed` (slice CF/S5). It decides
+        // whether Re-run touches a statement, so "why was that one skipped?" has to be answerable
+        // here. Showing the word only when work remains would make the answer an ABSENCE.
+        expect(importStatusTone("Completed")).toContain("muted");
+        expect(importStatusTone("Partially Settled")).toContain("amber");
+        expect(importStatusTone("In Review")).toContain("amber");
+        expect(importStatusTone(undefined)).toContain("amber");
+    });
+});
+
+describe("the source scope", () => {
+    it("is the `source` column's own filter, so the funnel and the selector are one value", () => {
+        // ⚠️ THE POINT OF THE WHOLE SLICE. Two controls over one column would AND together, so
+        // "Cashfree" above with "Cashbook" ticked in the funnel selects NOTHING while neither
+        // control looks wrong. Same shape as `PERIOD_COLUMN_ID`.
+        expect(SOURCE_COLUMN_ID).toBe("source");
+        expect(OUTFLOW_COLUMNS.find((c) => c.id === SOURCE_COLUMN_ID)!.filter).toBe("facet");
+    });
+
+    it("is already a server facet, so it needed no new filter path", () => {
+        // Declaring a facet needs THREE lists to agree (see `SERVER_FACET_COLUMNS`). `source` was
+        // in all of them before this slice, which is why the scope is a store over an existing
+        // funnel rather than a bespoke parameter past `_row_filters`.
+        expect(SERVER_FACET_COLUMNS).toContain("source");
+    });
+
+    it("reads All for an empty selection — a pass-through, never 'show nothing'", () => {
+        expect(sourceSelectorValue([])).toBe("all");
+        expect(sourceSelectorValue(undefined)).toBe("all");
+        expect(sourceSelectorValue(["  "])).toBe("all");
+    });
+
+    it("names the one chosen source", () => {
+        expect(sourceSelectorValue(["Cashbook"])).toBe("Cashbook");
+    });
+
+    it("⚠️ reads Mixed — never All — when the funnel holds both", () => {
+        // A dropdown reading "All" over an applied filter is the invisible-filter defect this
+        // screen shipped once already, when a deep link left a hidden period applied and every
+        // number on the page was wrong with nothing able to reveal it.
+        expect(sourceSelectorValue(["Cashfree", "Cashbook"])).toBe("mixed");
+    });
+
+    it("offers exactly the two sources a batch can have", () => {
+        expect([...SOURCE_OPTIONS]).toEqual(["Cashfree", "Cashbook"]);
+    });
+
+    it("narrows the imports on offer to the chosen source", () => {
+        const options = [
+            { name: "A", source: "Cashfree" },
+            { name: "B", source: "Cashbook" },
+        ];
+        expect(importsForSource(options, ["Cashbook"]).map((o) => o.name)).toEqual(["B"]);
+    });
+
+    it("offers every import when nothing is chosen", () => {
+        const options = [
+            { name: "A", source: "Cashfree" },
+            { name: "B", source: "Cashbook" },
+        ];
+        expect(importsForSource(options, []).map((o) => o.name)).toEqual(["A", "B"]);
+    });
+
+    it("⚠️ keeps an import with NO source under every scope", () => {
+        // The same reasoning as the period's `IS NULL` clauses. A batch predating the column would
+        // otherwise disappear from the picker with no control able to bring it back, while its
+        // transfers still needed settling. Noisy in the rare case; silent in the dangerous one.
+        const options = [{ name: "A", source: "Cashfree" }, { name: "OLD" }];
+        expect(importsForSource(options, ["Cashbook"]).map((o) => o.name)).toEqual(["OLD"]);
+    });
+
+    it("is excluded from the Clear-filters badge, like the period", () => {
+        // Both are screen SCOPES with their own always-visible controls — which is the thing a
+        // badge substitutes for — and "Clear filters" must not silently widen either.
+        expect(activeFilterCount({ [SOURCE_COLUMN_ID]: ["Cashbook"] })).toBe(0);
+        expect(activeFilterCount({ [SOURCE_COLUMN_ID]: ["Cashbook"], row_status: ["Matched"] })).toBe(1);
+    });
+});
+
+describe("the reference a transfer is known by", () => {
+    it("uses the bank reference when there is one", () => {
+        expect(referenceValue(row({ bank_reference_no: "620919871893" }))).toBe("620919871893");
+    });
+
+    it("falls back to the wallet's transaction id when there is no bank reference", () => {
+        // ⚠️ THE WHOLE POINT OF THE FALLBACK. A Cashbook row has no UTR and never will, so this
+        // column rendered EMPTY on every petty-cash transfer -- while the expense that row created
+        // carried the transaction id as its `payment_ref`. The screen was hiding the one value that
+        // reconciles the two systems.
+        const wallet = row({ bank_reference_no: "", transfer_id: "CF-WALLET-8891203471" });
+        expect(referenceValue(wallet)).toBe("CF-WALLET-8891203471");
+    });
+
+    it("is one-way: a bank reference is never replaced by the transfer id", () => {
+        // Nothing about the Cashfree path moves. Both fields are populated there.
+        const bank = row({ bank_reference_no: "620919871893", transfer_id: "T-9" });
+        expect(referenceValue(bank)).toBe("620919871893");
+    });
+
+    it("treats a whitespace-only bank reference as absent", () => {
+        expect(referenceValue(row({ bank_reference_no: "   ", transfer_id: "T-9" }))).toBe("T-9");
+    });
+
+    it("is empty when the row carries neither", () => {
+        expect(referenceValue(row({ bank_reference_no: "", transfer_id: "" }))).toBe("");
+    });
+
+    it("shows the LAST 12 characters of a longer reference, not the first", () => {
+        // ⚠️ THE TAIL, NOT THE HEAD, AND IT IS NOT A STYLE CHOICE. A wallet id is front-loaded with
+        // a constant prefix, so taking the head would print the same twelve characters on every
+        // row and distinguish nothing.
+        expect(shortReference("CF-WALLET-8891203471")).toBe("T-8891203471");
+        expect(shortReference("CF-WALLET-8891203471")).toHaveLength(REFERENCE_DISPLAY_MAX);
+    });
+
+    it("leaves a reference of exactly the limit alone", () => {
+        const exact = "620919871893";
+        expect(exact).toHaveLength(REFERENCE_DISPLAY_MAX);
+        expect(shortReference(exact)).toBe(exact);
+    });
+
+    it("leaves a shorter reference alone, and survives a blank", () => {
+        expect(shortReference("ABC123")).toBe("ABC123");
+        expect(shortReference("")).toBe("");
+        expect(shortReference(null)).toBe("");
+        expect(shortReference(undefined)).toBe("");
+    });
+
+    it("⚠️ NEVER shortens what the column SORTS, FILTERS or FACETS on", () => {
+        // The load-bearing half. `column.get` feeds the sort, the funnels and
+        // `get_outflow_facet_values` -- so a truncation here would mean pasting a full UTR into the
+        // search box and finding nothing, silently, because an empty result looks exactly like a
+        // search with no matches. Only the rendered text is short; the cell keeps the full value on
+        // its `title`.
+        const long = row({ bank_reference_no: "", transfer_id: "CF-WALLET-8891203471" });
+        const col = OUTFLOW_COLUMNS.find((c) => c.id === "bank_reference_no")!;
+        expect(col.get(long)).toBe("CF-WALLET-8891203471");
+        expect(String(col.get(long)).length).toBeGreaterThan(REFERENCE_DISPLAY_MAX);
     });
 });
 
@@ -316,104 +631,6 @@ describe("the summary panel's figures", () => {
     });
 });
 
-describe("unpaired stacks", () => {
-    const stack = (transfers: number, records: number) => ({
-        account: "98765432101",
-        amount: 9000,
-        beneficiary_name: "APEX FABRICATION WORKS",
-        surplus_transfers: Math.max(transfers - records, 0),
-        surplus_records: Math.max(records - transfers, 0),
-        transfers: Array.from({ length: transfers }, (_, i) => ({
-            name: `OFR-${i + 1}`,
-            transfer_id: `T${i + 1}`,
-            amount: 9000,
-        })),
-        records: Array.from({ length: records }, (_, i) => ({
-            target_doctype: "Project Payments" as const,
-            target_name: `PAY-${i + 1}`,
-            amount: 9000,
-            status: "Approved",
-            vendor_name: "Apex",
-            project_name: "Site A",
-        })),
-    });
-
-    it("opens with transfer i against record i, up to the shorter side", () => {
-        // ⚠️ THE DIFFERENCE FROM THE SERVER'S `pair_stack`, which refuses an unbalanced stack
-        // outright because it would be DECIDING which transfer settles nothing. Here a person is
-        // present, so the surplus is left unassigned for them to place.
-        const pairs = proposeStackPairs(stack(3, 2));
-        expect(pairs).toEqual({
-            "OFR-1": "Project Payments|PAY-1",
-            "OFR-2": "Project Payments|PAY-2",
-        });
-        expect(pairs["OFR-3"]).toBeUndefined();
-    });
-
-    it("leaves surplus records unassigned too", () => {
-        expect(Object.keys(proposeStackPairs(stack(2, 3)))).toEqual(["OFR-1", "OFR-2"]);
-    });
-
-    it("catches a record assigned to two transfers", () => {
-        // ⚠️ THE ONE THING THE DIALOG MUST NOT LET THROUGH. The first settle marks the payment Paid
-        // and the second fails with AlreadyPaidError -- the exact failure the candidate-collapse
-        // fix was written to stop producing, re-created by hand.
-        const duplicates = duplicateStackAssignments({
-            "OFR-1": "Project Payments|PAY-1",
-            "OFR-2": "Project Payments|PAY-1",
-        });
-        expect([...duplicates]).toEqual(["Project Payments|PAY-1"]);
-    });
-
-    it("ignores blanks when looking for duplicates", () => {
-        expect(duplicateStackAssignments({ a: "", b: "" }).size).toBe(0);
-    });
-
-    it("submits a partial pairing, because the surplus is why a person is here", () => {
-        // Refusing to write the pairs someone DID make until they invent one for a transfer with no
-        // record would be a screen arguing with its own premise.
-        const s = stack(3, 2);
-        expect(stackPairsAreSubmittable(s, proposeStackPairs(s))).toBe(true);
-    });
-
-    it("refuses an empty pairing and a duplicated one", () => {
-        const s = stack(3, 2);
-        expect(stackPairsAreSubmittable(s, {})).toBe(false);
-        expect(
-            stackPairsAreSubmittable(s, {
-                "OFR-1": "Project Payments|PAY-1",
-                "OFR-2": "Project Payments|PAY-1",
-            })
-        ).toBe(false);
-    });
-
-    it("returns the assigned pairs in transfer order, split back into ledger and name", () => {
-        const s = stack(3, 2);
-        const assigned = assignedStackPairs(s, proposeStackPairs(s));
-        expect(assigned.map((a) => [a.transfer.name, a.target, a.name])).toEqual([
-            ["OFR-1", "Project Payments", "PAY-1"],
-            ["OFR-2", "Project Payments", "PAY-2"],
-        ]);
-    });
-
-    it("states the surplus in both directions, and says nothing when there is none", () => {
-        // A stack is here BECAUSE the counts do not match; a dialog showing only the pairs would
-        // let someone close it believing the whole stack was dealt with.
-        expect(stackSurplusNote(stack(3, 2))).toContain("1 transfer");
-        expect(stackSurplusNote(stack(3, 2))).toContain("stay open");
-        expect(stackSurplusNote(stack(2, 4))).toContain("2 approved records");
-        expect(stackSurplusNote(stack(2, 2))).toBe("");
-    });
-
-    it("names a stack by what it is, falling back to the account", () => {
-        const money = (n: number) => `₹${n.toLocaleString("en-IN")}`;
-        expect(stackLabel(stack(7, 6), money)).toBe("₹9,000 × 7 to APEX FABRICATION WORKS");
-        expect(stackLabel({ ...stack(2, 1), beneficiary_name: "" }, money)).toBe(
-            "₹9,000 × 2 to 98765432101"
-        );
-    });
-});
-
 describe("importOptionLabel", () => {
     it("names the file and the period, never the batch id", () => {
         // `OFI-26-00007` means nothing to an accountant; the file they uploaded and the fortnight
@@ -425,13 +642,13 @@ describe("importOptionLabel", () => {
                 period_from: "2026-07-16 00:00:00",
                 period_to: "2026-07-31 00:00:00",
             })
-        ).toBe("july-b.csv · 2026-07-16 → 2026-07-31");
+        ).toBe("july-b.csv · 16-Jul-2026 → 31-Jul-2026");
     });
 
     it("falls back through file, then period, then the id", () => {
         expect(importOptionLabel({ name: "OFI-1", original_filename: "a.csv" })).toBe("a.csv");
         expect(importOptionLabel({ name: "OFI-1", period_from: "2026-07-16 00:00:00" })).toBe(
-            "2026-07-16"
+            "16-Jul-2026"
         );
         expect(importOptionLabel({ name: "OFI-1" })).toBe("OFI-1");
     });
@@ -587,7 +804,70 @@ describe("the bulk bar counts DECIDED rows, not selected ones", () => {
     });
 });
 
-describe("links to the record a row settles", () => {
+describe("links to the record a row settles — the app's own route (slice E3)", () => {
+    const ORDER = "PO/123/25-26";
+
+    it("sends a payment to its ORDER, the way the rest of the app does", () => {
+        // ⚠️ THE HEADLINE CHANGE. Twelve other call sites navigate to `/project-payments/<order>`;
+        // this feature had its own scheme, which only landed while four separate things agreed.
+        const link = settlementLink("Project Payments", "PAY-00105-038", true, ORDER)!;
+        expect(link.href).toBe("/project-payments/PO&=123&=25-26");
+        expect(link.exact).toBe(true);
+        // The LABEL stays the payment -- that is the record the row settled and what the reviewer
+        // recognises. Only the destination changed.
+        expect(link.label).toBe("PAY-00105-038");
+    });
+
+    it("escapes every slash as &=, because the reader reverses exactly that", () => {
+        // `OrderPaymentSummary` does `id.replace(/&=/g, "/")`. A different escape here would not
+        // fail loudly -- it would land on a route param that resolves to no document.
+        expect(orderPaymentsHref("PO/123/25-26")).toBe("/project-payments/PO&=123&=25-26");
+        expect(orderPaymentsHref("SR/9/25-26")).toBe("/project-payments/SR&=9&=25-26");
+        expect(orderPaymentsHref("NOSLASH")).toBe("/project-payments/NOSLASH");
+    });
+
+    it("carries a Service Request order as readily as a PO", () => {
+        // A quarter of payments are against an SR, and `OrderPaymentSummary` branches on the id
+        // prefix itself -- so this helper must not assume "PO".
+        expect(settlementLink("Project Payments", "PAY-1", true, "SR/9/25-26")!.href).toBe(
+            "/project-payments/SR&=9&=25-26"
+        );
+    });
+
+    it("the tooltip names the ORDER being opened, not a tab that no longer applies", () => {
+        const link = settlementLink("Project Payments", "PAY-1", true, ORDER)!;
+        expect(link.title).toContain(ORDER);
+        expect(link.title).not.toContain("Payments Done");
+    });
+
+    it("ignores the settled flag on the order route, which carries no status filter", () => {
+        const settled = settlementLink("Project Payments", "PAY-1", true, ORDER)!;
+        const open = settlementLink("Project Payments", "PAY-1", false, ORDER)!;
+        expect(settled.href).toBe(open.href);
+    });
+
+    it("⚠️ FALLS BACK rather than losing the link when no order is known", () => {
+        // A payload predating `order_name`, or a payment with no order at all. Blank and absent
+        // are the same answer: there is no order to open.
+        for (const missing of [undefined, null, "", "   "]) {
+            const link = settlementLink("Project Payments", "PAY-1", false, missing)!;
+            expect(link.href).toContain("tab=All+Payments");
+        }
+    });
+
+    it("never routes an EXPENSE to the payments route, whatever it is handed", () => {
+        // `document_name` holds the expense TYPE on both expense ledgers, so an order id passed
+        // here would be a category name, not a document.
+        expect(settlementLink("Project Expenses", "EXP-1", false, "Travel")!.href).toBe(
+            "/expense/project"
+        );
+        expect(settlementLink("Non Project Expenses", "NPE-1", false, "Travel")!.href).toBe(
+            "/expense/non-project"
+        );
+    });
+});
+
+describe("links to the record a row settles — the FALLBACK path, with no order known", () => {
     it("sends a SETTLED payment to Payments Done", () => {
         const link = settlementLink("Project Payments", "PAY-00105-038", true)!;
         expect(link.exact).toBe(true);
@@ -965,16 +1245,44 @@ describe("the settleable-record table model", () => {
         // date; presenting its modification timestamp under the word "approved" would be a
         // confident lie on two thirds of the list.
         const format = (value: string) => `formatted(${value})`;
-        expect(recordDateLabel(payment, format)).toBe("approved formatted(2026-07-12 10:00:00)");
-        expect(recordDateLabel(expense, format)).toBe("updated formatted(2026-07-20 10:00:00)");
+        expect(recordDateParts(payment, format)).toEqual({
+            kind: "approved",
+            date: "formatted(2026-07-12 10:00:00)",
+        });
+        expect(recordDateParts(expense, format)).toEqual({
+            kind: "updated",
+            date: "formatted(2026-07-20 10:00:00)",
+        });
+    });
+
+    it("returns the KIND and the DATE separately, so the badge cannot be lost in the sentence", () => {
+        // ⚠️ SLICE E2. It used to return one string -- "approved 12-Jul-2026" -- under a column
+        // headed "Approved", so the qualifier was a lowercase word mid-cell in the same weight as
+        // the date. The parts render as a badge ABOVE the date. The rule is unchanged; the
+        // separation is what makes it visible.
+        const parts = recordDateParts(expense, (v) => v);
+        expect(parts?.kind).toBe("updated");
+        expect(parts?.date).not.toContain("updated");
+    });
+
+    it("gives every kind a badge word, so a new kind cannot render blank", () => {
+        for (const kind of ["approved", "updated"] as const) {
+            expect(RECORD_DATE_LABELS[kind]).toBeTruthy();
+        }
+        expect(RECORD_DATE_LABELS.approved).toBe("Approved");
+        expect(RECORD_DATE_LABELS.updated).toBe("Updated");
     });
 
     it("says nothing rather than inventing a date when the record has neither", () => {
-        expect(recordDateLabel({ approved_on: "", updated_on: "" }, (v) => v)).toBe("");
+        expect(recordDateParts({ approved_on: "", updated_on: "" }, (v) => v)).toBeNull();
     });
 
     it("prefers the approval date when a payment carries both", () => {
-        expect(recordDateLabel(payment, (v) => v)).toContain("approved");
+        expect(recordDateParts(payment, (v) => v)?.kind).toBe("approved");
+    });
+
+    it("the column is headed Approval Date", () => {
+        expect(RECORD_COLUMNS.find((c) => c.id === "date")?.title).toBe("Approval Date");
     });
 
     it("names each ledger in the singular, and passes an unknown one through unchanged", () => {
@@ -1065,6 +1373,9 @@ describe("settleBlocker", () => {
         );
         expect(block).toEqual({
             kind: "amount_outside_window",
+            // The record is SMALLER than the transfer, and no doctype was sent -- so the direction
+            // reason, never the ledger one. See the fail-open case below.
+            reason: "bank_paid_more",
             recordName: "i87sop52n3",
             recordAmount: 26000,
             bankAmount: 245000,
@@ -1095,6 +1406,109 @@ describe("settleBlocker", () => {
     it("does not block when nothing is picked", () => {
         expect(settleBlocker(null, 1000)).toBeNull();
         expect(settleBlocker(undefined, 1000)).toBeNull();
+    });
+});
+
+describe("settleBlockReason / settleBlockText — WHY this pick cannot be settled (D1)", () => {
+    const blocked = (over: Record<string, unknown>, bank: number) =>
+        settleBlocker({ name: "P", amount: 100, suggested: false, ...over }, bank)!;
+
+    it("names an overpayment when the bank moved more than the record is for", () => {
+        expect(blocked({ amount: 26000, target_doctype: "Project Payments" }, 245000).reason).toBe(
+            "bank_paid_more"
+        );
+        // The ledger does not change this one -- the direction is the useful fact either way.
+        expect(blocked({ amount: 26000, target_doctype: "Project Expenses" }, 245000).reason).toBe(
+            "bank_paid_more"
+        );
+    });
+
+    it("names the expense rule when a LARGER record is an expense", () => {
+        expect(blocked({ amount: 500000, target_doctype: "Project Expenses" }, 200000).reason).toBe(
+            "expense_exact_only"
+        );
+        expect(
+            blocked({ amount: 500000, target_doctype: "Non Project Expenses" }, 200000).reason
+        ).toBe("expense_exact_only");
+    });
+
+    it("falls back to the payment case for a LARGER payment", () => {
+        // Ordinarily this shape opens the two-answer partial dialog instead; it reaches the
+        // dead-end branch only with SHOW_PARTIAL_SETTLE off, and must still say something true.
+        expect(blocked({ amount: 500000, target_doctype: "Project Payments" }, 200000).reason).toBe(
+            "record_larger"
+        );
+    });
+
+    it("⚠️ NEVER READS AN ABSENT target_doctype AS AN EXPENSE", () => {
+        // The load-bearing fail-open, matching `suggested`'s. An older payload would otherwise be
+        // told "an expense can only be settled at its exact amount" about a payment -- confident,
+        // specific, and wrong.
+        expect(blocked({ amount: 500000 }, 200000).reason).toBe("record_larger");
+        expect(blocked({ amount: 500000, target_doctype: undefined }, 200000).reason).toBe(
+            "record_larger"
+        );
+    });
+
+    it("guards a non-positive amount BEFORE asking about direction", () => {
+        expect(blocked({ amount: 0 }, 200000).reason).toBe("not_positive");
+        expect(blocked({ amount: -500 }, 200000).reason).toBe("not_positive");
+        expect(blocked({ amount: 500000 }, 0).reason).toBe("not_positive");
+        expect(blocked({ amount: 500000 }, -200000).reason).toBe("not_positive");
+    });
+
+    it("gives every reason its own non-empty sentence, and none of them mention TDS", () => {
+        const reasons = [
+            blocked({ amount: 26000 }, 245000),
+            blocked({ amount: 500000, target_doctype: "Project Expenses" }, 200000),
+            blocked({ amount: 500000, target_doctype: "Project Payments" }, 200000),
+            blocked({ amount: 0 }, 200000),
+        ];
+        const texts = reasons.map(settleBlockText);
+        expect(new Set(texts).size).toBe(4);
+        for (const text of texts) expect(text.length).toBeGreaterThan(0);
+
+        // ⚠️ THE REGRESSION THIS SLICE EXISTS FOR. The old fixed paragraph told the reviewer to
+        // settle a TDS deduction "in the payments screen", and slice TD made that false without
+        // touching the sentence. It must not come back, in any of the four.
+        for (const text of texts) expect(text).not.toMatch(/TDS/i);
+        // `SHOW_CREATE_NEW_EXPENSE` is false, so that route is not on this dialog either.
+        for (const text of texts) expect(text).not.toMatch(/new expense/i);
+    });
+
+    it("carries no amounts, so the figures live in exactly one place on screen", () => {
+        // The dialog's first paragraph already prints the record, the bank figure and the
+        // difference. A number repeated here would be a second copy free to drift.
+        for (const block of [
+            blocked({ amount: 26000 }, 245000),
+            blocked({ amount: 500000, target_doctype: "Project Expenses" }, 200000),
+        ]) {
+            expect(settleBlockText(block)).not.toMatch(/\d/);
+        }
+    });
+
+    it("is empty for no block at all", () => {
+        expect(settleBlockText(null)).toBe("");
+        expect(settleBlockText(undefined)).toBe("");
+    });
+
+    it("⚠️ the LEDGER reason and partialOffer's ledger bail cover the same set", () => {
+        // These two read the same field for opposite purposes: `partialOffer` returns null on a
+        // non-payment ledger, and `settleBlockReason` prints the expense sentence for it. If they
+        // ever drifted apart the dialog would explain a refusal that had not happened, or offer a
+        // split the endpoint would reject. Sharing `PROJECT_PAYMENTS_DOCTYPE` is what holds it;
+        // this pins that it stays held.
+        const larger = { name: "P", amount: 500000, suggested: false as const };
+        for (const target_doctype of ["Project Expenses", "Non Project Expenses"]) {
+            expect(partialOffer({ ...larger, target_doctype }, 200000)).toBeNull();
+            expect(settleBlocker({ ...larger, target_doctype }, 200000)!.reason).toBe(
+                "expense_exact_only"
+            );
+        }
+        // And the payment ledger is the other way round on both.
+        const payment = { ...larger, target_doctype: "Project Payments" };
+        expect(partialOffer(payment, 200000)).not.toBeNull();
+        expect(settleBlocker(payment, 200000)!.reason).toBe("record_larger");
     });
 });
 
@@ -1294,54 +1708,6 @@ describe("tabCountParts", () => {
         }
     });
 });
-
-// ------------------------------------------------------------------------------------------------
-// stackProjectSpread -- the fact that separates a harmless pairing from an expensive one
-// ------------------------------------------------------------------------------------------------
-
-describe("stackProjectSpread", () => {
-    const stack = (projects: (string | undefined)[]): UnpairedStack => ({
-        account: "ACC",
-        amount: 9000,
-        beneficiary_name: "VK Air Conditioning",
-        surplus_transfers: 0,
-        surplus_records: 1,
-        transfers: [],
-        records: projects.map((project_name, i) => ({
-            target_doctype: "Project Payments" as const,
-            target_name: `PAY-${i}`,
-            amount: 9000,
-            status: "Approved",
-            vendor_name: "VK Air Conditioning",
-            project_name: project_name as string,
-        })),
-    });
-
-    it("is not cross-project when every record is on one job", () => {
-        const s = stack(["Paytm Bangalore", "Paytm Bangalore"]);
-        expect(stackProjectSpread(s)).toEqual(["Paytm Bangalore"]);
-        expect(stackIsCrossProject(s)).toBe(false);
-    });
-
-    it("lists every distinct project once, in first-seen order", () => {
-        const s = stack(["Alpha", "Beta", "Alpha", "Gamma"]);
-        expect(stackProjectSpread(s)).toEqual(["Alpha", "Beta", "Gamma"]);
-        expect(stackIsCrossProject(s)).toBe(true);
-    });
-
-    // A blank is missing data, not a second project. Counting it would raise the warning on a stack
-    // that is merely incomplete, which is how a real signal gets trained away.
-    it("treats a blank or whitespace project as no project at all", () => {
-        const s = stack(["Alpha", "", "   ", undefined]);
-        expect(stackProjectSpread(s)).toEqual(["Alpha"]);
-        expect(stackIsCrossProject(s)).toBe(false);
-    });
-
-    it("is not cross-project when nothing carries a project", () => {
-        expect(stackIsCrossProject(stack(["", ""]))).toBe(false);
-    });
-});
-
 
 // ------------------------------------------------------------------------------------------------
 // the confirm rollup (S4) -- vendor -> project -> transfer
@@ -1694,5 +2060,488 @@ describe("suggestionRuleLabel", () => {
     // A rule shipped server-side that this mirror has not learned must not render as "no rule".
     it("falls back to the raw id rather than to an empty chip", () => {
         expect(suggestionRuleLabel("brand-new-rule")).toBe("brand-new-rule");
+    });
+});
+
+// --- the period, and the filter it IS (slice P1) --------------------------------------------------
+
+describe("the period column", () => {
+    it("is a date filter, not a facet", () => {
+        // ⚠️ IT SHIPPED AS `facet`, WHICH IS THE DEFECT THIS FIXES. A facet offers a tick box per
+        // DISTINCT VALUE -- one per calendar day the table touches, growing without limit -- and it
+        // cannot express "everything after the 14th" at all.
+        const column = OUTFLOW_COLUMNS.find((c) => c.id === PERIOD_COLUMN_ID);
+        expect(column?.filter).toBe("date");
+    });
+
+    it("is not offered as a server FACET column, or the funnel would fetch dates to tick", () => {
+        expect(SERVER_FACET_COLUMNS).not.toContain(PERIOD_COLUMN_ID);
+    });
+
+    /**
+     * ⚠️ A KNOWN, PRE-EXISTING DEAD FUNNEL, NAMED SO THE INVARIANT BELOW CAN STILL BE ENFORCED.
+     *
+     * `time` renders `timeOnly(r.added_on)` -- a value DERIVED in the client. There is no `time`
+     * column on `Outflow Import Row`, so it appears in neither `SERVER_FACET_COLUMNS` nor the
+     * server's `_FACET_COLUMNS`, and ticking its funnel has never filtered anything. That is a
+     * defect, found by the check below rather than reported by a user; it is not fixable by adding
+     * it to a list (the server would have nothing to filter on) and fixing it properly -- faceting
+     * on an expression, or dropping the funnel -- is out of slice Q1's scope.
+     *
+     * Listing it here keeps the rule enforced for every OTHER column instead of deleting the rule
+     * because one case fails it. Anything added to this set needs the same kind of explanation.
+     */
+    const DEAD_FUNNELS = new Set(["time"]);
+
+    it("⚠️ EVERY facet column is ALSO in SERVER_FACET_COLUMNS, or its funnel does nothing", () => {
+        // THE BUG THIS EXISTS FOR (slice Q1, found in the browser): a facet needs THREE lists to
+        // work -- `filter: "facet"` here draws the funnel, `review._FACET_COLUMNS` lets the server
+        // apply it, and SERVER_FACET_COLUMNS decides whether the selection is ever SENT. Adding
+        // the first two and not the third produced a tick box that registered, showed
+        // "Clear filters (1)", and left the row set completely unchanged.
+        //
+        // No unit test could see that, because each list was internally consistent. This one
+        // compares them.
+        const funnelled = OUTFLOW_COLUMNS.filter((c) => c.filter === "facet").map((c) => c.id);
+        expect(funnelled.length).toBeGreaterThan(0);
+        for (const id of funnelled) {
+            if (DEAD_FUNNELS.has(id)) continue;
+            expect(SERVER_FACET_COLUMNS).toContain(id);
+        }
+    });
+
+    it("and nothing is sent that has no funnel to set it", () => {
+        // The other direction: a column the server would accept but the screen cannot express is
+        // dead weight, and `added_on` is the cautionary tale -- it sat here after P1 and was
+        // harmless only because `serverQuery`'s loop happened to skip a non-array value.
+        const funnelled = new Set(
+            OUTFLOW_COLUMNS.filter((c) => c.filter === "facet").map((c) => c.id)
+        );
+        for (const id of SERVER_FACET_COLUMNS) {
+            expect(funnelled.has(id)).toBe(true);
+        }
+    });
+});
+
+describe("isDateFilterValue", () => {
+    it("tells a date filter apart from every other filter shape", () => {
+        expect(isDateFilterValue({ operator: "Is", value: "2026-07-01" })).toBe(true);
+        expect(isDateFilterValue(["a", "b"])).toBe(false); // facet
+        expect(isDateFilterValue("contains")).toBe(false); // text
+        expect(isDateFilterValue({ min: 1, max: 2 })).toBe(false); // range
+        expect(isDateFilterValue(undefined)).toBe(false);
+    });
+});
+
+describe("activeFilterCount with a period", () => {
+    // ⚠️ A REAL PERIOD, NEVER `DEFAULT_PERIOD`. The default became `null` on 2026-08-12, and
+    // `activeFilterCount` skips every null filter before it ever reaches the period rule -- so a
+    // test written against the default would pass whether the exclusion existed or not. It has to
+    // be a period that WOULD otherwise count.
+    const A_REAL_PERIOD = { operator: "Timespan", value: "last 30 days" } as const;
+
+    it("EXCLUDES the period, so the badge does not count the screen's own scope", () => {
+        // It has a large, always-visible control of its own stating exactly what it is -- which is
+        // the thing a badge exists to substitute for.
+        expect(activeFilterCount({ [PERIOD_COLUMN_ID]: A_REAL_PERIOD })).toBe(0);
+    });
+
+    it("still counts every other filter beside it", () => {
+        expect(
+            activeFilterCount({
+                [PERIOD_COLUMN_ID]: A_REAL_PERIOD,
+                beneficiary_name: ["ACME"],
+                amount: { min: 100 },
+            })
+        ).toBe(2);
+    });
+
+    it("counts the SAME VALUE under a different column, so the exclusion is the COLUMN", () => {
+        // Proves the zero above comes from the period rule and not from the value's shape.
+        // ⚠️ `PERIOD_COLUMN_ID` IS `added_on` -- the Period control and the Payment Date column
+        // funnel are two editors of ONE filter -- so there is no second real date column to test
+        // against and this id is deliberately hypothetical. `activeFilterCount` is generic over
+        // column ids and does not validate them, which is exactly what makes the point provable.
+        expect(activeFilterCount({ some_other_column: A_REAL_PERIOD })).toBe(1);
+    });
+});
+
+describe("serverQuery and the period", () => {
+    it("resolves a Between into the endpoint's two bounds", () => {
+        const query = serverQuery({
+            tab: DEFAULT_TAB,
+            filters: {
+                [PERIOD_COLUMN_ID]: { operator: "Between", value: ["2026-07-01", "2026-07-31"] },
+            },
+        });
+        expect(query.date_from).toBe("2026-07-01");
+        expect(query.date_to).toBe("2026-07-31");
+    });
+
+    it("sends only the bound an open-ended filter actually has", () => {
+        const query = serverQuery({
+            tab: DEFAULT_TAB,
+            filters: { [PERIOD_COLUMN_ID]: { operator: ">=", value: "2026-07-01" } },
+        });
+        expect(query.date_from).toBe("2026-07-01");
+        expect(query.date_to).toBeUndefined();
+    });
+
+    it("resolves a timespan into DATES, because these endpoints do not speak Frappe timespans", () => {
+        const query = serverQuery({
+            tab: DEFAULT_TAB,
+            filters: { [PERIOD_COLUMN_ID]: { operator: "Timespan", value: "today" } },
+        });
+        // Resolved against a live today, so assert the SHAPE and that the two agree rather than
+        // pinning a date that is wrong tomorrow.
+        expect(query.date_from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(query.date_from).toBe(query.date_to);
+    });
+
+    it("sends no date at all when the period is cleared", () => {
+        const query = serverQuery({ tab: DEFAULT_TAB, filters: {} });
+        expect(query.date_from).toBeUndefined();
+        expect(query.date_to).toBeUndefined();
+    });
+});
+
+describe("importsCoveredLabel", () => {
+    it("says nothing when there is nothing to say", () => {
+        expect(importsCoveredLabel([])).toBe("");
+    });
+
+    it("agrees with itself about singular and plural", () => {
+        expect(importsCoveredLabel([anImport()])).toBe("1 import");
+        expect(importsCoveredLabel([anImport(), anImport({ name: "OFI-2" })])).toBe("2 imports");
+    });
+});
+
+describe("rematchWarning", () => {
+    it("names the imports the click will touch", () => {
+        const warning = rematchWarning([anImport({ original_filename: "july.csv" })]);
+        expect(warning).toContain("july.csv");
+        expect(warning).toContain("1 import");
+    });
+
+    it("stays quiet about overspill when every row of every batch is in scope", () => {
+        const warning = rematchWarning([anImport({ row_count: 40, total_rows: 40 })]);
+        expect(warning).not.toContain("extend past");
+    });
+
+    it("says 'It extends', not '1 of them extend', for a single straddling import", () => {
+        // ⚠️ FOUND IN THE BROWSER, NOT BY A TEST. The shipped wording read "1 of them extend past
+        // this period" — broken grammar on the one sentence whose job is to warn that a button
+        // reaches further than it looks, and "1 of them" is clumsy for a set of one.
+        const warning = rematchWarning([anImport({ row_count: 10, total_rows: 40 })]);
+        expect(warning).toContain("It extends past this period");
+        expect(warning).not.toContain("of them extend");
+    });
+
+    it("agrees subject and verb when SOME of several imports straddle", () => {
+        const warning = rematchWarning([
+            anImport({ name: "OFI-1", row_count: 10, total_rows: 40 }),
+            anImport({ name: "OFI-2", row_count: 5, total_rows: 5 }),
+        ]);
+        expect(warning).toContain("1 of them extends past this period");
+    });
+
+    it("uses the plural verb when several straddle", () => {
+        const warning = rematchWarning([
+            anImport({ name: "OFI-1", row_count: 10, total_rows: 40 }),
+            anImport({ name: "OFI-2", row_count: 5, total_rows: 6 }),
+        ]);
+        expect(warning).toContain("2 of them extend past this period");
+    });
+
+    it("STATES the overspill when a statement straddles the period", () => {
+        // ⚠️ THE WHOLE REASON THIS FUNCTION EXISTS. Matching runs per BATCH -- `match_batch`'s four
+        // global passes reason over a whole import at once -- so a straddling statement is
+        // re-matched in full. That is wider than the period implies, and the screen has to say so
+        // BEFORE the click rather than after it.
+        const warning = rematchWarning([anImport({ row_count: 10, total_rows: 40 })]);
+        expect(warning).toContain("past this period");
+        expect(warning).toContain("30 transfers");
+    });
+
+    it("adds up the overspill across several straddling statements", () => {
+        const warning = rematchWarning([
+            anImport({ name: "OFI-1", row_count: 10, total_rows: 40 }),
+            anImport({ name: "OFI-2", row_count: 5, total_rows: 6 }),
+        ]);
+        expect(warning).toContain("31 transfers");
+    });
+
+    it("says so plainly when the period holds no imports at all", () => {
+        expect(rematchWarning([])).toBe("No imports in this period.");
+    });
+});
+
+function anImport(overrides: Partial<SummaryImport> = {}): SummaryImport {
+    return {
+        name: "OFI-26-00001",
+        original_filename: "statement.csv",
+        row_count: 10,
+        total_rows: 10,
+        ...overrides,
+    };
+}
+
+describe("a pinned batch and the period", () => {
+    /**
+     * ⚠️ FOUND IN THE BROWSER, NOT BY A TEST, AND IT WAS THE WORST KIND OF WRONG. On
+     * `/bulk-import-outflow/:id` the period control is HIDDEN, so a period left in the store by an
+     * earlier visit kept narrowing the view with nothing on screen able to reveal or clear it. A
+     * deep link to a 1,043-row statement reported 274 transfers under a panel headed "Showing
+     * OFI-26-00289": every number wrong, everything looking right.
+     *
+     * `useOutflowRows` drops the period whenever a batch is pinned. That is a hook, so it is not
+     * directly testable here — what IS testable is the contract underneath it: given no date filter,
+     * `serverQuery` must send no date bound at all, so a pinned batch means the whole batch.
+     */
+    it("sends NO date bound when the period filter is absent", () => {
+        const query = serverQuery({ tab: DEFAULT_TAB, batch: "OFI-26-00289", filters: {} });
+        expect(query.batch).toBe("OFI-26-00289");
+        expect(query.date_from).toBeUndefined();
+        expect(query.date_to).toBeUndefined();
+    });
+
+    it("would otherwise narrow a pinned batch, which is exactly the defect", () => {
+        // The same call WITH a period proves the two are independent: nothing about `batch` cancels
+        // a date server-side, which is why the hook has to withhold it.
+        const query = serverQuery({
+            tab: DEFAULT_TAB,
+            batch: "OFI-26-00289",
+            filters: { [PERIOD_COLUMN_ID]: { operator: "Between", value: ["2026-07-01", "2026-07-31"] } },
+        });
+        expect(query.date_from).toBe("2026-07-01");
+    });
+});
+
+describe("importOptionLabel dates", () => {
+    it("renders the period in the app's dd-MMM-yyyy, not raw ISO", () => {
+        // ⚠️ FOUND IN THE BROWSER. The selector's label sat directly above a metadata line already
+        // showing "02-May-2026", so the ISO form put two date conventions on one panel.
+        const label = importOptionLabel({
+            name: "OFI-26-00289",
+            original_filename: "statement.csv",
+            period_from: "2026-05-02",
+            period_to: "2026-08-06",
+        });
+        expect(label).toBe("statement.csv · 02-May-2026 → 06-Aug-2026");
+    });
+
+    it("still falls back to the id when there is neither a file nor a period", () => {
+        expect(importOptionLabel({ name: "OFI-26-00289" })).toBe("OFI-26-00289");
+    });
+});
+
+describe("the candidates the match run could not separate (N3)", () => {
+    it("keys a candidate on BOTH halves, because a name is not unique across ledgers", () => {
+        // The live collision this prevents: a `Project Expenses` record and a `Project Payments`
+        // record are free to share a name, and marking the wrong one points a reviewer at a record
+        // the matcher never considered.
+        const keys = candidateKeySet([
+            { doctype: "Project Payments", name: "PAY-1" },
+            { doctype: "Project Expenses", name: "PAY-1" },
+        ]);
+        expect(keys.size).toBe(2);
+        expect(keys.has(recordKey({ target_doctype: "Project Payments", name: "PAY-1" }))).toBe(true);
+        expect(keys.has(recordKey({ target_doctype: "Project Expenses", name: "PAY-1" }))).toBe(true);
+    });
+
+    it("an absent list is an empty set, never a crash", () => {
+        // The dialog renders this while the fetch is still in flight, on every row it opens.
+        expect(candidateKeySet(undefined).size).toBe(0);
+        expect(candidateKeySet([]).size).toBe(0);
+    });
+
+    it("drops a half-formed candidate rather than minting a key that matches nothing", () => {
+        expect(candidateKeySet([{ doctype: "Project Payments", name: "" }]).size).toBe(0);
+        expect(candidateKeySet([{ doctype: "", name: "PAY-1" }]).size).toBe(0);
+    });
+
+    it("the line states what the match run FOUND, never what may be picked", () => {
+        // ⚠️ THE WORDING IS A GUARD. `get_row_candidates` re-runs the match live and skips the
+        // claim pass, so a marked record may already be held by another open row. Promising
+        // availability would surface as a confirm failing with AlreadyPaidError after the click.
+        const line = matcherCandidateLine(6);
+        expect(line).toContain("The match run found 6 records");
+        expect(line).not.toMatch(/can pick|may pick|available|choose from these/i);
+    });
+
+    it("stays silent below two, where there is nothing to choose between", () => {
+        expect(matcherCandidateLine(0)).toBe("");
+        expect(matcherCandidateLine(1)).toBe("");
+        expect(matcherCandidateLine(2)).not.toBe("");
+    });
+
+    // ⚠️ THE `suppressOutcomeNote` TEST WAS DELETED WITH THE FUNCTION (slice D2). It pinned that
+    // the stored `outcome_note` stood down exactly when this live line took over -- a rule that
+    // needed two printers on one screen to mean anything. `WhyThisSuggestion` was the other
+    // printer and is gone, so this line is now the only count the dialog shows and there is
+    // nothing left for a threshold to agree with.
+});
+
+describe("partialOffer — may this transfer pay part of this record? (PS)", () => {
+    const payment = (over: Record<string, unknown> = {}) => ({
+        target_doctype: "Project Payments",
+        amount: 500000,
+        ...over,
+    });
+
+    it("offers the split when the record is larger by more than the settle window", () => {
+        const offer = partialOffer(payment(), 200000);
+        expect(offer).not.toBeNull();
+        expect(offer!.keep).toBe(200000);
+        expect(offer!.remainder).toBe(300000);
+    });
+
+    it("the kept amount is the bank's own figure, never rounded", () => {
+        // The reviewer types nothing -- the bank already decided the amount. That is the biggest
+        // safety difference from the CEO split, and rounding here would quietly undo it.
+        const offer = partialOffer(payment({ amount: 18678.69 }), 12000.34);
+        expect(offer!.keep).toBe(12000.34);
+    });
+
+    it("refuses an expense, which has no balance to carry", () => {
+        for (const doctype of ["Project Expenses", "Non Project Expenses"]) {
+            expect(partialOffer(payment({ target_doctype: doctype }), 200000)).toBeNull();
+        }
+    });
+
+    it("refuses an overpayment, which is a different problem", () => {
+        // Carving the record up to match money it never covered would be a wrong answer, not a
+        // partial one.
+        expect(partialOffer(payment({ amount: 200000 }), 500000)).toBeNull();
+        expect(partialOffer(payment({ amount: 200000 }), 200000)).toBeNull();
+    });
+
+    it("refuses a gap inside the settle window, which Confirm already handles", () => {
+        expect(partialOffer(payment({ amount: 200005 }), 200000)).toBeNull();
+        expect(partialOffer(payment({ amount: 200005.01 }), 200000)).not.toBeNull();
+    });
+
+    it("refuses a refund or a zero", () => {
+        expect(partialOffer(payment({ amount: -50000 }), 10000)).toBeNull();
+        expect(partialOffer(payment({ amount: 50000 }), -10000)).toBeNull();
+        expect(partialOffer(payment({ amount: 0 }), 10000)).toBeNull();
+    });
+
+    it("refuses a missing record rather than throwing inside a dialog", () => {
+        expect(partialOffer(null, 200000)).toBeNull();
+        expect(partialOffer(undefined, 200000)).toBeNull();
+    });
+
+    it("flags a TDS-shaped shortfall WITHOUT refusing it", () => {
+        // ⚠️ THE LOAD-BEARING HALF. A 2% gap may genuinely be a 2% part payment, so the offer
+        // stands and the reviewer is merely asked to look twice. Wiring the hint to a refusal
+        // would convert a warning into a guess about money.
+        const offer = partialOffer(payment(), 490000);
+        expect(offer).not.toBeNull();
+        expect(offer!.impliedPct).toBeCloseTo(2, 6);
+        expect(offer!.tdsLike).toBe(true);
+    });
+
+    it("does not flag an ordinary part-payment fraction", () => {
+        const offer = partialOffer(payment(), 200000);
+        expect(offer!.tdsLike).toBe(false);
+    });
+
+    it("mirrors the server's gate, and the two intents are the server's strings", () => {
+        // A typo here posts an intent the endpoint rejects -- which is the safe direction, but the
+        // reviewer would see a refusal with no way to act on it.
+        expect(INTENT_PART_PAYMENT).toBe("part_payment");
+        expect(INTENT_DEDUCTION).toBe("deduction");
+    });
+});
+
+describe("deductionOffer — may the shortfall be recorded as TDS? (TD)", () => {
+    const service = (over: Record<string, unknown> = {}) => ({
+        target_doctype: "Project Payments",
+        amount: 100000,
+        document_type: "Service Requests",
+        ...over,
+    });
+    const shapeFor = (rec: any, bank: number) => partialOffer(rec, bank);
+
+    it("a 1% shortfall on a service payment is recordable", () => {
+        const rec = service();
+        const offer = deductionOffer(rec, shapeFor(rec, 99000));
+        expect(offer.eligible).toBe(true);
+        expect(offer.tds).toBe(1000);
+        expect(offer.impliedPct).toBeCloseTo(1, 6);
+    });
+
+    it("a 2% shortfall is recordable", () => {
+        const rec = service({ amount: 200000 });
+        expect(deductionOffer(rec, shapeFor(rec, 196000)).eligible).toBe(true);
+    });
+
+    it("a PO payment is refused, and the verdict SAYS SO rather than vanishing", () => {
+        // ⚠️ THE SAFETY ARGUMENT. If this returned null/absent the screen would hide the option, and
+        // a reviewer with a real 2% TDS on a materials PO would take "part payment" instead —
+        // creating an approved balance for money nobody owes.
+        const rec = service({ document_type: "Procurement Orders" });
+        const offer = deductionOffer(rec, shapeFor(rec, 98000));
+        expect(offer.eligible).toBe(false);
+        expect(offer.refusal).toBe("not_service");
+        expect(deductionRefusalText(offer)).toContain("service payments");
+    });
+
+    it("a rate outside the band is refused with its own reason", () => {
+        const rec = service();
+        for (const bank of [60000, 95000, 90000, 99900]) {
+            const offer = deductionOffer(rec, shapeFor(rec, bank));
+            expect(offer.eligible).toBe(false);
+            expect(offer.refusal).toBe("rate_out_of_band");
+        }
+        expect(deductionRefusalText(deductionOffer(rec, shapeFor(rec, 60000)))).toContain("1–2%");
+    });
+
+    it("the band edges are inclusive and mirror the server", () => {
+        const rec = service();
+        expect(deductionOffer(rec, shapeFor(rec, 99050)).eligible).toBe(true);   // 0.95%
+        expect(deductionOffer(rec, shapeFor(rec, 97950)).eligible).toBe(true);   // 2.05%
+        expect(deductionOffer(rec, shapeFor(rec, 99060)).eligible).toBe(false);  // 0.94%
+        expect(deductionOffer(rec, shapeFor(rec, 97940)).eligible).toBe(false);  // 2.06%
+        expect(TDS_BAND_MIN_PCT).toBe(0.95);
+        expect(TDS_BAND_MAX_PCT).toBe(2.05);
+    });
+
+    it("the upper edge survives float arithmetic that the server does in Decimal", () => {
+        // ⚠️ THIS CAUGHT A REAL DIVERGENCE. 2050/100000*100 is exactly 2.05 in Python's Decimal and
+        // 2.0500000000000003 in IEEE-754 — so a naive `> MAX` comparison greys out an option the
+        // server accepts, on the very boundary the band is defined by. The mirror must never be
+        // stricter than the server; see BAND_EDGE_EPSILON.
+        const rec = service();
+        expect((100000 - 97950) / 100000 * 100).toBeGreaterThan(2.05); // the float, stated plainly
+        expect(deductionOffer(rec, shapeFor(rec, 97950)).eligible).toBe(true);
+    });
+
+    it("no shape means no deduction, and no reason to show either", () => {
+        // The record is not larger than the transfer at all — the dialog is the pre-TD one.
+        expect(deductionOffer(service(), null).eligible).toBe(false);
+        expect(deductionOffer(service(), null).refusal).toBe("shape");
+    });
+
+    it("an expense can never carry a deduction", () => {
+        const rec = service({ target_doctype: "Project Expenses", document_type: "" });
+        expect(deductionOffer(rec, shapeFor(rec, 99000)).eligible).toBe(false);
+    });
+
+    it("a blank parent doctype is refused rather than assumed to be a service", () => {
+        const rec = service({ document_type: "" });
+        expect(deductionOffer(rec, shapeFor(rec, 99000)).refusal).toBe("not_service");
+    });
+
+    it("the derived TDS reconciles the transfer exactly", () => {
+        // ⚠️ `bank = amount - tds` is the relation the whole ledger reads. Deriving the figure —
+        // never typing it — is what keeps it true.
+        for (const [amount, bank] of [[100000, 99000], [715757, 701441.86], [200000, 196000]]) {
+            const rec = service({ amount });
+            const offer = deductionOffer(rec, shapeFor(rec, bank));
+            expect(offer.eligible).toBe(true);
+            expect(amount - offer.tds).toBeCloseTo(bank, 2);
+        }
     });
 });

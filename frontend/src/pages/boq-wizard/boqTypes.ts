@@ -1091,7 +1091,11 @@ export interface StructuralBreakOrphan {
 }
 
 // S2 hard gate: the two shared commit-validator breaks (#7 / #8), replacing the retired
-// `line_item_as_parent`. `parent_row_index` is the row's effective_parent_index from the
+// `line_item_as_parent`. NARROWED 2026-08-19: #8 no longer covers item-under-ITEM (an item
+// may parent an item); it fires only for an item under a note / subtotal marker / repeated
+// header. The type NAME keeps its historical `...NotPreamble` spelling because the wire code
+// does -- renaming the code would be a breaking contract change for no behavioural gain.
+// `parent_row_index` is the row's effective_parent_index from the
 // errored plan entry; typed `number | null` defensively (in practice always a real int when
 // either error fires, since the validator only emits these when an in-plan parent exists).
 export interface StructuralBreakPreambleParentLevel {
@@ -1219,6 +1223,16 @@ export interface CommittedSheetState {
    * exported). Drives the per-sheet "priced since last export" staleness chip.
    */
   pricing_changed_since_export?: boolean;
+  /**
+   * BCS-EXP-3 (ADDITIVE). The per-sheet cost-tracking switch (`BoQ Sheet.bcs_enabled`), off
+   * the SAME is_current=1 lookup `last_exported_at` and `is_locked` ride. Drives the
+   * "cost tracking on / off" badge in the internal-export picker, so someone choosing sheets
+   * can see which of them will actually carry a cost block BEFORE they download.
+   *
+   * ⚠️ IT IS A BADGE, NOT A GATE. A sheet with cost tracking off is still tickable and still
+   * exports -- just without the block (owner ruling). Do not use this to disable a row.
+   */
+  bcs_enabled?: boolean;
   /**
    * Deliberate per-sheet read-only lock (the lock/unlock slice, ADDITIVE). true when this
    * committed sheet is locked. Rides the SAME is_current=1 BoQ Sheet lookup last_exported_at
@@ -1438,6 +1452,51 @@ export interface CrossBoqCarryDecision {
  * Response shape of export_priced_workbook (Phase 5 Slice 5a endpoint; consumed by 5b).
  * content_base64 is the stamped .xlsx bytes; the frontend decodes -> Blob -> download.
  */
+/**
+ * Response shape of `export_bcs_writeback.export_priced_workbook_with_bcs` -- the INTERNAL
+ * priced workbook (the client export PLUS the cost block).
+ *
+ * ⚠️ IT IS NOT `ExportPricedWorkbookResponse` WITH EXTRAS, AND THE DIFFERENCE IS DELIBERATE.
+ * There is NO `last_exported_at`: that field means "when the CLIENT last got this sheet" and
+ * this export never stamps it, so carrying the key would invite a caller to read one. What it
+ * adds instead is the per-sheet cost report -- where the block landed, and for any sheet that
+ * did not get one, WHY. A silently absent cost block on a cost file is worse than a visible
+ * refusal, so `cost_skipped` is rendered, never dropped.
+ */
+export interface ExportPricedBcsWorkbookResponse {
+  filename: string;
+  content_type: string;
+  content_base64: string;
+  exported_sheets: string[];
+  /** {sheetName: [colLetter, ...]} -- rate columns left untouched because they hold formulas. */
+  skipped_formula_columns: Record<string, string[]>;
+  /** {sheetName: colLetter} -- where a "Nirmaan Remarks" column was appended. */
+  remark_columns: Record<string, string>;
+  /**
+   * {sheetName: {cost_columns, total_column, margin_column, margin_skipped, rows}} -- one
+   * entry per sheet that GOT a cost block.
+   *
+   * ⚠️ `margin_skipped` lives HERE rather than in `cost_skipped`, and the distinction is
+   * real: such a sheet did get its costs and its Total, so calling it a skipped block would
+   * be false. A sheet can be perfectly healthy and still have no margin -- there is simply no
+   * column on it saying what we CHARGE, which is the only thing a margin can measure against.
+   */
+  cost_blocks: Record<
+    string,
+    {
+      cost_columns: Record<string, string>;
+      total_column: string | null;
+      /** Where the `% Margin` column landed, or null when it was skipped. */
+      margin_column: string | null;
+      /** Why there is no margin column, or null when there is one. */
+      margin_skipped: string | null;
+      rows: number;
+    }
+  >;
+  /** {sheetName: reason} -- every sheet that got NO cost block, and why. */
+  cost_skipped: Record<string, string>;
+}
+
 export interface ExportPricedWorkbookResponse {
   filename: string;
   content_type: string;

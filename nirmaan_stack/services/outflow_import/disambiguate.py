@@ -33,6 +33,13 @@ THE THREE RULES, AND THE FENCE ON EACH.
                           job the money was for, and a wrong pick there bills the wrong job. Within
                           one project the worst case is the wrong document on the right job.
 
+  M4  nearest date        NOT FENCED, and that is an owner ruling with its cost stated -- see
+                          `NEAREST_DATE_FENCE_TO_ONE_PROJECT`. One candidate was decided strictly
+                          nearest the day the money moved, within +-3 days. It runs LAST, so it
+                          only ever fires where this function previously gave up, and it is the
+                          only rule a CROSS-PROJECT set can reach (M2 and M3 sit behind a fence
+                          that used to exit the function outright).
+
   M3  interchangeable     FENCED HARDER. Every candidate is on the SAME project and carries the SAME
                           amount, so no downstream figure can tell the outcomes apart. This is the
                           reasoning already accepted for balanced stacks, applied to records instead
@@ -70,6 +77,7 @@ would release all but one -- turning the best-covered rule into the worst.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from typing import Iterable, Sequence
 
@@ -78,10 +86,14 @@ __all__ = [
     "Pick",
     "RULE_SOLE",
     "RULE_STACK_PAIRING",
+    "RULE_STACK_NEAREST_DATE",
     "RULE_PROJECT_IN_REMARK",
     "RULE_NEAREST_AMOUNT",
     "RULE_INTERCHANGEABLE",
+    "RULE_NEAREST_DATE",
     "RULE_LABELS",
+    "NEAREST_DATE_WINDOW_DAYS",
+    "NEAREST_DATE_FENCE_TO_ONE_PROJECT",
     "pick_from_several",
     "pick_note",
 ]
@@ -102,10 +114,12 @@ __all__ = [
 # thing: there is no suggestion.
 RULE_SOLE = "sole"
 RULE_STACK_PAIRING = "stack-pairing"
+RULE_STACK_NEAREST_DATE = "stack-nearest-date"
 
 RULE_PROJECT_IN_REMARK = "project-in-remark"
 RULE_NEAREST_AMOUNT = "nearest-amount"
 RULE_INTERCHANGEABLE = "interchangeable"
+RULE_NEAREST_DATE = "nearest-decision-date"
 
 # What each rule is called on screen. The vocabulary lives HERE, not in a Select field on the
 # doctype: a Select that narrows leaves stored values Frappe will not rewrite -- the lesson the
@@ -114,9 +128,11 @@ RULE_INTERCHANGEABLE = "interchangeable"
 RULE_LABELS = {
     RULE_SOLE: "Only candidate",
     RULE_STACK_PAIRING: "Identical set, paired arbitrarily",
+    RULE_STACK_NEAREST_DATE: "Identical set, paired by decision date",
     RULE_PROJECT_IN_REMARK: "Remark named the project",
     RULE_NEAREST_AMOUNT: "Nearest amount",
     RULE_INTERCHANGEABLE: "Interchangeable records",
+    RULE_NEAREST_DATE: "Nearest decision date",
 }
 
 
@@ -128,6 +144,10 @@ class Candidate:
     name: str
     amount: Decimal
     project: str = ""
+
+    decided_on: date | None = None
+    """When the record was decided -- M4's input. `None` where no date could be established, which
+    makes M4 abstain for this candidate rather than treat "unknown" as "far away"."""
 
     @property
     def key(self) -> tuple[str, str]:
@@ -168,6 +188,99 @@ def _ordered(candidates: Iterable[Candidate]) -> list[Candidate]:
     return sorted(candidates, key=lambda c: (c.doctype, c.name))
 
 
+NEAREST_DATE_WINDOW_DAYS = 3
+"""How far either side of the transfer a decision date may sit and still be evidence (owner ruling
+2026-08-11). Measured: with this window not one stack row was left without a reachable record, and
+the gaps cluster hard at 0-1 days -- so it is generous rather than tight, and widening it would only
+admit rows the evidence does not really speak for."""
+
+NEAREST_DATE_FENCE_TO_ONE_PROJECT = False
+"""⚠️ AN OWNER RULING, WRITTEN AS A CONSTANT SO IT CAN BE OVERTURNED IN ONE LINE.
+
+M2 is fenced to a single project because across projects "8 paise closer" is not evidence about
+which job the money was for. The same sentence can be said of a date, and the owner ruled it does
+NOT hold: an approval date is a real EVENT -- approve in a run, pay in a run -- where a sub-rupee
+amount gap is mostly bank rounding, which is noise wearing the costume of a measurement.
+
+The cost of the ruling is stated rather than hidden: on the first real statement 1 of the 2 rows M4
+resolved was cross-project, and on such a row a wrong pick bills the wrong job. Two things pay for
+it -- the pick must be STRICTLY nearest (a tie abstains), and `pick_note` names the gap, the
+runner-up and the source of the date, so the evidence is on screen before anyone confirms.
+
+Set this True to restore the M2 fence; `_pick_nearest_date` reads it and nothing else does."""
+
+
+def _date_source(doctype: str) -> str:
+    """What the record's decision date actually IS, in words, for the note.
+
+    ⚠️ REQUIRED, NOT DECORATION. `ledgers.DECIDED_ON_SQL` merges an approval date and a modification
+    timestamp into one value, which the approved inbox is forbidden to do, and the licence for the
+    merge is precisely that this is a matching input nobody reads as a label. The moment a note
+    quotes it, it IS being read -- so the note has to say which of the two it is. An expense has no
+    approval date, no approver and no approval step; presenting "last updated" as though it were a
+    sanction would be the exact false statement the display rule exists to prevent.
+    """
+    return "approved" if doctype == "Project Payments" else "last updated"
+
+
+def _dated(candidates: Iterable[Candidate], transfer_date: date) -> list[tuple[int, Candidate]]:
+    """`(gap in days, candidate)` for every candidate carrying a date, nearest first.
+
+    An undated candidate is DROPPED rather than sorted last: "we do not know when this was decided"
+    is not the same claim as "this was decided a long way from the transfer", and ranking it as the
+    latter would let a missing value lose a contest it never entered.
+    """
+    out = [
+        (abs((c.decided_on - transfer_date).days), c)
+        for c in candidates
+        if c.decided_on is not None
+    ]
+    return sorted(out, key=lambda pair: (pair[0], pair[1].doctype, pair[1].name))
+
+
+def _pick_nearest_date(
+    *,
+    transfer_date: date | None,
+    candidates: Sequence[Candidate],
+    available: Sequence[Candidate],
+) -> Pick | None:
+    """M4: the one candidate decided strictly nearest the day the money actually moved.
+
+    ⚠️ STRICTLY nearest, over the candidates still FREE, and inside the window. A tie abstains --
+    which is not a corner case but a common outcome on real data, because a batch approved on one
+    day gives every candidate the identical gap. The rule is deliberately silent there rather than
+    breaking the tie on something that is not evidence.
+
+    ⚠️ "STILL FREE" IS WHY THIS RESOLVES FAR FEWER ROWS THAN A NAIVE COUNT SUGGESTS, and the
+    difference is not a defect. Nearly every ambiguous row on the live statement belongs to a stack,
+    so its rivals share one candidate pool: the first row takes the nearest record and its siblings
+    find it gone. Measured end to end through the real pass, M4 resolved 2 of 30 -- against 6 when
+    the same rows were scored WITHOUT feeding picks back. Any future measurement of this rule has to
+    accumulate claims as the real pass does, or it will overstate by a factor of three.
+
+    ⚠️ THE WINDOW IS CHECKED ON THE WINNER, NOT USED TO FILTER FIRST. Filtering would let a
+    candidate 2 days out win against a rival 4 days out that had been removed from the comparison --
+    the runner-up has to be visible for "strictly nearest" to mean anything.
+    """
+    if transfer_date is None:
+        return None
+    if NEAREST_DATE_FENCE_TO_ONE_PROJECT and not _one_project(candidates):
+        return None
+
+    ranked = _dated(available, transfer_date)
+    if len(ranked) < 2:
+        # Nothing to be nearer than. One dated candidate among several is not a measurement, it is
+        # an accident of which records happen to carry a date.
+        return None
+
+    (best_gap, best), (runner_gap, _runner) = ranked[0], ranked[1]
+    if best_gap >= runner_gap:
+        return None
+    if best_gap > NEAREST_DATE_WINDOW_DAYS:
+        return None
+    return Pick(best.doctype, best.name, RULE_NEAREST_DATE)
+
+
 def pick_from_several(
     *,
     bank_amount: Decimal,
@@ -176,6 +289,7 @@ def pick_from_several(
     project_index=None,
     claimed: frozenset | set = frozenset(),
     allow_interchangeable: bool = True,
+    transfer_date: date | None = None,
 ) -> Pick | None:
     """Choose ONE of several approved records, or return `None` and leave it to a person.
 
@@ -210,35 +324,61 @@ def pick_from_several(
                 only = on_project[0]
                 return Pick(only.doctype, only.name, RULE_PROJECT_IN_REMARK)
 
-    # Both remaining rules are fenced to a single project, evaluated over EVERY candidate.
-    if not _one_project(candidates):
-        return None
+    # M2 and M3 are fenced to a single project, evaluated over EVERY candidate.
+    #
+    # ⚠️ THIS USED TO BE `if not _one_project(candidates): return None` -- AN EARLY EXIT, AND
+    # TURNING IT INTO A BRANCH IS WHAT LETS M4 EXIST. A cross-project set left this function
+    # immediately, so any rule written below the fence was structurally unable to see one. M4 is
+    # deliberately NOT fenced (see `_pick_nearest_date`), so it has to sit outside the branch --
+    # putting it inside would have silently reduced it to the single-project half of its own
+    # measurement.
+    if _one_project(candidates):
+        amounts = {c.amount for c in candidates}
 
-    amounts = {c.amount for c in candidates}
+        if len(amounts) == 1:
+            # -- M3: same amount on the same project, so nothing can tell them apart ------------
+            if allow_interchangeable:
+                first = _ordered(available)[0]
+                return Pick(first.doctype, first.name, RULE_INTERCHANGEABLE)
+            # ⚠️ A STACK MEMBER FALLS THROUGH TO M4 -- IT MUST NOT `return None` HERE, AND THIS WAS
+            # A LIVE BUG FOR THE LENGTH OF ONE SLICE. Declining M3 says one thing only: "do not pick
+            # ARBITRARILY between interchangeable records, because that is the partial pairing of an
+            # unbalanced stack the owner forbade." It says nothing about EVIDENCE, and this module's
+            # own ruling is explicit that M1 and M2 stay ON for stack members for exactly that
+            # reason. M4 is evidence about one specific transfer, so it belongs on the same side of
+            # that line. Returning None here silently made the stack fence mean "no rule may speak",
+            # which is wider than the ruling it implements -- measured cost: two rows whose
+            # candidates were decided SEVEN DAYS apart were left for a person as though nothing
+            # distinguished them.
+        else:
+            # -- M2: one free candidate is strictly nearest what the bank actually moved --------
+            by_gap = sorted(
+                _ordered(available), key=lambda c: (abs(c.amount - bank_amount), c.doctype, c.name)
+            )
+            if len(by_gap) > 1:
+                nearest, runner_up = by_gap[0], by_gap[1]
+                if abs(nearest.amount - bank_amount) < abs(runner_up.amount - bank_amount):
+                    return Pick(nearest.doctype, nearest.name, RULE_NEAREST_AMOUNT)
+            # One free candidate out of a set that was NOT twins: "nearest" is vacuous with nothing
+            # to be nearer than. Falls through to M4 rather than posing as a measurement.
 
-    # -- M3: every candidate is the same amount on the same project, so nothing can tell them apart
-    if len(amounts) == 1:
-        if not allow_interchangeable:
-            return None
-        first = _ordered(available)[0]
-        return Pick(first.doctype, first.name, RULE_INTERCHANGEABLE)
-
-    # -- M2: one free candidate is strictly nearest what the bank actually moved -----------------
-    by_gap = sorted(
-        _ordered(available), key=lambda c: (abs(c.amount - bank_amount), c.doctype, c.name)
+    # -- M4: one candidate was decided strictly nearest the day the money moved ------------------
+    #
+    # ⚠️ LAST, AND THAT IS WHAT MAKES IT PURELY ADDITIVE. It fires only where this function used to
+    # return None, so every M1 / M2 / M3 pick already in the database is untouched by its arrival.
+    # It is ALSO the only rule below the fence branch, so it is the only one a cross-project set
+    # can reach -- which is the half of its measurement that does not exist otherwise.
+    return _pick_nearest_date(
+        transfer_date=transfer_date, candidates=candidates, available=available
     )
-    if len(by_gap) == 1:
-        # One free candidate out of a set that was NOT twins. "Nearest" is vacuous with nothing to
-        # be nearer than, so this is left to a person rather than dressed up as a measurement.
-        return None
-    nearest, runner_up = by_gap[0], by_gap[1]
-    if abs(nearest.amount - bank_amount) < abs(runner_up.amount - bank_amount):
-        return Pick(nearest.doctype, nearest.name, RULE_NEAREST_AMOUNT)
-
-    return None
 
 
-def pick_note(pick: Pick, candidates: Sequence[Candidate], bank_amount: Decimal) -> str:
+def pick_note(
+    pick: Pick,
+    candidates: Sequence[Candidate],
+    bank_amount: Decimal,
+    transfer_date: date | None = None,
+) -> str:
     """What a rule-picked row says in the Outcome column.
 
     ⚠️ IT SAYS WHICH RULE PICKED, AND WHY THAT RULE IS SAFE. A pre-selection made by a rule is not
@@ -252,6 +392,23 @@ def pick_note(pick: Pick, candidates: Sequence[Candidate], bank_amount: Decimal)
             f"{pick.name} was selected because the remark names its project and no other candidate "
             f"is on that project."
         )
+    elif pick.rule == RULE_NEAREST_DATE:
+        # ⚠️ NAMES THE SOURCE OF THE DATE, THE GAP AND THE RUNNER-UP. All three are the price of the
+        # unfenced ruling: without the source a reviewer cannot tell an approval from someone
+        # editing a description, and without the runner-up "nearest" is a claim they cannot check.
+        ranked = _dated(candidates, transfer_date) if transfer_date else []
+        gap = next((g for g, c in ranked if c.key == pick.key), None)
+        runner = next((g for g, c in ranked if c.key != pick.key), None)
+        when = _date_source(pick.doctype)
+        if gap is None:
+            why = f"{pick.name} was selected because it was {when} nearest the day the money moved."
+        else:
+            days = "the same day" if gap == 0 else f"{gap} day{'s' if gap != 1 else ''} apart"
+            tail = f", against {runner} for the next nearest" if runner is not None else ""
+            why = (
+                f"{pick.name} was selected because it was {when} closest to the day the money "
+                f"moved ({days}{tail}). Check the project before confirming."
+            )
     elif pick.rule == RULE_NEAREST_AMOUNT:
         gap = next(
             (abs(c.amount - bank_amount) for c in candidates if c.key == pick.key), Decimal("0")

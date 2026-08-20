@@ -208,14 +208,59 @@ def create_project_payment(doctype: str, docname: str, vendor: str, amount: floa
 
 
 @frappe.whitelist()
-def ceo_approve_payment(payment_id: str) -> dict:
+def ceo_approve_payment(payment_id: str, approved_amount=None) -> dict:
     """
     Promotes a "CEO Pending" payment to "Approved".
     Only the hardcoded CEO user (see authorized_users.CEO_AUTHORIZED_USER) may call this.
-    The on_update hook handles notifying accountants and syncing the PO term.
+
+    ``approved_amount`` ABSENT (or equal to the full amount) => the original
+    behaviour, byte-identical: flip the status, stamp the date, and let the
+    on_update hook notify accountants and sync the PO term.
+
+    ``approved_amount`` SMALLER => a PARTIAL approval. The payment is SPLIT: the
+    typed figure is approved and the balance becomes a new payment left at "CEO
+    Pending" (plus its own PO term row), so nothing owed is ever silently
+    dropped. See services/payment_split.py — it owns the locks, the savepoint
+    and the term rows; this endpoint owns the permission gate, the commit and
+    the notifications, per the thin-orchestrator rule (ADR-0010 B4).
+
+    ONE endpoint deliberately covers both paths so the CEO gate and the
+    "must be CEO Pending" guard are defined exactly once.
     """
     if frappe.session.user != CEO_AUTHORIZED_USER:
         frappe.throw(_("Only the authorised CEO user can perform this action."), frappe.PermissionError)
+
+    # Whitelisted args arrive as strings; "" and None both mean "not supplied".
+    wants_partial = approved_amount not in (None, "")
+
+    if wants_partial:
+        current_amount = flt(frappe.db.get_value("Project Payments", payment_id, "amount"))
+        requested = flt(approved_amount)
+        # Approving the whole thing is not a split — fall through to the plain
+        # path so a rounding-equal figure can never mint a zero-value remainder.
+        if requested >= current_amount:
+            wants_partial = False
+
+    if wants_partial:
+        from nirmaan_stack.services.payment_split import split_and_approve
+
+        result = split_and_approve(payment_id, flt(approved_amount))
+
+        # Commit BEFORE notifying (bulk_actions fix E7): a push notification
+        # must never reference state a later failure could still roll back.
+        frappe.db.commit()
+
+        _post_split_side_effects(result)
+
+        return {
+            "status": "success",
+            "message": _("{0} approved. {1} left pending as {2}.").format(
+                frappe.format_value(result["approved_amount"], "Currency"),
+                frappe.format_value(result["remainder_amount"], "Currency"),
+                result["remainder_payment"],
+            ),
+            "data": result,
+        }
 
     pay = frappe.get_doc("Project Payments", payment_id)
 
@@ -227,6 +272,51 @@ def ceo_approve_payment(payment_id: str) -> dict:
     pay.save()
 
     return {"status": "success", "message": _("Payment forwarded for fulfilment.")}
+
+
+def _post_split_side_effects(result: dict) -> None:
+    """Notify + audit AFTER the split has committed. Best effort, never fatal.
+
+    The split itself is already on disk by the time this runs, so a failure here
+    must not surface as a failed approval — it is logged and swallowed, exactly
+    as bulk_actions treats its summary notifications and rejection comments.
+    """
+    try:
+        # Local import: the controller imports from api.vendor_credit, so keeping
+        # this off module scope avoids growing the import graph at load time.
+        from nirmaan_stack.integrations.controllers.project_payments import (
+            _notify_accountants_payment_ready,
+        )
+
+        approved_doc = frappe.get_doc("Project Payments", result["approved_payment"])
+        _notify_accountants_payment_ready(approved_doc)
+    except Exception:
+        frappe.log_error(
+            title=f"Payment Split Notification Error ({result.get('approved_payment')})",
+            message=frappe.get_traceback(),
+        )
+
+    # Provenance on BOTH halves. `split_from` is the machine-readable link; these
+    # comments are what a human reads on the timeline without joining anything.
+    approved_txt = frappe.format_value(result["approved_amount"], "Currency")
+    remainder_txt = frappe.format_value(result["remainder_amount"], "Currency")
+    original_txt = frappe.format_value(result["original_amount"], "Currency")
+
+    for name, text in (
+        (result["approved_payment"], _(
+            "Partially approved: {0} of {1}. The balance of {2} carried forward as {3}."
+        ).format(approved_txt, original_txt, remainder_txt, result["remainder_payment"])),
+        (result["remainder_payment"], _(
+            "Balance of {0} carried forward from {1}, of which {2} was approved."
+        ).format(remainder_txt, result["approved_payment"], approved_txt)),
+    ):
+        try:
+            frappe.get_doc("Project Payments", name).add_comment("Comment", text=text)
+        except Exception:
+            frappe.log_error(
+                title=f"Payment Split Comment Error ({name})",
+                message=frappe.get_traceback(),
+            )
 
 
 @frappe.whitelist()
