@@ -20,6 +20,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FREEZE_BLOCKED_MESSAGE } from "./rateMasterFreeze";
 import { cn } from "@/lib/utils";
 import { downloadErrorMessage } from "./rateMasterDownload";
 import {
@@ -39,6 +40,12 @@ import {
 
 interface Props {
   /** Reads the file and returns the plan. MUST NOT write -- it is called on every file choice. */
+  // RMF-1: the deployment freeze. The chooser is DISABLED (not hidden) and carries the owner's
+  // approved message as its tooltip. Note the asymmetry this deliberately accepts: the PREVIEW
+  // endpoint still works while frozen (owner ruling R3), but the only reason to open a file in
+  // this dialog is to APPLY it, and the apply is refused -- so offering the flow would walk the
+  // user to a wall. Previewing a frozen catalog's file remains possible via the endpoint.
+  frozen?: boolean;
   onPreview: (contentBase64: string) => Promise<UploadPlan>;
   /** Applies the previewed file. The digest is what refuses a plan the catalog has outgrown. */
   onApply: (contentBase64: string, expectedDigest: string) => Promise<UploadResult>;
@@ -83,7 +90,7 @@ function ChangeRow({ change }: { change: UploadChange }) {
   );
 }
 
-export function RateMasterUploadDialog({ onPreview, onApply, onApplied }: Props) {
+export function RateMasterUploadDialog({ frozen, onPreview, onApply, onApplied }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<null | "preview" | "apply">(null);
@@ -162,7 +169,8 @@ export function RateMasterUploadDialog({ onPreview, onApply, onApplied }: Props)
       <Button
         size="sm"
         variant="outline"
-        disabled={busy !== null}
+        disabled={busy !== null || !!frozen}
+        title={frozen ? FREEZE_BLOCKED_MESSAGE : undefined}
         onClick={() => inputRef.current?.click()}
       >
         <Upload className="mr-1 h-3.5 w-3.5" />

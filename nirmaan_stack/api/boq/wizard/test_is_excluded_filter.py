@@ -219,12 +219,17 @@ class TestIsExcludedFilter(FrappeTestCase):
     # ======================================================================
 
     def test_excluded_break_producer_yields_no_structural_break(self):
-        """A line_item filed UNDER a line_item is a blocking #8 -- but excluded, so it is
-        filtered from both the shared validator and the gate endpoint."""
+        """A line_item filed UNDER A NOTE is a blocking #8 -- but excluded, so it is
+        filtered from both the shared validator and the gate endpoint.
+
+        RULING 2026-08-19: the #8 producer used to be item-under-ITEM, which is now ALLOWED
+        (an item may parent an item). Only the is_excluded FILTER is under test here, so the
+        producer simply moved to a shape #8 still flags -- a note parent.
+        """
         s = self.BREAKS_SHEET
         self._seed(s, 0, "preamble", level=1, description="HEAD")
-        self._seed(s, 1, "line_item", parent_index=0, description="Valid item")
-        self._seed(s, 2, "line_item", parent_index=1, description="Item under an item",
+        self._seed(s, 1, "note", parent_index=0, description="A note row")
+        self._seed(s, 2, "line_item", parent_index=1, description="Item under a note",
                    is_excluded=1)
 
         self.assertEqual(
@@ -241,8 +246,8 @@ class TestIsExcludedFilter(FrappeTestCase):
         load-bearing (the sheet is not trivially clean)."""
         s = self.BREAKS_SHEET
         self._seed(s, 0, "preamble", level=1, description="HEAD")
-        self._seed(s, 1, "line_item", parent_index=0, description="Valid item")
-        self._seed(s, 2, "line_item", parent_index=1, description="Item under an item")
+        self._seed(s, 1, "note", parent_index=0, description="A note row")
+        self._seed(s, 2, "line_item", parent_index=1, description="Item under a note")
 
         errs = structural_errors_for_sheet(self.boq, s)
         self.assertTrue(
@@ -260,7 +265,8 @@ class TestIsExcludedFilter(FrappeTestCase):
         finalize (status stays Parsed); deselecting the row lets the sheet finalize."""
         s = self.GATE_SHEET
         self._seed(s, 0, "preamble", level=1, description="HEAD")
-        self._seed(s, 1, "line_item", parent_index=0)
+        self._seed(s, 1, "note", parent_index=0)  # a note parent (RULING 2026-08-19: an
+        # ITEM parent is no longer a #8 producer -- only a note/marker parent is)
         row2 = self._seed(s, 2, "line_item", parent_index=1)  # #8, INCLUDED
 
         blocked = mark_sheet_parsed_check_done(boq_name=self.boq, sheet_name=s)

@@ -113,7 +113,6 @@ interface PODetailsProps {
   toggleRequestPaymentDialog: () => void;
   totalUploadedInvoiceAmount?: number;
   totalPendingInvoiceAmount?: number;
-  totalApprovedInvoiceAmount?: number;
   onAdjustPayments?: () => void;
   onCancelPO?: () => void;
 }
@@ -133,7 +132,6 @@ export const PODetails: React.FC<PODetailsProps> = ({
   toggleRequestPaymentDialog,
   totalUploadedInvoiceAmount,
   totalPendingInvoiceAmount,
-  totalApprovedInvoiceAmount,
   onAdjustPayments,
   onCancelPO,
 }) => {
@@ -705,10 +703,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   <p className="text-sm font-medium">{formatToRoundedIndianRupee(po?.amount)}</p>
                 </div>
 
-                {/* Total Approved Invoice Amount */}
+                {/* Total Amount Invoiced */}
                 <div className="space-y-0.5">
-                  <p className="text-xs text-gray-500">Approved Invoice Amount</p>
-                  <p className="text-sm font-medium text-green-600">{totalApprovedInvoiceAmount ? formatToRoundedIndianRupee(totalApprovedInvoiceAmount) : "--"}</p>
+                  <p className="text-xs text-gray-500">Total Amount Invoiced</p>
+                  <p className="text-sm font-medium text-green-600">{po?.amount_invoiced ? formatToRoundedIndianRupee(po.amount_invoiced) : "--"}</p>
                 </div>
 
                 {/* Total Amount Paid */}

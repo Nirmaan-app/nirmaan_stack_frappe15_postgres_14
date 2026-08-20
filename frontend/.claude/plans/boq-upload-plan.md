@@ -30826,3 +30826,1791 @@ result_attrs are undeclared and therefore unreachable by any consumer. Slice 3a'
 (cert 6; and width renders through branch 4, pinned). The three tray goldens -- byte-identical v39 ->
 v40, `test_rate_master` 152 OK. The 63 pricing rows -- count identical before and after the finish.
 No doctype JSON, no migrate, no endpoint, no production Python.
+
+---
+
+## Build slice BCS-EXP-1 -- the two BCS column DERIVATIONS, ported + parity-pinned (2026-08-19)
+
+First slice of **Download Priced Tender with BCS** (the hub's third export item). It ships NO
+export code: it moves the two rules that export will need onto the server, and pins them against
+the browser twins that already exist.
+
+### Why the server needed them at all
+
+`export_priced_workbook` writes RATES only, and no server code has ever computed a BCS number.
+The BCS export must write cost columns and an Excel `BCS Total Amount` formula, so it has to
+answer two questions the browser already answers and the server never did:
+
+* **which columns hold this sheet's quantity** (the Total's multiplicand), and
+* **which cost boxes this sheet gets** (Supply/Installation, or one combined box).
+
+The stored CONFIRMATION cannot answer the first. **BCS-S12 removed both column pickers, so
+`confirm_bcs_columns` has had no caller in the product since** -- grep the frontend: the UI calls
+`set_bcs_enabled`, `get_bcs_state`, `get_sheet_bcs_rates` and `save_row_bcs_rates`, and nothing
+else. A sheet enabled after S12 carries no `bcs_qty_source` and there is no way to give it one.
+**Measured on the live bench 2026-08-19: six of the seven BCS-enabled current sheets have none**
+(only BOQ-26-00140, pre-S12, does). A rule requiring the confirmation would answer "no quantity"
+on six sheets in seven, and on every sheet enabled from here on. This is what reversed the
+planning answer to Q11 (originally "skip the Total when there is no confirmed source").
+
+### What shipped
+
+* `services/boq_bcs/sources.py` -- `derive_qty_columns(source, descriptors)` and
+  `live_rate_kinds(descriptors)`, mirroring `bcsColumns.bcsQuantityColumns` /
+  `bcsLiveRateKinds`. The module docstring's purity line was WIDENED honestly: it claimed every
+  function is `(picks, descriptor index) -> dict`, and these two are not.
+* `parity_cases.json` (`version` 1 -> 2) -- two new case lists, `derived_qty_cases` (7) and
+  `rate_kinds_cases` (11), plus `_derived_note`. **Each case carries its OWN `descriptors`**,
+  unlike the pick cases which share one fixture: these rules are about the shape of a WHOLE
+  SHEET, and "a sheet with no scalar quantity column" is not a subset of a fixture that has one.
+* `test_sources.py` -- `TestTheTwoDerivations` (13 tests) and `bcsColumns.test.ts` -- a
+  `derivation parity` group (4 tests), both driving the same table.
+
+### ⚠️ THE DEFECT THIS UNCOVERED -- `bcsLiveRateKinds` matched NO per-area rate column
+
+`PER_AREA_SUBKEY_TO_BCS_KIND` keyed `supply` / `install` / `total`. That is the per-area **AMOUNT**
+vocabulary. A per-area **RATE** spells its kind `supply_rate` / `install_rate` / `combined_rate`
+(`classifier._RATE_ROLE_TO_KIND`), and `review_screen._build_column_descriptors` writes whichever
+applies into the SAME generic `rate_subkey` slot. So a sheet whose rates are mapped per-area got
+**no cost boxes at all**, silently -- BCS simply unusable there. The comment cited
+`PER_AREA_AMOUNT_TO_RATE_KIND` as its authority, which is the map from an amount subkey TO a rate
+kind, read backwards.
+
+**It was invisible because the unit fixtures carried the same wrong spelling** -- the mirror and
+its test were green together, and the 2^6 "never a mixed set" sweep was effectively a 2^3 sweep
+because three of its six descriptors matched nothing.
+
+**NOT a live regression when fixed:** measured 2026-08-19, **0 of 681** current committed sheets
+map any per-area rate role (508 scalar, 173 none), so no shipped sheet changes shape. Fixed here
+rather than ported, because a new module must not enshrine a defect.
+
+### The guard that makes it stay fixed
+
+`test_the_fixture_subkeys_come_from_the_producer` asserts the fixtures and the module's map
+against **`classifier`'s own maps** -- the module that WRITES the value -- not against the other
+mirror. Agreement between two mirrors is precisely what failed here. It also asserts the two
+vocabularies are disjoint, or the guard would be toothless.
+
+### Cert
+
+| gate | result |
+|---|---|
+| `test_sources` | 72 pass (was 59) |
+| `test_readiness` / `test_bcs` / `test_export_writeback` | 12 / 80 / 49 pass |
+| full vitest | 2780 pass, 75 files (`bcsColumns.test.ts` 250, was 246) |
+| mutation: revert the server map to the amount spelling | 5 assertions red, incl. the producer guard |
+| mutation: revert the browser map | 2 tests red |
+| `tsc` | 0 errors in the two touched files (repo baseline 3227, unchanged) |
+| `residence_check.py` | F2 220/207 and F5 119/116 -- **verified identical with the two frontend files stashed**, i.e. red at HEAD already and untouched by this slice |
+
+### Known shared limitation, pinned not fixed
+
+`qty-derived-two-scalar-totals-are-both-returned`: a sheet mapping TWO scalar `qty_total` columns
+has both returned and summed -- the double count `aliased_columns` refuses on the pick path, which
+the fallback has no equivalent of. UNREACHABLE on live data (490 sheets map exactly one, 191 map
+none, **none maps two**). Pinned as a case so it is visible; fix on both sides together or not at all.
+
+### Not in this slice
+
+No export module, no endpoint, no dialog, and no `CLAUDE.md` touch -- the export-leak boundary
+amendment belongs with the slice that actually adds the second export.
+
+---
+
+## Build slice BCS-EXP-2 -- the internal export module + endpoint (2026-08-19)
+
+The backend half of **Download Priced Tender with BCS**. Two NEW files, and **zero diff to
+`export_writeback.py`, `export_template_workbook.py` and `api/pricing/workbook.py`** -- every
+one of them is imported from and none is edited (verified: `git diff --numstat` empty).
+
+### Why separate, and how separate
+
+Two reasons, and they agree. `test_export_writeback.TestBcsCostRatesNeverReachTheExport
+.test_export_writeback_module_never_names_the_bcs_doctype` greps that module's SOURCE
+case-insensitively for `bcs` -- so an `include_bcs=True` flag would break the guard that makes
+the client-facing boundary structural. And the owner asked explicitly (2026-08-19) that the new
+export live separately and not affect the existing one.
+
+**What is shared:** every STAMPING helper, by import -- `_find_ws`, `_stamp_rates` (with its
+per-cell formula skip), `_apply_colors`, `_apply_priced_highlight`, `_write_remark_column`,
+`_fidelity_snapshot`, `_assert_fidelity`, `_resolve_sheet_plan`, `_safe_export_basename`,
+`_rightmost_mapped_col_index`, `_col_is_empty`, plus `_OP_INFIX` / `resolve_ref_col` from the
+template export and `_committed_descriptors` from `pricing`. **What is duplicated:** the ~40-line
+orchestration loop, and only because parameterising the client path would have edited the file
+the guard protects. A stamping RULE changes once and both inherit it; the pass ORDER must be
+changed in both.
+
+### What it writes
+
+Per ticked sheet, after everything the client export writes: the cost columns
+(`BCS Cost (Supply)` + `BCS Cost (Installation)`, or one `BCS Cost`; chosen by
+`live_rate_kinds`), then `BCS Total Amount`, then `Nirmaan Remarks`. Cost cells hold numbers
+read straight off `BoQ Row BCS Rate`. **The Total holds an EXCEL FORMULA** -- the design
+decision from planning Q1 (option B): no server code has ever computed a BCS number, and
+porting `bcsColumns.ts` would have created a second implementation of an owner-locked rule.
+
+A **declared `bcs_total` formula is translated**, not ignored: 4 of the 5 costed sheets on the
+bench carry one (all four spelling out `(bcs_supply + bcs_install) * qty_total`). `_ref_to_excel`
+resolves the three cost operands to the columns just written, `bcs_qty` to the derived quantity
+cells summed, and everything else through the SHARED `resolve_ref_col`.
+
+### ⚠️ THE COUNT GUARD -- where a blank stays a blank
+
+Excel reads an empty cell as **0**, so `(cost) x (empty quantity)` would render a confident `0`
+-- "this row costs nothing" -- where the screen renders an empty cell reading *no quantity*. A
+`0` is a claim; an absence is not. Every Total is therefore wrapped:
+
+* built-in rule -> `=IF(COUNT(<qty cells>)=0,"",<body>)` -- `bcsRowQuantity` sums whatever
+  resolves and returns null only when NOTHING does;
+* declared formula -> `=IF(COUNT(<refs>)<n,"",<body>)` -- `evaluateBcsTotalFormula` returns on
+  the FIRST unresolved ref.
+
+**The two shapes are not interchangeable.** `COUNT` counts numeric cells only, so a genuine 0
+quantity still computes and still reads 0 -- which is what the screen does with it.
+
+Separately, **a row with no `BoQ Row BCS Rate` record gets no cost cells and no Total at all.**
+Presence of the record is the whole test, and it is exactly the browser's rule: a stored row
+always carries three numbers (the whole-row snapshot write coerces absent ones to 0.0) so the
+screen shows a number, possibly 0; an absent record yields null on all three and the screen
+shows blank.
+
+### The other rulings, as built
+
+* **Fidelity** (Q10): the client guard is reused with ONE term adjusted --
+  `before + exactly the formulas we wrote`. Measured on the fixture: 9 -> 15. Miscounting aborts
+  the export and produces no file.
+* **`last_exported_at`** (Q2): NOT stamped. This export writes nothing to the database at all
+  and needs no commit -- pinned by a test that greps for both.
+* **Access** (Q7): `_require_bcs_export_access` REUSES `workbook._require_pricing_access`
+  (admins + estimation) and re-voices only the refusal, so the decision has one definition and
+  the message still names what the user tried to do. Gated FIRST, before the BoQ is resolved.
+* **Template BoQs** (Q5): refused by name.
+* **BCS-off / grid-only / no-rate-column / no-costs sheets** (Q4): exported plain, each with a
+  reason in `cost_skipped` -- a silently absent cost block on a cost file is worse than a
+  visible refusal.
+* **Filename** (Q6): `<name>_priced_bcs_internal_<ts>.xlsx`.
+* **No `% Margin` column** (Q8) -- the dialog will tell the user to add it (slice 4).
+
+### Cert
+
+| gate | result |
+|---|---|
+| `test_export_bcs_writeback` (new) | **37 pass** |
+| `test_export_writeback` / `test_bcs` / `test_pricing` | 49 / 80 / 262 pass |
+| `test_commit_pipeline` / `test_cross_boq_carry` / `test_committed_carry` | 64 / 70 / 58 pass |
+| `services.boq_bcs.test_sources` | 72 pass |
+| diff to the three modules only read from | **0 lines** |
+| mutation: drop the COUNT guard | 5 tests red |
+| mutation: write a Total on an uncosted row | 1 test red |
+| mutation: forget to count the formulas written | export ABORTS, `formulas: 9 -> 15`, no file |
+
+### The separation is pinned from BOTH sides
+
+`test_the_client_export_module_is_untouched_and_still_names_no_cost` greps the client module for
+BCS tokens **and** asserts this module DOES name them -- so the pair cannot both be deleted by
+someone merging the two exports. And `test_the_client_export_still_carries_no_cost_from_the_same
+_fixture` exports the SAME BoQ both ways: the standing "no BCS in the client file" guard could
+otherwise pass because there was nothing to find.
+
+---
+
+## Build slices BCS-EXP-3 + BCS-EXP-4 -- the badge feed and the dialog (2026-08-19)
+
+Completes **Download Priced Tender with BCS**. The feature is now reachable end to end.
+
+### BCS-EXP-3 -- one additive field
+
+`commit_gate.get_committed_state` surfaces `bcs_enabled` per sheet, riding the SAME
+`is_current=1` `BoQ Sheet` lookup `sheet_order` / `last_exported_at` / `is_locked` already ride
+-- one more field, no extra query. `CommittedSheetState.bcs_enabled?: boolean` mirrors it.
+
+⚠️ **IT IS A BADGE, NOT A GATE** (owner ruling Q4). A sheet with cost tracking off is still
+tickable and still exports, just without the block. Never wire it to `disabled`.
+
+The default is the half worth pinning: a committed grid row whose `BoQ Sheet` is missing, and
+every sheet that never switched BCS on, must read **False, never None** -- the picker renders a
+badge from it. `bool()` on the lookup plus a `False` default is what guarantees that, and
+`TestGetCommittedStateBcsFlag` covers both, plus that the flag is a real `bool` (the DB hands
+back 0/1 for a Check) and that every pre-existing key is untouched.
+
+### BCS-EXP-4 -- `PricedTenderBcsDialog.tsx`
+
+A **SIBLING** of `PricedTenderDialog`, deliberately not a prop on it: the two produce different
+files for different audiences, and a shared component with a boolean would put those outcomes
+one mis-set flag apart. The backend keeps them apart for the same reason; this is that
+separation carried up to the UI.
+
+* **Third item in the hub's Export menu**, HIDDEN outside admin + estimation -- never disabled.
+  A greyed-out "with BCS" item tells everyone a margin file exists. `canDownloadBcsExport`
+  mirrors the server's `_require_bcs_export_access`; the server is the boundary.
+  ⚠️ It is deliberately **NARROWER** than the server, which also admits the bare
+  `Nirmaan Estimates Executive` ROLE -- not visible client-side as a role_profile, the same
+  limitation `PricingRoute` has. Hiding a control from someone the server would admit is a UX
+  bug; showing one to someone it would refuse is a broken promise.
+  ⚠️ The `"Loading"` / `"Error"` guard is load-bearing, exactly as on `canAdminOverride`.
+* **The amber margin warning sits in the DIALOG, before the download** -- saying it only in the
+  results modal would be saying it after the person has gone looking for the column.
+* **Per-sheet badge** from `bcs_enabled`; `null` on a grid-only sheet, which already reads "no
+  rates to write" (two absence notes on one row read as a contradiction).
+* **Results modal reports the SKIPS with their reasons**, not just the successes. On a cost file
+  a silently absent block reads as *"this sheet costs nothing"* rather than *"this sheet was
+  never costed"* -- the same absence-presented-as-a-claim the Total's COUNT guard prevents one
+  level down.
+* ⚠️ **`onDownloaded` does NOT call `mutateCommittedState()`**, unlike the client export's
+  handler. This export never stamps `last_exported_at`, so there is no staleness chip to
+  refresh -- and refetching anyway would quietly suggest there is.
+
+### Cert
+
+| gate | result |
+|---|---|
+| `test_commit_gate` | **37 pass** (4 new) |
+| `test_export_bcs_writeback` / `test_export_writeback` / `test_bcs` | 37 / 49 / 80 pass |
+| `PricedTenderBcsDialog.test.ts` (new) | **15 pass** |
+| full vitest | **2795 pass**, 76 files (was 2780 / 75) |
+| `tsc` | 0 errors in touched files (repo baseline 3227, unchanged) |
+| `vite build` (to a throwaway dir) | clean; repo build output untouched |
+| `residence_check.py` | F2 220 / F5 119 — **identical to HEAD**, no new violations |
+
+### What is NOT built
+
+No `% Margin` column (owner ruling Q8 -- the dialog says so). Template-origin BoQs refused
+(Q5). Per-row only, no section subtotals (Q12).
+
+---
+
+## Build slice BCS-EXP-5 -- closing the coverage gaps (2026-08-19, TEST-ONLY)
+
+A self-audit after BCS-EXP-4 found four branches with no test. **No production code changed**
+(verified byte-identical); `test_export_bcs_writeback` went **37 -> 48**.
+
+### ★ The one that mattered: the placement scan had NO test
+
+`_next_empty_col` is the rule that starts the block at the true data edge and **scans RIGHT
+past any column carrying real content** -- a stray estimator note, a trailing column the role
+map never covered. It is the "never overwrite real data" safety property of the whole feature,
+and it was covered by nothing. Now covered twice: a unit case against a real worksheet (a
+genuine `0` counts as content, an empty string does not), and an end-to-end case where the
+workbook already holds a note in G -- the block must land at H/I/J and the note must survive,
+**and the Total formula must follow the shift** (a formula still reading G would point at the
+note's column).
+
+### The combined-rate shape
+
+A sheet quoting ONE undifferentiated figure gets ONE box headed `BCS Cost`, and its Total
+multiplies **only** that box. The fixture stores all three rate fields, so a formula naming
+more than the one column would be double-counting numbers genuinely present in the row -- which
+is exactly what `bcs.py`'s "never sum combined_rate with the halves" forbids.
+
+### Every remaining skip reason, each by its own case
+
+`maps no rate column` · `no costs have been entered` · `quantity columns could not be resolved`
+· `no mapped columns`. Each asserted separately: a shared "some reason came back" assertion
+would let two branches swap without a test noticing, and the reason is the whole difference
+between *"this sheet costs nothing"* and *"this sheet was never costed"*.
+
+⚠️ **A sheet whose quantity cannot be resolved still gets its COST columns** -- a partial block,
+deliberately. The costs are facts we hold; only the Total needs a quantity, and withholding
+good information would be the wrong trade.
+
+### ⚠️ The fixture that was wrong, and how it was caught
+
+`no mapped columns` is reachable only when **EVERY** key in the role map is an unparseable
+Excel column (`_build_column_descriptors` accepts any key and never parses one;
+`_rightmost_mapped_col_index` skips what it cannot parse). The first fixture also mapped a
+description on `"A"` -- which parses -- so the edge resolved to 1, the block placed normally at
+B, and the branch never fired. **The test failed and said so.** One valid column anywhere in the
+map is enough to define an edge.
+
+### An anti-drift guard on the whole family
+
+`test_every_skip_reason_in_the_module_is_covered_by_one_of_these_cases` reads the module's own
+source for `"reason"` strings and requires each to be exercised. A branch added later with a new
+reason goes RED rather than shipping a silent skip -- in a feature whose central rule is that a
+missing cost block must never be silent.
+
+### Cert
+
+| gate | result |
+|---|---|
+| `test_export_bcs_writeback` | **48 pass** (was 37) |
+| `test_export_writeback` / `test_commit_gate` / `test_bcs` | 49 / 37 / 80 pass |
+| production module diff | **0 bytes** -- test-only |
+| `export_writeback.py` + 2 others | still **0 lines** changed |
+| mutation: drop the scan loop | 3 tests red |
+| mutation: add an untested skip reason | anti-drift guard red |
+
+### Still open (accepted, not gaps in this slice)
+
+* The whitelisted endpoint's HAPPY path is untested -- it fetches from S3. Only its refusals are
+  covered. **The client export has the identical gap**; both are tested at their injectable
+  inner seam instead.
+* **Nothing has been run in a browser.** There is no DOM test environment in this repo, so the
+  dialog, the menu gating and the badge are verified by types + pure-function tests only.
+
+---
+
+## Build slice BCS-EXP-6 -- the `% Margin` column (2026-08-19)
+
+Adds the fourth column to the internal export: `% Margin`, after `BCS Total Amount`, as a live
+Excel formula. **This REVERSES owner ruling Q8** ("no % Margin column -- the dialog says so").
+
+### ★ The ruling was reversed because the blocker was misattributed
+
+`CLAUDE.md` said the ratio "cannot" be a formula: it needs the literals `1` and `100`, which the
+formula system rejects by design. **That is true of the in-app BUILDER and was never true of the
+export.** The export has always written literals -- `_guarded` emitted `COUNT(C2)<3` and `""`
+before this slice existed. Q8 was therefore a product call (add it yourself in Excel), not a
+technical wall, and re-reading it as a wall is what kept the column out.
+
+### What each half actually needed
+
+| half | how it resolves | new code |
+|---|---|---|
+| numerator, default | a REFERENCE to the Total column just written | one branch in `_ref_to_excel` |
+| numerator, declared (`bcs_margin_cost`) | the existing `_tree_to_excel` | none |
+| denominator, declared (`boq_total`) | the existing `_tree_to_excel` + `resolve_ref_col` | **none** |
+| denominator, default | `bcsAmountColumns`, ported | `sources.derive_amount_columns` |
+
+Every operand a `boq_total` may name (`_BOQ_OPERAND_FIELDS = _AMOUNT_VALUE_FIELDS`) was already
+handled by the shared `resolve_ref_col`, so the declared path needed nothing at all. Only the
+DEFAULT denominator was genuinely missing, which is the one mirror this slice adds.
+
+### The third mirror, and why it is pinned rather than avoided
+
+`derive_amount_columns` is the THIRD BCS rule to exist on both sides (after `derive_qty_columns`
+and `live_rate_kinds`). `parity_cases.json` -> **v3**, new `derived_amount_cases` (10), read by
+BOTH suites. The tier order IS the spec -- confirmed pick, else scalar total, else the
+supply/install halves, else per-area -- and **two of those tiers exist only to prevent a double
+count** (a total already contains its halves; a scalar already contains its per-area parts),
+which are the same harms the pick path refuses as `mixed_kinds` / `mixed_shapes`. A fallback able
+to express what the confirmation forbids would be a hole straight through those refusals, so the
+two precedence cases order their descriptors **adversarially** (losing tier first) and a test
+asserts they do -- otherwise they would also pass against a function returning its first input.
+
+### ★ The sign guard is the whole reason the column ships
+
+`=IF(OR(COUNT(F2)=0,F2<=0),"",((F2-I2)/F2)*100)`
+
+A NEGATIVE denominator flips the inequality: amount -100 against cost 50 computes **+150%**, a
+loss displayed as a profit. A hand-typed `=(F2-I2)/F2*100` computes the identical number on every
+ordinary row and gets that one catastrophically wrong, silently -- so leaving the column to a
+pricer was never the safe option it looked like. Zero rides the same test. **Not-finite needs no
+guard and gets none**: Excel cannot reach it once the denominator is known non-zero, and a dead
+branch in a guard chain reads as a fourth rule. The COUNT guard is the second half -- a blank
+amount cell reads as 0 in Excel, which WOULD blank correctly but by the wrong route and
+indistinguishably from a genuine zero.
+
+`_guarded` gained an `extra_tests` parameter rather than a second wrapper, so ONE builder emits
+every guard in the module. A single test skips the `OR`, which keeps the ordinary Total's string
+**byte-identical** to before the parameter existed.
+
+### ⚠️ What is lost in the move to Excel, stated rather than glossed
+
+On screen every blank BCS cell explains itself in a tooltip (`BcsComputedCell`'s
+blank-with-a-reason). **A workbook has no tooltip.** The guard is therefore left LEGIBLE IN THE
+CELL, where a reader who clicks a blank margin sees exactly which test refused it. That is the
+Excel-native form of the same promise -- not an abandonment of it, and not a reason to ship the
+column without saying so.
+
+### Three skips, each with its own sentence
+
+`maps no amount column` · `has no BCS Total Amount column` · `amount columns could not be
+resolved on any costed row`. **A margin skip is reported on the BLOCK (`margin_skipped`), never
+in `cost_skipped`** -- that sheet got its costs and its Total, so calling it a skipped block
+would be false, and nothing else in the report would have mentioned the absence. The anti-drift
+guard was widened to read block-level reasons too; without that line it would have gone on
+comparing only `cost_skipped` and called itself complete, which is worse than no guard because it
+still reads green.
+
+⚠️ **A declared denominator that fails to resolve does NOT fall back to the default.** A declared
+formula states which figure the margin measures against; substituting another would produce a
+percentage nobody asked for, and it would look right.
+
+### Frontend
+
+`margin_column` / `margin_skipped` on the response type (REQUIRED -- the server always sends
+both); `summariseCostBlocks` names the column or passes the server's own sentence through
+verbatim. The dialog panel **reverses its own message**: from "% Margin is not included, add it
+yourself" to "% Margin is a live formula", naming what blanks it. Its test reversed with it and
+now asserts the old sentence is GONE.
+
+### Cert
+
+| gate | result |
+|---|---|
+| `test_export_bcs_writeback` | **67 pass** (was 48) |
+| `boq_bcs.test_sources` | **75 pass** (was 72) |
+| `bcsColumns.test.ts` | **252 pass** (was 250) |
+| `PricedTenderBcsDialog.test.ts` | **19 pass** (was 15) |
+| `test_export_writeback` / `test_commit_gate` / `test_bcs` | 49 / 37 / 80 pass |
+| all `boq-wizard` vitest | 1600 pass, 46 files |
+| `tsc` | **3227** — repo baseline, unchanged; **0** in touched files |
+| `export_writeback.py` + 2 others | still **0 lines** changed |
+| mutation: drop the sign guard | **7 red** |
+| mutation: invert the ratio | **8 red** |
+| mutation: drop the COUNT guard | **7 red** |
+| mutation: fall back on a failed declared denominator | 2 red |
+| mutation: margin on an uncosted row | 2 red |
+| mutation: swap the amount tier order | 1 red (parity) |
+| mutation: return a total beside its halves | 2 red (parity + double-count) |
+
+### Still open
+
+* **Nothing has been run in a browser** -- unchanged from BCS-EXP-5, and now covering one more
+  column. The live click-through is still owed.
+* The whitelisted endpoint's happy path remains untested (it fetches from S3); both exports are
+  tested at their injectable inner seam.
+
+---
+
+## Build slice BCS-EXP-7 -- two corrections from the live check (2026-08-19)
+
+The owner ran the export in a browser -- the click-through BCS-EXP-2..6 each recorded as owed --
+and it produced two changes. **Both are confined to `export_bcs_writeback.py`**; the client
+modules keep their zero-line diff.
+
+### 1. `Nirmaan Remarks` moves BEFORE the BCS block (REVERSES planning Q9)
+
+Final layout: `… client data | Nirmaan Remarks | BCS Cost(s) | BCS Total Amount | % Margin`.
+The remark column keeps the position it holds in the CLIENT export, and everything internal sits
+beyond it -- so the internal file reads as the client file plus a block on the end, rather than
+the client file with something wedged into the middle of it.
+
+★ **THE REVERSAL TOUCHED NO ARITHMETIC.** Both placers scan rightward from the true data edge
+past any occupied column, so the CALL ORDER alone decides the layout -- swapping two statements
+was the entire change. That is the property the original design was worth having: a layout ruling
+can be reversed after shipping without anyone recomputing an offset. The mutation that swaps them
+back turns **14 tests red**.
+
+⚠️ **THE LAYOUT IS PER SHEET, NOT WORKBOOK-WIDE.** `Elec ` carries remarks and `HVAC ` does not,
+so their blocks legitimately start one column apart. Both are pinned. Reading one sheet's columns
+and assuming the workbook shares them is the mistake this guards against, and it is why the
+remark test now asserts the whole left-to-right header sequence rather than one letter.
+
+### 2. A filled BCS cell carries a light-blue fill
+
+The counterpart of the rate highlight (`export_writeback._apply_priced_highlight`, muted teal on
+a stamped rate cell): mark what actually got written, so a reader sees which rows were costed
+without reading the numbers. Costs, Totals and margins all count as figures.
+
+⚠️ **CELLS, NEVER COLUMNS -- and that is the load-bearing half.** An uncosted row's BCS cells are
+empty and stay UNFILLED. Filling the column's full height would claim every row is costed: the
+same false statement in colour that the COUNT guard exists to stop the Total making in numbers,
+and it would be a claim nobody could see was wrong. The header is not filled either -- a label is
+not a figure, and the rate highlight marks no header.
+
+⚠️ **IT REUSES THE USER PALETTE'S `blue` (`BDD7EE`) -- which the rate highlight deliberately
+avoids doing, so the divergence is worth stating.** That highlight lives on a SHEET column where
+a user colour tag can also land, so a shared hex there would let a system mark read as a user tag.
+The BCS columns are ones this module APPENDS, and a user tag is addressed by `(col_letter,
+excel_row)` against the committed grid -- it can never resolve to a column that did not exist when
+the grid was committed. The collision is structurally unreachable here, which is what makes
+matching the codebase's own "light blue" the least surprising choice rather than a near-miss shade
+nobody can name.
+
+A fill sets `.fill` and nothing else -- pinned, because a styling pass that quietly rewrote a cell
+would stay invisible until a pricer opened the file.
+
+### Cert
+
+| gate | result |
+|---|---|
+| `test_export_bcs_writeback` | **73 pass** (was 67) |
+| `test_export_writeback` / `test_commit_gate` / `test_bcs` / `test_sources` | 49 / 37 / 80 / 75 pass |
+| full vitest | 2801 pass, 76 files |
+| `export_writeback.py` + 3 others | still **0 lines** changed |
+| mutation: swap the two placer calls back | **14 red** |
+| mutation: fill the whole column height | 1 red |
+| mutation: drop the fill pass | 2 red |
+
+### Still open
+
+* The fill and the new column order are **not themselves browser-verified** -- they came FROM a
+  live check, and a second one is worth doing on the produced file.
+* The whitelisted endpoint's happy path remains untested (it fetches from S3).
+
+---
+
+## Build slice REV-#8N — an item may parent an item (2026-08-19, owner ruling)
+
+**ADR-0008 Amendment A.** Structural ERROR #8 stopped covering item-under-ITEM. Review had always
+*offered* the move (the parent picker greys out cycle-unsafe rows only, and `RestructureModal`'s
+`PARENT_CAPABLE` already listed `line_item`) and the fully-hard finalize gate then refused it with no
+override — a dead end reachable in two clicks. Scope was narrowed on the owner's call: item-under-note
+and item-under-marker still block, because a text row holds no children in any meaningful sense.
+
+### What changed
+
+| File | Change |
+|---|---|
+| `commit_validation.py` | NEW shared `line_item_parent_ok(parent_node_type)` (mirrors `preamble_parent_ok`); #8 reads it; #16 widened to `("Preamble", "Line Item")` with per-type wording; #8 finding body + `_STRUCTURAL_ERROR_REASON_BY_CODE` reworded |
+| `integrations/controllers/boq_nodes.py` | durable backstop imports + reads the SAME predicate; throw message reworded |
+| `review_screen.py` / `ai_assist.py` | stale prose comments only |
+| `ReviewTree.tsx` | `WARN_BREAK_LABELS` → "Item under a note or marker row" |
+| `boqTypes.ts` | comment: the `...NotPreamble` type name keeps the wire code's spelling |
+
+**The wire code `line_item_parent_not_preamble` is unchanged** — it discriminates the frontend
+`StructuralBreak` union. #7 untouched, so a sub-heading under an item still blocks.
+
+**#16 widened in the same change, deliberately:** `pricingRollup` sums a node's own amount plus its
+descendants', so a priced parent item double-counts exactly as a priced heading with children does.
+Advisory only — it never blocks, because a breakdown under a priced parent is sometimes what the bill
+says.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `test_commit_validation` | 51 → **55 pass** |
+| `test_review_screen` | 273 → **275 pass** |
+| `test_boq_nodes` | **78 pass** (controller test flipped: item-under-item now asserts a successful INSERT + correct `path`) |
+| `test_is_excluded_filter` | **7 pass** (#8 producer moved to a note parent — only the `is_excluded` filter is under test there) |
+| `test_commit_pipeline` / `test_commit_gate` | **64 / 37 pass** (downstream, untouched) |
+| full vitest (in-container) | **2801 pass, 76 files** |
+| `tsc` | **0 errors in `boq-wizard`** (3227 pre-existing elsewhere, unrelated) |
+| `residence_check.py` | F5/F2 already red at 119/220 **before** this change — verified identical with these files stashed out; this slice contributes 0 |
+
+New positive tests pin the ruling at every tier so it cannot be silently re-tightened:
+`test_error8_line_item_under_line_item_is_clean` (validator), `test_nested_item_finalises` (gate),
+`test_item_under_item_surfaces_no_break` (read endpoint), `test_line_item_under_line_item_is_accepted`
+(durable controller).
+
+### Deliberately not changed
+
+* **The AI-pass and Gemini prompts** still say only a preamble may parent a line_item. They govern what
+  the parser *proposes*; this ruling governs what a human may *override to*. Both are test-pinned —
+  changing them is a pin-first-reword-second slice with its own re-certification.
+
+### Still open
+
+* **Not browser-verified.** The whole change is server-side rule + one label; the suites cover every
+  tier including the durable controller. A live pass (reparent an Item under an Item in review →
+  no must-fix entry → Finalize → commit) is still worth doing.
+* **Accepted loss:** item-under-item is now unverified by any structural gate. A parser/AI regression
+  emitting it would not be flagged. #16 is the only remaining signal, and only when the parent is priced.
+
+### REV-#8N follow-up — the AI prompts (owner Option B, 2026-08-19)
+
+The prior slice deliberately left both classification prompts stating *"A line_item is never the
+parent of another line_item. Only a preamble may parent a line_item."* With #8 narrowed that sentence
+told the models a rule the product no longer enforces. Owner chose **Option B (state the permission
+explicitly)** over Option A (delete it and stay silent, the mechanism note-under-note uses).
+
+**ONE sentence, VERBATIM-IDENTICAL on both engines**, replacing the prohibition:
+
+> `- A line_item may be the parent of another line_item when the child row is a sub-component or a`
+> `breakdown of it; otherwise a line_item's parent is the preamble heading its section.`
+
+Gemini stated the rule **twice** — its row-type line also dropped the false clause:
+`- line_item: a priced/quantified work entry. May be the parent of a note that describes it, or of
+another line_item that is a sub-component of it.`
+
+**Pin-first-reword-second, demonstrated:** the 3 pins were moved to the new wording and run FIRST —
+red (1 Claude, 2 Gemini) against untouched prompts — proving they actually read the prompt; only then
+were the prompts edited.
+
+**NEW cross-engine drift guard.** `test_line_item_parent_rule_is_identical_on_both_engines` asserts
+both prompts carry the same literal. The two per-file pins each repeated it independently, so editing
+one engine moved that pin, left the other green, and the drift was invisible — and this sentence has
+now been reworded across both engines twice. Mutation-tested: casing one engine's copy turns it red.
+
+| Gate | Result |
+|---|---|
+| `test_boq_ai_assist` / `test_boq_gemini_assist` | 32 / **15 → 16** pass |
+| `test_ai_assist` / `test_gemini_assist` | 50 / 36 pass |
+| `test_commit_validation` / `test_review_screen` | 55 / 275 pass |
+| runtime check | shared sentence byte-identical in both prompts; old prohibition absent from both; note-under-note silence intact on both |
+
+### Live verification — DONE (2026-08-19, read-only)
+
+Both owed checks were run against the real Anthropic model (`claude-opus-4-8`) on real production
+sheets, driving the `run_ai_pass` SERVICE directly so **nothing was persisted** (the endpoint is what
+writes `ai_*`; the service just returns suggestions).
+
+| Check | Result |
+|---|---|
+| Prompt actually loaded in-process | new sentence present, old prohibition **absent** — on both engines |
+| AI pass, `BOQ-26-00181 / Electrical` (225 rows) | 38 suggestions, **0** nest an item under an item |
+| AI pass, `BOQ-26-00188 / HVAC Lowside Works` (243 rows) | 42 suggestions, **0** nest an item under an item |
+| Model shown an EXISTING item-under-item | left it alone on both sheets — it does not fight a human edit |
+| Gate, `BOQ-26-00181 / Electrical` | **0 breaks** now; simulating the old predicate reports **1** — this real sheet was hard-blocked from finalizing before the change and is clean after |
+
+**The over-nesting risk did not materialise** on 80 suggestions across two disciplines. Option B's
+explicit permission did not make the model volunteer nested items.
+
+### Corpus scan — where item-under-item actually comes from
+
+510 sheets scanned: **3 sheets, 3 rows** carry an item-under-item. **All three are HUMAN overrides,
+not parser output** — `parent_index` points at a preamble in every case and `human_parent` was written
+later. All three carry the same `edit_log` reason shape:
+
+> `row moved: row N reclassified to line_item`
+
+i.e. a human reclassified a PREAMBLE to a line_item and the RestructureModal carried its children
+along — leaving items under an item, which the gate then hard-blocked. **That is exactly the dead end
+this ruling was made to remove, observed three times in live data.**
+
+⚠️ **Caveat on the strength of that evidence:** all three edits are dated 2026-08-19 by
+`Administrator`, so they are almost certainly the owner's own testing of this very flow rather than
+independent field usage. It demonstrates the mechanism, not its frequency. The honest reading is that
+this shape is RARE (3 in 510 sheets) and arises from reclassification, not from bills that natively
+nest sub-items.
+
+⚠️ **This partly undercuts the prompt wording.** Both prompts now describe the child as *"a
+sub-component or a breakdown of it"*. No such case was found in the corpus — the observed cause is a
+preamble→item reclassification. The sentence is not wrong, but it names a shape the data does not yet
+show. Worth revisiting if a future pass finds the model inventing sub-component nestings.
+
+### Still open
+
+* **Not browser-verified.** Everything above was driven through the service layer. The actual review
+  screen (pick an Item as another Item's parent → no must-fix entry → Finalize → commit) has still not
+  been clicked through.
+* **Gemini is UNMEASURED.** AI settings carry `provider = Anthropic` and only an `anthropic_api_key`,
+  so the Gemini prompt change ships on its pins alone — no live call was possible.
+* **Compounded risk, accepted:** the models are now actively invited to nest items, and no structural
+  gate checks the result (#8 no longer fires, #16 warns only when the parent is priced).
+
+---
+
+## Build slice RMF-1 -- the rate-master DEPLOYMENT FREEZE (2026-08-18/19)
+
+**The first user-facing control this arc has added.** Commit `df40227e` (feat).
+
+### Why
+
+On **2026-08-18, 235 hand-entered production cable prices were overwritten** by a dev-minted asset,
+because they existed in no committed asset. The remedy is **Deployment Mode** -- freeze production,
+export, merge dev's config with production's items, deploy. The freeze is step one, and until this
+slice it was an unenforced manual discipline.
+
+### Owner rulings built to (2026-08-18)
+
+| # | Ruling |
+|---|---|
+| R1 | BLOCKED while frozen: CSV upload of rates / SKU list, and manual rate-master edits from the frontend |
+| R2 | NOT BLOCKED: all BoQ pricing, in every form |
+| R3 | NOT BLOCKED: the EXPORT endpoints -- the export is the action the freeze exists to protect |
+| R5 | Freeze/lift population = the existing rate-master edit population (Administrator + Nirmaan Admin Profile) |
+| R6 | ANY admin may lift ANY freeze, including another's. The record of who lifted it is what makes that safe |
+| R7 | Lifting is MANUAL ONLY -- no expiry, no timeout, no automatic lift on deploy |
+| R8 | The Desk gap is ACCEPTED, not closed |
+
+Approved user-visible string, verbatim and byte-pinned in both languages:
+`Rate master is locked for deployment. Contact Nitesh/ Abhishek.`
+
+### P1-P3
+
+- **P1** tree: exactly the five known-harmless entries. `boq_parser` fixtures clean at PRE and POST.
+- **P2** re-verified: **NINE** `_require_rate_admin` call sites, **6 writes + 3 reads** (the RMF recon
+  prose had said "eight" while its own table listed nine -- the table was right). Permission
+  resolution unchanged (`Nirmaan Users.role_profile`, a **Data** field). Zero rate-master doctype
+  references anywhere in `api/boq/wizard/`. `csv_importer.apply_plan` confirmed to supersede by raw
+  SQL, never `doc.save`.
+- **P3** measured baselines BEFORE any edit: `test_rate_master` **152 OK**, `test_pricing` **262 OK**,
+  vitest **2489 pass / 1 known fail**. (The recorded doc figures had drifted: `test_pricing` 230 ->
+  262, vitest 2461 -> 2489. Measured values reported.)
+
+### What was built
+
+**Lock state -- a Single, `BoQ Rate Master Freeze`** (`frozen` Check / `frozen_by` Data /
+`frozen_at` Datetime, `issingle:1`, `track_changes:1`, System Manager permissions). Precedent:
+`BOQ Upload Review AI Settings`. The `BoQ Sheet` lock / classification-freeze / category-override
+triples were the **field shape** precedent but the wrong **scope** (per-sheet); Redis was rejected as
+the wrong **lifetime**, on the same reasoning already recorded for the SR-1 run doc.
+
+MIGRATE-CARRYING. **No `patches.txt` entry** -- a new doctype is created by sync, exactly as
+`BoQ Rate Master Snapshot` and `BoQ Rate Master Retirement` were; that file was not touched.
+
+**Guard -- `services/boq_rate_master/freeze.py`**, one predicate, two call sites. It lives in
+`services/` because `csv_importer` is a service and may not import from `api/` (the
+`services/boq_bcs/readiness.py` relocation precedent). Six inline calls in `api/boq/rate_master.py`
+(the write endpoints), plus a self-guard at the top of `csv_importer.apply_plan` -- that path
+supersedes by RAW SQL and never touches `doc.save`, so an endpoint-only guard would have missed the
+largest write in the module. `build_plan` is deliberately unguarded: `preview_rate_master_csv` shares
+it, and the preview must survive a freeze.
+
+Gate order is **admin first, freeze second**, so a non-admin gets the honest "Not permitted" rather
+than being told to contact someone about a freeze they could never have worked around.
+
+**The read fails OPEN** (a failed/absent read = not frozen). Before migrate the doctype does not
+exist, so failing open makes the feature inert -- byte-identical to pre-freeze. Failing closed would
+refuse every write on a transient DB error while naming a deployment nobody is doing, and the writes
+it would "protect" are themselves DB writes. This is deliberately the OPPOSITE direction to
+`ai_settings.get_boq_ai_settings`: there inaction is the safe outcome, here inaction IS the block.
+
+**Values in `tabSingles` are TEXT**, so the reader uses `cint`, never `bool` -- `bool("0")` is `True`.
+
+**Three endpoints:** `get_rate_master_freeze` (login-only, drives the banner),
+`freeze_rate_master` / `unfreeze_rate_master` (admin). Both writes are **idempotent**, and the freeze
+no-op is load-bearing: re-freezing preserves `frozen_at`, because the banner renders it as ELAPSED
+time and a second click would otherwise silently restart the clock.
+
+**Frontend:** admin-only control in the header (reachable from all three tabs, since the writes it
+governs span them); teal + `ShieldCheck` banner reusing the product's established colour for a
+deliberate, persistent, cross-user lock; write controls **disabled, never hidden**, each carrying the
+approved message as its tooltip. `canManageRateMasterFreeze` **delegates** to `isRateMasterAdmin`
+(R5), never a second predicate. The freeze is deliberately NOT folded into `canEdit`, which decides
+whether the actions COLUMN exists -- folding it in would change the table's shape rather than
+disabling a control.
+
+### Tests
+
+`test_rate_master` **152 -> 170** (new class `TestRateMasterFreeze`, 18 methods);
+vitest **2489 -> 2503** (`rateMasterFreeze.test.ts`, 14); `test_pricing` **262 unchanged**;
+**0 tsc errors** in the changed directory.
+
+Every freeze test captures the LIVE site's Single state and restores **that** (the standing rule),
+and purges only the `Version` rows it created.
+
+**VACUITY PROOF.** Guard body disabled (`if False and is_frozen():`):
+
+| Test | Guard disabled | Restored |
+|---|---|---|
+| `test_rmf_03` (all writes refuse) | **FAILED, 7 failures** -- one per guarded write path | OK |
+| `test_rmf_05` (mutates nothing) | **FAILED, 8 failures** | OK |
+| `test_rmf_04` (exports survive) | OK -- control | OK |
+| `test_rmf_07` (attribution) | OK -- control | OK |
+| `test_rmf_12` (pricing) | OK -- control | OK |
+
+Restored immediately, `diff` IDENTICAL, re-run green. The three controls staying green is the other
+half of the proof: disabling the guard must not affect exports, attribution or pricing.
+
+**Two failures on the first full run, both defects in the NEW test fixtures, neither in the feature:**
+a param path (`discount`@step 0) that does not exist in the wiring fixture, and a fabricated `boq`
+name against a **Link** field. In both cases the product correctly rejected bad input. Fixing the
+first also revealed that `test_rmf_03` had been passing for a **weaker reason than intended** (the
+guard fires before path resolution), so it now uses a real path (`install_markup`@step 4) and the
+freeze is the only possible refusal. No feature code changed; no pre-existing assertion touched.
+
+### Browser live cert (2026-08-19, `admins@nirmaan.app`)
+
+Servers were not running (container held only `sleep infinity`); `bench start` and `yarn dev` were
+started for the cert. Full de-stale applied (`node_modules/.vite` deleted -- the edited files export
+non-component values -- 1 service worker unregistered, caches/storage/IDB cleared, tab closed and
+reopened, bare root then deep route). **Bundle-marker check passed** before judging anything.
+
+| # | Step | Result |
+|---|---|---|
+| 1 | admin sees the control | **PASS** |
+| 2 | freeze -> banner, elapsed + who | **PASS** -- *"Frozen less than a minute ago by admins@nirmaan.app"*, later *"1 minute ago"* (live) |
+| 3 | upload + edit controls disabled | **PASS** -- `disabled:true` + approved message as `title`; downloads and asset export `disabled:false` on the same panel |
+| 4 | blocked action returns the exact message | **PASS** -- all 6 write endpoints, byte-for-byte |
+| 5 | **export while frozen SUCCEEDS** | **PASS** -- snapshot v8 written, 7 -> 8, nothing pruned |
+| 6 | price a row + "Use this value" | **PASS** -- helper computed 42+10=52 off the FROZEN catalog; rate **auto-saved**, amount 5200 |
+| 7 | lift -> everything works again | **PASS** -- the identical step-4 call now returns `404 ... not found`, i.e. it reached target resolution |
+| 8 | non-admin sees no control | **PROVEN BY TEST + SERVER-SIDE, not eyeballed** -- see below |
+
+Step 4 deliberately aimed at **non-existent** targets, so a broken guard would have 404'd harmlessly
+instead of touching a real rate; receiving the *freeze* message rather than "not found" is itself
+evidence the guard fires before target resolution.
+
+**Audit trail (R6's safety property) on real infrastructure** -- two `Version` rows, both attributed:
+`frozen 0->1` with provenance set, then `frozen 1->0` with provenance cleared, each naming
+`admins@nirmaan.app` with a timestamp. That is exactly what `set_single_value` would have destroyed.
+
+**Step 8** could not be eyeballed: it needs a non-admin browser session, the owner could not provide
+one, and creating accounts / setting passwords is out of scope for the agent. `pricing-test@nirmaan.app`
+was suggested but **does not exist** (zero users match "pricing" or "test"). Proven instead under a
+REAL non-admin identity via `frappe.set_user` (no credentials): `vilas@nirmaan.app`,
+`Nirmaan Estimates Executive Profile` -- `_is_nirmaan_admin` False, both endpoints `PermissionError`,
+the READ still working (a non-admin must still SEE a banner), state unchanged. Owner accepted this on
+2026-08-19. **Residual risk, stated: if the React gate were wired to the wrong variable, every test
+would still pass.**
+
+**Zero residual.** All cert writes were on the SYNTHETIC `BOQ-26-00169` (project
+`G2D_CERT_SYNTH_1e2134`) or were the step-5 snapshot, all removed: Electrical snapshots 7 -> 8 -> **7**,
+synthetic cell pricing 1 -> **0**, suggestion events 1 -> **0**, freeze Single restored to the captured
+pre-cert `frozen=0`, 1364 active Electrical items and 12 configs untouched. The two freeze `Version`
+rows were deliberately KEPT -- they are a genuine audit record, and deleting an audit trail is not
+cleanup. One artefact left for the owner: the exported `.json` in their Downloads folder.
+
+### Wording still awaiting owner approval
+
+Only `Rate master is locked for deployment. Contact Nitesh/ Abhishek.` is approved. Four drafted
+strings are isolated in `FREEZE_COPY` (`rateMasterFreeze.ts`), marked awaiting approval in-source:
+`Freeze for deployment` / `Lift freeze` / `Working...` / `Rate master frozen for deployment`.
+Nothing else in the feature hardcodes a label.
+
+### Backwards compatibility
+
+Default state is OFF, so with no admin action the feature is a no-op. Unfrozen, the guard is a single
+falsy DB read. `test_pricing` 262 unchanged; `test_rmf_12` invokes real pricing endpoints under a
+live freeze and asserts `pricing.py` names neither rate-master doctype. `test_rmf_04` + `test_rmf_14`
+positively pin that exports and preview survive a freeze and that the guard is absent from
+`_require_rate_admin`. A database without the doctype degrades to inert, proven live against an empty
+`tabSingles`.
+
+---
+
+## Dev sync -- adopt production's asset as v43 (2026-08-19)
+
+**This was a Deployment Mode dev-sync, NOT a feature slice.** It changes DATA, not behaviour. No
+config was touched, no re-extraction was run, no AI call was made. Branch
+`feature/boq-pricing-helper`, from tip `97f21cc3`.
+
+**Why it had to happen first.** Dev's rate-master DATABASE was still on **v40**. v41 (production's
+cable re-mint) was committed to the repo yesterday but **never loaded here**, and production had since
+moved two changes further -- a goldens re-bank (its v42) and a switch/socket rate revision. Anything
+minted from dev today would have carried stale rates and reverted production on the next deployment:
+the exact failure that lost 235 cable prices on 2026-08-18.
+
+### V1-V3 -- the Deployment Mode comparison (Check A)
+
+Production's export (`rate_master_electrical_v14.json`, 702,345 bytes, sha256 `5d17cf7d...`, LF-only)
+compared against committed `rate_master_electrical_all_v41.json`, key by key.
+
+| | Finding |
+|---|---|
+| **V1** items | **1364 both sides. 0 added, 0 removed, 0 re-keyed.** Exactly ONE field moved: `switch_socket_item.rates.list_price`, on **55 of 58** rows. No other kind moved -- `cable_tray` included, which is why the tray certs below are unchanged. |
+| **V1** top level | `discipline`, `retired_kinds`, `retired_category_ids`, `retirement_reasons`, `source_workbook` all identical. |
+| **V2** configs | **NO COLLISION.** 12 configs both sides, same ids. **11 byte-identical**; `wiring_cabling` differs on **`goldens` ONLY** -- the known, expected exception. Attribute definitions, pipelines, `item_kinds`, `rules`, `extraction_defaults` are untouched everywhere. |
+| **V3** wiring goldens | **g1, g2, g3, g5 differ; g4 unchanged** -- exactly as the spec anticipated. g1 120/87 -> **130/97**, g2 200/150 -> **170/127**, g3 210/160 -> **200/150**, g5 630/469 -> **720/537**. These are production's re-banked values; the v41 note predicted this and asked for exactly it. |
+| **V3** switch/socket goldens | **WARNING -- BOTH ARE NOW STALE.** They are byte-identical between v41 and production, while 55 of the 58 rates beneath them moved. Confirmed by the product's OWN preview gate, which reports **4 changed goldens**: **s1** supply 110 -> **120**; **ss1** 740/150/510 -> **820/170/570**. Predicted by hand first and matched exactly. **NOT FIXED HERE** -- goldens are ORACLES and must be re-banked in-product and re-exported, never recomputed from our own interpreter, which would make them pass by construction and pin nothing. Owner decision owed. |
+
+The 3 switch/socket rows that did NOT move are all USB chargers (`USB Charger - A Type` White + Grey,
+`USB Charger - C+C Type` White).
+
+### P1-P4 -- verify first
+
+| | Result |
+|---|---|
+| **P1** tree | Exactly the five known-harmless entries. |
+| **P2** DB state | **WARNING -- Dev's live DB was byte-identical to v40, NOT v41** -- established by exporting and comparing, without loading anything. So the delta that actually landed is **320 item rows: 265 `cable` + 55 `switch_socket_item`**, plus the wiring goldens. |
+| **P3** baselines | `test_rate_master` **170 OK** (the plan's older "152" is stale). vitest **2503 pass / 1 fail** -- `writeOffControl.test.ts` "the three admin predicates stay in step", a 5s timeout on a dynamic `SheetPricingPage` import. **Reproduced in isolation, so not flaky; pre-existing at `97f21cc3` and unrelated to rate data.** |
+| **P4** backup | `/tmp/devsync_backup_dev_electrical_pre_v43.json`, 702,327 bytes, sha256 `ae156d6a28cc1b9a8ec139dd07d42ad15c3f3e383587d59f0309cae1d3724e44`. Byte-identical to committed v40, which is how P2 was answered. |
+
+### B1 -- naming: the owner's ruling is NOT applied, deliberately
+
+The owner ruled that dev and production keep separate version sequences with an environment marker in
+the filename. **The spec's own fallback applies instead**, because something DOES pattern-match on the
+name shape -- `scripts/mint_completeness_check.py:105` compiles the series regex
+`^rate_master_electrical_all_v(\d+)([a-z]*)\.json$`.
+
+`uninspectable_versions()` iterates the data directory and matches every file against it. A name
+carrying an environment marker would not match, so the file would be **invisible to the mint gate's
+version census** and the series would appear to stop at v41 -- silently, and for every future mint.
+The file therefore lands as **`rate_master_electrical_all_v43.json`**.
+
+**v42 is absent from this repo by construction** -- production minted it and dev never received it.
+The mint gate now reports `v15, v16, v16a, v16b, v42` as uninspectable, which is TRUE and is precisely
+what that report exists to say. Gate result on v41 -> v43: **PASS, no atoms disappeared, every removal
+declared.**
+
+### B2-B4 -- what was done
+
+- **B2** Committed verbatim: byte-identical to production's export (same sha256), LF-only. The repo's
+  `.gitattributes` sets `* text=auto eol=lf`, so the Windows CRLF hazard cannot bite.
+- **B3** Loaded by explicit path, `replace=True`, via `loader.load_rate_master` (procedure read from
+  the loader's own docstring). Summary: 1364 items across 13 kinds, 12 configs, 1364 items + 12
+  configs superseded, `retirements_without_reason: 0`. **Verified key by key AND by round trip: a
+  fresh export of the live DB is BYTE-IDENTICAL to the committed file (sha256 `5d17cf7d...`).** The
+  database, the repo asset and production provably agree.
+- **B4** `CURRENT_EALL_ASSET` repinned to v43, with a lineage note recording the two rate sets, the
+  v42 gap and the stale switch/socket goldens.
+- **B5** `FREEZE_COPY`'s "AWAITING OWNER APPROVAL" marker now records the four strings as
+  owner-approved 2026-08-18. **Marker only -- no string changed** (proven: the diff contains no line
+  carrying a quote).
+
+### Tests
+
+| Suite | Before | After |
+|---|---|---|
+| `bench --site localhost run-tests --module nirmaan_stack.api.boq.test_rate_master` | **170 OK** | **170 OK** |
+| `npx vitest run` (in container) | 2503 pass / 1 fail | **2503 pass / 1 fail** -- the same pre-existing `writeOffControl` timeout |
+| `npx tsc --noEmit` | -- | 3233 pre-existing errors repo-wide, **0 in rate-master or `rateMasterFreeze`** |
+
+**No test asserts an asset-derived rate or golden value, so none failed legitimately.** The vitest
+interpreter pins carry their OWN inline catalogs (`SS_ITEMS`, `SS2_ITEMS`) and read no asset -- which
+is exactly why the switch/socket golden staleness is invisible to a green suite and had to be caught
+by the preview gate. `test_rate_master._GOLDENS` is a seeding fixture for `update_rate_config`, not an
+interpreter assertion.
+
+### Browser live cert -- all six steps pass
+
+De-staled in full (Vite killed and restarted). **Bundle-marker check, stated honestly: the B5 edit is
+COMMENT-ONLY and Vite strips comments in transform, so neither the old nor the new marker appears in
+the served module -- there is genuinely no marker to check.** What was verified instead: the served
+module carries both approved strings intact, and the freeze control works live (step 6).
+
+| # | Step | Result |
+|---|---|---|
+| 1 | `BOQ-26-00113` / `Elect - BOQ` / 513 | **PASS** -- `Thickness (mm) (computed) 1.6`, `Width (computed) 600`, **1068 / 380, unchanged**. Tray rates did not move. |
+| 2 | `BOQ-26-00106` / `ELECTRICAL BOQ` / 141 | **PASS** -- `Width (mm) (computed) 100` (stated 65 fits NEXT HIGHER), **560, unchanged**. |
+| 3 | `BOQ-26-00113` / 435, a switch/socket row | **PASS -- this is the change landing.** Derivation names the revised rates outright: switch `16A 1 WAY SWITCH` White = **290** (was 258), socket1 `6A 3-Pin Socket` White = **618** (309x2, was 282x2), blank `1M Blanker` = **70** (was 61), plate `6M` = **340** (was 302) -> supply **480**, install **100**. The cell's STORED rate is still 430 / 90, the v40-era figure -- the two side by side are the revision. |
+| 4a | A wiring row (`BOQ-26-00113` / 621) | **PASS** -- prices: cable supply **2630** / install **56**, termination **850** / **220**. |
+| 4b | Wiring preview gate | **PASS -- all 20 golden keys GREEN, zero deltas**, across g1-g5. This is the point of adopting production's goldens; before the sync this gate showed deltas on four of them. |
+| 5 | Editor-path tray count | **PASS -- 63 of 79, unchanged.** Population reassembled independently (79 tray rows carrying extraction results) and run through the REAL modules (`ratePipelineInterpreter` + `pricingSheetHelper.nonBcsPipelines`) imported live from the dev server: 63 price, 16 do not -- matching the recorded 8 width-above-catalog-top + 4 thickness-not-in-catalog + 4 neither. |
+| 6 | Freeze control | **PASS** -- freeze set (banner: "Rate master frozen for deployment / Frozen less than a minute ago by admins@nirmaan.app"), a write REFUSED with the approved locked-for-deployment message, the export READ still returning 200 while frozen (owner ruling R3), then lifted: banner gone, `frozen=0`, `frozen_by`/`frozen_at` NULL. |
+
+**WARNING -- one unintended write, found and fully reversed.** The step-6 post-lift probe re-used
+`create_rate_master_item` to prove the write path was restored -- and it did what it says, creating an
+empty `cable_tray` row (`BRMI-26-8258883`, `manual-2f0eb4f79b6a`), taking the active count to 1365.
+Deleted under an attribute guard, and the fix was **proven, not asserted**: the count is back to 1364
+and a fresh export is once more BYTE-IDENTICAL to committed v43 (same sha256). **The lesson is
+specific: a "is the write path back?" probe must use a read-only or self-reverting call, never a
+creating one.**
+
+### Backwards compatibility
+
+Every price in dev moved to production's values, so anything pinned to a v40-era rate was exposed.
+What proves nothing broke: both suites measured before and after with identical results; no test reads
+an asset rate; the tray certs (1068/380, 560) and the tray editor-path count (63/79) are unchanged
+because no `cable_tray` rate moved; and the wiring preview gate went from four stale goldens to all
+green. Slices 3a and 3b, certified against v40 rates, are re-certified here against production's.
+
+**Open item for the owner: the two `switches_sockets` goldens (s1, ss1) need re-banking in-product
+and re-exporting.** Until then the switches_sockets preview gate shows 4 changed goldens by design.
+
+---
+
+## CLAUDE.md trim -- STEP 1: create the rate-master destination (COPY ONLY) -- 2026-08-19
+
+**Documentation only. Nothing was deleted, no code was touched, no test suite was run.** This is the
+ADDITIVE half of the root-`CLAUDE.md` trim. After it the repository deliberately holds the
+rate-master content TWICE; that duplication IS the safety property -- step 2 may delete from
+`CLAUDE.md` only what this step has proven exists elsewhere.
+
+**Why the proof shape matters.** The earlier attempt at this job (**WBC-S6c**, 2026-07-30) recorded
+itself complete with "0 lost, losslessness verified" and **NEVER LANDED** -- no commit on any branch
+ever created its destination files. So this slice's proof is **mechanically re-derivable by a third
+party**, not asserted in prose.
+
+### What was created
+
+`.claude/context/domain/boq-rate-master.md` -- **1,496 lines / 137,380 bytes**. It holds the whole
+rate-master + rate-suggestion record: the priced-item catalog and category configs, the
+derivation-pipeline interpreter vocabulary, the asset export/import round trip, retirement, the CSV
+round trip, the RMF-1 deployment freeze, and BoQ Rate Suggestion (AI attribute extraction + the
+pricing helper).
+
+### Block accounting
+
+Three source bands in root `CLAUDE.md` at tip `30822d2b`, cut into **33 segments at bullet
+boundaries** and copied **VERBATIM** in source order. Only topic headings were inserted between
+blocks -- no sentence was reworded, summarised, merged, reordered or corrected.
+
+| Band | Source | CLAUDE.md span | Lines |
+|---|---|---|---|
+| A | rate-master bullets under `## Domain Gotchas` | 147-325 | 179 |
+| B | `## BoQ Rate Master (RM-1)` | 560-1470 | 911 |
+| C | `## BoQ Rate Suggestion (RM-3)` | 1472-1756 | 285 |
+| | | **total** | **1,375** |
+
+**1,375 source lines in scope; 1,375 landed; 0 unaccounted; 0 differ.** All 33 segments are present
+in the destination as contiguous verbatim runs, and the destination minus its preamble and inserted
+headings is byte-identical to the three bands concatenated (no duplication, no reordering, no
+reflow).
+
+The recon's `~1,022` line estimate was **six commits stale**. Every one of those six touched a
+`CLAUDE.md` file, and five added content inside these bands -- `15fd210e` (fact corrections),
+`22578b80` (slice 3a, `fit_into`), `063e589c` (slice 3b, step ordering + `applyDerivedDisplay`),
+`97f21cc3` (RMF-1 deployment freeze, 46 lines), `30822d2b` (the mint-gate filename regex + the
+legitimately-absent-version ruling, 16 lines). All were re-derived from the file as it stands and are
+copied like everything else. **Step 2 must not treat any of them as stale narrative** -- they are the
+newest and most load-bearing lines in the file.
+
+### Verification script
+
+`/tmp/trim1/verify_rate_master_copy.py` (Windows: `C:/Users/nites/AppData/Local/Temp/trim1/`; a copy
+sits beside the Desktop report). Run with `NS_ROOT=<repo root>`; exits 0 only when clean. It does not
+import the builder and does not trust it -- it re-extracts every span from `CLAUDE.md` and checks
+four independent things: per-line accounting, per-segment verbatim contiguity, segment reassembly
+(tiling with no gaps or overlaps), and the strip-and-compare byte equality.
+
+### Registration
+
+One row added to `.claude/context/_index.md` and one to the Reference Docs table in root `CLAUDE.md`.
+**That single table row is the ONLY change to `CLAUDE.md` in this slice** -- proven by a byte
+comparison in the edit script itself and by `git diff --numstat` reporting `1 0`.
+
+### CORRECTIONS OWED -- copied unchanged ON PURPOSE (B2a)
+
+Content believed WRONG was copied verbatim anyway; fixing during a copy destroys the losslessness
+proof that makes the later deletion safe. **Corrections ride a later slice.** The owner retired the
+pricing sheet on 2026-08-19 and reclassified goldens from ORACLES to **regression canaries, re-banked
+mechanically** -- **Deployment Mode v1.1 is the authority.** Affected blocks, by destination heading:
+
+| # | Destination heading | Source | What is now stale |
+|---|---|---|---|
+| 1 | Runs, cores, and item matching | 1295-1300 | "**Multi-run goldens (runs > 1) are OWED from the owner and must NOT be computed from our own code** ... the guiding sheet carries no runs concept, so a multi-run value has no sheet basis." The sharpest goldens-as-oracle claim in the file. |
+| 2 | The guiding-sheet authority rule, and retirement by declaration | 739-756 | "**THE GUIDING-SHEET AUTHORITY RULE (owner-locked standing law, 2026-07-29)** ... a category gets FINALIZED rules ONLY if it has a block on the **ALL ITEM WISE RATE** sheet; no block -> no rules." Its premise -- a live guiding sheet -- is gone. |
+| 3 | Interpreter step vocabulary | 641 | "**oracle goldens** t1/t2/t3 ... are the pins" (cable tray). |
+| 4 | Interpreter step vocabulary | 658, 703-730 | "PER-STAGE ROUNDING is **faithful to the guiding sheet**"; the EA-4c DB build-up's "implement **the sheet's** IFERROR install EXACTLY", "the sheet's I10:I14", "sheet-faithful". |
+| 5 | The 29-Jul truth-file cycle, and estimator rules | 1256 | "a banked EA-4 **oracle** `1869/735/2604`". |
+| 6 | Stored-config pipelines, numeric attributes, and known behaviour | 1436 | "The four **faithfulness goldens** ... are the STANDING instrument any pipeline change must still reproduce EXACTLY." |
+| 7 | Composite assemblies | 155-159 | "Both are **sheet-faithful**"; point_wiring's unit rounding "INTENTIONAL, **per the sheet**". |
+| 8 | One Electrical asset - the merge, its rulings, and the benchmark | 1048-1052 | "**Benchmark data (owner ruling):** the committed data asset is the **28-Jul benchmark workbook**" -- predates the v41/v43 production adoptions. |
+
+Adjacent and **already consistent** with the new ruling, listed so step 2 does not sweep it up by
+mistake: line 732's "the wiring + point_wiring + switches_sockets goldens are the **standing
+regression pins**" already uses the regression framing. Its asset sha `645a81d6841254e4` is a separate
+staleness question, not a goldens-as-oracle one.
+
+### Backwards compatibility
+
+No runtime behaviour, API, schema or config change -- documentation only. **Because nothing was
+deleted, no session can lose access to any rule as a result of this slice.**
+
+---
+
+## CLAUDE.md trim -- STEP 2: delete the proven bands -- 2026-08-19
+
+**Documentation only. No code touched, no test suite run.** The deletion half. Step 1 (`19a98728`)
+copied 1,375 lines into `.claude/context/domain/boq-rate-master.md` and proved every line landed;
+this slice removes those same lines from root `CLAUDE.md` and leaves a one-line pointer in each place.
+
+**Root `CLAUDE.md`: 1,782 -> 414 lines (210,151 -> 76,601 bytes). A 77% reduction.**
+
+### What was deleted
+
+Spans were **re-derived by content**, not taken from step 1, because step 1's own B4 row shifted the
+file. They came out **UNSHIFTED** -- that row landed at line 1768, after band C ends at 1756.
+
+| Band | Content | Span | Lines | Left behind |
+|---|---|---|---|---|
+| A | rate-master bullets inside `## Domain Gotchas` | 147-325 | 179 | one bullet |
+| B | `## BoQ Rate Master (RM-1)` | 560-1470 | 911 | heading + one line |
+| C | `## BoQ Rate Suggestion (RM-3)` | 1472-1756 | 285 | heading + one line |
+| | | **total** | **1,375** | **7 pointer lines** |
+
+Deletion was by **content match**, never by line number: each band had to occur EXACTLY ONCE in the
+file, and every one of its segments had to be present verbatim in the destination, before any removal
+was made. The other `## Domain Gotchas` bullets were untouched.
+
+### The four proofs
+
+- **B4a** -- all three bands are now **ABSENT** from `CLAUDE.md` and **all 33 segments (1,375 lines)
+  are still present verbatim** in the destination. **The source half changed; the destination half did
+  not.**
+- **B4b** -- `1782 - 1375 + 7 = 414`, actual 414. **Reconciles exactly.**
+- **B4c** -- `git diff --numstat` reports `3 1371`. See the reconciliation note below.
+- **B4d** -- strongest form: the expected AFTER file was rebuilt from the BEFORE blob using ONLY the
+  three band-to-pointer substitutions and compared **byte for byte** to the real file. **IDENTICAL** --
+  no line outside the three bands changed.
+
+Proof script: `/tmp/trim1/verify_step2.py`, run with `NS_ROOT` and `BEFORE_FILE` (the latter being
+`git show 19a98728:CLAUDE.md`). It is anchored on the BEFORE blob, so editing the working file cannot
+invalidate it.
+
+### Two honest notes on the instruments
+
+**1. Step 1's verification script cannot serve as the post-deletion proof, and its failure is not a
+defect.** It is **line-number anchored on the source**: after deletion it slices lines 147-325 of a
+414-line file and compares unrelated content, then dies on a console-encoding error. It is the right
+instrument for the pre-deletion check (it passed, exit 0, 33/33, 1,375 accounted) and the wrong one
+afterwards. `verify_step2.py` replaces it for that purpose.
+
+**2. B4c cannot literally equal 1,375, and the reason is a spec tension worth recording.** B2 says to
+KEEP the two `##` headings, but those headings are lines 560 and 1472 -- **inside the bands**. So four
+band lines survive as pointer anchors and git counts them as unchanged context: the two headings plus
+the two blank lines beneath them, which are identical in the pointer blocks. The arithmetic reconciles
+exactly in both directions:
+
+- deletions `1371` + `4` retained as context = **1,375 band lines**
+- additions `3` + `4` retained as context = **7 pointer-block lines**
+
+The numbers were not adjusted to balance; the 4-line attribution is stated because it is the whole
+difference between the spec's expected `1375` and git's reported `1371`.
+
+### B3 -- cross-references (REPORTED ONLY, deliberately NOT fixed)
+
+Fixing these is content editing outside the bands, so it belongs to the next step.
+
+**BROKEN -- the referent moved to `boq-rate-master.md`:**
+
+| # | Location | Reference | Why it no longer resolves |
+|---|---|---|---|
+| 1 | `.claude/context/domain/boq-backend.md:1849` | RMF-1: "Load-bearing invariants are in root `CLAUDE.md`; this is the as-built." | All five RMF-1 freeze invariants were band B (1162-1207). |
+| 2 | `.claude/context/domain/boq-backend.md:1903` | "see the R3 invariant in root `CLAUDE.md`" | R3 (the freeze guards the write subset only) was band B. |
+| 3 | `nirmaan_stack/api/boq/test_rate_master.py:3072` | "there is NO blanker family (root CLAUDE.md invariant)" | The `1M Blanker` / `family: "Switch"` rule was band A (160-162). Verified: 0 hits in root now, present in the new doc. |
+
+**PARTIAL -- the heading survives, the content moved:**
+
+| # | Location | Reference | Status |
+|---|---|---|---|
+| 4 | `frontend/.claude/plans/boq-upload-plan.md:14134` | RM-4b slice record: "root CLAUDE.md (new `BoQ Rate Master (RM-1)` section)" | The section still exists, now as a pointer. Historical slice record; arguably correct as history. |
+| 5 | root `CLAUDE.md:291` (the BCS name-collision note) | "BCS in the **BoQ Rate Master** sections further down means something else entirely" | Those sections are now pointers. The note is **self-contained** (it carries the derivation-pipeline description itself), so a reader is not stranded, but "further down" now means "in the linked doc". |
+
+**STILL RESOLVE -- referent stayed in root `CLAUDE.md` (spot-checked, not merely assumed):**
+the BoQ File Reading / S3 safety rule (`api/boq/wizard/revision.py:366`,
+`docs/boq/HANDOFF-*.md`), the commit-before-publish rule (5 API call sites), the doctype-controller
+convention (5 controllers), the Single-doctype STANDING RULE (`test_rate_master.py:4907`), the
+`get_all` JSON-field restriction (`api/tds/members.py:28`), the Priceability gate and the review /
+pricing freeze notes referenced from `frontend/.claude/context/domain/boq-frontend.md` (lines 1151,
+1200, 1497, 1511), and the Reference Docs table (`docs/outflow-import/HANDOFF.md:209`). All of these
+sit outside the three bands.
+
+**No script parses `CLAUDE.md` by section or line number.** `.claude/hooks/guard_claude_md.py`
+inspects only the *added* text of an edit and is indifferent to file structure, so the trim does not
+affect it. `.claude/settings.local.json` carries two permission entries that grep
+`frontend/CLAUDE.md`; those are tool-permission strings, not documentation cross-references, and that
+file is out of scope.
+
+**Pre-existing and unrelated:** `nirmaan_stack/api/outflow_import/upload.py:25` already records that
+the root `CLAUDE.md` "BoQ File Reading (S3 safety)" section is STALE about the BoQ worker. That
+section was never in a band and is untouched here.
+
+### Backwards compatibility
+
+Documentation only -- no runtime behaviour, API, schema or config change.
+
+**What a future session LOSES, stated plainly.** This is the first slice in the trim that removes
+anything. Root `CLAUDE.md` no longer auto-loads any rate-master or rate-suggestion rule. A session
+that previously had all 1,375 lines in context for free must now **open
+`.claude/context/domain/boq-rate-master.md`** before touching: the priced-item catalog or category
+configs, the derivation-pipeline interpreter, asset export/import, retirement, the CSV round trip, the
+deployment freeze, or AI attribute extraction. **The risk is real and is the point of the trade:** an
+agent that does not read the pointer can now make a rate-master change without ever seeing the
+owner-locked invariant that governs it. Three defences: the pointers name the file at each of the
+three sites the rules used to occupy, the Reference Docs table carries a row for it, and
+`.claude/context/_index.md` lists it. **Nothing was lost from the repository** -- every line is in the
+new document, proven byte for byte.
+
+---
+
+## frontend/CLAUDE.md trim -- STEP 1: measure, band, copy, prove -- 2026-08-19
+
+**Documentation only. Nothing deleted, no code touched, no test suite run.** The additive half of the
+frontend trim, the same two-step method the root file used (`19a98728` copy, `fce408db` delete). A
+later slice deletes, using this slice's proof.
+
+**The bands were DERIVED here, not inherited.** For the root file they were handed over pre-decided
+and the estimate was 34% under the truth; nothing was taken on trust this time.
+
+### What was created
+
+`frontend/.claude/context/domain/pricing-rate-master-frontend.md` -- **899 lines / 86,184 bytes.**
+Named for what it holds: the FRONTEND detail of the three pricing surfaces. It is the frontend twin of
+`.claude/context/domain/boq-rate-master.md`. **It is a NEW file, not an addition to
+`boq-frontend.md`** -- that doc is already **2,734 lines / 315 KB**, the largest context document in
+the repository, and has grown past the 287.4 KB the handover records for it.
+
+### M1 -- measurements
+
+| File | Lines | Bytes |
+|---|---|---|
+| `frontend/CLAUDE.md` | 1,801 | 180,955 |
+| `frontend/.claude/context/domain/boq-frontend.md` | 2,734 | 322,816 |
+| `CLAUDE.md` (after the root trim) | 414 | 76,601 |
+
+**No numeric size ceiling for context docs is recorded anywhere in the repo** -- the handover says they
+are "large by design" and lists sizes rather than limits. So "oversized" is a comparative judgement,
+not a threshold breach; `boq-frontend.md` is simply the largest of them and still growing.
+
+### M3 -- what landed since the recon
+
+**Only ONE commit touched `frontend/CLAUDE.md` since 2026-08-17: `063e589c` (+25/-6).** The freeze
+commit `97f21cc3` did NOT touch this file -- it was root-only. Its additions, all inside band B1 and
+all copied:
+
+- the `derivedAttrIds` bullet went from **THREE mechanisms to FIVE** (adding a `catalog_fit` bind and a
+  `map_attribute` `result_attr`), and the "two mechanisms" sentence at line 919 was corrected to five;
+- **the gate exemption is CONDITIONAL for a `map_attribute` and must not be flattened** -- it fills
+  from a SOURCE attribute, so on a row with a blank source it fills nothing;
+- **every mechanism added to `derivedAttrIds` owes a branch in `applyDerivedDisplay`** -- membership
+  exempts an attribute from the gate but does not fill its `derivedValue`, and this has shipped broken
+  twice (slice 2c on `catalog_fit`, slice 3b on `map_attribute`).
+
+**These are the newest and most load-bearing lines in the file and must not be read as stale
+narrative.**
+
+### M4 -- the bands, and what was deliberately LEFT IN
+
+| Band | Content | Span | Lines |
+|---|---|---|---|
+| B1 | rate-helper panel + attribute semantics, a bullet-aligned run inside the Pricing-editor section | 877-1130 | 254 |
+| B2 | `### Pricing Module (HVAC / Electrical / ELV Pricing)` | 1170-1399 | 230 |
+| B3 | `### Rate Master (RM-2)` | 1401-1753 | 353 |
+| | | **total** | **837 (46.5% of the file)** |
+
+Each is domain detail that only matters when working on those screens. B2 and B3 are whole sections
+for standalone surfaces. B1 is the frontend half of the rate-master pricing pipeline -- attribute
+coercion, `derivedAttrIds`, `module_fit` / `circuit_fit` / `derive_attribute` semantics - the twin of
+what the root trim moved to `boq-rate-master.md`.
+
+**UNBANDED, with reason** -- the spec's rule is that leaving something in costs a few lines while
+banding a working rule loses it from every session:
+
+- **The rest of the Pricing-editor section (277-876, 600 lines).** Genuine load-bearing frontend
+  invariants: the row-memo anti-defeat rule, read-only gating as PRESENCE of the save callback, the
+  asymmetric rate-edit gate, the mandatory-formula gate, `PricingGrid`'s identity-stable prop shield,
+  reconnect-gated sockets, the virtualizer rules, popover-close-on-visibility. These are exactly the
+  "invisible in the code" class.
+- **The rate-helper chassis slice records U1 / RM-3 / RM-3a / RM-3b / RM-3c (513-618, 106 lines).**
+  **AMBIGUOUS and therefore left in:** they read as per-slice as-built and point at the plan doc, but
+  the U1 block also carries the `RATE_HELPER_ENABLED` runtime kill-switch invariant and the memo-shield
+  and virtualizer-math guarantees, interleaved rather than separable at a clean bullet edge.
+- **The BCS cost block (686-797, 112 lines).** It says "The load-bearing invariants:" and then gives
+  them -- the halves-win STRUCTURAL narrowing, the test-pinned column headers, the `Record`-vs-`Map`
+  compile-error guard, the carry layer defaulting OFF, and the BCS name-collision warning.
+- **`## Important Notes` (1755-1801)** and everything above line 277 -- app-wide working rules,
+  commands, conventions, directory structure, RBAC.
+
+### M5 -- the orphan question, and it is the finding of this slice
+
+**All three bands contain rules that exist NOWHERE ELSE in the repository.** Search space: all
+**3,052 tracked files**, excluding `frontend/CLAUDE.md` itself.
+
+| Band | Top-level bullets | Found elsewhere | **Found NOWHERE else** |
+|---|---|---|---|
+| B1 | 33 | 2 | **31** |
+| B2 | 30 | 5 | **23** |
+| B3 | 24 | 4 | **20** |
+| | **87** | **11** | **74 (85%)** |
+
+The method finds matches when they exist -- the 11 hits landed in `boq-upload-plan.md`,
+`pricing-module-plan.md`, `.claude/context/domain/boq-rate-master.md` and even
+`RateMasterDerivation.tsx` -- so a null result is meaningful rather than an artefact.
+**This is what makes copy-before-delete load-bearing here rather than ceremonial: unlike the root
+trim, whose orphans all sat outside the bands, these bands ARE the only home for most of their
+content.** The deletion slice must not run without this proof passing.
+
+### B5 -- the proof
+
+**837 source lines; 837 landed; 0 unaccounted; 0 differ.** All 12 segments present as contiguous
+verbatim runs; all three bands reassemble with no gaps or overlaps; the destination minus its preamble
+and inserted headings is identical to the three bands concatenated (833 non-blank lines each side).
+
+Script: `/tmp/trimfe/verify_frontend_trim.py`, run with `NS_ROOT` (and optional `BEFORE_REF`, default
+`fce408db`). **⚠️ It is anchored on an IMMUTABLE GIT BLOB** -- it reads the band text via
+`git show fce408db:frontend/CLAUDE.md`, never from live line numbers. The root trim's step-1 script
+was line-anchored and became meaningless the moment the source shrank; **this one is designed for the
+deletion slice to re-run UNCHANGED**, and it prints a SOURCE STATE line that distinguishes
+"copied, not yet deleted" from "deleted" on its own.
+
+### Block accounting
+
+Three bands cut into **12 segments at bullet boundaries**, copied VERBATIM in source order with only
+topic headings inserted. **Splits made:** B1 into 5, B2 into 3, B3 into 4. Every cut falls immediately
+before a line beginning `- **`, so no bullet is divided; segments 6 and 9 carry the source's own `###`
+heading and preamble and received no inserted heading. **No block had to be rewritten to be copied.**
+
+| # | Band | Span | Lines | Destination |
+|---|---|---|---|---|
+| 1 | B1 | 877-918 | 42 | The rate-helper panel - attribute state, defaults and overrides |
+| 2 | B1 | 919-998 | 80 | Derived attributes - the missing-input gate, the display, and its refusals |
+| 3 | B1 | 999-1040 | 42 | Structured step outcomes, the row-count gate, and where a value is coerced |
+| 4 | B1 | 1041-1101 | 61 | Computed attributes reaching the selection, stated-wins, and derivedAttrIds |
+| 5 | B1 | 1102-1130 | 29 | Attribute domains, bound values, and losable types |
+| 6 | B2 | 1170-1260 | 91 | (the source's own Pricing Module heading + preamble) |
+| 7 | B2 | 1261-1345 | 85 | Dropdowns, access gating, the sandbox, and the import pipeline |
+| 8 | B2 | 1346-1399 | 54 | Helper columns, criterion ranges, and save-time advisories |
+| 9 | B3 | 1401-1464 | 64 | (the source's own Rate Master (RM-2) heading + preamble) |
+| 10 | B3 | 1465-1530 | 66 | The interpreter surface, the Data Viewer, and RM-4a admin editing |
+| 11 | B3 | 1531-1682 | 152 | RM-4b structure editor - the Pipelines tab |
+| 12 | B3 | 1683-1753 | 71 | Derivation-screen field semantics - blank_qty, veto, and warnings |
+| | | | **837** | **837 landed, 12/12 verbatim** |
+
+### CORRECTIONS OWED -- copied unchanged ON PURPOSE (B2a)
+
+The owner retired the pricing sheet on 2026-08-19 and reclassified goldens from ORACLES to
+**regression canaries, re-banked mechanically**; **Deployment Mode v1.1 is the authority.** Fixing
+during a copy destroys the proof that makes the later deletion safe, so these were copied verbatim.
+**Corrections ride a later slice.** Fewer than the root trim's eight, because most goldens language
+lives on the backend side:
+
+| # | Source line | Destination heading | What is now stale |
+|---|---|---|---|
+| 1 | 1564 | RM-4b structure editor - the Pipelines tab | "the **oracle goldens** t1/t2/t3 (431/120/297/0, 415/120/286, 410/200) are the standing pins" -- the direct twin of the root trim's correction #3. |
+| 2 | 1620 | RM-4b structure editor - the Pipelines tab | "the table-hit is UNROUNDED `matched[target] x mult` (**sheet-faithful**)" -- sheet-faithful framing. |
+| 3 | 1472 | The interpreter surface, the Data Viewer, and RM-4a admin editing | "The four RM-1 goldens are its **standing test fixtures**" -- the twin of the root trim's correction #6. |
+| 4 | 1505 | The interpreter surface, the Data Viewer, and RM-4a admin editing | "The interpreter goldens stay **the invariant any edit must still reproduce** after an edit-and-revert" -- treats a golden as an oracle rather than a canary. |
+
+**Listed so a later slice does not sweep them up by mistake -- these need NO correction:**
+line 1623's "standing pins" already uses the regression framing the owner ruled for; and lines 1012 /
+1037 ("THE PRICING-EDITOR ROW COUNT IS THE GATE FOR ANYTHING THE GOLDENS BYPASS" and "the goldens
+cannot catch this class of break") are live, correct rules ABOUT the limits of goldens, not oracle
+claims.
+
+**Also copied unchanged:** the blocks marked SUPERSEDED / RETIRED inside B3 (lines 1683, 1692, 1720)
+and B1 (981). Several describe CURRENT rulings -- 1683's "SUPERSEDED -- `blank_qty` IS EDITABLE AGAIN"
+is the live rule, and 1720 states outright that it is "retained because the MECHANISM it describes
+still governs". Judging them is not this slice's job.
+
+### B4 -- registration, and one adaptation reported rather than guessed
+
+One row added to `frontend/.claude/context/_index.md`.
+
+**⚠️ `frontend/CLAUDE.md` has NO "Reference Docs" table** -- unlike root `CLAUDE.md`, which does. The
+spec's instruction assumed one. Rather than invent a table, the pointer was added as ONE line to the
+file's existing "where the detail lives" block (after the `boq-frontend.md` pointer at line 236),
+which serves the identical function and sits early in the file where it is discoverable. **That single
+line is the only change to `frontend/CLAUDE.md` in this slice** -- proven by a byte comparison in the
+edit script and by `git diff --numstat` reporting `1 0`.
+
+### Backwards compatibility
+
+Documentation only -- no runtime behaviour, API, schema or config change. **Because nothing was
+deleted, no session can lose access to any rule as a result of this slice**; the content is
+deliberately present twice until the deletion slice runs.
+
+---
+
+## frontend/CLAUDE.md trim -- STEP 2: delete the proven bands -- 2026-08-19
+
+**Documentation only. No code touched, no test suite run.** The deletion half. Step 1 (`ee6c04cc`)
+copied 837 lines into `pricing-rate-master-frontend.md` and proved every line landed; this slice
+removes those same lines and leaves a one-line pointer at each of the three sites.
+
+**`frontend/CLAUDE.md`: 1,802 -> 972 lines (181,156 -> 98,140 bytes). A 46% reduction.**
+
+### The gate ran FIRST, and it mattered here more than it did on the root file
+
+Step 1 found that **74 of 87 rules in these bands (85%) exist nowhere else in the repository** -- the
+opposite of the root trim, which was safe by construction because every orphan sat OUTSIDE its bands.
+**The copy was the only thing standing between this deletion and permanent loss.** So the proof was
+re-run BEFORE anything was touched: **exit 0, 12/12 segments, 837 accounted, 0 unaccounted.** Only
+then was a byte written.
+
+### What was deleted
+
+Spans were **re-derived by content**, and doing so was load-bearing: **step 1's own pointer line at
+237 shifted every band DOWN by exactly +1.** Trusting step 1's numbers would have deleted a
+neighbouring line and left a band line behind, on all three bands.
+
+| Band | Content | Step 1 span | **Re-derived span** | Lines | Left behind |
+|---|---|---|---|---|---|
+| B1 | rate-helper panel + attribute semantics | 877-1130 | **878-1131** | 254 | one bullet |
+| B2 | `### Pricing Module (HVAC / Electrical / ELV)` | 1170-1399 | **1171-1400** | 230 | heading + one line |
+| B3 | `### Rate Master (RM-2)` | 1401-1753 | **1402-1754** | 353 | heading + one line |
+| | | | **total** | **837** | **7 pointer lines** |
+
+Deletion was by **content match**, never by line number, behind three gates that all had to pass
+before any write: (1) the text at the re-derived span had to equal, **BYTE FOR BYTE**, the band text
+step 1 copied -- read from the immutable `fce408db` blob at step-1 spans; (2) every segment had to be
+present verbatim in the destination; (3) the band had to occur exactly once in the file.
+
+**Left untouched, as promised in step 1:** the 106 AMBIGUOUS rate-helper chassis lines
+(U1 / RM-3 / RM-3a / RM-3b / RM-3c, incl. the `RATE_HELPER_ENABLED` kill-switch), the 112-line BCS
+cost block, the 600 kept lines of the Pricing-editor section, `## Important Notes`, and everything
+above line 277. All verified still present by probe after the deletion.
+
+### The four proofs
+
+- **B4a** -- all three bands **ABSENT** from `frontend/CLAUDE.md`; all **12/12 segments (837 lines)
+  still present verbatim** in the destination. **The source half changed; the destination half did
+  not.**
+- **B4b** -- `1802 - 837 + 7 = 972`, actual **972**. **Reconciles exactly.**
+- **B4c** -- `git diff --numstat` reports `3 833`. Reconciled below.
+- **B4d** -- strongest form: the expected AFTER file rebuilt from the BEFORE blob using ONLY the three
+  band-to-pointer substitutions, compared **byte for byte**. **IDENTICAL** -- no line outside the
+  bands changed.
+
+**⚠️ THE BLOB-ANCHORED SCRIPT PAID OFF, WHICH IS THE POINT OF BUILDING IT THAT WAY.** The root trim's
+step-1 script was source-line-anchored: after its deletion it sliced lines out of a shrunken file,
+reported 126 bogus misses and died on an encoding error, and a replacement had to be written
+mid-slice. **This one was re-run UNCHANGED and answered correctly** -- and its `SOURCE STATE` line
+flipped by itself from `bands still present ... : 3 of 3 => COPIED, NOT YET DELETED` to
+`0 of 3 => DELETED (step 2 state)`.
+
+### B4c reconciliation -- why 833, not 837
+
+B2 instructs that the two `###` headings be KEPT, but those headings are band lines. Four band lines
+therefore survive as unchanged context: the two headings and the blank line beneath each, which is
+identical in the pointer block. It reconciles exactly in both directions:
+
+- deletions **833** + **4** retained = **837 band lines**
+- additions **3** + **4** retained = **7 pointer-block lines**
+
+The same shape the root trim hit. No figure was adjusted; the attribution is asserted by the proof
+script, not by hand.
+
+### B3 -- cross-references (REPORTED ONLY, deliberately NOT fixed)
+
+Fixing these is content editing outside the bands. They join the root trim's three broken references
+in a later cleanup slice.
+
+**BROKEN -- the referent moved to `pricing-rate-master-frontend.md`:**
+
+| # | Location | Reference | Verified |
+|---|---|---|---|
+| 1 | `frontend/src/pages/pricing/rate-master/RateMasterDerivation.tsx:198` | "THIS EXPLICITLY SUPERSEDES the `frontend/CLAUDE.md` **THE TWO SCREENS STAY APART** invariant" | probe: 0 hits in `frontend/CLAUDE.md`, 1 in the destination |
+| 2 | `frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.test.ts:2026` | "`frontend/CLAUDE.md` used to require the Derivation screen to read `derivedQtyAttrs` ONLY" | probe: `derivedQtyAttrs` 0 hits in `frontend/CLAUDE.md`, 5 in the destination |
+| 3 | `.claude/context/domain/boq-rate-master.md:1194` | the RM-3 preamble: "Full as-built: ... + `frontend/CLAUDE.md`. Load-bearing invariants:" | the RM-3 rate-helper invariants were band B1 |
+| 4 | `frontend/.claude/context/domain/boq-frontend.md:2245` | the BCS name-collision note pointing at `frontend/CLAUDE.md` for the rate-master derivation-pipeline sense of "BCS" | that sense now lives in the destination |
+
+**PARTIAL -- the heading survives, the content moved:**
+
+| # | Location | Reference | Status |
+|---|---|---|---|
+| 5 | `frontend/CLAUDE.md:691` (its own BCS block) | "**NAME COLLISION**: `BCS` in the Rate Master section **below** is a derivation pipeline" | The section still exists, now as a pointer. The note is **self-contained** -- it carries the description itself -- so no reader is stranded, but "below" now means "in the linked doc". Exactly the root trim's item #5. |
+| 6 | `.claude/context/domain/boq-backend.md:1514` | "`BCS` in the **BoQ Rate Master** material (root `CLAUDE.md`, `frontend/CLAUDE.md`)" | Already flagged by the root trim; **now BOTH named files are pointers.** |
+| 7 | `frontend/.claude/plans/boq-upload-plan.md` (many slice records) | "Docs: this entry + `frontend/CLAUDE.md` (rate-helper section)" etc. | Historical slice records; arguably correct as written history. |
+
+**STILL RESOLVE -- referent stayed in `frontend/CLAUDE.md`** (spot-checked by probe, not assumed):
+the vitest `environment: "node"` / no-DOM convention (3 test files), the memo-shield
+identity-stable-props rule (`PricingGrid.tsx:3763`, `SheetPricingPage.tsx:123`), "gating = PRESENCE of
+the save callback" (`MarginRangeFilter.tsx:17`), the row-memo anti-defeat rule
+(`boq-revised-upload-plan.md:1127`), `bcsLiveRateKinds` and the whole BCS block, the `swrKey` gotcha
+(`useReportTemplate.ts:39`), the `dd-MMM-yyyy` app-wide rule (`ImportStatementDialog.tsx:352`), and
+the SWR-loops note (`ExportWorkbookDialog.tsx:15`). All sit outside the three bands.
+
+**No script parses `frontend/CLAUDE.md` by section or line number.** `.claude/hooks/guard_claude_md.py`
+inspects only the ADDED text of an edit and is indifferent to file structure. The `Rate Master (RM-2)`
+hits in `routesConfig.tsx`, `NewSidebar.tsx` and four `rate-master/*` source files are code comments
+naming the FEATURE, not references to the doc section.
+
+### Backwards compatibility
+
+Documentation only -- no runtime behaviour, API, schema or config change.
+
+**What a future frontend session LOSES, and the exposure named plainly.** `frontend/CLAUDE.md` no
+longer auto-loads any rate-helper attribute rule, any Pricing Module rule, or any Rate Master screen
+rule. A session must now open **`frontend/.claude/context/domain/pricing-rate-master-frontend.md`**
+before touching the rate-helper panel, the workbook pages, or the RM-2 / RM-4a / RM-4b screens.
+
+**⚠️ THE EXPOSURE IS SHARPER HERE THAN ON THE ROOT FILE, AND IT IS NOT HYPOTHETICAL.** 85% of what was
+removed exists nowhere else, so an agent that ignores the pointer can now change rate-helper or Rate
+Master code **without any chance of encountering the invariant governing it** -- there is no second
+copy to stumble across. Concretely at risk: `derivedAttrIds` owing a branch in `applyDerivedDisplay`
+(a defect that has already shipped **twice**), the conditional `map_attribute` gate exemption, and
+`coerceForMatch` needing every new attribute type taught to it at every coercion site. Three defences:
+a pointer at each of the three sites the rules occupied, a row in
+`frontend/.claude/context/_index.md`, and the pointer line step 1 added near the top of the file.
+
+**Nothing was lost from the repository** -- all 837 lines are in the destination, proven byte for byte
+before and after the deletion, and its blob is bit-identical across both commits.
+
+---
+
+## Trim cleanup -- broken references and stale claims -- 2026-08-19
+
+**The debt the four trim slices deliberately left.** Two kinds, sixteen items: **four cross-references**
+that broke when content moved, and **twelve stale claims** copied verbatim on purpose so the
+losslessness proofs held. This slice CORRECTS; it restructures, moves and deletes nothing.
+
+**The governing ruling (owner, 2026-08-19).** The pricing sheet was retired and goldens were
+reclassified from ORACLES to **REGRESSION CANARIES**: a golden is a snapshot of what the system
+currently produces, its job is to answer *"did this config edit change something I did not intend"*,
+it needs to be **STABLE not CORRECT**, and re-banking one from our own interpreter is **CORRECT rather
+than circular**. Deployment Mode v1.1 is the authority.
+
+### Part 1 -- the four broken cross-references (repointed, nothing else on the line changed)
+
+| # | Location | Was | Now |
+|---|---|---|---|
+| X1 | `.claude/context/domain/boq-backend.md:1849` | RMF-1 "Load-bearing invariants are in root `CLAUDE.md`" | `.claude/context/domain/boq-rate-master.md` |
+| X2 | `.claude/context/domain/boq-backend.md:1903` | "see the R3 invariant in root `CLAUDE.md`" | same destination |
+| X3 | `nirmaan_stack/api/boq/test_rate_master.py:3072` | "(root CLAUDE.md invariant)" on the no-blanker-family rule | "(invariant: `.claude/context/domain/boq-rate-master.md`)" |
+| X4 | `frontend/src/pages/pricing/rate-master/RateMasterDerivation.tsx:198` | "SUPERSEDES the `frontend/CLAUDE.md` THE TWO SCREENS STAY APART invariant" | `frontend/.claude/context/domain/pricing-rate-master-frontend.md` |
+
+### Part 2 -- the twelve stale claims
+
+| # | File | What changed |
+|---|---|---|
+| C1 | boq-rate-master.md | **REVERSED.** "Multi-run goldens are OWED from the owner and must NOT be computed from our own code" -> they ARE banked from our own interpreter, with the canary definition and the 2026-08-19 ruling named. The old rule is retained as history with its reason. |
+| C2 | boq-rate-master.md | **THE LAW IS DELETED.** Owner ruling of 2026-08-19, received mid-slice and superseding the annotate-only instruction: the guiding-sheet authority rule is RETIRED and NOTHING replaces it. A 4-line retirement marker stands in its place. See below. |
+| C3 | boq-rate-master.md | "oracle goldens t1/t2/t3" -> "the regression-canary goldens t1/t2/t3". Values 431/120/297/0, 415/120/286, 410/200 untouched. |
+| C4a | boq-rate-master.md | "PER-STAGE ROUNDING is faithful to the guiding sheet and INTENTIONAL" -> "is INTENTIONAL and is the STANDING RULE -- it ORIGINATED in the guiding sheet, retired 2026-08-19, and the behaviour is unchanged". |
+| C4b | boq-rate-master.md | EA-4c "implement the sheet's IFERROR install EXACTLY" / "mirroring the sheet's I10:I14" / "the sheet's `IF(J9=0)` branch" -> the sheet recorded as ORIGIN, the behaviour as the standing rule. |
+| C4c | boq-rate-master.md | "(table-hit UNROUNDED `VLOOKUP*1.5`, sheet-faithful)" -> "sheet-faithful BY ORIGIN -- the sheet was retired 2026-08-19 and the behaviour stands". |
+| C5 | boq-rate-master.md | "a banked EA-4 oracle `1869/735/2604`" -> "a banked EA-4 regression canary `1869/735/2604`". |
+| C6 | boq-rate-master.md | "The four faithfulness goldens ... are the STANDING instrument" -> "The four RM-1 goldens ... are REGRESSION CANARIES and the STANDING instrument". The reproduce-EXACTLY requirement stands. |
+| C7 | boq-rate-master.md | "Both are sheet-faithful" -> "sheet-faithful BY ORIGIN (the guiding sheet was retired 2026-08-19; the rounding behaviour described here is the standing rule)". ⚠️ The clause reporting that point_wiring's own config notes SAY "INTENTIONAL, per the sheet" was left ALONE -- that is accurate reportage of what the config records, not a claim of this doc. |
+| C8 | boq-rate-master.md | **Factually stale, not a goldens issue.** "the committed data asset is the 28-Jul benchmark workbook" -> PRODUCTION is the authority for item rates (v41 adopted production cable prices 2026-08-18; v43 adopted production's asset wholesale 2026-08-19), and the committed asset is whatever `CURRENT_EALL_ASSET` names -- **verified as `rate_master_electrical_all_v43.json`, read from the pin, not typed.** The 28-Jul text is kept as HISTORICAL. |
+| C9 | pricing-rate-master-frontend.md | twin of C3. |
+| C10 | pricing-rate-master-frontend.md | twin of C4c. |
+| C11 | pricing-rate-master-frontend.md | "The four RM-1 goldens are its standing test fixtures" -> "its standing REGRESSION CANARIES (stable snapshots of what the system produces, not oracles)". |
+| C12 | pricing-rate-master-frontend.md | "The interpreter goldens stay the invariant any edit must still reproduce" -> "are REGRESSION CANARIES: an edit-and-revert must still reproduce them, which is what makes an unintended change visible." The edit-and-revert check itself stays. |
+
+**Every golden VALUE was preserved and verified present afterwards** -- 431/120/297/0, 415/120/286,
+410/200, 1869/735/2604, cable 120/20, BCS 87, `155*0.2=31`, `131*0.2=26.2`. Only the described STATUS
+changed; no behaviour description was altered.
+
+**Left alone as instructed, verified untouched by the diff:** boq-rate-master.md's "standing
+regression pins", pricing-rate-master-frontend.md's "config data + standing pins" and its
+"standing regression pins" line, and the two live rules about the LIMITS of goldens
+("THE PRICING-EDITOR ROW COUNT IS THE GATE FOR ANYTHING THE GOLDENS BYPASS", "the goldens cannot catch
+this class of break").
+
+### C2 -- THE GUIDING-SHEET AUTHORITY RULE IS RETIRED (owner ruling, 2026-08-19)
+
+**This instruction changed mid-slice.** The slice began with "ANNOTATE ONLY -- do not correct, delete
+or rewrite; an owner ruling on what replaces it is OWED". A five-line annotation to that effect was
+written and then **REMOVED** when the owner ruled: **the law is RETIRED, and NOTHING replaces it.**
+
+**What was deleted** -- the law itself, verbatim: *"THE GUIDING-SHEET AUTHORITY RULE (owner-locked
+standing law, 2026-07-29). A rate-master category gets FINALIZED rules ONLY if it has a block on the
+ALL ITEM WISE RATE sheet; no block -> no rules. Every future category/discipline inherits this."*
+
+**What stands in its place** -- a 4-line retirement marker recording that the law existed, what it
+required, that the owner retired it with the sheet on 2026-08-19, and that **NOTHING replaces it: a
+category needs no external authority to get finalised rules.** No replacement gate is proposed and
+nothing is described as owed. **It is settled.**
+
+**What was NOT deleted.** The law's bullet also carried live facts that are not the law and that
+survive byte-unchanged: the **Corollary** about a guiding block carrying its rates directly (with
+miscellaneous's `misc_boq` factor 1.0 and `misc_bcs` = `boq*0.8`, install 0), the EA-1 UPS ->
+**popup_boxes** decode correction, the DATA-ONLY category rule and **lighting_mgmt_system**, the EA-2
+in-system authoring path, and the four `_KNOWN_CONFIG_KEYS` pass-through keys.
+
+⚠️ **One observation, not acted on:** the topic heading above the marker still reads
+*"The guiding-sheet authority rule, and retirement by declaration"*. That heading was introduced by
+the trim (it is not source content) and it now names a retired law; the marker directly beneath it
+explains the retirement, so nothing is misleading for more than a line. Renaming it was outside this
+slice's scope and is left for the owner.
+
+### Backwards compatibility
+
+**No runtime behaviour, API, schema or config change.** Two code files were touched in COMMENTS ONLY,
+and that is PROVEN mechanically rather than asserted:
+
+- **`test_rate_master.py` -- the Python AST is BYTE-IDENTICAL before and after** (797,639 chars each).
+  Comments do not appear in a Python AST, so an identical AST proves no statement, assertion, import
+  or expression moved.
+- **`RateMasterDerivation.tsx` -- with ALL `/* */` block comments stripped, the file is IDENTICAL**
+  before and after (24,163 chars each; the raw file grew 26,945 -> 26,998). The whole change therefore
+  lies inside a comment block.
+
+### Tests -- measured before and after, UNCHANGED
+
+| Suite | Command | BEFORE | AFTER |
+|---|---|---|---|
+| Python rate master | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.boq.test_rate_master` | **Ran 170 tests, OK** (498s) | **Ran 170 tests, OK** (528s) |
+| Frontend vitest | `npx vitest run` (in container, from `frontend/`) | **68 files: 1 failed / 67 passed; 2504 tests: 1 failed / 2503 passed** | **identical** |
+
+⚠️ **The single frontend failure is PRE-EXISTING and unrelated:**
+`src/pages/POAdjustment/writeOffControl.test.ts > the three admin predicates stay in step > mirrors
+the sibling admin predicates` (~9.1 s, reads like a timeout). It fails identically in the BEFORE run,
+measured before any edit in this slice. Nothing in this cleanup touches POAdjustment. **It is
+reported, not fixed** -- fixing it is a behaviour question outside this slice, and the standing
+instruction is not to auto-fix on failure.
+
+The final C2 change (deleting the law) landed AFTER these runs, but it edits a `.md` context document
+only -- no suite reads it, so the measured counts still hold.
+
+## Build slice 4 -- conduit size + wiring core/thickness become catalogue-fed pick-lists (F-1, F-8) (2026-08-19)
+
+Three free NUMBER fields become catalogue-driven pick-lists on the shipped `number_choice` +
+`values_from` mechanism. Configuration, one mint, one golden re-bank -- **plus one authorised
+code change (R9) that the browser cert forced, and which turned out to fix a defect that had
+shipped latent since slice 3b.** Branch `feature/boq-pricing-helper`, from tip `7c4e8aeb`.
+
+### The rulings, in the order they were made
+
+| | Ruling |
+|---|---|
+| **R1** | STRICT, not permissive. A value the catalogue does not carry is not a usable value: blank plus the standard completeness message is the honest state. *"this is ok. this gives the true picture to the user"* |
+| **R2** | Wiring draws from the **CABLE** kind. Accepted consequence: cable's domain is richer than termination's, so a termination-only row can be offered a value termination cannot price. |
+| **R3** | **GLOBAL** lists, not row-filtered. Accepted consequence: the 3.5-core / 150 sqmm COMBINATION gap is NOT surfaced by this slice -- both values appear in their lists, the combination has no row, and the row refuses with nothing on screen explaining why. A separate finding. |
+| **R4** | Standing: exact matching only; blank when genuinely unstated with NO default; the catalogue is the boundary and a non-match refuses SILENTLY. |
+| **R5** | The derivation screen is a separate owner redesign -- not touched. |
+| **R6** | Authorised ONE assertion (`test_rate_suggest.py`, `core` type). |
+| **R7** | Authorised SIX more (the switch-socket golden values). |
+| **R8** | Authorised THREE more (the same, masked by unittest's first-failure-per-test behaviour). |
+| **R9** | **The `— select —` placeholder is ALWAYS selectable.** Forced by the cert. See below. |
+
+**Ten assertion lines were authorised across R6+R7+R8, all on the switches_sockets golden axis, all
+consequences of B4's mechanical re-bank.** The enumeration took three rounds and that is the lesson
+recorded below.
+
+### P1-P5
+
+- **P1** Tree: exactly the five known-harmless entries, before and after. Never restored, never cleaned.
+- **P2** Live DB matched committed v43 byte-for-byte (`5d17cf7d...`, 702345 bytes) -- re-confirmed after the baseline suite, so the suite does not disturb the Electrical scope.
+- **P3** Baselines measured in-session: `test_rate_master` **170 OK**; vitest **2504 tests, 1 pre-existing failure** (`writeOffControl` timeout, unrelated, present in every run).
+- **P4** ⚠️ **THE VISIBILITY PREMISE.** R1 rests on the pricer still seeing what the customer asked for once the field goes blank. Verified in code -- Description is a FIXED FROZEN-LEFT ANCHOR column (`PricingGrid.tsx`, `FIXED_ROLE_DEDUPE`, slot `a4`, inside the frozen pane at every horizontal scroll position) and the rate-helper panel is a flex SIBLING of the grid, never an overlay (`SheetPricingPage.tsx`). **Certified live at cert step 3.**
+- **P5** All 8 candidate rows produce NO price today -- unchanged by this slice.
+
+⚠️ **P5 PREMISE CORRECTION, accepted by the owner: SIX rows blank, not eight.** Measured against the
+lists this slice actually builds: 5 x conduit Size + 1 x wiring Thickness. The two `core = 8` rows
+keep displaying 8 because **cable** carries it (R2's named consequence), and the 180 sqmm row blanks
+only its Thickness -- its 3.5 core is in cable's list.
+
+### What was built
+
+**B1-B3** -- through the audited RM-4b `update_rate_config` (admin-gated, full `_validate_config`,
+`doc.save(ignore_version=False)`), never `set_value`. Attribute ids read from the live config.
+
+```
+conduit_piping.size_mm        number -> number_choice, values_from {kind: conduit, attr: size_mm}
+wiring_cabling.core           number -> number_choice, values_from {kind: cable,   attr: core}
+wiring_cabling.thickness_sqmm number -> number_choice, values_from {kind: cable,   attr: thickness_sqmm}
+```
+
+**R3 is enforced by ABSENCE: no `where` key on any of the three**, and a test asserts that absence.
+point_wiring's equivalents DO carry a `where` -- that asymmetry IS the ruling, and a later
+"consistency" pass stripping it would silently widen point_wiring's wire lists to every cable in the
+catalogue, armoured ones included.
+
+**B5 -- the mint.** Procedure from `.claude/context/domain/boq-rate-master.md`: edit in-system ->
+**export from the DB** -> commit the export verbatim -> mint gate on COMMITS -> round trip -> repin.
+The file was never hand-edited. Conventional name kept (`..._all_v44.json`), measured: a marked name
+does not match `mint_completeness_check.EALL_RE` and would silently drop out of the census.
+
+- Key-by-key v43 -> v44: **1364 -> 1364 items, 0 changed / 0 added / 0 removed**; 12 configs, no keys added or removed; only the three attribute defs, the switches_sockets goldens, and the top-level goldens entry.
+- **Mint gate PASS** -- "No atoms disappeared". Uninspectable window is the known `v15, v16, v16a, v16b, v42`.
+- **Round trip PASS** -- loaded into a scratch discipline, re-exported, every axis identical (items with `item_uid`, all 12 configs, goldens, retirements, source_workbook). Scratch discipline purged to 0 residual rows.
+
+**B6** -- `CURRENT_EALL_ASSET` repinned to v44; the stale-goldens warning above it replaced with a
+record of the re-bank.
+
+### B4 -- the switch-socket golden re-bank, with its arithmetic
+
+Rate stages (live `swsock_boq` / `swsock_bcs`): `sum_components` -> `scale m=0.3625` -> `roundup -1`
+=> supply; `scale m=0.2` on supply -> `roundup -1` => install; `scale m=0.25` on the raw sum ->
+`roundup -1` => bcs_supply. **There is no discount and no markup in this pipeline** -- those three
+multipliers are the whole stack over raw catalogue list prices.
+
+Live list prices (was -> is): 6A 3-Pin Socket White 282 -> **309** · 16A 1 WAY SWITCH White 258 ->
+**290** · 6A/16A 3-Pin Socket White 425 -> **464** · 1M Blanker White 61 -> **70** · Grid 8M White
+396 -> **446** · Back Box 8M NA 320 -> **362**.
+
+```
+s1  (lone 6A 3-Pin Socket; plate None, back box No)
+    modules    = 1 x 2 = 2 ; plate "None" -> absent, blank_count 0
+    raw sum    = 309 x 1                                          = 309
+    supply     = roundup(309 x 0.3625, -1) = roundup(112.013, -1) = 120   [was 110]  CHANGES
+    install    = roundup(120 x 0.2,    -1) = roundup(24,      -1) =  30   [was  30]  unchanged
+    bcs_supply = roundup(309 x 0.25,   -1) = roundup(77.25,   -1) =  80   [was  80]  unchanged
+
+ss1 (8M plate, 7 modules occupied, 1 blank, back box Yes)
+    modules     = socket1(1)x2 + socket2(2)x2 + switch(1)x1 = 7 ; stated 8M is the FLOOR -> 8M
+    blank_count = 8 - 7 = 1 ; box = the SELECTED plate's module count (8) re-fit -> Back Box 8M
+    raw sum     = 290 + 464 + (309 x 2) + 70 + 446 + 362            = 2250
+    supply      = roundup(2250 x 0.3625, -1) = roundup(815.625, -1) = 820  [was 740]  CHANGES
+    install     = roundup(820  x 0.2,    -1) = roundup(164,     -1) = 170  [was 150]  CHANGES
+    bcs_supply  = roundup(2250 x 0.25,   -1) = roundup(562.5,   -1) = 570  [was 510]  CHANGES
+```
+
+**Three independent confirmations:** (1) the OLD prices reproduce the banked goldens exactly
+(`282 x 0.3625 = 102.225 -> 110`; `2024 x 0.3625 = 733.70 -> 740`, `-> 150`, `-> 510`); (2) the v43
+dev-sync's own RM-4b preview gate reported the identical four moves; (3) the live interpreter, run
+read-only against the live catalogue at cert step 6, reproduces all six golden keys with **zero
+deltas**. Both locations updated (live config + the asset's top-level `goldens`), both `oracle`
+strings rewritten. **The vitest interpreter pins were NOT touched** -- they run on inline fixture
+catalogues carrying the old prices and are independent regression pins.
+
+### R9 -- the cert finding, and the code change it forced
+
+**The first cert run FAILED at step 2.** R1 was ruled on the premise that the field goes blank. It
+did not: row 87 of `BOQ-26-00106` (stored `size_mm = 40`) displayed **`20`** -- a size the BoQ never
+asked for -- while the same card's derivation line read *"...Size (mm) = 40"* and the frozen
+Description column read *"40 mm dia..."*. Slice 4 as it then stood made those rows **less** truthful
+than before, which is the opposite of its purpose.
+
+**Mechanism, isolated in-page:** React does not assign `.value` on a controlled `<select>`; it sets
+`option.selected = (option.value === props.value)` per option. When nothing matches, every option
+ends unselected and the browser falls back to the first **selectable** option. Slice 2c's `disabled`
+placeholder was therefore skipped. Proven both ways in isolation: placeholder disabled -> `"20"`;
+placeholder enabled -> blank.
+
+**R9 removes `disabled` from the placeholder. Always, not conditionally.** Owner: *"in case of no
+match with catalogue..it needs to show blank"* and *"the user can edit the value all the time whether
+it is blank or it matches something from catalog. the user is the ultimate authority."*
+
+**Blast radius, measured before building** -- that `<select>` renders every dropdown attribute in
+every category (10 categories, 45 attributes):
+
+- **12 live rows change display**, from a wrong first-option value to blank: `conduit_piping.size_mm` 5, `wiring_cabling.thickness_sqmm` 1, and **`cabletray_raceway.thickness_mm` 6 -- which PREDATE slice 4 and had shipped latent since 3b** (six rows storing 2.6 mm, a thickness the catalogue does not carry). R9 fixes those too.
+- **A BLANK value needs no special case** and never did: it matches the placeholder, so it already selected it. Only non-empty unmatched values were ever displayed wrongly.
+- **`allow_none` defs had a worse latent form**: the fallback was the `"None"` SENTINEL -- a positive decision the row never made. 20 such attributes exist across 4 categories; no live row was in that state, so this is a latent fix.
+- **Nothing else moves**: no default, no coercion, no gate. Clearing writes `""`, which `coerceForMatch` maps to `null` BEFORE its `allow_none` check -- so a clear is ABSENCE (gated incomplete), never the sentinel.
+
+### Tests
+
+**Backend (`test_rate_master.py`), 6 new:** `test_102` the three defs are catalogue-fed dropdowns
+with the load-bearing NEGATIVE `assertNotIn("where", ...)` · `test_103` R2 pinned by the
+DISCRIMINATORS `core 8` / `thickness 0.75` (in cable, not termination -- the kinds overlap heavily,
+so a list built from the wrong kind still looks plausible and only these values expose it) ·
+`test_104` R3 pinned by values from MUTUALLY EXCLUSIVE combinations coexisting in one list ·
+`test_105` the four shipped `number_choice` precedents unchanged, point_wiring KEEPS its `where` ·
+`test_106` the four re-banked numbers, with the negative half that s1's install and BCS did NOT move
+· `test_107` R1/R4's server half -- 80 mm and 180 sqmm refused with `COERCE_OUTSIDE_DOMAIN`, pinned
+against the REAL resolved domains so it tracks the catalogue.
+
+**Frontend (`pricingSheetHelper.test.ts`), 10 new:** list resolution for all three · R2 with its
+negative · R3 with the proof that adding a `where` DOES narrow (so its absence is load-bearing, not
+decorative) · an in-catalogue value prices unchanged · both R1 halves · conduit's own case · and
+three R9 tests.
+
+⚠️ **THE R9 TESTS CARRY AN EXPLICIT LIMIT, AND THE FILE SAYS SO IN A HEADER COMMENT.** What R9 fixes
+is a React/DOM semantic; vitest runs `environment: "node"` with no DOM, so nothing here can observe
+`select.selectedIndex`. The slice-4 tests asserting `options` excludes the stored value were GREEN
+while row 87 displayed `20`. **The browser cert is the honest instrument and the only one that could
+find it.** What IS pinned is the consequence: **clearing a field yields the same state as never
+having filled it** -- both blank, both gated incomplete, same message -- plus the distinction that a
+clear is NOT the `"None"` sentinel, plus a positive control proving a cleared field genuinely reaches
+the price (without it the equivalence test could pass for the wrong reason).
+
+**Vacuity proofs -- five, each with a verified restore:**
+
+| # | Disabled | Measured |
+|---|---|---|
+| A | `values_from` stripped from the frontend `S4_CORE` fixture | 4 failed / 159 passed -- exactly the list/R2/R3/prices tests |
+| B | 180 sqmm ADDED to the cable fixture (value becomes stocked) | 1 failed / 162 passed -- exactly the R1 "not offered" test; proves it keys on the catalogue, not a tautology |
+| C1 | `values_from` stripped from the SHIPPED v44 asset's wiring core def | `test_102` FAILED, `test_105` OK (correctly scoped); file sha256 verified changed during the run and byte-restored after |
+| C2 | the `COERCE_OUTSIDE_DOMAIN` branch in `extraction._coerce_value_ex` | `test_107` FAILED; production file byte-restored |
+| D | `coerceForMatch`'s `"" -> null` mapping | 2 failed / 164 passed -- exactly the two R9 equivalence tests; the positive control stayed green |
+
+⚠️ **One failed vacuity ATTEMPT is disclosed rather than counted:** C1's first try used a wrong
+indentation anchor, so the file was never modified and the tests passed against unmodified code. That
+run proved nothing. The real formatting was found, the sha256 confirmed changed, and only then was the
+result trusted.
+
+### Measured counts
+
+| Suite | Before | After |
+|---|---|---|
+| `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.boq.test_rate_master` | **170 OK** (454 s) | **176 OK** (583 s) |
+| `npx vitest run` (in container, from `frontend/`) | 68 files: 1 failed / 67 passed; **2504 tests: 1 failed / 2503 passed** | 68 files: 1 failed / 67 passed; **2514 tests: 1 failed / 2513 passed** |
+
+`npx tsc --noEmit`: **0 errors in either edited frontend file** (the repo-wide pre-existing count is
+unchanged). The single vitest failure is the pre-existing `writeOffControl.test.ts > the three admin
+predicates stay in step > mirrors the sibling admin predicates` timeout -- identical in every run this
+session, unrelated to this slice, reported not fixed.
+
+### Browser live cert -- all eight steps plus two added, all PASS
+
+De-stale in full: service worker unregistered, caches deleted, storage cleared, IndexedDB deleted,
+**tab closed and reopened**, bare root first then the deep route. ⚠️ **`RateHelperPanel.tsx` exports
+non-component values (`kindLabel`, `overridesForRow`, `hasSessionEdits`), so the full Vite kill +
+`node_modules/.vite` delete + restart was required** -- and was done.
+
+**Bundle-marker check, both halves.** HALF A (code): the served module renders
+`jsxDEV("option", { value: "", children: "— select —" })` -- **no `disabled`**, so R9 is live in the
+bundle. HALF B (data): all three defs `number_choice` + `values_from` with no `where`, and goldens
+120/820/170/570, read through the app's own authenticated API from the live page.
+
+| # | Step | Result |
+|---|---|---|
+| 1 | Conduit row, IN-catalogue size | **PASS.** Row 89, `Size (mm)` pick-list `[20,25,32,50]`, value **25**; `supply 42 / install 10 / combined 52` -- unchanged. |
+| 2 | An affected row: field BLANK | **PASS.** Row 87, `Size (mm)` = **`— select —`**; basis *"no match for these attributes"*; derivation *"No conduit_boq rate row matches Conduit Type = PVC, Size (mm) = 40."* The card is now coherent. |
+| 3 | ⚠️ The BoQ's own description still visible | **PASS.** Row 87's Description reads *"40 mm dia 2mm Thick FRLS PVC Conduit"* in the frozen anchor column, in the same frame as the blank field and the derivation naming 40. **P4's premise certified live.** |
+| 4 | A wiring row: Core + Thickness pick-lists, prices unchanged | **PASS.** `BOQ-26-00114` row 48: Material COPPER, Insulation UNARMOURED, **Core 3**, **Thickness 1.5**, Runs 1 (still a free number Input, correctly untouched); `supply_per_set 70 / install_per_set 20 / combined 90`. |
+| 5 | Every value the Core list offers | **PASS.** 15 values `2,3,4,5,6,7,8,10,12,14,16,19,24,3.5,1` -- **including 8, which termination does not carry** (R2 live). Thickness offers 20 including **0.5 and 0.75**, also termination-absent. Values from mutually exclusive combinations coexist (R3 live). |
+| 6 | switches_sockets goldens show NO deltas | **PASS -- zero deltas on all six keys.** The Pipelines preview gate only runs behind an edit+save (a WRITE, forbidden in a read-only cert), so the SAME pure interpreter was run read-only in-page against the SAME live catalogue: s1 120/30/80 and ss1 820/170/570, all `status: ok`, all matching. |
+| 7 | A cable tray row and a point_wiring row unchanged | **PASS.** Tray row 135: all 7 dropdowns correct (`Solid / GI / 1.6 / 400 / Yes / Floor / No / No`). point_wiring row 59 unchanged, `Socket = None` sentinel correctly preserved and its genuinely-absent plate/blank fields blank as before. |
+| 8 | Editor-path row counts, before vs after | **PASS -- identical.** conduit_piping 51 total: **44 priced**, 2 blocked at the missing-attribute gate, 5 no_match. wiring_cabling 265 total: **153 priced**, 108 blocked at gate, 4 no_match. Identical before and after by construction: the pricing path reads `coerceForMatch`, which treats `number` and `number_choice` identically. |
+| **+A** | Clear a HEALTHY field by hand, then restore | **PASS.** Row 89 Size 25 -> `— select —` (blank), basis flips to *"Complete the missing attributes to price"*, per-field undo arrow appears; undo restores **25** and `42 / 10 / 52`, arrow disappears. **Impossible before R9** -- the option was disabled. Nothing saved. |
+| **+B** | Another category behaves correctly | **PASS.** cabletray_raceway row 135 renders all 7 dropdowns correctly, and **row 146 -- one of the six 2.6 mm rows carrying the PRE-EXISTING defect -- now shows `— select —` where it previously displayed a wrong catalogue thickness.** |
+
+**READ ONLY on real data throughout: nothing saved, "Use this value" never clicked, no BoQ modified.**
+⚠️ One accidental interaction disclosed: an early mis-aimed click opened a remark editor on a grid
+row. Nothing was typed; Escape discarded it.
+
+### #57 UI CHANGE CONTROL -- the corrected list
+
+1. Conduit **Size (mm)** becomes a pick-list.
+2. Wiring **Core** becomes a pick-list.
+3. Wiring **Thickness (sqmm)** becomes a pick-list.
+4. ⚠️ **CORRECTED ON TWO COUNTS.** On an existing run, a value the catalogue does not carry stops being visible and the field goes **blank** -- **6 live rows**, not 8 (R2 keeps the two `core = 8` rows visible because cable carries that value), and **the blank is delivered by R9, not by the type flip alone**: with the type flip alone the field displayed a WRONG catalogue value, which is what the cert caught.
+5. On a fresh run, those rows change message -- from *"no match for these attributes"* to *"Complete the missing attributes to price"*, with the incomplete border.
+6. ⚠️ **WITHDRAWN AND REPLACED.** It read *"the pricer can no longer clear the field by hand"*. That was a consequence of the disabled placeholder, never something the owner asked for. **Replaced by: the pricer can clear any attribute field back to blank, on any row.**
+
+### Lessons recorded
+
+- **An enumeration is only as good as the instrument that produced it.** The assertion count went 1 -> 7 -> 10 across three rounds. The first miss was scope (I swept the attribute axis and never swept B4's golden axis); the second was instrument (unittest reports only the FIRST failing assertion per test, so three lines hid behind one). The fix was a **parser-based sweep that does not depend on running the suite** -- it joins multi-line assertions and reads every assertion regardless of execution order.
+- **A green suite is not evidence about a rendered control.** The R1 data-layer tests were correct and green while the browser showed the wrong number. This is the `frontend/CLAUDE.md` no-DOM-environment note landing on a real defect; the mandatory cert is what earns its place here.
+- **Measure a blast radius before building, not after.** R9 touches every dropdown in every category; the pre-existing cable-tray instance was only found because the radius was measured across all 10 categories rather than the three the slice named.
+
+### Backwards compatibility
+
+Nothing that priced before prices differently: 0 items changed in the mint; the three lists are
+supersets of every value live rows carry; `coerceForMatch` treats both types identically; editor-path
+counts identical before and after (cert step 8); the four shipped `number_choice` precedents pinned by
+`test_105` and confirmed correctly scoped by vacuity C1; tray and point_wiring certified unchanged
+(cert step 7); the only `goldens` that moved are switches_sockets', with zero interpreter deltas.
+**The one deliberate behaviour change is the 12 rows that stop displaying a value they never held.**

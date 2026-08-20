@@ -117,13 +117,18 @@ def evaluate_auto_approve_eligibility(invoice_doc, parent_doc, autofill_source_f
     elif normalize_gstin(ai_receiver_gstin) != normalize_gstin(project_gst):
         reasons.append("receiver_gstin_mismatch")
 
-    # Gate 8: AI must have extracted a `purchase_order` entity AND it must
-    # match the PO this invoice was attached to.
+    # Gate 8: AI must have extracted a `purchase_order` entity.
+    #
+    # The MATCH half of this gate was removed (2026-08-19, owner call). It
+    # compared the extracted PO number against `document_name` and fired on
+    # invoices that were filed perfectly well — vendors print their own order
+    # references, quote numbers and revision suffixes where the AI looks for a
+    # PO — so `po_number_mismatch` blocked without being evidence of anything.
+    # Presence is still required: an invoice carrying no order reference at all
+    # is not something the system should clear on its own.
     docname = invoice_doc.get("document_name") or ""
     if not (ai_purchase_order or "").strip():
         reasons.append("po_number_not_extracted")
-    elif _norm_compare(ai_purchase_order) != _norm_compare(docname):
-        reasons.append("po_number_mismatch")
 
     # Gates 9 & 10: cumulative amount checks against PO total and delivered.
     # Skip if not a PO (gate 2 already failed) — but still emit the gate-level
@@ -298,7 +303,3 @@ def _parse_entities(json_str):
             flat[t] = v
     return flat
 
-
-def _norm_compare(value):
-    """Case-insensitive whitespace-trimmed equality."""
-    return (value or "").strip().lower()

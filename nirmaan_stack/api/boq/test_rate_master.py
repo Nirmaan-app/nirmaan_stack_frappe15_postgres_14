@@ -80,7 +80,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq import rate_master
-from nirmaan_stack.services.boq_rate_master import extraction, loader
+from nirmaan_stack.services.boq_rate_master import csv_importer, extraction, freeze, loader
 
 # The UTF-8 BOM the CSV writer prepends so Excel renders non-ASCII correctly.
 BOM = "\ufeff"
@@ -144,7 +144,51 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # SLICE 2d: v38 = v37 + `panel: false` on the four industrial_sockets MCB FACT attributes
 # (hidden from the pricing panel ONLY -- still extracted, still driving the pipeline) + the
 # R12 literal-mention rewrite of step (1) and its steps-(2)-(4) guard. Nothing else moved.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v40.json"
+# DEPLOYMENT RE-MINT (2026-08-18): v41 = v40 with the PRODUCTION cable list prices. This mint did
+# NOT come from a slice -- it came from the DATABASE. v40 was loaded into production, the cable
+# prices were re-entered there, and the result was exported and committed here VERBATIM. It is the
+# first asset in this lineage whose content originates in production rather than in a dev mint,
+# which is precisely why it had to be committed: the live prices existed in NO asset, so every
+# future export from dev would have silently reverted them.
+# Exactly ONE field moved -- `cable.list_price_per_mtr`, on 265 of 292 rows. All 12 category
+# configs, every golden, both retirement lists and all 1,364 item_uids are byte-identical to v40;
+# no item was added, removed or re-keyed, and NO other rate on any kind changed.
+# 234 rows restored the pre-load live price, 31 previously-0.0 rows became NULL (an absent rate
+# REFUSES, where 0.0 silently priced supply at zero -- a correction, not a loss).
+# ⚠️ FOUR WIRING GOLDENS ARE NOW STALE AGAINST THIS DATA (g1, g2, g3, g5 -- g4 is
+# termination-only and unaffected). They still carry the values the OLD cable prices produced, so
+# the RM-4b preview gate will show deltas on wiring_cabling. That staleness is REAL and lives in
+# PRODUCTION already; committing this asset records it faithfully rather than creating it. The
+# goldens must be re-banked in-product and re-exported -- they are ORACLES and must never be
+# recomputed from our own interpreter, which would make them pass by construction and pin nothing.
+# DEV SYNC (2026-08-19): v43 = PRODUCTION's current export, adopted VERBATIM. Like v41 this did
+# NOT come from a slice -- it came from production's DATABASE, and it is the SECOND asset in this
+# lineage whose content originates there. Dev's DB was still on v40 (v41 was committed but never
+# loaded here), so the load moved TWO independent rate sets at once:
+#   - 265 `cable.list_price_per_mtr` values -- the v40 -> v41 production cable re-mint, finally
+#     landing in dev's database rather than only in the repo.
+#   - 55 of 58 `switch_socket_item.list_price` values -- production's switch/socket revision, which
+#     existed in NO asset before this file. This is the change the sync exists to capture.
+# Plus the four wiring goldens g1/g2/g3/g5, RE-BANKED IN PRODUCTION against the corrected cable
+# prices. The v41 note below predicted this: it recorded those goldens as stale and said they must
+# be re-banked in-product and re-exported. They were. g4 is termination-only and is unchanged.
+# NOTHING ELSE MOVED: all 12 category configs are byte-identical (checked key by key -- pipelines,
+# attribute definitions, item_kinds, rules, extraction_defaults), all 1,364 item_uids are unchanged,
+# no item was added, removed or re-keyed, both retirement lists and every other golden are identical.
+# A load-then-re-export reproduced production's file BYTE-FOR-BYTE (sha256 5d17cf7d...), so the DB,
+# the repo asset and production provably agree.
+# ⚠️ v42 IS ABSENT FROM THIS REPO BY CONSTRUCTION. Production minted it (the goldens re-bank) and
+# dev never received it; this file is production's NEXT mint. `mint_completeness_check` will
+# therefore report v42 as UNINSPECTABLE, which is true and is exactly what that report is for.
+# ✅ THE TWO STALE switches_sockets GOLDENS ARE RE-BANKED (slice 4, 2026-08-19, v44).
+# s1 supply 110 -> 120; ss1 740/150/510 -> 820/170/570, against the switch/socket rates adopted with
+# v43. The 2026-08-19 reclassification governs: goldens are REGRESSION CANARIES, not oracles, and
+# re-banking one from our own interpreter is CORRECT -- Deployment Mode v1.1 is the authority. (The
+# superseded "they are ORACLES, never recompute" wording stood here until that ruling.) Both values
+# were derived twice and agreed: by hand from the catalog list prices x the rate stages, and by the
+# product's own RM-4b preview gate. The vitest interpreter pins are unaffected -- they carry their
+# own inline catalogs and read no asset.
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v44.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -2433,8 +2477,12 @@ class TestRateMaster(FrappeTestCase):
         by_id = {g["id"]: g for g in (cfg.get("goldens") or [])}
         self.assertIn("s1", by_id)
         s1 = by_id["s1"]
-        # the VALUES are the invariant -- they must read identically before and after the rebuild
-        self.assertEqual(s1["expect"]["swsock_boq"]["supply"], 110.0)
+        # The VALUES had to read identically before and after THE REBUILD -- that was a claim about
+        # the rebuild, never a claim that these prices are permanent.
+        # SLICE 4 / B4 (owner ruling R7, 2026-08-19): RE-BANKED for the switch/socket rates adopted
+        # with v43. Goldens are REGRESSION CANARIES (2026-08-19), re-banked mechanically.
+        # supply 110 -> 120 (raw 309 x 0.3625 = 112.0125 -> tens 120); install + BCS did NOT move.
+        self.assertEqual(s1["expect"]["swsock_boq"]["supply"], 120.0)
         self.assertEqual(s1["expect"]["swsock_boq"]["install"], 30.0)
         self.assertEqual(s1["expect"]["swsock_bcs"]["bcs_supply"], 80.0)
         # AFTER: re-stated as ONE socket, every other component POSITIVELY ABSENT ("None", not blank)
@@ -2458,9 +2506,17 @@ class TestRateMaster(FrappeTestCase):
         #   2024 x0.25   = 506.00 -> tens 510
         self.assertIn("ss1", by_id)
         ss1 = by_id["ss1"]
-        self.assertEqual(ss1["expect"]["swsock_boq"]["supply"], 740.0)
-        self.assertEqual(ss1["expect"]["swsock_boq"]["install"], 150.0)
-        self.assertEqual(ss1["expect"]["swsock_bcs"]["bcs_supply"], 510.0)
+        # SLICE 4 / B4 (owner ruling R8, 2026-08-19): RE-BANKED for the switch/socket rates adopted
+        # with v43. Goldens are REGRESSION CANARIES (2026-08-19), re-banked mechanically; the block
+        # above recites the SUPERSEDED 2024-raw arithmetic and is kept as the re-mint's own record.
+        # The v43 rates give: 290 + 464 + 309x2 + 70 + 446(8M plate) + 362(8M box) = raw 2250;
+        #   2250 x0.3625 = 815.625 -> tens 820 ; 820 x0.2 = 164 -> tens 170 ;
+        #   2250 x0.25   = 562.5   -> tens 570.
+        # ⚠️ These three were MASKED last round: unittest reports only the FIRST failing assertion
+        # per test, so the s1 failure above hid them. Found by an execution-independent sweep.
+        self.assertEqual(ss1["expect"]["swsock_boq"]["supply"], 820.0)
+        self.assertEqual(ss1["expect"]["swsock_boq"]["install"], 170.0)
+        self.assertEqual(ss1["expect"]["swsock_bcs"]["bcs_supply"], 570.0)
         # the re-mint is COHERENT: an 8M plate holding the 7 modules its contents occupy, leaving 1
         self.assertEqual(ss1["attrs"]["plate_item"], "8M")
         self.assertEqual(ss1["attrs"]["blank_item"], "1M Blanker")
@@ -2617,11 +2673,15 @@ class TestRateMaster(FrappeTestCase):
             {"discipline": "Electrical", "category_id": "switches_sockets", "active": 1}, "config",
         ))
         ssg = {g["id"]: g for g in ss["goldens"]}
-        self.assertEqual(ssg["s1"]["expect"]["swsock_boq"], {"supply": 110.0, "install": 30.0})
+        # SLICE 4 / B4 (owner ruling R7, 2026-08-19): these four were "UNMOVED by the back_box fix"
+        # cross-checks -- a claim about THAT slice's blast radius, not about the prices themselves.
+        # RE-BANKED for the v43 switch/socket rates; goldens are REGRESSION CANARIES (2026-08-19).
+        # s1 supply 110 -> 120 (BCS unmoved); ss1 740/150/510 -> 820/170/570 (raw sum 2024 -> 2250).
+        self.assertEqual(ssg["s1"]["expect"]["swsock_boq"], {"supply": 120.0, "install": 30.0})
         self.assertEqual(ssg["s1"]["expect"]["swsock_bcs"], {"bcs_supply": 80.0})
         # ss1 was RE-MINTED coherent by slice 2 part 2 (8M plate, 7 occupied, 1 computed blank)
-        self.assertEqual(ssg["ss1"]["expect"]["swsock_boq"], {"supply": 740.0, "install": 150.0})
-        self.assertEqual(ssg["ss1"]["expect"]["swsock_bcs"], {"bcs_supply": 510.0})
+        self.assertEqual(ssg["ss1"]["expect"]["swsock_boq"], {"supply": 820.0, "install": 170.0})
+        self.assertEqual(ssg["ss1"]["expect"]["swsock_bcs"], {"bcs_supply": 570.0})
 
     # ---- SLICE 2 part 1: the STEP-VOCABULARY PIN (C5) ----
     #
@@ -3027,7 +3087,8 @@ class TestRateMaster(FrappeTestCase):
         grey = blankers[("1M Blanker", "Grey")]
         self.assertNotEqual(white, grey)
         self.assertGreater(grey, white)
-        # it lives under family "Switch" -- there is NO blanker family (root CLAUDE.md invariant)
+        # it lives under family "Switch" -- there is NO blanker family
+        # (invariant: .claude/context/domain/boq-rate-master.md)
         self.assertEqual(families, {"Switch"})
 
     # ---- CP2: the NUMERIC DROPDOWN attribute type (`number_choice`) ----
@@ -3440,8 +3501,11 @@ class TestRateMaster(FrappeTestCase):
         ss1 = {g["id"]: g for g in payload["goldens"]["switches_sockets"]}["ss1"]
         self.assertEqual(ss1["attrs"]["plate_item"], "8M")
         self.assertEqual(ss1["attrs"]["blank_qty"], 1.0)
-        self.assertEqual(ss1["expect"]["swsock_boq"], {"supply": 740.0, "install": 150.0})
-        self.assertEqual(ss1["expect"]["swsock_bcs"], {"bcs_supply": 510.0})
+        # SLICE 4 / B4 (owner ruling R7, 2026-08-19): incidental value pins beside the SHAPE pins
+        # above -- this test's subject is config-level-vs-top-level AGREEMENT (#178), which is
+        # unaffected. RE-BANKED for the v43 rates; goldens are REGRESSION CANARIES (2026-08-19).
+        self.assertEqual(ss1["expect"]["swsock_boq"], {"supply": 820.0, "install": 170.0})
+        self.assertEqual(ss1["expect"]["swsock_bcs"], {"bcs_supply": 570.0})
 
         # NEGATIVE: no OTHER category may carry a divergent second copy either
         for cfg in payload["category_configs"]:
@@ -4115,7 +4179,14 @@ class TestRateMaster(FrappeTestCase):
         do arithmetic on. Its live-behaviour half is inert post-fix -- every non-zero row qualifies
         -- and it is kept because the ZERO EXCLUSION is still load-bearing: `x1.05` leaves a zero
         UNCHANGED, so such a row never appears in plan["changes"] and the lookup would KeyError,
-        and its percentage would be a divide-by-zero. 31 rows in this column are zeros.
+        and its percentage would be a divide-by-zero.
+
+        ⚠️ FACT UPDATED AT THE v41 DEPLOYMENT RE-MINT (2026-08-18). This line used to read "31 rows
+        in this column are zeros". Those same 31 cable rows are now NULL, not 0.0 -- the production
+        re-entry cleared them, and an absent rate REFUSES where 0.0 silently priced supply at zero.
+        The picker is UNAFFECTED and needed no code change: the blank guard immediately below runs
+        BEFORE the zero check, so an empty cell was always skipped first. The zero exclusion stays
+        because it guards a real shape, not because this column still contains one.
 
         ⚠️ Do NOT read the surviving `>= 10.0` comparisons below as the product's rule. They are a
         fixture filter; the product's rule lives in `csv_importer._diff_fields` and is rounded."""
@@ -4844,3 +4915,644 @@ class TestRateMaster(FrappeTestCase):
         _s, collide = csv_importer.classify_columns(
             ["item_uid", "kind", "material"], {"material"}, {"material"})
         self.assertTrue(any("both an attribute and a rate key" in e["message"] for e in collide))
+
+    # ── SLICE 4 (F-1 / F-8): three free NUMBER fields become CATALOGUE-FED pick-lists ──────────
+    #
+    # Configuration only -- the `number_choice` + `values_from` mechanism already shipped four
+    # times. What these pin is the three OWNER RULINGS, each with its negative half, because each
+    # one is a choice that a later reader could plausibly "tidy" the wrong way:
+    #
+    #   R1 STRICT   -- a value the catalogue does not carry is refused, not offered (frontend half)
+    #   R2 CABLE    -- wiring draws from the `cable` kind, NOT `termination`
+    #   R3 GLOBAL   -- the lists are unfiltered; there is deliberately NO `where` key
+    #
+    # These read the SHIPPED asset, not a synthetic fixture, so they fail if a future mint drops
+    # the change. The vitest suite covers the panel/gate behaviour on the other side of the wire.
+
+    def test_102_the_three_slice4_attributes_are_catalogue_fed_dropdowns(self):
+        """POSITIVE + NEGATIVE. The three attributes are `number_choice` bound to the live catalogue.
+
+        The NEGATIVE half is the load-bearing one: R3 (GLOBAL) means these carry NO `where` key.
+        point_wiring's equivalents DO carry one ({material: COPPER, insulation: UNARMOURED}), so a
+        reader copying that shape across would silently narrow these lists and start hiding
+        catalogue values the owner ruled must be offered. `assertNotIn("where", ...)` is what stops
+        that, and it must not be deleted as redundant.
+
+        `number_choice`, not `choice`, is equally deliberate: matchMasterRow compares with `===`, so
+        a plain `choice` emits the STRING "25" against a stored 25.0 and matches nothing, silently.
+        """
+        payload = self._current_eall_asset()
+        cfgs = {c["category_id"]: c for c in payload["category_configs"]}
+        expected = {
+            ("conduit_piping", "size_mm"): {"kind": "conduit", "attr": "size_mm"},
+            ("wiring_cabling", "core"): {"kind": "cable", "attr": "core"},
+            ("wiring_cabling", "thickness_sqmm"): {"kind": "cable", "attr": "thickness_sqmm"},
+        }
+        for (cid, aid), vf in expected.items():
+            d = {x["id"]: x for x in cfgs[cid]["attribute_definitions"]}[aid]
+            self.assertEqual(d["type"], "number_choice", f"{cid}.{aid} must be a NUMERIC dropdown")
+            self.assertEqual(d["values_from"], vf, f"{cid}.{aid} values_from")
+            # NEGATIVE -- R3: global, never row-filtered. No `where`, and no static list either.
+            self.assertNotIn("where", d["values_from"], f"{cid}.{aid} must stay GLOBAL (R3)")
+            self.assertIsNone(d.get("values"), f"{cid}.{aid} must never carry a static list")
+
+    def test_103_wiring_lists_resolve_from_cable_never_termination(self):
+        """R2, pinned by the values that DISTINGUISH the two kinds -- the only way to pin it.
+
+        Asserting "the list resolves" proves nothing: cable and termination overlap heavily, so a
+        list built from the wrong kind still looks plausible. These two values are the discriminator:
+        `core 8` and `thickness 0.75` exist in cable and NOT in termination. Repoint either
+        values_from at `termination` and exactly these assertions go red.
+
+        The accepted consequence (owner, R2) is that a termination-only row can now be offered a
+        value termination cannot price -- e.g. the two live 8-core rows. That is deliberate.
+        """
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._asset_payload(disc))
+        cable_core = extraction.values_from_catalog(disc, {"kind": "cable", "attr": "core"})
+        cable_th = extraction.values_from_catalog(disc, {"kind": "cable", "attr": "thickness_sqmm"})
+        term_core = extraction.values_from_catalog(disc, {"kind": "termination", "attr": "core"})
+        term_th = extraction.values_from_catalog(
+            disc, {"kind": "termination", "attr": "thickness_sqmm"})
+
+        # POSITIVE: the cable-only values ARE offered
+        self.assertIn(8.0, cable_core, "core 8 is a cable value and must be offered")
+        self.assertIn(0.75, cable_th, "thickness 0.75 is a cable value and must be offered")
+        # NEGATIVE: they are absent from termination -- which is what makes them discriminators
+        self.assertNotIn(8.0, term_core)
+        self.assertNotIn(0.75, term_th)
+        # and the cable domain is a strict SUPERSET here, so "wrong kind" is always detectable
+        self.assertTrue(set(term_core) < set(cable_core))
+        self.assertTrue(set(term_th) < set(cable_th))
+
+    def test_104_the_lists_are_global_and_ignore_the_rows_other_attributes(self):
+        """R3. A GLOBAL list is the union across every material/insulation combination.
+
+        Pinned by a value that exists under ONE combination only: `core 24` is COPPER/ARMOURED-only,
+        and `thickness 0.5` is COPPER/UNARMOURED-only. A row-filtered list would drop whichever one
+        did not match the row -- so their simultaneous presence proves no filtering is happening.
+
+        This is what makes the 3.5-core/150 COMBINATION gap invisible to this slice, which the owner
+        ruled is a separate finding and explicitly NOT this slice's job.
+        """
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._asset_payload(disc))
+        cores = extraction.values_from_catalog(disc, {"kind": "cable", "attr": "core"})
+        ths = extraction.values_from_catalog(disc, {"kind": "cable", "attr": "thickness_sqmm"})
+        # values from DIFFERENT, mutually exclusive combinations coexist in one list
+        self.assertIn(24.0, cores)    # COPPER/ARMOURED only
+        self.assertIn(3.5, cores)     # ARMOURED only (either material)
+        self.assertIn(0.5, ths)       # COPPER/UNARMOURED only
+        self.assertIn(400.0, ths)     # ARMOURED-heavy end
+        # the union is strictly larger than any single combination's own domain
+        one_combo = {
+            it["attributes"]["core"]
+            for it in frappe.get_all(
+                "BoQ Rate Master Item",
+                filters={"discipline": disc, "kind": "cable", "active": 1},
+                fields=["attributes"])
+            if _obj(it["attributes"]).get("material") == "ALUMINIUM"
+            and _obj(it["attributes"]).get("insulation") == "UNARMOURED"
+        }
+        self.assertTrue(set(cores) > {float(c) for c in one_combo})
+
+    def test_105_the_four_already_shipped_number_choice_attributes_are_unchanged(self):
+        """NEGATIVE / regression. Slice 4 must not disturb the four precedents it copied.
+
+        point_wiring's two keep their `where` filter -- that asymmetry with the slice-4 three IS the
+        R3 ruling, and a later "consistency" pass that stripped it would silently widen point_wiring's
+        wire lists to every cable in the catalogue, including armoured ones a point wire never uses.
+        """
+        cfgs = {c["category_id"]: c for c in self._current_eall_asset()["category_configs"]}
+        pw = {d["id"]: d for d in cfgs["point_wiring"]["attribute_definitions"]}
+        where = {"material": "COPPER", "insulation": "UNARMOURED"}
+        for aid, attr in (("wire1_core", "core"), ("wire1_thickness_sqmm", "thickness_sqmm"),
+                          ("wire2_core", "core"), ("wire2_thickness_sqmm", "thickness_sqmm")):
+            self.assertEqual(pw[aid]["type"], "number_choice", aid)
+            self.assertEqual(pw[aid]["values_from"]["kind"], "cable", aid)
+            self.assertEqual(pw[aid]["values_from"]["attr"], attr, aid)
+            # POSITIVE: point_wiring KEEPS its filter -- the deliberate asymmetry with slice 4
+            self.assertEqual(pw[aid]["values_from"]["where"], where, aid)
+        jb = {d["id"]: d for d in cfgs["junction_box_raceway"]["attribute_definitions"]}
+        self.assertEqual(jb["face_mm"]["type"], "number_choice")
+        self.assertEqual(jb["face_mm"]["values_from"], {"kind": "junction_box", "attr": "face_mm"})
+        ct = {d["id"]: d for d in cfgs["cabletray_raceway"]["attribute_definitions"]}
+        self.assertEqual(ct["thickness_mm"]["type"], "number_choice")
+        self.assertEqual(ct["thickness_mm"]["values_from"],
+                         {"kind": "cable_tray", "attr": "thickness_mm"})
+
+    def test_106_the_switch_socket_goldens_are_rebanked_to_the_current_rates(self):
+        """B4. The two stale switches_sockets goldens, re-banked against the rates adopted with v43.
+
+        Goldens are REGRESSION CANARIES (2026-08-19), so recomputing them from our own interpreter is
+        correct. Both values were derived TWICE and agreed -- by hand from the catalog list prices x
+        the rate stages, and by the product's own RM-4b preview gate.
+
+        The arithmetic, so a future reader can re-check it without re-deriving the pipeline:
+          s1  = 309 (6A 3-Pin Socket White) -> roundup(309 x 0.3625, -1) = 120 supply
+          ss1 = 290 + 464 + 309x2 + 70 + 446 + 362 = 2250 raw
+                -> roundup(2250 x 0.3625, -1) = 820 ; roundup(820 x 0.2, -1) = 170
+                -> roundup(2250 x 0.25, -1)   = 570
+
+        NEGATIVE half: s1's install and BCS did NOT move (30 / 80). Exactly four numbers changed, and
+        asserting the two that held is what proves this was a re-bank and not a blanket overwrite.
+        """
+        goldens = {g["id"]: g for g in self._current_eall_asset()["goldens"]["switches_sockets"]}
+        self.assertEqual(goldens["s1"]["expect"], {
+            "swsock_boq": {"supply": 120.0, "install": 30.0},
+            "swsock_bcs": {"bcs_supply": 80.0},
+        })
+        self.assertEqual(goldens["ss1"]["expect"], {
+            "swsock_boq": {"supply": 820.0, "install": 170.0},
+            "swsock_bcs": {"bcs_supply": 570.0},
+        })
+
+    def test_107_an_out_of_catalogue_value_is_refused_silently_at_coercion(self):
+        """R1 + R4, the SERVER half of "the catalogue is the boundary".
+
+        This is what makes the three attributes a real boundary rather than a cosmetic dropdown: on a
+        FRESH extraction, a value outside the resolved domain is discarded before it is ever stored,
+        with reason COERCE_OUTSIDE_DOMAIN, and the row arrives BLANK. No message, no new text, no
+        near-miss substitution -- the owner ruled a non-match refuses SILENTLY and the pricer decides.
+
+        Pinned against the REAL resolved domains, not a hand-written list, so it tracks the catalogue.
+        The values are the live ones this slice was built for: conduit 80 mm (5 live rows ask for a
+        size we do not stock) and cable 180 sqmm (1 live row).
+
+        NEGATIVE half: an IN-catalogue value survives coercion untouched and keeps its numeric type --
+        which is the whole reason these are `number_choice` and not `choice` (matchMasterRow compares
+        with `===`, so a string "25" would match a stored 25.0 nowhere, silently).
+        """
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._asset_payload(disc))
+        size_def = {"id": "size_mm", "label": "Size (mm)", "type": "number_choice",
+                    "values": extraction.values_from_catalog(
+                        disc, {"kind": "conduit", "attr": "size_mm"})}
+        th_def = {"id": "thickness_sqmm", "label": "Thickness (sqmm)", "type": "number_choice",
+                  "values": extraction.values_from_catalog(
+                      disc, {"kind": "cable", "attr": "thickness_sqmm"})}
+
+        # NEGATIVE: outside the domain -> dropped, and the REASON says which check dropped it
+        for defn, bad in ((size_def, 80), (th_def, 180)):
+            value, reason = extraction._coerce_value_ex(defn, bad)
+            self.assertIsNone(value, f"{defn['id']}={bad} must be refused")
+            self.assertEqual(reason, extraction.COERCE_OUTSIDE_DOMAIN, f"{defn['id']}={bad}")
+
+        # POSITIVE: inside the domain -> kept, numeric, and equal to what the catalog stores
+        value, reason = extraction._coerce_value_ex(size_def, 25)
+        self.assertEqual(value, 25)
+        self.assertEqual(reason, extraction.COERCE_OK)
+        self.assertIsInstance(value, (int, float))
+        # ...and the string form the model may return is accepted too (like compared with like)
+        self.assertEqual(extraction._coerce_value_ex(th_def, "2.5")[0], 2.5)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE RMF-1 -- THE RATE-MASTER DEPLOYMENT FREEZE
+#
+# WHY: on 2026-08-18, 235 hand-entered production cable prices were overwritten by a dev-minted
+# asset. The freeze is step one of Deployment Mode (freeze, export, merge, deploy) and was until
+# now an unenforced manual discipline.
+#
+# ⚠️ THIS CLASS MUTATES A **SINGLE** DOCTYPE ON THE **LIVE** SITE, so every test captures the
+# site's CURRENT freeze state and restores THAT -- never a hardcoded "unfrozen". The standing rule
+# in CLAUDE.md exists because the failure is SILENT: a hardcoded restore would quietly lift a
+# freeze the owner had genuinely set, and the two provenance fields would be destroyed with it.
+# `_freeze_sandbox` also purges only the Version rows THIS test created, never pre-existing ones.
+#
+# THE TWO HALVES BOTH MATTER AND ARE TESTED TOGETHER:
+#   the six WRITE endpoints refuse (R1)   AND   the three READ endpoints still succeed (R3)
+# The second half is not a nicety -- the export is the action the freeze exists to protect, so a
+# guard folded into the shared `_require_rate_admin` would defeat the whole feature. test_rmf_04
+# is the test that would catch that refactor.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+def _rmf_source(mod):
+    import inspect
+    return inspect.getsource(mod)
+
+
+def _rmf_source_of(fn):
+    import inspect
+    return inspect.getsource(fn)
+
+
+# A param path that genuinely EXISTS in the legacy wiring fixture's cable_boq pipeline. Using a
+# real one matters: `update_rate_config_param` validates the path AFTER the freeze guard, so a
+# bogus path would let the frozen-refusal test pass for the wrong reason and would break the
+# post-unfreeze call (it did, on the first run of this suite).
+_RMF_PARAM_STEP = 4
+_RMF_PARAM_KEY = "install_markup"
+
+
+def _rmf_csv_text(discipline):
+    """The discipline's editable CSV, unedited -- so an apply is a genuine no-op and any refusal
+    can only be the freeze, never a validation error wearing the same clothes."""
+    from nirmaan_stack.services.boq_rate_master import csv_exporter
+    text, _headers, _n = csv_exporter.build_category_csv(discipline, "wiring_cabling")
+    return text
+
+
+class TestRateMasterFreeze(FrappeTestCase):
+    FREEZE_DT = "BoQ Rate Master Freeze"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(LEGACY_WIRING_ASSET), "r", encoding="utf-8") as fh:
+            cls.raw = json.load(fh)
+        cls._disciplines = set()
+
+    @classmethod
+    def tearDownClass(cls):
+        for disc in cls._disciplines:
+            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item",
+                       "BoQ Rate Master Retirement"):
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
+            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    # ---- helpers ----
+    def _new_disc(self):
+        disc = "TEST_RMF_" + frappe.generate_hash(length=8)
+        type(self)._disciplines.add(disc)
+        return disc
+
+    def _loaded(self):
+        """A scratch discipline with the real wiring payload loaded, plus its config + an item."""
+        disc = self._new_disc()
+        p = copy.deepcopy(type(self).raw)
+        p["category_config"]["discipline"] = disc
+        loader.load_rate_master(payload=p)
+        cfg = frappe.db.get_value("BoQ Rate Category Config",
+                                  {"discipline": disc, "active": 1}, "name")
+        item = frappe.db.get_value("BoQ Rate Master Item",
+                                   {"discipline": disc, "active": 1, "kind": "cable"}, "name")
+        return disc, cfg, item
+
+    def _freeze_sandbox(self):
+        """Capture the LIVE site's freeze state + its existing Version rows, and restore EXACTLY
+        those on cleanup. THE STANDING SINGLE-DOCTYPE RULE -- restoring a hardcoded 'unfrozen'
+        would silently lift a real freeze, and `set_single_value` writes no Version row, so a
+        `track_changes` audit could not even show that it had happened."""
+        dt = type(self).FREEZE_DT
+        original = {
+            f: frappe.db.get_value(dt, dt, f) for f in ("frozen", "frozen_by", "frozen_at")
+        }
+        pre_versions = {
+            r.name for r in frappe.get_all("Version", filters={"ref_doctype": dt}, fields=["name"])
+        }
+
+        def _restore():
+            for field, value in original.items():
+                frappe.db.set_single_value(dt, field, value)
+            for r in frappe.get_all("Version", filters={"ref_doctype": dt}, fields=["name"]):
+                if r.name not in pre_versions:  # only OUR rows, never the owner's history
+                    frappe.db.delete("Version", {"name": r.name})
+            frappe.db.commit()
+
+        self.addCleanup(_restore)
+        return original, pre_versions
+
+    def _new_versions(self, pre_versions):
+        return [
+            r for r in frappe.get_all(
+                "Version", filters={"ref_doctype": type(self).FREEZE_DT},
+                fields=["name", "owner", "creation"], order_by="creation asc")
+            if r.name not in pre_versions
+        ]
+
+    def _set_frozen(self, user="rmf-test-admin@example.com"):
+        """Freeze via the service, stamping an EXPLICIT actor -- used where the test needs a freeze
+        that somebody ELSE set (test_rmf_08, owner ruling R6). `frozen_by` is Data, not Link, so a
+        synthetic address is legal and touches no User row."""
+        freeze.set_freeze_state(True, user)
+        frappe.db.commit()
+
+    def _write_calls(self, cfg, item, disc):
+        """(label, callable) for EVERY rate-master WRITE reachable from the app: the SIX endpoints
+        plus the service-level csv apply. Every call is given VALID arguments, so a refusal can
+        only be the freeze."""
+        b64 = base64.b64encode(_rmf_csv_text(disc).encode("utf-8")).decode("ascii")
+        cfg_json = frappe.db.get_value("BoQ Rate Category Config", cfg, "config")
+        return [
+            ("update_rate_config_param", lambda: rate_master.update_rate_config_param(
+                name=cfg, pipeline_id="cable_boq", step_index=_RMF_PARAM_STEP,
+                param_key=_RMF_PARAM_KEY, new_value=0.5)),
+            ("update_rate_master_item", lambda: rate_master.update_rate_master_item(
+                name=item, rates_patch=json.dumps({"list_rate": 123.0}))),
+            ("create_rate_master_item", lambda: rate_master.create_rate_master_item(
+                discipline=disc, kind="cable", attributes=json.dumps({"material": "COPPER"}),
+                rates=json.dumps({"list_rate": 1.0}))),
+            ("deactivate_rate_master_item", lambda: rate_master.deactivate_rate_master_item(
+                name=item)),
+            ("update_rate_config", lambda: rate_master.update_rate_config(
+                name=cfg, config=cfg_json)),
+            ("apply_rate_master_csv", lambda: rate_master.apply_rate_master_csv(
+                discipline=disc, content_base64=b64)),
+            # THE SERVICE PATH, called directly and NOT through the endpoint. This is the one a
+            # guard on the audited doc.save endpoints alone would miss entirely.
+            ("csv_importer.apply_plan", lambda: csv_importer.apply_plan(
+                disc, base64.b64decode(b64))),
+        ]
+
+    # ---- tests ----
+    def test_rmf_01_default_state_is_unfrozen_and_an_absent_single_reads_as_unfrozen(self):
+        """POSITIVE: the feature is INERT by default. A never-written Single reads as not frozen, so
+        a database nobody has touched behaves byte-identically to pre-freeze."""
+        self._freeze_sandbox()
+        for field in ("frozen", "frozen_by", "frozen_at"):
+            frappe.db.set_single_value(type(self).FREEZE_DT, field, None)
+        frappe.db.commit()
+        self.assertFalse(freeze.is_frozen())
+        self.assertEqual(
+            freeze.get_freeze_state(), {"frozen": False, "frozen_by": None, "frozen_at": None})
+
+    def test_rmf_02_the_blocked_message_is_the_owners_text_verbatim(self):
+        """POSITIVE PIN: the owner supplied this string on 2026-08-18. It must not be reworded,
+        expanded, or given a second sentence -- including the space after the slash, which is
+        theirs."""
+        self.assertEqual(
+            freeze.BLOCKED_MESSAGE,
+            "Rate master is locked for deployment. Contact Nitesh/ Abhishek.")
+
+    def test_rmf_02b_the_frontend_constant_is_byte_identical(self):
+        """POSITIVE: the client renders this same message (as the disabled-control tooltip), so the
+        two copies sit either side of a language boundary. Pinned by READING the .ts source, so a
+        reword on one side cannot pass unnoticed. Cross-language duplication is deliberate here
+        (the `isRowQtyBearing` precedent); silent DIVERGENCE is not."""
+        here = os.path.dirname(os.path.abspath(__file__))            # .../nirmaan_stack/api/boq
+        app = os.path.abspath(os.path.join(here, "..", "..", ".."))  # .../apps/nirmaan_stack
+        ts = os.path.join(app, "frontend", "src", "pages", "pricing", "rate-master",
+                          "rateMasterFreeze.ts")
+        self.assertTrue(os.path.exists(ts), ts)
+        with open(ts, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn(freeze.BLOCKED_MESSAGE, src)
+
+    def test_rmf_03_every_write_refuses_while_frozen_with_the_exact_message(self):
+        """NEGATIVE, the core of the feature (R1). All SIX write endpoints AND the service-level csv
+        apply refuse, each with the owner's exact message and nothing appended."""
+        disc, cfg, item = self._loaded()
+        self._freeze_sandbox()
+        self._set_frozen()
+        for label, call in self._write_calls(cfg, item, disc):
+            with self.subTest(endpoint=label):
+                with self.assertRaises(frappe.ValidationError) as ctx:
+                    call()
+                self.assertEqual(str(ctx.exception), freeze.BLOCKED_MESSAGE, label)
+
+    def test_rmf_04_the_three_read_endpoints_still_succeed_while_frozen(self):
+        """POSITIVE, and THE test that catches the tempting refactor (owner ruling R3). The export is
+        THE ACTION THE FREEZE EXISTS TO PROTECT -- Deployment Mode is freeze-then-export. If a future
+        reader folds `guard_not_frozen` into the shared `_require_rate_admin`, which gates all nine
+        endpoints, this goes red and says why."""
+        disc, _cfg, _item = self._loaded()
+        self._freeze_sandbox()
+        self._set_frozen()
+
+        asset = rate_master.export_rate_master_asset(discipline=disc)
+        self.assertTrue(asset["content_base64"])
+        self.assertEqual(asset["discipline"], disc)
+
+        csv_out = rate_master.export_rate_master_csv(discipline=disc)
+        self.assertTrue(csv_out["content_base64"])
+
+        b64 = base64.b64encode(_rmf_csv_text(disc).encode("utf-8")).decode("ascii")
+        plan = rate_master.preview_rate_master_csv(discipline=disc, content_base64=b64)
+        self.assertEqual(plan["errors"], [])
+        self.assertIn("digest", plan)
+
+    def test_rmf_05_a_frozen_write_mutates_nothing(self):
+        """NEGATIVE: reject-mutates-nothing. A refusal must not half-apply -- and the CSV apply is
+        the one with real blast radius, since it supersedes by raw SQL and writes a snapshot."""
+        disc, cfg, item = self._loaded()
+        before_rates = frappe.db.get_value("BoQ Rate Master Item", item, "rates")
+        before_cfg = frappe.db.get_value("BoQ Rate Category Config", cfg, "config")
+        before_items = frappe.db.count("BoQ Rate Master Item", {"discipline": disc, "active": 1})
+        before_snaps = frappe.db.count("BoQ Rate Master Snapshot", {"discipline": disc})
+        self._freeze_sandbox()
+        self._set_frozen()
+        for label, call in self._write_calls(cfg, item, disc):
+            with self.subTest(endpoint=label):
+                with self.assertRaises(frappe.ValidationError):
+                    call()
+        self.assertEqual(frappe.db.get_value("BoQ Rate Master Item", item, "rates"), before_rates)
+        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg, "config"), before_cfg)
+        self.assertEqual(
+            frappe.db.count("BoQ Rate Master Item", {"discipline": disc, "active": 1}), before_items)
+        # No snapshot either: the csv guard fires BEFORE the snapshot is taken.
+        self.assertEqual(
+            frappe.db.count("BoQ Rate Master Snapshot", {"discipline": disc}), before_snaps)
+
+    def test_rmf_06_unfreezing_restores_every_blocked_path(self):
+        """POSITIVE: the lift is complete. Every write refused while frozen works again after --
+        proving the guard is a gate, not a latch that leaves something broken behind it."""
+        disc, cfg, item = self._loaded()
+        self._freeze_sandbox()
+        self._set_frozen()
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.update_rate_master_item(
+                name=item, rates_patch=json.dumps({"list_rate": 7.0}))
+
+        res = rate_master.unfreeze_rate_master()
+        self.assertTrue(res["ok"])
+        self.assertFalse(res["frozen"])
+
+        rate_master.update_rate_master_item(name=item, rates_patch=json.dumps({"list_rate": 7.0}))
+        rate_master.update_rate_config_param(
+            name=cfg, pipeline_id="cable_boq", step_index=_RMF_PARAM_STEP,
+            param_key=_RMF_PARAM_KEY, new_value=0.5)
+        b64 = base64.b64encode(_rmf_csv_text(disc).encode("utf-8")).decode("ascii")
+        applied = rate_master.apply_rate_master_csv(discipline=disc, content_base64=b64)
+        self.assertIn("applied", applied)
+
+    def test_rmf_07_freezing_records_who_and_when(self):
+        """POSITIVE: attribution. The live fields say who SET the freeze and when, and the flip lands
+        a Version row -- which happens only because the doctype is track_changes:1 AND the writer
+        goes through doc.save(ignore_version=False) rather than set_single_value."""
+        _o, pre = self._freeze_sandbox()
+        before = frappe.utils.now_datetime().replace(microsecond=0)
+        res = rate_master.freeze_rate_master()
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["changed"])
+        self.assertTrue(res["frozen"])
+        self.assertEqual(res["frozen_by"], frappe.session.user)
+        self.assertIsNotNone(res["frozen_at"])
+        self.assertGreaterEqual(frappe.utils.get_datetime(res["frozen_at"]), before)
+
+        state = freeze.get_freeze_state()   # persisted, via the ONE reader
+        self.assertTrue(state["frozen"])
+        self.assertEqual(state["frozen_by"], frappe.session.user)
+
+        new = self._new_versions(pre)       # audited
+        self.assertEqual(len(new), 1)
+        self.assertEqual(new[0].owner, frappe.session.user)
+
+    def test_rmf_08_any_admin_may_lift_another_admins_freeze_and_the_lift_is_attributed(self):
+        """POSITIVE, owner ruling R6. There is DELIBERATELY no check that the lifter is the user who
+        set the freeze -- what makes that safe is that the lift is attributable. The freeze here is
+        stamped to a DIFFERENT actor, and the session admin lifts it."""
+        _o, pre = self._freeze_sandbox()
+        self._set_frozen(user="some-other-admin@example.com")
+        self.assertEqual(freeze.get_freeze_state()["frozen_by"], "some-other-admin@example.com")
+
+        res = rate_master.unfreeze_rate_master()
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["changed"])
+        self.assertFalse(res["frozen"])
+        self.assertIsNone(res["frozen_by"])     # provenance cleared with the flag
+        self.assertIsNone(res["frozen_at"])
+
+        new = self._new_versions(pre)           # the LIFT is in the audit, naming the lifter
+        self.assertTrue(new)
+        self.assertEqual(new[-1].owner, frappe.session.user)
+
+    def test_rmf_09_a_non_admin_can_neither_freeze_nor_lift(self):
+        """NEGATIVE: the freeze population IS the rate-master edit population (R5). A non-admin is
+        refused with PermissionError -- NOT with the freeze message, which would be a confusing
+        answer to a question they were never allowed to ask."""
+        self._freeze_sandbox()
+        original = frappe.session.user
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.freeze_rate_master()
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.unfreeze_rate_master()
+        finally:
+            frappe.set_user(original)
+        self.assertFalse(freeze.is_frozen())    # nothing was written
+
+    def test_rmf_09b_a_non_admin_hitting_a_frozen_write_still_gets_permission_denied(self):
+        """NEGATIVE: gate ORDER. The admin check runs FIRST, so a non-admin never learns about the
+        freeze -- they are simply not permitted, frozen or not."""
+        _disc, _cfg, item = self._loaded()
+        self._freeze_sandbox()
+        self._set_frozen()
+        original = frappe.session.user
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.update_rate_master_item(
+                    name=item, rates_patch=json.dumps({"list_rate": 1.0}))
+        finally:
+            frappe.set_user(original)
+
+    def test_rmf_10_freeze_is_idempotent_and_never_restarts_the_clock(self):
+        """POSITIVE + the reason it matters: the banner renders `frozen_at` as ELAPSED time, so a
+        second Freeze click must NOT re-stamp it. Re-freezing reports changed=False, preserves the
+        original provenance, and writes no Version row."""
+        _o, pre = self._freeze_sandbox()
+        first = rate_master.freeze_rate_master()
+        self.assertTrue(first["changed"])
+        after_first = {r.name for r in self._new_versions(pre)}
+
+        again = rate_master.freeze_rate_master()
+        self.assertFalse(again["changed"])
+        self.assertEqual(again["frozen_at"], first["frozen_at"])   # the clock did NOT restart
+        self.assertEqual(again["frozen_by"], first["frozen_by"])
+        self.assertEqual({r.name for r in self._new_versions(pre)}, after_first)  # no write, no row
+
+    def test_rmf_10b_unfreeze_is_idempotent(self):
+        """POSITIVE: lifting an unfrozen catalog is a clean no-op, not an error."""
+        self._freeze_sandbox()
+        rate_master.unfreeze_rate_master()
+        res = rate_master.unfreeze_rate_master()
+        self.assertTrue(res["ok"])
+        self.assertFalse(res["changed"])
+        self.assertFalse(res["frozen"])
+
+    def test_rmf_11_the_read_endpoint_reports_state_and_hides_stale_provenance(self):
+        """POSITIVE: `get_rate_master_freeze` is what the banner reads. Provenance is reported ONLY
+        while frozen, so a half-cleared row can never render a banner claiming a live freeze."""
+        self._freeze_sandbox()
+        self._set_frozen(user="banner-test@example.com")
+        got = rate_master.get_rate_master_freeze()
+        self.assertTrue(got["frozen"])
+        self.assertEqual(got["frozen_by"], "banner-test@example.com")
+        self.assertIsNotNone(got["frozen_at"])
+
+        frappe.db.set_single_value(type(self).FREEZE_DT, "frozen", 0)   # flag off, provenance left
+        frappe.db.commit()
+        got = rate_master.get_rate_master_freeze()
+        self.assertFalse(got["frozen"])
+        self.assertIsNone(got["frozen_by"])
+        self.assertIsNone(got["frozen_at"])
+
+    def test_rmf_12_pricing_is_unaffected_by_the_freeze(self):
+        """POSITIVE, owner ruling R2 -- and it holds BY CONSTRUCTION, not by exemption: no pricing
+        path writes the rate master. Exercised under a LIVE freeze: the two rate-master READS the
+        pricing screen needs to compute a rate at all, and a real pricing-path WRITE ("Use this
+        value" telemetry). If any of these refused, a freeze would stop pricers working."""
+        disc, _cfg, _item = self._loaded()
+        self._freeze_sandbox()
+        self._set_frozen()
+
+        items = rate_master.get_rate_master_items(discipline=disc)
+        self.assertTrue(items["items"])
+        cfg = rate_master.get_rate_category_config(discipline=disc, category_id="wiring_cabling")
+        self.assertTrue(cfg["config"])
+
+        # A third real pricing-screen endpoint, invoked under the live freeze. It tolerates an
+        # unknown BoQ (pure read, no existence check), so it needs no fixture.
+        evs = rate_master.get_suggestion_events(boq="RMF-FREEZE-NONE", sheet_name="Sheet1")
+        self.assertEqual(evs["events"], [])
+
+        # The "Use this value" telemetry is a genuine WRITE on a pricing path. Its `boq` field is
+        # a LINK to BOQs, so exercising it would need a real BoQ (and behind it the Projects
+        # fixture chain) to assert a fact these two lines state exactly: it is login-gated, not
+        # admin-gated, and carries NO freeze guard. Asserted structurally, and said so plainly.
+        write_src = _rmf_source_of(rate_master.record_rate_suggestion_event)
+        self.assertNotIn("guard_not_frozen", write_src)
+        self.assertNotIn("_require_rate_admin", write_src)
+        self.assertIn("_require_login()", write_src)
+
+        # ...and the pricing module does not even NAME the rate-master doctypes, which is why R2
+        # needs no exemption anywhere in this feature.
+        from nirmaan_stack.api.boq.wizard import pricing as pricing_api
+        src = _rmf_source(pricing_api)
+        self.assertNotIn("BoQ Rate Master Item", src)
+        self.assertNotIn("BoQ Rate Category Config", src)
+        self.assertNotIn("guard_not_frozen", src)
+
+    def test_rmf_13_the_guard_is_one_definition_called_at_both_write_mechanisms(self):
+        """POSITIVE: ONE predicate, two call sites. The five audited doc.save endpoints plus the csv
+        endpoint are guarded inline in the api module; `csv_importer.apply_plan` guards itself,
+        because it supersedes by RAW SQL and never touches doc.save. A guard on only one mechanism
+        would leave the other wide open -- and the csv path has the larger blast radius."""
+        self.assertEqual(_rmf_source(rate_master).count("freeze.guard_not_frozen()"), 6)
+        self.assertEqual(_rmf_source(csv_importer).count("freeze.guard_not_frozen()"), 1)
+        self.assertIs(rate_master.freeze.guard_not_frozen, freeze.guard_not_frozen)
+        self.assertIs(csv_importer.freeze.guard_not_frozen, freeze.guard_not_frozen)
+
+    def test_rmf_14_the_guard_is_not_in_require_rate_admin_and_not_on_the_reads(self):
+        """NEGATIVE, structural (owner ruling R3). `_require_rate_admin` gates nine endpoints, three
+        of them reads. This asserts the guard is NOT inside it -- the single refactor that would
+        silently make Deployment Mode impossible, because you could no longer export the catalog you
+        had just frozen."""
+        gate = _rmf_source_of(rate_master._require_rate_admin)
+        self.assertNotIn("guard_not_frozen", gate)
+        self.assertNotIn("frozen", gate)
+        for fn in (rate_master.export_rate_master_asset, rate_master.export_rate_master_csv,
+                   rate_master.preview_rate_master_csv):
+            with self.subTest(endpoint=fn.__name__):
+                self.assertNotIn("guard_not_frozen", _rmf_source_of(fn))
+        # build_plan is SHARED with the preview, so it must stay unguarded too
+        self.assertNotIn("guard_not_frozen", _rmf_source_of(csv_importer.build_plan))
+
+    def test_rmf_15_set_single_value_is_never_used_to_write_the_freeze(self):
+        """NEGATIVE, and it protects the ONE thing that makes R6 safe. `set_single_value` is a raw
+        UPDATE: it bypasses the doc lifecycle and writes NO Version row, so a lift would become
+        unattributable while every other test stayed green. The writer must use doc.save with an
+        EXPLICIT ignore_version=False -- Frappe defaults that to frappe.flags.in_test, which would
+        suppress the audit under exactly this runner."""
+        writer = _rmf_source_of(freeze.set_freeze_state)
+        code = writer.split('"""')[-1]          # body only, past the docstring that NAMES the trap
+        self.assertNotIn("set_single_value", code)
+        self.assertIn("ignore_version=False", code)
+        self.assertIn("doc.save(", code)

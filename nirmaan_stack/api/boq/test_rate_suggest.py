@@ -1411,7 +1411,12 @@ class TestExtBRules(FrappeTestCase):
         self.assertIn("runs", by_id)
         self.assertEqual(by_id["runs"]["type"], "number")
         self.assertEqual(by_id["runs"]["label"], "Runs")
-        self.assertEqual(by_id["core"]["type"], "number")          # unchanged
+        # SLICE 4 / F-8 (owner ruling R6, 2026-08-19): `core` is now a CATALOGUE-FED DROPDOWN.
+        # The previous `# unchanged` here was a BEFORE-PIN from the B3 slice -- it recorded that B3
+        # deliberately left `core` alone AT THAT TIME. It was never a rule against redefining it.
+        # Slice 4 is the slice that redefines it, and the pin did its job by stopping the build
+        # until the owner ruled. A test is updated to match a ruling, never a ruling to match a test.
+        self.assertEqual(by_id["core"]["type"], "number_choice")
         self.assertEqual(cfg["extraction_defaults"]["runs"], 1.0)
         self.assertEqual(cfg["extraction_defaults"]["core"], 1.0)
         ids = [r.get("id") for r in (cfg.get("rules") or [])]

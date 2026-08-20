@@ -35,7 +35,6 @@ import {
 // --- Types ---
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
-import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
@@ -53,10 +52,6 @@ import { useUserData } from "@/hooks/useUserData";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 
 // --- Constants ---
-// Total Invoiced and Amount Due are computed in the browser, so they have no backend
-// field to order by and are sorted over the current page instead.
-const CLIENT_SORT_COLUMN_IDS = ["total_invoiced", "amount_due"];
-const VENDOR_SCOPED_PAGE_SIZE = 500;
 
 const DOCTYPE = "Service Requests";
 
@@ -104,27 +99,6 @@ export const AllSRList: React.FC<AllSRListProps> = ({
     error: vendorsError,
   } = useVendorsList({ vendorTypes: ["Service", "Material & Service"] });
 
-  const vendorInvoiceFilters = useMemo(() => {
-    const filters: Array<[string, string, string | string[]]> = [
-      ["document_type", "=", "Service Requests"],
-      ["status", "=", "Approved"],
-    ];
-    if (for_vendor) {
-      filters.push(["vendor", "=", for_vendor]);
-    }
-    return filters;
-  }, [for_vendor]);
-
-  const { data: vendorInvoices } = useFrappeGetDocList<VendorInvoice>(
-    "Vendor Invoices",
-    {
-      filters: vendorInvoiceFilters,
-      fields: ["name", "document_name", "invoice_amount"],
-      limit: 0,
-    } as GetDocListArgs<FrappeDoc<VendorInvoice>>,
-    `VendorInvoices-SR-all-${for_vendor || "all"}`
-  );
-
   const { notifications, mark_seen_notification } = useNotificationStore();
 
   const projectOptions = useMemo(
@@ -146,15 +120,6 @@ export const AllSRList: React.FC<AllSRListProps> = ({
     }),
     [vendorsList]
   );
-
-  const invoiceTotalsMap = useMemo(() => {
-    if (!vendorInvoices) return new Map<string, number>();
-    return vendorInvoices.reduce((acc, inv) => {
-      const current = acc.get(inv.document_name) ?? 0;
-      acc.set(inv.document_name, current + parseNumber(inv.invoice_amount));
-      return acc;
-    }, new Map<string, number>());
-  }, [vendorInvoices]);
 
   const handleNewSRSeen = useCallback(
     (notification: NotificationType | undefined) => {
@@ -186,7 +151,9 @@ export const AllSRList: React.FC<AllSRListProps> = ({
         "total_amount",
         "amount_paid",
         "gst",
-        "is_finalized"
+        "is_finalized",
+        "amount_invoiced",
+        "amount_due",
       ]),
     []
   );
@@ -401,19 +368,14 @@ export const AllSRList: React.FC<AllSRListProps> = ({
         meta: { exportHeaderName: "Amt. Paid", exportValue: (row: ServiceRequests) => parseNumber(row.amount_paid) || 0 },
       },
       {
-        id: "amount_due",
-        // total_amount - amount_paid, computed in the browser, so it is sorted
-        // client-side via `CLIENT_SORT_COLUMN_IDS` - never sent as a backend order_by.
-        accessorFn: (row) =>
-          (parseNumber(row.total_amount) || 0) - (parseNumber(row.amount_paid) || 0),
-        sortingFn: "basic",
+        // A stored SR field (total_amount - amount_paid, maintained by the same events
+        // that write its operands), so the database orders the whole set.
+        accessorKey: "amount_due",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Amount Due" />
         ),
         cell: ({ row }) => {
-          const total = parseNumber(row.original.total_amount) || 0;
-          const paid = parseNumber(row.original.amount_paid) || 0;
-          const value = total - paid;
+          const value = parseNumber(row.original.amount_due);
           return (
             <div className={cn("font-medium pr-2", value < 0 ? "text-red-600" : "text-amber-600")}>
               {formatToRoundedIndianRupee(value)}
@@ -424,24 +386,18 @@ export const AllSRList: React.FC<AllSRListProps> = ({
         size: 150,
         meta: {
           exportHeaderName: "Amount Due",
-          exportValue: (row: ServiceRequests) => {
-            const total = parseNumber(row.total_amount) || 0;
-            const paid = parseNumber(row.amount_paid) || 0;
-            return total - paid;
-          },
+          exportValue: (row: ServiceRequests) => parseNumber(row.amount_due),
         },
       },
       {
-        id: "total_invoiced",
-        // Derived from the separate Vendor Invoices fetch (`invoiceTotalsMap`);
-        // likewise client-sorted.
-        accessorFn: (row) => invoiceTotalsMap.get(row.name) ?? 0,
-        sortingFn: "basic",
+        // A stored SR field, so the id IS the backend field name and `order_by` works:
+        // the database orders the whole set, not just the fetched page.
+        accessorKey: "amount_invoiced",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Total Invoiced" className="justify-end" />
         ),
         cell: ({ row }) => {
-          const invoiceTotal = invoiceTotalsMap.get(row.original.name) ?? 0;
+          const invoiceTotal = parseNumber(row.original.amount_invoiced);
           return (
             <div className="text-center font-medium text-blue-600">
               {formatToRoundedIndianRupee(invoiceTotal)}
@@ -450,7 +406,7 @@ export const AllSRList: React.FC<AllSRListProps> = ({
         },
         size: 150,
         enableSorting: true,
-        meta: { exportHeaderName: "Total Invoiced", exportValue: (row: ServiceRequests) => invoiceTotalsMap.get(row.name) ?? 0 },
+        meta: { exportHeaderName: "Total Invoiced", exportValue: (row: ServiceRequests) => parseNumber(row.amount_invoiced) },
       },
       {
         id: "remarks",
@@ -462,7 +418,7 @@ export const AllSRList: React.FC<AllSRListProps> = ({
         enableSorting: false,
       },
     ],
-    [notifications, projectOptions, getVendorName, handleNewSRSeen, invoiceTotalsMap, role, for_vendor]
+    [notifications, projectOptions, getVendorName, handleNewSRSeen, role, for_vendor]
   );
 
   const {
@@ -487,11 +443,9 @@ export const AllSRList: React.FC<AllSRListProps> = ({
     defaultSort: "modified desc",
     enableRowSelection: true,
     additionalFilters: staticFilters,
-    clientSortColumnIds: CLIENT_SORT_COLUMN_IDS,
     // The client-side sort only orders the CURRENT PAGE, so the vendor tab - where a
     // single vendor's whole work-order list normally fits - gets a large page. The
     // standalone Service Requests page keeps the default.
-    defaultPageSize: for_vendor ? VENDOR_SCOPED_PAGE_SIZE : undefined,
   });
 
   // project / vendor facets migrated to the self-fetching facet interface (ADR-0010 "Option 2")

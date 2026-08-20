@@ -24,10 +24,18 @@ or decision the business NAMES belongs in a pure service module, not inside a wh
 endpoint. The `boq_category.persist.node_is_qty_bearing` / `resolve_row_ladder`
 relocations are the precedent, and this follows their shape.
 
-PURITY CONTRACT (the seam): every function here is `(picks, descriptor index) -> dict`.
-No `frappe.db`, no request context, no import from `api/`. `frappe.throw` is the ONE
-framework touch, and it is deliberate -- a refusal here is a user-facing, named refusal,
-and raising a bare ValueError would make every caller re-voice it.
+PURITY CONTRACT (the seam): every function here takes the picks and/or the sheet's own
+column descriptors and returns a plain value. No `frappe.db`, no request context, no import
+from `api/`. `frappe.throw` is the ONE framework touch, and it is deliberate -- a refusal
+here is a user-facing, named refusal, and raising a bare ValueError would make every caller
+re-voice it.
+
+⚠️ THE SIGNATURE LINE ABOVE USED TO SAY `(picks, descriptor index) -> dict`, FULL STOP, and
+the BCS-export slice widened it. The two DERIVATIONS at the foot of this file take
+`(source, descriptors)` and `(descriptors)` -- they answer "which columns does BCS use when
+nobody confirmed any", which is the same subject as the confirmations above and belongs in
+the same home, but it is not the same shape. Stating the contract loosely is worse than
+stating it wrongly, so it is stated as it now is.
 """
 from __future__ import annotations
 
@@ -497,3 +505,191 @@ def build_amount_source(cols: list, index: dict) -> dict:
     if not out["ok"]:
         frappe.throw(out["message"], title=out["title"])
     return out["source"]
+
+
+# ═════════════════════════════════════════════════════════════════════════════════
+# THE TWO DERIVATIONS -- which columns BCS uses when nobody confirmed any
+# ═════════════════════════════════════════════════════════════════════════════════
+# Everything above answers "is this PICK valid?". These two answer the question that comes
+# BEFORE a pick exists: given only the sheet's own shape, which columns does BCS use?
+#
+# WHY THAT QUESTION EXISTS AT ALL. BCS-S12 removed both column pickers from the BCS dialog,
+# so `confirm_bcs_columns` has had NO caller in the product since -- grep the frontend: the
+# UI calls `set_bcs_enabled`, `get_bcs_state`, `get_sheet_bcs_rates` and
+# `save_row_bcs_rates`, and nothing else. A sheet enabled after S12 therefore carries NO
+# `bcs_qty_source`, and there is no longer any way to give it one. MEASURED on the live
+# bench 2026-08-19: of the 7 BCS-enabled current sheets, SIX have no confirmed quantity
+# source and only the oldest (BOQ-26-00140, pre-S12) has one. A rule that required the
+# confirmation would answer "no quantity" on six sheets out of seven, and on every sheet
+# enabled from here on.
+#
+# The browser already answers it -- `bcsQuantityColumns` / `bcsLiveRateKinds` in
+# `frontend/src/pages/boq-wizard/bcsColumns.ts`. Until now nothing on the server needed to,
+# because nothing on the server ever computed a BCS number. The BCS export does: it writes
+# the cost columns and an Excel Total formula into a copy of the client's workbook, so it
+# has to know which cost boxes the sheet has and which cells its quantity lives in.
+#
+# ⚠️ SO THESE ARE A MIRROR, AND A MIRROR IS A LIABILITY UNLESS IT IS PINNED. ADR-0010 F1
+# asks for a parity test, and `parity_cases.json` -- already read by BOTH suites for the
+# confirmations -- gained two more case lists for exactly these two functions. The reason is
+# not theoretical: at BCS-S2b the server widened to eight amount shapes while the browser
+# silently refused six of them for a whole slice, with every test on both sides green. Do
+# not add a third copy of either rule, and do not change one of these without changing its
+# twin and the table in the same edit.
+
+
+def derive_qty_columns(source: dict | None, descriptors: list | None) -> list:
+    """★ WHICH COLUMNS HOLD THIS SHEET'S QUANTITY -- the multiplicand of BCS Total Amount.
+
+    A stored CONFIRMATION wins wherever one exists, so every sheet configured before BCS-S12
+    resolves EXACTLY as it always has. Otherwise the sheet's OWN quantity columns are used:
+    the scalar Total Quantity column if it maps one, else the per-area quantity columns,
+    whose SUM is the total.
+
+    ⚠️ SCALAR BEATS PER-AREA, AND IT IS NOT A PREFERENCE. A sheet mapping both would have its
+    quantity counted TWICE if the two were concatenated -- the same double count
+    `decide_qty_source` refuses under `mixed_shapes` when a human picks both. The fallback
+    must not be able to express what the confirmation forbids.
+
+    Returns entries in the `_entry` shape (the stored-confirmation shape), so ONE reader
+    resolves either branch without asking which one it got. Empty list = this sheet has no
+    quantity at all, which is a real answer and not an error: the caller renders no Total
+    rather than inventing one.
+
+    Mirrors `bcsColumns.bcsQuantityColumns`. Pinned by `parity_cases.json`
+    -> `derived_qty_cases`.
+    """
+    confirmed = (source or {}).get("columns") or []
+    if confirmed:
+        return list(confirmed)
+    ds = descriptors or []
+    scalar = [d for d in ds if d.get("value_field") == _QTY_SCALAR_VALUE_FIELD]
+    if scalar:
+        return [_entry(d) for d in scalar]
+    return [_entry(d) for d in ds if d.get("value_field") == _QTY_AREA_VALUE_FIELD]
+
+
+# WHICH COST BOXES A SHEET GETS -- the rate vocabulary, read from the sheet's OWN rate columns.
+#
+# ⚠️ A PER-AREA RATE SPELLS ITS KIND `supply_rate` / `install_rate` / `combined_rate`, NOT
+# `supply` / `install` / `total`. That is the AMOUNT side's vocabulary, and the two are
+# genuinely different: `classifier._RATE_ROLE_TO_KIND` maps the three rate_*_by_area roles to
+# the first set and `_AMOUNT_ROLE_TO_KIND` maps the three amount_*_by_area roles to the second,
+# and `review_screen._build_column_descriptors` writes whichever applies into the SAME generic
+# `rate_subkey` slot. The browser twin had the amount spelling here and therefore matched no
+# per-area rate column at all -- see the correction note in `bcsColumns.bcsLiveRateKinds`.
+_SCALAR_RATE_FIELD_TO_BCS_KIND = {
+    "rate_supply": "supply",
+    "rate_install": "install",
+    "rate_combined": "combined",
+}
+_PER_AREA_RATE_VALUE_FIELD = "rate_by_area"
+_PER_AREA_RATE_SUBKEY_TO_BCS_KIND = {
+    "supply_rate": "supply",
+    "install_rate": "install",
+    "combined_rate": "combined",
+}
+# Canonical box order -- NEVER the sheet's Excel column order, so two sheets mapping the same
+# two rates in different orders present the same boxes in the same places.
+_BCS_KIND_ORDER = ("supply", "install", "combined")
+
+
+def live_rate_kinds(descriptors: list | None) -> list:
+    """★ WHICH COST BOXES A SHEET GETS (owner ruling 2026-08-02): no Rate (Supply) column
+    means no Supply box; a combined-rate sheet gets ONE undifferentiated box; a sheet with no
+    rate column at all cannot do BCS and gets none.
+
+    ⚠️ THE HALVES WIN OVER A COMBINED RATE MAPPED BESIDE THEM, and that is a RULING, not a
+    detail. `bcs.py` forbids summing `combined_rate` with the two halves -- "never sum it with
+    them, never derive it from them" -- so the returned set must NEVER hold both, or BCS Total
+    double-counts. That makes the prohibition STRUCTURAL: the arithmetic downstream cannot
+    express the forbidden sum, because the set it is handed never contains both. MEASURED: 22
+    of 553 current committed sheets map all three (Supply | Install | Total Rate is an ordinary
+    layout), and on the live bench BOQ-26-00161's Electrical sheet is one of them -- so this
+    fires on real data, today.
+
+    IT IS A NARROWING, NEVER A WIDENING. Reversing it is a one-function change and nothing
+    downstream reads the rate columns again.
+
+    Mirrors `bcsColumns.bcsLiveRateKinds`. Pinned by `parity_cases.json` -> `rate_kinds_cases`.
+    """
+    present = set()
+    for d in descriptors or []:
+        field = d.get("value_field")
+        kind = _SCALAR_RATE_FIELD_TO_BCS_KIND.get(field)
+        if kind:
+            present.add(kind)
+            continue
+        if field == _PER_AREA_RATE_VALUE_FIELD:
+            kind = _PER_AREA_RATE_SUBKEY_TO_BCS_KIND.get(d.get("rate_subkey"))
+            if kind:
+                present.add(kind)
+    halves = [k for k in _BCS_KIND_ORDER if k != "combined" and k in present]
+    if halves:
+        return halves
+    return ["combined"] if "combined" in present else []
+
+
+# ── WHICH COLUMNS HOLD THIS SHEET'S AMOUNT -- the % Margin DENOMINATOR ───────────
+#
+# The third derivation, and it exists for the same reason as the other two: the BCS export
+# writes a % Margin formula into the client's workbook, so the server has to know which
+# cells the denominator reads. Until the export there was no server-side consumer, because
+# nothing on the server ever computed a BCS number.
+#
+# ⚠️ THIS IS THE THIRD MIRROR OF A BCS RULE, AND THE LIABILITY IS THE SAME ONE. At BCS-S2b
+# the server widened to eight amount shapes while the browser silently refused six of them
+# for a whole slice, with every test on both sides green. That is why this is pinned by
+# `parity_cases.json` -> `derived_amount_cases`, read by BOTH suites. Do not add a fourth
+# copy, and do not change this without changing `bcsColumns.bcsAmountColumns` and the table
+# in the SAME edit.
+#
+# THE TIER ORDER IS THE SPEC, not a preference, and it mirrors the kind-axis ruling the
+# confirmations already enforce: a TOTAL ALREADY CONTAINS ITS HALVES, so a sheet mapping
+# both must resolve to the total ALONE. Summing them would double-count the row -- exactly
+# the harm `decide_amount_source` refuses under `mixed_kinds` when a human picks both. The
+# fallback must not be able to express what the confirmation forbids.
+#
+# A LONE HALF IS ACCEPTED, and that is the standing owner ruling (2026-08-02): one-sided
+# packages are genuine commercial shapes, not data gaps, and the safety comes from
+# DISCLOSURE rather than from blocking. Tier 3 therefore returns whichever halves exist,
+# one or two.
+_AMOUNT_SCALAR_TOTAL_VALUE_FIELD = "amount_total"
+_AMOUNT_SCALAR_HALF_VALUE_FIELDS = ("amount_supply", "amount_install")
+
+
+def derive_amount_columns(source: dict | None, descriptors: list | None) -> list:
+    """★ WHICH COLUMNS HOLD THIS SHEET'S AMOUNT -- what we charge the client, and the
+    denominator of % Margin.
+
+    A stored CONFIRMATION wins wherever one exists, so a sheet configured before BCS-S12
+    resolves exactly as it always has. Otherwise the sheet's own amount columns are used, in
+    a STRICT tier order:
+
+        1. the confirmed pick;
+        2. else the scalar Total Amount column(s);
+        3. else the supply / install HALVES (one or both);
+        4. else the per-area amount columns.
+
+    ⚠️ THE TIERS ARE EXCLUSIVE AND THE FIRST HIT WINS. A total already contains its halves,
+    so a sheet mapping both must never sum them -- see the block comment above.
+
+    Returns entries in the `_entry` shape, so ONE reader resolves either branch without
+    asking which one it got. An EMPTY list is a real answer, not an error: this sheet has no
+    amount at all, so there is nothing to measure a margin against and the caller writes no
+    margin column rather than inventing a denominator.
+
+    Mirrors `bcsColumns.bcsAmountColumns`. Pinned by `parity_cases.json`
+    -> `derived_amount_cases`.
+    """
+    confirmed = (source or {}).get("columns") or []
+    if confirmed:
+        return list(confirmed)
+    ds = descriptors or []
+    total = [d for d in ds if d.get("value_field") == _AMOUNT_SCALAR_TOTAL_VALUE_FIELD]
+    if total:
+        return [_entry(d) for d in total]
+    halves = [d for d in ds if d.get("value_field") in _AMOUNT_SCALAR_HALF_VALUE_FIELDS]
+    if halves:
+        return [_entry(d) for d in halves]
+    return [_entry(d) for d in ds if d.get("value_field") == _AMOUNT_AREA_VALUE_FIELD]

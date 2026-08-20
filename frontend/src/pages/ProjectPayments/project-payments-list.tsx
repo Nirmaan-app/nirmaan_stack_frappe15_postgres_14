@@ -19,7 +19,6 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
-import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getTotalAmountPaid } from "@/utils/getAmounts";
@@ -143,40 +142,10 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
         limit: 0
     })
 
-    // Fetch ALL Approved Vendor Invoices to calculate invoice totals
-    // Note: We don't filter by document_name to avoid URL length limits with large IN clauses.
-    // Instead, we fetch all approved invoices and filter client-side.
-    const { data: vendorInvoices, isLoading: vendorInvoicesLoading } = useFrappeGetDocList<VendorInvoice>(
-        "Vendor Invoices",
-        {
-            filters: [
-                ["status", "=", "Approved"],
-            ],
-            fields: ["name", "document_name", "invoice_amount", "invoice_no", "invoice_date", "invoice_attachment", "status"],
-            limit: 0,
-        },
-        "VendorInvoices-ProjectPayments-All"
-    );
-
-    // Create a Set of document names for efficient lookup
-    const documentNamesSet = useMemo(() => {
-        const poNames = purchaseOrders?.map(po => po.name) || [];
-        const srNames = serviceOrders?.map(sr => sr.name) || [];
-        return new Set([...poNames, ...srNames]);
-    }, [purchaseOrders, serviceOrders]);
-
-    // Group invoice totals by document name (only for documents in our list)
-    const invoiceTotalsMap = useMemo(() => {
-        if (!vendorInvoices) return new Map<string, number>();
-        return vendorInvoices.reduce((acc, inv) => {
-            // Only include invoices for documents in our current dataset
-            if (inv.document_name && documentNamesSet.has(inv.document_name)) {
-                const current = acc.get(inv.document_name) ?? 0;
-                acc.set(inv.document_name, current + parseNumber(inv.invoice_amount));
-            }
-            return acc;
-        }, new Map<string, number>());
-    }, [vendorInvoices, documentNamesSet]);
+    // Total Invoice Amt comes straight off the PO / SR row (`amount_invoiced`, kept
+    // current by the Vendor Invoices doc events). Both parent fetches above already use
+    // `fields: ["*"]`, so it arrives with no query change — and the whole-invoice-table
+    // fetch that used to live here (5,164 rows on every page open) is gone.
 
     useFrappeDocTypeEventListener("Procurement Orders", async () => {
         await poMutate();
@@ -518,7 +487,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                 cell: ({ row }) => {
                     const data = row.original;
                     // Use Vendor Invoices lookup instead of old invoice_data JSON
-                    const invoiceAmount = invoiceTotalsMap.get(data?.name) ?? 0;
+                    const invoiceAmount = parseNumber(data?.amount_invoiced);
                     return (
                         <div
                             className={`font-medium ${invoiceAmount ? "underline cursor-pointer text-blue-600" : ""}`}
@@ -530,7 +499,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                 },
                 meta: {
                     exportHeaderName: "Total Invoice Amt",
-                    exportValue: (row: any) => invoiceTotalsMap.get(row.name) ?? 0
+                    exportValue: (row: any) => parseNumber(row.amount_invoiced)
                 }
             },
             {
@@ -605,7 +574,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
             //         }
             //     ]),
         ],
-        [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments, projectId, getTotalAmount, customerId, invoiceTotalsMap]
+        [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments, projectId, getTotalAmount, customerId]
     );
 
     // --- CEO Hold Row Highlighting ---
@@ -755,7 +724,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                 isPO={currentPaymentsDialog?.document_type === "Purchase Order"}
             />
             {
-                (poLoading || srLoading || projectsLoading || vendorsLoading || projectPaymentsLoading || vendorInvoicesLoading) ? (
+                (poLoading || srLoading || projectsLoading || vendorsLoading || projectPaymentsLoading) ? (
                     <TableSkeleton />
                 ) : (
                     <DataTable 

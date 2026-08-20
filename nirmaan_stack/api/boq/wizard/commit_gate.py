@@ -237,11 +237,15 @@ def get_committed_state(boq_name: str) -> dict:
                                               # Sheet.last_exported_at; None if never
                                               # exported. Rides the existing BoQ Sheet
                                               # lookup -- no extra query.
-           "pricing_changed_since_export": bool}, ...]}  # Slice 5b (ADDITIVE): True iff
+           "pricing_changed_since_export": bool,  # Slice 5b (ADDITIVE): True iff
                                               # max(priced/colored/remarked _at on the
                                               # CURRENT commit_version) > last_exported_at
                                               # (or content exists + never exported);
                                               # False when nothing priced/colored/remarked.
+           "is_locked": bool,                 # the deliberate per-sheet read-only lock
+           "bcs_enabled": bool}, ...]}        # BCS-EXP-3 (ADDITIVE): the per-sheet cost
+                                              # tracking switch, off the SAME BoQ Sheet
+                                              # lookup. Badges the internal-export picker.
 
     One row per sheet is expected (the one-current invariant). The query filters
     is_current=1 and each current row is mapped as-is -- NO dedup logic is added for
@@ -271,11 +275,16 @@ def get_committed_state(boq_name: str) -> dict:
     order_rows = frappe.get_all(
         "BoQ Sheet",
         filters={"boq": boq_name, "is_current": 1},
-        fields=["sheet_name", "sheet_order", "last_exported_at", "is_locked"],
+        fields=["sheet_name", "sheet_order", "last_exported_at", "is_locked", "bcs_enabled"],
     )
     order_by_sheet = {r.sheet_name: r.sheet_order for r in order_rows}
     exported_by_sheet = {r.sheet_name: r.last_exported_at for r in order_rows}
     locked_by_sheet = {r.sheet_name: bool(r.is_locked) for r in order_rows}
+    # BCS-EXP-3 (ADDITIVE): the per-sheet cost-tracking switch, riding the SAME lookup as
+    # last_exported_at and is_locked -- one more field, no new query. It drives the "cost
+    # tracking on / off" badge in the internal-export picker, so someone choosing sheets can
+    # see which of them will actually carry a cost block before they download.
+    bcs_by_sheet = {r.sheet_name: bool(r.bcs_enabled) for r in order_rows}
 
     # Slice 5b -- the "pricing changed since last export" signal. Per (sheet, current version),
     # the latest pricing/color/remark write timestamp; compared per row against last_exported_at.
@@ -299,6 +308,8 @@ def get_committed_state(boq_name: str) -> dict:
             ),
             # Deliberate per-sheet read-only lock (this slice, ADDITIVE):
             "is_locked": locked_by_sheet.get(row.source_sheet_name, False),
+            # BCS-EXP-3 (ADDITIVE):
+            "bcs_enabled": bcs_by_sheet.get(row.source_sheet_name, False),
         }
         for row in rows
     ]

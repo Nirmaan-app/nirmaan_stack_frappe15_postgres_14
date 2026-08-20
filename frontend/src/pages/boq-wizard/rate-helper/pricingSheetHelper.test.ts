@@ -18,6 +18,7 @@ import {
 // derivedQtyAttrs + derivedAttrIds relocated to the leaf both screens may import.
 import {
   blanksQtyAttr,
+  coerceForMatch,
   derivedAttrIds,
   mapAttributeSources,
   derivedQtyAttrs,
@@ -2265,5 +2266,306 @@ describe("SLICE 3b FINISH -- a mapped thickness is SHOWN, and a stated one stays
     // THE CONTRAST: with the thickness STATED, nothing behind the fit was substituted -> PLAIN.
     const stated = attrOf(trayHelper({ tray_type: "Solid", material: "GI", width_mm: 100, thickness_mm: 1.6 }), "width_mm");
     expect(stated?.substituted).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 4 (F-1 / F-8) -- conduit size + wiring core/thickness become CATALOGUE-FED pick-lists
+//
+// Configuration only: the shipped config flips three defs from `number` to `number_choice` +
+// `values_from`. No interpreter or panel code changed. What these pin is the BEHAVIOUR the owner
+// ruled for, on the side of the wire the pricer actually sees.
+//
+// ⚠️ THE R1 TESTS PIN A DELIBERATE LOSS OF INFORMATION, AND THAT IS THE POINT. A value the
+// catalogue does not carry stops being visible. The owner ruled STRICT on 2026-08-19 -- "this is ok,
+// this gives the true picture to the user" -- because such a value is not a usable value: the row
+// could never have priced on it. These are not describing a side effect to be tidied away later;
+// they are the change. Deleting them would let a future "helpfully show the stored value anyway"
+// patch through without anyone noticing it reverses a ruling.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+// The shipped shape, mirrored: number_choice + values_from, and NO `where` (R3 -- global lists).
+const S4_CONDUIT_SIZE = {
+  id: "size_mm", label: "Size (mm)", type: "number_choice" as const,
+  values_from: { kind: "conduit", attr: "size_mm" },
+};
+const S4_CORE = {
+  id: "core", label: "Core", type: "number_choice" as const,
+  values_from: { kind: "cable", attr: "core" },
+};
+const S4_THICKNESS = {
+  id: "thickness_sqmm", label: "Thickness (sqmm)", type: "number_choice" as const,
+  values_from: { kind: "cable", attr: "thickness_sqmm" },
+};
+
+function conduitItem(conduit_type: string, size_mm: number, list: number): RateMasterItem {
+  return { discipline: "Electrical", kind: "conduit", brand: "Polycab", unit: "Mtr",
+           attributes: { conduit_type, size_mm }, rates: { list_price_per_mtr: list } };
+}
+// Mirrors the live catalogue's shape: every size in BOTH types, floats throughout (F-3).
+const S4_CONDUIT_ITEMS: RateMasterItem[] = [
+  conduitItem("PVC", 20, 40), conduitItem("MS", 20, 55),
+  conduitItem("PVC", 25, 60), conduitItem("MS", 25, 80),
+  conduitItem("PVC", 32, 90), conduitItem("MS", 32, 120),
+  conduitItem("PVC", 50, 150), conduitItem("MS", 50, 190),
+];
+
+// A wiring catalogue whose CABLE side carries values TERMINATION does not -- the R2 discriminators.
+const S4_WIRING_ITEMS: RateMasterItem[] = [
+  ...ITEMS,
+  cable("COPPER", "ARMOURED", 8, 2.5, 400, 12),        // core 8   -> cable only
+  cable("COPPER", "UNARMOURED", 1, 0.75, 60, 8),       // th 0.75  -> cable only
+  term("COPPER", "ARMOURED", 3, 2.5, 6.47, 82.55, 361.18),
+];
+
+// The wiring config with the two slice-4 defs swapped in, exactly as shipped.
+const S4_WIRING_CONFIG: RateCategoryConfig = {
+  ...CONFIG,
+  attribute_definitions: [
+    ...CONFIG.attribute_definitions.filter((d) => d.id !== "core" && d.id !== "thickness_sqmm"),
+    S4_CORE, S4_THICKNESS,
+  ],
+};
+
+describe("SLICE 4 -- the three catalogue-fed pick-lists", () => {
+  it("each of the three attributes resolves its list FROM THE LIVE CATALOGUE", () => {
+    // POSITIVE: the list is built at all. Pre-slice these were free number inputs with `options`
+    // undefined, so the panel rendered an <Input> and any number at all could be typed.
+    expect(attributeOptions(S4_CONDUIT_SIZE, S4_CONDUIT_ITEMS)).toEqual(["20", "25", "32", "50"]);
+    expect(attributeOptions(S4_CORE, S4_WIRING_ITEMS)).toEqual(
+      expect.arrayContaining(["1", "3", "8"]));
+    expect(attributeOptions(S4_THICKNESS, S4_WIRING_ITEMS)).toEqual(
+      expect.arrayContaining(["0.75", "2.5", "6", "10"]));
+  });
+
+  it("R2 -- wiring's lists come from CABLE, not termination", () => {
+    // Pinned by the DISCRIMINATORS, because the two kinds overlap heavily and a list built from the
+    // wrong kind still looks plausible. core 8 and thickness 0.75 exist in cable and NOT in
+    // termination; repoint either values_from at "termination" and exactly these go red.
+    expect(attributeOptions(S4_CORE, S4_WIRING_ITEMS)).toContain("8");
+    expect(attributeOptions(S4_THICKNESS, S4_WIRING_ITEMS)).toContain("0.75");
+    // NEGATIVE: the same read against `termination` offers neither -- which is what makes them
+    // discriminators rather than merely two values that happen to be present.
+    const fromTermCore = attributeOptions(
+      { ...S4_CORE, values_from: { kind: "termination", attr: "core" } }, S4_WIRING_ITEMS);
+    const fromTermTh = attributeOptions(
+      { ...S4_THICKNESS, values_from: { kind: "termination", attr: "thickness_sqmm" } }, S4_WIRING_ITEMS);
+    expect(fromTermCore).not.toContain("8");
+    expect(fromTermTh).not.toContain("0.75");
+  });
+
+  it("R3 -- the lists are GLOBAL, unfiltered by the row's other attributes", () => {
+    // A global list is the union across every material/insulation combination. `core 8` is
+    // COPPER/ARMOURED-only here and `thickness 0.75` COPPER/UNARMOURED-only, so their SIMULTANEOUS
+    // presence proves nothing is filtering. This is also why the 3.5-core/150 COMBINATION gap stays
+    // invisible to this slice -- a separate finding, explicitly not this slice's job.
+    const cores = attributeOptions(S4_CORE, S4_WIRING_ITEMS);
+    const ths = attributeOptions(S4_THICKNESS, S4_WIRING_ITEMS);
+    expect(cores).toContain("8");      // COPPER/ARMOURED only
+    expect(ths).toContain("0.75");     // COPPER/UNARMOURED only
+    expect(ths).toContain("10");       // a different combination again
+    // NEGATIVE: adding a `where` DOES narrow it -- so the absence of `where` is load-bearing, not
+    // decorative. If this ever stops narrowing, `where` has quietly become a no-op.
+    const filtered = attributeOptions(
+      { ...S4_CORE, values_from: { kind: "cable", attr: "core", where: { insulation: "UNARMOURED" } } },
+      S4_WIRING_ITEMS);
+    expect(filtered).not.toContain("8");
+    expect(cores.length).toBeGreaterThan(filtered.length);
+  });
+
+  it("a value IN the catalogue prices UNCHANGED, and the dropdown can display it", () => {
+    // The regression half: for every good row, slice 4 changes the CONTROL and nothing else.
+    const map = buildExtractionByRow([{ excel_row: 900, attributes: ext({
+      material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) as never }]);
+    const helper = makePricingSheetHelper({ config: S4_WIRING_CONFIG, items: S4_WIRING_ITEMS, extractionByRow: map });
+    const r = helper.compute(ctx(900, "1C x 6 sqmm copper unarmoured cable"));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    // the standing golden values, untouched by the type flip
+    expect(r.values.supply_rate).toBe(120);
+    expect(r.values.install_rate).toBe(20);
+    const core = r.workings.attributes.find((a) => a.id === "core")!;
+    expect(core.value).toBe("1");
+    expect(core.options).toContain("1");   // the <select> can render it SELECTED -> it displays
+  });
+
+  it("R1 -- a stored value NOT in the catalogue is ABSENT from the options, so the field renders BLANK", () => {
+    // THE CHANGE, half one: an existing run keeps its out-of-catalogue value in `selected` (so it
+    // still drives matching, and still fails), but the <select> carries no <option> for it, so the
+    // browser shows nothing selected. The pricer reads the BoQ's own description in the grid's
+    // frozen Description column instead -- that is P4's premise, certified live at cert step 3.
+    const map = buildExtractionByRow([{ excel_row: 901, attributes: ext({
+      material: "COPPER", insulation: "UNARMOURED", core: 3.5, thickness_sqmm: 180 }) as never }]);
+    const helper = makePricingSheetHelper({ config: S4_WIRING_CONFIG, items: S4_WIRING_ITEMS, extractionByRow: map });
+    const r = helper.compute(ctx(901, "3.5Cx180 sq.mm (XLPE)"));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    const th = r.workings.attributes.find((a) => a.id === "thickness_sqmm")!;
+    // the value is still THERE (it is what the row supplied)...
+    expect(th.value).toBe("180");
+    // ...but it is NOT offered, so the control cannot show it. THIS is the blank.
+    expect(th.options).not.toContain("180");
+    // and the row does not price -- as it did not before the slice either
+    expect(r.values.supply_rate).toBeUndefined();
+    expect(r.basis).toBe("no match for these attributes");
+  });
+
+  it("R1 -- a FRESH extraction nulls the out-of-catalogue value, and the row is gated INCOMPLETE", () => {
+    // THE CHANGE, half two. Server-side `_coerce_value_ex` now rejects a `number_choice` value
+    // outside its domain (COERCE_OUTSIDE_DOMAIN) and stores null, so a re-run row arrives BLANK.
+    // The gate then fires and the message changes from "no match for these attributes" to
+    // "Complete the missing attributes to price". Same row, same non-price, different explanation --
+    // approved as #57 item 5, and this is where that promise is kept.
+    const map = buildExtractionByRow([{ excel_row: 902, attributes: ext({
+      material: "COPPER", insulation: "UNARMOURED", core: 3.5, thickness_sqmm: null }) as never }]);
+    const helper = makePricingSheetHelper({ config: S4_WIRING_CONFIG, items: S4_WIRING_ITEMS, extractionByRow: map });
+    const r = helper.compute(ctx(902, "3.5Cx180 sq.mm (XLPE)"));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.basis).toBe("Complete the missing attributes to price");
+    const th = r.workings.attributes.find((a) => a.id === "thickness_sqmm")!;
+    expect(th.value).toBe("");
+    expect(isAttrBlank(th)).toBe(true);     // the red incomplete border
+    expect(th.options).toEqual(expect.arrayContaining(["2.5", "6"]));  // still a pick-list
+  });
+
+  it("conduit -- an in-catalogue size prices, an out-of-catalogue size does not and is not offered", () => {
+    // The same two halves on the OTHER category, because conduit_piping has its own config and its
+    // own (tiny, 4-value) domain -- the one most likely to surprise a pricer.
+    const conduitCfg: RateCategoryConfig = {
+      discipline: "Electrical", category_id: "conduit_piping",
+      attribute_definitions: [
+        { id: "conduit_type", label: "Conduit Type", type: "choice", values: ["PVC", "MS"] },
+        S4_CONDUIT_SIZE,
+      ],
+      pipelines: { conduit_boq: { output: ["supply_per_mtr", "install_per_mtr"], steps: [
+        { step: "match_master_row", params: { kind: "conduit" } },
+        { step: "scale", target: "list_price_per_mtr", result: "supply_per_mtr",
+          params: { boq_multiplier: 0.7 }, formula: "base*boq_multiplier" },
+        { step: "scale", target: "supply_per_mtr", result: "install_per_mtr",
+          params: { install_ratio: 0.2 }, formula: "base*install_ratio" },
+        { step: "roundup", target: "install_per_mtr", params: { digits: -1 } },
+      ] } },
+    };
+    const cctx = (excelRow: number, description: string): RateHelperRowContext => ({
+      excelRow, description, nodeType: "Line Item", category: "conduit_piping",
+      discipline: "Electrical", rateKinds: ["supply_rate", "install_rate"],
+    });
+    // POSITIVE: 25 mm PVC -> 60 x 0.7 = 42 supply, roundup(42 x 0.2, -1) = 10 install
+    const good = makePricingSheetHelper({
+      configsByCategory: new Map([["conduit_piping", conduitCfg]]), items: S4_CONDUIT_ITEMS,
+      extractionByRow: buildExtractionByRow([{ excel_row: 910, attributes: ext({ conduit_type: "PVC", size_mm: 25 }) as never }]),
+    }).compute(cctx(910, "25 mm dia PVC conduit"));
+    expect(isSuggestion(good)).toBe(true);
+    if (!isSuggestion(good)) return;
+    expect(good.values.supply_rate).toBe(42);
+    expect(good.values.install_rate).toBe(10);
+    const sz = good.workings.attributes.find((a) => a.id === "size_mm")!;
+    expect(sz.options).toEqual(["20", "25", "32", "50"]);
+    expect(sz.options).toContain(sz.value);
+
+    // NEGATIVE / R1: 80 mm is a real BoQ ask the catalogue does not stock. It never priced; now it
+    // is also not offered, so the field is blank and the true picture is "we do not stock this".
+    const bad = makePricingSheetHelper({
+      configsByCategory: new Map([["conduit_piping", conduitCfg]]), items: S4_CONDUIT_ITEMS,
+      extractionByRow: buildExtractionByRow([{ excel_row: 911, attributes: ext({ conduit_type: "PVC", size_mm: 80 }) as never }]),
+    }).compute(cctx(911, "80 mm outer dia"));
+    expect(isSuggestion(bad)).toBe(true);
+    if (!isSuggestion(bad)) return;
+    expect(bad.values.supply_rate).toBeUndefined();
+    const badSz = bad.workings.attributes.find((a) => a.id === "size_mm")!;
+    expect(badSz.value).toBe("80");
+    expect(badSz.options).not.toContain("80");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// R9 (owner ruling, 2026-08-19) -- THE PLACEHOLDER IS ALWAYS SELECTABLE
+//
+// ⚠️ READ THIS BEFORE ADDING A TEST HERE, BECAUSE THE THING R9 FIXES IS NOT TESTABLE IN THIS SUITE.
+//
+// R9 removes `disabled` from the `— select —` option in RateHelperPanel. What that fixes is a
+// REACT/DOM SEMANTIC: a controlled <select> whose `value` matches no option does NOT go blank --
+// React sets `option.selected = (option.value === props.value)` per option rather than assigning
+// `.value`, so when nothing matches every option ends unselected and the browser falls back to the
+// first SELECTABLE option. A disabled placeholder is skipped, so the field displayed the first real
+// catalog value instead of blank.
+//
+// vitest runs with `environment: "node"` and there is NO DOM environment (frontend/CLAUDE.md
+// records this as deliberate). So NOTHING here can observe `select.selectedIndex`, and a test
+// asserting `attr.options` does not contain the stored value -- which the slice-4 tests above do,
+// correctly -- passes happily while the rendered control shows the wrong number. That is exactly
+// what happened: those tests were green while row 87 displayed "20" for a stored 40.
+//
+// THE HONEST INSTRUMENT FOR R9 IS THE BROWSER CERT, and it is what caught it.
+// DO NOT add a test here that appears to cover the rendering. It would be worse than no test.
+//
+// What IS testable, and is pinned below, is the CONSEQUENCE the ruling asks for: clearing a field
+// by hand must land the row in the same state as never having filled it.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+describe("SLICE 4 / R9 -- clearing a field equals never having filled it", () => {
+  const cleared = (overrides: Record<string, string>) =>
+    makePricingSheetHelper({
+      config: S4_WIRING_CONFIG, items: S4_WIRING_ITEMS,
+      extractionByRow: buildExtractionByRow([{ excel_row: 920, attributes: ext({
+        material: "COPPER", insulation: "UNARMOURED", core: 3, thickness_sqmm: 10 }) as never }]),
+    }).compute(ctx(920, "3 core x 10 sq.mm copper unarmoured cable"), overrides);
+
+  const neverFilled = () =>
+    makePricingSheetHelper({
+      config: S4_WIRING_CONFIG, items: S4_WIRING_ITEMS,
+      extractionByRow: buildExtractionByRow([{ excel_row: 921, attributes: ext({
+        material: "COPPER", insulation: "UNARMOURED", core: 3, thickness_sqmm: null }) as never }]),
+    }).compute(ctx(921, "3 core x 10 sq.mm copper unarmoured cable"));
+
+  it("a hand-cleared attribute and a never-filled one reach the SAME state: blank + gated incomplete", () => {
+    const a = cleared({ thickness_sqmm: "" });   // the pricer selected the placeholder
+    const b = neverFilled();                     // extraction returned null
+    expect(isSuggestion(a)).toBe(true);
+    expect(isSuggestion(b)).toBe(true);
+    if (!isSuggestion(a) || !isSuggestion(b)) return;
+
+    // both gated incomplete, with the SAME message -- there is one blank, not two kinds of blank
+    expect(a.basis).toBe("Complete the missing attributes to price");
+    expect(b.basis).toBe(a.basis);
+    // neither prices
+    expect(a.values.supply_rate).toBeUndefined();
+    expect(b.values.supply_rate).toBeUndefined();
+
+    const attrA = a.workings.attributes.find((x) => x.id === "thickness_sqmm")!;
+    const attrB = b.workings.attributes.find((x) => x.id === "thickness_sqmm")!;
+    // both render blank, and both carry the red incomplete border
+    expect(attrA.value).toBe("");
+    expect(attrB.value).toBe("");
+    expect(isAttrBlank(attrA)).toBe(true);
+    expect(isAttrBlank(attrB)).toBe(true);
+    // and the pick-list is still offered on both, so the pricer can fill it back in
+    expect(attrA.options).toEqual(attrB.options);
+    expect(attrA.options).toEqual(expect.arrayContaining(["2.5", "10"]));
+  });
+
+  it("clearing is NOT the same as the 'None' sentinel -- an empty string is absence, not a decision", () => {
+    // ⚠️ Load-bearing distinction, and the reason R9 could not simply reuse the None mechanism.
+    // `coerceForMatch` returns null for "" BEFORE it checks allow_none, so a cleared field is
+    // ABSENT (gated incomplete). "None" is a positive decision that a component is deliberately
+    // not there. Before R9 an unmatched value on an allow_none def fell back to the "None" option
+    // -- the browser presenting a decision the row never made.
+    const noneDef = { id: "socket_item", label: "Socket", type: "choice" as const, allow_none: true,
+      values_from: { kind: "switch_socket_item", attr: "item", where: { family: "Socket" } } };
+    expect(coerceForMatch(noneDef, "")).toBeNull();               // cleared -> ABSENT
+    expect(coerceForMatch(noneDef, NONE_SENTINEL)).toBe(NONE_SENTINEL);  // None -> preserved verbatim
+    // and the sentinel is offered at the TOP of the list, distinct from the blank placeholder
+    expect(attributeOptions(noneDef, PW_HELPER_ITEMS)[0]).toBe(NONE_SENTINEL);
+  });
+
+  it("clearing an attribute the row DOES price un-prices it -- the pricer's clear genuinely reaches the price", () => {
+    // The positive control for the test above: if a cleared field did NOT reach the pipeline, the
+    // first test would pass for the wrong reason (both blank because nothing was ever read).
+    const priced = cleared({});                       // nothing cleared -> prices normally
+    expect(isSuggestion(priced)).toBe(true);
+    if (!isSuggestion(priced)) return;
+    expect(priced.values.supply_rate).toBeGreaterThan(0);
+    expect(priced.basis).not.toBe("Complete the missing attributes to price");
   });
 });

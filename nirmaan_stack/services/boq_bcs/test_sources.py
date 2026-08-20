@@ -60,10 +60,14 @@ from nirmaan_stack.services.boq_bcs.sources import (
     AMOUNT_REFUSAL_ORDER,
     QTY_REFUSAL_ORDER,
     REFUSAL_CODES,
+    _PER_AREA_RATE_SUBKEY_TO_BCS_KIND,
     build_amount_source,
     build_qty_source,
     decide_amount_source,
     decide_qty_source,
+    derive_amount_columns,
+    derive_qty_columns,
+    live_rate_kinds,
 )
 
 # The SHARED rule-parity table (BCS-S2e), read from disk rather than imported, so the ONE
@@ -968,3 +972,250 @@ class TestDecideAndBuildAreOneRule(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ===========================================================================
+# Group 9: THE TWO DERIVATIONS -- and their half of the parity table
+# ===========================================================================
+class TestTheTwoDerivations(unittest.TestCase):
+    """★ `derive_qty_columns` / `live_rate_kinds` -- which columns BCS uses when nobody
+    confirmed any. The cases live in `parity_cases.json` (`derived_qty_cases` /
+    `rate_kinds_cases`) and the vitest suite runs the SAME list against the browser twins,
+    so a divergence turns exactly one of the two red.
+
+    WHY THE SERVER ANSWERS THIS AT ALL. It never computed a BCS number before; the BCS
+    export does, and it has to know which cost boxes a sheet has and where its quantity
+    lives. The CONFIRMATION cannot supply the answer -- BCS-S12 removed both column pickers,
+    so `confirm_bcs_columns` has had no caller in the product since and six of the seven
+    live BCS-enabled sheets carry no `bcs_qty_source` at all (measured 2026-08-19).
+
+    ⚠️ THE ANTI-VACUITY HERE IS AIMED AT A SPECIFIC, ALREADY-REALISED FAILURE, not at a
+    hypothetical. The browser's rate map keyed the per-area AMOUNT spelling (`supply` /
+    `install` / `total`) where a per-area RATE spells its kind `supply_rate` /
+    `install_rate` / `combined_rate` -- so it returned NO cost boxes for a per-area-rate
+    sheet, and its own unit fixtures carried the same wrong spelling, so mirror and test
+    were green together. Agreement between two mirrors could never have caught that. Hence
+    `test_the_fixture_subkeys_come_from_the_producer`, which anchors the fixtures to
+    `classifier`'s own maps -- the module that actually writes the value.
+    """
+
+    _PARITY = _load_parity_cases()
+
+    # -- the cases themselves ---------------------------------------------
+    def test_every_derived_qty_case_in_the_shared_table(self):
+        for case in self._PARITY["derived_qty_cases"]:
+            with self.subTest(case=case["id"]):
+                out = derive_qty_columns(case["confirmed"], case["descriptors"])
+                self.assertEqual(
+                    [(c.get("col"), c.get("value_field"), c.get("value_key")) for c in out],
+                    [(c["col"], c["value_field"], c["value_key"])
+                     for c in case["expect"]["columns"]],
+                    case["why"],
+                )
+
+    def test_every_rate_kinds_case_in_the_shared_table(self):
+        for case in self._PARITY["rate_kinds_cases"]:
+            with self.subTest(case=case["id"]):
+                self.assertEqual(
+                    live_rate_kinds(case["descriptors"]), case["expect"]["kinds"], case["why"]
+                )
+
+    def test_every_derived_amount_case_in_the_shared_table(self):
+        """★ The THIRD derivation (BCS export slice 6): which columns hold what we CHARGE --
+        the denominator of % Margin. Same net, same table, same failure mode if the browser
+        twin drifts."""
+        for case in self._PARITY["derived_amount_cases"]:
+            with self.subTest(case=case["id"]):
+                out = derive_amount_columns(case["confirmed"], case["descriptors"])
+                self.assertEqual(
+                    [(c.get("col"), c.get("value_field"), c.get("value_key")) for c in out],
+                    [(c["col"], c["value_field"], c["value_key"])
+                     for c in case["expect"]["columns"]],
+                    case["why"],
+                )
+
+    # -- the fixtures are REAL, anchored to the module that writes them ----
+    def test_every_fixture_descriptor_has_the_shape_the_builder_emits(self):
+        """A descriptor with an invented shape is how the browser twin's fixtures came to
+        agree with its own bug. `review_screen._build_column_descriptors` emits exactly six
+        keys on every descriptor it makes; a fixture carrying five or seven is describing a
+        sheet that cannot exist."""
+        keys = {"col", "role", "area", "value_field", "value_key", "rate_subkey"}
+        for case in self._all_cases():
+            for d in case["descriptors"]:
+                with self.subTest(case=case["id"], col=d.get("col")):
+                    self.assertEqual(set(d), keys)
+
+    def test_the_fixture_subkeys_come_from_the_producer(self):
+        """★ THE GUARD THAT WOULD HAVE CAUGHT THE ORIGINAL BUG, and the reason it is written
+        against `classifier` rather than against the other mirror.
+
+        `rate_subkey` is a GENERIC third-hop slot: `review_screen._build_column_descriptors`
+        fills it from `_RATE_ROLE_TO_KIND` for a per-area rate and from `_AMOUNT_ROLE_TO_KIND`
+        for a per-area amount, and those two vocabularies do not overlap. Asserting the two
+        mirrors agree with each other proves nothing if both copied the same wrong list --
+        which is precisely what happened. This asserts against the module that WRITES the
+        value, so the fixtures are right or they are red."""
+        from nirmaan_stack.services.boq_parser.classifier import (
+            _AMOUNT_ROLE_TO_KIND,
+            _RATE_ROLE_TO_KIND,
+        )
+
+        legal_rate = set(_RATE_ROLE_TO_KIND.values())
+        legal_amount = set(_AMOUNT_ROLE_TO_KIND.values())
+        # The module's own map must speak the producer's vocabulary, not the amount side's.
+        self.assertEqual(set(_PER_AREA_RATE_SUBKEY_TO_BCS_KIND), legal_rate)
+        self.assertEqual(legal_rate & legal_amount, set(),
+                         "the two vocabularies must stay disjoint, or this guard is toothless")
+        for case in self._all_cases():
+            for d in case["descriptors"]:
+                with self.subTest(case=case["id"], col=d.get("col")):
+                    if d["value_field"] == "rate_by_area":
+                        self.assertIn(d["rate_subkey"], legal_rate)
+                    elif d["value_field"] == "amount_by_area":
+                        self.assertIn(d["rate_subkey"], legal_amount)
+
+    # -- anti-vacuity ------------------------------------------------------
+    def test_the_derived_qty_cases_exercise_every_branch(self):
+        """Four branches, and a table missing one is a branch neither language is comparing:
+        a stored confirmation wins; else the scalar total; else the per-area columns; else
+        nothing at all."""
+        outs = {c["id"]: derive_qty_columns(c["confirmed"], c["descriptors"])
+                for c in self._PARITY["derived_qty_cases"]}
+        cases = {c["id"]: c for c in self._PARITY["derived_qty_cases"]}
+        self.assertTrue(any(c["confirmed"] and c["confirmed"].get("columns")
+                            for c in cases.values()), "no case exercises the confirmed branch")
+        fields = {f for out in outs.values() for f in (c.get("value_field") for c in out)}
+        self.assertIn("qty_total", fields, "no case lands on the scalar branch")
+        self.assertIn("qty_by_area", fields, "no case lands on the per-area branch")
+        self.assertTrue(any(out == [] for out in outs.values()),
+                        "no case lands on the empty branch")
+
+    def test_the_derived_amount_cases_exercise_every_tier(self):
+        """FIVE branches, and two of them exist solely to prevent a double count -- so a
+        table missing one is not merely thin, it leaves a hole through the refusals
+        `mixed_kinds` and `mixed_shapes` enforce on the pick path.
+
+        ⚠️ TIER PRECEDENCE IS ASSERTED ADVERSARIALLY, not merely exercised. A case whose
+        descriptors happen to list the winning tier first would pass against a function that
+        simply returned the first descriptor it saw, so the two precedence cases put the
+        LOSING tier first and this test insists such a case exists."""
+        cases = {c["id"]: c for c in self._PARITY["derived_amount_cases"]}
+        outs = {i: derive_amount_columns(c["confirmed"], c["descriptors"])
+                for i, c in cases.items()}
+        self.assertTrue(any(c["confirmed"] and c["confirmed"].get("columns")
+                            for c in cases.values()), "no case exercises the confirmed branch")
+        fields = {f for out in outs.values() for f in (c.get("value_field") for c in out)}
+        for field, tier in (("amount_total", "scalar-total"),
+                            ("amount_supply", "halves"),
+                            ("amount_by_area", "per-area")):
+            self.assertIn(field, fields, f"no case lands on the {tier} tier")
+        self.assertTrue(any(out == [] for out in outs.values()),
+                        "no case lands on the empty branch")
+
+        # The two precedence cases, each with the LOSING tier listed first.
+        def first_field(case_id):
+            return cases[case_id]["descriptors"][0]["value_field"]
+        self.assertEqual(first_field("amount-derived-total-beats-the-halves"), "amount_supply",
+                         "the total-beats-halves case must list a HALF first, or it would "
+                         "also pass against a function that returned the first descriptor")
+        self.assertEqual(first_field("amount-derived-scalar-half-beats-per-area"),
+                         "amount_by_area",
+                         "the scalar-beats-per-area case must list a per-area column first")
+
+    def test_a_total_is_never_returned_alongside_its_own_halves(self):
+        """★ THE ONE THAT PROTECTS A NUMBER. This is the double count `decide_amount_source`
+        refuses under `mixed_kinds`, arriving by the back door: the fallback must not be able
+        to express what the confirmation forbids. Asserted over EVERY case rather than the
+        one fixture, so a tier added later inherits it."""
+        for case in self._PARITY["derived_amount_cases"]:
+            with self.subTest(case=case["id"]):
+                fields = {c.get("value_field")
+                          for c in derive_amount_columns(case["confirmed"], case["descriptors"])}
+                if "amount_total" in fields:
+                    self.assertFalse(
+                        fields & {"amount_supply", "amount_install"},
+                        "a scalar total was returned beside a half it already contains -- "
+                        "the row's amount would be counted twice, and % Margin would read "
+                        "against a denominator no column on the sheet holds",
+                    )
+                self.assertFalse(
+                    fields & {"amount_by_area"} and fields - {"amount_by_area"},
+                    "per-area amounts were mixed with a scalar -- the shape-axis twin of "
+                    "the same double count",
+                )
+
+    def test_the_rate_kinds_cases_exercise_every_kind_and_both_shapes(self):
+        """Every box a sheet can get, the empty answer, and BOTH column shapes. The per-area
+        shape is the one that was broken, so a table without it re-opens the hole."""
+        results = [live_rate_kinds(c["descriptors"]) for c in self._PARITY["rate_kinds_cases"]]
+        self.assertEqual({k for r in results for k in r}, {"supply", "install", "combined"})
+        self.assertIn([], results, "no case pins the 'this sheet cannot do BCS' answer")
+        shapes = {d["value_field"] for c in self._PARITY["rate_kinds_cases"]
+                  for d in c["descriptors"]}
+        self.assertIn("rate_by_area", shapes, "no case uses a PER-AREA rate column")
+        self.assertTrue(shapes & {"rate_supply", "rate_install", "rate_combined"},
+                        "no case uses a SCALAR rate column")
+
+    def test_the_halves_and_the_combined_rate_are_never_returned_together(self):
+        """★ THE RULING, as a property rather than a case. `bcs.py` forbids summing
+        combined_rate with the two halves, so a returned set holding both would make BCS
+        Total double-count. Swept over every subset of the three scalar rate columns AND over
+        every case in the table, so it holds for inputs nobody thought to write down."""
+        import itertools
+
+        def rate(vf):
+            return {"col": vf[-1].upper(), "role": vf, "area": None,
+                    "value_field": vf, "value_key": None, "rate_subkey": None}
+
+        for r in range(4):
+            for combo in itertools.combinations(
+                ("rate_supply", "rate_install", "rate_combined"), r
+            ):
+                kinds = live_rate_kinds([rate(vf) for vf in combo])
+                with self.subTest(combo=combo):
+                    self.assertFalse("combined" in kinds and len(kinds) > 1)
+        for case in self._PARITY["rate_kinds_cases"]:
+            kinds = case["expect"]["kinds"]
+            with self.subTest(case=case["id"]):
+                self.assertFalse("combined" in kinds and len(kinds) > 1)
+
+    def test_a_confirmation_is_returned_untouched(self):
+        """The confirmed branch hands back the STORED entries, not a rebuild of them. A
+        rebuild would drop `rate_subkey` on a shape that needs three hops to resolve, and the
+        loss would only surface as a wrong number much later."""
+        stored = {"mode": "qty_by_area", "columns": [
+            {"col": "B", "role": "qty", "area": "Zone A", "value_field": "qty_by_area",
+             "value_key": "Zone A", "rate_subkey": None},
+        ]}
+        self.assertEqual(derive_qty_columns(stored, []), stored["columns"])
+
+    def test_neither_derivation_touches_its_inputs(self):
+        """Both are read-only on their arguments -- the export calls them per sheet against
+        the same descriptor list the rest of the pass reads."""
+        descriptors = [
+            {"col": "D", "role": "qty_total", "area": None, "value_field": "qty_total",
+             "value_key": None, "rate_subkey": None},
+            {"col": "E", "role": "rate_supply", "area": None, "value_field": "rate_supply",
+             "value_key": None, "rate_subkey": None},
+        ]
+        before = json.dumps(descriptors, sort_keys=True)
+        derive_qty_columns(None, descriptors)
+        live_rate_kinds(descriptors)
+        self.assertEqual(json.dumps(descriptors, sort_keys=True), before)
+
+    def test_both_derivations_tolerate_nothing_at_all(self):
+        """None and [] are ordinary inputs: a grid-only sheet has no descriptors, and a
+        sheet nobody confirmed has no source. Neither may raise -- the export walks many
+        sheets in one pass and one odd sheet must not fail the file."""
+        self.assertEqual(derive_qty_columns(None, None), [])
+        self.assertEqual(derive_qty_columns({}, []), [])
+        self.assertEqual(live_rate_kinds(None), [])
+        self.assertEqual(live_rate_kinds([]), [])
+        self.assertEqual(derive_amount_columns(None, None), [])
+        self.assertEqual(derive_amount_columns({}, []), [])
+
+    def _all_cases(self):
+        return (list(self._PARITY["derived_qty_cases"])
+                + list(self._PARITY["rate_kinds_cases"])
+                + list(self._PARITY["derived_amount_cases"]))

@@ -1,7 +1,18 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Keep the stored `Purchase Order Item.invoice_qty` in sync — SELF-CLASSIFYING.
+"""Keep the fields DERIVED FROM VENDOR INVOICES in sync.
+
+Two of them live here, with deliberately DIFFERENT rules:
+  `Purchase Order Item.invoice_qty`  -- per-PO-ROW invoiced QUANTITY, counted over
+                                        Pending+Approved, credit notes EXCLUDED.
+  `Procurement Orders` /
+  `Service Requests`.amount_invoiced -- per-DOCUMENT invoiced AMOUNT, summed over
+                                        APPROVED only, credit notes INCLUDED (they are
+                                        stored negative and net out).
+Do not "harmonise" the two — they answer different questions.
+
+--- invoice_qty: SELF-CLASSIFYING ---
 
 `invoice_qty` is a DERIVED per-PO-row field, RECOMPUTED FROM SOURCE on every call
 (never incremented by deltas, so it cannot drift). Per PO, `counted` = Pending+
@@ -29,6 +40,7 @@ event (create / approve / reject / delete / edit), BEFORE the commit.
 """
 
 import frappe
+from frappe.utils import flt
 
 # Invoice statuses that represent real billing exposure (mirror get_po_item_billing).
 _COUNTED_STATUSES = ("Pending", "Approved")
@@ -39,8 +51,12 @@ def recompute_po_invoice_qty(po_name: str) -> None:
     """Self-classify invoice_qty on every `Purchase Order Item` row of `po_name`.
 
     Resolves the PO to EXACT / ORDERED / ZERO (see module docstring) and writes each
-    row via db.set_value (update_modified=False) so the PO's on_update controller does
-    NOT fire — invoice_qty is a derived cache, not a PO edit. No-op for blank/missing PO.
+    row via db.set_value, which stamps `modified` / `modified_by` on the child rows.
+    That stamp is the POINT: a runtime hook must leave a trace a user can find, so the
+    row visibly moved. Only PATCHES suppress it with `update_modified=False`, because a
+    migration rewriting history should not look like everyone edited every document.
+    The PO's own `on_update` controller does NOT fire either way — `set_value` runs no
+    doc events at all, whatever `update_modified` says. No-op for blank/missing PO.
     """
     if not po_name:
         return
@@ -141,4 +157,116 @@ def _project_is_completed(po_name: str) -> bool:
     project = frappe.db.get_value("Procurement Orders", po_name, "project")
     return bool(project) and (
         frappe.db.get_value("Projects", project, "status") == "Completed"
+    )
+
+
+# ---------------------------------------------------------------------------
+# `Procurement Orders` / `Service Requests` .amount_invoiced
+# ---------------------------------------------------------------------------
+
+# The only doctypes a Vendor Invoice can be parented to that carry the field.
+_TOTAL_PARENT_DOCTYPES = ("Procurement Orders", "Service Requests")
+
+
+def recompute_document_amount_invoiced(document_type: str, document_name: str) -> None:
+    """Re-derive `amount_invoiced` on ONE Procurement Order / Service Request.
+
+    Value = SUM of that document's Vendor Invoices with status 'Approved'.
+
+    Credit notes are NOT filtered out: they are stored with a NEGATIVE
+    `invoice_amount`, so a plain sum nets them off — which is exactly what every
+    screen showing this figure already does. (Contrast `recompute_po_invoice_qty`
+    above, which counts Pending+Approved and skips credit notes entirely.)
+
+    RECOMPUTED FROM SOURCE on every call, never incremented by a delta, so it
+    cannot drift. Written with `set_value`, which STAMPS `modified` / `modified_by`
+    (the default) — deliberately, so the parent row carries a visible trace that it
+    moved, exactly as `amount_paid` already does at its own write sites.
+
+    `update_modified` does NOT gate the parent's `on_update` chain, and never did:
+    `frappe.db.set_value` runs no controller method, no doc event, no versioning and
+    publishes no realtime event whatever the flag is set to. It controls the two
+    timestamp columns and nothing else. (Verified against
+    `frappe/database/database.py::set_value`.)
+
+    Does NOT commit: it runs inside the transaction of the invoice event that
+    triggered it. No-op for a blank name or a doctype without the field.
+    """
+    if document_type not in _TOTAL_PARENT_DOCTYPES or not document_name:
+        return
+
+    total = frappe.db.sql(
+        """
+        SELECT COALESCE(SUM(COALESCE(vi.invoice_amount, 0)), 0)
+        FROM "tabVendor Invoices" vi
+        WHERE vi.document_type = %(dt)s
+          AND vi.document_name = %(dn)s
+          AND vi.status = 'Approved'
+        """,
+        {"dt": document_type, "dn": document_name},
+    )[0][0]
+
+    # A parent that no longer exists (an order deleted along with its invoices)
+    # matches zero rows here — a silent no-op, not an error.
+    frappe.db.set_value(
+        document_type, document_name, "amount_invoiced", flt(total),
+    )
+
+    # amount_due is derived from this value, so it moves with it.
+    recompute_document_amount_due(document_type, document_name)
+
+# ---------------------------------------------------------------------------
+# `Procurement Orders` / `Service Requests` .amount_due
+# ---------------------------------------------------------------------------
+
+# The two doctypes use DELIBERATELY DIFFERENT formulas (owner decision 2026-08-19):
+#   Procurement Orders   amount_invoiced - amount_paid   -> billed to us, not yet paid
+#   Service Requests     total_amount    - amount_paid   -> ordered value, not yet paid
+# The SR screens have always shown ordered-minus-paid and say so in their own footnote
+# ("Amount Due = Total WO Value - Amt Paid"); switching them to invoiced-minus-paid
+# would move 761 of 862 rows (measured 2026-08-19). Do NOT "harmonise" the two.
+_AMOUNT_DUE_OPERANDS = {
+    "Procurement Orders": ("amount_invoiced", "amount_paid"),
+    "Service Requests": ("total_amount", "amount_paid"),
+}
+
+
+def recompute_document_amount_due(document_type: str, document_name: str) -> None:
+    """Re-derive `amount_due` on ONE Procurement Order / Service Request.
+
+    Called from every place that writes one of its operands — there is no single
+    owner, because the operands are maintained by different subsystems:
+
+        amount_invoiced  <- recompute_document_amount_invoiced (this module)
+        total_amount     <- the Service Request's own save
+        amount_paid      <- Project Payments' update_parent_amount_paid
+
+    A Postgres GENERATED column was tried first and REJECTED: `bench migrate`
+    re-asserts the type of every Currency column, and Postgres refuses to alter a
+    column that a generated column depends on, so every migrate would fail.
+    A `validate` hook was rejected too — both operands are written with
+    `db.set_value`, which bypasses the document lifecycle, so such a field would be
+    stale on arrival.
+
+    Reads the operands straight back from the row (same transaction, so it sees the
+    write that triggered it) and lets `set_value` stamp `modified` / `modified_by`,
+    matching `amount_invoiced` above and `amount_paid` elsewhere. Does NOT commit.
+    """
+    operands = _AMOUNT_DUE_OPERANDS.get(document_type)
+    if not operands or not document_name:
+        return
+    minuend, subtrahend = operands
+
+    # Column and table names come from the constant above, never from a caller.
+    row = frappe.db.sql(
+        'SELECT COALESCE("{0}", 0) AS a, COALESCE("{1}", 0) AS b '
+        'FROM "tab{2}" WHERE name = %(n)s'.format(minuend, subtrahend, document_type),
+        {"n": document_name}, as_dict=True,
+    )
+    if not row:
+        return
+
+    frappe.db.set_value(
+        document_type, document_name, "amount_due",
+        flt(row[0].a) - flt(row[0].b),
     )

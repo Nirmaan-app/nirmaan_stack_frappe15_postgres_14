@@ -100,9 +100,12 @@ def get_pmo_projects():
     Category totals come from PMO package masters so cards are populated
     even before a project's PMO task rows are initialized.
     """
+    # v3 dual-field model: PMO tracks awarded work only. Gate on `tendering_status`,
+    # NOT `status` -- a pre-Won stub carries `status = ""`, so a status-based filter
+    # (and the caller-side `status !== "Completed"` narrowing) lets every stub through.
     projects = frappe.get_all(
         "Projects",
-        # filters=[["status", "not in", ["Completed"]]],
+        filters=[["tendering_status", "=", "Won"]],
         fields=["name", "project_name", "project_city", "project_state", "status", "disabled_pmo", "creation"],
         order_by="creation desc",
     )
@@ -628,7 +631,7 @@ def get_all_tasks(
     # 1. Get all active projects and their handover status dates
     projects = frappe.get_all(
         "Projects",
-        filters={"disabled_pmo": 0},
+        filters={"disabled_pmo": 0, "tendering_status": "Won"},
         fields=["name", "project_name", "status", "creation"]
     )
     

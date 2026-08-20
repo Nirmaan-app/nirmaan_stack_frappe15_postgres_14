@@ -13,12 +13,22 @@ import { useCallback, useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { ShieldCheck, ShieldOff } from "lucide-react";
 import { useUserData } from "@/hooks/useUserData";
 import { RATE_MASTER_DISCIPLINES } from "./rateMasterRegistry";
 import { RateMasterDataViewer } from "./RateMasterDataViewer";
 import { RateMasterDerivation } from "./RateMasterDerivation";
 import { RateMasterPipelines } from "./RateMasterPipelines";
 import { isRateMasterAdmin } from "./rateMasterEdit";
+import {
+  FREEZE_COPY,
+  UNFROZEN,
+  canManageRateMasterFreeze,
+  freezeBannerDetail,
+  isRateMasterWriteBlocked,
+  type RateMasterFreezeState,
+} from "./rateMasterFreeze";
 import { downloadBase64, type DownloadPayload } from "./rateMasterDownload";
 import type { UploadPlan, UploadResult } from "./rateMasterUpload";
 import type { GetConfigResponse, GetItemsResponse, RateCategoryConfig } from "./rateMasterTypes";
@@ -40,6 +50,11 @@ const EXPORT_ASSET_METHOD = "nirmaan_stack.api.boq.rate_master.export_rate_maste
 // only writer, so a file can never be applied on arrival. Both are ADMIN-gated server-side.
 const PREVIEW_CSV_METHOD = "nirmaan_stack.api.boq.rate_master.preview_rate_master_csv";
 const APPLY_CSV_METHOD = "nirmaan_stack.api.boq.rate_master.apply_rate_master_csv";
+// SLICE RMF-1: the deployment freeze. The READ is login-only (the banner is page state, so every
+// user who can reach this page sees it); the two WRITES are admin-gated server-side.
+const FREEZE_STATE_METHOD = "nirmaan_stack.api.boq.rate_master.get_rate_master_freeze";
+const FREEZE_METHOD = "nirmaan_stack.api.boq.rate_master.freeze_rate_master";
+const UNFREEZE_METHOD = "nirmaan_stack.api.boq.rate_master.unfreeze_rate_master";
 
 export function RateMasterPage() {
   const [disciplineId, setDisciplineId] = useState(RATE_MASTER_DISCIPLINES[0]?.discipline ?? "");
@@ -75,6 +90,9 @@ export function RateMasterPage() {
   // read-only (controls HIDDEN, not disabled). Server-authoritative regardless.
   const { user_id: currentUser, role } = useUserData();
   const isAdmin = isRateMasterAdmin(role, currentUser);
+  // RMF-1: the freeze population IS the rate-master edit population (owner ruling R5), so this
+  // DELEGATES to the same predicate rather than minting a second one that could drift.
+  const canManageFreeze = canManageRateMasterFreeze(role, currentUser);
 
   const { call: callSaveParam } = useFrappePostCall(UPDATE_PARAM_METHOD);
   const { call: callSaveItem } = useFrappePostCall(UPDATE_ITEM_METHOD);
@@ -85,6 +103,39 @@ export function RateMasterPage() {
   const { call: callExportAsset } = useFrappePostCall(EXPORT_ASSET_METHOD);
   const { call: callPreviewCsv } = useFrappePostCall(PREVIEW_CSV_METHOD);
   const { call: callApplyCsv } = useFrappePostCall(APPLY_CSV_METHOD);
+
+  // ── RMF-1: the deployment freeze ────────────────────────────────────────────────────
+  // NOT keyed on discipline: the freeze is SYSTEM-WIDE, so the same state governs every
+  // discipline and category on this screen. A failed read degrades to UNFROZEN, which is
+  // byte-identical to the pre-freeze screen -- the same fail-open direction the server takes,
+  // and for the same reason (a transient error must not brick editing while naming a deployment
+  // nobody is doing).
+  const {
+    data: freezeData,
+    mutate: mutateFreeze,
+  } = useFrappeGetCall<{ message: RateMasterFreezeState }>(FREEZE_STATE_METHOD, undefined, "rate-master-freeze");
+  const freezeState = freezeData?.message ?? UNFROZEN;
+  const writesBlocked = isRateMasterWriteBlocked(freezeState);
+
+  const { call: callFreeze } = useFrappePostCall(FREEZE_METHOD);
+  const { call: callUnfreeze } = useFrappePostCall(UNFREEZE_METHOD);
+  const [freezeBusy, setFreezeBusy] = useState(false);
+  const [freezeErr, setFreezeErr] = useState<string | null>(null);
+  const onToggleFreeze = useCallback(async () => {
+    setFreezeBusy(true);
+    setFreezeErr(null);
+    try {
+      // Read the CURRENT state to decide the direction, so a stale render cannot invert the
+      // action. Both endpoints are idempotent server-side, so the worst case is a no-op.
+      if (freezeState.frozen) await callUnfreeze({});
+      else await callFreeze({});
+      await mutateFreeze();
+    } catch (e) {
+      setFreezeErr(String((e as { message?: string })?.message ?? e));
+    } finally {
+      setFreezeBusy(false);
+    }
+  }, [callFreeze, callUnfreeze, freezeState.frozen, mutateFreeze]);
 
   // Each write refetches its collection so the derivation/viewer recompute live (the persistence split
   // then carries edited params/rates into the next pricing-panel compute with no re-run).
@@ -226,6 +277,46 @@ export function RateMasterPage() {
         </div>
       </div>
 
+      {/* ── RMF-1: the freeze CONTROL (admin-only; HIDDEN for everyone else, matching every other
+          write affordance on this screen). It sits in the header row so it is reachable from ANY
+          tab -- the writes it governs are split across Data Viewer (upload, row edits) and
+          Derivation / Pipelines (config edits). Approved UI item 1. */}
+      {canManageFreeze && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant={freezeState.frozen ? "outline" : "ghost"}
+            className={freezeState.frozen ? "gap-1.5" : "gap-1.5 border"}
+            disabled={freezeBusy}
+            onClick={() => void onToggleFreeze()}
+          >
+            {freezeState.frozen ? <ShieldOff className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+            {freezeBusy
+              ? FREEZE_COPY.busy
+              : freezeState.frozen
+              ? FREEZE_COPY.unfreezeButton
+              : FREEZE_COPY.freezeButton}
+          </Button>
+          {freezeErr && <span className="text-xs text-destructive">{freezeErr}</span>}
+        </div>
+      )}
+
+      {/* ── RMF-1: the freeze BANNER (approved UI item 2) -- that it is on, since when as ELAPSED
+          time, and who turned it on. TEAL + ShieldCheck is the product's established colour for a
+          DELIBERATE, persistent, cross-user lock (SheetPricingPage's lock banner); amber there
+          means transient concurrency, which this is not. Rendered for EVERY viewer of the page,
+          not only admins: a read-only Estimates user seeing "frozen" is better served than one
+          left to guess. Rate Master page only -- it appears nowhere else in the product. */}
+      {freezeState.frozen && (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-teal-300 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/40 text-sm">
+          <ShieldCheck className="h-4 w-4 shrink-0 text-teal-700 dark:text-teal-300" />
+          <p className="text-teal-900 dark:text-teal-100 flex-1">
+            <span className="font-medium">{FREEZE_COPY.bannerTitle}</span>
+            {freezeBannerDetail(freezeState) ? ` ${freezeBannerDetail(freezeState)}` : ""}
+          </p>
+        </div>
+      )}
+
       {error && (
         <div className="rounded border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
           Failed to load rate master: {String((error as { message?: string })?.message ?? error)}
@@ -254,6 +345,7 @@ export function RateMasterPage() {
               disciplineLabel={discipline?.label ?? disciplineId}
               categoryLabel={categoryLabel}
               isAdmin={isAdmin}
+              frozen={writesBlocked}
               onDownloadCsv={onDownloadCsv}
               onDownloadAsset={onDownloadAsset}
               onPreviewCsv={onPreviewCsv}
@@ -269,6 +361,7 @@ export function RateMasterPage() {
               items={items}
               config={config}
               isAdmin={isAdmin}
+              frozen={writesBlocked}
               onSaveParam={onSaveParam}
             />
           </TabsContent>
@@ -277,6 +370,7 @@ export function RateMasterPage() {
               items={items}
               config={config}
               isAdmin={isAdmin}
+              frozen={writesBlocked}
               onSaveConfig={onSaveConfig}
             />
           </TabsContent>

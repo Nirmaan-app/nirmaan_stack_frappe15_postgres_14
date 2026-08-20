@@ -483,14 +483,34 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                                   masquerade as the first option -- show an explicit unset placeholder
                                   so the pricer knows this attribute still needs a pick.
 
-                                  SLICE 2c -- THE CLEAR AFFORDANCE. For a DERIVED attribute the
-                                  placeholder is SELECTABLE and says so: clearing is how a pricer hands
-                                  the field back to the pipeline, and blank there means "not stated",
-                                  never "incomplete". For a genuine input it stays DISABLED, because
-                                  blank there IS incomplete and offering it would invite a dead end.
-                                  Selecting it calls setAttr(id, ""), which overrides the extracted
-                                  value with empty -- the recompute then restores the computed one. */}
-                              <option value="" disabled>
+                                  ⚠️ THE PLACEHOLDER IS ALWAYS SELECTABLE (owner ruling R9, 2026-08-19).
+                                  This SUPERSEDES the slice-2c rule that it stayed `disabled` for a
+                                  genuine input. Two reasons, and the first is not a preference:
+
+                                  1. A CONTROLLED <select> WITH NO MATCHING OPTION FALLS BACK TO THE
+                                     FIRST *SELECTABLE* OPTION -- it does NOT go blank. React sets
+                                     `option.selected = (option.value === props.value)` per option
+                                     rather than assigning `.value`, so when nothing matches every
+                                     option ends unselected and the browser must still show something.
+                                     With the placeholder disabled it was skipped, and the field
+                                     displayed the first REAL catalog value -- a number the row never
+                                     stated, beside a derivation line naming the real one. Measured on
+                                     live data at slice 4: 12 rows across conduit_piping, wiring_cabling
+                                     and cabletray_raceway (the tray six predate slice 4 -- this shipped
+                                     latent with 3b). For an `allow_none` def it was worse still: the
+                                     fallback was the "None" SENTINEL, a positive decision the row never
+                                     made. Making the placeholder selectable is what makes blank BLANK.
+                                  2. Owner: "the user can edit the value all the time whether it is
+                                     blank or it matches something from catalog. the user is the
+                                     ultimate authority."
+
+                                  Selecting it calls setAttr(id, ""), which overrides with empty ->
+                                  `coerceForMatch` returns null -> the row is gated incomplete, exactly
+                                  as if the attribute had never been filled. For a DERIVED attribute
+                                  that hands the field back to the pipeline, which is what 2c wanted
+                                  all along; for a genuine input blank IS incomplete, and the red
+                                  border plus "Complete the missing attributes to price" say so. */}
+                              <option value="">
                                 — select —
                               </option>
                               {a.options.map((o) => (

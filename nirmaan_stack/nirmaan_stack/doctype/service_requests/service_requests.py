@@ -40,3 +40,14 @@ class ServiceRequests(Document):
 			total_amount += sub_total * 0.18
 
 		frappe.db.set_value("Service Requests", self.name, "total_amount", total_amount)
+
+		# `amount_due` on an SR is total_amount - amount_paid, so it moves with the write
+		# above and has to be recomputed HERE, at the operand's only write site. It cannot
+		# be left to a guard in the on_update controller: the write above never touches
+		# `self.total_amount`, so by the time the hooked handler runs, the in-memory value
+		# still equals the pre-save one and any "did it change?" comparison reads False --
+		# on exactly the two saves that move it, a GST flip and the approval transition.
+		from nirmaan_stack.api.invoices._item_billing_sync import (
+			recompute_document_amount_due,
+		)
+		recompute_document_amount_due("Service Requests", self.name)

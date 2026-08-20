@@ -417,7 +417,10 @@ const WARN_FLAG_ORDER = ["orphan", "parser", "classifier_warning"];
 // (demoted to a soft advisory flag) -- it lives only in WARN_FLAG_LABELS now.
 const WARN_BREAK_LABELS: Record<string, string> = {
   preamble_parent_level: "Sub-heading not under a higher-level heading",
-  line_item_parent_not_preamble: "Item not under a section heading",
+  // NARROWED 2026-08-19 (owner ruling): an item under ANOTHER ITEM is now allowed and no
+  // longer produces this break, so the label must stop implying a heading is the only legal
+  // parent. The wire CODE is unchanged -- it is the break union's discriminant.
+  line_item_parent_not_preamble: "Item under a note or marker row",
   cycle: "Parent cycle",
 };
 

@@ -29,6 +29,7 @@ import {
     describeApprovalNarrative,
     summariseSkipReasons,
 } from "@/pages/tasks/invoices/utils/autoApproveReasons";
+import { ReasonBreakdown, ReasonTitle } from "@/pages/tasks/invoices/components/ReasonBreakdown";
 import { humanizeEntityType, formatEntityValue, confColorClass } from "@/pages/tasks/invoices/utils/autofillEntityDisplay";
 /**
  * Maps Document AI entity types (snake_case) to human-readable labels.
@@ -277,6 +278,11 @@ const InvoiceTotalCell: React.FC<{
  * `auto_approve_skip_reasons` has been persisted since the 13-gate check
  * shipped, and until now nothing rendered it. The tiering + cascade collapse
  * live in the pure `autoApproveReasons` module; this cell only paints them.
+ *
+ * The chip carries the top flag plus a +N count — all a scannable column can
+ * hold. The hover then gives each flag its own write-up (why it blocks, what to
+ * do) through the shared `ReasonBreakdown`, so a reviewer can act on the row
+ * without going back up to the reason key above the table.
  */
 const AutoApproveReasonCell: React.FC<{ invoice: VendorInvoice }> = ({ invoice }) => {
     const summary = summariseSkipReasons(invoice);
@@ -322,28 +328,39 @@ const AutoApproveReasonCell: React.FC<{ invoice: VendorInvoice }> = ({ invoice }
                     )}
                 </div>
             </HoverCardTrigger>
-            <HoverCardContent className="w-80 p-0 overflow-hidden" align="end">
-                <div className="bg-gray-50 border-b px-3 py-2">
+            <HoverCardContent className="w-[380px] p-0 overflow-hidden" align="end">
+                <div className="flex items-center gap-2 bg-gray-50 border-b px-3 py-2">
                     <span className="text-xs font-medium text-gray-900">
                         {narrative === "approved-with-flags"
                             ? "Approved despite these flags"
                             : "Not auto-approved because"}
                     </span>
+                    {summary.flags.length > 1 && (
+                        <span className="ml-auto shrink-0 text-[10px] text-gray-500">
+                            {summary.flags.length} reasons
+                        </span>
+                    )}
                 </div>
-                <ul className="p-2 space-y-1">
+                {/* Each flag gets its own reading, and the list is capped in
+                    HEIGHT rather than in count — a five-flag invoice is exactly
+                    the one worth reading in full, so truncating it could hide
+                    the blocker. A single reason renders whole (no scrollbar on
+                    a card that has nothing more to show); two or more scroll
+                    inside a fixed frame, with the count in the header saying how
+                    many are down there. 264px lands mid-way through the second
+                    block, so the cut edge itself reads as "there is more". */}
+                <ul
+                    className={cn(
+                        "divide-y divide-gray-100 p-2",
+                        summary.flags.length > 1 && "max-h-[264px] overflow-y-auto"
+                    )}
+                >
                     {summary.flags.map((reason) => (
-                        <li key={reason.token} className="flex items-start gap-1.5 text-[11px]">
-                            <span
-                                className={cn(
-                                    "mt-1 h-1.5 w-1.5 rounded-full shrink-0",
-                                    reason.tier === "blocker"
-                                        ? "bg-red-500"
-                                        : reason.tier === "check"
-                                            ? "bg-amber-500"
-                                            : "bg-gray-400"
-                                )}
-                            />
-                            <span className="text-gray-800">{reason.label}</span>
+                        <li key={reason.token} className="py-2 first:pt-0 last:pb-0">
+                            <ReasonTitle reason={reason} />
+                            <div className="mt-1.5">
+                                <ReasonBreakdown reason={reason} compact />
+                            </div>
                         </li>
                     ))}
                 </ul>

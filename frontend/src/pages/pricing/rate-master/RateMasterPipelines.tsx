@@ -25,6 +25,7 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import type { AttributeDefinition, RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
+import { FREEZE_BLOCKED_MESSAGE } from "./rateMasterFreeze";
 import {
   STEP_VOCABULARY, StepType, blankAttributeDefinition, blankPipeline, blankStep, categoryItemKinds,
   cloneConfig, evaluateGoldens, goldenDeltas, isDropdownAttributeType, referencedAttrIds,
@@ -34,6 +35,11 @@ interface Props {
   config: RateCategoryConfig;
   items: RateMasterItem[];
   isAdmin?: boolean;
+  // RMF-1: while the deployment freeze is on, "Edit structure" leads to the whole-config replace
+  // (update_rate_config), which is refused server-side -- so the entry point is DISABLED with the
+  // owner's approved message as its tooltip rather than letting a user build a draft that cannot
+  // be saved.
+  frozen?: boolean;
   onSaveConfig?: (config: RateCategoryConfig) => Promise<void>;
 }
 
@@ -347,7 +353,7 @@ function readableStep(step: Record<string, unknown>): string {
   return "";
 }
 
-export function RateMasterPipelines({ config, items, isAdmin, onSaveConfig }: Props) {
+export function RateMasterPipelines({ config, items, isAdmin, frozen, onSaveConfig }: Props) {
   const [draft, setDraft] = useState<RateCategoryConfig | null>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -382,7 +388,12 @@ export function RateMasterPipelines({ config, items, isAdmin, onSaveConfig }: Pr
       <div className="flex items-center gap-2">
         <h2 className="text-sm font-semibold">Pipelines &amp; attributes</h2>
         {isAdmin && onSaveConfig && !editing && (
-          <Button type="button" size="sm" variant="outline" onClick={begin}>Edit structure</Button>
+          <Button
+            type="button" size="sm" variant="outline"
+            disabled={!!frozen}
+            title={frozen ? FREEZE_BLOCKED_MESSAGE : undefined}
+            onClick={begin}
+          >Edit structure</Button>
         )}
         {editing && (
           <div className="ml-auto flex items-center gap-2">
