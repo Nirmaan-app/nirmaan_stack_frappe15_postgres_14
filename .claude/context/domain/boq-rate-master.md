@@ -797,6 +797,36 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   framing: true for an established site, **false for a new one**. The mint-and-bump-the-pin discipline
   applies to every future change that moves the catalog.
 
+- **⚠️ A PRODUCTION DATA REFRESH CAN ROLL THE DEV DATABASE *BELOW* ITS OWN COMMITTED EXPORT
+  (measured 2026-08-19/20; the restore is recorded in the plan doc).** The bullet above qualifies the
+  "stale but harmless" framing for a NEW site. This is the third case, and the one that actually
+  happened: on an ESTABLISHED dev site, refreshing the data from production replaced the whole
+  rate-master scope with production's, which sat at **v43** - one mint BEHIND the asset dev had itself
+  exported and committed as **v44**. The asset was not stale; it was AHEAD, and the database - the
+  source of truth - was the thing that had regressed. **The runtime reads configs from the DATABASE, so
+  every behaviour v44 shipped silently reverted while the repo still claimed v44 and
+  `CURRENT_EALL_ASSET` still named it.** Nothing failed loudly: the app ran, priced, and looked
+  correct.
+- **WHAT MAKES IT DETECTABLE, AND WHAT DOES NOT.** `track_changes` is useless here - a refresh restores
+  rows wholesale rather than editing them, so **zero `Version` rows** are written and an audit shows an
+  untouched catalogue. The reliable instrument is the one the export already gives you: run
+  `exporter.export_asset_text(discipline)` and compare its sha256 against the committed asset. Two
+  exports of an unchanged database are byte-identical, so a mismatch is proof and a match is proof.
+  Uniform `modified` timestamps across every config plus a single import batch corroborate a
+  wholesale restore rather than a human edit.
+- **THE RESTORE IS AN ORDINARY LOAD, NOT A DEPLOYMENT.** Re-loading the committed asset by explicit
+  path with `replace=True` is the fix, and it is exactly the standing procedure - the file was exported
+  from this same database, so the load can only replay what was already there. Back the live scope up
+  to a file first, and re-verify the pre-load sha against the version you believe you are on rather
+  than trusting an earlier recon: if it does not match, something moved in between and the load must
+  not run. **Production is not touched by any of this** - it is the source the refresh came from, and
+  it stays on its own version.
+- **THE DB-READING TESTS ARE THE PROOF, AND ONLY THEY CAN FAIL.** A suite that reads the ASSET FILE
+  cannot see this class of regression at all - it passes throughout, because the file was never wrong.
+  Only the tests that read live DB values go red (here: the two switches_sockets / point_wiring golden
+  tests), which makes the before-and-after suite run the honest instrument for a restore: capture the
+  failures BEFORE loading, and require exactly those to turn green after.
+
 ### F-21 - the 10% major-change boundary
 
 - **✅ F-21 — CLOSED (2026-08-14). THE ≥10% "MAJOR" BOUNDARY ROUNDS BEFORE COMPARING, AND THE
