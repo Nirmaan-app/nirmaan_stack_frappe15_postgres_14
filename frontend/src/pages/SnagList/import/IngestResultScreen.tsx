@@ -6,12 +6,17 @@
  * own line with its own outcome -- never one green toast over the top of a mixed result.
  *
  * REFUSALS ARE LOUD TOO, and for the same reason. `refused_no_description` counts ticked rows
- * the import would not take because they have no description -- the one required field. A sheet
- * with refusals is `ok: true` and just imports FEWER rows than the footer promised, which is
- * precisely the silent-drop shape R2.1 was about. So the count renders in destructive colour
- * NEXT TO the imported figure, never appended to the muted success line, and it is rolled up
- * into the header summary alongside `failed_count`. A refusal here means the un-tickable gating
- * in `PreviewPanel` let something through, so it is worth seeing.
+ * the import would not take. A sheet with refusals is `ok: true` and just imports FEWER rows
+ * than the footer promised, which is precisely the silent-drop shape R2.1 was about. So the
+ * count renders in destructive colour NEXT TO the imported figure, never appended to the muted
+ * success line, and it is rolled up into the header summary alongside `failed_count`.
+ *
+ * ⚠️ ADR-0019: this count is now STRUCTURALLY ALWAYS 0 -- nothing is refused any more, because a
+ * human tick is authoritative and a description-less row imports with a fallback. This branch is
+ * RETAINED, not deleted, and must stay: it is the instrument that proved R2.1's silent drop
+ * fixed, and it is what would make a REGRESSION of that bug visible instead of silent. It
+ * already renders only when the count is non-zero (absent and 0 mean the same thing), so on the
+ * current backend it simply never fires.
  */
 
 import { AlertCircle, CheckCircle2 } from "lucide-react";
@@ -23,7 +28,10 @@ export interface IngestResultScreenProps {
   result: IngestBatchesResponse;
 }
 
-/** `refused_no_description` is optional on the wire; absent and 0 mean the same thing. */
+/**
+ * `refused_no_description` is optional on the wire; absent and 0 mean the same thing -- and
+ * post-ADR-0019 that is the only value it takes. Every consumer below is gated on `> 0`.
+ */
 function refusedCount(r: SheetIngestResult): number {
   return r.ok ? r.refused_no_description ?? 0 : 0;
 }
