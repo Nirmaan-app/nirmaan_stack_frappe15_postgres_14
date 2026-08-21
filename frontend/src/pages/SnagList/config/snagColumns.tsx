@@ -11,9 +11,11 @@
  */
 
 import { ColumnDef } from "@tanstack/react-table";
+import { SquarePen } from "lucide-react";
 
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { facetMeta } from "@/components/data-table/facetConfig";
+import { Button } from "@/components/ui/button";
 import { formatDate } from "@/utils/FormatDate";
 
 import { SnagStatus } from "../types";
@@ -33,6 +35,13 @@ export interface GetSnagColumnsOptions {
     next: SnagStatus,
     remark: string | undefined
   ) => Promise<boolean> | void;
+  /**
+   * Open the Edit dialog (Area / Category / Description). Withheld when the actor
+   * may not edit a row's DATA — a DIFFERENT question from its status, and a
+   * NARROWER set: a Project Manager records work done but does not rewrite what the
+   * consultant reported (`snagPermissions.canEditRow`, owner Q8a).
+   */
+  onEditRow?: (snag: SnagListRow) => void;
   /** `name` of the row whose write is currently in flight, if any. */
   savingStatusFor?: string | null;
 }
@@ -41,6 +50,7 @@ const dash = (v?: string | null) => (v && v.trim() ? v : "--");
 
 export const getSnagColumns = ({
   onStatusChange,
+  onEditRow,
   savingStatusFor,
 }: GetSnagColumnsOptions): ColumnDef<SnagListRow>[] => [
   {
@@ -108,9 +118,15 @@ export const getSnagColumns = ({
       <DataTableColumnHeader column={column} title="Status" />
     ),
     cell: ({ row }) => (
+      // The whole row is in hand here, so the change dialog's read-only
+      // Description / Area / Category context costs NO extra fetch — it is passed
+      // straight down (Revision 3, R3.3 #5).
       <SnagStatusCell
         status={row.original.status}
         remark={row.original.remark}
+        description={row.original.description}
+        area={row.original.area}
+        category={row.original.category}
         isSaving={savingStatusFor === row.original.name}
         onChange={
           onStatusChange
@@ -146,43 +162,6 @@ export const getSnagColumns = ({
     meta: {
       exportHeaderName: "Remarks",
       exportValue: (r: SnagListRow) => r.remark || "",
-    },
-  },
-  {
-    /* ── The Batch FILTER's host column ───────────────────────────────────────
-     * There is deliberately NO Batch column in the grid any more (Revision 2 Q5),
-     * but the Batch FILTER stays. This column exists ONLY to carry the filter, and
-     * it is not something to "clean up".
-     *
-     * WHY IT HAS TO EXIST: the faceted filter writes its selection through
-     * `column.setFilterValue()`, so the resulting `columnFilters` entry is keyed by
-     * the HOST COLUMN'S ID — and `convertTanstackFiltersToFrappe` turns that id
-     * straight into the queried FIELD NAME. Re-siting the declaration onto the Area
-     * or Status column would therefore send `["area", "in", ["<batch doc name>"]]`:
-     * the funnel would populate correctly (options come from `facet.field`) and then
-     * filter the wrong field. Keeping a column whose id IS `batch` is what keeps the
-     * emitted filter honest.
-     *
-     * It is a DISPLAY column (no `accessorKey`, so `accessorFn` is undefined), which
-     * is what keeps it out of the "Toggle columns" menu — that menu lists only
-     * accessor columns. Hidden via `SNAG_INITIAL_COLUMN_VISIBILITY`, so it renders
-     * no header and no cells; `SnagListTab` renders the funnel itself, in the
-     * toolbar, reading this column's declaration through `getColumnFacet`.
-     */
-    id: "batch",
-    enableSorting: false,
-    enableColumnFilter: true,
-    size: 0,
-    header: () => null,
-    cell: () => null,
-    meta: {
-      ...facetMeta({
-        field: "batch",
-        title: "Batch",
-        includeBlankBucket: true,
-        blankLabel: "Manual (no batch)",
-      }),
-      excludeFromExport: true,
     },
   },
   {
@@ -243,20 +222,77 @@ export const getSnagColumns = ({
       exportValue: (r: SnagListRow) => r.status_changed_by || "",
     },
   },
+  /* ── Actions ────────────────────────────────────────────────────────────────
+   * LAST in the array, which is what "far right" means here. It is NOT pinned:
+   * nothing in this app's tables is. `useServerDataTable` declares no
+   * `columnPinning` and `new-data-table.tsx`'s sticky class for data columns is
+   * commented out, so pinning would be a shared-infrastructure change across ~40
+   * pages — explicitly out of scope (Revision 3, owner Q7a).
+   *
+   * TWO buttons, TWO DIFFERENT GATES, and the whole column is omitted when neither
+   * callback was supplied — presence of the callback IS the gate, exactly as the
+   * status cell already works. There is no second `disabled` signal anywhere.
+   */
+  ...(onStatusChange || onEditRow
+    ? [
+        {
+          id: "actions",
+          size: 90,
+          enableSorting: false,
+          enableColumnFilter: false,
+          header: () => <div className="text-center text-xs">Actions</div>,
+          cell: ({ row }: { row: { original: SnagListRow } }) => (
+            <div className="flex items-center justify-center gap-1">
+              {/* The status button is a SECOND DOOR ONTO THE SAME DIALOG, never a
+                  second rule (owner Q10a): it renders the very same
+                  `SnagStatusCell`, only as an icon trigger, so the "Not Applicable
+                  takes no remark" carve-out cannot drift between the two. The
+                  inline dropdown in the Status column stays. */}
+              {onStatusChange && (
+                <SnagStatusCell
+                  variant="icon"
+                  status={row.original.status}
+                  remark={row.original.remark}
+                  description={row.original.description}
+                  area={row.original.area}
+                  category={row.original.category}
+                  isSaving={savingStatusFor === row.original.name}
+                  onChange={(next, remark) =>
+                    onStatusChange(row.original, next, remark)
+                  }
+                />
+              )}
+              {onEditRow && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  title="Edit area, category and description"
+                  aria-label="Edit snag details"
+                  onClick={() => onEditRow(row.original)}
+                >
+                  <SquarePen className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+          ),
+          meta: { excludeFromExport: true },
+        } as ColumnDef<SnagListRow>,
+      ]
+    : []),
 ];
 
 /**
  * Initial column visibility.
  *
- *  - `status_changed_by` is folded into the "Last updated" cell, so it starts
- *    hidden but stays toggleable and exported.
- *  - `batch` is the FILTER-HOST column above: hidden permanently, and unreachable
- *    from the "Toggle columns" menu because it declares no accessor.
+ * `status_changed_by` is folded into the "Last updated" cell, so it starts hidden
+ * but stays toggleable and exported.
+ *
+ * The hidden `batch` FILTER-HOST column that used to be listed here went with the
+ * Batch funnel in Revision 3 (owner Q6): batch provenance now lives in the Edit
+ * dialog, read-only. Its id was removed from `SNAG_FILTERABLE_COLUMN_IDS` in the
+ * same change — see the warning there; the two are one removal.
  */
 export const SNAG_INITIAL_COLUMN_VISIBILITY: Record<string, boolean> = {
   status_changed_by: false,
-  batch: false,
 };
-
-/** The filter-host column's id — the ONE literal, shared with the page's funnel. */
-export const SNAG_BATCH_FILTER_COLUMN_ID = "batch";

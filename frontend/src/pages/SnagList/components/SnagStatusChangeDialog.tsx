@@ -23,6 +23,15 @@ export interface SnagStatusChangeDialogProps {
   currentStatus: SnagStatus;
   /** The stored remark, pre-filled into the box. */
   remark: string | null;
+  /**
+   * READ-ONLY context — WHAT is being decided about. Passed down from the row the
+   * caller already holds (no fetch, no endpoint change; Revision 3, R3.3 #5).
+   * Optional so the dialog degrades to its pre-Revision-3 shape if a caller has
+   * no row in hand; it is never editable here (that is the Edit dialog's job).
+   */
+  description?: string;
+  area?: string;
+  category?: string;
   isSaving?: boolean;
   onCancel: () => void;
   /**
@@ -35,6 +44,12 @@ export interface SnagStatusChangeDialogProps {
 
 /**
  * The status change, and the remark that rides it (ADR-0018).
+ *
+ * It also SHOWS the snag's Description, Area and Category, read-only (Revision 3):
+ * the person deciding should be able to see what they are deciding about without
+ * closing the dialog. Read-only is the whole point — Area / Category / Description
+ * are edited in `SnagEditDialog`, under a NARROWER permission, and duplicating an
+ * editor here would put two write paths on one field.
  *
  * MOUNTED ONLY WHILE A CHANGE IS PENDING — the caller renders it conditionally, so
  * the draft is seeded by `useState` on mount and there is no effect anywhere that
@@ -56,12 +71,24 @@ export const SnagStatusChangeDialog: React.FC<SnagStatusChangeDialogProps> = ({
   nextStatus,
   currentStatus,
   remark,
+  description,
+  area,
+  category,
   isSaving = false,
   onCancel,
   onConfirm,
 }) => {
   const stored = remark ?? "";
+  // ⚠️ A `useState` INITIALISER, deliberately not an effect. The dialog is mounted
+  // only while a change is pending, so there is nothing for a background refetch to
+  // clobber. The read-only context props above are RENDER-ONLY and must never be
+  // folded into this seeding.
   const [draft, setDraft] = React.useState(stored);
+
+  const meta = [
+    { label: "Area", value: area },
+    { label: "Category", value: category },
+  ].filter((m) => m.value && m.value.trim());
 
   const handleConfirm = () => {
     // Untouched -> send NOTHING, so the server leaves the stored text exactly as it
@@ -104,6 +131,33 @@ export const SnagStatusChangeDialog: React.FC<SnagStatusChangeDialogProps> = ({
             </div>
           </DialogDescription>
         </DialogHeader>
+
+        {/* WHAT is being decided about, read-only. Shown ABOVE the controls so the
+            snag is read before the status is picked. The description can run to a
+            few hundred characters, so it SCROLLS inside a capped box rather than
+            growing the dialog off-screen. */}
+        {(description || meta.length > 0) && (
+          <div className="space-y-1.5 rounded-md border bg-muted/40 px-3 py-2">
+            {meta.length > 0 && (
+              <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-muted-foreground">
+                {meta.map((m) => (
+                  <span key={m.label}>
+                    <span className="font-medium">{m.label}:</span> {m.value}
+                  </span>
+                ))}
+              </div>
+            )}
+            {description && description.trim() ? (
+              <p className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words text-xs">
+                {description}
+              </p>
+            ) : (
+              <p className="text-xs italic text-muted-foreground">
+                This snag has no description.
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="space-y-1.5 py-1">
           <label htmlFor="snag-remark" className="text-xs font-medium">

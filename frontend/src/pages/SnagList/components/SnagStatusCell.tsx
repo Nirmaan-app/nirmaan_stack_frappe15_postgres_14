@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Tags } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -22,6 +22,23 @@ export interface SnagStatusCellProps {
   status: SnagStatus;
   /** The row's stored remark — pre-filled into the change dialog. */
   remark: string | null;
+  /**
+   * Read-only CONTEXT for the change dialog: what the person is deciding about.
+   * The caller already holds the whole row (`snagColumns.tsx` closes over
+   * `row.original`), so this costs no fetch and no endpoint change.
+   */
+  description?: string;
+  area?: string;
+  category?: string;
+  /**
+   * `"select"` (default) = the inline dropdown in the Status column.
+   * `"icon"` = the compact trigger in the Actions column.
+   *
+   * ONE component, TWO triggers, ONE dialog — which is the point (owner Q10a).
+   * Do NOT reimplement the pick handler for the icon door: the `Not Applicable`
+   * carve-out below would then exist twice and be free to drift.
+   */
+  variant?: "select" | "icon";
   /**
    * Withheld when the actor may not edit — presence of the callback IS the gate.
    *
@@ -57,12 +74,21 @@ export interface SnagStatusCellProps {
 export const SnagStatusCell: React.FC<SnagStatusCellProps> = ({
   status,
   remark,
+  description,
+  area,
+  category,
+  variant = "select",
   onChange,
   isSaving = false,
 }) => {
   const [pending, setPending] = React.useState<SnagStatus | null>(null);
+  const isIcon = variant === "icon";
 
   if (!onChange) {
+    // The icon door is rendered only where a callback exists, so a read-only
+    // actor never reaches it. Nothing to show in its place — the Status column's
+    // badge already says what the status is.
+    if (isIcon) return null;
     return (
       <Badge
         variant="outline"
@@ -90,13 +116,20 @@ export const SnagStatusCell: React.FC<SnagStatusCellProps> = ({
     <div className="flex items-center gap-1">
       <Select value={status} disabled={isSaving} onValueChange={handlePick}>
         <SelectTrigger
-          aria-label="Snag status"
+          aria-label={isIcon ? "Change snag status" : "Snag status"}
+          title={isIcon ? "Change status" : undefined}
           className={cn(
-            "h-7 w-[132px] px-2 text-xs font-medium",
-            SNAG_STATUS_BADGE_STYLES[status]
+            "text-xs font-medium",
+            isIcon
+              ? "h-7 w-auto gap-0.5 border-transparent bg-transparent px-1 shadow-none hover:bg-accent"
+              : cn("h-7 w-[132px] px-2", SNAG_STATUS_BADGE_STYLES[status])
           )}
         >
-          <SelectValue />
+          {isIcon ? (
+            <Tags className="h-3.5 w-3.5 shrink-0" />
+          ) : (
+            <SelectValue />
+          )}
         </SelectTrigger>
         <SelectContent>
           {SNAG_STATUSES.map((s) => (
@@ -115,6 +148,9 @@ export const SnagStatusCell: React.FC<SnagStatusCellProps> = ({
           nextStatus={pending}
           currentStatus={status}
           remark={remark}
+          description={description}
+          area={area}
+          category={category}
           isSaving={isSaving}
           onCancel={() => setPending(null)}
           onConfirm={async (next, nextRemark) => {
