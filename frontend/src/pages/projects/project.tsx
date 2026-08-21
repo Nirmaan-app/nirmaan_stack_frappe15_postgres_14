@@ -85,6 +85,7 @@ const ProjectEstimates = React.lazy(() => import("./add-project-estimates"));
 const ProjectPOSummaryTable = React.lazy(() => import("./components/ProjectPOSummaryTable"));
 const ProjectMaterialUsageTab = React.lazy(() => import("./components/ProjectMaterialUsageTab"));
 const ProjectDesignTrackerDetail = React.lazy(() => import("@/pages/ProjectDesignTracker/project-design-tracker-details").then(module => ({ default: module.ProjectDesignTrackerDetailV2 })));
+const SnagListTab = React.lazy(() => import("@/pages/SnagList/SnagListTab").then(module => ({ default: module.SnagListTab })));
 const NoDesignTrackerView = React.lazy(() => import("@/pages/ProjectDesignTracker/components/NoDesignTrackerView").then(module => ({ default: module.NoDesignTrackerView })));
 const ProjectCommissionReportDetail = React.lazy(() => import("@/pages/CommissionReport/project-commission-report-details"));
 const NoCommissionReportView = React.lazy(() => import("@/pages/CommissionReport/components/NoCommissionReportView").then(module => ({ default: module.NoCommissionReportView })));
@@ -270,6 +271,7 @@ export const PROJECT_PAGE_TABS = {
   SEVEN_DAY_PLANNING: '7dayplanning', // ADD THIS NEW KEY
   CRITICAL_POS: 'criticalpos', // Critical PO Tasks Tab
   DESIGN_TRACKER: 'designtracker',
+  SNAG_LIST: 'snaglist',
   PR_SUMMARY: 'prsummary',
   SR_SUMMARY: 'srsummary',
   PO_SUMMARY: 'posummary',
@@ -447,6 +449,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
     PROJECT_PAGE_TABS.CRITICAL_POS,
     PROJECT_PAGE_TABS.DESIGN_TRACKER,
+    PROJECT_PAGE_TABS.SNAG_LIST,
     PROJECT_PAGE_TABS.SR_SUMMARY,
     PROJECT_PAGE_TABS.PO_SUMMARY,
     PROJECT_PAGE_TABS.DC_MIR,
@@ -460,6 +463,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const procurementExecutiveAllowedTabs = useMemo<Set<ProjectPageTabValue>>(() => new Set([
     PROJECT_PAGE_TABS.CRITICAL_POS,
     PROJECT_PAGE_TABS.SCHEDULE,
+    PROJECT_PAGE_TABS.SNAG_LIST,
     PROJECT_PAGE_TABS.PO_SUMMARY,
     PROJECT_PAGE_TABS.SR_SUMMARY,
     PROJECT_PAGE_TABS.MATERIAL_USAGE,
@@ -481,6 +485,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
       PROJECT_PAGE_TABS.CRITICAL_POS,
       PROJECT_PAGE_TABS.DESIGN_TRACKER,
+      PROJECT_PAGE_TABS.SNAG_LIST,
       PROJECT_PAGE_TABS.FINANCIALS,
       PROJECT_PAGE_TABS.SR_SUMMARY,
       PROJECT_PAGE_TABS.PO_SUMMARY,
@@ -552,6 +557,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "Design Tracker",
           key: PROJECT_PAGE_TABS.DESIGN_TRACKER,
+        },
+        {
+          label: "Snag List",
+          key: PROJECT_PAGE_TABS.SNAG_LIST,
         },
         {
           label: "WO Summary",
@@ -666,6 +675,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           key: PROJECT_PAGE_TABS.DESIGN_TRACKER,
         },
         {
+          label: "Snag List",
+          key: PROJECT_PAGE_TABS.SNAG_LIST,
+        },
+        {
           label: "Financials",
           key: PROJECT_PAGE_TABS.FINANCIALS,
         },
@@ -742,6 +755,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       ...(!isAccountant ? [{
         label: "Design Tracker",
         key: PROJECT_PAGE_TABS.DESIGN_TRACKER,
+      }] : []),
+      // Hide Snag List from Accountant (plan Sec.6: everyone with project access except Accountant)
+      ...(!isAccountant ? [{
+        label: "Snag List",
+        key: PROJECT_PAGE_TABS.SNAG_LIST,
       }] : []),
       {
         label: "Financials",
@@ -1503,6 +1521,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         return <SevenDayPlanningTab projectName={data?.project_name} />;
       case PROJECT_PAGE_TABS.CRITICAL_POS:
         return <CriticalPOTasksTab projectId={projectId} projectData={data} />;
+      case PROJECT_PAGE_TABS.SNAG_LIST:
+        return <Suspense fallback={<LoadingFallback />}><SnagListTab projectId={projectId} /></Suspense>;
       case PROJECT_PAGE_TABS.DESIGN_TRACKER:
         return designTrackerId ? (
           <ProjectDesignTrackerDetail trackerId={designTrackerId} />
