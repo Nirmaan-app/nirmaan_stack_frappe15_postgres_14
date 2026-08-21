@@ -125,3 +125,27 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Total Quantity (of a line item)** — a line item's quantity across the whole BoQ: the single entered quantity when the BoQ is single-area, and the **sum of the per-area quantities** when it is multi-area. In the multi-area case it is a *derived* total — never entered directly — and always equals the sum of the areas. In the review grid a multi-area Total updates live as the areas are typed.
 
 - **Priced BoQ (download)** — the spreadsheet a user downloads once a BoQ is priced, carrying the entered rates and the amounts they imply. For an **upload-origin** BoQ it is the original workbook with prices stamped into it; for a **template-origin** BoQ — which has no original — it is **generated from the committed BoQ** as a plain but lightly-styled workbook, and comprises the priced trade sheets, the approved-makes list, and a computed cost summary.
+
+## Snag tracking
+
+- **Snag** — a single defect, incomplete item or observation recorded against a Project during a site walk (e.g. "detector cables are hanging and not properly laid"). It is a unit of work to be closed, not a financial or procurement record. A Snag belongs to exactly one Project.
+
+- **Snag Batch** — one sheet's worth of Snags, brought into the system by a single import of one worksheet. A Batch is the unit a Snag arrives in and the unit it can be removed in. Snags outside any Batch exist only when added by hand. *Avoid*: upload, import job, snag list (the "Snag List" is the whole set for a Project, not a Batch).
+
+- **Category (of a Snag)** — the discipline or trade a Snag belongs to as written by whoever produced the source list (e.g. *Fire & Life Safety*, *Electrical*, *Lighting*, *Documentation*). It is the source author's vocabulary, recorded verbatim; it is deliberately **not** a Nirmaan *Work Header* and carries no relationship to Work Packages. *Avoid*: work header, discipline, trade.
+
+- **Area (of a Snag)** — the place in the building a Snag was observed, as written by the source author (e.g. *Food Box – General*, *LT Room*, *Opp. McD Shop*). Free text in the author's own words; two spellings of the same place are two Areas. *Avoid*: zone, location.
+
+- **Snag Status** — the single field describing how far a Snag is from closed. Values: *Pending* (nothing done yet — the state every imported Snag starts in), *WIP* (being worked), *Completed* (closed), *Not Applicable* (judged not to be a real Snag, or no longer relevant). A Snag holds exactly one Status at a time.
+
+- **Skipped row** — a row in a source worksheet that the import declined to read as a Snag, always with a stated reason (blank, repeated header, summary block, no description). Skipped rows are shown to the importer and can be taken back; a Snag is never dropped silently.
+
+- **Remark (of a Snag)** — the one free-text field on a Snag. It arrives holding whatever the source
+  author wrote against that row, and from then on it is the working note: anyone who may change the
+  Snag's Status may rewrite it in the same action. It is therefore the CURRENT remark, not a record of
+  the original one — an edit overwrites, and the imported text survives only in the batch's stored
+  source file and the version log. Singular, because the plural collides with the import mapping's
+  `remarks` key, which names an Excel COLUMN rather than any text. *Avoid*: comments, notes,
+  source remarks.
+
+- **Manual Snag** — a Snag entered by hand rather than imported, belonging to no Batch. It behaves identically to an imported Snag in every other respect.
