@@ -32979,3 +32979,60 @@ only the blank path where `attrDisplayValue` has nothing to prefer. A green suit
 the one shape that mattered. Six tests now cover a stated `blank_item` -- "None" and a real value --
 against a positive spare, plus the zero-count reversal and an R9 guard that the quantity the pricer
 edits is still not read-only.
+
+#### Post-cert: the Colour default, and two guards that would have caught it at authoring time
+
+The post-cert check on `BOQ-26-00196/263` (Colour blank, row gating) found **no duplication gap** -
+`popup_boxes.extraction_defaults` carries `"colour": "White"` exactly as `switches_sockets` does, and
+the default fired on **124 of 126** rows (`switches_sockets` 113 defaulted / 3 stated / 6 Grey /
+**0 missing**; `popup_boxes` 11 defaulted / 1 Grey / **1 missing**).
+
+**The fault was in the P1 rule wording**, which enumerated colour among the module attributes to
+blank out:
+
+> …return None for every module attribute: the switch, all four sockets, the blank plate, the face
+> plate **and the colour**.
+
+The raw reply for 263 shows the model complying: `"colour": {"value": "None", "confidence": 0.85}`.
+From there the chain is mechanical - **`colour` is a `choice` with NO `allow_none`**, so `"None"` is
+not an allowed value, `_coerce_value` rejects it, the stored value becomes `null`, and a declared
+non-derived attribute that is null counts as MISSING INPUT, so the row gates.
+
+⚠️ **It was wrong on principle, not only in effect: colour is a property of the whole assembly with a
+standing default, not a module slot.** And like the story-1 drift it bit INTERMITTENTLY - the other
+two `has_modules = No` rows kept their White - because a guidance sentence only bends the model where
+its confidence is already low. That is why it survived the cert.
+
+**Fixed** by ending the enumeration at the face plate and saying so explicitly:
+
+> …the blank plate and the face plate. Colour is not a module attribute: leave it to its default
+> unless the row names one.
+
+Re-extracted scoped to that one row (`only_rows=[263]`, 29 s, `ai_status=ran`): the raw reply now
+reads `"colour": {"value": "White", "confidence": 0.4, "defaulted": true}`, and the row gates on
+**`Module count` ALONE** - one red border, correctly, because its text genuinely never states a
+module count.
+
+**TWO CONFIG-SHAPE GUARDS now make this class unauthorable** (`TestRuleGuidanceDoesNotFightTheConfig`).
+Both are pure reads of the shipped asset - no model, no database row, no pipeline run - and both would
+have failed the moment that sentence was written:
+
+1. **No rule may name an `extraction_defaults` key as a `"None"` target.** Two instructions that
+   contradict each other leave the outcome to the model's confidence, i.e. undecided. Slot-paired
+   defaults (`requires_named`) are exempt: for those the None case IS the mechanism.
+2. **No rule may instruct `"None"` for an attribute lacking `allow_none`.** Coercion will drop it and
+   the row will gate, silently.
+
+⚠️ **The sentence extractor is deliberately CRUDE AND WIDE** - it finds "return None" and reads to the
+end of that sentence. Parsing English precisely would miss the next variation; over-reporting is cheap
+to satisfy (reword) and cannot let the real case through. A third test pins that the guards can
+actually SEE P1, so they cannot pass by reading nothing.
+
+**Vacuity proved by re-introducing the exact clause into a copy of the asset: 3 of 4 red**, each
+naming the real cause - *"names 'Colour', which carries the plain default 'White'"* and *"names
+'Colour', which is NOT allow_none -- coercion will drop it and the row will gate"* - then restored,
+4 of 4 green.
+
+**A widened drift-guard over `extraction_defaults` would NOT have caught this** (the two sets already
+agree on colour), and if it is ever added it must encode the one deliberate divergence:
+`switches_sockets` carries `back_box: "Yes"` and `popup_boxes` does not, per R7.

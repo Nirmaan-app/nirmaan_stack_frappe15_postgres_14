@@ -5592,3 +5592,133 @@ class TestRateMasterFreeze(FrappeTestCase):
         self.assertNotIn("set_single_value", code)
         self.assertIn("ignore_version=False", code)
         self.assertIn("doc.save(", code)
+
+
+# ── SLICE 5 post-cert: TWO CONFIG-SHAPE GUARDS over the estimator rules ──────────────────────
+#
+# ⚠️ WHY THESE EXIST, AND WHY THEY ARE CHEAP.
+# The popup P1 rule was authored telling the model to "return None for every module attribute: the
+# switch, all four sockets, the blank plate, the face plate AND THE COLOUR". Two things were wrong
+# with that last clause and BOTH are decidable from the config alone, with no AI call and no run:
+#
+#   1. `colour` carries a plain `extraction_defaults` entry ("White"). Instructing the model to
+#      return "None" for it CONTRADICTS the default the same config declares.
+#   2. `colour` is a `choice` WITHOUT `allow_none`, so "None" is not one of its allowed values;
+#      `_coerce_value` rejects it, the stored value becomes null, and a declared non-derived
+#      attribute that is null counts as MISSING INPUT -- so the row GATES.
+#
+# It cost one live row (BOQ-26-00196/263) and would have kept costing an occasional row, because a
+# guidance sentence bends the model only where its confidence is already low -- the same intermittent
+# shape as the story-1 drift. Neither guard needs a model, a database row, or a pipeline run: both
+# read the shipped config and would have failed the moment that sentence was written.
+
+
+def _attr_label(cfg, attr_id):
+    """The human LABEL of an attribute id in one config -- what a guidance sentence would call it."""
+    for d in (cfg.get("attribute_definitions") or []):
+        if d.get("id") == attr_id:
+            return str(d.get("label") or attr_id)
+    return None
+
+
+def _rules_of(cfg):
+    return [r for r in (cfg.get("rules") or []) if isinstance(r, dict)]
+
+
+def _guidance(rule):
+    return str(rule.get("guidance") or "")
+
+
+def _none_targets(text):
+    """Attribute LABELS a guidance sentence tells the model to return "None" for.
+
+    Deliberately crude and deliberately WIDE: it looks for the words "return None" and then reads the
+    rest of that sentence. A guard that tried to parse English precisely would miss the next
+    variation; one that over-reports is cheap to satisfy (reword the sentence) and cannot let the
+    real case through."""
+    out = []
+    low = text.lower()
+    start = 0
+    while True:
+        i = low.find("return none", start)
+        if i < 0:
+            break
+        end = low.find(".", i)
+        out.append(text[i:end if end > 0 else len(text)])
+        start = i + 11
+    return out
+
+
+class TestRuleGuidanceDoesNotFightTheConfig(FrappeTestCase):
+    """The two shape guards. Both are pure config reads over the SHIPPED asset."""
+
+    def _configs(self):
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            return json.load(fh)["category_configs"]
+
+    def test_no_rule_names_an_extraction_default_key_as_a_none_target(self):
+        """GUARD 1. A rule must not tell the model to return "None" for an attribute the SAME config
+        gives a default. The two instructions contradict each other, and which one wins is decided by
+        the model's confidence on the row -- i.e. not decided at all."""
+        offenders = []
+        for cfg in self._configs():
+            defaults = cfg.get("extraction_defaults") or {}
+            if not defaults:
+                continue
+            for rule in _rules_of(cfg):
+                for sentence in _none_targets(_guidance(rule)):
+                    low = sentence.lower()
+                    for attr_id, spec in defaults.items():
+                        # a slot-paired default is ABOUT the None case -- it is the mechanism, not a
+                        # contradiction -- so only PLAIN defaults are guarded here.
+                        if isinstance(spec, dict) and spec.get("requires_named"):
+                            continue
+                        label = _attr_label(cfg, attr_id)
+                        if label and label.lower() in low:
+                            offenders.append(
+                                "%s rule %s: 'return None' sentence names '%s', which carries the "
+                                "plain default %r" % (cfg["category_id"], rule.get("id"), label, spec)
+                            )
+        self.assertEqual(offenders, [], "\n".join(offenders))
+
+    def test_no_rule_instructs_none_for_an_attribute_that_cannot_hold_it(self):
+        """GUARD 2, and the one that bites hardest. "None" is only a legal value for an `allow_none`
+        attribute; for any other, `_coerce_value` rejects it and the row silently loses the value AND
+        gates. This is decidable without running anything."""
+        offenders = []
+        for cfg in self._configs():
+            defs = {d["id"]: d for d in (cfg.get("attribute_definitions") or []) if d.get("id")}
+            for rule in _rules_of(cfg):
+                for sentence in _none_targets(_guidance(rule)):
+                    low = sentence.lower()
+                    for aid, d in defs.items():
+                        if d.get("allow_none"):
+                            continue
+                        label = str(d.get("label") or aid)
+                        if label.lower() in low:
+                            offenders.append(
+                                "%s rule %s: 'return None' sentence names '%s', which is NOT "
+                                "allow_none -- coercion will drop it and the row will gate"
+                                % (cfg["category_id"], rule.get("id"), label)
+                            )
+        self.assertEqual(offenders, [], "\n".join(offenders))
+
+    def test_the_guards_are_not_vacuous_they_see_the_rules_they_are_meant_to_read(self):
+        """NEGATIVE control on the guards' own reach: the popup P1 rule must actually be visible to
+        them, and its 'return None' sentence must actually be found. A guard that reads nothing
+        passes for the wrong reason."""
+        popup = [c for c in self._configs() if c["category_id"] == "popup_boxes"][0]
+        p1 = [r for r in _rules_of(popup) if r.get("id") == "P1"]
+        self.assertEqual(len(p1), 1, "P1 must be present for these guards to mean anything")
+        sentences = _none_targets(_guidance(p1[0]))
+        self.assertTrue(sentences, "P1's 'return None' sentence must be found by the extractor")
+        # ...and it must still name the module slots, so the guards are reading a real instruction.
+        self.assertIn("switch", " ".join(sentences).lower())
+
+    def test_colour_is_no_longer_a_none_target_in_popup_p1(self):
+        """The specific regression. P1 used to end '...the face plate and the colour', which cost
+        BOQ-26-00196/263 its White default and gated the row."""
+        popup = [c for c in self._configs() if c["category_id"] == "popup_boxes"][0]
+        g = _guidance([r for r in _rules_of(popup) if r.get("id") == "P1"][0])
+        self.assertNotIn("and the colour", g)
+        self.assertIn("Colour is not a module attribute", g)
