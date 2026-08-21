@@ -997,10 +997,17 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
         if any(isinstance(v, dict) and v.get("requires_named") for v in defaults.values()):
             content += (
                 "\n\nSLOT-PAIRED DEFAULTS: where an attribute above carries \"requires_named\", it is "
-                "the QUANTITY of the component named by that other attribute. Return its default ONLY "
-                "when that named attribute holds a real item. When the named attribute is \"None\" -- "
-                "the row carries no such component -- return null for the quantity, never the default "
-                "and never 0: there is no component to count.\n"
+                "the QUANTITY of the component named by that other attribute. Withhold its default in "
+                "EXACTLY ONE CASE: when that named attribute is \"None\" -- the row carries no such "
+                "component -- return null for the quantity, never the default and never 0, because "
+                "there is nothing to count. In EVERY other case return the default as usual, "
+                "INCLUDING when the named attribute is blank because you could not read it: blank "
+                "means the component may well be there and something downstream will work it out, so "
+                "the quantity is still wanted. Note that withholding a quantity is simply the "
+                "arithmetic consequence of \"None\", not a penalty for choosing it: \"None\" remains "
+                "the expected, correct answer for any component the row does not carry, and must "
+                "never be downgraded to blank in order to keep a quantity alive. Blank means only "
+                "one thing -- that you could not tell.\n"
             )
     # EA-4a-r: an allow_none attribute may be POSITIVELY ABSENT. "None" is a distinct answer from
     # null/blank: None = the row's enumerated bill names no such component; null = too vague to tell.

@@ -278,7 +278,25 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
       const item = fit?.blanks?.item;
       // Nothing counted (a "None" plate, or nothing on the plate at all) publishes NO value -- an
       // empty field, never a fabricated blanker, matching the plate's positively-absent branch.
-      return { ...a, derived: true, ...(item === undefined ? {} : { derivedValue: item }) };
+      if (item === undefined) return { ...a, derived: true };
+      // ⚠️ THE COMPUTED ITEM OVERRIDES A STATED ONE, AND MUST BE MARKED WHEN IT DOES.
+      // The blanker is inferred from the EFFECTIVE count and never selected by extraction
+      // (owner-locked): a positive count prices `1M Blanker` whatever the model returned. Publishing
+      // the computed value without `substituted` was not enough, because `attrDisplayValue` shows a
+      // STATED value in preference to a derived one -- so a row whose extraction said "None" showed
+      // "None" while the price it displayed included nine blankers. That is the exact defect this
+      // whole branch exists to remove, arriving from the other side.
+      //
+      // THE PLATE IS THE PRECEDENT, VERBATIM: take-the-larger overwrites a stated rung on screen and
+      // marks it "(computed)", because "the row says 1M, the pipeline buys 3M" is a substitution the
+      // pricer must see. Same rule, same marker, same reason.
+      //
+      // It marks ONLY when the two actually differ -- a pricer who picked the value the pipeline
+      // also computed has not been overridden, and tagging that would credit the pipeline with their
+      // choice. R9 is untouched: `blank_qty` is what the pricer edits and what `module_fit` reads.
+      const stated = a.value;
+      const substituted = stated !== "" && stated !== undefined && String(stated) !== String(item);
+      return { ...a, derived: true, derivedValue: item, ...(substituted ? { substituted: true } : {}) };
     }
 
     const superseded = supersededQty.get(a.id);

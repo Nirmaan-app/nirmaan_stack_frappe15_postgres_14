@@ -32879,3 +32879,103 @@ ABSENT, so a golden predating `socket3`/`socket4` bails before computing anythin
 A `module_fit` term hard-fails on an absent quantity - "blank is unknown, not zero" - so a
 `switches_sockets` row that the re-extraction does not reach will REFUSE until it is re-extracted.
 The absent-slot-as-None hardening is BANKED for a later slice, not built.
+
+### Slice 5 addendum - the story-1 investigation, the no_key incident, and the bare-box follow-on
+
+#### The `no_key` incident (2026-08-21)
+
+The first B8 attempt reported `status=complete` on all 15 sheets and finished each in **0 seconds**.
+`ai_status` was **`no_key`** on every one: `run_extraction` FAILS CLOSED, returning `_blank_row` for
+every row, and `_suggest_worker` wrote those all-None attributes and activated its run. **135 rows
+were wiped.**
+
+Cause: `get_decrypted_password` raised *"Encryption key is invalid! Please check site_config.json"* --
+the stored Anthropic key had been encrypted under a different `encryption_key` than this site holds,
+a consequence of the dev database being production's data. The ciphertext was intact; the site simply
+could not read it. It was resolved by the owner re-entering the key.
+
+**Recovery was a flip, not a reconstruction.** Freeze-and-supersede had retained every prior run at
+`active = 0`, so each sheet's `no_key` run was demoted and its predecessor re-activated. Verified: the
+restored extraction matched a snapshot taken before the pass on **217 of 217 rows, 0 differing**.
+
+⚠️ **THE STANDING LESSON, AND IT IS THE ONE CLAUDE.md ALREADY RECORDS FOR THE CLASSIFIER: AN AI-OFF
+RUN LOOKS SUCCESSFUL.** Every sheet said `complete`. Only `ai_status` and the impossible 0-second
+runtimes gave it away. Any batch driver over `_suggest_worker` must check `ai_status` on the FIRST
+sheet before letting the rest run.
+
+#### Story 1 - the 8 rows that stopped saying "None"
+
+`BOQ-26-00187/110-117` are near-empty rows (`"1 or 2 Module"`, `"3 Module"`, `"RJ-45"`, `"RJ-11"`)
+whose meaning lives ENTIRELY in the ancestor: a parent preamble reading *"1.2 mm thick GI Switch boxes
+suitable for modular plate type switches"*. They are EMPTY BOXES, so `"None"` on every occupant slot
+is the correct positive absence.
+
+Both post-slice runs returned `null` (blank) on those slots instead, which is a `bindMiss` and
+refuses the row. **The mechanism: the SLOT-PAIRED DEFAULTS sentence attached a CONSEQUENCE to
+`"None"` and none to blank** -- `"None"` became the one answer that cost the row its quantity default.
+`OPTIONAL COMPONENTS` (unchanged, and unambiguous) says the opposite. A model already at **0.2
+confidence** on rows with no components in their own text took the cheaper branch. The other 114 rows
+name real components, so `"None"` on their unused slots was never a judgement call -- which is why
+only these eight moved.
+
+**The fix was two sentences** stating that withholding a quantity is the arithmetic consequence of
+`"None"`, not a penalty for choosing it, and that blank means only "I could not tell". **It converged
+on the first 8-row attempt** (`only_rows=[110..117]`, 52 s): rows 110-115 returned to `"None"` on all
+six occupant slots and `plate_qty` survived on the component-naming row. `RJ-45`'s blank socket was
+accepted by the owner as the true state -- the catalogue carries no RJ-45, so `"None"` would assert
+something false.
+
+⚠️ **A prompt sentence that makes one legitimate answer costlier than another will bend the model
+wherever its confidence is already low.** Both wordings in this slice did it, in opposite directions:
+the first withheld `plate_qty` on 97 rows, the second suppressed `"None"` on 8.
+
+#### Socket3/socket4 were SEEDED, not extracted
+
+`only_rows` scopes ROWS, not FIELDS, so "re-extract solely for socket3/socket4" is not expressible --
+re-reading a row re-reads all of it, and a fresh AI pass moves rows for reasons unrelated to the
+change. The two new slots were seeded as `"None"` by data patch on **114** rows (the 8 investigation
+rows kept their post-wording extraction), preserving every reviewed attribute byte-for-byte. A census
+for rows naming 3+ socket TYPES found ONE candidate, `BOQ-26-00174/164`, which names two (universal
+socket + USB charger) and fits the existing pair -- so nothing needed a re-read instead.
+
+#### The bare-box FOLLOW-ON (ruled OUT of slice 5)
+
+**Nothing in slice 5 prices a bare-box row.** The owner ruled that a bare box row SHOULD price as its
+back box, in a follow-on slice, on these terms:
+
+- **default 3M when the size is unreadable; the STATED size wins when readable**;
+- the `junction_box_raceway` modelling question rides it -- a GI switch box arguably does not belong
+  in `switches_sockets` at all.
+
+Diagnosis for whoever picks it up:
+
+- **Why they price 0 today.** Occupants all `"None"` gives a weighted sum of 0, which sets
+  `noModules`; the ladder's zero branch fires BEFORE any fitting, reads `on_zero_modules`, finds it
+  absent on `switches_sockets`, and binds the None sentinel. `@box_item` then resolves to positive
+  absence and `none_skips` zeroes the line. **`back_box: "Yes"` is set on those rows and does
+  nothing** -- the quantity resolves against an item that never bound.
+- ⚠️ **`point_wiring` ALREADY HAS THE FIX AND `switches_sockets` DOES NOT** -- the owner-locked
+  STATE-A fallback, `on_zero_modules: 3`, given to one category and never extended to the other.
+- **The default half is ONE CONFIG KEY.** The stated-size half is NOT: `floor_from` is consulted only
+  on the NON-zero path, so a capacity sitting in `plate_item` is invisible to the box ladder on
+  exactly the rows that need it -- and `plate_item` is the wrong destination anyway (the model
+  already reads the capacity there, which would price a face plate the row does not supply). It needs
+  a new attribute, interpreter work, extraction wording, and a guard keeping the capacity out of the
+  occupancy sum.
+- **Expected prices** (measured on the shipped pipeline, `back_box: "Yes"`): 1M/2M **50/10/40** ·
+  3M **70/20/50** · 4M **80/20/60** · 6M **110/30/70** · 8M **140/30/100** · 12M **170/40/120**.
+  Row 110's "1 or 2 Module" is price-neutral -- both rungs are Rs 121.
+
+#### The blanker ITEM display fix
+
+`attrDisplayValue` prefers a STATED value over a derived one, so a row whose extraction said
+`blank_item: "None"` displayed "None" while the price it showed included nine blankers
+(`BOQ-26-00174/188`). The computed item now OVERRIDES a stated one and is marked `substituted` --
+**the plate's exact precedent**, where take-the-larger overwrites a stated rung and marks it
+"(computed)".
+
+⚠️ **THE FIRST SEVEN DISPLAY TESTS MISSED IT BECAUSE THEY ALL LEFT `blank_item` ABSENT**, exercising
+only the blank path where `attrDisplayValue` has nothing to prefer. A green suite proved nothing about
+the one shape that mattered. Six tests now cover a stated `blank_item` -- "None" and a real value --
+against a positive spare, plus the zero-count reversal and an R9 guard that the quantity the pricer
+edits is still not read-only.

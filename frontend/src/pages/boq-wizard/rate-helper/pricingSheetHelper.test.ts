@@ -2650,3 +2650,75 @@ describe("DERIVED DISPLAY -- the blanker ITEM (slice 5, B1 / R-A)", () => {
     expect(item?.derivedValue).toBeUndefined();
   });
 });
+
+// ---- SLICE 5 (B1 follow-on): a STATED blank_item beside a POSITIVE spare ----
+//
+// ⚠️ THE CASE THE FIRST SEVEN TESTS MISSED, AND WHY. They all left `blank_item` absent, so the
+// display branch was only ever exercised on the blank path -- where `attrDisplayValue` has nothing to
+// prefer. Live row BOQ-26-00174/188 supplied `blank_item: "None"` with NINE spare modules, and the
+// panel showed "None" while the price it displayed included nine blankers. A green suite proved
+// nothing about the one shape that mattered.
+function statedBlankCompute(statedBlankItem: string | null, over: Record<string, string | number | null> = {}) {
+  const r = makePricingSheetHelper({
+    configsByCategory: new Map([["mf_probe", displayConfig(true)]]),
+    items: PLATE_ITEMS,
+    extractionByRow: buildExtractionByRow([
+      { excel_row: 1, attributes: mfAttrs({ plate_item: "6M", blank_qty: null, blank_item: statedBlankItem, ...over }) as never },
+    ]),
+  }).compute(mfCtx(1));
+  if (!isSuggestion(r)) throw new Error("expected a suggestion");
+  return (id: string) => r.workings.attributes.find((a) => a.id === id);
+}
+
+describe("DERIVED DISPLAY -- a STATED blank_item against a POSITIVE spare (slice 5 follow-on)", () => {
+  it("POSITIVE (the live 188 shape): a stated \"None\" is OVERRIDDEN by the computed blanker and MARKED", () => {
+    // 3 occupied on a 6M plate -> 3 spare -> blankers ARE priced. The field must not keep saying None.
+    const item = statedBlankCompute("None")("blank_item");
+    expect(item?.derivedValue).toBe("1M Blanker");
+    expect(attrDisplayValue(item!)).toBe("1M Blanker");
+    expect(item?.substituted).toBe(true);
+  });
+
+  it("POSITIVE: a stated REAL value that disagrees is also overridden and marked", () => {
+    // The pipeline's blanker is inferred from the count, so any disagreeing entry loses -- visibly.
+    const item = statedBlankCompute("10A 1 WAY SWITCH")("blank_item");
+    expect(attrDisplayValue(item!)).toBe("1M Blanker");
+    expect(item?.substituted).toBe(true);
+  });
+
+  it("NEGATIVE: a stated value that AGREES is not marked -- the pipeline takes no credit for it", () => {
+    const item = statedBlankCompute("1M Blanker")("blank_item");
+    expect(attrDisplayValue(item!)).toBe("1M Blanker");
+    expect(item?.substituted).toBeUndefined();
+  });
+
+  it("POSITIVE: a ZERO effective count overrides a stated blanker back to None, and marks it", () => {
+    // Editing the quantity to zero reverts the item to None -- the boundary follows the EFFECTIVE
+    // count, so a row still claiming a blanker must be corrected on screen too.
+    const item = statedBlankCompute("1M Blanker", { blank_qty: 0 })("blank_item");
+    expect(attrDisplayValue(item!)).toBe("None");
+    expect(item?.substituted).toBe(true);
+  });
+
+  it("R9 UNTOUCHED: the quantity the pricer edits still wins and is still not read-only", () => {
+    // The blanker ITEM is inferred; the blanker QUANTITY is the pricer's lever, and `module_fit`
+    // genuinely reads it. This fix must not have quietly locked it.
+    const qty = statedBlankCompute("None", { blank_qty: 2 })("blank_qty");
+    expect(qty?.readOnly).toBeUndefined();
+    expect(attrDisplayValue(qty!)).toBe("2");   // 2 <= 3 spare -> HONOURED
+  });
+
+  it("NEGATIVE (the vacuity control): WITHOUT display_attr nothing is published even when stated", () => {
+    const r = makePricingSheetHelper({
+      configsByCategory: new Map([["mf_probe", displayConfig(false)]]),
+      items: PLATE_ITEMS,
+      extractionByRow: buildExtractionByRow([
+        { excel_row: 1, attributes: mfAttrs({ plate_item: "6M", blank_qty: null, blank_item: "None" }) as never },
+      ]),
+    }).compute(mfCtx(1));
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const item = r.workings.attributes.find((a) => a.id === "blank_item");
+    expect(item?.derivedValue).toBeUndefined();
+    expect(item?.substituted).toBeUndefined();
+  });
+});

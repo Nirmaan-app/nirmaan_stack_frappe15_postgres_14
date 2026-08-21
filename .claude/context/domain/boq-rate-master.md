@@ -1644,6 +1644,18 @@ A `blanks` block now carries both:
   `blanksBindItemAttr` and `derivedAttrIds`, so the panel displays it and the missing-input gate
   stops flagging it.
 
+⚠️ **THE COMPUTED ITEM OVERRIDES A STATED ONE AND IS MARKED `substituted`.** `attrDisplayValue`
+prefers a stated value over a derived one, so publishing the computed blanker was not enough: a row
+whose extraction said `"None"` displayed "None" while the price it showed included nine blankers.
+**The PLATE is the precedent verbatim** - take-the-larger overwrites a stated rung on screen and marks
+it "(computed)". It marks ONLY when the two differ, so a pricer who picked what the pipeline also
+computed is not credited to the pipeline. **R9 is untouched: `blank_qty` is what the pricer edits and
+what `module_fit` reads.**
+
+⚠️ **A DISPLAY TEST THAT LEAVES THE ATTRIBUTE ABSENT PROVES NOTHING ABOUT THE STATED CASE.** The first
+seven tests here all left `blank_item` unset, exercising only the path where `attrDisplayValue` has
+nothing to prefer; the live defect sat in the other branch and the suite was green throughout.
+
 ⚠️ **Pointing `bind_item` at the declared attribute instead was tried and REJECTED.** It reverses the
 earlier decision above AND downgrades a structural guarantee (no such attribute exists) into a
 behavioural one resting on `resolveAtRef` checking `fitLabels` before `selected`.
