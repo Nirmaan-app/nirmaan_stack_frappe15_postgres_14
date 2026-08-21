@@ -13,17 +13,17 @@
   "description": null,
   "docstatus": 0,
   "doctype": "Expense Category",
-  "modified": "2026-08-18 13:15:20.053799",
+  "modified": "2026-08-21 12:42:01.224701",
   "name": "Travel",
-  "reviewer_role": null
+  "reviewer_role": ""
  },
  {
-  "category_name": "Other",
+  "category_name": "Uncategorized",
   "description": "Everything not in a named category.",
   "docstatus": 0,
   "doctype": "Expense Category",
   "modified": "2026-08-18 13:15:20.060477",
-  "name": "Other",
+  "name": "Uncategorized",
   "reviewer_role": null
  }
 ]

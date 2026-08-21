@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import ProjectSelect from "@/components/custom-select/project-select";
+import VendorSelect, { OTHERS_VENDOR_VALUE } from "@/components/custom-select/vendor-select";
 
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
@@ -49,13 +50,16 @@ interface Props { onSuccess?: () => void }
 interface FormState {
     expense_type: string;
     projects: string;
+    // Holds the SENTINEL for "Others (No Vendor)", never "" -- see `vendor-select`. The
+    // payload maps it back to nothing, so the sentinel never leaves this file.
+    vendor: string;
     amount: string;
     description: string;
     comment: string;
 }
 
 const EMPTY: FormState = {
-    expense_type: "", projects: "", amount: "", description: "", comment: "",
+    expense_type: "", projects: "", vendor: "", amount: "", description: "", comment: "",
 };
 
 export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
@@ -136,6 +140,12 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
     const showProject = !!selected?.project_allowed;
     const projectRequired = !!selected?.project_required;
 
+    // Vendor is a PROJECT-ONLY field, and the gate is the project being CHOSEN, not merely
+    // offered: `Non Project Expenses` has no vendor column at all, so a vendor recorded on a
+    // non-project request would be silently dropped at approval. Asking for it only once a
+    // project is on screen is what keeps the request and the ledger row able to agree.
+    const showVendor = showProject && !!form.projects;
+
     // Description is the FALLBACK for a type with no format. Where a format exists its fields
     // ARE the description, so asking for both invites the same fact in two places.
     const showDescription = !parsedFormat;
@@ -151,8 +161,17 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
         setAnswers({});
         setFiles({});
         // Clear the project: a stale value on a type that just became non-project would be
-        // refused by the server, which reads as the form ignoring what was typed.
-        setForm((f) => ({ ...f, expense_type: value, projects: "" }));
+        // refused by the server, which reads as the form ignoring what was typed. The vendor
+        // hangs off the project, so it goes with it -- a vendor left behind on a now
+        // non-project type is exactly the value the server refuses.
+        setForm((f) => ({ ...f, expense_type: value, projects: "", vendor: "" }));
+    }, []);
+
+    // Clearing or switching the project clears the vendor with it. Without this a vendor
+    // picked under one project would silently ride along to another, or sit invisible on a
+    // request with no project at all.
+    const handleProjectChange = useCallback((projectId: string) => {
+        setForm((f) => (f.projects === projectId ? f : { ...f, projects: projectId, vendor: "" }));
     }, []);
 
     const amountValue = parseNumber(form.amount);
@@ -202,6 +221,14 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
                 comment: form.comment || undefined,
                 // Only ever send a project the type actually allows.
                 projects: showProject && form.projects ? form.projects : undefined,
+                // Same gate as the project, plus the sentinel: "Others (No Vendor)" is a
+                // deliberate "no vendor on record", so it sends NOTHING rather than an
+                // empty Link. The server refuses a vendor without a project, so the
+                // `showVendor` half is what keeps a hidden value from ever reaching it.
+                vendor:
+                    showVendor && form.vendor && form.vendor !== OTHERS_VENDOR_VALUE
+                        ? form.vendor
+                        : undefined,
                 // Wrapped in the `responses` envelope the backend flattener reads. Omitted
                 // entirely when the type has no format, so a format-less request stores NULL
                 // and converts exactly as it would have before formats existed.
@@ -241,7 +268,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
         } finally {
             setSubmitting(false);
         }
-    }, [canSubmit, createRequest, upload, files, form, amountValue, showProject,
+    }, [canSubmit, createRequest, upload, files, form, amountValue, showProject, showVendor,
         showDescription, parsedFormat, answers, toast, close, onSuccess]);
 
     return (
@@ -282,7 +309,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
                             <ProjectSelect
                                 universal={false}
                                 usePortal
-                                onChange={(o) => set("projects", o?.value ?? "")}
+                                onChange={(o) => handleProjectChange(o?.value ?? "")}
                             />
                             {!projectRequired && (
                                 <p className="text-xs text-muted-foreground">
@@ -290,6 +317,20 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
                                     company-wide expense.
                                 </p>
                             )}
+                        </div>
+                    )}
+
+                    {showVendor && (
+                        <div className="space-y-1.5">
+                            <Label>Vendor</Label>
+                            <VendorSelect
+                                usePortal
+                                value={form.vendor}
+                                onChange={(o) => set("vendor", o?.value ?? "")}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Optional. Choose "Others (No Vendor)" if the payee is not on record.
+                            </p>
                         </div>
                     )}
 

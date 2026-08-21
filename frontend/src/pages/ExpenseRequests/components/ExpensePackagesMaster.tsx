@@ -36,9 +36,9 @@ import type { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 interface ExpenseCategoryRow { name: string; reviewer_role?: string | null }
 
 // Every type belongs to a category; where none of the named ones fit, that category is
-// "Other". There is deliberately no blank option -- an uncategorised type appears in no
-// category list and routes to a reviewer nobody chose.
-const FALLBACK_CATEGORY = "Other";
+// "Uncategorized". There is deliberately no blank option -- an uncategorised type appears
+// in no category list and routes to a reviewer nobody chose.
+const FALLBACK_CATEGORY = "Uncategorized";
 import { ExpenseFormatDialog } from "./ExpenseFormatDialog";
 
 type ScopeLabel = "Project" | "Non-Project" | "Both" | "Unusable";
@@ -118,7 +118,7 @@ export const ExpensePackagesMaster: React.FC = () => {
         if (!edit.expense_category) {
             toast({
                 title: "Pick a category",
-                description: "Use 'Other' if none of the named ones fit.",
+                description: "Use 'Uncategorized' if none of the named ones fit.",
                 variant: "destructive",
             });
             return;
@@ -302,7 +302,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                             </Select>
                             <p className="text-xs text-muted-foreground">
                                 Decides who reviews requests of this type. Categories are added in
-                                Frappe Desk; use “Other” if none of the named ones fit.
+                                Frappe Desk; use “Uncategorized” if none of the named ones fit.
                             </p>
                         </div>
 

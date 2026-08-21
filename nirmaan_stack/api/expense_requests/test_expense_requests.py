@@ -569,6 +569,101 @@ class TestExpenseRequests(FrappeTestCase):
 		                force=True, ignore_permissions=True)
 		self.assertEqual(frappe.db.count("Nirmaan Notifications"), before)
 
+	# --- vendor: the native field the dialog actually uses --------------------
+
+	def test_a_vendor_is_stored_and_reaches_the_project_ledger(self):
+		vendor = self._a_vendor()
+		res = self._raise_as(PM_USER, expense_type=PROJECT_TYPE, projects=self.project,
+		                     vendor=vendor)
+		self.assertEqual(frappe.db.get_value("Expense Request", res["name"], "vendor"), vendor)
+		out = approve_expense_request(res["name"])
+		self.assertEqual(
+			frappe.db.get_value("Project Expenses", out["created_expense"], "vendor"), vendor)
+
+	def test_a_vendor_without_a_project_is_REFUSED(self):
+		"""`Non Project Expenses` has no vendor column, so it could only vanish at approval.
+
+		Refusing is the honest half: the requester is told, rather than discovering it later.
+		"""
+		with self.assertRaises(frappe.ValidationError):
+			self._raise_as(PM_USER, expense_type=NON_PROJECT_TYPE, vendor=self._a_vendor())
+
+	def test_an_explicit_vendor_outranks_a_promoted_one(self):
+		"""The requester chose one on screen; a format only inferred one."""
+		rows = frappe.get_all("Vendors", limit=2)
+		if len(rows) < 2:
+			self.skipTest("needs two Vendors")
+		chosen, inferred = rows[0].name, rows[1].name
+		self._set_format(PROJECT_TYPE, json.dumps(self.VENDOR_FORMAT))
+		res = self._raise_as(PM_USER, expense_type=PROJECT_TYPE, projects=self.project,
+			vendor=chosen,
+			source_data={"responses": {"detail": {"what": "cement", "supplier": inferred}}})
+		self.assertEqual(frappe.db.get_value("Expense Request", res["name"], "vendor"), chosen)
+
+	# --- maps_to: a format field that owns a real column ----------------------
+
+	VENDOR_FORMAT = {
+		"templateId": "test-vendor", "templateVersion": 1, "title": "T",
+		"sections": [{"id": "detail", "type": "fields", "fields": [
+			{"key": "what", "label": "Material", "type": "text"},
+			# THE DECLARATION -- the same one the bill already uses, on a FIELD
+			{"key": "supplier", "label": "Vendor", "type": "link",
+			 "options": "Vendors", "maps_to": "vendor"},
+		]}],
+	}
+
+	def _a_vendor(self):
+		rows = frappe.get_all("Vendors", limit=1)
+		if not rows:
+			self.skipTest("no Vendors on this site")
+		return rows[0].name
+
+	def test_a_mapped_answer_is_promoted_to_the_request_column(self):
+		vendor = self._a_vendor()
+		self._set_format(PROJECT_TYPE, json.dumps(self.VENDOR_FORMAT))
+		res = self._raise_as(PM_USER, expense_type=PROJECT_TYPE, projects=self.project,
+			source_data={"responses": {"detail": {"what": "cement", "supplier": vendor}}})
+		self.assertEqual(frappe.db.get_value("Expense Request", res["name"], "vendor"), vendor)
+
+	def test_a_promoted_answer_is_NOT_repeated_in_the_description(self):
+		"""It owns a column now. Printing it too is how the prose and the link disagree."""
+		vendor = self._a_vendor()
+		self._set_format(PROJECT_TYPE, json.dumps(self.VENDOR_FORMAT))
+		res = self._raise_as(PM_USER, expense_type=PROJECT_TYPE, projects=self.project,
+			source_data={"responses": {"detail": {"what": "cement", "supplier": vendor}}})
+		out = approve_expense_request(res["name"])
+		desc = frappe.db.get_value(out["created_expense_doctype"], out["created_expense"],
+		                           "description")
+		self.assertIn("cement", desc)
+		self.assertNotIn(vendor, desc)
+
+	def test_the_vendor_reaches_the_project_ledger(self):
+		vendor = self._a_vendor()
+		self._set_format(PROJECT_TYPE, json.dumps(self.VENDOR_FORMAT))
+		res = self._raise_as(PM_USER, expense_type=PROJECT_TYPE, projects=self.project,
+			source_data={"responses": {"detail": {"what": "cement", "supplier": vendor}}})
+		out = approve_expense_request(res["name"])
+		self.assertEqual(out["created_expense_doctype"], "Project Expenses")
+		self.assertEqual(
+			frappe.db.get_value("Project Expenses", out["created_expense"], "vendor"), vendor)
+
+	def test_a_maps_to_naming_an_unlisted_column_is_ignored(self):
+		"""`maps_to` is read from admin-edited data, so the allowlist is the boundary --
+		without it a format could aim at `status` or `amount`."""
+		fmt = json.loads(json.dumps(self.VENDOR_FORMAT))
+		fmt["sections"][0]["fields"][1]["maps_to"] = "status"
+		self._set_format(PROJECT_TYPE, json.dumps(fmt))
+		res = self._raise_as(PM_USER, expense_type=PROJECT_TYPE, projects=self.project,
+			source_data={"responses": {"detail": {"what": "cement", "supplier": "Paid"}}})
+		self.assertEqual(
+			frappe.db.get_value("Expense Request", res["name"], "status"), "Pending Approval")
+
+	def test_a_blank_mapped_answer_writes_no_link(self):
+		self._set_format(PROJECT_TYPE, json.dumps(self.VENDOR_FORMAT))
+		res = self._raise_as(PM_USER, expense_type=PROJECT_TYPE, projects=self.project,
+			source_data={"responses": {"detail": {"what": "cement", "supplier": "  "}}})
+		self.assertFalse(frappe.db.get_value("Expense Request", res["name"], "vendor"))
+
 	# --- duplicate detection -------------------------------------------------
 
 	def _travel(self, user, traveller, depart):
@@ -786,7 +881,7 @@ class TestExpenseTypeMasters(FrappeTestCase):
 		from nirmaan_stack.api.expense_requests.masters import create_expense_type
 		frappe.set_user(PM_USER)
 		with self.assertRaises(frappe.PermissionError):
-			create_expense_type(expense_name="exr_test_hack", project=1, expense_category="Other")
+			create_expense_type(expense_name="exr_test_hack", project=1, expense_category="Uncategorized")
 		frappe.set_user("Administrator")
 		self.assertFalse(frappe.db.exists("Expense Type", "exr_test_hack"))
 
@@ -810,10 +905,10 @@ class TestExpenseTypeMasters(FrappeTestCase):
 			create_expense_type, update_expense_type,
 		)
 		name = f"exr_test_type_{frappe.generate_hash(length=5)}"
-		out = create_expense_type(expense_name=name, project=1, non_project=0, expense_category="Other")
+		out = create_expense_type(expense_name=name, project=1, non_project=0, expense_category="Uncategorized")
 		self.made.append(out["name"])
 		self.assertEqual(frappe.db.get_value("Expense Type", name, "project"), 1)
-		update_expense_type(name=name, project=1, non_project=1, expense_category="Other")
+		update_expense_type(name=name, project=1, non_project=1, expense_category="Uncategorized")
 		row = frappe.db.get_value("Expense Type", name, ["project", "non_project"], as_dict=True)
 		self.assertEqual((row.project, row.non_project), (1, 1))
 
@@ -824,9 +919,9 @@ class TestExpenseTypeMasters(FrappeTestCase):
 			update_expense_type(name=name, project=1, expense_category="Not A Category")
 
 	def test_a_type_with_no_category_is_refused(self):
-		"""Every type belongs to a category; 'Other' is the answer when none of the named ones
-		fit. Blank produced a type that appeared in no category list and routed to a reviewer
-		nobody had chosen."""
+		"""Every type belongs to a category; 'Uncategorized' is the answer when none of the
+		named ones fit. Blank produced a type that appeared in no category list and routed to
+		a reviewer nobody had chosen."""
 		from nirmaan_stack.api.expense_requests.masters import create_expense_type
 		with self.assertRaises(frappe.ValidationError):
 			create_expense_type(expense_name="exr_test_nocat", project=1)
@@ -851,7 +946,7 @@ class TestExpenseTypeMasters(FrappeTestCase):
 	def test_a_type_with_neither_scope_is_refused(self):
 		from nirmaan_stack.api.expense_requests.masters import create_expense_type
 		with self.assertRaises(frappe.ValidationError):
-			create_expense_type(expense_name="exr_test_noscope", project=0, non_project=0, expense_category="Other")
+			create_expense_type(expense_name="exr_test_noscope", project=0, non_project=0, expense_category="Uncategorized")
 		self.assertFalse(frappe.db.exists("Expense Type", "exr_test_noscope"))
 
 	def test_format_must_be_a_json_object_and_empty_clears_it(self):
@@ -859,7 +954,7 @@ class TestExpenseTypeMasters(FrappeTestCase):
 			create_expense_type, save_expense_format,
 		)
 		name = f"exr_test_fmt_{frappe.generate_hash(length=5)}"
-		self.made.append(create_expense_type(expense_name=name, non_project=1, expense_category="Other")["name"])
+		self.made.append(create_expense_type(expense_name=name, non_project=1, expense_category="Uncategorized")["name"])
 
 		with self.assertRaises(frappe.ValidationError):
 			save_expense_format(name=name, source_format="{not json")

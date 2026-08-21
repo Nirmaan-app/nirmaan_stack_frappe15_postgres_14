@@ -34,9 +34,9 @@ def _validate_category(expense_category: str | None) -> str:
 	"""Categories are created in Frappe Desk; the app only ASSIGNS an existing one.
 
 	REQUIRED on this path (owner ruling): every type belongs to a category, and where none of
-	the named ones fit, that category is `Other`. Leaving it blank was an option briefly, and
-	it produced a type that looked categorised in no list and routed to the default reviewer
-	for reasons nobody had chosen.
+	the named ones fit, that category is `Uncategorized`. Leaving it blank was an option
+	briefly, and it produced a type that looked categorised in no list and routed to the
+	default reviewer for reasons nobody had chosen.
 
 	⚠️ The RUNTIME still tolerates a blank -- `expense_request_routing` falls back to the
 	default reviewer rather than refusing. That asymmetry is deliberate: a type created
@@ -46,7 +46,7 @@ def _validate_category(expense_category: str | None) -> str:
 	category = (expense_category or "").strip()
 	if not category:
 		frappe.throw(
-			"Pick a category. Use 'Other' if none of the named ones fit.",
+			"Pick a category. Use 'Uncategorized' if none of the named ones fit.",
 			title="Category required",
 		)
 	if not frappe.db.exists("Expense Category", category):
