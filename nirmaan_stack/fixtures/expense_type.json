@@ -2,7 +2,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Bank Interest",
   "modified": "2026-08-18 13:20:59.199633",
   "name": "Bank Interest",
@@ -13,7 +13,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Office Maintenance",
   "modified": "2026-08-18 13:20:59.199179",
   "name": "Office Maintenance",
@@ -24,7 +24,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Postage & Courier",
   "modified": "2026-08-18 13:20:59.198757",
   "name": "Postage & Courier",
@@ -46,7 +46,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Electricity Expenses",
   "modified": "2026-08-18 13:20:59.198263",
   "name": "Electricity Expenses",
@@ -57,7 +57,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Repair & Maintenance",
   "modified": "2026-08-18 13:20:59.197824",
   "name": "Repair & Maintenance",
@@ -68,7 +68,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "GST Payment",
   "modified": "2026-08-18 13:20:59.196985",
   "name": "GST Payment",
@@ -79,7 +79,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "TDS Payment",
   "modified": "2026-08-18 13:20:59.196606",
   "name": "TDS Payment",
@@ -90,7 +90,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Printing & Stationery",
   "modified": "2026-08-18 13:20:59.195960",
   "name": "Printing & Stationery",
@@ -101,7 +101,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Pooja Expenses",
   "modified": "2026-08-18 13:20:59.195427",
   "name": "Pooja Expenses",
@@ -112,7 +112,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Other Financial Expenses",
   "modified": "2026-08-18 13:20:59.194683",
   "name": "Other Financial Expenses",
@@ -123,7 +123,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Rent Expenses",
   "modified": "2026-08-18 13:20:59.194380",
   "name": "Rent Expenses",
@@ -134,7 +134,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Salaries & Employee Wages",
   "modified": "2026-08-18 13:20:59.194049",
   "name": "Salaries & Employee Wages",
@@ -145,7 +145,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Bank Fees & Charges",
   "modified": "2026-08-18 13:20:59.201038",
   "name": "Bank Fees & Charges",
@@ -156,7 +156,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Fixed Deposit",
   "modified": "2026-08-18 13:20:59.192654",
   "name": "Fixed Deposit",
@@ -167,7 +167,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Staff Welfare Expenses",
   "modified": "2026-08-18 13:20:59.193014",
   "name": "Staff Welfare Expenses",
@@ -178,7 +178,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Loan Repayment",
   "modified": "2026-08-18 13:20:59.193336",
   "name": "Loan Repayment",
@@ -189,7 +189,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Professional Charges",
   "modified": "2026-08-18 13:20:59.193680",
   "name": "Professional Charges",
@@ -200,7 +200,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Loading & Unloading Charges",
   "modified": "2026-08-18 13:20:59.191864",
   "name": "Loading & Unloading Charges",
@@ -211,7 +211,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Material Transportation Charges",
   "modified": "2026-08-18 13:20:59.191440",
   "name": "Material Transportation Charges",
@@ -222,7 +222,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Scaffolding Rent",
   "modified": "2026-08-18 13:20:59.191031",
   "name": "Scaffolding Rent",
@@ -233,7 +233,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Project Insurance Charges",
   "modified": "2026-08-18 13:20:59.190322",
   "name": "Project Insurance Charges",
@@ -244,7 +244,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Project Printing Charges",
   "modified": "2026-08-18 13:20:59.189927",
   "name": "Project Printing Charges",
@@ -255,7 +255,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Other Project Related Charges",
   "modified": "2026-08-18 13:20:59.189476",
   "name": "Other Project Related Charges",
@@ -266,7 +266,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Advertising & Marketing",
   "modified": "2026-08-18 13:20:59.200040",
   "name": "Advertising & Marketing",
@@ -277,7 +277,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Internet & Mobile Charges",
   "modified": "2026-08-18 13:20:59.197371",
   "name": "Internet & Mobile Charges",
@@ -288,7 +288,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Audit Fee",
   "modified": "2026-08-18 13:20:59.195024",
   "name": "Audit Fee",
@@ -299,7 +299,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Labour Charges",
   "modified": "2026-08-18 13:20:59.192280",
   "name": "Labour Charges",
@@ -310,7 +310,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Material Purchases",
   "modified": "2026-08-18 13:20:59.190662",
   "name": "Material Purchases",
@@ -321,7 +321,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Software Chagres",
   "modified": "2026-08-18 13:20:59.200417",
   "name": "Software Chagres",
@@ -343,7 +343,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Manpower Rent",
   "modified": "2026-08-18 13:20:59.189080",
   "name": "Manpower Rent",
@@ -354,7 +354,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Fixed Assets",
   "modified": "2026-08-18 13:20:59.188636",
   "name": "Fixed Assets",
@@ -365,7 +365,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Loan",
   "modified": "2026-08-18 13:20:59.188089",
   "name": "Loan",
@@ -409,7 +409,7 @@
  {
   "docstatus": 0,
   "doctype": "Expense Type",
-  "expense_category": "Other",
+  "expense_category": "Uncategorized",
   "expense_name": "Petty Cash",
   "modified": "2026-08-18 13:20:59.187027",
   "name": "Petty Cash",

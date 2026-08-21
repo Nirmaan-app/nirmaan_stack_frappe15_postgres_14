@@ -30,6 +30,30 @@ def _label_for(key: str, labels: dict) -> str:
 	return labels.get(key) or key.replace("_", " ").strip().title()
 
 
+def mapped_fields(source_format) -> dict:
+	"""`{field_key: column}` for every field declaring `maps_to`.
+
+	⚠️ THIS IS THE SAME DECLARATION THE BILL ALREADY USES, moved from attachment SLOTS to
+	FIELDS. `maps_to` means "this answer IS that ledger column" -- so the value is promoted to
+	the real column and must NOT also be flattened into the description. Printing it twice is
+	how a row comes to state a vendor in prose that disagrees with the vendor it is linked to.
+
+	This is the ONE sanctioned exception to "a format never names a native column": a shadow
+	copy is forbidden, an explicit instruction to WRITE the column is not.
+	"""
+	fmt = _as_dict(source_format)
+	if not fmt:
+		return {}
+	out = {}
+	for section in fmt.get("sections") or []:
+		if not isinstance(section, dict):
+			continue
+		for f in section.get("fields") or []:
+			if isinstance(f, dict) and f.get("key") and f.get("maps_to"):
+				out[f["key"]] = f["maps_to"]
+	return out
+
+
 def build_label_map(source_format: str | dict | None) -> dict:
 	"""`{field_key: label}` harvested from a format, so the flatten reads like the form did.
 
@@ -107,6 +131,7 @@ def flatten_pairs(source_data, source_format=None) -> list[tuple[str, str]]:
 		return []
 
 	labels = build_label_map(source_format)
+	skip = set(mapped_fields(source_format))   # promoted to a column -- never printed too
 	responses = data.get("responses")
 	if responses is None:
 		responses = {k: v for k, v in data.items() if k not in _ENVELOPE_KEYS}
@@ -117,6 +142,8 @@ def flatten_pairs(source_data, source_format=None) -> list[tuple[str, str]]:
 	for section in responses.values():
 		if isinstance(section, dict):
 			for key, value in section.items():
+				if key in skip:
+					continue
 				text = _render(value)
 				if text:
 					out.append((_label_for(key, labels), text))

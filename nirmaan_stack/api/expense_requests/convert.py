@@ -146,8 +146,13 @@ def create_ledger_row(req):
 	if bill:
 		values["invoice_attachment"] = bill
 	if doctype == PROJECT_EXPENSE_DOCTYPE:
-		# `Non Project Expenses` has no `projects` field at all, so this is project-only.
+		# `Non Project Expenses` has NEITHER of these columns, so both are project-only.
+		# ⚠️ The vendor is copied as a plain field, exactly like the project -- it reached the
+		# request as a real column (promoted from the format's `maps_to`), so nothing here has
+		# to parse it back out of the answers.
 		values["projects"] = req.projects
+		if req.get("vendor"):
+			values["vendor"] = req.vendor
 
 	row = frappe.new_doc(doctype)
 	row.update(values)

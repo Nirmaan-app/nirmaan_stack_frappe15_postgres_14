@@ -10,6 +10,7 @@
   "type",
   "type_allows_project",
   "projects",
+  "vendor",
   "amount",
   "comment",
   "form_response_section",
@@ -51,6 +52,15 @@
    "fieldtype": "Link",
    "label": "Project",
    "options": "Projects"
+  },
+  {
+   "description": "The vendor this expense is paid to. PROJECT-ONLY and refused otherwise -- `Non Project Expenses` has no vendor column, so a vendor on a non-project request could never reach its ledger row. Normally chosen in the request dialog; a format may also supply one through `maps_to`, and the explicit choice wins. Copied to `Project Expenses.vendor` at approval.",
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "label": "Vendor",
+   "options": "Vendors",
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "fieldname": "amount",
