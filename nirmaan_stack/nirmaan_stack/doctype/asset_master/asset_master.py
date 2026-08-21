@@ -7,6 +7,19 @@ from frappe.model.naming import make_autoname
 
 
 class AssetMaster(Document):
+	def validate(self):
+		self.clear_location_when_project_removed()
+
+	def clear_location_when_project_removed(self):
+		"""
+		asset_city / asset_state are fetch_from fields on `project`. Frappe only
+		fetches when the link HAS a value, so clearing the project would otherwise
+		leave the previous project's city/state stranded on the row.
+		"""
+		if not self.project:
+			self.asset_city = None
+			self.asset_state = None
+
 	def autoname(self):
 		"""
 		Generate name in format: ASSET-<first 3 letters of category>-###

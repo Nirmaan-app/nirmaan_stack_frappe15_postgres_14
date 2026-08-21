@@ -7,7 +7,7 @@ import {
     isProcurementProfile,
 } from "@/constants/roles";
 
-export type ProjectReportType = 'Cash Sheet' | 'Inflow Report' | 'Outflow Report(Project)' | 'Outflow Report(Non-Project)' | 'Project Progress Report' | 'Inventory Report' | 'Project GST' | 'Monthly WIP';
+export type ProjectReportType = 'Cash Sheet' | 'Inflow Report' | 'Outflow Report(Project)' | 'Outflow Report(Non-Project)' | 'Project Invoices' | 'Project Progress Report' | 'Inventory Report' | 'Project GST' | 'Monthly WIP';
 
 export type VendorReportType = 'Vendor Ledger';
 // Define the specific report options for POs

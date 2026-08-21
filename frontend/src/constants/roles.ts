@@ -75,3 +75,47 @@ export const isMaterialProcurementProfile = (role?: string | null): boolean =>
 /** Sees the service side (Work Orders / Service Requests). */
 export const isServiceProcurementProfile = (role?: string | null): boolean =>
   !!role && SERVICE_PROCUREMENT_PROFILES.includes(role);
+
+export const BILLING_EXECUTIVE_PROFILE = "Nirmaan Billing Executive Profile";
+export const BILLING_LEAD_PROFILE = "Nirmaan Billing Lead Profile";
+
+/**
+ * The billing desk. Distinct from Accountant (`Nirmaan Accountant Profile` /
+ * `Nirmaan Accountant Lead Profile`), which owns the INVOICE side of a PO —
+ * these two own the billing-document side.
+ *
+ * Note billing is otherwise a VIEW-ONLY profile on a PO: `PurchaseOrder.tsx`
+ * folds Billing Executive into `estimatesViewing`, which hides Upload DC/MIR.
+ * DC/MIR deletion is a deliberate exception (owner ruling) — billing is the
+ * desk that catches a wrong or duplicate DC/MIR, so it must be able to remove
+ * one without also gaining upload rights.
+ */
+export const BILLING_PROFILES: readonly string[] = [
+  BILLING_EXECUTIVE_PROFILE,
+  BILLING_LEAD_PROFILE,
+];
+
+/** Any billing profile. */
+export const isBillingProfile = (role?: string | null): boolean =>
+  !!role && BILLING_PROFILES.includes(role);
+
+export const ADMIN_PROFILE = "Nirmaan Admin Profile";
+
+/**
+ * May delete a DC / MIR off a PO — admin, procurement (they file them) and
+ * billing (they catch the bad ones). Mirrored server-side by
+ * `role_profiles.PDD_DELETE_PROFILES`, which is the ENFORCEMENT boundary;
+ * this constant only decides whether the trash icon renders.
+ */
+export const PDD_DELETE_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  ...PROCUREMENT_PROFILES,
+  ...BILLING_PROFILES,
+];
+
+/** True when `role` (a role PROFILE) may delete a DC / MIR. */
+export const canDeleteDeliveryDocument = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" || (!!role && PDD_DELETE_PROFILES.includes(role));

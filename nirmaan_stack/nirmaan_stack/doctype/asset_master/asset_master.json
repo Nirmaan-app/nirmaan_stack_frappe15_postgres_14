@@ -12,6 +12,9 @@
   "asset_condition",
   "asset_serial_number",
   "asset_value",
+  "project",
+  "asset_city",
+  "asset_state",
   "attachments_section",
   "asset_invoice_attachment",
   "asset_certificate_attachment",
@@ -64,6 +67,27 @@
    "label": "Asset Value"
   },
   {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Projects",
+   "search_index": 1
+  },
+  {
+   "fetch_from": "project.project_city",
+   "fieldname": "asset_city",
+   "fieldtype": "Data",
+   "label": "City",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "project.project_state",
+   "fieldname": "asset_state",
+   "fieldtype": "Data",
+   "label": "State",
+   "read_only": 1
+  },
+  {
    "fieldname": "attachments_section",
    "fieldtype": "Section Break",
    "label": "Attachments"
@@ -114,7 +138,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-09 18:48:44.025045",
+ "modified": "2026-08-20 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Asset Master",

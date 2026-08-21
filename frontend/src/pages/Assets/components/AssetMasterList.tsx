@@ -10,17 +10,19 @@ import { formatDate } from '@/utils/FormatDate';
 import { formatToRoundedIndianRupee } from '@/utils/FormatPrice';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Package, User, Hash } from 'lucide-react';
+import { Package, User, Hash, Briefcase, MapPin } from 'lucide-react';
 
 import {
     ASSET_MASTER_DOCTYPE,
     ASSET_MASTER_FIELDS,
     ASSET_SEARCHABLE_FIELDS,
+    PROJECT_ASSET_SEARCHABLE_FIELDS,
     ASSET_DATE_COLUMNS,
     ASSET_CONDITION_OPTIONS,
     ASSET_CATEGORY_DOCTYPE,
     AssetCategoryType,
 } from '../assets.constants';
+import { useAssetProjectOptions } from '../hooks/useAssetProjectOptions';
 
 interface AssetMaster {
     name: string;
@@ -30,6 +32,9 @@ interface AssetMaster {
     asset_condition: string;
     asset_serial_number: string;
     asset_value: number;
+    project: string;
+    asset_city: string;
+    asset_state: string;
     asset_email: string;
     current_assignee: string;
     creation: string;
@@ -97,6 +102,11 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
         'users_for_asset_list'
     );
 
+    const isProjectTab = assetType === 'Project';
+
+    // Project names for the Project / City / State columns (Project tab only).
+    const { projectsById } = useAssetProjectOptions(isProjectTab);
+
     const usersMap = useMemo(() => {
         const map: Record<string, string> = {};
         usersList?.forEach((user) => {
@@ -122,10 +132,13 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
         current_assignee: string;
         asset_category: string;
         asset_condition: string;
+        project: string;
+        asset_city: string;
+        asset_state: string;
     }>(
         ASSET_MASTER_DOCTYPE,
         {
-            fields: ['name', 'asset_name', 'current_assignee', 'asset_category', 'asset_condition'],
+            fields: ['name', 'asset_name', 'current_assignee', 'asset_category', 'asset_condition', 'project', 'asset_city', 'asset_state'],
             filters: scopeFilter,
             limit: 0,
         },
@@ -142,6 +155,9 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
             current_assignee: new Map<string, number>(),
             asset_category: new Map<string, number>(),
             asset_condition: new Map<string, number>(),
+            project: new Map<string, number>(),
+            asset_city: new Map<string, number>(),
+            asset_state: new Map<string, number>(),
         };
         (facetSource ?? []).forEach((row) => {
             const n = row.asset_name?.trim();
@@ -149,6 +165,11 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
             if (row.current_assignee) counts.current_assignee.set(row.current_assignee, (counts.current_assignee.get(row.current_assignee) ?? 0) + 1);
             if (row.asset_category) counts.asset_category.set(row.asset_category, (counts.asset_category.get(row.asset_category) ?? 0) + 1);
             if (row.asset_condition) counts.asset_condition.set(row.asset_condition, (counts.asset_condition.get(row.asset_condition) ?? 0) + 1);
+            if (row.project) counts.project.set(row.project, (counts.project.get(row.project) ?? 0) + 1);
+            const city = row.asset_city?.trim();
+            if (city) counts.asset_city.set(city, (counts.asset_city.get(city) ?? 0) + 1);
+            const state = row.asset_state?.trim();
+            if (state) counts.asset_state.set(state, (counts.asset_state.get(state) ?? 0) + 1);
         });
         return counts;
     }, [facetSource]);
@@ -185,6 +206,31 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
         });
         return opts.sort((a, b) => a.label.localeCompare(b.label));
     }, [facetCounts, usersMap]);
+
+    const projectOptions = useMemo(() => {
+        const opts: { label: string; value: string }[] = [];
+        facetCounts.project.forEach((count, projectId) => {
+            const name = projectsById[projectId]?.project_name || projectId;
+            opts.push({ label: `${name} (${count})`, value: projectId });
+        });
+        return opts.sort((a, b) => a.label.localeCompare(b.label));
+    }, [facetCounts, projectsById]);
+
+    const cityOptions = useMemo(() => {
+        const opts: { label: string; value: string }[] = [];
+        facetCounts.asset_city.forEach((count, city) => {
+            opts.push({ label: `${city} (${count})`, value: city });
+        });
+        return opts.sort((a, b) => a.label.localeCompare(b.label));
+    }, [facetCounts]);
+
+    const stateOptions = useMemo(() => {
+        const opts: { label: string; value: string }[] = [];
+        facetCounts.asset_state.forEach((count, state) => {
+            opts.push({ label: `${state} (${count})`, value: state });
+        });
+        return opts.sort((a, b) => a.label.localeCompare(b.label));
+    }, [facetCounts]);
 
     const columns = useMemo<ColumnDef<AssetMaster>[]>(() => [
         {
@@ -328,6 +374,66 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
                 },
             },
         },
+        // Project / City / State are Project-asset concepts only — the IT tab has
+        // no project link, so the columns would always render as em-dashes there.
+        ...(isProjectTab ? ([
+            {
+                accessorKey: 'project',
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
+                cell: ({ row }) => {
+                    const projectId = row.getValue<string>('project');
+                    if (!projectId) return <span className="text-gray-400">—</span>;
+                    return (
+                        <span className="inline-flex items-center gap-1.5 text-sm text-gray-700">
+                            <Briefcase className="h-3.5 w-3.5 text-gray-400" />
+                            {projectsById[projectId]?.project_name || projectId}
+                        </span>
+                    );
+                },
+                size: 200,
+                meta: {
+                    exportHeaderName: 'Project',
+                    exportValue: (row: AssetMaster) =>
+                        row.project ? (projectsById[row.project]?.project_name || row.project) : '',
+                },
+            },
+            {
+                accessorKey: 'asset_city',
+                header: ({ column }) => <DataTableColumnHeader column={column} title="City" />,
+                cell: ({ row }) => {
+                    const city = row.getValue<string>('asset_city');
+                    if (!city) return <span className="text-gray-400">—</span>;
+                    return (
+                        <span className="inline-flex items-center gap-1.5 text-sm text-gray-700">
+                            <MapPin className="h-3.5 w-3.5 text-gray-400" />
+                            {city}
+                        </span>
+                    );
+                },
+                size: 140,
+                meta: {
+                    exportHeaderName: 'City',
+                    exportValue: (row: AssetMaster) => row.asset_city || '',
+                },
+            },
+            {
+                accessorKey: 'asset_state',
+                header: ({ column }) => <DataTableColumnHeader column={column} title="State" />,
+                cell: ({ row }) => {
+                    const state = row.getValue<string>('asset_state');
+                    return state ? (
+                        <span className="text-sm text-gray-700">{state}</span>
+                    ) : (
+                        <span className="text-gray-400">—</span>
+                    );
+                },
+                size: 140,
+                meta: {
+                    exportHeaderName: 'State',
+                    exportValue: (row: AssetMaster) => row.asset_state || '',
+                },
+            },
+        ] as ColumnDef<AssetMaster>[]) : []),
         {
             accessorKey: 'creation',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Created" />,
@@ -342,9 +448,13 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
                 exportValue: (row: AssetMaster) => formatDate(row.creation),
             },
         },
-    ], [usersMap]);
+    ], [usersMap, isProjectTab, projectsById]);
 
     const additionalFilters = scopeFilter;
+
+    const searchableFields = isProjectTab
+        ? PROJECT_ASSET_SEARCHABLE_FIELDS
+        : ASSET_SEARCHABLE_FIELDS;
 
     const {
         table,
@@ -361,7 +471,7 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
         doctype: ASSET_MASTER_DOCTYPE,
         columns,
         fetchFields: ASSET_MASTER_FIELDS as unknown as string[],
-        searchableFields: ASSET_SEARCHABLE_FIELDS,
+        searchableFields: searchableFields,
         defaultSort: 'creation desc',
         urlSyncKey: assetType ? `asset_master_${assetType.toLowerCase()}` : 'asset_master',
         enableRowSelection: false,
@@ -385,7 +495,12 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
             title: 'Assignee',
             options: assigneeOptions,
         },
-    }), [assetNameOptions, categoryOptions, conditionOptions, assigneeOptions]);
+        ...(isProjectTab ? {
+            project: { title: 'Project', options: projectOptions },
+            asset_city: { title: 'City', options: cityOptions },
+            asset_state: { title: 'State', options: stateOptions },
+        } : {}),
+    }), [assetNameOptions, categoryOptions, conditionOptions, assigneeOptions, isProjectTab, projectOptions, cityOptions, stateOptions]);
 
     return (
         <DataTable<AssetMaster>
@@ -394,7 +509,7 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
             isLoading={isLoading}
             error={error as Error}
             totalCount={totalCount}
-            searchFieldOptions={ASSET_SEARCHABLE_FIELDS}
+            searchFieldOptions={searchableFields}
             selectedSearchField={selectedSearchField}
             onSelectedSearchFieldChange={setSelectedSearchField}
             searchTerm={searchTerm}

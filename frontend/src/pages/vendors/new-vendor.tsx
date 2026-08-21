@@ -7,7 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { SheetClose } from "@/components/ui/sheet"
 import { useToast } from "@/components/ui/use-toast"
-import { GST_REGEX, IFSC_REGEX, NAME_REGEX, PAN_REGEX } from "@/constants/vendorFormRegex"
+import { ACCOUNT_NUMBER_REGEX, GST_REGEX, IFSC_REGEX, NAME_REGEX, PAN_REGEX } from "@/constants/vendorFormRegex"
+import { accountNumberDuplicateMessage, findVendorByGst } from "./utils/vendorDuplicates"
 import { SERVICECATEGORIES } from "@/lib/ServiceCategories"
 import { Vendors } from "@/types/NirmaanStack/Vendors"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -23,7 +24,7 @@ import * as z from "zod"
 
 
 
-const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNumber: string | undefined, confirmAccountNumber: string | undefined, existingVendors: Vendors[] | undefined, bank_details: any, pincode_data: any) => {
+const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNumber: string | undefined, existingVendors: Vendors[] | undefined, bank_details: any, pincode_data: any) => {
     const vendorGstSchema = isTaxGSTType
     ? z
         .string({
@@ -31,13 +32,13 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
         })
         .regex(GST_REGEX, {
           message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
-        }).refine((value) => {
-          if (value && existingVendors?.some((vendor) => vendor.vendor_gst === value)) {
-            return false;
-          }
-          return true;
-        }, {
-          message: "Vendor with this GST already exists.",
+        }).refine((value) => !findVendorByGst(existingVendors, value), (value) => {
+          const owner = findVendorByGst(existingVendors, value);
+          return {
+            message: owner
+              ? `This GST is already registered to ${owner.vendor_name || owner.name}.`
+              : "This GST is already registered to another vendor.",
+          };
         })
     : z
         .string({
@@ -45,25 +46,36 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
         })
         .regex(PAN_REGEX, {
           message: "Invalid PAN format. Example: ABCDE1234F",
-        }).refine((value) => {
-          if (value && existingVendors?.some((vendor) => vendor.vendor_gst === value)) {
-            return false;
-          }
-          return true;
-        }, {
-          message: "Vendor with this PAN already exists.",
+        }).refine((value) => !findVendorByGst(existingVendors, value), (value) => {
+          const owner = findVendorByGst(existingVendors, value);
+          return {
+            message: owner
+              ? `This PAN is already registered to ${owner.vendor_name || owner.name}.`
+              : "This PAN is already registered to another vendor.",
+          };
         });
 
   const finalVendorGstSchema = service ? vendorGstSchema.optional() : vendorGstSchema;
-  let accountNumberSchema = z.string().optional();
-  let confirmAccountNumberSchema = accountNumber ? (confirmAccountNumber !== accountNumber ? z.string(
-      {
-          required_error: "Confirm account number is required",
-      }
-  ).refine((value) => value === accountNumber, {
-      message: "Account numbers do not match.",
-      // path: ["confirm_account_number"],
-  }) : z.string().optional()) : z.string().optional();
+  // Bank details are MANDATORY at creation. edit-vendor deliberately keeps them
+  // optional — a large share of existing vendors predate this rule and must stay
+  // editable without sourcing bank details first.
+  const accountNumberSchema = z
+      .string({ required_error: "Account number is required" })
+      .min(1, { message: "Account number is required" })
+      .regex(ACCOUNT_NUMBER_REGEX, {
+          message: "Account number must be 9 to 18 digits.",
+      })
+      // A second vendor may not be pointed at an account number already in use.
+      .refine((value) => !accountNumberDuplicateMessage(existingVendors, value), (value) => ({
+          message: accountNumberDuplicateMessage(existingVendors, value)
+              ?? "This account number is already registered to another vendor.",
+      }));
+  const confirmAccountNumberSchema = z
+      .string({ required_error: "Confirm account number is required" })
+      .min(1, { message: "Confirm account number is required" })
+      .refine((value) => value === accountNumber, {
+          message: "Account numbers do not match.",
+      });
 
 
   return z.object({
@@ -155,15 +167,22 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
       vendor_gst: finalVendorGstSchema,
       account_number: accountNumberSchema,
       confirm_account_number:confirmAccountNumberSchema,
-      account_name: z.string().optional(),
+      account_name: z
+          .string({ required_error: "Account holder name is required" })
+          .min(3, {
+              message: "Must be at least 3 characters.",
+          }),
+      // Auto-filled (and disabled) from the IFSC lookup — a valid IFSC is what
+      // guarantees these two are populated, so they carry no rule of their own.
       bank_name: z.string().optional(),
       bank_branch: z.string().optional(),
       ifsc: z
-      .string()
+      .string({ required_error: "IFSC code is required" })
+      .min(1, { message: "IFSC code is required" })
       .regex(IFSC_REGEX, {
         message: "Invalid IFSC code. Example: SBIN0005943"
       })
-      .optional().refine((ifsc) => {
+      .refine((ifsc) => {
           if (!ifsc || ifsc.length !== 11) {
             return true;
           }
@@ -198,13 +217,12 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
     const [vendorType, setVendorType] = useState<string | null>(null)
     const [taxationType, setTaxationType] = useState<string | null>("GST")
     const [accountNumber, setAccountNumber] = useState<string>("");
-    const [confirmAccountNumber, setConfirmAccountNumber] = useState<string>("");
     const [IFSC, setIFSC] = useState<string>("");
     const [pincode, setPincode] = useState<string>("")
 
     const { data: pincode_data } = usePincodeData(pincode)
     const { data: existingVendors } = useExistingVendors();
-    const { data: bank_details } = useBankDetails(IFSC);
+    const { data: bank_details, isLoading: bankDetailsLoading } = useBankDetails(IFSC);
 
     useEffect(() => {
         if (bank_details && !bank_details.message.error) {
@@ -217,7 +235,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
 
     }, [bank_details, IFSC]) 
 
-    const VendorFormSchema = getVendorFormSchema(vendorType === "Service", taxationType === "GST", accountNumber, confirmAccountNumber, existingVendors, bank_details, pincode_data)
+    const VendorFormSchema = getVendorFormSchema(vendorType === "Service", taxationType === "GST", accountNumber, existingVendors, bank_details, pincode_data)
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
         defaultValues: {},
@@ -316,6 +334,18 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                 toast({
                     title: "Error!",
                     description: "City and State are 'Note Found', Please Enter a Valid Pincode",
+                    variant: "destructive"
+                });
+                return
+            }
+
+            // Bank Name / Branch are filled by the IFSC lookup, never typed. If the
+            // lookup has not resolved (still in flight, or failed) the vendor would be
+            // created with empty bank details — block instead.
+            if (!values.bank_name || !values.bank_branch) {
+                toast({
+                    title: "Error!",
+                    description: "Bank details are not verified yet. Please re-check the IFSC Code and wait for the Bank Name and Branch to fill in.",
                     variant: "destructive"
                 });
                 return
@@ -750,7 +780,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                                     name="account_name"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>Account Name</FormLabel>
+                                            <FormLabel className="flex">Account Name<sup className="text-sm text-red-600">*</sup></FormLabel>
                                             <FormControl>
                                                 <Input 
                                                     placeholder="Enter Account Name" 
@@ -769,7 +799,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                                     name="account_number"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>Account Number</FormLabel>
+                                            <FormLabel className="flex">Account Number<sup className="text-sm text-red-600">*</sup></FormLabel>
                                             <FormControl>
                                                 <Input
                                                   placeholder="Enter Account Number"
@@ -794,14 +824,13 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                                   name="confirm_account_number"
                                   render={({ field }) => (
                                     <FormItem>
-                                      <FormLabel>Confirm Account Number</FormLabel>
+                                      <FormLabel className="flex">Confirm Account Number<sup className="text-sm text-red-600">*</sup></FormLabel>
                                       <FormControl>
                                         <Input placeholder="Confirm Account Number" 
                                         {...field} 
                                         autoComplete="new-password" 
                                         autoCorrect="off"
                                         onChange={(e) => {
-                                          setConfirmAccountNumber(e.target.value);
                                           field.onChange(e.target.value === "" ? undefined : e);
                                         }}
                                         />
@@ -815,7 +844,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                                   name="ifsc"
                                   render={({ field }) => (
                                     <FormItem>
-                                      <FormLabel>IFSC Code</FormLabel>
+                                      <FormLabel className="flex">IFSC Code<sup className="text-sm text-red-600">*</sup></FormLabel>
                                       <FormControl>
                                         <Input 
                                           placeholder="Enter IFSC Code" 
@@ -827,6 +856,11 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                                           }}
                                         />
                                       </FormControl>
+                                      {IFSC.length === 11 && bankDetailsLoading ? (
+                                        <p className="text-xs text-muted-foreground">Looking up bank details...</p>
+                                      ) : (
+                                        <p className="text-xs text-muted-foreground">Bank Name and Branch fill in automatically from this code.</p>
+                                      )}
                                       <FormMessage />
                                     </FormItem>
                                   )}
@@ -837,9 +871,9 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                                     name="bank_name"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>Bank Name</FormLabel>
+                                            <FormLabel className="flex items-center gap-1">Bank Name<span className="text-xs font-normal text-muted-foreground">(auto-filled from IFSC)</span></FormLabel>
                                             <FormControl>
-                                                <Input disabled={true} placeholder="Enter Bank Name" {...field} value={field.value || ""} />
+                                                <Input disabled={true} placeholder="Fills in from IFSC Code" {...field} value={field.value || ""} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
@@ -850,9 +884,9 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                                     name="bank_branch"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>Bank Branch</FormLabel>
+                                            <FormLabel className="flex items-center gap-1">Bank Branch<span className="text-xs font-normal text-muted-foreground">(auto-filled from IFSC)</span></FormLabel>
                                             <FormControl>
-                                                <Input disabled={true} placeholder="Enter Bank Branch" {...field} value={field.value || ""} />
+                                                <Input disabled={true} placeholder="Fills in from IFSC Code" {...field} value={field.value || ""} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>

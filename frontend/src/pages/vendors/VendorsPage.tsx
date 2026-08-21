@@ -13,6 +13,8 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
 import { Ellipsis } from "lucide-react";
+import { toast } from "@/components/ui/use-toast";
+import { exportToCsv } from "@/utils/exportToCsv";
 
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { FacetDeclaration } from "@/components/data-table/facetConfig";
@@ -26,6 +28,7 @@ import {
   VENDOR_LIST_FIELDS_TO_FETCH,
   VENDOR_SEARCHABLE_FIELDS,
   VENDOR_DATE_COLUMNS,
+  VENDOR_HIDDEN_COLUMNS,
 } from "./vendors.constants";
 import { VendorsOverallSummaryCard } from "./components/VendorsOverallSummaryCard"; // Optional component
 
@@ -65,6 +68,7 @@ export default function VendorsPage() {
           );
         },
         size: 120,
+        meta: { columnLabel: "Vendor ID" },
       },
       {
         accessorKey: "vendor_name",
@@ -80,6 +84,7 @@ export default function VendorsPage() {
           </Link>
         ),
         size: 250,
+        meta: { columnLabel: "Vendor Name" },
       },
       {
         accessorKey: "vendor_nickname",
@@ -108,6 +113,7 @@ export default function VendorsPage() {
         size: 180,
         enableColumnFilter: true,
         meta: {
+          columnLabel: "Vendor Type",
           facet: {
             field: "vendor_type",
             title: "Vendor Type",
@@ -139,6 +145,7 @@ export default function VendorsPage() {
         size: 120,
         enableColumnFilter: true,
         meta: {
+          columnLabel: "Status",
           facet: {
             field: "vendor_status",
             title: "Status",
@@ -197,7 +204,19 @@ export default function VendorsPage() {
         },
       },
       {
-        id: "vendor_address",
+        // Keyed on `vendor_state`, not `vendor_address`, so the State facet below
+        // actually filters: `convertTanstackFiltersToFrappe` builds the Frappe filter
+        // from the COLUMN ID, never from `meta.facet.field`. Filtering on
+        // `vendor_address` (a Link to the Address doctype) would match nothing.
+        // A separate State column was the alternative, but it would only repeat what
+        // this column already shows — and hidden columns render no header, so a facet
+        // on one would be invisible until toggled on.
+        id: "vendor_state",
+        // accessorFn (not just `id`) so the column also shows up in the
+        // "Toggle columns" menu — without it TanStack has no accessor and the
+        // menu skips it, leaving Address as the one column that can't be hidden.
+        accessorFn: (row: VendorsType) =>
+          [row.vendor_city, row.vendor_state].filter(Boolean).join(", "),
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Address" />
         ),
@@ -212,6 +231,20 @@ export default function VendorsPage() {
           );
         },
         size: 200,
+        enableSorting: false,
+        enableColumnFilter: true,
+        meta: {
+          columnLabel: "Address",
+          // The cell is DERIVED from vendor_city + vendor_state; with no accessorKey
+          // and no exportValue the CSV column came out empty on every row.
+          exportHeaderName: "Address",
+          exportValue: (row: VendorsType) =>
+            [row.vendor_city, row.vendor_state].filter(Boolean).join(", "),
+          facet: {
+            field: "vendor_state",
+            title: "State",
+          } satisfies FacetDeclaration,
+        },
       },
       {
         accessorKey: "creation",
@@ -224,6 +257,121 @@ export default function VendorsPage() {
           </div>
         ),
         size: 120,
+        meta: { columnLabel: "Date Created" },
+      },
+      // --- Optional columns: hidden by default, opt-in via the "Toggle columns" menu.
+      // Whatever is visible here is exactly what the CSV export contains.
+      {
+        accessorKey: "account_name",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Account Holder Name" />
+        ),
+        cell: ({ row }) => (
+          <div className="font-medium text-sm whitespace-normal leading-tight">
+            {row.original.account_name || "--"}
+          </div>
+        ),
+        size: 220,
+        enableSorting: false,
+        meta: { exportHeaderName: "Account Holder Name" },
+      },
+      {
+        accessorKey: "account_number",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Account Number" />
+        ),
+        cell: ({ row }) => (
+          <div className="font-medium text-sm whitespace-nowrap">
+            {row.original.account_number || "--"}
+          </div>
+        ),
+        size: 180,
+        enableSorting: false,
+        meta: { exportHeaderName: "Account Number" },
+      },
+      {
+        accessorKey: "ifsc",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="IFSC Code" />
+        ),
+        cell: ({ row }) => (
+          <div className="font-medium text-sm whitespace-nowrap">
+            {row.original.ifsc || "--"}
+          </div>
+        ),
+        size: 140,
+        enableSorting: false,
+        meta: { exportHeaderName: "IFSC Code" },
+      },
+      {
+        accessorKey: "bank_name",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Bank Name" />
+        ),
+        cell: ({ row }) => (
+          <div className="font-medium text-sm whitespace-normal leading-tight">
+            {row.original.bank_name || "--"}
+          </div>
+        ),
+        size: 220,
+        enableSorting: false,
+        meta: { exportHeaderName: "Bank Name" },
+      },
+      {
+        accessorKey: "bank_branch",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Branch" />
+        ),
+        cell: ({ row }) => (
+          <div className="font-medium text-sm whitespace-normal leading-tight">
+            {row.original.bank_branch || "--"}
+          </div>
+        ),
+        size: 200,
+        enableSorting: false,
+        meta: { exportHeaderName: "Branch" },
+      },
+      {
+        accessorKey: "vendor_gst",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="GST Number" />
+        ),
+        cell: ({ row }) => (
+          <div className="font-medium text-sm whitespace-nowrap">
+            {row.original.vendor_gst || "--"}
+          </div>
+        ),
+        size: 180,
+        enableSorting: false,
+        meta: { exportHeaderName: "GST Number" },
+      },
+      {
+        accessorKey: "vendor_contact_person_name",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Contact Person" />
+        ),
+        cell: ({ row }) => (
+          <div className="font-medium text-sm whitespace-normal leading-tight">
+            {row.original.vendor_contact_person_name || "--"}
+          </div>
+        ),
+        size: 200,
+        enableSorting: false,
+        meta: { exportHeaderName: "Contact Person" },
+      },
+      {
+        accessorKey: "vendor_mobile",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Contact Number" />
+        ),
+        cell: ({ row }) => (
+          <div className="font-medium text-sm whitespace-nowrap">
+            {row.original.vendor_mobile || "--"}
+          </div>
+        ),
+        size: 150,
+        enableSorting: false,
+        meta: { exportHeaderName: "Contact Number" },
       },
     ],
     []
@@ -249,7 +397,61 @@ export default function VendorsPage() {
     urlSyncKey: `vendors_list`,
     enableRowSelection: false,
     shouldCache: true,
+    initialState: { columnVisibility: VENDOR_HIDDEN_COLUMNS },
   });
+
+  const exportFileName = "vendors_list";
+
+  // Export mirrors the "Toggle columns" menu: only the columns visible right now
+  // land in the CSV. The shared default export handler ignores visibility, so this
+  // page supplies its own.
+  const handleExport = useCallback(async () => {
+    try {
+      const visibleIds = new Set(
+        table.getVisibleLeafColumns().map((col) => col.id)
+      );
+      const exportableColumns = columns.filter((col) => {
+        const id = (col as { id?: string; accessorKey?: string }).id ??
+          (col as { accessorKey?: string }).accessorKey;
+        return !!id && visibleIds.has(id);
+      });
+
+      if (exportableColumns.length === 0) {
+        toast({
+          title: "Export",
+          description: "No columns are visible to export.",
+        });
+        return;
+      }
+
+      if (totalCount > 5000) {
+        const confirmed = window.confirm(
+          `This will export ${totalCount.toLocaleString()} rows. This may take a moment. Continue?`
+        );
+        if (!confirmed) return;
+      }
+
+      const rowsToExport = await exportAllRows();
+      if (!rowsToExport || rowsToExport.length === 0) {
+        toast({ title: "Export", description: "No data to export." });
+        return;
+      }
+
+      exportToCsv(exportFileName, rowsToExport, exportableColumns);
+      toast({
+        title: "Export Successful",
+        description: `${rowsToExport.length} rows exported.`,
+        variant: "success",
+      });
+    } catch (error) {
+      console.error("Vendor export failed:", error);
+      toast({
+        title: "Export Error",
+        description: "Could not generate CSV file.",
+        variant: "destructive",
+      });
+    }
+  }, [table, columns, exportAllRows, totalCount, exportFileName]);
 
   return (
     <div
@@ -278,10 +480,9 @@ export default function VendorsPage() {
         facetDoctype={VENDOR_DOCTYPE}
         dateFilterColumns={VENDOR_DATE_COLUMNS}
         showExportButton={true}
-        onExport={"default"}
-        onExportAll={exportAllRows}
+        onExport={handleExport}
         isExporting={isExporting}
-        exportFileName={`vendors_list`}
+        exportFileName={exportFileName}
         showRowSelection={false}
         getRowClassName={getRowClassName}
       />
