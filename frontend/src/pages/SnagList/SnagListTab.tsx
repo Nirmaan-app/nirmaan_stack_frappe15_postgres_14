@@ -19,7 +19,7 @@
 
 import * as React from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { FileUp, Info, Plus, Tags } from "lucide-react";
+import { Download, FileUp, Info, Loader2, Plus, Tags } from "lucide-react";
 
 import { DataTable } from "@/components/data-table/new-data-table";
 import { getColumnFacet } from "@/components/data-table/facetConfig";
@@ -31,6 +31,8 @@ import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { cn } from "@/lib/utils";
 
 import { SnagImportDialog } from "@/pages/SnagList/import/SnagImportDialog";
+
+import { useSnagDownload } from "./download";
 
 import { AddSnagDialog } from "./components/AddSnagDialog";
 import { BulkStatusDialog } from "./components/BulkStatusDialog";
@@ -58,9 +60,16 @@ import { IngestBatchesResponse, SnagStatus } from "./types";
 
 export interface SnagListTabProps {
   projectId: string;
+  /**
+   * Display name of the project. Used for the downloaded PDF's FILENAME only —
+   * the PDF itself reads the name off the Projects doc it prints. Both mount
+   * points already hold the project doc, so this is a prop rather than a third
+   * fetch of the same document; it falls back to `projectId` when absent.
+   */
+  projectName?: string;
 }
 
-export function SnagListTab({ projectId }: SnagListTabProps): JSX.Element {
+export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.Element {
   const { role, user_id } = useUserData();
   const perms = React.useMemo(
     () => resolveSnagPermissions({ role, userId: user_id }),
@@ -187,6 +196,19 @@ export function SnagListTab({ projectId }: SnagListTabProps): JSX.Element {
 
   refetchTableRef.current = refetch;
 
+  // --- Download (PDF) ---
+  // Prints the "Project Snag" format off the PROJECT doc, narrowed by whatever is
+  // on screen right now: the facets, the Batch funnel and the search box all ride
+  // along as query params. There is no picker dialog on purpose — the toolbar IS
+  // the picker, so the PDF cannot disagree with the table above it.
+  const { isDownloading, download } = useSnagDownload({
+    projectId,
+    projectLabel: projectName,
+    columnFilters,
+    searchTerm,
+    selectedSearchField,
+  });
+
   // --- The Batch filter (the Batch COLUMN is gone; the FILTER is not) ---
   // Its host column is hidden, so DataTable's header loop never reaches it — the
   // funnel is rendered here instead, in the toolbar, off the SAME `meta.facet`
@@ -298,6 +320,42 @@ export function SnagListTab({ projectId }: SnagListTabProps): JSX.Element {
               Import
             </Button>
           )}
+
+          {/* Ungated, unlike its neighbours — printing the list is not a write.
+              It lives up here rather than in the table toolbar, but it still prints
+              WHAT IS ON SCREEN: the facets, the Batch funnel and the search box all
+              ride along, so the PDF cannot disagree with the table below it.
+
+              RED-BORDERED OUTLINE, deliberately — it sits beside Import and the two
+              must not read as the same weight. Import is the one action that CHANGES
+              the project's data, so it keeps the SOLID red; taking a copy out is
+              secondary, so it carries the red only on its border. Tokens, not literal
+              reds (`border-primary/…`, not `border-red-300`), so it tracks the theme's
+              primary the way the rest of the app's tinted controls do. */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-9 border-primary/50 text-primary hover:bg-primary/5 hover:text-primary"
+            disabled={isDownloading || totalCount === 0}
+            title={
+              totalCount === 0
+                ? "Nothing to print in this view"
+                : "Download this view as a PDF"
+            }
+            onClick={download}
+          >
+            {isDownloading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Preparing...
+              </>
+            ) : (
+              <>
+                <Download className="mr-2 h-4 w-4" />
+                Download
+              </>
+            )}
+          </Button>
         </div>
       </div>
 

@@ -1522,7 +1522,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       case PROJECT_PAGE_TABS.CRITICAL_POS:
         return <CriticalPOTasksTab projectId={projectId} projectData={data} />;
       case PROJECT_PAGE_TABS.SNAG_LIST:
-        return <Suspense fallback={<LoadingFallback />}><SnagListTab projectId={projectId} /></Suspense>;
+        return <Suspense fallback={<LoadingFallback />}><SnagListTab projectId={projectId} projectName={data?.project_name} /></Suspense>;
       case PROJECT_PAGE_TABS.DESIGN_TRACKER:
         return designTrackerId ? (
           <ProjectDesignTrackerDetail trackerId={designTrackerId} />

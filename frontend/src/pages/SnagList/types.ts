@@ -231,3 +231,41 @@ export interface SnagStatsSummary {
   total: number;
   by_status: Record<SnagStatus, number>;
 }
+
+// ---------------------------------------------------------------------------
+// Endpoint: get_projects_with_snag_stats  (the /snag-list sidebar page)
+// GET, no params.
+// ---------------------------------------------------------------------------
+
+/**
+ * One card on the cross-project Snag List grid.
+ *
+ * Only projects that have at least one Snag OR one Batch are returned — a snag list
+ * is STARTED from the project's own Snag List tab, so a project never imported into
+ * has nothing to show here (see `api/snags/project_list.py`).
+ *
+ * `status_of_project` is the Projects EXECUTION lifecycle (WIP / Handover / …), not a
+ * SnagStatus. It is named to match the design tracker list payload because both feed
+ * the same shared `ProjectStatusFilter`.
+ */
+export interface ProjectSnagSummary {
+  /** The Projects id — this is what `/snag-list/:id` is keyed on. */
+  name: string;
+  project_name: string;
+  status_of_project: string;
+  project_city: string;
+  project_manager: string;
+  total: number;
+  by_status: Record<SnagStatus, number>;
+  batch_count: number;
+  /** Most recent batch upload, or null when the project only holds manual snags. */
+  last_upload: string | null;
+  /**
+   * `Projects.disabled_snag_list` — the project's Snag List module is switched OFF.
+   *
+   * ALWAYS 0 for a caller below Admin / PMO: the server DROPS their hidden projects
+   * rather than flagging them, so a `1` here already means "you are allowed to see
+   * this". No second permission test is needed to render the Hidden badge.
+   */
+  is_hidden: 0 | 1;
+}

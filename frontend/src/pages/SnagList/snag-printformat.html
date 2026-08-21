@@ -1,0 +1,540 @@
+<!--
+    ============================================================================
+    REFERENCE COPY -- the runtime lives in the DATABASE.
+
+    Edit at:  Desk -> Print Format -> "Project Snag"
+    Then mirror the HTML back into this file so it stays readable without a
+    Desk login. `nirmaan_stack/fixtures/print_format.json` is NOT hand-edited.
+
+    PRINT FORMAT: Project Snag
+    Doctype    : Projects        (one project -> its whole Snag List)
+    Type       : Jinja, custom format, A4 portrait
+
+    Features:
+    - HEADER: the SAME standardized Nirmaan header as "Project Design Tracker"
+      (logo -> company -> dynamic Project GST address -> 3px black rule),
+      then a 18px title + REPORT DATE row.
+    - FILTERS: statuses / areas / categories / batches (multi-select, JSON
+      arrays on the query string). Absent = all.
+    - LAYOUT: page 1 = header + PROJECT banner + overall status summary.
+      Then ONE PAGE PER CATEGORY: category banner + that category's status
+      summary + its table (S.No / Area / Description / Status / Remarks).
+      S.No restarts on every category page.
+
+    Deliberately NOT here (owner call): batch + source row, editor names,
+    signature block. The PDF shows the project's snag data and nothing else.
+    ============================================================================
+-->
+
+<!-- ========================================== -->
+<!-- 0. FILTER PARAMS                           -->
+<!-- ========================================== -->
+{#
+   Every param is a JSON array in the query string; ABSENT means "all".
+       statuses    e.g. ["Pending","WIP"]        (absent = all EXCEPT Not Applicable)
+       areas       e.g. ["Level 1","Terrace"]
+       categories  e.g. ["Electrical",""]        ("" = the Uncategorized bucket)
+       batches     e.g. ["SNAGB-26-00001"]       (filter only -- never printed)
+       search      free text, e.g. "cable"       (the tab's search box)
+       search_field  "description" | "area" | "category"   (default: description)
+
+   Read off form_dict ONLY. `frappe.request.args` is NOT a safe fallback --
+   outside an HTTP request it raises in the Jinja sandbox and kills the render.
+#}
+{%- set statuses_param   = frappe.form_dict.statuses   -%}
+{%- set areas_param      = frappe.form_dict.areas      -%}
+{%- set categories_param = frappe.form_dict.categories -%}
+{%- set batches_param    = frappe.form_dict.batches    -%}
+{%- set search_param     = frappe.form_dict.search     -%}
+{%- set search_field     = frappe.form_dict.search_field or "description" -%}
+
+{%- set sel_statuses   = json.loads(statuses_param)   if statuses_param   else none -%}
+{%- set sel_areas      = json.loads(areas_param)      if areas_param      else none -%}
+{%- set sel_categories = json.loads(categories_param) if categories_param else none -%}
+{%- set sel_batches    = json.loads(batches_param)    if batches_param    else none -%}
+
+{# Default: a snag set to "Not Applicable" is a disposal, not work -- it stays  #}
+{# out of the printed list unless the caller asks for it explicitly.            #}
+{%- set statuses = sel_statuses if sel_statuses is not none else ["Pending", "WIP", "Completed"] -%}
+
+
+<!-- ========================================== -->
+<!-- 1. SERVER-SIDE DATA LOGIC                  -->
+<!-- ========================================== -->
+
+{# --- DYNAMIC GST & ADDRESS LOOKUP (identical to Project Design Tracker) --- #}
+{%- set default_gstin = "29ABFCS9095N1Z9" -%}
+{%- set company_info = {"address": "N/A", "state": "N/A", "code": "N/A"} -%}
+
+{%- set p_doc = doc if doc.doctype == "Projects" else none -%}
+{%- set target_gstin = p_doc.project_gst if (p_doc and p_doc.project_gst) else none -%}
+
+{%- set found_name = none -%}
+{%- if target_gstin -%}
+    {%- set found_name = frappe.db.get_value("Project GST", {"gstin": target_gstin}, "name") -%}
+{%- endif -%}
+{%- if not found_name -%}
+    {%- set found_name = frappe.db.get_value("Project GST", {"gstin": default_gstin}, "name") -%}
+{%- endif -%}
+
+{%- if found_name -%}
+    {%- set gst_doc = frappe.get_doc("Project GST", found_name) -%}
+    {%- set city_pin_list = [gst_doc.city, gst_doc.pincode] | select | join("-") -%}
+    {%- set addr_parts = [gst_doc.address, city_pin_list, gst_doc.state] -%}
+    {%- set full_addr = addr_parts | select | join(", ") -%}
+    {%- set _ = company_info.update({
+        "address": full_addr,
+        "state": gst_doc.state,
+        "code": gst_doc.gstin[:2] if gst_doc.gstin else "N/A"
+    }) -%}
+{%- endif -%}
+
+{%- if company_info.address == "N/A" -%}
+    {%- set _ = company_info.update({
+        "address": "Billing address not configured (Check Project GST DocType)",
+        "state": "N/A",
+        "code": "--"
+    }) -%}
+{%- endif -%}
+
+{%- set company_name = "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)" -%}
+{%- set logo_url = "https://stack.nirmaan.app/assets/nirmaan_stack/frontend/assets/logo-svg-BptBZTzQ.svg" -%}
+
+
+{# --- FETCH THE SNAGS ---
+   A LIST of conditions, not a dict: a dict holds one condition per field, so a
+   search on "area" would silently REPLACE the area picker's own filter. #}
+{%- set snag_filters = [["project", "=", doc.name], ["status", "in", statuses]] -%}
+{%- if sel_areas is not none -%}
+    {%- set _ = snag_filters.append(["area", "in", sel_areas]) -%}
+{%- endif -%}
+{%- if sel_categories is not none -%}
+    {%- set _ = snag_filters.append(["category", "in", sel_categories]) -%}
+{%- endif -%}
+{%- if sel_batches is not none -%}
+    {%- set _ = snag_filters.append(["batch", "in", sel_batches]) -%}
+{%- endif -%}
+{# The tab's search box. Only the three fields it can search are honoured -- an #}
+{# unknown field name would otherwise reach the query builder verbatim.         #}
+{%- if search_param and search_field in ["description", "area", "category"] -%}
+    {%- set _ = snag_filters.append([search_field, "like", "%" ~ search_param ~ "%"]) -%}
+{%- endif -%}
+
+{# Sorted category -> area -> the row order of the sheet it was imported from. #}
+{%- set snags = frappe.get_all("Project Snag",
+        filters=snag_filters,
+        fields=["name", "area", "category", "description", "status", "remark",
+                "creation", "source_row"],
+        order_by="category asc, area asc, source_row asc, creation asc",
+        limit_page_length=0
+) -%}
+
+{# --- COUNTS FOR THE STATS STRIP (over the PRINTED set) --- #}
+{%- set tally = {"Pending": 0, "WIP": 0, "Completed": 0, "Not Applicable": 0} -%}
+{%- for s in snags -%}
+    {%- set _ = tally.update({s.status: (tally.get(s.status) or 0) + 1}) -%}
+{%- endfor -%}
+
+{# --- CATEGORY INDEX ---
+   Built ONCE, up here, because it is needed twice: the index table on page 1 and
+   the per-category pages after it. Order is the SQL order (A-Z) with the blank
+   category pushed last, and each entry carries its own rows AND its own tally,
+   so the body never filters `snags` a second time. #}
+{%- set category_order = [] -%}
+{%- set has_blank = namespace(v=false) -%}
+{%- for s in snags -%}
+    {%- set c = (s.category or "") | string | trim -%}
+    {%- if c and c not in category_order -%}
+        {%- set _ = category_order.append(c) -%}
+    {%- elif not c -%}
+        {%- set has_blank.v = true -%}
+    {%- endif -%}
+{%- endfor -%}
+{%- if has_blank.v -%}
+    {%- set _ = category_order.append("") -%}
+{%- endif -%}
+
+{%- set cat_index = [] -%}
+{%- for cname in category_order -%}
+    {%- set c_rows = [] -%}
+    {%- set c_tally = {"Pending": 0, "WIP": 0, "Completed": 0, "Not Applicable": 0} -%}
+    {%- for s in snags -%}
+        {%- if ((s.category or "") | string | trim) == cname -%}
+            {%- set _ = c_rows.append(s) -%}
+            {%- set _ = c_tally.update({s.status: (c_tally.get(s.status) or 0) + 1}) -%}
+        {%- endif -%}
+    {%- endfor -%}
+    {%- set _ = cat_index.append({
+        "label": cname or "Uncategorized",
+        "rows": c_rows,
+        "tally": c_tally
+    }) -%}
+{%- endfor -%}
+
+{# The Not Applicable column/tile only earns its space when something carries it. #}
+{%- set show_na = tally["Not Applicable"] > 0 -%}
+
+
+{# --- FILTER LABELS ---
+   Only ever rendered by the "Filtered:" note, and that note only renders for an
+   axis the caller actually narrowed -- so there is no "All ..." label any more. #}
+{%- set status_label   = statuses | join(", ") -%}
+{%- set area_label     = (sel_areas | join(", ")) if sel_areas is not none else "" -%}
+{%- set category_label = (sel_categories | map("default", "Uncategorized", true) | join(", ")) if sel_categories is not none else "" -%}
+
+
+<!-- ========================================== -->
+<!-- 2. CSS STYLING                             -->
+<!-- ========================================== -->
+<style>
+    @page { size: A4 portrait; margin: 10mm; }
+
+    html, body {
+        font-family: 'Inter', Helvetica, Arial, sans-serif;
+        font-size: 10px;
+        color: #111;
+        background-color: #fff;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    /* --- RUNNING HEADER (printed by wkhtmltopdf on EVERY page) ---
+       `#header-html` is extracted by Frappe (`prepare_header_footer`) and rendered
+       as its own document via `templates/print_formats/pdf_header_footer.html`.
+       That template ships `body { padding: 15mm 0 5mm !important; }`, which would
+       push the logo a page-margin's worth down inside the header band -- the
+       small negative top margin below trims it to about 10mm of white space above
+       the logo -- the Design Tracker's look. Do NOT add horizontal padding here:
+       wkhtmltopdf already draws the band inside the page's left/right margins, so
+       padding indents the header past the body it is supposed to line up with.
+       This <style> block IS carried into the header document, so these classes
+       work there. Keep the print format's TOP MARGIN big enough for the whole
+       band or wkhtmltopdf clips it. */
+    .header-wrapper { width: 100%; margin-top: -5mm !important; }
+    .logo-img { height: 40px; display: block; margin-bottom: 8px; }
+    .company-name-lg { font-size: 14px; font-weight: bold; color: #000; margin-bottom: 4px; }
+    .company-addr-lg { font-size: 10px; color: #555; margin-bottom: 12px; }
+    .header-border { border-bottom: 3px solid #000; margin-bottom: 0; }
+
+    /* --- REPORT META --- */
+    .report-meta-table { width: 100%; margin-bottom: 10px; border-bottom: 1px solid #e5e7eb; }
+    .report-title-lg { font-size: 18px; font-weight: bold; color: #000; padding-bottom: 8px; }
+    .report-date-lg { font-size: 11px; font-weight: bold; color: #000; text-align: right; padding-bottom: 8px; text-transform: uppercase; }
+
+    /* --- OVERVIEW TABLE --- */
+    .overview-table { width: 100%; border: 1px solid #E5E7EB; border-radius: 8px; border-spacing: 0; margin-bottom: 12px; table-layout: fixed; }
+    .overview-table td { padding: 10px 12px; vertical-align: top; border-right: 1px solid #F3F4F6; }
+    .overview-table td:last-child { border-right: none; }
+    .overview-label { font-size: 9px; text-transform: uppercase; color: #6B7280; font-weight: 700; margin-bottom: 5px; letter-spacing: 0.5px; }
+    .overview-value { font-size: 12px; font-weight: 600; color: #111827; word-wrap: break-word; }
+    .overview-value-sm { font-size: 10px; font-weight: 600; color: #111827; word-wrap: break-word; line-height: 1.35; }
+
+    /* --- STATS STRIP (mirrors SnagStatsStrip in the app) --- */
+    .stats-table { width: 100%; border: 1px solid #E5E7EB; border-radius: 8px; border-spacing: 0; margin-bottom: 14px; table-layout: fixed; }
+    .stats-table td { padding: 8px 6px; text-align: center; border-right: 1px solid #E5E7EB; }
+    .stats-table td:last-child { border-right: none; }
+    .stat-value { font-size: 16px; font-weight: 700; line-height: 1; }
+    .stat-label { font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; margin-top: 4px; opacity: 0.75; }
+    .stat-total     { background-color: #FFFFFF; color: #111827; }
+    .stat-pending   { background-color: #FFFBEB; color: #B45309; }
+    .stat-wip       { background-color: #F0F9FF; color: #0369A1; }
+    .stat-completed { background-color: #F0FDF4; color: #15803D; }
+    .stat-na        { background-color: #F9FAFB; color: #4B5563; }
+
+    /* --- BANNER CARD (same card as the Milestone Report's PROJECT / ZONE banner) --- */
+    .banner-card { margin-bottom: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
+    .banner-table { width: 100%; border-collapse: collapse; }
+    .banner-bar { width: 6px; background: #dc2626; padding: 0; }
+    .banner-cell { padding: 14px 18px; vertical-align: middle; }
+    .banner-cell-right { padding: 14px 18px; vertical-align: middle; text-align: right; white-space: nowrap; border-left: 1px solid #e5e7eb; width: 30%; }
+    .banner-label { font-size: 10px; font-weight: 800; color: #6b7280; text-transform: uppercase; letter-spacing: 1.2px; }
+    .banner-value { font-size: 18px; font-weight: 900; color: #111827; line-height: 1.15; margin-top: 4px; }
+    .banner-value-right { font-size: 14px; font-weight: 900; color: #1e3a8a; line-height: 1.15; margin-top: 4px; text-transform: uppercase; }
+
+    /* --- ONE CATEGORY = ONE PAGE --- */
+    /* Every category starts a new page, the first one included: page 1 carries the
+       project banner + the overall totals and nothing else. */
+    .category-page { page-break-before: always; break-before: page; }
+
+    /* --- FILTER NOTE (only when the caller narrowed category / status) --- */
+    .filter-note { font-size: 9px; font-weight: 600; color: #B45309; background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 4px; padding: 6px 10px; margin-bottom: 14px; }
+
+    /* --- SMALL SECTION HEADINGS ("Task Summary", "Category Index") --- */
+    .index-title { font-size: 11px; font-weight: 800; color: #6b7280; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 6px; }
+    .index-total td { background-color: #F9FAFB; font-weight: 800; border-top: 1px solid #E5E7EB; }
+    .num-pending   { color: #B45309; font-weight: 700; }
+    .num-wip       { color: #0369A1; font-weight: 700; }
+    .num-completed { color: #15803D; font-weight: 700; }
+    .num-na        { color: #4B5563; font-weight: 700; }
+    .num-zero      { color: #D1D5DB; font-weight: 600; }
+
+    /* --- SNAG TABLE --- */
+    /* S.No is pinned to a FIXED 40px in every table (index + each category list)
+       rather than a percentage: the tables do not share a column set, so 5% and 6%
+       of the same page width rendered as two visibly different first columns.
+       `table-layout: fixed` honours the px width, so all of them line up now. */
+
+    /* border-collapse MUST stay `collapse`: with `separate` (the old value)
+       wkhtmltopdf 0.12.6 ignores `page-break-inside: avoid` on a row and splits it
+       across the page break, leaving an empty row shell at the bottom of the page
+       and the text on the next one. Verified by rendering both ways. */
+    .custom-table { width: 100%; border-collapse: collapse; border: 1px solid #E5E7EB; table-layout: fixed; margin-top: 0; }
+    .custom-table th { background-color: #fff; color: #4B5563; font-size: 9px; font-weight: 700; text-transform: uppercase; text-align: left; padding: 8px 6px; border-bottom: 1px solid #E5E7EB; border-right: 1px solid #F3F4F6; }
+    .custom-table th:last-child { border-right: none; }
+    thead { display: table-header-group; }
+    .custom-table td { padding: 8px 6px; border-bottom: 1px solid #F3F4F6; border-right: 1px solid #F3F4F6; vertical-align: top; font-size: 10px; word-wrap: break-word; }
+    .custom-table td:last-child { border-right: none; }
+    .custom-table tr:last-child td { border-bottom: none; }
+    /* A row that does not fit moves WHOLE to the next page -- never sliced. */
+    tr, td { page-break-inside: avoid !important; break-inside: avoid !important; }
+
+    /* --- BADGES --- */
+    .badge {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        padding: 3px 2px;
+        border-radius: 12px;
+        font-size: 8px;
+        font-weight: 600;
+        text-align: center;
+        white-space: normal;
+        line-height: 1.1;
+        border: 1px solid transparent;
+    }
+    .badge-gray  { background-color: #F3F4F6; color: #374151; border-color: #D1D5DB; }
+    .badge-amber { background-color: #FEF3C7; color: #B45309; border-color: #F59E0B; }
+    .badge-blue  { background-color: #E0F2FE; color: #0369A1; border-color: #38BDF8; }
+    .badge-green { background-color: #DCFCE7; color: #15803D; border-color: #22C55E; }
+
+    .desc-text { font-size: 10px; color: #111827; line-height: 1.35; word-break: break-word; white-space: pre-wrap; }
+    .note-text { font-size: 9px; color: #374151; line-height: 1.35; word-break: break-word; white-space: pre-wrap; }
+</style>
+
+
+<!-- ========================================== -->
+<!-- 3. THE STATUS SUMMARY CARD                 -->
+<!-- ========================================== -->
+{#
+   Defined ONCE and called twice: for the whole project on page 1, and for one
+   category on each of the pages after it. `t` is a status -> count mapping, and
+   `label` is the heading printed above the tiles.
+   `Not Applicable` earns a tile only when something in scope actually carries it.
+#}
+{%- macro stats_card(total, t, label="Task Summary") -%}
+    <div class="index-title">{{ label }}</div>
+    <table class="stats-table">
+        <tr>
+            <td class="stat-total">
+                <div class="stat-value">{{ total }}</div>
+                <div class="stat-label">Total</div>
+            </td>
+            <td class="stat-pending">
+                <div class="stat-value">{{ t["Pending"] }}</div>
+                <div class="stat-label">Pending</div>
+            </td>
+            <td class="stat-wip">
+                <div class="stat-value">{{ t["WIP"] }}</div>
+                <div class="stat-label">WIP</div>
+            </td>
+            <td class="stat-completed">
+                <div class="stat-value">{{ t["Completed"] }}</div>
+                <div class="stat-label">Completed</div>
+            </td>
+            {% if t["Not Applicable"] > 0 %}
+            <td class="stat-na">
+                <div class="stat-value">{{ t["Not Applicable"] }}</div>
+                <div class="stat-label">Not Applicable</div>
+            </td>
+            {% endif %}
+        </tr>
+    </table>
+{%- endmacro -%}
+
+
+<!-- ========================================== -->
+<!-- 4. HTML CONTENT                            -->
+<!-- ========================================== -->
+<!-- 4.1 HEADER -- repeats on EVERY page (see the CSS note above) -->
+<div id="header-html">
+    <div class="header-wrapper">
+        <img src="{{ logo_url }}" class="logo-img">
+        <div class="company-name-lg">{{ company_name }}</div>
+        <div class="company-addr-lg">{{ company_info.address }}</div>
+        <div class="header-border"></div>
+    </div>
+</div>
+
+<div class="print-format">
+
+    <!-- 4.2 TITLE & DATE (page 1 only) -->
+    <table class="report-meta-table">
+        <tr>
+            <td class="report-title-lg">Snag List</td>
+            <td class="report-date-lg">REPORT DATE : {{ frappe.utils.formatdate(frappe.utils.nowdate(), "dd-MMM-yyyy") }}</td>
+        </tr>
+    </table>
+
+    <!-- 4.3 PROJECT BANNER -->
+    <div class="banner-card">
+        <table class="banner-table">
+            <tr>
+                <td class="banner-bar"></td>
+                <td class="banner-cell">
+                    <div class="banner-label">Project</div>
+                    <div class="banner-value">{{ doc.project_name }}</div>
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    <!-- 4.4 OVERALL STATUS SUMMARY -->
+    {{ stats_card(snags | length, tally) }}
+
+    {# A filtered PDF that looks exactly like a full one is a trap -- whenever the
+       caller narrowed an axis, say so. Nothing renders in the ordinary "print
+       everything" case. AREA lives here alone now that the banner no longer
+       carries a scope cell. #}
+    {% set narrowed = [] %}
+    {% if sel_areas is not none %}{% set _ = narrowed.append("Area — " ~ area_label) %}{% endif %}
+    {% if sel_categories is not none %}{% set _ = narrowed.append("Category — " ~ category_label) %}{% endif %}
+    {% if sel_statuses is not none %}{% set _ = narrowed.append("Status — " ~ status_label) %}{% endif %}
+    {% if narrowed %}
+        <div class="filter-note">Filtered: {{ narrowed | join(" · ") }}</div>
+    {% endif %}
+
+    <!-- 4.5 CATEGORY INDEX -- what is on the pages that follow -->
+    {% if cat_index %}
+        <div class="index-title">Category Index</div>
+        <table class="custom-table" style="margin-bottom: 4px;">
+            <thead>
+                <tr>
+                    <th style="width: 40px; text-align: center;">S.No</th>
+                    <th style="width: {{ 46 if show_na else 58 }}%;">Category</th>
+                    <th style="width: 12%; text-align: center;">Total</th>
+                    <th style="width: 12%; text-align: center;">Pending</th>
+                    <th style="width: 12%; text-align: center;">WIP</th>
+                    <th style="width: 12%; text-align: center;">Completed</th>
+                    {% if show_na %}<th style="width: 12%; text-align: center;">N/A</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for cat in cat_index %}
+                <tr>
+                    <td style="text-align: center; color: #6B7280;">{{ loop.index }}</td>
+                    <td style="font-weight: 600; color: #111;">{{ cat.label }}</td>
+                    <td style="text-align: center; font-weight: 700;">{{ cat.rows | length }}</td>
+                    <td style="text-align: center;" class="{{ 'num-zero' if cat.tally['Pending'] == 0 else 'num-pending' }}">{{ cat.tally["Pending"] }}</td>
+                    <td style="text-align: center;" class="{{ 'num-zero' if cat.tally['WIP'] == 0 else 'num-wip' }}">{{ cat.tally["WIP"] }}</td>
+                    <td style="text-align: center;" class="{{ 'num-zero' if cat.tally['Completed'] == 0 else 'num-completed' }}">{{ cat.tally["Completed"] }}</td>
+                    {% if show_na %}<td style="text-align: center;" class="{{ 'num-zero' if cat.tally['Not Applicable'] == 0 else 'num-na' }}">{{ cat.tally["Not Applicable"] }}</td>{% endif %}
+                </tr>
+                {% endfor %}
+                <tr class="index-total">
+                    <td></td>
+                    <td>Total</td>
+                    <td style="text-align: center;">{{ snags | length }}</td>
+                    <td style="text-align: center;" class="num-pending">{{ tally["Pending"] }}</td>
+                    <td style="text-align: center;" class="num-wip">{{ tally["WIP"] }}</td>
+                    <td style="text-align: center;" class="num-completed">{{ tally["Completed"] }}</td>
+                    {% if show_na %}<td style="text-align: center;" class="num-na">{{ tally["Not Applicable"] }}</td>{% endif %}
+                </tr>
+            </tbody>
+        </table>
+    {% endif %}
+
+    <!-- 4.6 ONE PAGE PER CATEGORY -->
+    {% if snags %}
+
+        {# Rows and counts were both worked out with `cat_index` above. #}
+        {% for cat in cat_index %}
+            {% if cat.rows | length > 0 %}
+            <div class="category-page">
+
+<!-- CATEGORY BANNER -- PROJECT on the left, CATEGORY on the right.
+                     The snag count is NOT repeated here: the Total tile on the
+                     summary card directly below already carries it. -->
+                <div class="banner-card">
+                    <table class="banner-table">
+                        <tr>
+                            <td class="banner-bar"></td>
+                            <td class="banner-cell">
+                                <div class="banner-label">Project</div>
+                                <div class="banner-value">{{ doc.project_name }}</div>
+                            </td>
+                            <td class="banner-cell-right">
+                                <div class="banner-label">Category</div>
+                                <div class="banner-value-right">{{ cat.label }}</div>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+
+                <!-- CATEGORY STATUS SUMMARY -->
+                {{ stats_card(cat.rows | length, cat.tally) }}
+
+                <!-- CATEGORY SNAG TABLE -->
+                <table class="custom-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px; text-align: center;">S.No</th>
+                            <th style="width: 18%;">Area</th>
+                            <th style="width: 42%;">Description</th>
+                            <th style="width: 13%;">Status</th>
+                            <th style="width: 22%;">Remarks</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {# S.No restarts per category -- each page is self-contained. #}
+                        {% for row in cat.rows %}
+                        <tr>
+                            <!-- S.No -->
+                            <td style="text-align: center; color: #6B7280;">{{ loop.index }}</td>
+
+                            <!-- Area -->
+                            <td style="font-weight: 600; color: #111;">
+                                {{ row.area or "-" }}
+                            </td>
+
+                            <!-- Description -->
+                            <td>
+                                <div class="desc-text">{{ row.description or "-" }}</div>
+                            </td>
+
+                            <!-- Status -->
+                            <td style="vertical-align: middle;">
+                                {% set s_raw = row.status or "" %}
+                                {% set status_class = "badge-gray" %}
+                                {% if s_raw == "Pending" %}
+                                    {% set status_class = "badge-amber" %}
+                                {% elif s_raw == "WIP" %}
+                                    {% set status_class = "badge-blue" %}
+                                {% elif s_raw == "Completed" %}
+                                    {% set status_class = "badge-green" %}
+                                {% endif %}
+                                <span class="badge {{ status_class }}">{{ s_raw or "N/A" }}</span>
+                            </td>
+
+                            <!-- Remarks -->
+                            <td>
+                                {% if row.remark and row.remark | trim != "" %}
+                                    <div class="note-text">{{ row.remark }}</div>
+                                {% else %}
+                                    <span style="color:#999;">-</span>
+                                {% endif %}
+                            </td>
+
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+
+        {% endfor %}
+
+    {% else %}
+        <p style="text-align: center; color: #777;">No snags match the selected category, area and status.</p>
+    {% endif %}
+
+</div>

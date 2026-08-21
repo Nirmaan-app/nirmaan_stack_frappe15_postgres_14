@@ -146,6 +146,8 @@ export const SNAG_ENDPOINTS = {
   addManualSnag: "nirmaan_stack.api.snags.tracking.add_manual_snag",
   batchDeletePreview: "nirmaan_stack.api.snags.tracking.get_batch_delete_preview",
   deleteBatch: "nirmaan_stack.api.snags.tracking.delete_batch",
+  /** Cross-project roll-up behind the `/snag-list` sidebar page. Takes no params. */
+  projectSummaries: "nirmaan_stack.api.snags.project_list.get_projects_with_snag_stats",
 } as const;
 
 /** Badge styling per status. Mirrors the app's amber/sky/green/grey vocabulary. */
