@@ -205,3 +205,127 @@ class TestCoerceValueAgainstTheLiveConfig(FrappeTestCase):
         if not self.defs:
             self.skipTest("point_wiring config not loaded on this site")
         self.assertIsNone(extraction._coerce_value(self.defs["wire1_core"], 12))
+
+
+# ── SLICE 5 (B1 + B2) ────────────────────────────────────────────────────────────────────────
+
+
+def _cell(value, **over):
+    d = {"value": value, "confidence": 0.9}
+    d.update(over)
+    return d
+
+
+class TestExtractFlagB1(FrappeTestCase):
+    """`extract: false` withholds an attribute from the AI prompt and NOTHING else.
+
+    Three flags hide an attribute from three different surfaces, and the whole point of adding a
+    third was that neither existing one had the right blast radius: `selector: false` also strips
+    the field from the Rate Master Derivation configurator, and `panel: false` keeps extracting it.
+    """
+
+    def _cfg(self, extra=None):
+        d = {"id": "blank_qty", "label": "Blank plate qty", "type": "number"}
+        d.update(extra or {})
+        return {"attribute_definitions": [
+            {"id": "plate_item", "label": "Plate", "type": "choice", "values": ["3M"]},
+            d,
+        ]}
+
+    def test_absent_flag_is_extracted(self):
+        """NEGATIVE control: without the flag the attribute is asked for, exactly as before."""
+        ids = [d["id"] for d in extraction.build_attribute_defs(self._cfg())]
+        self.assertIn("blank_qty", ids)
+        self.assertIn("plate_item", ids)
+
+    def test_extract_false_is_withheld(self):
+        """POSITIVE: the model is not asked for it."""
+        ids = [d["id"] for d in extraction.build_attribute_defs(self._cfg({"extract": False}))]
+        self.assertNotIn("blank_qty", ids)
+        self.assertIn("plate_item", ids, "only the flagged attribute is withheld")
+
+    def test_extract_true_is_extracted(self):
+        """Only the literal False withholds -- a truthy value must not be read as a flag."""
+        ids = [d["id"] for d in extraction.build_attribute_defs(self._cfg({"extract": True}))]
+        self.assertIn("blank_qty", ids)
+
+    def test_panel_false_is_still_extracted(self):
+        """`panel` hides from the PRICING PANEL and must never affect extraction."""
+        ids = [d["id"] for d in extraction.build_attribute_defs(self._cfg({"panel": False}))]
+        self.assertIn("blank_qty", ids)
+
+    def test_selector_false_also_withholds(self):
+        """The pre-existing flag still withholds -- `extract` is additional, not a replacement."""
+        ids = [d["id"] for d in extraction.build_attribute_defs(self._cfg({"selector": False}))]
+        self.assertNotIn("blank_qty", ids)
+
+
+class TestScrubUnpairedSlotDefaults(FrappeTestCase):
+    """B2 / R-B -- a quantity default belongs to a slot, and dies with it."""
+
+    DEFAULTS = {
+        "socket1_qty": {"default": 1.0, "requires_named": "socket1_item"},
+        "plate_qty": {"default": 1.0, "requires_named": "plate_item"},
+        "colour": "White",           # a plain default, no pairing
+    }
+
+    def test_scrubs_a_quantity_whose_slot_is_None(self):
+        """POSITIVE: the ghost case -- 84 of these across the live corpus, all valued 1."""
+        row = {"socket1_item": _cell("None"), "socket1_qty": _cell(1.0, defaulted=True)}
+        scrubbed = extraction.scrub_unpaired_slot_defaults(row, self.DEFAULTS)
+        self.assertEqual(scrubbed, ["socket1_qty"])
+        self.assertIsNone(row["socket1_qty"]["value"])
+        self.assertNotIn("defaulted", row["socket1_qty"], "the default mark goes with the value")
+
+    def test_keeps_a_quantity_whose_slot_is_NAMED(self):
+        """NEGATIVE: a real component keeps its default -- this is R-B's whole point."""
+        row = {"socket1_item": _cell("6A 3-Pin Socket"), "socket1_qty": _cell(1.0, defaulted=True)}
+        self.assertEqual(extraction.scrub_unpaired_slot_defaults(row, self.DEFAULTS), [])
+        self.assertEqual(row["socket1_qty"]["value"], 1.0)
+
+    def test_keeps_a_quantity_whose_slot_is_BLANK(self):
+        """NEGATIVE, and the load-bearing one.
+
+        BLANK is "unknown", not "absent". `plate_item` is blank on 94 of 122 live rows because the
+        LADDER computes it; scrubbing `plate_qty` there makes `component_ref` refuse the whole
+        pipeline and those rows stop pricing entirely.
+        """
+        row = {"plate_item": _cell(None), "plate_qty": _cell(1.0, defaulted=True)}
+        self.assertEqual(extraction.scrub_unpaired_slot_defaults(row, self.DEFAULTS), [])
+        self.assertEqual(row["plate_qty"]["value"], 1.0)
+
+    def test_scrubs_regardless_of_provenance(self):
+        """A quantity for a component the row says is absent is meaningless however it arose."""
+        row = {"socket1_item": _cell("None"), "socket1_qty": _cell(3.0)}   # no `defaulted` mark
+        self.assertEqual(extraction.scrub_unpaired_slot_defaults(row, self.DEFAULTS), ["socket1_qty"])
+        self.assertIsNone(row["socket1_qty"]["value"])
+
+    def test_already_null_is_not_reported_as_scrubbed(self):
+        """Idempotent, and it must not inflate the drop report with no-ops."""
+        row = {"socket1_item": _cell("None"), "socket1_qty": _cell(None)}
+        self.assertEqual(extraction.scrub_unpaired_slot_defaults(row, self.DEFAULTS), [])
+
+    def test_a_plain_default_is_untouched(self):
+        """A default with no `requires_named` is not a slot quantity."""
+        row = {"colour": _cell("White"), "socket1_item": _cell("None")}
+        self.assertEqual(extraction.scrub_unpaired_slot_defaults(row, self.DEFAULTS), [])
+        self.assertEqual(row["colour"]["value"], "White")
+
+    def test_no_defaults_configured_is_a_no_op(self):
+        """ABSENT => byte-identical to pre-slice-5, the gating discipline this codebase uses."""
+        row = {"socket1_item": _cell("None"), "socket1_qty": _cell(1.0)}
+        self.assertEqual(extraction.scrub_unpaired_slot_defaults(row, None), [])
+        self.assertEqual(row["socket1_qty"]["value"], 1.0)
+
+    def test_defaults_without_requires_named_are_a_no_op(self):
+        """The legacy defaults shape (a bare value, or {default} alone) must not scrub anything."""
+        row = {"socket1_item": _cell("None"), "socket1_qty": _cell(1.0)}
+        legacy = {"socket1_qty": 1.0, "plate_qty": {"default": 1.0}}
+        self.assertEqual(extraction.scrub_unpaired_slot_defaults(row, legacy), [])
+        self.assertEqual(row["socket1_qty"]["value"], 1.0)
+
+    def test_a_missing_pair_attribute_is_not_treated_as_absent(self):
+        """If the paired slot was never returned at all, that is not a positive 'None'."""
+        row = {"socket1_qty": _cell(1.0)}
+        self.assertEqual(extraction.scrub_unpaired_slot_defaults(row, self.DEFAULTS), [])
+        self.assertEqual(row["socket1_qty"]["value"], 1.0)

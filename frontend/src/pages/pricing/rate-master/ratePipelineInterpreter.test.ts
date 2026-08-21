@@ -3060,7 +3060,9 @@ describe("BLANKER -- the item bind follows the EFFECTIVE count", () => {
   it("POSITIVE (R1): a positive count binds the blanker and PRICES it, in the assembly's colour", () => {
     const r = runPriced(mfSel(2, 1, 1, { blank_qty: 1 }));   // 2x2 + 2x1 + 1x1 = 7 -> 8M plate, 1 spare
     expect(r.status).toBe("ok");
-    expect(fitOutcome(r)?.blanks).toEqual({ spare: 1, effective: 1, stated: 1, capped: false, uncovered: 0 });
+    // SLICE 5 (R-A, owner ruling 2026-08-21): `item` published beside the count -- the blanker
+    // the effective count implies. ADDITIVE; every value above is byte-unchanged (two-axis sweep).
+    expect(fitOutcome(r)?.blanks).toEqual({ spare: 1, effective: 1, stated: 1, capped: false, uncovered: 0, item: "1M Blanker" });
     expect(blankRefValue(r)).toBe(61);                          // White 1M Blanker x 1
     expect(r.finals.supply).toBe(61);
   });
@@ -3076,7 +3078,9 @@ describe("BLANKER -- the item bind follows the EFFECTIVE count", () => {
 
   it("POSITIVE (R2): a ZERO spare binds the SENTINEL -- the line reads absent, not a blanker x 0", () => {
     const r = runPriced(mfSel(1, 0, 1, {}));                 // 2x1 + 1x1 = 3 -> a 3M plate, 0 spare
-    expect(fitOutcome(r)?.blanks).toEqual({ spare: 0, effective: 0, capped: false, uncovered: 0 });
+    // SLICE 5 (R-A, owner ruling 2026-08-21): `item` published beside the count -- the blanker
+    // the effective count implies. ADDITIVE; every value above is byte-unchanged (two-axis sweep).
+    expect(fitOutcome(r)?.blanks).toEqual({ spare: 0, effective: 0, capped: false, uncovered: 0, item: "None" });
     expect(blankRefValue(r)).toBe(0);
     expect(blankRefStep(r)?.matchedCondition).toBe("None -> 0");
   });
@@ -3087,7 +3091,9 @@ describe("BLANKER -- the item bind follows the EFFECTIVE count", () => {
     expect(blankRefStep(computed)?.matchedCondition).toBe("rate 61 x qty 1");
 
     const edited = runPriced(mfSel(2, 1, 1, { blank_qty: 0 }));
-    expect(fitOutcome(edited)?.blanks).toEqual({ spare: 1, effective: 0, stated: 0, capped: false, uncovered: 1 });
+    // SLICE 5 (R-A, owner ruling 2026-08-21): `item` published beside the count -- the blanker
+    // the effective count implies. ADDITIVE; every value above is byte-unchanged (two-axis sweep).
+    expect(fitOutcome(edited)?.blanks).toEqual({ spare: 1, effective: 0, stated: 0, capped: false, uncovered: 1, item: "None" });
     // the ITEM reverted -- the line is positively absent, NOT a blanker bought zero times
     expect(blankRefStep(edited)?.matchedCondition).toBe("None -> 0");
     expect(blankRefValue(edited)).toBe(0);
@@ -3103,7 +3109,9 @@ describe("BLANKER -- the item bind follows the EFFECTIVE count", () => {
   // ---- R5 / R6: THE ASYMMETRY ------------------------------------------------------------------
   it("R5 (over-count is CORRECTED): stated 2 against ONE spare prices 1 and reports capped", () => {
     const r = runPriced(mfSel(2, 1, 1, { blank_qty: 2 }));
-    expect(fitOutcome(r)?.blanks).toEqual({ spare: 1, effective: 1, stated: 2, capped: true, uncovered: 0 });
+    // SLICE 5 (R-A, owner ruling 2026-08-21): `item` published beside the count -- the blanker
+    // the effective count implies. ADDITIVE; every value above is byte-unchanged (two-axis sweep).
+    expect(fitOutcome(r)?.blanks).toEqual({ spare: 1, effective: 1, stated: 2, capped: true, uncovered: 0, item: "1M Blanker" });
     expect(blankRefValue(r)).toBe(61);                          // ONE blanker, not two
     expect(fitTrace(r)).toContain("(stated 2 exceeds the spare -- pricing 1)");
   });
@@ -3114,7 +3122,9 @@ describe("BLANKER -- the item bind follows the EFFECTIVE count", () => {
 
   it("R6 (under-count is HONOURED): stated 1 against THREE spare prices 1 and says 2 stay uncovered", () => {
     const r = runPriced(mfSel(1, 0, 1, { plate_item: "6M", blank_qty: 1 })); // 3 occupied on 6M -> 3 spare
-    expect(fitOutcome(r)?.blanks).toEqual({ spare: 3, effective: 1, stated: 1, capped: false, uncovered: 2 });
+    // SLICE 5 (R-A, owner ruling 2026-08-21): `item` published beside the count -- the blanker
+    // the effective count implies. ADDITIVE; every value above is byte-unchanged (two-axis sweep).
+    expect(fitOutcome(r)?.blanks).toEqual({ spare: 3, effective: 1, stated: 1, capped: false, uncovered: 2, item: "1M Blanker" });
     expect(blankRefValue(r)).toBe(61);                          // the USER'S number, NOT the computed 3
     expect(fitTrace(r)).toContain("(stated 1 -- pricing 1, 2 left uncovered)");
   });
@@ -3131,7 +3141,9 @@ describe("BLANKER -- the item bind follows the EFFECTIVE count", () => {
 
   it("R4 (SEEDING): nothing stated -> the computed spare prices, and no arbitration is reported", () => {
     const r = runPriced(mfSel(2, 1, 1, {}));
-    expect(fitOutcome(r)?.blanks).toEqual({ spare: 1, effective: 1, capped: false, uncovered: 0 });
+    // SLICE 5 (R-A, owner ruling 2026-08-21): `item` published beside the count -- the blanker
+    // the effective count implies. ADDITIVE; every value above is byte-unchanged (two-axis sweep).
+    expect(fitOutcome(r)?.blanks).toEqual({ spare: 1, effective: 1, capped: false, uncovered: 0, item: "1M Blanker" });
     expect(fitOutcome(r)?.blanks?.stated).toBeUndefined();
     expect(fitTrace(r)).not.toContain("stated");
   });
@@ -4365,5 +4377,233 @@ describe("SLICE 3b FINISH -- MapAttributeOutcome carries the resolved value", ()
     const r = runPipeline("tray_boq_supply", tray3bSupply(), TRAY3B_ITEMS,
       { ...TRAY3B_ROW, thickness_swg: 14, width_mm: 100 });
     expect(mapTrace(r)?.mapAttribute).toEqual({ result_attr: "thickness_mm", stated: false, value: 2 });
+  });
+});
+
+// ---- SLICE 5: per-SKU module width (`weight_from`) + matchMasterRow unique resolution ----
+//
+// The width lives on the ITEM, not on the slot. These fixtures carry a `modules` attribute exactly
+// as the v45 catalogue does, including the two shapes the lookup must refuse.
+function ssItemW(family: string, item: string, colour: string, list: number, modules?: number): RateMasterItem {
+  return {
+    discipline: "Electrical",
+    kind: "switch_socket_item",
+    attributes: { family, item, colour, ...(modules === undefined ? {} : { modules }) },
+    rates: { list_price: list },
+  };
+}
+
+const W_ITEMS: RateMasterItem[] = [
+  // A 2M socket and a 1M socket -- the pair the whole mechanism exists to tell apart.
+  ssItemW("Socket", "6A 3-Pin Socket", "White", 309, 2),
+  ssItemW("Socket", "6A 3-Pin Socket", "Grey", 380, 2),
+  ssItemW("Socket", "USB Charger - A Type", "White", 1805, 1),
+  ssItemW("Socket", "USB Charger - A Type", "Grey", 2202, 1),
+  ssItemW("Switch", "16A 1 WAY SWITCH", "White", 290, 1),
+  ssItemW("Switch", "16A 1 WAY SWITCH (2M)", "White", 443, 2),
+  // UNSEEDED: carries no `modules` at all -- a seeding gap, which must fail LOUDLY.
+  ssItemW("Socket", "Unseeded Socket", "White", 100),
+  // CONFLICTING: the two colour rows disagree about the width.
+  ssItemW("Socket", "Conflicted Socket", "White", 100, 1),
+  ssItemW("Socket", "Conflicted Socket", "Grey", 110, 3),
+  ...["1M", "2M", "3M", "4M", "6M", "8M"].map((i) =>
+    ssItemW("Grid and Face Plates", i, "White", 100, Number(i.replace("M", "")))),
+];
+
+const wfSocket = (slot: string) => ({
+  from_attr: slot, kind: "switch_socket_item",
+  where: { family: "Socket" }, match_attr: "item", value_attr: "modules",
+});
+const wfSwitch = (slot: string) => ({
+  from_attr: slot, kind: "switch_socket_item",
+  where: { family: "Switch" }, match_attr: "item", value_attr: "modules",
+});
+
+/** One socket slot + one switch slot, both width-driven, fitting a plate. */
+const W_PIPE = (useWeightFrom: boolean): Pipeline => ({
+  output: [],
+  steps: [
+    {
+      step: "module_fit",
+      params: {
+        terms: [
+          { attr: "socket1_qty", weight: 2, none_when: "socket1_item", ...(useWeightFrom ? { weight_from: wfSocket("socket1_item") } : {}) },
+          { attr: "switch_qty", weight: 1, none_when: "switch_item", ...(useWeightFrom ? { weight_from: wfSwitch("switch_item") } : {}) },
+        ],
+        ladders: [{ kind: "switch_socket_item", where: { family: "Grid and Face Plates" }, bind: "plate_size" }],
+        blanks: { bind: "blank_count", from_ladder: "plate_size" },
+      },
+    } as unknown as Pipeline["steps"][number],
+  ],
+});
+
+const wSel = (socketItem: string, socketQty: number, switchItem = "None", switchQty = 0) => ({
+  socket1_item: socketItem, socket1_qty: socketQty,
+  switch_item: switchItem, switch_qty: switchQty,
+  colour: "White",
+});
+
+describe("SLICE 5 -- per-SKU module width (weight_from)", () => {
+  it("POSITIVE: a 2M socket occupies 2 per unit -- 2 of them fit a 4M plate", () => {
+    const r = runPipeline("p", W_PIPE(true), W_ITEMS, wSel("6A 3-Pin Socket", 2));
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("4M");
+    expect(fitTrace(r)).toContain("2 x socket1_qty(2)");
+  });
+
+  it("POSITIVE (the synthetic 1M-socket case): the SAME row shape with a 1M socket fits 2M, not 4M", () => {
+    // This is the future HDMI/Data/USB behaviour, pinned NOW. Same quantities, same slot, same
+    // plate ladder -- only the SKU's own width differs, and the plate follows it.
+    const r = runPipeline("p", W_PIPE(true), W_ITEMS, wSel("USB Charger - A Type", 2));
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("2M");
+    expect(fitTrace(r)).toContain("1 x socket1_qty(2)");
+  });
+
+  it("POSITIVE: a 2M SWITCH occupies 2 -- the width is not a socket-only idea", () => {
+    const two = runPipeline("p", W_PIPE(true), W_ITEMS, wSel("None", 0, "16A 1 WAY SWITCH (2M)", 1));
+    expect(fitTrace(two)).toContain("2 x switch_qty(1)");
+    const one = runPipeline("p", W_PIPE(true), W_ITEMS, wSel("None", 0, "16A 1 WAY SWITCH", 1));
+    expect(fitTrace(one)).toContain("1 x switch_qty(1)");
+  });
+
+  it("NEGATIVE (the vacuity control): WITHOUT weight_from the slot weight is used, so the 1M socket still counts 2", () => {
+    // Disabling the mechanism must restore the pre-slice-5 answer EXACTLY. This is what makes the
+    // positive case above evidence of the mechanism rather than of the fixture.
+    const r = runPipeline("p", W_PIPE(false), W_ITEMS, wSel("USB Charger - A Type", 2));
+    expect(fitTrace(r)).toContain("2 x socket1_qty(2)");
+    expect(fitTrace(r)).toContain("4M");
+  });
+
+  it("NEGATIVE: an UNSEEDED SKU is an honest no-compute naming it -- never a silent fall back", () => {
+    const r = runPipeline("p", W_PIPE(true), W_ITEMS, wSel("Unseeded Socket", 1));
+    expect(r.status).toBe("no_match");
+    const label = r.steps.find((s) => s.step === "module_fit")?.label ?? "";
+    expect(label).toContain("Unseeded Socket");
+    expect(label).toContain("modules");
+  });
+
+  it("NEGATIVE: a SKU whose colour rows DISAGREE about the width refuses and names both values", () => {
+    const r = runPipeline("p", W_PIPE(true), W_ITEMS, wSel("Conflicted Socket", 1));
+    expect(r.status).toBe("no_match");
+    const label = r.steps.find((s) => s.step === "module_fit")?.label ?? "";
+    expect(label).toContain("conflicting");
+    expect(label).toContain("1, 3");
+  });
+
+  it("the lookup is by DISTINCT VALUE, not a unique row -- one label spans a row per colour", () => {
+    // Both colours of `6A 3-Pin Socket` are present and agree; a unique-ROW guard would refuse here.
+    const grey = runPipeline("p", W_PIPE(true), W_ITEMS, { ...wSel("6A 3-Pin Socket", 1), colour: "Grey" });
+    expect(grey.status).toBe("ok");
+    expect(fitTrace(grey)).toContain("2 x socket1_qty(1)");
+  });
+
+  it("a BLANK item slot keeps the declared weight -- the blank path is byte-unchanged", () => {
+    // Blank means "too vague to name an item", which fails downstream at the component ref exactly
+    // as it always did. Bailing here instead would move the refusal to a different step.
+    const sel = { socket1_qty: 2, switch_item: "None", switch_qty: 0, colour: "White" };
+    const withFrom = runPipeline("p", W_PIPE(true), W_ITEMS, sel);
+    const without = runPipeline("p", W_PIPE(false), W_ITEMS, sel);
+    expect(fitTrace(withFrom)).toBe(fitTrace(without));
+    expect(fitTrace(withFrom)).toContain("2 x socket1_qty(2)");
+  });
+
+  it("a 'None' slot still contributes 0 and never reaches the width lookup", () => {
+    const r = runPipeline("p", W_PIPE(true), W_ITEMS, wSel("None", 0, "16A 1 WAY SWITCH", 1));
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("socket1_qty(None)");
+  });
+});
+
+describe("SLICE 5 -- matchMasterRow resolves UNIQUELY (B5)", () => {
+  const rows: RateMasterItem[] = [
+    { discipline: "Electrical", kind: "popup_box_module", attributes: { pricing_mode: "PER_MODULE" }, rates: { supply_per_module: 900 } },
+    { discipline: "Electrical", kind: "twin", attributes: { a: "x" }, rates: { r: 1 } },
+    { discipline: "Electrical", kind: "twin", attributes: { a: "x" }, rates: { r: 2 } },
+  ];
+
+  it("POSITIVE: exactly one match returns it", () => {
+    expect(matchMasterRow(rows, "popup_box_module", { pricing_mode: "PER_MODULE" })?.rates.supply_per_module).toBe(900);
+  });
+
+  it("NEGATIVE: ZERO matches -> undefined (unchanged)", () => {
+    expect(matchMasterRow(rows, "popup_box_module", { pricing_mode: "NOPE" })).toBeUndefined();
+  });
+
+  it("NEGATIVE: TWO matching rows -> undefined, never pick-first", () => {
+    // Pre-slice-5 this returned whichever row was listed first, so a re-import that reordered rows
+    // could change a price with nothing failing anywhere.
+    expect(matchMasterRow(rows, "twin", { a: "x" })).toBeUndefined();
+  });
+
+  it("the ambiguity surfaces as an honest no_match at the step, not as a wrong price", () => {
+    const pipe: Pipeline = {
+      output: ["v"],
+      steps: [{ step: "match_master_row", params: { kind: "twin" } } as unknown as Pipeline["steps"][number]],
+    };
+    const r = runPipeline("p", pipe, rows, { a: "x" });
+    expect(r.status).toBe("no_match");
+  });
+});
+
+// ---- SLICE 5: the ADDITION PRIMITIVE (`_from_ctx`) ----
+//
+// Until this, `scale` bound exactly ONE ctx value (as `base`), so a pipeline could scale, round or
+// take a ratio of a figure but could never ADD two independently computed ones. The popup box's own
+// price and the module assembly's price had no way to meet.
+const ADD_ITEMS: RateMasterItem[] = [
+  { discipline: "Electrical", kind: "widget", attributes: { pricing_mode: "PER_UNIT" }, rates: { a_rate: 100, b_rate: 7 } },
+];
+
+/** Compute two independent values, then combine them. */
+const addPipe = (formula: string, params: Record<string, unknown>): Pipeline => ({
+  output: ["total"],
+  steps: [
+    { step: "match_master_row", params: { kind: "widget" } },
+    { step: "scale", target: "a_rate", result: "left", params: { m: 2 }, formula: "base*m" },
+    { step: "scale", target: "b_rate", result: "right", params: { m: 3 }, formula: "base*m" },
+    { step: "scale", target: "left", result: "total", params, formula },
+  ] as unknown as Pipeline["steps"],
+});
+
+describe("SLICE 5 -- the addition primitive (scale `_from_ctx`)", () => {
+  it("POSITIVE: two independently computed values are added in one expression", () => {
+    // left = 100*2 = 200 ; right = 7*3 = 21 ; total = 221
+    const r = runPipeline("p", addPipe("base+other", { other_from_ctx: "right" }), ADD_ITEMS, {});
+    expect(r.status).toBe("ok");
+    expect(r.finals.total).toBe(221);
+  });
+
+  it("POSITIVE: it is a general binding, not an addition special case", () => {
+    const r = runPipeline("p", addPipe("base-other", { other_from_ctx: "right" }), ADD_ITEMS, {});
+    expect(r.finals.total).toBe(179);
+  });
+
+  it("NEGATIVE (the vacuity control): WITHOUT the param the identifier is unbound and the step refuses", () => {
+    // Disabling the mechanism must not silently yield `base` — an unbound identifier is a data-shape
+    // fault, which `runPipeline`'s contract degrades to an honest status rather than a number.
+    const r = runPipeline("p", addPipe("base+other", {}), ADD_ITEMS, {});
+    expect(r.finals.total).toBeUndefined();
+  });
+
+  it("NEGATIVE: a ctx key that was NEVER COMPUTED is an honest no-compute naming it, never a zero", () => {
+    const r = runPipeline("p", addPipe("base+other", { other_from_ctx: "nope" }), ADD_ITEMS, {});
+    expect(r.status).toBe("no_match");
+    expect(r.steps[r.steps.length - 1]?.label).toContain("nope");
+    expect(r.steps[r.steps.length - 1]?.label).toContain("not been computed");
+  });
+
+  it("its message is DISTINCT from the missing-ATTRIBUTE one -- two sources, two diagnoses", () => {
+    // An attribute the row never stated is the pricer's gap; a ctx key never computed is a pipeline
+    // ORDERING problem. Pointing the reader at the wrong half of the system wastes the message.
+    const attrMiss = runPipeline("p", addPipe("base*m", { m_from_attr: "absent_attr" }), ADD_ITEMS, {});
+    const ctxMiss = runPipeline("p", addPipe("base+other", { other_from_ctx: "nope" }), ADD_ITEMS, {});
+    expect(attrMiss.steps[attrMiss.steps.length - 1]?.label).toContain("missing or non-numeric");
+    expect(ctxMiss.steps[ctxMiss.steps.length - 1]?.label).toContain("not been computed");
+  });
+
+  it("ABSENT => byte-identical: a plain numeric param still binds exactly as before", () => {
+    const r = runPipeline("p", addPipe("base*m", { m: 0.5 }), ADD_ITEMS, {});
+    expect(r.finals.total).toBe(100);
   });
 });

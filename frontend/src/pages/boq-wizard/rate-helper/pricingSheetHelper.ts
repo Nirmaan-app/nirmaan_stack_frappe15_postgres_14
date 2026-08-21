@@ -36,6 +36,7 @@ import {
 // value becomes a match key); this file imports it and no longer defines it.
 import {
   blanksQtyAttr,
+  blanksBindItemAttr,
   coerceForMatch,
   derivedAttrIds,
   derivedQtyAttrs,
@@ -232,6 +233,7 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
   const computedAttrs = derivedAttrOutcomes(results);
 
   const arbitratedQty = blanksQtyAttr(config);
+  const blanksItemAttr = blanksBindItemAttr(config);
 
   return attrs.map((a) => {
     if (!derivedIds.has(a.id)) return a;
@@ -261,6 +263,22 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
         derivedValue: String(b.effective),
         ...(notes.length ? { notes: sortAttrNotes(notes) } : {}),
       };
+    }
+
+    // 0b. THE BLANKS BIND_ITEM (slice 5, B1). The blanker ITEM, shown exactly as the plate shows its
+    //     fitted rung. Checked here -- after the arbitrated quantity, before the ladder lookup --
+    //     because it is NOT a ladder bind: `byBind` is keyed on `ladders[].bind`, so this id would
+    //     fall through to the derive/catalog/map branches, match none of them, and render EMPTY.
+    //     That is exactly what a blank field beside a filled quantity looked like.
+    //
+    //     It stays EDITABLE, like the plate and unlike the superseded quantity: the pipeline decides
+    //     the item from the effective count, but the pricer's authority over an attribute value is
+    //     the standing rule, and `readOnly` here would promise an effect their edit cannot have.
+    if (blanksItemAttr && a.id === blanksItemAttr) {
+      const item = fit?.blanks?.item;
+      // Nothing counted (a "None" plate, or nothing on the plate at all) publishes NO value -- an
+      // empty field, never a fabricated blanker, matching the plate's positively-absent branch.
+      return { ...a, derived: true, ...(item === undefined ? {} : { derivedValue: item }) };
     }
 
     const superseded = supersededQty.get(a.id);

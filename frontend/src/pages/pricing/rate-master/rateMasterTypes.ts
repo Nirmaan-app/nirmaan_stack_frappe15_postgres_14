@@ -45,6 +45,19 @@ export interface AttributeDefinition {
    * because a field the pricer cannot see is not missing user input.
    */
   panel?: boolean;
+  /**
+   * SLICE 5 (B1) -- withheld from the AI PROMPT only. Absent => extracted, so every pre-slice-5
+   * config is byte-identical.
+   *
+   * ⚠️ THE THIRD FLAG, AND EACH OF THE THREE HIDES A DIFFERENT SURFACE. `selector: false` also
+   * removes the attribute from the Rate Master Derivation configurator; `panel: false` hides it from
+   * the pricing panel but keeps extracting it; this one stops the model being asked while leaving
+   * BOTH screens intact. `blank_qty` is the first user: `module_fit` arbitrates it against the
+   * plate's computed spare, so a model-supplied value was inventing blankers for rows that named
+   * none -- but the pricer must still see it and still be able to override it, which rules out the
+   * other two flags. Read in `extraction.build_attribute_defs`, nowhere else.
+   */
+  extract?: boolean;
   note?: string;
   // EA-4a: a choice whose allowed values are RESOLVED FROM the live master (distinct `attr` values of the
   // `kind` rows matching `where`), exactly like the item-identity catalogs. The BACKEND resolves these at
@@ -360,6 +373,26 @@ export interface ModuleFitStep {
        * contributes 0 regardless of the quantity -- positive absence, mirroring component_ref's
        * none_skips (which zeroes back_box off @plate_item). Absent => the strict rule below. */
       none_when?: string;
+      /**
+       * SLICE 5 (R9s-c): take this term's weight from the MATCHED SKU instead of the constant
+       * above -- the per-SKU module width. `from_attr` names the selected attribute holding the
+       * SKU label; the catalogue is searched by `kind` + `where` + `match_attr` (default "item")
+       * and the DISTINCT values of `value_attr` are collected.
+       *
+       * ⚠️ ABSENT => `weight` is used verbatim, byte-identical. This is what keeps `point_wiring`
+       * unchanged by construction.
+       *
+       * ⚠️ THE LOOKUP IS BY DISTINCT VALUE, NOT BY UNIQUE ROW -- one label spans a row per colour.
+       * Zero distinct values (an unseeded SKU) or more than one (a catalogue disagreeing with
+       * itself) is an HONEST NO-COMPUTE, never a silent fall back to `weight`.
+       */
+      weight_from?: {
+        from_attr: string;
+        kind: string;
+        where?: Record<string, string | number>;
+        match_attr?: string;
+        value_attr: string;
+      };
     }[];
     /** One entry per ladder resolved from the SAME computed count. The plate ladder and the back-box
      * ladder are DIFFERENT LENGTHS (the box has no 9M and no 16M), so each derives from its own
@@ -734,6 +767,16 @@ export interface ModuleFitBlanksOutcome {
   capped: boolean;
   /** The stated count was BELOW the spare and was HONOURED; this many modules stay uncovered. */
   uncovered: number;
+  /**
+   * SLICE 5 (B1): the ITEM the count belongs to -- the blanker when the effective count is positive,
+   * the "None" sentinel when it is zero. Absent when the step binds no item.
+   *
+   * ⚠️ THE PANEL HAS NO OTHER SOURCE FOR IT. The blanker is inferred from the effective count and is
+   * never selected by extraction (owner-locked), so without this the field beside the computed
+   * quantity renders empty and the pricer cannot see which item they are being charged for. Same
+   * reasoning as `ModuleFitLadderOutcome.label` for the plate.
+   */
+  item?: string;
 }
 
 /** DERIVED DISPLAY -- the whole outcome of one `module_fit` step. */

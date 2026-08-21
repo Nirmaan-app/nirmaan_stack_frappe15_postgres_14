@@ -181,6 +181,18 @@ function substituteFormula(expr: string, env: Record<string, number>): string {
 export const STEP_DIVISOR_SUFFIX = "_step_divisor";
 
 /**
+ * SLICE 5 -- the param suffix that binds ANOTHER COMPUTED (`ctx`) value into a `scale` formula env,
+ * as `<ident>`. `{"modules_from_ctx": "module_supply", "formula": "base + modules"}`.
+ *
+ * ⚠️ IT MUST NOT COLLIDE WITH `_from_attr`, WHICH READS THE SELECTION. Two different sources, two
+ * different failure messages: an ATTRIBUTE the row never stated is the pricer's gap to fill, while a
+ * ctx key that was never computed is a PIPELINE ordering problem -- a step that should have produced
+ * it did not run, or ran after this one. Collapsing them into one message would point the reader at
+ * the wrong half of the system.
+ */
+export const CTX_PARAM_SUFFIX = "_from_ctx";
+
+/**
  * RULING 2 (owner 2026-08-09) -- THE STEP FUNCTION, the ONE definition, shared by both sites that can
  * carry an attribute-bound multiplier (a `component_ref` rate stage and a `scale` param binding) so
  * they can never drift apart.
@@ -297,11 +309,24 @@ export function matchMasterRow(
   kind: string,
   selected: Record<string, string | number>
 ): RateMasterItem | undefined {
-  return items.find(
+  // SLICE 5 (B5, the F-12 recon) -- UNIQUE RESOLUTION, matching both `component_ref` paths.
+  //
+  // This used to be `items.find(...)`: PICK-FIRST. Two rows satisfying the same selection meant the
+  // price came from whichever the catalogue happened to list first, and a re-import that reordered
+  // rows could change a price with nothing failing and nothing in the trace to show it. Both
+  // `component_ref` resolvers already refuse on `refRows.length !== 1` and call it an honest
+  // no-compute; this is the third resolver and it now says the same thing.
+  //
+  // ⚠️ ZERO AND MULTIPLE COLLAPSE TO THE SAME `undefined` HERE, DELIBERATELY. The `match_master_row`
+  // step's caller already renders `undefined` as an honest `no_match` naming the kind, so widening
+  // the return type would buy a distinction no caller consumes -- and this stays a pure two-line
+  // predicate. Ambiguity is reported at the step, not invented here.
+  const matches = items.filter(
     (it) =>
       it.kind === kind &&
       Object.keys(it.attributes).every((k) => !(k in selected) || it.attributes[k] === selected[k])
   );
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 function bandTargetFor(bands: { when: string; target: string }[], value: number): { target: string; label: string } | undefined {
@@ -710,8 +735,29 @@ export function runPipeline(
       const s = raw as import("./rateMasterTypes").ScaleStep;
       const env: Record<string, number> = { base: ctx[s.target] };
       let attrMissing: string | null = null;
+      let ctxMissing: string | null = null;
       for (const [pk, pv] of Object.entries(s.params ?? {})) {
-        if (pk.endsWith("_from_attr")) {
+        if (pk.endsWith(CTX_PARAM_SUFFIX)) {
+          // SLICE 5 (owner-authorised, the ADDITION PRIMITIVE) -- bind ANOTHER COMPUTED value into
+          // this formula's env, so two independently computed figures can finally meet in one
+          // expression. Until now `scale` bound exactly one `ctx` key (as `base`), so a pipeline
+          // could scale a value, round it, or take a ratio of it, but could never ADD two of them:
+          // the popup box's price and the module assembly's price had no way to combine.
+          //
+          // ⚠️ ABSENT => byte-identical. No shipped pipeline carries a `_from_ctx` param, so every
+          // existing category is unaffected -- the same gating discipline as `_from_attr`,
+          // `_step_divisor`, `size_from` and `weight_from`.
+          //
+          // A missing or non-numeric ctx value is an HONEST NO-COMPUTE naming the key, never a zero:
+          // "the other half has not been computed" is not "the other half is nothing".
+          const ident = pk.slice(0, -CTX_PARAM_SUFFIX.length);
+          const cv = ctx[String(pv)];
+          if (typeof cv !== "number" || !Number.isFinite(cv)) {
+            ctxMissing = String(pv);
+            break;
+          }
+          env[ident] = cv;
+        } else if (pk.endsWith("_from_attr")) {
           // EA-1 feature 2: bind the identifier (key minus `_from_attr`) to the SELECTED attribute's
           // numeric value; a missing / non-numeric attr is an HONEST no-compute (not a zero default).
           const ident = pk.slice(0, -"_from_attr".length);
@@ -729,6 +775,14 @@ export function runPipeline(
         steps.push({
           step: stepType,
           label: `attribute '${attrMissing}' missing or non-numeric -- no value computed`,
+          runningValues: snapshot(),
+        });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
+      if (ctxMissing !== null) {
+        steps.push({
+          step: stepType,
+          label: `'${ctxMissing}' has not been computed -- no value computed`,
           runningValues: snapshot(),
         });
         return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
@@ -1300,8 +1354,63 @@ export function runPipeline(
           termMiss = t.attr;
           break;
         }
-        occupied += t.weight * v;
-        termParts.push(`${fmtNum(t.weight)} x ${t.attr}(${fmtNum(v)})`);
+        // SLICE 5 (R9s-c, the ONE authorised interpreter change) -- PER-SKU MODULE WIDTH.
+        //
+        // A term's weight used to be a CONSTANT PER SLOT: "a socket occupies 2 modules" held for
+        // every socket in the catalogue. It is not true of the catalogue we actually have -- a
+        // telephone outlet and a USB charger occupy one, a 2M switch occupies two -- so the width
+        // belongs to the SKU, not to the slot it was dropped into.
+        //
+        // ⚠️ OPT-IN, AND ABSENT MEANS BYTE-IDENTICAL. Without `weight_from` this is `t.weight`
+        // exactly as before, which is what keeps `point_wiring` -- the only other `module_fit`
+        // caller -- untouched BY CONSTRUCTION rather than by measurement. Same discipline as
+        // `size_from`, `decay`, `matching_surface` and `routing_policy`.
+        let weight = t.weight;
+        if (t.weight_from) {
+          const wf = t.weight_from;
+          const label = selected[wf.from_attr];
+          // A slot whose item is BLANK keeps the declared weight. The positively-absent ("None")
+          // case never reaches here -- the short-circuit above already contributed 0 -- so this is
+          // only the "row too vague to name an item" path, which fails downstream at the
+          // component_ref bindMiss exactly as it does today. Bailing here instead would move that
+          // refusal to a different step for no gain.
+          if (label !== undefined && label !== null && label !== "") {
+            const matchAttr = wf.match_attr || "item";
+            // ⚠️ DISTINCT VALUES, NEVER A UNIQUE ROW. One SKU label spans a row per colour, so
+            // "find the one matching row" would refuse every single time. Colour is deliberately
+            // NOT part of the match: width does not vary by colour, and one catalogue label
+            // (`USB Charger - C+C Type`) exists in White only -- matching on colour would make its
+            // width unresolvable on a Grey assembly.
+            const widths = new Set<number>();
+            for (const it of items) {
+              if (it.kind !== wf.kind) continue;
+              if (it.attributes?.[matchAttr] !== label) continue;
+              let ok = true;
+              for (const [k, wv] of Object.entries(wf.where ?? {})) {
+                if (it.attributes?.[k] !== wv) { ok = false; break; }
+              }
+              if (!ok) continue;
+              const n = Number(it.attributes?.[wf.value_attr]);
+              if (Number.isFinite(n)) widths.add(n);
+            }
+            if (widths.size === 0) {
+              // A SEEDING GAP FAILS LOUDLY. This is the runtime half of the completeness rule: an
+              // unseeded SKU must never quietly fall back to the slot weight, because that is
+              // exactly the wrong answer this whole mechanism exists to stop.
+              return bail(
+                `'${String(label)}' carries no ${wf.value_attr} in the catalog -- no module count computed`
+              );
+            }
+            if (widths.size > 1) {
+              return bail(
+                `'${String(label)}' carries conflicting ${wf.value_attr} values (${[...widths].sort((a, b) => a - b).join(", ")}) -- no module count computed`
+              );
+            }
+            weight = [...widths][0];
+          }
+        }
+        occupied += weight * v;
+        termParts.push(`${fmtNum(weight)} x ${t.attr}(${fmtNum(v)})`);
       }
       if (termMiss !== null) {
         return bail(`attribute '${termMiss}' missing or non-numeric -- no module count computed`);
@@ -1564,6 +1673,13 @@ export function runPipeline(
         blanksOutcome = {
           spare, effective, capped, uncovered,
           ...(statedCount === undefined ? {} : { stated: statedCount }),
+          // SLICE 5 (B1's display half, owner-authorised 2026-08-21). The ITEM the count belongs
+          // to, published beside it so the panel can SHOW the bind instead of rendering an empty
+          // field next to a filled quantity. The blanker is inferred from the effective count and
+          // NEVER selected by extraction (owner-locked), so this is the pricer's only way to learn
+          // which item they are being charged for -- exactly why a ladder publishes its fitted rung.
+          // Absent when the step binds no item, so a config without `bind_item` is unaffected.
+          ...(b.bind_item ? { item: effective > 0 ? b.item_when_positive! : NONE_SENTINEL } : {}),
         };
         // The base sentence is UNCHANGED when nothing was stated (effective === spare), so every
         // pre-existing trace pin still reads byte-identically; the arbitration appends its own clause.

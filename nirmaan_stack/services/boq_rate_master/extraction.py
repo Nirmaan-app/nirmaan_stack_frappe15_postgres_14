@@ -201,6 +201,12 @@ COERCE_NOT_A_NUMBER = "not_a_number"
 COERCE_OUTSIDE_DOMAIN = "outside_numeric_domain"
 COERCE_NOT_ALLOWED = "not_an_allowed_choice"
 
+# The POSITIVE-ABSENCE sentinel, as a named constant. The literal already appears in `_coerce_value_ex`
+# and in the allow_none prompt block; the slot-paired default scrub is the third reader, and three
+# copies of a bare "None" is how a sentinel quietly becomes two different sentinels. Value-identical
+# to the frontend's `NONE_SENTINEL` (ratePipelineInterpreter.ts) -- a deliberate cross-language pair.
+_NONE_SENTINEL = "None"
+
 
 def _capture_path():
     """The bench logs directory -- resolved, never hardcoded -- alongside the existing boq_*.log
@@ -449,6 +455,19 @@ def build_attribute_defs(cfg, catalog=None, discipline=None):
     out = []
     for d in cfg.get("attribute_definitions") or []:
         if d.get("selector") is False:
+            continue
+        # SLICE 5 (B1, owner-authorised option b) -- THREE FLAGS, THREE DISTINCT MEANINGS. Do not
+        # collapse them; each hides the attribute from a DIFFERENT surface, and the reason one field
+        # needed a third flag is that the other two each moved a surface it must not move:
+        #   `extract: false`  -> not asked of the MODEL. Still on the pricing panel, still on the
+        #                        Rate Master Derivation configurator.
+        #   `selector: false` -> not asked of the model AND removed from the DERIVATION configurator
+        #                        (RateMasterDerivation filters `d.selector !== false`). Brand carries it.
+        #   `panel: false`    -> hidden from the PRICING PANEL only; still extracted, still derivable.
+        # `blank_qty` is the first `extract: false`: the pipeline ARBITRATES it against the plate's
+        # computed spare, so asking the model for it produced quantities for blankers no row ever
+        # named -- but it must stay visible and editable on both screens, which rules `selector` out.
+        if d.get("extract") is False:
             continue
         entry = {"id": d["id"], "label": d.get("label") or d["id"], "type": d.get("type") or "choice"}
         if identity and d["id"] == identity:
@@ -873,6 +892,47 @@ def _coerce_value_ex(defn, raw, synonyms_for_attr=None):
     return sval, (COERCE_OK_SYNONYM if synonym_applied else COERCE_OK)
 
 
+def scrub_unpaired_slot_defaults(row_out, defaults):
+    """SLICE 5 (B2 / R-B) -- drop a quantity whose paired item slot came back positively absent.
+
+    PURE apart from mutating the `row_out` it is handed (the same dict `_extract_batch` is
+    assembling). Returns the list of attribute ids scrubbed, so the caller can record them.
+
+    ⚠️ THE PROMPT SENTENCE IS GUIDANCE; THIS IS THE ENFORCEMENT. The phantom quantities it removes
+    were produced by a model following default guidance, so a second instruction to the same model
+    would be another thing to hope for rather than a guarantee. Measured: 84 across the live corpus,
+    every one of them the value 1.
+
+    ⚠️ IT KEYS ON THE "None" SENTINEL, NOT ON "not named", AND THE DIFFERENCE IS LOAD-BEARING.
+    "None" is POSITIVE ABSENCE -- the row carries no such component. BLANK is "unknown, the pipeline
+    will work it out". Scrubbing blanks too would clear `plate_qty` on every row whose plate the
+    LADDER computes -- 94 of 122 live rows -- and a null qty makes `component_ref` refuse the WHOLE
+    pipeline, so those rows would stop pricing altogether. Absent slot => no component => no
+    quantity; unknown slot => leave the default alone.
+
+    It drops the value whatever its provenance, not only a `defaulted: true` one: a quantity for a
+    component the row says is not there is meaningless however it arose, and that is the same
+    statement `disables_when_none` already makes on the panel.
+    """
+    scrubbed = []
+    if not defaults:
+        return scrubbed
+    for aid, spec in defaults.items():
+        if not isinstance(spec, dict):
+            continue
+        pair = spec.get("requires_named")
+        if not pair or aid not in row_out:
+            continue
+        if (row_out.get(pair) or {}).get("value") != _NONE_SENTINEL:
+            continue
+        if row_out[aid].get("value") is None:
+            continue
+        row_out[aid]["value"] = None
+        row_out[aid].pop("defaulted", None)
+        scrubbed.append(aid)
+    return scrubbed
+
+
 def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, *, capture_ctx=None):
     """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
     confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
@@ -929,6 +989,19 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
             "(return it normally, defaulted false).\n"
             + json.dumps(defaults, ensure_ascii=False)
         )
+        # SLICE 5 (B2 / R-B). A default carrying `requires_named` belongs to a COMPONENT SLOT: it is
+        # the quantity of the item named in the attribute it points at. Returning a quantity for a
+        # slot the row positively does NOT carry is not a default, it is a phantom component -- 84 of
+        # them across the live corpus, every one the value 1. The scrub below enforces this
+        # server-side; this sentence is what stops the model producing them in the first place.
+        if any(isinstance(v, dict) and v.get("requires_named") for v in defaults.values()):
+            content += (
+                "\n\nSLOT-PAIRED DEFAULTS: where an attribute above carries \"requires_named\", it is "
+                "the QUANTITY of the component named by that other attribute. Return its default ONLY "
+                "when that named attribute holds a real item. When the named attribute is \"None\" -- "
+                "the row carries no such component -- return null for the quantity, never the default "
+                "and never 0: there is no component to count.\n"
+            )
     # EA-4a-r: an allow_none attribute may be POSITIVELY ABSENT. "None" is a distinct answer from
     # null/blank: None = the row's enumerated bill names no such component; null = too vague to tell.
     none_defs = [d["id"] for d in attr_defs if d.get("allow_none")]
@@ -989,6 +1062,9 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 "confidence_unparseable": {},
                 "surplus_attributes": {},
                 "defaulted_lost_to_coercion": {},
+                # SLICE 5 (B2): {excel_row: [qty_attr, ...]} -- quantities removed because their
+                # paired item slot came back "None". Observation only, like every sibling here.
+                "slot_paired_defaults_scrubbed": {},
             }
             for el in _extract_json_array(text):
                 rid = int(el["id"])
@@ -1049,6 +1125,27 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                         "defaulted_claimed": claimed_default,
                         "defaulted_kept": bool(row_out[aid].get("defaulted")),
                     }
+                # SLICE 5 (B2 / R-B) -- THE SLOT-PAIRED DEFAULT SCRUB, server-side.
+                #
+                # ⚠️ THE PROMPT SENTENCE ABOVE IS NOT THE ENFORCEMENT, THIS IS. The phantom quantities
+                # this removes were themselves produced by a model following default guidance, so a
+                # second instruction to the same model is guidance, not a guarantee.
+                #
+                # ⚠️ IT KEYS ON THE "None" SENTINEL, NOT ON "not named", AND THE DIFFERENCE IS
+                # LOAD-BEARING. "None" is POSITIVE ABSENCE (the row carries no such component); BLANK
+                # is "unknown, the pipeline will work it out". Scrubbing on blankness too would clear
+                # `plate_qty` on every row whose plate the LADDER computes -- 94 of 122 live rows --
+                # and a null qty makes `component_ref` refuse the WHOLE pipeline, so those rows would
+                # stop pricing entirely. Absent slot => no component => no quantity; unknown slot =>
+                # leave the default alone.
+                #
+                # It drops the value whatever its provenance, not only a `defaulted: true` one: a
+                # quantity for a component the row says is not there is meaningless however it arose,
+                # and this is the same statement `disables_when_none` already makes on the panel.
+                for _aid in scrub_unpaired_slot_defaults(row_out, defaults):
+                    drops["slot_paired_defaults_scrubbed"].setdefault(str(rid), []).append(_aid)
+                    if _aid in row_map:
+                        row_map[_aid]["scrubbed_unpaired"] = True
                 # Attributes the model returned that are NOT declared. Currently read by nothing and
                 # dropped with no else-branch -- the compound-row surplus.
                 surplus = sorted(str(k) for k in set(attrs) - set(defs_by_id))

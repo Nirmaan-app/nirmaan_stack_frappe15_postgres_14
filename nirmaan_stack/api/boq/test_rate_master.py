@@ -188,7 +188,15 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # were derived twice and agreed: by hand from the catalog list prices x the rate stages, and by the
 # product's own RM-4b preview gate. The vitest interpreter pins are unaffected -- they carry their
 # own inline catalogs and read no asset.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v44.json"
+# ✅ SLICE 5 (2026-08-21, v45). Per-SKU module widths on all 61 family SKUs; the three combined
+# "1M & 2M" containers SPLIT into single-size SKUs at identical rates (the combined ones retired by
+# freeze-and-supersede, absent from the payload); four socket slots; the popup composite.
+# ⚠️ THREE GOLDENS WERE RE-BANKED MECHANICALLY AND EVERY EXPECTED VALUE IS UNCHANGED -- s1
+# 120/30/80, ss1 820/170/570, p1 10800/1200. Only their INPUTS grew: `module_fit` refuses a term
+# whose quantity is ABSENT ("blank is unknown, not zero"), so a golden predating `socket3`/`socket4`
+# bails before computing anything. The slots were added as positively absent, which is the state a
+# real extracted row is in. Values moving would have been a regression; inputs growing is the schema.
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v45.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -888,7 +896,7 @@ class TestRateMaster(FrappeTestCase):
 
         r = loader.load_rate_master(payload=payload)
         # ONE batch covers items AND configs -- previously two batches from two files.
-        self.assertEqual(r["items_total"], 1364)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)
+        self.assertEqual(r["items_total"], 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
         self.assertEqual(r["configs_loaded"], 12)
         self.assertEqual(len({r["batch"]}), 1)
         self.assertTrue(r["batch"].startswith("rmbulk-"))
@@ -955,10 +963,10 @@ class TestRateMaster(FrappeTestCase):
             filters={"discipline": disc, "active": 1},
             fields=["kind", "brand", "attributes", "item_uid"],
         )
-        self.assertEqual(len(stored), 1364)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)
+        self.assertEqual(len(stored), 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
         self.assertTrue(all((r["item_uid"] or "").startswith("rmi-") for r in stored),
                         "every stored row must carry the uid the asset supplied")
-        self.assertEqual(len({r["item_uid"] for r in stored}), 1364)
+        self.assertEqual(len({r["item_uid"] for r in stored}), 1367)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
         # and it is the SAME uid on the SAME item -- keyed by (kind, brand, attributes), the tuple
         # the backfill paired on. `brand` is load-bearing here: six lms_item pairs are identical on
         # (kind, attributes) and differ ONLY by brand, at materially different prices.
@@ -968,7 +976,7 @@ class TestRateMaster(FrappeTestCase):
                     loader._canonicalize_attributes(it["attributes"])): it["item_uid"]
                 for it in payload["items"]}
         got = {key(r["kind"], r["brand"], _obj(r["attributes"])): r["item_uid"] for r in stored}
-        self.assertEqual(len(want), 1364)
+        self.assertEqual(len(want), 1367)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
         self.assertEqual(want, got, "uid must land on the item the asset assigned it to")
 
     # ---- F-16 (2026-08-13): cable tray install moved ON-ROW ----------------------------
@@ -1648,7 +1656,7 @@ class TestRateMaster(FrappeTestCase):
         payload2 = json.loads(json.dumps(payload))
         payload2["discipline"] = dst
         r = loader.load_rate_master(payload=payload2)
-        self.assertEqual(r["items_total"], 1364)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)
+        self.assertEqual(r["items_total"], 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
         self.assertEqual(r["configs_loaded"], 12)
 
         def rows(d):
@@ -1795,7 +1803,7 @@ class TestRateMaster(FrappeTestCase):
                                 fields=["payload", "item_count", "config_count", "taken_by",
                                         "import_batch"],
                                 order_by="version desc", limit=1)[0]
-        self.assertEqual(newest["item_count"], 1364)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)
+        self.assertEqual(newest["item_count"], 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
         self.assertEqual(newest["config_count"], 12)
         self.assertTrue(newest["taken_by"])
         self.assertTrue(newest["import_batch"].startswith("rmbulk-"))
@@ -1828,7 +1836,7 @@ class TestRateMaster(FrappeTestCase):
         res = rate_master.export_rate_master_asset(discipline=disc)
         self.assertEqual(res["content_type"], "application/json")
         self.assertTrue(res["filename"].endswith(".json"))
-        self.assertEqual(res["item_count"], 1364)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)
+        self.assertEqual(res["item_count"], 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
         decoded = base64.b64decode(res["content_base64"]).decode("utf-8")
         self.assertEqual(json.loads(decoded)["discipline"], disc)
         self.assertEqual(frappe.db.count(exporter.SNAPSHOT_DOCTYPE, {"discipline": disc}), before + 1)
@@ -1887,7 +1895,7 @@ class TestRateMaster(FrappeTestCase):
         loader.load_rate_master(payload=self._merged_payload(disc))
 
         text, headers, n = csv_exporter.build_all_categories_csv(disc)
-        self.assertEqual(n, 1364)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)
+        self.assertEqual(n, 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
         self.assertEqual(headers[:5], ["item_uid", "category", "kind", "brand", "unit"])
         self.assertEqual(headers[-2:], ["source_sheet", "source_row"])
         for k in ("tray_type", "core", "conduit_type", "colour", "description"):
@@ -1898,10 +1906,13 @@ class TestRateMaster(FrappeTestCase):
         # it, which is why this is +3 rather than +4. (One consequence, logged not fixed: the single
         # `pole` column now carries two vocabularies -- "3 Pin / 2P+E" on socket rows, "FP" on
         # switchgear rows. The union has always been per-row, so this is legible, not wrong.)
-        self.assertEqual(len(headers), 48)
+        # SLICE 5: 48 -> 49, the single `modules` column (the per-SKU module width). It is a
+        # DECLARED attribute -- which is the whole reason it round-trips as a NUMBER rather than a
+        # string -- so it necessarily joins the Mode B union.
+        self.assertEqual(len(headers), 49)
 
         rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
-        self.assertEqual(len(rows) - 1, 1364)
+        self.assertEqual(len(rows) - 1, 1367)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
         self.assertTrue(all(r[0].startswith("rmi-") for r in rows[1:]))
         cats = {r[1] for r in rows[1:]}
         self.assertIn("cabletray_raceway", cats)
@@ -1964,8 +1975,9 @@ class TestRateMaster(FrappeTestCase):
         res_all = rate_master.export_rate_master_csv(discipline=disc)
         self.assertEqual(res_all["mode"], "all")
         # SLICE 2b: 45 -> 48, the same +3 as test_24n (device / amp_a / curve; `pole` already existed).
-        self.assertEqual(res_all["column_count"], 48)
-        self.assertEqual(res_all["row_count"], 1364)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)
+        # SLICE 5: 48 -> 49, the `modules` width column -- the same +1 as test_24n.
+        self.assertEqual(res_all["column_count"], 49)
+        self.assertEqual(res_all["row_count"], 1367)  # F-16 then F-17: 1382 -> 1372 -> 1364 (10 tray + 8 db_install_rate retired)  # SLICE 5: 1364 -> 1367 (three combined '1M & 2M' containers SPLIT into six single-size SKUs, the three combined ones retired by freeze-and-supersede)
 
     def test_24q_a_category_with_no_items_gives_headers_only_not_an_error(self):
         """SLICE 5 NEGATIVE -- point_wiring is kind-less and owns no rows of its own. It must yield a
@@ -2406,13 +2418,27 @@ class TestRateMaster(FrappeTestCase):
             {"discipline": disc, "category_id": "switches_sockets", "active": 1}, "config",
         ))
         defs = {d["id"]: d for d in cfg["attribute_definitions"]}
-        self.assertEqual(len(defs), 12)
+        # SLICE 5: 12 -> 17. FOUR from the two new socket slots (R8: socket3/socket4, item + qty
+        # each), and ONE from the per-SKU `modules` width fact.
+        self.assertEqual(len(defs), 17)
         # NEGATIVE: the flat identity attributes are gone
         self.assertNotIn("family", defs)
         self.assertNotIn("item", defs)
 
+        # SLICE 5 -- the WIDTH FACT is DECLARED but INVISIBLE, and both halves matter.
+        # Declared: only a declared numeric type makes `csv_importer.coerce_attribute` return a
+        # float, so without this the CSV round trip retypes every seeded width as a string.
+        # Invisible: nobody PICKS a width -- it is a fact of the SKU, not a choice about the row --
+        # so it is off the pricing panel AND off the Derivation configurator AND out of the prompt.
+        self.assertEqual(defs["modules"]["type"], "number")
+        self.assertIs(defs["modules"]["selector"], False)
+        self.assertIs(defs["modules"]["panel"], False)
+
         # the ONLY blanker (1M Blanker) is filed under the Switch family -- verified against the catalog
+        # SLICE 5 (R8): socket3/socket4 join the map, so the four socket slots are held to the
+        # IDENTICAL shape as the original two -- a new slot that quietly differed would price wrong.
         families = {"switch_item": "Switch", "socket1_item": "Socket", "socket2_item": "Socket",
+                    "socket3_item": "Socket", "socket4_item": "Socket",
                     "blank_item": "Switch", "plate_item": "Grid and Face Plates"}
         for slot, family in families.items():
             d = defs[slot]
@@ -2444,7 +2470,17 @@ class TestRateMaster(FrappeTestCase):
 
         self.assertEqual(defs["back_box"]["values"], ["Yes", "No"])
         self.assertEqual(defs["colour"]["type"], "choice")
-        self.assertEqual(cfg["extraction_defaults"]["switch_qty"], 1.0)
+        # SLICE 5 (B2 / R-B): a quantity default is now SLOT-PAIRED -- an object carrying the
+        # default AND the item attribute it belongs to. A bare 1.0 fired on slots the row positively
+        # does not carry, which produced 84 phantom quantities across the live corpus, every one of
+        # them the value 1.
+        self.assertEqual(
+            cfg["extraction_defaults"]["switch_qty"],
+            {"default": 1.0, "requires_named": "switch_item"},
+        )
+        # NEGATIVE: a default that is NOT a slot quantity stays a bare value -- the pairing is
+        # scoped to quantities, not applied to every default.
+        self.assertEqual(cfg["extraction_defaults"]["colour"], "White")
         self.assertTrue(cfg.get("extraction_none_guidance"))
         # SLICE 1b: the two assertions below said "C2: NO colour default and NO rules THIS SLICE" --
         # a SCOPE statement about C2, which later slices then superseded, not a standing rule.
