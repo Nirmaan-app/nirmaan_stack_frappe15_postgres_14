@@ -27,6 +27,16 @@ ACCOUNTANT_LEAD_ROLE = "Nirmaan Accountant Lead Profile"
 #: Import a workbook / delete a batch / add a manual snag.
 IMPORT_ROLES = frozenset({ADMIN_ROLE, PROJECT_LEAD_ROLE, PMO_ROLE})
 
+#: Edit ONE row's DATA fields -- area / category / description (Revision 3, owner Q8a).
+#:
+#: The SAME three roles as `IMPORT_ROLES` today, and deliberately NOT an alias of it: the
+#: question is different. Import asks "may you bring a consultant's workbook into this
+#: project"; this asks "may you rewrite what the consultant reported". They agree now and
+#: are free to diverge -- reusing `require_import_access` here would silently move both
+#: whenever either moved, and the drift would present as a permission nobody granted.
+#: Project Manager is EXCLUDED (they may change a status, ADR-0018, but not the text).
+ROW_EDIT_ROLES = frozenset({ADMIN_ROLE, PROJECT_LEAD_ROLE, PMO_ROLE})
+
 #: Change ONE row's status, and the `remark` that rides that change (ADR-0018).
 STATUS_ROLES = frozenset(IMPORT_ROLES | {PROJECT_MANAGER_ROLE})
 
@@ -66,6 +76,15 @@ def _require(allowed, action):
 def require_import_access(action="import or delete a snag batch"):
     """Admin / Project Lead / PMO."""
     _require(IMPORT_ROLES, action)
+
+
+def require_row_edit_access(action="edit a snag's details"):
+    """Admin / Project Lead / PMO -- NOT Project Manager.
+
+    Same role SET as `require_import_access` today, a different QUESTION -- see
+    `ROW_EDIT_ROLES`. Do not collapse the two.
+    """
+    _require(ROW_EDIT_ROLES, action)
 
 
 def require_status_access(action="change a snag's status"):

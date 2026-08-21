@@ -25,8 +25,21 @@ from nirmaan_stack.api.snags import import_wizard, tracking
 #: test can prove the labels FOLLOW the header row the parse actually used.
 _COLUMNS_BY_HEADER_ROW = {
     7: [{"letter": "B", "label": "Area / Location"}, {"letter": "D", "label": "Snag Description"}],
+    # A row that HAS columns but is not header-shaped -- the labels are the data cells of a
+    # body row. This is the (A) case from Revision 3 R3.1, taken from the owner's real
+    # workbook: real columns, `mapping_guess: null`, and the exact state that used to wedge
+    # the client into a permanent deadlock.
+    8: [
+        {"letter": "A", "label": "1"},
+        {"letter": "B", "label": "Food Box - General"},
+        {"letter": "C", "label": "Fire & Life Safety"},
+    ],
     54: [{"letter": "B", "label": "Zone"}, {"letter": "D", "label": "Observation"}],
 }
+
+#: The header row the stub reader auto-detects when the caller sends no override -- the
+#: stand-in for `reader.find_header_row`.
+_STUB_AUTO_HEADER_ROW = 7
 
 
 class _StubReader:
@@ -42,15 +55,32 @@ class _StubReader:
         """The real one reads that row's cells; the stub keys off the row number alone."""
         return _COLUMNS_BY_HEADER_ROW.get(header_row, [])
 
+    def find_header_row(self, grid):  # noqa: ARG002 - grid unused by the stub
+        """The real one scans for the first header-looking row."""
+        return _STUB_AUTO_HEADER_ROW
+
 
 class _StubGuess:
     """Stands in for `services.snag_parser.guess`."""
+
+    #: A label containing one of these makes the stub believe it found a description
+    #: column. The REAL `guess_mapping` returns None when it cannot find one, and that
+    #: null is half of the R3.1 deadlock -- so the stub has to be able to produce it for
+    #: a column list that is otherwise perfectly real.
+    _DESCRIPTION_HINTS = ("desc", "observ", "snag")
 
     def guess_mapping(self, columns):
         # Enough to prove the re-guess ran against the RECOMPUTED columns: the guess is
         # derived from the labels it was handed, so a different header row yields a
         # different guess.
         if not columns:
+            return None
+        if not any(
+            hint in (c.get("label") or "").lower()
+            for c in columns
+            for hint in self._DESCRIPTION_HINTS
+        ):
+            # No description column -> no mapping, exactly like the real guess.
             return None
         return {
             "area": columns[0]["letter"],
@@ -401,7 +431,8 @@ class TestSnagApi(FrappeTestCase):
         self.assertEqual(result["failed_count"], 1)
         self.assertEqual(result["total_imported"], 0)
         self.assertFalse(result["results"][0]["ok"])
-        # "You ticked nothing" -- distinct from "everything you ticked was unusable".
+        # "You ticked nothing" -- distinct from "none of them exist in the sheet as it
+        # parses now", which is the OTHER surviving branch (ADR-0019 removed the third).
         self.assertIn("No rows were ticked", result["results"][0]["error"])
         self.assertFalse(
             frappe.db.exists(
@@ -480,28 +511,38 @@ class TestSnagApi(FrappeTestCase):
             frappe.db.count("Project Snag", {"batch": result["results"][0]["batch"]}), 2
         )
 
-    def test_a_ticked_row_with_no_description_is_refused_and_REPORTED(self):
-        """Refused, counted, named -- and the rows around it still import."""
+    def test_a_ticked_row_with_no_description_IMPORTS_falling_back_to_preview_text(self):
+        """ADR-0019: a human tick is authoritative. This used to be a REFUSAL.
+
+        The description falls back to `preview_text` -- the row's first non-empty cell,
+        which the preview already showed the user. It is never invented text.
+        """
         rows = [
             _row(8, "Kitchen", "Leaking tap"),
-            # No description: it can never become a Snag, so the preview renders it
-            # un-tickable. A tampered payload can still tick it; the server refuses it.
-            _row(9, "Lobby", "", skipped_reason="no_description", preview_text="12"),
+            # No MAPPED description. Its first non-empty cell says "RISK SUMMARY", so that
+            # is what the snag reads -- the consultant's words, not ours.
+            _row(
+                9,
+                "Lobby",
+                "",
+                skipped_reason="no_description",
+                preview_text="RISK SUMMARY",
+            ),
             _row(10, "Roof", "Missing sealant"),
         ]
         entry = {
-            "sheet_name": "Refuse",
-            "batch_name": "Refuse batch",
+            "sheet_name": "Fallback",
+            "batch_name": "Fallback batch",
             "mapping": _MAPPING,
             "header_row": None,
             "accepted_rows": [8, 9, 10],
         }
-        result = self._ingest([entry], {"Refuse": _parsed(rows)})
+        result = self._ingest([entry], {"Fallback": _parsed(rows)})
 
         sheet_result = result["results"][0]
         self.assertTrue(sheet_result["ok"])
-        self.assertEqual(sheet_result["imported"], 2)
-        self.assertEqual(sheet_result["refused_no_description"], 1)
+        # THREE, not two: nothing is refused any more.
+        self.assertEqual(sheet_result["imported"], 3)
         self.assertEqual(
             sorted(
                 frappe.get_all(
@@ -511,32 +552,111 @@ class TestSnagApi(FrappeTestCase):
                     limit_page_length=0,
                 )
             ),
-            [8, 10],
+            [8, 9, 10],
+        )
+        self.assertEqual(
+            frappe.db.get_value(
+                "Project Snag", {"batch": sheet_result["batch"], "source_row": 9}, "description"
+            ),
+            "RISK SUMMARY",
         )
 
-    def test_a_sheet_of_only_description_less_ticks_fails_with_its_own_message(self):
-        """'Everything you ticked was unusable' must not read like a parser crash."""
+    def test_refused_no_description_is_retained_on_the_wire_and_always_zero(self):
+        """ADR-0019-DEAD, and RETAINED on purpose.
+
+        It is the counter that proved Revision 2's silent-drop bug fixed. A payload that
+        can still SAY "nothing was refused" is worth more than one that cannot express the
+        question -- so it must be PRESENT, and it must read 0 even on the very import that
+        used to make it non-zero.
+        """
+        rows = [
+            _row(8, "Kitchen", "Leaking tap"),
+            _row(9, "Lobby", "", skipped_reason="no_description", preview_text="12"),
+        ]
         entry = {
-            "sheet_name": "AllRefused",
-            "batch_name": "All refused batch",
+            "sheet_name": "DeadCounter",
+            "batch_name": "Dead counter batch",
+            "mapping": _MAPPING,
+            "header_row": None,
+            "accepted_rows": [8, 9],
+        }
+        sheet_result = self._ingest([entry], {"DeadCounter": _parsed(rows)})["results"][0]
+
+        self.assertIn("refused_no_description", sheet_result)
+        self.assertEqual(sheet_result["refused_no_description"], 0)
+        self.assertEqual(sheet_result["imported"], 2)
+
+    def test_a_ticked_row_with_nothing_anywhere_imports_BLANK_not_a_placeholder(self):
+        """No mapped description AND no first non-empty cell -> a BLANK description.
+
+        ADR-0019 rejected a placeholder like "(no description)": a reader cannot tell our
+        text from the consultant's, and a blank box is honest where a manufactured
+        sentence is not. Asserted as EXACTLY "" so any invented string fails this.
+        """
+        entry = {
+            "sheet_name": "NothingAnywhere",
+            "batch_name": "Nothing anywhere batch",
             "mapping": _MAPPING,
             "header_row": None,
             "accepted_rows": [9],
         }
         result = self._ingest(
             [entry],
-            {"AllRefused": _parsed([_row(9, "Lobby", "", skipped_reason="no_description")])},
+            {
+                "NothingAnywhere": _parsed(
+                    [_row(9, "", "", category="", skipped_reason="blank", preview_text="")]
+                )
+            },
         )
 
-        self.assertEqual(result["failed_count"], 1)
-        error = result["results"][0]["error"]
-        self.assertIn("no description", error)
-        self.assertNotIn("No rows were ticked", error)
-        self.assertFalse(
+        sheet_result = result["results"][0]
+        # This snag is blank in BOTH duplicate-key fields, so leaving it behind would make
+        # every later blank row in this project read as a duplicate -- which is a true
+        # statement about a shared live database and a false one about the test that hit
+        # it. It is deleted here rather than in tearDownClass for that reason.
+        self.addCleanup(tracking.delete_batch, batch=sheet_result["batch"])
+
+        self.assertTrue(sheet_result["ok"], sheet_result.get("error"))
+        self.assertEqual(sheet_result["imported"], 1)
+        self.assertEqual(
+            frappe.db.get_value(
+                "Project Snag", {"batch": sheet_result["batch"], "source_row": 9}, "description"
+            ),
+            "",
+        )
+
+    def test_the_all_ticks_have_no_description_failure_branch_is_GONE(self):
+        """That message can no longer be true, so it must no longer exist.
+
+        A sheet of nothing but description-less ticks now IMPORTS. Leaving the branch in
+        place would leave a message that can never fire -- which the next reader would
+        take for a live rule.
+        """
+        entry = {
+            "sheet_name": "AllBlank",
+            "batch_name": "All blank batch",
+            "mapping": _MAPPING,
+            "header_row": None,
+            "accepted_rows": [9],
+        }
+        result = self._ingest(
+            [entry],
+            {
+                "AllBlank": _parsed(
+                    [_row(9, "Lobby", "", skipped_reason="no_description", preview_text="Note")]
+                )
+            },
+        )
+
+        self.assertEqual(result["failed_count"], 0)
+        self.assertEqual(result["total_imported"], 1)
+        self.assertTrue(
             frappe.db.exists(
-                "Project Snag Batch", {"project": self.project, "batch_name": "All refused batch"}
+                "Project Snag Batch", {"project": self.project, "batch_name": "All blank batch"}
             )
         )
+        # The gating predicate itself is gone, not merely bypassed.
+        self.assertFalse(hasattr(import_wizard, "_row_is_importable"))
 
     # -- header row ------------------------------------------------------------
 
@@ -649,6 +769,132 @@ class TestSnagApi(FrappeTestCase):
         }
         result = self._ingest([entry], {"Sheet1": _parsed([_row(8, "Kitchen", "A")])})
         self.assertEqual(result["failed_count"], 1)
+
+    # -- get_sheet_columns: THE R3.1 DEADLOCK ----------------------------------
+
+    def test_get_sheet_columns_needs_NO_mapping(self):
+        """THE regression test for the header-row deadlock (Revision 3, R3.1).
+
+        Three things formed a circle: new column labels came only from `parse_preview`;
+        `parse_preview` hard-refuses without a mapped Description; and you cannot pick a
+        Description until you have the labels. A sheet whose header auto-detection failed
+        therefore had empty selects FOREVER.
+
+        This asserts the break at its exact worst point: a header row whose labels are real
+        but whose `mapping_guess` comes back NULL -- the state that used to wedge the
+        client, because the client's mapping-valid gate then swallowed every keystroke.
+        """
+        self._install_parser({})
+
+        payload = import_wizard.get_sheet_columns(
+            file_url=self.file_url,
+            sheet_name="Any",
+            header_row=8,
+        )
+
+        # Real columns...
+        self.assertEqual(
+            [c["label"] for c in payload["columns"]],
+            ["1", "Food Box - General", "Fire & Life Safety"],
+        )
+        # ...and NO guessable mapping. Both at once: that pair is the deadlock state, and
+        # a client must never read "no guess" as "no columns".
+        self.assertIsNone(payload["mapping_guess"])
+        self.assertEqual(payload["header_row"], 8)
+        # Wire contract: GetSheetColumnsResponse, key for key.
+        self.assertEqual(set(payload.keys()), {"header_row", "columns", "mapping_guess"})
+
+        # The proof that this is a DIFFERENT capability, not a convenience wrapper: the
+        # same request through `parse_preview` cannot be made at all without a Description.
+        self._install_parser({"Any": _parsed([])})
+        with self.assertRaises(frappe.ValidationError):
+            import_wizard.parse_preview(
+                project=self.project,
+                file_url=self.file_url,
+                sheet_name="Any",
+                mapping={"area": None, "category": None, "description": None, "remarks": None},
+                header_row=8,
+            )
+
+    def test_get_sheet_columns_returns_DIFFERENT_labels_for_a_different_header_row(self):
+        """"The column options don't change when the header row is changed" -- the report.
+
+        The labels ARE the named row's cells, so two rows must yield two lists. Asserting
+        `header_row` alone would pass on a response that never re-read the sheet.
+        """
+        self._install_parser({})
+        seven = import_wizard.get_sheet_columns(
+            file_url=self.file_url, sheet_name="Any", header_row=7
+        )
+
+        self._install_parser({})
+        eight = import_wizard.get_sheet_columns(
+            file_url=self.file_url, sheet_name="Any", header_row=8
+        )
+
+        self.assertEqual(
+            [c["label"] for c in seven["columns"]], ["Area / Location", "Snag Description"]
+        )
+        self.assertEqual(
+            [c["label"] for c in eight["columns"]],
+            ["1", "Food Box - General", "Fire & Life Safety"],
+        )
+        self.assertNotEqual(seven["columns"], eight["columns"])
+        self.assertEqual((seven["header_row"], eight["header_row"]), (7, 8))
+        # Header row 7 IS header-shaped, so its guess survives -- proving the null above is
+        # a property of row 8, not of the endpoint.
+        self.assertEqual(
+            seven["mapping_guess"]["_labels"], ["Area / Location", "Snag Description"]
+        )
+
+    def test_get_sheet_columns_resolves_a_missing_header_row_and_returns_the_one_used(self):
+        """No override -> auto-detect, and the row ACTUALLY used comes back.
+
+        Never a bare echo of the argument: the client shows which row the labels came from
+        even when it sent nothing.
+        """
+        self._install_parser({})
+        payload = import_wizard.get_sheet_columns(file_url=self.file_url, sheet_name="Any")
+
+        self.assertEqual(payload["header_row"], _STUB_AUTO_HEADER_ROW)
+        self.assertEqual(
+            [c["label"] for c in payload["columns"]], ["Area / Location", "Snag Description"]
+        )
+
+    def test_get_sheet_columns_refuses_a_header_row_that_is_not_a_row_number(self):
+        """The SAME coercion `parse_preview` applies -- refused loudly, never a silent
+        fallback to the auto-guess (which would show labels from a row nobody named)."""
+        self._install_parser({})
+        for bad in ("not-a-row", 0, -3):
+            with self.assertRaises(frappe.ValidationError):
+                import_wizard.get_sheet_columns(
+                    file_url=self.file_url, sheet_name="Any", header_row=bad
+                )
+
+    def test_get_sheet_columns_writes_nothing(self):
+        before = frappe.db.count("Project Snag", {"project": self.project})
+        self._install_parser({})
+        import_wizard.get_sheet_columns(
+            file_url=self.file_url, sheet_name="Any", header_row=7
+        )
+        self.assertEqual(frappe.db.count("Project Snag", {"project": self.project}), before)
+
+    def test_get_sheet_columns_is_guarded_at_the_import_tier(self):
+        """Read-only, but it reads a project's uploaded workbook -- same tier as the preview."""
+        self._install_parser({})
+        import nirmaan_stack.api.snags as snag_pkg
+
+        original = snag_pkg._user_role
+        snag_pkg._user_role = lambda: "Nirmaan Project Manager Profile"
+        frappe.session.user = "snag-pm@example.com"
+        try:
+            with self.assertRaises(frappe.PermissionError):
+                import_wizard.get_sheet_columns(
+                    file_url=self.file_url, sheet_name="Any", header_row=7
+                )
+        finally:
+            snag_pkg._user_role = original
+            frappe.session.user = "Administrator"
 
     # -- preview ---------------------------------------------------------------
 
@@ -986,6 +1232,170 @@ class TestSnagApi(FrappeTestCase):
         # snag came from no Excel row. types.ts types it `number | null`; the frontend
         # must treat 0 as "no source row" (falsy either way).
         self.assertFalse(doc.source_row)
+
+    # -- detail edit -----------------------------------------------------------
+
+    def _a_snag(self, sheet, batch_name):
+        result = self._one_sheet(sheet=sheet, batch_name=batch_name)
+        return frappe.get_all(
+            "Project Snag", filters={"batch": result["results"][0]["batch"]}, pluck="name"
+        )[0]
+
+    def test_update_snag_details_rewrites_the_three_data_fields(self):
+        """The FIRST post-create write path for area / category / description."""
+        snag = self._a_snag("Edit", "Edit batch")
+
+        payload = tracking.update_snag_details(
+            snag=snag,
+            # Normalisation is SHARED with `add_manual_snag` -- the whitespace proves it
+            # ran, and it has to: `get_snag_field_values` groups on the STORED text.
+            area="  Terrace  ",
+            category=" Waterproofing ",
+            description="  Ponding near the drain  ",
+        )
+
+        doc = frappe.get_doc("Project Snag", snag)
+        self.assertEqual(doc.area, "Terrace")
+        self.assertEqual(doc.category, "Waterproofing")
+        self.assertEqual(doc.description, "Ponding near the drain")
+        self.assertEqual(payload["area"], "Terrace")
+        self.assertEqual(payload["description"], "Ponding near the drain")
+
+    def test_update_snag_details_does_NOT_move_the_status_stamp(self):
+        """`status` is unchanged, so the attribution must not move (ADR-0018).
+
+        `status_changed_by` / `status_changed_on` mean "the last STATUS change", not "the
+        last edit". This is also the assertion that would break the instant someone
+        reached for `frappe.db.set_value` here: the stamp lives in `before_save`, so a
+        raw write would skip the controller entirely -- and skip `track_changes` with it.
+        """
+        snag = self._a_snag("EditStamp", "Edit stamp batch")
+        tracking.update_snag_status(snag=snag, status="WIP", remark="Started")
+        before = frappe.db.get_value(
+            "Project Snag", snag, ["status", "status_changed_by", "status_changed_on"], as_dict=True
+        )
+
+        tracking.update_snag_details(
+            snag=snag, area="Moved", category="Moved", description="Reworded by hand"
+        )
+
+        after = frappe.db.get_value(
+            "Project Snag",
+            snag,
+            ["status", "remark", "status_changed_by", "status_changed_on"],
+            as_dict=True,
+        )
+        self.assertEqual(after.status_changed_by, before.status_changed_by)
+        self.assertEqual(after.status_changed_on, before.status_changed_on)
+        # And the two fields it must never touch are untouched.
+        self.assertEqual(after.status, "WIP")
+        self.assertEqual(after.remark, "Started")
+
+    def test_update_snag_details_leaves_provenance_alone(self):
+        """`batch` / `source_row` / `project` answer 'where did this come from'."""
+        snag = self._a_snag("EditProv", "Edit provenance batch")
+        before = frappe.db.get_value(
+            "Project Snag", snag, ["batch", "source_row", "project"], as_dict=True
+        )
+
+        tracking.update_snag_details(snag=snag, area="A", category="C", description="D")
+
+        after = frappe.db.get_value(
+            "Project Snag", snag, ["batch", "source_row", "project"], as_dict=True
+        )
+        self.assertEqual((after.batch, after.source_row, after.project),
+                         (before.batch, before.source_row, before.project))
+
+    def test_update_snag_details_accepts_a_BLANK_description(self):
+        """ADR-0019 dropped `reqd` -- an imported blank must stay correctable to blank."""
+        snag = self._a_snag("EditBlank", "Edit blank batch")
+
+        tracking.update_snag_details(snag=snag, area="Roof", category="", description="")
+
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, "description"), "")
+
+    def test_a_project_manager_may_change_a_status_but_NOT_edit_the_details(self):
+        """Owner decision Q8a: editing a description rewrites what the consultant reported.
+
+        The two tiers agree on their role SET today and are asserted SEPARATELY on purpose
+        -- they answer different questions and are free to diverge.
+        """
+        snag = self._a_snag("EditPM", "Edit PM batch")
+
+        import nirmaan_stack.api.snags as snag_pkg
+
+        original = snag_pkg._user_role
+        snag_pkg._user_role = lambda: "Nirmaan Project Manager Profile"
+        frappe.session.user = "snag-pm@example.com"
+        try:
+            with self.assertRaises(frappe.PermissionError):
+                tracking.update_snag_details(
+                    snag=snag, area="Nope", category="Nope", description="Nope"
+                )
+            # ...while the status endpoint still admits them, unchanged.
+            tracking.update_snag_status(snag=snag, status="WIP")
+        finally:
+            snag_pkg._user_role = original
+            frappe.session.user = "Administrator"
+
+        doc = frappe.get_doc("Project Snag", snag)
+        self.assertEqual(doc.status, "WIP")
+        self.assertNotEqual(doc.area, "Nope")
+
+    def test_update_snag_details_refuses_an_unknown_snag(self):
+        with self.assertRaises(frappe.ValidationError):
+            tracking.update_snag_details(
+                snag="NOT-A-SNAG", area="A", category="C", description="D"
+            )
+
+    # -- field-value suggestions -----------------------------------------------
+
+    def test_get_snag_field_values_excludes_the_empty_string(self):
+        """⚠️ The importer and `add_manual_snag` write "", never NULL.
+
+        A naive DISTINCT therefore yields an empty-string option -- a blank, unpickable
+        line in the suggestions list. Most-used-first ordering is asserted in the same
+        pass, since both come out of the one GROUP BY.
+        """
+        rows = [
+            _row(8, "Kitchen", "One"),
+            _row(9, "Kitchen", "Two"),
+            _row(10, "", "Three", category=""),
+        ]
+        entry = {
+            "sheet_name": "Values",
+            "batch_name": "Values batch",
+            "mapping": _MAPPING,
+            "header_row": None,
+            "accepted_rows": [8, 9, 10],
+        }
+        self._ingest([entry], {"Values": _parsed(rows)})
+        tracking.add_manual_snag(
+            project=self.project, area="Terrace", category="Civil", description="Manual"
+        )
+        for name in frappe.get_all(
+            "Project Snag", filters={"project": self.project}, pluck="name", limit_page_length=0
+        ):
+            type(self)._created_names.add(name)
+
+        payload = tracking.get_snag_field_values(project=self.project)
+
+        self.assertEqual(set(payload.keys()), {"areas", "categories"})
+        self.assertNotIn("", payload["areas"])
+        self.assertNotIn("", payload["categories"])
+        self.assertIn("Kitchen", payload["areas"])
+        self.assertIn("Terrace", payload["areas"])
+        # Most-used first: Kitchen (2) outranks Terrace (1).
+        self.assertLess(payload["areas"].index("Kitchen"), payload["areas"].index("Terrace"))
+
+    def test_get_snag_field_values_is_read_guarded(self):
+        """Same deny-list tier as `get_snag_stats` -- NOT the doctype permission table."""
+        frappe.session.user = "snag-nobody@example.com"
+        try:
+            with self.assertRaises(frappe.PermissionError):
+                tracking.get_snag_field_values(project=self.project)
+        finally:
+            frappe.session.user = "Administrator"
 
     # -- delete ----------------------------------------------------------------
 
