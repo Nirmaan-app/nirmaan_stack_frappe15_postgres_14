@@ -1,7 +1,7 @@
 /**
  * Reviewer-facing reading of `Vendor Invoices.auto_approve_skip_reasons`.
  *
- * The backend (`api/invoices/_auto_approve.py`) runs 13 gates on insert and
+ * The backend (`api/invoices/_auto_approve.py`) runs 12 gates on insert and
  * persists a comma-joined list of machine tokens for every gate that failed.
  * That list is written for a machine: flat, unranked, and cascading. This module
  * turns it into something a reviewer can act on.
@@ -27,9 +27,6 @@
  * is unreachable and a `*_mismatch` on a manual invoice would be genuinely
  * anomalous. `file_swap_detected` is excluded for the same structural reason
  * (gate 13's else-branch needs a source URL).
- *
- * Separately, RETIRED_REASONS drops tokens for gates that no longer exist at
- * all — see the note there.
  *
  * ⚠️ Reasons are a snapshot from CREATION. Auto-approve never re-runs on edit
  * (see the comment at update_invoice_data.py's insert branch), so a reason can
@@ -62,7 +59,7 @@ export type ReasonTier = "eligibility" | "blocker" | "check" | "info" | "legacy"
 export interface ReasonEntry {
     /** One-line label — what the table cell and its hover list show. */
     label: string;
-    /** Which of the 13 gates recorded this, e.g. "Gate 10 · delivered-value ceiling". */
+    /** Which of the 12 gates recorded this, e.g. "Gate 10 · delivered-value ceiling". */
     gate: string;
     /** What the gate checked, and what it found. */
     detail: string;
@@ -286,18 +283,6 @@ export const AUTO_APPROVE_REASON_LABELS: Readonly<
             "Confirm billing ahead of delivery is intended on this order, or wait until the Delivery Note is recorded.",
         tier: "check",
     },
-    po_number_not_extracted: {
-        label:
-            "AI couldn't find a PO number on the invoice",
-        gate: "Gate 8 · PO number",
-        detail:
-            "Gate 8 needs a PO number on the invoice document to confirm the invoice belongs to this order. The AI found none.",
-        impact:
-            "Nothing but the uploader's intent links this document to this PO, so a misfiled invoice would pass unnoticed.",
-        action:
-            "Check the document actually references this PO before approving.",
-        tier: "check",
-    },
     invoice_amount_edited: {
         label:
             "Amount was changed from what AI read",
@@ -478,32 +463,11 @@ export const MANUAL_ENTRY_CASCADE: ReadonlySet<string> = new Set([
     "receiver_gstin_checksum_failed",
     "amount_unreconciled",
     "amounts_incomplete",
-    "po_number_not_extracted",
     "source_file_url_missing",
     "low_confidence_amount",
     "low_confidence_invoice_date",
     "low_confidence_invoice_no",
 ]);
-
-/**
- * Tokens for gates that have been REMOVED from `_auto_approve.py` — dropped on
- * sight, never rendered, never counted.
- *
- * This is not the same as the `legacy` tier. A legacy token (the three
- * `low_confidence_*`) records a check that was real when it ran and was
- * replaced by a better one, so historical rows still deserve to show it. A
- * retired token records a check we decided should never have blocked: showing
- * it on old rows would keep asking reviewers to act on a signal the system has
- * stopped believing.
- *
- * `po_number_mismatch` (gate 8's match half, removed 2026-08-19) sits on 140
- * live invoices — 118 Approved, 22 Pending. None carries it as its only reason,
- * so dropping it never turns a flagged invoice into a silently clean one.
- *
- * The raw token stays in `auto_approve_skip_reasons` in the database; this only
- * governs what a reviewer is asked to act on.
- */
-export const RETIRED_REASONS: ReadonlySet<string> = new Set(["po_number_mismatch"]);
 
 /** Severity ordering for display — most urgent first. */
 const TIER_RANK: Record<ReasonTier, number> = {
@@ -619,9 +583,6 @@ export const summariseSkipReasons = (
     let suppressedCount = 0;
 
     for (const token of tokens) {
-        // Retired gates are dropped outright — not tiered, not counted as
-        // suppressed, because there is nothing left to act on.
-        if (RETIRED_REASONS.has(token)) continue;
         const reason = describeReason(token);
         if (reason.tier === "eligibility") {
             eligibility.push(reason);

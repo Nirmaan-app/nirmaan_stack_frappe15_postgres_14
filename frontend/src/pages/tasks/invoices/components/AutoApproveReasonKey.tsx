@@ -3,7 +3,7 @@
  *
  * The "Not Auto-Approved Reason" column can only afford a one-line label per
  * flag — enough to scan, not enough to act on. This panel is the other half:
- * every reason the 13 gates can record, grouped by how urgent it is, with a
+ * every reason the 12 gates can record, grouped by how urgent it is, with a
  * three-part breakdown one hover away — what the gate checked, WHY that blocks
  * the invoice, and what to do about it.
  *
@@ -59,7 +59,9 @@ const STORAGE_KEY = "inv_pending_reason_key_open";
  *
  * They stay in `AUTO_APPROVE_REASON_LABELS`, so those 25 rows still get a
  * proper reading in the row hover, where someone is looking at the actual flag.
- * That is the difference from RETIRED_REASONS, which deletes a token outright.
+ * Hiding a tier is not the same as removing a gate: when gate 8 went, its two
+ * tokens were deleted from the catalogue AND erased from the database by
+ * `patches/v3_0/retire_po_number_gate.py`, so nothing is left to read.
  */
 const HIDDEN_TIERS: ReadonlySet<ReasonTier> = new Set(["legacy"]);
 const CARD_WIDTH = 360;

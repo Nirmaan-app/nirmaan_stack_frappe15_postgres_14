@@ -7,7 +7,6 @@ import {
     humanizeReasonToken,
     listReasonsByTier,
     REASON_TIER_ORDER,
-    RETIRED_REASONS,
     parseSkipReasons,
     summariseSkipReasons,
 } from "./autoApproveReasons";
@@ -102,15 +101,17 @@ describe("summariseSkipReasons", () => {
         expect(s.highestTier).toBe("blocker");
     });
 
-    // The headline case: VI-2026-04669, a hand-typed Work Order invoice.
-    it("collapses the real 12-token manual-entry cascade to zero flags", () => {
+    // The headline case: VI-2026-04669, a hand-typed Work Order invoice. It
+    // stored 12 tokens; retire_po_number_gate.py erased the gate-8 one, so the
+    // shape a reviewer can actually meet today is the 11 below.
+    it("collapses the real manual-entry cascade to zero flags", () => {
         const s = summariseSkipReasons(
             inv(
                 "autofill_not_used,not_procurement_order,invoice_no_edited," +
                 "invoice_date_edited,invoice_amount_edited,low_confidence_invoice_no," +
                 "low_confidence_invoice_date,low_confidence_amount," +
                 "supplier_gstin_not_extracted,receiver_gstin_not_extracted," +
-                "po_number_not_extracted,source_file_url_missing"
+                "source_file_url_missing"
             )
         );
         expect(s.isManualEntry).toBe(true);
@@ -119,12 +120,14 @@ describe("summariseSkipReasons", () => {
             "autofill_not_used",
             "not_procurement_order",
         ]);
-        expect(s.suppressedCount).toBe(10);
+        expect(s.suppressedCount).toBe(9);
         expect(s.highestTier).toBeNull();
     });
 
     it("keeps cascade tokens when the invoice WAS autofilled", () => {
-        const s = summariseSkipReasons(inv("po_number_not_extracted,invoice_amount_edited"));
+        const s = summariseSkipReasons(
+            inv("supplier_gstin_not_extracted,invoice_amount_edited")
+        );
         expect(s.isManualEntry).toBe(false);
         expect(s.suppressedCount).toBe(0);
         expect(s.flags).toHaveLength(2);
@@ -153,11 +156,6 @@ describe("summariseSkipReasons", () => {
     });
 
     it("handles the common live shapes", () => {
-        // VI-2026-05100 — two tokens stored, but po_number_mismatch is retired,
-        // so a reviewer is left with the one flag that still means something.
-        expect(
-            summariseSkipReasons(inv("po_number_mismatch,nothing_delivered_yet")).flags
-        ).toHaveLength(1);
         // VI-2026-05103 — the single most common reason in production
         const single = summariseSkipReasons(inv("nothing_delivered_yet"));
         expect(single.flags).toHaveLength(1);
@@ -226,35 +224,29 @@ describe("listReasonsByTier", () => {
     });
 });
 
-describe("retired reasons", () => {
-    it("is gone from the catalogue entirely", () => {
-        for (const token of RETIRED_REASONS) {
-            expect(AUTO_APPROVE_REASON_LABELS[token], token).toBeUndefined();
+describe("the removed PO-number gate", () => {
+    // Gate 8 is gone from _auto_approve.py and its two tokens are erased from
+    // the database by patches/v3_0/retire_po_number_gate.py, so no invoice can
+    // present one again. There is no deny-list guarding this any more — the
+    // catalogue simply has no entry, which is what this pins.
+    it.each(["po_number_mismatch", "po_number_not_extracted"])(
+        "has no catalogue entry for %s",
+        (token) => {
+            expect(AUTO_APPROVE_REASON_LABELS[token]).toBeUndefined();
+            const listed = listReasonsByTier().flatMap((g) =>
+                g.reasons.map((r) => r.token)
+            );
+            expect(listed).not.toContain(token);
         }
-        const listed = listReasonsByTier().flatMap((g) => g.reasons.map((r) => r.token));
-        for (const token of RETIRED_REASONS) expect(listed).not.toContain(token);
-    });
+    );
 
-    it("drops the token from the flags a reviewer sees", () => {
-        const s = summariseSkipReasons(inv("po_number_mismatch,duplicate_invoice_no"));
-        expect(s.flags.map((r) => r.token)).toEqual(["duplicate_invoice_no"]);
-    });
-
-    // Not "suppressed" — suppression is the manual-entry cascade note, and this
-    // did not get folded into anything. It simply no longer exists.
-    it("does not count as a suppressed cascade token", () => {
-        const s = summariseSkipReasons(inv("autofill_not_used,po_number_mismatch"));
-        expect(s.suppressedCount).toBe(0);
-        expect(s.flags).toEqual([]);
-    });
-
-    // No live invoice carries it alone (checked against 140 rows), but the
-    // degenerate case must still read honestly rather than as a flagged one.
-    it("reads as clean when it was the only reason recorded", () => {
-        const i = inv("po_number_mismatch", "Pending", 0);
-        const s = summariseSkipReasons(i);
-        expect(s.flags).toEqual([]);
-        expect(describeApprovalNarrative(i, s)).toBe("clean");
+    // The safety net if a row somehow survives the patch: it does NOT vanish.
+    // An unmapped token falls through to the humanized `check` fallback, so the
+    // reviewer sees something to chase rather than a silently clean invoice.
+    it("still surfaces the token if a row somehow survives the patch", () => {
+        const s = summariseSkipReasons(inv("po_number_not_extracted"));
+        expect(s.flags.map((r) => r.token)).toEqual(["po_number_not_extracted"]);
+        expect(s.flags[0].gate).toBe("Unmapped gate");
     });
 });
 

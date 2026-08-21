@@ -83,9 +83,8 @@ def evaluate_auto_approve_eligibility(invoice_doc, parent_doc, autofill_source_f
     # future/unparseable date is gate 11 — no overlap.)
     reasons.extend(_intrinsic_validation_reasons(invoice_doc))
 
-    # Resolve AI-extracted GSTINs + PO number. Prefer dedicated columns where
-    # available; fall back to parsing autofill_all_entities_json for older
-    # rows or for entities (like purchase_order) we don't pin to columns.
+    # Resolve AI-extracted GSTINs. Prefer dedicated columns where available;
+    # fall back to parsing autofill_all_entities_json for older rows.
     entities = _parse_entities(invoice_doc.get("autofill_all_entities_json"))
     ai_supplier_gstin = (
         invoice_doc.get("autofill_extracted_supplier_gstin")
@@ -95,7 +94,6 @@ def evaluate_auto_approve_eligibility(invoice_doc, parent_doc, autofill_source_f
         invoice_doc.get("autofill_extracted_receiver_gstin")
         or entities.get("receiver_gstin", "")
     )
-    ai_purchase_order = entities.get("purchase_order", "")
 
     # Gate 6: Supplier GSTIN matches the vendor's master GSTIN.
     vendor_gst = ""
@@ -117,18 +115,17 @@ def evaluate_auto_approve_eligibility(invoice_doc, parent_doc, autofill_source_f
     elif normalize_gstin(ai_receiver_gstin) != normalize_gstin(project_gst):
         reasons.append("receiver_gstin_mismatch")
 
-    # Gate 8: AI must have extracted a `purchase_order` entity.
-    #
-    # The MATCH half of this gate was removed (2026-08-19, owner call). It
-    # compared the extracted PO number against `document_name` and fired on
-    # invoices that were filed perfectly well — vendors print their own order
-    # references, quote numbers and revision suffixes where the AI looks for a
-    # PO — so `po_number_mismatch` blocked without being evidence of anything.
-    # Presence is still required: an invoice carrying no order reference at all
-    # is not something the system should clear on its own.
+    # Gate 8 is gone (removed 2026-08-21, owner call). It read the PO number off
+    # the invoice: first the MATCH half (removed 2026-08-19) which compared the
+    # extracted number against `document_name` and fired on invoices that were
+    # filed perfectly well — vendors print their own order references, quote
+    # numbers and revision suffixes where the AI looks for a PO — and now the
+    # PRESENCE half, which failed for the same reason in reverse: plenty of
+    # correctly-filed invoices simply carry no order reference the extractor can
+    # see. Neither half was evidence of a misfiling. `po_number_not_extracted`
+    # is retired on the reviewer side too, so historical rows stop showing it.
+    # Gates 9-13 keep their numbers; renumbering would only churn the labels.
     docname = invoice_doc.get("document_name") or ""
-    if not (ai_purchase_order or "").strip():
-        reasons.append("po_number_not_extracted")
 
     # Gates 9 & 10: cumulative amount checks against PO total and delivered.
     # Skip if not a PO (gate 2 already failed) — but still emit the gate-level
