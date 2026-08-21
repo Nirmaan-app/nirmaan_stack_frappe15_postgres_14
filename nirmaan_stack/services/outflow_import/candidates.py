@@ -52,7 +52,8 @@ from frappe.utils import getdate
 from nirmaan_stack.services.outflow_import.amounts import tolerance_bounds
 from nirmaan_stack.services.outflow_import.duplicates import (
     RowIdentity,
-    dates_agree,
+    find_prior_sighting,
+    index_prior_sightings,
     row_identity,
 )
 from nirmaan_stack.services.outflow_import.ledgers import (
@@ -82,6 +83,7 @@ __all__ = [
     # duplicate identity is `(transfer_id, amount, date)` and a list of ids can no longer express
     # the question. The old name is deliberately not kept as an alias -- see the function.
     "find_earlier_batches_for_rows",
+    "prior_import_sightings",
     "amount_window_sql",
     "PAYMENT_DOCTYPE",
     "PROJECT_EXPENSE_DOCTYPE",
@@ -479,7 +481,77 @@ def find_earlier_batches_for_rows(
     is safe for the same reason the period narrowing above is: the real backstop against paying
     twice is the `Outflow Row Match` unique constraint, which this does not touch.
     """
-    wanted = sorted({row.transfer_id for row in rows if row.transfer_id})
+    index = prior_import_sightings(
+        [row.transfer_id for row in rows],
+        exclude_batch=exclude_batch,
+        period_from=period_from,
+        period_to=period_to,
+    )
+    if not index:
+        return {}
+
+    seen: dict[RowIdentity, str] = {}
+    for row in rows:
+        if not row.transfer_id:
+            continue
+        identity = row_identity(row.transfer_id, row.amount, row.added_on_date)
+        if identity in seen:
+            continue
+        batch = find_prior_sighting(index, row.transfer_id, row.amount, row.added_on_date)
+        if batch:
+            seen[identity] = batch
+    return seen
+
+
+def prior_import_sightings(
+    transfer_ids: Sequence[str],
+    exclude_batch: str | None = None,
+    period_from: date | None = None,
+    period_to: date | None = None,
+) -> dict:
+    """Every TERMINAL stored import row for these transfer ids, as a `duplicates` sightings index.
+
+    THE ONE QUERY BEHIND BOTH SOURCES' "have we imported this before?" CHECK (slice CB-DUP-2).
+    `find_earlier_batches_for_rows` (Cashfree) is a thin adapter over it, and
+    `api.outflow_import.cashbook._already_imported` calls it directly. Before this, the two were
+    hand-written copies of one question -- same identity, same terminal-status clause, same
+    earliest-first ordering -- which is how one gets corrected and the other does not. Both write to
+    the ONE `Outflow Import Row` table, so a divergence here is a divergence about the same data.
+
+    ⚠️ THE PERIOD NARROWING IS THE **ONE** DIFFERENCE BETWEEN THE TWO CALLERS, AND IT IS DELIBERATE
+    -- DO NOT "FINISH THE JOB" BY DEFAULTING IT ON. Cashfree passes the statement's period;
+    Cashbook passes nothing and searches every batch. The narrowing is ergonomics, not safety, and
+    its whole licence is the sentence in `find_earlier_batches_for_rows`: a miss cannot cause double
+    payment because the `Outflow Row Match` unique constraint is the real backstop. **That licence
+    does not exist on the Cashbook path** -- a wallet row CREATES its target, so `target_name` is
+    new every time and the constraint can never fire. A missed duplicate costs Cashfree a worse
+    message; it costs Cashbook a SECOND EXPENSE. Same reason the two callers must keep differing on
+    this one argument, and only on this one.
+
+    ⚠️ A BATCH WITH NO RECORDED PERIOD IS ALWAYS SEARCHED -- it cannot be excluded on evidence we do
+    not have, and dropping it would turn "we could not date this batch" into "this batch is empty".
+
+    ⚠️ ONLY A **TERMINAL** STORED ROW COUNTS. A transfer still QUEUED when yesterday's sheet was
+    exported staged with no bank reference and settled nothing; when the next export carries it
+    completed, the identity matches exactly and the row would be skipped as already imported --
+    money never reaching a record and unable to, since `Skipped` is frozen against re-matching.
+    TERMINAL, not SUCCESSFUL: a definitively failed transfer is final too (a retry gets a NEW id),
+    and excluding it stops a re-uploaded statement reading as fully imported.
+
+    ⚠️ THE VOCABULARY IS BOUND, NEVER SPELLED -- `parser.BANK_TERMINAL_STATUSES`, with
+    `UPPER(BTRIM(...))` mirroring `parser.is_terminal_status` exactly, so the SQL and the Python
+    predicate cannot disagree about the same cell.
+
+    ⚠️ THE SQL NARROWS ON `transfer_id` ONLY; the amount and the date are settled in Python. The id
+    is the indexed column and the cheap first cut, and `amount` is a **Currency** column -- a float
+    in Postgres -- so an `=` against it in SQL is exactly the binary-floating-point comparison that
+    `normalize_amount` returning `Decimal` exists to avoid.
+
+    ⚠️ `ORDER BY creation ASC` IS LOAD-BEARING. `find_prior_sighting` returns the FIRST agreeing
+    sighting, so earliest-first is what makes a message name the batch a transfer actually came from
+    rather than a later one that merely also holds it.
+    """
+    wanted = sorted({tid for tid in transfer_ids if tid})
     if not wanted:
         return {}
 
@@ -520,27 +592,15 @@ def find_earlier_batches_for_rows(
         as_dict=True,
     )
 
-    # Grouped by the two axes that must match EXACTLY, so the only per-row work left is the date
-    # rule -- which cannot be a dict lookup, because a missing date has to match a present one.
-    by_id_amount: dict[tuple[str, Decimal], list] = {}
-    for r in stored:
-        key = (r["transfer_id"], normalize_amount(r.get("amount")))
-        by_id_amount.setdefault(key, []).append(r)
-
-    seen: dict[RowIdentity, str] = {}
-    for row in rows:
-        if not row.transfer_id:
-            continue
-        identity = row_identity(row.transfer_id, row.amount, row.added_on_date)
-        if identity in seen:
-            continue
-        for r in by_id_amount.get((row.transfer_id, row.amount), ()):
-            if dates_agree(row.added_on_date, _stored_date(r.get("added_on"))):
-                # `stored` is already ordered by `creation ASC`, so the first agreeing row is the
-                # EARLIEST batch -- which is the one the message names.
-                seen[identity] = r["import_batch"]
-                break
-    return seen
+    return index_prior_sightings(
+        (
+            r["transfer_id"],
+            normalize_amount(r.get("amount")),
+            _stored_date(r.get("added_on")),
+            r["import_batch"],
+        )
+        for r in stored
+    )
 
 
 def _stored_date(value) -> date | None:

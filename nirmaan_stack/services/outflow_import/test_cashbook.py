@@ -16,6 +16,7 @@ from nirmaan_stack.services.outflow_import.cashbook import (
     ACTION_CREATE,
     ACTION_SKIP,
     FALLBACK_EXPENSE_TYPE,
+    SKIP_ALREADY_BOOKED,
     SKIP_ALREADY_IMPORTED,
     SKIP_NOT_A_SPEND,
     SKIP_NOT_SUCCESSFUL,
@@ -26,7 +27,7 @@ from nirmaan_stack.services.outflow_import.cashbook import (
     pick_expense_type,
     plan_statement,
 )
-from nirmaan_stack.services.outflow_import.duplicates import row_identity
+from nirmaan_stack.services.outflow_import.duplicates import index_prior_sightings
 from nirmaan_stack.services.outflow_import.parser import RawRow
 from nirmaan_stack.services.outflow_import.project_match import build_project_index
 
@@ -88,9 +89,18 @@ def _row(number=1, transfer_id="OBO1", amount="100", remarks="", kind="Wallet Sp
     )
 
 
-def _plan(rows, already=None):
+def _plan(rows, already=None, booked=None):
     index = build_project_index(PROJECTS, aliases=ALIASES)
-    return plan_statement(rows, index, RULES, already_imported=already)
+    return plan_statement(
+        rows, index, RULES, already_imported=already, already_booked=booked
+    )
+
+
+def _sightings(*entries):
+    """`(transfer_id, amount, date, label)` tuples, in the earliest-first order the callers use."""
+    return index_prior_sightings(
+        (tid, Decimal(amount), when, label) for tid, amount, when, label in entries
+    )
 
 
 class TestWhatIsNotImported(unittest.TestCase):
@@ -121,9 +131,68 @@ class TestWhatIsNotImported(unittest.TestCase):
     def test_a_transfer_seen_in_an_earlier_import_names_that_import(self):
         """Naming the batch is what makes the message actionable rather than merely true."""
         raw = _row(transfer_id="OBO9", amount="250")
-        already = {row_identity("OBO9", Decimal("250"), date(2026, 8, 1)): "OFI-26-00007"}
+        already = _sightings(("OBO9", "250", date(2026, 8, 1), "OFI-26-00007"))
         row = _plan([raw], already=already).rows[0]
         self.assertEqual(row.reason, SKIP_ALREADY_IMPORTED.format(batch="OFI-26-00007"))
+
+    def test_a_transfer_already_booked_as_an_expense_is_skipped_naming_the_record(self):
+        """THE GAP THIS SLICE CLOSED. An expense can exist for a wallet spend without this import
+        ever having seen it -- somebody keyed it in by hand. Measured 2026-08-21: 17 live Non
+        Project Expenses carry a wallet transfer id nobody imported."""
+        raw = _row(transfer_id="OBO9", amount="250")
+        booked = _sightings(
+            ("OBO9", "250", date(2026, 8, 1), "Non Project Expenses 7u93vm8hhe")
+        )
+        row = _plan([raw], booked=booked).rows[0]
+        self.assertEqual(row.action, ACTION_SKIP)
+        self.assertEqual(
+            row.reason,
+            SKIP_ALREADY_BOOKED.format(record="Non Project Expenses 7u93vm8hhe"),
+        )
+
+    def test_an_expense_at_a_different_amount_does_not_block_the_import(self):
+        """The identity is ref AND amount AND date. A same-ref expense for a different figure is a
+        different fact, and refusing on it would strand a real spend."""
+        raw = _row(transfer_id="OBO9", amount="250")
+        booked = _sightings(("OBO9", "999", date(2026, 8, 1), "Non Project Expenses X"))
+        self.assertEqual(_plan([raw], booked=booked).rows[0].action, ACTION_CREATE)
+
+    def test_an_expense_with_no_payment_date_still_blocks_the_import(self):
+        """Same missing-date fallback as the batch lookup -- an absent date on the stored side is
+        our gap in the record, not evidence of a different transfer."""
+        raw = _row(transfer_id="OBO9", amount="250")
+        booked = _sightings(("OBO9", "250", None, "Project Expenses PE-1"))
+        self.assertEqual(
+            _plan([raw], booked=booked).rows[0].reason,
+            SKIP_ALREADY_BOOKED.format(record="Project Expenses PE-1"),
+        )
+
+    def test_an_earlier_batch_is_named_ahead_of_an_existing_expense(self):
+        """⚠️ BOTH ARE TRUE whenever a previous batch created the expense, and the batch is the
+        answer somebody can act on -- it is a screen in this feature. Order is the message."""
+        raw = _row(transfer_id="OBO9", amount="250")
+        row = _plan(
+            [raw],
+            already=_sightings(("OBO9", "250", date(2026, 8, 1), "OFI-26-00007")),
+            booked=_sightings(("OBO9", "250", date(2026, 8, 1), "Project Expenses PE-1")),
+        ).rows[0]
+        self.assertEqual(row.reason, SKIP_ALREADY_IMPORTED.format(batch="OFI-26-00007"))
+
+    def test_an_existing_expense_is_named_ahead_of_a_repeat_within_the_file(self):
+        """Naming the record beats "it is further up this sheet"."""
+        rows = [_row(transfer_id="OBO9", amount="250"), _row(number=2, transfer_id="OBO9", amount="250")]
+        booked = _sightings(("OBO9", "250", date(2026, 8, 1), "Project Expenses PE-1"))
+        plan = _plan(rows, booked=booked)
+        self.assertEqual(
+            [r.reason for r in plan.rows],
+            [SKIP_ALREADY_BOOKED.format(record="Project Expenses PE-1")] * 2,
+        )
+
+    def test_a_transfer_nobody_has_booked_still_creates(self):
+        """The negative case. A guard that blocks everything would also look like it works."""
+        raw = _row(transfer_id="OBO9", amount="250", remarks="printout telus")
+        booked = _sightings(("OBO-OTHER", "250", date(2026, 8, 1), "Project Expenses PE-1"))
+        self.assertEqual(_plan([raw], booked=booked).rows[0].action, ACTION_CREATE)
 
     def test_a_transfer_repeated_within_one_file_creates_once(self):
         plan = _plan([_row(transfer_id="OBO5"), _row(number=2, transfer_id="OBO5")])

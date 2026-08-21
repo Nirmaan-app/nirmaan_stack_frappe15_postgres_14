@@ -14,8 +14,11 @@ from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.duplicates import (
     DUPLICATE_WARN_RATIO,
+    PriorSighting,
     assess_duplicates,
     dates_agree,
+    find_prior_sighting,
+    index_prior_sightings,
     row_identity,
 )
 
@@ -206,6 +209,99 @@ class TestDefensiveCounts(unittest.TestCase):
         verdict = assess_duplicates(total=None, duplicates=None)
         self.assertFalse(verdict.refuse)
         self.assertFalse(verdict.warn)
+
+
+class TestPriorSightings(unittest.TestCase):
+    """The lookup both Cashbook duplicate checks run through (slice CB-DUP).
+
+    It replaced an exact-triple `dict` on the Cashbook path, and the whole reason it exists is that
+    a `dict` can only compare the date with `==` -- which is precisely what `dates_agree` refuses.
+    """
+
+    def _index(self, *entries):
+        return index_prior_sightings(entries)
+
+    def test_an_exact_triple_is_found(self):
+        index = self._index(("OBO1", Decimal("250"), date(2026, 8, 1), "BATCH-A"))
+        self.assertEqual(
+            find_prior_sighting(index, "OBO1", Decimal("250"), date(2026, 8, 1)), "BATCH-A"
+        )
+
+    def test_a_stored_row_with_no_date_still_matches_a_dated_one(self):
+        """GAP 1. The parser tolerates an unreadable Added On, so the stored side may be `None`.
+
+        Under `NULL = NULL is false` this row would import a SECOND time, silently.
+        """
+        index = self._index(("OBO1", Decimal("250"), None, "BATCH-A"))
+        self.assertEqual(
+            find_prior_sighting(index, "OBO1", Decimal("250"), date(2026, 8, 1)), "BATCH-A"
+        )
+
+    def test_an_incoming_row_with_no_date_still_matches_a_stored_dated_one(self):
+        """GAP 1, the other side. Either may be the unreadable one -- `dates_agree` is symmetric."""
+        index = self._index(("OBO1", Decimal("250"), date(2026, 8, 1), "BATCH-A"))
+        self.assertEqual(find_prior_sighting(index, "OBO1", Decimal("250"), None), "BATCH-A")
+
+    def test_two_missing_dates_still_match(self):
+        index = self._index(("OBO1", Decimal("250"), None, "BATCH-A"))
+        self.assertEqual(find_prior_sighting(index, "OBO1", Decimal("250"), None), "BATCH-A")
+
+    def test_a_different_amount_is_a_different_transfer(self):
+        """No tolerance, ever. At Rs 5 two genuinely different Rs 3 transfers would collapse."""
+        index = self._index(("OBO1", Decimal("250"), date(2026, 8, 1), "BATCH-A"))
+        self.assertIsNone(
+            find_prior_sighting(index, "OBO1", Decimal("251"), date(2026, 8, 1))
+        )
+
+    def test_a_different_date_is_a_different_transfer_when_both_are_known(self):
+        """The fallback rescues a MISSING date. It does not make the date stop mattering."""
+        index = self._index(("OBO1", Decimal("250"), date(2026, 8, 1), "BATCH-A"))
+        self.assertIsNone(
+            find_prior_sighting(index, "OBO1", Decimal("250"), date(2026, 8, 2))
+        )
+
+    def test_the_first_agreeing_sighting_wins(self):
+        """GAP 3. The caller hands them over earliest-first, so the message names the ORIGIN."""
+        index = self._index(
+            ("OBO1", Decimal("250"), date(2026, 8, 1), "BATCH-EARLY"),
+            ("OBO1", Decimal("250"), date(2026, 8, 1), "BATCH-LATE"),
+        )
+        self.assertEqual(
+            find_prior_sighting(index, "OBO1", Decimal("250"), date(2026, 8, 1)), "BATCH-EARLY"
+        )
+
+    def test_a_non_agreeing_sighting_is_stepped_over_to_reach_an_agreeing_one(self):
+        """Same bucket, different dates -- the walk must not stop at the first entry."""
+        index = self._index(
+            ("OBO1", Decimal("250"), date(2026, 7, 1), "BATCH-OTHER"),
+            ("OBO1", Decimal("250"), date(2026, 8, 1), "BATCH-RIGHT"),
+        )
+        self.assertEqual(
+            find_prior_sighting(index, "OBO1", Decimal("250"), date(2026, 8, 1)), "BATCH-RIGHT"
+        )
+
+    def test_a_blank_transfer_id_is_never_indexed_and_never_matches(self):
+        """Otherwise every reference-less record shares one bucket keyed on the amount alone, and a
+        duplicate verdict would rest on no identity at all."""
+        index = index_prior_sightings([("", Decimal("250"), date(2026, 8, 1), "BATCH-A")])
+        self.assertEqual(index, {})
+        self.assertIsNone(find_prior_sighting(index, "", Decimal("250"), date(2026, 8, 1)))
+
+    def test_an_empty_corpus_finds_nothing(self):
+        self.assertIsNone(
+            find_prior_sighting({}, "OBO1", Decimal("250"), date(2026, 8, 1))
+        )
+
+    def test_the_sighting_carries_its_label_verbatim(self):
+        """The label is opaque -- a batch id from one corpus, a ledger and record name from another.
+        This module must not parse it."""
+        index = index_prior_sightings(
+            [("OBO1", Decimal("250"), None, "Non Project Expenses 7u93vm8hhe")]
+        )
+        self.assertEqual(
+            index[("OBO1", Decimal("250"))],
+            (PriorSighting(added_on_date=None, label="Non Project Expenses 7u93vm8hhe"),),
+        )
 
 
 class TestPurity(unittest.TestCase):

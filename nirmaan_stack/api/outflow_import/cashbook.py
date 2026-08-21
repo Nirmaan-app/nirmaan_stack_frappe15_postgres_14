@@ -58,6 +58,7 @@ from nirmaan_stack.api.outflow_import.review import _StagedRow
 from nirmaan_stack.services.outflow_import.candidates import (
     load_expense_rules,
     load_project_aliases,
+    prior_import_sightings,
 )
 from nirmaan_stack.services.outflow_import.cashbook import (
     ACTION_CREATE,
@@ -65,10 +66,13 @@ from nirmaan_stack.services.outflow_import.cashbook import (
     group_plan,
     plan_statement,
 )
-from nirmaan_stack.services.outflow_import.duplicates import row_identity
-from nirmaan_stack.services.outflow_import.ledgers import PROJECT_EXPENSE_DOCTYPE
+from nirmaan_stack.services.outflow_import.duplicates import index_prior_sightings
+from nirmaan_stack.services.outflow_import.ledgers import (
+    EXPENSE_DOCTYPES,
+    PROJECT_EXPENSE_DOCTYPE,
+)
+from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.parser import (
-    BANK_TERMINAL_STATUSES,
     StatementFormatError,
     parse_statement,
 )
@@ -357,62 +361,120 @@ def _build_plan(parsed) -> CashbookPlan:
         aliases=load_project_aliases(),
     )
     return plan_statement(
-        parsed.rows, index, load_expense_rules(), already_imported=_already_imported(parsed)
+        parsed.rows,
+        index,
+        load_expense_rules(),
+        already_imported=_already_imported(parsed),
+        already_booked=_already_booked(parsed),
     )
 
 
 def _already_imported(parsed) -> dict:
-    """Which of these transfers a previous batch already holds, and which batch that was.
+    """Which of these transfers a previous BATCH already holds, and which batch that was.
 
-    Keyed on `duplicates.row_identity`, the same key the parser's in-file check and the Cashfree
-    staging path use -- so all three can never call one pair of rows duplicates while another calls
-    them distinct, about the same file.
+    ⚠️ ONE IMPLEMENTATION, SHARED WITH CASHFREE (slice CB-DUP-2). This used to be a hand-written
+    copy of `candidates.find_earlier_batches_for_rows` -- same identity, same terminal-status
+    clause, both reading the ONE `Outflow Import Row` table -- and the copies had already drifted:
+    this one could not apply `duplicates.dates_agree`, so an unreadable `Added On` on either side
+    meant a wallet statement **imported a second time, silently**. Both now go through
+    `candidates.prior_import_sightings`; only the argument below differs.
 
-    ⚠️ ONLY A **TERMINAL** STORED ROW COUNTS, AND THIS IS A SECOND COPY OF THE CASHFREE CLAUSE.
-    A spend that had not gone through when the last statement was exported stages here and settles
-    nothing; when the next export carries it completed, the triple matches and it was skipped as
-    "already imported" -- money silently lost, permanently, because `Skipped` is frozen against
-    re-matching. Both sources write to the ONE `Outflow Import Row` table, so fixing only the
-    Cashfree lookup would leave the identical defect live for wallet statements.
-
-    TERMINAL, not successful: a spend that definitively failed is final too, and must keep counting
-    as a duplicate or a re-uploaded statement stops reading as fully imported. See the longer note
-    on `candidates.find_earlier_batches_for_rows`, which explains what that costs.
-
-    The vocabulary is bound, never spelled -- `parser.BANK_TERMINAL_STATUSES` -- and `UPPER(BTRIM(...))`
-    mirrors `parser.is_terminal_status` exactly, so this and `candidates.find_earlier_batches_for_rows`
-    cannot come to disagree about the same stored cell.
-
-    ⚠️ THIS IS THE SECOND COPY OF ONE QUESTION, AND IT IS KNOWN. `candidates.find_earlier_batches_for_rows`
-    asks the same thing, but it also narrows by period and applies `dates_agree`'s missing-date
-    fallback, neither of which this does -- so collapsing the two is a BEHAVIOUR change for Cashbook
-    and belongs in its own slice, not smuggled into a defect fix. Until then, a change to either
-    must be made to both.
+    ⚠️ NO PERIOD IS PASSED, AND THAT IS THE DELIBERATE DIFFERENCE -- **do not "make it consistent"
+    with the Cashfree caller.** Period narrowing is ergonomics, and its licence is that a miss
+    cannot cause double payment because the `Outflow Row Match` unique constraint catches it. That
+    licence does not exist here: a Cashbook row CREATES its target, so `target_name` is new every
+    time and the constraint can never fire. A miss costs Cashfree a worse message and costs
+    Cashbook a SECOND EXPENSE. The full reasoning is on `prior_import_sightings`.
     """
-    ids = [row.transfer_id for row in parsed.rows if row.transfer_id]
+    return prior_import_sightings(_statement_transfer_ids(parsed))
+
+
+def _already_booked(parsed) -> dict:
+    """Which of these transfers an EXPENSE already exists for, and which record that is.
+
+    ⚠️ A DIFFERENT QUESTION FROM `_already_imported`, AND THE GAP BETWEEN THEM WAS THE HOLE. That
+    one asks whether an earlier BATCH staged the transfer. This asks whether the money is already
+    booked AT ALL -- which it can be without this import ever having seen it. Measured 2026-08-21:
+    **17 live `Non Project Expenses` carry a wallet transfer id in `payment_ref` that nobody
+    imported**, keyed in by hand. Without this lookup, a statement covering those dates creates
+    17 duplicate expenses and nothing anywhere says so.
+
+    ⚠️ THE `Outflow Row Match` UNIQUE CONSTRAINT IS NOT THE BACKSTOP HERE, whatever the notes on
+    the Cashfree path say. That key is `(transfer_id, target_doctype, target_name)` and a Cashbook
+    row CREATES its target, so `target_name` is new every time and the constraint is never
+    contended. On this path THIS function is the guard.
+
+    IDENTITY IS `payment_ref` + amount + `payment_date`, the same three axes as a staged row's, so
+    the two lookups cannot come to disagree. The import writes exactly that triple on create
+    (`settle.create_expense_from_row`), which is what makes the check self-consistent on its own
+    output. It holds on HAND-KEYED rows too: all 17 carry a `payment_date`, and every one of them
+    equals the date encoded in the wallet id's own epoch prefix (17/17, measured).
+
+    ⚠️ NARROWED BY REFERENCE IN SQL, NOT IN PYTHON. The `IN` list is this statement's own transfer
+    ids -- at most a few hundred -- so the scan returns almost nothing instead of the 701 expenses
+    that carry any reference at all. `payment_ref` is UNINDEXED on both doctypes; at 2,594 + 718
+    rows the sequential scan is free. Revisit if `Non Project Expenses` passes ~100k.
+
+    ⚠️ NO STATUS FILTER, DELIBERATELY. Measured: zero `Approved` and zero `Requested` expenses carry
+    any `payment_ref`, so `status = 'Paid'` narrows nothing today -- and an unpaid expense holding
+    the reference is still a booking, so creating a second one is still a duplicate. A filter that
+    buys nothing now and hides a real duplicate later is not worth having.
+
+    ⚠️ TWO QUERIES, NOT ONE, BECAUSE THE TWO DOCTYPES DISAGREE ABOUT STORAGE. `Project Expenses.amount`
+    is a `Data` column holding numeric STRINGS and must be CAST; `Non Project Expenses.amount` is a
+    real `Currency`. Same asymmetry `candidates.load_expense_targets` carries, and folding them into
+    one parametrised query would hide it. The `btrim(amount) <> ''` guard mirrors that function's;
+    verified 2026-08-21 that no `Project Expenses.amount` would break the cast.
+    """
+    ids = _statement_transfer_ids(parsed)
     if not ids:
         return {}
     placeholders = ", ".join(["%s"] * len(ids))
-    terminal = sorted(BANK_TERMINAL_STATUSES)
-    terminal_placeholders = ", ".join(["%s"] * len(terminal))
-    rows = frappe.db.sql(
-        f"""
-        SELECT transfer_id, amount, added_on, import_batch
-        FROM "tabOutflow Import Row"
-        WHERE transfer_id IN ({placeholders})
-          AND UPPER(BTRIM(COALESCE(status_raw, ''))) IN ({terminal_placeholders})
-        """,
-        (*ids, *terminal),
-        as_dict=True,
-    )
-    found = {}
-    for row in rows:
-        added_on = row["added_on"]
-        identity = row_identity(
-            row["transfer_id"], row["amount"], added_on.date() if added_on else None
+
+    entries: list[tuple] = []
+    for doctype in EXPENSE_DOCTYPES:
+        # ⚠️ `ORDER BY creation ASC` for the same reason `_already_imported` needs it: the message
+        # names the FIRST agreeing sighting, and the first booking is the one worth naming.
+        if doctype == PROJECT_EXPENSE_DOCTYPE:
+            amount_expr = "CAST(NULLIF(BTRIM(amount), '') AS numeric)"
+            extra = " AND COALESCE(BTRIM(amount), '') <> ''"
+        else:
+            amount_expr = "amount"
+            extra = ""
+        rows = frappe.db.sql(
+            f"""
+            SELECT name, BTRIM(payment_ref) AS payment_ref,
+                   {amount_expr} AS amount, payment_date
+            FROM "tab{doctype}"
+            WHERE BTRIM(COALESCE(payment_ref, '')) IN ({placeholders})
+              {extra}
+            ORDER BY creation ASC
+            """,
+            tuple(ids),
+            as_dict=True,
         )
-        found.setdefault(identity, row["import_batch"])
-    return found
+        entries.extend(
+            (
+                row["payment_ref"],
+                normalize_amount(row["amount"]),
+                row["payment_date"],
+                # The label the skip message prints. Composed HERE because this is the layer that
+                # knows which ledger it just queried; `find_prior_sighting` returns one opaque
+                # string and must not be asked to carry structure.
+                f"{doctype} {row['name']}",
+            )
+            for row in rows
+        )
+    return index_prior_sightings(entries)
+
+
+def _statement_transfer_ids(parsed) -> list[str]:
+    """The distinct, non-blank transfer ids in this statement -- the narrowing both lookups use.
+
+    ⚠️ AN EMPTY LIST MUST SHORT-CIRCUIT AT THE CALLER, not build `IN ()` -- which is a syntax error
+    in Postgres, not an empty result.
+    """
+    return sorted({row.transfer_id for row in parsed.rows if row.transfer_id})
 
 
 def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):

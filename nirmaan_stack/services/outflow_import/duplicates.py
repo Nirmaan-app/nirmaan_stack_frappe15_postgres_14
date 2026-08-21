@@ -40,13 +40,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from typing import Iterable
 
 __all__ = [
     "DUPLICATE_WARN_RATIO",
     "DuplicateVerdict",
+    "PriorSighting",
     "RowIdentity",
     "assess_duplicates",
     "dates_agree",
+    "find_prior_sighting",
+    "index_prior_sightings",
     "row_identity",
 ]
 
@@ -104,6 +108,81 @@ def dates_agree(left: "date | None", right: "date | None") -> bool:
     if left is None or right is None:
         return True
     return left == right
+
+
+# --- have we seen this transfer before? THE one lookup, over any corpus (slice CB-DUP) ----------
+#
+# WHY A PAIR OF FUNCTIONS RATHER THAN A DICT LOOKUP, which is what it replaced on the Cashbook path:
+# a plain `dict` keyed on the whole `row_identity` triple can only answer with `==`, and `==` on the
+# date is exactly what `dates_agree` exists to refuse. Bucketing on `(transfer_id, amount)` and
+# settling the date separately is the ONLY shape that can apply the missing-date fallback, which is
+# why `candidates.find_earlier_batches_for_rows` already has this shape by hand.
+#
+# ⚠️ THE CORPUS IS THE CALLER'S BUSINESS AND THE RULE IS NOT. Cashbook asks this of two different
+# populations -- earlier IMPORT ROWS, and expenses already BOOKED against a wallet reference -- and
+# they must not be allowed to disagree about whether two transfers are the same transfer. Anything
+# that wants to ask a third population builds entries and calls these; it does not write a third
+# comparison.
+#
+# ⚠️ THE ORDER OF `entries` IS PART OF THE CONTRACT. `find_prior_sighting` returns the FIRST
+# agreeing sighting, so a caller that wants the EARLIEST occurrence named must hand them over
+# earliest-first (`ORDER BY creation ASC`). That is not decoration: the message names what it found,
+# and a later batch named as the origin sends the reader to the wrong place.
+
+
+@dataclass(frozen=True)
+class PriorSighting:
+    """One earlier occurrence of a transfer, and what a message should call it.
+
+    `label` is deliberately opaque -- a batch id from one corpus, a ledger and record name from
+    another. This module has no opinion about which; it only guarantees which one comes back.
+    """
+
+    added_on_date: "date | None"
+    label: str
+
+
+def index_prior_sightings(
+    entries: Iterable["tuple[str, Decimal, date | None, str]"],
+) -> dict[tuple[str, Decimal], tuple[PriorSighting, ...]]:
+    """Bucket `(transfer_id, amount, date, label)` entries by the two axes that compare with `==`.
+
+    ⚠️ A BLANK `transfer_id` IS DROPPED, NOT BUCKETED. Without this every reference-less record in
+    the corpus would share one bucket keyed `("", amount)`, and a new statement row that also failed
+    to carry an id would match the first of them on amount alone -- a duplicate verdict resting on
+    no identity at all. Dropping them means such a row is never recognised as a repeat, which is the
+    recoverable direction: a duplicate somebody can see beats a real spend silently skipped.
+
+    The amount is keyed EXACTLY, as `row_identity` requires -- see its note on why a tolerance must
+    never appear here.
+    """
+    index: dict[tuple[str, Decimal], list[PriorSighting]] = {}
+    for transfer_id, amount, added_on_date, label in entries:
+        if not transfer_id:
+            continue
+        index.setdefault((transfer_id, amount), []).append(
+            PriorSighting(added_on_date=added_on_date, label=label)
+        )
+    return {key: tuple(sightings) for key, sightings in index.items()}
+
+
+def find_prior_sighting(
+    index: dict[tuple[str, Decimal], tuple[PriorSighting, ...]],
+    transfer_id: str,
+    amount: Decimal,
+    added_on_date: "date | None",
+) -> "str | None":
+    """The label of the first earlier sighting of this transfer, or `None`.
+
+    The date is settled by `dates_agree`, so an unreadable date on EITHER side does not break the
+    match. That is the whole point of routing both Cashbook lookups through here.
+    """
+    if not transfer_id:
+        return None
+    for sighting in index.get((transfer_id, amount), ()):
+        if dates_agree(sighting.added_on_date, added_on_date):
+            return sighting.label
+    return None
 
 
 @dataclass(frozen=True)
