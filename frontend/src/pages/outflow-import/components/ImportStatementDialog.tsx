@@ -81,6 +81,25 @@ const EMPTY_CONFIRM_SCOPE: Record<string, unknown> = {};
 // .xlsx joins .csv at Q10 -- the server sniffs the real format from the bytes, so a renamed export
 // still works and this list only decides what we accept by name.
 const ALLOWED_EXTENSIONS = [".csv", ".xlsx"];
+
+/**
+ * WHICH Cashfree report each source is exported from.
+ *
+ * ⚠️ NAMING THE REPORT IS THE POINT, NOT THE FILE TYPE. The old copy said "Drop a .csv or .xlsx
+ * statement here", which answers a question nobody was stuck on: both sources accept both formats,
+ * and the actual mistake people make is exporting the WRONG REPORT — the two live under the same
+ * Cashfree → Reports menu and produce sheets that look alike but carry different columns. The
+ * parser then reports missing columns, which reads as "our file is broken" rather than "you took
+ * the other export".
+ *
+ * ⚠️ KEYED BY THE SAME STRINGS AS `SOURCES` above, and a source with no entry falls back to plain
+ * wording rather than rendering "undefined" — so adding a source that is NOT a Cashfree report
+ * degrades honestly instead of claiming a menu path that does not exist.
+ */
+const SOURCE_REPORT: Record<string, string> = {
+    Cashfree: "Transfers export",
+    Cashbook: "Consolidated Account Statement",
+};
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
 /** Only sources the backend parser actually has an adapter for may be selected. */
@@ -614,8 +633,17 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
                         ) : (
                             <>
                                 <Upload className="mb-2 h-7 w-7 text-muted-foreground" />
-                                <p className="font-medium">Drop a .csv or .xlsx statement here</p>
-                                <p className="text-xs text-muted-foreground">or click to browse</p>
+                                <p className="font-medium">
+                                    Drop your {SOURCE_REPORT[source] ?? "statement"} here
+                                </p>
+                                {SOURCE_REPORT[source] && (
+                                    <p className="text-xs text-muted-foreground">
+                                        Cashfree → Reports → {SOURCE_REPORT[source]}
+                                    </p>
+                                )}
+                                <p className="mt-0.5 text-xs text-muted-foreground">
+                                    .csv or .xlsx — or click to browse
+                                </p>
                             </>
                         )}
                     </div>
