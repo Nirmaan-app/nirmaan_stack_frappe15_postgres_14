@@ -131,45 +131,7 @@ def evaluate_auto_approve_eligibility(invoice_doc, parent_doc, autofill_source_f
     # Skip if not a PO (gate 2 already failed) — but still emit the gate-level
     # reasons so the audit log is informative.
     if invoice_doc.get("document_type") == "Procurement Orders":
-        po_info = (
-            frappe.db.get_value(
-                "Procurement Orders",
-                docname,
-                ["total_amount", "po_amount_delivered"],
-                as_dict=True,
-            )
-            or {}
-        )
-        try:
-            po_total = float(po_info.get("total_amount") or 0)
-        except (TypeError, ValueError):
-            po_total = 0.0
-        try:
-            po_delivered = float(po_info.get("po_amount_delivered") or 0)
-        except (TypeError, ValueError):
-            po_delivered = 0.0
-        try:
-            new_amount = float(invoice_doc.get("invoice_amount") or 0)
-        except (TypeError, ValueError):
-            new_amount = 0.0
-
-        # The invoice has just been inserted, so it's already in
-        # existing_invoiced_sum. Exclude it and add new_amount separately so
-        # the math reads cleanly.
-        prior_sum = existing_invoiced_sum(docname, exclude_invoice_id=invoice_doc.name)
-        cumulative = prior_sum + new_amount
-
-        # Gate 9: Cumulative ≤ PO total + tolerance.
-        if po_total <= 0:
-            reasons.append("po_total_invalid")
-        elif cumulative > po_total + AMOUNT_TOLERANCE_RUPEES:
-            reasons.append("would_exceed_po_total")
-
-        # Gate 10: Cumulative ≤ delivered + tolerance.
-        if po_delivered <= 0:
-            reasons.append("nothing_delivered_yet")
-        elif cumulative > po_delivered + AMOUNT_TOLERANCE_RUPEES:
-            reasons.append("would_exceed_delivered")
+        reasons.extend(evaluate_ceiling_gates(invoice_doc, docname))
 
     # Gate 11: invoice_date is not in the future.
     try:
@@ -213,6 +175,95 @@ def evaluate_auto_approve_eligibility(invoice_doc, parent_doc, autofill_source_f
             reasons.append("file_swap_detected")
 
     return (len(reasons) == 0), reasons
+
+
+# Every token gates 9 & 10 can emit. These are the ONLY reasons that go stale on
+# their own: all four are read off the PO, and the PO keeps moving after the
+# invoice is filed — a Delivery Note lands, a revision raises the value. Every
+# other gate reads the invoice, which does not change by itself.
+#
+# This tuple is what the RE-CHECK owns. It re-runs the two gates below and
+# rewrites exactly these tokens, leaving every other stored reason untouched.
+CEILING_GATE_TOKENS = (
+    "po_total_invalid",
+    "would_exceed_po_total",
+    "nothing_delivered_yet",
+    "would_exceed_delivered",
+)
+
+
+def ceiling_figures(invoice_doc, docname):
+    """The three numbers gates 9 & 10 compare, read off the PO as it stands now.
+
+    Split from the verdict so a reviewer can be SHOWN why an invoice passes, not
+    just told that it does. One DB read; the caller passes the result to
+    `ceiling_reasons`.
+    """
+    po_info = (
+        frappe.db.get_value(
+            "Procurement Orders",
+            docname,
+            ["total_amount", "po_amount_delivered"],
+            as_dict=True,
+        )
+        or {}
+    )
+    try:
+        po_total = float(po_info.get("total_amount") or 0)
+    except (TypeError, ValueError):
+        po_total = 0.0
+    try:
+        po_delivered = float(po_info.get("po_amount_delivered") or 0)
+    except (TypeError, ValueError):
+        po_delivered = 0.0
+    try:
+        new_amount = float(invoice_doc.get("invoice_amount") or 0)
+    except (TypeError, ValueError):
+        new_amount = 0.0
+
+    # This invoice is already counted in existing_invoiced_sum. Exclude it and
+    # add new_amount separately so the math reads cleanly.
+    prior_sum = existing_invoiced_sum(docname, exclude_invoice_id=invoice_doc.name)
+
+    return {
+        "po_total": po_total,
+        "po_delivered": po_delivered,
+        "invoice_amount": new_amount,
+        "cumulative": prior_sum + new_amount,
+    }
+
+
+def ceiling_reasons(figures):
+    """Gates 9 & 10 as a PURE function of `ceiling_figures`. No DB, no side effects."""
+    reasons = []
+    cumulative = figures["cumulative"]
+
+    # Gate 9: Cumulative ≤ PO total + tolerance.
+    if figures["po_total"] <= 0:
+        reasons.append("po_total_invalid")
+    elif cumulative > figures["po_total"] + AMOUNT_TOLERANCE_RUPEES:
+        reasons.append("would_exceed_po_total")
+
+    # Gate 10: Cumulative ≤ delivered + tolerance.
+    if figures["po_delivered"] <= 0:
+        reasons.append("nothing_delivered_yet")
+    elif cumulative > figures["po_delivered"] + AMOUNT_TOLERANCE_RUPEES:
+        reasons.append("would_exceed_delivered")
+
+    return reasons
+
+
+def evaluate_ceiling_gates(invoice_doc, docname):
+    """Gates 9 & 10 — the two money ceilings, read off the PO as it stands now.
+
+    Returns a list of `CEILING_GATE_TOKENS` members; empty means both ceilings
+    pass. Callers must have established the invoice is on a Procurement Order.
+
+    Extracted so the creation-time evaluator and `recheck_auto_approve` run the
+    SAME arithmetic. Two copies of a ₹10 tolerance and a cumulative sum would be
+    two chances to disagree about whether an invoice may be auto-approved.
+    """
+    return ceiling_reasons(ceiling_figures(invoice_doc, docname))
 
 
 def apply_auto_approval(invoice_doc, fail_reasons=None):

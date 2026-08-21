@@ -32,6 +32,9 @@ import { useOrderPayments } from "@/hooks/useOrderPayments";
 import { useTotalInvoicedByDocument } from "../hooks/useTotalInvoicedByDocument";
 import { useFacetValues } from "@/hooks/useFacetValues";
 import { invoiceRowClassName } from "../utils/invoiceRowStyle";
+import { canActionInvoiceApprovals } from "@/constants/roles";
+import { useRecheckAutoApprove } from "../hooks/useRecheckAutoApprove";
+import { RecheckResultDialog } from "./RecheckResultDialog";
 
 const URL_SYNC_KEY = "inv_pending";
 
@@ -82,6 +85,57 @@ export const PendingTasksTable: React.FC = () => {
         isProcessing,
     } = useInvoiceTaskActions({});
 
+    // --- Auto-approve re-check ---
+    // The gates run once, at creation. A PO delivered afterwards leaves its
+    // invoice sitting behind `nothing_delivered_yet` forever; this re-runs them
+    // against current data. Gated to the same profiles that may approve — the
+    // backend enforces it, this only decides whether the controls render.
+    const canRecheck = canActionInvoiceApprovals(role, user_id);
+    const [recheckOpen, setRecheckOpen] = React.useState(false);
+    // `refetch` comes from useServerDataTable further down, but the columns memo
+    // (which needs the row handler) is built BEFORE it. A ref breaks the
+    // ordering knot without making the callback unstable.
+    const refetchRef = React.useRef<(() => void) | null>(null);
+    const resetRecheckRef = React.useRef<(() => void) | null>(null);
+    const {
+        preview: recheckPreview,
+        scope: recheckScope,
+        isApplying: isRecheckApplying,
+        isPreviewing: isRecheckPreviewing,
+        startPreview: startRecheckPreview,
+        applyRecheck,
+        reset: resetRecheck,
+    } = useRecheckAutoApprove({
+        // Applied successfully -> refresh the queue and CLOSE. The toast reports
+        // what happened; keeping the dialog open on a result screen would make
+        // the reviewer dismiss the same list they just approved from.
+        onApplied: useCallback(() => {
+            refetchRef.current?.();
+            setRecheckOpen(false);
+            resetRecheckRef.current?.();
+        }, []),
+    });
+
+    resetRecheckRef.current = resetRecheck;
+
+    const openQueueRecheck = useCallback(() => {
+        setRecheckOpen(true);
+        startRecheckPreview({ kind: "queue" });
+    }, [startRecheckPreview]);
+
+    const openInvoiceRecheck = useCallback(
+        (invoice: VendorInvoice) => {
+            setRecheckOpen(true);
+            startRecheckPreview({ kind: "invoices", ids: [invoice.name] });
+        },
+        [startRecheckPreview]
+    );
+
+    const closeRecheck = useCallback(() => {
+        setRecheckOpen(false);
+        resetRecheck();
+    }, [resetRecheck]);
+
     const { getTotalAmount, getDeliveredAmount, getVendorName } = useOrderTotals();
     const { getAmount } = useOrderPayments();
     const { getTotalInvoiced } = useTotalInvoicedByDocument();
@@ -111,7 +165,8 @@ export const PendingTasksTable: React.FC = () => {
                 getDeliveredAmount,
                 getVendorName,
                 getTotalInvoiced,
-                getUserName
+                getUserName,
+                canRecheck ? openInvoiceRecheck : undefined
             ),
         [
             openConfirmationDialog,
@@ -124,6 +179,8 @@ export const PendingTasksTable: React.FC = () => {
             getVendorName,
             getTotalInvoiced,
             getUserName,
+            canRecheck,
+            openInvoiceRecheck,
         ]
     );
 
@@ -210,6 +267,8 @@ export const PendingTasksTable: React.FC = () => {
         }
     }, [invoices]);
 
+    refetchRef.current = refetch;
+
     const isLoadingOverall = attachmentsLoading;
     const combinedError = listError || attachmentsError;
 
@@ -231,7 +290,10 @@ export const PendingTasksTable: React.FC = () => {
             {/* Reason key for the "Not Auto-Approved Reason" column below —
                 every reason the gates can record, with the full write-up on
                 hover/click. Collapsed by default so it costs no table rows. */}
-            <AutoApproveReasonKey />
+            <AutoApproveReasonKey
+                onRecheck={canRecheck ? openQueueRecheck : undefined}
+                isRechecking={isRecheckPreviewing}
+            />
 
             {isLoadingOverall && !invoices?.length ? (
                 <TableSkeleton />
@@ -300,6 +362,22 @@ export const PendingTasksTable: React.FC = () => {
                         )}
                     />
                 </ConfirmationDialog>
+            )}
+
+            {/* Re-check preview / result */}
+            {recheckOpen && (
+                <RecheckResultDialog
+                    isOpen={recheckOpen}
+                    onClose={closeRecheck}
+                    preview={recheckPreview}
+                    isApplying={isRecheckApplying}
+                    onConfirm={applyRecheck}
+                    scopeLabel={
+                        recheckScope?.kind === "invoices"
+                            ? "this invoice"
+                            : "the pending queue"
+                    }
+                />
             )}
 
             {/* Rejection Dialog */}

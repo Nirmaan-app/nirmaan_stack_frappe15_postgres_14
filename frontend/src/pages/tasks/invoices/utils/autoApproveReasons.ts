@@ -28,9 +28,12 @@
  * anomalous. `file_swap_detected` is excluded for the same structural reason
  * (gate 13's else-branch needs a source URL).
  *
- * ⚠️ Reasons are a snapshot from CREATION. Auto-approve never re-runs on edit
- * (see the comment at update_invoice_data.py's insert branch), so a reason can
- * be stale after someone corrects the invoice.
+ * ⚠️ Reasons are a snapshot from CREATION — they do not re-run on their own, so
+ * a reason can be stale once the PO has been delivered or the invoice corrected.
+ * The RE-CHECK (`api/invoices/recheck_auto_approve.py`, driven from the reason
+ * key and the row hover) re-runs every gate against current data and rewrites
+ * this field — but ONLY the `CEILING_REASONS` below; every other reason is
+ * left exactly as recorded.
  *
  * Pure module, no React — unit-tested, per ADR-0010 F4.
  */
@@ -468,6 +471,30 @@ export const MANUAL_ENTRY_CASCADE: ReadonlySet<string> = new Set([
     "low_confidence_invoice_date",
     "low_confidence_invoice_no",
 ]);
+
+/**
+ * The reasons a RE-CHECK re-runs — the two PO-value ceilings, and nothing else.
+ *
+ * These four are the only tokens computed from the PO rather than the invoice,
+ * which is exactly why they go stale on their own: the PO keeps moving after
+ * the invoice is filed (a Delivery Note lands, a revision raises the value)
+ * while the invoice does not change by itself.
+ *
+ * The re-check re-evaluates ONLY these and rewrites them. Every other stored
+ * reason is carried through untouched — it is not re-judged, and pressing
+ * Re-check will never clear it. Mirrors `_auto_approve.CEILING_GATE_TOKENS`,
+ * which is the enforcement boundary; keep the two in sync.
+ */
+export const CEILING_REASONS: ReadonlySet<string> = new Set([
+    "nothing_delivered_yet",
+    "would_exceed_delivered",
+    "would_exceed_po_total",
+    "po_total_invalid",
+]);
+
+/** True when Re-check re-evaluates this reason against current PO data. */
+export const isCeilingReason = (token: string): boolean =>
+    CEILING_REASONS.has(token);
 
 /** Severity ordering for display — most urgent first. */
 const TIER_RANK: Record<ReasonTier, number> = {
