@@ -153,6 +153,29 @@ export const OUTFLOW_COLUMNS: OutflowColumn[] = [
     // ⚠️ `get` RETURNS THE WHOLE VALUE. The shortening is a render concern -- see `shortReference`.
     { id: "bank_reference_no", title: "Reference", get: (r) => referenceValue(r), filter: "text", mono: true, width: "170px" },
     { id: "row_status", title: "Status", get: (r) => r.row_status ?? "", filter: "facet", width: "130px" },
+    // ⚠️ IT SITS HERE, BESIDE STATUS, BECAUSE IT QUALIFIES ONE. "Settled" and "Settled, against
+    // what" are one thought; parking the ledger at the far right, past the Outcome button, would
+    // separate a fact from the word it modifies and put two scrolling columns between them.
+    //
+    // ⚠️ VISIBLE BY DEFAULT, unlike `settlement_origin` and `import_batch` immediately below --
+    // and a reader WILL ask why, since all three joined late and the other two ship hidden:
+    //   - The owner asked for it specifically on the Matched/Settled tab, where roughly half the
+    //     rows carry a value. Hidden-by-default would answer a request for a column with a filter.
+    //   - On the Not-Matched tab it is empty, and an empty column here is HONEST: it says nothing
+    //     in this scope has settled, which is exactly true of that tab. The Columns menu removes
+    //     it in one click for anyone who disagrees.
+    //   - Per-tab hiding (`useOutflowRows`'s existing `alsoHidden`) was considered and REJECTED:
+    //     it would re-hide the column on every tab change for somebody who had just un-hidden it,
+    //     so the picker would stop meaning what it says.
+    //
+    // Blank on every unsettled row, which is correct -- an open transfer has no settlement, so it
+    // has no ledger. DERIVED server-side from the row's `Outflow Row Match` rather than stored.
+    //
+    // ⚠️ NO SORT, DELIBERATELY: it is absent from `SERVER_SORT_COLUMNS` (mirroring the server's
+    // `_SORTABLE_COLUMNS`, which refuses it -- a per-row correlated subquery over the whole
+    // filtered table, blank on most rows). That absence is the whole mechanism: the header only
+    // draws a sort button for a column `SERVER_SORT_COLUMNS` contains.
+    { id: "settled_ledger", title: "Ledger", get: (r) => r.settled_ledger ?? "", filter: "facet", width: "150px" },
     // The Outcome cell is a BUTTON, not text, so it neither sorts nor filters -- there is nothing
     // meaningful to order "open this dialog" by.
     // ⚠️ NARROWED FROM 320px (owner, 2026-08-10) once the outcome NOTE moved out of the button and
@@ -527,9 +550,23 @@ export const SERVER_FACET_COLUMNS: readonly string[] = [
     // and the row set did not move -- a control that looks like it works and does nothing.
     // Caught in the browser; no suite could see it.
     "settlement_origin",
+    // Server-side it is DERIVED per row from `Outflow Row Match`, so `get_outflow_facet_values`
+    // is the only thing that can enumerate it -- there is nothing on the loaded page to build a
+    // funnel from, and no client-side derivation to fall back to.
+    "settled_ledger",
 ];
 
-/** Which columns the server can sort by. Mirrors `review._SORTABLE_COLUMNS`. */
+/**
+ * Which columns the server can sort by. Mirrors `review._SORTABLE_COLUMNS`.
+ *
+ * ⚠️ `settled_ledger` IS ABSENT ON PURPOSE, AND THAT ABSENCE IS THE MECHANISM. The server refuses
+ * to sort on it -- it is derived per row from `Outflow Row Match`, so ordering the whole filtered
+ * table by it means a correlated subquery per row for a value that is blank on most of them.
+ * `OutflowRowsTable`'s header draws a sort button only for a column THIS list contains, and
+ * `serverQuery` falls back to `added_on` for anything else, so leaving it out both withholds the
+ * affordance and makes a stray sort harmless. Adding it here would offer a click the server
+ * rejects.
+ */
 export const SERVER_SORT_COLUMNS: readonly string[] = [
     "added_on",
     "amount",
@@ -785,6 +822,40 @@ export const summaryTiles = (totals: {
 };
 
 /**
+ * One ledger's share of what has been settled, exactly as `get_outflow_summary` sends it.
+ *
+ * `rows` is how many transfers landed on that ledger; `value` is what they moved.
+ */
+export interface SettledLedgerSplit {
+    /** `Project Payments` / `Project Expenses` / `Non Project Expenses` / `Other`. */
+    ledger: string;
+    rows: number;
+    value: number;
+}
+
+/**
+ * The settled-by-ledger split, for the panel to render — PASSED THROUGH, NOT PROCESSED.
+ *
+ * ⚠️ IT DOES NOT SORT, TOTAL OR ZERO-FILL, AND THAT IS THE WHOLE FUNCTION. The server already
+ * orders the ledgers and already emits a zero row for one nothing settled against, because it is
+ * the side holding the `GROUP BY` — see the summary's owner in the residence manifest
+ * (`derive_import_summary`: "count or sum the selected transfers anywhere else"). A client that
+ * re-ordered the list, or summed it to check, would be a second opinion about figures the panel
+ * prints beside the server's own — and `ImportSummaryPanel`'s docstring already records why that is
+ * worse than printing nothing: "a panel that added up its own rows could disagree with the table".
+ * The one honest job left here is deciding what an ABSENT key means.
+ *
+ * ⚠️ ABSENT MEANS NOTHING RENDERS, NEVER "every ledger settled zero", and the fallback is load
+ * bearing rather than defensive — the same call `settled_from_suggestion` makes in `summaryTiles`.
+ * A client running against a server that predates the key would otherwise state a confident
+ * `Project Payments 0 · Project Expenses 0` over a table full of settled transfers, which is a
+ * worse lie than the silence it replaced.
+ */
+export const settledLedgerRows = (
+    split?: SettledLedgerSplit[]
+): SettledLedgerSplit[] => (Array.isArray(split) ? split : []);
+
+/**
  * One import, as `get_outflow_summary` reports it for the current period (slice P1).
  *
  * `row_count` is how many of its rows are IN the period; `total_rows` is how many it holds
@@ -948,6 +1019,38 @@ export const importPeriodLabel = (option: {
     const to = formatIfPresent(option.period_to);
     if (from && to) return `${from} – ${to}`;
     return from || to || "—";
+};
+
+/** Beyond this many characters an uploader's name is shown by its head, with an ellipsis. */
+export const UPLOADER_DISPLAY_MAX = 15;
+
+/**
+ * Who uploaded a statement, as a picker row shows them: `shanu@nirmaan.app` -> `shanu`.
+ *
+ * ⚠️ DISPLAY ONLY, EXACTLY AS `shortReference` IS, AND THE SAME TWO HALVES MATTER. The stored value
+ * is a Frappe user id — it is what `uploaded_by` links to and what identifies a person across the
+ * app — so nothing that STORES or COMPARES an uploader may go through here. The FULL value belongs
+ * in the cell's `title` attribute at the render site, which is how the reference column already
+ * splits the two (`referenceValue` keeps the whole string, `shortReference` shortens the visible
+ * text). Every user on this screen is `@nirmaan.app`, so the domain is a column of identical
+ * characters, and dropping it is the only reason the local part fits at all.
+ *
+ * ⚠️ A NON-EMAIL VALUE IS SHORTENED, NOT REJECTED. `Administrator` is a real Frappe user id with no
+ * `@` in it, and so is any id a future import path writes; the length rule applies to whatever is
+ * there rather than to a local part that may not exist.
+ *
+ * ⚠️ BLANK IN, BLANK OUT — NEVER AN EM DASH. `importPeriodLabel` returns one because a missing
+ * period must read as missing in a cell of its own; an uploader may simply not be worth a row of
+ * chrome, and only the render site knows which. A placeholder chosen here would be one this
+ * function forced on every caller.
+ */
+export const importUploaderLabel = (option: { uploaded_by?: string }): string => {
+    const user = (option.uploaded_by ?? "").trim();
+    if (!user) return "";
+    const at = user.indexOf("@");
+    const shown = at > 0 ? user.slice(0, at) : user;
+    if (shown.length <= UPLOADER_DISPLAY_MAX) return shown;
+    return `${shown.slice(0, UPLOADER_DISPLAY_MAX)}…`;
 };
 
 /**

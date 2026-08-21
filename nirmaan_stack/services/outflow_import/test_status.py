@@ -20,6 +20,7 @@ or one half of the app renders a status the other has never heard of.
 import unittest
 from decimal import Decimal
 
+from nirmaan_stack.services.outflow_import.ledgers import LEDGER_DOCTYPES
 from nirmaan_stack.services.outflow_import.matcher import (
     BASIS_BANK_REFERENCE,
     ExpenseCandidate,
@@ -46,11 +47,15 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_SETTLED,
     ROW_SKIPPED,
     ROW_STATUSES,
+    SETTLED_LEDGER_OTHER,
+    SUMMARY_EXCLUDED_STATUSES,
     TERMINAL_ROW_STATUSES,
     RowOutcome,
+    SettledLedgerEntry,
     StatusTally,
     Suggestion,
     derive_batch_counters,
+    derive_settled_ledger_split,
     batch_is_open,
     derive_batch_status,
     derive_import_summary,
@@ -723,6 +728,9 @@ class TestImportSummary(unittest.TestCase):
         self.assertEqual(summary["by_status"][ROW_MISMATCHED], {"count": 0, "value": Decimal("0")})
 
     def test_counts_and_money_both_roll_up(self):
+        """⚠️ THE SKIPPED TALLY IS DELIBERATELY ABSENT FROM THE TOTALS. Six rows arrive; five are
+        totalled. The Rs 99.49 skipped transfer is still reported, as `skipped_value` and in
+        `by_status` -- it is out of the STATEMENT total, not out of the summary."""
         summary = derive_import_summary(
             [
                 StatusTally(ROW_SETTLED, 2, Decimal("5000.50")),
@@ -730,10 +738,12 @@ class TestImportSummary(unittest.TestCase):
                 StatusTally(ROW_SKIPPED, 1, Decimal("99.49")),
             ]
         )
-        self.assertEqual(summary["total_rows"], 6)
-        self.assertEqual(summary["total_value"], Decimal("6299.99"))
+        self.assertEqual(summary["total_rows"], 5)
+        self.assertEqual(summary["total_value"], Decimal("6200.50"))
         self.assertEqual(summary["settled_value"], Decimal("5000.50"))
         self.assertEqual(summary["mismatched_rows"], 3)
+        self.assertEqual(summary["skipped_rows"], 1)
+        self.assertEqual(summary["skipped_value"], Decimal("99.49"))
 
     def test_the_open_value_is_summed_not_subtracted(self):
         """⚠️ THE ARITHMETIC IS IDENTICAL TODAY AND THE FAILURE MODES ARE NOT. Subtracting settled
@@ -758,7 +768,14 @@ class TestImportSummary(unittest.TestCase):
         self.assertEqual(summary["total_value"], Decimal("4000"))
         self.assertEqual(summary["by_status"]["Reconciled"]["count"], 4)
 
-    def test_decided_counts_only_the_terminal_statuses(self):
+    def test_decided_counts_SETTLED_ONLY_not_every_terminal_status(self):
+        """⚠️ THIS TEST INVERTED. It used to read `decided_rows == 4` -- Settled + Skipped, the sum
+        over `TERMINAL_ROW_STATUSES` -- out of a total of 8. Skipped rows left the total, so
+        counting them here would divide by a denominator they are absent from, and a statement with
+        more duplicates than settlements would report a `decided_percent` above 100.
+
+        Three settled and four matched out of seven totalled rows: 42.9%.
+        """
         summary = derive_import_summary(
             [
                 StatusTally(ROW_SETTLED, 3, Decimal("300")),
@@ -766,8 +783,9 @@ class TestImportSummary(unittest.TestCase):
                 StatusTally(ROW_MATCHED, 4, Decimal("400")),
             ]
         )
-        self.assertEqual(summary["decided_rows"], 4)
-        self.assertEqual(summary["decided_percent"], 50.0)
+        self.assertEqual(summary["total_rows"], 7)
+        self.assertEqual(summary["decided_rows"], 3)
+        self.assertEqual(summary["decided_percent"], 42.9)
 
     def test_matched_splits_into_confirmable_and_ambiguous(self):
         """⚠️ THE SPLIT THE BULK CONFIRM IS BUILT ON. A `Matched` row with no stored suggestion is
@@ -830,11 +848,17 @@ class TestImportSummary(unittest.TestCase):
 
     def test_it_accepts_a_generator(self):
         """The endpoint passes a genexp straight off the query rows. Consuming the input twice
-        would silently produce an empty summary."""
+        would silently produce an empty summary.
+
+        Both assertions are needed to prove BOTH tallies were seen: the skipped one is excluded from
+        the total, so `total_rows` alone could not tell "the generator was exhausted correctly" from
+        "the second item never arrived".
+        """
         summary = derive_import_summary(
             StatusTally(s, 1, Decimal("10")) for s in (ROW_SETTLED, ROW_SKIPPED)
         )
-        self.assertEqual(summary["total_rows"], 2)
+        self.assertEqual(summary["total_rows"], 1)
+        self.assertEqual(summary["skipped_rows"], 1)
 
 
 class TestPurity(unittest.TestCase):
@@ -867,15 +891,23 @@ class TestPurity(unittest.TestCase):
             )
 
     def test_every_sibling_it_imports_is_itself_bench_free(self):
-        """Transitive, because a pure-looking import of an impure module buys nothing."""
+        """Transitive, because a pure-looking import of an impure module buys nothing.
+
+        ⚠️ WIDENED WITH THE SECOND SIBLING. `status.py` grew a `ledgers` import so
+        `derive_settled_ledger_split` would not spell the three ledger names a second time; leaving
+        this test naming only `amounts` would have let the new dependency go unchecked, which is
+        exactly the hole a transitive purity test exists to close. Any further sibling import must
+        be added here in the same edit.
+        """
         import inspect
 
-        from nirmaan_stack.services.outflow_import import amounts
+        from nirmaan_stack.services.outflow_import import amounts, ledgers
 
-        for line in inspect.getsource(amounts).splitlines():
-            stripped = line.strip()
-            if stripped.startswith(("import ", "from ")):
-                self.assertNotIn("frappe", stripped)
+        for sibling in (amounts, ledgers):
+            for line in inspect.getsource(sibling).splitlines():
+                stripped = line.strip()
+                if stripped.startswith(("import ", "from ")):
+                    self.assertNotIn("frappe", stripped, sibling.__name__)
 
     @staticmethod
     def _import_lines():
@@ -945,3 +977,244 @@ class TestSettledFromSuggestionInTheSummary(unittest.TestCase):
         ])
         self.assertEqual(summary["settled_rows"] - summary["settled_from_suggestion"], 6)
         self.assertNotIn("settled_by_hand", summary)
+
+
+class TestSkippedLeavesTheStatementTotals(unittest.TestCase):
+    """⚠️ `Skipped` IS EXCLUDED FROM `total_rows` / `total_value` AND FROM NOTHING ELSE.
+
+    Most skipped rows are CROSS-BATCH DUPLICATES -- a transfer that arrived in an earlier statement
+    and was already counted there. Measured live: 544 of 640. Totalling them again reports the same
+    money twice across two imports, and makes `decided_percent` a percentage of work that was
+    finished before this statement was uploaded.
+
+    The rows are excluded from the TOTALS, never hidden: the Skipped chip reads `skipped_rows` /
+    `skipped_value`, and those are unchanged.
+    """
+
+    def test_a_skipped_tally_moves_neither_total(self):
+        without = derive_import_summary([StatusTally(ROW_SETTLED, 2, Decimal("500"))])
+        with_skipped = derive_import_summary(
+            [
+                StatusTally(ROW_SETTLED, 2, Decimal("500")),
+                StatusTally(ROW_SKIPPED, 9, Decimal("99999")),
+            ]
+        )
+        self.assertEqual(with_skipped["total_rows"], without["total_rows"])
+        self.assertEqual(with_skipped["total_value"], without["total_value"])
+
+    def test_by_status_still_carries_the_skipped_bucket(self):
+        """⚠️ THE HALF THAT IS EASY TO BREAK. Excluding the tally by `continue`ing past the bucket
+        would blank the Skipped chip, which is the opposite of what the ruling asked for."""
+        summary = derive_import_summary([StatusTally(ROW_SKIPPED, 9, Decimal("99999"))])
+        self.assertEqual(
+            summary["by_status"][ROW_SKIPPED], {"count": 9, "value": Decimal("99999")}
+        )
+
+    def test_the_skipped_chip_figures_are_unchanged(self):
+        summary = derive_import_summary(
+            [
+                StatusTally(ROW_SETTLED, 2, Decimal("500")),
+                StatusTally(ROW_SKIPPED, 9, Decimal("99999")),
+            ]
+        )
+        self.assertEqual(summary["skipped_rows"], 9)
+        self.assertEqual(summary["skipped_value"], Decimal("99999"))
+
+    def test_the_total_is_EXACTLY_open_plus_settled(self):
+        """The invariant that replaced `sum(by_status counts) == total_rows`. Settled and open
+        partition the total, which is what makes `decided_percent` a real fraction again."""
+        summary = derive_import_summary(
+            [
+                StatusTally(ROW_PENDING_MATCH, 5, Decimal("50")),
+                StatusTally(ROW_MATCHED, 4, Decimal("40")),
+                StatusTally(ROW_MISMATCHED, 3, Decimal("30")),
+                StatusTally(ROW_ERROR, 1, Decimal("10")),
+                StatusTally(ROW_SETTLED, 7, Decimal("70")),
+                StatusTally(ROW_SKIPPED, 9, Decimal("900")),
+            ]
+        )
+        self.assertEqual(
+            summary["total_rows"], summary["open_rows"] + summary["settled_rows"]
+        )
+        self.assertEqual(summary["total_rows"], 20)
+        self.assertEqual(summary["settled_rows"], 7)
+        self.assertEqual(summary["open_rows"], 13)
+
+    def test_decided_percent_can_never_exceed_one_hundred(self):
+        """The defect the `decided_rows` narrowing prevents: a statement of nine duplicates and one
+        settlement, where Settled + Skipped over a Skipped-free total is 1000%."""
+        summary = derive_import_summary(
+            [
+                StatusTally(ROW_SETTLED, 1, Decimal("100")),
+                StatusTally(ROW_SKIPPED, 9, Decimal("900")),
+            ]
+        )
+        self.assertEqual(summary["decided_percent"], 100.0)
+
+    def test_a_skipped_only_import_totals_zero_without_dividing_by_zero(self):
+        summary = derive_import_summary([StatusTally(ROW_SKIPPED, 9, Decimal("900"))])
+        self.assertEqual(summary["total_rows"], 0)
+        self.assertEqual(summary["total_value"], Decimal("0"))
+        self.assertEqual(summary["decided_percent"], 0.0)
+        self.assertEqual(summary["skipped_rows"], 9)
+
+    def test_the_exclusion_is_a_NAMED_set_so_the_reason_is_greppable(self):
+        self.assertEqual(SUMMARY_EXCLUDED_STATUSES, frozenset({ROW_SKIPPED}))
+
+    def test_TERMINAL_ROW_STATUSES_STILL_CONTAINS_SKIPPED(self):
+        """⚠️ THE GUARD AGAINST "FIXING" THIS BY NARROWING THE WRONG SET.
+
+        `TERMINAL_ROW_STATUSES` answers a different question -- "does anybody still owe this row a
+        decision?" -- and is read by `derive_batch_status`, `batch_is_open` and
+        `review._FROZEN_ROW_STATUSES`. Dropping `Skipped` from it to make the summary exclusion fall
+        out for free would change which statements the "Re-run match" button touches and which rows
+        a re-match may overwrite. The exclusion is LOCAL to `derive_import_summary`.
+        """
+        self.assertIn(ROW_SKIPPED, TERMINAL_ROW_STATUSES)
+        self.assertEqual(TERMINAL_ROW_STATUSES, frozenset({ROW_SETTLED, ROW_SKIPPED}))
+        self.assertIsNot(SUMMARY_EXCLUDED_STATUSES, TERMINAL_ROW_STATUSES)
+        self.assertTrue(RowOutcome(ROW_SKIPPED).is_terminal)
+
+
+class TestSettledLedgerSplit(unittest.TestCase):
+    """`derive_settled_ledger_split` -- which of the three books the settled money landed in.
+
+    Its input is ALREADY AGGREGATED by the database, one entry per `target_doctype`, exactly as
+    `derive_import_summary`'s is.
+    """
+
+    def test_all_three_are_zero_filled_when_nothing_settled(self):
+        """⚠️ ZERO-FILLED ON PURPOSE, the same reasoning the statuses get. A panel that renders only
+        the ledgers present reads as though the missing ones do not apply, when what they mean is
+        "nothing settled here, this time"."""
+        split = derive_settled_ledger_split([])
+        self.assertEqual(
+            split,
+            [
+                {"ledger": "Project Payments", "rows": 0, "value": Decimal("0")},
+                {"ledger": "Project Expenses", "rows": 0, "value": Decimal("0")},
+                {"ledger": "Non Project Expenses", "rows": 0, "value": Decimal("0")},
+            ],
+        )
+
+    def test_a_ledger_absent_from_the_input_is_still_present_at_zero(self):
+        split = derive_settled_ledger_split(
+            [SettledLedgerEntry("Project Payments", 4, Decimal("400"))]
+        )
+        self.assertEqual([b["ledger"] for b in split], list(LEDGER_DOCTYPES))
+        self.assertEqual(split[2], {"ledger": "Non Project Expenses", "rows": 0, "value": Decimal("0")})
+
+    def test_the_order_is_FIXED_and_never_follows_the_input(self):
+        """⚠️ NOT SORTED BY VALUE AND NOT INPUT ORDER. Sorting would rearrange the panel between
+        statements, so the same figure sits somewhere different each time it is read."""
+        split = derive_settled_ledger_split(
+            [
+                SettledLedgerEntry("Non Project Expenses", 1, Decimal("1")),
+                SettledLedgerEntry("Project Expenses", 2, Decimal("2")),
+                SettledLedgerEntry("Project Payments", 3, Decimal("3")),
+            ]
+        )
+        self.assertEqual(
+            [b["ledger"] for b in split],
+            ["Project Payments", "Project Expenses", "Non Project Expenses"],
+        )
+
+    def test_the_order_does_not_follow_value_either(self):
+        split = derive_settled_ledger_split(
+            [
+                SettledLedgerEntry("Project Payments", 1, Decimal("1")),
+                SettledLedgerEntry("Non Project Expenses", 900, Decimal("900000")),
+            ]
+        )
+        self.assertEqual(split[0]["ledger"], "Project Payments")
+        self.assertEqual(split[-1]["ledger"], "Non Project Expenses")
+
+    def test_the_three_names_are_bound_from_the_ledgers_module(self):
+        """⚠️ ONE LIST, NOT TWO. A private copy here would be free to drift from the list
+        `candidates.py` offers from and `settle.py` writes to."""
+        split = derive_settled_ledger_split([])
+        self.assertEqual([b["ledger"] for b in split], list(LEDGER_DOCTYPES))
+
+    def test_Other_is_absent_when_nothing_falls_into_it(self):
+        """⚠️ AN ANOMALY SLOT, NOT A CATEGORY. Live data has 0, and a permanent empty "Other" row
+        invites the question "what is Other?" every time, for a case that should never occur."""
+        split = derive_settled_ledger_split(
+            [SettledLedgerEntry("Project Expenses", 2, Decimal("20"))]
+        )
+        self.assertEqual(len(split), 3)
+        self.assertNotIn(SETTLED_LEDGER_OTHER, [b["ledger"] for b in split])
+
+    def test_an_unrecognised_ledger_folds_into_a_trailing_Other(self):
+        """It becomes VISIBLE rather than vanishing -- a dropped entry would leave the breakdown no
+        longer adding up to `settled_rows`, with nothing on screen to say why."""
+        split = derive_settled_ledger_split(
+            [
+                SettledLedgerEntry("Project Payments", 1, Decimal("10")),
+                SettledLedgerEntry("Some Retired Doctype", 2, Decimal("20")),
+            ]
+        )
+        self.assertEqual(len(split), 4)
+        self.assertEqual(split[-1], {"ledger": SETTLED_LEDGER_OTHER, "rows": 2, "value": Decimal("20")})
+
+    def test_several_unrecognised_ledgers_fold_into_ONE_Other(self):
+        split = derive_settled_ledger_split(
+            [
+                SettledLedgerEntry("Alpha", 1, Decimal("1")),
+                SettledLedgerEntry("Beta", 2, Decimal("2")),
+            ]
+        )
+        self.assertEqual(split[-1], {"ledger": SETTLED_LEDGER_OTHER, "rows": 3, "value": Decimal("3")})
+
+    def test_a_blank_or_whitespace_ledger_folds_into_Other_too(self):
+        """A settled row whose match record could not be read is exactly the fact worth surfacing."""
+        split = derive_settled_ledger_split(
+            [
+                SettledLedgerEntry("", 1, Decimal("1")),
+                SettledLedgerEntry("   ", 1, Decimal("1")),
+            ]
+        )
+        self.assertEqual(split[-1], {"ledger": SETTLED_LEDGER_OTHER, "rows": 2, "value": Decimal("2")})
+
+    def test_a_padded_ledger_name_still_matches_its_real_bucket(self):
+        split = derive_settled_ledger_split(
+            [SettledLedgerEntry("  Project Payments  ", 3, Decimal("30"))]
+        )
+        self.assertEqual(split[0], {"ledger": "Project Payments", "rows": 3, "value": Decimal("30")})
+        self.assertEqual(len(split), 3)
+
+    def test_repeated_entries_for_one_ledger_accumulate(self):
+        split = derive_settled_ledger_split(
+            [
+                SettledLedgerEntry("Project Payments", 1, Decimal("10")),
+                SettledLedgerEntry("Project Payments", 2, Decimal("20")),
+            ]
+        )
+        self.assertEqual(split[0], {"ledger": "Project Payments", "rows": 3, "value": Decimal("30")})
+
+    def test_money_is_summed_as_EXACT_Decimal_never_float(self):
+        """These sit beside a summary that is `Decimal` throughout. 0.1 + 0.2 must be 0.3."""
+        split = derive_settled_ledger_split(
+            [
+                SettledLedgerEntry("Project Expenses", 1, Decimal("0.1")),
+                SettledLedgerEntry("Project Expenses", 1, Decimal("0.2")),
+            ]
+        )
+        self.assertEqual(split[1]["value"], Decimal("0.3"))
+        self.assertIsInstance(split[1]["value"], Decimal)
+
+    def test_the_value_defaults_to_zero_so_a_count_only_caller_still_derives(self):
+        split = derive_settled_ledger_split([SettledLedgerEntry("Project Payments", 4)])
+        self.assertEqual(split[0], {"ledger": "Project Payments", "rows": 4, "value": Decimal("0")})
+
+    def test_it_accepts_a_generator(self):
+        """The endpoint passes a genexp straight off the query rows, as the summary does."""
+        split = derive_settled_ledger_split(
+            SettledLedgerEntry(ledger, 1, Decimal("5")) for ledger in LEDGER_DOCTYPES
+        )
+        self.assertEqual([b["rows"] for b in split], [1, 1, 1])
+
+    def test_the_entry_is_frozen(self):
+        entry = SettledLedgerEntry("Project Payments", 1, Decimal("1"))
+        with self.assertRaises(Exception):
+            entry.count = 2
+

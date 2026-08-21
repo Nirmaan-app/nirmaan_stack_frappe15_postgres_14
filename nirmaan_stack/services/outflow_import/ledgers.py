@@ -41,6 +41,7 @@ __all__ = [
     "PAID",
     "APPROVED",
     "DECIDED_ON_SQL",
+    "SETTLED_LEDGER_SQL",
     "settleable_statuses",
     "decided_on_sql",
     "is_expense_doctype",
@@ -59,6 +60,13 @@ PAID = "Paid"
 EXPENSE_DOCTYPES = (PROJECT_EXPENSE_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE)
 
 # Every ledger the import may SETTLE. All three, since the v3 reversal.
+#
+# ⚠️ THE ORDER IS NOW READ AS A DISPLAY ORDER, not just a membership list.
+# `status.derive_settled_ledger_split` walks this tuple to lay out the settled-by-ledger breakdown,
+# and zero-fills from it, so reordering it reorders that panel. It is deliberately the order a
+# reviewer meets the three ledgers -- the main one first, then the two expense books -- and NOT a
+# ranking by volume, which would rearrange itself between statements. Anything that needs the three
+# names must bind THIS tuple; a second list is how one grows a ledger the other does not have.
 LEDGER_DOCTYPES = (PAYMENT_DOCTYPE, *EXPENSE_DOCTYPES)
 
 # THE single source of the Approved-only rule. Read by `candidates.py` (what may be offered) and by
@@ -126,3 +134,43 @@ def decided_on_sql(doctype: str) -> str:
     is the honest outcome for a record whose decision date we cannot establish.
     """
     return DECIDED_ON_SQL.get(doctype, "NULL")
+
+
+# --- which ledger did this row SETTLE into? (the settled split) -----------------------------------
+#
+# THE SINGLE DEFINITION, selected by `review.get_import_summary` alongside `row_status` so the
+# summary can group settled transfers by the book the money landed in. It lives here beside
+# `DECIDED_ON_SQL` for the same reason: a per-ledger SQL fact gets ONE owner, or one copy gets
+# corrected and the other does not.
+#
+# ⚠️ IT IS WRITTEN AGAINST THE ALIAS `r` FOR `tabOutflow Import Row`, and that is not decoration --
+# `review._row_filters` writes every fragment against `r.`, and this expression is selected in the
+# same statements those fragments filter. A caller that aliases the table anything else gets a
+# broken query rather than a wrong number, which is the failure mode to prefer.
+#
+# ⚠️ A SCALAR CORRELATED SUBQUERY, NOT A JOIN, AND THE REASON IS STRUCTURAL. FIVE queries share
+# `_row_filters` -- the page query, its count, the tab counts, the facet values and the summary --
+# and a JOIN changes the FROM clause of the statement it appears in. Adding one here would force
+# either a fork of that one shared builder (the exact defect it exists to prevent: a count computed
+# under different filters than the page it labels) or a JOIN on all five reads, three of which have
+# no interest in the match table at all. A scalar subquery is confined to the SELECT list of the one
+# query that wants it and leaves the other four byte-identical.
+#
+# ⚠️ `LIMIT 1` IS EXACT HERE, NOT A GUESS. A settled row carries at most one `Outflow Row Match`
+# (verified on live data 2026-08-20: 0 rows with a blank `import_row`, 0 `import_row` values holding
+# more than one match). The shape that could change that is a FAN-OUT -- one transfer covering
+# several payments, which the unique key `(transfer_id, target_doctype, target_name)` deliberately
+# permits -- so if fan-out settlements ever start writing several match rows per import row, this
+# constant is what needs re-deciding: `LIMIT 1` would then pick one of them arbitrarily. It is a
+# reporting figure, so an arbitrary pick would be quietly wrong rather than loudly broken; re-check
+# the multi-match count before assuming it still holds.
+#
+# ⚠️ `import_row` IS NOT INDEXED as of 2026-08-20 -- `Outflow Row Match.on_doctype_update` declares
+# `import_batch`, `transfer_id` and the target unique constraint, and nothing on this column. The
+# subquery is therefore a sequential probe per settled row. Measure before adding one; the
+# established pattern is a controller hook plus a patch that CALLS it
+# (`patches/v3_0/add_outflow_master_index.py`).
+SETTLED_LEDGER_SQL = (
+    '(SELECT m.target_doctype FROM "tabOutflow Row Match" m '
+    "WHERE m.import_row = r.name LIMIT 1)"
+)

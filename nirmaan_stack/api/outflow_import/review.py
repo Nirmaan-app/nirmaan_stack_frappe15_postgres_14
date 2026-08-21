@@ -53,6 +53,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     LEDGER_DOCTYPES,
     NON_PROJECT_EXPENSE_DOCTYPE as NON_PROJECT_EXPENSE,
     PROJECT_EXPENSE_DOCTYPE as PROJECT_EXPENSE,
+    SETTLED_LEDGER_SQL,
     settleable_statuses,
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
@@ -85,6 +86,7 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_SETTLED,
     ROW_SKIPPED,
     ROW_STATUSES,
+    SettledLedgerEntry,
     StatusTally,
     batch_is_open,
     derive_batch_counters,
@@ -92,6 +94,7 @@ from nirmaan_stack.services.outflow_import.status import (
     several_found_note,
     derive_import_summary,
     derive_row_outcome,
+    derive_settled_ledger_split,
     sole_suggestion,
 )
 
@@ -1594,6 +1597,13 @@ _SORTABLE_COLUMNS = {
     "row_status": "r.row_status",
     "import_batch": "r.import_batch",
     "remarks": "r.remarks",
+    # ⚠️ `settled_ledger` IS DELIBERATELY ABSENT, AND SO IS `outcome` -- being FILTERABLE and being
+    # SORTABLE are separate decisions here. `SETTLED_LEDGER_SQL` is a correlated subquery, so
+    # ordering by it probes `Outflow Row Match` once per row of the WHOLE filtered table before a
+    # single page comes back, and the column is blank on every row that has not settled -- so the
+    # sort would spend that on grouping the blanks together. The funnel answers the question people
+    # actually ask of it ("show me what landed in the expense books"), at one indexed probe per
+    # ticked value. Add it here only with a measurement, not for symmetry with `_FACET_COLUMNS`.
 }
 
 _SEARCHABLE_COLUMNS = (
@@ -1635,6 +1645,22 @@ _FACET_COLUMNS = {
     # staging by both sources, and `v3_0.backfill_outflow_row_source` fills the rows that predate
     # the field -- without which the funnel would draw itself over 1,043 blanks.
     "source": "r.source",
+    # ⚠️ THE ONE FACET THAT IS NOT A COLUMN ON THIS TABLE. It is `ledgers.SETTLED_LEDGER_SQL` -- a
+    # SCALAR CORRELATED SUBQUERY over `Outflow Row Match`, which is precisely why it can live in
+    # this map at all: `_row_filters` builds single-table fragments against the alias `r`, shared by
+    # FIVE readers, and a scalar subquery drops into a WHERE fragment (and into a SELECT list)
+    # without touching anybody's FROM clause. A JOIN here would have forced either a fork of that
+    # one shared builder -- the exact defect it exists to prevent -- or a join on all five reads,
+    # three of which have no interest in the match table.
+    #
+    # ⚠️ THE EXPRESSION IS BOUND FROM `ledgers.py`, NEVER SPELLED HERE. It is the same per-ledger SQL
+    # fact `DECIDED_ON_SQL` is, with the same one-owner rule: a private copy is how the funnel starts
+    # offering a book the settle path no longer writes to, or misses one it does.
+    #
+    # ⚠️ AND IT IS ON THE ROW PAYLOAD TOO -- see the comment in `get_outflow_rows`' SELECT list. This
+    # map governs FILTERING ONLY; shipping the value to the screen is a second, separate edit, and
+    # slice Q1 made exactly that mistake with `settlement_origin`.
+    "settled_ledger": SETTLED_LEDGER_SQL,
     # ⚠️ `added_on` WAS REMOVED AT P1 AND MUST NOT COME BACK. The payment date is a DATE FILTER now
     # (`date_from` / `date_to`, applied in `_row_filters`), which is the one shape a facet cannot
     # serve: an IN list over distinct days grows without limit as the table does, and cannot express
@@ -1662,6 +1688,43 @@ _MAX_PAGE_SIZE = 200
 # Sized so that any single real statement always fits, so narrowing to one import is always a way
 # through. See `_assert_confirmable_size` for why truncating would be the dangerous alternative.
 _MAX_CONFIRMABLE = 2000
+
+# The most transfers `export_outflow_rows` will assemble into one file.
+#
+# ⚠️ IT REFUSES RATHER THAN TRUNCATING, ON EXACTLY `_MAX_CONFIRMABLE`'S REASONING. A silent `LIMIT`
+# would hand back a list shorter than the count on the button that opened it, over a set nobody
+# chose, with the missing rows sharing no property anything on screen could name. A spreadsheet is
+# worse than the confirm dialog for that failure, not better: it leaves the building, gets
+# reconciled against a bank statement by somebody who never saw the screen, and nothing in the file
+# says it is partial. The refusal names both numbers and says how to narrow.
+#
+# ⚠️ IT IS NOT `_MAX_PAGE_SIZE`, AND MUST NOT BE CONFLATED WITH IT. That one is 200 and guards the
+# SCREEN'S OWN PAGING -- raising it would let the table ask for twenty thousand rows and reinstate
+# the problem server paging was built to solve. This cap governs a separate, deliberate, one-shot
+# action a person asked for by name.
+_MAX_EXPORT = 20000
+
+# ⚠️ THE TWO EXPORT-ONLY COMPANIONS OF `ledgers.SETTLED_LEDGER_SQL`, and they are DIFFERENT FACTS,
+# not a second copy of it. That constant answers "which BOOK did this land in" and is the one owner
+# of the ledger fact -- it is bound above, into `_FACET_COLUMNS` and into the row payload, and these
+# do not restate it. These two answer "WHICH RECORD" and "for HOW MUCH", which only the CSV needs:
+# a reconciler holding this file beside a ledger export has to be able to join the two, and a book
+# name alone will not do it.
+#
+# Same scalar-correlated-subquery shape, for the same structural reason -- a JOIN would change the
+# FROM clause, and a fan-out settlement (one transfer covering several payments, which the unique
+# key deliberately permits) would then multiply the row out and make this export disagree with
+# `get_outflow_rows` about how many transfers there are. `LIMIT 1` carries the same caveat recorded
+# on `SETTLED_LEDGER_SQL`: exact today, and the thing to re-decide if fan-out ever writes several
+# match rows per import row.
+_SETTLED_NAME_SQL = (
+    '(SELECT m.target_name FROM "tabOutflow Row Match" m '
+    "WHERE m.import_row = r.name LIMIT 1)"
+)
+_SETTLED_TARGET_AMOUNT_SQL = (
+    '(SELECT m.target_amount FROM "tabOutflow Row Match" m '
+    "WHERE m.import_row = r.name LIMIT 1)"
+)
 
 
 @frappe.whitelist()
@@ -1739,6 +1802,11 @@ def get_outflow_rows(
                -- 849 settled rows while the summary beside it reported 843 auto-matched. Caught in
                -- the browser, by nothing else: every suite was green.
                r.settlement_origin, r.source,
+               -- WHICH BOOK THE MONEY LANDED IN, on the row that landed it. Registered in
+               -- `_FACET_COLUMNS` in the SAME change as this line, for the reason four lines up.
+               -- Blank on every unsettled row, which is honest: an open transfer has not landed
+               -- anywhere yet.
+               {SETTLED_LEDGER_SQL} AS settled_ledger,
                b.original_filename AS import_filename,
                b.period_from       AS import_period_from,
                b.period_to         AS import_period_to
@@ -2033,6 +2101,132 @@ def _tab_counts(where, params) -> tuple[dict, dict]:
         if status and status not in status_counts:
             status_counts[status] = n
     return tabs, status_counts
+
+
+@frappe.whitelist()
+def export_outflow_rows(
+    scope: str = SCOPE_NOT_MATCHED,
+    batch: str = None,
+    failed=None,
+    search: str = None,
+    date_from: str = None,
+    date_to: str = None,
+    amount_min=None,
+    amount_max=None,
+    facets=None,
+    sort_by: str = "added_on",
+    sort_dir: str = "desc",
+):
+    """Every transfer the current view selects, unpaged, for a spreadsheet.
+
+    ⚠️ IT TAKES THE SAME PARAMETERS AS `get_outflow_rows` AND BUILDS THEM WITH THE SAME
+    `_row_filters` AND `_scope_clause`, UNCHANGED. That is the entire contract: the file a person
+    downloads must hold exactly the transfers the table in front of them was showing, in the same
+    order. A second filter path here would produce a file that disagrees with the screen it was
+    exported from -- and unlike a wrong count on a tab, nobody would ever see the two side by side
+    to notice.
+
+    ⚠️ IT COUNTS FIRST AND REFUSES OVER `_MAX_EXPORT`. It does NOT quietly `LIMIT`. See the constant:
+    a truncated export is a list shorter than the count on the button that opened it, over a set
+    nobody chose, with the missing rows sharing no property anything on screen could name -- and
+    this one leaves the building, to be reconciled by somebody who never saw the screen. The message
+    names both numbers and the levers that narrow.
+
+    ⚠️ `_MAX_PAGE_SIZE` IS UNTOUCHED AND MUST STAY 200. It guards the screen's own paging; this cap
+    governs one explicit action. Raising the first to serve the second would let the table request
+    twenty thousand rows on every keystroke.
+
+    WHAT IT CARRIES, AND WHAT IT DELIBERATELY DOES NOT. Every column `get_outflow_rows` returns, plus
+    three settlement facts a reconciler needs: `settled_ledger` (which book), `settled_target_name`
+    (which record) and `settled_target_amount` (for how much -- which may differ from the transfer's
+    own amount on a partial settle, and that difference is exactly what somebody exports a
+    spreadsheet to look at).
+
+    It OMITS `matches`, `related_payments` and `suggested_order_name`. Those three exist for the
+    decision dialog's LINKS -- they are how a row's settlement and its related payments become
+    clickable on screen -- and a CSV has nothing to click. `related_payments` in particular is a
+    per-row list of dicts that cannot become a cell, and `suggested_order_name` costs a second query
+    over the payments table to produce a value nothing in a spreadsheet reads.
+    """
+    require_outflow_access()
+
+    where, params = _row_filters(
+        batch=batch,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        amount_min=amount_min,
+        amount_max=amount_max,
+        facets=facets,
+        failed=failed,
+    )
+    scoped_where, scoped_params = _scope_clause(scope)
+
+    all_where = where + scoped_where
+    all_params = params + scoped_params
+    clause = (" WHERE " + " AND ".join(all_where)) if all_where else ""
+
+    total = frappe.db.sql(
+        f"""SELECT COUNT(*) AS n FROM "tabOutflow Import Row" r {clause}""",
+        tuple(all_params),
+        as_dict=True,
+    )[0]["n"]
+    total = int(total or 0)
+    if total > _MAX_EXPORT:
+        frappe.throw(
+            f"This export would hold {total:,} transfers. The limit is {_MAX_EXPORT:,}. "
+            "Narrow the period, pick one import, or use the column filters, then try again.",
+            title="Too many to export at once",
+        )
+
+    column = _SORTABLE_COLUMNS.get(sort_by or "", _SORTABLE_COLUMNS["added_on"])
+    direction = "ASC" if (sort_dir or "").lower() == "asc" else "DESC"
+
+    rows = frappe.db.sql(
+        f"""
+        SELECT r.name, r.import_batch, r.transfer_id, r.reference_id, r.added_on, r.amount,
+               r.status_raw, r.beneficiary_name, r.beneficiary_id, r.bank_account, r.ifsc,
+               r.remarks, r.bank_reference_no, r.service_charge, r.service_tax, r.added_by_raw,
+               r.normalized_account, r.normalized_reference, r.resolved_vendor, r.resolved_project,
+               r.suggested_doctype, r.suggested_name, r.suggestion_rule, r.match_basis,
+               r.auto_matched, r.row_status, r.skip_reason, r.outcome_note,
+               r.settlement_origin, r.source,
+               {SETTLED_LEDGER_SQL}          AS settled_ledger,
+               {_SETTLED_NAME_SQL}           AS settled_target_name,
+               {_SETTLED_TARGET_AMOUNT_SQL}  AS settled_target_amount,
+               b.original_filename AS import_filename,
+               b.period_from       AS import_period_from,
+               b.period_to         AS import_period_to
+        FROM "tabOutflow Import Row" r
+        LEFT JOIN "tabOutflow Import Batch" b ON b.name = r.import_batch
+        {clause}
+        ORDER BY {column} {direction}, r.name ASC
+        """,
+        tuple(all_params),
+        as_dict=True,
+    )
+
+    return {
+        "rows": [
+            {
+                **row,
+                "amount": float(row.get("amount") or 0),
+                "service_charge": float(row.get("service_charge") or 0),
+                "service_tax": float(row.get("service_tax") or 0),
+                # ⚠️ `None` SURVIVES AS `None`, and is NOT coerced to 0.0 the way the three above
+                # are. An unsettled transfer has no target amount, and a `0` in that cell is a
+                # CLAIM -- "settled for nothing" -- where a blank is the truth. The three above are
+                # different: every transfer has an amount and a charge, blank or not.
+                "settled_target_amount": (
+                    None
+                    if row.get("settled_target_amount") is None
+                    else float(row["settled_target_amount"])
+                ),
+            }
+            for row in rows
+        ],
+        "total": total,
+    }
 
 
 @frappe.whitelist()
@@ -2614,6 +2808,9 @@ def get_outflow_summary(
     return {
         "batch": batch,
         "imports": _imports_in_scope(where, params),
+        # Which of the three books the settled money actually landed in. A SECOND grouped query
+        # under the SAME `where, params` -- see `_settled_by_ledger`.
+        "settled_by_ledger": _settled_by_ledger(where, params),
         # ⚠️ THE STATEMENT'S OWN METADATA, ONLY WHEN ONE IS SELECTED. A period spanning several
         # imports has no single filename, uploader or declared period, and inventing one would be a
         # caption that quietly describes the wrong statement. Absent is the honest shape there; the
@@ -2625,6 +2822,74 @@ def get_outflow_summary(
         "auto_skipped_rows": auto_skipped,
         "manually_skipped_rows": max(summary["skipped_rows"] - auto_skipped, 0),
     }
+
+
+def _settled_by_ledger(where, params) -> list[dict]:
+    """The settled transfers broken down by the ledger the money landed in.
+
+    ⚠️ IT RUNS UNDER THE SAME `where, params` `get_outflow_summary` ALREADY BUILT WITH
+    `_row_filters`, and takes them as arguments precisely so it CANNOT build its own. A second
+    filter path here would reinstate the one defect that builder exists to prevent: a figure
+    computed under different filters than the panel it sits on, which reads as a paging bug and is
+    not one. The only thing added to the shared clause is the `Settled` restriction -- which is not
+    a filter but the definition of the population this figure describes.
+
+    ⚠️ IT SUMS `r.amount`, THE ROW'S AMOUNT -- **NOT** `m.target_amount`. The three figures sit
+    directly under the `settled_value` tile and must reconcile to it EXACTLY, and `settled_value` is
+    a sum of ROW amounts (`derive_import_summary`, off `StatusTally.value`). On a PARTIAL settle the
+    two differ by construction: the transfer pays part of a larger approved record, so the record's
+    own amount is bigger than the money that moved. Live data currently has no partials, which is
+    exactly why picking the wrong column here would ship as a LATENT defect -- green everywhere,
+    until the first partial settlement quietly makes a breakdown stop adding up to the total above
+    it. Someone would then be reconciling three numbers against a fourth that was never their sum.
+
+    ⚠️ FAILED TRANSFERS ARE EXCLUDED, FOR THE SAME REASON AND WITH THE SAME PREDICATE. A tally
+    marked `failed` never reaches `by_status`, so it is absent from `settled_value` too -- leaving
+    such a row in here would break the reconciliation the moment one existed. `BANK_SUCCESS_STATUS`
+    is BOUND rather than spelled, exactly as the query above binds it: two spellings of the bank's
+    vocabulary is how one of them learns about a status word the other has not.
+
+    ⚠️ ONE `GROUP BY`, AND THE ASSEMBLY IS THE PURE DERIVER'S. The database counts and sums (ADR-0010),
+    `status.derive_settled_ledger_split` zero-fills the three ledgers in their fixed order and folds
+    anything unrecognised into the `Other` slot. Nothing about which ledgers exist, or what order
+    they read in, is decided here.
+    """
+    settled_where = where + [
+        "r.row_status = %s",
+        "UPPER(TRIM(COALESCE(r.status_raw, ''))) = %s",
+    ]
+    settled_params = list(params) + [ROW_SETTLED, BANK_SUCCESS_STATUS]
+    clause = " WHERE " + " AND ".join(settled_where)
+
+    grouped = frappe.db.sql(
+        f"""
+        SELECT COALESCE({SETTLED_LEDGER_SQL}, '') AS ledger,
+               COUNT(*)                           AS count,
+               COALESCE(SUM(r.amount), 0)         AS value
+        FROM "tabOutflow Import Row" r
+        {clause}
+        GROUP BY 1
+        """,
+        tuple(settled_params),
+        as_dict=True,
+    )
+
+    split = derive_settled_ledger_split(
+        SettledLedgerEntry(
+            ledger=g["ledger"] or "",
+            count=int(g["count"] or 0),
+            value=normalize_amount(g["value"]),
+        )
+        for g in grouped
+    )
+    # Decimals to floats for the wire, on the same reasoning as `_jsonable_summary` -- and
+    # deliberately NOT inside it, because that helper converts the OTHER deriver's output and
+    # widening it to walk arbitrary nested shapes would make it a generic serialiser rather than a
+    # statement about one payload.
+    return [
+        {"ledger": bucket["ledger"], "rows": bucket["rows"], "value": float(bucket["value"])}
+        for bucket in split
+    ]
 
 
 def _batch_meta(batch: str) -> dict:

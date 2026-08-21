@@ -93,6 +93,30 @@ export interface OutflowRowsController {
         ReturnType<typeof serverQuery>,
         "scope" | "sort_by" | "sort_dir" | "limit" | "offset"
     > & { facets?: Record<string, string[]> };
+
+    /**
+     * The WHOLE of this table's query minus the paging — the filters, the scope AND the sort.
+     *
+     * ⚠️ IT IS A SECOND, WIDER VIEW OF THE SAME `rowsQuery`, AND IT IS DELIBERATELY NOT A WIDENING
+     * OF `filterQuery`. That object's entire job is to be the FILTER-ONLY set that the summary,
+     * the confirmable list and `match_period` all share, and every one of them is scope-blind on
+     * purpose — the scope partitions the population rather than narrowing it. Adding the scope
+     * there to serve the export would silently re-scope those three, which is the "button 688,
+     * table 893" class of defect arriving through a refactor.
+     *
+     * ⚠️ IT IS DERIVED BY STRIPPING `limit`/`offset` OFF THE QUERY THE TABLE JUST SENT, never
+     * rebuilt. `serverQuery` decides what a sort MEANS — it maps a column id through
+     * `SERVER_SORT_COLUMNS` and falls back to `added_on` for anything the server cannot order by —
+     * so composing `sort_by`/`sort_dir` at a call site would be a second copy of that rule, free to
+     * ask for an ordering the table is not showing. The file a person downloads must hold exactly
+     * the rows in front of them, in the same order.
+     *
+     * The `scope` also names the file (`exportFileBase`), so the download's name and its contents
+     * come from one value.
+     */
+    exportQuery: Omit<ReturnType<typeof serverQuery>, "limit" | "offset"> & {
+        facets?: Record<string, string[]>;
+    };
 }
 
 export interface UseOutflowRowsOptions {
@@ -212,6 +236,13 @@ export function useOutflowRows({
         return rest;
     }, [rowsQuery]);
 
+    // The same query with only the PAGING removed — see `exportQuery` on the interface for why the
+    // scope and the sort ride along here and must never be folded into `filterQuery`.
+    const exportQuery = useMemo(() => {
+        const { limit: _l, offset: _o, ...rest } = rowsQuery;
+        return rest;
+    }, [rowsQuery]);
+
     /**
      * The facet values one funnel offers, fetched when it opens.
      *
@@ -323,5 +354,6 @@ export function useOutflowRows({
         mutate,
         loadFacetValues,
         filterQuery,
+        exportQuery,
     };
 }

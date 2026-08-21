@@ -28,17 +28,19 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
     SOURCE_OPTIONS,
-    importOptionLabel,
     importsCoveredLabel,
     importsForSource,
     openImports,
     rematchReachLabel,
     rematchWarning,
+    settledLedgerRows,
     sourceSelectorValue,
     summaryTiles,
+    type SettledLedgerSplit,
     type SummaryImport,
     type SummaryTile,
 } from "../outflowTableModel";
+import { ImportSelect } from "./ImportSelect";
 import { OutflowPeriodFilter } from "./OutflowPeriodFilter";
 
 interface Props {
@@ -70,10 +72,13 @@ interface Props {
     onShowSkipped?: () => void;
 }
 
-/** The selector's "no import chosen" option. A Radix `Select` cannot take `""` as an item value. */
-const ALL_IMPORTS = "__all__";
-
-/** The Source selector's "every source" option, for the same Radix reason. */
+/**
+ * The Source selector's "every source" option.
+ *
+ * A Radix `Select` cannot take `""` as an item value. (The Import selector carried the same
+ * sentinel until it became a `Command` combobox; its own copy, and the reason it is NAMED rather
+ * than blank, moved into `ImportSelect` with it.)
+ */
 const ALL_SOURCES = "all";
 
 /**
@@ -223,30 +228,18 @@ export const ImportSummaryPanel = ({
                             the WIDER of the remaining two controls: choosing a statement replaces
                             the period entirely rather than narrowing within it (owner ruling
                             2026-08-12), so reading left to right gives the scope and then, only
-                            where it still applies, the window inside it. */}
+                            where it still applies, the window inside it.
+
+                            ⚠️ IT IS A SEARCHABLE COMBOBOX, NOT A `Select`, AND IT IS NOT DISABLED
+                            WHILE AN IMPORT IS PINNED — unlike the two controls either side of it.
+                            Both facts live in `ImportSelect`, with the reasoning. */}
                         <div className="flex items-center gap-2">
                             <span className="whitespace-nowrap text-sm font-medium">Import</span>
-                            <Select
-                                value={selectedImport ?? ALL_IMPORTS}
-                                onValueChange={(next) =>
-                                    onSelectImport(next === ALL_IMPORTS ? undefined : next)
-                                }
-                            >
-                                <SelectTrigger className="h-8 w-[300px] max-w-full">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {/* ⚠️ NAMED, NOT BLANK. An empty row reads as "nothing chosen
-                                        yet" — a state this screen does not have — where the truth is
-                                        that every import is in view. */}
-                                    <SelectItem value={ALL_IMPORTS}>All imports</SelectItem>
-                                    {offeredImports.map((option) => (
-                                        <SelectItem key={option.name} value={option.name}>
-                                            {importOptionLabel(option)}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            <ImportSelect
+                                options={offeredImports}
+                                value={selectedImport}
+                                onChange={onSelectImport}
+                            />
                         </div>
 
                         {/* ⚠️ DISABLED, NOT HIDDEN, WHILE AN IMPORT IS SELECTED (owner ruling
@@ -367,6 +360,14 @@ export const ImportSummaryPanel = ({
                                         : `${totals.settled_rows} recorded`
                                 }
                                 tone="emerald"
+                                /* ⚠️ THE SPLIT IS THE SERVER'S LIST, RENDERED VERBATIM. It arrives
+                                   ordered and zero-filled from the one `GROUP BY`
+                                   (`derive_import_summary`), so nothing here sorts it, totals it,
+                                   or drops a zero — see `settledLedgerRows`, and the panel
+                                   docstring on why a panel that added up its own rows is worse
+                                   than one that shows nothing. An ABSENT key renders NO breakdown
+                                   at all, which is the whole reason that helper exists. */
+                                breakdown={settledLedgerRows(summary.settled_by_ledger)}
                             />
                             {/* ⚠️ THE ONE FIGURE THAT SAYS WHETHER THE WORK IS FINISHED. Counts
                                 tell you how much is left to click; this tells you how much money is
@@ -377,10 +378,16 @@ export const ImportSummaryPanel = ({
                                 sub={`${totals.open_rows} undecided`}
                                 tone={totals.open_rows ? "amber" : undefined}
                             />
+                            {/* ⚠️ "settled" IS THE WORD THAT MAKES THE RATIO READABLE. Skipped rows
+                                leave `total_rows` and `decided_rows` becomes the settled count, so
+                                this tile answers "how much of the workable statement is settled" —
+                                a sub-line reading only "N of M" would leave a reader guessing which
+                                two populations were being compared, and needing a footnote to find
+                                out. */}
                             <Figure
                                 label="Decided"
                                 value={`${totals.decided_percent}%`}
-                                sub={`${totals.decided_rows} of ${totals.total_rows}`}
+                                sub={`${totals.decided_rows} of ${totals.total_rows} settled`}
                             />
                         </div>
 
@@ -460,16 +467,30 @@ export const ImportSummaryPanel = ({
     );
 };
 
+/**
+ * One figure.
+ *
+ * ⚠️ IT STAYS DUMB. It renders a label, a value, a sub-line and — where one is handed to it — a
+ * breakdown of the figure ABOVE. It decides nothing about any of them: the sub-line's wording is
+ * the caller's, and so is the breakdown's order, contents and length.
+ *
+ * ⚠️ THE FOUR TILES SHARE A ROW OF CSS GRID, SO THEY SHARE A HEIGHT. A breakdown on one of them
+ * therefore grows all four, which is accepted — a fixed height, or padding on the other three to
+ * compensate, would be three lies to make one truth fit.
+ */
 const Figure = ({
     label,
     value,
     sub,
     tone,
+    breakdown,
 }: {
     label: string;
     value: string;
     sub: string;
     tone?: "emerald" | "amber";
+    /** Rendered VERBATIM, in the order given. An empty list renders nothing at all. */
+    breakdown?: readonly SettledLedgerSplit[];
 }) => (
     <div
         className={`rounded-md border p-3 ${
@@ -483,6 +504,31 @@ const Figure = ({
         <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
         <div className="mt-0.5 text-lg font-semibold tabular-nums">{value}</div>
         <div className="text-xs text-muted-foreground">{sub}</div>
+        {/* ⚠️ THE LEFT RULE IS WHAT MAKES THESE A BREAKDOWN RATHER THAN THREE MORE FIGURES. Without
+            it the lines read as siblings of the tile — three further numbers on the panel — instead
+            of as the parts of the one directly above them. It is the only new decoration this block
+            gets, deliberately.
+
+            ⚠️ ROUNDED RUPEES, NOT THE EXACT FORM. These are plain amounts; the exact
+            `formatToIndianRupee` is reserved for DIFFERENCES on this screen. */}
+        {breakdown && breakdown.length > 0 && (
+            <div className="mt-2 space-y-0.5 border-l-2 border-emerald-200 pl-2 dark:border-emerald-800">
+                {breakdown.map((entry) => (
+                    <div
+                        key={entry.ledger}
+                        className="flex items-center justify-between text-[11px] leading-tight"
+                    >
+                        <span className="truncate">
+                            {entry.ledger}{" "}
+                            <span className="text-muted-foreground tabular-nums">{entry.rows}</span>
+                        </span>
+                        <span className="shrink-0 pl-2 tabular-nums">
+                            {formatToRoundedIndianRupee(entry.value)}
+                        </span>
+                    </div>
+                ))}
+            </div>
+        )}
     </div>
 );
 

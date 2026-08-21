@@ -1,15 +1,25 @@
 // src/pages/outflow-import/OutflowMasterPage.tsx
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Columns3, History, Search, Upload, Wallet, X } from "lucide-react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { exportToCsv } from "@/utils/exportToCsv";
 import type {
     OutflowImportOption,
     OutflowImportRow,
@@ -18,6 +28,8 @@ import type {
 import { OPEN_ROW_STATUSES } from "./outflowImportStatus";
 import { ConfirmAllMatchedDialog } from "./components/ConfirmAllMatchedDialog";
 import { DecisionDialog } from "./components/DecisionDialog";
+import { ExportButton } from "./components/ExportButton";
+import { exportFileBase, toExportColumns } from "./outflowExport";
 import { ImportHistoryDialog } from "./components/ImportHistoryDialog";
 import { ImportStatementDialog } from "./components/ImportStatementDialog";
 import { ImportSummaryPanel } from "./components/ImportSummaryPanel";
@@ -93,19 +105,49 @@ export const OutflowMasterPage = () => {
      */
     const { id: selectedImport } = useParams<{ id: string }>();
     const navigate = useNavigate();
+    const location = useLocation();
 
+    /**
+     * @param carryTab a tab to survive the navigation. See the note on the seed below: the two
+     *   paths are separate route entries, so selecting an import REMOUNTS this page and `tab` —
+     *   ordinary page state — goes back to its default. Only the post-import pin passes this;
+     *   every other caller wants the reset, because a different import is a different set of rows.
+     */
     const handleSelectImport = useCallback(
-        (batch?: string) => {
+        (batch?: string, carryTab?: OutflowTab) => {
             // ⚠️ THE PERIOD PARAMS ARE DROPPED ON THE WAY IN AND RESTORED ON THE WAY OUT BY THE
             // STORE, not carried here. A period in the URL of an import-scoped screen would be a
             // filter that is written down but not applied — the same contradiction the disabled
             // control exists to avoid, in the address bar.
-            navigate(batch ? `/bulk-import-outflow/${encodeURIComponent(batch)}` : "/bulk-import-outflow");
+            navigate(
+                batch ? `/bulk-import-outflow/${encodeURIComponent(batch)}` : "/bulk-import-outflow",
+                carryTab ? { state: { outflowTab: carryTab } } : undefined
+            );
         },
         [navigate]
     );
 
-    const [tab, setTab] = useState<OutflowTab>(DEFAULT_TAB);
+    /**
+     * Which of the three tabs is open.
+     *
+     * ⚠️ IT SEEDS FROM THE HISTORY ENTRY'S STATE, and that is the ONE thing carrying a tab across a
+     * remount. Selecting an import navigates between two separate route entries, which unmounts and
+     * rebuilds this component — correct in general (different rows, so a stale selection and
+     * un-confirmed decisions should go), but it would also throw away the `matched` tab a Cashbook
+     * import deliberately moves to, at the exact moment the pin sends the reader to that statement.
+     * The period does not need this because it lives in a module-level store; a tab is nobody
+     * else's business, so it travels with the one navigation that has a reason to keep it.
+     *
+     * An unrecognised value falls back to the default rather than being trusted — the state comes
+     * off a history entry a bookmark or a back button can carry.
+     */
+    const [tab, setTab] = useState<OutflowTab>(() => {
+        const carried = (location.state as { outflowTab?: unknown } | null)?.outflowTab;
+        return OUTFLOW_TABS.some((t) => t.id === carried) ? (carried as OutflowTab) : DEFAULT_TAB;
+    });
+    // Read by the import handler, which runs while `tab`'s own setter is still queued.
+    const tabRef = useRef(tab);
+    tabRef.current = tab;
     /**
      * The far-right view, which is NOT one of the three tabs.
      *
@@ -127,6 +169,24 @@ export const OutflowMasterPage = () => {
     const [showingHistory, setShowingHistory] = useState(false);
     const [confirmingAll, setConfirmingAll] = useState(false);
     const [showingSkipped, setShowingSkipped] = useState(false);
+    /**
+     * The server's refusal for an export, rendered in its own `AlertDialog`.
+     *
+     * ⚠️ INLINE, NEVER A TOAST — this screen's standing convention (`confirmError` in the decision
+     * dialog, the named failure list after a bulk confirm). The export refusal in particular is a
+     * SENTENCE WITH TWO NUMBERS AND AN INSTRUCTION in it, and a toast that has faded is a refusal
+     * nobody can act on.
+     */
+    const [exportError, setExportError] = useState<string | null>(null);
+    /**
+     * The statement a just-finished import staged, waiting for its dialog to close.
+     *
+     * ⚠️ A REF, NOT STATE, AND THAT IS LOAD-BEARING. Cashbook calls `onImported` and `onOpenChange`
+     * in the SAME tick, so a state update written by the first would still be queued when the
+     * second reads it, and the pin would silently never happen. It also carries the TAB, because
+     * `setTab` is queued for exactly the same reason.
+     */
+    const pendingPinRef = useRef<{ batch: string; tab: OutflowTab } | null>(null);
 
     /**
      * The table's whole query, and what came back.
@@ -220,6 +280,17 @@ export const OutflowMasterPage = () => {
     const { call: callSettlePartial } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.expenses.settle_row_partial"
     );
+
+    /**
+     * The whole current view, unpaged, for a spreadsheet.
+     *
+     * ⚠️ IT IS AN IMPERATIVE CALL, NOT A `useFrappeGetCall`. An SWR read would fetch up to twenty
+     * thousand rows on mount and again on every filter change, for a file nobody has asked for yet,
+     * and would then hold the result in cache. This runs once, on a click.
+     */
+    const { call: callExport } = useFrappePostCall<{
+        message: { rows: OutflowImportRow[]; total: number };
+    }>("nirmaan_stack.api.outflow_import.review.export_outflow_rows");
 
 
     /**
@@ -437,36 +508,82 @@ export const OutflowMasterPage = () => {
         await refreshAll();
     }, [runMatch, filterArgs, refreshAll]);
 
+    /**
+     * Take the view with you.
+     *
+     * ⚠️ IT SENDS THE TABLE'S OWN QUERY — `exportQuery`, which is the query the table just sent with
+     * only the paging stripped off. The filters, the scope (the open tab) and the sort all ride
+     * along, so the file holds exactly the transfers on screen, in the same order. Nothing here
+     * re-derives any of them; see the hook for why `filterQuery` could not be widened to do it.
+     *
+     * ⚠️ `facets` IS SERIALISED HERE FOR THE SAME REASON `filterArgs` SERIALISES IT — one nested
+     * value, and a silently-dropped facet would produce a file WIDER than the table that asked for
+     * it, with nothing in either saying so.
+     *
+     * ⚠️ IT PASSES THE FULL `OUTFLOW_COLUMNS`, NEVER THE VISIBLE SUBSET. A CSV is an archive, not a
+     * screenshot: the hidden columns are rare lookups, and a rare lookup is exactly what somebody
+     * opens a downloaded statement to do. `toExportColumns` takes no `hidden` argument precisely so
+     * no call site can reintroduce the question.
+     */
+    const handleExport = useCallback(async () => {
+        setExportError(null);
+        try {
+            const response = await callExport({
+                ...table.exportQuery,
+                facets: JSON.stringify(table.exportQuery.facets ?? {}),
+            });
+            const exported = response?.message?.rows ?? [];
+            exportToCsv(
+                exportFileBase(table.exportQuery.scope),
+                exported,
+                // The cast the adapter's docstring describes: `OutflowExportColumn` is the shape
+                // `exportToCsv` actually reads, and TanStack's `ColumnDef` cannot express it
+                // without augmenting `ColumnMeta` app-wide.
+                toExportColumns(OUTFLOW_COLUMNS) as any
+            );
+        } catch (err) {
+            // ⚠️ THE SERVER'S OWN SENTENCE, RENDERED VERBATIM. Over the cap it already names both
+            // numbers and the levers that narrow; rewriting it here would give the screen a second
+            // opinion about a limit only the server knows, free to go stale the day it moves.
+            setExportError(describeFrappeError(err, "The export failed."));
+        }
+    }, [callExport, table.exportQuery]);
+
     const handleImported = useCallback(
         async (
-            _batch: string,
-            statementPeriod?: { from?: string | null; to?: string | null },
+            batch: string,
+            _statementPeriod?: { from?: string | null; to?: string | null },
             source?: string
         ) => {
             /**
-             * ⚠️ THE SCREEN MOVES TO THE STATEMENT THAT WAS JUST IMPORTED (slice P1), and it has to.
-             * A statement is routinely uploaded weeks after the transfers in it moved, so a fresh
-             * import can land entirely OUTSIDE the default `last 30 days` window — the page would
-             * refresh to a summary that does not mention it and a table that does not list it,
-             * which reads as a failed upload rather than as a period doing its job.
+             * ⚠️ THE PERIOD NO LONGER MOVES ON AN UPLOAD (owner reversal, 2026-08-20). Until now
+             * this handler called `setPeriod` with the statement's own declared window, and the
+             * reasoning was sound as far as it went: statements are routinely uploaded weeks after
+             * the transfers moved, so a fresh import can land entirely outside the default
+             * `last 30 days` and the screen would refresh to a summary that does not mention it and
+             * a table that does not list it — which reads as a failed upload. The owner took the
+             * other side of the cost: an upload is not a reason to rewrite the window somebody
+             * deliberately set up before uploading, and it is a filter they never touched moving
+             * under them.
              *
-             * ⚠️ IT SETS THE STATEMENT'S OWN PERIOD RATHER THAN CLEARING TO ALL TIME. "Here is the
-             * statement you just imported" is the useful answer; "here is every transfer ever
-             * staged" is merely a wide one, and it throws away the scoping somebody may have set up
-             * before uploading. The dates come from the upload result, so they are the statement's
-             * declared period and not a guess.
+             * ⚠️ THE DEFECT IT PREVENTED IS ANSWERED BY PINNING INSTEAD, NOT BY DOING NOTHING.
+             * Selecting an import IGNORES the period entirely (owner ruling — `useOutflowRows`
+             * withholds it whenever a batch is pinned), so the pin puts the WHOLE statement in view
+             * while the period's value survives untouched in its store, ready for the moment the
+             * reader goes back to "All imports". Doing nothing at all would leave someone who just
+             * imported a thousand transfers looking at a screen that mentions none of them, which
+             * is the very "reads as a failed upload" defect the period move existed to prevent.
              *
-             * A statement with no period at all (an empty or unparseable date column) falls back to
-             * clearing the filter — showing everything is wrong-but-visible, where leaving a narrow
-             * window would be wrong-and-invisible.
+             * ⚠️ THE PIN IS DEFERRED TO THE DIALOG'S CLOSE, and it must be. Pinning navigates to
+             * `/bulk-import-outflow/<id>`, which REMOUNTS this page; Cashfree keeps its dialog open
+             * through step 4 (CF/S7), so pinning here would unmount the wizard in the middle of the
+             * confirm step. Cashbook closes immediately after importing. One open→closed transition
+             * serves both, so there is one rule rather than a per-source special case.
+             *
+             * ⚠️ DO NOT "RESTORE" THE `setPeriod` CALL. Its absence is the ruling, and with the pin
+             * in place a period move would ALSO be inert on the very screen it was written for — a
+             * pinned import ignores the period.
              */
-            const from = statementPeriod?.from;
-            const to = statementPeriod?.to;
-            setPeriod(
-                from && to
-                    ? { operator: "Between", value: [from.split(/[ T]/)[0], to.split(/[ T]/)[0]] }
-                    : null
-            );
 
             /**
              * ⚠️ THE SOURCE SCOPE IS CLEARED FOR THE PERIOD'S EXACT REASON (slice CF/S2, found in
@@ -491,12 +608,46 @@ export const OutflowMasterPage = () => {
              *
              * Cashfree keeps the default: its rows arrive needing a person, so the worklist IS
              * where they belong and moving somebody away from it would hide their work.
+             *
+             * ⚠️ IT HAS TO TRAVEL WITH THE PIN, and setting it here alone would no longer be
+             * enough. The pin navigates between two route entries, so this page remounts and `tab`
+             * — page state — is rebuilt at its default; the Cashbook reader would land on the
+             * pinned statement's empty worklist, which is exactly the outcome this ruling exists to
+             * prevent. Setting it here STILL matters for the case where the pin navigates nowhere
+             * (re-importing while already pinned to that same statement, where nothing remounts).
              */
-            if (source === "Cashbook") setTab("matched");
+            const nextTab: OutflowTab = source === "Cashbook" ? "matched" : tabRef.current;
+            setTab(nextTab);
+
+            // Remembered, not acted on — the pin fires when the dialog closes. See the ref's own
+            // note for why both halves are held here rather than read back at that moment.
+            pendingPinRef.current = { batch, tab: nextTab };
 
             await refreshAll();
         },
-        [refreshAll, setPeriod, setSources, setTab]
+        [refreshAll, setSources, setTab]
+    );
+
+    /**
+     * The import dialog's dismiss, and the one place the post-import pin fires.
+     *
+     * ⚠️ ON THE open→closed TRANSITION, NEVER AT IMPORT TIME. See `handleImported`: Cashfree's
+     * wizard stays open through its confirm step and pinning navigates, which would unmount it
+     * mid-flow. Every close route in that dialog — its footer buttons, its own `Dialog`'s dismiss,
+     * the Cashbook path that closes itself the moment the rows are created — goes through this one
+     * callback, so there is nothing to keep in step.
+     *
+     * A close with nothing pending (the dialog was opened and abandoned) navigates nowhere.
+     */
+    const handleImportDialogOpenChange = useCallback(
+        (open: boolean) => {
+            setImporting(open);
+            if (open) return;
+            const pending = pendingPinRef.current;
+            pendingPinRef.current = null;
+            if (pending) handleSelectImport(pending.batch, pending.tab);
+        },
+        [handleSelectImport]
     );
 
     return (
@@ -649,10 +800,49 @@ export const OutflowMasterPage = () => {
                 <ColumnsMenu hidden={table.hidden} onToggle={table.setHidden} />
                 <ClearFiltersButton count={table.filterCount} onClear={table.clearFilters} />
 
-                <span className="ml-auto text-xs text-muted-foreground">
-                    {table.total.toLocaleString()} {table.total === 1 ? "transfer" : "transfers"}
-                </span>
+                {/* ⚠️ EXPORT SITS WITH THE COUNT, NOT WITH Columns AND Clear filters, AND THAT IS
+                    THE REASON FOR THE `ml-auto` GROUP. Everything to the left CHANGES the view —
+                    which columns you see, which filters apply. Export does not change it; it TAKES
+                    it with you. The count states what you are currently looking at and Export says
+                    "give me that", so the two are one thought and read as one. Grouped with the
+                    view-changing controls it would read as a third way to alter the table, which is
+                    the one thing it never does. */}
+                <div className="ml-auto flex items-center gap-2">
+                    <ExportButton total={table.total} onExport={handleExport} />
+                    <span className="text-xs text-muted-foreground">
+                        {table.total.toLocaleString()}{" "}
+                        {table.total === 1 ? "transfer" : "transfers"}
+                    </span>
+                </div>
             </div>
+
+            {/* ⚠️ THE SERVER'S REFUSAL, RENDERED WORD FOR WORD. Over the cap it already names how
+                many rows the view holds, what the limit is, and which controls narrow it — so this
+                dialog carries the message and adds nothing. A client-side rewrite would be a second
+                statement of a limit only the server enforces, and the two would drift the day it
+                moves. One `Close`: there is nothing to confirm, only something to read. */}
+            <AlertDialog
+                open={exportError !== null}
+                onOpenChange={(open) => !open && setExportError(null)}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        {/* ⚠️ THE TITLE IS DELIBERATELY NOT "Too many transfers to export". The cap
+                            is the usual refusal but not the only one that lands here — a dropped
+                            connection or a permission failure comes through the same catch — and a
+                            heading naming a limit above a message about something else is a
+                            confident wrong answer. The body always names the real reason, including
+                            both numbers when it is the cap. */}
+                        <AlertDialogTitle>Could not export</AlertDialogTitle>
+                        <AlertDialogDescription>{exportError}</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogAction onClick={() => setExportError(null)}>
+                            Close
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
             {!showingApproved &&
                 (rowsLoading && !rows.length ? (
@@ -725,7 +915,7 @@ export const OutflowMasterPage = () => {
                 once, when the statement arrives. */}
             <ImportStatementDialog
                 open={importing}
-                onOpenChange={setImporting}
+                onOpenChange={handleImportDialogOpenChange}
                 onImported={handleImported}
                 onRefresh={refreshAll}
             />
