@@ -30,3 +30,17 @@ Work Header so the two vocabularies are not confused.
   shows the distinct Area and Category values it found so the importer can spot them before ingest;
   correcting a typo is the author's call, never the system's.
 - The same reasoning applies to **Area**, which is free text for the same reason and has no master at all.
+
+## Amendment, 2026-08-21 — suggestions are not a closed set
+
+The Area and Category inputs now offer the values ALREADY PRESENT in that project's snags as
+suggestions (a native `<datalist>`, the pattern `pages/pricing/rate-master/RateMasterDerivation.tsx`
+already uses for the same reason). **This does not reverse anything above.** The field stays free
+text: a value not in the list is still typeable, which it must be — the first snag in a new area has
+no existing value to pick.
+
+The distinction matters because a CLOSED dropdown would reverse this ADR outright, and the
+consequence "correcting a typo is the author's call, never the system's" with it. Suggestions serve
+the same goal from the other side: someone reaching for "Piller" is offered the "Pillar" already in
+the project and takes it, because picking is easier than typing. Nothing is merged, nothing is
+rewritten, and nobody is prevented from spelling it however they like.

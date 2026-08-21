@@ -138,7 +138,10 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Snag Status** — the single field describing how far a Snag is from closed. Values: *Pending* (nothing done yet — the state every imported Snag starts in), *WIP* (being worked), *Completed* (closed), *Not Applicable* (judged not to be a real Snag, or no longer relevant). A Snag holds exactly one Status at a time.
 
-- **Skipped row** — a row in a source worksheet that the import declined to read as a Snag, always with a stated reason (blank, repeated header, summary block, no description). Skipped rows are shown to the importer and can be taken back; a Snag is never dropped silently.
+- **Skipped row** — a row in a source worksheet that the import declined to read as a Snag ON ITS OWN,
+  always with a stated reason (blank, repeated header, summary block, no description, above the header
+  row). A skipped row is only ever a DEFAULT: it is shown unticked with its reason, and anyone may tick
+  it, after which it is imported like any other. The importer never overrides a human's tick.
 
 - **Remark (of a Snag)** — the one free-text field on a Snag. It arrives holding whatever the source
   author wrote against that row, and from then on it is the working note: anyone who may change the
