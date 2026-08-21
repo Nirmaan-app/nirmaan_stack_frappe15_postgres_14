@@ -248,7 +248,12 @@ export interface ServerDataTableResult<TData> {
 
 
 // --- Helper: Base64 encode/decode for URL safety ---
-const encodeFiltersForUrl = (filters: ColumnFiltersState): string | null => {
+// EXPORTED because this hook OWNS the URL filter encoding. A page that needs to inspect or
+// repair a persisted `_filters` param (e.g. to drop a filter whose column no longer exists)
+// must go through these, never re-implement atob/btoa + JSON.parse locally — a second copy
+// is free to drift from the format the hook actually reads, and the page would then silently
+// clear or mangle live filters. (ADR-0010 rule F2: one owner per shape.)
+export const encodeFiltersForUrl = (filters: ColumnFiltersState): string | null => {
     if (!filters || filters.length === 0) return null;
     try {
         const jsonString = JSON.stringify(filters);
@@ -259,7 +264,7 @@ const encodeFiltersForUrl = (filters: ColumnFiltersState): string | null => {
     }
 };
 
-const decodeFiltersFromUrl = (encodedString: string | null): ColumnFiltersState => {
+export const decodeFiltersFromUrl = (encodedString: string | null): ColumnFiltersState => {
     if (!encodedString) return [];
     try {
         const jsonString = atob(encodedString); // Base64 decode
