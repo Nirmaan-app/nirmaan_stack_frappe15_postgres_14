@@ -54,6 +54,11 @@ pick one ad-hoc; ask.
 | Which rows the master table shows (X3) | `api/outflow_import/review.get_outflow_rows` (+ `_row_filters`, `_scope_clause`, `get_outflow_facet_values`) | filter, sort or search rows in the browser. ⚠️ `_row_filters` is ONE builder shared by the page query, its count, the tab counts, the facet values **and — since P1 — the summary, the confirmable list and `match_period`** — a count computed under different filters than the page it labels is a lie that looks like a paging bug. ⚠️ Its two date clauses carry `OR r.added_on IS NULL` on purpose: an unparseable bank date would otherwise match no period and vanish from every surface at once |
 | What the screen ASKS for (X3) | `outflowTableModel.serverQuery` | build endpoint params at a call site. It owns the MEANING of a filter; SQL owns the application |
 | The screen's aggregate (X2, widened P1) | `services/outflow_import/status.py` (`derive_import_summary`, `StatusTally`) | count or sum the selected transfers anywhere else. The DB does the `GROUP BY`; this assembles. It is batch-agnostic and always was, which is why scoping it to a PERIOD needed no change here at all — only the WHERE clause moved |
+| **The settled money, split by ledger** (2026-08-21) | `services/outflow_import/status.py` (`derive_settled_ledger_split`, `SettledLedgerEntry`, `SETTLED_LEDGER_OTHER`) | order, total or zero-fill that split anywhere else — in SQL, in an endpoint, or in the client. The order is **fixed** and bound from `ledgers.LEDGER_DOCTYPES`, never sorted by value: a value-sorted list reshuffles between periods and has to be re-read every time. ⚠️ Reordering `LEDGER_DOCTYPES` now reorders a rendered panel. ⚠️ The three figures must reconcile **EXACTLY** to `settled_value`, which is why the endpoint sums the **ROW** amount and not `m.target_amount` (they differ on a partial settle; live partials are currently 0, so the wrong column would have shipped as a latent defect) and why it applies the same failed-transfer exclusion the main query does |
+| **Which ledger a settled row settled against, in SQL** (2026-08-21) | `services/outflow_import/ledgers.py` (`SETTLED_LEDGER_SQL`) | write a second expression for it, and **never turn it into a `JOIN`**. It is a scalar correlated subquery precisely so it can drop into SELECT / WHERE / GROUP BY with no FROM change — five reads share `review._row_filters` and a JOIN would force a fork of the one shared builder. `LIMIT 1` is exact because a settled row carries at most one `Outflow Row Match` (verified live: 0 orphans, 0 multi-match); a fan-out shape would invalidate that, and the constant's own comment says so |
+| **Exporting the transfers table** (2026-08-21) | `api/outflow_import/review.py` (`export_outflow_rows`, `_MAX_EXPORT`) | page a CSV, or build its filters separately. It reuses `_row_filters` + `_scope_clause` UNCHANGED, so the file and the tab count describe one population. ⚠️ It **REFUSES** over 20,000 naming both numbers — never a silent `LIMIT`, for the `_MAX_CONFIRMABLE` reason: a truncated file outlives the screen that could contradict it, over a set nobody chose. ⚠️ Do NOT raise `_MAX_PAGE_SIZE` (200) to serve an export; that constant guards the SCREEN's paging |
+| **Exporting the approved inbox** (2026-08-21) | `api/outflow_import/approved.py` (`export_approved_records`, `_MAX_EXPORT`) | write a fourth query that knows the three ledgers' asymmetries — it reads through `ledger_read.approved_rows` like the page does. ⚠️ `approved_on` and `updated_on` stay SEPARATE COLUMNS in the CSV (asymmetry #1); a spreadsheet is where presenting a modification timestamp as an approval would be hardest to catch later |
+| **This screen's columns → CSV columns** (2026-08-21) | `frontend/src/pages/outflow-import/outflowExport.ts` (`toExportColumns`, `exportFileBase`) | write a second CSV writer — `utils/exportToCsv.ts` is the one, and this only adapts `OUTFLOW_COLUMNS` into the shape it reads. ⚠️ It takes **no** `hidden` argument on purpose: a CSV is an archive, not a screenshot, and an export that depended on a menu somebody clicked would make two exports of the same table differ with nothing in either saying so. ⚠️ It exports `referenceValue` (the FULL reference), never `shortReference` |
 | The screen's PERIOD, and the `added_on` filter (P1) | `frontend/.../outflow-import/outflowPeriod.ts` + `useOutflowPeriodStore.ts` | hold a second date filter for this column. ⚠️ **ONE VALUE, TWO EDITORS** — the `Period` control above the summary and the `Payment Date` column funnel read and write the same store entry. Two filters over one column would AND together, so "Last 30 days" plus "Is 01-Jan" selects nothing while neither control looks wrong. It is a STORE and not page state because four surfaces need it and one (the Skipped dialog's own `useOutflowRows` instance) is not a child |
 | The screen's SOURCE scope (CF/S2) | `frontend/.../outflow-import/useOutflowSourceStore.ts` + `outflowTableModel.SOURCE_COLUMN_ID` | hold a second source filter for this column. ⚠️ **ONE VALUE, TWO EDITORS**, exactly as the period is — the `Source` control above the summary and the `Source` column funnel read and write the same store entry, so "Cashfree" above with "Cashbook" ticked below cannot AND into an empty screen. The stored shape is the FUNNEL's (`string[]`); the dropdown is the lossy editor and reads **Mixed** rather than "All" when the funnel holds both. Needed **no backend work at all** — `source` was already in `review._FACET_COLUMNS` and already on the row payload |
 | Which imports the picker offers (CF/S2) | `outflowTableModel.importsForSource` | filter the import list at a render site. ⚠️ An import with **no** `source` survives every scope, on the period's `IS NULL` reasoning: a batch predating the column would otherwise vanish from the picker with no control able to bring it back |
@@ -199,6 +204,141 @@ Description text (payee name / account / IFSC) still RANKS the candidates the pr
 
 ⚠️ **DELETED, and not by oversight: the old Pass B** (vendor-by-name + amount + date ±3d). Rows it
 used to catch now arrive `Mismatched` and are linked by hand. Owner's call, made with the loss stated.
+
+---
+
+### The Cashbook duplicate guard — TWO lookups, one identity (slice CB-DUP, 2026-08-21)
+
+⚠️ **THE `Outflow Row Match` UNIQUE CONSTRAINT IS NOT THE BACKSTOP ON THIS PATH.** Several notes in
+this document call that constraint "the real backstop against paying twice". It is the backstop for
+**Cashfree**, which settles an EXISTING record. A Cashbook row **creates** its target, so
+`target_name` is new every time and the key `(transfer_id, target_doctype, target_name)` is never
+contended. **Do not read those sentences as covering both sources** — on the wallet path the two
+lookups below ARE the guard, and nothing behind them will catch a miss.
+
+A Cashbook spend is refused if either lookup recognises it, and they ask **different** questions:
+
+| Lookup | Corpus | Asks | Message |
+|---|---|---|---|
+| `cashbook._already_imported` | `Outflow Import Row`, terminal `status_raw` only | did an earlier **batch** stage this transfer? | `Already imported in {batch}` |
+| `cashbook._already_booked` | `Project Expenses` + `Non Project Expenses` | does an **expense** already exist for it? | `Already booked as {ledger} {name}` |
+
+**`_already_booked` closes a real hole.** An expense can exist for a wallet spend without this
+import ever having seen it — somebody keyed it in. Measured 2026-08-21: **17 live
+`Non Project Expenses` carry a wallet transfer id in `payment_ref` that nobody imported.** Before
+this slice, a statement covering those dates would have created 17 duplicate expenses silently. The
+integration suite proves it: disabling the lookup makes
+`test_no_second_expense_is_created_for_a_row_the_guard_blocked` fail `2 != 1`.
+
+**ONE identity, both corpora: `reference` + amount + date**, via
+`duplicates.index_prior_sightings` / `find_prior_sighting`.
+
+- ⚠️ **THE SHAPE CHANGED BECAUSE THE RULE COULD NOT BE EXPRESSED IN THE OLD ONE.**
+  `_already_imported` used to be an exact-triple `dict`, and a `dict` can only compare the date with
+  `==` — which is exactly what `duplicates.dates_agree` refuses. The parser tolerates an unreadable
+  `Added On` and stages `None` anyway, so under `NULL = NULL is false` a sheet whose dates we failed
+  to read **imported a second time, silently.** Bucketing on `(reference, amount)` and settling the
+  date separately is the only shape that can apply the fallback. `candidates.find_earlier_batches_for_rows`
+  (Cashfree) has always had it, by hand.
+- ⚠️ **THE AMOUNT IS EXACT AND MUST NEVER ACQUIRE A TOLERANCE.** `AMOUNT_TOLERANCE` is the *settle*
+  window; at ₹5 two genuinely different ₹3 transfers would collapse and the second would never
+  import. `amounts.py` refuses a `Decimal` constant declared outside it, so this cannot drift.
+- ⚠️ **`ORDER BY creation ASC` IS LOAD-BEARING IN BOTH QUERIES.** `find_prior_sighting` returns the
+  FIRST agreeing sighting, so earliest-first is what makes the message name the batch or record the
+  transfer actually came from rather than a later one that merely also holds it. **A test asserts
+  the right answer but cannot force the wrong one** — on a small heap-ordered table Postgres returns
+  insertion order anyway, so the clause is insurance against a plan change, not something the suite
+  can prove load-bearing.
+- ⚠️ **A BLANK reference IS DROPPED, NEVER BUCKETED.** Otherwise every reference-less record shares
+  one bucket keyed `("", amount)` and a duplicate verdict rests on the amount alone. Dropping means
+  such a row is never recognised as a repeat — the recoverable direction.
+
+**`_already_booked`'s query, and why it is two queries.** Narrowed in SQL by
+`payment_ref IN (this statement's transfer ids)` — a few hundred at most, against the 701 expenses
+that carry any reference at all. `payment_ref` is **unindexed** on both doctypes; at 2,594 + 718 rows
+the sequential scan is free (revisit past ~100k). Two queries because
+**`Project Expenses.amount` is a `Data` column of numeric STRINGS and must be CAST**, while
+`Non Project Expenses.amount` is real `Currency` — the same asymmetry `candidates.load_expense_targets`
+carries, and folding them would hide it.
+
+⚠️ **NO STATUS FILTER, DELIBERATELY.** Measured: zero `Approved` and zero `Requested` expenses carry
+any `payment_ref`, so `status = 'Paid'` narrows nothing today — and an unpaid expense holding the
+reference is still a booking. A filter that buys nothing now and hides a real duplicate later is not
+worth having.
+
+**The skip order IS the message** (`plan_statement`): kind → outcome → amount → **already imported**
+→ **already booked** → repeated in file. Batch before record because when an earlier batch created
+the expense BOTH are true, and the batch is a screen in this feature; record before "further up this
+sheet" because naming it tells the reader more.
+
+⚠️ **THE IN-FILE CHECK DELIBERATELY DID NOT MOVE.** Three places ask "is this row repeated within one
+file" — `plan_statement`'s `seen`, `parser.duplicate_transfer_ids` (the preview's warning) and the
+Cashfree `_stage_batch` marking — and all three key on the exact `row_identity` triple. The parser's
+own note says why: two of them disagreeing would call the same pair repeated in one surface and
+distinct in another. Giving only one the missing-date fallback would recreate exactly that. Widening
+all three is a separate, smaller slice.
+
+⚠️ **`assess_duplicates` WAS NOT TOUCHED** — an already-**booked** row does not count toward the
+refuse/warn ratio. `DUPLICATE_WARN_RATIO` is an owner ruling and its vocabulary is "already imported
+*in batch X*", which is wrong for a hand-keyed row. Such rows still stage and skip with an exact
+message; only the whole-file refusal is unaffected. Teaching it a second vocabulary is the change if
+a mostly-hand-booked statement ever shows up.
+
+**ONE IMPLEMENTATION, ONE DELIBERATE ARGUMENT (slice CB-DUP-2, 2026-08-21).** `_already_imported`
+and `candidates.find_earlier_batches_for_rows` are no longer two hand-written copies: both go
+through **`candidates.prior_import_sightings`** — one query, one terminal-status clause, one
+identity, one `ORDER BY creation ASC`. `find_earlier_batches_for_rows` is now a thin adapter that
+keeps its `dict[RowIdentity, str]` return, so **`upload.py` is byte-unchanged**.
+
+⚠️ **THE PERIOD NARROWING IS THE ONE DIFFERENCE AND IT IS NOW DELIBERATE — DO NOT "FINISH THE JOB"
+BY DEFAULTING IT ON.** Cashfree passes the statement's period; Cashbook passes nothing and searches
+every batch. The earlier plan assumed this divergence should be collapsed. **Reading the licence for
+it says otherwise:** `find_earlier_batches_for_rows` justifies the narrowing on the grounds that a
+miss *"cannot cause double payment: the real backstop is the `Outflow Row Match` unique
+constraint"*. **That licence does not exist on the Cashbook path** — a wallet row CREATES its target,
+so `target_name` is new every time and the constraint can never fire. A missed duplicate costs
+Cashfree a worse message; it costs Cashbook a **second expense**. Pinned from BOTH sides by
+`TestCashbookDoesNotNarrowByPeriod` — one test proves Cashbook still finds a duplicate in a
+far-dated batch, a second proves the Cashfree filter genuinely excludes that batch (without it the
+first would also pass if the filter had quietly stopped excluding anything).
+
+---
+
+### ⚠️ A REAL .xlsx EXPORT LIES ABOUT ITS OWN SIZE (slice XLS-DIM, 2026-08-21)
+
+**Every real .xlsx upload failed, both sources, from the day the format shipped until this fix** —
+while the committed xlsx fixtures stayed green.
+
+A Cashfree Transfers export writes this into its sheet XML:
+
+```xml
+<dimension ref="A1"/>
+```
+
+It declares the used range as **one cell**. `parser._read_xlsx` opens with `read_only=True`, and in
+that mode **openpyxl trusts the declaration** — so it clips every row to column A. The
+required-column check then reported `Missing column(s): Amount, Bank Reference No, Beneficiary Name,
+Status, Transfer Id` — five of six, with `Added On` (column A) found. **"Everything except the first
+column" is the signature of this bug.**
+
+- ⚠️ **`reset_dimensions = True` DOES NOT FIX IT.** On openpyxl 3.1.5 a `ReadOnlyWorksheet` caches
+  `max_row` / `max_column` from the parsed dimension at load; the flag is only read by the
+  non-read-only reader. Measured: still 1 row, 1 column.
+- **The fix is explicit bounds on `iter_rows`** (`_MAX_SCAN_ROWS`, `_MAX_SCAN_COLUMNS`), which
+  override the declaration. Dropping `read_only=True` also works and costs 44 MB against 8 MB on a
+  5,000-row sheet, for no gain — so the mode stays.
+- `_MAX_SCAN_ROWS = 1_048_576` is **Excel's own row ceiling**, so it can never truncate a workbook
+  Excel could open. It is not a performance guard and costs nothing — openpyxl stops at the last row
+  holding data (measured: 5,001 rows in the same 5.0s as an unbounded pass).
+- `_MAX_SCAN_COLUMNS = 200` **is** a real ceiling (every cell up to it is materialised per row: 14 MB
+  at 200 vs 8 MB at the true width), so `_read_xlsx` **refuses** when the header fills the scan width
+  rather than short-reading a statement's tail.
+
+⚠️ **WHY THE SUITE MISSED IT, AND THE LESSON.** `cashfree_sample.xlsx` was generated by openpyxl,
+which writes an honest `<dimension>`, and the test asserting csv == xlsx passed on it happily. Its
+docstring claimed the fixture was "saved the way a real export saves it" — false, and corrected.
+**A fixture built by the same library it is testing cannot see a defect in what real writers emit.**
+`cashfree_bad_dimension.xlsx` is now committed: byte-identical to the twin except for the lie.
 
 ---
 
@@ -440,8 +580,24 @@ needs one vocabulary rather than one per writer.
     - The split happens in the **aggregate**: `get_import_summary` groups by `(row_status, failed)`,
       because `Skipped` covers three different facts (failed at the bank, a duplicate, a payment
       hand-ticked Paid) and only the first leaves the figures.
-    - ⚠️ **`StatusTally.failed` tallies are excluded from `by_status` TOO**, so
-      `sum(by_status counts) == total_rows` still holds *in the aggregate*.
+    - ⚠️ **`StatusTally.failed` tallies are excluded from `by_status` TOO.** This used to
+      be followed by "so `sum(by_status counts) == total_rows` still holds *in the aggregate*".
+      **THAT INVARIANT IS RETIRED (owner ruling 2026-08-21) and must not be restored** — `Skipped`
+      is now excluded from `total_rows` / `total_value` as well, via
+      `status.SUMMARY_EXCLUDED_STATUSES`, so a status sits in `by_status` without counting toward
+      the total by design. **What holds instead is `total_rows == open_rows + settled_rows`,
+      exactly**, and `decided_rows` is now `settled_rows` alone rather than the sum over
+      `TERMINAL_ROW_STATUSES`. The reason is measured, not aesthetic: 544 of 640 skipped rows on the
+      live database are cross-batch duplicates already counted in an earlier statement, so a
+      ₹2.85 crore "Total outflow" was mostly the same money counted twice. ⚠️
+      **`TERMINAL_ROW_STATUSES` ITSELF IS UNTOUCHED AND MUST STAY SO** — `derive_batch_status`,
+      `batch_is_open` and `review._FROZEN_ROW_STATUSES` all read it, so narrowing it to "fix" this
+      would change which statements Re-run match touches. The exclusion is LOCAL to
+      `derive_import_summary`. Pinned by
+      `test_status.TestSkippedLeavesTheStatementTotals::test_TERMINAL_ROW_STATUSES_STILL_CONTAINS_SKIPPED`.
+      ⚠️ **The Skipped chip and the failed footnote were deliberately NOT changed** (owner,
+      same ruling), so the footnote still names only the failed rows as excluded. That is a known,
+      accepted gap, not an oversight.
       **⚠️ THE SKIPPED CHIP NO LONGER RENDERS THAT FIGURE (owner, 2026-08-11).** `derive_import_summary`
       is UNCHANGED — `skipped_rows` is still 20 — but `summaryTiles` renders
       `skipped_rows + failed_rows`, because `row_status` is `Skipped` on all 47 and the chip is now a
@@ -666,11 +822,23 @@ thing — one master table across every import at `/bulk-import-outflow` — and
     out of 1,043**, because a period left in the store by an earlier visit was still applied while
     the control was hidden. Every number wrong, everything looking right, and nothing on screen able
     to reveal or clear it. An invisible filter is the worst kind.
-  - **A fresh import moves the screen to the statement's own declared period.** Statements are
-    routinely uploaded weeks after the transfers moved, so a new import can land entirely outside the
-    default `last 30 days` window — the page would refresh to a summary that does not mention it and
-    a table that does not list it, which reads as a failed upload. `ImportStatementDialog.onImported`
-    carries the period for exactly this.
+  - ⚠️ **A FRESH IMPORT NO LONGER MOVES THE PERIOD — IT PINS THE IMPORT SELECTOR INSTEAD**
+    (owner ruling 2026-08-21, REVERSING the P1 behaviour recorded here). That entry read: *"a fresh
+    import moves the screen to the statement's own declared period"*, on the reasoning that a
+    statement uploaded weeks late lands outside `last 30 days`, so the page would refresh to a
+    summary that does not mention it and a table that does not list it — **which reads as a failed
+    upload**. That reasoning still stands and is what makes "do nothing" the wrong answer.
+    - What replaced it: the page remembers the imported batch and PINS it through the existing
+      `handleSelectImport`. **A pinned import IGNORES the period entirely** (the 2026-08-12 ruling
+      above), so the whole statement is in view AND the reviewer's own period survives untouched in
+      its store. One rule doing two jobs, rather than a second rule.
+    - ⚠️ **IT FIRES ON THE DIALOG'S open → closed TRANSITION, NEVER IN `onImported`.** Pinning
+      navigates to `/bulk-import-outflow/<id>`, which REMOUNTS the page. Cashbook closes its dialog
+      immediately after import, but **Cashfree keeps it open through step 4** (CF/S7) — pinning at
+      import time would unmount the wizard mid-flow. One transition covers both.
+    - `setSources([])` and the Cashbook `setTab("matched")` are UNCHANGED and both still correct —
+      clearing the source can only ever widen what is in view, and a pinned Cashbook import is 100%
+      `Settled`, so the default worklist tab would otherwise be empty.
 - **The import dialog runs the match itself** — there is no case where somebody imports a statement
   and does not want it matched. A manual **Re-run match** stays on the summary, because re-running is
   normal (payments get hand-ticked all day). ⚠️ If the upload succeeds and the match then fails, that
@@ -721,6 +889,75 @@ thing — one master table across every import at `/bulk-import-outflow` — and
 - **The `Import` column is HIDDEN by default, not deleted** (CF/S1). In this table a filter IS a
   column header, so deleting it would have taken the Import facet with it — a request about screen
   width silently cutting the ability to filter by statement.
+- **The `Ledger` column is VISIBLE by default, and the asymmetry with its two hidden neighbours is
+  deliberate** (2026-08-21). It shows which of the three ledgers a row settled against, sits between
+  `Status` and `Outcome` because it qualifies the status ("Settled, against what"), and is blank on
+  an unsettled row.
+  - Its value is DERIVED at read time through `ledgers.SETTLED_LEDGER_SQL`, not stored — unlike
+    `settlement_origin`, which is denormalised onto the row.
+  - ⚠️ **IT IS DELIBERATELY NOT SORTABLE.** It is absent from `_SORTABLE_COLUMNS` server-side and
+    from `SERVER_SORT_COLUMNS` client-side, which is what withholds the header's sort affordance —
+    `HeaderCell` renders a plain `<span>` for a column outside that list, and `serverQuery`
+    independently falls back to `added_on`, so even a forced sort state cannot reach the server.
+    Sorting a per-row correlated probe over the whole filtered table is the cost; blank on most rows
+    is the reason it would buy little. Adding it needs a measurement, not symmetry.
+  - ⚠️ **REGISTERING THE FACET TAKES THREE LISTS, NOT ONE**: the server's `_FACET_COLUMNS`, the
+    server's SELECT list, and the client's `SERVER_FACET_COLUMNS`. `settlement_origin` shipped with
+    only the first and rendered an em dash on 849 settled rows; a column added to only the third
+    registers a tick box whose row set never moves. All three or none.
+  - Empty on the Not-Matched tab is HONEST — nothing in that scope has settled — and the Columns
+    menu removes it in one click. ⚠️ Per-tab hiding through `useOutflowRows`'s `alsoHidden` was
+    considered and REJECTED: it would re-hide the column on every tab change for somebody who had
+    just un-hidden it.
+- **Export is one control whose meaning follows the screen you are on** (2026-08-21). It sits in the
+  toolbar's `ml-auto` group, immediately LEFT of the "N transfers" count — Columns and Clear-filters
+  CHANGE the view, Export TAKES it with you, so it pairs with the count that states what you are
+  looking at rather than with the controls that alter it. The same `ExportButton` serves the master
+  table, the Skipped dialog (over that dialog's OWN `useOutflowRows` instance, so the file and the
+  list cannot come apart) and the Approved panel.
+  - **It exports the WHOLE filtered set, never the loaded page.** `export_outflow_rows` reuses
+    `_row_filters` + `_scope_clause` unchanged, so the file and the tab count describe one
+    population — a 50-row CSV under a tab reading 1,043 is this feature's own "button 688, table
+    893" defect in a form that outlives the screen.
+  - ⚠️ **OVER 20,000 IT REFUSES AND NAMES BOTH NUMBERS.** Never a silent `LIMIT`. The dialog is
+    titled **"Could not export"** rather than naming the cap, because a dropped connection and a
+    permission failure land in the same catch and a heading naming a limit above an unrelated
+    message is a confident wrong answer; the BODY is always the server's own sentence, rendered
+    verbatim so the two cannot drift.
+  - ⚠️ **EVERY COLUMN SHIPS, INCLUDING THE HIDDEN ONES.** `toExportColumns` takes no `hidden`
+    argument — not defaulted off, ABSENT — so no call site can make the file a function of a menu
+    somebody clicked and leave two exports of one table differing with nothing saying so.
+  - **Two columns exist ONLY in the file:** `settled_target_name` and `settled_target_amount`, in
+    `outflowExport.EXPORT_ONLY_COLUMNS`, appended after the screen's columns. ⚠️ **They must never
+    be given an `OUTFLOW_COLUMNS` entry** — `get_outflow_rows` does not select them, so a screen
+    column would render an em dash on every row forever. `settled_target_amount` is BLANK, never 0,
+    on an unsettled row.
+  - The Approved panel keeps `Approved on` and `Updated on` as **two separate columns**
+    (`ledger_read` asymmetry #1). A spreadsheet is where presenting a modification timestamp as an
+    approval would be hardest to catch later.
+- **The Settled tile carries a three-way ledger split** (2026-08-21) — Project Payments / Project
+  Expenses / Non Project Expenses, one line each under the tile's own sub-line, behind a 2px emerald
+  left rule that marks them as CHILDREN of the figure above rather than three more figures.
+  - The order is the server's and is FIXED, never sorted by value: a value-sorted list reshuffles
+    between periods and has to be re-read every time. A zero ledger still prints, on the same
+    reasoning `derive_import_summary` already gives for zero-filling every status.
+  - ⚠️ **THE THREE MUST RECONCILE EXACTLY TO `settled_value`.** That is why the endpoint sums the
+    ROW amount rather than `m.target_amount`, and why it applies the same failed-transfer exclusion
+    the main query does.
+  - `settledLedgerRows` returns `[]` for an ABSENT payload key, so an older server degrades to
+    rendering nothing rather than a confident `Project Payments 0` over a settled table.
+- **The Import selector is a searchable Combobox, not a `Select`** (2026-08-21) — up to 60 statements
+  is past what a plain select serves. Two-line items: filename + source micro-label, then
+  `period · uploader`. Period first, because `list_imports` is ORDERED by period and that is what a
+  reader scans for. The uploader is the email's local part (`importUploaderLabel`), full address in
+  a `title`.
+  - ⚠️ **THE TRIGGER STAYS ONE LINE AT `h-8`.** Source / Import / Period sit in one row and all
+    three are `h-8`; a two-line trigger breaks that alignment.
+  - ⚠️ **`All imports` IS A REAL cmdk ITEM WITH A CUSTOM FILTER SCORING IT 1, NOT `forceMount`.**
+    `forceMount` de-registers an item from cmdk's store, which would silently kill arrow-key and
+    Enter selection on the one item that must always be reachable.
+  - The control is NOT disabled while pinned (Source and Period are) — it is the only way back out
+    of a pinned statement, including from a deep link.
 - **"Confirm all matched" is CONFIRM, never APPROVE** (owner ruling 2026-08-09). This feature never
   approves anything; a button saying otherwise would tell an accountant they are approving payments.
   It acts only on `Matched` rows **carrying a stored suggestion** — a row that matched several
@@ -1494,7 +1731,10 @@ recoverable, so the unknown case falls on the recoverable side.
 
 **Direction of risk:** this can only ever make the guard **looser** — more rows import, never fewer.
 Safe for the same reason the D3 period narrowing is: the real backstop against paying twice is the
-`Outflow Row Match` unique constraint, untouched.
+`Outflow Row Match` unique constraint, untouched. ⚠️ **That last sentence is CASHFREE-SCOPED.** On
+the Cashbook path the constraint cannot fire at all (a create mints a new `target_name`), so the
+looseness there is held by `_already_imported` + `_already_booked` and by nothing else — see
+"The Cashbook duplicate guard" above.
 
 #### The repair patch — and why a re-upload cannot do it
 
