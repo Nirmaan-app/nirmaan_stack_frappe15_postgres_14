@@ -40,6 +40,7 @@ import {
   queryKeys,
 } from "@/config/queryKeys";
 import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetOverrides } from "@/components/data-table/facetConfig";
 import { toast } from "@/components/ui/use-toast";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { NewProjectInvoiceDialog } from "./components/NewProjectInvoiceDialog"; // Import the renamed/refactored create dialog
@@ -53,10 +54,48 @@ import { useDialogStore } from "@/zustand/useDialogStore"; // For managing edit 
 import { Customers } from "@/types/NirmaanStack/Customers";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 
-export const AllProjectInvoices: React.FC<{
+interface AllProjectInvoicesProps {
   projectId?: string;
   customerId?: string;
-}> = ({ projectId, customerId }) => {
+  /**
+   * Extra server-side filters merged with the project/customer context filters.
+   * Used by the Reports sheet to apply the shared report date range.
+   */
+  additionalFilters?: Array<[string, string, string]>;
+  /**
+   * Override the URL-sync namespace so an embedded instance (e.g. the Reports
+   * sheet) keeps its own search/sort/filter state instead of sharing the
+   * sidebar page's.
+   */
+  urlSyncKey?: string;
+  /** Read-only mode: hides Edit/Delete actions and the create dialog. */
+  disableActions?: boolean;
+  /**
+   * Override which columns offer the in-table date filter. The Reports sheet
+   * passes [] because the standalone range picker already owns invoice_date.
+   */
+  dateFilterColumns?: string[];
+  /**
+   * Override the tall-list container height (default `h-[calc(100vh-80px)]`).
+   * The Reports sheet sits under the tabs + date picker, so it needs a shorter
+   * one. Small result sets still collapse to `h-auto` as before.
+   */
+  tallContainerClassName?: string;
+}
+
+// Stable empty so a surface that passes no `additionalFilters` hands the facet
+// hooks the SAME ref every render (a fresh [] would churn their filter memos).
+const EMPTY_FACET_SCOPE: Array<[string, string, string]> = [];
+
+export const AllProjectInvoices: React.FC<AllProjectInvoicesProps> = ({
+  projectId,
+  customerId,
+  additionalFilters,
+  urlSyncKey,
+  disableActions = false,
+  dateFilterColumns,
+  tallContainerClassName,
+}) => {
   // =================================================================================
   // 1. STATE & ROLE MANAGEMENT
   // =================================================================================
@@ -66,8 +105,9 @@ export const AllProjectInvoices: React.FC<{
     role === "Nirmaan PMO Executive Profile";
   const isAccountant = role === "Nirmaan Accountant Profile" || role === "Nirmaan Accountant Lead Profile";
   // Edit available to Admin + Accountant; Delete remains Admin-only.
-  const canEdit = isAdmin || isAccountant;
-  const canDelete = isAdmin;
+  // `disableActions` (Reports sheet) strips both regardless of role.
+  const canEdit = !disableActions && (isAdmin || isAccountant);
+  const canDelete = !disableActions && isAdmin;
   const { ceoHoldProjectIds } = useCEOHoldProjects();
 
   // CEO Hold row highlighting
@@ -243,8 +283,11 @@ export const AllProjectInvoices: React.FC<{
 
   // Build static filters based on context (project or customer)
   const staticFilters = useMemo(
-    () => getProjectInvoiceStaticFilters(customerId, projectId),
-    [customerId, projectId]
+    () => [
+      ...getProjectInvoiceStaticFilters(customerId, projectId),
+      ...(additionalFilters ?? []),
+    ],
+    [customerId, projectId, additionalFilters]
   );
 
   const {
@@ -269,7 +312,7 @@ export const AllProjectInvoices: React.FC<{
     additionalFilters: staticFilters,
     fetchFields: PROJECT_INVOICE_FIELDS_TO_FETCH,
     searchableFields: PROJECT_INVOICE_SEARCHABLE_FIELDS,
-    urlSyncKey: `project_invoices_${customerId || projectId || "all"}`,
+    urlSyncKey: urlSyncKey ?? `project_invoices_${customerId || projectId || "all"}`,
     defaultSort: "invoice_date desc",
     aggregatesConfig: PROJECT_INVOICE_AGGREGATES_CONFIG,
   });
@@ -331,6 +374,12 @@ export const AllProjectInvoices: React.FC<{
   // below. project_gst stays on the LEGACY facet path: its option labels apply a display-label
   // transform (getGstName relabel of the raw GST value) the self-fetching interface does not
   // carry — a legacy label island.
+  // Facet counts are scoped by the SAME `additionalFilters` the list is scoped by
+  // (the Reports sheet's date range), so the dropdown can't advertise all-time
+  // counts against a narrowed table. Every other surface passes none, so their
+  // facets are unchanged.
+  const facetScopeFilters = additionalFilters ?? EMPTY_FACET_SCOPE;
+
   const { facetOptions: gstFacetOptions, isLoading: isGstFacetLoading } =
     useFacetValues({
       doctype: DOCTYPE,
@@ -338,8 +387,20 @@ export const AllProjectInvoices: React.FC<{
       currentFilters: columnFilters,
       searchTerm,
       selectedSearchField,
+      additionalFilters: facetScopeFilters,
       enabled: true,
     });
+
+  // project / customer / owner are self-fetching facets (meta.facet + facetDoctype);
+  // they take their render-scope context through `facetOverrides`.
+  const facetOverrides = useMemo<FacetOverrides>(
+    () => ({
+      project: { additionalFilters: facetScopeFilters },
+      customer: { additionalFilters: facetScopeFilters },
+      owner: { additionalFilters: facetScopeFilters },
+    }),
+    [facetScopeFilters]
+  );
 
   // Only the project_gst label-island facet remains on the legacy path; project / customer /
   // owner are now self-fetched via meta.facet + facetDoctype.
@@ -373,7 +434,7 @@ export const AllProjectInvoices: React.FC<{
       className={cn(
         "flex flex-col gap-2 overflow-hidden",
         totalCount > 10
-          ? "h-[calc(100vh-80px)]"
+          ? tallContainerClassName ?? "h-[calc(100vh-80px)]"
           : totalCount > 0
             ? "h-auto"
             : ""
@@ -395,7 +456,8 @@ export const AllProjectInvoices: React.FC<{
           onSearchTermChange={setSearchTerm}
           facetFilterOptions={facetOptionsConfig}
           facetDoctype={DOCTYPE}
-          dateFilterColumns={PROJECT_INVOICE_DATE_COLUMNS}
+          facetOverrides={facetOverrides}
+          dateFilterColumns={dateFilterColumns ?? PROJECT_INVOICE_DATE_COLUMNS}
           showExportButton={true}
           onExport={"default"}
           onExportAll={exportAllRows}
@@ -417,12 +479,14 @@ export const AllProjectInvoices: React.FC<{
         />
       )}
 
-      {/* Render New Project Invoice Dialog */}
-      <NewProjectInvoiceDialog
-        listMutate={refetch as any}
-        ProjectId={projectId}
-      // onClose can be added if needed by NewProjectInvoiceDialog, but not strictly necessary for this split
-      />
+      {/* Render New Project Invoice Dialog (skipped in read-only mode) */}
+      {!disableActions && (
+        <NewProjectInvoiceDialog
+          listMutate={refetch as any}
+          ProjectId={projectId}
+        // onClose can be added if needed by NewProjectInvoiceDialog, but not strictly necessary for this split
+        />
+      )}
 
       {/* Render Edit Project Invoice Dialog conditionally */}
       {invoiceToEdit && (

@@ -149,6 +149,37 @@ export interface OutflowImportRow {
      * and count on it without a join.
      */
     settlement_origin?: string;
+    /**
+     * Which ledger this row settled against: "Project Payments" / "Project Expenses" /
+     * "Non Project Expenses". Blank until the row is settled.
+     *
+     * ⚠️ DERIVED AT READ TIME from the row's `Outflow Row Match`, not stored on the row -- unlike
+     * `settlement_origin` beside it, which is denormalised onto the row. Same shape all the same:
+     * blank on an unsettled row is CORRECT, because an open transfer has no settlement yet and so
+     * has no ledger. The facet's own "(blank)" entry is what selects them.
+     *
+     * ⚠️ FILTERABLE BUT NOT SORTABLE. `review._FACET_COLUMNS` carries it; `_SORTABLE_COLUMNS`
+     * deliberately does not -- ordering the whole filtered table by a per-row correlated subquery
+     * that is blank on most rows buys nothing. It is absent from `SERVER_SORT_COLUMNS` for the
+     * same reason, which is also what withholds the header's sort affordance.
+     */
+    settled_ledger?: string;
+    /**
+     * The settled record's own name and amount.
+     *
+     * ⚠️ EXPORT-ONLY. `get_outflow_rows` does NOT return these two -- only
+     * `export_outflow_rows` does -- so they are declared here for the CSV path and must NEVER be
+     * given an entry in `OUTFLOW_COLUMNS`. A screen column reading a field the page query does not
+     * select renders an em dash on every row forever, which is the `settlement_origin` defect
+     * (a facet registered without its SELECT) wearing the other face.
+     *
+     * They exist because a reconciler opening the file asks "which record, and for how much" --
+     * and on a partial settle `settled_target_amount` differs from the transfer's own `amount`,
+     * which is the whole reason to look. `settled_target_amount` stays null on an unsettled row
+     * rather than 0: an open transfer did not settle nothing, it settled nothing YET.
+     */
+    settled_target_name?: string;
+    settled_target_amount?: number | null;
     /** Denormalised from the batch, so the table can filter by source without a join. */
     source?: string;
     /**
@@ -314,6 +345,22 @@ export interface OutflowImportSummary {
         failed_rows: number;
         failed_value: number;
     };
+    /**
+     * Where the settled money went, one entry per ledger — ORDERED AND ZERO-FILLED BY THE SERVER.
+     *
+     * ⚠️ OPTIONAL, so a client running against a server that predates the key renders nothing
+     * rather than claiming every ledger settled zero — the call `settled_from_suggestion` above
+     * already makes, for the same reason. `outflowTableModel.settledLedgerRows` is the one reader
+     * and passes the list through untouched: the order and the fill are the server's, because it
+     * holds the `GROUP BY` (`derive_import_summary`), and a client that re-sorted or re-totalled
+     * would be a second opinion about figures printed beside the server's own.
+     */
+    settled_by_ledger?: {
+        /** `Project Payments` / `Project Expenses` / `Non Project Expenses` / `Other`. */
+        ledger: string;
+        rows: number;
+        value: number;
+    }[];
     auto_skipped_rows: number;
     manually_skipped_rows: number;
 }

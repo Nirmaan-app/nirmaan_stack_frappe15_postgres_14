@@ -1,9 +1,19 @@
 // src/pages/outflow-import/components/SkippedRowsDialog.tsx
 
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Search, X } from "lucide-react";
+import { useFrappePostCall } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
     Dialog,
     DialogContent,
@@ -12,9 +22,14 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
+import { exportToCsv } from "@/utils/exportToCsv";
 
+import { ExportButton } from "./ExportButton";
 import { ClearFiltersButton, OutflowRowsTable, TablePagination } from "./OutflowRowsTable";
 import { useOutflowRows } from "../useOutflowRows";
+import { exportFileBase, toExportColumns } from "../outflowExport";
+import { OUTFLOW_COLUMNS, describeFrappeError } from "../outflowTableModel";
 
 interface Props {
     /**
@@ -92,6 +107,37 @@ export const SkippedRowsDialog = ({ batch, skippedRows, failedRows, open, onOpen
         () => !table.loading && table.rows.length === 0,
         [table.loading, table.rows.length]
     );
+
+    const [exportError, setExportError] = useState<string | null>(null);
+    const { call: callExport } = useFrappePostCall<{
+        message: { rows: OutflowImportRow[]; total: number };
+    }>("nirmaan_stack.api.outflow_import.review.export_outflow_rows");
+
+    /**
+     * ⚠️ IT SENDS **THIS** TABLE'S QUERY, NOT THE PAGE'S. This dialog holds its own `useOutflowRows`
+     * instance — fixed to the `skipped` scope, carrying its own search and its own Already-paid /
+     * Bank-refused split — and exporting the page's query here would download the worklist from
+     * behind the dialog under a filename saying `outflow-skipped`. The scope in `exportQuery` names
+     * the file and selects the rows, so the two cannot come apart.
+     */
+    const handleExport = useCallback(async () => {
+        setExportError(null);
+        try {
+            const response = await callExport({
+                ...table.exportQuery,
+                facets: JSON.stringify(table.exportQuery.facets ?? {}),
+            });
+            exportToCsv(
+                exportFileBase(table.exportQuery.scope),
+                response?.message?.rows ?? [],
+                // See `toExportColumns` — this is the shape `exportToCsv` reads, which TanStack's
+                // `ColumnDef` cannot express without augmenting `ColumnMeta` app-wide.
+                toExportColumns(OUTFLOW_COLUMNS) as any
+            );
+        } catch (err) {
+            setExportError(describeFrappeError(err, "The export failed."));
+        }
+    }, [callExport, table.exportQuery]);
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -175,11 +221,35 @@ export const SkippedRowsDialog = ({ batch, skippedRows, failedRows, open, onOpen
                         ))}
                     </div>
                     <ClearFiltersButton count={table.filterCount} onClear={table.clearFilters} />
-                    <span className="ml-auto text-xs text-muted-foreground">
-                        {table.total.toLocaleString()}{" "}
-                        {table.total === 1 ? "transfer" : "transfers"}
-                    </span>
+                    {/* Export rides with the COUNT, not with the filters — the count says what you
+                        are looking at and this says "give me that". Same grouping as the master
+                        table's toolbar, for the same reason. */}
+                    <div className="ml-auto flex items-center gap-2">
+                        <ExportButton total={table.total} onExport={handleExport} />
+                        <span className="text-xs text-muted-foreground">
+                            {table.total.toLocaleString()}{" "}
+                            {table.total === 1 ? "transfer" : "transfers"}
+                        </span>
+                    </div>
                 </div>
+
+                {/* The server's own sentence, unrewritten — see the master page's copy of this. */}
+                <AlertDialog
+                    open={exportError !== null}
+                    onOpenChange={(next) => !next && setExportError(null)}
+                >
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Could not export</AlertDialogTitle>
+                            <AlertDialogDescription>{exportError}</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogAction onClick={() => setExportError(null)}>
+                                Close
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
 
                 {/* ⚠️ BOTH AXES. The table is wider than a dialog, and without the horizontal scroll the
                     Status and Outcome columns fall off the right edge — Outcome being the one that

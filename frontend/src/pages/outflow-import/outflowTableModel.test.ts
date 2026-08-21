@@ -3,9 +3,13 @@ import { describe, expect, it } from "vitest";
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import {
     DEFAULT_HIDDEN_COLUMNS,
+    UPLOADER_DISPLAY_MAX,
+    importUploaderLabel,
+    settledLedgerRows,
     DEFAULT_TAB,
     PERIOD_COLUMN_ID,
     SERVER_FACET_COLUMNS,
+    SERVER_SORT_COLUMNS,
     importsCoveredLabel,
     isDateFilterValue,
     rematchWarning,
@@ -124,6 +128,13 @@ describe("columns", () => {
         // "Reference". Both pins were updated deliberately rather than worked around: the Import
         // selector above the summary answers "which statement?" in a control you can act on, and
         // the header could not keep promising a UTR once a Cashbook row renders its wallet id.
+        //
+        // ⚠️ "Ledger" JOINED VISIBLE, and this pin was updated deliberately rather than worked
+        // around. It sits BETWEEN "Status" and "Outcome" because it qualifies the status --
+        // "Settled, against what" -- and it ships visible although the two other late additions
+        // (`settlement_origin`, `import_batch`) ship hidden: the owner asked for the COLUMN on the
+        // Matched/Settled tab, where about half the rows carry a value. On the Not-Matched tab it
+        // is empty, which is honest rather than broken.
         const shown = OUTFLOW_COLUMNS.filter((c) => !c.hiddenByDefault).map((c) => c.title);
         expect(shown).toEqual([
             "Payment Date",
@@ -132,6 +143,7 @@ describe("columns", () => {
             "Remarks",
             "Reference",
             "Status",
+            "Ledger",
             "Outcome",
             "Source",
         ]);
@@ -177,6 +189,58 @@ describe("columns", () => {
         const col = OUTFLOW_COLUMNS.find((c) => c.id === "settlement_origin")!;
         expect(col.filter).toBe("facet");
         expect(col.title).toBe("Settled via");
+    });
+
+    it("puts the Ledger column immediately after Status, where it qualifies one", () => {
+        // "Settled" and "Settled, against what" are one thought. Past the Outcome button it would
+        // be two scrolling columns away from the word it modifies.
+        const ids = OUTFLOW_COLUMNS.map((c) => c.id);
+        expect(ids[ids.indexOf("row_status") + 1]).toBe("settled_ledger");
+        expect(ids[ids.indexOf("settled_ledger") + 1]).toBe("outcome");
+    });
+
+    it("ships the Ledger column VISIBLE, unlike the other late additions", () => {
+        // ⚠️ THE ONE A FUTURE READER WILL QUESTION, because `settlement_origin` and `import_batch`
+        // sit beside it hidden. The owner asked for a COLUMN on the Matched/Settled tab (about
+        // half those rows carry a value); on Not-Matched it is empty, and an empty column there is
+        // HONEST -- it says nothing in this scope has settled. Per-tab hiding via
+        // `useOutflowRows`'s `alsoHidden` was rejected: it would re-hide the column at every tab
+        // change for somebody who had just un-hidden it.
+        const col = OUTFLOW_COLUMNS.find((c) => c.id === "settled_ledger")!;
+        expect(col.title).toBe("Ledger");
+        expect(col.filter).toBe("facet");
+        expect(col.hiddenByDefault).toBeUndefined();
+        expect(DEFAULT_HIDDEN_COLUMNS).not.toContain("settled_ledger");
+    });
+
+    it("reads the ledger off the row, and blank when nothing has settled", () => {
+        // Blank is CORRECT, not missing data: an open transfer has no settlement, so it has no
+        // ledger. `get` must never return undefined -- it feeds the sort, the funnel and the CSV.
+        const col = OUTFLOW_COLUMNS.find((c) => c.id === "settled_ledger")!;
+        expect(col.get(row({ settled_ledger: "Project Payments" }))).toBe("Project Payments");
+        expect(col.get(row({ settled_ledger: "Non Project Expenses" }))).toBe(
+            "Non Project Expenses"
+        );
+        expect(col.get(row())).toBe("");
+        expect(col.get(row({ settled_ledger: undefined }))).toBe("");
+    });
+
+    it("faceted on the server and NEVER sorted there", () => {
+        // The facet needs all three lists to agree (see `SERVER_FACET_COLUMNS`) -- the generic
+        // both-directions check further down covers that. This pins the OTHER half, which no
+        // generic check can: the server derives this value per row from `Outflow Row Match` and
+        // keeps it out of `_SORTABLE_COLUMNS`, so offering a sort would be a click it rejects.
+        // The header draws its sort button from exactly this list, so the absence is also what
+        // withholds the affordance.
+        expect(SERVER_FACET_COLUMNS).toContain("settled_ledger");
+        expect(SERVER_SORT_COLUMNS).not.toContain("settled_ledger");
+    });
+
+    it("is in OUTFLOW_COLUMNS, which is what carries it into the CSV export", () => {
+        // `outflowExport.toExportColumns` maps OUTFLOW_COLUMNS one-for-one, so membership here IS
+        // the export wiring -- there is no second list to add it to, and asserting it in the
+        // export suite would only re-test the same mapping.
+        expect(OUTFLOW_COLUMNS.map((c) => c.id)).toContain("settled_ledger");
     });
 
     it("gives Outcome no filter, because it is a button and not text", () => {
@@ -2543,5 +2607,92 @@ describe("deductionOffer — may the shortfall be recorded as TDS? (TD)", () => 
             expect(offer.eligible).toBe(true);
             expect(amount - offer.tds).toBeCloseTo(bank, 2);
         }
+    });
+});
+
+describe("settledLedgerRows — the settled split, passed through", () => {
+    const split = [
+        { ledger: "Project Payments", rows: 612, value: 4_812_000 },
+        { ledger: "Project Expenses", rows: 0, value: 0 },
+        { ledger: "Non Project Expenses", rows: 7, value: 21_500 },
+    ];
+
+    it("an ABSENT key renders nothing rather than claiming every ledger settled zero", () => {
+        // ⚠️ THE FALLBACK IS LOAD BEARING, exactly as `settled_from_suggestion`'s is. A client
+        // against a server predating the key must not print `Project Payments 0` over a table full
+        // of settled transfers.
+        expect(settledLedgerRows(undefined)).toEqual([]);
+        expect(settledLedgerRows()).toEqual([]);
+    });
+
+    it("keeps the server's ORDER verbatim, including a zero-filled ledger", () => {
+        // The server ordered these and emitted the zero row; re-sorting or dropping the zero here
+        // would be a second opinion about figures printed beside the server's own.
+        expect(settledLedgerRows(split).map((r) => r.ledger)).toEqual([
+            "Project Payments",
+            "Project Expenses",
+            "Non Project Expenses",
+        ]);
+        expect(settledLedgerRows(split)).toEqual(split);
+    });
+
+    it("does not re-total, re-fill or otherwise touch a row", () => {
+        const odd = [
+            { ledger: "Other", rows: 3, value: 900 },
+            { ledger: "Project Payments", rows: 1, value: 100 },
+        ];
+        // Deliberately NOT alphabetical and deliberately missing two ledgers: whatever the server
+        // sends is what renders.
+        expect(settledLedgerRows(odd)).toEqual(odd);
+        expect(settledLedgerRows([])).toEqual([]);
+    });
+});
+
+describe("importUploaderLabel", () => {
+    it("drops the domain — every user on this screen shares it", () => {
+        expect(importUploaderLabel({ uploaded_by: "shanu@nirmaan.app" })).toBe("shanu");
+        expect(importUploaderLabel({ uploaded_by: "nitesh@nirmaan.app" })).toBe("nitesh");
+        expect(importUploaderLabel({ uploaded_by: "priyanka@nirmaan.app" })).toBe("priyanka");
+    });
+
+    it("truncates a long local part and SAYS SO with an ellipsis", () => {
+        // 16 characters -- one past the limit, so the ellipsis is the only thing distinguishing it
+        // from a name that happens to fit.
+        expect(importUploaderLabel({ uploaded_by: "abcdefghijklmnop@nirmaan.app" })).toBe(
+            "abcdefghijklmno…"
+        );
+        // Exactly at the limit: shown whole, no ellipsis.
+        expect(importUploaderLabel({ uploaded_by: "abcdefghijklmno@nirmaan.app" })).toBe(
+            "abcdefghijklmno"
+        );
+        expect(UPLOADER_DISPLAY_MAX).toBe(15);
+    });
+
+    it("applies the same length rule to a value with no @ at all", () => {
+        // `Administrator` is a real Frappe user id and is not an email.
+        expect(importUploaderLabel({ uploaded_by: "Administrator" })).toBe("Administrator");
+        expect(importUploaderLabel({ uploaded_by: "a-very-long-system-account" })).toBe(
+            "a-very-long-sys…"
+        );
+    });
+
+    it("blank in, blank out — the caller decides what an absent uploader looks like", () => {
+        // ⚠️ NOT an em dash. `importPeriodLabel` returns one because a missing period must read as
+        // missing in its own cell; an uploader may not deserve a row of chrome at all, and only the
+        // render site knows.
+        expect(importUploaderLabel({})).toBe("");
+        expect(importUploaderLabel({ uploaded_by: "" })).toBe("");
+        expect(importUploaderLabel({ uploaded_by: "   " })).toBe("");
+    });
+
+    it("keeps a value whose local part is empty rather than returning nothing", () => {
+        // Nothing sensible is left to shorten, and silently blanking it would read as "no uploader".
+        expect(importUploaderLabel({ uploaded_by: "@nirmaan.app" })).toBe("@nirmaan.app");
+    });
+
+    it("is DISPLAY ONLY — the full user id is unchanged and belongs in a title", () => {
+        const option = { uploaded_by: "priyanka@nirmaan.app" };
+        importUploaderLabel(option);
+        expect(option.uploaded_by).toBe("priyanka@nirmaan.app");
     });
 });

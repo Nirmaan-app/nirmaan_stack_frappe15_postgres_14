@@ -16,6 +16,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.outflow_import.approved import (
+    _DEFAULT_PAGE_SIZE,
+    export_approved_records,
     get_approved_projects,
     list_approved_records,
 )
@@ -213,3 +215,205 @@ class TestApprovedInbox(FrappeTestCase):
         self.assertTrue(
             seen <= offered, f"projects on screen but not offered: {sorted(seen - offered)}"
         )
+
+
+class TestTheApprovedExport(FrappeTestCase):
+    """`export_approved_records` -- the WHOLE filtered set, not the page (Export control).
+
+    ⚠️ THIS CLASS PLANTS MORE ROWS THAN A PAGE HOLDS and asserts on THOSE, by name. Everything it
+    checks is scoped to its own token, so it neither depends on nor disturbs whatever the live
+    ledgers hold; teardown deletes exactly the names it inserted and nothing else.
+    """
+
+    #: One more than the real default page size, so "not limited to a page" is measured against the
+    #: number the screen actually uses rather than a monkeypatched stand-in.
+    PLANTED = _DEFAULT_PAGE_SIZE + 5
+    TOKEN = None
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.TOKEN = f"TESTEXPORTBULK{frappe.generate_hash(length=8).upper()}"
+        cls.names = [f"TEST-NPE-EXP-{frappe.generate_hash(length=10)}" for _ in range(cls.PLANTED)]
+        values, params = [], []
+        for i, name in enumerate(cls.names):
+            values.append("(%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s)")
+            params.extend([name, "Administrator", "Administrator", 100 + i, "Approved",
+                           f"{cls.TOKEN} row {i}"])
+        frappe.db.sql(
+            """
+            INSERT INTO "tabNon Project Expenses"
+                (name, creation, modified, modified_by, owner, docstatus, idx,
+                 amount, status, description)
+            VALUES """
+            + ", ".join(values),
+            tuple(params),
+        )
+
+        # A Project Expense too -- the export must show the two date keys apart, and only a payment
+        # ever fills `approved_on` (asymmetry 1). Without an expense in the set that guard is vacuous.
+        cls.expense = f"TEST-PE-EXP-{frappe.generate_hash(length=10)}"
+        cls.expense_project = frappe.db.get_value("Projects", {}, "name")
+        frappe.db.sql(
+            """
+            INSERT INTO "tabProject Expenses"
+                (name, creation, modified, modified_by, owner, docstatus, idx,
+                 amount, status, description, projects)
+            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s)
+            """,
+            (cls.expense, "Administrator", "Administrator", "777.5", "Approved",
+             f"{cls.TOKEN} expense", cls.expense_project),
+        )
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        # ⚠️ SCOPED TO THE NAMES THIS CLASS INSERTED. This suite runs against the live site; a
+        # purge by status or by token prefix would be a delete over other people's records.
+        frappe.db.delete(NON_PROJECT_EXPENSE, {"name": ["in", cls.names]})
+        frappe.db.delete(PROJECT_EXPENSE, {"name": cls.expense})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    @staticmethod
+    def _ids(rows):
+        """Identity, not count. Two sets of the same size can still be different rows."""
+        return {(r["target_doctype"], r["name"]) for r in rows}
+
+    # --- the same population as the list, row for row ------------------------------------------
+
+    def test_the_export_holds_exactly_the_rows_the_list_holds(self):
+        """⚠️ IDENTITY, NOT COUNT. Equal totals over different rows is precisely the failure an
+        export must not have -- and it is invisible to a length check."""
+        listed = list_approved_records(search=self.TOKEN, limit=200)
+        exported = export_approved_records(search=self.TOKEN)
+        self.assertEqual(listed["total"], self.PLANTED + 1)
+        self.assertEqual(exported["total"], listed["total"])
+        self.assertEqual(self._ids(exported["rows"]), self._ids(listed["rows"]))
+
+    def test_a_row_comes_back_in_the_same_shape_the_page_returns(self):
+        """One row type for both surfaces, or the screen needs a second renderer and they drift."""
+        row = next(
+            r for r in export_approved_records(search=self.TOKEN)["rows"]
+            if r["name"] == self.names[0]
+        )
+        for key in (
+            "target_doctype", "name", "amount", "status", "vendor_name",
+            "project_name", "order_doctype", "order_name", "expense_type",
+            "approved_on", "updated_on",
+        ):
+            self.assertIn(key, row)
+
+    # --- it is not a page ----------------------------------------------------------------------
+
+    def test_the_export_is_not_limited_to_a_page(self):
+        """⚠️ THE WHOLE REASON THE ENDPOINT EXISTS. The list stops at its page size with more rows
+        behind it; the export must carry every one of them."""
+        page = list_approved_records(search=self.TOKEN)
+        self.assertEqual(len(page["rows"]), _DEFAULT_PAGE_SIZE)
+        self.assertGreater(page["total"], _DEFAULT_PAGE_SIZE)
+
+        exported = export_approved_records(search=self.TOKEN)
+        self.assertEqual(len(exported["rows"]), page["total"])
+        self.assertTrue(set(self.names) <= {r["name"] for r in exported["rows"]})
+
+    def test_the_screens_page_cap_is_untouched_by_the_export(self):
+        """⚠️ `_MAX_PAGE_SIZE` GUARDS THE SCREEN and must not be widened to serve a file: raising it
+        would let the panel render the whole ledger in one go."""
+        self.assertLessEqual(list_approved_records(search=self.TOKEN, limit=99999)["limit"], 200)
+
+    # --- every filter narrows the export exactly as it narrows the list ------------------------
+
+    def test_a_search_narrows_the_export_the_way_it_narrows_the_list(self):
+        one = export_approved_records(search="TESTZEPHYRNOTHINGMATCHESTHIS")
+        self.assertEqual(one["total"], 0)
+        self.assertEqual(one["rows"], [])
+
+        both = export_approved_records(search=self.TOKEN)
+        self.assertEqual(
+            self._ids(both["rows"]),
+            self._ids(list_approved_records(search=self.TOKEN, limit=200)["rows"]),
+        )
+
+    def test_a_ledger_filter_narrows_the_export_the_way_it_narrows_the_list(self):
+        for doctype in LEDGER_SOURCES:
+            exported = export_approved_records(ledger=doctype, search=self.TOKEN)
+            listed = list_approved_records(ledger=doctype, search=self.TOKEN, limit=200)
+            self.assertEqual(exported["total"], listed["total"])
+            self.assertEqual(self._ids(exported["rows"]), self._ids(listed["rows"]))
+            for row in exported["rows"]:
+                self.assertEqual(row["target_doctype"], doctype)
+
+        self.assertEqual(
+            export_approved_records(ledger=NON_PROJECT_EXPENSE, search=self.TOKEN)["total"],
+            self.PLANTED,
+        )
+
+    def test_a_project_filter_narrows_the_export_and_drops_the_projectless_ledger(self):
+        """⚠️ ASYMMETRY 3 THROUGH THE EXPORT. `Non Project Expenses` has no project column, so a
+        project filter excludes that ledger entirely -- the planted 55 must vanish, not match."""
+        # ⚠️ THE FILTER MATCHES THE PROJECT AS THE ROW REPORTS IT (`project_name`, which falls back
+        # to the link when the join misses), not the Projects doc id -- so take it from the row.
+        planted = next(
+            (
+                r for r in export_approved_records(search=self.TOKEN)["rows"]
+                if r["name"] == self.expense
+            ),
+            None,
+        )
+        if planted is None or not planted["project_name"]:
+            self.skipTest("no project exists on this site")
+        wanted = planted["project_name"]
+        exported = export_approved_records(search=self.TOKEN, project=wanted)
+        listed = list_approved_records(search=self.TOKEN, project=wanted, limit=200)
+        self.assertEqual(self._ids(exported["rows"]), self._ids(listed["rows"]))
+        self.assertEqual([r["name"] for r in exported["rows"]], [self.expense])
+        for row in exported["rows"]:
+            self.assertNotEqual(row["target_doctype"], NON_PROJECT_EXPENSE)
+
+    # --- the cap refuses, and says both numbers ------------------------------------------------
+
+    def test_it_REFUSES_over_the_cap_rather_than_truncating_and_names_both_numbers(self):
+        """⚠️ THE DIRECTION IS THE POINT, as with `_MAX_CONFIRMABLE`. A silently `LIMIT`ed download
+        is a list nobody chose, whose missing rows share no property anything on screen could name
+        -- and a file outlives the session that made it. The refusal must name the size and the
+        limit, or "too many" is not actionable."""
+        from nirmaan_stack.api.outflow_import import approved as A
+
+        original = A._MAX_EXPORT
+        A._MAX_EXPORT = 3
+        self.addCleanup(setattr, A, "_MAX_EXPORT", original)
+        with self.assertRaises(frappe.ValidationError) as caught:
+            A.export_approved_records(search=self.TOKEN)
+        message = str(caught.exception)
+        self.assertIn(f"{self.PLANTED + 1:,}", message)
+        self.assertIn("3", message)
+
+        # Under the cap the same call succeeds -- the refusal is the cap, not the query.
+        A._MAX_EXPORT = original
+        self.assertEqual(
+            A.export_approved_records(search=self.TOKEN)["total"], self.PLANTED + 1
+        )
+
+    # --- asymmetry 1, straight through the export ----------------------------------------------
+
+    def test_the_export_keeps_the_two_date_keys_apart(self):
+        """⚠️ A CSV IS WHERE THIS LIE WOULD BE HARDEST TO CATCH. Only `Project Payments` records an
+        approval date; the expense doctypes have no approval date, no approver and no approval step
+        at all. A merged column would present a modification as an approval, in a file that outlives
+        the screen which could have contradicted it."""
+        expense = next(
+            r for r in export_approved_records(search=self.TOKEN)["rows"]
+            if r["name"] == self.expense
+        )
+        self.assertIn("approved_on", expense)
+        self.assertIn("updated_on", expense)
+        self.assertEqual(expense["approved_on"], "", "a Project Expense has no approval date")
+        self.assertTrue(expense["updated_on"], "but it does have a modification date")
+
+    def test_no_exported_row_ever_fills_both_date_keys(self):
+        for row in export_approved_records(ledger=PAYMENT)["rows"]:
+            self.assertFalse(
+                bool(row["approved_on"]) and bool(row["updated_on"]),
+                f"{row['name']} claims both an approval and a modification date",
+            )

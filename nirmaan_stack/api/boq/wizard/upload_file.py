@@ -300,6 +300,21 @@ def _upload_file_worker(project_id, file_url, file_name, user, is_template_sourc
         try:
             reader = BoqReader(worker_tmp)
         except Exception:
+            # LOG BEFORE RETURNING. This branch returns rather than raising, so
+            # without an explicit log_error it lands in NO Error Log at all -- the
+            # user sees a generic "corrupted" and nobody can tell WHY. That gap is
+            # what made the 2026-08-20 openpyxl-strictness failures undiagnosable
+            # (two real BoQs, two different out-of-spec attributes, one useless
+            # message). `_repair_fetched_workbook` now handles the two known
+            # defects at fetch time, so anything reaching here is a NEW defect and
+            # the traceback is the only way we will learn what it is.
+            frappe.log_error(
+                title="BoQ upload: workbook could not be opened",
+                message=(
+                    f"file_url={file_url!r} file_name={file_name!r}\n\n"
+                    f"{frappe.get_traceback()}"
+                ),
+            )
             _publish_and_record({"status": "error", "error_code": "corrupted"}, user)
             return
 

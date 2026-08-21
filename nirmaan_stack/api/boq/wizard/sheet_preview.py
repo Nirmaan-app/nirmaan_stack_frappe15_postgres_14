@@ -79,7 +79,45 @@ def _fetch_boq_file_to_tempfile(source_file_url: str) -> str:
     finally:
         tmp.close()
 
+    _repair_fetched_workbook(tmp.name, source_file_url)
+
     return tmp.name
+
+
+def _repair_fetched_workbook(path: str, source_file_url: str) -> None:
+    """Make an openpyxl-hostile workbook readable, in place. Best-effort.
+
+    THE CHOKEPOINT: every BoQ phase that opens the source workbook -- upload, config
+    preview, parse, commit, revision entry/mapping/confirm, revision carry, and both
+    rate exports -- materialises it through this function or its `parse_run` twin.
+    Repairing here is what makes one fix reach all of them; repairing at the open
+    sites instead would mean 12 patches and a new bug every time one is added.
+
+    Repair is TRANSIENT -- the stored S3 object is never rewritten. That preserves
+    the user's original upload, and it means BoQs ALREADY in the system with these
+    defects start working with no migration.
+
+    FAILS OPEN, deliberately: if the repair itself raises, the original file is
+    passed through untouched. A bug in the repair must never break a workbook that
+    was already fine. See `services/boq_parser/workbook_repair.py` for the rules.
+    """
+    try:
+        from nirmaan_stack.services.boq_parser.workbook_repair import (  # noqa: PLC0415
+            repair_in_place,
+        )
+
+        fired = repair_in_place(path)
+        if fired:
+            # Info, NOT log_error: a repaired BoQ is re-fetched on every preview and
+            # would otherwise spam an Error Log row per call.
+            frappe.logger("boq_upload").info(
+                f"Repaired BoQ workbook before open: rules={fired} url={source_file_url!r}"
+            )
+    except Exception:
+        frappe.logger("boq_upload").warning(
+            f"BoQ workbook repair failed, using file as-is: url={source_file_url!r}\n"
+            f"{frappe.get_traceback()}"
+        )
 
 
 def _to_json_serializable(value):

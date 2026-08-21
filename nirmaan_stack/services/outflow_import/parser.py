@@ -449,6 +449,39 @@ def _read_records(content: bytes) -> tuple[list[str], list[dict]]:
     return _read_csv(content)
 
 
+# --- the .xlsx read bounds (slice XLS-DIM) --------------------------------------------------------
+#
+# ⚠️ THESE EXIST BECAUSE A REAL CASHFREE EXPORT LIES ABOUT ITS OWN SIZE, and until 2026-08-21 that
+# lie made EVERY real .xlsx upload fail -- both sources -- while the committed fixtures passed.
+# Cashfree writes `<dimension ref="A1"/>` into the sheet XML: it declares the used range as ONE
+# CELL. `read_only=True` TRUSTS that declaration, so openpyxl clipped every row to column A and the
+# required-column check reported five of six columns missing while `Added On` -- column A -- was
+# found. The "everything except the first column" shape is the signature.
+#
+# ⚠️ `reset_dimensions = True` DOES NOT FIX IT and must not be reached for: on openpyxl 3.1.5 a
+# `ReadOnlyWorksheet` caches `max_row` / `max_column` from the parsed dimension at load time, and
+# the flag is only consulted by the non-read-only reader. Measured: still 1 row, 1 column.
+#
+# PASSING EXPLICIT BOUNDS TO `iter_rows` OVERRIDES THE DECLARATION, which is what these are for.
+# Dropping `read_only=True` also works but costs 44 MB against 8 MB on a 5,000-row sheet, for no
+# gain -- so the mode stays and the bounds do the work.
+#
+# ⚠️ `_MAX_SCAN_ROWS` IS EXCEL'S OWN ROW CEILING, DELIBERATELY. It can therefore never truncate a
+# workbook that Excel could open, which is the whole point: a cap that silently drops the tail of a
+# real statement would be a worse defect than the one this fixes. It is not a performance guard and
+# does NOT cost a million iterations -- openpyxl stops at the last row that actually holds data
+# (measured: 5,001 rows read in the same 5.0s as an unbounded pass).
+_MAX_SCAN_ROWS = 1_048_576
+
+# ⚠️ `_MAX_SCAN_COLUMNS` IS A REAL CEILING AND SO IT IS GUARDED, unlike the row one. Every cell up
+# to it is materialised per row, so it cannot be set to Excel's 16,384 -- at 5,000 rows the cost is
+# 14 MB at 200 against 8 MB at the true width. A statement with more columns than this would be
+# silently short-read, so `_read_xlsx` REFUSES rather than proceeding when the header fills the
+# scan width. Loud beats quiet: a missing-column error naming a real cause is recoverable, a
+# statement parsed with its tail chopped off is not.
+_MAX_SCAN_COLUMNS = 200
+
+
 def _is_xlsx(content: bytes) -> bool:
     """An .xlsx is a ZIP archive, so it starts with the ZIP local-file-header magic.
 
@@ -478,6 +511,10 @@ def _read_xlsx(content: bytes) -> tuple[list[str], list[dict]]:
     `float`. Everything is stringified so `_build_row` sees exactly what it sees from a CSV and
     there is one set of coercion rules, not two. `str(datetime)` yields "YYYY-MM-DD HH:MM:SS",
     which `_parse_datetime` already accepts; that is why the format list carries it.
+
+    ⚠️ THE ITERATION IS BOUNDED AND THAT IS LOAD-BEARING, NOT TIDINESS. A real Cashfree export
+    declares `<dimension ref="A1"/>` and `read_only=True` believes it. See `_MAX_SCAN_ROWS` /
+    `_MAX_SCAN_COLUMNS` above for the full account; do not "simplify" the bounds away.
     """
     try:
         from openpyxl import load_workbook
@@ -498,16 +535,29 @@ def _read_xlsx(content: bytes) -> tuple[list[str], list[dict]]:
             raise StatementFormatError("The uploaded workbook has no sheets.")
         sheet = workbook[workbook.sheetnames[0]]
 
-        row_iter = sheet.iter_rows(values_only=True)
+        # ⚠️ BOUNDED ON PURPOSE -- an unbounded `iter_rows()` obeys the sheet's DECLARED dimension,
+        # and a real Cashfree export declares `A1`. See `_MAX_SCAN_ROWS` / `_MAX_SCAN_COLUMNS`.
+        row_iter = sheet.iter_rows(
+            values_only=True, max_row=_MAX_SCAN_ROWS, max_col=_MAX_SCAN_COLUMNS
+        )
         header_cells = next(row_iter, None)
         if header_cells is None:
             raise StatementFormatError("The uploaded statement has no header row.")
-        # Trailing empty header cells are what Excel leaves behind after a column is cleared.
+        # Trailing empty header cells are what Excel leaves behind after a column is cleared --
+        # and, since the read is bounded, also the padding out to `_MAX_SCAN_COLUMNS`.
         fieldnames = [("" if cell is None else str(cell)).strip() for cell in header_cells]
         while fieldnames and not fieldnames[-1]:
             fieldnames.pop()
         if not any(fieldnames):
             raise StatementFormatError("The uploaded statement has no header row.")
+        # ⚠️ NOTHING WAS TRIMMED => THE HEADER REACHED THE SCAN WIDTH, so there may be columns
+        # beyond it that were never read. Refuse rather than parse a statement with its tail
+        # silently chopped off.
+        if len(fieldnames) >= _MAX_SCAN_COLUMNS:
+            raise StatementFormatError(
+                f"This statement has more than {_MAX_SCAN_COLUMNS} columns, which is more than we "
+                "can read. Remove the unused columns, or save it as .csv and upload that."
+            )
 
         records: list[dict] = []
         for cells in row_iter:

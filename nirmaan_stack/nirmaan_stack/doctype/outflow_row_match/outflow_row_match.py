@@ -45,7 +45,7 @@ class OutflowRowMatch(Document):
 
 
 def on_doctype_update():
-    """The idempotency constraint plus the two read indexes.
+    """The idempotency constraint plus the three read indexes.
 
     EXPLICIT NAMES throughout. PostgreSQL index names are unique per SCHEMA, not per table, and
     Frappe generates them with no table prefix; `CREATE INDEX IF NOT EXISTS` matches by NAME ONLY,
@@ -53,9 +53,20 @@ def on_doctype_update():
 
     `add_unique` is itself idempotent -- it probes information_schema for the constraint name before
     issuing the ALTER TABLE -- so re-running a migrate is safe.
+
+    ⚠️ `import_row` IS THE THIRD, AND IT SERVES A READ THAT LIVES ENTIRELY OUTSIDE THIS TABLE.
+    `ledgers.SETTLED_LEDGER_SQL` -- the settled-ledger fact on the master table's rows, its column
+    funnel, and the summary panel's settled-by-ledger breakdown -- is a scalar correlated subquery
+    probing this column ONCE PER ROW of whatever the screen has selected, and
+    `review.get_outflow_facet_values` does a DISTINCT over the whole filtered table on top of it.
+    Without an index each of those is a sequential scan per probe. It was a plain Link with no index
+    at all until 2026-08-21 (confirmed against `pg_indexes`: only `_pkey`, `ofm_match_batch_idx`,
+    `ofm_match_transfer_idx` and `ofm_match_target_unique`), which is what the note on
+    `SETTLED_LEDGER_SQL` asked the next reader to measure before relying on it.
     """
     frappe.db.add_index("Outflow Row Match", ["import_batch"], "ofm_match_batch_idx")
     frappe.db.add_index("Outflow Row Match", ["transfer_id"], "ofm_match_transfer_idx")
+    frappe.db.add_index("Outflow Row Match", ["import_row"], "ofm_match_import_row_idx")
     frappe.db.add_unique(
         "Outflow Row Match",
         ["transfer_id", "target_doctype", "target_name"],

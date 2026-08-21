@@ -29,6 +29,13 @@ from nirmaan_stack.services.outflow_import.ledger_read import (
 _DEFAULT_PAGE_SIZE = 50
 _MAX_PAGE_SIZE = 200
 
+# ⚠️ THE EXPORT'S CEILING IS NOT THE PAGE'S, AND NEITHER MAY BE RAISED TO SUIT THE OTHER.
+# `_MAX_PAGE_SIZE` guards the SCREEN: 200 rows is what a table can hand a person at once, and
+# raising it would let the panel ask for the whole ledger in one render. `_MAX_EXPORT` guards a
+# FILE, which nobody scrolls -- so it is far larger, and it is a different number for a different
+# reason.
+_MAX_EXPORT = 20000
+
 
 @frappe.whitelist()
 def list_approved_records(
@@ -109,3 +116,64 @@ def _ledgers(ledger: str = None):
     if wanted in LEDGER_SOURCES:
         return [wanted]
     return list(LEDGER_SOURCES)
+
+
+@frappe.whitelist()
+def export_approved_records(
+    ledger: str = None,
+    search: str = None,
+    project: str = None,
+    sort_by: str = "decided_on",
+    sort_dir: str = "desc",
+):
+    """The WHOLE filtered set of approved-and-unpaid records, for the tab's Export control.
+
+    ⚠️ IT TAKES EXACTLY THE FILTERS `list_approved_records` TAKES, AND READS THROUGH THE SAME
+    `ledger_read.approved_rows`. It is deliberately NOT a fourth query that knows the three ledgers'
+    asymmetries -- the residence manifest names `ledger_read.py` as the one owner of that, and
+    `review._search_one_ledger` is already the second, deliberate caller. A third copy of "which
+    columns does a Non Project Expense not have" is how two surfaces come to disagree about the same
+    record. It takes no `limit`/`offset`: exporting one page of a filtered set is the defect this
+    endpoint exists to remove.
+
+    ⚠️ IT REFUSES OVER THE CAP, IT DOES NOT TRUNCATE -- the same direction as
+    `review._assert_confirmable_size`, and for the same reason. A silently `LIMIT`ed download is a
+    list nobody chose: the rows it dropped share no property, so nothing on the screen that produced
+    it could ever account for them, and a spreadsheet outlives the session that made it. Refusing
+    names both numbers and hands the person a lever -- filter, then try again.
+
+    ⚠️ `approved_on` AND `updated_on` STAY SEPARATE COLUMNS, exactly as the page returns them
+    (`ledger_read` asymmetry 1). Only `Project Payments` records an approval date; the two expense
+    doctypes have no approval date, no approver and no approval step at all, so a row fills exactly
+    one. A CSV is the worst place to merge them -- a modification presented as an approval survives
+    in a file long after the screen that could have contradicted it is closed.
+    """
+    require_outflow_access()
+
+    doctypes = _ledgers(ledger)
+    search = (search or "").strip()
+    project = (project or "").strip()
+
+    # ⚠️ COUNT FIRST, under the same filters, so the refusal can name the real number rather than
+    # "more than 20,000". The count is the same one the page's totals are taken from, so the figure
+    # quoted here is the figure the screen was already showing.
+    total = int(approved_count(doctypes, search=search, project=project)["total"])
+    if total > _MAX_EXPORT:
+        frappe.throw(
+            f"This export would hold {total:,} records. The limit is {_MAX_EXPORT:,}. "
+            "Filter by ledger or project, or search, then try again.",
+            title="Too many to export at once",
+        )
+
+    rows = approved_rows(
+        doctypes,
+        search=search,
+        project=project,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        limit=_MAX_EXPORT,
+        offset=0,
+    )
+    # ⚠️ THE SAME ROW SHAPE THE PAGE RETURNS, so the screen has ONE row type for both -- an export
+    # that reshaped its rows would need a second renderer, and the two would drift.
+    return {"rows": rows, "total": total}

@@ -11,18 +11,43 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import SITEURL from "@/constants/siteURL";
 import { formatDate } from "@/utils/FormatDate";
-import { Eye, Pencil, AlertTriangle, ChevronDown } from "lucide-react";
+import { Eye, Pencil, AlertTriangle, ChevronDown, Trash2 } from "lucide-react";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { TailSpin } from "react-loader-spinner";
 import { cn } from "@/lib/utils";
 import type { PODeliveryDocuments } from "@/types/NirmaanStack/PODeliveryDocuments";
 
 interface DeliveryChallanTableProps {
   documents: PODeliveryDocuments[];
   onEdit?: (doc: PODeliveryDocuments) => void;
+  /**
+   * Delete handler. OPTIONAL and off by default on purpose — this table is also
+   * rendered by the DC & MIR hub (`ViewAttachmentsDialog`) and by ITM detail
+   * (`ITMAttachmentSection`), and neither should grow a trash icon just because
+   * the PO detail page did. A surface opts in by passing both `onDelete` and
+   * `canDelete`.
+   */
+  onDelete?: (doc: PODeliveryDocuments) => void;
+  /** Per-row permission test. No trash icon renders unless this returns true. */
+  canDelete?: (doc: PODeliveryDocuments) => boolean;
+  /** `name` of the row currently being deleted — disables just that row, not all. */
+  deletingName?: string | null;
 }
 
 export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({
   documents,
   onEdit,
+  onDelete,
+  canDelete,
+  deletingName,
 }) => {
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
@@ -102,14 +127,76 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({
                     {onEdit && (
                       <Button
                         variant="ghost"
-                        size="sm"
+                        size="icon"
                         className={doc.is_stub === 1 ? "text-amber-700 hover:text-amber-900" : "text-primary hover:text-primary/80"}
                         onClick={() => onEdit(doc)}
+                        title={`${doc.is_stub === 1 ? "Update" : "Edit"} ${doc.type}`}
                         aria-label={`${doc.is_stub === 1 ? "Update" : "Edit"} ${doc.type}`}
                       >
-                        <Pencil className="h-4 w-4 mr-1" aria-hidden="true" />
-                        {doc.is_stub === 1 ? "Update" : "Edit"}
+                        <Pencil className="h-4 w-4" aria-hidden="true" />
                       </Button>
+                    )}
+                    {onDelete && canDelete?.(doc) && (
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-red-600 hover:text-red-800"
+                            disabled={deletingName === doc.name}
+                            title={`Delete ${doc.type}`}
+                            aria-label={`Delete ${doc.type}`}
+                          >
+                            <Trash2 className="h-4 w-4" aria-hidden="true" />
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Delete this {doc.type}?</DialogTitle>
+                          </DialogHeader>
+                          <DialogDescription asChild>
+                            <div className="space-y-2 text-sm">
+                              <p className="text-primary">
+                                {doc.type}
+                                {doc.reference_number ? ` (Ref ${doc.reference_number})` : ""}{" "}
+                                and its uploaded file will be permanently removed. This
+                                cannot be undone.
+                              </p>
+                              {doc.is_signed_by_client === 1 && (
+                                <p className="text-amber-700">
+                                  This document is signed by the client
+                                  {doc.client_representative_name
+                                    ? ` (${doc.client_representative_name})`
+                                    : ""}
+                                  . Deleting it removes that delivery proof.
+                                </p>
+                              )}
+                              {doc.is_stub === 1 && (
+                                <p className="text-muted-foreground">
+                                  This is a legacy record with no itemised quantities.
+                                </p>
+                              )}
+                            </div>
+                          </DialogDescription>
+                          <div className="flex items-center justify-end gap-2">
+                            {deletingName === doc.name ? (
+                              <TailSpin color="red" height={30} width={30} />
+                            ) : (
+                              <>
+                                <DialogClose asChild>
+                                  <Button
+                                    variant="outline"
+                                    className="border-primary text-primary"
+                                  >
+                                    Cancel
+                                  </Button>
+                                </DialogClose>
+                                <Button onClick={() => onDelete(doc)}>Confirm</Button>
+                              </>
+                            )}
+                          </div>
+                        </DialogContent>
+                      </Dialog>
                     )}
                   </div>
                 </TableCell>

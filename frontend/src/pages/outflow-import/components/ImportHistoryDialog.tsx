@@ -15,6 +15,7 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import {
     importPeriodLabel,
     importStatusTone,
+    importUploaderLabel,
     importsForSource,
 } from "../outflowTableModel";
 
@@ -146,6 +147,17 @@ const HistoryRow = ({
     onSelect: () => void;
 }) => {
     const transfers = option.successful_rows ?? 0;
+    /**
+     * ⚠️ THE UPLOADER READS THE SAME HERE AS IN THE IMPORT PICKER, AND THAT IS THE REASON IT IS
+     * HERE AT ALL. Both surfaces are fed by the SAME `list_imports`, and both exist to let a reader
+     * identify a statement — so if they disagreed about what one looks like, the reader would have
+     * to learn two descriptions of one file. Period first, then the uploader, in both.
+     *
+     * ⚠️ BLANK DROPS THE SEPARATOR WITH IT. A dangling ` · ` reads as a value that failed to render
+     * rather than one that was never recorded. The full user id goes in `title`, which is the
+     * display/stored split `importUploaderLabel` documents.
+     */
+    const uploader = importUploaderLabel(option);
 
     return (
         <li>
@@ -175,8 +187,12 @@ const HistoryRow = ({
                             </span>
                         )}
                     </div>
-                    <div className="truncate text-xs text-muted-foreground">
+                    <div
+                        className="truncate text-xs text-muted-foreground"
+                        title={option.uploaded_by || undefined}
+                    >
                         {importPeriodLabel(option)}
+                        {uploader ? ` · ${uploader}` : ""}
                     </div>
                 </div>
 

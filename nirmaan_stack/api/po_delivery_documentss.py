@@ -3,6 +3,8 @@ from frappe import _
 from frappe.utils import create_batch
 import json
 
+from nirmaan_stack.services.role_profiles import can_delete_delivery_document
+
 
 @frappe.whitelist()
 def create_po_delivery_documents(
@@ -376,3 +378,108 @@ def get_all_delivery_documents(doc_type=None, parent_doctype=None):
     )
 
     return _enrich_delivery_docs(docs)
+
+
+@frappe.whitelist()
+def delete_po_delivery_documents(document_name):
+    """
+    Delete a DC / MIR (`PO Delivery Documents`) together with its attachment.
+
+    Role-gated to admin + procurement + billing via
+    `role_profiles.can_delete_delivery_document`. That gate is the ONLY thing
+    standing here: every write in this module saves with
+    `flags.ignore_permissions = True`, so the doctype's permission rows never
+    run and a bare `@frappe.whitelist()` would be reachable by any logged-in
+    user.
+
+    Deleting the doc fires `on_trash` -> `action_items.doc_hooks.on_pdd_delete`,
+    which re-enqueues the project reconcile so a PO that just lost its last
+    Delivery Challan re-opens its DC_PENDING action item. Nothing to do here for
+    that -- it is already wired in hooks.py.
+
+    A client-signed document is NOT refused (the signature is metadata about the
+    delivery, not an approval state), but the caller is expected to have
+    confirmed. The UI surfaces an explicit warning for that case.
+    """
+    if not document_name:
+        frappe.throw(_("document_name is required"))
+
+    # Return (don't throw) the refusal so the frontend's `status !== 200` branch
+    # can surface THIS message in its toast. A frappe.throw reaches the SDK as a
+    # generic error string, with the real text buried in _server_messages.
+    if not can_delete_delivery_document(frappe.session.user):
+        return {
+            "status": 403,
+            "message": "You are not allowed to delete a Delivery Challan / MIR.",
+        }
+
+    if not frappe.db.exists("PO Delivery Documents", document_name):
+        # Idempotent: another tab already removed it. Tell the caller so it can
+        # refetch instead of surfacing a raw 500.
+        return {
+            "status": 404,
+            "message": "This Delivery Challan / MIR no longer exists. Refreshing.",
+        }
+
+    try:
+        frappe.db.begin()
+
+        doc = frappe.get_doc("PO Delivery Documents", document_name)
+        doc_type = doc.type
+        reference_number = doc.reference_number
+        attachment_id = doc.nirmaan_attachment
+        parent_docname = doc.parent_docname
+
+        # 1. Drop the underlying File row (and with it the GCS object) before the
+        #    Nirmaan Attachments record that points at it. Scoped by file_url +
+        #    parent so a shared URL on another document is never touched.
+        if attachment_id:
+            file_url = frappe.db.get_value("Nirmaan Attachments", attachment_id, "attachment")
+            if file_url and parent_docname:
+                frappe.db.delete(
+                    "File",
+                    {"file_url": file_url, "attached_to_name": parent_docname},
+                )
+
+            # 2. Delete the Nirmaan Attachments record. A missing one must NOT
+            #    abort the delete -- the row it described is going away anyway.
+            try:
+                frappe.delete_doc(
+                    "Nirmaan Attachments", attachment_id, ignore_permissions=True, force=True
+                )
+            except frappe.DoesNotExistError:
+                pass
+            except Exception:
+                frappe.log_error(
+                    title="DC/MIR Attachment Deletion Warning",
+                    message=frappe.get_traceback(),
+                )
+
+        # 3. Delete the delivery document itself. `force=True` skips the link and
+        #    permission checks (already gated above); `on_trash` still fires, and
+        #    the DC Item children cascade.
+        frappe.delete_doc(
+            "PO Delivery Documents", document_name, ignore_permissions=True, force=True
+        )
+
+        frappe.db.commit()
+
+        label = f"{doc_type} {reference_number}".strip() if reference_number else doc_type
+        return {
+            "status": 200,
+            "message": f"Deleted {label}.",
+        }
+
+    except frappe.DoesNotExistError:
+        frappe.db.rollback()
+        return {
+            "status": 404,
+            "message": "This Delivery Challan / MIR no longer exists. Refreshing.",
+        }
+    except Exception as e:
+        frappe.db.rollback()
+        frappe.log_error(title="DC/MIR Deletion Error", message=frappe.get_traceback())
+        return {
+            "status": 400,
+            "message": f"Failed to delete Delivery Challan / MIR: {str(e)}",
+        }

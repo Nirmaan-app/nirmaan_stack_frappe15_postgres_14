@@ -45,7 +45,11 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Iterable, Mapping, Sequence
 
-from nirmaan_stack.services.outflow_import.duplicates import row_identity
+from nirmaan_stack.services.outflow_import.duplicates import (
+    PriorSighting,
+    find_prior_sighting,
+    row_identity,
+)
 from nirmaan_stack.services.outflow_import.ledgers import (
     NON_PROJECT_EXPENSE_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
@@ -57,6 +61,7 @@ __all__ = [
     "FALLBACK_EXPENSE_TYPE",
     "ACTION_CREATE",
     "ACTION_SKIP",
+    "SKIP_ALREADY_BOOKED",
     "PlannedRow",
     "CashbookPlan",
     "PlanGroup",
@@ -83,6 +88,15 @@ SKIP_NOT_A_SPEND = "Moves money between our own balances, not a spend"
 SKIP_NOT_SUCCESSFUL = "Did not succeed at the wallet"
 SKIP_NO_AMOUNT = "No amount was debited"
 SKIP_ALREADY_IMPORTED = "Already imported in {batch}"
+# ⚠️ A DIFFERENT FACT FROM `SKIP_ALREADY_IMPORTED`, AND THE TWO MUST STAY APART. That one means an
+# earlier BATCH staged this transfer; this one means an EXPENSE already exists for it -- typically
+# keyed in by hand, outside this import entirely. Measured 2026-08-21: 17 live Non Project Expenses
+# carry a wallet transfer id nobody imported. Collapsing the two would send a reader to a batch that
+# does not exist.
+# ⚠️ ONE placeholder, and the caller composes it. `find_prior_sighting` hands back a single opaque
+# label by contract, so a two-placeholder message would have to SPLIT that label back apart on a
+# separator -- and a record name containing that separator would then be silently truncated.
+SKIP_ALREADY_BOOKED = "Already booked as {record}"
 SKIP_REPEATED_IN_FILE = "The same transfer appears earlier in this file"
 
 
@@ -159,20 +173,31 @@ def plan_statement(
     rows: Iterable,
     index: ProjectIndex,
     expense_rules: Mapping[str, Sequence[tuple[str, str]]],
-    already_imported: Mapping[tuple, str] | None = None,
+    already_imported: Mapping[tuple, tuple[PriorSighting, ...]] | None = None,
+    already_booked: Mapping[tuple, tuple[PriorSighting, ...]] | None = None,
 ) -> CashbookPlan:
     """Decide what every parsed row becomes.
 
-    `rows` are `parser.RawRow`s. `already_imported` maps a `duplicates.row_identity` to the batch
-    that holds it, so a re-uploaded statement reports WHERE it was seen before rather than merely
-    that it was -- the difference between a message somebody can act on and one they cannot.
+    `rows` are `parser.RawRow`s. Both lookups are `duplicates.index_prior_sightings` indexes, and
+    each one's LABEL is what its message names: a batch id for `already_imported`, a ledger and
+    record name for `already_booked`. They report WHERE the transfer was seen before rather than
+    merely that it was -- the difference between a message somebody can act on and one they cannot.
 
-    ⚠️ THE ORDER OF THE FOUR SKIP TESTS IS THE MESSAGE. A failed top-up is not a spend AND did not
+    ⚠️ `already_imported` IS AN INDEX, NOT THE OLD `row_identity -> batch` DICT. The triple-keyed
+    dict could only compare dates with `==`, which is precisely what `duplicates.dates_agree`
+    exists to refuse: one unreadable Added On on either side and a spend imported a SECOND time,
+    silently. The shape changed because the rule could not be applied in the old one.
+
+    ⚠️ THE ORDER OF THE SIX SKIP TESTS IS THE MESSAGE. A failed top-up is not a spend AND did not
     succeed; reporting it as "did not succeed" would send somebody looking for a failed payment
-    that never existed. Kind first, then outcome, then amount, then whether we have seen it.
+    that never existed. Kind, then outcome, then amount, then the three "seen before" tests --
+    which are themselves ordered by how actionable their answer is: an earlier BATCH names work
+    inside this feature, an existing EXPENSE names a record outside it, and "further up this sheet"
+    names the least. A row can satisfy several; it reports the most useful one.
     """
     seen: dict[tuple, int] = {}
     already = dict(already_imported or {})
+    booked = dict(already_booked or {})
     planned: list[PlannedRow] = []
 
     for raw in rows:
@@ -184,18 +209,31 @@ def plan_statement(
             beneficiary_name=(getattr(raw, "beneficiary_name", "") or "").strip(),
             spent_by=(getattr(raw, "added_by_raw", "") or "").strip(),
         )
-        skip = _skip_reason(raw, base["amount"], already, seen)
+        skip = _skip_reason(raw, base["amount"], already, booked, seen)
         if skip:
             planned.append(PlannedRow(action=ACTION_SKIP, reason=skip, **base))
             continue
 
+        # ⚠️ THE IN-FILE CHECK STAYS ON THE EXACT TRIPLE, AND THAT IS NOT AN OVERSIGHT. Three
+        # places ask "is this row repeated within one file" -- here, `parser.duplicate_transfer_ids`
+        # (which feeds the preview's warning) and the Cashfree `_stage_batch` marking. All three key
+        # on `row_identity`, and the parser's own note says why: two of them disagreeing would call
+        # the same pair of rows repeated in one surface and distinct in another. Giving only this
+        # one the missing-date fallback would recreate exactly that. Widening all three is a
+        # separate, smaller slice; the CROSS-CORPUS lookups above are what CB-DUP fixed.
         seen[row_identity(base["transfer_id"], base["amount"], _row_date(raw))] = base["row_number"]
         planned.append(PlannedRow(action=ACTION_CREATE, **base, **_placement(base["remarks"], index, expense_rules)))
 
     return CashbookPlan(rows=tuple(planned))
 
 
-def _skip_reason(raw, amount: Decimal, already: Mapping[tuple, str], seen: Mapping[tuple, int]) -> str:
+def _skip_reason(
+    raw,
+    amount: Decimal,
+    already: Mapping[tuple, tuple[PriorSighting, ...]],
+    booked: Mapping[tuple, tuple[PriorSighting, ...]],
+    seen: Mapping[tuple, int],
+) -> str:
     if (getattr(raw, "row_kind", "") or "").strip() != SPEND_ROW_KIND:
         return SKIP_NOT_A_SPEND
     if not getattr(raw, "is_success", False):
@@ -205,12 +243,21 @@ def _skip_reason(raw, amount: Decimal, already: Mapping[tuple, str], seen: Mappi
     # hundred for something visible here, where it costs a sentence instead.
     if amount <= 0:
         return SKIP_NO_AMOUNT
-    identity = row_identity(
-        getattr(raw, "transfer_id", "") or "", amount, _row_date(raw)
-    )
-    if identity in already:
-        return SKIP_ALREADY_IMPORTED.format(batch=already[identity])
-    if identity in seen:
+
+    transfer_id = getattr(raw, "transfer_id", "") or ""
+    added_on_date = _row_date(raw)
+
+    batch = find_prior_sighting(already, transfer_id, amount, added_on_date)
+    if batch:
+        return SKIP_ALREADY_IMPORTED.format(batch=batch)
+    # ⚠️ AFTER the batch test, deliberately. When an earlier batch created the expense BOTH are
+    # true, and the batch is the answer a reader can act on -- it is a screen in this feature.
+    record = find_prior_sighting(booked, transfer_id, amount, added_on_date)
+    if record:
+        # The label already reads "<ledger> <name>" -- composed by the caller, which is the layer
+        # that knows which ledger it queried.
+        return SKIP_ALREADY_BOOKED.format(record=record)
+    if row_identity(transfer_id, amount, added_on_date) in seen:
         return SKIP_REPEATED_IN_FILE
     return ""
 

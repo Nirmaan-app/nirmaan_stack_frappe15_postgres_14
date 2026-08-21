@@ -100,6 +100,16 @@ from typing import Iterable, Sequence
 # no fixtures, which is the property the purity test actually exists to protect.
 from nirmaan_stack.services.outflow_import.amounts import amounts_match
 
+# THE SECOND PERMITTED PACKAGE IMPORT, on exactly the same terms as the first. `ledgers` is a PURE
+# leaf -- vocabulary, no behaviour, no `frappe` -- so the property the purity test protects (this
+# deriver stays callable from a plain unittest with no bench, no site and no fixtures) is untouched.
+#
+# ⚠️ IT IS IMPORTED SO THAT `derive_settled_ledger_split` DOES NOT SPELL THE THREE LEDGER NAMES A
+# SECOND TIME. A private list here would be free to drift from the one `candidates.py` offers from
+# and `settle.py` writes to -- and the symptom would be a settled-by-ledger panel that silently
+# omits a book the import had just settled into.
+from nirmaan_stack.services.outflow_import.ledgers import LEDGER_DOCTYPES
+
 __all__ = [
     "ROW_PENDING_MATCH",
     "ROW_MATCHED",
@@ -130,6 +140,10 @@ __all__ = [
     "derive_batch_status",
     "derive_batch_counters",
     "derive_import_summary",
+    "SUMMARY_EXCLUDED_STATUSES",
+    "SettledLedgerEntry",
+    "derive_settled_ledger_split",
+    "SETTLED_LEDGER_OTHER",
     "SKIP_REASON_NOT_SUCCESSFUL",
     "SKIP_REASON_ALREADY_IMPORTED",
     "SKIP_REASON_DUPLICATE_IN_FILE",
@@ -169,6 +183,29 @@ TERMINAL_ROW_STATUSES = frozenset({ROW_SETTLED, ROW_SKIPPED})
 
 # Open = a person still owes this row a decision. Everything that is not terminal.
 OPEN_ROW_STATUSES = frozenset({ROW_PENDING_MATCH, ROW_MATCHED, ROW_MISMATCHED, ROW_ERROR})
+
+# Statuses that leave `derive_import_summary`'s STATEMENT TOTALS (`total_rows` / `total_value`).
+#
+# ⚠️ THIS IS NAMED RATHER THAN INLINED SO THE REASON IS GREPPABLE. An `if status == ROW_SKIPPED`
+# buried in the loop reads as an implementation detail; it is an owner ruling about what a
+# statement's total MEANS, and the next reader has to be able to find every place it applies.
+#
+# WHY SKIPPED LEAVES THE TOTALS. Most skipped rows are CROSS-BATCH DUPLICATES -- a transfer that
+# already arrived in an earlier statement and was already counted there. Measured live: 544 of 640.
+# Counting them again totals the same money twice across two imports, and makes `decided_percent` a
+# percentage of work that was finished before this statement was uploaded.
+#
+# ⚠️ IT IS *NOT* `TERMINAL_ROW_STATUSES` AND MUST NEVER BE FOLDED INTO IT. That set answers a
+# different question -- "does anybody still owe this row a decision?" -- and is read by
+# `derive_batch_status`, `batch_is_open` and `review._FROZEN_ROW_STATUSES`. Narrowing it to make
+# this exclusion fall out for free would change which statements the "Re-run match" button touches
+# and which rows a re-match may overwrite. The exclusion is LOCAL to `derive_import_summary`.
+#
+# ⚠️ THE SKIPPED CHIP STILL RENDERS. `by_status` keeps its Skipped bucket and `skipped_rows` /
+# `skipped_value` are unchanged -- the rows are excluded from the TOTALS, never hidden. That is the
+# same shape option B chose for failed transfers: the evidence survives, its effect on the figures
+# does not.
+SUMMARY_EXCLUDED_STATUSES = frozenset({ROW_SKIPPED})
 
 BATCH_DRAFT = "Draft"
 BATCH_IN_REVIEW = "In Review"
@@ -694,10 +731,31 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
     evidence that the bank rejected a transfer survives on the row, where a reviewer who goes
     looking can find it. What was removed is its effect on the numbers, not its existence.
 
-    ⚠️ THESE TALLIES ARE EXCLUDED BEFORE `by_status` TOO, so `sum(by_status counts) == total_rows`
-    still holds. Leaving them in `by_status` while dropping them from the total would make the
-    Skipped chip and the Statement total disagree by the failed count -- one visible number
-    contradicting another on the same panel, which is worse than either choice made consistently.
+    ⚠️ THESE TALLIES ARE EXCLUDED BEFORE `by_status` TOO. Leaving them in `by_status` while dropping
+    them from the total would make the Skipped chip and the Statement total disagree by the failed
+    count -- one visible number contradicting another on the same panel, which is worse than either
+    choice made consistently.
+
+    ⚠️ `sum(by_status counts) == total_rows` NO LONGER HOLDS, AND IS NOT THE INVARIANT ANY MORE.
+    What holds instead, exactly:
+
+        total_rows == open_rows + settled_rows
+
+    `Skipped` is counted in `by_status` and reported as `skipped_rows` / `skipped_value`, but it is
+    kept OUT of `total_rows` / `total_value` -- see `SUMMARY_EXCLUDED_STATUSES`. The reason is that
+    most skipped rows are CROSS-BATCH DUPLICATES: a transfer that arrived in an earlier statement
+    and was already counted there. Measured live: 544 of 640. Totalling them again reports the same
+    money twice across two imports.
+
+    ⚠️ `decided_rows` IS SETTLED ONLY, and had to change in the same edit. It used to be the sum
+    over `TERMINAL_ROW_STATUSES`, which is Settled + Skipped; leaving it there while removing
+    Skipped from `total_rows` would let `decided_percent` exceed 100 on a statement with more
+    duplicates than settlements -- a percentage of a denominator its own numerator is not drawn
+    from. Settled and open now partition the total, so the percentage is a real fraction again.
+
+    ⚠️ `TERMINAL_ROW_STATUSES` ITSELF IS UNTOUCHED, and must stay that way. `derive_batch_status`,
+    `batch_is_open` and `review._FROZEN_ROW_STATUSES` all read it, and narrowing it to make this
+    exclusion fall out for free would change which statements the "Re-run match" button touches.
     """
     by_status: dict[str, dict] = {
         status: {"count": 0, "value": Decimal("0")} for status in ROW_STATUSES
@@ -722,8 +780,13 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
         )
         bucket["count"] += tally.count
         bucket["value"] += tally.value
-        total_rows += tally.count
-        total_value += tally.value
+        # ⚠️ THE BUCKET IS FILLED FIRST, THEN THE TOTAL IS DECIDED. A `Skipped` tally still lands in
+        # `by_status` -- the chip reads it -- and only the statement TOTALS skip it. Reordering
+        # these two so the exclusion `continue`s past the bucket would blank the Skipped chip, which
+        # is the opposite of what the ruling asked for.
+        if tally.status not in SUMMARY_EXCLUDED_STATUSES:
+            total_rows += tally.count
+            total_value += tally.value
         if tally.status == ROW_MATCHED:
             confirmable_rows += tally.with_suggestion
             confirmable_value += tally.suggested_value
@@ -738,7 +801,10 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
 
     open_rows = sum(rows(s) for s in OPEN_ROW_STATUSES)
     open_value = sum((value(s) for s in OPEN_ROW_STATUSES), Decimal("0"))
-    decided_rows = sum(rows(s) for s in TERMINAL_ROW_STATUSES)
+    # ⚠️ SETTLED ONLY -- NOT `TERMINAL_ROW_STATUSES`, which also holds `Skipped`. Skipped rows are no
+    # longer in `total_rows`, so counting them here would divide by a denominator they are absent
+    # from and let `decided_percent` run past 100. `settled_rows + open_rows == total_rows` exactly.
+    decided_rows = rows(ROW_SETTLED)
 
     return {
         "total_rows": total_rows,
@@ -786,6 +852,77 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
         "confirmable_value": confirmable_value,
         "ambiguous_rows": max(rows(ROW_MATCHED) - confirmable_rows, 0),
     }
+
+
+# The slot every ledger outside the three falls into. A LABEL, not a doctype -- nothing settles
+# into a book called "Other"; it is where an unrecognised `target_doctype` is made visible rather
+# than silently dropped.
+SETTLED_LEDGER_OTHER = "Other"
+
+
+@dataclass(frozen=True)
+class SettledLedgerEntry:
+    """One `target_doctype` group of the settled rows, ALREADY AGGREGATED BY THE DATABASE.
+
+    Same shape and same reasoning as `StatusTally`: a count and a sum over many rows belongs in one
+    `GROUP BY` (ADR-0010), so the endpoint aggregates and this module assembles. The deriver stays
+    pure and unit-testable; the query stays a query.
+
+    `ledger` is the raw `target_doctype` off `ledgers.SETTLED_LEDGER_SQL` -- unnormalised, and
+    possibly blank or unrecognised on a row whose match record is missing or points somewhere
+    unexpected. Deciding what to do with that is this module's job, not the query's.
+    """
+
+    ledger: str
+    count: int
+    value: Decimal = Decimal("0")
+
+
+def derive_settled_ledger_split(
+    entries: Iterable[SettledLedgerEntry],
+) -> list[dict]:
+    """The settled rows broken down by the ledger the money actually landed in.
+
+    ⚠️ THE ORDER IS FIXED AND IS NEVER SORTED BY VALUE. It is `ledgers.LEDGER_DOCTYPES` order --
+    Project Payments, Project Expenses, Non Project Expenses -- which is the order a reviewer meets
+    the three books. Sorting by value would rearrange the panel between statements, so the same
+    figure sits in a different place each time it is read and nothing is comparable at a glance.
+
+    ⚠️ ALL THREE ARE ZERO-FILLED, for the reason `derive_import_summary` already gives about
+    statuses: a panel that renders only the ledgers present reads as though the missing ones do not
+    apply, when what they mean is "nothing settled here, this time". "Non Project Expenses 0" is a
+    useful cell -- it says the statement touched only the other two books.
+
+    ⚠️ THE THREE NAMES ARE BOUND FROM `ledgers.LEDGER_DOCTYPES`, NEVER SPELLED HERE. A private copy
+    would be free to drift from the list `candidates.py` offers from and `settle.py` writes to, and
+    the symptom is a breakdown that silently omits a book the import had just settled into.
+
+    ⚠️ `Other` IS AN ANOMALY SLOT, NOT A CATEGORY, WHICH IS WHY IT IS INCLUDED ONLY WHEN NON-ZERO.
+    Live data has 0. Zero-filling it like the real three would put a permanent empty row on the
+    panel inviting the question "what is Other?", every time, for a case that should never occur;
+    rendering it when it DOES occur is how an unrecognised `target_doctype` becomes visible instead
+    of vanishing from a breakdown that would then no longer add up to `settled_rows`. Blank and
+    whitespace-only ledgers fold in here too -- a settled row whose match record could not be read
+    is exactly the fact worth surfacing.
+
+    Everything is summed as `Decimal`, never float: these are money figures and the summary they sit
+    beside is `Decimal` throughout.
+    """
+    buckets: dict[str, dict] = {
+        ledger: {"ledger": ledger, "rows": 0, "value": Decimal("0")}
+        for ledger in LEDGER_DOCTYPES
+    }
+    other = {"ledger": SETTLED_LEDGER_OTHER, "rows": 0, "value": Decimal("0")}
+
+    for entry in entries:
+        bucket = buckets.get((entry.ledger or "").strip(), other)
+        bucket["rows"] += entry.count
+        bucket["value"] += entry.value
+
+    split = [buckets[ledger] for ledger in LEDGER_DOCTYPES]
+    if other["rows"]:
+        split.append(other)
+    return split
 
 
 def derive_batch_counters(row_statuses: Sequence[str]) -> dict:

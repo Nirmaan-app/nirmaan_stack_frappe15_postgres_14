@@ -1,11 +1,20 @@
 // src/pages/outflow-import/components/ApprovedRecordsPanel.tsx
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Search, X } from "lucide-react";
-import { useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
@@ -17,12 +26,88 @@ import {
 } from "@/components/ui/select";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { exportToCsv } from "@/utils/exportToCsv";
 
+import { ExportButton } from "./ExportButton";
 import { TablePagination } from "./OutflowRowsTable";
-import { ledgerLabel, settlementLink } from "../outflowTableModel";
-import type { ApprovedRecordsPage } from "@/types/NirmaanStack/OutflowImportBatch";
+import { describeFrappeError, ledgerLabel, settlementLink } from "../outflowTableModel";
+import type {
+    ApprovedRecord,
+    ApprovedRecordsPage,
+} from "@/types/NirmaanStack/OutflowImportBatch";
 
 const PAGE_SIZE = 50;
+
+/**
+ * The filename stem for this panel's download.
+ *
+ * ⚠️ NOT `exportFileBase`, AND NOT A SCOPE. That helper names files of TRANSFERS by which tab they
+ * came from; this panel holds no transfer at all — it reads the three LEDGERS, forwards, for what is
+ * approved and still unpaid. Passing a scope it does not have would fall through to the bare
+ * `outflow-transfers` stem, which is a claim about the file's contents that is simply false.
+ *
+ * ⚠️ NO TIMESTAMP — `exportToCsv` appends its own, and two stamps would be taken at two moments.
+ */
+const APPROVED_EXPORT_FILE_BASE = "outflow-approved-not-yet-paid";
+
+/**
+ * This panel's columns, as `exportToCsv` reads them.
+ *
+ * ⚠️ ITS OWN LIST, NOT `toExportColumns(OUTFLOW_COLUMNS)`. That one adapts `OutflowColumn`s over an
+ * `OutflowImportRow`; an `ApprovedRecord` is a different entity with a different shape, and there is
+ * no import row anywhere in this panel — the same reason it shares no search, no funnel and no
+ * `tab_counts` with the table above it.
+ *
+ * ⚠️ `Approved on` AND `Updated on` ARE TWO COLUMNS AND MUST STAY TWO (`ledger_read` asymmetry 1).
+ * Only `Project Payments` records an approval date; the two expense doctypes have no approval date,
+ * no approver and no approval step at all, so a row fills exactly one of these. On screen the single
+ * cell can qualify itself — it prefixes "updated" when it is showing the second — but a CSV column
+ * headed `Approved` holding a modification timestamp is a lie with nothing beside it to catch it,
+ * and a spreadsheet outlives the session that produced it.
+ *
+ * ⚠️ A BLANK AMOUNT IS NOT A ZERO, exactly as in the table below. `null` means the stored value
+ * could not be read as a number (`Project Expenses.amount` is a Data column); a `0` in that cell
+ * would claim the record costs nothing.
+ */
+interface ApprovedExportColumn {
+    id: string;
+    header: string;
+    meta: {
+        exportHeaderName: string;
+        exportValue: (row: ApprovedRecord) => string | number | null | undefined;
+    };
+}
+
+const approvedColumn = (
+    id: string,
+    header: string,
+    exportValue: (row: ApprovedRecord) => string | number | null | undefined
+): ApprovedExportColumn => ({
+    id,
+    header,
+    // Both keys, as `toExportColumns` does: `exportHeaderName` is what the writer prefers and
+    // `header` is what it falls back to, so the headings cannot depend on which branch ran.
+    meta: { exportHeaderName: header, exportValue },
+});
+
+const APPROVED_EXPORT_COLUMNS: ApprovedExportColumn[] = [
+    // The LABEL the screen shows, not the raw doctype — the file should read the way the panel did.
+    approvedColumn("ledger", "Ledger", (r) => ledgerLabel(r.target_doctype)),
+    approvedColumn("name", "Record", (r) => r.name),
+    // ⚠️ NEVER HEADED "PO" — a quarter of the payments are against a Service Request.
+    approvedColumn("order_name", "Order", (r) => r.order_name ?? ""),
+    approvedColumn("expense_type", "Expense type", (r) => r.expense_type ?? ""),
+    approvedColumn("vendor_name", "Vendor", (r) => r.vendor_name ?? ""),
+    approvedColumn("project_name", "Project", (r) => r.project_name ?? ""),
+    approvedColumn("status", "Status", (r) => r.status ?? ""),
+    approvedColumn("approved_on", "Approved on", (r) => approvedDateCell(r.approved_on)),
+    approvedColumn("updated_on", "Updated on", (r) => approvedDateCell(r.updated_on)),
+    approvedColumn("amount", "Amount", (r) => (r.amount == null ? "" : r.amount)),
+];
+
+/** `dd-MMM-yyyy`, the app-wide date format, from the stored `YYYY-MM-DD HH:MM:SS`. */
+const approvedDateCell = (value?: string | null) =>
+    value ? formatDate(String(value).split(/[ T]/)[0]) : "";
 
 /**
  * Everything approved and not yet paid, across all three ledgers.
@@ -58,17 +143,32 @@ export const ApprovedRecordsPanel = () => {
         setPage(0);
     }, [debounced, ledger, project, sort]);
 
-    const params = useMemo(
+    /**
+     * What this panel is asking for, minus the paging.
+     *
+     * ⚠️ ONE OBJECT, READ BY THE PAGE FETCH AND BY THE EXPORT. `export_approved_records` takes
+     * exactly these parameters and reads through the same `ledger_read.approved_rows`; splitting
+     * them into two literals would let the downloaded file and the list on screen be selected under
+     * different filters, with nothing anywhere putting the two side by side to reveal it.
+     */
+    const filterParams = useMemo(
         () => ({
             ledger,
             search: debounced,
             project,
             sort_by: sort,
             sort_dir: sort === "amount" ? "desc" : "desc",
+        }),
+        [ledger, debounced, project, sort]
+    );
+
+    const params = useMemo(
+        () => ({
+            ...filterParams,
             limit: PAGE_SIZE,
             offset: page * PAGE_SIZE,
         }),
-        [ledger, debounced, project, sort, page]
+        [filterParams, page]
     );
 
     const { data, isLoading } = useFrappeGetCall<{ message: ApprovedRecordsPage }>(
@@ -82,6 +182,35 @@ export const ApprovedRecordsPanel = () => {
         {},
         "outflow-approved-projects"
     );
+
+    const [exportError, setExportError] = useState<string | null>(null);
+    const { call: callExport } = useFrappePostCall<{
+        message: { rows: ApprovedRecord[]; total: number };
+    }>("nirmaan_stack.api.outflow_import.approved.export_approved_records");
+
+    /**
+     * The whole filtered set of approved-and-unpaid records, unpaged.
+     *
+     * ⚠️ IT SENDS `filterParams`, WITHOUT `limit`/`offset` — exporting one page of a filtered set is
+     * the defect the endpoint exists to remove. The server counts under the same filters and
+     * REFUSES over its ceiling rather than truncating; the refusal names both numbers and the levers
+     * that narrow, so it is rendered verbatim rather than rewritten here.
+     */
+    const handleExport = useCallback(async () => {
+        setExportError(null);
+        try {
+            const response = await callExport(filterParams);
+            exportToCsv(
+                APPROVED_EXPORT_FILE_BASE,
+                response?.message?.rows ?? [],
+                // The shape `exportToCsv` actually reads; TanStack's `ColumnDef` cannot express it
+                // without augmenting `ColumnMeta` app-wide.
+                APPROVED_EXPORT_COLUMNS as any
+            );
+        } catch (err) {
+            setExportError(describeFrappeError(err, "The export failed."));
+        }
+    }, [callExport, filterParams]);
 
     const rows = data?.message?.rows ?? [];
     const total = data?.message?.total ?? 0;
@@ -180,7 +309,33 @@ export const ApprovedRecordsPanel = () => {
                         <SelectItem value="project_name">Project</SelectItem>
                     </SelectContent>
                 </Select>
+
+                {/* ⚠️ RIGHT-ALIGNED, AWAY FROM THE FOUR CONTROLS TO ITS LEFT. Search, Ledger,
+                    Project and Sort all CHANGE what this panel shows; Export takes it with you. A
+                    fifth control sitting among them would read as a fifth way to narrow the list.
+                    Its `total` is the headline card's own figure above, which is the number the
+                    server will count again under the same filters. */}
+                <ExportButton className="ml-auto" total={total} onExport={handleExport} />
             </div>
+
+            {/* The server's own sentence, unrewritten — the same treatment the transfers table
+                gives an export refusal. */}
+            <AlertDialog
+                open={exportError !== null}
+                onOpenChange={(next) => !next && setExportError(null)}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Could not export</AlertDialogTitle>
+                        <AlertDialogDescription>{exportError}</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogAction onClick={() => setExportError(null)}>
+                            Close
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
             {isLoading && !rows.length ? (
                 <div className="flex h-40 items-center justify-center">

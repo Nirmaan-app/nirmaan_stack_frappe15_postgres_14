@@ -32614,3 +32614,137 @@ counts identical before and after (cert step 8); the four shipped `number_choice
 `test_105` and confirmed correctly scoped by vacuity C1; tray and point_wiring certified unchanged
 (cert step 7); the only `goldens` that moved are switches_sockets', with zero interpreter deltas.
 **The one deliberate behaviour change is the 12 rows that stop displaying a value they never held.**
+
+---
+
+## DEV RESTORE - reloading v44 after a production data refresh (2026-08-19/20)
+
+**This was a RESTORE, not a Deployment Mode run, and not a mint.** No asset was created, no version
+was bumped, `CURRENT_EALL_ASSET` was not repointed. Dev was returned to a state it already held and
+had already certified. **Production stays on v43 and was not touched at any point** - it is the
+source the refresh came FROM.
+
+### Why it was needed
+
+The owner refreshed dev's data from production. That replaced the whole rate-master scope with
+production's copy, which sits at **v43** - one mint BEHIND the **v44** asset dev had itself exported
+and committed. The asset file was not stale; it was AHEAD, and the DATABASE - the source of truth,
+and what the runtime actually reads - had regressed below it. Every behaviour v44 shipped (the three
+catalogue-fed pick-lists, the switches_sockets goldens) silently reverted while the repo still
+claimed v44. Nothing failed loudly. The generalised rule now lives in
+`.claude/context/domain/boq-rate-master.md` (F-20 section).
+
+### P2 - verification before touching anything
+
+The recon was re-run from scratch rather than trusted. `exporter.export_asset_text("Electrical")`
+against the two committed assets:
+
+| Comparison | Result |
+|---|---|
+| live export vs committed **v43** | **RAW-BYTE IDENTICAL**, sha256 `5d17cf7d...5550`, **0 differing leaves** |
+| live export vs committed **v44** | 18 differing leaves across **7 locations**, every one v44-ahead |
+
+**The prompt's premise was corrected on two counts** (A2): the differences sit in **7** storage
+locations, not 4; and only DB-READING tests can fail - an asset-file-reading test is structurally
+blind to this regression, because the file was never wrong.
+
+Four independent lines of evidence established **rollback, not a production edit**: zero `Version`
+rows despite `track_changes: 1`; every config `modified` identical at `2026-08-18 18:00:49`; exactly
+two import batches; and no snapshot in the DB matching v44.
+
+### P3 / P4 - backup, then measure the damage
+
+- **Backup taken BEFORE anything loaded**:
+  `/tmp/devrestore/rate_master_electrical_LIVE_BACKUP_pre_v44_load.json`, sha256 `5d17cf7d...5550`
+  (matching v43, as expected). It lives inside the container only - copy it out if it needs to
+  survive a rebuild.
+- **Both suites run BEFORE the load**, commands read from the repo's own docs, not from memory:
+
+| Suite | BEFORE the load (P4) | AFTER the load (B4) |
+|---|---|---|
+| `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.boq.test_rate_master` | **176 tests, FAILED (2)** | **176 tests, OK** |
+| `npx vitest run` (in container, from `frontend/`) | 2514 tests: 1 failed / 2513 passed | identical |
+
+The two failures were exactly the predicted evidence - `test_39_switches_sockets_goldens_live` and
+`test_42_point_wiring_goldens_hold`, both DB readers. The single vitest failure is the pre-existing
+`writeOffControl.test.ts` timeout, unrelated, reported and not fixed.
+
+### B1-B3 - the load
+
+`loader.load_rate_master(path=".../rate_master_electrical_all_v44.json", replace=True)`, by explicit
+path, run alone (never concurrently with a suite), behind a **pre-load drift guard** that re-checked
+the live sha against the v43 baseline and would have aborted rather than loaded had anything moved
+between P2 and B1.
+
+- **B2:** live export after the load is **RAW-BYTE IDENTICAL to committed v44**, sha256
+  `6c7c83be...d986`, **0 differing leaves**, all 12 configs identical.
+- **B3:** `CURRENT_EALL_ASSET` unchanged and now matching the DB. **No repin was needed or made.**
+- Final scope: 1364 active / 1419 inactive items, 12 active / 12 inactive configs, deployment freeze
+  `False`.
+
+### Browser live cert - all five steps PASS
+
+Targets were **re-chosen** rather than reusing the arc's row numbers, on `BOQ-26-00194 / 'ELE'`
+(committed sheet `BQSH-26-01083` v1, active run `BRSR-26-00014`, 202 result rows). Rows were picked
+by CONTENT against the live post-v44 catalogue axes: conduit `size_mm` [20, 25, 32, 50]; cable `core`
+15 values; cable `thickness_sqmm` 20 values; tray `thickness_mm` [1, 1.2, 1.4, 1.6, 2].
+
+**De-stale was deliberately NON-DESTRUCTIVE** - a service worker WAS registered on `localhost:8080`
+and was unregistered, then a hard reload. Site data was NOT cleared and the session was NOT logged
+out, because clearing kills the owner's cookie and re-blocks the slice.
+
+**Bundle-marker check, both halves, re-verified against what Vite serves NOW** (the previous day's
+HALF A pass was stale - the servers had restarted since):
+
+- **HALF A (served code):** the module Vite serves renders the placeholder option with **no
+  `disabled` key on the option** - `disabled` sits correctly on the parent `select` as
+  `a.disabled || a.readOnly`. Fetched fresh, 114,988 bytes, sha256 `c4ad74be...6fc9`; zero
+  `disabled: true` in the file.
+- **HALF B (running page):** the placeholder is present in the rendered DOM on every attribute
+  dropdown observed, with `disabled: false` - i.e. present AND selectable.
+
+| # | Step | Result |
+|---|---|---|
+| 1 | Row 285, conduit `Size (mm)` renders as a pick-list | **PASS.** A `select`, 5 options: placeholder + **20, 25, 32, 50** - exactly the catalogue axis. Selected **25**, matching the stored value. Basis `supply_per_mtr 42 / install_per_mtr 10 / combined 52`. `Conduit Type` likewise a pick-list [PVC, MS], selected PVC. |
+| 2 | Row 85, `Core` AND `Thickness` both pick-lists | **PASS.** **Core: 15 values** `2,3,4,5,6,7,8,10,12,14,16,19,24,3.5,1` (selected 4). **Thickness (sqmm): 20 values** `1.5,2.5,4,6,10,16,25,35,50,70,95,120,150,185,240,300,400,0.5,0.75,1` - **including 0.5 and 0.75** (selected 120). Both match the live axes exactly. `Runs` correctly remains a free number input. |
+| 3 | Row 282, out-of-catalogue `size_mm` 40 -> field BLANK | **PASS - the key step.** `Size (mm)` shows the **placeholder** with `value: ""` and `selectedIndex: 0`. **Not 20**, which is what the defect displayed. The list still carries all 4 catalogue values - it is the SELECTION that is blank. Non-pricing state: rate box empty, **"Use this value" DISABLED**, header rate a dash, card reads *"no match for these attributes"*. **The basis still names the real value:** *"No conduit_boq rate row matches Conduit Type = PVC, Size (mm) = 40."* |
+| 3b | Siblings 276 and 335 | **PASS.** Both identical: `Conduit Type` = **MS** correctly resolved, `Size (mm)` blank at index 0. All three out-of-catalogue conduit rows on the sheet behave the same. |
+| 4 | Rate Master -> switches_sockets -> Pipelines: NO golden deltas | **PASS - zero deltas on all six keys.** Preview gate: s1 `swsock_boq.supply` 120/120, `swsock_boq.install` 30/30, `swsock_bcs.bcs_supply` 80/80; ss1 820/820, 170/170, 570/570 - **expected == draft, all six `green`**. The Save button reads exactly **"Save"**, not "Save with N changed goldens", i.e. `deltas.length === 0`. |
+| 5 | Row 161, cable tray thickness pick-list | **PASS.** `Thickness (mm)` is a `select` offering exactly **1, 1.2, 1.4, 1.6, 2** plus the placeholder, selected **1.6**. Basis `supply_per_rmt 1068 / install_per_rmt 380`. Rendering is as slice 3b shipped it: `Width (mm)` is a plain numeric input, the four 60%-confidence attributes carry the amber `default` chip, and **no `(computed)` marker appears** - correct, since `(computed)` renders only for DERIVED attributes and this row has none. |
+
+**STEP 3 IS DEMONSTRABLE FOR CONDUIT ONLY, AND THE LIMITATION IS MEASURED, NOT ASSUMED.** A census
+across every active suggestion run in the corpus found **15 out-of-catalogue rows, all of them
+`conduit_piping.size_mm`**; `wiring_cabling` (core, thickness_sqmm) and `cabletray_raceway`
+(thickness_mm) have **ZERO**. So the blanking behaviour is certified live for conduit and is
+**unexercised on wiring and tray** - no claim is made for them beyond the pick-lists rendering
+correctly, which steps 2 and 5 do show.
+
+**Reading the goldens required entering "Edit structure"**, because deltas are only computed there
+(`editing ? goldenDeltas(view, items) : []`). That is a client-side mode that persists nothing unless
+Save is clicked. It was entered, read, and **exited via Cancel. Nothing was saved.**
+
+### READ-ONLY discipline, and the proof
+
+Nothing saved, **"Use this value" never clicked**, no BoQ modified, no rate touched, and the owner's
+session left logged in. Verified against the database after the cert:
+
+- rate-master live export **still byte-identical to v44** (`6c7c83be...d986`);
+- **zero `Version` rows** on `BoQ Rate Category Config`, `BoQ Rate Master Item`,
+  `BOQ Upload Review AI Settings`, `BoQ Rate Master Freeze`;
+- run `BRSR-26-00014` `modified` still `2026-08-19 10:30:20`; sheet `BQSH-26-01083` still
+  `2026-08-18 16:45:02`, `is_locked` 0, `classification_frozen` 0;
+- max `BoQ Cell Pricing` `modified` `2026-08-19 20:25:23`, i.e. before the cert - no rate written;
+- deployment freeze still `{'frozen': False}`.
+
+### Anomalies and environment state
+
+- **The scheduler is still DISABLED on `localhost`** (`bench --site localhost disable-scheduler`).
+  It was disabled during the restore because honcho tears down the whole process group when any
+  Procfile member exits, which was killing `bench start`. **Re-enable when convenient:**
+  `bench --site localhost enable-scheduler`.
+- The earlier host-networking blocker (`wslrelay.exe` accepting then black-holing `[::1]:8080`, so
+  Chrome hung on `localhost:8080` while `127.0.0.1:8080` was rejected by Frappe's site resolution)
+  **cleared after a Chrome restart** and did not recur.
+- The `/tmp/inspect.py` shadowing collision recurred and was worked around by running ad-hoc scripts
+  from a `/tmp` SUBDIRECTORY, per the standing note.
+- No accidental interactions this cert: no remark editor opened, no cell entered, no value typed.

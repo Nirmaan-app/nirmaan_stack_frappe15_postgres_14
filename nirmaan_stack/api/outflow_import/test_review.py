@@ -43,6 +43,7 @@ from nirmaan_stack.api.outflow_import.review import (
     get_outflow_rows,
     get_outflow_summary,
     get_row_candidates,
+    export_outflow_rows,
     match_batch,
     match_period,
     search_settleable_records,
@@ -1074,16 +1075,44 @@ class TestImportSummaryEndpoint(OutflowReviewFixture):
         super().setUpClass()
         match_batch(cls.batch.name)
 
-    def test_the_status_counts_sum_to_the_total(self):
+    def test_the_total_is_the_open_rows_plus_the_settled_ones_and_skipped_is_outside_it(self):
+        """⚠️ `sum(by_status) == total_rows` IS THE RETIRED INVARIANT. Do not restore it.
+
+        `Skipped` left `total_rows` / `total_value` (see `status.SUMMARY_EXCLUDED_STATUSES`) because
+        most skipped rows are CROSS-BATCH DUPLICATES -- a transfer that arrived in an earlier
+        statement and was already counted there, measured live at 544 of 640. Totalling them again
+        reports the same money twice across two imports, and makes `decided_percent` a percentage of
+        work that was finished before this statement was uploaded.
+
+        What holds instead, exactly:
+
+            total_rows == open_rows + settled_rows
+
+        ⚠️ AND THE SKIPPED BUCKET IS STILL THERE, AT ITS FULL COUNT. The rows were removed from the
+        TOTALS, never hidden -- the chip on the panel reads `by_status`, and blanking it would be
+        the opposite of what the ruling asked for. So this asserts BOTH halves: the new partition,
+        and that `by_status` still carries every skipped row. `sum(by_status) - skipped` is what the
+        total now equals, which is the retired invariant restated honestly rather than deleted.
+        """
         summary = get_import_summary(self.batch.name)["totals"]
+
+        self.assertEqual(
+            summary["total_rows"], summary["open_rows"] + summary["settled_rows"]
+        )
+
+        # The Skipped bucket survives in `by_status` at full strength -- and it is what the total
+        # excludes, exactly.
+        skipped = summary["by_status"]["Skipped"]["count"]
+        self.assertGreater(skipped, 0, "the fixture must carry a skipped row or this proves nothing")
+        self.assertEqual(summary["skipped_rows"], skipped)
         counted = sum(b["count"] for b in summary["by_status"].values())
-        self.assertEqual(counted, summary["total_rows"])
-        # ⚠️ THE SUCCESSFUL ROWS, NOT EVERY ROW (owner ruling 2026-08-10, option B). A transfer the
-        # bank rejected is excluded from every figure this summary reports, so pinning against
-        # `len(self.parsed.rows)` would now be pinning against the population the summary
-        # deliberately stopped describing. The fixture carries one FAILED transfer, which is what
-        # makes this assertion mean anything at all.
-        self.assertEqual(summary["total_rows"], self.parsed.success_count)
+        self.assertEqual(counted - skipped, summary["total_rows"])
+
+        # ⚠️ THE SUCCESSFUL ROWS MINUS THE SKIPPED ONES, NOT EVERY ROW. A transfer the bank rejected
+        # is excluded from every figure this summary reports (owner ruling 2026-08-10, option B),
+        # and a skipped one is now excluded from the totals on top of that. The fixture carries one
+        # FAILED transfer AND several skipped ones, which is what makes this mean anything.
+        self.assertEqual(summary["total_rows"], self.parsed.success_count - skipped)
         self.assertEqual(
             summary["failed_rows"], len(self.parsed.rows) - self.parsed.success_count
         )
@@ -1109,10 +1138,17 @@ class TestImportSummaryEndpoint(OutflowReviewFixture):
         staged = get_batch_rows(self.batch.name)["rows"]
         self.assertIn(failed[0].transfer_id, [r["transfer_id"] for r in staged])
 
-        # And the figure it left is the one that would have been overstated: the statement total is
-        # the successful money exactly, with the rejected transfer nowhere inside it.
+        # And the figure it left is the one that would have been overstated: the statement total
+        # holds the successful money exactly, with the rejected transfer nowhere inside it.
+        #
+        # ⚠️ THE SKIPPED MONEY COMES OFF TOO, AND IT IS A SECOND, SEPARATE EXCLUSION. This fixture's
+        # already-Paid transfer (Rs 22,000) and its in-file duplicate (Rs 5,000) are both `Skipped`
+        # and both SUCCEEDED at the bank, so option B has nothing to say about them -- they leave
+        # the total under `status.SUMMARY_EXCLUDED_STATUSES` instead, because a skipped transfer is
+        # money already counted somewhere else (a duplicate) or already recorded by hand. Adding
+        # `skipped_value` back here would pin the double-count that ruling removed.
         self.assertAlmostEqual(
-            summary["total_value"],
+            summary["total_value"] + summary["skipped_value"],
             float(sum(r.amount for r in self.parsed.rows if r.is_success)),
             places=2,
         )
@@ -1134,11 +1170,18 @@ class TestImportSummaryEndpoint(OutflowReviewFixture):
         transfer must be able to find it, while the summary reports only money that moved. The
         assertion has to name that difference explicitly -- pinning the two totals equal again would
         be pinning the overstatement this ruling removed.
+
+        ⚠️ THERE ARE NOW TWO SUCH DIFFERENCES, NOT ONE, AND EACH IS ADDED BACK FOR ITS OWN REASON.
+        `failed_value` is money the bank REFUSED TO MOVE (option B, 2026-08-10). `skipped_value` is
+        money that moved but was ALREADY ACCOUNTED FOR ELSEWHERE -- a cross-batch or in-file
+        duplicate, or a payment somebody ticked Paid before the upload -- which left the totals
+        under `status.SUMMARY_EXCLUDED_STATUSES`. `get_batch_rows` returns both kinds, because a
+        reviewer hunting either must be able to find it, so the row side has to name both.
         """
         summary = get_import_summary(self.batch.name)["totals"]
         rows = get_batch_rows(self.batch.name)["rows"]
         self.assertAlmostEqual(
-            summary["total_value"] + summary["failed_value"],
+            summary["total_value"] + summary["failed_value"] + summary["skipped_value"],
             sum(r["amount"] for r in rows),
             places=2,
         )
@@ -2582,11 +2625,21 @@ class TestThePeriodScopedSummary(OutflowReviewFixture):
             "an undated transfer disappeared from a period -- it is now invisible everywhere",
         )
 
-    def test_the_status_counts_still_sum_to_the_total_under_a_period(self):
+    def test_the_total_still_partitions_into_open_and_settled_under_a_period(self):
+        """The same retired-invariant correction as its sibling in `TestImportSummaryEndpoint`.
+
+        `sum(by_status) == total_rows` no longer holds anywhere: `Skipped` is reported in
+        `by_status` and excluded from the totals. `total_rows == open_rows + settled_rows` is the
+        rule, and it must survive the period scoping unchanged -- widening from one import to a
+        period was a WHERE-clause change, so anything that broke here would be the filters, not the
+        deriver.
+        """
         summary = get_outflow_summary(batch=self.batch.name)["totals"]
         counted = sum(b["count"] for b in summary["by_status"].values())
-        self.assertEqual(counted, summary["total_rows"])
+        skipped = summary["by_status"]["Skipped"]["count"]
+        self.assertEqual(counted - skipped, summary["total_rows"])
         self.assertEqual(summary["open_rows"] + summary["decided_rows"], summary["total_rows"])
+        self.assertEqual(summary["open_rows"] + summary["settled_rows"], summary["total_rows"])
 
 
 class TestMatchPeriod(OutflowReviewFixture):
@@ -2858,3 +2911,318 @@ class TestTheMatchingOrder(unittest.TestCase):
 
     def test_an_empty_scope_stays_empty(self):
         self.assertEqual(_match_order([]), [])
+
+
+class TestTheSettledLedgerSplit(OutflowReviewFixture):
+    """`settled_by_ledger` on the summary, and `settled_ledger` on the row (slice V1).
+
+    ⚠️ THE FIXTURE SETTLES EXACTLY ONE ROW, AND THAT IS ENOUGH TO TEST BOTH HALVES. What has to
+    hold is that the breakdown ADDS UP to the tile above it and that the ledgers nothing landed in
+    are reported as zero rather than omitted -- neither of which needs three settlements to prove,
+    and a settle against an expense would need a whole second ledger fixture to obtain a number
+    this suite never reads.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        match_batch(cls.batch.name)
+        ready = get_confirmable_rows(cls.batch.name)["ready"]
+        assert ready, "fixture precondition: something must be confirmable to settle"
+        target = ready[0]
+        cls.settled_row = target["name"]
+        cls.settled_amount = float(target["amount"])
+        cls.settled_ledger = target["target_doctype"]
+        cls.settled_target = target["target_name"]
+        settle_row(target["name"], target["target_doctype"], target["target_name"])
+        frappe.db.commit()
+
+    # --- the summary breakdown ---------------------------------------------------------------
+
+    def test_all_three_ledgers_are_reported_even_when_nothing_landed_in_two_of_them(self):
+        """⚠️ ZERO-FILLED, NOT OMITTED, for the reason `derive_import_summary` already gives about
+        statuses: a panel that renders only the ledgers present reads as though the missing ones do
+        not apply, when what they mean is "nothing settled here, this time". "Non Project Expenses
+        0" is a useful cell -- it says the statement touched only the other books.
+
+        The ORDER is `ledgers.LEDGER_DOCTYPES` and is never sorted by value, or the same figure sits
+        in a different place each time the panel is read and nothing is comparable at a glance.
+        """
+        split = get_outflow_summary(batch=self.batch.name)["settled_by_ledger"]
+        self.assertEqual(
+            [b["ledger"] for b in split],
+            ["Project Payments", "Project Expenses", "Non Project Expenses"],
+        )
+        by_ledger = {b["ledger"]: b for b in split}
+        self.assertEqual(by_ledger["Project Payments"]["rows"], 1)
+        self.assertAlmostEqual(
+            by_ledger["Project Payments"]["value"], self.settled_amount, places=2
+        )
+        for empty in ("Project Expenses", "Non Project Expenses"):
+            self.assertEqual(by_ledger[empty]["rows"], 0)
+            self.assertEqual(by_ledger[empty]["value"], 0)
+
+    def test_the_three_values_sum_EXACTLY_to_the_settled_value_tile(self):
+        """⚠️ THE LOAD-BEARING ONE. The breakdown sits directly under the `settled_value` tile, so a
+        reviewer reads the three figures as its parts. They have to BE its parts.
+
+        This is why the query sums `r.amount` -- the ROW's amount, which is what `settled_value` is
+        a sum of -- and NOT `m.target_amount`. The two are equal on every settle where the transfer
+        pays a record in full, which is every settle in live data today; on a PARTIAL settle they
+        differ by construction, and the wrong column would have shipped as a breakdown that silently
+        stops adding up to the total above it. Green everywhere until the first partial.
+        """
+        payload = get_outflow_summary(batch=self.batch.name)
+        split = payload["settled_by_ledger"]
+        self.assertEqual(
+            sum(b["rows"] for b in split), payload["totals"]["settled_rows"]
+        )
+        self.assertAlmostEqual(
+            sum(b["value"] for b in split), payload["totals"]["settled_value"], places=2
+        )
+
+    def test_it_moves_with_the_filters_exactly_as_every_other_figure_does(self):
+        """It runs under the SAME `_row_filters` the panel, the tabs and the page query run under.
+        A figure computed on a different population from the one beside it is the defect that
+        builder exists to prevent -- and here it would read as a settled total that refuses to
+        respond to the period control."""
+        # A window that cannot contain this statement empties the breakdown -- and the tile with it.
+        elsewhere = get_outflow_summary(
+            batch=self.batch.name, date_from="1999-01-01", date_to="1999-12-31"
+        )
+        self.assertEqual(elsewhere["totals"]["settled_rows"], 0)
+        self.assertEqual(
+            sum(b["rows"] for b in elsewhere["settled_by_ledger"]), 0
+        )
+        # Still all three, still zero-filled: an empty population changes the numbers, not the shape.
+        self.assertEqual(len(elsewhere["settled_by_ledger"]), 3)
+
+        # And an amount floor above every row empties it the same way.
+        beyond = max(float(r.amount) for r in self.parsed.rows) + 1
+        nothing = get_outflow_summary(batch=self.batch.name, amount_min=beyond)
+        self.assertEqual(sum(b["value"] for b in nothing["settled_by_ledger"]), 0)
+        self.assertEqual(nothing["totals"]["settled_value"], 0)
+
+    def test_the_batch_endpoint_carries_it_because_it_is_a_PURE_DELEGATE(self):
+        """`get_import_summary` keeps no query of its own, so a new key on the period-scoped read
+        appears there for free. If this ever goes red the delegate has grown a body."""
+        delegated = get_import_summary(self.batch.name)
+        direct = get_outflow_summary(batch=self.batch.name)
+        self.assertEqual(delegated["settled_by_ledger"], direct["settled_by_ledger"])
+
+    def test_every_value_crosses_the_wire_as_a_number(self):
+        """The deriver works in Decimal because money does; JSON does not carry one. A Decimal that
+        reached the response would serialise as a string and every arithmetic on the screen would
+        silently concatenate."""
+        for bucket in get_outflow_summary(batch=self.batch.name)["settled_by_ledger"]:
+            self.assertIsInstance(bucket["value"], float)
+            self.assertIsInstance(bucket["rows"], int)
+
+    # --- the column on the row ----------------------------------------------------------------
+
+    def test_a_settled_row_SHIPS_the_ledger_it_landed_in(self):
+        """⚠️ THE Q1 DEFECT, GUARDED THIS TIME. `_FACET_COLUMNS` governs FILTERING; the SELECT list
+        governs what a row CARRIES. Slice Q1 changed only the first for `settlement_origin`, and the
+        column rendered an em dash on all 849 settled rows while the summary beside it was right.
+        Asserting the KEY is present is half the point -- `.get()` returns None either way.
+        """
+        rows = get_outflow_rows(scope="all", batch=self.batch.name, limit=200)["rows"]
+        by_name = {r["name"]: r for r in rows}
+        self.assertIn("settled_ledger", by_name[self.settled_row])
+        self.assertEqual(by_name[self.settled_row]["settled_ledger"], self.settled_ledger)
+
+    def test_an_UNSETTLED_row_carries_a_BLANK_ledger_not_a_guess(self):
+        """An open transfer has not landed anywhere yet, and blank is the honest value. Every row
+        carries the key, settled or not."""
+        rows = get_outflow_rows(scope="all", batch=self.batch.name, limit=200)["rows"]
+        open_rows = [r for r in rows if r["row_status"] in OPEN_ROW_STATUSES]
+        self.assertTrue(open_rows, "fixture precondition: an unsettled row")
+        for row in open_rows:
+            self.assertIn("settled_ledger", row)
+            self.assertFalse((row["settled_ledger"] or "").strip())
+
+    def test_the_funnel_offers_the_ledgers_that_were_actually_settled_into(self):
+        values = get_outflow_facet_values(column="settled_ledger", batch=self.batch.name)
+        self.assertEqual(values["column"], "settled_ledger")
+        self.assertEqual(values["values"], [self.settled_ledger])
+
+    def test_filtering_on_it_narrows_the_PAGE_AND_the_TAB_COUNTS_together(self):
+        """⚠️ THE WHOLE REASON IT IS A SCALAR SUBQUERY AND NOT A JOIN. `_row_filters` is ONE builder
+        shared by the page query, its count, the tab counts, the facet values and the summary; a
+        fragment that works in one and not the others is a count computed under different filters
+        than the page it labels, which reads as a paging bug and is not one.
+
+        So this asserts all four consumers move together on the same filter.
+        """
+        filtered = get_outflow_rows(
+            scope="all",
+            batch=self.batch.name,
+            facets={"settled_ledger": [self.settled_ledger]},
+            limit=200,
+        )
+        self.assertEqual([r["name"] for r in filtered["rows"]], [self.settled_row])
+        self.assertEqual(filtered["total"], 1)
+        self.assertEqual(filtered["tab_counts"]["all"], 1)
+        self.assertEqual(filtered["tab_counts"]["matched"], 1)
+        self.assertEqual(filtered["tab_counts"]["not_matched"], 0)
+        self.assertEqual(filtered["status_counts"]["Settled"], 1)
+
+        # The summary -- the fifth consumer -- narrows to the same one row.
+        summary = get_outflow_summary(
+            batch=self.batch.name, facets={"settled_ledger": [self.settled_ledger]}
+        )
+        self.assertEqual(summary["totals"]["settled_rows"], 1)
+        self.assertEqual(summary["totals"]["total_rows"], 1)
+
+        # And the confirm dialog's read, which shares the builder too: a settled row is not
+        # confirmable, so selecting only settled rows leaves nothing to confirm.
+        confirmable = get_confirmable_rows(
+            batch=self.batch.name, facets={"settled_ledger": [self.settled_ledger]}
+        )
+        self.assertEqual(confirmable["matched_rows"], 0)
+        self.assertEqual(confirmable["ready"], [])
+
+        # The EXPORT is the newest consumer of the same builder, and it selects the same one row.
+        exported = export_outflow_rows(
+            scope="all",
+            batch=self.batch.name,
+            facets={"settled_ledger": [self.settled_ledger]},
+        )
+        self.assertEqual([r["name"] for r in exported["rows"]], [self.settled_row])
+
+    def test_a_ledger_nothing_settled_into_selects_no_row_at_all(self):
+        """The negative half: the fragment really filters, rather than being inert and letting
+        everything through."""
+        filtered = get_outflow_rows(
+            scope="all",
+            batch=self.batch.name,
+            facets={"settled_ledger": ["Non Project Expenses"]},
+            limit=200,
+        )
+        self.assertEqual(filtered["rows"], [])
+        self.assertEqual(filtered["total"], 0)
+
+
+class TestTheOutflowExport(OutflowReviewFixture):
+    """`export_outflow_rows` -- the same view, unpaged, for a spreadsheet (slice V1)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        match_batch(cls.batch.name)
+
+    def test_it_selects_EXACTLY_the_population_the_paged_read_does(self):
+        """⚠️ ROW-NAME SETS, NOT COUNTS. Two queries returning the same NUMBER of rows over
+        different sets is precisely the failure this endpoint must not have -- and a count
+        assertion cannot see it. The file a person downloads has to hold the transfers the table in
+        front of them was showing, and nobody will ever have the two side by side to notice
+        otherwise.
+        """
+        for scope in ("all", "not_matched", "matched"):
+            paged = get_outflow_rows(scope=scope, batch=self.batch.name, limit=200)
+            exported = export_outflow_rows(scope=scope, batch=self.batch.name)
+            self.assertEqual(
+                {r["name"] for r in exported["rows"]},
+                {r["name"] for r in paged["rows"]},
+                f"the export and the page disagree about the `{scope}` population",
+            )
+            self.assertEqual(exported["total"], paged["total"])
+
+    def test_the_filters_reach_it_through_the_SAME_builder(self):
+        """Anything `_row_filters` understands has to narrow the export identically, or the file
+        silently ignores half the screen's controls."""
+        needle = self._rows_by_transfer_suffix()["0001"]["transfer_id"]
+        exported = export_outflow_rows(scope="all", batch=self.batch.name, search=needle)
+        self.assertEqual([r["transfer_id"] for r in exported["rows"]], [needle])
+        self.assertEqual(exported["total"], 1)
+
+        empty = export_outflow_rows(
+            scope="all", batch=self.batch.name, amount_min=10_000_000
+        )
+        self.assertEqual(empty["rows"], [])
+        self.assertEqual(empty["total"], 0)
+
+    def test_the_scope_is_respected_and_SKIPPED_still_never_leaks_into_all(self):
+        """The ruling `all` carries a real WHERE clause for: "All" means everything a person might
+        still act on, not every row."""
+        every = export_outflow_rows(scope="all", batch=self.batch.name)
+        self.assertTrue(every["rows"])
+        self.assertNotIn("Skipped", {r["row_status"] for r in every["rows"]})
+
+        skipped = export_outflow_rows(scope="skipped", batch=self.batch.name)
+        self.assertTrue(skipped["rows"], "fixture precondition: a skipped transfer")
+        self.assertEqual({r["row_status"] for r in skipped["rows"]}, {"Skipped"})
+
+    def test_it_carries_the_three_settlement_columns_a_RECONCILER_needs(self):
+        """A book name alone cannot be joined to a ledger export. `settled_target_name` says WHICH
+        record and `settled_target_amount` says for how much -- and on a partial settle that figure
+        differs from the transfer's own, which is a large part of why somebody exports at all."""
+        for row in export_outflow_rows(scope="all", batch=self.batch.name)["rows"]:
+            for key in ("settled_ledger", "settled_target_name", "settled_target_amount"):
+                self.assertIn(key, row, f"the export dropped `{key}`")
+
+    def test_an_unsettled_row_has_a_BLANK_target_amount_and_NOT_a_zero(self):
+        """⚠️ A `0` IN THAT CELL IS A CLAIM -- "settled for nothing" -- where a blank is the truth.
+        The three money columns beside it ARE coerced, because every transfer has an amount whether
+        the bank stated one or not; this one is different and the asymmetry is deliberate."""
+        rows = export_outflow_rows(scope="not_matched", batch=self.batch.name)["rows"]
+        self.assertTrue(rows, "fixture precondition: an unsettled row")
+        for row in rows:
+            self.assertIsNone(row["settled_target_amount"])
+            self.assertFalse((row["settled_ledger"] or "").strip())
+            self.assertIsInstance(row["amount"], float)
+
+    def test_it_omits_the_three_keys_that_only_a_DIALOG_could_use(self):
+        """`matches`, `related_payments` and `suggested_order_name` exist for the decision dialog's
+        LINKS. A CSV has nothing to click, `related_payments` is a list of dicts that cannot become
+        a cell, and `suggested_order_name` costs a second query over the payments table to produce a
+        value no spreadsheet reads."""
+        for row in export_outflow_rows(scope="all", batch=self.batch.name)["rows"]:
+            for key in ("matches", "related_payments", "suggested_order_name"):
+                self.assertNotIn(key, row)
+
+    def test_it_REFUSES_over_the_cap_and_NAMES_BOTH_NUMBERS(self):
+        """⚠️ THE DIRECTION IS THE WHOLE POINT, and it matters more here than on the confirm dialog.
+
+        A truncated export is a list shorter than the count on the button that opened it, over a set
+        nobody chose, with the missing rows sharing no property anything on screen could name -- and
+        this one LEAVES THE BUILDING, to be reconciled against a bank statement by somebody who
+        never saw the screen and has nothing in the file telling them it is partial.
+
+        The message must name the number found AND the limit, or "narrow it" is advice without a
+        target.
+        """
+        from nirmaan_stack.api.outflow_import import review as R
+
+        expected = export_outflow_rows(scope="all", batch=self.batch.name)["total"]
+        self.assertGreater(expected, 0, "fixture precondition: something to refuse")
+
+        original = R._MAX_EXPORT
+        R._MAX_EXPORT = 1
+        try:
+            with self.assertRaises(frappe.ValidationError) as caught:
+                export_outflow_rows(scope="all", batch=self.batch.name)
+            message = str(caught.exception)
+            self.assertIn(f"would hold {expected:,} transfers", message)
+            self.assertIn("The limit is 1.", message)
+            # And it hands over a lever rather than just saying no.
+            self.assertIn("Narrow", message)
+        finally:
+            R._MAX_EXPORT = original
+
+        # And with the real ceiling back the same call succeeds -- the refusal is the cap, not the
+        # query.
+        self.assertEqual(
+            export_outflow_rows(scope="all", batch=self.batch.name)["total"], expected
+        )
+
+    def test_the_SCREEN_S_page_size_was_not_raised_to_serve_the_export(self):
+        """⚠️ `_MAX_PAGE_SIZE` GUARDS THE TABLE'S OWN PAGING AND IS A SEPARATE NUMBER. Raising it to
+        20,000 would let the master table request the entire table on every keystroke and reinstate
+        the exact problem server paging was built to solve. The export's cap is its own constant.
+        """
+        from nirmaan_stack.api.outflow_import import review as R
+
+        self.assertEqual(R._MAX_PAGE_SIZE, 200)
+        self.assertEqual(R._MAX_EXPORT, 20000)
+        self.assertGreater(R._MAX_EXPORT, R._MAX_PAGE_SIZE)

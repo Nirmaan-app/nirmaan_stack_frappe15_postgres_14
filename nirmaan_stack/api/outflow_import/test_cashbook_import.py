@@ -21,6 +21,20 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.outflow_import import cashbook as cb
+from nirmaan_stack.services.outflow_import.cashbook import (
+    ACTION_CREATE,
+    SKIP_ALREADY_BOOKED,
+    SKIP_ALREADY_IMPORTED,
+)
+from nirmaan_stack.services.outflow_import.ledgers import (
+    NON_PROJECT_EXPENSE_DOCTYPE,
+    PROJECT_EXPENSE_DOCTYPE,
+)
+from nirmaan_stack.services.outflow_import.candidates import find_earlier_batches_for_rows
+from nirmaan_stack.services.outflow_import.duplicates import (
+    find_prior_sighting,
+    row_identity,
+)
 from nirmaan_stack.services.outflow_import.parser import parse_statement
 from nirmaan_stack.services.outflow_import.status import (
     ROW_ERROR,
@@ -388,3 +402,309 @@ class TestItNeverSettlesAnExistingRecord(FrappeTestCase):
         self.assertEqual(
             sorted(called & self.FORBIDDEN), [], "the Cashbook path called a settlement entry point"
         )
+
+
+class TestTheAlreadyBookedGuard(FrappeTestCase):
+    """An expense can already exist for a wallet spend WITHOUT this import ever having seen it.
+
+    ⚠️ THIS IS THE HOLE THE `Outflow Row Match` UNIQUE CONSTRAINT CANNOT COVER. That key is
+    `(transfer_id, target_doctype, target_name)`, and a Cashbook row CREATES its target -- so
+    `target_name` is new every time and the constraint is never contended. Several notes elsewhere
+    call it "the real backstop against paying twice"; that is true of Cashfree, which settles an
+    EXISTING record, and false here.
+
+    Measured on live data 2026-08-21: 17 `Non Project Expenses` carry a wallet transfer id in
+    `payment_ref` that nobody imported -- keyed in by hand. Without this guard a statement covering
+    those dates creates 17 duplicate expenses and nothing anywhere says so.
+
+    The expenses below are created by hand, deliberately: an expense made THROUGH the import would
+    also be caught by `_already_imported`, which would make every assertion here vacuous.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.parsed = parse_statement(FIXTURE.read_bytes(), source="Cashbook")
+
+    def _a_row_that_would_be_created(self):
+        """A fixture row the planner creates when nothing blocks it.
+
+        Taken from the plan rather than hardcoded, so an edit to the fixture makes this fail
+        loudly instead of quietly testing a row that was already being skipped.
+        """
+        plan = cb._build_plan(self.parsed)
+        for planned, raw in zip(plan.rows, self.parsed.rows):
+            if planned.action == ACTION_CREATE:
+                return raw
+        self.fail("the fixture no longer contains a row that would be created")
+
+    def _book(self, doctype, ref, amount, when):
+        """A hand-entered expense carrying a wallet reference. Removed again afterwards."""
+        doc = frappe.get_doc(
+            {
+                "doctype": doctype,
+                # ⚠️ `Project Expenses.amount` is a Data column of numeric STRINGS and the
+                # non-project one is real Currency. Storing both as the doctype actually stores
+                # them is the point of the varchar test below.
+                "amount": str(amount) if doctype == PROJECT_EXPENSE_DOCTYPE else amount,
+                "payment_date": when,
+                "payment_ref": ref,
+                "description": "hand-entered wallet spend",
+                "status": "Paid",
+            }
+        ).insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(
+            lambda: (
+                frappe.db.sql(f'DELETE FROM "tab{doctype}" WHERE name = %s', (doc.name,)),
+                frappe.db.commit(),
+            )
+        )
+        return doc.name
+
+    def _stage(self, parsed=None):
+        parsed = parsed or self.parsed
+        batch = cb._stage(
+            parsed,
+            cb._build_plan(parsed),
+            file_url="/private/files/test-statement.csv",
+            filename="test-statement.csv",
+            user="Administrator",
+        ).name
+        frappe.db.commit()
+        self.addCleanup(_purge, batch)
+        return batch
+
+    def _staged(self, batch, transfer_id):
+        return frappe.db.get_value(
+            "Outflow Import Row",
+            {"import_batch": batch, "transfer_id": transfer_id},
+            ["row_status", "skip_reason"],
+            as_dict=True,
+        )
+
+    # --- the guard fires ---------------------------------------------------------------------
+
+    def test_a_hand_booked_non_project_expense_blocks_the_import_and_is_named(self):
+        raw = self._a_row_that_would_be_created()
+        name = self._book(
+            NON_PROJECT_EXPENSE_DOCTYPE, raw.transfer_id, float(raw.amount), raw.added_on_date
+        )
+        row = self._staged(self._stage(), raw.transfer_id)
+        self.assertEqual(row.row_status, ROW_SKIPPED)
+        self.assertEqual(
+            row.skip_reason,
+            SKIP_ALREADY_BOOKED.format(record=f"{NON_PROJECT_EXPENSE_DOCTYPE} {name}"),
+        )
+
+    def test_a_hand_booked_project_expense_is_found_despite_its_varchar_amount(self):
+        """⚠️ `Project Expenses.amount` is `Data`. A text compare would miss '180.0' against 180,
+        which is why the query CASTs. This is the test that would go red if the cast were dropped."""
+        raw = self._a_row_that_would_be_created()
+        name = self._book(
+            PROJECT_EXPENSE_DOCTYPE, raw.transfer_id, float(raw.amount), raw.added_on_date
+        )
+        row = self._staged(self._stage(), raw.transfer_id)
+        self.assertEqual(row.row_status, ROW_SKIPPED)
+        self.assertEqual(
+            row.skip_reason,
+            SKIP_ALREADY_BOOKED.format(record=f"{PROJECT_EXPENSE_DOCTYPE} {name}"),
+        )
+
+    def test_a_booked_expense_with_no_payment_date_still_blocks(self):
+        """The missing-date fallback, on the ledger side. An absent date is a gap in OUR record,
+        not evidence that this is a different transfer."""
+        raw = self._a_row_that_would_be_created()
+        name = self._book(
+            NON_PROJECT_EXPENSE_DOCTYPE, raw.transfer_id, float(raw.amount), None
+        )
+        row = self._staged(self._stage(), raw.transfer_id)
+        self.assertEqual(
+            row.skip_reason,
+            SKIP_ALREADY_BOOKED.format(record=f"{NON_PROJECT_EXPENSE_DOCTYPE} {name}"),
+        )
+
+    def test_no_second_expense_is_created_for_a_row_the_guard_blocked(self):
+        """The consequence, asserted directly. A skip reason nobody acts on is cosmetic; a second
+        expense is money booked twice."""
+        raw = self._a_row_that_would_be_created()
+        self._book(
+            NON_PROJECT_EXPENSE_DOCTYPE, raw.transfer_id, float(raw.amount), raw.added_on_date
+        )
+        batch = self._stage()
+        cb._cashbook_worker(batch, "Administrator")
+        frappe.db.commit()
+        self.assertEqual(
+            frappe.db.count(NON_PROJECT_EXPENSE_DOCTYPE, {"payment_ref": raw.transfer_id}),
+            1,
+        )
+
+    # --- the guard does NOT fire (a guard that blocks everything also looks like it works) ----
+
+    def test_an_expense_at_a_different_amount_does_not_block_the_import(self):
+        raw = self._a_row_that_would_be_created()
+        self._book(
+            NON_PROJECT_EXPENSE_DOCTYPE,
+            raw.transfer_id,
+            float(raw.amount) + 1,
+            raw.added_on_date,
+        )
+        self.assertEqual(
+            self._staged(self._stage(), raw.transfer_id).row_status, ROW_PENDING_MATCH
+        )
+
+    def test_an_expense_on_a_different_date_does_not_block_the_import(self):
+        """The fallback rescues a MISSING date. It does not make a KNOWN, different one agree."""
+        from datetime import timedelta
+
+        raw = self._a_row_that_would_be_created()
+        self._book(
+            NON_PROJECT_EXPENSE_DOCTYPE,
+            raw.transfer_id,
+            float(raw.amount),
+            raw.added_on_date + timedelta(days=1),
+        )
+        self.assertEqual(
+            self._staged(self._stage(), raw.transfer_id).row_status, ROW_PENDING_MATCH
+        )
+
+    def test_an_unrelated_reference_does_not_block_anything(self):
+        raw = self._a_row_that_would_be_created()
+        self._book(
+            NON_PROJECT_EXPENSE_DOCTYPE, "OBO-NOT-IN-THIS-FILE", float(raw.amount), raw.added_on_date
+        )
+        self.assertEqual(
+            self._staged(self._stage(), raw.transfer_id).row_status, ROW_PENDING_MATCH
+        )
+
+    # --- the corpus narrowing ------------------------------------------------------------------
+
+    def test_a_statement_with_no_transfer_ids_builds_no_query(self):
+        """⚠️ `IN ()` is a SYNTAX ERROR in Postgres, not an empty result. Both lookups must
+        short-circuit before building the placeholder list."""
+        from dataclasses import replace
+
+        blank = replace(
+            self.parsed, rows=tuple(replace(r, transfer_id="") for r in self.parsed.rows)
+        )
+        self.assertEqual(cb._already_booked(blank), {})
+        self.assertEqual(cb._already_imported(blank), {})
+
+    def test_the_lookup_reads_only_this_statements_references(self):
+        """The narrowing itself. An expense carrying a reference from some other statement must not
+        appear in the index at all -- that is what keeps the scan off the whole ledger."""
+        raw = self._a_row_that_would_be_created()
+        self._book(
+            NON_PROJECT_EXPENSE_DOCTYPE, "OBO-SOME-OTHER-FILE", float(raw.amount), raw.added_on_date
+        )
+        index = cb._already_booked(self.parsed)
+        self.assertNotIn(
+            "OBO-SOME-OTHER-FILE", {transfer_id for transfer_id, _ in index}
+        )
+
+
+class TestTheEarliestBatchIsNamed(FrappeTestCase):
+    """`Already imported in {batch}` must name the batch the transfer CAME FROM.
+
+    `_already_imported` had no `ORDER BY` and took whichever row Postgres handed back first, so the
+    message could point a reader at a later batch that merely also holds the transfer. Cosmetic --
+    nothing double-creates -- but it sends somebody to the wrong screen.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.parsed = parse_statement(FIXTURE.read_bytes(), source="Cashbook")
+
+    def _stage(self):
+        batch = cb._stage(
+            self.parsed,
+            cb._build_plan(self.parsed),
+            file_url="/private/files/test-statement.csv",
+            filename="test-statement.csv",
+            user="Administrator",
+        ).name
+        frappe.db.commit()
+        self.addCleanup(_purge, batch)
+        return batch
+
+    def test_the_first_batch_is_the_one_named(self):
+        first = self._stage()
+        self._stage()
+        # Filter for THIS reason, not merely "has a reason" -- the fixture also holds rows
+        # skipped as not-a-spend, and picking one of those would assert nothing.
+        expected = SKIP_ALREADY_IMPORTED.format(batch=first)
+        reasons = [
+            r.reason
+            for r in cb._build_plan(self.parsed).rows
+            if r.reason.startswith("Already imported in ")
+        ]
+        self.assertTrue(reasons, "no row read as already imported, so this asserts nothing")
+        self.assertEqual(set(reasons), {expected})
+
+
+class TestCashbookDoesNotNarrowByPeriod(FrappeTestCase):
+    """⚠️ THE ONE DELIBERATE DIFFERENCE BETWEEN THE TWO SOURCES' DUPLICATE LOOKUP, PINNED FROM BOTH
+    SIDES so that "making them consistent" cannot pass silently.
+
+    Cashfree narrows its search to batches whose recorded period overlaps the sheet's. That is
+    ergonomics, and its whole licence is that a miss cannot cause double payment -- the
+    `Outflow Row Match` unique constraint catches it. **That licence does not exist on the Cashbook
+    path**: a wallet row CREATES its target, so `target_name` is new every time and the constraint
+    can never fire. A miss costs Cashfree a worse message and costs Cashbook a SECOND EXPENSE.
+
+    The setup is a batch whose recorded period has been moved far away from the statement's. The
+    transfers are still in it; only the batch's dates disagree.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.parsed = parse_statement(FIXTURE.read_bytes(), source="Cashbook")
+        self.batch = cb._stage(
+            self.parsed,
+            cb._build_plan(self.parsed),
+            file_url="/private/files/test-statement.csv",
+            filename="test-statement.csv",
+            user="Administrator",
+        ).name
+        # A period nowhere near the statement's, so any overlap filter excludes this batch.
+        frappe.db.set_value(
+            "Outflow Import Batch",
+            self.batch,
+            {"period_from": "2001-01-01", "period_to": "2001-01-31"},
+            update_modified=False,
+        )
+        frappe.db.commit()
+        self.addCleanup(_purge, self.batch)
+
+    def test_cashbook_still_finds_the_transfer_in_a_far_dated_batch(self):
+        index = cb._already_imported(self.parsed)
+        found = [
+            row.transfer_id
+            for row in self.parsed.rows
+            if row.transfer_id
+            and find_prior_sighting(index, row.transfer_id, row.amount, row.added_on_date)
+        ]
+        self.assertTrue(found, "Cashbook narrowed by period and lost a real duplicate")
+
+    def test_cashfree_narrowed_by_period_would_have_missed_it(self):
+        """The other half. Without this the test above would also pass if the period filter simply
+        never excluded anything -- and then it would be asserting nothing at all."""
+        narrowed = find_earlier_batches_for_rows(
+            self.parsed.rows,
+            period_from=self.parsed.period_from,
+            period_to=self.parsed.period_to,
+        )
+        self.assertEqual(
+            narrowed, {}, "the period filter no longer excludes anything, so this pins nothing"
+        )
+
+    def test_both_agree_once_the_period_is_not_supplied(self):
+        """Same core, same answer -- the argument is the ONLY difference."""
+        wide = find_earlier_batches_for_rows(self.parsed.rows)
+        index = cb._already_imported(self.parsed)
+        for row in self.parsed.rows:
+            if not row.transfer_id:
+                continue
+            self.assertEqual(
+                wide.get(row_identity(row.transfer_id, row.amount, row.added_on_date)),
+                find_prior_sighting(index, row.transfer_id, row.amount, row.added_on_date),
+            )

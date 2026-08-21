@@ -2131,3 +2131,86 @@ from `_require_rate_admin` and the reads · `15` `set_single_value` never used.
 
 ⚠️ Every test captures the LIVE Single's state and restores **that** (the standing rule), and purges
 only the `Version` rows it created -- never the owner's history.
+
+---
+
+## Workbook repair — openpyxl-hostile source files (2026-08-20)
+
+**Symptom:** three customer BoQs "failed to upload". Two genuinely failed, at
+`openpyxl.load_workbook()` — the FIRST thing every phase does. The third (`MEP BOM -R2- OTC`)
+was fine; its report was unrelated. Excel opens both failing files without complaint.
+
+**Root cause — openpyxl validates OOXML more strictly than Excel, and one out-of-spec
+attribute aborts the WHOLE workbook**, not the sheet or the cell:
+
+| File | Defect | openpyxl |
+|---|---|---|
+| Fidelity Chennai Electrical | `xl/styles.xml` `<family val="38"/>` | `Font.family` is `MinMax(0,14)` → "could not read stylesheet" |
+| FR. Coimbatore Combined MEP | `xl/workbook.xml` `_xlnm.Print_Titles` = `#N/A` | "#N/A is not a valid print titles definition" → "could not assign names" |
+
+Neither file is corrupt; both came from a non-Excel writer.
+
+### The fix lives at the FETCH chokepoint, not at the open sites
+
+**12 open sites across 7 modules** touch the source workbook — upload, config preview (×2),
+parse, commit, revision entry/mapping/confirm, revision carry, and BOTH rate exports. Fixing at
+`BoqReader` would have covered only 6: `sheet_preview`, `commit_pipeline`, `revision_carry`,
+`revision._read` and both export modules call **raw openpyxl**. A user could clear upload and hit
+the same wall at commit or export, after doing real work.
+
+**All 12 materialise the file through one of two functions** — `sheet_preview._fetch_boq_file_to_tempfile`
+(10 sites) and `parse_run._fetch_boq_file_to_tempfile` (1, the `.xlsm`-aware twin). Both end by
+handing the caller a private tempfile it already unlinks itself, so `_repair_fetched_workbook`
+repairs **IN PLACE just before the return**: two patches, zero call-site changes, no new file
+lifecycle. `_repair_fetched_workbook` is defined ONCE in `sheet_preview` and imported by
+`parse_run` (local import — `sheet_preview` does not import `parse_run`, so no cycle).
+
+**Repair is TRANSIENT** — the stored S3 object is never rewritten. That preserves the user's
+original upload AND makes BoQs already in the system with these defects work with no migration.
+**It FAILS OPEN:** if the repair raises, the original file passes through untouched.
+
+### `services/boq_parser/workbook_repair.py` — two rules, deliberately narrow
+
+`needs_repair()` is a cheap scan (reads only the two small XML parts; **0.6 ms** on a healthy
+6.7 MB workbook) so the fetch path can call it unconditionally; `repair_in_place()` only rewrites
+when it fires (23–221 ms measured). No frappe imports — the api layer owns the logging.
+
+⚠️ **`localSheetId` IS PART OF RULE 2, and it is what separates a fix from a false positive.**
+openpyxl resolves a built-in name against a worksheet ONLY when it is sheet-local; a **GLOBAL**
+`_xlnm.Print_Titles` = `#N/A` is never parsed and can never raise. Proven on the repo's own
+fixtures: `R0_CIVIL INTERIOR & MEP_TABLESPACE…xlsx` (sheet-local) **has always been unreadable
+in this corpus**, while `Kohler-BOQ- 06-04-26.xlsx` (global) opens fine and must NOT be rewritten.
+Matching the global form flagged Kohler on every fetch for no benefit. User-defined names and
+`#REF!` values are left alone — openpyxl tolerates both, and Kohler carries dozens of
+lookalike `______xlnm.Print_Titles_2` user names.
+
+⚠️ **The repair must NEVER touch bold, fill or indent** — `classifier.py` reads those three to
+detect section headers, so altering them would silently change parse results. `<family>` is a
+cosmetic hint nothing downstream reads; that is exactly what makes clamping it safe.
+
+⚠️ **Every zip entry except the two targeted parts is copied BYTE-FOR-BYTE with its original
+`ZipInfo`** (preserving compression). That is what keeps an `.xlsm`'s `xl/vbaProject.bin` intact,
+and it is asserted by test. A healthy workbook is a genuine NO-OP — forcing a rewrite of the
+6.7 MB MEP BOM changed zero entries.
+
+### The diagnosability half
+
+`_upload_file_worker`'s `except` around `BoqReader` **returned without logging**, so these
+failures landed in NO Error Log at all — a generic "corrupted" and nothing to read. It now calls
+`frappe.log_error()` with the traceback first. `revision.py` needed no change (it propagates).
+A repair that FIRES logs at `frappe.logger("boq_upload").info` — **not** `log_error`, or a repaired
+BoQ would spam a row on every preview.
+
+Frontend copy (`BoqDropZone.tsx`) no longer says "corrupted": the measured files were valid
+workbooks, and the word reads as unrecoverable, so users stopped instead of re-saving from Excel.
+
+### Tests — `services/boq_parser/test_workbook_repair.py` (13)
+
+Damaged fixtures are BUILT AT TEST TIME by injecting the literal defect XML into a synthetic
+fixture, with the undamaged original kept as the oracle (repaired must read back identical — the
+proof the repair changed presentation, not data). No binaries committed.
+
+Two tests run against the REAL fixture corpus and are the ones that keep the rule honest:
+`test_detection_precision_against_the_real_fixture_corpus` (flagged ⇒ openpyxl genuinely refuses
+it — this caught the Kohler false positive) and `test_flagged_fixtures_open_after_repair`
+(flagged ⇒ actually fixed — covers R0_CIVIL).
