@@ -31,7 +31,7 @@ def enable_module(project, module_type):
     
     Args:
         project (str): The project ID (name)
-        module_type (str): The module to enable ('dpr', 'inventory', 'pmo', 'design_tracker', 'commission_report')
+        module_type (str): The module to enable ('dpr', 'inventory', 'pmo', 'snag_list', 'design_tracker', 'commission_report')
     """
     if not project or not module_type:
         frappe.throw(_("Project and Module Type are required."))
@@ -52,6 +52,11 @@ def enable_module(project, module_type):
             })
         elif module_type == 'pmo':
             frappe.db.set_value("Projects", project, "disabled_pmo", 0)
+        elif module_type == 'snag_list':
+            # On PROJECTS, not on a snag document: a snag list has no document of its
+            # own (a Project Snag is standalone -- ADR-0017), so unlike design_tracker
+            # and commission_report below there is nothing else to carry the flag.
+            frappe.db.set_value("Projects", project, "disabled_snag_list", 0)
         elif module_type == 'design_tracker':
             # Update all Design Trackers for this project
             frappe.db.set_value("Project Design Tracker", {"project": project}, "hide_design_tracker", 0)
@@ -75,7 +80,7 @@ def disable_module(project, module_type):
     
     Args:
         project (str): The project ID (name)
-        module_type (str): The module to disable ('dpr', 'inventory', 'pmo', 'design_tracker', 'commission_report')
+        module_type (str): The module to disable ('dpr', 'inventory', 'pmo', 'snag_list', 'design_tracker', 'commission_report')
     """
     if not project or not module_type:
         frappe.throw(_("Project and Module Type are required."))
@@ -98,6 +103,11 @@ def disable_module(project, module_type):
             })
         elif module_type == 'pmo':
             frappe.db.set_value("Projects", project, "disabled_pmo", 1)
+        elif module_type == 'snag_list':
+            # Hides the project's CARD on the /snag-list grid for everyone below
+            # Admin/PMO. It does NOT close the snags, hide the project's own Snag List
+            # tab, or block a write -- same reach `hide_design_tracker` has.
+            frappe.db.set_value("Projects", project, "disabled_snag_list", 1)
         elif module_type == 'design_tracker':
             # Update all Design Trackers for this project
             frappe.db.set_value("Project Design Tracker", {"project": project}, "hide_design_tracker", 1)

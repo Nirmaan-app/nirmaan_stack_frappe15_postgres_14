@@ -10,7 +10,8 @@ import {
   ExternalLink,
   Settings,
   Circle,
-  Activity
+  Activity,
+  TriangleAlert
 } from "lucide-react";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
@@ -129,6 +130,17 @@ export const ProjectModuleDeactivationStatus: React.FC<ProjectModuleDeactivation
       modules.push({ type: "pmo", icon: LayoutDashboard, state: "disabled", label: "PMO Dashboard", statusLabel: "Inactive", shortLabel: "PMO Dashboard" });
     } else {
       modules.push({ type: "pmo", icon: LayoutDashboard, state: "enabled", label: "PMO Dashboard", statusLabel: "Active", shortLabel: "PMO Dashboard" });
+    }
+
+    // 6. Snag List
+    // Reads a Projects CHECK, like DPR / Inventory / PMO above — not a linked
+    // document like Design Tracker and Commission Report, because a snag list has no
+    // document of its own. So there is no "Not Setup" state here: a project that has
+    // never been imported into is simply Active with nothing in it.
+    if (projectData?.disabled_snag_list === 1) {
+      modules.push({ type: "snag_list", icon: TriangleAlert, state: "disabled", label: "Snag List", statusLabel: "Inactive", shortLabel: "Snag List" });
+    } else {
+      modules.push({ type: "snag_list", icon: TriangleAlert, state: "enabled", label: "Snag List", statusLabel: "Active", shortLabel: "Snag List" });
     }
 
     return modules;
