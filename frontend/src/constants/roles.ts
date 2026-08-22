@@ -119,3 +119,28 @@ export const canDeleteDeliveryDocument = (
   userId?: string | null
 ): boolean =>
   userId === "Administrator" || (!!role && PDD_DELETE_PROFILES.includes(role));
+
+/**
+ * May act on the "Pending Invoice Approvals" queue — approve, reject, or re-run
+ * the auto-approve gates on an invoice stuck behind a stale reason.
+ *
+ * Mirrored server-side by `role_profiles.INVOICE_APPROVAL_PROFILES`, which is
+ * the ENFORCEMENT boundary; this constant only decides whether the controls
+ * render. It also mirrors the inline list in `InvoiceReconciliationContainer`
+ * that gates the Pending tab itself — a reviewer who cannot see the queue must
+ * not be offered a button that sweeps it.
+ */
+const INVOICE_APPROVAL_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  "Nirmaan PMO Executive Profile",
+  "Nirmaan Accountant Profile",
+  "Nirmaan Accountant Lead Profile",
+];
+
+/** True when `role` (a role PROFILE) may action pending invoice approvals. */
+export const canActionInvoiceApprovals = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" ||
+  (!!role && INVOICE_APPROVAL_PROFILES.includes(role));

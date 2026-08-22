@@ -1574,3 +1574,148 @@ invariants:
 - **CLASSIFICATION-VOCABULARY GAP (standing):** `popup_boxes` + `lighting_mgmt_system` are rate-master
   categories the Electrical CLASSIFIER does not emit yet, so ZERO production rows resolve to them; the
   helper is ready but they need a classifier vocabulary update first.
+
+---
+
+## Per-SKU module width, the container split, and the popup composite (slice 5, v45)
+
+### The width fact lives on the ITEM, and `weight_from` reads it
+
+**`module_fit`'s occupancy used to be a constant PER SLOT** - "a socket occupies 2 modules" held for
+every socket in the catalogue. It is not true of the catalogue we have: a telephone outlet and a USB
+charger occupy one, a 2M switch occupies two. The width belongs to the SKU.
+
+Every `switch_socket_item` row carries a numeric `modules` attribute, and a `module_fit` term may
+declare `weight_from: {from_attr, kind, where, match_attr, value_attr}` to take its weight from the
+matched SKU instead of the declared constant.
+
+- ⚠️ **ABSENT => byte-identical.** `point_wiring` - the only other `module_fit` caller - carries no
+  `weight_from` and is therefore untouched BY CONSTRUCTION, not by measurement. (Measured anyway:
+  0 of 95 live rows change, because every SKU it uses has a width equal to its slot weight.) Same
+  gating discipline as `size_from`, `decay`, `matching_surface` and `routing_policy`.
+- ⚠️ **THE LOOKUP IS BY DISTINCT VALUE, NEVER A UNIQUE ROW.** One SKU label spans a row per colour,
+  so "find the one matching row" would refuse every time. Colour is deliberately NOT part of the
+  match: width does not vary by colour, and `USB Charger - C+C Type` exists in White only - matching
+  on colour would make its width unresolvable on a Grey assembly.
+- ⚠️ **A SEEDING GAP FAILS LOUDLY.** Zero distinct values (an unseeded SKU) or more than one (a
+  catalogue disagreeing with itself) is an HONEST NO-COMPUTE naming the SKU - never a silent fall
+  back to the slot weight, which is precisely the wrong answer the mechanism exists to prevent. A
+  BLANK item slot keeps the declared weight, so the "row too vague to name an item" path is
+  byte-unchanged and still fails downstream at the component ref exactly where it always did.
+- **`modules` is DECLARED but INVISIBLE**, and both halves are load-bearing. Declared
+  (`type: "number"`) because `csv_importer.coerce_attribute` returns a float only for an id carrying
+  a numeric type - an UNDECLARED key (the state `family`, `location` and `pricing_mode` live in)
+  round-trips as TEXT, so one export-edit-import cycle silently retypes every width and leaves
+  `weight_from` reading strings. Invisible (`selector: false` + `panel: false`) because nobody PICKS
+  a width: it is a fact OF the SKU, not a choice about the row. Precedent: the `industrial_sockets`
+  MCB facts.
+
+### Containers carry a width too - DATA ONLY
+
+Plates and back boxes carry `modules` as well, but **nothing reads it**: the occupied-space sum reads
+OCCUPANT widths only (switch + the four sockets), and plate capacity for the fit still comes from its
+existing source - the label, parsed by `moduleSizesFromLabel`. A container's width must NEVER enter
+the occupancy sum.
+
+### The `1M & 2M` SPLIT
+
+The three combined containers (`Grid and Face Plates` White + Grey, `Back Box`) were **split** into
+single-size `1M` and `2M` SKUs at IDENTICAL rates, and the combined ones retired. Consequences:
+
+- **The owner-locked "every integer in a rung's label is a covered size" rule is SATISFIED by the
+  split, not violated.** `buildModuleLadder` expands labels, so `1M`->[1] and `2M`->[2] rebuild
+  exactly the rungs the combined label produced by expansion. The mechanism is untouched; only the
+  data now states one size per row.
+- **Every container name states exactly one size, so the completeness rule is unconditional** and
+  the earlier two-size exception clause is deleted.
+- Price identity is guaranteed by the rates being byte-identical on both new SKUs, not by a per-row
+  proof: **zero live rows currently resolve to that rung.**
+
+### `display_attr` is NOT `bind_item`, and keeping them apart is the point
+
+A `blanks` block now carries both:
+
+- **`bind_item: "blank_fit_item"`** - the key the fitted blanker is published into for the component
+  ref to read. It is **deliberately NOT a declared attribute**, and that is what makes the ref
+  STRUCTURALLY incapable of resolving to the row's own extracted value. Four pins in
+  `test_rate_master.py` guard it, and one of them records the ref being moved OFF `@blank_item` when
+  the blanker stopped being selected by extraction.
+- **`display_attr: "blank_item"`** - the DECLARED field the computed blanker is SHOWN on. Read by
+  `blanksBindItemAttr` and `derivedAttrIds`, so the panel displays it and the missing-input gate
+  stops flagging it.
+
+⚠️ **THE COMPUTED ITEM OVERRIDES A STATED ONE AND IS MARKED `substituted`.** `attrDisplayValue`
+prefers a stated value over a derived one, so publishing the computed blanker was not enough: a row
+whose extraction said `"None"` displayed "None" while the price it showed included nine blankers.
+**The PLATE is the precedent verbatim** - take-the-larger overwrites a stated rung on screen and marks
+it "(computed)". It marks ONLY when the two differ, so a pricer who picked what the pipeline also
+computed is not credited to the pipeline. **R9 is untouched: `blank_qty` is what the pricer edits and
+what `module_fit` reads.**
+
+⚠️ **A DISPLAY TEST THAT LEAVES THE ATTRIBUTE ABSENT PROVES NOTHING ABOUT THE STATED CASE.** The first
+seven tests here all left `blank_item` unset, exercising only the path where `attrDisplayValue` has
+nothing to prefer; the live defect sat in the other branch and the suite was green throughout.
+
+⚠️ **Pointing `bind_item` at the declared attribute instead was tried and REJECTED.** It reverses the
+earlier decision above AND downgrades a structural guarantee (no such attribute exists) into a
+behavioural one resting on `resolveAtRef` checking `fitLabels` before `selected`.
+
+### THREE FLAGS, THREE SURFACES - do not collapse them
+
+| Flag | Hidden from | Still |
+|---|---|---|
+| `extract: false` | the AI prompt | on the pricing panel AND the Derivation configurator |
+| `selector: false` | the AI prompt AND the Derivation configurator | on the pricing panel |
+| `panel: false` | the pricing panel | extracted, and derivable |
+
+`blank_qty` is the first `extract: false`: `module_fit` arbitrates it against the plate's computed
+spare, so asking the model produced quantities for blankers no row ever named - but it must stay
+visible and editable on BOTH screens, which rules the other two out.
+
+### Slot-paired extraction defaults (`requires_named`)
+
+A quantity default belongs to a component slot and dies with it. `extraction_defaults` may carry
+`{"default": 1.0, "requires_named": "<item attr>"}`; `scrub_unpaired_slot_defaults` enforces it
+server-side after coercion.
+
+⚠️ **IT KEYS ON THE "None" SENTINEL, NOT ON "not named", AND THE DIFFERENCE IS LOAD-BEARING.** "None"
+is POSITIVE ABSENCE; BLANK is "unknown, the pipeline will work it out". Scrubbing blanks too would
+clear `plate_qty` on every row whose plate the LADDER computes - 94 of 122 live rows - and a null qty
+makes `component_ref` refuse the WHOLE pipeline, so those rows would stop pricing entirely.
+
+⚠️ **The prompt sentence is guidance; the scrub is the enforcement.** The 84 phantom quantities it
+removes were themselves produced by a model following default guidance.
+
+### The ADDITION PRIMITIVE (`scale` `<ident>_from_ctx`)
+
+`scale` binds exactly one `ctx` value as `base`, so a pipeline could scale, round or take a ratio of
+a figure but could never ADD two independently computed ones. `<ident>_from_ctx: "<ctx key>"` binds
+another computed value into the formula env.
+
+- **ABSENT => byte-identical**; no pre-slice-5 pipeline carries one.
+- A missing or non-numeric ctx value is an HONEST NO-COMPUTE naming the key. **Its message is
+  deliberately DISTINCT from the missing-ATTRIBUTE one**: an attribute the row never stated is the
+  pricer's gap, a ctx key never computed is a pipeline ORDERING problem, and pointing the reader at
+  the wrong half of the system wastes the message.
+- ⚠️ **The server validator must know about it.** `_validate_params` requires numeric params, so
+  `_FROM_CTX_SUFFIX` carries the same scoped string exemption `_from_attr` has. Without it the
+  config cannot be saved or validated AT ALL - the exact failure the `_from_attr` exemption was
+  written for.
+
+### The popup composite
+
+`popup_boxes` now carries the switch/socket module set (four sockets) **MINUS the back box** (R7 - a
+pop-up box IS the enclosure, so a second one behind it would be a fabricated line), plus a
+`has_modules` fact. **The attribute set is DUPLICATED from `switches_sockets` by ruling** - there is
+no shared-attribute concept in this config format - and a drift-guard test holds the two in step.
+Every module attribute is VISIBLE: a `panel: false` on any of them re-creates F-2.
+
+**Price = the box + the modules, each rounded by its OWN rule.** The box keeps its unrounded
+per-module rate; the modules follow the `switches_sockets` convention exactly (sum the RAW component
+lines, multiply ONCE by 0.3625, round to TENS; install = that x0.2, rounded to tens). The two are
+then added through the primitive. **Folding everything into one `sum_components` bucket was rejected**:
+it forces box and modules to share one multiplier and one rounding, which loses the double rounding
+and is not "the rules of the switch socket module".
+
+Measured: without modules **10800/1200** (the p1 golden, unchanged); with modules **5760/680** =
+box 5400/600 + modules 360/80.

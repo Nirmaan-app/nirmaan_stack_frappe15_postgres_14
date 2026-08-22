@@ -13,7 +13,11 @@
  */
 import React from "react";
 import { cn } from "@/lib/utils";
-import { AutoApproveReason, ReasonTier } from "../utils/autoApproveReasons";
+import {
+    AutoApproveReason,
+    ReasonTier,
+    isCeilingReason,
+} from "../utils/autoApproveReasons";
 
 /** Tier → dot colour. One definition, used by the key and the cell alike. */
 export const TIER_DOT: Record<ReasonTier, string> = {
@@ -79,6 +83,16 @@ export const ReasonTitle: React.FC<{
     </div>
 );
 
+/**
+ * The Re-check line, shown ONLY on the reasons Re-check actually re-runs.
+ *
+ * An earlier version printed "not covered by Re-check" on every other reason
+ * too. That put this feature's name on 22 write-ups it has nothing to do with —
+ * including on the History tab — to say it does nothing there. A reason the
+ * button does not touch should not mention the button at all.
+ */
+const RECHECK_TERM = "Re-check";
+
 export const ReasonBreakdown: React.FC<{
     reason: AutoApproveReason;
     compact?: boolean;
@@ -87,5 +101,11 @@ export const ReasonBreakdown: React.FC<{
         {!compact && <DetailRow term="What was checked" desc={reason.detail} />}
         <DetailRow term={IMPACT_TERM[reason.tier]} desc={reason.impact} emphasis />
         <DetailRow term="What to do" desc={reason.action} />
+        {isCeilingReason(reason.token) && (
+            <DetailRow
+                term={RECHECK_TERM}
+                desc="Re-run against the PO as it stands now — press Re-check once the delivery or revision is recorded."
+            />
+        )}
     </dl>
 );

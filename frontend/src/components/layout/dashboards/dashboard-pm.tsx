@@ -4,12 +4,14 @@ import {
   ClipboardCheck,
   ClipboardMinus,
   ClipboardPlus,
+  FileChartLine,
   Milestone,
   HandPlatter,
   ShoppingCart,
   Truck,
   PencilRuler,
   Package,
+  TriangleAlert,
   Warehouse,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -173,6 +175,18 @@ export const ProjectManager = () => {
             title="Design Tracker"
             icon={<PencilRuler className="h-7 w-7" strokeWidth={1.5} />}
             onClick={() => navigate("/design-tracker")}
+            variant="secondary"
+          />
+          <DashboardCard
+            title="Snag List"
+            icon={<TriangleAlert className="h-7 w-7" strokeWidth={1.5} />}
+            onClick={() => navigate("/snag-list")}
+            variant="secondary"
+          />
+          <DashboardCard
+            title="Commission Report Tracker"
+            icon={<FileChartLine className="h-7 w-7" strokeWidth={1.5} />}
+            onClick={() => navigate("/commission-tracker")}
             variant="secondary"
           />
           <DashboardCard

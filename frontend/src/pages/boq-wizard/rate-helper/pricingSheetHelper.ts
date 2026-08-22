@@ -36,6 +36,7 @@ import {
 // value becomes a match key); this file imports it and no longer defines it.
 import {
   blanksQtyAttr,
+  blanksBindItemAttr,
   coerceForMatch,
   derivedAttrIds,
   derivedQtyAttrs,
@@ -232,6 +233,7 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
   const computedAttrs = derivedAttrOutcomes(results);
 
   const arbitratedQty = blanksQtyAttr(config);
+  const blanksItemAttr = blanksBindItemAttr(config);
 
   return attrs.map((a) => {
     if (!derivedIds.has(a.id)) return a;
@@ -261,6 +263,40 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
         derivedValue: String(b.effective),
         ...(notes.length ? { notes: sortAttrNotes(notes) } : {}),
       };
+    }
+
+    // 0b. THE BLANKS BIND_ITEM (slice 5, B1). The blanker ITEM, shown exactly as the plate shows its
+    //     fitted rung. Checked here -- after the arbitrated quantity, before the ladder lookup --
+    //     because it is NOT a ladder bind: `byBind` is keyed on `ladders[].bind`, so this id would
+    //     fall through to the derive/catalog/map branches, match none of them, and render EMPTY.
+    //     That is exactly what a blank field beside a filled quantity looked like.
+    //
+    //     It stays EDITABLE, like the plate and unlike the superseded quantity: the pipeline decides
+    //     the item from the effective count, but the pricer's authority over an attribute value is
+    //     the standing rule, and `readOnly` here would promise an effect their edit cannot have.
+    if (blanksItemAttr && a.id === blanksItemAttr) {
+      const item = fit?.blanks?.item;
+      // Nothing counted (a "None" plate, or nothing on the plate at all) publishes NO value -- an
+      // empty field, never a fabricated blanker, matching the plate's positively-absent branch.
+      if (item === undefined) return { ...a, derived: true };
+      // ⚠️ THE COMPUTED ITEM OVERRIDES A STATED ONE, AND MUST BE MARKED WHEN IT DOES.
+      // The blanker is inferred from the EFFECTIVE count and never selected by extraction
+      // (owner-locked): a positive count prices `1M Blanker` whatever the model returned. Publishing
+      // the computed value without `substituted` was not enough, because `attrDisplayValue` shows a
+      // STATED value in preference to a derived one -- so a row whose extraction said "None" showed
+      // "None" while the price it displayed included nine blankers. That is the exact defect this
+      // whole branch exists to remove, arriving from the other side.
+      //
+      // THE PLATE IS THE PRECEDENT, VERBATIM: take-the-larger overwrites a stated rung on screen and
+      // marks it "(computed)", because "the row says 1M, the pipeline buys 3M" is a substitution the
+      // pricer must see. Same rule, same marker, same reason.
+      //
+      // It marks ONLY when the two actually differ -- a pricer who picked the value the pipeline
+      // also computed has not been overridden, and tagging that would credit the pipeline with their
+      // choice. R9 is untouched: `blank_qty` is what the pricer edits and what `module_fit` reads.
+      const stated = a.value;
+      const substituted = stated !== "" && stated !== undefined && String(stated) !== String(item);
+      return { ...a, derived: true, derivedValue: item, ...(substituted ? { substituted: true } : {}) };
     }
 
     const superseded = supersededQty.get(a.id);

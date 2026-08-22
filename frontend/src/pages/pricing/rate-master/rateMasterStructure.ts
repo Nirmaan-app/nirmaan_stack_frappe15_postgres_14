@@ -240,6 +240,12 @@ export function referencedAttrIds(config: RateCategoryConfig): Set<string> {
         for (const t of s.params?.terms ?? []) {
           if (typeof t?.attr === "string" && t.attr) out.add(t.attr);
           if (typeof t?.none_when === "string" && t.none_when) out.add(t.none_when);
+          // SLICE 5: `weight_from.from_attr` names an attribute too -- the slot whose SKU supplies
+          // this term's width. Guarded for the reason the slice-2 comment above gives: a typo here
+          // resolves no catalogue row, and the width lookup refuses EVERY row of the category. That
+          // must fail at save, not at runtime.
+          const wf = (t as { weight_from?: { from_attr?: unknown } })?.weight_from;
+          if (typeof wf?.from_attr === "string" && wf.from_attr) out.add(wf.from_attr);
         }
         const sa = s.params?.blanks?.stated_attr;
         if (typeof sa === "string" && sa) out.add(sa);
@@ -462,6 +468,38 @@ export function blanksQtyAttr(config: RateCategoryConfig): string | undefined {
   return undefined;
 }
 
+/**
+ * PURE. The DECLARED attribute on which a `module_fit` `blanks` block's computed item is DISPLAYED.
+ * The twin of `blanksQtyAttr`, and read for the same reason: the panel must SHOW what the pipeline
+ * decided, and which field it shows on is CONFIG, never an attribute name hardcoded here.
+ *
+ * ⚠️ `display_attr` IS NOT `bind_item`, AND KEEPING THEM APART IS THE WHOLE POINT.
+ * `bind_item` names the key the fitted blanker is published into for the component ref to read
+ * (`@blank_fit_item`), and it is DELIBERATELY NOT a declared attribute: because no such attribute
+ * exists, the ref is STRUCTURALLY incapable of resolving to the row's own extracted value. That is a
+ * property of the id space, not of resolution order, and it is what four pins in
+ * `test_rate_master.py` guard.
+ *
+ * Pointing `bind_item` at the declared `blank_item` instead -- so the computed bind could shadow it
+ * -- was tried and REJECTED: it reverses a deliberate earlier decision (the pin at
+ * `test_rate_master.py` ~3055 records the ref being moved OFF `@blank_item` when the blanker stopped
+ * being selected by extraction) and it downgrades that structural guarantee to a behavioural one
+ * resting on `resolveAtRef` checking `fitLabels` before `selected`. This key gives the panel its
+ * display target while leaving the bind, and the guarantee, exactly where they were.
+ *
+ * A config with no `blanks.display_attr` is byte-unaffected.
+ */
+export function blanksBindItemAttr(config: RateCategoryConfig): string | undefined {
+  for (const pl of Object.values(config.pipelines ?? {})) {
+    for (const raw of pl.steps ?? []) {
+      const s = raw as { step?: string; params?: { blanks?: { display_attr?: unknown } } };
+      const da = s.params?.blanks?.display_attr;
+      if (s.step === "module_fit" && typeof da === "string" && da) return da;
+    }
+  }
+  return undefined;
+}
+
 export function derivedAttrIds(config: RateCategoryConfig): Set<string> {
   const out = new Set<string>(derivedQtyAttrs(config).keys());
   for (const pl of Object.values(config.pipelines ?? {})) {
@@ -474,6 +512,22 @@ export function derivedAttrIds(config: RateCategoryConfig): Set<string> {
         for (const ladder of s.params?.ladders ?? []) {
           if (typeof ladder.bind === "string" && ladder.bind) out.add(ladder.bind);
         }
+        // THE SIXTH MECHANISM (slice 5, B1). A `blanks` block may name the DECLARED attribute its
+        // computed blanker is displayed on (`display_attr`). The pipeline decides that value from the
+        // effective count, so a blank one means "the row did not state it", never "the row is
+        // incomplete".
+        //
+        // ⚠️ THIS IS WHAT UN-GATES `blank_item`. The blanker is inferred from the effective count --
+        // owner-locked, "whatever the model returned for blank_item" -- so the field was a required
+        // input that nothing read: three live rows showed "Complete the missing attributes to price"
+        // for a value the pipeline was already deciding on its own. Exactly the defect the ladder-bind
+        // branch above was written for, one block down.
+        //
+        // ⚠️ `display_attr`, NEVER `bind_item`. `bind_item` is deliberately NOT a declared attribute
+        // (see `blanksBindItemAttr`), so adding it here would put an id in this set that no consumer
+        // iterates -- harmless but meaningless -- while leaving the real field still gated.
+        const da = (s.params as { blanks?: { display_attr?: unknown } } | undefined)?.blanks?.display_attr;
+        if (typeof da === "string" && da) out.add(da);
       } else if (s.step === "catalog_fit") {
         // THE FOURTH MECHANISM (slice 2b). A `catalog_fit` BINDS its target from the catalog, so a
         // blank one means "the row did not state an item", never "the row is incomplete".

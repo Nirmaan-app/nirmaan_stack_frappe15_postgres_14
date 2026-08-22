@@ -3,7 +3,7 @@
  *
  * The "Not Auto-Approved Reason" column can only afford a one-line label per
  * flag — enough to scan, not enough to act on. This panel is the other half:
- * every reason the 13 gates can record, grouped by how urgent it is, with a
+ * every reason the 12 gates can record, grouped by how urgent it is, with a
  * three-part breakdown one hover away — what the gate checked, WHY that blocks
  * the invoice, and what to do about it.
  *
@@ -37,7 +37,8 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Info, ShieldQuestion, X } from "lucide-react";
+import { ChevronDown, Info, RefreshCw, ShieldQuestion, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
     AutoApproveReason,
@@ -59,7 +60,9 @@ const STORAGE_KEY = "inv_pending_reason_key_open";
  *
  * They stay in `AUTO_APPROVE_REASON_LABELS`, so those 25 rows still get a
  * proper reading in the row hover, where someone is looking at the actual flag.
- * That is the difference from RETIRED_REASONS, which deletes a token outright.
+ * Hiding a tier is not the same as removing a gate: when gate 8 went, its two
+ * tokens were deleted from the catalogue AND erased from the database by
+ * `patches/v3_0/retire_po_number_gate.py`, so nothing is left to read.
  */
 const HIDDEN_TIERS: ReadonlySet<ReasonTier> = new Set(["legacy"]);
 const CARD_WIDTH = 360;
@@ -161,7 +164,21 @@ const ReasonCard: React.FC<{
     );
 };
 
-export const AutoApproveReasonKey: React.FC<{ className?: string }> = ({ className }) => {
+interface AutoApproveReasonKeyProps {
+    className?: string;
+    /**
+     * Re-run the gates across the pending queue. Omitted for a reviewer who may
+     * not action approvals — the key is then read-only, exactly as before.
+     */
+    onRecheck?: () => void;
+    isRechecking?: boolean;
+}
+
+export const AutoApproveReasonKey: React.FC<AutoApproveReasonKeyProps> = ({
+    className,
+    onRecheck,
+    isRechecking,
+}) => {
     const groups = useMemo(
         () => listReasonsByTier().filter((g) => !HIDDEN_TIERS.has(g.tier)),
         []
@@ -247,31 +264,49 @@ export const AutoApproveReasonKey: React.FC<{ className?: string }> = ({ classNa
                 className
             )}
         >
-            <button
-                type="button"
-                onClick={() => setIsOpen((v) => !v)}
-                aria-expanded={isOpen}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left"
-            >
-                <ShieldQuestion className="h-4 w-4 shrink-0 text-gray-500" />
-                <span className="text-xs font-medium text-gray-900">
-                    Not Auto-Approved Reasons
-                </span>
-                <span className="hidden text-[11px] text-gray-500 sm:inline">
-                    {groups
-                        .map((g) => `${g.reasons.length} ${TIER_STYLES[g.tier].short}`)
-                        .join(" · ")}
-                </span>
-                <span className="ml-auto flex items-center gap-1 text-[11px] text-gray-500">
-                    {isOpen ? "Hide" : `${total} reasons`}
-                    <ChevronDown
-                        className={cn(
-                            "h-3.5 w-3.5 transition-transform",
-                            isOpen && "rotate-180"
-                        )}
-                    />
-                </span>
-            </button>
+            <div className="flex items-center gap-2 px-3 py-2">
+                <button
+                    type="button"
+                    onClick={() => setIsOpen((v) => !v)}
+                    aria-expanded={isOpen}
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                >
+                    <ShieldQuestion className="h-4 w-4 shrink-0 text-gray-500" />
+                    <span className="text-xs font-medium text-gray-900">
+                        Not Auto-Approved Reasons
+                    </span>
+                    <span className="hidden truncate text-[11px] text-gray-500 sm:inline">
+                        {groups
+                            .map((g) => `${g.reasons.length} ${TIER_STYLES[g.tier].short}`)
+                            .join(" · ")}
+                    </span>
+                    <span className="ml-auto flex shrink-0 items-center gap-1 text-[11px] text-gray-500">
+                        {isOpen ? "Hide" : `${total} reasons`}
+                        <ChevronDown
+                            className={cn(
+                                "h-3.5 w-3.5 transition-transform",
+                                isOpen && "rotate-180"
+                            )}
+                        />
+                    </span>
+                </button>
+                {onRecheck && (
+                    <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={onRecheck}
+                        disabled={isRechecking}
+                        title="Re-run the checks against current PO data. Nothing is approved until you confirm."
+                        className="h-7 shrink-0 gap-1.5 border-red-300 px-2 text-[11px] text-red-600 hover:border-red-400 hover:bg-red-50 hover:text-red-700"
+                    >
+                        <RefreshCw
+                            className={cn("h-3 w-3", isRechecking && "animate-spin")}
+                        />
+                        {isRechecking ? "Checking…" : "Re-check"}
+                    </Button>
+                )}
+            </div>
 
             {isOpen && (
                 <div className="border-t border-gray-100 px-3 pb-2.5 pt-2">
@@ -323,9 +358,10 @@ export const AutoApproveReasonKey: React.FC<{ className?: string }> = ({ classNa
                         <Info className="mt-px h-3 w-3 shrink-0" />
                         <span>
                             Hover a reason for what was checked, why it blocks and what to do —
-                            click to keep it open. Reasons are recorded once, when the invoice is
-                            created: the checks never re-run on edit, so a reason can be stale
-                            after someone has corrected the invoice.
+                            click to keep it open. Reasons are recorded when the invoice is
+                            created and do not re-run on their own, so a reason can be stale once
+                            the PO has been delivered or the invoice corrected. Re-check re-runs
+                            every gate against current data and approves whatever now passes.
                         </span>
                     </p>
                 </div>

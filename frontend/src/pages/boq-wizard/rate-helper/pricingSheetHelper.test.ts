@@ -2569,3 +2569,156 @@ describe("SLICE 4 / R9 -- clearing a field equals never having filled it", () =>
     expect(priced.basis).not.toBe("Complete the missing attributes to price");
   });
 });
+
+// ---- SLICE 5 (B1, R-A): the blanker ITEM is DISPLAYED on its declared field ----
+//
+// The blanker is inferred from the effective count and NEVER selected by extraction (owner-locked),
+// so `blank_item` was a required input that nothing read: three live rows showed "Complete the
+// missing attributes to price" for a value the pipeline had already decided.
+//
+// ⚠️ `display_attr` IS NOT `bind_item`, AND THE SPLIT IS THE POINT. `bind_item` stays
+// `blank_fit_item` -- a key that is deliberately NOT a declared attribute, so the component ref is
+// STRUCTURALLY unable to resolve to the row's own extracted value. `display_attr` names the field
+// the computed item is SHOWN on. Pointing `bind_item` at `blank_item` instead would have collapsed
+// that structural guarantee into a behavioural one resting on resolution order.
+function displayConfig(withDisplayAttr: boolean): RateCategoryConfig {
+  const cloned = JSON.parse(JSON.stringify(arbitratedConfig())) as unknown as {
+    attribute_definitions: Array<Record<string, unknown>>;
+    pipelines: Record<string, { steps: Array<Record<string, unknown>> }>;
+  };
+  // The DECLARED field the computed blanker is shown on. The base fixture predates it, because
+  // before this slice nothing displayed the item at all.
+  cloned.attribute_definitions.push({
+    id: "blank_item", label: "Blank plate", type: "choice",
+    values: ["1M Blanker"], allow_none: true,
+  });
+  const mf = cloned.pipelines.probe_boq.steps[0] as { params: { blanks: Record<string, unknown> } };
+  if (withDisplayAttr) mf.params.blanks.display_attr = "blank_item";
+  return cloned as unknown as RateCategoryConfig;
+}
+function dispCompute(withDisplayAttr: boolean, over: Record<string, string | number | null> = {}) {
+  const r = makePricingSheetHelper({
+    configsByCategory: new Map([["mf_probe", displayConfig(withDisplayAttr)]]),
+    items: PLATE_ITEMS,
+    extractionByRow: buildExtractionByRow([{ excel_row: 1, attributes: mfAttrs(over) as never }]),
+  }).compute(mfCtx(1));
+  if (!isSuggestion(r)) throw new Error("expected a suggestion");
+  return (id: string) => r.workings.attributes.find((a) => a.id === id);
+}
+
+describe("DERIVED DISPLAY -- the blanker ITEM (slice 5, B1 / R-A)", () => {
+  it("POSITIVE: a POSITIVE count displays the blanker on the declared field", () => {
+    // 3 modules occupied on a 6M plate -> 3 spare -> a blanker is priced, so the field must say so.
+    const item = dispCompute(true, { plate_item: "6M", blank_qty: null })("blank_item");
+    expect(item?.derived).toBe(true);
+    expect(item?.derivedValue).toBe("1M Blanker");
+    expect(attrDisplayValue(item!)).toBe("1M Blanker");
+  });
+
+  it("POSITIVE: it is NOT flagged missing -- no red border on a value the pipeline decided", () => {
+    // This is the defect: three live rows refused to price over a field nothing ever read.
+    expect(isAttrBlank(dispCompute(true, { plate_item: "6M", blank_qty: null })("blank_item")!)).toBe(false);
+  });
+
+  it("POSITIVE: it stays EDITABLE -- readOnly is never set, like the plate and unlike the qty", () => {
+    const item = dispCompute(true, { plate_item: "6M", blank_qty: null })("blank_item");
+    expect(item?.readOnly).toBeUndefined();
+  });
+
+  it("POSITIVE: a ZERO effective count displays the None sentinel, not a blanker", () => {
+    // Editing the quantity to zero reverts the item to None -- the line reads as deliberately
+    // absent rather than as a blanker bought zero times.
+    const item = dispCompute(true, { plate_item: "6M", blank_qty: 0 })("blank_item");
+    expect(item?.derivedValue).toBe("None");
+  });
+
+  it("POSITIVE: `value` is NOT overwritten -- a computed item stays distinguishable from a stated one", () => {
+    const item = dispCompute(true, { plate_item: "6M", blank_qty: null })("blank_item");
+    expect(item?.value).toBe("");
+  });
+
+  it("NEGATIVE (the vacuity control): WITHOUT `display_attr` nothing is published", () => {
+    // Disabling the mechanism must restore the pre-slice-5 rendering exactly -- an empty field.
+    // This is what makes the positives above evidence of the branch rather than of the fixture.
+    const item = dispCompute(false, { plate_item: "6M", blank_qty: null })("blank_item");
+    expect(item?.derivedValue).toBeUndefined();
+  });
+
+  it("NEGATIVE: with NO plate there are no blanks, so the field publishes nothing", () => {
+    // An uncomputed value renders EMPTY, never a fabricated blanker -- the plate's rule exactly.
+    const item = dispCompute(true, { plate_item: "None", blank_qty: null })("blank_item");
+    expect(item?.derivedValue).toBeUndefined();
+  });
+});
+
+// ---- SLICE 5 (B1 follow-on): a STATED blank_item beside a POSITIVE spare ----
+//
+// ⚠️ THE CASE THE FIRST SEVEN TESTS MISSED, AND WHY. They all left `blank_item` absent, so the
+// display branch was only ever exercised on the blank path -- where `attrDisplayValue` has nothing to
+// prefer. Live row BOQ-26-00174/188 supplied `blank_item: "None"` with NINE spare modules, and the
+// panel showed "None" while the price it displayed included nine blankers. A green suite proved
+// nothing about the one shape that mattered.
+function statedBlankCompute(statedBlankItem: string | null, over: Record<string, string | number | null> = {}) {
+  const r = makePricingSheetHelper({
+    configsByCategory: new Map([["mf_probe", displayConfig(true)]]),
+    items: PLATE_ITEMS,
+    extractionByRow: buildExtractionByRow([
+      { excel_row: 1, attributes: mfAttrs({ plate_item: "6M", blank_qty: null, blank_item: statedBlankItem, ...over }) as never },
+    ]),
+  }).compute(mfCtx(1));
+  if (!isSuggestion(r)) throw new Error("expected a suggestion");
+  return (id: string) => r.workings.attributes.find((a) => a.id === id);
+}
+
+describe("DERIVED DISPLAY -- a STATED blank_item against a POSITIVE spare (slice 5 follow-on)", () => {
+  it("POSITIVE (the live 188 shape): a stated \"None\" is OVERRIDDEN by the computed blanker and MARKED", () => {
+    // 3 occupied on a 6M plate -> 3 spare -> blankers ARE priced. The field must not keep saying None.
+    const item = statedBlankCompute("None")("blank_item");
+    expect(item?.derivedValue).toBe("1M Blanker");
+    expect(attrDisplayValue(item!)).toBe("1M Blanker");
+    expect(item?.substituted).toBe(true);
+  });
+
+  it("POSITIVE: a stated REAL value that disagrees is also overridden and marked", () => {
+    // The pipeline's blanker is inferred from the count, so any disagreeing entry loses -- visibly.
+    const item = statedBlankCompute("10A 1 WAY SWITCH")("blank_item");
+    expect(attrDisplayValue(item!)).toBe("1M Blanker");
+    expect(item?.substituted).toBe(true);
+  });
+
+  it("NEGATIVE: a stated value that AGREES is not marked -- the pipeline takes no credit for it", () => {
+    const item = statedBlankCompute("1M Blanker")("blank_item");
+    expect(attrDisplayValue(item!)).toBe("1M Blanker");
+    expect(item?.substituted).toBeUndefined();
+  });
+
+  it("POSITIVE: a ZERO effective count overrides a stated blanker back to None, and marks it", () => {
+    // Editing the quantity to zero reverts the item to None -- the boundary follows the EFFECTIVE
+    // count, so a row still claiming a blanker must be corrected on screen too.
+    const item = statedBlankCompute("1M Blanker", { blank_qty: 0 })("blank_item");
+    expect(attrDisplayValue(item!)).toBe("None");
+    expect(item?.substituted).toBe(true);
+  });
+
+  it("R9 UNTOUCHED: the quantity the pricer edits still wins and is still not read-only", () => {
+    // The blanker ITEM is inferred; the blanker QUANTITY is the pricer's lever, and `module_fit`
+    // genuinely reads it. This fix must not have quietly locked it.
+    const qty = statedBlankCompute("None", { blank_qty: 2 })("blank_qty");
+    expect(qty?.readOnly).toBeUndefined();
+    expect(attrDisplayValue(qty!)).toBe("2");   // 2 <= 3 spare -> HONOURED
+  });
+
+  it("NEGATIVE (the vacuity control): WITHOUT display_attr nothing is published even when stated", () => {
+    const r = makePricingSheetHelper({
+      configsByCategory: new Map([["mf_probe", displayConfig(false)]]),
+      items: PLATE_ITEMS,
+      extractionByRow: buildExtractionByRow([
+        { excel_row: 1, attributes: mfAttrs({ plate_item: "6M", blank_qty: null, blank_item: "None" }) as never },
+      ]),
+    }).compute(mfCtx(1));
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const item = r.workings.attributes.find((a) => a.id === "blank_item");
+    expect(item?.derivedValue).toBeUndefined();
+    expect(item?.substituted).toBeUndefined();
+  });
+});

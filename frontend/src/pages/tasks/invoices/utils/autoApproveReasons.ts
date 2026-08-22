@@ -1,7 +1,7 @@
 /**
  * Reviewer-facing reading of `Vendor Invoices.auto_approve_skip_reasons`.
  *
- * The backend (`api/invoices/_auto_approve.py`) runs 13 gates on insert and
+ * The backend (`api/invoices/_auto_approve.py`) runs 12 gates on insert and
  * persists a comma-joined list of machine tokens for every gate that failed.
  * That list is written for a machine: flat, unranked, and cascading. This module
  * turns it into something a reviewer can act on.
@@ -28,12 +28,12 @@
  * anomalous. `file_swap_detected` is excluded for the same structural reason
  * (gate 13's else-branch needs a source URL).
  *
- * Separately, RETIRED_REASONS drops tokens for gates that no longer exist at
- * all — see the note there.
- *
- * ⚠️ Reasons are a snapshot from CREATION. Auto-approve never re-runs on edit
- * (see the comment at update_invoice_data.py's insert branch), so a reason can
- * be stale after someone corrects the invoice.
+ * ⚠️ Reasons are a snapshot from CREATION — they do not re-run on their own, so
+ * a reason can be stale once the PO has been delivered or the invoice corrected.
+ * The RE-CHECK (`api/invoices/recheck_auto_approve.py`, driven from the reason
+ * key and the row hover) re-runs every gate against current data and rewrites
+ * this field — but ONLY the `CEILING_REASONS` below; every other reason is
+ * left exactly as recorded.
  *
  * Pure module, no React — unit-tested, per ADR-0010 F4.
  */
@@ -62,7 +62,7 @@ export type ReasonTier = "eligibility" | "blocker" | "check" | "info" | "legacy"
 export interface ReasonEntry {
     /** One-line label — what the table cell and its hover list show. */
     label: string;
-    /** Which of the 13 gates recorded this, e.g. "Gate 10 · delivered-value ceiling". */
+    /** Which of the 12 gates recorded this, e.g. "Gate 10 · delivered-value ceiling". */
     gate: string;
     /** What the gate checked, and what it found. */
     detail: string;
@@ -286,18 +286,6 @@ export const AUTO_APPROVE_REASON_LABELS: Readonly<
             "Confirm billing ahead of delivery is intended on this order, or wait until the Delivery Note is recorded.",
         tier: "check",
     },
-    po_number_not_extracted: {
-        label:
-            "AI couldn't find a PO number on the invoice",
-        gate: "Gate 8 · PO number",
-        detail:
-            "Gate 8 needs a PO number on the invoice document to confirm the invoice belongs to this order. The AI found none.",
-        impact:
-            "Nothing but the uploader's intent links this document to this PO, so a misfiled invoice would pass unnoticed.",
-        action:
-            "Check the document actually references this PO before approving.",
-        tier: "check",
-    },
     invoice_amount_edited: {
         label:
             "Amount was changed from what AI read",
@@ -478,7 +466,6 @@ export const MANUAL_ENTRY_CASCADE: ReadonlySet<string> = new Set([
     "receiver_gstin_checksum_failed",
     "amount_unreconciled",
     "amounts_incomplete",
-    "po_number_not_extracted",
     "source_file_url_missing",
     "low_confidence_amount",
     "low_confidence_invoice_date",
@@ -486,24 +473,28 @@ export const MANUAL_ENTRY_CASCADE: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Tokens for gates that have been REMOVED from `_auto_approve.py` — dropped on
- * sight, never rendered, never counted.
+ * The reasons a RE-CHECK re-runs — the two PO-value ceilings, and nothing else.
  *
- * This is not the same as the `legacy` tier. A legacy token (the three
- * `low_confidence_*`) records a check that was real when it ran and was
- * replaced by a better one, so historical rows still deserve to show it. A
- * retired token records a check we decided should never have blocked: showing
- * it on old rows would keep asking reviewers to act on a signal the system has
- * stopped believing.
+ * These four are the only tokens computed from the PO rather than the invoice,
+ * which is exactly why they go stale on their own: the PO keeps moving after
+ * the invoice is filed (a Delivery Note lands, a revision raises the value)
+ * while the invoice does not change by itself.
  *
- * `po_number_mismatch` (gate 8's match half, removed 2026-08-19) sits on 140
- * live invoices — 118 Approved, 22 Pending. None carries it as its only reason,
- * so dropping it never turns a flagged invoice into a silently clean one.
- *
- * The raw token stays in `auto_approve_skip_reasons` in the database; this only
- * governs what a reviewer is asked to act on.
+ * The re-check re-evaluates ONLY these and rewrites them. Every other stored
+ * reason is carried through untouched — it is not re-judged, and pressing
+ * Re-check will never clear it. Mirrors `_auto_approve.CEILING_GATE_TOKENS`,
+ * which is the enforcement boundary; keep the two in sync.
  */
-export const RETIRED_REASONS: ReadonlySet<string> = new Set(["po_number_mismatch"]);
+export const CEILING_REASONS: ReadonlySet<string> = new Set([
+    "nothing_delivered_yet",
+    "would_exceed_delivered",
+    "would_exceed_po_total",
+    "po_total_invalid",
+]);
+
+/** True when Re-check re-evaluates this reason against current PO data. */
+export const isCeilingReason = (token: string): boolean =>
+    CEILING_REASONS.has(token);
 
 /** Severity ordering for display — most urgent first. */
 const TIER_RANK: Record<ReasonTier, number> = {
@@ -619,9 +610,6 @@ export const summariseSkipReasons = (
     let suppressedCount = 0;
 
     for (const token of tokens) {
-        // Retired gates are dropped outright — not tiered, not counted as
-        // suppressed, because there is nothing left to act on.
-        if (RETIRED_REASONS.has(token)) continue;
         const reason = describeReason(token);
         if (reason.tier === "eligibility") {
             eligibility.push(reason);

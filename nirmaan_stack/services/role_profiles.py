@@ -76,6 +76,23 @@ PROCUREMENT_PROFILES = (
 
 ADMIN_PROFILE = "Nirmaan Admin Profile"
 PMO_EXECUTIVE_PROFILE = "Nirmaan PMO Executive Profile"
+ACCOUNTANT_PROFILE = "Nirmaan Accountant Profile"
+ACCOUNTANT_LEAD_PROFILE = "Nirmaan Accountant Lead Profile"
+
+# May act on the "Pending Invoice Approvals" queue -- approve, reject, or re-run
+# the auto-approve gates on an invoice that is stuck behind a stale reason.
+#
+# Mirrors the client-side gate in `InvoiceReconciliationContainer.tsx`, which
+# decides whether the Pending tab renders at all. That one is UX; this is the
+# ENFORCEMENT boundary, because the endpoints behind that tab save with
+# `ignore_permissions=True` and a bare `@frappe.whitelist()` would otherwise be
+# reachable by any logged-in user. Keep the two lists in sync.
+INVOICE_APPROVAL_PROFILES = (
+    ADMIN_PROFILE,
+    PMO_EXECUTIVE_PROFILE,
+    ACCOUNTANT_PROFILE,
+    ACCOUNTANT_LEAD_PROFILE,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -152,3 +169,8 @@ PDD_DELETE_PROFILES = (ADMIN_PROFILE,) + PROCUREMENT_PROFILES + BILLING_PROFILES
 def can_delete_delivery_document(user: str) -> bool:
     """True when `user` may delete a DC / MIR. Administrator always passes."""
     return has_role_profile(user, PDD_DELETE_PROFILES)
+
+
+def can_action_invoice_approvals(user: str) -> bool:
+    """True when `user` may act on the pending invoice-approval queue."""
+    return has_role_profile(user, INVOICE_APPROVAL_PROFILES)

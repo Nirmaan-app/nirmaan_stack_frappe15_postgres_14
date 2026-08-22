@@ -30,7 +30,8 @@ import {
   Warehouse, ClipboardList,
   FileChartLine,
   Tickets,
-  Table2
+  Table2,
+  TriangleAlert
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
@@ -659,6 +660,16 @@ export function NewSidebar() {
         },
       ]
       : []),
+
+   ...(user_id == "Administrator" || ["Nirmaan Design Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Design Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
+      ? [
+        {
+          key: "/snag-list",
+          icon: TriangleAlert,
+          label: "Snag List",
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile"].includes(role as string)
       ? [
         {
@@ -759,6 +770,7 @@ export function NewSidebar() {
     'expense',
     'reports',
     'design-tracker',
+    'snag-list',
     'critical-po-tracker',
     'pr-tracker',
     'work-plan-tracker',
@@ -811,6 +823,7 @@ export function NewSidebar() {
     "/expense/project": ["expense"],
     "/reports": ["reports"],
     '/design-tracker': ['design-tracker'],
+    '/snag-list': ['snag-list'],
     '/critical-po-tracker': ['critical-po-tracker'],
     '/pr-tracker': ['pr-tracker'],
     '/work-plan-tracker': ['work-plan-tracker'],
@@ -931,6 +944,10 @@ export function NewSidebar() {
                     "Vendor Invoice Recon",
                     "Reports",
                     "Design Tracker",
+                    // Flat nav button, NOT a group -- it has no `children`. Omitting the
+                    // label here drops the item into the collapsible branch below, which
+                    // renders a chevron and swallows the click (see the note further down).
+                    "Snag List",
                     "Commission Report Tracker",
                     "PR Tracker",
                     "PO Tracker",

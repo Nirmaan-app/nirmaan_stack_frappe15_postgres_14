@@ -51,7 +51,8 @@
   "disabled_dpr_date",
   "disabled_inventory",
   "disabled_inventory_date",
-  "disabled_pmo"
+  "disabled_pmo",
+  "disabled_snag_list"
  ],
  "fields": [
   {
@@ -312,6 +313,13 @@
    "fieldname": "disabled_pmo",
    "fieldtype": "Check",
    "label": "Disabled PMO Dashboard"
+  },
+  {
+   "default": "0",
+   "description": "Hides this project's card from the /snag-list grid for everyone except Admin and PMO. Lives on Projects, not on a snag document, because a snag list has no document of its own -- a Project Snag is standalone (ADR-0017). No date twin: DPR and Inventory are dated because the status flow disables them, this one is toggled by hand.",
+   "fieldname": "disabled_snag_list",
+   "fieldtype": "Check",
+   "label": "Disabled Snag List"
   },
   {
    "description": "If the project's cashflow gap (Outflow + Current Liabilities \u2212 Inflow) exceeds this,project to CEO Hold.",
