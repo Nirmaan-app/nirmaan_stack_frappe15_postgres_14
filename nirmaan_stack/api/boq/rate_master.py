@@ -1353,6 +1353,10 @@ _FROM_ATTR_SUFFIX = "_from_attr"
 # RULING 2 (owner 2026-08-09): the `scale`-param half of the step function. Mirrors the interpreter's
 # STEP_DIVISOR_SUFFIX -- keep the two strings identical or a config saves here and does nothing there.
 _STEP_DIVISOR_SUFFIX = "_step_divisor"
+# SLICE 5: the addition primitive's `scale`-param suffix. Mirrors the interpreter's CTX_PARAM_SUFFIX
+# -- keep the two strings identical, for the same reason the line above says it: a config that saves
+# here and does nothing there is the worst of both.
+_FROM_CTX_SUFFIX = "_from_ctx"
 
 
 def _validate_params(params, where):
@@ -1377,6 +1381,18 @@ def _validate_params(params, where):
             if not isinstance(v, str) or not v.strip():
                 _vthrow(
                     f"{where}: parameter '{k}' must be a non-empty attribute id (a string)."
+                )
+            continue
+        # SLICE 5, and the SAME relaxation as (2) above for the same reason: a `*_from_ctx` param
+        # binds a COMPUTED (`ctx`) key -- the addition primitive -- so it is necessarily a string.
+        # Without this the validator rejects a step the interpreter is explicitly built to execute,
+        # which is precisely the failure mode the docstring above records for `*_from_attr`: the
+        # popup config could not be saved or validated AT ALL. Scoped to the SUFFIX only, so any
+        # other string-valued param is still an error.
+        if isinstance(k, str) and k.endswith(_FROM_CTX_SUFFIX):
+            if not isinstance(v, str) or not v.strip():
+                _vthrow(
+                    f"{where}: parameter '{k}' must be a non-empty computed-value key (a string)."
                 )
             continue
         # RULING 2: `<ident>_step_divisor` pairs with `<ident>_from_attr` and turns that binding into

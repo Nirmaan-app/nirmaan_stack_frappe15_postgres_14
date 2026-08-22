@@ -32748,3 +32748,291 @@ session left logged in. Verified against the database after the cert:
 - The `/tmp/inspect.py` shadowing collision recurred and was worked around by running ad-hoc scripts
   from a `/tmp` SUBDIRECTORY, per the standing note.
 - No accidental interactions this cert: no remark editor opened, no cell entered, no value typed.
+
+---
+
+## Slice 5 - switch/socket family: per-SKU module width, four socket slots, the popup composite (2026-08-21, v45)
+
+**Asset:** `rate_master_electrical_all_v45.json`, sha256
+`7ba12e7160013c000e40cef7722fc937842a854cac19e399ff3d3db735b9852d`. 1367 active items (1364 -> 1367),
+12 configs. Branch `feature/boq-pricing-helper`, off `fc913434`.
+
+### Phase 0 - the width census, and a ruling that came out of it
+
+The slice opened with a mandatory census of all 58 `switch_socket_item` SKUs before anything was
+seeded. Three findings changed the plan:
+
+1. **The census's own simulation was WRONG, and the correction matters more than the census.** A
+   Python re-implementation of `module_fit` treated a blank `plate_item` as a refusal; the shipped
+   ladder simply skips the floor and fits on the computed occupancy. That bug produced a false
+   baseline (93 "refusals") and a false "these rows already refuse, so the zeroes are vacuous"
+   conclusion. **Every later measurement was taken by importing and running the real `runPipeline`,
+   never by re-deriving its arithmetic.** This is the same lesson as #179 (three coercion sites that
+   agreed until they did not), arriving from the measurement side rather than the code side.
+2. **The width fact had no home and the census's guess about the precedent was wrong.** Plate
+   capacity is NOT stored: it is parsed out of the item LABEL by `moduleSizesFromLabel`. The real
+   per-SKU numeric-fact precedent is `cable_tray.width_mm` / `db_switchgear_item.amp_a` - floats in
+   the item's `attributes`, read through `size_from`.
+3. **`module_fit` could not express a per-SKU width in CONFIG.** Occupancy is
+   `occupied += t.weight * v` with `t.weight` a per-SLOT constant. Blast radius of any change:
+   `switches_sockets` (2 pipelines) and `point_wiring` (3). Nothing else in the 12 configs runs it.
+
+### Owner rulings this slice
+
+| Ruling | Substance |
+|---|---|
+| **Phase-0 width table** | F1 `16A 1 WAY SWITCH (2M)` -> 2 · F2 `32A DP` -> 2 · F3 `20A DP` -> 2 · F4 `20A 1 WAY (1M)` -> 1 · F5 `6A 3-Pin Socket` **held at 2** (Option A) · F6 `RJ 11 Telephone` -> 1 · F7/F8/F9 all three USB chargers -> **1** (overruling the census's "likely 2"). Every other switch 1, every other socket 2, `1M Blanker` 1. |
+| **Addendum** | Containers get the width column too - DATA ONLY, nothing reads it; the occupied-space sum reads OCCUPANT widths only. |
+| **Stop 1** | The five downward price corrections ACCEPTED; the backwards-compat axis amended to 117-of-122 identical plus the five named rows. |
+| **Stop 2** | The three `1M & 2M` containers **SPLIT**, not annotated: two single-size SKUs each at identical rates, the combined one retired. |
+| **Stop 3** | The narrow `extraction.py` change authorised (`requires_named`, one guidance sentence, a post-coercion scrub). |
+| **Stop 4** | `extract: false` authorised as a third flag. |
+| **Ruling 1 (later)** | The ADDITION PRIMITIVE authorised - `scale` may bind other computed `ctx` values. |
+| **Ruling 4** | The plate displays its computed value "like blanks" - **found ALREADY SHIPPED and test-pinned; nothing was built.** The "~94 rows show blank" premise was a misreading of a figure about STORED EXTRACTION, not about the panel. |
+| **Assertion ruling** | Publish `item` on `ModuleFitBlanksOutcome`; amend the six `toEqual` sites; stop again if another axis surfaced. One did (`@blank_fit_item`). |
+| **Final ruling** | The `display_attr` shape - `bind_item` stays `blank_fit_item`. |
+
+### What shipped
+
+- **B0** four socket slots on `switches_sockets` (`socket3`/`socket4`, item + qty each).
+- **B1** `blank_qty` withheld from the prompt via the new `extract: false`; `blank_item` un-gated and
+  now DISPLAYING its computed blanker via `display_attr`.
+- **B2** slot-paired quantity defaults (`requires_named`) on `switches_sockets` AND `point_wiring`,
+  enforced server-side by `scrub_unpaired_slot_defaults`.
+- **B3/B4** the popup composite - the switch/socket module set minus the back box plus four sockets,
+  its price ADDED to the box price; the with/without fork carried by a `has_modules` attribute and
+  the P1 estimator rule.
+- **B5** `matchMasterRow` resolves UNIQUELY (was pick-first).
+- **B6** per-SKU module width on all 61 family SKUs + the `1M & 2M` split.
+
+### B4 - the extraction wording AS SHIPPED (popup `rules`, id P1, applies_to `has_modules`)
+
+> A pop-up or floor box line is priced one of two ways, and the first thing to decide is which.
+>
+> Read the line as INCLUDING modules only when it actually supplies them - when it enumerates
+> sockets, switches, chargers or outlets that sit in the box, or says the box is supplied populated,
+> loaded, fitted or complete with them. Set Includes modules to Yes and fill in the module attributes
+> for what it names.
+>
+> Read the line as WITHOUT modules when it supplies the box alone - the enclosure, the lid, the
+> frame, the mounting arrangement - with nothing named inside it. Set Includes modules to No and
+> return None for every module attribute: the switch, all four sockets, the blank plate, the face
+> plate and the colour.
+>
+> Language that anticipates modules is not the same as supplying them. A box described as having
+> provision to take, being suitable for, shall support, can accommodate, or is designed for a number
+> of modules is a box WITHOUT modules - it states a capacity, not contents. So is a line that
+> explicitly excludes them, such as modules to be supplied separately, box to exclude the modules, or
+> modules by others. In every one of those cases answer No.
+>
+> A module count on its own is a capacity too. A twelve module pop-up box is a twelve module
+> enclosure; it does not tell you that twelve modules are being supplied.
+>
+> When the line does include modules but names something the catalog does not carry, fill in the
+> parts you can read and leave the rest blank rather than forcing a wrong match.
+>
+> Leave Includes modules blank only when the line genuinely does not say either way.
+
+**There are deliberately NO item-slot extraction defaults on the popup.** Defaulting the slots to
+"None" would collapse R3 (with-modules-but-unreadable must REFUSE) into a silent box-only price. The
+fork rides the existing None-vs-blank distinction instead: every slot None -> the box prices alone;
+all slots blank -> `module_fit` refuses the whole row; some named -> prices what it can (R6).
+
+### Deployment Mode - the item-data note (R9s-d)
+
+**The width column and the `1M & 2M` split are ITEM DATA, and the next production item merge must
+carry both.** A merge that reinstates the three combined SKUs, or that omits `modules` on any family
+SKU, does not fail quietly: an unseeded SKU is an HONEST NO-COMPUTE naming itself, which is the
+runtime half of the completeness rule. The CSV round trip cannot resurrect a retired SKU either -
+`csv_importer` builds `by_uid` from ACTIVE rows only, so a retired uid reports "Unknown item_uid ...
+no active item carries it" and the plan refuses.
+
+**How an ITEM retires here:** freeze-and-supersede via the loader (`_deactivate_scope` sets
+`active = 0` for the payload's kinds, then inserts the payload's rows; an item absent from the
+payload stays inactive and is RETAINED). `retirement.py` is for KINDS and CATEGORIES only and must
+never be used for an item.
+
+### Two defects found by the suite, both mine, both recorded
+
+1. **The config validator rejected the authorised primitive.** `_validate_params` requires every
+   `scale` param to be a finite number, so `modules_from_ctx` (a string) threw. The authorised
+   addition primitive was unusable through the validator until `_FROM_CTX_SUFFIX` got the same
+   narrowly-scoped exemption `_from_attr` already has - whose docstring records this exact failure
+   mode for cabletray/popup.
+2. **`modules` was left UNDECLARED after a report claimed otherwise.** An undeclared attribute has no
+   type, so `coerce_attribute` returns the cell TEXT and one CSV round trip rewrites every seeded
+   `2.0` as `"2"`. Caught by `test_91`. Fixed by declaring it `type: "number"` with `selector: false`
+   + `panel: false`.
+
+### The load, and a two-load lesson
+
+`_load_multi` reads the **top-level** `goldens` map and OVERWRITES each config's own `goldens` with
+it. Writing only the per-config copy leaves the stale golden live - which is what happened, and cost
+a second load. Both copies must be written and kept in step.
+
+**Three goldens were re-banked MECHANICALLY and every expected value is unchanged** - s1 120/30/80,
+ss1 820/170/570, p1 10800/1200. Only their INPUTS grew: `module_fit` refuses a term whose quantity is
+ABSENT, so a golden predating `socket3`/`socket4` bails before computing anything.
+
+### B0 and B8 are inseparable (owner-accepted exposure)
+
+A `module_fit` term hard-fails on an absent quantity - "blank is unknown, not zero" - so a
+`switches_sockets` row that the re-extraction does not reach will REFUSE until it is re-extracted.
+The absent-slot-as-None hardening is BANKED for a later slice, not built.
+
+### Slice 5 addendum - the story-1 investigation, the no_key incident, and the bare-box follow-on
+
+#### The `no_key` incident (2026-08-21)
+
+The first B8 attempt reported `status=complete` on all 15 sheets and finished each in **0 seconds**.
+`ai_status` was **`no_key`** on every one: `run_extraction` FAILS CLOSED, returning `_blank_row` for
+every row, and `_suggest_worker` wrote those all-None attributes and activated its run. **135 rows
+were wiped.**
+
+Cause: `get_decrypted_password` raised *"Encryption key is invalid! Please check site_config.json"* --
+the stored Anthropic key had been encrypted under a different `encryption_key` than this site holds,
+a consequence of the dev database being production's data. The ciphertext was intact; the site simply
+could not read it. It was resolved by the owner re-entering the key.
+
+**Recovery was a flip, not a reconstruction.** Freeze-and-supersede had retained every prior run at
+`active = 0`, so each sheet's `no_key` run was demoted and its predecessor re-activated. Verified: the
+restored extraction matched a snapshot taken before the pass on **217 of 217 rows, 0 differing**.
+
+⚠️ **THE STANDING LESSON, AND IT IS THE ONE CLAUDE.md ALREADY RECORDS FOR THE CLASSIFIER: AN AI-OFF
+RUN LOOKS SUCCESSFUL.** Every sheet said `complete`. Only `ai_status` and the impossible 0-second
+runtimes gave it away. Any batch driver over `_suggest_worker` must check `ai_status` on the FIRST
+sheet before letting the rest run.
+
+#### Story 1 - the 8 rows that stopped saying "None"
+
+`BOQ-26-00187/110-117` are near-empty rows (`"1 or 2 Module"`, `"3 Module"`, `"RJ-45"`, `"RJ-11"`)
+whose meaning lives ENTIRELY in the ancestor: a parent preamble reading *"1.2 mm thick GI Switch boxes
+suitable for modular plate type switches"*. They are EMPTY BOXES, so `"None"` on every occupant slot
+is the correct positive absence.
+
+Both post-slice runs returned `null` (blank) on those slots instead, which is a `bindMiss` and
+refuses the row. **The mechanism: the SLOT-PAIRED DEFAULTS sentence attached a CONSEQUENCE to
+`"None"` and none to blank** -- `"None"` became the one answer that cost the row its quantity default.
+`OPTIONAL COMPONENTS` (unchanged, and unambiguous) says the opposite. A model already at **0.2
+confidence** on rows with no components in their own text took the cheaper branch. The other 114 rows
+name real components, so `"None"` on their unused slots was never a judgement call -- which is why
+only these eight moved.
+
+**The fix was two sentences** stating that withholding a quantity is the arithmetic consequence of
+`"None"`, not a penalty for choosing it, and that blank means only "I could not tell". **It converged
+on the first 8-row attempt** (`only_rows=[110..117]`, 52 s): rows 110-115 returned to `"None"` on all
+six occupant slots and `plate_qty` survived on the component-naming row. `RJ-45`'s blank socket was
+accepted by the owner as the true state -- the catalogue carries no RJ-45, so `"None"` would assert
+something false.
+
+⚠️ **A prompt sentence that makes one legitimate answer costlier than another will bend the model
+wherever its confidence is already low.** Both wordings in this slice did it, in opposite directions:
+the first withheld `plate_qty` on 97 rows, the second suppressed `"None"` on 8.
+
+#### Socket3/socket4 were SEEDED, not extracted
+
+`only_rows` scopes ROWS, not FIELDS, so "re-extract solely for socket3/socket4" is not expressible --
+re-reading a row re-reads all of it, and a fresh AI pass moves rows for reasons unrelated to the
+change. The two new slots were seeded as `"None"` by data patch on **114** rows (the 8 investigation
+rows kept their post-wording extraction), preserving every reviewed attribute byte-for-byte. A census
+for rows naming 3+ socket TYPES found ONE candidate, `BOQ-26-00174/164`, which names two (universal
+socket + USB charger) and fits the existing pair -- so nothing needed a re-read instead.
+
+#### The bare-box FOLLOW-ON (ruled OUT of slice 5)
+
+**Nothing in slice 5 prices a bare-box row.** The owner ruled that a bare box row SHOULD price as its
+back box, in a follow-on slice, on these terms:
+
+- **default 3M when the size is unreadable; the STATED size wins when readable**;
+- the `junction_box_raceway` modelling question rides it -- a GI switch box arguably does not belong
+  in `switches_sockets` at all.
+
+Diagnosis for whoever picks it up:
+
+- **Why they price 0 today.** Occupants all `"None"` gives a weighted sum of 0, which sets
+  `noModules`; the ladder's zero branch fires BEFORE any fitting, reads `on_zero_modules`, finds it
+  absent on `switches_sockets`, and binds the None sentinel. `@box_item` then resolves to positive
+  absence and `none_skips` zeroes the line. **`back_box: "Yes"` is set on those rows and does
+  nothing** -- the quantity resolves against an item that never bound.
+- ⚠️ **`point_wiring` ALREADY HAS THE FIX AND `switches_sockets` DOES NOT** -- the owner-locked
+  STATE-A fallback, `on_zero_modules: 3`, given to one category and never extended to the other.
+- **The default half is ONE CONFIG KEY.** The stated-size half is NOT: `floor_from` is consulted only
+  on the NON-zero path, so a capacity sitting in `plate_item` is invisible to the box ladder on
+  exactly the rows that need it -- and `plate_item` is the wrong destination anyway (the model
+  already reads the capacity there, which would price a face plate the row does not supply). It needs
+  a new attribute, interpreter work, extraction wording, and a guard keeping the capacity out of the
+  occupancy sum.
+- **Expected prices** (measured on the shipped pipeline, `back_box: "Yes"`): 1M/2M **50/10/40** ·
+  3M **70/20/50** · 4M **80/20/60** · 6M **110/30/70** · 8M **140/30/100** · 12M **170/40/120**.
+  Row 110's "1 or 2 Module" is price-neutral -- both rungs are Rs 121.
+
+#### The blanker ITEM display fix
+
+`attrDisplayValue` prefers a STATED value over a derived one, so a row whose extraction said
+`blank_item: "None"` displayed "None" while the price it showed included nine blankers
+(`BOQ-26-00174/188`). The computed item now OVERRIDES a stated one and is marked `substituted` --
+**the plate's exact precedent**, where take-the-larger overwrites a stated rung and marks it
+"(computed)".
+
+⚠️ **THE FIRST SEVEN DISPLAY TESTS MISSED IT BECAUSE THEY ALL LEFT `blank_item` ABSENT**, exercising
+only the blank path where `attrDisplayValue` has nothing to prefer. A green suite proved nothing about
+the one shape that mattered. Six tests now cover a stated `blank_item` -- "None" and a real value --
+against a positive spare, plus the zero-count reversal and an R9 guard that the quantity the pricer
+edits is still not read-only.
+
+#### Post-cert: the Colour default, and two guards that would have caught it at authoring time
+
+The post-cert check on `BOQ-26-00196/263` (Colour blank, row gating) found **no duplication gap** -
+`popup_boxes.extraction_defaults` carries `"colour": "White"` exactly as `switches_sockets` does, and
+the default fired on **124 of 126** rows (`switches_sockets` 113 defaulted / 3 stated / 6 Grey /
+**0 missing**; `popup_boxes` 11 defaulted / 1 Grey / **1 missing**).
+
+**The fault was in the P1 rule wording**, which enumerated colour among the module attributes to
+blank out:
+
+> …return None for every module attribute: the switch, all four sockets, the blank plate, the face
+> plate **and the colour**.
+
+The raw reply for 263 shows the model complying: `"colour": {"value": "None", "confidence": 0.85}`.
+From there the chain is mechanical - **`colour` is a `choice` with NO `allow_none`**, so `"None"` is
+not an allowed value, `_coerce_value` rejects it, the stored value becomes `null`, and a declared
+non-derived attribute that is null counts as MISSING INPUT, so the row gates.
+
+⚠️ **It was wrong on principle, not only in effect: colour is a property of the whole assembly with a
+standing default, not a module slot.** And like the story-1 drift it bit INTERMITTENTLY - the other
+two `has_modules = No` rows kept their White - because a guidance sentence only bends the model where
+its confidence is already low. That is why it survived the cert.
+
+**Fixed** by ending the enumeration at the face plate and saying so explicitly:
+
+> …the blank plate and the face plate. Colour is not a module attribute: leave it to its default
+> unless the row names one.
+
+Re-extracted scoped to that one row (`only_rows=[263]`, 29 s, `ai_status=ran`): the raw reply now
+reads `"colour": {"value": "White", "confidence": 0.4, "defaulted": true}`, and the row gates on
+**`Module count` ALONE** - one red border, correctly, because its text genuinely never states a
+module count.
+
+**TWO CONFIG-SHAPE GUARDS now make this class unauthorable** (`TestRuleGuidanceDoesNotFightTheConfig`).
+Both are pure reads of the shipped asset - no model, no database row, no pipeline run - and both would
+have failed the moment that sentence was written:
+
+1. **No rule may name an `extraction_defaults` key as a `"None"` target.** Two instructions that
+   contradict each other leave the outcome to the model's confidence, i.e. undecided. Slot-paired
+   defaults (`requires_named`) are exempt: for those the None case IS the mechanism.
+2. **No rule may instruct `"None"` for an attribute lacking `allow_none`.** Coercion will drop it and
+   the row will gate, silently.
+
+⚠️ **The sentence extractor is deliberately CRUDE AND WIDE** - it finds "return None" and reads to the
+end of that sentence. Parsing English precisely would miss the next variation; over-reporting is cheap
+to satisfy (reword) and cannot let the real case through. A third test pins that the guards can
+actually SEE P1, so they cannot pass by reading nothing.
+
+**Vacuity proved by re-introducing the exact clause into a copy of the asset: 3 of 4 red**, each
+naming the real cause - *"names 'Colour', which carries the plain default 'White'"* and *"names
+'Colour', which is NOT allow_none -- coercion will drop it and the row will gate"* - then restored,
+4 of 4 green.
+
+**A widened drift-guard over `extraction_defaults` would NOT have caught this** (the two sets already
+agree on colour), and if it is ever added it must encode the one deliberate divergence:
+`switches_sockets` carries `back_box: "Yes"` and `popup_boxes` does not, per R7.
