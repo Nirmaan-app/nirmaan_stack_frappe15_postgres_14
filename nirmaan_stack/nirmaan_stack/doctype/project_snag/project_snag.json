@@ -84,11 +84,11 @@
    "label": "Details"
   },
   {
+   "description": "Normally the mapped Snag Description cell. NOT required (ADR-0019): a human tick at import is authoritative, so a ticked row with no description is still imported -- falling back to the row's first non-empty cell, or blank when the row has nothing anywhere. Never a manufactured placeholder.",
    "fieldname": "description",
    "fieldtype": "Text",
    "in_list_view": 1,
-   "label": "Description",
-   "reqd": 1
+   "label": "Description"
   },
   {
    "fieldname": "section_break_3",
@@ -111,7 +111,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-21 16:43:57.746865",
+ "modified": "2026-08-21 18:22:16.398107",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Snag",

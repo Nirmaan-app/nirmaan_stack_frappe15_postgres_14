@@ -15,7 +15,13 @@
  *  | Import / delete batch / add manual snag         | Admin, Project Lead, PMO     |
  *  | View import history (the batches icon)          | Admin, Project Lead, PMO     |
  *  | Change ONE row's status (+ its remark)          | Admin, Project Lead, PMO, PM |
+ *  | EDIT one row's Area / Category / Description    | Admin, Project Lead, PMO     |
  *  | BULK status change                              | Admin only                   |
+ *
+ * ⚠️ The two row-level rows above are DIFFERENT SETS, and the difference is the
+ * point (Revision 3, owner Q8a): changing a status RECORDS WORK DONE, which is a
+ * Project Manager's job; editing a description REWRITES WHAT THE CONSULTANT
+ * REPORTED, which is not. Do not collapse `canEditRow` into `canEditStatus`.
  *
  * The `comments` row is GONE with the field (ADR-0018). A remark is no longer a
  * separate permission question: it is written as part of a status change, so
@@ -94,9 +100,20 @@ export const canAddManual = (actor: SnagActor): boolean =>
 export const canViewBatches = (actor: SnagActor): boolean =>
   hasProfile(actor, SNAG_MANAGE_PROFILES);
 
-/** May change ONE row's status. */
+/** May change ONE row's status. Includes the Project Manager. */
 export const canEditStatus = (actor: SnagActor): boolean =>
   hasProfile(actor, SNAG_ROW_EDIT_PROFILES);
+
+/**
+ * May edit ONE row's Area / Category / Description (the Edit dialog).
+ *
+ * EXCLUDES the Project Manager on purpose — see the matrix note at the top of this
+ * file. It shares `SNAG_MANAGE_PROFILES` with `canImport` because "may rewrite the
+ * imported text" and "may run the import" are the same trust level, but it is its
+ * own named predicate so a later change to either cannot silently move the other.
+ */
+export const canEditRow = (actor: SnagActor): boolean =>
+  hasProfile(actor, SNAG_MANAGE_PROFILES);
 
 /** May set the status of many ticked rows at once. Admin only. */
 export const canBulkEdit = (actor: SnagActor): boolean =>
@@ -109,6 +126,7 @@ export interface SnagPermissions {
   canAddManual: boolean;
   canViewBatches: boolean;
   canEditStatus: boolean;
+  canEditRow: boolean;
   canBulkEdit: boolean;
   /** True when the actor may change nothing at all — the tab renders READ-ONLY. */
   isReadOnly: boolean;
@@ -122,6 +140,7 @@ export function resolveSnagPermissions(actor: SnagActor): SnagPermissions {
     canAddManual: canAddManual(actor),
     canViewBatches: canViewBatches(actor),
     canEditStatus: canEditStatus(actor),
+    canEditRow: canEditRow(actor),
     canBulkEdit: canBulkEdit(actor),
   };
   return {
@@ -132,6 +151,11 @@ export function resolveSnagPermissions(actor: SnagActor): SnagPermissions {
     // with `canEditStatus` and `canViewBatches` shares its with `canImport`. Any
     // FUTURE predicate on a profile list not already represented here WOULD move
     // it — check that before adding one.
+    //
+    // CHECKED for Revision 3's `canEditRow`: it resolves over `SNAG_MANAGE_PROFILES`,
+    // the SAME list `canImport` / `canDeleteBatch` / `canAddManual` / `canViewBatches`
+    // already use, so it cannot be the only true predicate for anybody and this line
+    // is unmoved. Nobody's read-only banner changes.
     isReadOnly: !Object.values(perms).some(Boolean),
   };
 }

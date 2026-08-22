@@ -4,7 +4,7 @@ import { useFrappePostCall } from "frappe-react-sdk";
 import { toast } from "@/components/ui/use-toast";
 import { getFrappeError } from "@/utils/frappeErrors";
 
-import { DeleteBatchPreview, SnagStatus } from "../types";
+import { DeleteBatchPreview, SnagStatus, UpdateSnagDetailsPayload } from "../types";
 import { SNAG_ENDPOINTS } from "../config/snagTable.config";
 
 /**
@@ -30,6 +30,7 @@ export interface UseSnagMutationsResult {
   savingStatusFor: string | null;
   isBulkSaving: boolean;
   isAdding: boolean;
+  isSavingDetails: boolean;
   isDeletingBatch: boolean;
 
   /**
@@ -50,6 +51,22 @@ export interface UseSnagMutationsResult {
   /** BULK status change deliberately takes NO remark — see below. */
   bulkUpdateStatus: (snags: string[], status: SnagStatus) => Promise<boolean>;
   addManualSnag: (input: AddManualSnagInput) => Promise<boolean>;
+  /**
+   * ONE row's Area / Category / Description.
+   *
+   * DELIBERATELY CANNOT touch status or remark: those are owned by the status
+   * change (ADR-0018), whose "Not Applicable takes no remark" rule would otherwise
+   * have to be duplicated here and would drift. Nor any provenance field — batch /
+   * source_row / project answer "where did this come from", which an editable
+   * answer would make worthless.
+   *
+   * All three values are SENT EVERY TIME (no three-state `undefined` game like
+   * `remark`): the Edit dialog holds the whole set, so a full overwrite of exactly
+   * those three fields is what the user saw and confirmed. A blank description is
+   * ALLOWED — ADR-0019 dropped the `reqd`, so a client-side required check would
+   * refuse what the server accepts.
+   */
+  updateSnagDetails: (payload: UpdateSnagDetailsPayload) => Promise<boolean>;
   getBatchDeletePreview: (batch: string) => Promise<DeleteBatchPreview | null>;
   deleteBatch: (batch: string) => Promise<boolean>;
 }
@@ -68,6 +85,9 @@ export function useSnagMutations(
   const { call: callUpdateStatus } = useFrappePostCall(SNAG_ENDPOINTS.updateStatus);
   const { call: callBulkUpdate } = useFrappePostCall(SNAG_ENDPOINTS.bulkUpdateStatus);
   const { call: callAddManual } = useFrappePostCall(SNAG_ENDPOINTS.addManualSnag);
+  const { call: callUpdateDetails } = useFrappePostCall(
+    SNAG_ENDPOINTS.updateSnagDetails
+  );
   const { call: callDeletePreview } = useFrappePostCall<{
     message: DeleteBatchPreview;
   }>(SNAG_ENDPOINTS.batchDeletePreview);
@@ -76,6 +96,7 @@ export function useSnagMutations(
   const [savingStatusFor, setSavingStatusFor] = useState<string | null>(null);
   const [isBulkSaving, setIsBulkSaving] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
+  const [isSavingDetails, setIsSavingDetails] = useState(false);
   const [isDeletingBatch, setIsDeletingBatch] = useState(false);
 
   const updateStatus = useCallback(
@@ -167,6 +188,32 @@ export function useSnagMutations(
     [callAddManual, onChanged, projectId]
   );
 
+  const updateSnagDetails = useCallback(
+    async ({ snag, area, category, description }: UpdateSnagDetailsPayload) => {
+      setIsSavingDetails(true);
+      try {
+        await callUpdateDetails({ snag, area, category, description });
+        toast({
+          title: "Snag updated",
+          description: "The snag's details were saved.",
+          variant: "success",
+        });
+        onChanged?.();
+        return true;
+      } catch (e: any) {
+        toast({
+          title: "Could not update the snag",
+          description: errText(e, "The changes were not saved."),
+          variant: "destructive",
+        });
+        return false;
+      } finally {
+        setIsSavingDetails(false);
+      }
+    },
+    [callUpdateDetails, onChanged]
+  );
+
   const getBatchDeletePreview = useCallback(
     async (batch: string): Promise<DeleteBatchPreview | null> => {
       try {
@@ -214,10 +261,12 @@ export function useSnagMutations(
     savingStatusFor,
     isBulkSaving,
     isAdding,
+    isSavingDetails,
     isDeletingBatch,
     updateStatus,
     bulkUpdateStatus,
     addManualSnag,
+    updateSnagDetails,
     getBatchDeletePreview,
     deleteBatch,
   };

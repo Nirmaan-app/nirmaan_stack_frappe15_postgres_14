@@ -8,10 +8,12 @@
  *
  * The COLUMN LIST rendered here is `state.columns`, NEVER `sheet.columns`. The two are equal
  * only until the header row is overridden: from then on the authoritative list is the one
- * `parse_preview` recomputed for the header row actually used, and `sheet.columns` is stale.
+ * `get_sheet_columns` recomputed for the header row actually used, and `sheet.columns` is
+ * stale. (R3.1: it used to come from `parse_preview`, which cannot run until a Description is
+ * mapped -- which is why overriding the header row on a sheet with empty selects did nothing.)
  */
 
-import { AlertTriangle, Wand2 } from "lucide-react";
+import { AlertTriangle, Loader2, Wand2 } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -108,12 +110,39 @@ export function SheetTabPanel({
                   ` Auto-detected ${sheet.header_row}.`}
               </p>
             )}
+            {state.columnsLoading && (
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                Reading column names…
+              </p>
+            )}
+            {state.columnsError && (
+              <p className="flex items-start gap-1.5 text-xs text-destructive">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  {state.columnsError} The columns below are still the ones from the previous
+                  header row.
+                </span>
+              </p>
+            )}
             {state.mappingReguessed && (
               <p className="flex items-start gap-1.5 text-xs text-blue-700 dark:text-blue-400">
                 <Wand2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <span>
                   The header row changed, so the column mapping was re-guessed from the new
                   header. Check it before importing.
+                </span>
+              </p>
+            )}
+            {/* The counterpart note. A silent KEEP reads as "nothing happened" exactly as a
+                silent reset read as a bug -- and it is the difference between the mapping you
+                chose and one the machine chose, so it has to be said out loud. */}
+            {state.mappingKeptNoGuess && (
+              <p className="flex items-start gap-1.5 text-xs text-blue-700 dark:text-blue-400">
+                <Wand2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  The header row changed, but nothing in it looked like a column name — your
+                  existing mapping was kept. Check it against the new column list.
                 </span>
               </p>
             )}

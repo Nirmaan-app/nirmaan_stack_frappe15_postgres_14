@@ -16,9 +16,14 @@
  * labelled as such -- now that skipped rows share the table, an unlabelled count would read
  * as covering everything on screen.
  *
- * UN-TICKABLE rows (`tickable === false`, i.e. no description) render greyed with a DISABLED
- * checkbox and the reason. This is not cosmetic: the server refuses such a row, so offering a
- * tick it will then refuse is the exact silent-drop shape this screen exists to prevent.
+ * ⚠️ NOTHING ON THIS SCREEN IS UN-TICKABLE (ADR-0019). A row with no description used to render
+ * with a DISABLED checkbox, because the server refused it. It no longer does: if a human ticks a
+ * row, that row is imported, its description falling back to the row's first non-empty cell (the
+ * `preview_text` this table already shows) or left blank. So `tickable` survives here as pure
+ * INFORMATION -- it labels such a row and explains what will happen -- and gates NOTHING: not the
+ * checkbox, not its change handler, not Select all, not the counters. Reintroducing any of those
+ * gives back a UI that offers a control and then declines to honour it, which is the failure this
+ * screen exists to prevent.
  */
 
 import { useMemo, useState } from "react";
@@ -38,11 +43,14 @@ import {
   type ParsePreviewResponse,
   type ParsedSnagRow,
 } from "../types";
-import { allRowNums, countTicked, tickableRowNums } from "./importState";
+import { allRowNums, countTicked, noDescriptionRowCount } from "./importState";
 
-/** Shown on the disabled checkbox of a row that can never become a Snag. */
-const UNTICKABLE_TITLE =
-  "This row has no description, so it cannot become a snag. Map a different Description column, or fix the row in Excel.";
+/**
+ * Shown on a row with no description. It is an EXPLANATION, not a refusal -- the row is fully
+ * tickable and will import (ADR-0019). Say what actually happens, never "cannot be imported".
+ */
+const NO_DESCRIPTION_TITLE =
+  "This row has no description. Tick it and it still imports — the description falls back to the row's first non-empty cell, or is left blank. Map a different Description column if that is not what you want.";
 
 export interface PreviewPanelProps {
   preview: ParsePreviewResponse | null;
@@ -65,7 +73,8 @@ export function PreviewPanel({
   onSetRows,
 }: PreviewPanelProps) {
   const rowNums = useMemo(() => allRowNums(preview), [preview]);
-  const tickableNums = useMemo(() => tickableRowNums(preview), [preview]);
+  // INFORMATION only -- it never narrows `rowNums` (ADR-0019).
+  const noDescriptionCount = useMemo(() => noDescriptionRowCount(preview), [preview]);
 
   if (!mappingValid) {
     return (
@@ -103,8 +112,7 @@ export function PreviewPanel({
     );
   }
 
-  const tickedCount = countTicked(ticked, tickableNums);
-  const untickableCount = rowNums.length - tickableNums.length;
+  const tickedCount = countTicked(ticked, rowNums);
   const hasSkipped = preview.skipped_count > 0;
 
   return (
@@ -150,18 +158,18 @@ export function PreviewPanel({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
             <h4 className="text-sm font-medium text-foreground">
-              {tickedCount} of {tickableNums.length}{" "}
-              {tickableNums.length === 1 ? "row" : "rows"} selected for import
+              {tickedCount} of {rowNums.length}{" "}
+              {rowNums.length === 1 ? "row" : "rows"} selected for import
             </h4>
             <p className="text-xs text-muted-foreground">
               {preview.accepted_count} read by the parser
               {hasSkipped && ` · ${preview.skipped_count} skipped`}
-              {untickableCount > 0 && ` · ${untickableCount} cannot be imported`}
+              {noDescriptionCount > 0 && ` · ${noDescriptionCount} with no description`}
             </p>
           </div>
           <SelectAllNone
-            disabled={tickableNums.length === 0}
-            onAll={() => onSetRows(tickableNums, true)}
+            disabled={rowNums.length === 0}
+            onAll={() => onSetRows(rowNums, true)}
             onNone={() => onSetRows(rowNums, false)}
           />
         </div>
@@ -170,6 +178,16 @@ export function PreviewPanel({
           <p className="text-xs text-muted-foreground">
             Rows the parser skipped are shown greyed with the reason. Tick any it got wrong —
             it will be imported with the rest.
+          </p>
+        )}
+
+        {noDescriptionCount > 0 && (
+          <p className="text-xs text-muted-foreground">
+            {noDescriptionCount === 1
+              ? "1 row has no description."
+              : `${noDescriptionCount} rows have no description.`}{" "}
+            Ticking one still imports it — its description falls back to the row&apos;s first
+            non-empty cell (shown in italics below), or is left blank.
           </p>
         )}
 
@@ -240,6 +258,7 @@ function PreviewRow({
   onToggleRow: (sourceRow: number) => void;
 }) {
   const skipped = row.skipped_reason !== null;
+  const noDescription = !row.tickable;
   const reasonLabel = row.skipped_reason
     ? SKIP_REASON_LABEL[row.skipped_reason] ?? row.skipped_reason
     : "";
@@ -251,25 +270,25 @@ function PreviewRow({
         // A skipped row is de-emphasised whether or not it has been re-ticked; re-ticking
         // it gets the blue "coming in anyway" tint on top.
         skipped && "bg-muted/40 text-muted-foreground",
-        !row.tickable && "opacity-60",
-        row.tickable && !isTicked && "opacity-55",
+        // ADR-0019: de-emphasis now tracks the TICK alone. The old extra fade for a
+        // description-less row said "this one is different in kind" — it no longer is.
+        !isTicked && "opacity-55",
         row.is_duplicate && !skipped && "bg-amber-50/60 dark:bg-amber-950/20",
         skipped && isTicked && "bg-blue-50 dark:bg-blue-950/30",
       )}
     >
       <td className="px-2 py-1.5">
-        <span title={row.tickable ? undefined : UNTICKABLE_TITLE}>
+        <span title={noDescription ? NO_DESCRIPTION_TITLE : undefined}>
+          {/* ADR-0019: never `disabled`, and the handler NEVER filters. A tick is a decision
+              and the import honours it — including on a row with no description. */}
           <Checkbox
             checked={isTicked}
-            disabled={!row.tickable}
             aria-label={
-              row.tickable
-                ? `Include Excel row ${row.source_row}`
-                : `Excel row ${row.source_row} cannot be imported — no description`
+              noDescription
+                ? `Include Excel row ${row.source_row} — it has no description`
+                : `Include Excel row ${row.source_row}`
             }
-            onCheckedChange={() => {
-              if (row.tickable) onToggleRow(row.source_row);
-            }}
+            onCheckedChange={() => onToggleRow(row.source_row)}
           />
         </span>
       </td>
@@ -299,9 +318,9 @@ function PreviewRow({
               >
                 {reasonLabel}
               </Badge>
-              {!row.tickable && (
-                <span className="text-[11px] leading-tight" title={UNTICKABLE_TITLE}>
-                  Cannot be imported
+              {noDescription && (
+                <span className="text-[11px] leading-tight" title={NO_DESCRIPTION_TITLE}>
+                  Imports with a fallback description
                 </span>
               )}
             </div>

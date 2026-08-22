@@ -118,6 +118,29 @@ export interface InspectWorkbookResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Endpoint: get_sheet_columns  (header-row override)
+// POST: { file_url, sheet_name, header_row }
+// Writes NOTHING. Requires NO mapping — that is the whole point.
+// ---------------------------------------------------------------------------
+
+/**
+ * The columns-only read that breaks the header-row DEADLOCK.
+ *
+ * `parse_preview` also returns columns, but it hard-refuses without a mapped Description, so it can
+ * never be the call that hands you the columns you need IN ORDER TO PICK one. That circularity is
+ * why a header-row change appeared to do nothing (Revision 3, R3.1). This endpoint has no such
+ * requirement, so the client may call it on EVERY header-row change regardless of mapping validity.
+ */
+export interface GetSheetColumnsResponse {
+  /** The header row actually used — the override, or the auto-guess when none was sent. */
+  header_row: number | null;
+  /** Recomputed for that row. Labels are literally that row's cells. */
+  columns: WorkbookColumn[];
+  /** Re-guessed against those columns. `null` when nothing matched — see the note in the wizard. */
+  mapping_guess: SnagColumnMapping | null;
+}
+
+// ---------------------------------------------------------------------------
 // Endpoint: parse_preview  (step 2 — one call per ticked sheet, on mapping change)
 // POST: { project, file_url, sheet_name, mapping }
 // Writes NOTHING.
@@ -140,9 +163,12 @@ export interface ParsedSnagRow {
    */
   skipped_reason: SkipReason | null;
   /**
-   * `false` = this row can NEVER become a Snag (no description — the one required field), so it
-   * renders greyed and un-tickable. Offering a tick that the import must then refuse is the exact
-   * silent-drop shape this contract exists to prevent.
+   * `false` = this row has no description.
+   *
+   * ⚠️ ADR-0019: this NO LONGER GATES ANYTHING. A human tick is authoritative, so such a row is
+   * still tickable and still imports (its description falling back to `preview_text`). The flag
+   * survives ONLY to drive the row's explanation in the preview. Do NOT reintroduce a `disabled`
+   * checkbox, a select-all exclusion, or a server-side refusal keyed on it.
    */
   tickable: boolean;
   /**
@@ -201,8 +227,10 @@ export interface SheetIngestResult {
   batch_name?: string;
   imported?: number;
   /**
-   * Ticked rows the import REFUSED because they have no description (the one required field).
-   * Always present on an ok result, INCLUDING 0 — a silent drop is the exact defect this counts.
+   * ⚠️ ADR-0019: STRUCTURALLY DEAD — nothing is refused any more, so this is always 0.
+   * RETAINED deliberately rather than deleted: it is the counter that proved Revision 2's
+   * silent-drop bug fixed, and a payload that can still SAY "nothing was refused" is worth more
+   * than one that cannot express the question.
    */
   refused_no_description?: number;
   /** Set when !ok — shown loudly, never swallowed. */
@@ -225,6 +253,31 @@ export interface DeleteBatchPreview {
   snag_count: number;
   /** How many are no longer Pending — shown in the confirm dialog. */
   worked_count: number;
+}
+
+/**
+ * Endpoint: update_snag_details(snag, area, category, description)
+ * The ONLY write path for a snag's data fields after creation.
+ * Deliberately CANNOT touch status, remark, or any provenance field — status and remark are owned
+ * by the status change (ADR-0018), and provenance answers "where did this come from", which an
+ * editable answer would make worthless.
+ */
+export interface UpdateSnagDetailsPayload {
+  snag: string;
+  area: string;
+  category: string;
+  description: string;
+}
+
+/**
+ * Endpoint: get_snag_field_values(project)
+ * Distinct NON-BLANK area and category values already used by this project's snags, most-used first.
+ * Feeds the Edit dialog's `<datalist>` SUGGESTIONS — the fields stay free text (ADR-0016 amendment),
+ * so a value absent from these lists is still typeable.
+ */
+export interface SnagFieldValuesResponse {
+  areas: string[];
+  categories: string[];
 }
 
 export interface SnagStatsSummary {

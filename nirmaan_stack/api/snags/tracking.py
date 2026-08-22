@@ -1,4 +1,5 @@
-"""Snag tracking endpoints -- status (+ its remark), manual entry, batch delete, stats.
+"""Snag tracking endpoints -- status (+ its remark), manual entry, detail edit, batch
+delete, stats, field-value suggestions.
 
 Wire contract: `frontend/src/pages/SnagList/types.ts`.
 Storage decision + delete consequences: `docs/adr/0017-snag-rows-are-standalone-documents.md`.
@@ -19,6 +20,7 @@ from nirmaan_stack.api.snags import (
     require_bulk_access,
     require_import_access,
     require_read_access,
+    require_row_edit_access,
     require_status_access,
 )
 
@@ -36,6 +38,33 @@ def _assert_status(status):
             f"'{status}' is not a Snag status. Expected one of: {', '.join(SNAG_STATUSES)}.",
             title="Unknown status",
         )
+
+
+#: The three DATA fields a human may write after creation. Owned jointly by
+#: `add_manual_snag` (create) and `update_snag_details` (edit) -- and by nothing else.
+#: `status` and `remark` are NOT here: they are owned by `update_snag_status` (ADR-0018).
+#: `batch` / `source_row` / `project` are NOT here either: provenance answers "where did
+#: this come from", which an editable answer would make worthless.
+DETAIL_FIELDS = ("area", "category", "description")
+
+
+def _normalized_details(area, category, description):
+    """Strip all three detail fields. ONE definition, shared by create and edit.
+
+    Extracted from `add_manual_snag` rather than copied into the editor: two copies of a
+    normalisation rule drift, and the drift presents as a value that matches the dropdown
+    suggestions on one screen and not the other (`get_snag_field_values` groups on the
+    STORED text, so an unstripped " Kitchen" would list separately from "Kitchen").
+
+    ⚠️ `description` MAY be blank (ADR-0019). Do not re-add a required check here -- the
+    doctype dropped `reqd` for exactly this, and a ticked import row with no text anywhere
+    lands blank on purpose.
+    """
+    return {
+        "area": (area or "").strip(),
+        "category": (category or "").strip(),
+        "description": (description or "").strip(),
+    }
 
 
 def _snag_status_payload(doc):
@@ -135,10 +164,13 @@ def bulk_update_snag_status(snags=None, status=None):
 #
 # There is NO standalone remark endpoint. `update_snag_comments` was deleted with the
 # `comments` field (ADR-0018): a remark is now written as part of a status change, by
-# `update_snag_status` above. If a standalone remark edit is ever wanted, note that it
-# would be the only write path on this doctype that does not touch `status` -- and that
-# `status_changed_by` / `status_changed_on` would then stop coinciding with the last edit,
-# which is exactly the reading ADR-0018 warns not to relabel.
+# `update_snag_status` above. Do not add one back.
+#
+# `update_snag_details` (below, Revision 3) IS a write path that does not touch `status`,
+# and it is the reason the caveat above matters: `status_changed_by` / `status_changed_on`
+# no longer coincide with the LAST edit, only with the last STATUS change. That is exactly
+# what they claim to mean, and exactly the reading ADR-0018 warns not to relabel -- which
+# is why a remark is still not editable there.
 
 
 @frappe.whitelist(methods=["POST"])
@@ -158,16 +190,70 @@ def add_manual_snag(project=None, area=None, category=None, description=None):
             "project": project,
             # A Manual Snag has no batch -- that absence is how the UI tells the two apart.
             "batch": None,
-            "area": (area or "").strip(),
-            "category": (category or "").strip(),
-            "description": description.strip(),
             "status": "Pending",
+            # SHARED normalisation with `update_snag_details` -- see `_normalized_details`.
+            # (A HAND-TYPED snag still needs its own text: the blank ADR-0019 allows is the
+            # honest reading of a workbook row, not a blank someone typed into a form.)
+            **_normalized_details(area, category, description),
         }
     )
     doc.insert(ignore_permissions=True)
     frappe.db.commit()
 
     return {"name": doc.name, "status": doc.status}
+
+
+# ---------------------------------------------------------------------------
+# Detail edit
+# ---------------------------------------------------------------------------
+
+
+@frappe.whitelist(methods=["POST"])
+def update_snag_details(snag=None, area=None, category=None, description=None):
+    """Rewrite ONE snag's area / category / description. Admin / Project Lead / PMO.
+
+    THE FIRST POST-CREATE WRITE PATH FOR THIS DOCTYPE'S DATA FIELDS. Until now the three
+    were CREATE-ONLY (`add_manual_snag` / the importer) and a typo could not be corrected.
+
+    WHAT IT DELIBERATELY CANNOT TOUCH, and why each one is out:
+      - `status` / `remark` -- owned by `update_snag_status` (ADR-0018). A remark is written
+        as part of a status change; a second writer would un-couple the attribution from it.
+      - `batch` / `source_row` / `project` -- provenance. It answers "where did this come
+        from", and an editable answer is worth nothing.
+
+    PROJECT MANAGER IS EXCLUDED (owner decision Q8a): they may move a snag's status, but
+    editing a description rewrites what the consultant reported. Hence `require_row_edit_access`
+    and not `require_status_access` -- and hence its own named tier, not an alias of
+    `require_import_access` (see `ROW_EDIT_ROLES`).
+
+    DOCUMENT LAYER, never `frappe.db.set_value` or raw SQL: those bypass `doc_events`, so
+    `track_changes` would record nothing and the edit would be invisible in the Version log.
+    The `before_save` stamp correctly does NOT move here -- `status` is unchanged, so
+    `status_changed_by` / `status_changed_on` keep pointing at the last STATUS change, which
+    is what they claim to mean.
+
+    `description` MAY be blank (ADR-0019).
+    """
+    if not snag:
+        frappe.throw("snag is required.", title="Missing field: snag")
+    require_row_edit_access("edit a snag's details")
+
+    if not frappe.db.exists("Project Snag", snag):
+        frappe.throw(f"Snag '{snag}' not found.", title="Not found")
+
+    details = _normalized_details(area, category, description)
+    doc = frappe.get_doc("Project Snag", snag)
+    for field in DETAIL_FIELDS:
+        setattr(doc, field, details[field])
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {
+        "name": doc.name,
+        "area": doc.area,
+        "category": doc.category,
+        "description": doc.description,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -274,3 +360,58 @@ def get_snag_stats(project=None):
             by_status[row["status"]] = count
 
     return {"total": total, "by_status": by_status}
+
+
+# ---------------------------------------------------------------------------
+# Field-value suggestions
+# ---------------------------------------------------------------------------
+
+
+def _distinct_field_values(project, field):
+    """One GROUP BY over `field` for this project, most-used first, BLANKS EXCLUDED.
+
+    A distinct-values list over many rows is the DATABASE's job (root CLAUDE.md / ADR-0010)
+    -- one GROUP BY per field, never a `get_all` of every snag and a Python set.
+
+    ⚠️ THE BLANK FILTER IS LOAD-BEARING. `add_manual_snag` and the importer both write `""`
+    for an unmapped area/category, never NULL, so a naive DISTINCT yields an EMPTY-STRING
+    entry -- which renders as a blank, unpickable line in the suggestions list. `is set`
+    excludes NULL and `""` together, so it stays correct whichever a future writer stores.
+    """
+    rows = frappe.get_all(
+        "Project Snag",
+        filters=[
+            ["project", "=", project],
+            [field, "is", "set"],
+        ],
+        fields=[field, "count(name) as cnt"],
+        group_by=field,
+        order_by="cnt desc",
+        limit_page_length=0,
+    )
+    return [row[field] for row in rows if (row.get(field) or "").strip()]
+
+
+@frappe.whitelist()
+def get_snag_field_values(project=None):
+    """SnagFieldValuesResponse -- distinct non-blank areas + categories, most-used first.
+
+    Feeds the Edit dialog's `<datalist>` SUGGESTIONS. The fields stay FREE TEXT (ADR-0016
+    amendment), so a value absent from these lists is still typeable -- this list shortens
+    typing and surfaces the project's existing vocabulary, it does not constrain the field.
+
+    READ-guarded, the same tier as `get_snag_stats`.
+
+    ⚠️ DO NOT reroute this through `api/data_table/facets.get_facet_values`. It does the
+    right GROUP BY, but it guards on the DOCTYPE PERMISSION TABLE rather than this feature's
+    deny-list read tier -- so a role with snag-tab access but no `Project Snag` read row
+    would get an empty dropdown, silently, and read it as "this project has no areas yet".
+    """
+    if not project:
+        frappe.throw("project is required.", title="Missing field: project")
+    require_read_access("view this project's snag list")
+
+    return {
+        "areas": _distinct_field_values(project, "area"),
+        "categories": _distinct_field_values(project, "category"),
+    }

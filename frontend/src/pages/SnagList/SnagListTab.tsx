@@ -15,6 +15,11 @@
  *    "Not Applicable".
  *  - Facets use the self-fetching `meta.facet` + `facetDoctype` path; do not
  *    hand-roll `useFacetValues` + `facetFilterOptions`.
+ *  - The Batch FILTER is GONE (Revision 3, owner Q6) along with its hidden host
+ *    column and its id in `SNAG_FILTERABLE_COLUMN_IDS`. Batch provenance now lives
+ *    in the Edit dialog, read-only. Do not reinstate half of that removal.
+ *  - Two row-level gates, NOT one: `canEditStatus` (includes the Project Manager)
+ *    and `canEditRow` (excludes them). See `config/snagPermissions.ts`.
  */
 
 import * as React from "react";
@@ -22,8 +27,6 @@ import { ColumnDef } from "@tanstack/react-table";
 import { Download, FileUp, Info, Loader2, Plus, Tags } from "lucide-react";
 
 import { DataTable } from "@/components/data-table/new-data-table";
-import { getColumnFacet } from "@/components/data-table/facetConfig";
-import { SelfFetchingFacetFilter } from "@/components/data-table/SelfFetchingFacetFilter";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Button } from "@/components/ui/button";
 import { useUserData } from "@/hooks/useUserData";
@@ -38,9 +41,9 @@ import { AddSnagDialog } from "./components/AddSnagDialog";
 import { BulkStatusDialog } from "./components/BulkStatusDialog";
 import { SnagBatchesPanel } from "./components/SnagBatchesPanel";
 import { SnagEmptyState } from "./components/SnagEmptyState";
+import { SnagEditDialog } from "./components/SnagEditDialog";
 import { SnagStatsStrip } from "./components/SnagStatsStrip";
 import {
-  SNAG_BATCH_FILTER_COLUMN_ID,
   SNAG_INITIAL_COLUMN_VISIBILITY,
   getSnagColumns,
 } from "./config/snagColumns";
@@ -54,6 +57,7 @@ import {
   sanitizePersistedSnagTableState,
 } from "./config/snagTable.config";
 import { useSnagBatches } from "./hooks/useSnagBatches";
+import { useSnagFieldValues } from "./hooks/useSnagFieldValues";
 import { useSnagMutations } from "./hooks/useSnagMutations";
 import { useSnagStats } from "./hooks/useSnagStats";
 import { IngestBatchesResponse, SnagStatus } from "./types";
@@ -95,6 +99,8 @@ export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.E
   const [importOpen, setImportOpen] = React.useState(false);
   const [addOpen, setAddOpen] = React.useState(false);
   const [bulkOpen, setBulkOpen] = React.useState(false);
+  // The row whose Area / Category / Description is being edited. `null` = closed.
+  const [editRow, setEditRow] = React.useState<SnagListRow | null>(null);
 
   const {
     stats,
@@ -117,16 +123,23 @@ export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.E
     mutateBatches();
   }, [mutateStats, mutateBatches]);
 
+  // Area / Category SUGGESTIONS for the two free-text dialogs (ADR-0016 amendment).
+  // Fetched when one of them OPENS, never on an ordinary table render.
+  const { areas: areaSuggestions, categories: categorySuggestions } =
+    useSnagFieldValues(projectId, addOpen || !!editRow);
+
   const mutations = useSnagMutations(projectId, handleChanged);
   const {
     savingStatusFor,
     updateStatus,
     bulkUpdateStatus,
     addManualSnag,
+    updateSnagDetails,
     getBatchDeletePreview,
     deleteBatch,
     isBulkSaving,
     isAdding,
+    isSavingDetails,
     isDeletingBatch,
   } = mutations;
 
@@ -140,14 +153,37 @@ export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.E
     [updateStatus]
   );
 
+  const handleEditRow = React.useCallback(
+    (snag: SnagListRow) => setEditRow(snag),
+    []
+  );
+
   const columns = React.useMemo<ColumnDef<SnagListRow>[]>(
     () =>
       getSnagColumns({
         // Presence of the callback IS the edit gate — there is no second signal.
+        // TWO DIFFERENT gates: a Project Manager records work done (`canEditStatus`)
+        // but does not rewrite what the consultant reported (`canEditRow`).
         onStatusChange: perms.canEditStatus ? handleStatusChange : undefined,
+        onEditRow: perms.canEditRow ? handleEditRow : undefined,
         savingStatusFor,
       }),
-    [perms.canEditStatus, handleStatusChange, savingStatusFor]
+    [
+      perms.canEditStatus,
+      perms.canEditRow,
+      handleStatusChange,
+      handleEditRow,
+      savingStatusFor,
+    ]
+  );
+
+  // The batch's HUMAN name for the Edit dialog's read-only provenance line, resolved
+  // against the batch list this page ALREADY loads. Deliberately not a per-row
+  // link-fetch on the table query — that JOIN was removed in Revision 2 and buying
+  // it back for one dialog would be a regression.
+  const batchNameByName = React.useMemo(
+    () => new Map(batches.map((b) => [b.name, b.batch_name])),
+    [batches]
   );
 
   const projectFilters = React.useMemo(
@@ -155,15 +191,15 @@ export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.E
     [projectId]
   );
 
-  // Render-scope context per column id. `batch` is still here and still USED — the
-  // Batch funnel is rendered by this page (see below) rather than by DataTable's
-  // header loop, and it is handed the very same entry, so this map cannot go stale.
+  // Render-scope context per column id. One entry per column that DECLARES a facet
+  // — no more. The `batch` entry went with the Batch funnel in Revision 3: with no
+  // column and no filter left to read it, it would have been a live-looking line
+  // wiring up nothing.
   const facetOverrides = React.useMemo(
     () => ({
       area: { additionalFilters: projectFilters },
       category: { additionalFilters: projectFilters },
       status: { additionalFilters: projectFilters },
-      batch: { additionalFilters: projectFilters },
     }),
     [projectFilters]
   );
@@ -396,20 +432,6 @@ export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.E
           showRowSelection={perms.canBulkEdit}
           toolbarActions={
             <>
-              {batchColumn && batchFacet && (
-                <div className="flex items-center gap-1 rounded-md border border-dashed px-2 py-1">
-                  <span className="text-xs text-muted-foreground">Batch</span>
-                  <SelfFetchingFacetFilter
-                    column={batchColumn}
-                    doctype={SNAG_DOCTYPE}
-                    facet={batchFacet}
-                    override={facetOverrides.batch}
-                    columnFilters={columnFilters}
-                    searchTerm={searchTerm}
-                    selectedSearchField={selectedSearchField}
-                  />
-                </div>
-              )}
               {perms.canBulkEdit && (
                 <Button
                   size="sm"
@@ -447,7 +469,27 @@ export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.E
           open={addOpen}
           onOpenChange={setAddOpen}
           isSaving={isAdding}
+          areaSuggestions={areaSuggestions}
+          categorySuggestions={categorySuggestions}
           onSubmit={addManualSnag}
+        />
+      )}
+
+      {/* Rendered only while a row is being edited, and KEYED on that row: the
+          dialog seeds its three drafts in a `useState` initialiser, so the key is
+          what re-seeds them when a different row is opened. */}
+      {perms.canEditRow && editRow && (
+        <SnagEditDialog
+          key={editRow.name}
+          snag={editRow}
+          batchName={
+            editRow.batch ? batchNameByName.get(editRow.batch) ?? editRow.batch : null
+          }
+          areaSuggestions={areaSuggestions}
+          categorySuggestions={categorySuggestions}
+          isSaving={isSavingDetails}
+          onCancel={() => setEditRow(null)}
+          onSubmit={updateSnagDetails}
         />
       )}
 

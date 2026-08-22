@@ -44,11 +44,20 @@ export interface TabState {
   headerRow: number | null;
   /**
    * The columns the mapping selects render from. Seeded from `inspect_workbook`, then
-   * OVERWRITTEN by every `parse_preview` response, whose `columns` are recomputed for the
-   * header row actually used. `inspect.sheets[i].columns` goes stale the moment the user
-   * overrides the header row, so nothing may read it after that point.
+   * OVERWRITTEN by every `get_sheet_columns` response (R3.1) -- and, harmlessly, by every
+   * `parse_preview` response, whose `columns` are recomputed for the same header row.
+   * `inspect.sheets[i].columns` goes stale the moment the user overrides the header row, so
+   * nothing may read it after that point.
+   *
+   * ⚠️ `get_sheet_columns` is the AUTHORITATIVE source, not `parse_preview`. `parse_preview`
+   * hard-refuses without a mapped Description, so it can never be the call that hands you the
+   * columns you need IN ORDER to pick one -- that circularity was the R3.1 deadlock.
    */
   columns: WorkbookColumn[];
+  /** A `get_sheet_columns` call is in flight for the current header row. */
+  columnsLoading: boolean;
+  /** Why the columns re-read failed. The previous columns are kept on screen. */
+  columnsError: string | null;
   preview: ParsePreviewResponse | null;
   previewLoading: boolean;
   previewError: string | null;
@@ -58,6 +67,14 @@ export interface TabState {
    * Cleared as soon as the user edits the mapping by hand.
    */
   mappingReguessed: boolean;
+  /**
+   * True when the last header-row override found NO auto-guess and the previous mapping was
+   * therefore KEPT (R3, see `SnagImportDialog.fetchColumns`). Emptying the mapping in this
+   * case is what wedged the deadlock's path (B), and it costs the user their picks for no
+   * gain: a stale letter is already caught by `unknownMappedRoles` + the per-field error.
+   * Rendered as a note, and cleared as soon as the user edits the mapping by hand.
+   */
+  mappingKeptNoGuess: boolean;
   /**
    * source_row numbers the user has left TICKED. Spans BOTH the accepted rows (ticked by
    * default) and any re-ticked skipped rows -- one set, because ingest takes one list.
@@ -106,8 +123,41 @@ export function validateUploadFile(file: { name: string; size: number }): string
 // Column mapping
 // ---------------------------------------------------------------------------
 
-/** "B — Area / Location", or a bare letter when that header cell is blank. */
+/**
+ * Longest header text a dropdown option shows. The header row is user-declarable, so a DATA
+ * row can be declared as the header -- and then a "label" is a whole sentence ("Detector cables
+ * are hanging and not properly laid..."), which blows the dropdown out and hides the one part
+ * that identifies the column. Full text still reaches the user through the `title` (R3 change 2).
+ */
+export const COLUMN_LABEL_MAX_CHARS = 20;
+
+/**
+ * Truncate to `max` INCLUDING the ellipsis, so the rendered string never exceeds `max`.
+ * Trailing whitespace is trimmed before the ellipsis so "word …" never renders.
+ */
+export function truncateColumnLabel(
+  text: string,
+  max: number = COLUMN_LABEL_MAX_CHARS,
+): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+}
+
+/**
+ * "B — Area / Location", or a bare letter when that header cell is blank.
+ *
+ * The LETTER PREFIX is never truncated -- it is the only part that identifies the column, and
+ * it is what the user matches against the sheet. Only the header text is clipped; pair this
+ * with `columnOptionTitle` so the full text is one hover away.
+ */
 export function columnOptionLabel(col: WorkbookColumn): string {
+  const label = truncateColumnLabel(col.label);
+  return label ? `${col.letter} — ${label}` : `${col.letter} — (no header)`;
+}
+
+/** The UNtruncated form of `columnOptionLabel`, for a `title` / tooltip. */
+export function columnOptionTitle(col: WorkbookColumn): string {
   const label = col.label.trim();
   return label ? `${col.letter} — ${label}` : `${col.letter} — (no header)`;
 }
@@ -200,6 +250,18 @@ export function mappingSignature(
 }
 
 /**
+ * Stable identity of a COLUMNS request (`get_sheet_columns`). The header row is its only
+ * input -- deliberately NOT the mapping, which is the whole point of that endpoint (R3.1).
+ *
+ * It is the staleness key for that fetch: a response is accepted only while it still matches
+ * the tab's current header row, so a slow reply for row 8 can never overwrite the columns of a
+ * newer row 12.
+ */
+export function headerRowSignature(headerRow: number | null | undefined): string {
+  return headerRow == null ? "" : String(headerRow);
+}
+
+/**
  * The header-row input's text -> the stored value. Blank / non-numeric / non-positive all
  * mean "no header row declared" (null), which is what the auto-guess also returns when it
  * cannot tell. Excel rows are 1-based, so 0 is never meaningful.
@@ -261,10 +323,13 @@ export function createTabState(sheet: WorkbookSheet, fileName: string): TabState
     mapping: initialMapping(sheet.mapping_guess),
     headerRow: sheet.header_row,
     columns: sheet.columns,
+    columnsLoading: false,
+    columnsError: null,
     preview: null,
     previewLoading: false,
     previewError: null,
     mappingReguessed: false,
+    mappingKeptNoGuess: false,
     ticked: new Set<number>(),
   };
 }
@@ -296,29 +361,40 @@ export function reconcileTabStates(
 
 /**
  * A fresh preview reseeds the ticks: rows the parser ACCEPTED (`skipped_reason === null`)
- * ON, everything it skipped OFF. `tickable` is checked too, belt-and-braces: a row the
- * import would refuse must never arrive pre-ticked.
+ * ON, everything it skipped OFF.
+ *
+ * ⚠️ ADR-0019: `tickable` is deliberately NOT consulted. It used to be checked here
+ * belt-and-braces because the server refused a description-less row; nothing is refused any
+ * more. It still cannot change this set in practice (such a row is skipped `no_description`,
+ * so it is off either way) -- but reading it here would re-establish the flag as a gate, which
+ * is exactly what the ADR removes. A skipped row still defaults to UNTICKED; only the user
+ * turns it on.
  */
 export function seedTicksFromPreview(preview: ParsePreviewResponse): Set<number> {
   const out = new Set<number>();
   for (const r of preview.rows) {
-    if (r.skipped_reason === null && r.tickable) out.add(r.source_row);
+    if (r.skipped_reason === null) out.add(r.source_row);
   }
   return out;
 }
 
-/** Every row in the merged table, in Excel order. */
+/**
+ * Every row in the merged table, in Excel order.
+ *
+ * ⚠️ ADR-0019: this is now the ONE row list. There is no `tickableRowNums` any more -- "Select
+ * all", the ticked numerator and the "N of M" denominator all walk THIS list, because a human
+ * tick is authoritative and every row can take one.
+ */
 export function allRowNums(preview: ParsePreviewResponse | null): number[] {
   return preview ? preview.rows.map((r) => r.source_row) : [];
 }
 
 /**
- * Rows a user is ALLOWED to tick. "Select all" walks THIS list, never `allRowNums` -- a row
- * with no description can never become a Snag, and the server refuses it, so ticking it would
- * promise an import that then silently drops it.
+ * How many rows have no description -- INFORMATION, never a gate (ADR-0019). Such a row still
+ * imports when ticked, with its description falling back to `preview_text` (or left blank).
  */
-export function tickableRowNums(preview: ParsePreviewResponse | null): number[] {
-  return preview ? preview.rows.filter((r) => r.tickable).map((r) => r.source_row) : [];
+export function noDescriptionRowCount(preview: ParsePreviewResponse | null): number {
+  return preview ? preview.rows.filter((r) => !r.tickable).length : 0;
 }
 
 export function toggleTick(current: ReadonlySet<number>, row: number): Set<number> {

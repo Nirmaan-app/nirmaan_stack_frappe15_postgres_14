@@ -21,9 +21,14 @@ export const SNAG_BATCH_DOCTYPE = "Project Snag Batch";
  *
  * It is now a plain ALIAS of the shared contract. It previously carried one extra
  * field — `batch_display_name`, pulled with Frappe's dotted link-fetch — which
- * existed only to label the Batch COLUMN. Revision 2 removed that column (the Batch
- * FILTER survives, see `snagColumns.tsx`), so the link-fetch and the local extension
- * went with it: the JOIN it cost on every page load bought nothing.
+ * existed only to label the Batch COLUMN. Revision 2 removed that column and
+ * Revision 3 removed the Batch FILTER too, so the link-fetch and the local
+ * extension went with them: the JOIN it cost on every page load bought nothing.
+ *
+ * `batch` (the doc name) IS still fetched — the Edit dialog shows which import a
+ * snag came from, read-only, and that is now the ONLY surface answering it. It is
+ * resolved to a human batch name against the already-loaded `useSnagBatches` list,
+ * NOT by re-adding a per-row link-fetch here.
  *
  * The alias is kept rather than collapsed so the ~15 call sites keep naming the ROW
  * (a display concern) rather than the DOCUMENT, which is what makes re-widening it a
@@ -72,15 +77,17 @@ export const SNAG_DEFAULT_SORT = "creation asc";
 /**
  * Column ids that may legitimately appear in `columnFilters`.
  *
- * `batch` is here even though there is no Batch COLUMN any more: a hidden
- * filter-host column carries the id so the Batch filter keeps writing
- * `["batch", "in", [...]]` (see `snagColumns.tsx`).
+ * ⚠️ `batch` was REMOVED here in Revision 3 together with the Batch funnel, and the
+ * two removals are ONE change, not a cleanup afterwards. This list is the URL
+ * sanitizer's whitelist: leaving `batch` in it would let a BOOKMARKED batch filter
+ * survive the funnel's deletion — still converted into a server filter, still
+ * narrowing the table, with no control anywhere to clear it and the empty state
+ * suppressed by `hasActiveNarrowing`. Dropping the id is what de-orphans it.
  */
 export const SNAG_FILTERABLE_COLUMN_IDS: readonly string[] = [
   "area",
   "category",
   "status",
-  "batch",
 ];
 
 const isKnownSearchField = (value: string | null): boolean =>
@@ -144,6 +151,13 @@ export const SNAG_ENDPOINTS = {
   updateStatus: "nirmaan_stack.api.snags.tracking.update_snag_status",
   bulkUpdateStatus: "nirmaan_stack.api.snags.tracking.bulk_update_snag_status",
   addManualSnag: "nirmaan_stack.api.snags.tracking.add_manual_snag",
+  /**
+   * The ONLY write path for a snag's data fields after creation. It cannot touch
+   * status, remark or provenance — see `UpdateSnagDetailsPayload` in `../types.ts`.
+   */
+  updateSnagDetails: "nirmaan_stack.api.snags.tracking.update_snag_details",
+  /** Distinct non-blank Area / Category values, for the free-text `<datalist>`. */
+  snagFieldValues: "nirmaan_stack.api.snags.tracking.get_snag_field_values",
   batchDeletePreview: "nirmaan_stack.api.snags.tracking.get_batch_delete_preview",
   deleteBatch: "nirmaan_stack.api.snags.tracking.delete_batch",
   /** Cross-project roll-up behind the `/snag-list` sidebar page. Takes no params. */

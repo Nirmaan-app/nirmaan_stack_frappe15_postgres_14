@@ -19,6 +19,9 @@ export interface AddSnagDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   isSaving?: boolean;
+  /** Values this project's snags already use. SUGGESTIONS, never a closed set. */
+  areaSuggestions?: string[];
+  categorySuggestions?: string[];
   onSubmit: (input: AddManualSnagInput) => Promise<boolean>;
 }
 
@@ -26,13 +29,20 @@ export interface AddSnagDialogProps {
  * Manual snag entry: area, category, description. No batch, no status picker —
  * a new snag always starts at `Pending`, exactly like an imported one.
  *
- * Area and Category are FREE TEXT by decision of record (ADR-0016), so this is a
- * plain input, not a dropdown over existing values.
+ * Area and Category are FREE TEXT by decision of record (ADR-0016). Since the
+ * amendment of 2026-08-21 they ALSO offer the values already present in this
+ * project as `<datalist>` suggestions — which does not reverse anything: a value
+ * absent from the list is still typeable, and it must be, because the first snag in
+ * a new area has no existing value to pick. ⚠️ Never promote this to a `Select`;
+ * a closed list would reverse the ADR outright, and with it "correcting a typo is
+ * the author's call, never the system's".
  */
 export const AddSnagDialog: React.FC<AddSnagDialogProps> = ({
   open,
   onOpenChange,
   isSaving = false,
+  areaSuggestions = [],
+  categorySuggestions = [],
   onSubmit,
 }) => {
   const [area, setArea] = React.useState("");
@@ -80,20 +90,32 @@ export const AddSnagDialog: React.FC<AddSnagDialogProps> = ({
               <Label htmlFor="snag-area">Area / Location</Label>
               <Input
                 id="snag-area"
+                list="snag-add-area-options"
                 value={area}
                 onChange={(e) => setArea(e.target.value)}
                 placeholder="e.g. Ground Floor Lobby"
                 autoFocus
               />
+              <datalist id="snag-add-area-options">
+                {areaSuggestions.map((v) => (
+                  <option key={v} value={v} />
+                ))}
+              </datalist>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="snag-category">Category</Label>
               <Input
                 id="snag-category"
+                list="snag-add-category-options"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 placeholder="e.g. Electrical"
               />
+              <datalist id="snag-add-category-options">
+                {categorySuggestions.map((v) => (
+                  <option key={v} value={v} />
+                ))}
+              </datalist>
             </div>
           </div>
 

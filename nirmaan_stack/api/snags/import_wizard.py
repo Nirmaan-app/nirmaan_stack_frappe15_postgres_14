@@ -6,9 +6,10 @@ parser, adds the things the parser cannot know (duplicates against the database)
 and persists.
 
 Wire contract: `frontend/src/pages/SnagList/types.ts`
-  inspect_workbook -> InspectWorkbookResponse
-  parse_preview    -> ParsePreviewResponse
-  ingest_batches   -> IngestBatchesResponse
+  inspect_workbook  -> InspectWorkbookResponse
+  get_sheet_columns -> GetSheetColumnsResponse
+  parse_preview     -> ParsePreviewResponse
+  ingest_batches    -> IngestBatchesResponse
 """
 
 from __future__ import annotations
@@ -179,22 +180,37 @@ def _shape_row(row, is_duplicate):
         "remark": row.get("remark") or "",
         "is_duplicate": bool(is_duplicate),
         "skipped_reason": row.get("skipped_reason") or None,
-        # `tickable` is the parser's answer to "could this row EVER become a Snag" --
-        # False iff it has no description. Never re-derived here; one owner.
+        # `tickable` is the parser's answer to "does this row have a description" --
+        # False iff it does not. Never re-derived here; one owner.
+        # ⚠️ ADR-0019: it GATES NOTHING any more, on either side of the wire. It survives
+        # only to drive the row's explanation in the preview. Do not reintroduce a
+        # server-side refusal keyed on it.
         "tickable": bool(row.get("tickable")),
         "preview_text": row.get("preview_text") or "",
     }
 
 
-def _row_is_importable(row):
-    """A ticked row can only become a Snag if it carries a description.
+def _description_for(row):
+    """The text a ticked row imports as. NEVER invented (ADR-0019).
 
-    `description` is written unconditionally and is the one required field, so a
-    description-less row is REFUSED at ingest -- counted and reported, never dropped.
-    Both halves of the test are kept: `tickable` is the parser's verdict, the emptiness
-    check is this layer's own backstop, because the wire is the client's to tamper with.
+    A human tick is authoritative, so a row with no MAPPED description still imports. Its
+    description falls back to `preview_text` -- the row's first non-empty cell, which the
+    parser already computes and the preview already shows the user. On the certified
+    fixture that turns a ticked tally row into a snag reading `RISK SUMMARY`, which is what
+    that row actually says.
+
+    When there is nothing anywhere the description is BLANK, and that is the correct
+    outcome: a placeholder like "(no description)" was rejected because a reader cannot
+    tell our words from the consultant's, and a blank box is honest where a manufactured
+    sentence is not. `Project Snag.description` lost `reqd` for exactly this.
+
+    The value is returned VERBATIM -- only the emptiness TEST strips, so a description of
+    whitespace still yields the fallback while a real value keeps its own formatting.
     """
-    return bool(row.get("tickable")) and bool((row.get("description") or "").strip())
+    description = row.get("description") or ""
+    if description.strip():
+        return description
+    return row.get("preview_text") or ""
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +263,64 @@ def inspect_workbook():
         "file_url": stored.file_url,
         "file_name": file_name,
         "sheets": sheets,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Step 1b -- columns for a header row (writes NOTHING, needs NO mapping)
+# ---------------------------------------------------------------------------
+
+
+@frappe.whitelist()
+def get_sheet_columns(file_url=None, sheet_name=None, header_row=None):
+    """Column labels AT one header row -> GetSheetColumnsResponse. Writes nothing.
+
+    THIS ENDPOINT EXISTS TO BREAK A DEADLOCK (Revision 3, R3.1). `parse_preview` also
+    returns `columns`, but it hard-refuses without a mapped Description (`_coerce_mapping`),
+    so it can never be the call that hands you the columns you need IN ORDER TO PICK a
+    Description. The circle was: new labels come only from `parse_preview` -> `parse_preview`
+    needs a Description -> you cannot choose one without the labels. A sheet whose header
+    auto-detection failed came back with `columns: []`, the UI told the user to type the
+    Excel row number, and every keystroke was swallowed by the client's mapping-valid gate.
+    Forever.
+
+    So this call REQUIRES NO MAPPING, and that is the entire point -- do not add one, and
+    do not "unify" it back into `parse_preview`.
+
+    `header_row=None` is resolved exactly as the parser resolves it (`reader.find_header_row`),
+    and the row ACTUALLY USED is returned -- never a bare echo of the argument, so the client
+    can show which row the labels came from even when it sent nothing.
+
+    Same permission tier as `parse_preview`: this reads a project's uploaded workbook.
+    """
+    if not file_url:
+        frappe.throw("file_url is required.", title="Missing field: file_url")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    require_import_access("preview a snag import")
+    # The SAME coercion `parse_preview` applies: a non-positive or non-numeric row is a
+    # client bug, refused loudly rather than silently falling back to the auto-guess (a
+    # silent fallback would show labels from a row the user did not name).
+    header_row = _coerce_header_row(header_row)
+
+    tmp_path = file_io._fetch_file_to_tempfile(file_url)
+    try:
+        grid = _load_grid(tmp_path, sheet_name)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    used_header_row = header_row if header_row is not None else _reader().find_header_row(grid)
+    columns = _reader().columns_for_header_row(grid, used_header_row) or []
+
+    return {
+        "header_row": used_header_row,
+        "columns": columns,
+        # `None` when nothing matched -- the client must NOT treat that as "no columns".
+        # That conflation is half of the defect this endpoint fixes.
+        "mapping_guess": _guess().guess_mapping(columns),
     }
 
 
@@ -364,25 +438,22 @@ def _ingest_one_sheet(project, file_url, entry):
     # Filtering the accepted rows alone is exactly the bug this replaced -- a re-ticked row
     # was not in the list being filtered, so it vanished with no error and `imported` came
     # back lower than the footer promised.
-    selected = [r for r in (parsed.get("rows") or []) if r.get("source_row") in accepted]
-
-    # A ticked row with no description CANNOT become a Snag. It is refused HERE, counted,
-    # and reported back on the result -- never dropped on the floor.
-    rows = [r for r in selected if _row_is_importable(r)]
-    refused_no_description = len(selected) - len(rows)
+    # EVERY ticked row that exists in the parse is imported (ADR-0019). There is no
+    # importability filter here any more: the tick is the human's decision and this layer
+    # does not overrule it. A row with no description takes `_description_for`'s fallback.
+    rows = [r for r in (parsed.get("rows") or []) if r.get("source_row") in accepted]
 
     if not rows:
-        # Three genuinely different failures, three different messages. The single
+        # TWO genuinely different failures, two different messages. The single
         # "No accepted rows were found" this replaced read like a parser crash whichever
         # one had actually happened.
+        #
+        # There used to be a THIRD -- "everything you ticked has no description". ADR-0019
+        # made it unreachable, so it is gone rather than left as a message that can never
+        # fire (a dead branch reads as a live rule to the next person here).
         if not accepted:
             raise ValueError(
                 f"No rows were ticked for sheet '{sheet_name}'. Nothing was imported."
-            )
-        if refused_no_description:
-            raise ValueError(
-                f"All {refused_no_description} ticked row(s) in sheet '{sheet_name}' have no "
-                f"description, which is required. Nothing was imported."
             )
         raise ValueError(
             f"None of the {len(accepted)} ticked row(s) exist in sheet '{sheet_name}' as it "
@@ -412,7 +483,9 @@ def _ingest_one_sheet(project, file_url, entry):
                 "batch": batch.name,
                 "area": row.get("area") or "",
                 "category": row.get("category") or "",
-                "description": row.get("description") or "",
+                # ADR-0019: the mapped text, else the row's first non-empty cell, else
+                # blank. Never an invented placeholder.
+                "description": _description_for(row),
                 # The source file's own Status vocabulary is not ours -- every imported
                 # snag starts at Pending (plan section 2).
                 "status": "Pending",
@@ -429,9 +502,11 @@ def _ingest_one_sheet(project, file_url, entry):
         "batch": batch.name,
         "batch_name": batch.batch_name,
         "imported": len(rows),
-        # Always present, 0 included: a client that reads it only when truthy would still
-        # be told, and a silent drop is the failure mode this whole field exists to close.
-        "refused_no_description": refused_no_description,
+        # ADR-0019-DEAD: structurally always 0 -- nothing is refused any more. RETAINED on
+        # the wire rather than deleted, deliberately: it is the counter that proved
+        # Revision 2's silent-drop bug fixed, and a result payload that can still SAY
+        # "nothing was refused" is worth more than one that cannot express the question.
+        "refused_no_description": 0,
     }
 
 

@@ -443,3 +443,181 @@ answered explicitly. Owner's call.
 merged preview table's tick/re-tick interaction, the disabled-checkbox tooltip, the status+remark
 dialog across all four statuses, the toolbar Batch funnel filtering AND clearing, and the Import
 History icon gating. **A live browser pass is owed.**
+
+---
+
+# Revision 3 — owner change set, 2026-08-21 (PLAN ONLY, no code written)
+
+Eight changes, settled over three grilling rounds. Two analysis passes over the shipped code produced
+the couplings below. **One of the eight is a BUG I introduced in Revision 2** — read § R3.1 first.
+
+## R3.1 — THE BUG: the header-row override is a DEADLOCK, not a stale render
+
+Reported as "the column options don't change when the header row is changed". It is worse than that:
+three things form a circle.
+
+1. New column labels come only from a `parse_preview` call.
+2. `parse_preview` HARD-REFUSES without a mapped Description (`import_wizard.py:112-116`).
+3. You cannot pick a Description until you have the columns.
+
+The client never even attempts the call: `SnagImportDialog.tsx:263` gates the fetch behind
+`isMappingValid(state.mapping, state.columns)`, so a header-row change updates `TabState.headerRow`
+and nothing else, forever.
+
+**Two ways in, both reachable:**
+- **(A) permanent** — a sheet whose header auto-detection fails returns `columns: []` and
+  `mapping_guess: null`. `SheetTabPanel.tsx:95-99` then TELLS the user to type the Excel row number.
+  They type it. The gate blocks the fetch on every keystroke. The four selects stay empty forever.
+- **(B) from the second change onward** — Revision 2's Q8a reset adopts the server's fresh
+  `mapping_guess`, which is `null` for any row that is not header-shaped, emptying `mapping.description`.
+  So the FIRST header change works and every later one is dead.
+
+**The backend was right the whole time** — proven at runtime: `parse_preview(header_row=8)` returns
+`[A "1"] [B "Food Box - General"] [C "Fire & Life Safety"] ...`, genuinely different columns.
+
+⚠️ **CORRECTION TO REVISION 2.** R2.3 item 3 recorded that carrying `columns` in `parse_preview`'s
+response "is why no second endpoint is needed". **That was wrong.** A call that cannot run without a
+Description can never be the thing that hands you the columns you need in order to CHOOSE one.
+**FIX: a new read-only `get_sheet_columns(file_url, sheet_name, header_row)`** returning
+`{header_row, columns, mapping_guess}` and nothing else — no mapping required, so no circularity. The
+client calls it on every header-row change, independent of mapping validity. This fixes (A) and (B)
+together. `parse_preview` keeps returning `columns` (harmless, and it keeps the preview self-consistent).
+
+⚠️ Also from Revision 2, and NOT a preference after all: R2.7 flagged the `mapping_guess: null` reset
+as "known behaviour, owner's call". It is half of this defect.
+
+## R3.2 — Settled decisions
+
+| # | Change | Decision |
+|---|---|---|
+| 1 | header-row column bug | new `get_sheet_columns` endpoint breaks the circularity (§R3.1) |
+| 2 | column dropdown labels | TRUNCATE to 20 chars (`columnOptionLabel`, `importState.ts:110`) |
+| 3 | row selection | **NEVER disabled.** Reason still shown, still unticked by default (Q2) |
+| 3b | a ticked row with no description | **imports anyway**, description falls back to the row's first non-empty cell; `reqd` dropped (Q9a) -- **ADR-0019** |
+| 4 | Batch filter | REMOVED (Q6: batch provenance moves into the Edit dialog, read-only) |
+| 5 | status dialog | also shows **Description, Area, Category** |
+| 6 | action column | LAST column (not pinned, Q7a): **[status button] then [edit button]** |
+| 6b | gates | status button **INCLUDES Project Manager**; edit button **EXCLUDES** them (Q4, Q8a) |
+| 7 | Edit dialog edits | **Area, Category, Description ONLY** (Q3). NOT status, NOT remark, NOT provenance |
+| 7b | Area / Category inputs | **free text + `<datalist>` suggestions** from that project's existing values (Q5) -- ADR-0016 amendment |
+| 8 | inline status dropdown | **STAYS** alongside the new action button (Q10a) -- same dialog, no second rule |
+
+**"Zone" was the owner's word for `area`** (Q1). No rename: the source column is `Area / Location`,
+and renaming would desynchronise the CSV header, the search-field label, the facet title and the
+import mapping label. *Zone* is real vocabulary in this app but belongs to Design Tracker.
+
+## R3.3 — Couplings the analysis found (each fails SILENTLY if missed)
+
+1. **Removing the Batch filter MUST also remove `"batch"` from `SNAG_FILTERABLE_COLUMN_IDS`**
+   (`snagTable.config.ts:83`). The URL sanitizer whitelists filter ids; leaving it means a
+   previously-bookmarked batch filter survives, narrows the query INVISIBLY with no funnel to clear
+   it, and suppresses the empty state via `hasActiveNarrowing`. This is mandatory, not cleanup.
+   Full removal is **7 sites**, listed in the analysis (column def, `SNAG_INITIAL_COLUMN_VISIBILITY`,
+   `SNAG_BATCH_FILTER_COLUMN_ID`, the whitelist, the import, `facetOverrides`, the toolbar render).
+2. **Un-disabling the checkbox is NOT one line.** `PreviewPanel.tsx:270-272`'s `onCheckedChange`
+   ALSO no-ops on `!row.tickable`, so removing `disabled` alone leaves the row unclickable. Nine
+   sites branch on `tickable`; all must stop gating (see ADR-0019).
+3. **There is NO backend that can edit `area`/`category`/`description`.** They are CREATE-only
+   (`add_manual_snag`, `_ingest_one_sheet`). Change 7 needs a NEW endpoint + a new permission
+   predicate; `snagPermissions.ts` has no `canEditRow` today.
+4. **Nothing in this app's tables can be pinned right.** `useServerDataTable` declares no
+   `columnPinning`; `new-data-table.tsx`'s sticky class for data columns is commented out. "Far
+   right" = LAST IN THE ARRAY (Q7a). A truly pinned column is a shared-infrastructure change across
+   ~40 pages -- explicitly out of scope.
+5. **The status dialog needs NO new fetch.** `snagColumns.tsx:117` already closes over
+   `row.original` (the full row); only `SnagStatusCellProps` needs widening.
+6. **The distinct-values list belongs in a NEW small endpoint**, not the facet machinery.
+   `get_facet_values` already does the right GROUP BY, but it guards on the DOCTYPE permission table
+   (6 roles) rather than this feature's deny-list read tier -- a role with tab access but no doctype
+   read row would get an empty dropdown. Mirror `get_snag_stats` instead.
+   ⚠️ **Must exclude `""`**: `add_manual_snag` and the importer both write `""`, not NULL, for a
+   blank area/category, so a naive DISTINCT yields an empty-string option.
+7. **`refused_no_description` becomes structurally dead** but is RETAINED reporting 0 (ADR-0019).
+8. **`AddSnagDialog.tsx:29-31` carries a comment asserting Area/Category are a plain input "not a
+   dropdown over existing values"** — it becomes wrong in this change and must be updated with it.
+
+## R3.4 — Work breakdown
+
+**Parser** — none. `preview_text` already exists and is already returned.
+
+**Backend (`api/snags/`)** — new `get_sheet_columns` (read-only, no mapping required); the
+description fallback to `preview_text` in `_ingest_one_sheet`; drop `_row_is_importable`'s gating
+while keeping the counter at 0; new `update_snag_details(snag, area, category, description)` through
+the DOCUMENT layer (never `set_value` — the stamp depends on it, and correctly does NOT move when
+status is unchanged); new `get_snag_field_values(project)` returning distinct non-blank area +
+category via two GROUP BYs under `require_read_access`; a new permission tier for row edits
+(Admin/PL/PMO, i.e. reuse `require_import_access`'s set but as its own named helper).
+
+**Doctype** — drop `reqd` from `description` + migrate. No column patch needed.
+
+**Import wizard UI** — call `get_sheet_columns` on every header-row change regardless of mapping
+validity; truncate the option label to 20 chars; remove every `tickable` gate (9 sites) while keeping
+the reason visible.
+
+**Tracking tab UI** — remove the Batch filter (7 sites, incl. the whitelist); widen
+`SnagStatusCellProps` and the status dialog to show description/area/category; new LAST action column
+with two differently-gated buttons; new Edit dialog (Area/Category/Description + read-only batch name)
+with `<datalist>` suggestions; new `canEditRow` predicate.
+
+## R3.5 — Still true
+
+**Nothing has been clicked, in any revision.** No DOM test environment exists. A live browser pass is
+owed — and Revision 3 exists BECAUSE the owner ran the app and found what type-checking could not.
+
+## R3.6 — As-built (Revision 3, 2026-08-21)
+
+### Verification run
+
+| Check | Result |
+|---|---|
+| `snag_parser` tests | **59 pass** (unchanged — no parser change was needed) |
+| `api/snags` tests | **45 pass** (was 29) |
+| **The deadlock, on the real file** | `get_sheet_columns` with NO mapping returns real columns at every header row. `header_row=8` -> `['1','Food Box - General','Fire & Life Safety',...]` with `mapping_guess: null` — **the exact state that used to wedge the client** |
+| **ADR-0019, on the real file** | ticked ALL **149** rows incl. the 23 with no description -> **149 imported, 0 refused** |
+| Description fallback | row 1 -> `'VR BENGALURU (VRB MALL) - FOOD BOX AREA SNAG LIST'` (its own text); truly-blank row 3 -> `''` (**blank, never invented**) |
+| `update_snag_details` | edits the three fields; **provenance untouched**; **status stamp correctly does NOT move** |
+| `get_snag_field_values` | 26 areas / 14 categories, **no empty-string option** |
+| Cross-agent seam | client sends `{file_url, sheet_name, header_row}`; endpoint signature matches |
+| `npx tsc --noEmit` | **zero errors under `src/pages/SnagList/`** |
+| `npx vite build` | succeeds |
+| `scripts/residence_check.py` | **feature adds ZERO violations** (220/119 with and without `SnagList/`) |
+
+### A SECOND deadlock, found and closed while wiring the first
+
+Typing header row `12`, then `8` again before the `12` reply lands: nothing supersedes the `12`
+(`8` needs no fetch, its columns are already settled), so banking `12` as the settled signature would
+leave the settled value describing a header row the tab no longer has — and the preview waits on
+exactly that agreement. Closed by requiring a reply to still answer the tab's CURRENT header row
+before it may advance the settled signature. Related: the readiness lives in a REF, and a ref cannot
+wake an effect, so `columnsLoading` had to join `fetchPlanKey` — without it a re-guess that left the
+mapping unchanged would park the preview forever.
+
+### Deliberate deviations, all accepted
+
+1. **`mapping_guess: null` now KEEPS the previous mapping** (the R2.7 "owner's call" item, resolved).
+   The letters are still real columns; a stale one is ALREADY caught by `unknownMappedRoles` + the
+   per-field error + the confirm gate, so emptying bought no safety and cost the user their picks.
+   A counterpart note renders, because a silent keep reads as "nothing happened" exactly as the
+   silent reset read as a bug.
+2. **`get_sheet_columns` is now the SOLE owner of the mapping re-guess.** `parse_preview` still
+   returns columns (harmless) but no longer re-guesses; `pendingReguessRef` is deleted. One owner is
+   what makes failure path (B) unreachable rather than merely unlikely.
+3. **The status action button reuses `SnagStatusCell` via a `variant="icon"` prop** rather than
+   duplicating the pick handler — so the "Not Applicable takes no remark" carve-out exists exactly
+   ONCE and cannot drift between the two triggers.
+4. **`add_manual_snag` KEEPS its required-description check** while the importer drops it. A blank
+   someone types into a form is a mistake; a blank inherited from a spreadsheet row is a fact.
+5. **`refused_no_description` retained, hardcoded 0**, commented `ADR-0019-DEAD` — the instrument
+   that proved R2.1 fixed.
+6. **The Edit dialog's batch name comes from the `useSnagBatches` list the page already loads**
+   (a memoised `Map`), NOT a per-row link-fetch on the table query. Falls back to the `SNAGB-…` doc
+   name; a manual snag reads "Added manually (no import batch)".
+
+### Still NOT verified
+
+**Nothing has been clicked, in any revision.** No DOM test environment exists. Revision 3 exists
+BECAUSE the owner ran the app and found what type-checking could not — the same is true of whatever
+Revision 4 turns out to be. Specifically owed a live pass: the header-row input under fast typing
+(now three staleness layers deep), the icon-variant status trigger's styling, the read-only context
+block's clamping on a ~360-char description, the `<datalist>` suggestions in both dialogs, and the
+action column's two gates.

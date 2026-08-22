@@ -7,6 +7,11 @@
  * "(not mapped)" entry is still a REAL, selectable item (sentinel `MAPPING_NONE`, because
  * Radix reserves "" ), so a user can always clear a role by hand.
  *
+ * OPTION LABELS ARE TRUNCATED (R3 change 2), because the header row is user-declarable: point
+ * it at a DATA row and every "header" is a whole sentence. Only the header TEXT is clipped --
+ * the column letter always renders in full, since it is the part that identifies the column --
+ * and the full text is carried on each option's `title`, so nothing is lost, only folded away.
+ *
  * That placeholder behaviour is also the hazard this file has to answer. When a stored letter
  * matches NO `SelectItem` -- reachable as soon as the header row is overridden and `columns`
  * is recomputed -- Radix shows "(not mapped)" while the mapping still HOLDS the letter and the
@@ -26,6 +31,7 @@ import type { SnagColumnMapping, WorkbookColumn } from "../types";
 import {
   MAPPING_NONE,
   columnOptionLabel,
+  columnOptionTitle,
   isKnownColumn,
   optionalToSelect,
   selectToOptional,
@@ -69,6 +75,7 @@ export function ColumnMappingFields({
         // A letter left over from a previous header row: no matching item, so the trigger
         // silently renders the placeholder. Never let that pass as "(not mapped)".
         const unknown = !!letter && !isKnownColumn(columns, letter);
+        const selected = letter ? columns.find((c) => c.letter === letter) : undefined;
         return (
           <div key={role.key} className="space-y-1.5">
             <Label htmlFor={id} className="text-xs">
@@ -87,6 +94,9 @@ export function ColumnMappingFields({
             >
               <SelectTrigger
                 id={id}
+                // The trigger renders the TRUNCATED option text, so the full header stays one
+                // hover away here too -- not only inside the open dropdown.
+                title={selected ? columnOptionTitle(selected) : undefined}
                 className={missing || unknown ? "border-destructive" : undefined}
               >
                 <SelectValue placeholder="(not mapped)" />
@@ -96,7 +106,11 @@ export function ColumnMappingFields({
                   {role.required ? "(not mapped — required)" : "(not mapped)"}
                 </SelectItem>
                 {columns.map((col) => (
-                  <SelectItem key={col.letter} value={col.letter}>
+                  <SelectItem
+                    key={col.letter}
+                    value={col.letter}
+                    title={columnOptionTitle(col)}
+                  >
                     {columnOptionLabel(col)}
                   </SelectItem>
                 ))}
