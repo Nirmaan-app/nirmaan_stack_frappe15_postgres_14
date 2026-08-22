@@ -33356,3 +33356,198 @@ itself, not to any row list.
 - **`isTerminationRow` remains a text heuristic.** It no longer costs a rate, only which figure is offered
   first. The near-form gap was measured and is tiny (6 rows, 0.12%, none priceable), so the boundary is
   stable if it is ever narrowed.
+
+---
+
+## Build slice CONDUIT IN THE CABLE RATE (2026-08-23, asset v47)
+
+`wiring_cabling` gains three conduit attributes and a conduit component on `cable_boq` ONLY. Where the
+document says this line carries the conduit, its rate is added to the cable supply and install legs.
+
+**Asset: `rate_master_electrical_all_v47.json`, 733,922 bytes,
+sha256 `de4f6a2e1c551fc67f41510b3e4a0f82aa612d8f8dc4cfffc923a28860d78515`.** Round trip proven BOTH
+ways: DB -> export == candidate, and file -> DB -> export byte-identical.
+
+### The decision table (the specification, verbatim from the prompt)
+
+| system's read | type | size | result |
+|---|---|---|---|
+| INCLUDED | known | stated | price at the stated size |
+| INCLUDED | known | silent | price at 25mm, MARKED AS COMPUTED |
+| INCLUDED | unknown | any | DO NOT PRICE the conduit |
+| NOT INCLUDED | -- | -- | DO NOT PRICE the conduit |
+| CANNOT JUDGE | -- | -- | DO NOT PRICE the conduit |
+
+In EVERY "do not price" case the cable and termination rates compute exactly as they do today.
+
+### The twelve owner rulings, verbatim
+
+(i) "rate is per meter for both conduit and wires and cables, so can be added directly."
+(ii) "Termination is not impacted by this. it continues working the same it is working currently"
+(iii) "double counting--- no. thene the conduits mentioned separtely will be used for something else. so we just price what the Boq row says"
+(iv) "conduit pricing works the same way as it is working for conduit category"
+(v) "system judges that conduit price needs to be included...then include it. if size is not mentioned use default of 25 mm / system judges that conduit price is not included --- does not include it / system cannot judge if itsa included or not -- default to not include it"
+(vi) "if material is mentioned and size cannot be determined and price needs tro be oincluded use default size of 25 mm"
+(vii) "dont use dfault for material type"
+(viii) "use row details..nearer alkwasy wins in times on conflict"
+(ix) SUPPLY = roundup(cable_supply, TENS) + conduit_supply UNROUNDED, then roundup the TOTAL to UNITS. INSTALL = roundup(cable_install, UNITS) + roundup(conduit_install, TENS), then NO further rounding.
+(x) One conduit per row REGARDLESS of parallel runs.
+(xi) "Allof this is ok. we will live with it."
+(xii) "this decision belongs to the model."
+
+Plus the size-display ruling: **"would prefer none for size too, but lets stick with 25 as you suggested
+if none is not feasibel or has too much risk"**.
+
+### OPTION B SHIPPED -- the owner's stated preference
+
+On a row with no conduit the size field reads **`None (computed)`**, not `25 (computed)`. Option B was
+attempted first, proven feasible offline before any build, and confirmed live in the cert (row 114).
+
+**Why it works, and why the first analysis thought it might not.** The trap is the slice-3b narrowing at
+`pricingSheetHelper.ts:520-533`: it removes a `map_attribute` target from the missing-gate exemption when
+the target has **no default** and its source reads blank -- and `valueOfDef` reads the RAW extraction,
+which is null on every row for an attribute nothing extracts. The escape is that **the check is
+`if (src.hasDefault) continue;`** -- a target carrying ANY default is never narrowed. So `size_mm` carries
+`default: "None"` (the sentinel, not 25) and the **25 comes from a TABLE keyed on the resolved
+`conduit_type`**, which is what makes it fire only when a material is known (ruling vi).
+
+### The gate mechanism, and why it is the only one that works
+
+~4,850 wiring rows name no conduit and must price EXACTLY as before. Two walls had to be cleared:
+
+1. the whole-row `missing` gate (`pricingSheetHelper.ts:534`, early return `:593`), whose only
+   exemptions are `disabled`, `fillableDerived` and `d.panel !== false`;
+2. `component_ref`'s bindMiss -- a BLANK `@`-bound attribute returns `no_match` for the WHOLE pipeline,
+   destroying the cable rate. Only the literal `"None"` sentinel takes the `none_skips` zero path.
+
+**`map_attribute` is the only shipped mechanism that clears both**, because it resolves INSIDE the
+pipeline at price time -- so it fills a value on rows whose extraction predates the config -- and its
+target is in `derivedAttrIds` ("THE FIFTH MECHANISM", `rateMasterStructure.ts:539-556`), which exempts it
+from the gate. Neither `extraction_defaults` nor `AttributeDefinition.default` can serve: **both are
+server-side only** (`rateMasterTypes.ts:67-68`), so neither reaches an already-banked row.
+
+The shipped shape:
+
+```
+map_attribute  conduit_included  prefer=conduit_included  default="No"      <- ruling (v)
+map_attribute  conduit_type      prefer=conduit_type      default="None"    <- ruling (vii)
+map_attribute  size_mm           prefer=size_mm  from=conduit_type
+                                 table={MS:25, PVC:25}    default="None"    <- ruling (vi)
+... the untouched cable_boq steps ...
+component_ref  conduit  ref{kind:conduit, conduit_type:@conduit_type, size_mm:@size_mm}
+               target=list_price_per_mtr  rate_stages=[{mult:0.7}]          <- ruling (iv)
+               qty={if_attr:{conduit_included:"Yes"}, then:1, else:0}       <- rulings (v)+(x)
+               none_skips=true
+sum_components -> conduit_supply
+scale  conduit_supply x 0.2 -> conduit_install ; roundup TENS               <- ruling (iv)
+scale  supply_per_mtr + conduit_supply ; roundup UNITS                      <- ruling (ix)
+scale  install_per_mtr + conduit_install ; NO further rounding              <- ruling (ix)
+```
+
+**THE TWO ZERO PATHS.** A row naming no conduit resolves `conduit_type` to `"None"` and `none_skips`
+zeroes the component; a row naming one that is not included resolves qty to 0 via `qty.if_attr`. Both
+leave the cable rate byte-identical -- `supply + 0` then `roundup(..., UNITS)` is an identity on the
+tens-rounded integers cable_boq already produces, and `install + roundup(0, TENS)` adds nothing.
+
+### ⚠️ TWO LOAD-BEARING FACTS A FUTURE EDITOR MUST NOT TIDY AWAY
+
+1. **`size_mm`'s `default` is load-bearing.** Remove it and `pricingSheetHelper.ts:520-533` narrows the
+   target out of the gate exemption on EVERY row (its source `conduit_type` is itself a map target, so
+   `valueOfDef` reads null always) -- roughly **5,000 wiring rows** would render "Complete the missing
+   attributes to price" instead of their rate. Pinned by
+   `test_size_mm_carries_a_default_and_that_default_is_load_bearing`.
+2. **Each map's `prefer_attr` IS the attribute itself.** This is the `cabletray_raceway` `thickness_mm`
+   precedent and the ONLY shape whose panel display works. `applyDerivedDisplay`'s STATED branch
+   publishes no display value and falls back to the TARGET attribute's own extracted value -- which is
+   empty when nothing extracts it. **A first cut split each fact into a `panel: false` raw attribute plus
+   an `extract: false` resolved one; pricing was correct and all three conduit fields rendered BLANK.**
+   Caught in the browser cert, not by a test. Pinned by
+   `test_the_three_conduit_attributes_are_extracted_AND_panel_visible`.
+
+### Extraction wording
+
+One new estimator rule, **R11**, injected verbatim as ESTIMATOR_RULES. It teaches the three FACTS and
+nothing else: no 25mm (that substitution is the map table's job) and no ancestor precedence.
+**Nearest-wins was already shipped** -- `extraction._ROW_CONTEXT_SHAPE_GUIDANCE` separates the row's own
+`description` from `ancestor_chain` and states *"A nearer ancestor's text describes this row more
+specifically than a farther one's."* No ordering was invented. GI -> MS rides the existing per-config
+`synonyms` mechanism, so a stated GI arrives as MS and renders PLAIN, not "(computed)".
+
+### Measured counts (in-session)
+
+| suite | before | after |
+|---|---|---|
+| `test_rate_master` (Python) | 197 tests, 1 error* | **205 tests, OK** |
+| full vitest | 1 failed / 2883 passed (2884) | **1 failed / 2894 passed (2895)** |
+
+**+11 vitest tests, +8 Python tests, 0 new failures.** The single vitest failure is the PRE-EXISTING,
+out-of-scope `writeOffControl.test.ts` timeout. `ratePipelineInterpreter.test.ts` alone finishes at 361
+tests (its pre-slice count was not measured separately -- the full-suite delta above is the measured
+number).
+
+*The single "before" error was self-inflicted and is disclosed rather than hidden: the first mint added a
+`conduit_component` top-level key, and `_KNOWN_CONFIG_KEYS` (`api/boq/rate_master.py:1303`) is a CLOSED
+whitelist, so the loader rejected the whole config. The slice note moved to `notes`, an allowed
+pass-through key. **A new top-level config key is a code change, never a config one.**
+
+**Vacuity proof.** Disabling the composition (`qty.then: 1 -> 0`) turned **6** tests red -- every priced /
+arithmetic test plus the config-shape guard -- while the "not priced" and byte-identical guards correctly
+stayed green. Restored immediately; no probe residue.
+
+### The browser cert (bench :8000 + vite :8080, both marker halves confirmed)
+
+⚠️ **No frontend source changed this slice** -- the new fields come entirely from the config -- so the
+marker halves are: (1) the BACKEND serves v47 (`get_rate_category_config` returns the three attributes,
+the three map steps, the `component_ref`, and `termination_boq` mentioning conduit NOWHERE); (2) the
+BROWSER renders them (the three fields appear on the panel with values and confidences).
+
+| row | what is on screen | verdict |
+|---|---|---|
+| **A. BOQ-26-00201 / 194** | Conduit included **Yes**, type **MS**, size **20** (all plain -- stated). `supply_per_mtr = 226`, `install_per_mtr = 40`. Termination 70/20. | PASS -- 180 + 45.5 -> 226; 30 + 10 -> 40 |
+| **B. BOQ-26-00201 / 198** | Yes / MS / 20. `supply_per_mtr = 226`, `install_per_mtr = 30`. Termination em dash. | PASS |
+| **C. BOQ-26-00201 / 210** (nearest-wins) | size **32** -- the row's own value, NOT the ancestor's 25. `supply_per_mtr = 264`, `install_per_mtr = 50`. | PASS -- ruling (viii) live |
+| **D. the 25mm substitution** | On BOQ-26-00183 / 33, size shows **25 (computed)**. Overriding `Conduit included` -> Yes (panel only, never saved) repriced supply 180 -> **240** and install 30 -> **50**. | PASS -- and the exact values the unit test asserts. See the note below on how D was sourced. |
+| **E. BOQ-26-00201 / 114** (REGRESSION GUARD) | included **No (computed)**, type **None (computed)**, size **None (computed)**. `supply_per_mtr = 350`, `install_per_mtr = 28`. | **PASS -- BYTE-IDENTICAL.** The pre-slice v46 pipeline computes 350 / 28 for the same attributes. #57 item 3 observed. |
+| **F. BOQ-26-00183 / 33** ("existing conduits") | included **No** (stated). `supply_per_mtr = 180`, `install_per_mtr = 30` -- **no conduit added**. | PASS. **The model read "existing" correctly where the recon's regex over-included this exact row.** |
+
+**⚠️ How cert D was sourced, stated plainly.** No row in the touched corpus is *clean-inclusion with a
+known type and no size anywhere* -- the candidates (BOQ-26-00201 rows 213-216) name only FLEXIBLE, which
+is not a catalogue `conduit_type`, so the model correctly declined them. Rather than buy a third AI run
+hunting one, D was demonstrated on row 33 via the pricer's own override, which exercises the identical
+`map_attribute` path and additionally proves R9. The substitution itself is pinned by a unit test.
+
+**Zero residual.** 0 `BoQ Cell Pricing` rows modified, 0 `BoQ Rate Suggestion Event` rows created; all
+cert rows hold their pre-cert saved rates (194 = 200/40, 198 = 200/40, 114 = 80/20, 183/33 = 210, all
+timestamped 2026-08-12/19). The panel override was never saved. **Four `BoQ Rate Suggestion Run` docs
+were created -- the authorised scoped re-extractions** (`only_rows`, which seeds the new run doc with the
+prior active run's untouched rows byte-identically, so no unselected row lost its extraction). Two are
+superseded intermediates from the first attribute shape.
+
+### ⚠️ ACCEPTED RISK -- in the owner's own words, not an oversight
+
+The inclusion signal **cannot be read reliably**. The recon measured it: 21 of 220 clean-inclusion rows
+(9.5%) carry hand-off language the phrase families did not anticipate; at least 2 of the 52 survivors
+were demonstrable false positives; the hand-off vocabulary is unbounded; and every widening of the
+pattern found failures in BOTH directions. **The residual error runs toward OVER-inclusion**, which adds
+money to a rate that should not carry it. The owner ruled: **"Allof this is ok. we will live with it."**
+No guards, heuristics or safety nets were added beyond what he asked for (ruling xi).
+
+Encouraging counter-evidence from this cert: on row 33 the MODEL read "in existing ... conduits" as NOT
+included, where the recon's regex could not. Ruling (xii) puts that judgement with the model.
+
+### ⚠️ RULING (vi) OVERRULES THE EARLIER "NO SIZE -> DON'T INCLUDE"
+
+The Part B recon measured the buildable population under the then-current bar (positive inclusion AND
+type AND size) at **52 rows**, because size is silent on 155 of the 207 rows that are otherwise
+qualified. Ruling (vi) supplies 25mm whenever a material is known, which **takes the reach from ~52 rows
+to ~207**. That is the single largest consequence of the ruling and the reason the blast radius grew.
+
+### OPEN
+
+- **The per-metre cable rate does not yet show a cable-vs-conduit breakdown.** The owner asked for this
+  during the cert. It needs `computeWiring` in `pricingSheetHelper.ts` to push the conduit component's
+  step lines into the Cable group's derivation -- a file outside this slice's declared scope, and a fifth
+  #57 item. NOT built here.
+- The 155 clean-inclusion rows with a type but no size now price at 25mm. That is ruling (vi) working as
+  ruled, but it is the population most exposed to the accepted over-inclusion risk.
+- 33 of the 52 previously measured survivors already carry hand-set rates that this will move.
