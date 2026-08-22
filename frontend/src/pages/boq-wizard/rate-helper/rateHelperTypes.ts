@@ -295,6 +295,24 @@ export interface Suggestion {
    * to a partial extraction) -- so a partial row still BADGES (the pricer opens the panel to
    * complete it). Absent => fall back to `values` for badge counting (the two dead helpers). */
   producibleKinds?: RateKind[];
+  /** 2026-08-22 (owner Ruling A + C): when a helper prices a row through MORE THAN ONE pipeline and
+   * the pricer must see each figure separately, it publishes one entry per block here and the panel
+   * renders them STACKED in the collapsed header, one line per entry, label then figure.
+   *
+   * ⚠️ DISPLAY-ONLY, and the ONE reason this field exists rather than a rule the panel could infer:
+   * `sections.length >= 2` is NOT a usable signal -- cabletray_raceway, db_switchgear,
+   * industrial_sockets and point_wiring all emit two sections too, so inferring from structure would
+   * hand them a second headline as well. Only the helper knows its figures are DIFFERENT UNITS that
+   * must never be added (wiring: cable per_mtr vs termination per_set), so only the helper may ask
+   * for the stacked treatment.
+   *
+   * ⚠️ IT MUST NEVER FEED `values`. "Use this value" keeps reading `values[kind]` -- the PRIMARY
+   * pipeline's figure -- exactly as before (owner Ruling B). A `kind` absent from an entry's `values`
+   * renders the panel's existing em dash; it is never a zero and never borrowed from the other entry.
+   *
+   * ABSENT => the panel renders its single headline exactly as it always has, so every category that
+   * does not set this is byte-unchanged. */
+  headlines?: { label: string; values: Partial<Record<RateKind, number>> }[];
   /** One-line basis (what the suggestion rests on). */
   basis: string;
   workings: WorkingsSection;

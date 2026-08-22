@@ -372,9 +372,35 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                   <div className="truncate text-xs text-muted-foreground">{result.basis}</div>
                 </div>
                 <div className="flex items-center gap-1 whitespace-nowrap">
-                  <span className="text-sm font-semibold tabular-nums">
-                    {typeof computed === "number" ? computed : "—"}
-                  </span>
+                  {result.headlines && result.headlines.length > 0 ? (
+                    // 2026-08-22 (owner Ruling A + C, "stacked...double height"): a helper that
+                    // prices a row through more than one pipeline publishes one entry per block and
+                    // they render STACKED, one line each -- label then figure. The header is taller
+                    // on those rows only; every other category takes the single-figure branch below
+                    // and is byte-unchanged.
+                    //
+                    // ⚠️ THE TWO FIGURES ARE NEVER ADDED. They are different units (the wiring case
+                    // is per Mtr vs per Set), so each is rendered from its OWN entry and there is no
+                    // total anywhere. An entry with no figure for this cell's rate-kind falls to the
+                    // SAME em dash the single-headline branch uses -- it never borrows the other.
+                    <div className="flex flex-col items-end gap-0.5">
+                      {result.headlines.map((h, hi) => {
+                        const hv = h.values[kind!];
+                        return (
+                          <div key={`${h.label}-${hi}`} className="flex items-baseline gap-1.5">
+                            <span className="text-[11px] text-muted-foreground">{h.label}</span>
+                            <span className="text-sm font-semibold tabular-nums">
+                              {typeof hv === "number" ? hv : "—"}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <span className="text-sm font-semibold tabular-nums">
+                      {typeof computed === "number" ? computed : "—"}
+                    </span>
+                  )}
                   {isOpen ? (
                     <ChevronDown className="h-4 w-4 text-muted-foreground" />
                   ) : (

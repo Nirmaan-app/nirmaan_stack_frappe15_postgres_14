@@ -144,13 +144,27 @@ describe("makePricingSheetHelper -- goldens via the RM-2 interpreter", () => {
     expect(isSuggestion(r) && r.values.install_rate).toBe(40);
   });
 
-  it("a TERMINATION row prices termination alone (no cable, no paired line)", () => {
+  // REWRITTEN 2026-08-22 (owner ruling: "we side step all this judgement and just show both the
+  // wirirng and cable rates and the terminations rates for all rows"). WAS: "a TERMINATION row
+  // prices termination alone (no cable, no paired line)" -- it asserted that a row whose text
+  // trips the termination pattern shows the termination block and nothing else. That shape is now
+  // wrong by ruling: the cable block must be on screen too. What is UNCHANGED and still pinned
+  // here is which block is APPLIABLE -- `values` still comes from the termination pipeline on such
+  // a row, because the ruling changed what is SHOWN, not what is applied.
+  it("a TERMINATION-texted row still APPLIES the termination rate, but now SHOWS the cable block too", () => {
     const map = buildExtractionByRow([{ excel_row: 5, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) }]);
     const helper = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map });
     const r = helper.compute(ctx(5, "Cable end termination gland + lug 1C x 6"));
-    expect(isSuggestion(r) && r.values.supply_rate).toBe(80);
-    expect(isSuggestion(r) && r.values.install_rate).toBe(20);
-    expect(isSuggestion(r) && r.workings.derivation.some((d) => d.includes("Paired termination"))).toBe(false);
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    // the appliable values are the TERMINATION rates -- unchanged by this slice.
+    expect(r.values.supply_rate).toBe(80);
+    expect(r.values.install_rate).toBe(20);
+    // ...and the cable block is now present alongside, carrying its OWN rates (120 / 20).
+    expect(r.workings.sections?.map((s) => s.label)).toEqual(["Cable — per Mtr", "Termination — per Set"]);
+    expect(r.workings.sections?.[0].finals.supply_per_mtr).toBe(120);
+    expect(r.workings.sections?.[0].finals.install_per_mtr).toBe(20);
+    expect(r.workings.sections?.[1].finals.supply_per_set).toBe(80);
   });
 
   it("null attribute -> honest partial: editable attributes, EMPTY value, no computed rate", () => {
@@ -238,17 +252,283 @@ describe("RM-3a grouped workings (cable = two groups; termination = one, backwar
     expect(sections[0].attributes).toBeUndefined();
   });
 
-  it("a termination row is a SINGLE flat group -- no `sections` (renders exactly as today)", () => {
+  // REWRITTEN 2026-08-22 (same owner ruling as the pair above). WAS: "a termination row is a
+  // SINGLE flat group -- no `sections` (renders exactly as today)", asserting
+  // `r.workings.sections` was undefined. That was the exact shape the ruling reverses, so the
+  // assertion is inverted: a termination row now emits the SAME two labelled groups a cable row
+  // does, in the SAME order (Cable first -- owner Decision 2's order is preserved, not re-ordered
+  // per row). The group SHAPES stay asymmetric on purpose: the PRIMARY group keeps the derivation
+  // and matchedRows, the secondary carries its rates alone.
+  it("a termination row now emits the SAME two labelled groups, Cable first (was: a single flat block)", () => {
     const map = buildExtractionByRow([
       { excel_row: 5, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) },
     ]);
     const helper = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map });
     const r = helper.compute(ctx(5, "Cable end termination gland + lug 1C x 6"));
     if (!isSuggestion(r)) throw new Error("expected suggestion");
-    // no grouped sections -> the panel renders the flat matchedRows/derivation exactly as before.
-    expect(r.workings.sections).toBeUndefined();
+    const sections = r.workings.sections!;
+    expect(sections).toHaveLength(2);
+    expect(sections[0].label).toBe("Cable — per Mtr");
+    expect(sections[1].label).toBe("Termination — per Set");
+    expect(sections[0].finals.supply_per_mtr).toBe(120);
+    expect(sections[1].finals.supply_per_set).toBe(80);
+    // the PRIMARY here is termination, so IT carries the derivation + matchedRows...
+    expect(sections[1].matchedRows?.length).toBeGreaterThan(0);
+    // ...and the secondary (cable) carries rates only -- no matchedRows key.
+    expect(sections[0].matchedRows).toBeUndefined();
+    // the flat top-level derivation is still populated (it feeds nothing on this path now, but the
+    // contract has always carried it and the generic categories still render from it).
     expect(r.workings.derivation.length).toBeGreaterThan(0);
     expect(r.values.supply_rate).toBe(80);
+  });
+});
+
+// 2026-08-22 OWNER RULING, verbatim: "we side step all this judgement and just show both the
+// wirirng and cable rates and the terminations rates for all rows. both od these need the same
+// attributes for pricing". The row TEXT no longer decides what is COMPUTED -- only which block is
+// primary (whose finals become the appliable `values`). These tests pin both halves: that both
+// blocks always appear, and that an unmatched block stays honestly empty rather than borrowing.
+describe("both blocks on every wiring row (2026-08-22 ruling)", () => {
+  it("a row whose text trips the termination pattern STILL computes the cable pipeline (the rate the old dispatch discarded)", () => {
+    // The BOQ-26-00201 row-194 shape: an ordinary cable line whose scope boilerplate merely
+    // MENTIONS terminations. Before this slice cable_boq was never run and its rate was lost.
+    const map = buildExtractionByRow([
+      { excel_row: 7, attributes: ext({ material: "COPPER", insulation: "ARMOURED", core: 3, thickness_sqmm: 2.5 }) },
+    ]);
+    const helper = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map });
+    const r = helper.compute(
+      ctx(7, "Supply, Wiring and commissioning by using 3C x 2.5 sqmm cable, and terminations of wires on both ends, termination Lugs etc."),
+    );
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    const sections = r.workings.sections!;
+    expect(sections[0].label).toBe("Cable — per Mtr");
+    expect(sections[0].finals.supply_per_mtr).toBe(200);
+    expect(sections[0].finals.install_per_mtr).toBe(28);
+  });
+
+  it("a row whose text does NOT trip the pattern is unchanged -- cable primary, termination paired", () => {
+    const map = buildExtractionByRow([
+      { excel_row: 8, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) },
+    ]);
+    const helper = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map });
+    const r = helper.compute(ctx(8, "XLPE cable 1C x 6 sqmm"));
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    // appliable values = cable, exactly as before the slice
+    expect(r.values.supply_rate).toBe(120);
+    expect(r.values.install_rate).toBe(20);
+    const sections = r.workings.sections!;
+    expect(sections.map((s) => s.label)).toEqual(["Cable — per Mtr", "Termination — per Set"]);
+    expect(sections[0].finals.supply_per_mtr).toBe(120);
+    expect(sections[0].finals.combined_per_mtr).toBe(140);
+    expect(sections[0].matchedRows?.length).toBeGreaterThan(0);
+    expect(sections[1].finals.supply_per_set).toBe(80);
+  });
+
+  // ⚠️ THE NEGATIVE THAT MATTERS. Cross-contamination must be impossible in BOTH directions.
+  it("NEGATIVE: an unmatched TERMINATION block is honestly empty -- it never borrows the cable numbers", () => {
+    // COPPER/ARMOURED/3C/2.5 exists as a cable in the catalogue and NOT as a termination -- the
+    // real BOQ-26-00201 row-198 shape.
+    const map = buildExtractionByRow([
+      { excel_row: 9, attributes: ext({ material: "COPPER", insulation: "ARMOURED", core: 3, thickness_sqmm: 2.5 }) },
+    ]);
+    const helper = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map });
+    const r = helper.compute(ctx(9, "cable 3C x 2.5 including termination"));
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    const [cableGroup, termGroup] = r.workings.sections!;
+    expect(cableGroup.finals.supply_per_mtr).toBe(200);
+    // the termination block computes NOTHING -- not a zero, not a copy of 200/28.
+    expect(Object.keys(termGroup.finals)).toHaveLength(0);
+    // NOTE: this row's text trips the pattern, so TERMINATION is the primary here and its
+    // no-match is voiced by the primary path ("No termination rate row matches <attrs>."). The
+    // secondary path voices its own ("No matching termination rate row."). Both are honest
+    // refusals; the assertion pins the refusal, not one of the two wordings.
+    expect(termGroup.derivation.join(" ")).toContain("No termination rate row matches");
+    expect(Object.values(termGroup.finals)).not.toContain(200);
+    expect(Object.values(termGroup.finals)).not.toContain(28);
+  });
+
+  it("NEGATIVE (mirror): an unmatched CABLE block is honestly empty -- it never borrows the termination numbers", () => {
+    // A catalogue carrying ONLY the termination row for these attributes: the cable side must
+    // decline, not inherit. Proves the guarantee holds in the direction this slice newly exercises.
+    const TERM_ONLY: RateMasterItem[] = [term("COPPER", "UNARMOURED", 1, 6, 11.46, 82.55, 361.18)];
+    const map = buildExtractionByRow([
+      { excel_row: 10, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) },
+    ]);
+    const helper = makePricingSheetHelper({ config: CONFIG, items: TERM_ONLY, extractionByRow: map });
+    const r = helper.compute(ctx(10, "Cable end termination gland + lug 1C x 6"));
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    const [cableGroup, termGroup] = r.workings.sections!;
+    expect(termGroup.finals.supply_per_set).toBe(80);
+    expect(Object.keys(cableGroup.finals)).toHaveLength(0);
+    expect(cableGroup.derivation).toContain("No matching cable rate row.");
+    expect(Object.values(cableGroup.finals)).not.toContain(80);
+  });
+
+  it("a genuine per-set termination row still prices its termination rate correctly", () => {
+    // The "End termination" shape -- a count-unit row with no cable spec in the text. Its
+    // appliable rate must be the termination one, unchanged by this slice.
+    const map = buildExtractionByRow([
+      { excel_row: 11, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) },
+    ]);
+    const helper = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map });
+    const r = helper.compute(ctx(11, "End termination"));
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.values.supply_rate).toBe(80);
+    expect(r.values.install_rate).toBe(20);
+    expect(r.workings.sections![1].finals.supply_per_set).toBe(80);
+  });
+});
+
+// 2026-08-22 owner Ruling A ("we need to show 2 values for the collpased pricing helper") +
+// Ruling C ("stacked...double height"). The helper publishes ONE `headlines` entry per block; the
+// panel renders them stacked. These tests pin the DATA the panel renders -- this repo runs vitest
+// with `environment: "node"` (no DOM, deliberate), so the component itself is not render-tested
+// here; the collapsed header is covered by the browser cert.
+describe("two stacked headlines (2026-08-22 rulings A + C)", () => {
+  it("BOTH determine: two headline entries, right figure against right label, Cable first", () => {
+    const map = buildExtractionByRow([
+      { excel_row: 20, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) },
+    ]);
+    const helper = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map });
+    const r = helper.compute(ctx(20, "XLPE cable 1C x 6 sqmm"));
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    const h = r.headlines!;
+    expect(h).toHaveLength(2);
+    expect(h[0].label).toBe("Cable — per Mtr");
+    expect(h[1].label).toBe("Termination — per Set");
+    expect(h[0].values.supply_rate).toBe(120);
+    expect(h[0].values.install_rate).toBe(20);
+    expect(h[1].values.supply_rate).toBe(80);
+    expect(h[1].values.install_rate).toBe(20);
+  });
+
+  // ⚠️ THE NEGATIVE THAT MATTERS. cable is per Mtr and termination is per Set, so adding them
+  // would apply a per-SET rate across a metre quantity. There must be no such figure anywhere.
+  it("NEGATIVE: the two headlines are NEVER summed -- no published figure equals their total", () => {
+    const map = buildExtractionByRow([
+      { excel_row: 21, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) },
+    ]);
+    const helper = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map });
+    const r = helper.compute(ctx(21, "XLPE cable 1C x 6 sqmm"));
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    const h = r.headlines!;
+    // the two supply figures, asserted INDEPENDENTLY
+    expect(h[0].values.supply_rate).toBe(120);
+    expect(h[1].values.supply_rate).toBe(80);
+    const crossSum = 120 + 80; // 200 -- the number that must never be produced
+    // no figure in EITHER entry is the cross-block total...
+    for (const entry of h) {
+      for (const v of Object.values(entry.values)) expect(v).not.toBe(crossSum);
+    }
+    // ...nor is any appliable value, nor any per-block combined figure.
+    for (const v of Object.values(r.values)) expect(v).not.toBe(crossSum);
+    // each block's combined is computed WITHIN the block: per-Mtr + per-Mtr, per-Set + per-Set.
+    expect(h[0].values.combined_rate).toBe(140); // 120 + 20, both per Mtr
+    expect(h[1].values.combined_rate).toBe(100); // 80 + 20, both per Set
+  });
+
+  it("ONLY cable determines: the cable figure is published and the termination kind is ABSENT (renders the em dash)", () => {
+    // COPPER/ARMOURED/3C/2.5 is a cable in the fixture catalogue and not a termination.
+    const map = buildExtractionByRow([
+      { excel_row: 22, attributes: ext({ material: "COPPER", insulation: "ARMOURED", core: 3, thickness_sqmm: 2.5 }) },
+    ]);
+    const helper = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map });
+    const r = helper.compute(ctx(22, "cable 3C x 2.5"));
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    const h = r.headlines!;
+    expect(h[0].values.supply_rate).toBe(200);
+    expect(h[1].values.supply_rate).toBeUndefined();
+    expect(h[1].values.install_rate).toBeUndefined();
+    // the blank entry did not borrow the cable numbers
+    expect(Object.values(h[1].values)).not.toContain(200);
+  });
+
+  it("ONLY termination determines (mirror): the termination figure is published and the cable kind is ABSENT", () => {
+    const TERM_ONLY: RateMasterItem[] = [term("COPPER", "UNARMOURED", 1, 6, 11.46, 82.55, 361.18)];
+    const map = buildExtractionByRow([
+      { excel_row: 23, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) },
+    ]);
+    const helper = makePricingSheetHelper({ config: CONFIG, items: TERM_ONLY, extractionByRow: map });
+    const r = helper.compute(ctx(23, "Cable end termination gland + lug 1C x 6"));
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    const h = r.headlines!;
+    expect(h[1].values.supply_rate).toBe(80);
+    expect(h[0].values.supply_rate).toBeUndefined();
+    expect(Object.values(h[0].values)).not.toContain(80);
+  });
+
+  it("NEITHER determines: both entries publish no figures and nothing throws", () => {
+    // a complete attribute set with a thickness the fixture catalogue has for neither kind.
+    const map = buildExtractionByRow([
+      { excel_row: 24, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 999 }) },
+    ]);
+    const helper = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map });
+    const r = helper.compute(ctx(24, "cable 1C x 999"));
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    const h = r.headlines!;
+    expect(h).toHaveLength(2);
+    expect(Object.keys(h[0].values)).toHaveLength(0);
+    expect(Object.keys(h[1].values)).toHaveLength(0);
+  });
+
+  // ⚠️ THE SCOPE-GRANT GUARD. `headlines` is DISPLAY-ONLY: it must not reach `values`, which is what
+  // "Use this value" applies. Owner Ruling B: the button takes what the panel already determined the
+  // row to be -- the PRIMARY pipeline -- so on a termination-texted row it applies the TERMINATION
+  // figure even though the larger cable figure is visible right beside it. Owner-parked, pinned here.
+  it("SCOPE GUARD: `headlines` never feeds `values` -- Use this value still applies the PRIMARY figure", () => {
+    const map = buildExtractionByRow([
+      { excel_row: 25, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) },
+    ]);
+    const helper = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map });
+    const r = helper.compute(ctx(25, "Cable end termination gland + lug 1C x 6"));
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    // the cable figure is VISIBLE and LARGER...
+    expect(r.headlines![0].values.supply_rate).toBe(120);
+    // ...but the appliable value is the termination one, because the text made termination primary.
+    expect(r.values.supply_rate).toBe(80);
+    expect(r.values.install_rate).toBe(20);
+    // and the mirror: on a cable-texted row the primary is cable.
+    const r2 = helper.compute(ctx(25, "XLPE cable 1C x 6 sqmm"));
+    if (!isSuggestion(r2)) throw new Error("expected suggestion");
+    expect(r2.values.supply_rate).toBe(120);
+  });
+
+  it("P4 GUARD: a NON-wiring category publishes NO headlines, so its collapsed header is unchanged", () => {
+    const GEN_CONFIG: RateCategoryConfig = {
+      discipline: "Electrical", category_id: "db_switchgear",
+      attribute_definitions: [{ id: "item", label: "Item", type: "choice", values: ["40A FP MCCB"] }],
+      pipelines: {
+        // TWO non-BCS pipelines -- the shape that made `sections.length >= 2` unusable as a signal.
+        db_boq_supply: {
+          output: ["supply_per_no"],
+          steps: [
+            { step: "match_master_row", params: { kind: "db_item" } },
+            { step: "scale", target: "supply_base", result: "supply_per_no", params: { markup: 0 }, formula: "base*(1+markup)" },
+          ],
+        },
+        db_boq_install: {
+          output: ["install_per_no"],
+          steps: [
+            { step: "match_master_row", params: { kind: "db_item" } },
+            { step: "scale", target: "install_base", result: "install_per_no", params: { markup: 0 }, formula: "base*(1+markup)" },
+          ],
+        },
+      },
+      pipeline_labels: { db_boq_supply: "DB — per No", db_boq_install: "DB install — per No" },
+    };
+    const GEN_ITEMS: RateMasterItem[] = [
+      { discipline: "Electrical", kind: "db_item", attributes: { item: "40A FP MCCB" }, rates: { supply_base: 500, install_base: 50 } },
+    ];
+    const helper = makePricingSheetHelper({
+      configsByCategory: new Map([["db_switchgear", GEN_CONFIG]]),
+      items: GEN_ITEMS,
+      extractionByRow: buildExtractionByRow([{ excel_row: 26, attributes: ext({ item: "40A FP MCCB" }) }]),
+    });
+    const r = helper.compute({ ...ctx(26, "40A FP MCCB"), category: "db_switchgear" });
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    // it DOES emit two sections -- and still no headlines, which is the whole point of the field.
+    expect(r.workings.sections).toHaveLength(2);
+    expect(r.headlines).toBeUndefined();
   });
 });
 
