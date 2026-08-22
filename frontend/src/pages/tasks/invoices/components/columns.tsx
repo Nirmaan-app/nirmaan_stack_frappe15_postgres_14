@@ -17,7 +17,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Check, X, Info, Sparkles } from 'lucide-react';
+import { Check, X, Info, RefreshCw, Sparkles } from 'lucide-react';
 import { formatToRoundedIndianRupee } from '@/utils/FormatPrice';
 import { formatDate } from 'date-fns';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
@@ -28,6 +28,7 @@ import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import {
     describeApprovalNarrative,
     summariseSkipReasons,
+    isCeilingReason,
 } from "@/pages/tasks/invoices/utils/autoApproveReasons";
 import { ReasonBreakdown, ReasonTitle } from "@/pages/tasks/invoices/components/ReasonBreakdown";
 import { humanizeEntityType, formatEntityValue, confColorClass } from "@/pages/tasks/invoices/utils/autofillEntityDisplay";
@@ -284,7 +285,10 @@ const InvoiceTotalCell: React.FC<{
  * do) through the shared `ReasonBreakdown`, so a reviewer can act on the row
  * without going back up to the reason key above the table.
  */
-const AutoApproveReasonCell: React.FC<{ invoice: VendorInvoice }> = ({ invoice }) => {
+const AutoApproveReasonCell: React.FC<{
+    invoice: VendorInvoice;
+    onRecheck?: (invoice: VendorInvoice) => void;
+}> = ({ invoice, onRecheck }) => {
     const summary = summariseSkipReasons(invoice);
     const narrative = describeApprovalNarrative(invoice, summary);
 
@@ -311,6 +315,14 @@ const AutoApproveReasonCell: React.FC<{ invoice: VendorInvoice }> = ({ invoice }
 
     const top = summary.flags[0];
     const extra = summary.flags.length - 1;
+    // The button is offered only to a real candidate — the same test the server
+    // applies (`recheck_auto_approve.is_candidate`): Pending, on a PO, and
+    // already blocked on a PO-value ceiling. A Work Order invoice never shows
+    // it, because those gates do not apply to Work Orders at all.
+    const canRecheck =
+        invoice.status === "Pending" &&
+        invoice.document_type === "Procurement Orders" &&
+        summary.flags.some((r) => isCeilingReason(r.token));
     const tone =
         summary.highestTier === "blocker"
             ? "text-red-700 bg-red-50 border-red-200"
@@ -377,8 +389,28 @@ const AutoApproveReasonCell: React.FC<{ invoice: VendorInvoice }> = ({ invoice }
                         )}
                     </div>
                 )}
-                <div className="border-t bg-gray-50 px-3 py-1.5 text-[10px] text-gray-500">
-                    Recorded when the invoice was created; not re-checked after edits.
+                {/* The gates do not re-run on their own, so this footer used to
+                    end the story with "not re-checked after edits". It is now the
+                    place to do something about it — but only when a re-check
+                    could actually change this row's answer. Offering the button
+                    on an invoice whose every flag is un-re-checkable (hand-typed,
+                    or a Work Order) would teach a reviewer that it does nothing. */}
+                <div className="flex items-center justify-between gap-2 border-t bg-gray-50 px-3 py-1.5">
+                    <span className="text-[10px] text-gray-500">
+                        {canRecheck
+                            ? "Recorded at creation. Re-check re-runs the PO-value check."
+                            : "Recorded at creation; Re-check does not cover this."}
+                    </span>
+                    {onRecheck && canRecheck && (
+                        <button
+                            type="button"
+                            onClick={() => onRecheck(invoice)}
+                            className="flex shrink-0 items-center gap-1 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] font-medium text-gray-700 hover:bg-gray-50"
+                        >
+                            <RefreshCw className="h-2.5 w-2.5" />
+                            Re-check
+                        </button>
+                    )}
                 </div>
             </HoverCardContent>
         </HoverCard>
@@ -399,7 +431,11 @@ const getCommonColumns = (
     // Same scope as `_existing_invoiced_sum` used by autofill validation.
     getTotalInvoiced?: (docName: string, docType: string) => number,
     // Resolves a user id to a display name, for the "Invoice Added By" column.
-    getUserName?: (id: string | undefined) => string
+    getUserName?: (id: string | undefined) => string,
+    // Re-run the gates on ONE invoice. Passed only by the pending table — the
+    // history table's rows are already Approved or Rejected, which a re-check
+    // skips, so the action would be dead there.
+    onRecheckInvoice?: (invoice: VendorInvoice) => void
 ): ColumnDef<VendorInvoice>[] => [
         {
             accessorKey: "document_name",
@@ -660,7 +696,12 @@ const getCommonColumns = (
                     title={<span className="whitespace-normal leading-tight inline-block">Not Auto-Approved<br />Reason</span>}
                 />
             ),
-            cell: ({ row }) => <AutoApproveReasonCell invoice={row.original} />,
+            cell: ({ row }) => (
+                <AutoApproveReasonCell
+                    invoice={row.original}
+                    onRecheck={onRecheckInvoice}
+                />
+            ),
             size: 220,
             enableSorting: false,
             meta: {
@@ -691,9 +732,10 @@ export const getPendingTaskColumns = (
     getDeliveredAmount?: (orderId: string, type: string) => number,
     getVendorName?: (orderId: string, type: string) => string,
     getTotalInvoiced?: (docName: string, docType: string) => number,
-    getUserName?: (id: string | undefined) => string
+    getUserName?: (id: string | undefined) => string,
+    onRecheckInvoice?: (invoice: VendorInvoice) => void
 ): ColumnDef<VendorInvoice>[] => [
-        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced, getUserName),
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced, getUserName, onRecheckInvoice),
         {
             id: "actions",
             header: () => <div className="">Actions</div>,

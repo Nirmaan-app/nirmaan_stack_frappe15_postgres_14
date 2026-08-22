@@ -41,6 +41,17 @@ export const VENDOR_INVOICES_DOCTYPE = "Vendor Invoices";
 export const API_APPROVE_VENDOR_INVOICE = "nirmaan_stack.api.invoices.approve_vendor_invoice.approve_vendor_invoice";
 
 /**
+ * API endpoints for re-running the auto-approve gates on Pending invoices.
+ *
+ * The gates run once, at creation, so their verdict is a snapshot — a PO that
+ * has since been delivered still carries `nothing_delivered_yet`. These re-run
+ * them against current data. Both take `dry_run` and return the same shape, so
+ * the preview and the apply are one code path.
+ */
+export const API_RECHECK_AUTO_APPROVE = "nirmaan_stack.api.invoices.recheck_auto_approve.recheck_auto_approve";
+export const API_RECHECK_PENDING_QUEUE = "nirmaan_stack.api.invoices.recheck_auto_approve.recheck_pending_queue";
+
+/**
  * @deprecated Use API_APPROVE_VENDOR_INVOICE instead
  */
 export const API_UPDATE_INVOICE_TASK_STATUS = "nirmaan_stack.api.tasks.update_task_status.update_invoice_task_status";

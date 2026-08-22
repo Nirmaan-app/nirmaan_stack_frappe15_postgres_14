@@ -147,4 +147,4 @@ nirmaan_stack.patches.v3_0.backfill_boq_source_file_links
 nirmaan_stack.patches.v3_0.backfill_progress_report_attachment_links
 nirmaan_stack.patches.v3_0.backfill_document_amount_invoiced
 nirmaan_stack.patches.v3_0.backfill_document_amount_due
-nirmaan_stack.patches.v3_0.snag_remark_rename_and_drop_comments
+nirmaan_stack.patches.v3_0.retire_po_number_gate
