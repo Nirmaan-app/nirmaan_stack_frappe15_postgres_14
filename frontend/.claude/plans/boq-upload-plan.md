@@ -33036,3 +33036,183 @@ naming the real cause - *"names 'Colour', which carries the plain default 'White
 **A widened drift-guard over `extraction_defaults` would NOT have caught this** (the two sets already
 agree on colour), and if it is ever added it must encode the one deliberate divergence:
 `switches_sockets` carries `back_box: "Yes"` and `popup_boxes` does not, per R7.
+
+
+---
+
+## TPN POLE VOCABULARY (v3) — TPN / TP+N / TP+NL / TP+2N / TP+2NL all mean FOUR POLE
+
+**Owner rulings 2026-08-22 (1-7).** TPN means four pole (three phases plus neutral), so a TPN MCB must
+match a four-pole catalogue row (4P / FP / Four Pole) — not the three-pole TP row it had been matching.
+TP+2N (ruling 2), TP+2NL (ruling 4), TP+NL (ruling 6) and TP+N (ruling 7) fold into the same set.
+Ruling 3 scoped it Option A: the correction applies to everything the instruction touches, not only MCB
+rows. Ruling 5 authorised shipping with the TPN db_switchgear non-compliance still open (below).
+
+### What changed — two halves, and they are NOT the same kind of thing
+
+**(1) `db_switchgear` — a corrected INSTRUCTION to a model.** The pole vocabulary lives in exactly one
+place, `prompts/boq_composite_decomposition_prompt.md` line 14, and it said the wrong thing. Old:
+
+```
+- POLE wording: "4 pole"/"FP" -> FP; "TPN"/"3 phase"/"TP" -> TP; "DP" -> DP; "SP"/"1 phase" -> SP.
+```
+
+New:
+
+```
+- POLE wording, MATCHED LONGEST TOKEN FIRST -- the order below is LOAD-BEARING, do not reorder it: "TP+2NL" contains "TP+2N", "TP+NL" contains "TP+N", and every one of them contains "TP", so testing a shorter token first would mis-read a longer one. In order: "TP+2NL" -> FP; "TP+2N" -> FP; "TP+NL" -> FP; "TP+N" -> FP; "TPN" -> FP; "Four Pole"/"4 pole"/"4P"/"FP" -> FP; "3 phase"/"3P"/"TP" -> TP; "DP" -> DP; "SP"/"1 phase" -> SP. TPN means four pole (three phases plus neutral), and so do TP+N, TP+NL, TP+2N and TP+2NL. This is the BREAKER's pole only -- a DB shell named SPN/TPN/VTPN is a board type, matched under SHELL above, and its catalog name is never rewritten.
+```
+
+⚠️ **THE TOKEN ORDER IS LOAD-BEARING AND THE HAZARD IS NOT OBVIOUS.** Two containment pairs exist —
+`TP+2N` is a prefix of `TP+2NL`, and `TP+N` is a prefix of `TP+NL` (that second pair arrived with
+ruling 7) — and **every** token contains `TP`. A reader scanning for the first match must meet the
+longest token first or the defect is rebuilt. `TP+N` is NOT contained in `TP+2N`/`TP+2NL`: the "2"
+breaks it. The line states its own ordering rule so a future editor cannot tidy it innocently, and
+`test_pole_tokens_are_ordered_longest_first` re-derives the containment from the tokens themselves
+rather than trusting a hand-written list. **The origin of the defect is recorded at plan line ~15829**
+(the EA-4d ruling "POLE mapping … TPN/3 phase->TP"), which ruling 1 reverses.
+
+⚠️ **The clarifier sentence about DB shells is DELIBERATE and must not be removed casually.** TPN also
+names a board type ("TPN DB 8WAY"); with TPN now mapping to FP, the model could otherwise hunt for an
+"FP DB" that does not exist and lose the shell. The cert confirms shells came back unrewritten.
+
+**(2) `industrial_sockets` — a DETERMINISTIC config TABLE.** A `map_attribute` step normalises the
+stated pole onto the catalogue's four values, in **both** `indsock_boq` and `indsock_install`:
+
+- table: `TP+2NL / TP+2N / TP+NL / TP+N / TPN / Four Pole / 4P / FP -> FP`; `TP -> TP`, `DP -> DP`, `SP -> SP`
+- **no `prefer_attr`**, so the table always runs; `on_miss: "skip"` so an unstated pole falls through
+  to the pin-count table exactly as before
+- its result feeds the existing pole step as that step's `prefer_attr`
+
+⚠️ **THE SHAPE IS FORCED, NOT CHOSEN.** `map_attribute`'s stated-wins branch copies `prefer_attr`
+VERBATIM and never consults its own table (`ratePipelineInterpreter.ts:932-946`), so the normalisation
+CANNOT live inside the existing step — it must run ahead of it and feed it. The lookup is an EXACT
+whole-value dict match, never a substring, which is why ordering is irrelevant *here* and load-bearing
+only in the prompt.
+
+`mcb_pole_stated`'s domain widened by the seven approved values (#57 item 4). `R12(3)` was reworded to
+demand the token VERBATIM instead of instructing a conversion — the table can only normalise what the
+model reports, which is the standing "model reads facts, code substitutes" rule applied.
+
+### ⚠️ OPEN FOLLOW-ON — the TPN non-compliance (ruling 5 defers it; do not close this)
+
+**The corrected instruction is reaching the model and the model is not following it for `TPN`.**
+Evidence, not speculation:
+
+- `TP+2NL` and `TP+2N` exist ONLY in the new line and both now resolve to FP on every cert row — so the
+  new prompt is provably in the model's context. `TP+NL` and `TP+N` likewise.
+- The three `TPN` db_switchgear rows (00198/77, 00198/88, 00200/77) did NOT move, across **three stable
+  observations** in v2 plus the v3 BEFORE/AFTER pair. This is stable non-compliance, not model variance.
+
+Two untested hypotheses, recorded so the follow-on slice does not start cold: (a) the DB-shell clarifier
+names TPN and only TPN, and TPN is the only token that fails — though 00200/77 has no DB context and
+still fails, which weakens it; (b) "TPN = Triple Pole and Neutral" is a strong folk expansion and the
+model may be resolving the expansion rather than the instruction, whereas TP+2N/TP+2NL/TP+NL/TP+N have
+no such expansion.
+
+**Row 00190/51 is a SEPARATE open question, not the same defect.** Its source text reads *"63 A, 415 V,
+**TPN** Industrial type socket outlet, with 4 pole and earth … 63 A "C" curve, **TPMCB**"*. The socket
+is TPN but the MCB is written "TPMCB", and under the new verbatim rule the model reads `TP` faithfully.
+Owner call owed: does a TPN socket override a TP-written MCB?
+
+⚠️ **WRITE "EVIDENCE", NEVER "PROVEN", FOR THE db_switchgear HALF.** A green cert row is evidence the
+sentence now reads correctly, not proof the model will always obey it — the same caveat cuts both ways,
+and the TPN rows are what that looks like when it cuts against you. **Only the industrial_sockets table
+is deterministic**, and that half is proven by the interpreter tests.
+
+### The row cert — 12 rows, single coherent baseline
+
+BEFORE was measured with the prompt reverted to the ORIGINAL pre-slice line, so all 12 share one
+baseline. Method: `extraction.run_extraction(only_rows=[...])` — real AI, **zero DB writes** (SR-1).
+`ai_status = "ran"` on all 8 sheets in both passes.
+
+| # | BoQ / sheet / row | token | BEFORE | AFTER | Δ list | verdict |
+|---|---|---|---|---|---:|---|
+| 1 | 00198 / ELEC / 77 | TPN | 40A TP MCB C 3623 | unchanged | 0 | expected hold (ruling 5) |
+| 2 | 00198 / ELEC / 88 | TPN | 40A TP MCB C 3623 | unchanged | 0 | expected hold |
+| 3 | 00200 / ELE - BOQ / 77 | TPN | 32A TP MCB C 2387 | unchanged | 0 | expected hold |
+| 4 | 00190 / Sheet1 / 51 | TPN | pole read `TP` | pole read `TP` | 0 | expected hold ("TPMCB") |
+| 5 | 00196 / ELECTRICAL / 171 | TP+2N | 63A TP MCB D 3132 | **63A FP MCB D 4010** | +878 | **MOVED** |
+| 6 | 00196 / ELECTRICAL / 206 | TP+2N | 63A TP MCB D 3132 | **63A FP MCB D 4010** | +878 | **MOVED** |
+| 7 | 00016 / ` Bill 15-Crkt Breakers` / 22 | TP+2NL | 40A TP MCB D 3132 | **40A FP MCB D 4010** | +878 | **MOVED** |
+| 8 | 00016 / ` Bill 15-Crkt Breakers` / 26 | TP+2NL | 63A TP MCB D 3132 | **63A FP MCB D 4010** | +878 | **MOVED** |
+| 9 | 00016 / ` Bill 15-Crkt Breakers` / 30 | TP+NL | 125A FP MCCB 19210 | unchanged | 0 | ⚠️ **PROVES NOTHING** |
+| 10 | 00016 / `Bill 17-Sw_Soc.` / 59 | TP+NL | 63A TP MCB C 3623 | **63A FP MCB C 4012** | +389 | **MOVED** |
+| 11 | 00126 / ELEC / 342 | TP+N | 32A TP MCB C 2387 | **32A FP MCB C 2820** | +433 | **MOVED** |
+| 12 | 00193 / Sheet1 / 141 | TP+N | 63A TP MCB D 3132 | **63A FP MCB D 4010** | +878 | **MOVED** |
+
+**+₹5,212 at list across the seven that moved.** Row rate = list × qty × 0.495 supply, × 0.20 again for
+install.
+
+⚠️ **Row 9 is reported as a non-proof on purpose.** At 125 A the catalogue has no MCB at any pole — the
+family is MCCB, which is **FP-only** — so it was already FP before the change. A green there says
+nothing about pole resolution. `00130` r343-346 and `00187` r286/r288 are the same MCCB shape and were
+excluded for the same reason. `00058/Electrical/r206` (a real 63A + 25A TP+NL MCB schedule) was excluded
+because it is a **qty-less Preamble**, hence not rate-editable and not in the extraction population.
+
+**FP targets were confirmed to EXIST at every cert amperage before the run**, so a refusal could never
+be mistaken for a fix.
+
+### Reach
+
+Measured over **55,514 current `BOQ Nodes`** (description + attached_notes, current sheets, all BoQs):
+**TPN 871 · 4P 1,181 · 4 pole 176 · TP+2N 117 · Four Pole 91 · TP+NL 11 · TP+2NL 2**, plus bare
+**TP 229** and **3P 34** which must NOT be swept up. The owner approved item 1 knowing the reach is
+~119+ four-pole-token mentions across 13+ BoQs, not the 12 cert rows.
+
+⚠️ **A `TP+<anything>` sweep finds exactly four spellings — TP+N, TP+NL, TP+2N, TP+2NL — and nothing
+else.** `TP+N` (14 occurrences) was found during v3 and reported rather than added; ruling 7 then
+approved it. **There is no eighth spelling in the corpus**, and a test pins the value list so one
+cannot be added without a ruling.
+
+### Asset
+
+`rate_master_electrical_all_v46.json`, sha256
+**`203bcfc57a331db3acf6dc73df8086e0831a0337a471cc66307715ab125d93a9`**, 728,103 bytes.
+`CURRENT_EALL_ASSET` bumped v45 → v46. Round-trip proven byte-identical BOTH ways: two consecutive
+exports identical, and reload(v46) → re-export identical to disk.
+
+⚠️ **v45 ON DISK IS NOT EXPORTER-ORDERED.** Its `switch_socket_item` block is out of `(kind, item_uid)`
+order, so v45 was not produced by a clean `export_asset_text`; v43, v44 and v46 all are. That is why the
+v45 → v46 diff is bigger than the config change — **item CONTENT is identical for all 1,367 uids (0
+differ), only order moved.** v46 restores the byte-identical round-trip property.
+
+### ⚠️ A defect the BROWSER cert caught that every test missed
+
+The v3 amendment first wrote the normalisation's explain to **`params.explain`** — a key
+`MapAttributeStep` does not declare and the Derivation screen never reads. The config validated, the
+table was correct, all pins stayed green, and the screen went on showing the OLD sentence. **Only
+opening the page found it.** Fixed to the step-level `explain`, the stray params key removed, and a new
+pin (`test_the_normalisation_explains_itself_on_the_step_not_in_its_params`) now guards both halves —
+the text names the full vocabulary, and no step may smuggle an undeclared `explain` into `params`, where
+it is inert but would round-trip into the asset forever.
+
+### Tests
+
+`TestTpnPoleVocabulary` **16 → 17** (the new explain guard; the other 16 were EXTENDED for TP+NL/TP+N
+rather than duplicated). Module `test_rate_master` **196**, OK. Interpreter vitest **343 → 350**; full
+vitest **2,872** with the one pre-existing `POAdjustment/writeOffControl.test.ts` timeout that is unrelated
+to this work (untouched file, fails identically in isolation).
+
+**Vacuity proved four ways, each restored immediately:** revert the prompt line → 7 red; strip the
+`mcb_pole_norm` step from both pipelines → 6 red; drop `POLE_NORM` from the interpreter chain → 4 red;
+move `explain` back into `params` → 1 red. Asset sha and prompt md5 verified byte-exact after each.
+
+### Browser cert (both halves)
+
+Ports verified clear, `bench serve --noreload` detached, backend ping 200 ×3, vite cache cleared,
+`yarn dev`, chain check 200 (cold-start 000 on the first call after the cache clear, then 6/6 green),
+de-stale (no service workers registered; tab closed entirely and reopened at bare root), session
+`admins@nirmaan.app` already authenticated — **no credentials were requested, guessed or entered**.
+
+⚠️ **This slice ships NO frontend bundle change** — the only frontend file touched is a test, which is
+never bundled — so the marker that matters is the DATA marker. Both halves confirmed: the app served
+from this dev server (`/@vite/client`, `/src/main.tsx`), and the API serving the widened vocabulary and
+both normalisation tables.
+
+- **#57 item 4 on screen:** the `MCB pole stated` dropdown reads exactly
+  `None, SP, DP, TP, FP, TPN, TP+2N, TP+2NL, 4P, Four Pole, TP+NL, TP+N` — the four originals plus the
+  seven approved, and nothing more.
+- **The pricer's panel is unaffected:** row 51's attribute panel shows Item / Enclosure / Rating /
+  Pole-Phase / Paired MCB only. All four `panel: false` attributes — MCB mentioned, MCB amperage stated,
+  MCB pole stated, MCB curve stated — are absent, confirming `panel: false` still holds.
