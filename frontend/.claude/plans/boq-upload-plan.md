@@ -33216,3 +33216,143 @@ both normalisation tables.
 - **The pricer's panel is unaffected:** row 51's attribute panel shows Item / Enclosure / Rating /
   Pole-Phase / Paired MCB only. All four `panel: false` attributes — MCB mentioned, MCB amperage stated,
   MCB pole stated, MCB curve stated — are absent, confirming `panel: false` still holds.
+
+---
+
+## Build slice WIRING-BOTH + WIRING-HEADLINES (2026-08-22) -- both blocks on every wiring row, and two stacked headlines
+
+**One slice, two prompts, ONE commit pair.** The first half made `computeWiring` symmetric; the second
+added the two collapsed-header headlines. They shipped together after a single browser cert.
+
+### The owner rulings, verbatim
+
+> (earlier, same arc) "we side step all this judgement and just show both the wirirng and cable rates and
+> the terminations rates for all rows."
+
+> **Ruling A** "ok lets leave use this value as iti is for nw. we will think on this later. we need to show
+> 2 values for the collpased pricing helper for wiring, vable and termonation category. one will be
+> supply/install/ suply + install (depening on the cell the heper is for)of wiring , and another will will
+> besupply/install/ suply + install (depening on the cell the heper is for)of termoination. which ever
+> cannopt be detrmoned will be left blank or hyphen whatebver it is being done today."
+
+> **Ruling B** "use this value simply piucks what it is detremining the row to be as it dopes not, wiring,
+> termination or combined"
+
+> **Ruling C (layout)** "stacked...double height"
+
+> **Ruling D (truncation, given during the cert)** "truncation is notr material. i noticed it during the
+> cert. the truncated text is not ,material. we can increase the height more and wrp it if we want to"
+
+### WHY THE TWO HEADLINES ARE NEVER SUMMED -- do NOT "simplify" this into one number
+
+The config declares `cable_boq` output as **`supply_per_mtr` / `install_per_mtr`** and `termination_boq`
+output as **`supply_per_set` / `install_per_set`**; the catalogue agrees (`kind: cable` items carry
+`unit: "Mtr"`, `kind: termination` items carry `unit: "Set"`). **Adding them would apply a per-SET rate
+across a metre quantity.** On BOQ-26-00201 row 194 the cell quantity is **2,900 METER**, so 180 + 70 = 250
+would be billed 2,900 times. There is deliberately NO code path that adds across blocks: each entry's
+`combined_rate` is computed WITHIN its own block (per-Mtr + per-Mtr, per-Set + per-Set), and a test asserts
+no published figure equals the cross-block total.
+
+### What changed
+
+1. **`computeWiring` is symmetric.** Both `cable_boq` and `termination_boq` run on EVERY wiring row. The
+   pre-slice paired-block construction was PARAMETERISED (primary/secondary) rather than duplicated.
+   `isTerminationRow` was **kept** -- it no longer decides what RUNS, only which block is PRIMARY (whose
+   finals become the appliable `values`, plus `basis` / top-level `derivation` / `matchedRows` / the
+   combined figure). Deleting it would leave `values` with no defined source.
+2. **The two groups stay DIFFERENT shapes on purpose.** The PRIMARY group carries derivation +
+   matchedRows + the combined figure; the SECONDARY carries its own rates alone. On a cable row the primary
+   IS cable, so owner Decision 2 (2026-07-28) renders byte-identically. Order is `[Cable, Termination]` on
+   every row.
+3. **`Suggestion.headlines?: {label, values}[]`** (ONE new optional field, `rateHelperTypes.ts`) -- set only
+   by `computeWiring`, absent everywhere else. The panel renders one stacked line per entry.
+   **`sections.length >= 2` was rejected as a signal: cabletray_raceway, db_switchgear, industrial_sockets
+   and point_wiring all emit two sections too** (measured across all 12 active configs), so inferring from
+   structure would have given them a second headline. Hardcoding `wiring_cabling` in the shared panel was
+   rejected by the owner on the N-ENGINE-GENERIC convention.
+4. **An undetermined headline shows the EXISTING em dash** (`RateHelperPanel.tsx`, the em-dash literal). No
+   new empty state was invented.
+
+### The two rewritten tests (the only pre-existing assertions changed)
+
+| was | now | why |
+|---|---|---|
+| "a TERMINATION row prices termination alone (no cable, no paired line)" | "a TERMINATION-texted row still APPLIES the termination rate, but now SHOWS the cable block too" | The ruling changed what is SHOWN, not what is APPLIED. The test now pins both halves. |
+| "a termination row is a SINGLE flat group -- no sections" | "a termination row now emits the SAME two labelled groups, Cable first" | That flat shape is exactly what the ruling reverses. |
+
+### Measured vitest counts (in-session, never quoted)
+
+| point | Test Files | Tests |
+|---|---|---|
+| before the first half | 1 failed / 76 passed (77) | 1 failed / **2871** passed (2872) |
+| after the first half (= before the headlines half) | 1 failed / 76 passed (77) | 1 failed / **2876** passed (2877) |
+| **after both halves** | 1 failed / 76 passed (77) | 1 failed / **2883** passed (2884) |
+
+**+12 tests, 0 new failures.** `pricingSheetHelper.test.ts` alone: 179 -> **191**.
+The single failure is **PRE-EXISTING and out of scope**: `src/pages/POAdjustment/writeOffControl.test.ts`
+> "mirrors the sibling admin predicates" times out at 5000 ms on a heavy dynamic import of
+`SheetPricingPage`. Present in the BEFORE run, reproduces in isolation, untouched.
+TypeScript: 3,226 pre-existing repo-wide errors, **zero in any of the four changed files**.
+
+**Vacuity proofs (both halves).** (a) Symmetry: replacing the `sections` assembly with `undefined` on the
+termination branch turned **6** tests red; restored, 184/184. (b) Headlines: removing `headlines` from the
+`computeWiring` return turned **6** of the 7 new tests red -- the 7th (the P4 guard, which asserts
+`headlines` is ABSENT for a non-wiring category) correctly stayed green. Restored; no probe residue.
+
+### The browser cert (bench :8000 + vite :8080, both marker halves confirmed)
+
+Marker half 1: vite served `headlineValuesFor` and `result.headlines` from the two changed modules.
+Marker half 2: the BROWSER executed them -- an in-page dynamic import of `pricingSheetHelper.ts` returned
+`headlines` with both labelled entries and `values` = the termination figure.
+
+| row | what is on screen | verdict |
+|---|---|---|
+| **A. BOQ-26-00201 / Electrical BOQ / 194, SUPPLY cell** | `Row 194 - Supply rate` -- `Cable - per Mtr` **180** / `Termination - per Set` **70**, stacked. Expanded: both blocks, termination showing `Matched termination rate row ... supply_per_set = 70, install_per_set = 20, combined_rate = supply + install = 90`. **Final value seeded 70**, "Use this value" enabled. | PASS. 180 and 70 SEPARATE; **no 250 in the card** (the only "250" on the page is an unrelated description, "GI Junction Box - 250 x 250mm"). |
+| **A. same row, INSTALL cell** | `Cable - per Mtr` **30** / `Termination - per Set` **20**. **Final value seeded 20**. | PASS. No 50 anywhere. |
+| **B. BOQ-26-00201 / Electrical BOQ / 198, SUPPLY** | `Cable - per Mtr` **180** / `Termination - per Set` **em dash** (U+2014, verified by code point). Expanded termination block reads `No termination rate row matches Material = COPPER, Insulation = UNARMOURED, Core = 1, Runs = 3, Thickness (sqmm) = 2.5.` **Final value field EMPTY.** | PASS -- the cross-contamination proof. The em-dashed block did NOT borrow 180. |
+| **C. genuine per-set termination rows** | BOQ-26-00196 / ELECTRICAL rows 79 and 82 (`End terminations`, Nos., qty 12 / 4) both show ONE em dash and `Complete the missing attributes to pri...`. | PASS, with a finding: these bare two-word rows state no cable attributes, so they hit the PRE-EXISTING whole-row `missing` gate BEFORE `computeWiring` runs -- no headlines are published and the header is the single-figure one, **exactly as before this slice**. A DETERMINING termination figure was certified instead on BOQ-26-00196 (`3.5 Core X 300 Sqmm`): `Cable - per Mtr` **1850** / `Termination - per Set` **3150**. |
+| **D. NON-wiring (BOQ-26-00201 db_switchgear row)** | ONE headline **23300**, `hasStackedBlock: false`, basis gets **187 px**, header **52 px**. | PASS -- the P4 guard. Every other category unchanged. |
+| **E. "Use this value"** | Seeds `values[kind]` -- the PRIMARY -- in every case: 70 on row 194 supply, 20 on row 194 install, EMPTY on row 198. Behaviour, count and written value all unchanged. | PASS per Ruling B. |
+
+**Header height: wiring 72 px vs non-wiring 52 px** -- taller on wiring rows only (#57 item 4).
+
+**Truncation, measured rather than assumed.** The stacked labels cost the `result.basis` line **112 px** of
+visible width (100 px with labels vs 212 px simulating the single-figure header). This tripped the prompt's
+STOP; **the owner cleared it during the cert (Ruling D)**, judging the truncated text immaterial and noting
+that height/wrapping can be revisited. Recorded as OPEN below.
+
+**Zero residual.** 0 `BoQ Cell Pricing` rows modified in the last 4 hours, 0 `BoQ Rate Suggestion Event`
+rows created, 0 new suggestion runs (75 total, unchanged). All four cert rows retain their 2026-08-19
+values. **No AI spend: `start_suggest` was never called, nothing re-extracted, nothing re-classified.**
+
+### The measured surface this fix reaches
+
+From `count_wiring_routing_surface_2026-08-22.md` (censused on the ladder the helper actually resolves,
+`persist.resolve_row_ladder` -> `effective_category_id`):
+
+- **4,902** current nodes resolve to `wiring_cabling` (114 BoQs, 164 sheets).
+- **739** of them (15.1%) match the shipped termination/gland/lug pattern, across **89** BoQs -- so this was
+  never a handful of templates.
+- **372** are priceable under the narrow definition (Line Item + non-zero qty); **573** under the app's own
+  owner-locked gate (Line Item always; Preamble if qty-bearing).
+- **336 of the 372 (90.3%) had NEVER been through the helper.** Only 36 carried banked results, of which 9
+  were the originally-found mis-routed rows and 27 were attribute-blocked.
+
+**The fix reaches all of them, not only the 10 originally found** -- because the change is to the dispatch
+itself, not to any row list.
+
+### OPEN items (carried, not fixed here)
+
+- **"Use this value" with two headlines is owner-parked.** On a termination-texted cable row the button
+  applies the SMALLER primary figure (70 on row 194) while the larger cable figure (180) sits visible
+  beside it. Ruling B ("use this value simply piucks what it is detremining the row to be") is satisfied by
+  the shipped determination; the owner said "we will think on this later".
+- **Header truncation.** The stacked header costs the basis line 112 px. Owner ruled it immaterial and
+  suggested "we can increase the height more and wrp it if we want to" -- NOT actioned here.
+- **The catalogue combination gaps are now VISIBLE as em-dashed blocks.** **97** (material, insulation,
+  core, thickness_sqmm) combinations exist in `termination` and NOT in `cable`; **93** exist in `cable` and
+  NOT in `termination`. Every one of those rows now renders an honest empty block where it previously
+  rendered nothing at all. Not fixed here -- it is a rate-master data question.
+- **`isTerminationRow` remains a text heuristic.** It no longer costs a rate, only which figure is offered
+  first. The near-form gap was measured and is tiny (6 rows, 0.12%, none priceable), so the boundary is
+  stable if it is ever narrowed.
