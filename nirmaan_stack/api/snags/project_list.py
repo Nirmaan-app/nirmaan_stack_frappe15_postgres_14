@@ -92,7 +92,14 @@ def get_projects_with_snag_stats():
     if not project_ids:
         return []
 
-    projects = frappe.get_all(
+    # get_list, NOT get_all -- and that difference is the whole point. `get_all` skips
+    # Frappe's User Permission filtering, so a Project Manager scoped to 15 projects was
+    # served all 217. `get_list` applies it, which is exactly how the design tracker list
+    # (`api/design_tracker/get_tracker_list.py`) scopes the same population. A user with no
+    # Projects User Permission is unaffected and still sees everything they could before.
+    # The two aggregations above stay `get_all` deliberately: they are GROUP BY counts, and
+    # nothing from them reaches the response except through the loop over THIS list.
+    projects = frappe.get_list(
         "Projects",
         filters={"name": ("in", list(project_ids))},
         fields=[
