@@ -4607,3 +4607,130 @@ describe("SLICE 5 -- the addition primitive (scale `_from_ctx`)", () => {
     expect(r.finals.total).toBe(100);
   });
 });
+
+
+// ---- TPN POLE VOCABULARY (owner rulings 1/2/4, 2026-08-22) ----
+//
+// TPN, TP+2N and TP+2NL all mean FOUR POLE. db_switchgear's half of the fix is a corrected
+// INSTRUCTION to a model and cannot be proven here; industrial_sockets' half is a CONFIG TABLE
+// walked by `map_attribute`, and THIS is where it is proven.
+//
+// THE SHAPE IS FORCED, not chosen: `map_attribute`'s stated-wins branch copies `prefer_attr`
+// VERBATIM and never consults its own table, so the normalisation cannot live inside the existing
+// pole step. It runs AHEAD of it, with NO prefer_attr of its own (so the table always runs), and
+// its result becomes the pole step's prefer_attr.
+const POLE_NORM = {
+  step: "map_attribute" as const,
+  params: {
+    result_attr: "mcb_pole_norm",
+    from_attr: "mcb_pole_stated",
+    table: {
+      "TP+2NL": "FP", "TP+2N": "FP", "TP+NL": "FP", "TP+N": "FP", TPN: "FP",
+      "Four Pole": "FP", "4P": "FP",
+      FP: "FP", TP: "TP", DP: "DP", SP: "SP",
+    },
+    on_miss: "skip",
+  },
+};
+const POLE_MAP_NORM = {
+  step: "map_attribute" as const,
+  params: { ...POLE_MAP.params, prefer_attr: "mcb_pole_norm" },
+};
+// TP rungs the base fixture deliberately lacks -- without them "TP stays TP" could pass by simply
+// finding nothing, which is the vacuous version of the negative.
+const TPN_ITEMS: RateMasterItem[] = [
+  ...CF_ITEMS,
+  mcbRow("25A TP MCB C CURVE", "MCB", "TP", 25, "C", 2387),
+  mcbRow("32A TP MCB C CURVE", "MCB", "TP", 32, "C", 2387),
+];
+const tpnPipe = (steps?: unknown[]): Pipeline =>
+  ({
+    output: ["supply"],
+    steps: steps ?? [
+      POLE_NORM, POLE_MAP_NORM, CURVE_MAP, catFit(), SOCKET_REF, MCB_REF,
+      { step: "sum_components", result: "supply" },
+    ],
+  } as unknown as Pipeline);
+/** The SKU the ladder binds for a row whose text states `stated` as the MCB's pole, at 25 A. */
+const skuForPole = (stated: string) =>
+  cfTrace(
+    runPipeline("indsock_boq", tpnPipe(), TPN_ITEMS, {
+      ...ROW98,
+      mcb_pole_stated: stated,
+      mcb_amp_a: 25,
+    })
+  )!.catalogFit!.fitted;
+
+describe("TPN pole vocabulary -- the DETERMINISTIC half (industrial_sockets)", () => {
+  it("POSITIVE: every four-pole spelling binds a FOUR-POLE MCB", () => {
+    // The owner's SEVEN approved spellings, all meaning three phases plus neutral.
+    // TP+NL joined at ruling 6 and TP+N at ruling 7 (both 2026-08-22).
+    for (const stated of ["TPN", "TP+N", "TP+NL", "TP+2N", "TP+2NL", "4P", "Four Pole"]) {
+      expect(skuForPole(stated)).toBe("25A FP MCB C CURVE");
+    }
+  });
+
+  it("NEGATIVE, THE ONE THAT MATTERS: a bare TP still binds a THREE-POLE MCB", () => {
+    // Every four-pole spelling except 4P / Four Pole begins with the characters "TP". A substring
+    // rule would drag a genuine three-pole row into FP and OVER-price it -- the same defect in the
+    // opposite direction. The lookup is an exact whole-value match, so TP maps to TP.
+    expect(skuForPole("TP")).toBe("25A TP MCB C CURVE");
+    expect(skuForPole("DP")).toBe("25A DP MCB C CURVE");
+  });
+
+  it("NEGATIVE: no containing token is truncated to the one it contains, or to TP", () => {
+    // "TP+2N" is a prefix of "TP+2NL"; "TP+N" is a prefix of "TP+NL" (that second pair arrived
+    // with ruling 7). Each needs its OWN key: dropped as "covered by the shorter one", a token
+    // falls through to whatever TP resolves to -- three-pole -- i.e. the original defect wearing
+    // a longer name. `map_attribute` does an exact whole-value lookup, so none can be truncated.
+    for (const [longer, shorter] of [["TP+2NL", "TP+2N"], ["TP+NL", "TP+N"]]) {
+      expect(longer.includes(shorter)).toBe(true); // the hazard is real, not assumed
+      expect(skuForPole(longer)).toBe("25A FP MCB C CURVE");
+      expect(skuForPole(shorter)).toBe("25A FP MCB C CURVE");
+      expect(skuForPole(longer)).not.toBe(skuForPole("TP"));
+    }
+  });
+
+  it("REGRESSION: with NO pole stated, the pin-count fallback is untouched", () => {
+    // `mcb_pole_stated` "None" is not a stated value, so the normalisation skips (on_miss: "skip")
+    // and leaves mcb_pole_norm unset -- which drops the pole step through to its OWN pin-count
+    // table exactly as before this slice. Row 98 is 5-pin, so it still fits FP and hops 20 -> 25.
+    const r = runPipeline("indsock_boq", tpnPipe(), TPN_ITEMS, ROW98);
+    expect(cfTrace(r)!.catalogFit!.fitted).toBe("25A FP MCB C CURVE");
+    const norm = r.steps.find((s) => s.step === "map_attribute")!;
+    expect(norm.matchedCondition).toContain("skipped");
+  });
+
+  it("REGRESSION: the pin-count table still converts a 3-pin socket to SP", () => {
+    const r = runPipeline("indsock_boq", tpnPipe(), TPN_ITEMS, {
+      ...ROW98, pole: "3 Pin / 2P+E", mcb_amp_a: 25,
+    });
+    expect(cfTrace(r)!.catalogFit!.fitted).toBe("25A SP MCB C CURVE");
+  });
+
+  it("VACUITY CONTROL: WITHOUT the normalising step a stated TPN prices NOTHING", () => {
+    // Proves the normalisation is doing the work rather than the assertions passing for some other
+    // reason. Drop the step and the raw token reaches the ladder as a pole no catalogue row has, so
+    // the ladder finds no rungs and refuses -- an honest no-compute, never a silent wrong pole.
+    const noNorm = tpnPipe([
+      POLE_MAP, CURVE_MAP, catFit(), SOCKET_REF, MCB_REF,
+      { step: "sum_components", result: "supply" },
+    ]);
+    const r = runPipeline("indsock_boq", noNorm, TPN_ITEMS, {
+      ...ROW98, mcb_pole_stated: "TPN", mcb_amp_a: 25,
+    });
+    expect(r.status).toBe("no_match");
+  });
+
+  it("the normalisation is reported on the trace, so the panel can say what it used", () => {
+    // Every mechanism that resolves a visible attribute owes the trace its answer -- the standing
+    // rule that a row must be able to explain the value it priced from.
+    const r = runPipeline("indsock_boq", tpnPipe(), TPN_ITEMS, {
+      ...ROW98, mcb_pole_stated: "TPN", mcb_amp_a: 25,
+    });
+    const norm = r.steps.find((s) => s.step === "map_attribute")!;
+    expect(norm.matchedCondition).toContain("TPN");
+    expect(norm.matchedCondition).toContain("FP");
+    expect(norm.mapAttribute).toMatchObject({ result_attr: "mcb_pole_norm", value: "FP", stated: false });
+  });
+});
