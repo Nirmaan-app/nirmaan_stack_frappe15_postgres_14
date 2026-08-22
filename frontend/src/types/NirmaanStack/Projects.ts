@@ -131,4 +131,10 @@ export interface Projects {
 	disabled_inventory?: 0 | 1;
 	disabled_inventory_date?: string | null;
 	disabled_pmo?: 0 | 1;
+	/**
+	 * Hides the project's card on `/snag-list` for everyone except Admin / PMO.
+	 * No `_date` twin — DPR and Inventory are dated because the status-change flow
+	 * disables them; this one is toggled by hand from the card.
+	 */
+	disabled_snag_list?: 0 | 1;
 }

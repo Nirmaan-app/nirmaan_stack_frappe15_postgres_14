@@ -86,6 +86,11 @@ import CommissionReportWizard from '@/pages/CommissionReport/report-wizard';
 //Design Tracker
 import DesignTrackerList from "@/pages/ProjectDesignTracker/design-tracker-list";
 import ProjectDesignTrackerDetail from "@/pages/ProjectDesignTracker/project-design-tracker-details";
+
+// Snag List — the cross-project grid + its per-project frame. The frame mounts the
+// SAME `SnagListTab` the Project page renders as a tab; there is no second table.
+import SnagListPage from "@/pages/SnagList/snag-list";
+import SnagListProjectDetail from "@/pages/SnagList/snag-list-details";
 import { WOServicePackages } from "../wo-service-packages";
 
 // PMO Dashboard
@@ -411,6 +416,24 @@ export const appRoutes: RouteObject[] = [
           },
           // ======================================================
           // --- END: NEW DESIGN TRACKER SECTION ---
+          // ======================================================
+
+          // ======================================================
+          // --- START: SNAG LIST SECTION ---
+          // ======================================================
+          {
+            path: "snag-list",
+            children: [
+              // 1. Cross-project grid (e.g. /snag-list)
+              { index: true, element: <SnagListPage /> },
+
+              // 2. One project's snag list (e.g. /snag-list/PROJ-0001).
+              //    `:id` is the PROJECTS id — a snag list has no document of its own.
+              { path: ":id", element: <SnagListProjectDetail /> },
+            ],
+          },
+          // ======================================================
+          // --- END: SNAG LIST SECTION ---
           // ======================================================
 
           // ======================================================

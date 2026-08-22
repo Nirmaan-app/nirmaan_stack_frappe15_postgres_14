@@ -144,6 +144,11 @@ doc_events = {
         ],
         "on_trash": "nirmaan_stack.integrations.controllers.user_permission.on_trash"
     },
+    "Project Snag": {
+        # Attribution for a status move. In a hook, NOT in the API, so a Desk / bulk-edit /
+        # Data Import write is stamped too -- see the controller's module docstring.
+        "before_save": "nirmaan_stack.integrations.controllers.project_snag.before_save",
+    },
     "Reminder Schedule": {
         # Re-date the current future Pending log when a schedule's due date changes, so an
         # edit doesn't leave a stale occurrence + a duplicate new one. UPDATE only, never deletes.
