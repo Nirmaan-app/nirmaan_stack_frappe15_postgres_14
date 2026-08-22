@@ -245,14 +245,6 @@ export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.E
     selectedSearchField,
   });
 
-  // --- The Batch filter (the Batch COLUMN is gone; the FILTER is not) ---
-  // Its host column is hidden, so DataTable's header loop never reaches it — the
-  // funnel is rendered here instead, in the toolbar, off the SAME `meta.facet`
-  // declaration. Reading the declaration through `getColumnFacet` keeps this on the
-  // self-fetching path rather than reviving the sunset `facetFilterOptions` one.
-  const batchColumn = table.getColumn(SNAG_BATCH_FILTER_COLUMN_ID);
-  const batchFacet = batchColumn ? getColumnFacet(batchColumn) : undefined;
-
   // --- Bulk selection ---
   // Row ids are ARRAY INDICES (the shared hook does not set `getRowId`), so a
   // selection cannot survive a page / filter / search change without silently
