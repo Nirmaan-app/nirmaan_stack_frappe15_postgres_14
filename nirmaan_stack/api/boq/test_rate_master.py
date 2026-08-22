@@ -196,7 +196,27 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # whose quantity is ABSENT ("blank is unknown, not zero"), so a golden predating `socket3`/`socket4`
 # bails before computing anything. The slots were added as positively absent, which is the state a
 # real extracted row is in. Values moving would have been a regression; inputs growing is the schema.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v46.json"
+# ✅ CONDUIT IN THE CABLE RATE (2026-08-23, v47). wiring_cabling gains THREE attributes
+# (conduit_included / conduit_type / size_mm) and a conduit component on `cable_boq` ONLY, plus
+# `synonyms.conduit_type = {GI: MS}` mirroring conduit_piping.
+# sha256 de4f6a2e1c551fc67f41510b3e4a0f82aa612d8f8dc4cfffc923a28860d78515.
+# ⚠️ EACH map_attribute's `prefer_attr` IS THE ATTRIBUTE ITSELF -- the cabletray_raceway
+# `thickness_mm` precedent, and the ONLY shape whose PANEL DISPLAY works. A first cut split each
+# fact into a `panel: false` raw attribute plus an `extract: false` resolved one; pricing was
+# correct but `applyDerivedDisplay`'s STATED branch publishes no display value and falls back to the
+# TARGET attribute's own extracted value -- which is empty when nothing extracts it, so all three
+# conduit fields rendered blank while pricing used real values. That breaks the attribute-panel
+# invariant. Caught in the browser cert, not by a test.
+# ⚠️ The slice note lives under `notes`, an ALLOWED pass-through key. A first cut invented a
+# `conduit_component` key and `_KNOWN_CONFIG_KEYS` (api/boq/rate_master.py:1303) rejected the whole
+# config -- the whitelist is closed, so a new top-level key is a code change, never a config one.
+# ⚠️ EVERY WIRING GOLDEN IS UNCHANGED, AND THAT IS THE REGRESSION PROOF, NOT A COINCIDENCE. None of
+# g1-g5 carries a conduit attribute, so `conduit_type` resolves to the "None" sentinel, `none_skips`
+# zeroes the component, and the two added `scale` steps add 0. The supply leg's new `roundup` to UNITS
+# is an identity on the tens-rounded integers cable_boq already produced. If a wiring golden ever moves,
+# the conduit component has leaked onto a row that names no conduit.
+# ⚠️ TERMINATION IS UNTOUCHED (owner ruling ii): `termination_boq` has a ZERO-LINE DIFF at v47.
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v47.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -6021,3 +6041,137 @@ class TestTpnPoleVocabulary(FrappeTestCase):
         self.assertIn("VERBATIM", g)
         self.assertIn("computed downstream", g)
         self.assertNotIn("'4P' meaning FP", g)  # the retired conversion instruction
+
+
+class TestConduitInTheCableRate(FrappeTestCase):
+    """v47 config-shape guards for the conduit component on `wiring_cabling`.
+
+    The vitest suite pins the ARITHMETIC against an inline catalog; this pins what actually
+    SHIPPED in the asset, which is the half a fixture cannot vouch for."""
+
+    def _configs(self):
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            return json.load(fh)["category_configs"]
+
+    def _config(self, category_id):
+        hit = [c for c in self._configs() if c["category_id"] == category_id]
+        self.assertEqual(len(hit), 1, "expected exactly one %s config" % category_id)
+        return hit[0]
+
+    def _maps(self, cfg):
+        steps = cfg["pipelines"]["cable_boq"]["steps"]
+        return {
+            s["params"]["result_attr"]: s["params"]
+            for s in steps
+            if s.get("step") == "map_attribute"
+        }
+
+    def test_the_three_conduit_attributes_are_extracted_AND_panel_visible(self):
+        """⚠️ prefer_attr MUST equal result_attr for a PANEL-VISIBLE attribute.
+
+        `applyDerivedDisplay`'s STATED branch publishes NO display value -- it deliberately falls
+        back to the attribute's OWN extracted value, so that a pricer's entry is shown rather than
+        the pipeline taking credit for it. That only works when the map's `prefer_attr` IS the
+        target. A first cut split each fact into a `panel: false` raw attribute plus an
+        `extract: false` resolved one; pricing was correct and all three fields rendered BLANK,
+        because nothing extracts the resolved id. This is the cabletray_raceway `thickness_mm`
+        shape, which is the shipped precedent for a panel-visible mapped attribute."""
+        cfg = self._config("wiring_cabling")
+        defs = {d["id"]: d for d in cfg["attribute_definitions"]}
+        maps = self._maps(cfg)
+        for a in ("conduit_included", "conduit_type", "size_mm"):
+            self.assertIn(a, defs)
+            # EXTRACTED: the model answers it (no `extract: false`)
+            self.assertNotEqual(defs[a].get("extract"), False, "%s must be extracted" % a)
+            # PANEL-VISIBLE: R9 -- the pricer is the authority over any value pricing used
+            self.assertNotEqual(defs[a].get("panel"), False, "%s must stay panel-visible" % a)
+            self.assertTrue(defs[a].get("allow_none"), "%s needs allow_none for the sentinel" % a)
+            # ...and the map prefers the attribute ITSELF
+            self.assertEqual(maps[a]["prefer_attr"], a,
+                             "%s: prefer_attr must be the attribute itself or the panel renders blank" % a)
+        # NEGATIVE: the superseded split shape must not come back
+        for gone in ("conduit_included_stated", "conduit_type_stated", "size_mm_stated"):
+            self.assertNotIn(gone, defs)
+
+    def test_size_mm_carries_a_default_and_that_default_is_load_bearing(self):
+        """⚠️ DO NOT REMOVE `size_mm`'s default to 'tidy' the config.
+
+        pricingSheetHelper.ts:520-533 narrows a `map_attribute` target OUT of the missing-gate
+        exemption when it has NO default and its source reads blank -- and `valueOfDef` reads the
+        RAW extraction, which is null on EVERY row for an attribute nothing extracts. Without this
+        default, `size_mm` is narrowed on every wiring row and roughly 5,000 of them render
+        "Complete the missing attributes to price" instead of their rate.
+
+        The default is the "None" SENTINEL, not 25: the 25 comes from the TABLE keyed on the
+        resolved material, which is what makes it fire ONLY when a material is known (ruling vi)."""
+        maps = self._maps(self._config("wiring_cabling"))
+        self.assertEqual(maps["size_mm"]["default"], "None")
+        self.assertEqual(maps["size_mm"]["table"], {"MS": 25, "PVC": 25})
+        self.assertEqual(maps["size_mm"]["from_attr"], "conduit_type")
+        self.assertEqual(maps["size_mm"]["prefer_attr"], "size_mm")
+
+    def test_no_material_is_ever_defaulted_and_absence_is_the_sentinel(self):
+        """Ruling (vii) 'dont use dfault for material type'. conduit_type's default is the
+        positive-absence sentinel -- which is ALSO the thing `none_skips` reads to zero the
+        component on a row that names no conduit. One value, two jobs."""
+        maps = self._maps(self._config("wiring_cabling"))
+        self.assertEqual(maps["conduit_type"]["default"], "None")
+        self.assertNotIn(maps["conduit_type"]["default"], ("PVC", "MS"))
+        # ruling (v): where the system cannot judge, default to NOT included
+        self.assertEqual(maps["conduit_included"]["default"], "No")
+
+    def test_the_two_zero_paths_are_both_present(self):
+        """A no-conduit row zeroes via `none_skips` (type = None); a not-included row zeroes via
+        `qty.if_attr`. Either alone leaves a case that would price when it must not."""
+        steps = self._config("wiring_cabling")["pipelines"]["cable_boq"]["steps"]
+        ref = [s for s in steps if s.get("step") == "component_ref" and s.get("name") == "conduit"]
+        self.assertEqual(len(ref), 1)
+        ref = ref[0]
+        self.assertIs(ref["none_skips"], True)
+        self.assertEqual(ref["qty"], {"if_attr": {"conduit_included": "Yes"}, "then": 1, "else": 0})
+        # ruling (iv): conduit prices through its OWN arithmetic -- list x 0.7, UNROUNDED
+        self.assertEqual(ref["rate_stages"], [{"mult": 0.7}])
+        self.assertEqual(ref["ref"]["kind"], "conduit")
+
+    def test_termination_boq_has_a_zero_line_diff(self):
+        """Ruling (ii): 'Termination is not impacted by this.' NEGATIVE, and the search space is
+        the whole pipeline -- no conduit token may appear anywhere in it."""
+        cfg = self._config("wiring_cabling")
+        term = json.dumps(cfg["pipelines"]["termination_boq"])
+        self.assertNotIn("conduit", term.lower())
+        # and the conduit steps live on cable_boq ONLY
+        self.assertIn("conduit", json.dumps(cfg["pipelines"]["cable_boq"]).lower())
+
+    def test_gi_maps_to_ms_through_the_shipped_synonym_mechanism(self):
+        """The same mechanism conduit_piping uses. It matters that this is a SYNONYM and not a
+        model instruction: the coercion applies it before the allowed-values check, so a stated GI
+        arrives as MS and is marked PLAIN, not '(computed)'."""
+        cfg = self._config("wiring_cabling")
+        self.assertEqual(cfg["synonyms"]["conduit_type"], {"GI": "MS"})
+
+    def test_the_extraction_rule_teaches_facts_and_never_the_substitution(self):
+        """Standing rule: the model READS FACTS; every substitution lives in code or config.
+        R11 must never mention the 25mm fallback -- that is the map table's job -- and must not
+        restate ancestor precedence, which the shipped _ROW_CONTEXT_SHAPE_GUIDANCE already gives."""
+        cfg = self._config("wiring_cabling")
+        r11 = [r for r in (cfg.get("rules") or []) if r.get("id") == "R11"]
+        self.assertEqual(len(r11), 1)
+        g = r11[0]["guidance"]
+        self.assertNotIn("25", g)                       # no substitution in the prompt
+        self.assertNotIn("nearest", g.lower())          # precedence is already shipped elsewhere
+        for token in ("Yes", "No", "Unclear"):
+            self.assertIn(token, g)
+
+    def test_every_wiring_golden_is_unchanged_and_that_is_the_regression_proof(self):
+        """None of g1-g5 names a conduit, so conduit_type resolves to the sentinel, the component
+        is zero, and both added `scale` steps add 0. If a wiring golden ever moves, the conduit
+        component has leaked onto a row that names no conduit."""
+        cfg = self._config("wiring_cabling")
+        by_id = {g["id"]: g for g in cfg["goldens"]}
+        self.assertEqual(by_id["g1"]["expect"]["cable_boq"], {"supply_per_mtr": 130, "install_per_mtr": 20})
+        self.assertEqual(by_id["g2"]["expect"]["cable_boq"], {"supply_per_mtr": 170, "install_per_mtr": 28})
+        self.assertEqual(by_id["g3"]["expect"]["cable_boq"], {"supply_per_mtr": 200, "install_per_mtr": 44})
+        self.assertEqual(by_id["g5"]["expect"]["cable_boq"], {"supply_per_mtr": 720, "install_per_mtr": 40})
+        # and no golden carries a conduit attribute -- which is WHY they are unchanged
+        for g in cfg["goldens"]:
+            self.assertFalse([k for k in g["attrs"] if "conduit" in k or k == "size_mm"])
