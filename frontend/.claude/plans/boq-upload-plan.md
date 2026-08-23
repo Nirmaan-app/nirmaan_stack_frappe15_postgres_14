@@ -33932,3 +33932,137 @@ It pins rule lists, attribute definitions and pipeline step order. **It belongs 
 scope of any slice that changes those** -- and it was in the scope of none of the wiring, conduit or
 F-1/F-8 slices, which is why three of these pins drifted unnoticed. `test_e4` in particular sat red
 from **v25**, across many slices and weeks, because nothing that ran routinely looked at it.
+
+
+---
+
+## Slice FIVE FAILURES -- PHASE B: deleting the orphaned `TEST_RM_*` residue (2026-08-23)
+
+**A PURE DATA OPERATION on the DEV site (`localhost`). NO source file changed.** Production is a
+separate site and holds none of this; nothing here reaches what Abhishek carries.
+
+**Result: 139,016 orphaned rows deleted, 139 fake disciplines gone, residue ZERO, and the real
+catalogue provably untouched.** `test_27` went green as a consequence, taking `test_rate_suggest` to
+**65 tests / 0 failures**.
+
+### Why the rows existed (not what we first thought)
+
+They are NOT evidence of a missing teardown. `test_rate_master.tearDownClass` already purges every
+synthetic discipline and was measured net-zero. They are stranded state from **`kill -9`**, which
+skips `tearDownClass` entirely -- three concurrent suites were killed on 2026-08-23. **The
+preventive is "never kill a suite mid-run", not more teardown code.** No teardown was written and
+neither suite's lifecycle was touched.
+
+### B0 -- the wildcard, and why it is not a footnote
+
+In SQL `LIKE`, `_` is a **single-character wildcard**, so an unescaped `LIKE 'TEST_RM_%'` also
+matches `TESTXRMY...`. The escaped form used throughout:
+
+```sql
+discipline LIKE 'TEST\_RM\_%' ESCAPE '\'
+```
+
+Both forms were run and compared before anything was deleted -- **identical counts on all four
+doctypes** (137648 / 966 / 358 / 22), so nothing unintended was in range.
+
+⚠️ **A NEAR-MISS WORTH RECORDING.** An intermediate query wrote the pattern as `'TEST\_RM\_%%'`
+with **no bound parameters**. psycopg2 only collapses `%%` to `%` when parameters are passed; with
+none, SQL saw a literal `%%` and **the filter matched NOTHING** -- reporting 0 disciplines and 0
+`Version` rows, which would have made the reference check look falsely clean. It was caught because
+the companion "not matched" query then listed `Electrical` **and** all 139 fake disciplines, which
+is obviously wrong. **This is why B1 ends with an explicit filter-correctness proof rather than an
+assumption**, and why the delete ran only after that proof passed:
+
+```
+distinct disciplines in these 4 tables : 140
+SQL escaped-filter matches             : 139
+Python regex TEST_RM_<8hex> matches    : 139
+SQL set == Python set                  : True
+disciplines NOT matched (the real ones): ['Electrical']
+```
+
+**A filter that silently matches nothing looks exactly like a clean database.** Prove the filter,
+then trust it.
+
+### B1 -- the dry run (counted before anything was deleted)
+
+```
+BoQ Rate Master Item                 137648
+BoQ Rate Category Config                966
+BoQ Rate Master Retirement              358
+BoQ Rate Master Snapshot                 22
+Version -> BoQ Rate Master Item           6
+Version -> BoQ Rate Category Config      16
+Version -> BoQ Rate Master Retirement     0
+Version -> BoQ Rate Master Snapshot       0
+TOTAL rows in scope                  139016
+```
+
+Real catalogue BEFORE: **1,367** active Electrical items, **12** active Electrical configs, 24,652
+Electrical item rows in total.
+
+### B2 -- the reference check, done BEFORE deleting
+
+**Search space:** every `DocField` in **every installed DocType on this site** with fieldtype
+`Link` / `Table` / `Table MultiSelect` / `Dynamic Link` -- the framework's own complete record of
+what can point at a doctype -- plus all `Custom Field` rows of those types, plus an explicit read of
+`BoQ Rate Suggestion Run` / `Event`.
+
+```
+NO Link/Table field anywhere points at any of the four target doctypes.
+Custom Fields pointing at them: NONE
+BoQ Rate Suggestion Run    link/table fields: ['boq']
+BoQ Rate Suggestion Event  link/table fields: ['boq']
+```
+
+The only referencing rows are `Version` rows -- exactly the set the teardown already handles
+explicitly. **The teardown's doctype list is complete, verified rather than assumed.**
+
+### B4 -- the delete
+
+**Batch size: ONE DISCIPLINE per transaction, committing between -- 139 batches.** Chosen so no
+single statement touches 137,648 rows and locks the table. Order mirrors the teardown's own:
+**snapshots -> `Version` rows -> items -> configs -> retirements.** Every statement scoped by the
+escaped discipline filter; **no unscoped delete anywhere**; nothing outside the four doctypes and
+their `Version` rows. Each discipline name was re-verified against `TEST_RM_[0-9a-f]{8}` immediately
+before use, with an assert that `Electrical` was not among them.
+
+⚠️ **Reporting artefact:** the script totalled rows from `frappe.db.delete()`'s return value, which
+is `None`, so it printed `0 deleted` per doctype. That figure is meaningless. **The real proof is
+the before/after comparison below**, not the delete's own accounting.
+
+### B5 -- verification, which is the actual proof
+
+```
+RESIDUE AFTER                      expected 0
+  BoQ Rate Master Item                      0
+  BoQ Rate Category Config                  0
+  BoQ Rate Master Retirement                0
+  BoQ Rate Master Snapshot                  0
+  Version -> all four                       0
+  TOTAL residue remaining                   0
+  distinct TEST_RM_ disciplines remaining   0
+
+THE REAL CATALOGUE -- the only outcome that matters
+  active Electrical items   : 1367    (before 1367)   UNCHANGED
+  active Electrical configs : 12      (before 12)     UNCHANGED
+  ALL Electrical items      : 24652   (before 24652)  UNCHANGED
+  disciplines now in the item table: ['Electrical']
+```
+
+**Suites after the cleanup, run strictly sequentially:**
+
+- `test_rate_suggest` -- **65 tests, OK, ZERO failures.** `test_27` green as a consequence.
+- `test_rate_master` -- **205 tests, OK** (497.1 s), **and residue STILL ZERO afterwards**, with the
+  catalogue still 1367 / 12 / 24652.
+
+⚠️ **That last line is the load-bearing one.** Running the full fixture suite against a now-clean
+database and finding zero residue afterwards is the direct proof that **the teardown works** and
+that the original diagnosis was right: the stranded rows were never a lifecycle defect, only the
+debris of killed runs.
+
+### What was NOT done
+
+No teardown written. Neither suite's lifecycle touched. `scripts/residence_check.py` untouched. No
+production code, config, asset, doctype or pipeline changed. No source file changed at all in Phase
+B -- it is data only.
