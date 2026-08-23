@@ -33789,3 +33789,146 @@ via `industrial_sockets`.
 Incidental, not acted on: `device` and `curve` are carried by real items and declared by NO config, so
 the RM-4a in-app item editor cannot set them (CSV and asset-mint round trips are unaffected). The
 `csv_importer` docstring still says "the three undeclared keys"; there are now five.
+
+
+---
+
+## Slice FIVE FAILURES -- PHASE A: four stale pins in `test_rate_suggest` (2026-08-23)
+
+**Branch** `feature/boq-pricing-helper` - **tip at start** `cda48c74`. **Tests only.** No production
+code, no config, no asset, no doctype, no pipeline, no interpreter. One file:
+`nirmaan_stack/api/boq/test_rate_suggest.py`.
+
+**Before:** 65 tests, 5 failures. **After Phase A:** 65 tests, **1 failure -- `test_27` alone**,
+which Phase B clears by deleting orphaned fixture data.
+
+### ⚠️ THE RETRACTION -- an earlier claim of ours was WRONG
+
+We reported that **a live config would be rejected by its own save path**. **That is false.** All 12
+active Electrical configs validate cleanly against `_KNOWN_CONFIG_KEYS`. The only unknown key
+anywhere in the database is `a_key_nothing_knows_about`, and it lives exclusively on `TEST_RM_*`
+fixture configs written at runtime by `test_rate_master.py:1750` -- a deliberate negative fixture
+proving the exporter emits config blobs verbatim. `test_27` sweeps **every** active config with no
+discipline filter, so it picks those up. It is **cross-suite fixture residue**, not config drift.
+
+### ⚠️ THE CAUSE, PLAINLY: the teardown was NEVER missing
+
+`test_rate_master.tearDownClass` (line 258) already purges every synthetic discipline -- snapshots,
+Version rows, items, configs, retirements. **Measured net-zero:** a full clean run
+(205 tests, OK, 498.9 s) left residue byte-identical either side (items 137648 -> 137648, configs
+966 -> 966).
+
+The 966 stranded configs came from **`kill -9`**, which skips `tearDownClass` entirely. Three
+concurrent suites were killed on 2026-08-23 and stranded everything they had created; every
+timestamp fits (all `TEST_RM_*` configs date from that day, none before).
+
+**THE PREVENTIVE IS "NEVER KILL A SUITE MID-RUN", NOT MORE TEARDOWN CODE.** No teardown was written
+in this slice, and neither suite's lifecycle was touched.
+
+### ⚠️ METHOD LESSONS x2
+
+**(a) A "pre-existing" proof by reverting SOURCE FILES is sound about CODE but blind to DB STATE.**
+Reverting the TPN files and re-running reproduced the same five failures, which correctly proved the
+TPN slice did not cause them -- but it could not detect that our own earlier test runs had put the
+offending rows in the database. **Both axes must be checked.**
+
+**(b) A FAILING ASSERTION MASKS EVERY LATER ASSERTION IN THE SAME TEST.** `test_e4` carried **two**
+stale pins. The label assertion failed first and aborted the test, so the second
+(`assertIn("wire 2 is None", ...)`) never executed and never appeared in any failure output. Our own
+recon, reading only the failure text, reported e4's fix as "1 line". **A red test can hide a second
+red thing inside itself, and no amount of reading the output will reveal it** -- only running with
+the first pin fixed does.
+
+### The four pins
+
+**(1) `test_e4` -- BOTH pins.** R9's label was rewritten at asset **v25**, commit `37339a10`
+("compute circuit length from the point count"), which replaced the rule wholesale to cover the
+point count.
+- label pin updated to the live string `'Wire runs, cores, and the number of points in point wiring'`.
+- `assertIn("wire 2 is None", ...)` **DELETED**. That clause no longer exists in R9's guidance; the
+  live text says "wire 2 with 1 run" and "before deciding there is only one wire" instead. **No
+  replacement phrase was invented** -- a pin made up to fill the gap would assert wording no ruling
+  ever chose, which is worse than not pinning it. The four surviving phrase pins still carry the
+  rule's load-bearing claims. R9's live text was verified sound before either pin moved: it is
+  coherent, matches its own label, and closes with the owner-locked points rule.
+
+**(2) `test_e5`.** `wiring_cabling.rules` gained **R11** at v47, commit `db6ac9ba` (the
+conduit-in-the-cable-rate slice). The list stays **EXACT** (`["R10", "R11"]`) rather than loosening
+to "contains R10", and **R11's identity is now pinned too** (`label`, `applies_to`), so a rule
+silently dropped OR renamed still fails. Every other e5 pin was checked against live and still
+holds.
+
+**(3) `test_e6`.** The assertion `i > max(rounds)` claimed the runs scale sits after **every**
+roundup on its target. The conduit ruling (2026-08-22) deliberately adds a **later** roundup on
+`cable_boq/supply_per_mtr` -- conduit lands after the runs scale, then the TOTAL rounds to units.
+Four of the five attachment points still passed; only that one failed. What the invariant actually
+claims is that runs multiplies an **already-rounded** rate, so it is now
+`any(j < i for j in rounds)` -- a roundup exists BEFORE the scale. **The pipeline was not touched
+and does not need to be: it matches the owner's ruling clause for clause, and no live row prices
+wrongly.**
+
+**(4) `test_04`.** `thickness_sqmm` became a catalogue-fed `number_choice` at `ccb52a4d`
+(F-1/F-8, owner ruling R6), so the fixture's `99` -- not a stocked thickness -- was refused at
+coercion and stored as `None` (intended; pinned by `test_107`). **Expecting `None` would have made
+the test VACUOUS**: a nulled value can never disagree with anything, so the corroborator, the only
+thing this test exists to exercise, would never be reached. The fixture now feeds **16.0**, which is
+in the live catalogue (`[0.5, 0.75, 1.0, 1.5, 2.5, 4.0, 6.0, 10.0, 16.0, ...]`, measured over all
+292 active `Electrical`/`cable` rows), so it survives coercion **and** still disagrees with the
+`2.5` the regex reads from `"3C x 2.5 sqmm"`. The disagreement assertion is kept.
+
+### Vacuity proofs -- all five held
+
+Each: break the thing the assertion protects, confirm THAT test goes RED, restore byte-identical.
+
+| proof | what was broken | result |
+|---|---|---|
+| A1 label | assert a wrong label | `test_e4` **RED** |
+| A2 list | expect the old `["R10"]`, i.e. R11 silently dropped | `test_e5` **RED** |
+| A2b identity | assert a wrong R11 label | `test_e5` **RED** |
+| A3 position | drop every roundup preceding the runs scale | `test_e6` **RED** |
+| A4 disagreement | feed `2.5`, which AGREES with the row text | `test_04` **RED** |
+
+Baseline before and after the whole sweep: 65 tests, one failure (`test_27`). Every restore was
+asserted byte-identical in the harness before it reported.
+
+⚠️ **The DELETED assertion (e4's `"wire 2 is None"`) cannot be vacuity-proven** -- there is nothing
+left to break. Stated rather than skipped. The surviving label pin on the same test was proven
+instead.
+
+### ⚠️ THE LATENT HAZARD -- real, and left UNFIXED
+
+The exporter emits config blobs **VERBATIM** (*"Never enumerate config keys, never rebuild a config
+from known fields, never filter"*), the loader does **NOT** validate, and `_validate_config` has
+exactly **one** production caller (`update_rate_config`, `rate_master.py:1947`) which the Rate Master
+Pipelines screen does reach. So a stray top-level key would **export cleanly, import silently, reach
+production, and fail only at the first editor save** -- making that category unsavable, with nothing
+upstream to catch it. No real config carries one today. This is recorded, not fixed.
+
+### The standing config-key sweep -- UNHOUSED, deliberately
+
+**NOT wired into `scripts/residence_check.py`.** That script declares *"Stdlib only; run from
+anywhere"* and is a **baseline ratchet** that fails only when a violation count INCREASES. The sweep
+needs `frappe.connect` and is a **binary presence check**; baselining a count of stray keys would
+mean tolerating the existing ones, which is the opposite of the point. Merging them degrades both
+instruments. Run it standalone instead:
+
+```python
+# bench --site localhost execute, or the ad-hoc docker pattern in CLAUDE.md
+from nirmaan_stack.api.boq.rate_master import _KNOWN_CONFIG_KEYS
+import frappe, json
+for r in frappe.get_all("BoQ Rate Category Config", filters={"active": 1},
+                        fields=["discipline", "category_id", "config"]):
+    cfg = r.config if isinstance(r.config, dict) else json.loads(r.config or "{}")
+    unknown = sorted(set(cfg) - _KNOWN_CONFIG_KEYS)
+    if unknown:
+        print(r.discipline, r.category_id, unknown)
+```
+
+~1 second, no test database. Belongs in the slice checklist, not the pre-commit gate.
+
+### ⚠️ `test_rate_suggest` OWNS THE CONFIG SHAPE
+
+It pins rule lists, attribute definitions and pipeline step order. **It belongs in the declared
+scope of any slice that changes those** -- and it was in the scope of none of the wiring, conduit or
+F-1/F-8 slices, which is why three of these pins drifted unnoticed. `test_e4` in particular sat red
+from **v25**, across many slices and weeks, because nothing that ran routinely looked at it.
