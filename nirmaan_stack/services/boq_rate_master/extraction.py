@@ -443,6 +443,55 @@ def values_from_catalog(discipline, spec):
     return out
 
 
+def attributes_by_item(discipline, spec):
+    """{item_name: attributes} for the `kind` rows matching `where` -- the `values_from_catalog`
+    read, keeping the WHOLE attribute bag instead of one attribute's distinct values.
+
+    Added for the TPN post-match pole correction, which needs a pick's `device` / `pole` /
+    `amp_a` / `curve` in order to find its four-pole sibling. Same live-read shape, same honest
+    empty on a malformed spec. A duplicate item name keeps the FIRST row, which matches
+    `component_ref`'s own requirement that a ref resolve UNIQUELY -- a name that is not unique is
+    not a usable key, and the correction's own sibling test refuses a non-unique answer anyway."""
+    if not discipline or not isinstance(spec, dict):
+        return {}
+    kind = spec.get("kind")
+    if not kind:
+        return {}
+    where = spec.get("where") or {}
+    rows = frappe.get_all(
+        _MASTER_ITEM,
+        filters={"discipline": discipline, "kind": kind, "active": 1},
+        fields=["attributes"],
+    )
+    out = {}
+    for r in rows:
+        a = r["attributes"] if isinstance(r["attributes"], dict) else json.loads(r["attributes"] or "{}")
+        if not all(a.get(k) == v for k, v in where.items()):
+            continue
+        name = a.get("item")
+        if isinstance(name, str):
+            name = name.strip()
+        if name and name not in out:
+            out[name] = a
+    return out
+
+
+def breaker_catalog_for(cfg, discipline):
+    """The composite's REPEATABLE slot catalogue, with full attributes -- the rows the TPN pole
+    correction may re-select within.
+
+    Read from `cfg.composite_slots.repeatable.values_from`, never hardcoded, so no category id or
+    catalog kind appears in this module's correction path. A config with no repeatable slot group
+    yields {}, and the correction is then inert by construction."""
+    cs = (cfg or {}).get("composite_slots")
+    if not isinstance(cs, dict):
+        return {}
+    rep = cs.get("repeatable")
+    if not isinstance(rep, dict):
+        return {}
+    return attributes_by_item(discipline, rep.get("values_from") or {})
+
+
 def build_attribute_defs(cfg, catalog=None, discipline=None):
     """The attribute definitions injected into the AI prompt for one config. Selectable defs only
     (exclude selector:false, e.g. brand). When the config is item-identity, the identity attribute
@@ -933,7 +982,203 @@ def scrub_unpaired_slot_defaults(row_out, defaults):
     return scrubbed
 
 
-def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, *, capture_ctx=None):
+# -- TPN post-match pole correction (slice: TPN POST-MATCH) -----------------------------
+#
+# THE DEFECT. The decomposition prompt's POLE line tells the model that TPN (and TP+N / TP+NL /
+# TP+2N / TP+2NL) means FOUR pole. It is obeyed for the four compound tokens and NOT for the bare
+# token "TPN", which the model resolves as the WORDS "Triple Pole and Neutral" -> three pole.
+# Measured stable across five observations, and rewording was judged futile.
+#
+# THE PROMPT SENTENCE IS GUIDANCE; THIS IS THE ENFORCEMENT -- the same doctrine, and the same
+# shape, as `scrub_unpaired_slot_defaults` directly above. A second instruction to the same model
+# would be another thing to hope for.
+#
+# THE GUARD IS THE PICK, NOT A PARSE OF THE TEXT'S INTENT. The correction fires only when the
+# model's chosen catalog row is itself a THREE-POLE MCB. That is what bounds it: measured on the
+# live catalog, `MCB` is the ONLY device carrying both a TP row and an FP row (MCCB is FP-only;
+# RCCB and RCBO are DP/FP only; DB shells and Enclosure Boxes carry no `device` at all), so this
+# function is STRUCTURALLY unable to alter anything but the 8 TP-MCB rows. It can never touch a
+# shell, an enclosure, or a residual-current device, whatever the row text says.
+#
+# SCOPE (owner ruling, 2026-08-23): POLE ON MCBs ONLY. A larger unchecked class exists and is
+# measured -- `component_ref` constrains a slot on kind + item name + family alone, so `device`,
+# `amp_a` and `curve` are stored on every catalog row and checked by nothing. The owner ruled
+# "later if the team starts noticing higher error rates we will make th elarger fix". Do NOT
+# generalise this mechanism to those attributes.
+
+# The adjacency window, in INTERVENING WORDS, between a four-pole token and the device word.
+# DERIVED FROM THE REAL CORPUS, not chosen a priori: the three genuinely mis-routed rows sit at
+# gaps 0, 0 and 2; the nearest constructible false positive ("12 Way TPN DB ... with 32A TP MCB
+# outgoings") sits at 6. Every value in 2..5 separates them; 3 is the midpoint, leaving one word
+# of headroom above the widest real hit and three below the nearest miss.
+_FOUR_POLE_ADJACENCY_WORDS = 3
+
+# A word that turns an "MCB" mention into a BOARD NAME rather than a breaker: "TPN MCB DB" is a
+# kind of distribution board, and its TPN is the BOARD's phase type, never a breaker's pole. Such
+# an MCB is not a device anchor. Without this, a board named that way sits at gap 0 and NO window
+# can separate it. Failing this test means NOT firing, which is the safe direction.
+_BOARD_WORDS_AFTER_DEVICE = frozenset({"DB", "DBS", "DB'S", "MCBDB", "BOARD", "BOARDS", "DISTRIBUTION"})
+
+_WORD_RE = re.compile(r"[A-Za-z0-9+']+")
+
+
+def four_pole_tokens():
+    """The four-pole vocabulary, READ from the shipped POLE line of the decomposition prompt --
+    never duplicated here.
+
+    READING IT IS THE POINT. The prompt tells the MODEL which spellings mean four pole; this
+    function corrects the model when it disobeys. If the two lists could drift, a token added to
+    the prompt would be silently uncorrected here -- precisely the failure this slice exists to
+    fix, reintroduced one level down. The prompt line is the single source of truth and is NOT
+    edited by this slice.
+
+    Returns the tokens that map to FP, in the prompt's own longest-token-first order.
+    """
+    line = next(
+        (ln for ln in _read_prompt(_DECOMPOSITION_PROMPT_PATH).splitlines()
+         if ln.lstrip().startswith("- POLE")),
+        None,
+    )
+    if not line or "In order:" not in line:
+        return []
+    out, seen = [], set()
+    for clause in line.split("In order:", 1)[1].split(";"):
+        if "-> FP" not in clause:
+            continue
+        for tok in re.findall(r'"([^"]+)"', clause.split("->")[0]):
+            if tok not in seen:
+                seen.add(tok)
+                out.append(tok)
+    return out
+
+
+def _four_pole_re(tokens):
+    """One alternation over the vocabulary. Whitespace in a token is elastic ("Four Pole" also
+    matches "Four  Pole") and "+" tolerates spaces around it ("TP+N" also matches "TP + N"),
+    because BoQ text spaces these inconsistently. The prompt's longest-token-first order is
+    preserved, so "TP+2NL" can never be truncated to "TP+2N"."""
+    if not tokens:
+        return None
+    parts = []
+    for t in tokens:
+        body = re.escape(t).replace(r"\+", r"\s*\+\s*").replace(r"\ ", r"\s+")
+        parts.append("(?:%s)" % body)
+    return re.compile("|".join(parts), re.I)
+
+
+def _four_pole_near_device(fragment, four_pole_re, device, window):
+    """True when `fragment` carries a four-pole token within `window` INTERVENING WORDS of a
+    standalone `device` word that is not part of a board name.
+
+    Tested PER FRAGMENT and never across a join: a row's description and each of its note lines
+    are separate texts, and concatenating them would manufacture an adjacency the sheet never
+    wrote (a description ending "...12 Way TPN DB" beside a note beginning "MCB 32A TP..." would
+    read as "TPN DB MCB", gap 1)."""
+    if four_pole_re is None or not fragment:
+        return False
+    words = [(m.group(0), m.start(), m.end()) for m in _WORD_RE.finditer(fragment)]
+    anchors = []
+    for i, (w, _s, _e) in enumerate(words):
+        if w.upper() != device:
+            continue
+        nxt = words[i + 1][0].upper() if i + 1 < len(words) else ""
+        if nxt in _BOARD_WORDS_AFTER_DEVICE:
+            continue  # "MCB DB" names a board, not a breaker
+        anchors.append(i)
+    if not anchors:
+        return False
+    for m in four_pole_re.finditer(fragment):
+        span = [i for i, (_w, ws, we) in enumerate(words) if ws < m.end() and we > m.start()]
+        if not span:
+            continue
+        lo, hi = min(span), max(span)
+        for d in anchors:
+            if lo <= d <= hi:
+                continue  # the device word lies inside the token itself
+            gap = (d - hi - 1) if d > hi else (lo - d - 1)
+            if gap <= window:
+                return True
+    return False
+
+
+def row_own_text_fragments(row):
+    """The row's OWN text, as SEPARATE fragments: its description, then each note line (own,
+    attached, appended).
+
+    THE ANCESTOR CHAIN IS DELIBERATELY EXCLUDED. An ancestor of a DB row is its board header, and
+    a board header is exactly where "TPN" means the BOARD's phase type rather than a breaker's
+    pole. Reading it here would turn the one context that must not fire into the one most likely
+    to. All three measured mis-routed rows carry their four-pole token in the row's OWN text."""
+    frags = []
+    desc = row.get("description")
+    if desc:
+        frags.append(str(desc))
+    frags.extend(_as_list(row.get("own_notes_raw")))
+    frags.extend(_as_list(row.get("attached_notes")))
+    frags.extend(_as_labelled_map(row.get("append_notes_raw")).values())
+    return [f for f in frags if f]
+
+
+def correct_four_pole_mcb_picks(row_out, row, pole_catalog, tokens=None):
+    """Re-select a THREE-POLE MCB pick as its FOUR-POLE sibling when the row text says four pole.
+
+    PURE apart from mutating the `row_out` it is handed (the same dict `_extract_batch` is
+    assembling) -- the `scrub_unpaired_slot_defaults` shape. Returns a list of records
+    {attr, from, to} for the caller to log, or the reason nothing was done.
+
+    `pole_catalog` is {item_name: attributes} for the composite's breaker kind, supplied by the
+    caller (the `values_from_catalog` shape) so this stays free of DB access and of any category
+    id.
+
+    SWAP, NEVER BLANK (decided). A blanked slot makes `component_ref` match zero rows, which
+    refuses the WHOLE pipeline -- turning a slightly-low price into a dead row. A swap between two
+    existing catalog rows always yields a priceable row.
+
+    NO FP SIBLING AT THAT amp AND curve -> THE PICK IS LEFT EXACTLY ALONE and the reason is
+    recorded. Never swap to a different amp, never to a different curve, never invent a row: a
+    four-pole breaker the catalog does not stock is an honest gap for a human, not something to
+    approximate.
+    """
+    changed = []
+    if not row_out or not pole_catalog:
+        return changed
+    four_pole_re = _four_pole_re(four_pole_tokens() if tokens is None else tokens)
+    if four_pole_re is None:
+        return changed
+    fragments = None
+    for aid in sorted(row_out):
+        cell = row_out.get(aid) or {}
+        picked = cell.get("value")
+        if not isinstance(picked, str):
+            continue
+        attrs = pole_catalog.get(picked)
+        if not attrs:
+            continue
+        device = attrs.get("device")
+        if not device or attrs.get("pole") != "TP":
+            continue  # only a three-pole pick can be mis-routed; everything else is out of reach
+        if fragments is None:
+            fragments = row_own_text_fragments(row)
+        if not any(_four_pole_near_device(f, four_pole_re, str(device).upper(),
+                                          _FOUR_POLE_ADJACENCY_WORDS) for f in fragments):
+            continue
+        siblings = [
+            name for name, a in pole_catalog.items()
+            if a.get("device") == device and a.get("pole") == "FP"
+            and a.get("amp_a") == attrs.get("amp_a") and a.get("curve") == attrs.get("curve")
+        ]
+        if len(siblings) != 1:
+            # 0 -> the catalog stocks no four-pole equivalent. >1 -> the catalog is ambiguous and
+            # picking one would be a guess. Either way: leave the pick, record why.
+            changed.append({"attr": aid, "from": picked, "to": None,
+                            "reason": "no_unique_fp_sibling", "candidates": len(siblings)})
+            continue
+        cell["value"] = siblings[0]
+        changed.append({"attr": aid, "from": picked, "to": siblings[0]})
+    return changed
+
+
+def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, *, capture_ctx=None):
     """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
     confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
     (<=20 rows, 3 attempts, sleep 2*attempt).
@@ -1026,6 +1271,9 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
         )
     content += "\n\nROWS:\n" + json.dumps(payload_items, ensure_ascii=False)
     batch_ids = {r["excel_row"] for r in rows_batch}
+    # TPN POST-MATCH: the SOURCE row behind each id, so a post-match correction can read the row's
+    # own text. `payload_items` above is the model-facing projection; this is the row itself.
+    rows_by_id = {r["excel_row"]: r for r in rows_batch}
     defs_by_id = {d["id"]: d for d in attr_defs}
     last = None
     for attempt in range(1, _RETRIES + 1):
@@ -1072,6 +1320,10 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 # SLICE 5 (B2): {excel_row: [qty_attr, ...]} -- quantities removed because their
                 # paired item slot came back "None". Observation only, like every sibling here.
                 "slot_paired_defaults_scrubbed": {},
+                # TPN POST-MATCH: {excel_row: [{attr, from, to}, ...]} -- three-pole MCB picks
+                # re-selected as their four-pole sibling, and the ones left alone for want of a
+                # unique sibling. Observation only, like every sibling here.
+                "four_pole_mcb_corrections": {},
             }
             for el in _extract_json_array(text):
                 rid = int(el["id"])
@@ -1153,6 +1405,24 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                     drops["slot_paired_defaults_scrubbed"].setdefault(str(rid), []).append(_aid)
                     if _aid in row_map:
                         row_map[_aid]["scrubbed_unpaired"] = True
+
+                # TPN POST-MATCH -- THE FOUR-POLE MCB CORRECTION, server-side.
+                #
+                # THE PROMPT'S POLE LINE IS NOT THE ENFORCEMENT, THIS IS. It is obeyed for TP+N /
+                # TP+NL / TP+2N / TP+2NL and measurably NOT for the bare token "TPN", which the
+                # model reads as the words "Triple Pole and Neutral". Rewording was judged futile.
+                #
+                # Placed directly after the scrub because both are the same kind of thing: a pure,
+                # deterministic correction of model output, applied to the row dict this loop is
+                # assembling, BEFORE the result is stored. `pole_catalog` is absent for every
+                # non-composite category, so this is inert -- and byte-identical -- for them.
+                _row_src = rows_by_id.get(rid)
+                if pole_catalog and _row_src is not None:
+                    for _rec in correct_four_pole_mcb_picks(row_out, _row_src, pole_catalog):
+                        drops["four_pole_mcb_corrections"].setdefault(str(rid), []).append(_rec)
+                        _a = _rec.get("attr")
+                        if _a in row_map:
+                            row_map[_a]["four_pole_corrected"] = _rec.get("to")
                 # Attributes the model returned that are NOT declared. Currently read by nothing and
                 # dropped with no else-branch -- the compound-row surplus.
                 surplus = sorted(str(k) for k in set(attrs) - set(defs_by_id))
@@ -1427,6 +1697,11 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
             # so _extract_batch stays byte-identical for item_identity / attribute categories).
             "slot_spec": build_slot_spec(cfg, disc) if is_composite else None,
             "resolution_rules": cfg.get("decomposition_rules") if is_composite else None,
+            # TPN POST-MATCH: the repeatable slot's catalogue WITH attributes, so the post-match
+            # four-pole correction can read a pick's device/pole/amp/curve and find its sibling.
+            # Composite-only and resolved ONCE per group, exactly like `slot_spec` beside it; None
+            # for every other mode, which leaves those categories byte-identical.
+            "pole_catalog": breaker_catalog_for(cfg, disc) if is_composite else None,
             # EA-4 ext-a: owner-authored estimator rules. DELIBERATELY UNGATED -- unlike slot_spec /
             # resolution_rules (composite-only), these must reach EVERY category, composite or not
             # (R7 lands on cabletray_raceway, an ordinary attribute category). Absent => None =>
@@ -1484,7 +1759,7 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
                 def _call(rows_, _gc=gc):
                     # `boq` is NOT on the row dict -- it lives only in this enclosing scope, so the
                     # capture's join key is threaded in from here.
-                    return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], capture_ctx={"boq": boq})
+                    return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], _gc["pole_catalog"], capture_ctx={"boq": boq})
 
                 # SR-2 (3): ONE iteration when the batch fits (byte-identical to the pre-SR-2 single
                 # call); one per surviving half after a ceiling cut. Everything below is unchanged
