@@ -33551,3 +33551,241 @@ to ~207**. That is the single largest consequence of the ruling and the reason t
 - The 155 clean-inclusion rows with a type but no size now price at 25mm. That is ruling (vi) working as
   ruled, but it is the population most exposed to the accepted over-inclusion risk.
 - 33 of the 52 previously measured survivors already carry hand-set rates that this will move.
+
+
+---
+
+## Build slice TPN POST-MATCH POLE CORRECTION (2026-08-23) -- the cheap deterministic fix
+
+**Branch** `feature/boq-pricing-helper` - **tip at start** `263bea73` - **CURRENT_EALL_ASSET**
+`rate_master_electrical_all_v47.json`, UNCHANGED: this slice mints nothing, changes no config, no
+catalogue, no doctype, no interpreter. Two source files.
+
+### What was wrong
+
+The decomposition prompt's POLE line tells the model that TPN, TP+N, TP+NL, TP+2N and TP+2NL all mean
+FOUR pole. It is obeyed for the four COMPOUND tokens and measurably NOT for the bare token `TPN`, which
+the model resolves as the WORDS "Triple Pole and Neutral" -> three pole. Five stable observations;
+rewording judged futile. `recon_tpn_deep_2026-08-23.md` measured shape B2 as the proportionate fix.
+
+### The rule
+
+> IF a slot's picked catalogue item resolves to `device == "MCB"` AND `pole == "TP"`, AND the row's OWN
+> text carries a four-pole token within 3 words of a non-board `MCB`, THEN re-select the sibling row
+> with the SAME `amp_a` and `curve` at `pole == "FP"`.
+
+**THE GUARD IS THE PICK, NOT A PARSE OF THE TEXT'S INTENT.** Measured on the live catalogue, **`MCB` is
+the ONLY device carrying both a TP row and an FP row** -- MCCB is FP-only, RCCB and RCBO are DP/FP only,
+DB shells and Enclosure Boxes carry no `device` at all. The correction is therefore STRUCTURALLY unable
+to alter anything but the 8 TP-MCB rows (amps 25/32/40/63 x curves C/D). Three tests pin exactly that.
+
+**SWAP, NEVER BLANK.** A blanked slot makes `component_ref` match zero rows, which refuses the WHOLE
+pipeline -- a dead row instead of a slightly-low one.
+
+**NO FP SIBLING AT THAT amp AND curve -> THE PICK IS LEFT EXACTLY ALONE, reason recorded**
+(`no_unique_fp_sibling`). Never a different amp, never a different curve, never an invented row. A
+non-unique sibling is refused the same way: picking one would be a guess.
+
+### THE ADJACENCY WINDOW: 3 intervening words, DERIVED not chosen
+
+Measured against the real text of the 3 firing rows and the 6 correctly-non-firing rows:
+
+| case | min intervening words between a four-pole token and `MCB` |
+|---|---|
+| BOQ-26-00198 r77 -- `1No - 40A TPN MCB " C " Curve` | **0** |
+| BOQ-26-00198 r88 -- same wording | **0** |
+| BOQ-26-00200 r77 -- `32A, TPN C Curve MCB` | **2** |
+| the six real bare-`TP` rows | **no four-pole token present at all** |
+| constructed `12 Way TPN DB (double door) with 32A TP MCB outgoings` | 6 |
+| constructed `Supply of 12 Way TPN distribution board complete with 4 Nos 32A TP MCB outgoings` | 8 |
+
+**Every value in 2-5 separates them; 3 is the midpoint** -- one word of headroom above the widest real
+hit, three words of clearance below the nearest constructible miss. N=2 sits exactly on a real observed
+case (one extra word such as `10kA` would silently stop it firing); N=5 sits one word from the leak.
+
+### ⚠️ THE WINDOW ALONE WAS NOT SUFFICIENT -- TWO FURTHER GUARDS, BOTH LOAD-BEARING
+
+**1. An `MCB` followed by board vocabulary is NOT a device anchor.** `"TPN MCB DB"` names a
+distribution BOARD, and its TPN is the BOARD's phase type. That construction puts the token at **gap
+ZERO, so NO adjacency window whatsoever can separate it.** Found by adversarial construction during the
+build, not from the corpus -- and it is a real wording: **BOQ-26-00190 rows 54/55 read
+`"For 6 way, Double door TPN MCBDB"`**. Without this guard the slice would have shipped a live hole
+that upgrades a genuinely three-pole outgoing. Skipped words:
+`DB / DBS / DB'S / MCBDB / BOARD / BOARDS / DISTRIBUTION`. Failing the test means NOT firing, the safe
+direction. **Owner ruled it IN (2026-08-23): "the guard STAYS".**
+
+**2. Adjacency is tested PER FRAGMENT, never across a join.** A description ending `"...12 Way TPN DB"`
+beside a note beginning `"MCB 32A TP..."` reads as `"TPN DB MCB"` -- gap 1 -- if concatenated. They are
+separate texts on the sheet and stay separate here. (`attached_notes` is a genuine list in the DB, so
+per-fragment is also the natural shape.)
+
+**3. THE ANCESTOR CHAIN IS DELIBERATELY EXCLUDED.** Only the row's OWN text is read (description + own
+/ attached / appended notes). An ancestor of a DB row is its board header -- precisely where "TPN" means
+the board's phase type rather than a breaker's pole. Reading the chain would turn the one context that
+must not fire into the one most likely to. All three measured mis-routed rows carry their token in the
+row's own text.
+
+### The vocabulary is READ from the shipped prompt, never duplicated
+
+`extraction.four_pole_tokens()` parses the FP tokens out of the POLE line of
+`boq_composite_decomposition_prompt.md`, in the prompt's own longest-token-first order
+(`TP+2NL, TP+2N, TP+NL, TP+N, TPN, Four Pole, 4 pole, 4P, FP`). **Reading it is the point:** if the two
+lists could drift, a token added to the prompt would be silently uncorrected here -- the very failure
+this slice exists to fix, one level down. A negative test pins that every token acted on is quoted IN
+the shipped line; another pins that a prompt with no POLE line makes the corrector go INERT rather than
+fall back to a hardcoded list. **The prompt line itself was NOT edited.**
+
+### Where it lives
+
+`services/boq_rate_master/extraction.py`, beside `scrub_unpaired_slot_defaults` -- the shipped
+precedent, whose docstring states the doctrine: *"THE PROMPT SENTENCE IS GUIDANCE; THIS IS THE
+ENFORCEMENT ... a second instruction to the same model would be another thing to hope for rather than a
+guarantee."* Called at the same site in `_extract_batch`, after the model's output is assembled and
+BEFORE the result is stored.
+
+- Pure half (no DB): `four_pole_tokens` / `_four_pole_re` / `_four_pole_near_device` /
+  `row_own_text_fragments` / `correct_four_pole_mcb_picks`.
+- Catalogue read: `attributes_by_item` / `breaker_catalog_for`, in the `values_from_catalog` shape. The
+  kind comes from `cfg.composite_slots.repeatable.values_from`, **never hardcoded** -- no category id or
+  catalog kind appears in the correction path.
+- `_extract_batch` gained `pole_catalog`, positioned AFTER `rules` and BEFORE the keyword-only
+  `capture_ctx`, so the existing 6-positional call in `test_rate_suggest.py:749` binds unchanged. **No
+  existing test assertion changed.** `group_ctx` resolves it ONCE per group, composite-only; `None` for
+  every other mode, so no other category can reach the code at all.
+
+### THE MARKER: the precedent records NOTHING user-visible, and this follows it
+
+`scrub_unpaired_slot_defaults` records into `drops`, an observation-only accumulator written to the
+diagnostic capture JSONL by `_capture_write` -- never to the database, never to the UI. This slice
+follows that exactly: `drops["four_pole_mcb_corrections"]` = `{excel_row: [{attr, from, to}, ...]}`
+(including the `no_unique_fp_sibling` non-swaps), plus the per-attribute
+`row_map[...]["four_pole_corrected"]` mirror that `scrubbed_unpaired` already sets. **No user-visible
+change ships beyond the price movement itself.** A minimal panel marker would need a NEW per-attribute
+marker in the stored result (the `defaulted` / `corroborated` shape) plus `RateHelperPanel.tsx` and
+`pricingSheetHelper.ts` -- a new format and two out-of-scope files. Not invented, not built.
+
+### THE CERT -- A-F, live, ai_status='ran' on all three sheets
+
+Environment rebuilt per the runbook: the 19:43 `bench serve --noreload` + `vite` killed **by PID** (they
+held pre-change Python), ports :8000/:8080/:9000 verified clear, `bench serve` restarted detached,
+`/api/method/ping` 200 x3 on :8000, `node_modules/.vite` cleared, `yarn dev` restarted, chain check
+200 x3 on :8080, service worker unregistered, tab closed and reopened on the bare root.
+
+Six rows re-extracted via `only_rows` -- `BOQ-26-00198 ELEC [77,88]`, `BOQ-26-00200 "ELE - BOQ" [77,79]`,
+`BOQ-26-00174 "Electrical " [94,100]`. **`ai_status = "ran"` on every sheet.**
+
+| | row | slot | BEFORE | AFTER | supply before -> after |
+|---|---|---|---|---|---|
+| **A** | 00198 r77 | `mcb1_item` | `40A TP MCB C CURVE` | **`40A FP MCB C CURVE`** | **21,510 -> 21,710** |
+| **B** | 00198 r88 | `mcb1_item` | `40A TP MCB C CURVE` | **`40A FP MCB C CURVE`** | **23,260 -> 23,450** |
+| **C** | 00200 r77 | `mcb1_item` | `32A TP MCB C CURVE` | **`32A FP MCB C CURVE`** | **1,190 -> 1,400** |
+| **D1** | 00174 r94 | `mcb1_item` | `32A TP MCB C CURVE` | `32A TP MCB C CURVE` | 19,630 -> 19,630 UNCHANGED |
+| **D2** | 00174 r100 | `mcb1_item` | `32A TP MCB C CURVE` | `32A TP MCB C CURVE` | 21,990 -> 21,990 UNCHANGED |
+| **E** | 00200 r79 | `mcb1_item` | `40A RCCB 100mA (FP)` | `40A RCCB 100mA (FP)` | 2,920 -> 2,920 UNCHANGED |
+| **F** | 00198 r77 | `db_shell_item` | `TPN 7 SEGMENT DB 6WAY` | `TPN 7 SEGMENT DB 6WAY` | UNCHANGED |
+
+Every other slot on A/B (the RCBO and SP MCB picks) also came back identical, so **the only delta the
+live model produced is the pole swap**. Every predicted number hit exactly.
+
+**BUNDLE MARKERS (backend-only slice, both halves stated).**
+*Half 1 -- the restarted backend runs the NEW Python:* the extraction interpreter asserted
+`correct_four_pole_mcb_picks` present, `_FOUR_POLE_ADJACENCY_WORDS == 3`, the board-guard set, and the
+9-token vocabulary read live from the prompt -- then produced the corrected picks above.
+*Half 2 -- the browser renders it:* the pricing editor at `http://localhost:8080`, BOQ-26-00200 /
+`ELE - BOQ`, row 77 -> Rate suggestions panel showed **"Row 77 - Supply rate / Pricing sheet 1400 /
+Rate master: db_switchgear @ D..."** and, expanded, **`MCB 1  95%  32A FP MCB C CURVE`, `MCB 1 qty 1`**.
+The corrected item and the corrected price, on screen.
+
+**ZERO RESIDUAL:** 0 `BoQ Cell Pricing` rows modified, 0 `BoQ Rate Suggestion Event` rows created. Three
+`BoQ Rate Suggestion Run` docs created -- the authorised scoped re-extractions (`only_rows` seeds the new
+doc with the prior active run's untouched rows byte-identically, so no unselected row lost its
+extraction). Live Electrical catalogue re-verified **1367/1367 byte-identical to v45/v46/v47**, 136
+active `db_switchgear_item`, 12 active configs.
+
+### Test counts, all measured in-session
+
+| suite | before | after |
+|---|---|---|
+| `services.boq_rate_master.test_extraction_coercion` | **40 OK** | **66 OK** (+26) |
+| `api.boq.test_rate_master` | -- | **205 OK** |
+| `api.boq.test_rate_suggest` | **65, 5 failures** | **65, THE SAME 5** |
+| vitest (in container, from `frontend/`) | -- | **2894 passed / 1 failed** (the known `writeOffControl.test.ts` timeout), 77 files |
+
+**Vacuity proof:** disabling the one line the mechanism depends on (`cell["value"] = siblings[0]` ->
+`pass`) turns **12 tests RED**; restoring gives **66 OK** with the file asserted byte-identical.
+
+### OPEN -- OWNER-DEFERRED, NOT AN OVERSIGHT
+
+⚠️ **The larger unchecked class is real, measured, and deliberately unfixed.** `component_ref`
+constrains a slot on **kind + item name + family ONLY**:
+
+```ts
+const refRows = items.filter(
+  (it) => it.kind === s.ref.kind &&
+          Object.entries(resolved).every(([k, v]) => it.attributes?.[k] === v));
+```
+
+For every MCB slot the ref is `{kind: "db_switchgear_item", item: "@mcbN_item", family: "Switchgear"}`,
+so **`device`, `amp_a` and `curve` are stored on every catalogue row and checked by NOTHING** -- the
+model's chosen NAME is the answer for all four. Pole was merely the one noticed, because MCB is the one
+device where the catalogue offers a wrong answer to reach.
+
+**The measured DEVICE error is LARGER than the pole error this slice fixes:** two rows asked for an RCBO
+and were priced as an RCCB -- `40A RCCB 100mA (FP)` @5,882 where `40A RCBO 100mA (FP)` @9,099 was
+wanted, and `63A RCCB 100mA(FP)` @6,918 where `63A RCBO 100mA (FP)` @10,013 was wanted -- **Rs 3,120 of
+supply, 5.2x the pole error's Rs 600.** Amperage measured clean; curve effectively clean.
+
+Owner ruling (6), verbatim: *"ok. lets do the cheap fix now. later if the team starts noticing higher
+error rates we will make th elarger fix"*. **A future reader must not mistake this for an oversight, and
+must not generalise the TPN mechanism toward it without a fresh ruling** -- the device rule is genuinely
+harder (pole has a closed 9-token vocabulary and a single collapse; RCBO-vs-RCCB is a semantic
+distinction with no comparable table, and the catalogue stocks both).
+
+### OPEN -- FIVE PRE-EXISTING `test_rate_suggest` FAILURES, NEXT SLICE
+
+Owner ruling (7), verbatim: *"committ TPN then fix the 5"*.
+
+```
+FAIL: test_e4_point_wiring_r9_records_runs_and_cores_separately
+FAIL: test_e5_wiring_cabling_carries_runs_defaults_and_r10
+FAIL: test_e6_five_runs_multipliers_each_after_its_rounding
+        AssertionError: False is not true : cable_boq/supply_per_mtr:
+        runs must multiply a ROUNDED per-unit rate
+FAIL: test_04_corroborator_disagreement
+        AssertionError: None != 99   (thickness_sqmm)
+FAIL: test_27_live_configs_all_validate
+        Invalid config: "Unknown top-level config key(s): ..."   (rate_master.py:1424)
+```
+
+**Evidence they are PRE-EXISTING:** the two slice files were copied aside, `git checkout`-ed to the
+pristine tip `263bea73`, and the suite re-run -- **identical five, by name.** Files then restored and
+re-verified by `git diff --stat`. Confirmed again after the cert: still exactly those five.
+
+**Reading:** all five are *live-data-coupled*. `test_27` validates the **live** configs and fails on an
+unknown top-level key -- i.e. **a live config would be rejected by its own save path**, which matters
+independently of any test. `e4/e5/e6` assert the wiring/cable rate rounding that the recent wiring and
+conduit-in-the-cable-rate slices changed. `test_rate_suggest.py` itself has not been touched since
+`ccb52a4d`, several commits back -- so this reads as config/asset work having drifted past its validator
+and its rate assertions, not a test-file problem.
+
+⚠️ **THE PROCESS GAP, RECORDED PLAINLY: `test_rate_suggest` was not in scope for the wiring or conduit
+slices, so nobody ran it, and the drift went unnoticed into two pushed slices.** The lesson is not about
+those slices' code -- it is that a suite outside a slice's declared scope can still be the suite that
+owns the behaviour being changed.
+
+### ⚠️ A STANDING PREMISE WAS CORRECTED BY THE RECON
+
+It was believed the MCB catalogue had **no pole field** -- that pole existed only as letters inside the
+item name, and that a column would have to be minted and script-filled. **False.** Every
+`family: "Switchgear"` row has carried structured `device` / `pole` / `amp_a` / `curve` since **asset
+v36**, 106 of 106 (the 30 without are DB shells and Enclosure Boxes, where a breaker pole is
+meaningless). A control parse of all 106 item names agreed with the stored value on every row: 106
+unambiguous, 0 ambiguous, 0 unparseable, 0 disagreements. **No catalogue work was needed and none was
+done.** The owner's conditional authorisation for a pole column is moot; the modules-width precedent
+(v45, `26dec1ba`) was verified and holds but was not needed -- its wrinkle (*"undeclared, one CSV round
+trip retypes every width as a string"*) is NUMERIC-only, and `pole` is a string, and is declared anyway
+via `industrial_sockets`.
+
+Incidental, not acted on: `device` and `curve` are carried by real items and declared by NO config, so
+the RM-4a in-app item editor cannot set them (CSV and asset-mint round trips are unaffected). The
+`csv_importer` docstring still says "the three undeclared keys"; there are now five.
