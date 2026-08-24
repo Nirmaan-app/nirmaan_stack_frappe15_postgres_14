@@ -196,7 +196,27 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # whose quantity is ABSENT ("blank is unknown, not zero"), so a golden predating `socket3`/`socket4`
 # bails before computing anything. The slots were added as positively absent, which is the state a
 # real extracted row is in. Values moving would have been a regression; inputs growing is the schema.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v45.json"
+# ✅ CONDUIT IN THE CABLE RATE (2026-08-23, v47). wiring_cabling gains THREE attributes
+# (conduit_included / conduit_type / size_mm) and a conduit component on `cable_boq` ONLY, plus
+# `synonyms.conduit_type = {GI: MS}` mirroring conduit_piping.
+# sha256 de4f6a2e1c551fc67f41510b3e4a0f82aa612d8f8dc4cfffc923a28860d78515.
+# ⚠️ EACH map_attribute's `prefer_attr` IS THE ATTRIBUTE ITSELF -- the cabletray_raceway
+# `thickness_mm` precedent, and the ONLY shape whose PANEL DISPLAY works. A first cut split each
+# fact into a `panel: false` raw attribute plus an `extract: false` resolved one; pricing was
+# correct but `applyDerivedDisplay`'s STATED branch publishes no display value and falls back to the
+# TARGET attribute's own extracted value -- which is empty when nothing extracts it, so all three
+# conduit fields rendered blank while pricing used real values. That breaks the attribute-panel
+# invariant. Caught in the browser cert, not by a test.
+# ⚠️ The slice note lives under `notes`, an ALLOWED pass-through key. A first cut invented a
+# `conduit_component` key and `_KNOWN_CONFIG_KEYS` (api/boq/rate_master.py:1303) rejected the whole
+# config -- the whitelist is closed, so a new top-level key is a code change, never a config one.
+# ⚠️ EVERY WIRING GOLDEN IS UNCHANGED, AND THAT IS THE REGRESSION PROOF, NOT A COINCIDENCE. None of
+# g1-g5 carries a conduit attribute, so `conduit_type` resolves to the "None" sentinel, `none_skips`
+# zeroes the component, and the two added `scale` steps add 0. The supply leg's new `roundup` to UNITS
+# is an identity on the tens-rounded integers cable_boq already produced. If a wiring golden ever moves,
+# the conduit component has leaked onto a row that names no conduit.
+# ⚠️ TERMINATION IS UNTOUCHED (owner ruling ii): `termination_boq` has a ZERO-LINE DIFF at v47.
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v47.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -5722,3 +5742,436 @@ class TestRuleGuidanceDoesNotFightTheConfig(FrappeTestCase):
         g = _guidance([r for r in _rules_of(popup) if r.get("id") == "P1"][0])
         self.assertNotIn("and the colour", g)
         self.assertIn("Colour is not a module attribute", g)
+
+
+# ======================================================================================
+# TPN POLE VOCABULARY (owner rulings 1/2/4, 2026-08-22)
+#
+# TPN, TP+2N and TP+2NL all mean FOUR POLE (three phases plus neutral). Before this slice the
+# decomposition prompt told the model the opposite -- "TPN"/"3 phase"/"TP" -> TP -- and that
+# sentence was asserted by NOTHING, so it could be reworded or reordered with a green suite.
+#
+# THE TWO HALVES ARE NOT THE SAME KIND OF THING, AND THESE TESTS MUST NOT PRETEND THEY ARE.
+# db_switchgear's half is an INSTRUCTION TO A MODEL: these pins are EVIDENCE the sentence now
+# reads correctly, never proof the model obeys it. industrial_sockets' half is a CONFIG TABLE
+# consumed by `map_attribute` -- that one IS deterministic, and its pins are proof.
+# ======================================================================================
+class TestTpnPoleVocabulary(FrappeTestCase):
+    """Pins for the pole-vocabulary correction: the prompt sentence, its longest-first ordering,
+    and the industrial_sockets normalisation table."""
+
+    # the SEVEN spellings the owner approved for #57 item 4, all meaning four pole
+    # (TP+NL added by ruling 6, TP+N by ruling 7, both 2026-08-22)
+    _FOUR_POLE_SPELLINGS = ("TPN", "TP+N", "TP+NL", "TP+2N", "TP+2NL", "4P", "Four Pole")
+
+    # ⚠️ THE CONTAINMENT PAIRS, re-derived rather than copied. A longer token must be tested
+    # BEFORE any token it contains, or the shorter one matches first and truncates it:
+    #   "TP+2N"  is a prefix of "TP+2NL"
+    #   "TP+N"   is a prefix of "TP+NL"     <- introduced with ruling 7; did not exist before
+    #   "TP"     is a prefix of ALL of them
+    # "TP+N" is NOT contained in "TP+2N"/"TP+2NL" -- the "2" breaks it -- and "TPN" is contained
+    # in none of them. Ordering longest-first satisfies every pair above.
+    _CONTAINMENT_PAIRS = (("TP+2NL", "TP+2N"), ("TP+NL", "TP+N"),
+                          ("TP+2NL", "TP"), ("TP+2N", "TP"), ("TP+NL", "TP"),
+                          ("TP+N", "TP"), ("TPN", "TP"))
+
+    def _configs(self):
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            return json.load(fh)["category_configs"]
+
+    def _config(self, category_id):
+        hit = [c for c in self._configs() if c["category_id"] == category_id]
+        self.assertEqual(len(hit), 1, "expected exactly one %s config" % category_id)
+        return hit[0]
+
+    def _decomposition_prompt(self):
+        """Read it the way PRODUCTION reads it -- through select_prompt_text on the SHIPPED
+        db_switchgear config -- so a pin can never pass against a prompt the config does not use."""
+        cfg = self._config("db_switchgear")
+        self.assertEqual(cfg.get("matching_mode"), "composite_decomposition")
+        text = extraction.select_prompt_text(cfg)
+        self.assertIn("SLOT_SPEC", text)  # sanity: this really is the decomposition prompt
+        return text
+
+    def _pole_line(self):
+        lines = [ln for ln in self._decomposition_prompt().splitlines() if ln.startswith("- POLE")]
+        self.assertEqual(len(lines), 1, "expected exactly one POLE line in the decomposition prompt")
+        return lines[0]
+
+    # ---- (1) the prompt sentence: POSITIVE ---------------------------------------------
+    def test_prompt_maps_every_four_pole_spelling_to_fp(self):
+        """POSITIVE. Every spelling the owner named must appear on the POLE line resolving to FP.
+        Protects: a model reading a TPN / TP+2N / TP+2NL / 4P / Four Pole row is told four pole."""
+        line = self._pole_line()
+        for tok in ("TP+2NL", "TP+2N", "TP+NL", "TP+N", "TPN"):
+            self.assertIn('"%s" -> FP' % tok, line, "POLE line does not map %r to FP" % tok)
+        for tok in ("Four Pole", "4 pole", "4P", "FP"):
+            self.assertIn('"%s"' % tok, line, "POLE line does not carry %r" % tok)
+        self.assertIn("-> FP", line)
+        self.assertIn("-> TP", line)
+
+    def test_prompt_states_that_tpn_means_four_pole(self):
+        """POSITIVE. The WHY, not just the mapping -- a bare table invites a future editor to
+        'simplify' TPN back onto TP because the reason was never written down."""
+        self.assertIn("TPN means four pole", self._pole_line())
+
+    # ---- (1) the prompt sentence: ORDERING ---------------------------------------------
+    def test_pole_tokens_are_ordered_longest_first(self):
+        """POSITIVE, and the one a careless reorder breaks. "TP+2NL" CONTAINS "TP+2N", which
+        CONTAINS "TP"; "TPN" also contains "TP". A model scanning for the first match must meet
+        the longest token first, so the mapping list must be written longest-first.
+
+        Protects: the exact defect this slice fixes being silently rebuilt by an editor who tidies
+        the list into alphabetical or "logical" order.
+
+        ⚠️ SCANS THE MAPPING LIST ONLY, not the whole line. The line's own explanation legitimately
+        names the tokens in a different order while describing the containment ("TP+2NL" contains
+        "TP+2N", which contains "TP"), so asserting over the whole line measures the prose rather
+        than the mapping and fails on a correct prompt."""
+        line = self._pole_line()
+        self.assertIn("In order:", line, "the mapping list must be introduced by 'In order:'")
+        mapping = line.split("In order:", 1)[1]
+        # The containment relation is re-derived here from the tokens themselves, so this test
+        # cannot drift from reality if another spelling is folded in later.
+        for longer, shorter in self._CONTAINMENT_PAIRS:
+            self.assertIn(shorter, longer,
+                          "%r is not actually contained in %r -- the pair list is wrong" % (shorter, longer))
+            self.assertLess(mapping.index('"%s"' % longer), mapping.index('"%s"' % shorter),
+                            "%r must be listed BEFORE %r, which it contains" % (longer, shorter))
+
+    def test_the_pole_line_says_its_own_order_is_load_bearing(self):
+        """POSITIVE. The ordering above is invisible to a reader who does not know why it matters,
+        so the line must say so IN ITSELF -- a test alone cannot reach a future editor."""
+        line = self._pole_line()
+        self.assertIn("LONGEST TOKEN FIRST", line)
+        self.assertIn("LOAD-BEARING", line)
+        self.assertIn("do not reorder", line)
+
+    # ---- (1) the prompt sentence: NEGATIVES --------------------------------------------
+    def test_the_retired_tpn_to_tp_mapping_is_gone(self):
+        """NEGATIVE, the regression itself. The pre-slice line read
+        "TPN"/"3 phase"/"TP" -> TP. If that clause ever returns, TPN prices as three-pole again."""
+        prompt = self._decomposition_prompt()
+        self.assertNotIn('"TPN"/"3 phase"/"TP" -> TP', prompt)
+        for tok in ("TPN", "TP+N", "TP+NL", "TP+2N", "TP+2NL"):
+            self.assertNotIn('"%s" -> TP' % tok, prompt,
+                             "%r must never map to three-pole TP" % tok)
+
+    def test_plain_tp_still_means_three_pole_in_the_prompt(self):
+        """NEGATIVE CONTROL, and the one that stops an over-correction. A bare "TP" is genuinely
+        three-pole; sweeping it into the four-pole family would be a NEW wrong-price defect in the
+        opposite direction."""
+        line = self._pole_line()
+        self.assertIn('"3 phase"/"3P"/"TP" -> TP', line)
+        self.assertIn('"DP" -> DP', line)
+        self.assertIn('"SP"/"1 phase" -> SP', line)
+
+    def test_the_pole_line_does_not_rewrite_db_shell_names(self):
+        """NEGATIVE. TPN also names a BOARD TYPE ("TPN DB 8WAY"). Now that TPN maps to FP for
+        breakers, the line must fence that off, or the model may hunt for an "FP DB" that does not
+        exist and lose the shell."""
+        self.assertIn("board type", self._pole_line())
+
+    # ---- (3) the industrial_sockets normalisation table --------------------------------
+    def _norm_steps(self):
+        cfg = self._config("industrial_sockets")
+        out = {}
+        for pname, pl in (cfg.get("pipelines") or {}).items():
+            steps = pl.get("steps") or []
+            norm = [s for s in steps
+                    if s.get("step") == "map_attribute"
+                    and (s.get("params") or {}).get("result_attr") == "mcb_pole_norm"]
+            out[pname] = (steps, norm)
+        return out
+
+    def test_normalisation_maps_every_four_pole_spelling_to_fp(self):
+        """POSITIVE, and this half is DETERMINISTIC -- a config table read by `map_attribute`, not
+        an instruction. Protects: an industrial-socket row whose text says TPN pairs a FOUR-POLE
+        MCB, decided by code rather than by the model."""
+        for pname, (_steps, norm) in self._norm_steps().items():
+            self.assertEqual(len(norm), 1, "%s must carry exactly one mcb_pole_norm step" % pname)
+            table = norm[0]["params"]["table"]
+            for tok in self._FOUR_POLE_SPELLINGS:
+                self.assertEqual(table.get(tok), "FP",
+                                 "%s: %r must normalise to FP, got %r" % (pname, tok, table.get(tok)))
+            self.assertEqual(table.get("FP"), "FP", "%s: FP must pass through" % pname)
+
+    def test_normalisation_runs_before_the_pole_map_and_feeds_it(self):
+        """POSITIVE, the wiring. `map_attribute`'s stated-wins branch copies `prefer_attr` VERBATIM
+        and never consults its own table (ratePipelineInterpreter.ts), so the normalisation cannot
+        live inside the existing step -- it must run AHEAD of it and become its prefer_attr.
+
+        Protects: the whole mechanism. Get this wrong and the table exists but nothing reads it."""
+        for pname, (steps, norm) in self._norm_steps().items():
+            idx_norm = steps.index(norm[0])
+            pole = [s for s in steps
+                    if s.get("step") == "map_attribute"
+                    and (s.get("params") or {}).get("result_attr") == "mcb_pole"]
+            self.assertEqual(len(pole), 1, "%s must carry exactly one mcb_pole step" % pname)
+            self.assertLess(idx_norm, steps.index(pole[0]),
+                            "%s: the normalisation must run BEFORE the mcb_pole map" % pname)
+            # it must ALWAYS run: a prefer_attr would re-introduce the stated-wins bypass
+            self.assertIsNone(norm[0]["params"].get("prefer_attr"),
+                              "%s: the normalising step must have NO prefer_attr" % pname)
+            self.assertEqual(norm[0]["params"].get("from_attr"), "mcb_pole_stated", pname)
+            self.assertEqual(pole[0]["params"].get("prefer_attr"), "mcb_pole_norm",
+                             "%s: the mcb_pole map must prefer the NORMALISED value" % pname)
+
+    def test_the_normalisation_exists_in_both_pipelines(self):
+        """POSITIVE shape guard. indsock_boq and indsock_install each run the pair independently;
+        normalising in one and not the other makes supply and install disagree about the pole --
+        silently, because each pipeline is internally consistent."""
+        steps_by_pipeline = self._norm_steps()
+        self.assertEqual(set(steps_by_pipeline), {"indsock_boq", "indsock_install"})
+        tables = [norm[0]["params"]["table"] for _s, norm in steps_by_pipeline.values()]
+        self.assertEqual(tables[0], tables[1], "both pipelines must normalise IDENTICALLY")
+
+    def test_plain_tp_is_not_swept_up_by_the_normalisation(self):
+        """NEGATIVE, THE ONE THAT MATTERS. Every four-pole spelling except 4P / Four Pole starts
+        with the characters "TP". A substring rule -- or a careless extra table key -- would drag a
+        genuine three-pole TP into FP and over-price it. The lookup is an EXACT whole-value dict
+        match, so TP maps to TP and stays there."""
+        for pname, (_steps, norm) in self._norm_steps().items():
+            table = norm[0]["params"]["table"]
+            self.assertEqual(table.get("TP"), "TP", "%s: a bare TP must stay three-pole" % pname)
+            self.assertEqual(table.get("DP"), "DP", pname)
+            self.assertEqual(table.get("SP"), "SP", pname)
+
+    def test_tp_2nl_is_not_truncated_to_tp_2n_or_tp(self):
+        """NEGATIVE. "TP+2NL" must be its OWN key, distinct from "TP+2N" and "TP". If it were ever
+        dropped on the assumption that the TP+2N key covers it, TP+2NL would fall through to
+        whatever TP maps to -- three-pole -- which is the original defect wearing a longer name."""
+        for pname, (_steps, norm) in self._norm_steps().items():
+            table = norm[0]["params"]["table"]
+            # EVERY containing token needs its OWN key. Dropping one on the assumption that the
+            # shorter key "covers" it would truncate it -- TP+2NL -> TP+2N, TP+NL -> TP+N -- and a
+            # bare TP resolves three-pole, which is the original defect wearing a longer name.
+            for longer, shorter in self._CONTAINMENT_PAIRS:
+                self.assertIn(longer, table, "%s: %s needs its own key" % (pname, longer))
+                self.assertEqual(table[longer], "FP",
+                                 "%s: %s must resolve four-pole" % (pname, longer))
+            self.assertNotEqual(table["TP+2NL"], table["TP"], pname)
+            self.assertNotEqual(table["TP+NL"], table["TP"], pname)
+            self.assertNotEqual(table["TP+N"], table["TP"], pname)
+
+    def test_the_pin_count_table_is_untouched(self):
+        """NEGATIVE. The socket's OWN pin-count -> pole table is a different mechanism (it answers
+        "no MCB pole was stated, infer one from the socket"). This slice must not have touched it."""
+        for pname, (steps, _norm) in self._norm_steps().items():
+            pole = [s for s in steps
+                    if s.get("step") == "map_attribute"
+                    and (s.get("params") or {}).get("result_attr") == "mcb_pole"][0]
+            self.assertEqual(pole["params"].get("table"),
+                             {"3 Pin / 2P+E": "SP", "5 Pin / 3P+N+E": "FP"}, pname)
+
+    # ---- #57 item 4: the approved dropdown values, and NO sixth ------------------------
+    def test_mcb_pole_stated_gained_only_the_approved_values(self):
+        """POSITIVE + NEGATIVE on the UI change control. `mcb_pole_stated` renders on the Rate
+        Master Derivation configurator (no `selector: false`, and `prefer_attr` is not collected by
+        derivedAttrIds), so its `values` list IS a user-visible dropdown. The owner approved exactly
+        five additions.
+
+        The owner approved SEVEN additions in total: TPN, TP+2N, TP+2NL (rulings 1-4), TP+NL
+        (ruling 6) and TP+N (ruling 7), plus 4P and Four Pole.
+
+        Protects: an EIGHTH spelling being added without a ruling. The corpus sweep for
+        `TP+<anything>` finds exactly TP+N, TP+NL, TP+2N and TP+2NL and nothing else, so any new
+        member here would be a spelling nobody has measured."""
+        cfg = self._config("industrial_sockets")
+        d = [x for x in cfg["attribute_definitions"] if x["id"] == "mcb_pole_stated"][0]
+        self.assertEqual(sorted(d["values"]),
+                         sorted(["SP", "DP", "TP", "FP",
+                                 "TPN", "TP+N", "TP+NL", "TP+2N", "TP+2NL", "4P", "Four Pole"]))
+        # the four ORIGINAL catalogue poles must survive untouched
+        for original in ("SP", "DP", "TP", "FP"):
+            self.assertIn(original, d["values"])
+        # and every approved addition must be present, none of them dropped
+        for approved in self._FOUR_POLE_SPELLINGS:
+            self.assertIn(approved, d["values"], "%r is an approved value and must be offerable" % approved)
+        # the pricing PANEL is unaffected -- this is what keeps the pricer's screen out of scope
+        self.assertIs(d.get("panel"), False)
+
+    def test_every_normalisation_key_is_an_offerable_value(self):
+        """NEGATIVE on drift between the two halves. A table key the domain cannot hold is dead
+        config: `_coerce_value_ex` discards an out-of-domain answer before storage, so the model
+        could never supply it and the row would silently fall through to the pin-count default."""
+        cfg = self._config("industrial_sockets")
+        d = [x for x in cfg["attribute_definitions"] if x["id"] == "mcb_pole_stated"][0]
+        allowed = set(d["values"])
+        for pname, (_steps, norm) in self._norm_steps().items():
+            for key in norm[0]["params"]["table"]:
+                self.assertIn(key, allowed,
+                              "%s: table key %r is not an offerable mcb_pole_stated value"
+                              % (pname, key))
+
+    def test_the_normalisation_explains_itself_on_the_step_not_in_its_params(self):
+        """POSITIVE + NEGATIVE, and this one was earned by a live defect.
+
+        The v3 amendment first wrote the widened vocabulary to `params.explain` -- a key
+        `MapAttributeStep` does not declare and the Rate Master Derivation screen never reads. The
+        config validated, every other test stayed green, the table was correct, and the screen went
+        on showing the OLD sentence. Only opening the page caught it.
+
+        Protects two things: the reader-facing text names the FULL vocabulary, and no step smuggles
+        an undeclared `explain` into `params`, where it is inert but round-trips into the asset
+        forever."""
+        for pname, (steps, norm) in self._norm_steps().items():
+            explain = norm[0].get("explain") or ""
+            self.assertTrue(explain, "%s: the normalisation must explain itself ON THE STEP" % pname)
+            for tok in self._FOUR_POLE_SPELLINGS:
+                self.assertIn(tok, explain,
+                              "%s: step explain does not name %r" % (pname, tok))
+            # NEGATIVE: nothing anywhere in this category may carry params.explain
+            for st in steps:
+                params = st.get("params")
+                if isinstance(params, dict):
+                    self.assertNotIn("explain", params,
+                                     "%s: %s carries a stray params.explain -- it belongs on the STEP"
+                                     % (pname, st.get("step")))
+
+    def test_r12_tells_the_model_to_report_the_token_not_convert_it(self):
+        """POSITIVE. The table can only normalise what the model REPORTS. R12(3) used to instruct a
+        conversion at read time ("'4P' meaning FP"), which would leave the table idle and put the
+        decision back in the model. It must now ask for the token verbatim.
+
+        This is the standing "the model reads facts; code does the substitution" rule, applied."""
+        cfg = self._config("industrial_sockets")
+        r12 = [r for r in (cfg.get("rules") or []) if r.get("id") == "R12"][0]
+        g = r12["guidance"]
+        self.assertIn("VERBATIM", g)
+        self.assertIn("computed downstream", g)
+        self.assertNotIn("'4P' meaning FP", g)  # the retired conversion instruction
+
+
+class TestConduitInTheCableRate(FrappeTestCase):
+    """v47 config-shape guards for the conduit component on `wiring_cabling`.
+
+    The vitest suite pins the ARITHMETIC against an inline catalog; this pins what actually
+    SHIPPED in the asset, which is the half a fixture cannot vouch for."""
+
+    def _configs(self):
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            return json.load(fh)["category_configs"]
+
+    def _config(self, category_id):
+        hit = [c for c in self._configs() if c["category_id"] == category_id]
+        self.assertEqual(len(hit), 1, "expected exactly one %s config" % category_id)
+        return hit[0]
+
+    def _maps(self, cfg):
+        steps = cfg["pipelines"]["cable_boq"]["steps"]
+        return {
+            s["params"]["result_attr"]: s["params"]
+            for s in steps
+            if s.get("step") == "map_attribute"
+        }
+
+    def test_the_three_conduit_attributes_are_extracted_AND_panel_visible(self):
+        """⚠️ prefer_attr MUST equal result_attr for a PANEL-VISIBLE attribute.
+
+        `applyDerivedDisplay`'s STATED branch publishes NO display value -- it deliberately falls
+        back to the attribute's OWN extracted value, so that a pricer's entry is shown rather than
+        the pipeline taking credit for it. That only works when the map's `prefer_attr` IS the
+        target. A first cut split each fact into a `panel: false` raw attribute plus an
+        `extract: false` resolved one; pricing was correct and all three fields rendered BLANK,
+        because nothing extracts the resolved id. This is the cabletray_raceway `thickness_mm`
+        shape, which is the shipped precedent for a panel-visible mapped attribute."""
+        cfg = self._config("wiring_cabling")
+        defs = {d["id"]: d for d in cfg["attribute_definitions"]}
+        maps = self._maps(cfg)
+        for a in ("conduit_included", "conduit_type", "size_mm"):
+            self.assertIn(a, defs)
+            # EXTRACTED: the model answers it (no `extract: false`)
+            self.assertNotEqual(defs[a].get("extract"), False, "%s must be extracted" % a)
+            # PANEL-VISIBLE: R9 -- the pricer is the authority over any value pricing used
+            self.assertNotEqual(defs[a].get("panel"), False, "%s must stay panel-visible" % a)
+            self.assertTrue(defs[a].get("allow_none"), "%s needs allow_none for the sentinel" % a)
+            # ...and the map prefers the attribute ITSELF
+            self.assertEqual(maps[a]["prefer_attr"], a,
+                             "%s: prefer_attr must be the attribute itself or the panel renders blank" % a)
+        # NEGATIVE: the superseded split shape must not come back
+        for gone in ("conduit_included_stated", "conduit_type_stated", "size_mm_stated"):
+            self.assertNotIn(gone, defs)
+
+    def test_size_mm_carries_a_default_and_that_default_is_load_bearing(self):
+        """⚠️ DO NOT REMOVE `size_mm`'s default to 'tidy' the config.
+
+        pricingSheetHelper.ts:520-533 narrows a `map_attribute` target OUT of the missing-gate
+        exemption when it has NO default and its source reads blank -- and `valueOfDef` reads the
+        RAW extraction, which is null on EVERY row for an attribute nothing extracts. Without this
+        default, `size_mm` is narrowed on every wiring row and roughly 5,000 of them render
+        "Complete the missing attributes to price" instead of their rate.
+
+        The default is the "None" SENTINEL, not 25: the 25 comes from the TABLE keyed on the
+        resolved material, which is what makes it fire ONLY when a material is known (ruling vi)."""
+        maps = self._maps(self._config("wiring_cabling"))
+        self.assertEqual(maps["size_mm"]["default"], "None")
+        self.assertEqual(maps["size_mm"]["table"], {"MS": 25, "PVC": 25})
+        self.assertEqual(maps["size_mm"]["from_attr"], "conduit_type")
+        self.assertEqual(maps["size_mm"]["prefer_attr"], "size_mm")
+
+    def test_no_material_is_ever_defaulted_and_absence_is_the_sentinel(self):
+        """Ruling (vii) 'dont use dfault for material type'. conduit_type's default is the
+        positive-absence sentinel -- which is ALSO the thing `none_skips` reads to zero the
+        component on a row that names no conduit. One value, two jobs."""
+        maps = self._maps(self._config("wiring_cabling"))
+        self.assertEqual(maps["conduit_type"]["default"], "None")
+        self.assertNotIn(maps["conduit_type"]["default"], ("PVC", "MS"))
+        # ruling (v): where the system cannot judge, default to NOT included
+        self.assertEqual(maps["conduit_included"]["default"], "No")
+
+    def test_the_two_zero_paths_are_both_present(self):
+        """A no-conduit row zeroes via `none_skips` (type = None); a not-included row zeroes via
+        `qty.if_attr`. Either alone leaves a case that would price when it must not."""
+        steps = self._config("wiring_cabling")["pipelines"]["cable_boq"]["steps"]
+        ref = [s for s in steps if s.get("step") == "component_ref" and s.get("name") == "conduit"]
+        self.assertEqual(len(ref), 1)
+        ref = ref[0]
+        self.assertIs(ref["none_skips"], True)
+        self.assertEqual(ref["qty"], {"if_attr": {"conduit_included": "Yes"}, "then": 1, "else": 0})
+        # ruling (iv): conduit prices through its OWN arithmetic -- list x 0.7, UNROUNDED
+        self.assertEqual(ref["rate_stages"], [{"mult": 0.7}])
+        self.assertEqual(ref["ref"]["kind"], "conduit")
+
+    def test_termination_boq_has_a_zero_line_diff(self):
+        """Ruling (ii): 'Termination is not impacted by this.' NEGATIVE, and the search space is
+        the whole pipeline -- no conduit token may appear anywhere in it."""
+        cfg = self._config("wiring_cabling")
+        term = json.dumps(cfg["pipelines"]["termination_boq"])
+        self.assertNotIn("conduit", term.lower())
+        # and the conduit steps live on cable_boq ONLY
+        self.assertIn("conduit", json.dumps(cfg["pipelines"]["cable_boq"]).lower())
+
+    def test_gi_maps_to_ms_through_the_shipped_synonym_mechanism(self):
+        """The same mechanism conduit_piping uses. It matters that this is a SYNONYM and not a
+        model instruction: the coercion applies it before the allowed-values check, so a stated GI
+        arrives as MS and is marked PLAIN, not '(computed)'."""
+        cfg = self._config("wiring_cabling")
+        self.assertEqual(cfg["synonyms"]["conduit_type"], {"GI": "MS"})
+
+    def test_the_extraction_rule_teaches_facts_and_never_the_substitution(self):
+        """Standing rule: the model READS FACTS; every substitution lives in code or config.
+        R11 must never mention the 25mm fallback -- that is the map table's job -- and must not
+        restate ancestor precedence, which the shipped _ROW_CONTEXT_SHAPE_GUIDANCE already gives."""
+        cfg = self._config("wiring_cabling")
+        r11 = [r for r in (cfg.get("rules") or []) if r.get("id") == "R11"]
+        self.assertEqual(len(r11), 1)
+        g = r11[0]["guidance"]
+        self.assertNotIn("25", g)                       # no substitution in the prompt
+        self.assertNotIn("nearest", g.lower())          # precedence is already shipped elsewhere
+        for token in ("Yes", "No", "Unclear"):
+            self.assertIn(token, g)
+
+    def test_every_wiring_golden_is_unchanged_and_that_is_the_regression_proof(self):
+        """None of g1-g5 names a conduit, so conduit_type resolves to the sentinel, the component
+        is zero, and both added `scale` steps add 0. If a wiring golden ever moves, the conduit
+        component has leaked onto a row that names no conduit."""
+        cfg = self._config("wiring_cabling")
+        by_id = {g["id"]: g for g in cfg["goldens"]}
+        self.assertEqual(by_id["g1"]["expect"]["cable_boq"], {"supply_per_mtr": 130, "install_per_mtr": 20})
+        self.assertEqual(by_id["g2"]["expect"]["cable_boq"], {"supply_per_mtr": 170, "install_per_mtr": 28})
+        self.assertEqual(by_id["g3"]["expect"]["cable_boq"], {"supply_per_mtr": 200, "install_per_mtr": 44})
+        self.assertEqual(by_id["g5"]["expect"]["cable_boq"], {"supply_per_mtr": 720, "install_per_mtr": 40})
+        # and no golden carries a conduit attribute -- which is WHY they are unchanged
+        for g in cfg["goldens"]:
+            self.assertFalse([k for k in g["attrs"] if "conduit" in k or k == "size_mm"])

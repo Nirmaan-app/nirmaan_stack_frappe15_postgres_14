@@ -172,17 +172,27 @@ class TestRateSuggest(FrappeTestCase):
         self.assertTrue(r2["attributes"]["thickness_sqmm"]["corroborated"])
 
     def test_04_corroborator_disagreement(self):
-        # AI says thickness 99 but row 2 text ("3C x 2.5 sqmm") reads 2.5 -> disagree -> NOT
+        # AI says thickness 16 but row 2 text ("3C x 2.5 sqmm") reads 2.5 -> disagree -> NOT
         # corroborated. Material still corroborates (the header supplies COPPER).
+        #
+        # ⚠️ 16, NOT 99, AND THE DIFFERENCE IS THE WHOLE TEST. `thickness_sqmm` became a
+        # `number_choice` at ccb52a4d (F-1/F-8, owner ruling R6) -- catalogue-fed, so a value the
+        # catalogue does not stock is refused at coercion and stored as None (intended; pinned by
+        # test_107). 99 is not a stocked thickness, so it arrived as None and this test asserted
+        # None != 99 and went red. Expecting None instead would have made the test VACUOUS: a
+        # nulled value can never disagree with anything, so the corroborator -- the only thing this
+        # test exists to exercise -- would not have been reached at all. 16 is in the live
+        # catalogue ([0.5, 0.75, 1.0, 1.5, 2.5, 4.0, 6.0, 10.0, 16.0, ...]), so it survives
+        # coercion AND still disagrees with the 2.5 the regex reads.
         client = _fake_extract({
             2: {"material": ("COPPER", 0.9), "insulation": ("ARMOURED", 0.9),
-                "core": (3, 0.9), "thickness_sqmm": (99, 0.5)},
+                "core": (3, 0.9), "thickness_sqmm": (16, 0.5)},
             3: {"material": ("ALUMINIUM", 0.9), "insulation": ("ARMOURED", 0.9),
                 "core": (4, 0.9), "thickness_sqmm": (16, 0.9)},
         })
         env = extraction.run_extraction(self.boq, self.sheet_name, client=client)
         r2 = next(r for r in env["results"] if r["excel_row"] == 2)
-        self.assertEqual(r2["attributes"]["thickness_sqmm"]["value"], 99)
+        self.assertEqual(r2["attributes"]["thickness_sqmm"]["value"], 16)
         self.assertFalse(r2["attributes"]["thickness_sqmm"]["corroborated"])  # regex reads 2.5
         self.assertTrue(r2["attributes"]["material"]["corroborated"])  # header COPPER agrees
 
@@ -1373,13 +1383,24 @@ class TestExtBRules(FrappeTestCase):
         self.assertEqual(ids, ["R9", "S3", "S1", "S2"])
         r9 = next(r for r in _live_rules("point_wiring") if r["id"] == "R9")
         self.assertEqual(r9["applies_to"], "wire1_runs")
-        self.assertEqual(r9["label"], "Wire runs and cores in point wiring")
+        self.assertEqual(
+            r9["label"], "Wire runs, cores, and the number of points in point wiring")
         # the load-bearing claims of the CURRENT rule, phrase by phrase
         self.assertIn("three conductors", r9["guidance"])
         self.assertIn("phase, neutral and earth", r9["guidance"])
         self.assertIn("add up to three", r9["guidance"])
         self.assertIn("3R x 1.5 sqmm", r9["guidance"])       # the stated-run-count case
-        self.assertIn("wire 2 is None", r9["guidance"])      # the closing case
+        # DELETED (2026-08-23): the "wire 2 is None" closing case NO LONGER EXISTS in R9.
+        # The v25 rewrite (37339a10, "compute circuit length from the point count") replaced
+        # R9 wholesale and dropped that clause; the live guidance says "wire 2 with 1 run" and
+        # "before deciding there is only one wire" instead. NO replacement phrase is pinned
+        # here on purpose -- a pin invented to fill the gap would assert wording no ruling
+        # ever chose, which is worse than not pinning it. The four phrase pins above still
+        # carry the rule's load-bearing claims.
+        #
+        # ⚠️ THIS PIN WAS HIDDEN BY THE ONE ABOVE IT. The label assertion failed first and
+        # aborted the test, so this second stale pin never ran and never appeared in any
+        # failure output. A red test can conceal a second red thing inside itself.
         # BOTH retired wordings must be gone -- this is what makes a revert fail loudly
         self.assertNotIn("3 runs of 2-core is 6", r9["guidance"])
         self.assertNotIn("record 3 as runs and 2 as the core count", r9["guidance"])
@@ -1420,10 +1441,17 @@ class TestExtBRules(FrappeTestCase):
         self.assertEqual(cfg["extraction_defaults"]["runs"], 1.0)
         self.assertEqual(cfg["extraction_defaults"]["core"], 1.0)
         ids = [r.get("id") for r in (cfg.get("rules") or [])]
-        self.assertEqual(ids, ["R10"])
+        # R11 arrived at asset v47 (db6ac9ba, the conduit-in-the-cable-rate slice). The list stays
+        # EXACT rather than loosening to "contains R10": an exact list is what makes a silent DROP
+        # of either rule fail here, and a pin that cannot fail is worse than no pin.
+        self.assertEqual(ids, ["R10", "R11"])
         r10 = next(r for r in cfg["rules"] if r["id"] == "R10")
         self.assertEqual(r10["applies_to"], "runs")
         self.assertIn("must never be multiplied together", r10["guidance"])
+        # R11's IDENTITY, not merely its presence -- so a rule renamed or re-scoped fails too.
+        r11 = next(r for r in cfg["rules"] if r["id"] == "R11")
+        self.assertEqual(r11["label"], "Conduit named on a wiring or cabling line")
+        self.assertEqual(r11["applies_to"], "conduit_included, conduit_type, size_mm")
         self.assertIn("ESTIMATOR_RULES", _prompt_for(cfg["rules"]))
 
     def test_e6_five_runs_multipliers_each_after_its_rounding(self):
@@ -1451,7 +1479,14 @@ class TestExtBRules(FrappeTestCase):
                 self.assertEqual(steps[i]["result"], out)
                 rounds = [j for j, s in enumerate(steps)
                           if s.get("step") == "roundup" and s.get("target") == out]
-                self.assertTrue(rounds and i > max(rounds),
+                # WAS `i > max(rounds)` -- "the runs scale is after EVERY roundup on this target".
+                # That over-stated the invariant. The conduit ruling (2026-08-22) deliberately adds
+                # a LATER roundup on cable_boq/supply_per_mtr: the conduit lands after the runs
+                # scale and the TOTAL is then rounded to units. What the invariant actually claims
+                # is that runs multiplies a rate that has ALREADY been rounded -- i.e. a roundup
+                # exists BEFORE the scale, which is what is asserted now. Still fails if the
+                # pre-runs roundup were removed, which is the whole point of the pin.
+                self.assertTrue(any(j < i for j in rounds),
                                 f"{pid}/{out}: runs must multiply a ROUNDED per-unit rate")
                 total += 1
         self.assertEqual(total, 5, "five output points (owner ruling: termination install inherits)")

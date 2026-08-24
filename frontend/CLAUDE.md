@@ -584,10 +584,37 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
   (3) **GROUPED workings contract (generic, guardrail G3):** `WorkingsSection.sections?: WorkingsGroup[]`
   (`{label, derivation, finals, matchedRows?, attributes?}`) — the panel renders each group as its own block
   with the SHARED extracted attributes ONCE above; **ABSENT `sections` ⇒ flat rendering, byte-identical to
-  before (single-group suggestions stay backward-shaped)**. `pricingSheetHelper` emits two groups on a CABLE
-  row (`Cable — per Mtr` / `Termination — per Set`) and flat (no `sections`) on a termination row; groups are
-  DISPLAY-ONLY (the applied value is still `Suggestion.values`). **Memo shield untouched** — no new per-row
-  grid prop, `pricingRowPropsAreEqual` unchanged.
+  before (single-group suggestions stay backward-shaped)**. `pricingSheetHelper` emits two groups
+  (`Cable — per Mtr` / `Termination — per Set`) on **EVERY** wiring row — **owner ruling 2026-08-22 REVERSED
+  the original "flat on a termination row" shape**, because the row TEXT (`isTerminationRow`) was deciding
+  which pipeline RAN and silently discarding the other rate. It now decides only which block is PRIMARY
+  (whose finals become `values`), never which is COMPUTED. Groups stay DISPLAY-ONLY (the applied value is
+  still `Suggestion.values`). **Memo shield untouched** — no new per-row grid prop,
+  `pricingRowPropsAreEqual` unchanged.
+  (4) **TWO STACKED HEADLINES (owner Rulings A + C, 2026-08-22):** `Suggestion.headlines?:
+  {label, values}[]` — when a helper sets it the collapsed header renders one line PER ENTRY (label +
+  figure, stacked, taller); **ABSENT ⇒ the single headline, byte-unchanged**, which is what keeps every other
+  category identical. ⚠️ **THE ENTRIES ARE NEVER SUMMED**: cable is per **Mtr** and termination is per
+  **Set**, so a total would apply a per-set rate across a metre quantity (row 194 of BOQ-26-00201 is 2,900 m).
+  Each entry's `combined_rate` is computed WITHIN its own block only. ⚠️ **It must never feed `values`** —
+  "Use this value" keeps applying the PRIMARY figure (owner Ruling B), so on a termination-texted row it
+  applies the termination rate while the larger cable figure sits visible beside it (owner-parked).
+  ⚠️ **`sections.length >= 2` is NOT a usable substitute signal** — cabletray_raceway, db_switchgear,
+  industrial_sockets and point_wiring all emit two sections too; only the helper knows its figures are
+  different units, which is why the field exists.
+  (5) **A PANEL-VISIBLE `map_attribute` TARGET MUST SET `prefer_attr` TO ITSELF** (the
+  `cabletray_raceway` `thickness_mm` shape, and the conduit attributes at v47). `applyDerivedDisplay`'s
+  STATED branch deliberately publishes NO display value and falls back to the TARGET attribute's own
+  extracted value, so the pricer's own entry is shown rather than the pipeline taking credit for it.
+  Point `prefer_attr` at a DIFFERENT id and that fallback reads an attribute nothing extracts: the field
+  renders **blank while pricing uses a real value** — the attribute-panel invariant broken silently, with
+  correct rates. (Splitting each conduit fact into a `panel: false` raw attribute plus an `extract: false`
+  resolved one did exactly this; caught in a browser cert, not by a test.) The different-id form is
+  correct ONLY for `panel: false` internals, which is what `industrial_sockets`' `mcb_pole_norm` is.
+  ⚠️ **And such a target MUST carry a `default`**: `pricingSheetHelper.ts:520-533` narrows a
+  `map_attribute` target out of the missing-gate exemption when it has none and its source reads blank —
+  and `valueOfDef` reads the RAW extraction, which is null on every row for a pipeline-filled attribute.
+  Without the default, ~5,000 wiring rows render "Complete the missing attributes to price".
 - **Rate-helper embedded panel-as-default + grid scroll conventions (RM-3b, `RateHelperPanel.tsx` /
   `SheetPricingPage.tsx` / `PricingGrid.tsx`; full detail in the plan doc's "Build slice RM-3b"):** three
   owner-locked layout invariants. (1) **EMBEDDED panel-as-default:** the embedded rate-helper panel is
