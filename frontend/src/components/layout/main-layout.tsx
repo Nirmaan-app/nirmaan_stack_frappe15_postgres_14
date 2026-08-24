@@ -5,6 +5,7 @@ import { ArrowLeft, ChevronDown, Home, Menu } from "lucide-react";
 
 // Local Imports
 import ScrollToTop from "@/hooks/ScrollToTop";
+import { QuickCalc } from "@/components/quick-calc/QuickCalc";
 import ErrorBoundaryWithNavigationReset from "../common/ErrorBoundaryWrapper";
 import { RenderRightActionButton } from "../helpers/renderRightActionButton";
 import { useSidebar } from "../ui/sidebar";
@@ -265,6 +266,11 @@ export const MainLayout: React.FC = () => {
           </ErrorBoundaryWithNavigationReset>
         </main>
       </div>
+
+      {/* Floating calculator. Non-blocking, keyboard-scoped to itself, and
+          mounted here so it is present on every authenticated screen but never
+          on the login page. */}
+      <QuickCalc />
     </div>
   );
 };
