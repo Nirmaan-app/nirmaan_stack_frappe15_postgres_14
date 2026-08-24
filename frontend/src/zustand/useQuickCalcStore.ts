@@ -33,11 +33,14 @@ interface QuickCalcState {
      */
     position: { x: number; y: number } | null;
     tape: CalcTapeEntry[];
+    /** Whether the history band is expanded. Persisted -- it is a per-user preference. */
+    tapeExpanded: boolean;
 
     open: () => void;
     minimise: () => void;
     toggle: () => void;
     setPosition: (position: { x: number; y: number }) => void;
+    toggleTape: () => void;
     resetPosition: () => void;
     pushTape: (entry: CalcTapeEntry) => void;
     clearTape: () => void;
@@ -51,12 +54,14 @@ export const useQuickCalcStore = create<QuickCalcState>()(
             view: "pill",
             position: null,
             tape: [],
+            tapeExpanded: false,
 
             open: () => set({ view: "open" }),
             minimise: () => set({ view: "pill" }),
             toggle: () => set({ view: get().view === "open" ? "pill" : "open" }),
 
             setPosition: (position) => set({ position }),
+            toggleTape: () => set((state) => ({ tapeExpanded: !state.tapeExpanded })),
             resetPosition: () => set({ position: null }),
 
             pushTape: (entry) =>
@@ -70,6 +75,7 @@ export const useQuickCalcStore = create<QuickCalcState>()(
                 view: state.view,
                 position: state.position,
                 tape: state.tape,
+                tapeExpanded: state.tapeExpanded,
             }),
         }
     )

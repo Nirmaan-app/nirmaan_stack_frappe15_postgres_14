@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Calculator, GripVertical, Minus } from "lucide-react";
+import { Calculator, ChevronDown, ChevronUp, GripVertical, Minus } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
@@ -38,7 +38,7 @@ const PILL_SIZE = 44;
 const EDGE_GAP = 16;
 
 export const QuickCalc = () => {
-    const { view, position, tape, open, minimise, setPosition, pushTape } =
+    const { view, position, tape, tapeExpanded, open, minimise, setPosition, toggleTape, pushTape } =
         useQuickCalcStore();
 
     const { toast } = useToast();
@@ -60,7 +60,7 @@ export const QuickCalc = () => {
 
     /**
      * Focus is only ever taken on an explicit activation -- a tap on the pill, or
-     * Alt+K. Opening any other way leaves the caret wherever the user left it in
+     * the toggle shortcut. Opening any other way leaves the caret wherever it was in
      * the Nirmaan form behind. The flag waits for the input to actually mount.
      */
     const openAndFocus = useCallback(() => {
@@ -126,7 +126,10 @@ export const QuickCalc = () => {
         // calculator growing upward out of the pill. Idempotent, so no loop.
         const fitted = clampRect(position.x, position.y, width, height);
         if (fitted.x !== position.x || fitted.y !== position.y) setPosition(fitted);
-    }, [view, position, clampRect, setPosition]);
+        // tapeExpanded is a dependency because expanding the history makes the panel
+        // TALLER: without it the clamp never re-runs and a widget sitting low on the
+        // screen grows straight off the bottom edge.
+    }, [view, position, tapeExpanded, clampRect, setPosition]);
 
     useEffect(() => {
         const onResize = () => {
@@ -438,7 +441,7 @@ export const QuickCalc = () => {
     useEffect(() => {
         const el = tapeRef.current;
         if (el) el.scrollTop = el.scrollHeight;
-    }, [tape.length]);
+    }, [tape.length, tapeExpanded]);
 
     /**
      * The last answer, for the pill's tooltip only. The pill face is the calculator
@@ -482,8 +485,8 @@ export const QuickCalc = () => {
                 )}
                 title={
                     lastValue === null
-                        ? "Quick Calc — drag to move, click to open (Alt+K)"
-                        : `Quick Calc — last result ${formatResult(lastValue)}. Drag to move, click to open (Alt+K)`
+                        ? `Quick Calc — drag to move, click to open (${modifier.toggleLabel})`
+                        : `Quick Calc — last result ${formatResult(lastValue)}. Drag to move, click to open (${modifier.toggleLabel})`
                 }
             >
                 <Calculator className="h-[18px] w-[18px]" />
@@ -528,7 +531,7 @@ export const QuickCalc = () => {
                 onPointerMove={onDragMove}
                 onPointerUp={onDragEnd}
                 onPointerCancel={onDragEnd}
-                className="flex cursor-grab touch-none select-none items-center gap-2 border-b border-border/40 px-3 py-2 active:cursor-grabbing"
+                className="flex cursor-grab touch-none select-none items-center gap-2 border-b border-border/40 px-3 py-1.5 active:cursor-grabbing"
             >
                 <GripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" aria-hidden="true" />
                 <span className={cn("mr-auto text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80", "[text-shadow:0_0_7px_hsl(var(--card)),0_0_3px_hsl(var(--card)),0_0_1px_hsl(var(--card))]")}>
@@ -540,13 +543,28 @@ export const QuickCalc = () => {
                     aria-label="Put away"
                     title="Put away (Esc)"
                     onClick={minimise}
-                    className="grid h-7 w-7 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    className="grid h-6 w-6 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                     <Minus className="h-4 w-4" />
                 </button>
             </div>
 
             {/* B. tape */}
+            <div className="relative">
+                {tape.length > 0 && (
+                    // Sits on the left, where the right-aligned history leaves room.
+                    <button
+                        type="button"
+                        data-no-drag
+                        onClick={toggleTape}
+                        aria-expanded={tapeExpanded}
+                        aria-label={tapeExpanded ? "Show less history" : "Show more history"}
+                        title={tapeExpanded ? "Show less history" : "Show more history"}
+                        className="absolute left-2 top-1.5 z-10 grid h-5 w-5 place-items-center rounded text-muted-foreground/50 transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                        {tapeExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    </button>
+                )}
             <ul
                 ref={tapeRef}
                 // touch-action has to be re-enabled here: the widget root sets it to
@@ -558,7 +576,10 @@ export const QuickCalc = () => {
                     // first-child:mt-auto bottom-aligns a short history the way an adding-machine
                     // roll reads, WITHOUT justify-end -- content overflowing a flex-end box
                     // cannot be scrolled back to.
-                    "scrollbar-hide flex max-h-[52px] flex-col gap-0.5 overflow-y-auto overscroll-contain px-4 pb-1.5 pt-2.5 [&>li:first-child]:mt-auto",
+                    "scrollbar-hide flex flex-col gap-0.5 overflow-y-auto overscroll-contain px-4 pb-1 pt-2 [&>li:first-child]:mt-auto",
+                    // Two lines by default so it never crowds the answer; the user can
+                    // open it up when they want to look back, and that choice sticks.
+                    tapeExpanded ? "max-h-[150px]" : "max-h-[40px]",
                     "text-right font-mono text-[10px] text-muted-foreground/70",
                     // A tight halo the colour of the card. With no blur behind it, this
                     // is what keeps the figures readable over a table row -- it clears
@@ -588,9 +609,10 @@ export const QuickCalc = () => {
                     ))
                 )}
             </ul>
+            </div>
 
             {/* C + D. expression, result, copy */}
-            <div className="grid gap-0.5 px-4 pb-3.5 pt-1.5">
+            <div className="grid gap-0.5 px-4 pb-2.5 pt-1">
                 <input
                     ref={inputRef}
                     value={expression}
@@ -607,7 +629,7 @@ export const QuickCalc = () => {
                         "[text-shadow:0_0_7px_hsl(var(--card)),0_0_3px_hsl(var(--card)),0_0_1px_hsl(var(--card))]"
                     )}
                 />
-                <div className="flex min-h-[38px] items-center gap-2">
+                <div className="flex min-h-[32px] items-center gap-2">
                     {/* Says what it does. An icon here was an unexplained glyph sitting
                         next to a number -- the one place in the widget where guessing
                         wrong means you paste the wrong figure into a PO. */}
@@ -637,9 +659,9 @@ export const QuickCalc = () => {
                             error
                                 ? "whitespace-normal text-[11px] font-medium leading-snug text-destructive"
                                 : result !== null
-                                  ? "text-[28px] font-semibold leading-none tracking-tight text-foreground"
+                                  ? "text-[24px] font-semibold leading-none tracking-tight text-foreground"
                                   : preview !== null
-                                    ? "text-[20px] font-medium leading-none tracking-tight text-muted-foreground/70"
+                                    ? "text-[18px] font-medium leading-none tracking-tight text-muted-foreground/70"
                                     : "text-[15px] text-muted-foreground/40"
                         )}
                     >

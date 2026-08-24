@@ -15,6 +15,14 @@ export interface PlatformModifier {
     isApple: boolean;
     /** For display: "⌘" on Apple, "Ctrl" elsewhere. */
     label: string;
+    /**
+     * For display: "⌥" on Apple, "Alt" elsewhere. A Mac keyboard has no key
+     * labelled Alt -- writing "Alt+K" in the UI sends a Mac user hunting for a key
+     * that is not on their keyboard. Same physical key, different name on the cap.
+     */
+    altLabel: string;
+    /** The toggle shortcut, spelled the way this platform spells it. */
+    toggleLabel: string;
     /** True when the copy/select-all modifier for THIS platform is held. */
     isHeld: (event: Pick<KeyboardEvent, "metaKey" | "ctrlKey">) => boolean;
 }
@@ -41,6 +49,8 @@ export function usePlatformModifier(): PlatformModifier {
         return {
             isApple,
             label: isApple ? "⌘" : "Ctrl",
+            altLabel: isApple ? "⌥" : "Alt",
+            toggleLabel: isApple ? "⌥K" : "Alt+K",
             isHeld: (event) => (isApple ? event.metaKey : event.ctrlKey),
         };
     }, []);

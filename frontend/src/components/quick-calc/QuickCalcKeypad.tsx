@@ -12,6 +12,9 @@ import { cn } from "@/lib/utils";
  *
  *   1. Keys are real <button>s in reading order, so they work by tap, click,
  *      Tab+Enter and screen reader alike. Nothing is hover-only.
+ *   1b. Digits are neutral; everything that is not a digit -- operators and the
+ *      clear / bracket / backspace row -- is tinted with the brand rose, so the
+ *      numbers you are entering stand apart from the things you do to them.
  *   2. A key whose face differs from the keystroke that does the same thing
  *      prints that keystroke in its corner -- the widget teaches its own
  *      shortcuts instead of hiding them in a help panel.
@@ -68,7 +71,7 @@ export const KEYPAD: KeypadKey[] = [
 interface QuickCalcKeypadProps {
     onInsert: (text: string) => void;
     onAction: (action: KeypadAction) => void;
-    /** 48px targets when the pointer is coarse; 40px on a mouse. */
+    /** 44px targets when the pointer is coarse (the touch minimum); 36px on a mouse. */
     coarsePointer: boolean;
 }
 
@@ -78,7 +81,7 @@ export const QuickCalcKeypad = memo(function QuickCalcKeypad({
     coarsePointer,
 }: QuickCalcKeypadProps) {
     return (
-        <div className="grid grid-cols-4 gap-1.5 px-3 pb-3">
+        <div className="grid grid-cols-4 gap-1 px-3 pb-2.5">
             {KEYPAD.map((key) => (
                 <button
                     key={key.id}
@@ -90,13 +93,13 @@ export const QuickCalcKeypad = memo(function QuickCalcKeypad({
                         "touch-manipulation select-none [-webkit-tap-highlight-color:transparent]",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                         "active:scale-[0.97]",
-                        coarsePointer ? "min-h-[48px] text-[17px]" : "min-h-[42px] text-[15px]",
+                        coarsePointer ? "min-h-[44px] text-[16px]" : "min-h-[36px] text-[14px]",
                         key.role === "equals" &&
-                            "col-span-4 mt-0.5 min-h-[44px] bg-primary font-semibold text-primary-foreground shadow-sm hover:bg-primary/90",
+                            "col-span-4 mt-1 bg-primary font-semibold text-primary-foreground shadow-sm hover:bg-primary/90",
                         key.role === "operator" &&
                             "bg-primary/[0.10] font-medium text-primary hover:bg-primary/[0.18]",
                         key.role === "utility" &&
-                            "bg-foreground/[0.06] text-[13px] font-medium text-muted-foreground hover:bg-foreground/[0.12] hover:text-foreground",
+                            "bg-primary/[0.10] text-[12px] font-medium text-primary hover:bg-primary/[0.18]",
                         key.role === "digit" &&
                             "bg-foreground/[0.07] font-medium text-foreground hover:bg-foreground/[0.13]"
                     )}
@@ -110,7 +113,11 @@ export const QuickCalcKeypad = memo(function QuickCalcKeypad({
                             aria-hidden="true"
                             className={cn(
                                 "absolute left-1.5 top-1 font-mono text-[8px] leading-none tracking-wide",
-                                key.role === "equals" ? "text-primary-foreground/50" : "text-muted-foreground/45"
+                                key.role === "equals"
+                                    ? "text-primary-foreground/50"
+                                    : key.role === "utility"
+                                      ? "text-primary/45"
+                                      : "text-muted-foreground/45"
                             )}
                         >
                             {key.legend}

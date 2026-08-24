@@ -13,9 +13,10 @@ import { PlatformModifier } from "./usePlatformModifier";
  * nothing to leak when the widget unmounts.
  *
  * The one exception is `useQuickCalcHotkey` below: a single Alt+K binding on
- * window, because opening the calculator has to be possible while focus is
- * elsewhere. It is a modifier combination no Nirmaan screen claims, and it is
- * the only global key listener this feature installs.
+ * window (⌥K on a Mac -- same physical key, different name on the cap), because
+ * opening the calculator has to be possible while focus is elsewhere. It is a
+ * modifier combination no Nirmaan screen claims, and it is the only global key
+ * listener this feature installs.
  */
 
 export interface CalcKeyboardActions {
@@ -152,7 +153,9 @@ export function useQuickCalcHotkey(toggle: () => void, enabled = true): void {
         if (!enabled) return;
 
         const onKeyDown = (event: KeyboardEvent) => {
-            // event.code, so it fires on layouts where Alt+K produces a glyph.
+            // event.code, not event.key: on a Mac, Option+K emits the glyph "˚"
+            // rather than "k", so keying on the character would never match. The
+            // physical key position is the same everywhere.
             if (event.altKey && !event.ctrlKey && !event.metaKey && event.code === "KeyK") {
                 event.preventDefault();
                 toggle();
