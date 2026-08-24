@@ -33036,3 +33036,1033 @@ naming the real cause - *"names 'Colour', which carries the plain default 'White
 **A widened drift-guard over `extraction_defaults` would NOT have caught this** (the two sets already
 agree on colour), and if it is ever added it must encode the one deliberate divergence:
 `switches_sockets` carries `back_box: "Yes"` and `popup_boxes` does not, per R7.
+
+
+---
+
+## TPN POLE VOCABULARY (v3) — TPN / TP+N / TP+NL / TP+2N / TP+2NL all mean FOUR POLE
+
+**Owner rulings 2026-08-22 (1-7).** TPN means four pole (three phases plus neutral), so a TPN MCB must
+match a four-pole catalogue row (4P / FP / Four Pole) — not the three-pole TP row it had been matching.
+TP+2N (ruling 2), TP+2NL (ruling 4), TP+NL (ruling 6) and TP+N (ruling 7) fold into the same set.
+Ruling 3 scoped it Option A: the correction applies to everything the instruction touches, not only MCB
+rows. Ruling 5 authorised shipping with the TPN db_switchgear non-compliance still open (below).
+
+### What changed — two halves, and they are NOT the same kind of thing
+
+**(1) `db_switchgear` — a corrected INSTRUCTION to a model.** The pole vocabulary lives in exactly one
+place, `prompts/boq_composite_decomposition_prompt.md` line 14, and it said the wrong thing. Old:
+
+```
+- POLE wording: "4 pole"/"FP" -> FP; "TPN"/"3 phase"/"TP" -> TP; "DP" -> DP; "SP"/"1 phase" -> SP.
+```
+
+New:
+
+```
+- POLE wording, MATCHED LONGEST TOKEN FIRST -- the order below is LOAD-BEARING, do not reorder it: "TP+2NL" contains "TP+2N", "TP+NL" contains "TP+N", and every one of them contains "TP", so testing a shorter token first would mis-read a longer one. In order: "TP+2NL" -> FP; "TP+2N" -> FP; "TP+NL" -> FP; "TP+N" -> FP; "TPN" -> FP; "Four Pole"/"4 pole"/"4P"/"FP" -> FP; "3 phase"/"3P"/"TP" -> TP; "DP" -> DP; "SP"/"1 phase" -> SP. TPN means four pole (three phases plus neutral), and so do TP+N, TP+NL, TP+2N and TP+2NL. This is the BREAKER's pole only -- a DB shell named SPN/TPN/VTPN is a board type, matched under SHELL above, and its catalog name is never rewritten.
+```
+
+⚠️ **THE TOKEN ORDER IS LOAD-BEARING AND THE HAZARD IS NOT OBVIOUS.** Two containment pairs exist —
+`TP+2N` is a prefix of `TP+2NL`, and `TP+N` is a prefix of `TP+NL` (that second pair arrived with
+ruling 7) — and **every** token contains `TP`. A reader scanning for the first match must meet the
+longest token first or the defect is rebuilt. `TP+N` is NOT contained in `TP+2N`/`TP+2NL`: the "2"
+breaks it. The line states its own ordering rule so a future editor cannot tidy it innocently, and
+`test_pole_tokens_are_ordered_longest_first` re-derives the containment from the tokens themselves
+rather than trusting a hand-written list. **The origin of the defect is recorded at plan line ~15829**
+(the EA-4d ruling "POLE mapping … TPN/3 phase->TP"), which ruling 1 reverses.
+
+⚠️ **The clarifier sentence about DB shells is DELIBERATE and must not be removed casually.** TPN also
+names a board type ("TPN DB 8WAY"); with TPN now mapping to FP, the model could otherwise hunt for an
+"FP DB" that does not exist and lose the shell. The cert confirms shells came back unrewritten.
+
+**(2) `industrial_sockets` — a DETERMINISTIC config TABLE.** A `map_attribute` step normalises the
+stated pole onto the catalogue's four values, in **both** `indsock_boq` and `indsock_install`:
+
+- table: `TP+2NL / TP+2N / TP+NL / TP+N / TPN / Four Pole / 4P / FP -> FP`; `TP -> TP`, `DP -> DP`, `SP -> SP`
+- **no `prefer_attr`**, so the table always runs; `on_miss: "skip"` so an unstated pole falls through
+  to the pin-count table exactly as before
+- its result feeds the existing pole step as that step's `prefer_attr`
+
+⚠️ **THE SHAPE IS FORCED, NOT CHOSEN.** `map_attribute`'s stated-wins branch copies `prefer_attr`
+VERBATIM and never consults its own table (`ratePipelineInterpreter.ts:932-946`), so the normalisation
+CANNOT live inside the existing step — it must run ahead of it and feed it. The lookup is an EXACT
+whole-value dict match, never a substring, which is why ordering is irrelevant *here* and load-bearing
+only in the prompt.
+
+`mcb_pole_stated`'s domain widened by the seven approved values (#57 item 4). `R12(3)` was reworded to
+demand the token VERBATIM instead of instructing a conversion — the table can only normalise what the
+model reports, which is the standing "model reads facts, code substitutes" rule applied.
+
+### ⚠️ OPEN FOLLOW-ON — the TPN non-compliance (ruling 5 defers it; do not close this)
+
+**The corrected instruction is reaching the model and the model is not following it for `TPN`.**
+Evidence, not speculation:
+
+- `TP+2NL` and `TP+2N` exist ONLY in the new line and both now resolve to FP on every cert row — so the
+  new prompt is provably in the model's context. `TP+NL` and `TP+N` likewise.
+- The three `TPN` db_switchgear rows (00198/77, 00198/88, 00200/77) did NOT move, across **three stable
+  observations** in v2 plus the v3 BEFORE/AFTER pair. This is stable non-compliance, not model variance.
+
+Two untested hypotheses, recorded so the follow-on slice does not start cold: (a) the DB-shell clarifier
+names TPN and only TPN, and TPN is the only token that fails — though 00200/77 has no DB context and
+still fails, which weakens it; (b) "TPN = Triple Pole and Neutral" is a strong folk expansion and the
+model may be resolving the expansion rather than the instruction, whereas TP+2N/TP+2NL/TP+NL/TP+N have
+no such expansion.
+
+**Row 00190/51 is a SEPARATE open question, not the same defect.** Its source text reads *"63 A, 415 V,
+**TPN** Industrial type socket outlet, with 4 pole and earth … 63 A "C" curve, **TPMCB**"*. The socket
+is TPN but the MCB is written "TPMCB", and under the new verbatim rule the model reads `TP` faithfully.
+Owner call owed: does a TPN socket override a TP-written MCB?
+
+⚠️ **WRITE "EVIDENCE", NEVER "PROVEN", FOR THE db_switchgear HALF.** A green cert row is evidence the
+sentence now reads correctly, not proof the model will always obey it — the same caveat cuts both ways,
+and the TPN rows are what that looks like when it cuts against you. **Only the industrial_sockets table
+is deterministic**, and that half is proven by the interpreter tests.
+
+### The row cert — 12 rows, single coherent baseline
+
+BEFORE was measured with the prompt reverted to the ORIGINAL pre-slice line, so all 12 share one
+baseline. Method: `extraction.run_extraction(only_rows=[...])` — real AI, **zero DB writes** (SR-1).
+`ai_status = "ran"` on all 8 sheets in both passes.
+
+| # | BoQ / sheet / row | token | BEFORE | AFTER | Δ list | verdict |
+|---|---|---|---|---|---:|---|
+| 1 | 00198 / ELEC / 77 | TPN | 40A TP MCB C 3623 | unchanged | 0 | expected hold (ruling 5) |
+| 2 | 00198 / ELEC / 88 | TPN | 40A TP MCB C 3623 | unchanged | 0 | expected hold |
+| 3 | 00200 / ELE - BOQ / 77 | TPN | 32A TP MCB C 2387 | unchanged | 0 | expected hold |
+| 4 | 00190 / Sheet1 / 51 | TPN | pole read `TP` | pole read `TP` | 0 | expected hold ("TPMCB") |
+| 5 | 00196 / ELECTRICAL / 171 | TP+2N | 63A TP MCB D 3132 | **63A FP MCB D 4010** | +878 | **MOVED** |
+| 6 | 00196 / ELECTRICAL / 206 | TP+2N | 63A TP MCB D 3132 | **63A FP MCB D 4010** | +878 | **MOVED** |
+| 7 | 00016 / ` Bill 15-Crkt Breakers` / 22 | TP+2NL | 40A TP MCB D 3132 | **40A FP MCB D 4010** | +878 | **MOVED** |
+| 8 | 00016 / ` Bill 15-Crkt Breakers` / 26 | TP+2NL | 63A TP MCB D 3132 | **63A FP MCB D 4010** | +878 | **MOVED** |
+| 9 | 00016 / ` Bill 15-Crkt Breakers` / 30 | TP+NL | 125A FP MCCB 19210 | unchanged | 0 | ⚠️ **PROVES NOTHING** |
+| 10 | 00016 / `Bill 17-Sw_Soc.` / 59 | TP+NL | 63A TP MCB C 3623 | **63A FP MCB C 4012** | +389 | **MOVED** |
+| 11 | 00126 / ELEC / 342 | TP+N | 32A TP MCB C 2387 | **32A FP MCB C 2820** | +433 | **MOVED** |
+| 12 | 00193 / Sheet1 / 141 | TP+N | 63A TP MCB D 3132 | **63A FP MCB D 4010** | +878 | **MOVED** |
+
+**+₹5,212 at list across the seven that moved.** Row rate = list × qty × 0.495 supply, × 0.20 again for
+install.
+
+⚠️ **Row 9 is reported as a non-proof on purpose.** At 125 A the catalogue has no MCB at any pole — the
+family is MCCB, which is **FP-only** — so it was already FP before the change. A green there says
+nothing about pole resolution. `00130` r343-346 and `00187` r286/r288 are the same MCCB shape and were
+excluded for the same reason. `00058/Electrical/r206` (a real 63A + 25A TP+NL MCB schedule) was excluded
+because it is a **qty-less Preamble**, hence not rate-editable and not in the extraction population.
+
+**FP targets were confirmed to EXIST at every cert amperage before the run**, so a refusal could never
+be mistaken for a fix.
+
+### Reach
+
+Measured over **55,514 current `BOQ Nodes`** (description + attached_notes, current sheets, all BoQs):
+**TPN 871 · 4P 1,181 · 4 pole 176 · TP+2N 117 · Four Pole 91 · TP+NL 11 · TP+2NL 2**, plus bare
+**TP 229** and **3P 34** which must NOT be swept up. The owner approved item 1 knowing the reach is
+~119+ four-pole-token mentions across 13+ BoQs, not the 12 cert rows.
+
+⚠️ **A `TP+<anything>` sweep finds exactly four spellings — TP+N, TP+NL, TP+2N, TP+2NL — and nothing
+else.** `TP+N` (14 occurrences) was found during v3 and reported rather than added; ruling 7 then
+approved it. **There is no eighth spelling in the corpus**, and a test pins the value list so one
+cannot be added without a ruling.
+
+### Asset
+
+`rate_master_electrical_all_v46.json`, sha256
+**`203bcfc57a331db3acf6dc73df8086e0831a0337a471cc66307715ab125d93a9`**, 728,103 bytes.
+`CURRENT_EALL_ASSET` bumped v45 → v46. Round-trip proven byte-identical BOTH ways: two consecutive
+exports identical, and reload(v46) → re-export identical to disk.
+
+⚠️ **v45 ON DISK IS NOT EXPORTER-ORDERED.** Its `switch_socket_item` block is out of `(kind, item_uid)`
+order, so v45 was not produced by a clean `export_asset_text`; v43, v44 and v46 all are. That is why the
+v45 → v46 diff is bigger than the config change — **item CONTENT is identical for all 1,367 uids (0
+differ), only order moved.** v46 restores the byte-identical round-trip property.
+
+### ⚠️ A defect the BROWSER cert caught that every test missed
+
+The v3 amendment first wrote the normalisation's explain to **`params.explain`** — a key
+`MapAttributeStep` does not declare and the Derivation screen never reads. The config validated, the
+table was correct, all pins stayed green, and the screen went on showing the OLD sentence. **Only
+opening the page found it.** Fixed to the step-level `explain`, the stray params key removed, and a new
+pin (`test_the_normalisation_explains_itself_on_the_step_not_in_its_params`) now guards both halves —
+the text names the full vocabulary, and no step may smuggle an undeclared `explain` into `params`, where
+it is inert but would round-trip into the asset forever.
+
+### Tests
+
+`TestTpnPoleVocabulary` **16 → 17** (the new explain guard; the other 16 were EXTENDED for TP+NL/TP+N
+rather than duplicated). Module `test_rate_master` **196**, OK. Interpreter vitest **343 → 350**; full
+vitest **2,872** with the one pre-existing `POAdjustment/writeOffControl.test.ts` timeout that is unrelated
+to this work (untouched file, fails identically in isolation).
+
+**Vacuity proved four ways, each restored immediately:** revert the prompt line → 7 red; strip the
+`mcb_pole_norm` step from both pipelines → 6 red; drop `POLE_NORM` from the interpreter chain → 4 red;
+move `explain` back into `params` → 1 red. Asset sha and prompt md5 verified byte-exact after each.
+
+### Browser cert (both halves)
+
+Ports verified clear, `bench serve --noreload` detached, backend ping 200 ×3, vite cache cleared,
+`yarn dev`, chain check 200 (cold-start 000 on the first call after the cache clear, then 6/6 green),
+de-stale (no service workers registered; tab closed entirely and reopened at bare root), session
+`admins@nirmaan.app` already authenticated — **no credentials were requested, guessed or entered**.
+
+⚠️ **This slice ships NO frontend bundle change** — the only frontend file touched is a test, which is
+never bundled — so the marker that matters is the DATA marker. Both halves confirmed: the app served
+from this dev server (`/@vite/client`, `/src/main.tsx`), and the API serving the widened vocabulary and
+both normalisation tables.
+
+- **#57 item 4 on screen:** the `MCB pole stated` dropdown reads exactly
+  `None, SP, DP, TP, FP, TPN, TP+2N, TP+2NL, 4P, Four Pole, TP+NL, TP+N` — the four originals plus the
+  seven approved, and nothing more.
+- **The pricer's panel is unaffected:** row 51's attribute panel shows Item / Enclosure / Rating /
+  Pole-Phase / Paired MCB only. All four `panel: false` attributes — MCB mentioned, MCB amperage stated,
+  MCB pole stated, MCB curve stated — are absent, confirming `panel: false` still holds.
+
+---
+
+## Build slice WIRING-BOTH + WIRING-HEADLINES (2026-08-22) -- both blocks on every wiring row, and two stacked headlines
+
+**One slice, two prompts, ONE commit pair.** The first half made `computeWiring` symmetric; the second
+added the two collapsed-header headlines. They shipped together after a single browser cert.
+
+### The owner rulings, verbatim
+
+> (earlier, same arc) "we side step all this judgement and just show both the wirirng and cable rates and
+> the terminations rates for all rows."
+
+> **Ruling A** "ok lets leave use this value as iti is for nw. we will think on this later. we need to show
+> 2 values for the collpased pricing helper for wiring, vable and termonation category. one will be
+> supply/install/ suply + install (depening on the cell the heper is for)of wiring , and another will will
+> besupply/install/ suply + install (depening on the cell the heper is for)of termoination. which ever
+> cannopt be detrmoned will be left blank or hyphen whatebver it is being done today."
+
+> **Ruling B** "use this value simply piucks what it is detremining the row to be as it dopes not, wiring,
+> termination or combined"
+
+> **Ruling C (layout)** "stacked...double height"
+
+> **Ruling D (truncation, given during the cert)** "truncation is notr material. i noticed it during the
+> cert. the truncated text is not ,material. we can increase the height more and wrp it if we want to"
+
+### WHY THE TWO HEADLINES ARE NEVER SUMMED -- do NOT "simplify" this into one number
+
+The config declares `cable_boq` output as **`supply_per_mtr` / `install_per_mtr`** and `termination_boq`
+output as **`supply_per_set` / `install_per_set`**; the catalogue agrees (`kind: cable` items carry
+`unit: "Mtr"`, `kind: termination` items carry `unit: "Set"`). **Adding them would apply a per-SET rate
+across a metre quantity.** On BOQ-26-00201 row 194 the cell quantity is **2,900 METER**, so 180 + 70 = 250
+would be billed 2,900 times. There is deliberately NO code path that adds across blocks: each entry's
+`combined_rate` is computed WITHIN its own block (per-Mtr + per-Mtr, per-Set + per-Set), and a test asserts
+no published figure equals the cross-block total.
+
+### What changed
+
+1. **`computeWiring` is symmetric.** Both `cable_boq` and `termination_boq` run on EVERY wiring row. The
+   pre-slice paired-block construction was PARAMETERISED (primary/secondary) rather than duplicated.
+   `isTerminationRow` was **kept** -- it no longer decides what RUNS, only which block is PRIMARY (whose
+   finals become the appliable `values`, plus `basis` / top-level `derivation` / `matchedRows` / the
+   combined figure). Deleting it would leave `values` with no defined source.
+2. **The two groups stay DIFFERENT shapes on purpose.** The PRIMARY group carries derivation +
+   matchedRows + the combined figure; the SECONDARY carries its own rates alone. On a cable row the primary
+   IS cable, so owner Decision 2 (2026-07-28) renders byte-identically. Order is `[Cable, Termination]` on
+   every row.
+3. **`Suggestion.headlines?: {label, values}[]`** (ONE new optional field, `rateHelperTypes.ts`) -- set only
+   by `computeWiring`, absent everywhere else. The panel renders one stacked line per entry.
+   **`sections.length >= 2` was rejected as a signal: cabletray_raceway, db_switchgear, industrial_sockets
+   and point_wiring all emit two sections too** (measured across all 12 active configs), so inferring from
+   structure would have given them a second headline. Hardcoding `wiring_cabling` in the shared panel was
+   rejected by the owner on the N-ENGINE-GENERIC convention.
+4. **An undetermined headline shows the EXISTING em dash** (`RateHelperPanel.tsx`, the em-dash literal). No
+   new empty state was invented.
+
+### The two rewritten tests (the only pre-existing assertions changed)
+
+| was | now | why |
+|---|---|---|
+| "a TERMINATION row prices termination alone (no cable, no paired line)" | "a TERMINATION-texted row still APPLIES the termination rate, but now SHOWS the cable block too" | The ruling changed what is SHOWN, not what is APPLIED. The test now pins both halves. |
+| "a termination row is a SINGLE flat group -- no sections" | "a termination row now emits the SAME two labelled groups, Cable first" | That flat shape is exactly what the ruling reverses. |
+
+### Measured vitest counts (in-session, never quoted)
+
+| point | Test Files | Tests |
+|---|---|---|
+| before the first half | 1 failed / 76 passed (77) | 1 failed / **2871** passed (2872) |
+| after the first half (= before the headlines half) | 1 failed / 76 passed (77) | 1 failed / **2876** passed (2877) |
+| **after both halves** | 1 failed / 76 passed (77) | 1 failed / **2883** passed (2884) |
+
+**+12 tests, 0 new failures.** `pricingSheetHelper.test.ts` alone: 179 -> **191**.
+The single failure is **PRE-EXISTING and out of scope**: `src/pages/POAdjustment/writeOffControl.test.ts`
+> "mirrors the sibling admin predicates" times out at 5000 ms on a heavy dynamic import of
+`SheetPricingPage`. Present in the BEFORE run, reproduces in isolation, untouched.
+TypeScript: 3,226 pre-existing repo-wide errors, **zero in any of the four changed files**.
+
+**Vacuity proofs (both halves).** (a) Symmetry: replacing the `sections` assembly with `undefined` on the
+termination branch turned **6** tests red; restored, 184/184. (b) Headlines: removing `headlines` from the
+`computeWiring` return turned **6** of the 7 new tests red -- the 7th (the P4 guard, which asserts
+`headlines` is ABSENT for a non-wiring category) correctly stayed green. Restored; no probe residue.
+
+### The browser cert (bench :8000 + vite :8080, both marker halves confirmed)
+
+Marker half 1: vite served `headlineValuesFor` and `result.headlines` from the two changed modules.
+Marker half 2: the BROWSER executed them -- an in-page dynamic import of `pricingSheetHelper.ts` returned
+`headlines` with both labelled entries and `values` = the termination figure.
+
+| row | what is on screen | verdict |
+|---|---|---|
+| **A. BOQ-26-00201 / Electrical BOQ / 194, SUPPLY cell** | `Row 194 - Supply rate` -- `Cable - per Mtr` **180** / `Termination - per Set` **70**, stacked. Expanded: both blocks, termination showing `Matched termination rate row ... supply_per_set = 70, install_per_set = 20, combined_rate = supply + install = 90`. **Final value seeded 70**, "Use this value" enabled. | PASS. 180 and 70 SEPARATE; **no 250 in the card** (the only "250" on the page is an unrelated description, "GI Junction Box - 250 x 250mm"). |
+| **A. same row, INSTALL cell** | `Cable - per Mtr` **30** / `Termination - per Set` **20**. **Final value seeded 20**. | PASS. No 50 anywhere. |
+| **B. BOQ-26-00201 / Electrical BOQ / 198, SUPPLY** | `Cable - per Mtr` **180** / `Termination - per Set` **em dash** (U+2014, verified by code point). Expanded termination block reads `No termination rate row matches Material = COPPER, Insulation = UNARMOURED, Core = 1, Runs = 3, Thickness (sqmm) = 2.5.` **Final value field EMPTY.** | PASS -- the cross-contamination proof. The em-dashed block did NOT borrow 180. |
+| **C. genuine per-set termination rows** | BOQ-26-00196 / ELECTRICAL rows 79 and 82 (`End terminations`, Nos., qty 12 / 4) both show ONE em dash and `Complete the missing attributes to pri...`. | PASS, with a finding: these bare two-word rows state no cable attributes, so they hit the PRE-EXISTING whole-row `missing` gate BEFORE `computeWiring` runs -- no headlines are published and the header is the single-figure one, **exactly as before this slice**. A DETERMINING termination figure was certified instead on BOQ-26-00196 (`3.5 Core X 300 Sqmm`): `Cable - per Mtr` **1850** / `Termination - per Set` **3150**. |
+| **D. NON-wiring (BOQ-26-00201 db_switchgear row)** | ONE headline **23300**, `hasStackedBlock: false`, basis gets **187 px**, header **52 px**. | PASS -- the P4 guard. Every other category unchanged. |
+| **E. "Use this value"** | Seeds `values[kind]` -- the PRIMARY -- in every case: 70 on row 194 supply, 20 on row 194 install, EMPTY on row 198. Behaviour, count and written value all unchanged. | PASS per Ruling B. |
+
+**Header height: wiring 72 px vs non-wiring 52 px** -- taller on wiring rows only (#57 item 4).
+
+**Truncation, measured rather than assumed.** The stacked labels cost the `result.basis` line **112 px** of
+visible width (100 px with labels vs 212 px simulating the single-figure header). This tripped the prompt's
+STOP; **the owner cleared it during the cert (Ruling D)**, judging the truncated text immaterial and noting
+that height/wrapping can be revisited. Recorded as OPEN below.
+
+**Zero residual.** 0 `BoQ Cell Pricing` rows modified in the last 4 hours, 0 `BoQ Rate Suggestion Event`
+rows created, 0 new suggestion runs (75 total, unchanged). All four cert rows retain their 2026-08-19
+values. **No AI spend: `start_suggest` was never called, nothing re-extracted, nothing re-classified.**
+
+### The measured surface this fix reaches
+
+From `count_wiring_routing_surface_2026-08-22.md` (censused on the ladder the helper actually resolves,
+`persist.resolve_row_ladder` -> `effective_category_id`):
+
+- **4,902** current nodes resolve to `wiring_cabling` (114 BoQs, 164 sheets).
+- **739** of them (15.1%) match the shipped termination/gland/lug pattern, across **89** BoQs -- so this was
+  never a handful of templates.
+- **372** are priceable under the narrow definition (Line Item + non-zero qty); **573** under the app's own
+  owner-locked gate (Line Item always; Preamble if qty-bearing).
+- **336 of the 372 (90.3%) had NEVER been through the helper.** Only 36 carried banked results, of which 9
+  were the originally-found mis-routed rows and 27 were attribute-blocked.
+
+**The fix reaches all of them, not only the 10 originally found** -- because the change is to the dispatch
+itself, not to any row list.
+
+### OPEN items (carried, not fixed here)
+
+- **"Use this value" with two headlines is owner-parked.** On a termination-texted cable row the button
+  applies the SMALLER primary figure (70 on row 194) while the larger cable figure (180) sits visible
+  beside it. Ruling B ("use this value simply piucks what it is detremining the row to be") is satisfied by
+  the shipped determination; the owner said "we will think on this later".
+- **Header truncation.** The stacked header costs the basis line 112 px. Owner ruled it immaterial and
+  suggested "we can increase the height more and wrp it if we want to" -- NOT actioned here.
+- **The catalogue combination gaps are now VISIBLE as em-dashed blocks.** **97** (material, insulation,
+  core, thickness_sqmm) combinations exist in `termination` and NOT in `cable`; **93** exist in `cable` and
+  NOT in `termination`. Every one of those rows now renders an honest empty block where it previously
+  rendered nothing at all. Not fixed here -- it is a rate-master data question.
+- **`isTerminationRow` remains a text heuristic.** It no longer costs a rate, only which figure is offered
+  first. The near-form gap was measured and is tiny (6 rows, 0.12%, none priceable), so the boundary is
+  stable if it is ever narrowed.
+
+---
+
+## Build slice CONDUIT IN THE CABLE RATE (2026-08-23, asset v47)
+
+`wiring_cabling` gains three conduit attributes and a conduit component on `cable_boq` ONLY. Where the
+document says this line carries the conduit, its rate is added to the cable supply and install legs.
+
+**Asset: `rate_master_electrical_all_v47.json`, 733,922 bytes,
+sha256 `de4f6a2e1c551fc67f41510b3e4a0f82aa612d8f8dc4cfffc923a28860d78515`.** Round trip proven BOTH
+ways: DB -> export == candidate, and file -> DB -> export byte-identical.
+
+### The decision table (the specification, verbatim from the prompt)
+
+| system's read | type | size | result |
+|---|---|---|---|
+| INCLUDED | known | stated | price at the stated size |
+| INCLUDED | known | silent | price at 25mm, MARKED AS COMPUTED |
+| INCLUDED | unknown | any | DO NOT PRICE the conduit |
+| NOT INCLUDED | -- | -- | DO NOT PRICE the conduit |
+| CANNOT JUDGE | -- | -- | DO NOT PRICE the conduit |
+
+In EVERY "do not price" case the cable and termination rates compute exactly as they do today.
+
+### The twelve owner rulings, verbatim
+
+(i) "rate is per meter for both conduit and wires and cables, so can be added directly."
+(ii) "Termination is not impacted by this. it continues working the same it is working currently"
+(iii) "double counting--- no. thene the conduits mentioned separtely will be used for something else. so we just price what the Boq row says"
+(iv) "conduit pricing works the same way as it is working for conduit category"
+(v) "system judges that conduit price needs to be included...then include it. if size is not mentioned use default of 25 mm / system judges that conduit price is not included --- does not include it / system cannot judge if itsa included or not -- default to not include it"
+(vi) "if material is mentioned and size cannot be determined and price needs tro be oincluded use default size of 25 mm"
+(vii) "dont use dfault for material type"
+(viii) "use row details..nearer alkwasy wins in times on conflict"
+(ix) SUPPLY = roundup(cable_supply, TENS) + conduit_supply UNROUNDED, then roundup the TOTAL to UNITS. INSTALL = roundup(cable_install, UNITS) + roundup(conduit_install, TENS), then NO further rounding.
+(x) One conduit per row REGARDLESS of parallel runs.
+(xi) "Allof this is ok. we will live with it."
+(xii) "this decision belongs to the model."
+
+Plus the size-display ruling: **"would prefer none for size too, but lets stick with 25 as you suggested
+if none is not feasibel or has too much risk"**.
+
+### OPTION B SHIPPED -- the owner's stated preference
+
+On a row with no conduit the size field reads **`None (computed)`**, not `25 (computed)`. Option B was
+attempted first, proven feasible offline before any build, and confirmed live in the cert (row 114).
+
+**Why it works, and why the first analysis thought it might not.** The trap is the slice-3b narrowing at
+`pricingSheetHelper.ts:520-533`: it removes a `map_attribute` target from the missing-gate exemption when
+the target has **no default** and its source reads blank -- and `valueOfDef` reads the RAW extraction,
+which is null on every row for an attribute nothing extracts. The escape is that **the check is
+`if (src.hasDefault) continue;`** -- a target carrying ANY default is never narrowed. So `size_mm` carries
+`default: "None"` (the sentinel, not 25) and the **25 comes from a TABLE keyed on the resolved
+`conduit_type`**, which is what makes it fire only when a material is known (ruling vi).
+
+### The gate mechanism, and why it is the only one that works
+
+~4,850 wiring rows name no conduit and must price EXACTLY as before. Two walls had to be cleared:
+
+1. the whole-row `missing` gate (`pricingSheetHelper.ts:534`, early return `:593`), whose only
+   exemptions are `disabled`, `fillableDerived` and `d.panel !== false`;
+2. `component_ref`'s bindMiss -- a BLANK `@`-bound attribute returns `no_match` for the WHOLE pipeline,
+   destroying the cable rate. Only the literal `"None"` sentinel takes the `none_skips` zero path.
+
+**`map_attribute` is the only shipped mechanism that clears both**, because it resolves INSIDE the
+pipeline at price time -- so it fills a value on rows whose extraction predates the config -- and its
+target is in `derivedAttrIds` ("THE FIFTH MECHANISM", `rateMasterStructure.ts:539-556`), which exempts it
+from the gate. Neither `extraction_defaults` nor `AttributeDefinition.default` can serve: **both are
+server-side only** (`rateMasterTypes.ts:67-68`), so neither reaches an already-banked row.
+
+The shipped shape:
+
+```
+map_attribute  conduit_included  prefer=conduit_included  default="No"      <- ruling (v)
+map_attribute  conduit_type      prefer=conduit_type      default="None"    <- ruling (vii)
+map_attribute  size_mm           prefer=size_mm  from=conduit_type
+                                 table={MS:25, PVC:25}    default="None"    <- ruling (vi)
+... the untouched cable_boq steps ...
+component_ref  conduit  ref{kind:conduit, conduit_type:@conduit_type, size_mm:@size_mm}
+               target=list_price_per_mtr  rate_stages=[{mult:0.7}]          <- ruling (iv)
+               qty={if_attr:{conduit_included:"Yes"}, then:1, else:0}       <- rulings (v)+(x)
+               none_skips=true
+sum_components -> conduit_supply
+scale  conduit_supply x 0.2 -> conduit_install ; roundup TENS               <- ruling (iv)
+scale  supply_per_mtr + conduit_supply ; roundup UNITS                      <- ruling (ix)
+scale  install_per_mtr + conduit_install ; NO further rounding              <- ruling (ix)
+```
+
+**THE TWO ZERO PATHS.** A row naming no conduit resolves `conduit_type` to `"None"` and `none_skips`
+zeroes the component; a row naming one that is not included resolves qty to 0 via `qty.if_attr`. Both
+leave the cable rate byte-identical -- `supply + 0` then `roundup(..., UNITS)` is an identity on the
+tens-rounded integers cable_boq already produces, and `install + roundup(0, TENS)` adds nothing.
+
+### ⚠️ TWO LOAD-BEARING FACTS A FUTURE EDITOR MUST NOT TIDY AWAY
+
+1. **`size_mm`'s `default` is load-bearing.** Remove it and `pricingSheetHelper.ts:520-533` narrows the
+   target out of the gate exemption on EVERY row (its source `conduit_type` is itself a map target, so
+   `valueOfDef` reads null always) -- roughly **5,000 wiring rows** would render "Complete the missing
+   attributes to price" instead of their rate. Pinned by
+   `test_size_mm_carries_a_default_and_that_default_is_load_bearing`.
+2. **Each map's `prefer_attr` IS the attribute itself.** This is the `cabletray_raceway` `thickness_mm`
+   precedent and the ONLY shape whose panel display works. `applyDerivedDisplay`'s STATED branch
+   publishes no display value and falls back to the TARGET attribute's own extracted value -- which is
+   empty when nothing extracts it. **A first cut split each fact into a `panel: false` raw attribute plus
+   an `extract: false` resolved one; pricing was correct and all three conduit fields rendered BLANK.**
+   Caught in the browser cert, not by a test. Pinned by
+   `test_the_three_conduit_attributes_are_extracted_AND_panel_visible`.
+
+### Extraction wording
+
+One new estimator rule, **R11**, injected verbatim as ESTIMATOR_RULES. It teaches the three FACTS and
+nothing else: no 25mm (that substitution is the map table's job) and no ancestor precedence.
+**Nearest-wins was already shipped** -- `extraction._ROW_CONTEXT_SHAPE_GUIDANCE` separates the row's own
+`description` from `ancestor_chain` and states *"A nearer ancestor's text describes this row more
+specifically than a farther one's."* No ordering was invented. GI -> MS rides the existing per-config
+`synonyms` mechanism, so a stated GI arrives as MS and renders PLAIN, not "(computed)".
+
+### Measured counts (in-session)
+
+| suite | before | after |
+|---|---|---|
+| `test_rate_master` (Python) | 197 tests, 1 error* | **205 tests, OK** |
+| full vitest | 1 failed / 2883 passed (2884) | **1 failed / 2894 passed (2895)** |
+
+**+11 vitest tests, +8 Python tests, 0 new failures.** The single vitest failure is the PRE-EXISTING,
+out-of-scope `writeOffControl.test.ts` timeout. `ratePipelineInterpreter.test.ts` alone finishes at 361
+tests (its pre-slice count was not measured separately -- the full-suite delta above is the measured
+number).
+
+*The single "before" error was self-inflicted and is disclosed rather than hidden: the first mint added a
+`conduit_component` top-level key, and `_KNOWN_CONFIG_KEYS` (`api/boq/rate_master.py:1303`) is a CLOSED
+whitelist, so the loader rejected the whole config. The slice note moved to `notes`, an allowed
+pass-through key. **A new top-level config key is a code change, never a config one.**
+
+**Vacuity proof.** Disabling the composition (`qty.then: 1 -> 0`) turned **6** tests red -- every priced /
+arithmetic test plus the config-shape guard -- while the "not priced" and byte-identical guards correctly
+stayed green. Restored immediately; no probe residue.
+
+### The browser cert (bench :8000 + vite :8080, both marker halves confirmed)
+
+⚠️ **No frontend source changed this slice** -- the new fields come entirely from the config -- so the
+marker halves are: (1) the BACKEND serves v47 (`get_rate_category_config` returns the three attributes,
+the three map steps, the `component_ref`, and `termination_boq` mentioning conduit NOWHERE); (2) the
+BROWSER renders them (the three fields appear on the panel with values and confidences).
+
+| row | what is on screen | verdict |
+|---|---|---|
+| **A. BOQ-26-00201 / 194** | Conduit included **Yes**, type **MS**, size **20** (all plain -- stated). `supply_per_mtr = 226`, `install_per_mtr = 40`. Termination 70/20. | PASS -- 180 + 45.5 -> 226; 30 + 10 -> 40 |
+| **B. BOQ-26-00201 / 198** | Yes / MS / 20. `supply_per_mtr = 226`, `install_per_mtr = 30`. Termination em dash. | PASS |
+| **C. BOQ-26-00201 / 210** (nearest-wins) | size **32** -- the row's own value, NOT the ancestor's 25. `supply_per_mtr = 264`, `install_per_mtr = 50`. | PASS -- ruling (viii) live |
+| **D. the 25mm substitution** | On BOQ-26-00183 / 33, size shows **25 (computed)**. Overriding `Conduit included` -> Yes (panel only, never saved) repriced supply 180 -> **240** and install 30 -> **50**. | PASS -- and the exact values the unit test asserts. See the note below on how D was sourced. |
+| **E. BOQ-26-00201 / 114** (REGRESSION GUARD) | included **No (computed)**, type **None (computed)**, size **None (computed)**. `supply_per_mtr = 350`, `install_per_mtr = 28`. | **PASS -- BYTE-IDENTICAL.** The pre-slice v46 pipeline computes 350 / 28 for the same attributes. #57 item 3 observed. |
+| **F. BOQ-26-00183 / 33** ("existing conduits") | included **No** (stated). `supply_per_mtr = 180`, `install_per_mtr = 30` -- **no conduit added**. | PASS. **The model read "existing" correctly where the recon's regex over-included this exact row.** |
+
+**⚠️ How cert D was sourced, stated plainly.** No row in the touched corpus is *clean-inclusion with a
+known type and no size anywhere* -- the candidates (BOQ-26-00201 rows 213-216) name only FLEXIBLE, which
+is not a catalogue `conduit_type`, so the model correctly declined them. Rather than buy a third AI run
+hunting one, D was demonstrated on row 33 via the pricer's own override, which exercises the identical
+`map_attribute` path and additionally proves R9. The substitution itself is pinned by a unit test.
+
+**Zero residual.** 0 `BoQ Cell Pricing` rows modified, 0 `BoQ Rate Suggestion Event` rows created; all
+cert rows hold their pre-cert saved rates (194 = 200/40, 198 = 200/40, 114 = 80/20, 183/33 = 210, all
+timestamped 2026-08-12/19). The panel override was never saved. **Four `BoQ Rate Suggestion Run` docs
+were created -- the authorised scoped re-extractions** (`only_rows`, which seeds the new run doc with the
+prior active run's untouched rows byte-identically, so no unselected row lost its extraction). Two are
+superseded intermediates from the first attribute shape.
+
+### ⚠️ ACCEPTED RISK -- in the owner's own words, not an oversight
+
+The inclusion signal **cannot be read reliably**. The recon measured it: 21 of 220 clean-inclusion rows
+(9.5%) carry hand-off language the phrase families did not anticipate; at least 2 of the 52 survivors
+were demonstrable false positives; the hand-off vocabulary is unbounded; and every widening of the
+pattern found failures in BOTH directions. **The residual error runs toward OVER-inclusion**, which adds
+money to a rate that should not carry it. The owner ruled: **"Allof this is ok. we will live with it."**
+No guards, heuristics or safety nets were added beyond what he asked for (ruling xi).
+
+Encouraging counter-evidence from this cert: on row 33 the MODEL read "in existing ... conduits" as NOT
+included, where the recon's regex could not. Ruling (xii) puts that judgement with the model.
+
+### ⚠️ RULING (vi) OVERRULES THE EARLIER "NO SIZE -> DON'T INCLUDE"
+
+The Part B recon measured the buildable population under the then-current bar (positive inclusion AND
+type AND size) at **52 rows**, because size is silent on 155 of the 207 rows that are otherwise
+qualified. Ruling (vi) supplies 25mm whenever a material is known, which **takes the reach from ~52 rows
+to ~207**. That is the single largest consequence of the ruling and the reason the blast radius grew.
+
+### OPEN
+
+- **The per-metre cable rate does not yet show a cable-vs-conduit breakdown.** The owner asked for this
+  during the cert. It needs `computeWiring` in `pricingSheetHelper.ts` to push the conduit component's
+  step lines into the Cable group's derivation -- a file outside this slice's declared scope, and a fifth
+  #57 item. NOT built here.
+- The 155 clean-inclusion rows with a type but no size now price at 25mm. That is ruling (vi) working as
+  ruled, but it is the population most exposed to the accepted over-inclusion risk.
+- 33 of the 52 previously measured survivors already carry hand-set rates that this will move.
+
+
+---
+
+## Build slice TPN POST-MATCH POLE CORRECTION (2026-08-23) -- the cheap deterministic fix
+
+**Branch** `feature/boq-pricing-helper` - **tip at start** `263bea73` - **CURRENT_EALL_ASSET**
+`rate_master_electrical_all_v47.json`, UNCHANGED: this slice mints nothing, changes no config, no
+catalogue, no doctype, no interpreter. Two source files.
+
+### What was wrong
+
+The decomposition prompt's POLE line tells the model that TPN, TP+N, TP+NL, TP+2N and TP+2NL all mean
+FOUR pole. It is obeyed for the four COMPOUND tokens and measurably NOT for the bare token `TPN`, which
+the model resolves as the WORDS "Triple Pole and Neutral" -> three pole. Five stable observations;
+rewording judged futile. `recon_tpn_deep_2026-08-23.md` measured shape B2 as the proportionate fix.
+
+### The rule
+
+> IF a slot's picked catalogue item resolves to `device == "MCB"` AND `pole == "TP"`, AND the row's OWN
+> text carries a four-pole token within 3 words of a non-board `MCB`, THEN re-select the sibling row
+> with the SAME `amp_a` and `curve` at `pole == "FP"`.
+
+**THE GUARD IS THE PICK, NOT A PARSE OF THE TEXT'S INTENT.** Measured on the live catalogue, **`MCB` is
+the ONLY device carrying both a TP row and an FP row** -- MCCB is FP-only, RCCB and RCBO are DP/FP only,
+DB shells and Enclosure Boxes carry no `device` at all. The correction is therefore STRUCTURALLY unable
+to alter anything but the 8 TP-MCB rows (amps 25/32/40/63 x curves C/D). Three tests pin exactly that.
+
+**SWAP, NEVER BLANK.** A blanked slot makes `component_ref` match zero rows, which refuses the WHOLE
+pipeline -- a dead row instead of a slightly-low one.
+
+**NO FP SIBLING AT THAT amp AND curve -> THE PICK IS LEFT EXACTLY ALONE, reason recorded**
+(`no_unique_fp_sibling`). Never a different amp, never a different curve, never an invented row. A
+non-unique sibling is refused the same way: picking one would be a guess.
+
+### THE ADJACENCY WINDOW: 3 intervening words, DERIVED not chosen
+
+Measured against the real text of the 3 firing rows and the 6 correctly-non-firing rows:
+
+| case | min intervening words between a four-pole token and `MCB` |
+|---|---|
+| BOQ-26-00198 r77 -- `1No - 40A TPN MCB " C " Curve` | **0** |
+| BOQ-26-00198 r88 -- same wording | **0** |
+| BOQ-26-00200 r77 -- `32A, TPN C Curve MCB` | **2** |
+| the six real bare-`TP` rows | **no four-pole token present at all** |
+| constructed `12 Way TPN DB (double door) with 32A TP MCB outgoings` | 6 |
+| constructed `Supply of 12 Way TPN distribution board complete with 4 Nos 32A TP MCB outgoings` | 8 |
+
+**Every value in 2-5 separates them; 3 is the midpoint** -- one word of headroom above the widest real
+hit, three words of clearance below the nearest constructible miss. N=2 sits exactly on a real observed
+case (one extra word such as `10kA` would silently stop it firing); N=5 sits one word from the leak.
+
+### ⚠️ THE WINDOW ALONE WAS NOT SUFFICIENT -- TWO FURTHER GUARDS, BOTH LOAD-BEARING
+
+**1. An `MCB` followed by board vocabulary is NOT a device anchor.** `"TPN MCB DB"` names a
+distribution BOARD, and its TPN is the BOARD's phase type. That construction puts the token at **gap
+ZERO, so NO adjacency window whatsoever can separate it.** Found by adversarial construction during the
+build, not from the corpus -- and it is a real wording: **BOQ-26-00190 rows 54/55 read
+`"For 6 way, Double door TPN MCBDB"`**. Without this guard the slice would have shipped a live hole
+that upgrades a genuinely three-pole outgoing. Skipped words:
+`DB / DBS / DB'S / MCBDB / BOARD / BOARDS / DISTRIBUTION`. Failing the test means NOT firing, the safe
+direction. **Owner ruled it IN (2026-08-23): "the guard STAYS".**
+
+**2. Adjacency is tested PER FRAGMENT, never across a join.** A description ending `"...12 Way TPN DB"`
+beside a note beginning `"MCB 32A TP..."` reads as `"TPN DB MCB"` -- gap 1 -- if concatenated. They are
+separate texts on the sheet and stay separate here. (`attached_notes` is a genuine list in the DB, so
+per-fragment is also the natural shape.)
+
+**3. THE ANCESTOR CHAIN IS DELIBERATELY EXCLUDED.** Only the row's OWN text is read (description + own
+/ attached / appended notes). An ancestor of a DB row is its board header -- precisely where "TPN" means
+the board's phase type rather than a breaker's pole. Reading the chain would turn the one context that
+must not fire into the one most likely to. All three measured mis-routed rows carry their token in the
+row's own text.
+
+### The vocabulary is READ from the shipped prompt, never duplicated
+
+`extraction.four_pole_tokens()` parses the FP tokens out of the POLE line of
+`boq_composite_decomposition_prompt.md`, in the prompt's own longest-token-first order
+(`TP+2NL, TP+2N, TP+NL, TP+N, TPN, Four Pole, 4 pole, 4P, FP`). **Reading it is the point:** if the two
+lists could drift, a token added to the prompt would be silently uncorrected here -- the very failure
+this slice exists to fix, one level down. A negative test pins that every token acted on is quoted IN
+the shipped line; another pins that a prompt with no POLE line makes the corrector go INERT rather than
+fall back to a hardcoded list. **The prompt line itself was NOT edited.**
+
+### Where it lives
+
+`services/boq_rate_master/extraction.py`, beside `scrub_unpaired_slot_defaults` -- the shipped
+precedent, whose docstring states the doctrine: *"THE PROMPT SENTENCE IS GUIDANCE; THIS IS THE
+ENFORCEMENT ... a second instruction to the same model would be another thing to hope for rather than a
+guarantee."* Called at the same site in `_extract_batch`, after the model's output is assembled and
+BEFORE the result is stored.
+
+- Pure half (no DB): `four_pole_tokens` / `_four_pole_re` / `_four_pole_near_device` /
+  `row_own_text_fragments` / `correct_four_pole_mcb_picks`.
+- Catalogue read: `attributes_by_item` / `breaker_catalog_for`, in the `values_from_catalog` shape. The
+  kind comes from `cfg.composite_slots.repeatable.values_from`, **never hardcoded** -- no category id or
+  catalog kind appears in the correction path.
+- `_extract_batch` gained `pole_catalog`, positioned AFTER `rules` and BEFORE the keyword-only
+  `capture_ctx`, so the existing 6-positional call in `test_rate_suggest.py:749` binds unchanged. **No
+  existing test assertion changed.** `group_ctx` resolves it ONCE per group, composite-only; `None` for
+  every other mode, so no other category can reach the code at all.
+
+### THE MARKER: the precedent records NOTHING user-visible, and this follows it
+
+`scrub_unpaired_slot_defaults` records into `drops`, an observation-only accumulator written to the
+diagnostic capture JSONL by `_capture_write` -- never to the database, never to the UI. This slice
+follows that exactly: `drops["four_pole_mcb_corrections"]` = `{excel_row: [{attr, from, to}, ...]}`
+(including the `no_unique_fp_sibling` non-swaps), plus the per-attribute
+`row_map[...]["four_pole_corrected"]` mirror that `scrubbed_unpaired` already sets. **No user-visible
+change ships beyond the price movement itself.** A minimal panel marker would need a NEW per-attribute
+marker in the stored result (the `defaulted` / `corroborated` shape) plus `RateHelperPanel.tsx` and
+`pricingSheetHelper.ts` -- a new format and two out-of-scope files. Not invented, not built.
+
+### THE CERT -- A-F, live, ai_status='ran' on all three sheets
+
+Environment rebuilt per the runbook: the 19:43 `bench serve --noreload` + `vite` killed **by PID** (they
+held pre-change Python), ports :8000/:8080/:9000 verified clear, `bench serve` restarted detached,
+`/api/method/ping` 200 x3 on :8000, `node_modules/.vite` cleared, `yarn dev` restarted, chain check
+200 x3 on :8080, service worker unregistered, tab closed and reopened on the bare root.
+
+Six rows re-extracted via `only_rows` -- `BOQ-26-00198 ELEC [77,88]`, `BOQ-26-00200 "ELE - BOQ" [77,79]`,
+`BOQ-26-00174 "Electrical " [94,100]`. **`ai_status = "ran"` on every sheet.**
+
+| | row | slot | BEFORE | AFTER | supply before -> after |
+|---|---|---|---|---|---|
+| **A** | 00198 r77 | `mcb1_item` | `40A TP MCB C CURVE` | **`40A FP MCB C CURVE`** | **21,510 -> 21,710** |
+| **B** | 00198 r88 | `mcb1_item` | `40A TP MCB C CURVE` | **`40A FP MCB C CURVE`** | **23,260 -> 23,450** |
+| **C** | 00200 r77 | `mcb1_item` | `32A TP MCB C CURVE` | **`32A FP MCB C CURVE`** | **1,190 -> 1,400** |
+| **D1** | 00174 r94 | `mcb1_item` | `32A TP MCB C CURVE` | `32A TP MCB C CURVE` | 19,630 -> 19,630 UNCHANGED |
+| **D2** | 00174 r100 | `mcb1_item` | `32A TP MCB C CURVE` | `32A TP MCB C CURVE` | 21,990 -> 21,990 UNCHANGED |
+| **E** | 00200 r79 | `mcb1_item` | `40A RCCB 100mA (FP)` | `40A RCCB 100mA (FP)` | 2,920 -> 2,920 UNCHANGED |
+| **F** | 00198 r77 | `db_shell_item` | `TPN 7 SEGMENT DB 6WAY` | `TPN 7 SEGMENT DB 6WAY` | UNCHANGED |
+
+Every other slot on A/B (the RCBO and SP MCB picks) also came back identical, so **the only delta the
+live model produced is the pole swap**. Every predicted number hit exactly.
+
+**BUNDLE MARKERS (backend-only slice, both halves stated).**
+*Half 1 -- the restarted backend runs the NEW Python:* the extraction interpreter asserted
+`correct_four_pole_mcb_picks` present, `_FOUR_POLE_ADJACENCY_WORDS == 3`, the board-guard set, and the
+9-token vocabulary read live from the prompt -- then produced the corrected picks above.
+*Half 2 -- the browser renders it:* the pricing editor at `http://localhost:8080`, BOQ-26-00200 /
+`ELE - BOQ`, row 77 -> Rate suggestions panel showed **"Row 77 - Supply rate / Pricing sheet 1400 /
+Rate master: db_switchgear @ D..."** and, expanded, **`MCB 1  95%  32A FP MCB C CURVE`, `MCB 1 qty 1`**.
+The corrected item and the corrected price, on screen.
+
+**ZERO RESIDUAL:** 0 `BoQ Cell Pricing` rows modified, 0 `BoQ Rate Suggestion Event` rows created. Three
+`BoQ Rate Suggestion Run` docs created -- the authorised scoped re-extractions (`only_rows` seeds the new
+doc with the prior active run's untouched rows byte-identically, so no unselected row lost its
+extraction). Live Electrical catalogue re-verified **1367/1367 byte-identical to v45/v46/v47**, 136
+active `db_switchgear_item`, 12 active configs.
+
+### Test counts, all measured in-session
+
+| suite | before | after |
+|---|---|---|
+| `services.boq_rate_master.test_extraction_coercion` | **40 OK** | **66 OK** (+26) |
+| `api.boq.test_rate_master` | -- | **205 OK** |
+| `api.boq.test_rate_suggest` | **65, 5 failures** | **65, THE SAME 5** |
+| vitest (in container, from `frontend/`) | -- | **2894 passed / 1 failed** (the known `writeOffControl.test.ts` timeout), 77 files |
+
+**Vacuity proof:** disabling the one line the mechanism depends on (`cell["value"] = siblings[0]` ->
+`pass`) turns **12 tests RED**; restoring gives **66 OK** with the file asserted byte-identical.
+
+### OPEN -- OWNER-DEFERRED, NOT AN OVERSIGHT
+
+⚠️ **The larger unchecked class is real, measured, and deliberately unfixed.** `component_ref`
+constrains a slot on **kind + item name + family ONLY**:
+
+```ts
+const refRows = items.filter(
+  (it) => it.kind === s.ref.kind &&
+          Object.entries(resolved).every(([k, v]) => it.attributes?.[k] === v));
+```
+
+For every MCB slot the ref is `{kind: "db_switchgear_item", item: "@mcbN_item", family: "Switchgear"}`,
+so **`device`, `amp_a` and `curve` are stored on every catalogue row and checked by NOTHING** -- the
+model's chosen NAME is the answer for all four. Pole was merely the one noticed, because MCB is the one
+device where the catalogue offers a wrong answer to reach.
+
+**The measured DEVICE error is LARGER than the pole error this slice fixes:** two rows asked for an RCBO
+and were priced as an RCCB -- `40A RCCB 100mA (FP)` @5,882 where `40A RCBO 100mA (FP)` @9,099 was
+wanted, and `63A RCCB 100mA(FP)` @6,918 where `63A RCBO 100mA (FP)` @10,013 was wanted -- **Rs 3,120 of
+supply, 5.2x the pole error's Rs 600.** Amperage measured clean; curve effectively clean.
+
+Owner ruling (6), verbatim: *"ok. lets do the cheap fix now. later if the team starts noticing higher
+error rates we will make th elarger fix"*. **A future reader must not mistake this for an oversight, and
+must not generalise the TPN mechanism toward it without a fresh ruling** -- the device rule is genuinely
+harder (pole has a closed 9-token vocabulary and a single collapse; RCBO-vs-RCCB is a semantic
+distinction with no comparable table, and the catalogue stocks both).
+
+### OPEN -- FIVE PRE-EXISTING `test_rate_suggest` FAILURES, NEXT SLICE
+
+Owner ruling (7), verbatim: *"committ TPN then fix the 5"*.
+
+```
+FAIL: test_e4_point_wiring_r9_records_runs_and_cores_separately
+FAIL: test_e5_wiring_cabling_carries_runs_defaults_and_r10
+FAIL: test_e6_five_runs_multipliers_each_after_its_rounding
+        AssertionError: False is not true : cable_boq/supply_per_mtr:
+        runs must multiply a ROUNDED per-unit rate
+FAIL: test_04_corroborator_disagreement
+        AssertionError: None != 99   (thickness_sqmm)
+FAIL: test_27_live_configs_all_validate
+        Invalid config: "Unknown top-level config key(s): ..."   (rate_master.py:1424)
+```
+
+**Evidence they are PRE-EXISTING:** the two slice files were copied aside, `git checkout`-ed to the
+pristine tip `263bea73`, and the suite re-run -- **identical five, by name.** Files then restored and
+re-verified by `git diff --stat`. Confirmed again after the cert: still exactly those five.
+
+**Reading:** all five are *live-data-coupled*. `test_27` validates the **live** configs and fails on an
+unknown top-level key -- i.e. **a live config would be rejected by its own save path**, which matters
+independently of any test. `e4/e5/e6` assert the wiring/cable rate rounding that the recent wiring and
+conduit-in-the-cable-rate slices changed. `test_rate_suggest.py` itself has not been touched since
+`ccb52a4d`, several commits back -- so this reads as config/asset work having drifted past its validator
+and its rate assertions, not a test-file problem.
+
+⚠️ **THE PROCESS GAP, RECORDED PLAINLY: `test_rate_suggest` was not in scope for the wiring or conduit
+slices, so nobody ran it, and the drift went unnoticed into two pushed slices.** The lesson is not about
+those slices' code -- it is that a suite outside a slice's declared scope can still be the suite that
+owns the behaviour being changed.
+
+### ⚠️ A STANDING PREMISE WAS CORRECTED BY THE RECON
+
+It was believed the MCB catalogue had **no pole field** -- that pole existed only as letters inside the
+item name, and that a column would have to be minted and script-filled. **False.** Every
+`family: "Switchgear"` row has carried structured `device` / `pole` / `amp_a` / `curve` since **asset
+v36**, 106 of 106 (the 30 without are DB shells and Enclosure Boxes, where a breaker pole is
+meaningless). A control parse of all 106 item names agreed with the stored value on every row: 106
+unambiguous, 0 ambiguous, 0 unparseable, 0 disagreements. **No catalogue work was needed and none was
+done.** The owner's conditional authorisation for a pole column is moot; the modules-width precedent
+(v45, `26dec1ba`) was verified and holds but was not needed -- its wrinkle (*"undeclared, one CSV round
+trip retypes every width as a string"*) is NUMERIC-only, and `pole` is a string, and is declared anyway
+via `industrial_sockets`.
+
+Incidental, not acted on: `device` and `curve` are carried by real items and declared by NO config, so
+the RM-4a in-app item editor cannot set them (CSV and asset-mint round trips are unaffected). The
+`csv_importer` docstring still says "the three undeclared keys"; there are now five.
+
+
+---
+
+## Slice FIVE FAILURES -- PHASE A: four stale pins in `test_rate_suggest` (2026-08-23)
+
+**Branch** `feature/boq-pricing-helper` - **tip at start** `cda48c74`. **Tests only.** No production
+code, no config, no asset, no doctype, no pipeline, no interpreter. One file:
+`nirmaan_stack/api/boq/test_rate_suggest.py`.
+
+**Before:** 65 tests, 5 failures. **After Phase A:** 65 tests, **1 failure -- `test_27` alone**,
+which Phase B clears by deleting orphaned fixture data.
+
+### ⚠️ THE RETRACTION -- an earlier claim of ours was WRONG
+
+We reported that **a live config would be rejected by its own save path**. **That is false.** All 12
+active Electrical configs validate cleanly against `_KNOWN_CONFIG_KEYS`. The only unknown key
+anywhere in the database is `a_key_nothing_knows_about`, and it lives exclusively on `TEST_RM_*`
+fixture configs written at runtime by `test_rate_master.py:1750` -- a deliberate negative fixture
+proving the exporter emits config blobs verbatim. `test_27` sweeps **every** active config with no
+discipline filter, so it picks those up. It is **cross-suite fixture residue**, not config drift.
+
+### ⚠️ THE CAUSE, PLAINLY: the teardown was NEVER missing
+
+`test_rate_master.tearDownClass` (line 258) already purges every synthetic discipline -- snapshots,
+Version rows, items, configs, retirements. **Measured net-zero:** a full clean run
+(205 tests, OK, 498.9 s) left residue byte-identical either side (items 137648 -> 137648, configs
+966 -> 966).
+
+The 966 stranded configs came from **`kill -9`**, which skips `tearDownClass` entirely. Three
+concurrent suites were killed on 2026-08-23 and stranded everything they had created; every
+timestamp fits (all `TEST_RM_*` configs date from that day, none before).
+
+**THE PREVENTIVE IS "NEVER KILL A SUITE MID-RUN", NOT MORE TEARDOWN CODE.** No teardown was written
+in this slice, and neither suite's lifecycle was touched.
+
+### ⚠️ METHOD LESSONS x2
+
+**(a) A "pre-existing" proof by reverting SOURCE FILES is sound about CODE but blind to DB STATE.**
+Reverting the TPN files and re-running reproduced the same five failures, which correctly proved the
+TPN slice did not cause them -- but it could not detect that our own earlier test runs had put the
+offending rows in the database. **Both axes must be checked.**
+
+**(b) A FAILING ASSERTION MASKS EVERY LATER ASSERTION IN THE SAME TEST.** `test_e4` carried **two**
+stale pins. The label assertion failed first and aborted the test, so the second
+(`assertIn("wire 2 is None", ...)`) never executed and never appeared in any failure output. Our own
+recon, reading only the failure text, reported e4's fix as "1 line". **A red test can hide a second
+red thing inside itself, and no amount of reading the output will reveal it** -- only running with
+the first pin fixed does.
+
+### The four pins
+
+**(1) `test_e4` -- BOTH pins.** R9's label was rewritten at asset **v25**, commit `37339a10`
+("compute circuit length from the point count"), which replaced the rule wholesale to cover the
+point count.
+- label pin updated to the live string `'Wire runs, cores, and the number of points in point wiring'`.
+- `assertIn("wire 2 is None", ...)` **DELETED**. That clause no longer exists in R9's guidance; the
+  live text says "wire 2 with 1 run" and "before deciding there is only one wire" instead. **No
+  replacement phrase was invented** -- a pin made up to fill the gap would assert wording no ruling
+  ever chose, which is worse than not pinning it. The four surviving phrase pins still carry the
+  rule's load-bearing claims. R9's live text was verified sound before either pin moved: it is
+  coherent, matches its own label, and closes with the owner-locked points rule.
+
+**(2) `test_e5`.** `wiring_cabling.rules` gained **R11** at v47, commit `db6ac9ba` (the
+conduit-in-the-cable-rate slice). The list stays **EXACT** (`["R10", "R11"]`) rather than loosening
+to "contains R10", and **R11's identity is now pinned too** (`label`, `applies_to`), so a rule
+silently dropped OR renamed still fails. Every other e5 pin was checked against live and still
+holds.
+
+**(3) `test_e6`.** The assertion `i > max(rounds)` claimed the runs scale sits after **every**
+roundup on its target. The conduit ruling (2026-08-22) deliberately adds a **later** roundup on
+`cable_boq/supply_per_mtr` -- conduit lands after the runs scale, then the TOTAL rounds to units.
+Four of the five attachment points still passed; only that one failed. What the invariant actually
+claims is that runs multiplies an **already-rounded** rate, so it is now
+`any(j < i for j in rounds)` -- a roundup exists BEFORE the scale. **The pipeline was not touched
+and does not need to be: it matches the owner's ruling clause for clause, and no live row prices
+wrongly.**
+
+**(4) `test_04`.** `thickness_sqmm` became a catalogue-fed `number_choice` at `ccb52a4d`
+(F-1/F-8, owner ruling R6), so the fixture's `99` -- not a stocked thickness -- was refused at
+coercion and stored as `None` (intended; pinned by `test_107`). **Expecting `None` would have made
+the test VACUOUS**: a nulled value can never disagree with anything, so the corroborator, the only
+thing this test exists to exercise, would never be reached. The fixture now feeds **16.0**, which is
+in the live catalogue (`[0.5, 0.75, 1.0, 1.5, 2.5, 4.0, 6.0, 10.0, 16.0, ...]`, measured over all
+292 active `Electrical`/`cable` rows), so it survives coercion **and** still disagrees with the
+`2.5` the regex reads from `"3C x 2.5 sqmm"`. The disagreement assertion is kept.
+
+### Vacuity proofs -- all five held
+
+Each: break the thing the assertion protects, confirm THAT test goes RED, restore byte-identical.
+
+| proof | what was broken | result |
+|---|---|---|
+| A1 label | assert a wrong label | `test_e4` **RED** |
+| A2 list | expect the old `["R10"]`, i.e. R11 silently dropped | `test_e5` **RED** |
+| A2b identity | assert a wrong R11 label | `test_e5` **RED** |
+| A3 position | drop every roundup preceding the runs scale | `test_e6` **RED** |
+| A4 disagreement | feed `2.5`, which AGREES with the row text | `test_04` **RED** |
+
+Baseline before and after the whole sweep: 65 tests, one failure (`test_27`). Every restore was
+asserted byte-identical in the harness before it reported.
+
+⚠️ **The DELETED assertion (e4's `"wire 2 is None"`) cannot be vacuity-proven** -- there is nothing
+left to break. Stated rather than skipped. The surviving label pin on the same test was proven
+instead.
+
+### ⚠️ THE LATENT HAZARD -- real, and left UNFIXED
+
+The exporter emits config blobs **VERBATIM** (*"Never enumerate config keys, never rebuild a config
+from known fields, never filter"*), the loader does **NOT** validate, and `_validate_config` has
+exactly **one** production caller (`update_rate_config`, `rate_master.py:1947`) which the Rate Master
+Pipelines screen does reach. So a stray top-level key would **export cleanly, import silently, reach
+production, and fail only at the first editor save** -- making that category unsavable, with nothing
+upstream to catch it. No real config carries one today. This is recorded, not fixed.
+
+### The standing config-key sweep -- UNHOUSED, deliberately
+
+**NOT wired into `scripts/residence_check.py`.** That script declares *"Stdlib only; run from
+anywhere"* and is a **baseline ratchet** that fails only when a violation count INCREASES. The sweep
+needs `frappe.connect` and is a **binary presence check**; baselining a count of stray keys would
+mean tolerating the existing ones, which is the opposite of the point. Merging them degrades both
+instruments. Run it standalone instead:
+
+```python
+# bench --site localhost execute, or the ad-hoc docker pattern in CLAUDE.md
+from nirmaan_stack.api.boq.rate_master import _KNOWN_CONFIG_KEYS
+import frappe, json
+for r in frappe.get_all("BoQ Rate Category Config", filters={"active": 1},
+                        fields=["discipline", "category_id", "config"]):
+    cfg = r.config if isinstance(r.config, dict) else json.loads(r.config or "{}")
+    unknown = sorted(set(cfg) - _KNOWN_CONFIG_KEYS)
+    if unknown:
+        print(r.discipline, r.category_id, unknown)
+```
+
+~1 second, no test database. Belongs in the slice checklist, not the pre-commit gate.
+
+### ⚠️ `test_rate_suggest` OWNS THE CONFIG SHAPE
+
+It pins rule lists, attribute definitions and pipeline step order. **It belongs in the declared
+scope of any slice that changes those** -- and it was in the scope of none of the wiring, conduit or
+F-1/F-8 slices, which is why three of these pins drifted unnoticed. `test_e4` in particular sat red
+from **v25**, across many slices and weeks, because nothing that ran routinely looked at it.
+
+
+---
+
+## Slice FIVE FAILURES -- PHASE B: deleting the orphaned `TEST_RM_*` residue (2026-08-23)
+
+**A PURE DATA OPERATION on the DEV site (`localhost`). NO source file changed.** Production is a
+separate site and holds none of this; nothing here reaches what Abhishek carries.
+
+**Result: 139,016 orphaned rows deleted, 139 fake disciplines gone, residue ZERO, and the real
+catalogue provably untouched.** `test_27` went green as a consequence, taking `test_rate_suggest` to
+**65 tests / 0 failures**.
+
+### Why the rows existed (not what we first thought)
+
+They are NOT evidence of a missing teardown. `test_rate_master.tearDownClass` already purges every
+synthetic discipline and was measured net-zero. They are stranded state from **`kill -9`**, which
+skips `tearDownClass` entirely -- three concurrent suites were killed on 2026-08-23. **The
+preventive is "never kill a suite mid-run", not more teardown code.** No teardown was written and
+neither suite's lifecycle was touched.
+
+### B0 -- the wildcard, and why it is not a footnote
+
+In SQL `LIKE`, `_` is a **single-character wildcard**, so an unescaped `LIKE 'TEST_RM_%'` also
+matches `TESTXRMY...`. The escaped form used throughout:
+
+```sql
+discipline LIKE 'TEST\_RM\_%' ESCAPE '\'
+```
+
+Both forms were run and compared before anything was deleted -- **identical counts on all four
+doctypes** (137648 / 966 / 358 / 22), so nothing unintended was in range.
+
+⚠️ **A NEAR-MISS WORTH RECORDING.** An intermediate query wrote the pattern as `'TEST\_RM\_%%'`
+with **no bound parameters**. psycopg2 only collapses `%%` to `%` when parameters are passed; with
+none, SQL saw a literal `%%` and **the filter matched NOTHING** -- reporting 0 disciplines and 0
+`Version` rows, which would have made the reference check look falsely clean. It was caught because
+the companion "not matched" query then listed `Electrical` **and** all 139 fake disciplines, which
+is obviously wrong. **This is why B1 ends with an explicit filter-correctness proof rather than an
+assumption**, and why the delete ran only after that proof passed:
+
+```
+distinct disciplines in these 4 tables : 140
+SQL escaped-filter matches             : 139
+Python regex TEST_RM_<8hex> matches    : 139
+SQL set == Python set                  : True
+disciplines NOT matched (the real ones): ['Electrical']
+```
+
+**A filter that silently matches nothing looks exactly like a clean database.** Prove the filter,
+then trust it.
+
+### B1 -- the dry run (counted before anything was deleted)
+
+```
+BoQ Rate Master Item                 137648
+BoQ Rate Category Config                966
+BoQ Rate Master Retirement              358
+BoQ Rate Master Snapshot                 22
+Version -> BoQ Rate Master Item           6
+Version -> BoQ Rate Category Config      16
+Version -> BoQ Rate Master Retirement     0
+Version -> BoQ Rate Master Snapshot       0
+TOTAL rows in scope                  139016
+```
+
+Real catalogue BEFORE: **1,367** active Electrical items, **12** active Electrical configs, 24,652
+Electrical item rows in total.
+
+### B2 -- the reference check, done BEFORE deleting
+
+**Search space:** every `DocField` in **every installed DocType on this site** with fieldtype
+`Link` / `Table` / `Table MultiSelect` / `Dynamic Link` -- the framework's own complete record of
+what can point at a doctype -- plus all `Custom Field` rows of those types, plus an explicit read of
+`BoQ Rate Suggestion Run` / `Event`.
+
+```
+NO Link/Table field anywhere points at any of the four target doctypes.
+Custom Fields pointing at them: NONE
+BoQ Rate Suggestion Run    link/table fields: ['boq']
+BoQ Rate Suggestion Event  link/table fields: ['boq']
+```
+
+The only referencing rows are `Version` rows -- exactly the set the teardown already handles
+explicitly. **The teardown's doctype list is complete, verified rather than assumed.**
+
+### B4 -- the delete
+
+**Batch size: ONE DISCIPLINE per transaction, committing between -- 139 batches.** Chosen so no
+single statement touches 137,648 rows and locks the table. Order mirrors the teardown's own:
+**snapshots -> `Version` rows -> items -> configs -> retirements.** Every statement scoped by the
+escaped discipline filter; **no unscoped delete anywhere**; nothing outside the four doctypes and
+their `Version` rows. Each discipline name was re-verified against `TEST_RM_[0-9a-f]{8}` immediately
+before use, with an assert that `Electrical` was not among them.
+
+⚠️ **Reporting artefact:** the script totalled rows from `frappe.db.delete()`'s return value, which
+is `None`, so it printed `0 deleted` per doctype. That figure is meaningless. **The real proof is
+the before/after comparison below**, not the delete's own accounting.
+
+### B5 -- verification, which is the actual proof
+
+```
+RESIDUE AFTER                      expected 0
+  BoQ Rate Master Item                      0
+  BoQ Rate Category Config                  0
+  BoQ Rate Master Retirement                0
+  BoQ Rate Master Snapshot                  0
+  Version -> all four                       0
+  TOTAL residue remaining                   0
+  distinct TEST_RM_ disciplines remaining   0
+
+THE REAL CATALOGUE -- the only outcome that matters
+  active Electrical items   : 1367    (before 1367)   UNCHANGED
+  active Electrical configs : 12      (before 12)     UNCHANGED
+  ALL Electrical items      : 24652   (before 24652)  UNCHANGED
+  disciplines now in the item table: ['Electrical']
+```
+
+**Suites after the cleanup, run strictly sequentially:**
+
+- `test_rate_suggest` -- **65 tests, OK, ZERO failures.** `test_27` green as a consequence.
+- `test_rate_master` -- **205 tests, OK** (497.1 s), **and residue STILL ZERO afterwards**, with the
+  catalogue still 1367 / 12 / 24652.
+
+⚠️ **That last line is the load-bearing one.** Running the full fixture suite against a now-clean
+database and finding zero residue afterwards is the direct proof that **the teardown works** and
+that the original diagnosis was right: the stranded rows were never a lifecycle defect, only the
+debris of killed runs.
+
+### What was NOT done
+
+No teardown written. Neither suite's lifecycle touched. `scripts/residence_check.py` untouched. No
+production code, config, asset, doctype or pipeline changed. No source file changed at all in Phase
+B -- it is data only.

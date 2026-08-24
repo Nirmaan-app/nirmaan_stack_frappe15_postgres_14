@@ -4607,3 +4607,315 @@ describe("SLICE 5 -- the addition primitive (scale `_from_ctx`)", () => {
     expect(r.finals.total).toBe(100);
   });
 });
+
+
+// ---- TPN POLE VOCABULARY (owner rulings 1/2/4, 2026-08-22) ----
+//
+// TPN, TP+2N and TP+2NL all mean FOUR POLE. db_switchgear's half of the fix is a corrected
+// INSTRUCTION to a model and cannot be proven here; industrial_sockets' half is a CONFIG TABLE
+// walked by `map_attribute`, and THIS is where it is proven.
+//
+// THE SHAPE IS FORCED, not chosen: `map_attribute`'s stated-wins branch copies `prefer_attr`
+// VERBATIM and never consults its own table, so the normalisation cannot live inside the existing
+// pole step. It runs AHEAD of it, with NO prefer_attr of its own (so the table always runs), and
+// its result becomes the pole step's prefer_attr.
+const POLE_NORM = {
+  step: "map_attribute" as const,
+  params: {
+    result_attr: "mcb_pole_norm",
+    from_attr: "mcb_pole_stated",
+    table: {
+      "TP+2NL": "FP", "TP+2N": "FP", "TP+NL": "FP", "TP+N": "FP", TPN: "FP",
+      "Four Pole": "FP", "4P": "FP",
+      FP: "FP", TP: "TP", DP: "DP", SP: "SP",
+    },
+    on_miss: "skip",
+  },
+};
+const POLE_MAP_NORM = {
+  step: "map_attribute" as const,
+  params: { ...POLE_MAP.params, prefer_attr: "mcb_pole_norm" },
+};
+// TP rungs the base fixture deliberately lacks -- without them "TP stays TP" could pass by simply
+// finding nothing, which is the vacuous version of the negative.
+const TPN_ITEMS: RateMasterItem[] = [
+  ...CF_ITEMS,
+  mcbRow("25A TP MCB C CURVE", "MCB", "TP", 25, "C", 2387),
+  mcbRow("32A TP MCB C CURVE", "MCB", "TP", 32, "C", 2387),
+];
+const tpnPipe = (steps?: unknown[]): Pipeline =>
+  ({
+    output: ["supply"],
+    steps: steps ?? [
+      POLE_NORM, POLE_MAP_NORM, CURVE_MAP, catFit(), SOCKET_REF, MCB_REF,
+      { step: "sum_components", result: "supply" },
+    ],
+  } as unknown as Pipeline);
+/** The SKU the ladder binds for a row whose text states `stated` as the MCB's pole, at 25 A. */
+const skuForPole = (stated: string) =>
+  cfTrace(
+    runPipeline("indsock_boq", tpnPipe(), TPN_ITEMS, {
+      ...ROW98,
+      mcb_pole_stated: stated,
+      mcb_amp_a: 25,
+    })
+  )!.catalogFit!.fitted;
+
+describe("TPN pole vocabulary -- the DETERMINISTIC half (industrial_sockets)", () => {
+  it("POSITIVE: every four-pole spelling binds a FOUR-POLE MCB", () => {
+    // The owner's SEVEN approved spellings, all meaning three phases plus neutral.
+    // TP+NL joined at ruling 6 and TP+N at ruling 7 (both 2026-08-22).
+    for (const stated of ["TPN", "TP+N", "TP+NL", "TP+2N", "TP+2NL", "4P", "Four Pole"]) {
+      expect(skuForPole(stated)).toBe("25A FP MCB C CURVE");
+    }
+  });
+
+  it("NEGATIVE, THE ONE THAT MATTERS: a bare TP still binds a THREE-POLE MCB", () => {
+    // Every four-pole spelling except 4P / Four Pole begins with the characters "TP". A substring
+    // rule would drag a genuine three-pole row into FP and OVER-price it -- the same defect in the
+    // opposite direction. The lookup is an exact whole-value match, so TP maps to TP.
+    expect(skuForPole("TP")).toBe("25A TP MCB C CURVE");
+    expect(skuForPole("DP")).toBe("25A DP MCB C CURVE");
+  });
+
+  it("NEGATIVE: no containing token is truncated to the one it contains, or to TP", () => {
+    // "TP+2N" is a prefix of "TP+2NL"; "TP+N" is a prefix of "TP+NL" (that second pair arrived
+    // with ruling 7). Each needs its OWN key: dropped as "covered by the shorter one", a token
+    // falls through to whatever TP resolves to -- three-pole -- i.e. the original defect wearing
+    // a longer name. `map_attribute` does an exact whole-value lookup, so none can be truncated.
+    for (const [longer, shorter] of [["TP+2NL", "TP+2N"], ["TP+NL", "TP+N"]]) {
+      expect(longer.includes(shorter)).toBe(true); // the hazard is real, not assumed
+      expect(skuForPole(longer)).toBe("25A FP MCB C CURVE");
+      expect(skuForPole(shorter)).toBe("25A FP MCB C CURVE");
+      expect(skuForPole(longer)).not.toBe(skuForPole("TP"));
+    }
+  });
+
+  it("REGRESSION: with NO pole stated, the pin-count fallback is untouched", () => {
+    // `mcb_pole_stated` "None" is not a stated value, so the normalisation skips (on_miss: "skip")
+    // and leaves mcb_pole_norm unset -- which drops the pole step through to its OWN pin-count
+    // table exactly as before this slice. Row 98 is 5-pin, so it still fits FP and hops 20 -> 25.
+    const r = runPipeline("indsock_boq", tpnPipe(), TPN_ITEMS, ROW98);
+    expect(cfTrace(r)!.catalogFit!.fitted).toBe("25A FP MCB C CURVE");
+    const norm = r.steps.find((s) => s.step === "map_attribute")!;
+    expect(norm.matchedCondition).toContain("skipped");
+  });
+
+  it("REGRESSION: the pin-count table still converts a 3-pin socket to SP", () => {
+    const r = runPipeline("indsock_boq", tpnPipe(), TPN_ITEMS, {
+      ...ROW98, pole: "3 Pin / 2P+E", mcb_amp_a: 25,
+    });
+    expect(cfTrace(r)!.catalogFit!.fitted).toBe("25A SP MCB C CURVE");
+  });
+
+  it("VACUITY CONTROL: WITHOUT the normalising step a stated TPN prices NOTHING", () => {
+    // Proves the normalisation is doing the work rather than the assertions passing for some other
+    // reason. Drop the step and the raw token reaches the ladder as a pole no catalogue row has, so
+    // the ladder finds no rungs and refuses -- an honest no-compute, never a silent wrong pole.
+    const noNorm = tpnPipe([
+      POLE_MAP, CURVE_MAP, catFit(), SOCKET_REF, MCB_REF,
+      { step: "sum_components", result: "supply" },
+    ]);
+    const r = runPipeline("indsock_boq", noNorm, TPN_ITEMS, {
+      ...ROW98, mcb_pole_stated: "TPN", mcb_amp_a: 25,
+    });
+    expect(r.status).toBe("no_match");
+  });
+
+  it("the normalisation is reported on the trace, so the panel can say what it used", () => {
+    // Every mechanism that resolves a visible attribute owes the trace its answer -- the standing
+    // rule that a row must be able to explain the value it priced from.
+    const r = runPipeline("indsock_boq", tpnPipe(), TPN_ITEMS, {
+      ...ROW98, mcb_pole_stated: "TPN", mcb_amp_a: 25,
+    });
+    const norm = r.steps.find((s) => s.step === "map_attribute")!;
+    expect(norm.matchedCondition).toContain("TPN");
+    expect(norm.matchedCondition).toContain("FP");
+    expect(norm.mapAttribute).toMatchObject({ result_attr: "mcb_pole_norm", value: "FP", stated: false });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// CONDUIT IN THE CABLE RATE (2026-08-23, asset v47) -- owner rulings (i)-(xii).
+//
+// The composition lives on `cable_boq` ONLY. Three RAW facts the model answers
+// (conduit_included / conduit_type / size_mm) are each resolved by a
+// `map_attribute` whose prefer_attr is the attribute ITSELF (the cabletray thickness_mm precedent), and a `component_ref` prices the
+// conduit through conduit_piping's OWN arithmetic (ruling iv: list x 0.7 unrounded; install =
+// supply x 0.2 rounded up to tens).
+//
+// ⚠️ THE TWO ZERO PATHS ARE THE WHOLE DESIGN. A row that names no conduit resolves
+// conduit_type to the "None" sentinel and `none_skips` zeroes the component; a row that names one
+// but is not INCLUDED resolves qty to 0 through `qty.if_attr`. Both leave the cable rate
+// byte-identical, which is what keeps ~4,850 no-conduit wiring rows exactly as they price today.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe("conduit in the cable rate (v47) -- rulings (i)-(xii)", () => {
+  const CONDUIT_ITEMS: RateMasterItem[] = [
+    { discipline: "Electrical", kind: "cable", brand: "Polycab", unit: "Mtr",
+      attributes: { material: "COPPER", insulation: "UNARMOURED", core: 3, thickness_sqmm: 2.5 },
+      rates: { list_price_per_mtr: 299, install_base_per_mtr: 15 } },
+    { discipline: "Electrical", kind: "termination", brand: "Polycab", unit: "Set",
+      attributes: { material: "COPPER", insulation: "UNARMOURED", core: 3, thickness_sqmm: 2.5 },
+      rates: { lug_list: 11.46, gland_band1_list: 82.55, gland_band2_list: 361.18 } },
+    { discipline: "Electrical", kind: "conduit", brand: "Generic", unit: "Mtr",
+      attributes: { conduit_type: "MS", size_mm: 20 }, rates: { list_price_per_mtr: 65 } },
+    { discipline: "Electrical", kind: "conduit", brand: "Generic", unit: "Mtr",
+      attributes: { conduit_type: "MS", size_mm: 25 }, rates: { list_price_per_mtr: 85 } },
+    { discipline: "Electrical", kind: "conduit", brand: "Generic", unit: "Mtr",
+      attributes: { conduit_type: "MS", size_mm: 32 }, rates: { list_price_per_mtr: 120 } },
+    { discipline: "Electrical", kind: "conduit", brand: "Generic", unit: "Mtr",
+      attributes: { conduit_type: "PVC", size_mm: 25 }, rates: { list_price_per_mtr: 60 } },
+  ];
+
+  const conduitCable = (): Pipeline => ({
+    output: ["supply_per_mtr", "install_per_mtr"],
+    steps: [
+      { step: "map_attribute", params: { result_attr: "conduit_included", prefer_attr: "conduit_included", default: "No" } },
+      { step: "map_attribute", params: { result_attr: "conduit_type", prefer_attr: "conduit_type", default: NONE_SENTINEL } },
+      { step: "map_attribute", params: { result_attr: "size_mm", prefer_attr: "size_mm", from_attr: "conduit_type", table: { MS: 25, PVC: 25 }, default: NONE_SENTINEL } },
+      ...(PIPELINES.cable_boq.steps as Pipeline["steps"]),
+      { step: "component_ref", name: "conduit",
+        ref: { kind: "conduit", conduit_type: "@conduit_type", size_mm: "@size_mm" },
+        target: "list_price_per_mtr", rate_stages: [{ mult: 0.7 }],
+        qty: { if_attr: { conduit_included: "Yes" }, then: 1, else: 0 }, none_skips: true },
+      { step: "sum_components", result: "conduit_supply" },
+      { step: "scale", target: "conduit_supply", result: "conduit_install", params: { install_ratio: 0.2 }, formula: "base*install_ratio" },
+      { step: "roundup", target: "conduit_install", params: { digits: -1 } },
+      { step: "scale", target: "supply_per_mtr", result: "supply_per_mtr", params: { conduit_from_ctx: "conduit_supply" }, formula: "base+conduit" },
+      { step: "roundup", target: "supply_per_mtr", params: { digits: 0 } },
+      { step: "scale", target: "install_per_mtr", result: "install_per_mtr", params: { conduit_from_ctx: "conduit_install" }, formula: "base+conduit" },
+    ] as Pipeline["steps"],
+  });
+
+  const CABLE = { material: "COPPER", insulation: "UNARMOURED", core: 3, thickness_sqmm: 2.5, runs: 1 };
+  const run = (sel: Record<string, string | number>) =>
+    runPipeline("cable_boq", conduitCable(), CONDUIT_ITEMS, sel);
+
+  const BARE_SUPPLY = 180;
+  const BARE_INSTALL = 30;
+
+  it("INCLUDED + type + STATED size -> priced at that size, ruling (ix) arithmetic exact", () => {
+    // MS/20 list 65 -> x0.7 = 45.5 UNROUNDED; install 45.5 x 0.2 = 9.1 -> roundup TENS = 10.
+    // SUPPLY = roundup(180 + 45.5, UNITS) = 226      INSTALL = 30 + 10 = 40 (NOT rounded again)
+    const r = run({ ...CABLE, conduit_included: "Yes", conduit_type: "MS", size_mm: 20 });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply_per_mtr).toBe(226);
+    expect(r.finals.install_per_mtr).toBe(40);
+  });
+
+  it("INCLUDED + type + SILENT size -> the 25mm substitution, and it is marked COMPUTED", () => {
+    // ruling (vi): a material is known and the size is silent, so the table supplies 25.
+    const r = run({ ...CABLE, conduit_included: "Yes", conduit_type: "MS" });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply_per_mtr).toBe(240); // roundup(180 + 59.5) = 240
+    expect(r.finals.install_per_mtr).toBe(50); // 30 + roundup(11.9, tens) = 30 + 20
+    const outcomes = mapAttributeOutcomes([r]);
+    // the standing marker rule: a substituted value is "(computed)", a stated one is plain
+    expect(outcomes.get("size_mm")).toMatchObject({ value: 25, stated: false });
+    expect(outcomes.get("conduit_type")).toMatchObject({ value: "MS", stated: true });
+  });
+
+  it("INCLUDED but NO type -> conduit NOT priced, and the CABLE rate is intact (ruling vii)", () => {
+    // No material is ever guessed. conduit_type resolves to the None sentinel, none_skips zeroes it.
+    const r = run({ ...CABLE, conduit_included: "Yes" });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply_per_mtr).toBe(BARE_SUPPLY);
+    expect(r.finals.install_per_mtr).toBe(BARE_INSTALL);
+  });
+
+  it("NOT INCLUDED (an existing conduit) -> not priced, cable rate intact", () => {
+    // The type and size resolve perfectly well; `qty.if_attr` is what zeroes it.
+    const r = run({ ...CABLE, conduit_included: "No", conduit_type: "MS", size_mm: 25 });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply_per_mtr).toBe(BARE_SUPPLY);
+    expect(r.finals.install_per_mtr).toBe(BARE_INSTALL);
+  });
+
+  it("CANNOT JUDGE -> not priced, cable rate intact (ruling v)", () => {
+    const r = run({ ...CABLE, conduit_included: "Unclear", conduit_type: "MS" });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply_per_mtr).toBe(BARE_SUPPLY);
+    expect(r.finals.install_per_mtr).toBe(BARE_INSTALL);
+  });
+
+  // THE ONE THAT MATTERS MOST -- the ~4,850-row population.
+  it("A ROW WITH NO CONDUIT ANYWHERE prices its cable rate BYTE-IDENTICALLY to the pre-slice pipeline", () => {
+    const withConduitSteps = run({ ...CABLE });
+    const preSlice = runPipeline("cable_boq", PIPELINES.cable_boq, CONDUIT_ITEMS, { ...CABLE });
+    expect(withConduitSteps.status).toBe("ok");
+    expect(preSlice.status).toBe("ok");
+    expect(withConduitSteps.finals.supply_per_mtr).toBe(preSlice.finals.supply_per_mtr);
+    expect(withConduitSteps.finals.install_per_mtr).toBe(preSlice.finals.install_per_mtr);
+    // and the resolved attributes read as ABSENCE, which is what the panel shows
+    const outcomes = mapAttributeOutcomes([withConduitSteps]);
+    expect(outcomes.get("conduit_type")).toMatchObject({ value: NONE_SENTINEL, stated: false });
+    expect(outcomes.get("size_mm")).toMatchObject({ value: NONE_SENTINEL, stated: false });
+    expect(outcomes.get("conduit_included")).toMatchObject({ value: "No", stated: false });
+  });
+
+  it("NEGATIVE: nothing conduit-related reaches termination_boq (ruling ii)", () => {
+    const sel = { ...CABLE, conduit_included: "Yes", conduit_type: "MS", size_mm: 20 };
+    const withCond = runPipeline("termination_boq", PIPELINES.termination_boq, CONDUIT_ITEMS, sel);
+    const bare = runPipeline("termination_boq", PIPELINES.termination_boq, CONDUIT_ITEMS, { ...CABLE });
+    expect(withCond.finals).toEqual(bare.finals);
+    expect(JSON.stringify(withCond.steps)).not.toContain("conduit");
+    expect(Object.keys(withCond.finals).some((k) => k.includes("conduit"))).toBe(false);
+  });
+
+  it("NEGATIVE: the conduit does NOT multiply by runs -- a 3-run row carries ONE conduit (ruling x)", () => {
+    const one = run({ ...CABLE, runs: 1, conduit_included: "Yes", conduit_type: "MS", size_mm: 20 });
+    const three = run({ ...CABLE, runs: 3, conduit_included: "Yes", conduit_type: "MS", size_mm: 20 });
+    const bareOne = runPipeline("cable_boq", PIPELINES.cable_boq, CONDUIT_ITEMS, { ...CABLE, runs: 1 });
+    const bareThree = runPipeline("cable_boq", PIPELINES.cable_boq, CONDUIT_ITEMS, { ...CABLE, runs: 3 });
+    const deltaOne = one.finals.supply_per_mtr - bareOne.finals.supply_per_mtr;
+    const deltaThree = three.finals.supply_per_mtr - bareThree.finals.supply_per_mtr;
+    expect(deltaOne).toBe(deltaThree);
+    expect(one.finals.install_per_mtr - bareOne.finals.install_per_mtr).toBe(10);
+    expect(three.finals.install_per_mtr - bareThree.finals.install_per_mtr).toBe(10);
+  });
+
+  it("NEAREST-WINS: a stated 32mm beats the 25mm the table would have supplied (ruling viii)", () => {
+    // The row's own 32 arrives as size_mm and `prefer_attr` takes it VERBATIM, so the
+    // from_attr/table substitution never runs. MS/32 list 120 -> 84 supply, install 16.8 -> 20.
+    const r = run({ ...CABLE, conduit_included: "Yes", conduit_type: "MS", size_mm: 32 });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply_per_mtr).toBe(264); // roundup(180 + 84) = 264
+    expect(r.finals.install_per_mtr).toBe(50); // 30 + 20
+    expect(mapAttributeOutcomes([r]).get("size_mm")).toMatchObject({ value: 32, stated: true });
+  });
+
+  it("ROUNDING, exactly as ruling (ix) states it -- and install is NOT rounded after the sum", () => {
+    // PVC/25 list 60 -> 42.0 supply exactly; install 8.4 -> roundup TENS = 10.
+    const r = run({ ...CABLE, conduit_included: "Yes", conduit_type: "PVC", size_mm: 25 });
+    expect(r.finals.supply_per_mtr).toBe(222); // roundup(180 + 42, UNITS) -- 222, NOT 230
+    expect(r.finals.install_per_mtr).toBe(40);
+    // the decisive one: a sum that is NOT a multiple of ten must survive unrounded to UNITS
+    const r2 = run({ ...CABLE, conduit_included: "Yes", conduit_type: "MS", size_mm: 20 });
+    expect(r2.finals.supply_per_mtr).toBe(226); // 225.5 -> 226, not 230
+  });
+
+  it("CONFIG-SHAPE GUARD: the gate mechanism and size_mm's default are both present", () => {
+    const steps = conduitCable().steps as Array<Record<string, unknown>>;
+    const maps = steps.filter((s) => s.step === "map_attribute").map((s) => s.params as Record<string, unknown>);
+    const byTarget = new Map(maps.map((p) => [p.result_attr as string, p]));
+
+    // conduit_type's default is the None SENTINEL -- never a material (ruling vii), and it is what
+    // none_skips reads to zero the component on a no-conduit row.
+    expect(byTarget.get("conduit_type")!.default).toBe(NONE_SENTINEL);
+
+    // ⚠️ LOAD-BEARING, DO NOT REMOVE. pricingSheetHelper.ts:520-533 narrows a `map_attribute`
+    // target OUT of the missing-gate exemption when it has NO default and its source reads blank --
+    // and `valueOfDef` reads the RAW extraction, which is null on every row for an attribute nothing
+    // extracts. Without this default, `size_mm` is narrowed on EVERY row and roughly 5,000 wiring
+    // rows show "Complete the missing attributes to price" instead of their rate.
+    expect(byTarget.get("size_mm")!.default).toBe(NONE_SENTINEL);
+    expect(byTarget.get("size_mm")!.table).toEqual({ MS: 25, PVC: 25 });
+
+    // the two zero paths
+    const ref = steps.find((s) => s.step === "component_ref") as Record<string, unknown>;
+    expect(ref.none_skips).toBe(true);
+    expect(ref.qty).toEqual({ if_attr: { conduit_included: "Yes" }, then: 1, else: 0 });
+    // conduit prices through its OWN arithmetic, unrounded (ruling iv)
+    expect(ref.rate_stages).toEqual([{ mult: 0.7 }]);
+  });
+});

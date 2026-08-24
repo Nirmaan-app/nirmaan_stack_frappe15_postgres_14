@@ -60,6 +60,7 @@ import type {
   HelperResult,
   RateHelper,
   RateHelperRowContext,
+  RateKind,
   WorkingsAttribute,
   WorkingsGroup,
 } from "./rateHelperTypes";
@@ -140,7 +141,17 @@ interface Deps {
   extractionByRow: Map<number, ExtractionRow>;
 }
 
-/** cable vs termination from the row text (a termination line prices the gland/lug set). */
+/** Cable vs termination from the row text (a termination line prices the gland/lug set).
+ *
+ * ⚠️ SINCE THE 2026-08-22 RULING THIS NO LONGER DECIDES WHAT RUNS. Both pipelines are computed and
+ * both blocks are shown on every wiring row; this predicate now selects only which of them is
+ * PRIMARY -- i.e. whose finals become the appliable `values` (and the `basis` string, the
+ * top-level `derivation`/`matchedRows`, and which group carries the combined figure). It is
+ * therefore still live and must not be removed: delete it and `values` has no defined source.
+ *
+ * It stays a text heuristic and is still wrong on rows whose scope boilerplate merely MENTIONS a
+ * termination. That is now a question of which number is offered first, not of which number
+ * exists -- the cable rate is on screen either way. */
 function isTerminationRow(description: string): boolean {
   return /\b(termination|gland|glanding|lug)s?\b/i.test(description);
 }
@@ -739,48 +750,109 @@ function computeWiring(
     derivation.push(`Pipeline '${primaryId}' has an unsupported step.`);
   }
 
-  // A CABLE row shows the Cable pipeline AND the paired Termination as TWO labelled blocks; a
-  // TERMINATION row keeps a SINGLE flat block (no `sections`, backward-shaped). Labels are config data.
-  let sections: WorkingsGroup[] | undefined;
-  if (!termination) {
-    const cableFinals: Record<string, number> = {};
-    if (result.status === "ok") {
-      for (const o of result.outputs) cableFinals[o] = result.finals[o];
-      if (typeof values.combined_rate === "number") cableFinals.combined_per_mtr = values.combined_rate;
+  // BOTH BLOCKS, ON EVERY WIRING ROW (owner ruling 2026-08-22, verbatim: "we side step all this
+  // judgement and just show both the wirirng and cable rates and the terminations rates for all
+  // rows. both od these need the same attributes for pricing").
+  //
+  // The factual basis of that ruling is real and load-bearing: `cable_boq` and `termination_boq`
+  // depend on the SAME operand set. Both resolve their row through `match_master_row` against
+  // item kinds that carry an identical attribute key set (material, insulation, core,
+  // thickness_sqmm), and both scale on `runs`. So once the shared whole-row `missing` gate above
+  // has passed, BOTH pipelines can always run -- there is never a case where one has the inputs
+  // and the other does not. The row TEXT now decides only which block is PRIMARY (whose finals
+  // become the appliable `values`), never which block is COMPUTED.
+  //
+  // ⚠️ THE TWO GROUPS ARE DELIBERATELY NOT THE SAME SHAPE, and that asymmetry is exactly what
+  // keeps owner Decision 2 (2026-07-28) byte-intact on a cable row: the PRIMARY group carries the
+  // derivation, the matched-row line and the combined figure (all built from `result` above); the
+  // SECONDARY group carries its own rates alone. On a cable row the primary IS cable, so every
+  // rendered field is identical to before this slice.
+  const secondaryId = termination ? "cable_boq" : "termination_boq";
+
+  const primaryFinals: Record<string, number> = {};
+  if (result.status === "ok") {
+    for (const o of result.outputs) primaryFinals[o] = result.finals[o];
+    // `combined_per_mtr` is a CABLE-column notion, so it is added only when cable is the primary --
+    // exactly the pre-slice condition. A termination primary still shows its combined line in the
+    // derivation below (pushed above, unchanged), so nothing is lost and no key is renamed.
+    if (!termination && typeof values.combined_rate === "number") {
+      primaryFinals.combined_per_mtr = values.combined_rate;
     }
-    const cableGroup: WorkingsGroup = {
-      label: pipelineLabel(config, "cable_boq"),
-      derivation: [...derivation],
-      finals: cableFinals,
-      matchedRows: [...matchedRows],
-    };
-    const termGroup: WorkingsGroup = {
-      label: pipelineLabel(config, "termination_boq"),
-      derivation: [],
-      finals: {},
-    };
-    const term = pipelines["termination_boq"] as Pipeline | undefined;
-    if (term) {
-      const tr = runPipeline("termination_boq", term, items, selected);
-      pipelineResults.push(tr);
-      if (tr.status === "ok") {
-        for (const o of tr.outputs) {
-          termGroup.finals[o] = tr.finals[o];
-          termGroup.derivation.push(`${o} = ${tr.finals[o]}`);
-        }
-      } else {
-        termGroup.derivation.push("No matching termination rate row.");
+  }
+  const primaryGroup: WorkingsGroup = {
+    label: pipelineLabel(config, primaryId),
+    derivation: [...derivation],
+    finals: primaryFinals,
+    matchedRows: [...matchedRows],
+  };
+
+  // The SECONDARY (paired) group -- the SAME construction the paired termination block has always
+  // used, now reached on BOTH branches and pointed at whichever pipeline is not primary. An
+  // unmatched secondary stays HONESTLY EMPTY: `finals` is left `{}` and only a message is pushed,
+  // so it can never borrow or substitute the primary's numbers.
+  const secondaryGroup: WorkingsGroup = {
+    label: pipelineLabel(config, secondaryId),
+    derivation: [],
+    finals: {},
+  };
+  const secondary = pipelines[secondaryId] as Pipeline | undefined;
+  if (secondary) {
+    const sr = runPipeline(secondaryId, secondary, items, selected);
+    pipelineResults.push(sr);
+    if (sr.status === "ok") {
+      for (const o of sr.outputs) {
+        secondaryGroup.finals[o] = sr.finals[o];
+        secondaryGroup.derivation.push(`${o} = ${sr.finals[o]}`);
       }
     } else {
-      termGroup.derivation.push("No termination pipeline in the config.");
+      secondaryGroup.derivation.push(
+        termination ? "No matching cable rate row." : "No matching termination rate row.",
+      );
     }
-    sections = [cableGroup, termGroup];
+  } else {
+    secondaryGroup.derivation.push(
+      termination ? "No cable pipeline in the config." : "No termination pipeline in the config.",
+    );
   }
+
+  // CABLE FIRST, ALWAYS. Decision 2's order on a cable row is [Cable, Termination] and this slice
+  // must not disturb it; a termination row had NO sections at all before, so there is no prior
+  // order to preserve there and the uniform order is the least surprising one.
+  const sections: WorkingsGroup[] = termination
+    ? [secondaryGroup, primaryGroup]
+    : [primaryGroup, secondaryGroup];
+
+  // THE TWO STACKED HEADLINES (owner Ruling A: "we need to show 2 values for the collpased pricing
+  // helper"; Ruling C: "stacked...double height"). One entry per block, in the SAME order as
+  // `sections` above, each labelled from the config's `pipeline_labels` VERBATIM.
+  //
+  // ⚠️ NEVER SUMMED ACROSS BLOCKS. `combined_rate` is computed only from a block's OWN supply and
+  // install, so per-Mtr adds to per-Mtr and per-Set to per-Set. Adding a cable figure to a
+  // termination figure would apply a per-SET rate across a metre quantity -- on BOQ-26-00201 row 194
+  // that is a per-set rate over 2,900 metres. There is deliberately no code path that adds them.
+  //
+  // ⚠️ DISPLAY-ONLY. This does not touch `values`, so "Use this value" keeps applying the PRIMARY
+  // pipeline's figure exactly as before (owner Ruling B). A kind a block did not produce is simply
+  // ABSENT here, which the panel renders as its existing em dash -- never a zero, never the other
+  // block's number.
+  const headlineValuesFor = (finals: Record<string, number>) => {
+    const out: Partial<Record<RateKind, number>> = {};
+    for (const [o, v] of Object.entries(finals)) {
+      const k = kindForOutput(o) as RateKind | null;
+      if (k && out[k] === undefined) out[k] = v;
+    }
+    if (typeof out.supply_rate === "number" && typeof out.install_rate === "number") {
+      out.combined_rate = out.supply_rate + out.install_rate;
+    }
+    return out;
+  };
+  const headlines = sections.map((g) => ({ label: g.label, values: headlineValuesFor(g.finals) }));
 
   return {
     kind: "suggestion",
     values,
     producibleKinds: PRODUCIBLE_KINDS,
+    headlines,
     basis:
       result.status === "ok"
         ? `Rate master: ${config.category_id} @ ${attrLine}`
@@ -790,7 +862,9 @@ function computeWiring(
       matchedRows,
       derivation,
       finalValues: { ...values },
-      ...(sections ? { sections } : {}),
+      // ALWAYS present now (both blocks, every wiring row). The flat fallback in the panel is
+      // consequently unreachable from the wiring path -- it still serves every generic category.
+      sections,
     },
   };
 }
