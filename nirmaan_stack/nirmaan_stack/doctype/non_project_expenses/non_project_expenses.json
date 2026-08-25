@@ -8,6 +8,7 @@
  "field_order": [
   "details_section",
   "type",
+  "request_id",
   "status",
   "description",
   "comment",
@@ -32,6 +33,15 @@
    "fieldtype": "Link",
    "label": "Type",
    "options": "Expense Type"
+  },
+  {
+   "description": "The Expense Request this row was created from. Written by approval; blank on an expense raised directly.",
+   "fieldname": "request_id",
+   "fieldtype": "Link",
+   "label": "Request ID",
+   "options": "Expense Request",
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "default": "Requested",

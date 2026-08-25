@@ -90,6 +90,12 @@ export type DialogStore = {
   setEditProjectExpenseDialog: (open: boolean) => void;
   toggleEditProjectExpenseDialog: () => void;
 
+  // Expense Request (the PM-raised ask, NOT an expense -- an approved request is what
+  // mints the ledger row).
+  newExpenseRequestDialog: boolean;
+  setNewExpenseRequestDialog: (open: boolean) => void;
+  toggleNewExpenseRequestDialog: () => void;
+
   // --- (Indicator) NEW: Generic Delete Confirmation Dialog ---
   deleteConfirmationDialog: boolean;
   setDeleteConfirmationDialog: (open: boolean) => void;
@@ -191,6 +197,10 @@ export const useDialogStore = create<DialogStore>((set) => ({
   editProjectExpenseDialog: false,
   setEditProjectExpenseDialog: (open: boolean) => set({ editProjectExpenseDialog: open }),
   toggleEditProjectExpenseDialog: () => set((state) => ({ editProjectExpenseDialog: !state.editProjectExpenseDialog })),
+
+  newExpenseRequestDialog: false,
+  setNewExpenseRequestDialog: (open: boolean) => set({ newExpenseRequestDialog: open }),
+  toggleNewExpenseRequestDialog: () => set((state) => ({ newExpenseRequestDialog: !state.newExpenseRequestDialog })),
 
   // --- (Indicator) NEW: Generic Delete Confirmation Dialog Implementation ---
   deleteConfirmationDialog: false,

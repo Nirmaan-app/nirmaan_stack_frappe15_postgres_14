@@ -52,7 +52,7 @@ export const RenderRightActionButton = ({
   const { role, user_id } = useUserData()
   const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
   const { selectedProject } = useContext(UserContext);
-  const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog, toggleNewProjectExpenseDialog, toggleNewWODialog, setNewReminderDialog, setEditReminderScheduleName } = useDialogStore()
+  const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog, toggleNewProjectExpenseDialog, toggleNewExpenseRequestDialog, toggleNewWODialog, setNewReminderDialog, setEditReminderScheduleName } = useDialogStore()
 
   if (newButtonRoutes[locationPath]) {
     // "Add New Project" uses the shared canManageTendering gate (Admin / PMO /
@@ -152,6 +152,15 @@ export const RenderRightActionButton = ({
       <Button onClick={toggleNewNonProjectExpenseDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
         Add <span className="hidden md:flex pl-1">New Expense</span>
+      </Button>
+    );
+  } else if (locationPath === "/expense/requests") {
+    // No role gate: anyone who can reach the Expense module may RAISE a request. The
+    // approval side is what is gated, and it is gated on the SERVER.
+    return (
+      <Button onClick={toggleNewExpenseRequestDialog} className="sm:mr-4 mr-2">
+        <CirclePlus className="w-5 h-5 pr-1" />
+        Raise <span className="hidden md:flex pl-1">Expense Request</span>
       </Button>
     );
   } else if (locationPath === "/expense/project") {

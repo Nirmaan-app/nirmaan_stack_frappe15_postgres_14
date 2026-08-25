@@ -62,6 +62,12 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 ## Expense workflow & settlement
 
+- **Expense Request** — an *ask* for an expense, raised by someone who may not record one directly (a Project Manager). It is **not money**: it appears in no financial figure. A senior reviews it, and **approval is what creates the actual Expense** — one only, either a Project Expense or a Non-Project Expense, depending on whether a project was named. It does reach *Paid*, but only as a **mirror**: the Expense is what gets paid, and the request follows it. Deleting that Expense deletes the request with it. Rejection is final and must carry a reason.
+
+- **Reviewer** — the person who decides an Expense Request. Who that is depends on the **expense type**, so accommodation can be reviewed by one team and everything else by another. Nobody may decide their own request.
+
+- **Request form (source format)** — the extra questions a particular expense type asks. Hotel and accommodation ask for the occupant, the property and the rent period; travel asks where and when. Most types ask nothing extra and use the plain form — that is normal, not a gap. Set up in **Packages Settings → Expense Packages**. When a request is approved, its answers are written onto the created Expense in readable form, so the accountant sees them where they already look.
+
 - **Expense** — a cost recorded outside the Purchase Order / Service Request flow. Two kinds: a **Project Expense** (attributed to a specific Project; labelled "Misc Project Expense" in the UI) and a **Non-Project Expense** (company-wide, not tied to any Project). Both share the same three-stage approval lifecycle and are entered and managed together in one **Expense** area.
 
 - **Expense status** — the single field describing where an Expense sits in its lifecycle. It advances in one direction: *Requested* → *Approved* → *Paid*. An Expense holds exactly one at a time.

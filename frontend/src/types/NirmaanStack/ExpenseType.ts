@@ -13,4 +13,8 @@ export interface ExpenseType {
     expense_name: string
     project?: boolean
     non_project?: boolean
+    /** Groups this type for routing an expense request to a reviewer. Blank => default reviewer. */
+    expense_category?: string | null
+    /** Optional JSON form format for Expense Requests of this type. Empty is normal. */
+    source_format?: string | null
 }

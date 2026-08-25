@@ -548,12 +548,12 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan HR Executive Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan HR Executive Profile", "Nirmaan Project Manager Profile"].includes(role as string)
       ? [
         {
           // Unified Expense module: Misc Project + Non-Project tabs. Links to the
           // default (Misc Project) tab; the tab strip handles switching.
-          key: '/expense/project',
+          key: '/expense',
           icon: Landmark,
           label: 'Expense',
         },
@@ -820,7 +820,9 @@ export function NewSidebar() {
     "/in-flow-payments": ["in-flow-payments"],
     "/invoice-reconciliation": ["invoice-reconciliation"],
     "/project-invoices": ["project-invoices"],
-    "/expense/project": ["expense"],
+    // Keyed on the module ROOT so every tab (requests / project / non-project) keeps the
+    // sidebar entry highlighted -- they share the first path segment.
+    "/expense": ["expense"],
     "/reports": ["reports"],
     '/design-tracker': ['design-tracker'],
     '/snag-list': ['snag-list'],

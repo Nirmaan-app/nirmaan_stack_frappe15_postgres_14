@@ -280,17 +280,37 @@ doc_events = {
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
     },
     "Non Project Expenses": {
+        # Both exit immediately unless the row is transitioning INTO Paid, so the ~700
+        # ordinary saves cost one field comparison each. STATE FIRST, then the telling:
+        # the request must already read Paid by the time the requester is notified.
+        "on_update": [
+            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_paid",
+            "nirmaan_stack.integrations.controllers.expense_request_notify.on_expense_update",
+        ],
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+        # Deleting the expense deletes the request it came from. after_delete, not on_trash --
+        # the row must be GONE before the request it links to can be deleted.
+        "after_delete": "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_deleted",
     },
     "Project Expenses": {
         "after_insert": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
-        "on_update": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
+        "on_update": [
+            "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
+            # Carries Paid back onto the originating request, then tells the requester.
+            # STATE FIRST -- the request must already read Paid when the message goes out.
+            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_paid",
+            "nirmaan_stack.integrations.controllers.expense_request_notify.on_expense_update",
+        ],
         # generate_versions needs the pre-delete data, so it stays on on_trash.
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         # Cashflow recompute moved to after_delete so the gap query runs AFTER the
         # row is gone (on_trash fires before the DB delete) — deleting a Paid
         # expense now correctly lowers the gap / releases a CEO Hold.
-        "after_delete": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
+        "after_delete": [
+            "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
+            # Deleting the expense deletes the request it came from.
+            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_deleted",
+        ],
     },
     "Project Inflows": {
         "validate": "nirmaan_stack.integrations.controllers.project_inflows.validate",
@@ -473,6 +493,9 @@ fixtures = [
     "Portal Menu Item",
     "Print Format",
     "Expense Type",
+    # Categories are Link targets of Expense Type, so they must ship with it or the link
+    # dangles on any site seeded from fixtures.
+    "Expense Category",
     "Nirmaan Item Units",
     "Commission Report Category",
     "Commission Report Tasks",

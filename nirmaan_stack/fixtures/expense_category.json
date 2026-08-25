@@ -1,0 +1,29 @@
+[
+ {
+  "category_name": "Hotel & Accommodation",
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Expense Category",
+  "modified": "2026-08-18 13:42:55.691471",
+  "name": "Hotel & Accommodation",
+  "reviewer_role": null
+ },
+ {
+  "category_name": "Travel",
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Expense Category",
+  "modified": "2026-08-21 12:42:01.224701",
+  "name": "Travel",
+  "reviewer_role": ""
+ },
+ {
+  "category_name": "Uncategorized",
+  "description": "Everything not in a named category.",
+  "docstatus": 0,
+  "doctype": "Expense Category",
+  "modified": "2026-08-18 13:15:20.060477",
+  "name": "Uncategorized",
+  "reviewer_role": null
+ }
+]
