@@ -47,12 +47,7 @@ def create_expense_request(
 	"""
 	guard_requestable(expense_type)
 
-	vendor = (vendor or "").strip() or None
-	if vendor and not projects:
-		frappe.throw(
-			"A vendor can only be recorded on a project expense.",
-			title="Vendor needs a project",
-		)
+	vendor = guard_vendor_scope(vendor, projects)
 
 	# The client may send the answers as an object or as a JSON string; store one shape.
 	if source_data is not None and not isinstance(source_data, str):
@@ -91,6 +86,23 @@ def create_expense_request(
 	frappe.db.commit()
 
 	return {"name": doc.name, "status": doc.status, "projects": doc.projects}
+
+
+def guard_vendor_scope(vendor, projects) -> str | None:
+	"""Normalise the vendor and refuse one without a project.
+
+	SHARED with `update`, because a rule enforced in one entry point and not the other is the
+	same as no rule: a request could be raised clean and then edited into the refused shape.
+	`Non Project Expenses` has no vendor column, so such a vendor would be stored and then
+	vanish at approval -- refusing is the honest half.
+	"""
+	vendor = (vendor or "").strip() or None
+	if vendor and not projects:
+		frappe.throw(
+			"A vendor can only be recorded on a project expense.",
+			title="Vendor needs a project",
+		)
+	return vendor
 
 
 # The columns a format is allowed to write into. A CLOSED allowlist, deliberately: `maps_to`
