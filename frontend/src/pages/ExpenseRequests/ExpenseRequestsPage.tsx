@@ -93,6 +93,25 @@ export const ExpenseRequestsPage: React.FC = () => {
     }, [scopedByName]);
     const canReview = useCallback((name: string) => reviewable.has(name), [reviewable]);
 
+    // Server-computed, and DISJOINT from `reviewable` by design -- see `update.can_edit`.
+    const editable = useMemo(() => {
+        const s = new Set<string>();
+        scopedByName.forEach((r, name) => { if (r.can_edit) s.add(name); });
+        return s;
+    }, [scopedByName]);
+    const canEdit = useCallback((name: string) => editable.has(name), [editable]);
+
+    // MERGED, not either-or. The TABLE row carries no `source_data` (the dialog would open with
+    // every format answer blank and save that), while the ENRICHED row carries no
+    // `projects_name` -- that label is injected by the data-table layer, and the dialog needs it
+    // to show the project it cannot render through the picker. Enriched wins on the keys it
+    // has; the table row supplies the rest.
+    const [editing, setEditing] = useState<ExpenseRequest | null>(null);
+    const openEdit = useCallback(
+        (r: ExpenseRequest) => setEditing({ ...r, ...(scopedByName.get(r.name) ?? {}) }),
+        [scopedByName]
+    );
+
     const statusTabs = useMemo(
         () => EXR_STATUS_TABS.map((t) => ({
             label: t.label, value: t.value,
@@ -108,11 +127,12 @@ export const ExpenseRequestsPage: React.FC = () => {
 
     const columnsDefinition = useMemo(
         () => getExpenseRequestColumns({
-            statusTab, getUserName, getCategory, canReview,
+            statusTab, getUserName, getCategory, canReview, canEdit,
             onApprove: (r) => setReview({ action: "approve", request: r }),
             onReject: (r) => setReview({ action: "reject", request: r }),
+            onEdit: openEdit,
         }),
-        [statusTab, getUserName, getCategory, canReview]
+        [statusTab, getUserName, getCategory, canReview, canEdit, openEdit]
     );
 
     const {
@@ -177,7 +197,11 @@ export const ExpenseRequestsPage: React.FC = () => {
                 exportFileName="Expense_Requests"
             />
 
-            <NewExpenseRequestDialog onSuccess={refreshAll} />
+            <NewExpenseRequestDialog
+                onSuccess={refreshAll}
+                editing={editing}
+                onEditingChange={setEditing}
+            />
             <ReviewActionDialog
                 action={review.action}
                 request={review.request}

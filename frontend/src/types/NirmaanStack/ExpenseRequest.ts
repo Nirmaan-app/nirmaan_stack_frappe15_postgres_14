@@ -16,6 +16,9 @@ export interface ExpenseRequest {
    *  Present on table reads; ABSENT on the scoped endpoint, which is a plain `get_list`. */
   projects_name?: string | null;
   amount: number;
+  /** Optional, and PROJECT-ONLY -- `Non Project Expenses` has no vendor column, so a
+   *  vendor on a non-project request would be dropped at approval. */
+  vendor?: string | null;
   comment?: string | null;
   /** Answers to the type's source_format, JSON. Null when the type declares no format. */
   source_data?: string | null;
@@ -32,6 +35,9 @@ export interface ExpenseRequest {
   reviewer_role: string;
   /** Whether THIS caller may action THIS row. Server-computed — never re-derive it. */
   can_review: boolean;
+  /** Whether THIS caller may edit THIS row — server-computed, and DISJOINT from
+   *  `can_review`. Never re-derive it. */
+  can_edit?: boolean;
   /** The format answers, labelled. Built by the SAME walk that writes the ledger
    *  description, so the approval screen and the expense cannot describe it differently. */
   detail?: { label: string; value: string }[];

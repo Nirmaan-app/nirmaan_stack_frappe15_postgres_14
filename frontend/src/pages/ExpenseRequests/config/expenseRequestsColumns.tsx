@@ -13,7 +13,7 @@
 //                               dashes costs width and tells the reviewer nothing.
 
 import { ColumnDef } from "@tanstack/react-table";
-import { Check, X } from "lucide-react";
+import { Check, Pencil, X } from "lucide-react";
 
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { facetMeta } from "@/components/data-table/facetConfig";
@@ -41,12 +41,16 @@ interface Args {
     getCategory: (expenseType: string | undefined) => string;
     /** Server-computed per row. NEVER re-derive who may review. */
     canReview: (name: string) => boolean;
+    /** Server-computed per row, and DISJOINT from `canReview` by design: a reviewer who could
+     *  also edit could rewrite an amount and then approve it. Never re-derive either. */
+    canEdit: (name: string) => boolean;
     onApprove: (r: ExpenseRequest) => void;
     onReject: (r: ExpenseRequest) => void;
+    onEdit: (r: ExpenseRequest) => void;
 }
 
 export const getExpenseRequestColumns = ({
-    statusTab, getUserName, getCategory, canReview, onApprove, onReject,
+    statusTab, getUserName, getCategory, canReview, canEdit, onApprove, onReject, onEdit,
 }: Args): ColumnDef<ExpenseRequest>[] => {
     const showStatus = statusTab === "All";
     const showReview = statusTab !== "Pending Approval";
@@ -226,7 +230,9 @@ export const getExpenseRequestColumns = ({
             // requester's own). Hiding the buttons is convenience only -- the endpoint
             // refuses regardless.
             cell: ({ row }) => {
-                if (!canReview(row.original.name)) {
+                const mayReview = canReview(row.original.name);
+                const mayEdit = canEdit(row.original.name);
+                if (!mayReview && !mayEdit) {
                     return <span className="text-xs text-muted-foreground">--</span>;
                 }
                 // Icon-only. The tooltip and `aria-label` carry the meaning -- an icon
@@ -235,7 +241,21 @@ export const getExpenseRequestColumns = ({
                 return (
                     <TooltipProvider delayDuration={200}>
                         <div className="flex gap-1">
-                            <Tooltip>
+                            {mayEdit && (
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            size="icon" variant="ghost" aria-label="Edit request"
+                                            className="h-7 w-7 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                            onClick={() => onEdit(row.original)}
+                                        >
+                                            <Pencil className="h-3.5 w-3.5" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Edit</TooltipContent>
+                                </Tooltip>
+                            )}
+                            {mayReview && <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button
                                         size="icon" variant="ghost" aria-label="Approve request"
@@ -246,8 +266,8 @@ export const getExpenseRequestColumns = ({
                                     </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>Approve</TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
+                            </Tooltip>}
+                            {mayReview && <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button
                                         size="icon" variant="ghost" aria-label="Reject request"
@@ -258,7 +278,7 @@ export const getExpenseRequestColumns = ({
                                     </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>Reject</TooltipContent>
-                            </Tooltip>
+                            </Tooltip>}
                         </div>
                     </TooltipProvider>
                 );

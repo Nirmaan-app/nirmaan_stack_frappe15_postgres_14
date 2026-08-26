@@ -10,7 +10,7 @@
 //   non-project only -> hidden entirely
 //   both             -> shown and optional; the choice picks the ledger
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFrappeFileUpload, useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { AlertTriangle } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
@@ -38,14 +38,26 @@ import { getFrappeError } from "@/utils/frappeErrors";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { formatDate } from "@/utils/FormatDate";
 import type {
-    GetRequestCatalogResponse, RequestCatalogType,
+    ExpenseRequest, GetRequestCatalogResponse, RequestCatalogType,
 } from "@/types/NirmaanStack/ExpenseRequest";
-import { parseFormat, seedAnswers } from "@/utils/expenseFormat";
+import {
+    answersFromSourceData, parseFormat, readDetailDescription, seedAnswers,
+} from "@/utils/expenseFormat";
 import FormatFieldsRenderer, {
     FormatAnswers, FormatFiles, requiredKeys, toResponses,
 } from "./FormatFieldsRenderer";
 
-interface Props { onSuccess?: () => void }
+interface Props {
+    onSuccess?: () => void;
+    /** The request being EDITED, or null to raise a new one.
+     *
+     *  ONE dialog for both, deliberately (ADR-0010 F3): a copy would be a near-twin of ~390
+     *  lines, and every rule the create path applies -- the type/project gate, the vendor
+     *  gate, the duplicate warning, the format renderer -- would have to be kept in step by
+     *  hand across the two. */
+    editing?: ExpenseRequest | null;
+    onEditingChange?: (r: ExpenseRequest | null) => void;
+}
 
 interface FormState {
     expense_type: string;
@@ -62,7 +74,9 @@ const EMPTY: FormState = {
     expense_type: "", projects: "", vendor: "", amount: "", description: "", comment: "",
 };
 
-export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
+export const NewExpenseRequestDialog: React.FC<Props> = ({
+    onSuccess, editing = null, onEditingChange,
+}) => {
     const { newExpenseRequestDialog, setNewExpenseRequestDialog } = useDialogStore();
     const { toast } = useToast();
     const { full_name, user_id } = useUserData();
@@ -72,6 +86,8 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
     // Files are held, not uploaded, until submit -- a cancelled dialog then cannot orphan one.
     const [files, setFiles] = useState<FormatFiles>({});
     const [submitting, setSubmitting] = useState(false);
+    // Edit-only: the requester has asked to swap the project, so hand them the picker.
+    const [changingProject, setChangingProject] = useState(false);
 
     const { data: catalogRes, isLoading: catalogLoading } =
         useFrappeGetCall<{ message: GetRequestCatalogResponse }>(
@@ -80,6 +96,10 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
             "expense_request_catalog"
         );
 
+    const isEdit = !!editing;
+    const { call: updateRequest } = useFrappePostCall(
+        "nirmaan_stack.api.expense_requests.update.update_expense_request"
+    );
     const { call: createRequest } = useFrappePostCall(
         "nirmaan_stack.api.expense_requests.create.create_expense_request"
     );
@@ -131,10 +151,26 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
     // Seed bound + default answers once a format is chosen. Keyed on the format's identity,
     // and it runs only after `handleTypeChange` has already cleared `answers` -- so it fills a
     // blank form and never overwrites something the requester typed.
+    // ⚠️ SKIPPED ONCE WHEN OPENING AN EDIT. The format is fetched from the type, so this
+    // effect resolves AFTER the edit seed below and would overwrite the requester's stored
+    // answers with blank defaults -- silently, and only for formatted types. It is skipped
+    // exactly once per opened request; a later type CHANGE clears the flag, so switching type
+    // mid-edit still seeds the new format's defaults as it does on a fresh request.
+    const skipNextSeed = useRef(false);
     useEffect(() => {
         if (!parsedFormat) return;
+        if (skipNextSeed.current) { skipNextSeed.current = false; return; }
         setAnswers(seedAnswers(parsedFormat, { userFullName: full_name, userEmail: user_id }));
     }, [parsedFormat, full_name, user_id]);
+
+    // The project to SHOW instead of the picker: only on an edit, only while the requester has
+    // not asked to change it, and only while `form.projects` still holds what the request came
+    // with -- a type change clears it, which must hand back the picker rather than keep showing
+    // a project the new type may not even allow. Falls back to the id when the readable name is
+    // absent, because showing the id beats showing nothing on a required field.
+    const chosenProjectLabel = isEdit && !changingProject && form.projects
+        ? (editing?.projects_name || form.projects)
+        : "";
 
     const selected = form.expense_type ? typesById.get(form.expense_type) : undefined;
     const showProject = !!selected?.project_allowed;
@@ -188,10 +224,33 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
 
     const close = useCallback(() => {
         setForm(EMPTY);
+        setChangingProject(false);
         setAnswers({});
         setFiles({});
         setNewExpenseRequestDialog(false);
-    }, [setNewExpenseRequestDialog]);
+        onEditingChange?.(null);
+    }, [setNewExpenseRequestDialog, onEditingChange]);
+
+    // Seed from the request being edited. Keyed on its NAME, not the object: the row is
+    // re-fetched on every refresh, so an object-identity dep would re-seed the form under the
+    // requester mid-edit and discard what they had typed.
+    useEffect(() => {
+        if (!editing) return;
+        setForm({
+            expense_type: editing.type ?? "",
+            projects: editing.projects ?? "",
+            vendor: editing.vendor ?? "",
+            amount: String(editing.amount ?? ""),
+            // A format-less request keeps its typed text under the synthetic `detail`
+            // key -- the doctype has no `description` column to read it back from.
+            description: readDetailDescription(editing.source_data),
+            comment: editing.comment ?? "",
+        });
+        setChangingProject(false);
+        skipNextSeed.current = true;
+        setAnswers(answersFromSourceData(editing.source_data));
+        setFiles({});
+    }, [editing?.name]);   // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleSubmit = useCallback(async () => {
         if (!canSubmit) return;
@@ -210,7 +269,9 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
                 attachments[slotKey] = [uploaded.file_url];
             }
 
-            const res = await createRequest({
+            const submit = isEdit ? updateRequest : createRequest;
+            const res = await submit({
+                ...(isEdit ? { name: editing!.name } : {}),
                 expense_type: form.expense_type,
                 amount: amountValue,
                 // ⚠️ NEVER send a hidden value. Someone can type a description and THEN pick
@@ -261,21 +322,25 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
             // `message` -- so `e?.message` rendered the duplicate refusal as the entirely
             // uninformative "There was an error." `getFrappeError` is the shared reader.
             toast({
-                title: "Could not raise the request",
+                title: isEdit ? "Could not save the changes" : "Could not raise the request",
                 description: getFrappeError(e),
                 variant: "destructive",
             });
         } finally {
             setSubmitting(false);
         }
-    }, [canSubmit, createRequest, upload, files, form, amountValue, showProject, showVendor,
+    }, [canSubmit, createRequest, updateRequest, isEdit, editing, upload, files, form,
+        amountValue, showProject, showVendor,
         showDescription, parsedFormat, answers, toast, close, onSuccess]);
 
     return (
-        <AlertDialog open={newExpenseRequestDialog} onOpenChange={setNewExpenseRequestDialog}>
+        <AlertDialog
+            open={newExpenseRequestDialog || isEdit}
+            onOpenChange={(o) => { if (!o) close(); else setNewExpenseRequestDialog(true); }}
+        >
             <AlertDialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
                 <AlertDialogHeader>
-                    <AlertDialogTitle>Raise Expense Request</AlertDialogTitle>
+                    <AlertDialogTitle>{isEdit ? `Edit ${editing!.name}` : "Raise Expense Request"}</AlertDialogTitle>
                 </AlertDialogHeader>
                 <Separator />
 
@@ -306,11 +371,31 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
                             <Label>
                                 Project {projectRequired && <span className="text-destructive">*</span>}
                             </Label>
-                            <ProjectSelect
-                                universal={false}
-                                usePortal
-                                onChange={(o) => handleProjectChange(o?.value ?? "")}
-                            />
+                            {chosenProjectLabel ? (
+                                // ⚠️ `ProjectSelect` keeps its selection in INTERNAL state and
+                                // takes no `value`, so it CANNOT display a project the user did
+                                // not pick in this session -- on an edit it renders its
+                                // placeholder over a required field that IS set, which reads as
+                                // unset. It is shared across many screens, so the fix stays
+                                // HERE: show what the request already carries, and mount the
+                                // untouched picker only once the requester asks to change it.
+                                <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
+                                    <span className="truncate text-sm">{chosenProjectLabel}</span>
+                                    <Button
+                                        type="button" variant="ghost" size="sm"
+                                        className="h-7 shrink-0 text-xs"
+                                        onClick={() => setChangingProject(true)}
+                                    >
+                                        Change
+                                    </Button>
+                                </div>
+                            ) : (
+                                <ProjectSelect
+                                    universal={false}
+                                    usePortal
+                                    onChange={(o) => handleProjectChange(o?.value ?? "")}
+                                />
+                            )}
                             {!projectRequired && (
                                 <p className="text-xs text-muted-foreground">
                                     Optional. Pick a project to charge it there; leave blank for a
@@ -415,7 +500,9 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({ onSuccess }) => {
                 <AlertDialogFooter className="gap-2">
                     <AlertDialogCancel onClick={close} disabled={submitting}>Cancel</AlertDialogCancel>
                     <Button onClick={handleSubmit} disabled={!canSubmit}>
-                        {submitting ? <TailSpin color="white" height={20} width={20} /> : "Send for Approval"}
+                        {submitting
+                            ? <TailSpin color="white" height={20} width={20} />
+                            : isEdit ? "Save changes" : "Send for Approval"}
                     </Button>
                 </AlertDialogFooter>
             </AlertDialogContent>
