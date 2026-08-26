@@ -21,6 +21,7 @@ from nirmaan_stack.api.expense_requests.read import (
 	get_my_expense_requests,
 	get_request_catalog,
 )
+from nirmaan_stack.api.expense_requests.update import update_expense_request
 from nirmaan_stack.api.expense_requests.review import (
 	approve_expense_request,
 	reject_expense_request,
@@ -569,6 +570,125 @@ class TestExpenseRequests(FrappeTestCase):
 		                force=True, ignore_permissions=True)
 		self.assertEqual(frappe.db.count("Nirmaan Notifications"), before)
 
+	# --- editing a pending request -------------------------------------------
+
+	def _edit(self, user, res, **kw):
+		frappe.set_user(user)
+		try:
+			payload = {"name": res["name"], "expense_type": NON_PROJECT_TYPE, "amount": 4300}
+			payload.update(kw)
+			return update_expense_request(**payload)
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_the_requester_can_edit_their_pending_request(self):
+		res = self._raise_as(PM_USER, amount=4300)
+		self._edit(PM_USER, res, amount=7700, comment="corrected")
+		doc = frappe.get_doc("Expense Request", res["name"])
+		self.assertEqual(doc.amount, 7700)
+		self.assertEqual(doc.comment, "corrected")
+		self.assertEqual(doc.status, "Pending Approval")
+
+	def test_a_reviewer_may_NOT_edit_someone_elses_request(self):
+		"""The asymmetry IS the control.
+
+		`guard_reviewer` stops self-approval; a reviewer who could rewrite the amount and then
+		approve it would have walked around it by another door. Admin is refused for the same
+		reason -- they are the fallback reviewer for every unrouted category.
+		"""
+		res = self._raise_as(PM_USER)
+		with self.assertRaises(frappe.PermissionError):
+			self._edit(PM2_USER, res, amount=99999)
+		with self.assertRaises(frappe.PermissionError):
+			update_expense_request(name=res["name"], expense_type=NON_PROJECT_TYPE, amount=99999)
+		self.assertEqual(
+			frappe.db.get_value("Expense Request", res["name"], "amount"), 4300)
+
+	def test_an_approved_request_can_no_longer_be_edited(self):
+		"""A ledger row exists; editing would leave the two describing different money."""
+		res = self._raise_as(PM_USER)
+		approve_expense_request(res["name"])
+		with self.assertRaises(frappe.ValidationError):
+			self._edit(PM_USER, res, amount=1)
+
+	def test_a_rejected_request_can_no_longer_be_edited(self):
+		res = self._raise_as(PM_USER)
+		reject_expense_request(res["name"], "not needed")
+		with self.assertRaises(frappe.ValidationError):
+			self._edit(PM_USER, res, amount=1)
+
+	def test_an_edit_re_applies_the_vendor_scope_rule(self):
+		"""A rule enforced only at create is the same as no rule -- raise clean, edit dirty."""
+		res = self._raise_as(PM_USER, expense_type=PROJECT_TYPE, projects=self.project)
+		with self.assertRaises(frappe.ValidationError):
+			self._edit(PM_USER, res, expense_type=NON_PROJECT_TYPE, projects=None,
+			           vendor=self._a_vendor())
+
+	def test_changing_the_type_drops_a_stale_promoted_vendor(self):
+		"""`update` MERGES, so a vendor promoted under the old format would otherwise survive."""
+		vendor = self._a_vendor()
+		res = self._raise_as(PM_USER, expense_type=PROJECT_TYPE, projects=self.project,
+		                     vendor=vendor)
+		self.assertEqual(frappe.db.get_value("Expense Request", res["name"], "vendor"), vendor)
+		self._edit(PM_USER, res, expense_type=NON_PROJECT_TYPE, projects=None)
+		self.assertFalse(frappe.db.get_value("Expense Request", res["name"], "vendor"))
+
+	def test_can_edit_is_server_owned_and_disjoint_from_can_review(self):
+		self._route_hotel_to("Nirmaan HR Executive Profile")
+		res = self._raise_as(PM_USER, expense_type="Hotel Expenses", amount=6000)
+
+		frappe.set_user(PM_USER)
+		mine = next(r for r in get_my_expense_requests()["requests"] if r["name"] == res["name"])
+		frappe.set_user(HR_USER)
+		theirs = next(r for r in get_my_expense_requests()["requests"] if r["name"] == res["name"])
+		frappe.set_user("Administrator")
+
+		self.assertTrue(mine["can_edit"]);      self.assertFalse(mine["can_review"])
+		self.assertFalse(theirs["can_edit"]);   self.assertTrue(theirs["can_review"])
+
+	def test_a_pm_may_edit_only_what_they_raised_not_a_peers_request(self):
+		"""SEEING a peer's request and being able to EDIT it are different questions.
+
+		Eight roles hold read DocPerm, so `get_my_expense_requests` deliberately returns other
+		PMs' rows -- a PM's list is not filtered down to their own. That makes `can_edit` the
+		ONLY thing standing between a PM and a peer's pencil, so it is pinned here on the READ
+		surface, not just on the write path.
+		"""
+		mine = self._raise_as(PM_USER, amount=4300)
+		theirs = self._raise_as(PM2_USER, amount=4300)
+
+		frappe.set_user(PM_USER)
+		rows = {r["name"]: r for r in get_my_expense_requests()["requests"]}
+		frappe.set_user("Administrator")
+
+		# The peer's row IS visible -- proving the assertion below is not vacuous.
+		self.assertIn(theirs["name"], rows)
+		self.assertTrue(rows[mine["name"]]["can_edit"])
+		self.assertFalse(rows[theirs["name"]]["can_edit"])
+		# Neither PM reviews anything -- the pencil is the only action either row could offer.
+		self.assertFalse(rows[theirs["name"]]["can_review"])
+
+	def test_the_scoped_read_carries_every_field_the_edit_dialog_seeds_from(self):
+		"""The edit dialog seeds ITSELF from this row, so a missing field is not a missing
+		display -- it seeds blank and the save WRITES that blank back. `vendor` was exactly
+		this: absent from FIELDS, so opening an edit would silently drop the picked vendor."""
+		vendor = self._a_vendor()
+		res = self._raise_as(PM_USER, expense_type=PROJECT_TYPE, projects=self.project,
+		                     vendor=vendor, amount=4321, comment="seed me")
+
+		frappe.set_user(PM_USER)
+		row = next(r for r in get_my_expense_requests()["requests"] if r["name"] == res["name"])
+		frappe.set_user("Administrator")
+
+		# One assertion per argument `update_expense_request` accepts -- the dialog can only
+		# resubmit what it was given, so this list must not fall behind that signature.
+		self.assertEqual(row["type"], PROJECT_TYPE)
+		self.assertEqual(row["projects"], self.project)
+		self.assertEqual(row["vendor"], vendor)
+		self.assertEqual(float(row["amount"]), 4321.0)
+		self.assertEqual(row["comment"], "seed me")
+		self.assertIn("source_data", row)
+
 	# --- vendor: the native field the dialog actually uses --------------------
 
 	def test_a_vendor_is_stored_and_reaches_the_project_ledger(self):
@@ -676,18 +796,30 @@ class TestExpenseRequests(FrappeTestCase):
 		The submission guard refuses the second one, which is the point of it -- but the
 		reviewer's panel must still render a pair raised before the guard existed.
 		"""
-		doc = frappe.new_doc("Expense Request")
-		doc.update({
-			"type": NON_PROJECT_TYPE, "amount": 4300, "status": "Pending Approval",
-			# ⚠️ OWNER must be a test user: `tearDownClass` cleans by ownership, so a row
-			# inserted as Administrator survives the run and accumulates into the next one --
-			# which is exactly how this test started seeing five hits instead of one.
-			"owner": PM_USER,
-			"source_data": json.dumps({
-				"responses": {"detail": {"traveller_name": traveller, "depart_date": depart}}}),
-		})
-		doc.insert(ignore_permissions=True)
-		frappe.db.commit()
+		# ⚠️ INSERT AS THE TEST USER -- `"owner": PM_USER` ON THE DOC DOES NOT WORK. Frappe
+		# STAMPS `owner` from `frappe.session.user` during insert and silently discards the
+		# field, so the earlier form left ADMINISTRATOR-owned rows that `tearDownClass`
+		# (which cleans by ownership) could never find. They survived every run and
+		# accumulated into the live site -- two per run, indistinguishable in the UI from a
+		# real pending request. `set_user` is the only form that actually sets the owner.
+		frappe.set_user(PM_USER)
+		try:
+			doc = frappe.new_doc("Expense Request")
+			doc.update({
+				"type": NON_PROJECT_TYPE, "amount": 4300, "status": "Pending Approval",
+				"source_data": json.dumps({
+					"responses": {"detail": {"traveller_name": traveller,
+					                         "depart_date": depart}}}),
+			})
+			doc.insert(ignore_permissions=True)
+			frappe.db.commit()
+		finally:
+			frappe.set_user("Administrator")
+
+		# Pinned, not assumed: the discard above is SILENT, so nothing else in this suite
+		# would go red if it came back -- the only symptom is junk in the live database.
+		self.assertEqual(doc.owner, PM_USER,
+		                 "row must be owned by a test user or tearDownClass cannot reclaim it")
 		return doc
 
 	def test_overlap_is_a_shared_day_not_an_equal_range(self):
@@ -836,11 +968,15 @@ class TestExpenseRequests(FrappeTestCase):
 		# both-flag type: allowed but not required
 		self.assertTrue(by_type[BOTH_TYPE]["project_allowed"])
 		self.assertFalse(by_type[BOTH_TYPE]["project_required"])
-		# `has_format` reports the real state per type. Asserted as a SHAPE, not as
-		# "none exist" -- the shipped accommodation/travel formats made that stale.
-		self.assertTrue(by_type[PROJECT_TYPE]["has_format"])       # Staff Accommodation Rent
-		self.assertTrue(by_type[NON_PROJECT_TYPE]["has_format"])   # Travel (Bus)
-		self.assertFalse(by_type["GST Payment"]["has_format"])     # plain form
+		# `has_format` reports the real state per type, asserted AGAINST THE DATABASE rather
+		# than against named types. Naming one has gone stale TWICE now -- first when the
+		# accommodation/travel formats shipped, then when `GST Payment` was authored one --
+		# because formats are authored in the app, so any hardcoded example is a guess about
+		# what an admin has not done yet. Derived, it cannot rot.
+		for name, entry in by_type.items():
+			stored = frappe.db.get_value("Expense Type", name, "source_format")
+			self.assertEqual(entry["has_format"], bool((stored or "").strip()),
+			                 msg=f"has_format disagrees with the stored format for {name}")
 
 
 class TestExpenseTypeMasters(FrappeTestCase):
