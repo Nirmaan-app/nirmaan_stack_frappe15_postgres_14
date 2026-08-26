@@ -320,3 +320,50 @@ export const validateFormat = (raw: string): FormatValidationResult => {
 
     return errors.length ? { ok: false, errors } : { ok: true, warnings };
 };
+
+
+/** The stored answers as the dialog's flat `section.field` map — the inverse of `toResponses`.
+ *
+ *  Needed to EDIT a request: the answers are stored nested under their section, while the form
+ *  holds them flat, and rebuilding the flat shape by hand at the call site would be a second
+ *  definition of the key format that could drift from `toResponses`. */
+export const answersFromSourceData = (raw?: string | null): Record<string, string> => {
+    const responses = parseResponses(raw);
+    const out: Record<string, string> = {};
+    Object.entries(responses).forEach(([section, fields]) => {
+        if (!fields || typeof fields !== "object" || Array.isArray(fields)) return;
+        Object.entries(fields as Record<string, unknown>).forEach(([key, value]) => {
+            if (value === null || value === undefined) return;
+            out[`${section}.${key}`] = String(value);
+        });
+    });
+    return out;
+};
+
+/** The typed description of a FORMAT-LESS request.
+ *
+ *  It lives under the synthetic `detail.description` key that the dialog mints, because the
+ *  doctype has no `description` column — so editing one has to read it back from there or the
+ *  requester's own text vanishes the moment they open the form. */
+export const readDetailDescription = (raw?: string | null): string => {
+    const responses = parseResponses(raw);
+    const detail = responses?.detail;
+    if (!detail || typeof detail !== "object" || Array.isArray(detail)) return "";
+    const value = (detail as Record<string, unknown>).description;
+    return typeof value === "string" ? value : "";
+};
+
+/** `source_data.responses`, or {}. Shared by the two readers above so the envelope is
+ *  understood in ONE place. */
+const parseResponses = (raw?: string | null): Record<string, unknown> => {
+    if (!raw) return {};
+    try {
+        const parsed = JSON.parse(raw);
+        const responses = parsed?.responses;
+        return responses && typeof responses === "object" && !Array.isArray(responses)
+            ? (responses as Record<string, unknown>)
+            : {};
+    } catch {
+        return {};
+    }
+};

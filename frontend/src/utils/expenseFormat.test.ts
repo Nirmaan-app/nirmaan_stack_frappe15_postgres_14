@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseFormat, seedAnswers, isKnownBinding, validateFormat } from "./expenseFormat";
+import {
+    answersFromSourceData, isKnownBinding, parseFormat, readDetailDescription,
+    seedAnswers, validateFormat,
+} from "./expenseFormat";
 
 const FMT = parseFormat(JSON.stringify({
     templateId: "t", templateVersion: 1, title: "T",
@@ -127,5 +130,64 @@ describe("validateFormat", () => {
         ] });
         expect(r.ok).toBe(true);
         expect(r.ok && r.warnings.some((w) => w.includes("FIRST one wins"))).toBe(true);
+    });
+});
+
+describe("answersFromSourceData", () => {
+    const wrap = (responses: unknown) => JSON.stringify({ responses });
+
+    it("flattens sections into the dialog's `section.field` keys", () => {
+        expect(answersFromSourceData(wrap({ stay: { person_name: "Shahbaj Khan", city: "BTM" } })))
+            .toEqual({ "stay.person_name": "Shahbaj Khan", "stay.city": "BTM" });
+    });
+
+    it("round-trips what the dialog stored, so editing shows what was submitted", () => {
+        // The exact shape `toResponses` writes -- if these two ever disagree, an edit opens blank.
+        const stored = wrap({ stay: { person_name: "A", rent_period_from: "2026-08-01" } });
+        expect(answersFromSourceData(stored)).toEqual({
+            "stay.person_name": "A", "stay.rent_period_from": "2026-08-01",
+        });
+    });
+
+    it("stringifies non-string answers rather than dropping them", () => {
+        expect(answersFromSourceData(wrap({ s: { nights: 3, ac: false } })))
+            .toEqual({ "s.nights": "3", "s.ac": "false" });
+    });
+
+    it("drops null and undefined -- an absent answer is not the string 'null'", () => {
+        expect(answersFromSourceData(wrap({ s: { a: null, b: "x" } }))).toEqual({ "s.b": "x" });
+    });
+
+    it("ignores a section that is not an object", () => {
+        expect(answersFromSourceData(wrap({ s: ["a"], t: "x", u: { k: "v" } })))
+            .toEqual({ "u.k": "v" });
+    });
+
+    it("returns {} for absent, blank, malformed or non-object envelopes", () => {
+        [undefined, null, "", "not json", "{}", '{"responses":null}', '{"responses":[]}']
+            .forEach((raw) => expect(answersFromSourceData(raw as string | null)).toEqual({}));
+    });
+});
+
+describe("readDetailDescription", () => {
+    it("reads the synthetic key a format-less request stores its typed text under", () => {
+        expect(readDetailDescription(JSON.stringify({
+            responses: { detail: { description: "Paid the courier" } },
+        }))).toBe("Paid the courier");
+    });
+
+    it("returns '' when there is no detail section, so a formatted request stays blank", () => {
+        expect(readDetailDescription(JSON.stringify({ responses: { stay: { a: "b" } } }))).toBe("");
+    });
+
+    it("returns '' for a non-string description rather than rendering '[object Object]'", () => {
+        expect(readDetailDescription(JSON.stringify({
+            responses: { detail: { description: { a: 1 } } },
+        }))).toBe("");
+    });
+
+    it("returns '' for absent, blank or malformed input", () => {
+        [undefined, null, "", "{", '{"responses":{"detail":[]}}']
+            .forEach((raw) => expect(readDetailDescription(raw as string | null)).toBe(""));
     });
 });
