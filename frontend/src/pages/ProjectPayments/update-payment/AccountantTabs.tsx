@@ -59,6 +59,24 @@ interface SelectOption { label: string; value: string; }
  * For now, only supports "New Payments" tab.
  * tab prop is optional, defaulting to "New Payments".
  */
+// Cashfree's contact columns are the payout-notification address, and Nirmaan wants those
+// notifications coming back to its own accounts desk rather than out to each vendor. Fixed
+// on every row by design -- the payee is identified by bankAccount + ifsc, not by these.
+const CASHFREE_CONTACT_EMAIL = "accounts@nirmaan.app";
+const CASHFREE_CONTACT_PHONE = "8904007419";
+
+const ICICI_DEBIT_ACCOUNT = "093705003327";
+
+// A vendor with no bank account / IFSC cannot be paid out at all, so its row is made inert
+// rather than merely unselectable: dimmed, and pointer-events stripped so nothing inside it
+// responds to a click. canPaymentRowBeSelected already kills the checkbox; this is the
+// visual half, so it is obvious WHY the checkbox is dead instead of looking like a bug.
+// NOTE: pointer-events-none covers the whole row, so the Pay button, the delete button and
+// the PO/SR link on that row are unclickable too. That is the intent -- the row is not
+// actionable until someone fills in the vendor's bank details.
+const NO_BANK_DETAILS_ROW_CLASSES =
+    "opacity-50 bg-muted/40 pointer-events-none select-none";
+
 export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payments" }) => {
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
@@ -76,8 +94,12 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
 
     // --- State for Export Dialog ---
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
-    const [debitAccountNumber, setDebitAccountNumber] = useState("093705003327"); // Default
+    const [debitAccountNumber, setDebitAccountNumber] = useState(ICICI_DEBIT_ACCOUNT); // Default
     const [paymentMode, setPaymentMode] = useState("IMPS");
+    // Which bulk-transfer file to emit. "icici" is the original ICICI PAB_VENDOR layout;
+    // "cashfree" is Cashfree's payout template -- a completely different column set, not a
+    // variation on the same one, which is why the two builders below stay separate.
+    const [exportTarget, setExportTarget] = useState<"icici" | "cashfree">("icici");
 
     // --- Supporting Data Fetches ---
     const projectsFetchOptions = getProjectListOptions();
@@ -290,24 +312,45 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     ], [tab, projectOptions, vendorOptions, notifications, getVendorName, handleNewPaymentSeen, openDialog, getTotalAmountPaidForPO, getTotalAmount, getDeliveredAmount]); // Add dependencies
 
     // Function to determine if a row can be selected (passed to hook)
+    //
+    // This is the gate that keeps an unpayable vendor out of the export file: the checkbox
+    // renders disabled off row.getCanSelect(), so the row cannot be selected and therefore
+    // cannot reach either CSV builder.
+    //
+    // BOTH halves of the bank details are required, not just the account number. An account
+    // number on its own still exports a blank `ifsc` -- Cashfree and ICICI both reject a
+    // payout row without it, and the failure only surfaces after upload. The beneficiary
+    // name needs no check: it falls back to vendor_name, which is mandatory on the doctype.
+    const hasBankDetails = useCallback((vendorId?: string): boolean => {
+        const vendor = vendors?.find(v => v.name === vendorId);
+        const account = String(vendor?.account_number ?? '').trim();
+        const ifsc = String(vendor?.ifsc ?? '').trim();
+        return !!account && !!ifsc;
+    }, [vendors]);
+
     const canPaymentRowBeSelected = useCallback((row: Row<ProjectPayments>): boolean => {
         if (tab === "New Payments") {
-            const vendor = vendors?.find(v => v.name === row.original.vendor);
-            return !!vendor?.account_number;
+            return hasBankDetails(row.original.vendor);
         }
         return false; // By default, other tabs might not have selectable rows
-    }, [vendors, tab]);
+    }, [hasBankDetails, tab]);
 
     // --- CEO Hold Row Highlighting ---
     const getRowClassName = useCallback(
         (row: Row<ProjectPayments>) => {
+            // CEO hold stays first: it is a safety signal and must not be dimmed away. Such a
+            // row is already unpayable, and its checkbox is disabled by the bank-details rule
+            // anyway, so nothing is lost by letting the red win.
             const projectId = row.original.project;
             if (projectId && ceoHoldProjectIds.has(projectId)) {
                 return CEO_HOLD_ROW_CLASSES;
             }
+            if (tab === "New Payments" && !hasBankDetails(row.original.vendor)) {
+                return NO_BANK_DETAILS_ROW_CLASSES;
+            }
             return undefined;
         },
-        [ceoHoldProjectIds]
+        [ceoHoldProjectIds, hasBankDetails, tab]
     );
 
     // --- useServerDataTable Hook Instantiation (moved up for columnFilters access) ---
@@ -361,7 +404,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             return;
         }
 
-        const csvData = rowsToExport.map(row => {
+        const buildIciciRows = () => rowsToExport.map(row => {
             const payment = row.original;
             const vendorDetails = getVendorDetails(payment.vendor); // Use the memoized helper
             return {
@@ -384,12 +427,61 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             };
         });
 
+        // One stamp per export, shared by every row in the file. Cashfree keys a payout on
+        // transferId and rejects one it has already processed, so ids must never repeat
+        // across files -- the old position-based ids ("transferId12", "transferId22", ...)
+        // were identical in every export and would have failed on the second upload.
+        //
+        // Date.now() rather than Math.random(): guaranteed unique per export, where a random
+        // number is only probably unique. Kept to its last 10 digits to hold the id short --
+        // that block only repeats every 10^10 ms (~115 days) and would need two exports
+        // landing on the same millisecond 115 days apart to collide.
+        const batchStamp = String(Date.now()).slice(-10);
+
+        const buildCashfreeRows = () => rowsToExport.map((row, idx) => {
+            const payment = row.original;
+            const vendorDetails = getVendorDetails(payment.vendor);
+            const projectLabel = projectOptions.find(o => o.value === payment.project)?.label ?? payment.project;
+
+            // The beneficiary name must be the ACCOUNT HOLDER's name, which is why this reads
+            // account_name and not vendor_name -- the two legitimately differ (proprietor vs
+            // trading name). But some vendor records have the account NUMBER typed into
+            // account_name (SAFETYWALA EQUIPMENTS LLP is one), which put a bare number in this
+            // column. A name contains at least one letter; if it does not, it is not a name,
+            // so fall back to vendor_name rather than send Cashfree a number to match on.
+            const accountName = (vendorDetails?.account_name || '').trim();
+            const beneficiaryName = /[A-Za-z]/.test(accountName)
+                ? accountName
+                : (vendorDetails?.vendor_name || '');
+
+            return {
+                'transferId': `${batchStamp}${String(idx + 1).padStart(2, '0')}`,
+                'bankAccount': vendorDetails?.account_number || '',
+                'ifsc': vendorDetails?.ifsc || '',
+                'name': beneficiaryName,
+                'email': CASHFREE_CONTACT_EMAIL,
+                'phone': CASHFREE_CONTACT_PHONE,
+                'amount': parseNumber(payment.amount),
+                'remarks': `${projectLabel} - ${payment.document_name}`,
+                'transferMode': paymentMode.toLowerCase(),
+            };
+        });
+
+        // Widened to a common row type: the two layouts share no columns, and papaparse's
+        // unparse() will not accept a union of two different object shapes.
+        // `undefined` is in the value type because formatDateToDDMMYYYY is typed to return
+        // `string | undefined`; papaparse writes an empty cell for it either way.
+        const csvData: Record<string, string | number | undefined>[] =
+            exportTarget === "cashfree" ? buildCashfreeRows() : buildIciciRows();
+
         const csv = unparse(csvData);
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         const url = URL.createObjectURL(blob);
         link.setAttribute('href', url);
-        link.setAttribute('download', `New_Payments_${formatDate(new Date())}.csv`);
+        link.setAttribute('download', exportTarget === "cashfree"
+            ? `Cashfree_Payments_${formatDate(new Date())}.csv`
+            : `New_Payments_${formatDate(new Date())}.csv`);
         link.style.visibility = 'hidden';
         document.body.appendChild(link);
         link.click();
@@ -459,17 +551,35 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     </DialogHeader>
                     <div className="py-4 space-y-4">
                         <h2 className="font-semibold text-primary text-sm">Debit Account Details</h2>
-                        <RadioGroup value={debitAccountNumber} onValueChange={setDebitAccountNumber} className="space-y-2">
+                        <RadioGroup
+                            value={exportTarget}
+                            onValueChange={(v) => {
+                                const target = v as "icici" | "cashfree";
+                                setExportTarget(target);
+                                // Picking ICICI re-seeds the debit account, matching what the
+                                // radio did before it also selected the file format.
+                                if (target === "icici") setDebitAccountNumber(ICICI_DEBIT_ACCOUNT);
+                            }}
+                            className="space-y-2"
+                        >
                             <div className="flex items-center space-x-2">
-                                <RadioGroupItem value="093705003327" id="icici_0937" />
+                                <RadioGroupItem value="icici" id="icici_0937" />
                                 <Label htmlFor="icici_0937">ICICI - XXXX3327</Label>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="cashfree" id="cashfree" />
+                                <Label htmlFor="cashfree">Cashfree</Label>
                             </div>
                             {/* Add more accounts if needed */}
                         </RadioGroup>
-                        <div className="grid grid-cols-3 items-center gap-4">
-                            <Label htmlFor="debitAccNo" className="col-span-1">Custom Acc No:</Label>
-                            <Input id="debitAccNo" value={debitAccountNumber} onChange={(e) => setDebitAccountNumber(e.target.value)} className="col-span-2 h-8" />
-                        </div>
+                        {/* Cashfree's template has no debit-account column -- the source account
+                            is fixed on the Cashfree side -- so this input only applies to ICICI. */}
+                        {exportTarget === "icici" && (
+                            <div className="grid grid-cols-3 items-center gap-4">
+                                <Label htmlFor="debitAccNo" className="col-span-1">Custom Acc No:</Label>
+                                <Input id="debitAccNo" value={debitAccountNumber} onChange={(e) => setDebitAccountNumber(e.target.value)} className="col-span-2 h-8" />
+                            </div>
+                        )}
                         <div className="grid grid-cols-3 items-center gap-4">
                             <Label htmlFor="paymentMode" className="col-span-1">Payment Mode:</Label>
                             <Select value={paymentMode} onValueChange={setPaymentMode}>
