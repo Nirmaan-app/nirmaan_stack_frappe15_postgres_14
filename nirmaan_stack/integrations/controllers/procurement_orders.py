@@ -291,11 +291,14 @@ def delete_existing_aq_docs(doc):
 
 
 def cleanup_po_linked_docs(po_name):
-    """Delete PO Revisions, PO Adjustments, and their linked Project Payments.
+    """Delete everything that would block deleting this PO but is not itself a record.
+
+    PO Revisions, PO Adjustments and their linked Project Payments, plus the
+    Project Action Item projection rows.
 
     Must run BEFORE frappe.delete_doc("Procurement Orders") so the
     link-existence check doesn't block PO deletion.
-    Order: payments → adjustments → revisions (respects referential integrity).
+    Order: payments → adjustments → revisions → action items (respects referential integrity).
     """
     # 1. Clean up PO Adjustments and their linked Project Payments
     adjustments = frappe.get_all("PO Adjustments", filters={"po_id": po_name}, pluck="name")
@@ -315,6 +318,33 @@ def cleanup_po_linked_docs(po_name):
     revisions = frappe.get_all("PO Revisions", filters={"revised_po": po_name}, pluck="name")
     for rev_name in revisions:
         frappe.delete_doc("PO Revisions", rev_name, force=True, ignore_permissions=True)
+
+    # 3. Clean up the Project Action Item projection rows for this PO.
+    #
+    # WHY THEY MUST GO: the reconciler only ever flips `status` to "Resolved"
+    # (_resolve_all_open) and never deletes a row -- and Frappe's link check ignores
+    # custom status fields, skipping only docstatus==2. `Project Action Item` is not
+    # submittable, so docstatus is always 0 and a Resolved row blocks the delete
+    # exactly as hard as an Open one, forever. That is what strands a PO reverted
+    # from Dispatched back to PO Approved: its DNs are gone, but the Resolved
+    # DN_PENDING/DC_PENDING rows remain and Cancel PO can never complete.
+    #
+    # Deleting them loses nothing: they are DERIVED state, rebuildable at any time
+    # from services.action_items.reconcile.reconcile_all().
+    #
+    # delete_doc, not frappe.db.delete -- same idiom as the two cleanups above. A raw
+    # row delete would work today (the doctype has no child tables and no doc_events),
+    # but it silently stops being correct the moment one is added, or the moment users
+    # start commenting on / attaching to / being assigned these rows: only delete_doc
+    # clears the Comment, File, ToDo, DocShare and Version rows that would otherwise
+    # be orphaned. force=True skips the link check on the action item itself, which
+    # must never become a new reason a PO delete fails.
+    for ai_name in frappe.get_all(
+        "Project Action Item",
+        filters={"reference_doctype": "Procurement Orders", "reference_name": po_name},
+        pluck="name",
+    ):
+        frappe.delete_doc("Project Action Item", ai_name, force=True, ignore_permissions=True)
 
 
 def _all_items_dispatched(doc):
