@@ -13,6 +13,7 @@ import frappe
 from nirmaan_stack.api.expense_requests.access import ADMIN_PROFILE, caller_role_profile
 from nirmaan_stack.api.expense_requests.convert import target_doctype, target_status
 from nirmaan_stack.api.expense_requests.flatten import flatten_pairs
+from nirmaan_stack.api.expense_requests.update import can_edit
 from nirmaan_stack.services.expense_request_routing import (
 	category_for_type,
 	requestable_types,
@@ -22,6 +23,10 @@ from nirmaan_stack.services.expense_request_routing import (
 
 FIELDS = [
 	"name", "type", "projects", "amount", "comment",
+	# `vendor` is read for the EDIT dialog, which seeds itself from this row. Omitting it does
+	# not merely hide the vendor -- the dialog would seed blank and the save would CLEAR a
+	# vendor the requester had picked, silently.
+	"vendor",
 	"source_data", "status", "reviewed_by", "reviewed_on", "review_comment",
 	"owner", "creation", "modified",
 ]
@@ -66,6 +71,10 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 	for r in rows:
 		r["request_category"] = category_for_type(r["type"])
 		r["reviewer_role"] = reviewer_role_for_type(r["type"])
+		# Server-owned, exactly like `can_review`: the table must never re-derive a
+		# permission, and the two answers are deliberately DISJOINT -- a reviewer who could
+		# also edit could rewrite an amount and then approve it.
+		r["can_edit"] = can_edit(r, user)
 		r["can_review"] = profile == ADMIN_PROFILE or (
 			profile == r["reviewer_role"] and r["owner"] != user
 		)
