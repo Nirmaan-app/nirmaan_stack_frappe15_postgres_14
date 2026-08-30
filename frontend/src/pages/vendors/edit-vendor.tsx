@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
-import { GST_REGEX, IFSC_REGEX, NAME_REGEX, PAN_REGEX } from "@/constants/vendorFormRegex";
+import { ACCOUNT_NUMBER_REGEX, GST_REGEX, IFSC_REGEX, NAME_REGEX, PAN_REGEX } from "@/constants/vendorFormRegex";
 import { accountNumberDuplicateMessage, findVendorByGst } from "./utils/vendorDuplicates";
 import { SERVICECATEGORIES } from "@/lib/ServiceCategories";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
@@ -63,9 +63,16 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
     // Stays OPTIONAL here (legacy vendors hold no bank details), but a number
   // belonging to ANOTHER vendor is refused. The record's own current number is
   // always allowed — see accountNumberDuplicateMessage.
+  // Bank details are mandatory on edit, exactly as they already are on create. A vendor
+  // without an account number + IFSC cannot be paid out at all: the Cashfree/ICICI export
+  // needs both, and AccountantTabs greys the payment row out entirely when either is
+  // missing. Leaving edit permissive is what let those unpayable vendors exist.
   let accountNumberSchema = z
-      .string()
-      .optional()
+      .string({ required_error: "Account number is required" })
+      .min(1, { message: "Account number is required" })
+      .regex(ACCOUNT_NUMBER_REGEX, {
+          message: "Account number must be 9 to 18 digits.",
+      })
       .refine(
           (value) => !accountNumberDuplicateMessage(existingVendors, value, originalAccountNumber),
           (value) => ({
@@ -179,13 +186,18 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
         vendor_gst: finalVendorGstSchema,
         account_number: accountNumberSchema,
         confirm_account_number:confirmAccountNumberSchema,
-        account_name: z.string().optional(),
+        account_name: z
+            .string({ required_error: "Account holder name is required" })
+            .min(3, {
+                message: "Must be at least 3 characters.",
+            }),
         ifsc: z
-                .string()
+                .string({ required_error: "IFSC code is required" })
+                .min(1, { message: "IFSC code is required" })
                 .regex(IFSC_REGEX, {
                   message: "Invalid IFSC code. Example: SBIN0005943"
                 })
-                .optional().refine((ifsc) => {
+                .refine((ifsc) => {
                   if (!ifsc || ifsc.length !== 11) {
                     return true;
                   }
@@ -651,7 +663,7 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
                                     name="account_name"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>Account Name</FormLabel>
+                                            <FormLabel>Account Name<sup className="text-sm text-red-600">*</sup></FormLabel>
                                             <FormControl>
                                                 <Input 
                                                     placeholder="Enter Account Name" 
@@ -670,7 +682,7 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
                                                                     name="account_number"
                                                                     render={({ field }) => (
                                                                         <FormItem>
-                                                                            <FormLabel>Account Number</FormLabel>
+                                                                            <FormLabel>Account Number<sup className="text-sm text-red-600">*</sup></FormLabel>
                                                                             <FormControl>
                                                                                 <Input
                                                                                   placeholder="Enter Account Number"
@@ -694,7 +706,7 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
                                                                   name="confirm_account_number"
                                                                   render={({ field }) => (
                                                                     <FormItem>
-                                                                      <FormLabel>Confirm Account Number</FormLabel>
+                                                                      <FormLabel>Confirm Account Number<sup className="text-sm text-red-600">*</sup></FormLabel>
                                                                       <FormControl>
                                                                         <Input placeholder="Confirm Account Number" 
                                                                         {...field} 
@@ -715,7 +727,7 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
                                     name="ifsc"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>IFSC Code</FormLabel>
+                                            <FormLabel>IFSC Code<sup className="text-sm text-red-600">*</sup></FormLabel>
                                             <FormControl>
                                                 <Input placeholder="Enter IFSC Code" {...field} value={field.value || ""} 
                                                 onChange={(e) => {
