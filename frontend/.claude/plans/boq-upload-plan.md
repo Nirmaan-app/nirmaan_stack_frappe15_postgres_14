@@ -34066,3 +34066,240 @@ debris of killed runs.
 No teardown written. Neither suite's lifecycle touched. `scripts/residence_check.py` untouched. No
 production code, config, asset, doctype or pipeline changed. No source file changed at all in Phase
 B -- it is data only.
+
+
+---
+
+## PW-CONDUIT-OPTIONAL + LENGTH-BY-POINT-TYPE (2026-09-01) -- asset v50, live
+
+Point wiring's conduit became droppable, and its circuit length can be substituted from the point
+type. Four independent pieces, each able to fail on its own.
+
+**Asset:** `rate_master_electrical_all_v50.json`,
+sha256 `c7fe29618f314fb5beca1022059f45d80f616b3246a007823412ddc55e0804d9`.
+**Live batch:** `rmbulk-f85cff1fa4f4`. Pin: `test_rate_master.CURRENT_EALL_ASSET`.
+
+### ⚠️ THE DELIVERY-PATH FINDING -- A PERMANENT ADDITION TO WHAT "DONE" MEANS
+
+**The asset FILE is not the runtime config.** The application reads
+`BoQ Rate Category Config` (the doctype); `services/boq_rate_master/loader.load_rate_master` is the
+ONLY bridge between a minted file and the running app. Nothing reads the JSON on disk at runtime.
+
+**A config-carrying slice that mints an asset, bumps the pin and certifies in a browser WITHOUT an
+import step certifies the OLD config.** This slice did exactly that and the cert was halted on it:
+the browser was serving the new INTERPRETER (both bundle markers passed) while the CONFIG was still
+the previous batch. Piece 1's code was live but inert -- its branch keys on `absent_when`, which the
+old config did not carry -- and pieces 2, 3 and 4 are pure config, so they did not exist at all.
+
+**The two are DIFFERENT CLAIMS and must be proven separately:**
+1. the CODE path -- the bundle markers (vite serves it; the browser's own fetch confirms it);
+2. the CONFIG path -- fetch the category config through the API the panel uses
+   (`get_rate_category_config`) and show the new key in the response.
+
+Conflating them is what caused the halt. Prove both, every time.
+
+*(The precedent was checked before importing: v47 was live and EXACT on all 12 categories, so the
+conduit slice's cert and the TPN pole slice's cert both measured live config. Nothing to retract.)*
+
+### The four pieces
+
+**PIECE 1 -- `circuit_fit` learns positive absence.** `CircuitFitStep.params.absent_when`, consumed
+in `ratePipelineInterpreter.ts` AFTER the wire read and BEFORE the unknown-type refusal. It MIRRORS
+`catalog_fit`'s shipped `absent_when` exactly rather than inventing a second convention: bind the
+"None" sentinel into every `binds` target so a `none_skips` component zeroes its line, and let the
+rest of the row price. Binding is what makes it safe -- an unbound `@fitted_size` would be a bindMiss
+and would refuse the whole row, the very failure the branch exists to prevent.
+⚠️ **An UNKNOWN conduit type is NOT this** and still refuses. Do not widen the branch.
+
+**PIECE 2 -- the combiner, built from SHIPPED machinery.** A three-step `map_attribute` chain applies
+the owner's decision table. ⚠️ **An earlier report claimed no shipped config shape could combine two
+facts. That was WRONG:** `map_attribute` with `on_miss: "skip"` leaves the prior value standing, so a
+chain expresses the whole table. This mattered -- a new step type would have forced out-of-scope
+edits to `rateMasterStructure.ts` (to register the derived attribute) and `pricingSheetHelper.ts`.
+
+**PIECE 3 -- the PVC default.** `conduit_type` maps with `prefer_attr` to itself and `default: "PVC"`.
+A stated material renders plain; a defaulted one renders "PVC (computed)".
+
+**PIECE 4 -- the length matcher.** `extraction.point_type_of` reads the payload `_ai_item` builds --
+never raw node text, never a chain assembled by the caller. Two mechanisms, neither sufficient alone:
+the PREPOSITION GUARD (the type a row IS sits bare at the head of the phrase; the type it REFERS TO
+follows a linking verb) and NEAREST WINS (only the shallowest distance carrying a token votes).
+
+### The decision table (owner-confirmed) -- and the OPPOSITE DEFAULTS
+
+| the row says | result |
+|---|---|
+| conduit price EXPLICITLY EXCLUDED | DROP -- the document says so; outranks all inference |
+| run in raceway / tray / existing conduit, NO other conduit named | DROP |
+| run in raceway / tray / existing conduit, only a FLEXIBLE conduit named elsewhere | DROP |
+| run in raceway / tray / existing conduit, a NORMAL conduit named elsewhere | INCLUDE PVC -- ambiguous |
+| slash alternation (`existing conduit / raceway`) | INCLUDE PVC -- genuinely ambiguous |
+| silent on conduit | INCLUDE PVC |
+| anything less clear-cut | INCLUDE PVC |
+
+⚠️ **THE DEFAULTS ARE OPPOSITE TO CABLES, BY DESIGN, AND MUST NOT BE HARMONISED.**
+`wiring_cabling.cable_boq` (F-28) maps `conduit_included` with **`default: "No"`** -- a CABLE row
+silent on conduit EXCLUDES it. `point_wiring` maps **`default: "Yes"`** and `conduit_type`
+**`default: "PVC"`** -- a POINT WIRING row silent on conduit INCLUDES it. Point wiring normally
+carries conduit; cables normally do not. Both sites are named in each other's notes, and
+`test_pw_cfg_03` asserts BOTH defaults in ONE test, so harmonising either turns it red.
+
+⚠️ **ERROR DIRECTION:** on point wiring a wrong reading **UNDER-quotes, silently** -- nothing on
+screen says a component was skipped. That is the MIRROR of the cable case, where a wrong reading
+OVER-quoted and a human saw it. It is why every ambiguous shape INCLUDES.
+
+⚠️ **THE MODEL NEVER APPLIES THE TABLE.** It reports three facts (`conduit_handoff`, `other_conduit`,
+`conduit_price_excluded`, all `panel: false`); CODE decides. Asking the model to judge is the F-5
+failure.
+
+### ⚠️ THE COLLISION, AND ITS RESOLUTION
+
+Two owner rulings met on **BOQ-26-00141 r130**, whose own text reads `Upto 6 Meters`:
+
+> "if the line item mentions only Primary/ first or any synonym then length will be 15 mts."
+
+> "circuit length = 15 m for one point, +5 m for every additional point; a STATED length is kept
+> exactly as given (no floor, no warning)"  *(the older, owner-locked rule on the derive step)*
+
+**OWNER RULING (2026-09-01): STATED WINS.** The length map carries `prefer_attr: "circuit_length_m"`,
+so 15/5 apply ONLY where the row states no length. Reasoning, so it is never re-litigated: the
+document wrote a number down, and discarding it OVER-quotes (r130 would price 15 m against a stated
+6 -- 9 m of wire and conduit per point). The more specific reading wins; the inference is the
+fallback. Consequence, expected and correct: the substitution rarely fires on sheets whose rows are
+`Upto N Meters` bands, and fires where nothing was stated.
+
+### ⚠️ THE STEP-ORDER DEFECT (found by the new tests, minutes after writing them)
+
+**`prefer_attr` placed AFTER `derive_attribute` reads the value derive just computed, calls it
+stated, and the 15/5 substitution can NEVER FIRE.** The map MUST run BEFORE derive. Then it sees only
+what the ROW stated: a stated length is kept (plain), otherwise 15/5 is written (computed), and derive
+keeps whichever landed; a row stating nothing and naming no type falls through both to the formula.
+Recorded at the config site too.
+
+### ⚠️ TWO TEST-DESIGN LESSONS
+
+**(1) A fixture that deletes the attribute under test cannot fail.** `PW_LEN_BASE` deleted
+`circuit_length_m` before every length test, so the case that mattered most -- a row that STATES a
+length AND names a type -- was never exercised. The live cert caught it instead. Closing that gap
+found the step-order defect within minutes.
+
+**(2) A red test can conceal a second red thing inside itself -- and it did, twice.** The test file
+`test_rate_suggest.py` carries a warning written this same morning, when four stale pins were fixed:
+
+> ⚠️ THIS PIN WAS HIDDEN BY THE ONE ABOVE IT. The label assertion failed first and aborted the test,
+> so this second stale pin never ran and never appeared in any failure output.
+
+`test_e4_point_wiring_r9_records_runs_and_cores_separately` encodes R12's absence in TWO assertions --
+the exact id list, and the `others` map of `applies_to`. The first aborted and masked the second, so
+the first report of it named only one. **STANDING LESSON: when a pin goes stale, fix it and re-run
+THAT TEST ALONE before assuming it was the only one.**
+
+### ⚠️ THE MIS-IDENTIFIED ROW
+
+**BOQ-26-00141 r130 is NOT the "Secondary ... Looped to Primary" row -- r135 is.** r130 and r131 sit
+under the PRIMARY heading; r135 and r136 under the Secondary one. The recon and two slice reports all
+called r130 the decisive Secondary row, and the error propagated into a stopping condition
+("cert row J reads 15 m -> piece 4 has failed") that would have declared a WORKING matcher broken at
+the exact moment it was working correctly.
+
+### The vocabularies, as measured (995 engine-payload rows, 710 sheets / 177 BoQs)
+
+**V1 -- FLEXIBLE vs NORMAL: bounded.** `flexible` (bare) 316 rows, `flexible conduit` 174,
+`flexible hose` 7. Zero occurrences of `corrugated`, `spiral`, `flexi`, `pliable`, `convoluted`,
+`flexible pipe`. The live shape is the drop at a fixture.
+
+**V2 -- EXPLICIT EXCLUSION: NOT bounded, and POLARITY-AMBIGUOUS.** `not included` 56, `excluding` 52,
+`under separate` 28, `exclusive of` 20, `cost of conduit` 12, `separate item` 8, `quoted in separate
+item` 8, `excluded` 7. ⚠️ **The same vocabulary carries both polarities** -- "GI conduit shall be paid
+under separate line item" excludes, while "cost of conduit is included" does not. A keyword list
+cannot be trusted here, which is why `conduit_price_excluded` is a MODEL-READ FACT with an explicit
+polarity warning in R12.
+
+**V3 -- the preposition guard: 78 referential rows, 78 resolved SECONDARY, 0 read as PRIMARY.**
+⚠️ **HONEST LIMIT:** the verb list (`looped|loop|looping|controlled|extended|tapped|connected|drawn|
+fed`) is drawn FROM this corpus. A BoQ using a verb outside it slips through and is read as the wrong
+type. The owner allowed a close match; the residual error is bounded by the verb list, not by grammar.
+
+**`loop point` vs bare `loop` (owner ruling 2026-09-01: "loop point is secondary point").**
+`loop point` is a secondary marker. **Bare `loop` is deliberately EXCLUDED** -- the corpus uses it for
+plain method prose ("the wiring shall be done in complete looping in system", "only looping is allowed
+in terminal blocks"), which describes HOW the wiring runs, not what KIND of point the row is. The
+two-word form carries the meaning; the one-word form does not.
+
+**`Either` means DIFFERENT CONTAINERS (owner ruling 2026-09-01).** R12 requires the alternatives to be
+different containers (conduit vs raceway / tray / trunking). `recessed/surface existing conduit` names
+ONE container mounted two ways, so the answer is `Yes`. Same for slashes between sizes, materials,
+grades or makes. Measured: the model moved from `Either` (0.7) to `Yes` (0.8) on the row that exposed
+it. ONE re-wording only -- a second would have been tuning to green.
+
+### ⚠️ ACCEPTED: 162 rows are genuinely ambiguous
+
+The slash alternation cannot be resolved from the text at all -- the client named two containers and
+did not choose. They resolve toward INCLUDING by the owner's ruling. **This is a specification gap in
+the source documents, not a matcher weakness.**
+
+### ⚠️ THE CORRECTED 161-ROW PREMISE
+
+The 161 rows silent on conduit **never priced at all** before this slice: `conduit_type` had no
+extraction default and no rule, so a blank tripped the whole-row `missing` gate and the row refused
+before any pipeline ran. **"Include if the row is silent" was therefore INERT** until the PVC default
+gave it something to include. The original #57 item 2 ("they price exactly as today") rested on a
+premise that did not hold.
+
+### The lean tier
+
+`_FULL_TIER_MAX_DISTANCE = 2`: at distance >= 3 a node contributes description + appended notes only;
+its own and attached notes are withheld. Measured: 187 of 995 rows have such an ancestor, all 208 lean
+entries carry a description, and **0 rows lose both a point type and a wire size**. It withholds
+nothing decisive today, but it is where a future sheet could hide one.
+
+### The cert -- 3 of 12 rows, stated plainly
+
+| Row | Target | Outcome |
+|---|---|---|
+| **C** | BOQ-26-00086 `WIRING AND POWER SOCKET` r127 | **PASS** -- `conduit_handoff='Yes'` (0.8); `circuit_fit`: "conduit_type is None -> no conduit (positive absence)"; conduit **0**; wire1 1100, wire2 550, socket 113, back_box 44 all priced; supply 1807 |
+| **J** | BOQ-26-00141 r135 | **PASS** -- `point_type='Secondary'` conf 1.0; stated 5 m survives; supply 1070 |
+| **J2** | BOQ-26-00141 r130 | **PASS** -- stated **6 m, NOT 15**; supply 1235 |
+| A, I | BOQ-26-00048 `Electricals` | **unreached** -- `Declare amount formulas first.` |
+| B | BOQ-26-00020 `HVAC_-19TH FLOOR` | **unreached** -- `Declare amount formulas first.` |
+| E, F | BOQ-26-00042 `BOQ` | **unreached** -- `Declare amount formulas first.` |
+| D, H, K | BOQ-26-00003 `PUNE ELECTRICAL BOQ` | **unreached** -- `There is no completed suggestion run for this sheet to carry the untouched rows forward from.` |
+| G | BOQ-26-00016 `Bill 18-_W&C` | **unreached** -- same carry-forward guard |
+
+**Nine rows were NOT observed.** Both refusals are the product working correctly, and the owner ruled
+against chasing them (no whole-sheet runs, no formula declarations on live sheets). **Do not read this
+cert as fuller than it is** -- the three reachable rows happen to be the three the stopping conditions
+name, so the load-bearing claims are covered, but the table above is the whole of what was seen.
+
+`ai_status: ran` on both sheets. **Not one stored price moved:** `BoQ Cell Pricing` 31,153 rows,
+sha256 `8413340e0c7ed626ee518ab4e020be83ed588df95099b456467ae774eca8e97c`, identical before the first
+import and after the last extraction. Active Electrical items 1367 / `258c6ad7...`, unchanged.
+
+### The undo
+
+Live batch `rmbulk-f85cff1fa4f4`. To return to the pre-slice v47 state (`rmbulk-de6d82f1356c`, retained
+at `active=0` -- freeze-and-supersede never deletes):
+
+```sql
+UPDATE "tabBoQ Rate Category Config" SET active=0 WHERE discipline='Electrical' AND import_batch='rmbulk-f85cff1fa4f4';
+UPDATE "tabBoQ Rate Category Config" SET active=1 WHERE import_batch='rmbulk-de6d82f1356c';
+UPDATE "tabBoQ Rate Master Item"     SET active=0 WHERE discipline='Electrical' AND import_batch='rmbulk-f85cff1fa4f4';
+UPDATE "tabBoQ Rate Master Item"     SET active=1 WHERE import_batch='rmbulk-de6d82f1356c';
+```
+
+### Two operational lessons from this slice
+
+⚠️ **NEVER re-run a script that WRITES in order to read its stdout.** Doing so imported v48 twice and
+left an extra superseded batch (`rmbulk-93d88d4c3c7e`). Nothing was lost -- both loads carried the same
+content -- but capture output to a file on the FIRST run instead.
+
+⚠️ **A cosmetic wart, recorded so it is not mistaken for a defect:** the ad-hoc import script's banner
+still prints "v48" in its `RUNNING load_rate_master(payload=v48...)` line. It is a stale literal in a
+`print` only; the ASSET path it loads is read from a constant and was verified by field-by-field
+comparison after every import.
+
+### Assets minted and discarded
+
+v48 (sha `a9a5b4ef...`) and v49 both existed briefly and were **deleted** -- uncommitted, superseded,
+and the loader warns that a stale asset silently reverts everything in its scope. v49 carried Ruling 1
+with the WRONG step order. Only **v50** ships.
