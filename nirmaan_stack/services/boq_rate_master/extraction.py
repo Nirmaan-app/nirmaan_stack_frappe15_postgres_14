@@ -858,6 +858,109 @@ _ROW_CONTEXT_SHAPE_GUIDANCE = (
 )
 
 
+# ── PIECE 4: the POINT TYPE matcher (deterministic code, never the model) ───────────────────────
+# Owner: "if the line item mentions only Primary/ first or any synonym then length will be 15 mts.
+# if it mentions only secondary/looping/ second/ third etc points then length will be 5 mts" --
+# "that formula is valid if the line item does not mention the type of points or includes both type
+# of points", and "in case of confusion default to the formula".
+#
+# TWO MECHANISMS, AND NEITHER IS SUFFICIENT ALONE:
+#
+#  (a) THE PREPOSITION GUARD. The type a row IS sits bare at the head of the phrase ("Secondary
+#      Light / Fan Point ..."); the type it merely REFERS TO follows a linking verb ("looped TO
+#      Primary Point", "controlled FROM DB"). Without it, the owner's decisive row -- "Secondary ...
+#      Looped to Primary Point", which he ruled IS a secondary point -- reads as naming both types
+#      and falls to the formula. Measured on the live payload corpus: 78 referential rows, 78
+#      resolved SECONDARY, 0 read as primary.
+#      ⚠️ HONEST LIMIT: the verb list is drawn FROM this corpus. A BoQ using a verb outside it slips
+#      through and is read as the wrong type. The owner allowed a close match; the residual error is
+#      bounded by the verb list, not by the grammar.
+#
+#  (b) NEAREST WINS. Only the SHALLOWEST distance carrying any type token votes. The same decisive
+#      row carries "Secondary" at distance 1 and, at distance 2, a note naming BOTH types ("Switch
+#      board to Primary & Secondary Point wiring shall be ..."). A flat scan over the whole chain
+#      reads BOTH and falls to the formula; nearest-wins gives 5 m, as ruled.
+#
+# ⚠️ IT READS THE SAME PAYLOAD `_ai_item` BUILDS -- never raw node text and never a chain assembled
+# here. A match against a reconstruction measures the reconstruction; that error was made and caught
+# on 2026-08-23.
+#
+# Returns "Primary" | "Secondary" | None. None means BOTH types, NEITHER type, or confusion -- and
+# the config's map_attribute skips on it, leaving the existing formula standing untouched.
+# The attributes CODE supplies rather than the model. A config declaring one of these gets it
+# filled deterministically after the model returns; a config that does not is untouched.
+_CODE_SUPPLIED_ATTRS = {"point_type"}
+_PT_PRIMARY = [r"\bprimary\b", r"\bfirst\s+point", r"first\s+light\s+point", r"\b1st\s+point"]
+# WARNING `loop point` is HERE BY OWNER RULING (2026-09-01: "loop point is secondary point"), and
+# bare `loop` is DELIBERATELY STILL ABSENT. The corpus uses bare `loop` for plain method prose too --
+# "the wiring shall be done in complete looping in system", "only looping is allowed in terminal
+# blocks" -- which describes HOW the wiring is run, not what KIND of point the row is. The two-word
+# form carries the meaning; the one-word form does not. Do NOT widen this to bare `loop`.
+_PT_SECONDARY = [r"\bsecondary\b", r"\blooping\b", r"\blooped\b", r"\bsecond\s+point",
+                 r"\bthird\b", r"\b3rd\b", r"loop\s+in", r"\bloop\s+point"]
+_PT_REFERENTIAL = re.compile(
+    r"(looped|loop(?:ing)?|controlled|extended|tapped|connected|drawn|fed)"
+    r"\s+(?:to|from|with|off)\s+(?:the\s+)?(primary|first|1st)", re.I)
+
+
+def _pt_note_text(block):
+    """Every note kind of one payload note block, flattened. Mirrors `_note_block`'s shapes."""
+    if not isinstance(block, dict):
+        return ""
+    out = []
+    for kind in ("own", "attached"):
+        v = block.get(kind)
+        if isinstance(v, list):
+            out.extend(str(x) for x in v)
+        elif v:
+            out.append(str(v))
+    ap = block.get("appended")
+    if isinstance(ap, dict):
+        out.extend(str(x) for x in ap.values())
+    elif ap:
+        out.append(str(ap))
+    return " ".join(out)
+
+
+def _pt_layers(item):
+    """(distance, text) for one payload item. distance 0 = the row itself; the sheet label is NOT a
+    node and never votes."""
+    layers = [(0, (item.get("description") or "") + " " + _pt_note_text(item.get("notes")))]
+    for e in item.get("ancestor_chain") or []:
+        if e.get("relation") == "sheet":
+            continue
+        layers.append((e.get("distance"),
+                       (e.get("description") or "") + " " + _pt_note_text(e.get("notes"))))
+    return layers
+
+
+def point_type_of(item):
+    """The point type this row IS, read from the payload item. See the block comment above."""
+    by_distance = {}
+    for distance, text in _pt_layers(item):
+        if not text or not text.strip() or distance is None:
+            continue
+        for rx in _PT_PRIMARY:
+            for m in re.finditer(rx, text, re.I):
+                seg = text[max(0, m.start() - 90):m.end() + 90]
+                # THE GUARD: a primary token reached through a linking verb is a REFERENCE to another
+                # point, not this row's own type. It does not vote.
+                if _PT_REFERENTIAL.search(seg):
+                    continue
+                by_distance.setdefault(distance, set()).add("P")
+        for rx in _PT_SECONDARY:
+            if re.search(rx, text, re.I):
+                by_distance.setdefault(distance, set()).add("S")
+    if not by_distance:
+        return None                      # NEITHER type named -> the formula stands
+    votes = by_distance[min(by_distance)]  # NEAREST WINS
+    if votes == {"P"}:
+        return "Primary"
+    if votes == {"S"}:
+        return "Secondary"
+    return None                          # BOTH types at the nearest level -> the formula stands
+
+
 def _coerce_value(defn, raw, synonyms_for_attr=None):
     """The VALUE-ONLY contract, UNCHANGED. Every pre-capture caller keeps calling this and gets
     exactly what it got before.
@@ -1178,7 +1281,7 @@ def correct_four_pole_mcb_picks(row_out, row, pole_catalog, tokens=None):
     return changed
 
 
-def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, *, capture_ctx=None):
+def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, *, capture_ctx=None):
     """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
     confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
     (<=20 rows, 3 attempts, sleep 2*attempt).
@@ -1423,6 +1526,27 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                         _a = _rec.get("attr")
                         if _a in row_map:
                             row_map[_a]["four_pole_corrected"] = _rec.get("to")
+                # PIECE 4 -- THE POINT TYPE, a DETERMINISTIC CODE MATCH over the payload.
+                #
+                # Placed beside the two corrections above because it is the same kind of thing: pure,
+                # deterministic, applied to the row dict this loop is assembling, BEFORE the result is
+                # stored. It differs in one way worth naming -- the model is never asked for
+                # `point_type` at all (`extract: false`), so this does not CORRECT a model answer, it
+                # SUPPLIES the attribute. `point_type_of` reads `_ai_item(row)`: the SAME payload the
+                # model was shown, never raw node text and never a chain assembled here.
+                #
+                # None means both types, neither, or confusion -- the config's map_attribute skips on
+                # it and the 15 + (points-1)*5 formula stands, exactly as the owner ruled.
+                #
+                # INERT for every other category: nothing else declares `point_type`.
+                if _row_src is not None and "point_type" in (code_attrs or ()):
+                    _pt = point_type_of(_ai_item(_row_src))
+                    if _pt is not None:
+                        row_out["point_type"] = {"value": _pt, "confidence": 1.0}
+                        row_map["point_type"] = {"raw": None, "coerced": _pt,
+                                                 "reason": "matched from payload (code)",
+                                                 "confidence_raw": None, "confidence": 1.0,
+                                                 "defaulted_claimed": False, "defaulted_kept": False}
                 # Attributes the model returned that are NOT declared. Currently read by nothing and
                 # dropped with no else-branch -- the compound-row surplus.
                 surplus = sorted(str(k) for k in set(attrs) - set(defs_by_id))
@@ -1702,6 +1826,12 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
             # Composite-only and resolved ONCE per group, exactly like `slot_spec` beside it; None
             # for every other mode, which leaves those categories byte-identical.
             "pole_catalog": breaker_catalog_for(cfg, disc) if is_composite else None,
+            # PIECE 4: the attribute ids this config declares that CODE supplies rather than the
+            # model. Derived FROM THE CONFIG (never a hardcoded category name -- the HV-10 lesson):
+            # a config that does not declare `point_type` yields an empty set and the matcher is
+            # inert for it, which is every category but point_wiring today.
+            "code_attrs": {d["id"] for d in (cfg.get("attribute_definitions") or [])
+                           if d.get("id") in _CODE_SUPPLIED_ATTRS},
             # EA-4 ext-a: owner-authored estimator rules. DELIBERATELY UNGATED -- unlike slot_spec /
             # resolution_rules (composite-only), these must reach EVERY category, composite or not
             # (R7 lands on cabletray_raceway, an ordinary attribute category). Absent => None =>
@@ -1759,7 +1889,7 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
                 def _call(rows_, _gc=gc):
                     # `boq` is NOT on the row dict -- it lives only in this enclosing scope, so the
                     # capture's join key is threaded in from here.
-                    return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], _gc["pole_catalog"], capture_ctx={"boq": boq})
+                    return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], _gc["pole_catalog"], _gc["code_attrs"], capture_ctx={"boq": boq})
 
                 # SR-2 (3): ONE iteration when the batch fits (byte-identical to the pre-SR-2 single
                 # call); one per surviving half after a ceiling cut. Everything below is unchanged

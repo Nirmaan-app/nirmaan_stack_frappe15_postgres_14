@@ -1380,7 +1380,10 @@ class TestExtBRules(FrappeTestCase):
         is still pinned on load-bearing PHRASES, so a further reword still fails."""
         ids = [r.get("id") for r in (_live_rules("point_wiring") or [])]
         # EXACT, and in declaration order -- the order the prompt injection sees them.
-        self.assertEqual(ids, ["R9", "S3", "S1", "S2"])
+        # PW-CONDUIT-OPTIONAL added R12 (the conduit-facts rule: the model REPORTS what the row says
+        # about conduit and never applies the decision table). Still EXACT and still in declaration
+        # order -- a further new rule must fail here.
+        self.assertEqual(ids, ["R9", "S3", "S1", "S2", "R12"])
         r9 = next(r for r in _live_rules("point_wiring") if r["id"] == "R9")
         self.assertEqual(r9["applies_to"], "wire1_runs")
         self.assertEqual(
@@ -1408,7 +1411,10 @@ class TestExtBRules(FrappeTestCase):
         others = {r["id"]: r for r in _live_rules("point_wiring") if r["id"] != "R9"}
         self.assertEqual(
             {i: r["applies_to"] for i, r in others.items()},
-            {"S1": "switch_item", "S2": "switch_item", "S3": "switch_item"},
+            # PW-CONDUIT-OPTIONAL: R12 joins them. applies_to pinned IN FULL so a silent drop of any
+            # one of the three conduit facts still fails here.
+            {"S1": "switch_item", "S2": "switch_item", "S3": "switch_item",
+             "R12": "conduit_handoff, other_conduit, conduit_price_excluded"},
         )
         cfg = frappe.get_all("BoQ Rate Category Config",
                              filters={"discipline": "Electrical", "category_id": "point_wiring",

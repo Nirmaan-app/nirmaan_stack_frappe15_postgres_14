@@ -216,7 +216,7 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # is an identity on the tens-rounded integers cable_boq already produced. If a wiring golden ever moves,
 # the conduit component has leaked onto a row that names no conduit.
 # ⚠️ TERMINATION IS UNTOUCHED (owner ruling ii): `termination_boq` has a ZERO-LINE DIFF at v47.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v47.json"
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v50.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -6175,3 +6175,204 @@ class TestConduitInTheCableRate(FrappeTestCase):
         # and no golden carries a conduit attribute -- which is WHY they are unchanged
         for g in cfg["goldens"]:
             self.assertFalse([k for k in g["attrs"] if "conduit" in k or k == "size_mm"])
+
+
+# ---- PW-LENGTH-BY-POINT-TYPE + PW-CONDUIT-OPTIONAL: the v48 point_wiring slice ------------------
+class TestPointWiringConduitAndLength(FrappeTestCase):
+    """PIECE 4's matcher (pure, no DB) and the v48 config SHAPE that pieces 1-3 depend on.
+
+    The matcher is the half that cannot be tested in vitest: it reads the payload `_ai_item` builds,
+    which is Python. The config assertions are what make the interpreter's fixture tests honest --
+    a green interpreter test over a fixture that has drifted from the shipped config proves nothing.
+    """
+
+    # ---------- PIECE 4: the point-type matcher ----------
+    @staticmethod
+    def _item(desc, ancestors=()):
+        """A payload item in `_ai_item`'s exact shape. distance 1 == the immediate parent."""
+        chain = [{"relation": "sheet", "description": "Electrical"}]
+        n = len(ancestors)
+        for i, a in enumerate(ancestors):
+            d = n - i
+            chain.append({"relation": "parent" if d == 1 else "grandparent", "distance": d,
+                          "tier": "full" if d <= 2 else "lean", "node_type": "Preamble",
+                          "description": a})
+        return {"id": 1, "description": desc, "ancestor_chain": chain}
+
+    def test_pw_pt_01_primary_only_is_primary(self):
+        """POSITIVE: a row naming only a primary/first point -> 15 m downstream."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertEqual(point_type_of(self._item("Primary Light Point controlled by switch board")), "Primary")
+        self.assertEqual(point_type_of(self._item("Wiring to the first light point")), "Primary")
+
+    def test_pw_pt_02_secondary_only_is_secondary(self):
+        """POSITIVE: secondary / looping / second / third -> 5 m downstream."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertEqual(point_type_of(self._item("Secondary light points wiring")), "Secondary")
+        self.assertEqual(point_type_of(self._item("LOOP POINT wiring for the fixture")), "Secondary")
+
+    def test_pw_pt_03_the_decisive_row_looped_to_primary_is_SECONDARY(self):
+        """⚠️ THE ONE THAT DECIDES IT. The owner ruled that
+
+              "Secondary Light / Fan Point / AC Circuit Wiring Looped to Primary Point"
+
+        IS A SECONDARY POINT. The word "Primary" appears in it, so a word-presence rule reads BOTH
+        types and falls back to the formula -- which is the wrong answer, not merely a cautious one.
+        The preposition guard is what separates the type a row IS from a type it REFERS TO.
+        """
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        row = "Secondary Light / Fan Point / AC Circuit Wiring Looped to Primary Point with 2.5 sqmm x 3 Wire"
+        self.assertEqual(point_type_of(self._item(row)), "Secondary")
+
+    def test_pw_pt_04_other_referential_verbs_are_also_guarded(self):
+        """POSITIVE: the guard covers the verb list drawn from the corpus, not just 'looped'."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        for row in ("Secondary point wiring looped from first point",
+                    "Secondary light point wiring looped with first point",
+                    "Secondary point extended from primary point"):
+            self.assertEqual(point_type_of(self._item(row)), "Secondary", row)
+
+    def test_pw_pt_05_nearest_wins_over_an_ancestor_naming_both(self):
+        """⚠️ NEAREST WINS -- and the guard ALONE is not sufficient without it.
+
+        The live shape (BOQ-26-00141 r130): the row's parent says "Secondary ... Looped to Primary
+        Point", and its grandparent's note names BOTH types. A flat scan over the whole chain reads
+        BOTH and falls to the formula. Only the shallowest level carrying a type token votes.
+        """
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        item = self._item(
+            "Upto 6 Meters",
+            ancestors=("Switch board to Primary & Secondary Point wiring shall be 1.5 sqmm x 3 wire",
+                       "Secondary Light / Fan Point / AC Circuit Wiring Looped to Primary Point"),
+        )
+        self.assertEqual(point_type_of(item), "Secondary")
+
+    def test_pw_pt_06_primary_from_the_parent_when_the_row_is_a_bare_band(self):
+        """POSITIVE: the mirror case -- the parent says Primary, the row is only a length band."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        item = self._item("Upto 6 Meters",
+                          ancestors=("LIGHT / FAN / AC WIRING",
+                                     "Primary Light / Fan Point / AC Circuit Wiring Controlled from DB"))
+        self.assertEqual(point_type_of(item), "Primary")
+
+    def test_pw_pt_07_NEGATIVE_both_types_at_the_nearest_level_returns_none(self):
+        """NEGATIVE: both types named at the SAME level -> None -> the formula stands, as ruled
+        ("that formula is valid if the line item ... includes both type of points")."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertIsNone(point_type_of(self._item("Primary and secondary light point wiring")))
+
+    def test_pw_pt_08_NEGATIVE_neither_type_returns_none(self):
+        """NEGATIVE: no type named anywhere -> None -> the formula stands, untouched."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertIsNone(point_type_of(self._item("Supply and wiring of light point with 1.5 sq mm wire")))
+        self.assertIsNone(point_type_of(self._item("")))
+
+    def test_pw_pt_09_NEGATIVE_a_referential_primary_alone_does_not_make_it_primary(self):
+        """NEGATIVE, and the sharp edge of the guard: a row whose ONLY primary token is referential
+        and which names no secondary token either must yield None -- never Primary. Reading it as
+        Primary would substitute 15 m on a row that never claimed to be one."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertIsNone(point_type_of(self._item("Wiring drawn from the first point to the fixture")))
+
+    def test_pw_pt_10_notes_are_read_at_the_full_tier(self):
+        """POSITIVE: the matcher reads the payload's note block, not just descriptions."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        item = self._item("Upto 8 Meters")
+        item["notes"] = {"attached": ["Secondary point wiring, looped"]}
+        self.assertEqual(point_type_of(item), "Secondary")
+
+    # ---------- the v48 CONFIG SHAPE that pieces 1-3 ride on ----------
+    def _pw_cfg(self):
+        import json, os
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, _asset_path
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+        return [c for c in d["category_configs"] if c["category_id"] == "point_wiring"][0]
+
+    def test_pw_cfg_01_circuit_fit_declares_positive_absence(self):
+        """PIECE 1's config half: without `absent_when` the engine branch is unreachable and a
+        dropped conduit would kill the whole row instead of zeroing one line."""
+        cfg = self._pw_cfg()
+        for pid, pl in cfg["pipelines"].items():
+            cf = [s for s in pl["steps"] if s["step"] == "circuit_fit"][0]
+            self.assertEqual(cf["params"].get("absent_when"),
+                             {"attr": "conduit_type", "equals": "None"}, pid)
+            cd = [s for s in pl["steps"] if s.get("name") == "conduit"][0]
+            self.assertTrue(cd.get("none_skips"), pid)
+
+    def test_pw_cfg_02_the_decision_table_chain_is_present_and_ordered(self):
+        """PIECE 2: the three-step chain, IN ORDER. The order IS the table -- the explicit-exclusion
+        step must come LAST so it outranks every inference above it, and the drop-to-None step must
+        come AFTER the PVC default so the default does not undo it."""
+        cfg = self._pw_cfg()
+        for pid, pl in cfg["pipelines"].items():
+            maps = [s for s in pl["steps"] if s["step"] == "map_attribute"]
+            got = [(m["params"]["result_attr"], m["params"].get("from_attr")) for m in maps]
+            self.assertEqual(got, [
+                ("circuit_length_m", "point_type"),
+                ("conduit_included", "conduit_handoff"),
+                ("conduit_included", "other_conduit"),
+                ("conduit_included", "conduit_price_excluded"),
+                ("conduit_type", None),
+                ("conduit_type", "conduit_included"),
+            ], pid)
+
+    def test_pw_cfg_03_silence_includes_PVC_the_OPPOSITE_of_cables(self):
+        """PIECE 3 + the contrast that must never be harmonised.
+
+        wiring_cabling (F-28) maps conduit_included with default "No": a CABLE row silent on conduit
+        EXCLUDES it. point_wiring defaults "Yes" and conduit_type defaults "PVC": a POINT WIRING row
+        silent on conduit INCLUDES it. Point wiring normally carries conduit; cables normally do not.
+        This test asserts BOTH defaults so a future editor cannot quietly make them agree.
+        """
+        import json
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, _asset_path
+        cfg = self._pw_cfg()
+        pl = cfg["pipelines"]["pw_boq_supply"]["steps"]
+        handoff = [s for s in pl if s["step"] == "map_attribute"
+                   and s["params"].get("from_attr") == "conduit_handoff"][0]
+        self.assertEqual(handoff["params"]["default"], "Yes")
+        ctype = [s for s in pl if s["step"] == "map_attribute"
+                 and s["params"]["result_attr"] == "conduit_type"
+                 and s["params"].get("prefer_attr") == "conduit_type"][0]
+        self.assertEqual(ctype["params"]["default"], "PVC")
+        # the cable side, in the SAME asset, must still say No
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+        wc = [c for c in d["category_configs"] if c["category_id"] == "wiring_cabling"][0]
+        cable_ci = [s for s in wc["pipelines"]["cable_boq"]["steps"]
+                    if s["step"] == "map_attribute" and s["params"]["result_attr"] == "conduit_included"][0]
+        self.assertEqual(cable_ci["params"]["default"], "No",
+                         "cables must still EXCLUDE on silence -- the defaults are opposite BY DESIGN")
+
+    def test_pw_cfg_04_the_facts_are_declared_and_hidden_but_still_extracted(self):
+        """The three conduit facts are `panel: false` -- hidden from the pricing panel (the pricer's
+        override surface is conduit_type) but STILL EXTRACTED, and exempt from the whole-row missing
+        gate. `point_type` and `conduit_included` are additionally `extract: false`: code supplies
+        them, so the model must never be asked."""
+        cfg = self._pw_cfg()
+        by_id = {a["id"]: a for a in cfg["attribute_definitions"]}
+        for fid in ("conduit_handoff", "other_conduit", "conduit_price_excluded"):
+            self.assertIs(by_id[fid]["panel"], False, fid)
+            self.assertIsNot(by_id[fid].get("extract"), False, fid)
+        for cid in ("point_type", "conduit_included"):
+            self.assertIs(by_id[cid]["panel"], False, cid)
+            self.assertIs(by_id[cid]["extract"], False, cid)
+        self.assertTrue(by_id["conduit_type"].get("allow_none"))
+
+    def test_pw_cfg_05_NEGATIVE_no_other_category_gained_absent_when(self):
+        """NEGATIVE: piece 1 must not change any other category's behaviour. `circuit_fit` is
+        point_wiring's alone today, but the assertion is over EVERY config so it stays true if
+        another category adopts the step."""
+        import json
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, _asset_path
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+        for c in d["category_configs"]:
+            if c["category_id"] == "point_wiring":
+                continue
+            for pid, pl in (c.get("pipelines") or {}).items():
+                for s in pl.get("steps") or []:
+                    if s.get("step") == "circuit_fit":
+                        self.assertIsNone(s["params"].get("absent_when"),
+                                          f"{c['category_id']}.{pid}")

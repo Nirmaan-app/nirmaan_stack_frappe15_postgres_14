@@ -4919,3 +4919,344 @@ describe("conduit in the cable rate (v47) -- rulings (i)-(xii)", () => {
     expect(ref.rate_stages).toEqual([{ mult: 0.7 }]);
   });
 });
+
+// ---- PW-CONDUIT-OPTIONAL, PIECE 1: `circuit_fit` learns POSITIVE ABSENCE -------------------------
+// The point-wiring conduit becomes droppable. Before this slice a conduit_type of "None" fell into
+// circuit_fit's UNKNOWN-TYPE branch and returned no_match for the WHOLE pipeline -- killing the wires,
+// the switch, the socket and the plate along with the conduit. That is the failure these tests pin
+// shut. The mechanism mirrors `catalog_fit`'s shipped `absent_when` exactly: bind the "None" sentinel,
+// let a `none_skips` component zero its own line, and price everything else normally.
+//
+// ⚠️ THE DEFAULTS ARE OPPOSITE TO CABLES BY DESIGN. On wiring_cabling (F-28) a row silent on conduit
+// EXCLUDES it; on point_wiring a silent row INCLUDES PVC. Point wiring normally carries conduit and
+// cables normally do not. See the paired note in the wiring_cabling config. Do not harmonise them.
+const PW_CIRCUIT_FIT_ABSENT = {
+  ...PW_CIRCUIT_FIT,
+  params: { ...PW_CIRCUIT_FIT.params, absent_when: { attr: "conduit_type", equals: "None" } },
+};
+// identical to the shipped supply pipeline except (a) circuit_fit can conclude absence and (b) the
+// conduit component may zero itself -- which is exactly the config diff this slice ships.
+const PW_SUPPLY_OPTIONAL_CONDUIT: Pipeline = {
+  output: ["supply"],
+  steps: PW_PIPELINES.pw_boq_supply.steps.map((s) => {
+    const step = s as { step: string; name?: string };
+    if (step.step === "circuit_fit") return PW_CIRCUIT_FIT_ABSENT;
+    if (step.step === "component_ref" && step.name === "conduit") return { ...(s as object), none_skips: true };
+    return s;
+  }),
+};
+const PW_NO_CONDUIT: Record<string, string | number> = { ...PW1, conduit_type: "None" };
+
+describe("PW-CONDUIT-OPTIONAL piece 1 -- circuit_fit positive absence", () => {
+  // POSITIVE: the whole point of the piece. The conduit goes to zero and NOTHING else moves.
+  it("conduit_type None -> conduit line 0, every other component byte-identical to pw1", () => {
+    const r = runPipeline("pw_boq_supply", PW_SUPPLY_OPTIONAL_CONDUIT, PW_ITEMS, PW_NO_CONDUIT);
+    const line = (name: string) => r.steps.find((s) => s.produced?.key === name)?.produced?.value;
+    expect(r.status).not.toBe("no_match");
+    expect(line("conduit")).toBe(0);
+    // the banked pw1 line values, unchanged -- this is cert row C's claim in unit form
+    expect(line("wire1")).toBe(750);
+    expect(line("wire2")).toBe(465);
+    expect(line("switch")).toBe(155);
+    expect(line("socket")).toBe(187);
+    expect(line("plate")).toBe(86);
+    expect(line("back_box")).toBe(58);
+    // 1869 (pw1) - 168 (the conduit line) = 1701, and nothing else contributed a penny of difference
+    expect(r.finals).toEqual({ supply: 1701 });
+  });
+
+  it("the absence is a CONCLUDED verdict, and circuit_fit says so in its trace", () => {
+    const r = runPipeline("pw_boq_supply", PW_SUPPLY_OPTIONAL_CONDUIT, PW_ITEMS, PW_NO_CONDUIT);
+    expect(r.steps[0].matchedCondition).toContain("no conduit (positive absence)");
+  });
+
+  // NEGATIVE: a genuinely unknown type is a DEFECT in the row, not a no-conduit row. It must still
+  // refuse. Widening the absence branch to "anything unrecognised" would silently price a broken row
+  // short -- the exact under-quote this slice must never introduce.
+  it("an UNKNOWN conduit_type still refuses the whole pipeline", () => {
+    const r = runPipeline("pw_boq_supply", PW_SUPPLY_OPTIONAL_CONDUIT, PW_ITEMS, { ...PW1, conduit_type: "GI" });
+    expect(r.status).toBe("no_match");
+    expect(r.steps.at(-1)?.label).toContain("has no usable fractions");
+  });
+
+  // NEGATIVE: absence must be keyed to the CONFIGURED value only. A config without `absent_when`
+  // cannot reach the branch, so no other category's circuit_fit behaviour can change.
+  it("a circuit_fit WITHOUT absent_when is byte-identical -- pw1 and pw2 unmoved", () => {
+    expect(runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, PW1).finals).toEqual({ supply: 1869 });
+    expect(runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, PW2).finals).toEqual({ supply: 1823 });
+    // and "None" on a config without the key falls to the UNKNOWN branch, exactly as before the slice
+    expect(runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, PW_NO_CONDUIT).status).toBe("no_match");
+  });
+
+  // NEGATIVE: the wires are read BEFORE absence is concluded, so a row that cannot be read at all
+  // still refuses honestly instead of being mistaken for a no-conduit row.
+  it("an unreadable WIRE still refuses even when the conduit is absent", () => {
+    const r = runPipeline("pw_boq_supply", PW_SUPPLY_OPTIONAL_CONDUIT, PW_ITEMS,
+      { ...PW_NO_CONDUIT, wire1_thickness_sqmm: 0 });
+    expect(r.status).toBe("no_match");
+    expect(r.steps.at(-1)?.label).toContain("missing or non-positive");
+  });
+
+  // POSITIVE: absence composes with the OTHER positive absence already in the step (wire2 = None).
+  it("a single-wire point with no conduit prices both absences at once", () => {
+    const r = runPipeline("pw_boq_supply", PW_SUPPLY_OPTIONAL_CONDUIT, PW_ITEMS,
+      { ...PW_SINGLE_WIRE, conduit_type: "None" });
+    const line = (name: string) => r.steps.find((s) => s.produced?.key === name)?.produced?.value;
+    expect(r.status).not.toBe("no_match");
+    expect(line("conduit")).toBe(0);
+    expect(line("wire2")).toBe(0);
+    expect(line("wire1")).toBe(750);
+  });
+});
+
+// ---- PW-CONDUIT-OPTIONAL, PIECES 2 + 3: the COMBINER and the PVC DEFAULT ------------------------
+// The model reports three FACTS about what the row says; a three-step `map_attribute` chain applies
+// the owner's decision table. The model NEVER applies the ambiguity rules -- that separation is the
+// whole point, and these tests are what hold it.
+//
+// The chain mirrors the v48 point_wiring config exactly:
+//   1. conduit_included  <- conduit_handoff        {Yes:No, Either:Yes, No:Yes}  default Yes
+//   2. conduit_included  <- other_conduit          {Normal:Yes}                  on_miss skip
+//   3. conduit_included  <- conduit_price_excluded {Yes:No}                      on_miss skip
+//   4. conduit_type      prefer conduit_type       default PVC          <- PIECE 3
+//   5. conduit_type      <- conduit_included       {No:None}                     on_miss skip
+const PW_CONDUIT_CHAIN = [
+  { step: "map_attribute" as const, params: { result_attr: "conduit_included", from_attr: "conduit_handoff",
+      table: { Yes: "No", Either: "Yes", No: "Yes" }, default: "Yes" } },
+  { step: "map_attribute" as const, params: { result_attr: "conduit_included", from_attr: "other_conduit",
+      table: { Normal: "Yes" }, on_miss: "skip" } },
+  { step: "map_attribute" as const, params: { result_attr: "conduit_included", from_attr: "conduit_price_excluded",
+      table: { Yes: "No" }, on_miss: "skip" } },
+  { step: "map_attribute" as const, params: { result_attr: "conduit_type", prefer_attr: "conduit_type", default: "PVC" } },
+  { step: "map_attribute" as const, params: { result_attr: "conduit_type", from_attr: "conduit_included",
+      table: { No: "None" }, on_miss: "skip" } },
+];
+const PW_TABLE_PIPELINE: Pipeline = {
+  output: ["supply"],
+  steps: [...PW_CONDUIT_CHAIN, ...PW_SUPPLY_OPTIONAL_CONDUIT.steps],
+};
+// pw1's wires/accessories WITHOUT a stated conduit_type -- the chain decides it.
+const PW_FACTS: Record<string, string | number> = (() => {
+  const copy = { ...PW1 };
+  delete copy.conduit_type;
+  return copy;
+})();
+const runTable = (facts: Record<string, string | number>) =>
+  runPipeline("pw_boq_supply", PW_TABLE_PIPELINE, PW_ITEMS, { ...PW_FACTS, ...facts });
+const conduitLineOf = (r: ReturnType<typeof runPipeline>) =>
+  r.steps.find((s) => s.produced?.key === "conduit")?.produced?.value;
+const typeChosen = (r: ReturnType<typeof runPipeline>) =>
+  [...r.steps].reverse().find((s) => s.mapAttribute?.result_attr === "conduit_type")?.mapAttribute?.value;
+
+describe("PW-CONDUIT-OPTIONAL pieces 2+3 -- the decision table, applied by CODE", () => {
+  it("row 1: conduit price EXPLICITLY EXCLUDED -> DROP (outranks every inference above it)", () => {
+    const r = runTable({ conduit_handoff: "No", other_conduit: "Normal", conduit_price_excluded: "Yes" });
+    expect(typeChosen(r)).toBe("None");
+    expect(conduitLineOf(r)).toBe(0);
+  });
+  it("row 2: handed-off run, NO other conduit named -> DROP", () => {
+    const r = runTable({ conduit_handoff: "Yes", other_conduit: "None" });
+    expect(typeChosen(r)).toBe("None");
+    expect(conduitLineOf(r)).toBe(0);
+  });
+  it("row 3: handed-off run, only a FLEXIBLE conduit elsewhere -> DROP", () => {
+    const r = runTable({ conduit_handoff: "Yes", other_conduit: "Flexible" });
+    expect(typeChosen(r)).toBe("None");
+    expect(conduitLineOf(r)).toBe(0);
+  });
+  it("row 4: handed-off run, a NORMAL conduit elsewhere -> INCLUDE PVC (the ambiguity rule)", () => {
+    const r = runTable({ conduit_handoff: "Yes", other_conduit: "Normal" });
+    expect(typeChosen(r)).toBe("PVC");
+    expect(conduitLineOf(r)).toBe(168);
+  });
+  it("row 5: the slash alternation (Either) -> INCLUDE PVC (owner: genuinely ambiguous)", () => {
+    const r = runTable({ conduit_handoff: "Either", other_conduit: "None" });
+    expect(typeChosen(r)).toBe("PVC");
+    expect(conduitLineOf(r)).toBe(168);
+  });
+  it("row 6: SILENT on conduit -> INCLUDE PVC, and the row PRICES (the 161-row case)", () => {
+    const r = runTable({});
+    expect(typeChosen(r)).toBe("PVC");
+    expect(conduitLineOf(r)).toBe(168);
+    expect(r.status).not.toBe("no_match");
+    expect(r.finals).toEqual({ supply: 1869 });
+  });
+  it("row 7: anything less clear-cut -> INCLUDE PVC", () => {
+    expect(typeChosen(runTable({ conduit_handoff: "Either" }))).toBe("PVC");
+    expect(typeChosen(runTable({ conduit_price_excluded: "No" }))).toBe("PVC");
+  });
+
+  it("a STATED conduit_type is kept and marked STATED (renders plain, not '(computed)')", () => {
+    const r = runTable({ conduit_type: "MS" });
+    const m = r.steps.find((s) => s.mapAttribute?.result_attr === "conduit_type")?.mapAttribute;
+    expect(m?.value).toBe("MS");
+    expect(m?.stated).toBe(true);
+  });
+  it("a DEFAULTED conduit_type is marked NOT stated (renders 'PVC (computed)')", () => {
+    const r = runTable({});
+    const m = r.steps.find((s) => s.mapAttribute?.result_attr === "conduit_type")?.mapAttribute;
+    expect(m?.value).toBe("PVC");
+    expect(m?.stated).toBe(false);
+  });
+
+  // THE LOAD-BEARING NEGATIVE. Only three input shapes may drop. This walks EVERY combination of the
+  // three facts and asserts nothing else reaches "None", so a future edit that widens the drop
+  // cannot pass unnoticed.
+  it("NEGATIVE: no input combination outside the three DROP rows can ever drop the conduit", () => {
+    const handoff = ["Yes", "Either", "No", undefined];
+    const other = ["None", "Flexible", "Normal", undefined];
+    const excluded = ["Yes", "No", undefined];
+    const dropped: string[] = [];
+    for (const h of handoff) for (const o of other) for (const e of excluded) {
+      const facts: Record<string, string | number> = {};
+      if (h !== undefined) facts.conduit_handoff = h;
+      if (o !== undefined) facts.other_conduit = o;
+      if (e !== undefined) facts.conduit_price_excluded = e;
+      if (typeChosen(runTable(facts)) === "None") dropped.push(String(h) + "/" + String(o) + "/" + String(e));
+    }
+    for (const key of dropped) {
+      const parts = key.split("/");
+      const isExplicit = parts[2] === "Yes";
+      const isHandoffNoNormal = parts[0] === "Yes" && parts[1] !== "Normal";
+      expect(isExplicit || isHandoffNoNormal).toBe(true);
+    }
+    // and the three DROP rows really are reachable (the assertion above is not vacuous)
+    expect(dropped).toContain("Yes/None/undefined");
+    expect(dropped).toContain("Yes/Flexible/undefined");
+    expect(dropped).toContain("No/Normal/Yes");
+  });
+  it("NEGATIVE: no combination leaves conduit_type BLANK (a blank would kill the row at the gate)", () => {
+    for (const h of ["Yes", "Either", "No", undefined]) for (const o of ["None", "Flexible", "Normal", undefined]) {
+      const facts: Record<string, string | number> = {};
+      if (h !== undefined) facts.conduit_handoff = h;
+      if (o !== undefined) facts.other_conduit = o;
+      const chosen = typeChosen(runTable(facts));
+      expect(chosen === "PVC" || chosen === "None").toBe(true);
+    }
+  });
+});
+
+// ---- PW-LENGTH-BY-POINT-TYPE, PIECE 4 (the interpreter half) ------------------------------------
+// The TYPE is read by a deterministic matcher over the payload (tested in Python, test_rate_master);
+// the interpreter's job is only the SUBSTITUTION, and that it leaves the formula alone otherwise.
+const PW_LENGTH_MAP = {
+  step: "map_attribute" as const,
+  params: { result_attr: "circuit_length_m", from_attr: "point_type",
+            table: { Primary: 15, Secondary: 5 }, on_miss: "skip" },
+};
+const PW_DERIVE = {
+  step: "derive_attribute" as const,
+  params: { result_attr: "circuit_length_m", terms: [{ ident: "points", attr: "points" }],
+            constants: { base: 15, per_extra: 5 }, formula: "base + (points - 1) * per_extra", unit: "m" },
+};
+const PW_LENGTH_PIPELINE: Pipeline = {
+  output: ["supply"],
+  steps: [PW_DERIVE, PW_LENGTH_MAP, ...PW_SUPPLY_OPTIONAL_CONDUIT.steps],
+};
+const PW_LEN_BASE: Record<string, string | number> = (() => {
+  const copy = { ...PW1 };
+  delete copy.circuit_length_m;
+  return copy;
+})();
+const lengthOf = (facts: Record<string, string | number>) => {
+  const r = runPipeline("pw_boq_supply", PW_LENGTH_PIPELINE, PW_ITEMS, { ...PW_LEN_BASE, ...facts });
+  const m = r.steps.find((s) => s.mapAttribute?.result_attr === "circuit_length_m")?.mapAttribute;
+  const d = r.steps.find((s) => s.derivedAttr?.attr === "circuit_length_m")?.derivedAttr;
+  return { mapped: m?.value, mappedStated: m?.stated, derived: d?.value, status: r.status };
+};
+
+describe("PW-LENGTH-BY-POINT-TYPE piece 4 -- the substitution", () => {
+  it("PRIMARY only -> 15 m, marked computed", () => {
+    const r = lengthOf({ point_type: "Primary", points: 4 });
+    expect(r.mapped).toBe(15);
+    expect(r.mappedStated).toBe(false);
+  });
+  it("SECONDARY only -> 5 m, marked computed", () => {
+    const r = lengthOf({ point_type: "Secondary", points: 4 });
+    expect(r.mapped).toBe(5);
+    expect(r.mappedStated).toBe(false);
+  });
+  // NEGATIVE: the formula must be UNCHANGED where it still applies. 4 points -> 15 + 3*5 = 30.
+  it("NEGATIVE: neither type named -> the existing formula stands, arithmetic unchanged (4 points -> 30 m)", () => {
+    const r = lengthOf({ points: 4 });
+    expect(r.derived).toBe(30);
+    expect(r.mapped).toBeUndefined();
+  });
+  it("NEGATIVE: BOTH types (the matcher returns nothing) -> the formula stands", () => {
+    const r = lengthOf({ points: 2 });
+    expect(r.derived).toBe(20);
+    expect(r.mapped).toBeUndefined();
+  });
+  it("the formula's own arithmetic is pinned: 1 point -> 15, 2 -> 20, 7 -> 45", () => {
+    expect(lengthOf({ points: 1 }).derived).toBe(15);
+    expect(lengthOf({ points: 2 }).derived).toBe(20);
+    expect(lengthOf({ points: 7 }).derived).toBe(45);
+  });
+});
+
+// ---- PW-LENGTH: A STATED LENGTH SURVIVES THE SUBSTITUTION (owner ruling 2026-09-01) ------------
+// ⚠️ THIS BLOCK EXISTS BECAUSE THE FIRST ONE COULD NOT FAIL. `PW_LEN_BASE` DELETES
+// `circuit_length_m` before every test above, so the case that matters most -- a row that STATES a
+// length AND names a point type -- was never exercised. The live cert caught it on BOQ-26-00141
+// r130, whose own text reads `Upto 6 Meters`: the map was overwriting the document's own number
+// with 15. A fixture that removes the thing under test makes the test vacuous.
+//
+// THE RULING: a STATED length wins. 15/5 apply ONLY where the row states no length. The document
+// wrote a number down; discarding it over-quotes (9 m of wire and conduit per point on r130). It
+// also honours the older owner-locked rule on the derive step: "a STATED length is kept exactly as
+// given (no floor, no warning)". The more specific reading wins; the inference is the fallback.
+const PW_LENGTH_MAP_PREFER = {
+  step: "map_attribute" as const,
+  params: { result_attr: "circuit_length_m", prefer_attr: "circuit_length_m",
+            from_attr: "point_type", table: { Primary: 15, Secondary: 5 }, on_miss: "skip" },
+};
+const PW_LENGTH_PIPELINE_PREFER: Pipeline = {
+  output: ["supply"],
+  // ORDER AS SHIPPED (v50): the map runs BEFORE derive_attribute. After it, prefer_attr would read
+  // the value derive just computed, call it stated, and the substitution could never fire.
+  steps: [PW_LENGTH_MAP_PREFER, PW_DERIVE, ...PW_SUPPLY_OPTIONAL_CONDUIT.steps],
+};
+const lengthOfPrefer = (facts: Record<string, string | number>) => {
+  const r = runPipeline("pw_boq_supply", PW_LENGTH_PIPELINE_PREFER, PW_ITEMS, { ...PW_LEN_BASE, ...facts });
+  const m = r.steps.find((s) => s.mapAttribute?.result_attr === "circuit_length_m")?.mapAttribute;
+  const d = r.steps.find((s) => s.derivedAttr?.attr === "circuit_length_m")?.derivedAttr;
+  return { mapped: m?.value, mappedStated: m?.stated, derived: d?.value,
+           derivedStated: d?.stated, status: r.status };
+};
+
+describe("PW-LENGTH -- a STATED length survives the point-type substitution", () => {
+  // ⚠️ THE TWO THAT THE CERT FOUND. r130's real shape: states 6, type Primary.
+  it("STATED length + PRIMARY -> the stated length survives; 15 does NOT apply", () => {
+    const r = lengthOfPrefer({ circuit_length_m: 6, point_type: "Primary", points: 1 });
+    expect(r.mapped).toBe(6);
+    expect(r.mappedStated).toBe(true);   // the row supplied it -> renders PLAIN, not "(computed)"
+  });
+  it("STATED length + SECONDARY -> the stated length survives; 5 does NOT apply", () => {
+    const r = lengthOfPrefer({ circuit_length_m: 12, point_type: "Secondary", points: 1 });
+    expect(r.mapped).toBe(12);
+    expect(r.mappedStated).toBe(true);
+  });
+  // and the substitution still fires where the row states NOTHING -- the whole point of the piece
+  it("NO stated length + PRIMARY -> 15, marked computed", () => {
+    const r = lengthOfPrefer({ point_type: "Primary", points: 4 });
+    expect(r.mapped).toBe(15);
+    expect(r.mappedStated).toBe(false);
+  });
+  it("NO stated length + SECONDARY -> 5, marked computed", () => {
+    const r = lengthOfPrefer({ point_type: "Secondary", points: 4 });
+    expect(r.mapped).toBe(5);
+    expect(r.mappedStated).toBe(false);
+  });
+  // NEGATIVE: neither type -> the formula, untouched by any of this
+  it("NEGATIVE: NO stated length + neither type -> the formula stands (4 points -> 30 m)", () => {
+    const r = lengthOfPrefer({ points: 4 });
+    expect(r.derived).toBe(30);
+    expect(r.mapped).toBeUndefined();
+  });
+  // NEGATIVE: a stated length with NO type is kept by derive_attribute itself, as it always was
+  it("NEGATIVE: STATED length + neither type -> kept exactly, the pre-slice behaviour", () => {
+    const r = lengthOfPrefer({ circuit_length_m: 7, points: 4 });
+    expect(r.derivedStated).toBe(true);
+    expect(r.mapped).toBe(7);
+  });
+});
