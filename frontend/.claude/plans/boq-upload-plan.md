@@ -34303,3 +34303,123 @@ comparison after every import.
 v48 (sha `a9a5b4ef...`) and v49 both existed briefly and were **deleted** -- uncommitted, superseded,
 and the loader warns that a stale asset silently reverts everything in its scope. v49 carried Ruling 1
 with the WRONG step order. Only **v50** ships.
+
+
+---
+
+## PW GATE + DISPLAY FIXES (2026-09-01) -- D1 to D4, after v50 shipped a regression
+
+v50 introduced `map_attribute` steps into `point_wiring`, a category that had none. Four defects
+followed. **Three were found by the OWNER on screen, on BOQ-26-00086 `WIRING AND POWER SOCKET` --
+the same sheet a cert had just passed on.**
+
+### The four defects
+
+| | What the pricer saw | Cause |
+|---|---|---|
+| **D1** | row 130 priced NOTHING -- "Complete the missing attributes" | the missing-gate narrowing withdrew `circuit_length_m`'s exemption |
+| **D2** | row 127 read `Conduit type: PVC (computed)` while pricing dropped the conduit | `mapAttributeOutcomes` was FIRST-WINS and the chain writes `conduit_type` twice |
+| **D3** | headline 2319, not the 1807 the cert reported | NOT A DEFECT -- 2319 = supply 1873 + install 446, and the cert had measured supply alone, with hand-typed attributes |
+| **D4** | a Primary/Secondary row's length read BLANK while pricing used 15 or 5 | `derive_attribute` took stated-wins over the map, and the display branch publishes nothing for a stated value |
+
+**Measured populations** (search space: the 995 `point_wiring` rows the engine sees, across 710
+current committed sheets / 177 BoQs; and the latest complete run per (boq, sheet), 27 runs):
+
+- **166 rows refused outright** under v50 -- rows that priced under v47.
+- **441 of 995 (44.3%)** legitimately return no point type (both types named, neither, or unclear --
+  the RULED behaviour), so a fresh run does NOT clear the class.
+- **~540 rows** carry a substituted length and showed it blank (D4).
+- **~51 rows** have a dropped conduit and showed PVC (D2).
+
+### ⚠️ v50 WAS A REGRESSION, AND THE TRAP WAS ALREADY WRITTEN DOWN
+
+`frontend/CLAUDE.md` documented this exact failure BEFORE the slice was written:
+
+```text
+⚠️ And such a target MUST carry a `default`: pricingSheetHelper.ts narrows a map_attribute target
+out of the missing-gate exemption when it has none and its source reads blank -- and valueOfDef
+reads the RAW extraction, which is null on every row for a pipeline-filled attribute. Without the
+default, ~5,000 wiring rows render "Complete the missing attributes to price".
+```
+
+The convention existed, was accurate, and did not carry into the work. That is a documentation
+failure as much as a coding one, and `frontend/CLAUDE.md` has been rewritten to state the rule as a
+CHECK rather than as prose.
+
+### The fixes
+
+**FIX A -- the gate learns about a SECOND FILLER** (`pricingSheetHelper.ts`). The narrowing's premise
+is that a map target's only filler is its map. For `circuit_length_m` that is false: it is BOTH a map
+target and a `derive_attribute` target, and derive can always compute it from `points`. The narrowing
+now skips any target that is also a derive target.
+
+⚠️ **`default: ""` was REJECTED, though it works.** Measured: it satisfies `hasDefault` (killing the
+narrowing) while `derive_attribute` treats the empty string as unstated and still computes the
+formula. It is load-bearing in two directions at once, through two different conditions, with
+nothing to tell a future reader -- and a numeric default (`0`) silently BECOMES the length, because
+`map_attribute` consults `default` before `on_miss`. The gate was taught instead.
+
+⚠️ **SCOPED BY MEASUREMENT:** across all 12 Electrical `category_configs`, the ONLY attribute that is
+both a map target and a derive target is `point_wiring.circuit_length_m`. No other category declares
+ANY `derive_attribute` target, so no other category can reach the new branch.
+
+**FIX B -- `mapAttributeOutcomes` is LAST-WINS** (`ratePipelineInterpreter.ts`). Its first-wins rule
+existed to dedupe the SAME step across supply and install -- identical steps write identical values,
+so last-wins answers that case identically. It could not handle a CHAIN. **THE LAST WRITE IS THE
+EFFECTIVE VALUE.** Measured reach: `conduit_type` on point_wiring is the ONLY displayed attribute
+written more than once anywhere, so exactly one value on one screen moves.
+
+**FIX C -- the display consults the map's verdict when derive reports "stated"**
+(`pricingSheetHelper.ts`). "Stated" there means "a value was already in the selection", not "the
+pricer typed it". ⚠️ **The principle the branch protects is kept: the pipeline must never take credit
+for a number the PRICER entered.** So the fallback fires only when the map says `stated: false` --
+the pipeline substituted it. A pricer-entered length still displays as theirs, unmarked, and there is
+a test for exactly that.
+
+### The cert -- read from the RENDERED PANEL this time
+
+| Row | Panel shows | Headline |
+|---|---|---|
+| **130** (was refused) | `circuit_length_m: 5 (computed)` · `conduit_type: None (computed)` | **1294** -- it PRICES |
+| **127** | `conduit_type: None (computed)` (was PVC) | **2319**, unchanged |
+| **16** (regression guard) | `conduit_type: MS` -- stated, plain, no marker | 2413.8 |
+| **59** (industrial_sockets) | -- | 30732; the SHARED gate moved nothing |
+
+`ai_status: ran`. **`BoQ Cell Pricing` 31,153 rows / sha256
+`8413340e0c7ed626ee518ab4e020be83ed588df95099b456467ae774eca8e97c` -- unchanged through the undo,
+the re-import, and every extraction.** Active Electrical items 1367 / `258c6ad7...`, unchanged.
+
+### ⚠️ THE CERT GAP -- WHY A PASSING CERT MISSED THREE DEFECTS ON THE SHEET IT PASSED ON
+
+The v50 cert imported `ratePipelineInterpreter` and called `runPipeline` directly. That:
+
+- **bypasses the missing-gate entirely** -- the gate runs in `pricingSheetHelper` BEFORE the pipeline,
+  so D1 was structurally invisible;
+- **never invokes the panel's readers** -- so D2 and D4 were invisible;
+- measured one pipeline's output, where the screen shows supply + install.
+
+**A browser cert that reads pipeline output proves the ENGINE, not the SCREEN.** D4 was found the
+first time anything in this arc called `applyDerivedDisplay`. A cert must drive the panel path.
+
+### Open item -- the gate's remaining blind spot
+
+The narrowing now knows about `derive_attribute`. It still reasons only about mechanisms it has been
+told about: a `catalog_fit` bind or a `module_fit` ladder that could fill a map target would be
+missed the same way. **The general repair is to ask "can ANY mechanism fill this?" rather than
+enumerating them.** Unbuilt; cost is a change to shared gate machinery every category runs through.
+
+### The undo
+
+Live batch `rmbulk-bba3d6865620` (v50, sha `c7fe2961...`). To return to the pre-slice v47 state
+(`rmbulk-de6d82f1356c`, retained at `active=0`):
+
+```sql
+UPDATE "tabBoQ Rate Category Config" SET active=0 WHERE discipline='Electrical' AND import_batch='rmbulk-bba3d6865620';
+UPDATE "tabBoQ Rate Category Config" SET active=1 WHERE import_batch='rmbulk-de6d82f1356c';
+UPDATE "tabBoQ Rate Master Item"     SET active=0 WHERE discipline='Electrical' AND import_batch='rmbulk-bba3d6865620';
+UPDATE "tabBoQ Rate Master Item"     SET active=1 WHERE import_batch='rmbulk-de6d82f1356c';
+```
+
+That undo was RUN once during this work, verified to restore v47 byte-identically on all 12
+categories, and the config was then re-imported after the fixes. **No asset was re-minted: the fixes
+are all code, so v50 remains the shipped asset.**
