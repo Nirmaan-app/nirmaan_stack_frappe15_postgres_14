@@ -5260,3 +5260,46 @@ describe("PW-LENGTH -- a STATED length survives the point-type substitution", ()
     expect(r.mapped).toBe(7);
   });
 });
+
+// ---- D2: the panel must read the LAST write, not the first --------------------------------------
+// ⚠️ `mapAttributeOutcomes` was FIRST-WINS. point_wiring writes `conduit_type` twice -- the PVC
+// default, then the drop to "None" when the run is handed off -- so the panel read "PVC (computed)"
+// while pricing used "None" and charged no conduit. The owner found it on screen; the price was
+// correct throughout. THE LAST WRITE IS THE EFFECTIVE VALUE.
+describe("D2 -- mapAttributeOutcomes reports the EFFECTIVE conduit_type", () => {
+  const outcomeFor = (facts: Record<string, string | number>) => {
+    const r = runPipeline("pw_boq_supply", PW_TABLE_PIPELINE, PW_ITEMS, { ...PW_FACTS, ...facts });
+    return { outcome: mapAttributeOutcomes([r]).get("conduit_type"),
+             conduit: r.steps.find((s) => s.produced?.key === "conduit")?.produced?.value,
+             finals: r.finals };
+  };
+  it("a DROPPED conduit reports None, not the PVC default it passed through", () => {
+    const r = outcomeFor({ conduit_handoff: "Yes", other_conduit: "None" });
+    expect(r.outcome?.value).toBe("None");
+    expect(r.outcome?.stated).toBe(false);      // a substitution -> "(computed)"
+    expect(r.conduit).toBe(0);                  // and the price really did drop it
+  });
+  it("a SILENT row still reports PVC (computed)", () => {
+    const r = outcomeFor({});
+    expect(r.outcome?.value).toBe("PVC");
+    expect(r.outcome?.stated).toBe(false);
+    expect(r.conduit).toBe(168);
+  });
+  it("a STATED material still reports itself, marked stated (renders plain)", () => {
+    const r = outcomeFor({ conduit_type: "MS" });
+    expect(r.outcome?.value).toBe("MS");
+    expect(r.outcome?.stated).toBe(true);
+  });
+  // ⚠️ NEGATIVE: the display fix must not move a single price.
+  it("NEGATIVE: no price moves -- dropped 1701, silent 1869, both unchanged", () => {
+    expect(outcomeFor({ conduit_handoff: "Yes", other_conduit: "None" }).finals).toEqual({ supply: 1701 });
+    expect(outcomeFor({}).finals).toEqual({ supply: 1869 });
+  });
+  // ⚠️ NEGATIVE: an attribute written ONCE is unaffected by last-wins -- first and last are the same
+  // entry, which is why every other category is byte-identical.
+  it("NEGATIVE: a single-write target reports that one write", () => {
+    const r = runPipeline("pw_boq_supply", PW_TABLE_PIPELINE, PW_ITEMS, { ...PW_FACTS });
+    const m = mapAttributeOutcomes([r]).get("conduit_included");
+    expect(m?.value).toBe("Yes");
+  });
+});

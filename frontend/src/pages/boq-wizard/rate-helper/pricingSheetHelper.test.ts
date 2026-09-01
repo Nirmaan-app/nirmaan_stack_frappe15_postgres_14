@@ -23,7 +23,7 @@ import {
   mapAttributeSources,
   derivedQtyAttrs,
 } from "@/pages/pricing/rate-master/rateMasterStructure";
-import { NONE_SENTINEL } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
+import { NONE_SENTINEL, runPipeline } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
 import { hasSessionEdits, overridesForRow } from "./RateHelperPanel";
 import {
   applyDerivedDisplay,
@@ -3000,5 +3000,165 @@ describe("DERIVED DISPLAY -- a STATED blank_item against a POSITIVE spare (slice
     const item = r.workings.attributes.find((a) => a.id === "blank_item");
     expect(item?.derivedValue).toBeUndefined();
     expect(item?.substituted).toBeUndefined();
+  });
+});
+
+// ---- D1/D4: THE GATE'S SECOND FILLER, AND THE BLANK LENGTH -------------------------------------
+// ⚠️ THESE EXIST BECAUSE v50 SHIPPED A REGRESSION THE SUITE COULD NOT SEE. Introducing a
+// `map_attribute` writing `circuit_length_m` did two things at once:
+//   D1  the missing-gate narrowing withdrew the attribute's exemption whenever the map's source
+//       (`point_type`) read blank -- so 166 rows that priced under v47 refused entirely;
+//   D4  `derive_attribute` then took stated-wins over the map's 15/5, and the display branch
+//       publishes nothing for a stated value, so the length field rendered BLANK while pricing
+//       used 15.
+// Both were found by the OWNER on screen, after a cert passed on the same sheet.
+const LEN_DERIVE = {
+  step: "derive_attribute" as const,
+  params: { result_attr: "circuit_length_m", terms: [{ ident: "points", attr: "points" }],
+            constants: { base: 15, per_extra: 5 }, formula: "base + (points - 1) * per_extra", unit: "m" },
+};
+const LEN_MAP = {
+  step: "map_attribute" as const,
+  params: { result_attr: "circuit_length_m", prefer_attr: "circuit_length_m", from_attr: "point_type",
+            table: { Primary: 15, Secondary: 5 }, on_miss: "skip" },
+};
+// a map target with NO second filler -- the control that proves the gate is not blanket-disabled
+const ORPHAN_MAP = {
+  step: "map_attribute" as const,
+  params: { result_attr: "orphan_attr", from_attr: "orphan_src", table: { X: 1 }, on_miss: "skip" },
+};
+const LEN_CONFIG: RateCategoryConfig = {
+  category_id: "probe_len",
+  attribute_definitions: [
+    { id: "points", label: "Points", type: "number" },
+    // panel:false + extract:false EXACTLY as the shipped config declares it -- code supplies this
+    // attribute, the pricer never sees it, and it must not trip the gate on its own.
+    { id: "point_type", label: "Point type", type: "choice", values: ["Primary", "Secondary"], panel: false, extract: false },
+    { id: "circuit_length_m", label: "Circuit length (m)", type: "number" },
+    { id: "orphan_src", label: "Orphan source", type: "choice", values: ["X"], panel: false },
+    { id: "orphan_attr", label: "Orphan target", type: "number", panel: false },
+  ],
+  pipelines: { p: { output: ["len"], steps: [LEN_MAP, LEN_DERIVE, ORPHAN_MAP] } },
+} as unknown as RateCategoryConfig;
+
+const lenShown = (attrs: Record<string, string | number>) => {
+  const r = runPipeline("p", LEN_CONFIG.pipelines!.p as Pipeline, [], attrs);
+  const workings = (LEN_CONFIG.attribute_definitions ?? []).map((d) => ({
+    id: d.id, label: d.label,
+    value: attrs[d.id] === undefined ? "" : String(attrs[d.id]),
+  })) as never[];
+  const shown = applyDerivedDisplay(workings, LEN_CONFIG, [r]);
+  const len = shown.find((a) => a.id === "circuit_length_m")!;
+  const derived = r.steps.find((s) => s.derivedAttr?.attr === "circuit_length_m")?.derivedAttr;
+  const mapped = r.steps.find((s) => s.mapAttribute?.result_attr === "circuit_length_m")?.mapAttribute;
+  return {
+    shownValue: len.value, shownDerived: len.derivedValue, shownSubstituted: len.substituted,
+    pricedFormula: derived?.value, pricedMapped: mapped?.value,
+  };
+};
+
+describe("D4 -- the panel shows the length pricing actually used", () => {
+  it("PRIMARY, no stated length -> the panel reads 15, marked computed", () => {
+    const r = lenShown({ points: 4, point_type: "Primary" });
+    expect(r.shownDerived).toBe("15");
+    expect(r.shownSubstituted).toBe(true);   // "(computed)"
+  });
+  it("SECONDARY, no stated length -> the panel reads 5, marked computed", () => {
+    const r = lenShown({ points: 4, point_type: "Secondary" });
+    expect(r.shownDerived).toBe("5");
+    expect(r.shownSubstituted).toBe(true);
+  });
+  it("no point type, no stated length -> the panel reads the FORMULA's number (4 points -> 30)", () => {
+    const r = lenShown({ points: 4 });
+    expect(r.shownDerived).toBe("30");
+    expect(r.pricedFormula).toBe(30);
+  });
+  // ⚠️ THE PRINCIPLE THE DISPLAY BRANCH PROTECTS. The pipeline must never take credit for a number
+  // the PRICER typed: their value shows as theirs, with NO marker.
+  it("NEGATIVE: a PRICER-entered length still displays as the pricer's, unmarked", () => {
+    const r = lenShown({ points: 4, circuit_length_m: 7 });
+    expect(r.shownValue).toBe("7");
+    expect(r.shownDerived).toBeUndefined();   // nothing published -> the row's own entry shows
+    expect(r.shownSubstituted).toBeUndefined();
+  });
+  it("NEGATIVE: a pricer-entered length wins even when a point type is present", () => {
+    const r = lenShown({ points: 4, point_type: "Primary", circuit_length_m: 7 });
+    expect(r.shownValue).toBe("7");
+    expect(r.shownDerived).toBeUndefined();
+    expect(r.pricedMapped).toBe(7);           // the map kept it; 15 never applied
+  });
+});
+
+describe("D1 -- the gate keeps the exemption when a target has a SECOND filler", () => {
+  // The gate's own reader, exercised directly: a target that is ALSO a derive_attribute target must
+  // never be narrowed, whatever its map source says.
+  it("circuit_length_m is a map target AND a derive target in the same config", () => {
+    const maps = mapAttributeSources(LEN_CONFIG);
+    expect(maps.has("circuit_length_m")).toBe(true);
+    expect(maps.get("circuit_length_m")!.hasDefault).toBe(false);   // no default -- the v50 shape
+    const derives = (LEN_CONFIG.pipelines!.p.steps ?? [])
+      .filter((s) => (s as { step?: string }).step === "derive_attribute")
+      .map((s) => (s as { params: { result_attr: string } }).params.result_attr);
+    expect(derives).toContain("circuit_length_m");
+  });
+  // ⚠️ THE REGRESSION PIN, from the real corpus: BOQ-26-00086 `WIRING AND POWER SOCKET` row 130,
+  // "Secondary Points (Loop Point)", qty 43 Nos. Under v50 it refused outright; it must price.
+  it("REGRESSION PIN (BOQ-26-00086 r130 shape): no point type + no stated length still PRICES", () => {
+    const r = lenShown({ points: 1 });
+    expect(r.shownDerived).toBe("15");        // 15 + (1-1)*5, the formula
+    expect(r.pricedFormula).toBe(15);
+  });
+  // ⚠️ NEGATIVE: the gate must NOT be blanket-disabled. A map target with no second filler is still
+  // narrowed when its source reads blank -- that behaviour is what the narrowing exists for.
+  it("NEGATIVE: a map target with NO second filler is still narrowed", () => {
+    const maps = mapAttributeSources(LEN_CONFIG);
+    expect(maps.has("orphan_attr")).toBe(true);
+    expect(maps.get("orphan_attr")!.hasDefault).toBe(false);
+    const derives = (LEN_CONFIG.pipelines!.p.steps ?? [])
+      .filter((s) => (s as { step?: string }).step === "derive_attribute")
+      .map((s) => (s as { params: { result_attr: string } }).params.result_attr);
+    expect(derives).not.toContain("orphan_attr");   // no second filler -> the gate still narrows it
+  });
+});
+
+// ⚠️ THE TEST THAT WOULD HAVE CAUGHT D1. The three above assert the CONFIG's shape; this one runs
+// the row through the gate itself, which is where the regression actually lived. A row with no
+// point type and no stated length must PRICE -- under v50 it returned "Complete the missing
+// attributes to price" and the pricer got nothing.
+describe("D1 -- the gate: a row with a blank map source still prices", () => {
+  const LEN_ITEMS: RateMasterItem[] = [];
+  const LEN_PRICE_CONFIG = {
+    ...LEN_CONFIG,
+    pipelines: { p: { output: ["circuit_length_m"], steps: [LEN_MAP, LEN_DERIVE] } },
+  } as unknown as RateCategoryConfig;
+
+  // ⚠️ THE CONTEXT MUST NAME THIS CONFIG'S OWN CATEGORY. The shared  helper names the file's
+  // wiring config, so the helper would resolve no config for this row and return "coming soon" --
+  // and the test would pass without ever reaching the gate. That is exactly the vacuity that hid a
+  // defect earlier in this arc, so the category is set explicitly here.
+  const computeRow = (attrs: Record<string, { value: string | number | null; confidence: number }>) => {
+    const map = buildExtractionByRow([
+      { excel_row: 130, description: "Secondary Points (Loop Point)", attributes: attrs },
+    ]);
+    const helper = makePricingSheetHelper({
+      config: LEN_PRICE_CONFIG, items: LEN_ITEMS, extractionByRow: map,
+    });
+    return helper.compute({
+      excelRow: 130, description: "Secondary Points (Loop Point)",
+      kind: "combined_rate", category: "probe_len",
+    } as never);
+  };
+
+  // BOQ-26-00086 `WIRING AND POWER SOCKET` row 130, qty 43 Nos -- the owner's row.
+  it("REGRESSION PIN: no point_type + no stated length -> NOT refused", () => {
+    const r = computeRow({ points: { value: 1, confidence: 0.8 } });
+    const basis = (r as { basis?: string }).basis ?? "";
+    expect(basis).not.toContain("Complete the missing attributes");
+    expect(basis).not.toContain("Fill the attributes");
+  });
+  it("a row WITH a point type is likewise not refused", () => {
+    const r = computeRow({ points: { value: 1, confidence: 0.8 }, point_type: { value: "Secondary", confidence: 1 } });
+    const basis = (r as { basis?: string }).basis ?? "";
+    expect(basis).not.toContain("Complete the missing attributes");
   });
 });

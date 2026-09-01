@@ -332,6 +332,24 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
       //    when in fact their edit is the one thing that always wins.
       const computed = computedAttrs.get(a.id);
       if (computed) {
+        // ⚠️ "STATED" HERE MEANS "A VALUE WAS ALREADY IN THE SELECTION", NOT "THE PRICER TYPED IT",
+        // AND THE DIFFERENCE BECAME VISIBLE WHEN A MAP STARTED WRITING THIS TARGET. On a
+        // point_wiring row naming only a Primary or Secondary point, the map substitutes 15 or 5
+        // BEFORE this step; derive then sees a value, takes stated-wins, and publishes nothing --
+        // so the field rendered BLANK while pricing used 15. The row had no entry of its own to
+        // fall back on, because the number came from the pipeline.
+        //
+        // ⚠️ THE PRINCIPLE THIS BRANCH PROTECTS IS REAL AND IS KEPT: the pipeline must never take
+        // credit for a number the PRICER entered. So the fallback consults the map's own verdict --
+        // `stated: false` means the PIPELINE substituted it (show it, marked "(computed)"), while
+        // `stated: true` means the map found the pricer's value and kept it (publish nothing, so
+        // `attrDisplayValue` shows their entry, unmarked). Only the first case is filled in here.
+        if (computed.value === null) {
+          const mapped = mapAttributeOutcomes(results).get(a.id);
+          if (mapped && mapped.stated === false && mapped.value !== null && mapped.value !== "") {
+            return { ...a, derived: true, derivedValue: String(mapped.value), substituted: true };
+          }
+        }
         return {
           ...a,
           derived: true,
@@ -517,9 +535,35 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     // all left exactly as they were -- which is what keeps width, point_wiring, switches_sockets and
     // industrial_sockets byte-identical. A config with no `map_attribute` produces an EMPTY set here
     // and `fillableDerived` is `derived`.
+    // ⚠️ A TARGET WITH A SECOND FILLER KEEPS ITS EXEMPTION, AND THE COMMENT ABOVE USED TO BE TRUE
+    // ONLY BY ACCIDENT. It says a `derive_attribute` target is "left exactly as it was" -- which held
+    // only while no attribute was BOTH a map target and a derive target. point_wiring's
+    // `circuit_length_m` is now both: the map substitutes 15/5 from the point type, and
+    // `derive_attribute` computes 15 + (points-1)*5 from the point count.
+    //
+    // THE NARROWING'S PREMISE IS THAT A MAP TARGET'S ONLY FILLER IS ITS MAP. For such an attribute
+    // that premise is false: when the map's source is blank the DERIVE step still fills it, so the
+    // row can be served and the exemption must stand. Without this, 166 rows that priced under v47
+    // rendered "Complete the missing attributes to price" -- a regression the owner found on screen.
+    //
+    // ⚠️ SCOPED BY MEASUREMENT, NOT BY HOPE: across all 12 Electrical category_configs, the ONLY
+    // attribute that is both a map target and a derive target is point_wiring's `circuit_length_m`.
+    // No other category declares ANY `derive_attribute` target, so no other category can reach this
+    // branch. Re-measure before assuming that is still true.
+    const deriveTargets = new Set<string>();
+    for (const pl of Object.values(category.pipelines ?? {})) {
+      for (const raw of pl.steps ?? []) {
+        const s = raw as { step?: string; params?: { result_attr?: unknown } };
+        if (s.step === "derive_attribute" && typeof s.params?.result_attr === "string") {
+          deriveTargets.add(s.params.result_attr);
+        }
+      }
+    }
     const unfillableDerived = new Set<string>();
     for (const [resultAttr, src] of mapAttributeSources(category)) {
       if (src.hasDefault) continue; // the curve-else-C shape: always fillable, never narrowed
+      // A SECOND FILLER: `derive_attribute` can compute this target whatever the map's source says.
+      if (deriveTargets.has(resultAttr)) continue;
       const srcDef = src.fromAttr ? defs.find((d) => d.id === src.fromAttr) : undefined;
       // A source we cannot resolve is NOT evidence of absence -- leave the exemption alone rather
       // than narrow on a guess. Only a source we can read AND find empty narrows it.

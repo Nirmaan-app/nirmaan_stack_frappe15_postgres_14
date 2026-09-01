@@ -602,7 +602,18 @@ export function mapAttributeOutcomes(
   const out = new Map<string, MapAttributeOutcome>();
   for (const r of results) {
     for (const st of r.steps ?? []) {
-      if (st.mapAttribute && !out.has(st.mapAttribute.result_attr)) {
+      if (st.mapAttribute) {
+        // ⚠️ LAST-WINS, and it used to be FIRST-WINS. The docstring's reason for first-wins was
+        // deduping the SAME step across supply and install -- identical steps write identical
+        // values, so last-wins answers that case identically. What it could NOT handle is a CHAIN:
+        // point_wiring writes `conduit_type` twice (the PVC default, then the drop to "None" when
+        // the run is handed off), and first-wins kept the default. The panel therefore read "PVC
+        // (computed)" while pricing used "None" and charged no conduit -- the owner found it on
+        // screen. THE LAST WRITE IS THE EFFECTIVE VALUE; the panel must show what pricing used.
+        //
+        // ⚠️ MEASURED REACH: across all 12 Electrical category_configs, `conduit_type` on
+        // point_wiring is the ONLY displayed attribute written more than once by a map chain, so
+        // this moves exactly one value on exactly one screen. Re-measure before assuming that holds.
         out.set(st.mapAttribute.result_attr, st.mapAttribute);
       }
     }
