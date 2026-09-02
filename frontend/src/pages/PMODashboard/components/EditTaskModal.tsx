@@ -116,6 +116,22 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
     }
   }, [task, open, isAdmin, loadPMOUsers]);
 
+  // CustomAttachment drops a rejected file without calling onFileSelect, so
+  // without this the picker silently does nothing on an oversized PDF.
+  const handleAttachmentError = useCallback(
+    (error: { type: "size" | "type"; message: string }) => {
+      toast({
+        title: error.type === "size" ? "File too large" : "Unsupported file",
+        description:
+          error.type === "size"
+            ? `${error.message}. Please compress the PDF or split it before uploading.`
+            : error.message,
+        variant: "destructive",
+      });
+    },
+    []
+  );
+
   const handleSave = async () => {
     if (!status) {
       toast({
@@ -275,6 +291,7 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
                 selectedFile={attachment}
                 onFileSelect={setAttachment}
                 maxFileSize={5 * 1024 * 1024}
+                onError={handleAttachmentError}
               />
               {task?.attachment && (
                 <p className="text-[10px] text-gray-500 italic mt-1">
@@ -293,6 +310,7 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
                 selectedFile={attachment}
                 onFileSelect={setAttachment}
                 maxFileSize={5 * 1024 * 1024}
+                onError={handleAttachmentError}
               />
               {task?.attachment && (
                 <p className="text-[10px] text-gray-500 italic mt-1">
