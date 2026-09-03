@@ -241,7 +241,29 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # ⚠️ `circuit_length_m` IS UNTOUCHED. It holds the POINT stretch (15/5 by point type) and is merely
 # misnamed; the circuit stretch is `circuit_wire_length_m` and its panel label is deliberately
 # different ("Circuit wiring stretch (m)" vs "Circuit length (m)").
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v51.json"
+# ✅ SLICE A (2026-09-03, v52). TWO CORRECTIONS, both found on screen after a green cert.
+# sha256 45ba1ff634b5dcfe429d35ddb1912ca20ee9d5f81f9030d71062da502d0bea4d (WORKING-TREE form).
+# ⚠️ F2 -- A WORKED EXAMPLE INSIDE A RULE BECAME A FALSE FRIEND, AND THAT IS THE LESSON. R12 read
+# "'recessed/surface existing conduit' ... so the answer there is Yes". Rows reading
+# 'recessed/surface 16SWG MS conduit' matched that SURFACE FORM while lacking the load-bearing word
+# `existing`, so `conduit_handoff` came back Yes and 36 rows silently dropped a conduit they supply.
+# The example OVERRODE the rule's own closing clause ("Answer No when the run uses a conduit this
+# line supplies"), which was correct all along. An example is as load-bearing as the rule around it.
+# Measured UNSTABLE, not merely wrong: BOQ-26-00086 r51 and r53 share a word-for-word identical
+# grandparent and near-identical text, and one priced its conduit while the other dropped it, both
+# at 0.6 confidence. The example now CONTRASTS the two phrasings; the decision table is unchanged.
+# ⚠️ F5 -- A REACHABILITY REGRESSION, INTRODUCED 2026-09-02 AND NOW REMOVED. The four circuit
+# CORE/RUNS fields lose `allow_none`. A None on runs never had a pricing effect: `none_skips` reads
+# ONLY the component's `ref` bindings (core, thickness_sqmm) and `runs` feeds `absentMeansOne`,
+# which maps "None" to 1. The checkbox promised a drop it could not deliver. Removal is MEASURED
+# INERT -- the REAL shipped helper prices 190 / refuses 61 over the 251 run-covered rows both with
+# the flags and without, on the IDENTICAL row set with identical blank tallies, because
+# `disables_when_none` on the THICKNESS already greys and clears that wire's core and runs.
+# ⚠️ BOTH THICKNESSES KEEP `allow_none` AND NO DEFAULT. Thickness is the working drop control and
+# the owner's loud-failure ruling rests on it. Honouring a None on RUNS instead would mean widening
+# `none_skips` to consult `mult_from_attr` -- an interpreter change to machinery every category runs
+# through. That was the rejected alternative; it is recorded, not built.
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v52.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -7022,3 +7044,130 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
                 self.assertTrue(rules)
             else:
                 self.assertEqual(rules, {}, c["category_id"])
+
+
+    # ---------- SLICE A: F2 the conduit false-friend, F5 the None checkbox ----------
+    def test_pw_cs_19_the_conduit_example_cannot_be_matched_without_its_load_bearing_word(self):
+        """⚠️ F2. R12's WORKED EXAMPLE was the defect, not its rule.
+
+        It read "'recessed/surface existing conduit' ... so the answer there is Yes". Rows reading
+        'recessed/surface 16SWG MS conduit' matched that SURFACE FORM while lacking `existing`, so
+        `conduit_handoff` came back Yes and 36 rows silently dropped a conduit they supply -- the
+        example overriding the rule's own closing clause, which was right all along.
+
+        The corrected example must CONTRAST the two phrasings and name the one word that separates
+        them. The NEGATIVE half is what stops a revert: the retired sentence must be GONE.
+        """
+        g = [r for r in self._cfg()["rules"] if r["id"] == "R12"][0]["guidance"]
+        # NEGATIVE -- the false friend is gone. A revert re-introduces it and turns this red.
+        self.assertNotIn("so the answer there is Yes.", g)
+        self.assertNotIn("The old wording was kept here only as the thing NOT to do.", g)
+        # ⚠️ AND THE SECOND NEGATIVE, WHICH IS THE WHOLE POINT OF ATTEMPT 2. Attempt 1 replaced the
+        # false friend with a CONTRASTING PAIR OF QUOTED PHRASES, and its negative half quoted a
+        # string that also lives on rows whose chain says "and circuit wiring with 2 x 2.5 sq mm" --
+        # rows R13 must answer Yes. R13's verdict flipped Yes -> No on them, measured across four
+        # config-switched runs. So R12 must quote NO corpus text at all: a phrase quoted in one rule
+        # is visible to every other question the single ESTIMATOR_RULES payload asks.
+        for corpus in ("16SWG", "16 SWG", "recessed/surface", "MS conduit", "circuit wiring with"):
+            self.assertNotIn(corpus, g,
+                             "R12 must quote no corpus text -- %r collides with other rules" % corpus)
+        # POSITIVE -- it states the TEST instead of illustrating it
+        self.assertIn("Decide this field by ONE TEST", g)
+        self.assertIn("does the document say the conduit is ALREADY THERE?", g)
+        self.assertIn("then this line supplies that conduit and the answer is No", g)
+        # ⚠️ and it says out loud that it governs ONE field, which is the cheapest guard against
+        # the cross-rule bleed that attempt 1 caused.
+        self.assertIn("nothing you decide here should change any other answer", g)
+        # ⚠️ THE CLAUSE THAT WAS ALWAYS CORRECT MUST NOT BE WEAKENED -- the fix is to the example.
+        self.assertIn("Answer No when the run uses a conduit this line supplies.", g)
+        # ⚠️ AND THE HAND-OFF RULE ITSELF IS UNCHANGED: an EXISTING container still answers Yes.
+        self.assertIn("answer Yes when the document says this run uses something already there",
+                      g)
+
+    def test_pw_cs_20_the_decision_table_is_untouched_by_the_wording_fix(self):
+        """NEGATIVE. F2 narrows when the MODEL should answer Yes; it must not touch what CODE does
+        with that answer. The three-step conduit_included chain and the drop-to-None step are
+        byte-compared against the previous asset."""
+        import json
+        with open(_asset_path("rate_master_electrical_all_v51.json"), "r", encoding="utf-8") as fh:
+            prev = [c for c in json.load(fh)["category_configs"]
+                    if c["category_id"] == "point_wiring"][0]
+        cfg = self._cfg()
+        for pid in _PW_ASSEMBLY_PIPELINES:
+            def conduit_steps(c):
+                return [s for s in c["pipelines"][pid]["steps"]
+                        if (s.get("params") or {}).get("result_attr") in
+                        ("conduit_included", "conduit_type")]
+            self.assertEqual(conduit_steps(cfg), conduit_steps(prev), pid)
+            # and circuit_fit's absent_when, which the drop feeds
+            now = [s for s in cfg["pipelines"][pid]["steps"] if s["step"] == "circuit_fit"][0]
+            was = [s for s in prev["pipelines"][pid]["steps"] if s["step"] == "circuit_fit"][0]
+            self.assertEqual(now, was, pid)
+
+    def test_pw_cs_21_the_None_option_is_gone_from_the_four_core_and_runs_fields(self):
+        """⚠️ F5. `allow_none` on a number def is what makes the panel render a "None" checkbox.
+        On the circuit RUNS that checkbox promised a drop it could not deliver: `none_skips` reads
+        only the component's `ref` bindings (core, thickness_sqmm), and `runs` feeds
+        `absentMeansOne`, which maps "None" to 1. So the option is removed.
+
+        ⚠️ BOTH THICKNESSES KEEP IT. Thickness is the working drop control -- it is IN the ref, so
+        `none_skips` fires on it, and its `disables_when_none` greys that wire's core and runs. The
+        owner's loud-failure ruling (blank gauge -> the row refuses) rests on it having NO default.
+        """
+        cfg = self._cfg()
+        by_id = {d["id"]: d for d in cfg["attribute_definitions"]}
+        for fid in ("circuit_wire1_core", "circuit_wire1_runs",
+                    "circuit_wire2_core", "circuit_wire2_runs"):
+            self.assertNotIn("allow_none", by_id[fid], "%s must offer no None" % fid)
+            # the mirrored default of 1 stays -- an unstated core/run count is still 1, not missing
+            self.assertEqual(cfg["extraction_defaults"][fid], 1.0, fid)
+        for tid in self.THICKNESSES:
+            self.assertTrue(by_id[tid]["allow_none"], "%s must KEEP its None" % tid)
+            self.assertNotIn(tid, cfg["extraction_defaults"], "%s must keep NO default" % tid)
+            self.assertEqual(by_id[tid]["disables_when_none"],
+                             [tid.replace("_thickness_sqmm", "_core"),
+                              tid.replace("_thickness_sqmm", "_runs")], tid)
+
+    def test_pw_cs_22_NEGATIVE_the_absent_shape_still_holds_without_the_flags(self):
+        """⚠️ THE NEGATIVE THAT MADE THE REMOVAL SAFE, and the reason it is measured rather than
+        assumed. The four flags were added 2026-09-02 so the owner's `No` / `None` x6 / `0` shape
+        could survive `coerceForMatch`; removing them could have undone that.
+
+        It does not, and this test pins WHY: `force_absent_dependents` still writes "None" into all
+        six spec fields, and the THICKNESS -- which keeps `allow_none` -- carries that "None"
+        through coercion and DISABLES its wire's core and runs. A disabled field is never treated
+        as missing input, so the two whose "None" no longer survives are never asked for.
+
+        Measured with the REAL shipped helper over the 251 run-covered rows: 190 priced / 61 refused
+        with the flags AND without, on the identical row set.
+        """
+        from nirmaan_stack.services.boq_rate_master import extraction as ex
+        cfg = self._cfg()
+        rules = ex.absent_dependent_rules(cfg)
+        # the corrector still fills all six -- unchanged by this slice
+        self.assertEqual(sorted(rules["circuit_wire_included"][1]), sorted(self.EIGHT[1:7]))
+        row = {"circuit_wire_included": {"value": "No"}}
+        ex.force_absent_dependents(row, rules)
+        for fid in self.EIGHT[1:7]:
+            self.assertEqual(row[fid]["value"], "None", fid)
+        # ... and the THICKNESS is the one that carries it through, disabling the other two
+        by_id = {d["id"]: d for d in cfg["attribute_definitions"]}
+        for tid in self.THICKNESSES:
+            self.assertTrue(by_id[tid]["allow_none"])
+            for dep in by_id[tid]["disables_when_none"]:
+                self.assertNotIn("allow_none", by_id[dep],
+                                 "%s is disabled by %s, so it needs no None of its own" % (dep, tid))
+
+    def test_pw_cs_23_NEGATIVE_no_other_category_and_no_golden_moved(self):
+        """NEGATIVE: Slice A is one config and one rule. Every other category byte-identical, no
+        item touched, and EVERY golden value unmoved -- the goldens carry no conduit hand-off fact
+        and no circuit runs the change could reach."""
+        import json
+        payload = self._payload()
+        with open(_asset_path("rate_master_electrical_all_v51.json"), "r", encoding="utf-8") as fh:
+            prev = json.load(fh)
+        was = {c["category_id"]: c for c in prev["category_configs"]}
+        now = {c["category_id"]: c for c in payload["category_configs"]}
+        self.assertEqual(sorted(k for k in now if now[k] != was[k]), ["point_wiring"])
+        self.assertEqual(payload["items"], prev["items"])
+        self.assertEqual(payload["goldens"], prev["goldens"], "no golden may move in Slice A")
