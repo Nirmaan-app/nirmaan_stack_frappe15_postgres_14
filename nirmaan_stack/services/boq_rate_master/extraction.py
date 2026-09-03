@@ -1135,6 +1135,146 @@ def absent_dependent_rules(cfg):
     return out
 
 
+# -- THE CONDUCTOR FLOOR (slice: SLICE B v4) --------------------------------------------
+#
+# ⚠️ THE PROMPT SENTENCE IS GUIDANCE; THIS IS THE ENFORCEMENT -- and here that doctrine is a
+# CORRECTION, not a new idea. The standing rule on this project is that the MODEL READS FACTS and
+# every substitution, ladder and conversion lives in deterministic code or config. The conductor
+# floor is a SUBSTITUTION. It was written as prose inside R9 and should never have been.
+#
+# THE COST OF HAVING IT IN THE PROMPT, MEASURED TWICE IN TWO DAYS. Every `rules` entry is injected
+# into ONE `ESTIMATOR_RULES` block, so a phrase in one rule is visible to every other question the
+# payload asks:
+#   * rewriting R12's conduit example flipped R13's circuit verdict on two rows (2026-09-03);
+#   * extending R9's floor to NAME the circuit wires -- the only way prose could reach them --
+#     moved R13's `circuit_wire_included` on BOQ-26-00200 r11 (Yes -> Yes -> No across three runs).
+# Arithmetic in a shared prompt block is the cause, not the symptom. Moving it here removes the
+# pressure entirely: R9 goes back to teaching how to READ a wire spec, and says nothing about totals.
+#
+# THE RULE (owner, 2026-09-03), applied to each declared GROUP independently:
+#   conductors = core x runs, summed across the wires that EXIST
+#   >= 3            -> TAKE WHAT THE DOCUMENT STATES. Nothing is ever reduced. A FLOOR, not a cap.
+#   single-core     -> raise THAT WIRE'S RUNS to three. NEVER add a second wire.
+#   two single-core -> raise the BIGGER wire's runs.
+#   multi-core      -> keep its cores and runs; ADD a second wire, 1 core, SAME thickness.
+#
+# ⚠️ `3 core, 1 run` IS ALREADY THREE CONDUCTORS AND MUST NOT MOVE. That was the defect in the first
+# formulation of this rule, which counted RUNS: on the 31 corpus rows reading `3 core, 1 run` it
+# would have bought NINE conductors, and on 5 rows the document states as three-phase it would have
+# HALVED the copper.
+#
+# ⚠️ A WIRE WHOSE THICKNESS IS "None" DOES NOT EXIST AND CONTRIBUTES NOTHING. This is the trap in
+# this data: an absent wire still carries the MIRRORED DEFAULT `runs = 1`, so a naive sum reports
+# 3 + 1 = 4 for a row that is already three conductors on one wire. Existence is the THICKNESS.
+#
+# ⚠️ CONFIG-DRIVEN, NAMING NO CATEGORY (the HV-10 lesson). A wire opts in by declaring
+# `conductor_floor` on its THICKNESS definition -- the thickness IS the existence marker, so the
+# block lives where the fact it depends on lives. A config declaring none yields no groups and this
+# function is inert, which is every category but point_wiring today.
+#
+# ⚠️ IT SITS ON THE ATTRIBUTE DEFINITION, NEVER AT THE CONFIG'S TOP LEVEL. Top-level keys are
+# allowlisted by `_KNOWN_CONFIG_KEYS` in `api/boq/rate_master.py`; attribute definitions are
+# documented in that same validator as having NO key allowlist. So this ships with no backend change.
+
+# The floor. Named rather than inlined so the three places that read it cannot drift apart.
+_CONDUCTOR_FLOOR = 3
+
+
+def _cf_num(cell, default=None):
+    """The numeric value of a row_out cell, or `default`. "None" is the ABSENCE sentinel, not a number."""
+    if not isinstance(cell, dict):
+        return default
+    v = cell.get("value")
+    if v is None or v == "" or v == _NONE_SENTINEL:
+        return default
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return default
+    return f
+
+
+def conductor_floor_groups(cfg):
+    """{group_name: [(thickness_attr, core_attr, runs_attr), ...]} in DEFINITION ORDER, or {}.
+
+    Definition order is load-bearing twice over: it decides which wire is "wire 1" when a second one
+    has to be added, and it keeps the walk deterministic.
+    """
+    out = {}
+    for d in (cfg or {}).get("attribute_definitions") or []:
+        spec = d.get("conductor_floor")
+        if not isinstance(spec, dict):
+            continue
+        group = spec.get("group")
+        core, runs = spec.get("core_attr"), spec.get("runs_attr")
+        if not (isinstance(group, str) and group
+                and isinstance(core, str) and core
+                and isinstance(runs, str) and runs):
+            continue
+        out.setdefault(group, []).append((d["id"], core, runs))
+    return out
+
+
+def apply_conductor_floor(row_out, groups):
+    """Raise each declared group to `_CONDUCTOR_FLOOR` conductors. PURE apart from mutating the
+    `row_out` it is handed; returns one record per group changed, the same shape as the correctors
+    above.
+
+    ⚠️ IT ONLY EVER RAISES. There is no branch that lowers a count, which is what makes the
+    "nothing is ever reduced" ruling structural rather than a thing to remember.
+    """
+    changed = []
+    if not row_out or not groups:
+        return changed
+
+    for group, wires in groups.items():
+        present = []          # [(idx, thickness_attr, core_attr, runs_attr, thickness, core, runs)]
+        for idx, (t_attr, c_attr, r_attr) in enumerate(wires):
+            thickness = _cf_num(row_out.get(t_attr))
+            if thickness is None:
+                continue      # the wire DOES NOT EXIST -- its runs default is not a conductor
+            present.append((idx, t_attr, c_attr, r_attr, thickness,
+                            _cf_num(row_out.get(c_attr), 1) or 1,
+                            _cf_num(row_out.get(r_attr), 1) or 1))
+        if not present:
+            continue          # no wire on this axis at all -- never invent one
+
+        total = sum(c * r for (_i, _t, _c, _r, _th, c, r) in present)
+        if total >= _CONDUCTOR_FLOOR:
+            continue          # THE FLOOR. At or above, the document wins untouched.
+        need = _CONDUCTOR_FLOOR - total
+
+        # Prefer raising the RUNS of a SINGLE-CORE wire: its conductors move in steps of one, so it
+        # can land exactly on three. The BIGGER one when there is a choice (owner's ruling); ties
+        # fall to definition order, which is deterministic.
+        singles = [w for w in present if w[5] == 1]
+        if singles:
+            target = max(singles, key=lambda w: (w[4], -w[0]))
+            _i, _t, _c, r_attr, _th, _core, runs = target
+            new_runs = runs + need
+            row_out[r_attr] = {"value": new_runs,
+                               "confidence": (row_out.get(r_attr) or {}).get("confidence")}
+            changed.append({"group": group, "action": "runs", "attr": r_attr,
+                            "from": runs, "to": new_runs, "conductors_before": total})
+            continue
+
+        # Every existing wire is MULTI-CORE, so no run count can land on three (a 2-core wire steps
+        # 2, 4, 6...). Add a wire of ONE core at the SAME thickness, carrying exactly the shortfall.
+        free = [w for w in wires if w[0] not in {p[1] for p in present}]
+        if not free:
+            continue          # both slots taken by multi-core wires -- leave it; the row is honest
+        t_attr, c_attr, r_attr = free[0]
+        donor = present[0]
+        conf = (row_out.get(donor[1]) or {}).get("confidence")
+        row_out[t_attr] = {"value": donor[4], "confidence": conf}
+        row_out[c_attr] = {"value": 1, "confidence": conf}
+        row_out[r_attr] = {"value": need, "confidence": conf}
+        changed.append({"group": group, "action": "added_wire", "attr": t_attr,
+                        "thickness": donor[4], "core": 1, "runs": need,
+                        "conductors_before": total})
+    return changed
+
+
 # -- TPN post-match pole correction (slice: TPN POST-MATCH) -----------------------------
 #
 # THE DEFECT. The decomposition prompt's POLE line tells the model that TPN (and TP+N / TP+NL /
@@ -1331,7 +1471,7 @@ def correct_four_pole_mcb_picks(row_out, row, pole_catalog, tokens=None):
     return changed
 
 
-def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, absent_rules=None, *, capture_ctx=None):
+def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, absent_rules=None, conductor_groups=None, *, capture_ctx=None):
     """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
     confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
     (<=20 rows, 3 attempts, sleep 2*attempt).
@@ -1574,6 +1714,22 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                     drops["absent_dependents_filled"].setdefault(str(rid), []).append(_aid)
                     if _aid in row_map:
                         row_map[_aid]["forced_absent"] = True
+
+                # THE CONDUCTOR FLOOR -- the arithmetic that used to live in R9's prose.
+                #
+                # Placed AFTER `force_absent_dependents` deliberately: that corrector writes the
+                # "None" sentinel into the spec of a component the row declares absent, and this one
+                # reads exactly that sentinel to decide a wire DOES NOT EXIST. Run in the other
+                # order, an absent circuit wire would still look like a real one carrying the
+                # mirrored default `runs = 1`, and the floor would top up a run that is not there.
+                #
+                # Inert for every config declaring no `conductor_floor` -- which is every category
+                # but point_wiring today.
+                for _rec in apply_conductor_floor(row_out, conductor_groups):
+                    drops["conductor_floor_applied"].setdefault(str(rid), []).append(_rec)
+                    _a = _rec.get("attr")
+                    if _a in row_map:
+                        row_map[_a]["conductor_floor"] = _rec.get("action")
 
                 # TPN POST-MATCH -- THE FOUR-POLE MCB CORRECTION, server-side.
                 #
@@ -1892,6 +2048,7 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
             # Composite-only and resolved ONCE per group, exactly like `slot_spec` beside it; None
             # for every other mode, which leaves those categories byte-identical.
             "pole_catalog": breaker_catalog_for(cfg, disc) if is_composite else None,
+            "conductor_groups": conductor_floor_groups(cfg),
             # PIECE 4: the attribute ids this config declares that CODE supplies rather than the
             # model. Derived FROM THE CONFIG (never a hardcoded category name -- the HV-10 lesson):
             # a config that does not declare `point_type` yields an empty set and the matcher is
@@ -1958,7 +2115,8 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
                 def _call(rows_, _gc=gc):
                     # `boq` is NOT on the row dict -- it lives only in this enclosing scope, so the
                     # capture's join key is threaded in from here.
-                    return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], _gc["pole_catalog"], _gc["code_attrs"], _gc["absent_rules"], capture_ctx={"boq": boq})
+                    return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], _gc["pole_catalog"], _gc["code_attrs"], _gc["absent_rules"], _gc["conductor_groups"],
+                                          capture_ctx={"boq": boq})
 
                 # SR-2 (3): ONE iteration when the batch fits (byte-identical to the pre-SR-2 single
                 # call); one per surviving half after a ceiling cut. Everything below is unchanged

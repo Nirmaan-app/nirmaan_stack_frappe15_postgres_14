@@ -633,3 +633,147 @@ class TestRowOwnTextFragments(FrappeTestCase):
         row = _row("own text only")
         row["ancestors"] = [{"description": "ancestor text"}]
         self.assertEqual(extraction.row_own_text_fragments(row), ["own text only"])
+
+
+class TestConductorFloor(FrappeTestCase):
+    """SLICE B v4 -- `apply_conductor_floor`, the arithmetic that used to live in R9's prose.
+
+    WHY IT MOVED HERE. The conductor floor is a SUBSTITUTION, and the standing rule on this project
+    is that the model reads FACTS while substitutions live in deterministic code. Written as prose it
+    cost two prompt cross-talk failures in two days: every `rules` entry shares ONE ESTIMATOR_RULES
+    block, so R12's rewrite flipped R13's verdict, and extending R9's floor to NAME the circuit wires
+    moved R13's `circuit_wire_included`. Here it is pure arithmetic and cannot reach another rule.
+
+    The function is PURE (a row dict + a groups map in, the row mutated and records out), so every
+    case below is a direct call -- no DB, no AI, no fixtures.
+    """
+
+    GROUPS = {
+        "point": [("wire1_thickness_sqmm", "wire1_core", "wire1_runs"),
+                  ("wire2_thickness_sqmm", "wire2_core", "wire2_runs")],
+    }
+
+    @staticmethod
+    def _w(**kv):
+        return {k: {"value": v, "confidence": 0.9} for k, v in kv.items()}
+
+    def _apply(self, **kv):
+        row = self._w(**kv)
+        recs = extraction.apply_conductor_floor(row, self.GROUPS)
+        return row, recs
+
+    def _n(self, row, attr):
+        return (row.get(attr) or {}).get("value")
+
+    # ---------- the floor half: nothing is ever reduced ----------
+    def test_cf_01_three_core_one_run_is_already_three_and_must_not_move(self):
+        """THE CASE THAT KILLED THE FIRST FORMULATION. A 3-core single-run wire carries THREE
+        conductors -- 31 corpus rows read exactly that, and their bills say so in words. The earlier
+        rule counted RUNS and would have made this 3 runs x 3 cores = NINE conductors (+Rs 133,792
+        across the corpus, individual rows up to +194%)."""
+        row, recs = self._apply(wire1_core=3, wire1_runs=1, wire1_thickness_sqmm=1.5)
+        self.assertEqual(recs, [], "a 3-conductor row must not be touched")
+        self.assertEqual(self._n(row, "wire1_runs"), 1)
+        self.assertEqual(self._n(row, "wire1_core"), 3)
+
+    def test_cf_02_negative_a_row_above_the_floor_is_untouched(self):
+        """A FLOOR, NEVER A CAP. Four corpus rows state six conductors (a three-phase plug point)
+        and were read correctly at 0.8-0.95 confidence; coercing them DOWN would have cut Rs 27,535,
+        up to -50.6% on one row. At or above three, the document wins."""
+        for core1, runs1, core2, runs2 in ((1, 4, 1, 2), (1, 2, 1, 2), (2, 2, 1, 1)):
+            row, recs = self._apply(wire1_core=core1, wire1_runs=runs1, wire1_thickness_sqmm=6,
+                                    wire2_core=core2, wire2_runs=runs2, wire2_thickness_sqmm=6)
+            self.assertEqual(recs, [], "%sc x %sr + %sc x %sr must not move"
+                             % (core1, runs1, core2, runs2))
+            self.assertEqual(self._n(row, "wire1_runs"), runs1)
+            self.assertEqual(self._n(row, "wire2_runs"), runs2)
+
+    def test_cf_03_exactly_three_is_untouched(self):
+        row, recs = self._apply(wire1_core=1, wire1_runs=3, wire1_thickness_sqmm=2.5)
+        self.assertEqual(recs, [])
+        self.assertEqual(self._n(row, "wire1_runs"), 3)
+
+    # ---------- the raising half ----------
+    def test_cf_04_single_core_short_takes_runs_and_no_second_wire(self):
+        """THE OWNER RULING, AND IT IS NOT COSMETIC. A second wire buys a SECOND install unit
+        (`mult_step_divisor` is applied per COMPONENT, never summed across the pair), so 2 runs + 1
+        run costs more to install than 3 runs on one wire."""
+        row, recs = self._apply(wire1_core=1, wire1_runs=1, wire1_thickness_sqmm=2.5)
+        self.assertEqual(self._n(row, "wire1_runs"), 3)
+        self.assertIsNone(self._n(row, "wire2_thickness_sqmm"), "NO second wire may be created")
+        self.assertEqual([r["action"] for r in recs], ["runs"])
+
+    def test_cf_05_two_single_core_wires_raise_the_bigger_one(self):
+        """Owner: always bump up the bigger wire. SIZE decides, not slot order."""
+        row, _ = self._apply(wire1_core=1, wire1_runs=1, wire1_thickness_sqmm=1.5,
+                             wire2_core=1, wire2_runs=1, wire2_thickness_sqmm=2.5)
+        self.assertEqual(self._n(row, "wire1_runs"), 1, "the smaller wire is untouched")
+        self.assertEqual(self._n(row, "wire2_runs"), 2, "the BIGGER wire absorbs the shortfall")
+
+    def test_cf_06_multi_core_short_gains_a_one_core_wire_at_the_same_thickness(self):
+        """A 2-core wire moves in steps of TWO, so no run count lands on three -- which is exactly
+        why this case cannot take runs and must gain a wire instead."""
+        row, recs = self._apply(wire1_core=2, wire1_runs=1, wire1_thickness_sqmm=4)
+        self.assertEqual(self._n(row, "wire1_core"), 2, "its cores are kept")
+        self.assertEqual(self._n(row, "wire1_runs"), 1, "its runs are kept")
+        self.assertEqual(self._n(row, "wire2_core"), 1)
+        self.assertEqual(self._n(row, "wire2_runs"), 1)
+        self.assertEqual(self._n(row, "wire2_thickness_sqmm"), 4, "SAME thickness as the short wire")
+        self.assertEqual([r["action"] for r in recs], ["added_wire"])
+
+    # ---------- existence ----------
+    def test_cf_07_a_none_thickness_wire_does_not_exist(self):
+        """THE TRAP IN THIS DATA, and my own debug script fell into it once. An absent wire still
+        carries the MIRRORED DEFAULT `runs = 1`, so a naive sum reports 3 + 1 = 4 for a row that is
+        already three conductors on ONE wire. Existence is the THICKNESS, never the runs."""
+        row, recs = self._apply(wire1_core=1, wire1_runs=3, wire1_thickness_sqmm=2.5,
+                                wire2_core=1, wire2_runs=1, wire2_thickness_sqmm="None")
+        self.assertEqual(recs, [], "wire 2 does not exist, so the row is already at three")
+        self.assertEqual(self._n(row, "wire1_runs"), 3)
+        row, recs = self._apply(wire1_core=1, wire1_runs=2, wire1_thickness_sqmm=2.5,
+                                wire2_core=1, wire2_runs=1, wire2_thickness_sqmm="None")
+        self.assertEqual(self._n(row, "wire1_runs"), 3, "a genuinely short row IS raised")
+        self.assertEqual(self._n(row, "wire2_thickness_sqmm"), "None", "the absent wire stays absent")
+
+    def test_cf_08_negative_no_wire_at_all_never_invents_one(self):
+        """A row with no wire on the axis is not short -- it is silent, and inventing a run would
+        charge for copper the document never mentions."""
+        row, recs = self._apply(wire1_thickness_sqmm="None", wire2_thickness_sqmm="None")
+        self.assertEqual(recs, [])
+        self.assertIsNone(self._n(row, "wire1_core"))
+
+    def test_cf_09_negative_a_config_declaring_no_group_is_inert(self):
+        """CONFIG-DRIVEN, NAMING NO CATEGORY (the HV-10 lesson). Every category but point_wiring
+        declares no `conductor_floor`, so this must do nothing for them."""
+        row = self._w(wire1_core=1, wire1_runs=1, wire1_thickness_sqmm=2.5)
+        self.assertEqual(extraction.apply_conductor_floor(row, {}), [])
+        self.assertEqual(extraction.apply_conductor_floor(row, None), [])
+        self.assertEqual(self._n(row, "wire1_runs"), 1)
+
+    def test_cf_10_the_groups_are_read_from_config_and_both_axes_are_independent(self):
+        """`conductor_floor_groups` reads the block off each THICKNESS definition. Both axes are
+        declared, and each reaches three ON ITS OWN -- neither pair is ever added to the other."""
+        cfg = {"attribute_definitions": [
+            {"id": "wire1_thickness_sqmm",
+             "conductor_floor": {"group": "point", "core_attr": "wire1_core",
+                                 "runs_attr": "wire1_runs"}},
+            {"id": "circuit_wire1_thickness_sqmm",
+             "conductor_floor": {"group": "circuit", "core_attr": "circuit_wire1_core",
+                                 "runs_attr": "circuit_wire1_runs"}},
+            {"id": "colour"},
+        ]}
+        groups = extraction.conductor_floor_groups(cfg)
+        self.assertEqual(sorted(groups), ["circuit", "point"])
+        row = self._w(wire1_core=1, wire1_runs=3, wire1_thickness_sqmm=2.5,
+                      circuit_wire1_core=1, circuit_wire1_runs=1, circuit_wire1_thickness_sqmm=4)
+        extraction.apply_conductor_floor(row, groups)
+        self.assertEqual(self._n(row, "wire1_runs"), 3, "the point axis was already at three")
+        self.assertEqual(self._n(row, "circuit_wire1_runs"), 3, "the circuit axis is raised alone")
+
+    def test_cf_11_negative_a_malformed_declaration_is_ignored_not_guessed(self):
+        """Attribute-definition keys carry no backend type guard, so a malformed block must degrade
+        to no-group rather than half-configuring a floor."""
+        for bad in ({"group": "point"}, {"core_attr": "c", "runs_attr": "r"},
+                    {"group": "", "core_attr": "c", "runs_attr": "r"}, "not-a-dict"):
+            cfg = {"attribute_definitions": [{"id": "t", "conductor_floor": bad}]}
+            self.assertEqual(extraction.conductor_floor_groups(cfg), {}, repr(bad))

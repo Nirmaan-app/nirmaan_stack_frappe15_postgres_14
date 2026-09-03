@@ -1393,10 +1393,33 @@ class TestExtBRules(FrappeTestCase):
         self.assertEqual(r9["applies_to"], "wire1_runs")
         self.assertEqual(
             r9["label"], "Wire runs, cores, and the number of points in point wiring")
-        # the load-bearing claims of the CURRENT rule, phrase by phrase
-        self.assertIn("three conductors", r9["guidance"])
-        self.assertIn("phase, neutral and earth", r9["guidance"])
-        self.assertIn("add up to three", r9["guidance"])
+        # ⚠️ THE THREE CONDUCTOR-COUNT PINS ARE RETIRED (SLICE B v4, 2026-09-03), AND REPLACED BY
+        # THEIR INVERSE RATHER THAN DELETED. They asserted "three conductors", "phase, neutral and
+        # earth" and "add up to three" -- the ARITHMETIC of the conductor floor, which has moved out
+        # of the prompt and into `extraction.apply_conductor_floor`.
+        #
+        # WHY IT MOVED, because a future reader will otherwise put it back: the floor is a
+        # SUBSTITUTION, and the standing rule on this project is that the model reads FACTS while
+        # substitutions live in deterministic code. Kept as prose it cost TWO prompt cross-talk
+        # failures in two days -- every `rules` entry is injected into ONE `ESTIMATOR_RULES` block,
+        # so R12's rewrite flipped R13's conduit verdict, and extending R9's floor to NAME the
+        # circuit wires (the only way prose could reach them) moved R13's `circuit_wire_included`.
+        #
+        # A DELETED PIN CHECKS NOTHING, so the inverse is pinned instead: the arithmetic must be
+        # ABSENT, and R9 must not name a circuit wire. `test_rate_master`'s test_pw_cs_24-27 carry
+        # the same claims from the other side.
+        for _banned in ("three conductors", "phase, neutral and earth", "add up to three",
+                        "FLOOR", "CORES MULTIPLIED BY ITS RUNS",
+                        "unless the line explicitly states otherwise"):
+            self.assertNotIn(_banned, r9["guidance"],
+                             "R9 must carry no arithmetic: %r" % _banned)
+        for _circuit in ("circuit wire", "circuit_wire", "submain", "distribution board"):
+            self.assertNotIn(_circuit, r9["guidance"].lower(),
+                             "R9 must stay POINT-scoped: %r" % _circuit)
+        # ... and the READING rules, which are facts only the model can supply, must SURVIVE.
+        self.assertIn("Report the wire specification EXACTLY AS THE LINE STATES IT", r9["guidance"])
+        self.assertIn("the multiplier is the run count", r9["guidance"])
+        self.assertIn("NUMBER OF POINTS", r9["guidance"])
         self.assertIn("3R x 1.5 sqmm", r9["guidance"])       # the stated-run-count case
         # DELETED (2026-08-23): the "wire 2 is None" closing case NO LONGER EXISTS in R9.
         # The v25 rewrite (37339a10, "compute circuit length from the point count") replaced

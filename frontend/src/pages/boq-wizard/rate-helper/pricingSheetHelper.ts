@@ -466,6 +466,20 @@ function kindForOutput(output: string): string | null {
   return null;
 }
 
+/**
+ * F4b -- read an attribute definition's `group_label`, defensively.
+ *
+ * The key is CARRIED BY THE CONFIG but is not on the `AttributeDefinition` type, and attribute
+ * definitions are documented in `api/boq/rate_master.py` as having NO backend key allowlist -- so it
+ * arrives intact at runtime and is unvalidated. Anything that is not a non-empty string degrades to
+ * "no group" rather than drawing a blank header, which is the `panel` precedent: a flag whose type
+ * nothing checks must fail visibly-absent, never visibly-wrong.
+ */
+function readGroupLabel(d: unknown): string | undefined {
+  const raw = (d as { group_label?: unknown } | null)?.group_label;
+  return typeof raw === "string" && raw.trim() !== "" ? raw : undefined;
+}
+
 export function makePricingSheetHelper(deps: Deps): RateHelper {
   const { config, configsByCategory, items, extractionByRow } = deps;
 
@@ -627,6 +641,13 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         disabled: disabled || undefined,
         allowNone: d.allow_none || undefined,
         defaulted: isDefaulted || undefined,
+        // F4b: carry the config's group label through untouched. A non-string (or empty) is dropped
+        // rather than rendered -- attribute-definition keys carry no backend type guard, so a bad
+        // value must degrade to "no group" here instead of drawing a blank header.
+        // ⚠️ read through `unknown`: `group_label` is not on the AttributeDefinition type, which
+        // lives outside this slice's scope. The config carries it and the backend validator applies
+        // NO key allowlist to attribute definitions, so the key arrives intact at runtime.
+        groupLabel: readGroupLabel(d),
       });
     }
 

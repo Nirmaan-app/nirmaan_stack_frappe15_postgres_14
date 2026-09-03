@@ -4,6 +4,8 @@
 
 import { describe, it, expect } from "vitest";
 import type { Pipeline, RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
+import { startsAttributeGroup } from "@/pages/boq-wizard/rate-helper/rateHelperTypes";
+
 import {
   NONE_SENTINEL,
   buildModuleLadder,
@@ -5598,5 +5600,55 @@ describe("PW-CIRCUIT-STRETCH -- the block is a COMPONENT of one rate, never a se
   it("on a SECONDARY row the block reads 0 too, so the screen agrees with the rate", () => {
     expect(csRun(PW_CS_DISPLAY_SUPPLY, { ...CS_PRESENT, point_type: "Secondary" }).finals)
       .toEqual({ circuit_supply: 0 });
+  });
+});
+
+// ── SLICE B / F4b: the labelled attribute group ────────────────────────────────────────────────
+//
+// The grouping's ONLY decision is "does a header start here?", and it is change-detection over the
+// RENDERED attribute order. It is tested as a pure function because this project has no DOM test
+// environment (frontend/CLAUDE.md) -- a header rendered inline in the panel would be structurally
+// untestable, so the decision was extracted and the panel keeps only markup.
+describe("startsAttributeGroup -- F4b labelled groups", () => {
+  const a = (groupLabel?: string) => ({ groupLabel });
+
+  it("starts a group at the first attribute carrying a label", () => {
+    expect(startsAttributeGroup([a("Circuit wiring")], 0)).toBe(true);
+  });
+
+  it("does NOT repeat the header for the rest of the group", () => {
+    const attrs = [a("Circuit wiring"), a("Circuit wiring"), a("Circuit wiring")];
+    expect(attrs.map((_, i) => startsAttributeGroup(attrs, i))).toEqual([true, false, false]);
+  });
+
+  it("starts a SECOND group when the label changes -- a config may declare several", () => {
+    const attrs = [a("Circuit wiring"), a("Circuit wiring"), a("Accessories"), a("Accessories")];
+    expect(attrs.map((_, i) => startsAttributeGroup(attrs, i))).toEqual([true, false, true, false]);
+  });
+
+  it("re-opens a group that resumes after ungrouped attributes", () => {
+    // adjacency is the rule, so a gap genuinely IS a new group -- this is why the eight circuit
+    // fields are asserted CONTIGUOUS in the config (test_pw_cs_29).
+    const attrs = [a("Circuit wiring"), a(undefined), a("Circuit wiring")];
+    expect(attrs.map((_, i) => startsAttributeGroup(attrs, i))).toEqual([true, false, true]);
+  });
+
+  it("NEGATIVE: a category declaring no group never renders a header", () => {
+    const attrs = [a(undefined), a(undefined), a(undefined)];
+    expect(attrs.some((_, i) => startsAttributeGroup(attrs, i))).toBe(false);
+  });
+
+  it("NEGATIVE: an ungrouped attribute after a group gets no header of its own", () => {
+    const attrs = [a("Circuit wiring"), a(undefined)];
+    expect(startsAttributeGroup(attrs, 1)).toBe(false);
+  });
+
+  it("treats an empty-string label as no group -- a blank header is worse than none", () => {
+    expect(startsAttributeGroup([a("")], 0)).toBe(false);
+  });
+
+  it("is total over a short or out-of-range list", () => {
+    expect(startsAttributeGroup([], 0)).toBe(false);
+    expect(startsAttributeGroup([a("Circuit wiring")], 5)).toBe(false);
   });
 });

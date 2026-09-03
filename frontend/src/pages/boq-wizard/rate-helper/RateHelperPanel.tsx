@@ -5,7 +5,7 @@
  * overridable final-value field, and "Use this value"). Zero helper-specific rendering lives here,
  * so a new helper needs no panel change. Nothing persists (guardrail G2).
  */
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { X, ChevronRight, ChevronDown, RotateCcw, Sparkles, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import {
   isAttrDefaulted,
   isShowingDerived,
   isSuggestion,
+  startsAttributeGroup,
   type RateHelper,
   type RateHelperRowContext,
 } from "./rateHelperTypes";
@@ -413,7 +414,13 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                 <div className="space-y-2 border-t px-3 py-2">
                   {result.workings.attributes.length > 0 && (
                     <div className="space-y-1.5">
-                      {result.workings.attributes.map((a) => {
+                      {result.workings.attributes.map((a, ai, attrs) => {
+                        // F4b -- THE LABELLED GROUP HEADER. General: emitted whenever `groupLabel`
+                        // CHANGES between consecutive rendered attributes, so a config declaring
+                        // none never draws one and every existing category renders unchanged. The
+                        // grouping IS the definition order the panel already follows -- there is no
+                        // sort, no registry, and no id to keep in step with the config.
+                        const startsGroup = startsAttributeGroup(attrs, ai);
                         // U2: the three-way state. BLANK -> red border (needs filling); DEFAULTED ->
                         // the grid's established amber attention token (filled from a config default,
                         // worth checking). A POSITIVELY-ABSENT attribute ("None", or disabled because
@@ -445,7 +452,16 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                               ? "italic text-muted-foreground"
                               : undefined;
                         return (
-                        <div key={a.id} className="group/attr space-y-0.5">
+                        <Fragment key={a.id}>
+                        {startsGroup && (
+                          <div
+                            data-testid="attr-group-header"
+                            className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                          >
+                            {a.groupLabel}
+                          </div>
+                        )}
+                        <div className="group/attr space-y-0.5">
                         <label className="flex items-center justify-between gap-2 text-xs">
                           <span className="flex items-center gap-1 text-muted-foreground">
                             {a.label}
@@ -589,6 +605,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                           </p>
                         ))}
                         </div>
+                        </Fragment>
                         );
                       })}
                     </div>
