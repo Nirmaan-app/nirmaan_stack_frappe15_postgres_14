@@ -35010,3 +35010,190 @@ Live `point_wiring` config before this slice: doc `BRCC-26-23486`, backup 63,489
 - **22** — NEGATIVE: the absent shape survives, and pins WHY — the thickness carries the `"None"`
   through coercion and disables the other two, so they are never asked for.
 - **23** — NEGATIVE: one config changed, no item moved, **no golden moved**.
+
+---
+
+# SLICE B — THE CONDUCTOR FLOOR AS CODE, THE CIRCUIT BLOCK REMOVED, AND LABELLED GROUPS
+
+**Branch** `feature/boq-pricing-helper` · **asset** `rate_master_electrical_all_v54.json`
+sha256 `24ff55c057d5819f4a8280eb75e99b062fcc5870d1b7a234c46845328904317c` (817,493 bytes) ·
+pin v52 → v54 · live doc `BRCC-26-23486`, batch `rmbulk-bba3d6865620`.
+
+## ⚠️ THE LESSON ABOVE ALL OTHERS — ARITHMETIC DOES NOT BELONG IN THE EXTRACTION PROMPT
+
+**Before writing any extraction wording, ask: is this a FACT TO READ, or a CALCULATION TO APPLY?
+A calculation does not go in the prompt at all.**
+
+The standing rule already covered this — *the model reads FACTS; every substitution, ladder and
+conversion lives in deterministic code or config* — and it was not applied. The conductor floor is a
+SUBSTITUTION and was written as prose inside R9. It cost **two prompt cross-talk failures in two
+days**, because every `rules` entry is injected into ONE `ESTIMATOR_RULES` block:
+
+| date | change | collateral |
+|---|---|---|
+| 2026-09-03 | R12's conduit example rewritten | R13's circuit verdict flipped Yes → No on r63/r66 |
+| 2026-09-03 | R9's floor extended to NAME the circuit wires (the only way prose could reach them) | R13's `circuit_wire_included` moved on BOQ-26-00200 r11 |
+
+**The evidence that moving it worked:** under v54, **four of the five cert rows are now identical
+across two runs** (r45, r63, r127, r697 — including both `conduit_handoff` guards), where under the
+prose wording they were not.
+
+## ⚠️ THE SECOND PROCESS LESSON — A PIN ON RULE TEXT IS IN THE SLICE'S BLAST RADIUS
+
+Twice this week a phrase pin blocked a deliberate wording change: four stale pins on 2026-09-01, and
+`test_rate_suggest.test_e4` this slice — which pinned the exact R9 phrases the brief ordered deleted,
+in a file the brief had not put in scope. **When a slice changes rule text, EVERY pin on that text is
+in its blast radius and belongs in its scope.** The pins were not deleted but INVERTED (the
+arithmetic must be ABSENT, the reading rules must SURVIVE) — a deleted pin checks nothing.
+
+## The rule, owner's words, verbatim
+
+> "the number of conductors must ne coerced to 3 if the extraction reads less than 3 conductors,
+> 3 core 1 run is also 3 conductors... for cases where the number of runs is more than 3 like the 5
+> rows for BoQ 86 we, go by what is stated"
+> "if only one wire is given and it is one core then we simply increase its runs to 3 and not add
+> another wire 2. if the wire given is 2 core then we have to add another wire 2 of 1 core and same
+> thickness even if it results in higher install price" · "always bump up the bigger wire"
+
+| the wire reads | result |
+|---|---|
+| single-core, short of 3 conductors | raise ITS RUNS to 3 — **never add a second wire** |
+| two single-core wires, short | raise the **BIGGER** wire's runs |
+| multi-core short (e.g. 2 core 1 run) | add a SECOND wire, 1 core, SAME thickness |
+| 3 or more conductors already | **take what the document states. NOTHING IS EVER REDUCED** |
+
+Conductors = `core × runs`, summed across the wires that **exist**. A floor of three, never a cap,
+applied to the point pair and the circuit pair independently.
+
+### Why the rule was revised twice
+
+The FIRST formulation coerced **RUNS**. Measured, it would have bought **NINE conductors** on the 31
+corpus rows reading `3 core, 1 run` (+Rs 133,792, individual rows up to +194%) and **HALVED** five
+rows the document states as three-phase (−Rs 27,535, up to −50.6%). On conductors the corpus was
+already **231 of 237** compliant, the other 6 sitting ABOVE three — which is why it is a floor.
+
+## The corrector
+
+`services/boq_rate_master/extraction.py` — `apply_conductor_floor` + `conductor_floor_groups`,
+beside `point_type_of`, `force_absent_dependents` and `correct_four_pole_mcb_picks`, carrying the
+same doctrine: *the prompt sentence is guidance; this is the enforcement.*
+
+- **Config-driven, naming no category:** a wire opts in with a `conductor_floor` block on its
+  **THICKNESS** definition — the thickness IS the wire's existence marker, so the declaration lives
+  where the fact it depends on lives. It sits on the DEFINITION, never the config's top level:
+  top-level keys are allowlisted by `_KNOWN_CONFIG_KEYS`, definition keys are documented in that same
+  validator as having none, so this shipped with **zero change to `rate_master.py`**.
+- **Order is load-bearing:** it runs AFTER `force_absent_dependents`, which writes the `"None"`
+  sentinel this corrector reads to decide a wire does not exist. Reversed, an absent circuit wire
+  would still look real carrying the mirrored default `runs = 1`.
+- **A `"None"` thickness wire DOES NOT EXIST and contributes nothing** — the trap in this data, and
+  one my own debug script fell into: a naive sum reports 3 + 1 = 4 for a row already at three.
+- **It only ever RAISES.** There is no branch that lowers a count, which makes "nothing is ever
+  reduced" structural rather than a thing to remember.
+
+### ⚠️ The point-side equivalence — the proof that let the prose go
+
+Run over the live corpus BEFORE a word of R9 was touched:
+
+```
+in-axis POINT rows          : 237
+rows the corrector CHANGED  : 0
+rows DIFFERING from the prose: 0
+VERDICT: BYTE-IDENTICAL
+```
+
+The point axis was already 231-of-237 correct via prose; moving a working rule for tidiness is
+exactly the risk this proof retires.
+
+## R9 after the change
+
+R9 is now **reading-only and POINT-SCOPED**. It states no total, names no circuit wire, and opens
+*"Report the wire specification EXACTLY AS THE LINE STATES IT."* Every reading rule survives (which
+figure is cores, which is runs, the second-conductor search, the points count). The two readings that
+existed only to reach three became honest readings of what is written (`1 run of 1 core`, `ONE run
+each`), with the corrector supplying the rest.
+
+**"unless the line explicitly states otherwise" was REMOVED, not kept** — it excepted a TOTAL R9 no
+longer states, and prose that reads like a rule while governing nothing is worse than silence. The
+behaviour it protected is now structural.
+
+## F4 — the duplicate block removed, and labelled groups
+
+- **F4a:** `pw_circuit_supply` / `pw_circuit_install` deleted with their labels. The circuit money
+  was always INSIDE the point rate and a second block read as an extra charge. **Proven rate-neutral:
+  190 priced / 61 refused with and without, 0 rows moved.** The goldens had to lose those two
+  `expect` keys (`_validate_config` refuses a golden naming a pipeline the config no longer declares)
+  — a deletion only; every surviving value is asserted byte-identical. ⚠️ **The goldens exist in TWO
+  copies, top-level and inside the config, and `test_72` asserts they agree** — cleaning only one
+  left the other naming deleted pipelines.
+- **F4b — `group_label` is a NEW GENERAL CAPABILITY, not a point_wiring feature.** Any attribute
+  definition in any category may declare one; the panel emits a header whenever the label CHANGES
+  between consecutive rendered attributes, so a category declaring none renders exactly as before.
+  The decision is the pure `startsAttributeGroup` — extracted because this project has **no DOM test
+  environment**, so a header rendered inline would be structurally untestable.
+
+## ⚠️ Two premises the evidence falsified
+
+1. **Cert row 4's "install unchanged at 875.80" was wrong.** BOQ-26-00086 r63's chain reads *"the
+   cost of running **2.5 Sq mm … earth wire** … **and circuit wiring with 2 x 2.5 sq mm**"* — so the
+   circuit genuinely is TWO wires already at three conductors. The model read it correctly and **the
+   corrector did nothing to that row**; no corrector-created wire exists. Two components means two
+   install units (per-component stepping, owner-ruled correct), so the measured install is **1524.8**.
+2. **BOQ-26-00200 r11 was NOT under-quoted.** Investigated as a suspected defect and **cleared by the
+   owner reading the document** (2026-09-03): *"row 11 does not include circuit wiring"*. Its note —
+   *"Circuit measurement would be from MCB till first point… would be in circuit measurements"* —
+   defines a SEPARATE measured item, so the point rate correctly excludes it. `circuit_wire_included
+   = No` is CORRECT. **Recorded so nobody re-opens it as a defect.**
+
+## The install stepping — CLOSED BY RULING, not open
+
+`mult_step_divisor: 3` exists on BOTH axes and is byte-identical, but it is applied **per component,
+never summed across the pair**, so two wires carrying three runs between them buy TWO install units.
+The owner ruled that correct — *"we are pricing the 2 wires separately"* — and ruled the 98 rows that
+would fall under summed stepping (76 point, 22 circuit) **"ignore"**. Do NOT build multi-attribute
+stepping; it is refused, not deferred.
+
+## Cert — eight rows, read from the RENDERED PANEL
+
+| # | claim | row | evidence | ✅ |
+|---|---|---|---|---|
+| 1 | circuit reaches three conductors | r697 | `circuit_wire1: COPPER UNARMOURED 1 1.5 = 3000 / 600`, one wire at 3 runs | ✅ |
+| 2 | **MUST NOT MOVE** | r11 | `cores = 3, runs = 1, Wire 2 = None` → 3 conductors | ✅ |
+| 3 | **MUST NOT MOVE** | r45 | six conductors; conduit `MS 50 = 1680 / 340`; no circuit money | ✅ |
+| 4 | circuit at three, corrector did NOTHING | r63 | two document-named wires (3300+1650 / 600+600); install **1524.8** | ✅ |
+| 5 | **REGRESSION GUARD** | r63 | `circuit_wire_included` Yes, `conduit_handoff` No, `conduit: MS 25 = 300 / 60` | ✅ |
+| 6 | conduit still drops | r127 | **no conduit money line at all**; circuit block intact | ✅ |
+| 7 | block GONE, header renders | r63/r127/r45/r697 | `CIRCUIT WIRING (INCLUDED IN THE POINT RATE)`; no separate circuit pipeline block | ✅ |
+| 8 | a category declaring none is unaffected | r146 (`wiring_cabling`) | no group header, panel unchanged | ✅ |
+
+⚠️ **Cert row 1, reported as instructed:** the third conductor landed at **1.5, not 2.5**. The model
+read the circuit as a SINGLE 1.5 wire (putting 2.5 on the point pair), so "raise the bigger" had
+nothing to choose between — it is the single-wire case, correctly handled. **The corrector behaved
+correctly on the input it was given; which size belongs to the circuit is a READING question.**
+
+## Suites
+
+| suite | result |
+|---|---|
+| `test_rate_master` | **251 OK** |
+| `test_extraction_coercion` | **77 OK** (66 → 77, +11 corrector tests) |
+| `test_rate_suggest` | 65, **exactly 1 failure** — `test_27`, the known `test_24i` pollution |
+| `npx vitest run` | **2,967 passed**, exactly 1 failure — the known `writeOffControl` timeout |
+
+## DB state
+
+| table | before | after |
+|---|---|---|
+| `BoQ Cell Pricing` | 31,157 · `15d984cd…f81ab4b91` | **unchanged** |
+| Electrical items (`active=1`) | 1,367 · `931c0515…0539b428` | **unchanged** |
+
+### Undo
+
+Live `point_wiring` config before this slice: doc `BRCC-26-23486`, backup 66,089 bytes, sha256
+`8e20584566a242c2de57f1a9ffedafdbc380036816b4ecbac6dba7b3edd74e13`.
+
+```sql
+-- the config is restored by re-importing the previous asset through update_rate_config;
+-- no BoQ Cell Pricing row was written this slice, so there is nothing to undo there.
+SELECT name, modified FROM "tabBoQ Rate Category Config" WHERE name = 'BRCC-26-23486';
+```
