@@ -34863,3 +34863,150 @@ supply **5327** (circuit_wire1 3300 inside), install **875.8** (circuit 600), bl
 **byte-identical to the first reading.** The enforcement changes only `No` rows with a blank spec;
 it cannot touch a `Yes` row, and this confirms it did not.
 
+
+---
+
+# SLICE A — F2 (the conduit false friend) and F5 (the None checkbox)
+
+**Branch** `feature/boq-pricing-helper` · **asset** `rate_master_electrical_all_v52.json`
+sha256 `45ba1ff634b5dcfe429d35ddb1912ca20ee9d5f81f9030d71062da502d0bea4d` (821,892 bytes) ·
+pin `CURRENT_EALL_ASSET` bumped v51 → v52 · **no frontend, no interpreter, no doctype change.**
+
+## ⚠️ STANDING LESSON — A RULE CANNOT BE EDITED IN ISOLATION
+
+**Every `rules` entry is injected into ONE `ESTIMATOR_RULES` block in the extraction prompt.** A
+phrase quoted inside one rule is therefore visible to every other question the payload asks, and
+the model matches it wherever it fits. There is no per-rule scoping, and nothing in the config
+shape hints at this — a rule reads like a private instruction and is not one.
+
+**This bit, measured, mid-slice.** Attempt 1 of the R12 fix illustrated the correct answer with a
+quoted contrast, one half of which was `'recessed/surface 16SWG MS conduit' → Answer No`. That
+exact string lives on the ancestor chain of BOQ-26-00086 r63 and r66 — rows which ALSO say *"and
+circuit wiring with 2 x 2.5 sq mm"* and must answer **Yes** to R13's circuit-inclusion question.
+R13's verdict flipped Yes → No on both. Proven with four config-switched runs, alternating the
+live config so the wording is the only variable:
+
+| run | config | r63/r66 `conduit_handoff` | r63/r66 `circuit_wire_included` |
+|---|---|---|---|
+| BRSR-26-00469 | v51 | `Yes` — the F2 bug | `Yes` — correct |
+| BRSR-26-00470 | v52 attempt 1 | `No` — fixed | **`No` — BROKEN** |
+| BRSR-26-00471 | v52 attempt 2 | `No` — fixed | `Yes` (0.85 / 0.8) — held |
+| BRSR-26-00472 | v52 attempt 2 | `No` — fixed | `Yes` (0.85 / 0.8) — held |
+
+**THE RULE THAT FOLLOWS: an extraction rule states its TEST; it does not quote corpus text.** A
+stated test has no string for another question to collide with. Attempt 2 does exactly that, and
+the mint asserts mechanically that R12 contains none of `16SWG`, `16 SWG`, `recessed/surface`,
+`MS conduit`, `circuit wiring with` — `test_pw_cs_19` repeats that guard so a future reword that
+reaches for an example turns it red rather than shipping.
+
+## F2 — what was actually wrong
+
+R12's rule was right all along; its **worked example** was the defect. It read *"'recessed/surface
+existing conduit' names ONE container … so the answer there is Yes"*. Rows reading *"recessed/
+surface 16SWG MS conduit"* matched that **surface form** while lacking the load-bearing word
+`existing`, so `conduit_handoff` came back `Yes` — "the conduit is already there" — and **36 rows
+silently dropped a conduit they in fact supply.**
+
+It was **unstable, not merely wrong**: r51 and r53 share a word-for-word identical grandparent and
+near-identical text, yet one priced its conduit and the other dropped it, both at 0.6 confidence.
+
+**The SWG hypothesis was a false lead and is closed.** All 52 SWG rows read `conduit_type = 'MS'`
+correctly at 0.9–0.95. `point_wiring` has no gauge attribute at all; conduit size is computed by
+`circuit_fit`, and the catalogue is keyed on **bore**, while SWG is a **wall** thickness.
+
+**Naming trap, worth stating once:** `conduit_handoff` is NOT the conduit material.
+`conduit_handoff = 'No'` means *this line supplies the conduit* → `conduit_included = Yes` → the
+conduit is **priced**. `conduit_type` is the separate MS/PVC field. Reading the `No` as "no
+conduit" inverts the fix.
+
+## F5 — the None checkbox that could not do anything
+
+`allow_none` removed from `circuit_wire1_core`, `circuit_wire1_runs`, `circuit_wire2_core`,
+`circuit_wire2_runs`. On the RUNS fields the checkbox promised a drop it could not deliver:
+`none_skips` reads only the component's `ref` bindings (core, thickness), and `runs` feeds
+`absentMeansOne`, which maps `"None"` → 1. So `None` on runs meant *one run*, never *no wire*.
+
+**BOTH THICKNESSES KEEP `allow_none` AND NO DEFAULT.** Thickness is the working drop control — it
+is IN the ref, so `none_skips` fires on it, and its `disables_when_none` greys that wire's core and
+runs. The owner's loud-failure ruling (unreadable gauge → blank → the row refuses) rests on it.
+
+**Measured inert with the REAL shipped helper** over the 251 run-covered rows: **190 priced / 61
+refused** with the flags AND without, identical row sets, identical blank tallies.
+
+### ⚠️ THE 196/55 BASELINE WAS WRONG — the repo says 190/61
+
+The 196/55 figure came from a **Python mirror** of the missing-attributes gate, not from the
+helper. Reconciled exactly: 11 rows pass the gate but the pipeline `no_match`es, and 5 rows the
+helper prices that the mirror rejected. `196 − 11 + 5 = 190`. Cite 190/61.
+
+## Cert — six rows, read from the RENDERED PANEL
+
+| # | claim | row | evidence | pass |
+|---|---|---|---|---|
+| 1 | conduit now PRICED | r63 | `conduit: MS 25 = 300` supply · `= 60` install | yes |
+| 2 | same, + Secondary exclusion still holds | r66 | `conduit: MS 25 = 180 / 36`; `circuit_supply = 0`, `circuit_install = 0` with `Circuit wiring included = Yes` | yes |
+| 3 | REGRESSION GUARD — a genuinely existing conduit still drops | r127 | **no conduit money line at all**; circuit block intact at 3300 / 600 | yes |
+| 4 | the unstable twins now resolve the same way | r51, r53 | both `conduit: MS 25 = 600 / 120`, both `circuit_* = 0` | yes |
+| 5 | no None option on the four core/runs; both thicknesses keep theirs | r63 | cores/runs render `1 2 3 4 5 6`; thickness renders `None 0.5 0.75 1 1.5 2.5 4 6 10` | yes |
+| 6 | a pricer picking None on thickness still drops the wire | r63 | `circuit_wire1` line disappears; `circuit_supply/install → 0`; the point's own `wire1` (1650 / 200) and `conduit` (300 / 60) untouched | yes |
+
+## Suites
+
+| suite | result |
+|---|---|
+| `test_rate_master` | **243 OK** |
+| `test_rate_suggest` | 65 run, **1 failure — PRE-EXISTING POLLUTION, not this slice** |
+| `npx vitest run` | 2,959 passed, **1 failure — the known `writeOffControl.test.ts` timeout** |
+
+**The `test_rate_suggest` failure, diagnosed and left alone.** `test_27_live_configs_all_validate`
+queries `BoQ Rate Category Config` filtered on `active=1` with **no discipline filter**, while
+`test_rate_master.test_24i` writes `a_key_nothing_knows_about` into a throwaway `TEST_RM_*`
+discipline and leaves the row `active=1`. Twelve such leftovers exist (4 `earthing` carrying that
+key, 8 `point_wiring` with an empty `switch_item` values list), all dated **2026-09-02** — before
+this slice. Proof it is not ours: **every config on a real discipline (Electrical / HVAC / ELV)
+passes `_validate_config` — 0 failures.** The fix belongs in the tests (scope `test_27` to real
+disciplines, or clean up `test_24i`), not here.
+
+## DB state
+
+| table | before | after |
+|---|---|---|
+| Electrical items (`active=1`) | 1,367 · `931c0515…0539b428` | 1,367 · `931c0515…0539b428` — **unchanged** |
+| `BoQ Cell Pricing` | 31,153 · `ee132e3f…181c9196` | 31,157 · `15d984cd…f81ab4b91` — **moved, see below** |
+
+⚠️ **Four `BoQ Cell Pricing` rows were written during the cert and then restored.** An early
+version of the cert's panel-expander clicked every control it found, including **"Use this value"**,
+which APPLIES the suggested rate. It repriced BOQ-26-00086 `WIRING AND POWER SOCKET` r53
+(17725 → 6936) and r66 (1680 → 1526.8). Both were restored through the app's own
+`save_cell_price`, so the values are correct again (r53 `17725.0` at v4, r66 `1680.0` at v3) and
+the layer's freeze-and-supersede history honestly records both the mistake and the repair — which
+is why the row count rose by 4 and the hash moved. **The expander now excludes write controls by
+name**, and a re-hash after the cert confirmed **0 further writes**.
+
+Two `BoQ Rate Suggestion Event` rows (r53, r66) were also created by those clicks and were **NOT
+deleted** — nothing was deleted this slice. They are why r66's grid control now reads *"Suggested
+value used"*. Undo, if the owner wants the badge gone:
+
+```sql
+DELETE FROM "tabBoQ Rate Suggestion Event"
+ WHERE boq = 'BOQ-26-00086' AND sheet_name = 'WIRING AND POWER SOCKET'
+   AND excel_row IN (53, 66) AND modified >= '2026-09-03';
+```
+
+## Config undo
+
+Live `point_wiring` config before this slice: doc `BRCC-26-23486`, backup 63,489 bytes, sha256
+`953cb2483339c00c8c71266a42b67403b4fce99be7d020a9cb8ed86b375e4dad`.
+
+## Tests added
+
+`TestPointWiringCircuitStretch` gains `test_pw_cs_19` … `test_pw_cs_23`:
+
+- **19** — R12's wording pin, including the mechanical *no corpus text* guard above.
+- **20** — NEGATIVE: the conduit decision table and `circuit_fit` byte-compared to v51. F2 narrows
+  when the MODEL answers Yes; it must not touch what the CODE does with that answer.
+- **21** — the four core/runs carry no `allow_none`; both thicknesses still do, with no default and
+  `disables_when_none` intact.
+- **22** — NEGATIVE: the absent shape survives, and pins WHY — the thickness carries the `"None"`
+  through coercion and disables the other two, so they are never asked for.
+- **23** — NEGATIVE: one config changed, no item moved, **no golden moved**.

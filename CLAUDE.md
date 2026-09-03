@@ -398,6 +398,18 @@ editor (Luckysheet-as-static-assets planned) whose workbook state is persisted s
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-master work.
 
+**⚠️ AN EXTRACTION RULE CANNOT BE EDITED IN ISOLATION (owner-locked, measured 2026-09-03).** Every
+`rules` entry of a rate-master category config is injected into ONE `ESTIMATOR_RULES` block in the
+extraction prompt, so **a phrase quoted inside one rule is visible to every other question the
+payload asks** and the model will match it wherever it fits. Nothing in the config shape hints at
+this -- a rule reads like a private instruction and is not one. **THE CONVENTION: a rule STATES ITS
+TEST; it does NOT quote corpus text.** A stated test leaves no string for another question to
+collide with. This was measured, not assumed: an R12 rewrite that quoted `'recessed/surface 16SWG MS
+conduit'` fixed its own field and silently flipped a DIFFERENT rule's verdict (R13, circuit
+inclusion) Yes -> No on the rows carrying that string, proven over four config-switched extraction
+runs. `test_pw_cs_19` enforces the convention mechanically for R12 by asserting the guidance quotes
+no corpus text; extend that guard when rewording any other rule.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
