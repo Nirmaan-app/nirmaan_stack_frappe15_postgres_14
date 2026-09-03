@@ -34423,3 +34423,443 @@ UPDATE "tabBoQ Rate Master Item"     SET active=1 WHERE import_batch='rmbulk-de6
 That undo was RUN once during this work, verified to restore v47 byte-identically on all 12
 categories, and the config was then re-imported after the fixes. **No asset was re-minted: the fixes
 are all code, so v50 remains the shipped asset.**
+
+---
+
+## PW-CIRCUIT-STRETCH (2026-09-02) -- asset v51, live
+
+A point wiring line whose text POSITIVELY includes the CIRCUIT (submain) run from the distribution
+board now carries that wire too, priced as a **component of the point rate** -- one rate, two parts.
+
+**Asset:** `rate_master_electrical_all_v51.json`,
+sha256 `cf91f29460c00381de34b9c13249d13487ffc9b91f86f09181bfa6e79b9e4595` (the WORKING-TREE / CRLF
+form, the same recipe v50's `c7fe2961...` was taken over; the committed blob is LF, `core.autocrlf`
+being `true`). Pin: `test_rate_master.CURRENT_EALL_ASSET`.
+**Live:** config row `BRCC-26-23486`, batch `rmbulk-bba3d6865620` (UNCHANGED -- the config was
+edited in place, see The delivery below).
+
+### The design in one paragraph
+
+Eight panel fields (`circuit_wire_included`; circuit wire 1 and 2 `core` / `runs` /
+`thickness_sqmm`; `circuit_wire_length_m`) plus one hidden working attribute `circuit_qty_m`. Two
+`component_ref` lines are appended to `pw_boq_supply`, `pw_boq_install` and `pw_bcs`, immediately
+before `sum_components`, priced `circuit rate x circuit_qty_m`. Two DISPLAY-ONLY pipelines
+(`pw_circuit_supply` / `pw_circuit_install`) re-state the same two lines so the circuit gets its own
+labelled block. The model reports FACTS only; every decision is config or code.
+
+### ⚠️ THE SPEC CONTRADICTION THAT HAD TO BE RESOLVED, AND HOW
+
+The written spec said `circuit_wire1_thickness_sqmm` must carry **no `allow_none`**, mirroring
+`wire1_thickness_sqmm` exactly. **That is mechanically incompatible with the owner's own field
+shape** (`No` / `None` x6 / `0` on a row carrying no circuit wiring):
+`coerceForMatch` (`rateMasterStructure.ts:43-53`) preserves the string `"None"` only
+`if (def.allow_none && raw === NONE_SENTINEL)`; on a `number_choice` without the flag,
+`Number("None")` is `NaN` -> `null` -> BLANK -> the whole-row missing gate refuses the row.
+**Measured: 0 of 251 rows price under the exact mirror, against 220 of 251 with the flag.**
+
+The owner's VERBATIM ruling settles it and the spec's gloss of it did not: *"poinrt wire 2 can be
+none even today. there are many suc cases we need to replicate the same for circuit wire 1 and 2"*
+-- circuit wire 1 **can** be None. Both circuit thicknesses therefore carry `allow_none: true` plus
+`disables_when_none` on their own core/runs, which is `wire2_thickness_sqmm`'s shape exactly.
+
+**THE LOUD-FAILURE RULING IS UNTOUCHED BY THIS, and that is the whole point.** `allow_none` rescues
+only the literal `"None"`; it does nothing for a BLANK. Neither thickness carries a default, so an
+unreadable gauge still lands blank and still refuses.
+
+### ⚠️ THE WORDING IS WHAT MAKES `allow_none` SAFE -- OWNER RULING 2026-09-02
+
+`extraction_none_guidance` on this category is no longer the truthy FLAG; it is a CUSTOM string
+whose first sentence reproduces the shipped default wording verbatim (so socket / plate / wire 2 /
+conduit type read exactly as before) and whose second half draws the line the whole slice rests on:
+
+| what the model knows | what it must answer | what happens |
+|---|---|---|
+| the document positively indicates there is NO such circuit wire | `"None"` | `none_skips` zeroes the line; the row prices, correctly, with no circuit charge |
+| the model CANNOT TELL what the gauge is | **NOTHING** (blank) | the row REFUSES -- "Complete the missing attributes to price" -- and a pricer supplies it |
+
+The prohibition is stated in the model's own words -- *NEVER answer "None" to mean "I could not read
+it"* -- together with the CONSEQUENCE of each answer, so it reads as a rule with a reason rather than
+a preference. **Conflating the two turns the owner's ruled LOUD failure into a SILENT under-quote on
+the ~103 qualifying rows whose inclusion sentence names no gauge.** Pinned by
+`test_pw_cs_03` (the config carries it) and `test_pw_cs_04` (it reaches the model, driven through
+the real `_extract_batch` with a stub client).
+
+### The block -- a COMPONENT of one rate, not a second rate
+
+The shipped two-block presentation is `WorkingsGroup` (`rateHelperTypes.ts:254-268`), one section per
+non-BCS pipeline, labelled from `pipeline_labels`, and **display-only**: "the applied value still
+comes from `Suggestion.values`, never a group's finals". The stacked `headlines` field
+(`rateHelperTypes.ts:315`) is OPT-IN and set only by `computeWiring`, so a point wiring row keeps its
+single collapsed headline -- which is right, because there is ONE rate here.
+
+**The load-bearing detail is the OUTPUT NAMES.** `kindForOutput` (`pricingSheetHelper.ts:463-467`)
+maps `supply`/`install` and the prefixes `supply_`/`install_` to a rate kind and everything else to
+`null`. `circuit_supply` / `circuit_install` match none of them, so the display pipelines can never
+reach `values` and the figure can never be applied as a second rate. **There is no cross-pipeline sum
+in the interpreter**, which is precisely why the money has to be added by components INSIDE
+`pw_boq_supply` / `pw_boq_install` and why the display pipelines necessarily RESTATE them --
+`test_pw_cs_09` pins that the two sets of lines are identical, so the screen can never show a figure
+the rate does not contain.
+
+### The rules, as encoded
+
+| what the row says | result |
+|---|---|
+| the rate POSITIVELY covers a separate circuit run -- "including circuit wiring from the DB", "the rate shall include wiring from the distribution board to the switch board", "inclusive of circuit main" | `circuit_wire_included = Yes` |
+| a heading merely DESCRIBES the point wiring, even naming a DB and a size -- "Primary Light / Fan Point Circuit Wiring Controlled from DB with 2.5 sqmm x 3 Wire" | **`No`** -- team ruling 2026-09-02 |
+| silent about a separate circuit run | `No` -- the extraction default; **silence is not inclusion** |
+| puts that run outside this rate ("paid under a separate item") | `No` |
+| point type reads **Secondary** | charge ZEROED (`circuit_qty_m` -> 0) |
+| point type reads **Primary**, **mixed**, or is **SILENT** | charged in full |
+
+**THE SECONDARY EXCLUSION IS CODE, NEVER THE MODEL.** It reuses the SHIPPED `point_type_of` verdict
+(`extraction.py:937`) -- there is no second reader -- through a `map_attribute` with
+`on_miss: "skip"`, so only a row the matcher reads as Secondary is zeroed.
+⚠️ **It writes `circuit_qty_m`, never the visible length**: a Secondary row still SHOWS 30 m, because
+the owner's field shape puts `0` on the length only when the wiring is ABSENT.
+
+### ⚠️ THE FIELD-SHAPE FINDING -- WHY EACH PIECE OF `No` / `None` x6 / `0` IS LOAD-BEARING
+
+- **The four `allow_none` flags on the cores and runs** (and the two on the thicknesses) are what let
+  `"None"` survive coercion at all. Without them all 251 rows refuse -- measured, V1a.
+- **Field 8's `0` is not cosmetic.** `resolveQty` returns `Number(undefined) = NaN -> null` for a
+  BLANK quantity, and a null quantity makes `component_ref` refuse the WHOLE pipeline. `0` is an
+  honest quantity; blank is a no-compute. The `map_attribute` therefore maps `circuit_wire_included:
+  No -> 0` rather than leaving the field empty.
+- On the absent shape BOTH belts hold: the thickness `"None"` fires `none_skips` (trace reads
+  `"None -> 0"`, the qty is never even consulted) AND the quantity is 0.
+- ⚠️ `disables_when_none` means the four core/runs fields render **greyed and cleared** on an absent
+  row rather than literally showing "None" -- that is `wire2`'s shipped behaviour, which is what the
+  owner asked to replicate. The two THICKNESSES show `None`.
+
+### ⚠️ THE NAME COLLISION -- AN OPEN ITEM
+
+`circuit_length_m` holds the **POINT** stretch (15 / 5 by point type, or the 15 + (points-1)*5
+formula) and is simply MISNAMED; the circuit stretch is `circuit_wire_length_m`. Renaming the old one
+is out of scope by ruling. Two guards stand in for the rename:
+the panel LABELS are deliberately different ("Circuit length (m)" vs **"Circuit wiring stretch (m)"**),
+and `test_pw_cs_08` asserts the point stretch's two steps are BYTE-IDENTICAL to v50's. A `result_attr`
+typo would otherwise retarget the point stretch and nothing on screen would say so.
+
+### ⚠️ THE INCLUSION VOCABULARY DOES NOT CLOSE
+
+R13 lists the forms seen in the corpus; it cannot enumerate every way a bill says "the rate includes
+the circuit run". The default is `No`, so **an unrecognised inclusion sentence UNDER-counts** -- the
+row is charged for the point only. That direction is deliberate (a missed inclusion is a quotable
+error a human can spot; an invented one is not), but it is a real residual and should be re-measured
+against production data rather than assumed closed.
+
+### ⚠️ THE COST OF THE LOUD-FAILURE RULING, MEASURED
+
+Search space: the **251** point_wiring rows carried by the 22 active completed suggestion runs.
+
+| | rows |
+|---|---|
+| price under v50 (before) | **220** |
+| refuse under v50 | 31 |
+| price under v51 **against the pre-v51 stored extraction** | **0** |
+| refuse under v51 against the pre-v51 stored extraction | **251** |
+
+**The 220 are not the loud-failure ruling; they are the STALE-RUN effect.** Seven of the eight new
+fields are panel-visible and extracted, and every existing run predates them, so they read blank and
+the gate fires. **The remedy is a re-run of Suggest Rates**, which the owner instructed and which was
+carried out across all 22 sheets / 251 rows in this slice.
+
+### The delivery
+
+⚠️ **The asset FILE is not the runtime config** (the permanent v50 finding). The config was delivered
+through `rate_master.update_rate_config` -- the shipped, ADMIN-ONLY, `_validate_config`-gated,
+`doc.save`-AUDITED path -- against config row `BRCC-26-23486`. That path touches ONE config row and NO
+items, which is why the Electrical item set is provably unmoved. Both claims proven separately: the
+stored blob, and the SERVED response from `get_rate_category_config`, the panel's own API.
+
+### The undo
+
+```sql
+-- restore the pre-slice point_wiring config (the file holds the exact prior blob, 39,324 bytes,
+-- sha256 4a28114d178a9c27308c68bc825b8b8264c8189c268b071a215eaace87ce1932):
+UPDATE "tabBoQ Rate Category Config"
+   SET config = <contents of point_wiring_config_BACKUP.json>
+ WHERE name = 'BRCC-26-23486';
+```
+
+No batch changes, no item rows move, nothing to reactivate -- the import edits one row in place.
+
+### ⚠️ THE r131 EPISODE -- A WIDENING THAT WAS TRIED, MEASURED, AND RULED AGAINST
+
+**BOQ-26-00065 "Electrical" r131** is the row this arc turned on. Its own text is only "Upto 6
+Meters"; the specification sits above it:
+
+```
+r131  (the row)      "Upto 6 Meters"
+  d=1 parent         "Primary Light / Fan Point / AC Circuit Wiring Controlled from DB
+                      with 2.5 sqmm x 3 Wire for RAW / UPS POWER"
+  d=2 grandparent    "LIGHT / FAN / AC WIRING with MS BLACK ENAMMELD 1.6MM Thick CONDUITS"
+      + attached note "SITC of Light / Fan Point / AC Circuit Wiring Direct to MCB DB or Switch
+                      Board ... from Switch Board & Lights to MCB DB with 1.5 / 2.5 / 4 sqmm ..."
+```
+
+The model answered `circuit_wire_included = No`, **defaulted: true, confidence 0.7**. Because the
+heading plainly names a distribution board AND a wire size, that reads at first glance like a missed
+inclusion, and R13 was briefly REWRITTEN to admit the "subject" phrasing alongside the "inclusion"
+one. **The owner checked with the team and ruled against it, verbatim: *"we need to include only for
+positive cases. r131 should not have the circuit wiring."*** The widening was reverted in full before
+any of its extractions were kept.
+
+**WHY THE FIRST READING WAS WRONG, so it is not re-derived later.** A heading of that shape describes
+**what the point wiring IS** -- the point run is itself controlled from the DB, and its 2.5 sqmm x 3
+is the POINT wire the `wire1_*` block already prices. It is not a statement that the rate ALSO carries
+a separate submain. Only a line that positively says its rate covers that separate run qualifies.
+R13 now says so explicitly and NAMES r131's heading as a No, and `test_pw_cs_05` pins that sentence --
+so the widening cannot return on the reasoning that the corpus "really" means it. That reasoning was
+followed once, and it was wrong.
+
+⚠️ **The model was never short of context.** `_ai_item` builds the FULL ancestor chain and both
+ancestors sat inside the full tier, notes included. Nothing about the payload needs changing; the
+behaviour observed is the rule working as ruled.
+
+### The double-count question, and why it does not arise
+
+The concern that prompted the widening was that r131's single heading supplies BOTH gauges -- the
+point block reads `Wire 1 = 1C x 2.5 sqmm x 3 runs` over a stated `Circuit length (m) = 6`, and a
+circuit charge would have added the same size again over a flat 30 m. **Under the team's ruling the
+question is moot: such a row is not charged at all.** A row that IS charged carries a separate,
+positively-stated submain, which is a different conductor from the point wire by construction.
+
+
+### ⚠️ THE ABSENT-SPEC ENFORCEMENT (owner 2026-09-03) -- THE ONE CODE CHANGE IN THIS SLICE
+
+`extraction_none_guidance` ASKS the model to answer `"None"` for a component the bill does not
+carry. Measured on the 251-row corpus it obeyed on 137 rows and left the spec BLANK on 22 others --
+rows that had ALREADY answered `circuit_wire_included = No` and then refused on a blank spec field.
+The owner's field shape is explicit (`No` / `None` x6 / `0`), so this makes it true by construction
+rather than by hope. It is the codebase's own doctrine, third instance: **the prompt sentence is
+guidance; this is the enforcement** (`scrub_unpaired_slot_defaults`, `correct_four_pole_mcb_picks`).
+
+- `extraction.force_absent_dependents(row_out, absent_rules)` -- pure but for the `row_out` it is
+  handed, returns the ids it filled, and sits at the SAME post-model correction site as its two
+  siblings. It is the MIRROR of the scrub beside it: the scrub REMOVES a quantity for a component
+  the row says is not there; this FILLS the spec of one.
+- ⚠️ **FILLS BLANKS ONLY, NEVER OVERWRITES A STATED VALUE.** A row answering `No` while also naming
+  a gauge is contradicting itself, and discarding the gauge would destroy the evidence of that. It
+  costs nothing to keep: the pipeline zeroes the quantity from the same controller either way, so
+  the row is not charged, and the contradiction stays visible on the panel.
+- ⚠️ **IT CANNOT TOUCH A `Yes` ROW**, so the owner's loud failure on an unreadable gauge can never
+  be filled in behind his back. `test_pw_cs_17` pins that as its load-bearing negative.
+- ⚠️ **CONFIG-DRIVEN, NAMING NO CATEGORY IN CODE** (the HV-10 lesson): a definition opts in with
+  `absent_when_value` + `absent_dependents`; `absent_dependent_rules(cfg)` yields `{}` for every
+  config declaring neither, and `test_pw_cs_18` asserts exactly one category declares it.
+- ⚠️ **THE STRETCH IS DELIBERATELY NOT A DEPENDENT.** Its own map already writes 0 when field 1 is
+  `No`; listing it here would make it `"None"`, which `resolveQty` reads as a NO-COMPUTE and would
+  refuse the whole pipeline. Pinned by `test_pw_cs_16`.
+
+### THE MEASURED POPULATION, FINAL (251 run-covered point_wiring rows)
+
+| | before the slice | after |
+|---|---|---|
+| price | 220 | **196** |
+| refuse | 31 | **55** |
+
+The 55, fully accounted for:
+
+| reason | rows |
+|---|---|
+| **qualifying row, circuit gauge unreadable -- THE OWNER'S RULED LOUD FAILURE** | **10** |
+| BOQ-26-00009 / -00020, never re-extracted: the D8 gate refuses those sheets | 12 + 1 |
+| qualifying row whose cores/runs the model omitted | 1 |
+| point-wiring reasons that pre-date this slice | 32 |
+
+**THE NUMBER THE OWNER ASKED FOR IS 10.** That is the whole cost of choosing the loud failure over
+the silent one: ten rows in the corpus stop pricing until a pricer types a thickness.
+
+Rows CHARGED: 37 (29 Primary @2.5, 4 silent @2.5, 3 Primary @1.5, 1 silent @1.5).
+Rows EXCLUDED as Secondary despite qualifying: **15**.
+Rows with `No` and a blank spec: **0** -- the enforcement closed that category entirely.
+
+### THE EXTRACTION RE-RUN
+
+Owner instruction: re-run extraction on all the point wiring rows. Done with `only_rows` throughout
+-- **251 rows across 22 sheets, never a whole sheet** (the server echoes the accepted scope, and
+every other row is carried forward byte-identically into the new run doc). 20 sheets landed;
+**BOQ-26-00009 and BOQ-26-00020 are refused by the D8 gate** ("Declare amount formulas first"),
+which is a real product guard and was reported rather than worked around.
+
+### The browser cert, row by row
+
+Browser: debug Chrome 152 on CDP 9222, profile `C:\Users\nites\chrome-debug-profile`,
+logged in as `admins@nirmaan.app`, app served through **:8080** (vite), chain-checked x3 with the
+Host header (403 unauthenticated via curl, 200 in the browser session).
+
+Code path (bundle markers, IDENTIFIERS not comments — the transform strips comments):
+`ratePipelineInterpreter.ts` served with `absent_when` x4, `none_skips`, `optional_wire_when_none`,
+`mult_step_divisor`, `prefer_attr`; `pricingSheetHelper.ts` served with `kindForOutput`,
+`pipelineLabel`, `applyDerivedDisplay`, `fillableDerived`, `nonBcsPipelines`, `headlines`.
+⚠️ **This slice ships ZERO runtime code changes** — the code path is v50's, unchanged, and that is
+itself the claim. The CONFIG path is the one that moved, and it is proven separately below.
+
+Config path (the panel's own API, read from inside the browser):
+`get_rate_category_config(Electrical, point_wiring)` returns 5 pipelines incl. `pw_circuit_supply` /
+`pw_circuit_install`, the two labels, the 9 circuit attributes, `circuit_wire1_thickness_sqmm` with
+`allow_none: true` + `disables_when_none` + **no default**, the None-vs-blank prohibition, and R13.
+
+| # | what it proves | row | verdict |
+|---|---|---|---|
+| 1 | a row with NO circuit wiring is BYTE-IDENTICAL | BOQ-26-00065 "Electrical" r131 | ✅ |
+| 1b | same, on a second sheet | BOQ-26-00086 r16 | ✅ |
+| 2 | a qualifying PRIMARY row is charged, flat, at 30 m | BOQ-26-00086 r63 | ✅ |
+| 3 | a qualifying SILENT row is charged | pending — needs the finished corpus | — |
+| 4 | a qualifying SECONDARY row gets NOTHING | BOQ-26-00086 r66 | ✅ |
+| 5 | an unreadable gauge REFUSES, loudly | BOQ-26-00007 "Electrical" r459 | ✅ |
+| 6 | an exclusion-language row gets nothing | pending — needs the finished corpus | — |
+| 7 | a NON-point-wiring row is unchanged | BOQ-26-00086 r146 (`wiring_cabling`) | ✅ |
+
+---
+
+## ROW 1 — BOQ-26-00065 "Electrical" r131 "Upto 6 Meters"
+
+**A/B'd against the pre-slice config by swapping the live blob**, then swapped back and re-applied
+through the audited path.
+
+```
+under v50 (backup restored):  Rate master: point_wiring @ Wire 1 - cores = 1, Wire 1 - runs = 3,
+                              Wire 1 - thickness (sqmm) = 2.5, Wire 2 - thickness (sqmm) = None,
+                              Points covered = 1, Circuit length (m) = 6, Conduit type = MS, ...
+                              -> 1055
+under v51:                    ... same, PLUS Circuit wiring included = No,
+                              Circuit wire 1 - thickness (sqmm) = None,
+                              Circuit wire 2 - thickness (sqmm) = None
+                              -> 1055
+```
+
+**Same rate, 1055 both ways.** The only on-screen difference is the three added circuit facts.
+`Circuit length (m) = 6` — the POINT stretch — is untouched, still the row's own stated length.
+
+## ROW 1b — BOQ-26-00086 r16 "Upto 10 metre"
+
+`Circuit wiring included = No`, both thicknesses `None`.
+```
+Pw Boq Supply    wire1 1650 · conduit 300 · switch 59 · plate ... (point components intact)
+Circuit wiring — supply     circuit_supply = 0
+Circuit wiring — install    circuit_install = 0
+```
+⚠️ The circuit block carries **no component line at all** — `none_skips` fired, so the zero is
+structural, not arithmetic. Combined rate on screen: **2413.8**.
+
+## ROW 2 — BOQ-26-00086 r63 "Upto 10 metre" (Primary)
+
+```
+Pw Boq Supply    wire1: COPPER UNARMOURED 1 2.5 = 1650
+                 switch 59 · socket 169 · plate 84 · back_box 65
+                 circuit_wire1: COPPER UNARMOURED 1 2.5 = 3300     <-- INSIDE the point rate
+                 supply = 5327
+Pw Boq Install   wire1 200 · switch 11.8 · socket 34 · plate 17 · back_box 13
+                 circuit_wire1: COPPER UNARMOURED 1 2.5 = 600
+                 install = 875.8
+Circuit wiring — supply     circuit_wire1 = 3300 · circuit_supply = 3300
+Circuit wiring — install    circuit_wire1 = 600  · circuit_install = 600
+```
+
+**ONE RATE, TWO PARTS, observed:** the 3300 is a line INSIDE `supply = 5327`; the labelled block
+merely restates it; there is a single **Use this value**. The block is a breakdown, not a second rate.
+
+Fields as displayed:
+```
+Circuit wiring included            Yes
+Circuit wire 1 - cores             1
+Circuit wire 1 - thickness (sqmm)  2.5
+Circuit wire 2 - cores             (greyed, cleared)      <- disables_when_none
+Circuit wire 2 - thickness (sqmm)  None
+Circuit wiring stretch (m)         30  (computed)         <- the flat stretch, marked as inferred
+Circuit length (m)                 10                     <- the POINT stretch, distinct
+```
+⚠️ **The two length fields are distinguishable on screen** (#57 item 6): "Circuit length (m) = 10"
+vs "Circuit wiring stretch (m) = 30 (computed)".
+
+Arithmetic, checked against the live catalog (1C/2.5 sqmm, list 91.0, install base 10.0):
+`ceil(91 x 0.602 x 2 runs) = 110` x 30 m = **3300** ✓ ; `ceil(10 x 2.0 x ceil(2/3)) = 20` x 30 =
+**600** ✓. The POINT wire is 3 runs over 10 m (`ceil(91 x .602 x 3) = 165` x 10 = 1650) — a
+different length and a different run count, so the two are visibly independent.
+
+## ROW 4 — BOQ-26-00086 r66 "Secondary Points (Loop Point)"
+
+**The controlled twin of row 2**: same sheet, same `Circuit wiring included = Yes`, same
+`Circuit wire 1 = 1C x 2.5 x 2 runs`. The ONLY difference is the point type.
+
+```
+Pw Boq Supply    wire1: COPPER UNARMOURED 1 2.5 = 825   (5 m secondary stretch)
+Circuit wiring — supply     circuit_wire1 = 0 · circuit_supply = 0
+Circuit wiring — install    circuit_wire1 = 0 · circuit_install = 0
+```
+
+**The Secondary exclusion, proven with everything else held constant.**
+
+## ROW 5 — BOQ-26-00007 "Electrical" r459
+
+"One light point controlled by one 6A decorative switch." — `Circuit wiring included = Yes`,
+`Circuit wire 1 - thickness (sqmm)` BLANK.
+
+Panel shows **"Complete the missing attributes to price"** and an em dash where the rate goes.
+The owner's LOUD failure, observed on screen.
+
+## ROW 7 — BOQ-26-00086 r146 (`wiring_cabling`)
+
+```
+Rate master: wiring_cabling @ Material = COPPER, Insulation = UNARMOURED, Core = 2, Runs = 1,
+             Thickness (sqmm) = 1.5, Conduit included = No
+Cable — per Mtr        104
+Termination — per Set   90
+```
+**No Circuit wiring block.** The other category's own two stacked headlines are intact — the circuit
+block belongs to point_wiring alone.
+
+## ROW 3 — BOQ-26-00139 "RFQ" r697 (SILENT + qualifying)
+
+"Wiring for Inline / Propeller Fan point **including circuit mains** with 1.5 sq.mm PVC insulated
+multistranded copper conductor cable (FRLS Type) ..." — positive inclusion language, and the row
+names NO point type, so `point_type_of` returns nothing, the Secondary map misses, and
+`on_miss: "skip"` leaves the stretch standing. It is charged.
+
+```
+Circuit wiring included            Yes   (90% -- READ, not defaulted)
+Circuit wire 1 - cores/runs/thick  1 / 1 / 2.5
+Circuit wire 2 - cores/runs/thick  1 / 1 / 1.5      <- a SECOND circuit wire, also charged
+Circuit wiring stretch (m)         (computed)        <- the flat 30
+Circuit length (m)                 (computed)        <- the POINT stretch, separate
+```
+
+```
+Pw Boq Supply    wire1 1500 · conduit 210 · switch 59 · plate 66 · back_box 44
+                 circuit_wire1: COPPER UNARMOURED 1 2.5 = 1650
+                 circuit_wire2: COPPER UNARMOURED 1 1.5 = 1020
+                 supply = 4549
+Pw Boq Install   wire1 300 · conduit 45 · switch 11.8 · plate 14 · back_box 9
+                 circuit_wire1 = 600 · circuit_wire2 = 600
+                 install = 1579.8
+Circuit wiring — supply     circuit_supply  = 2670    (1650 + 1020)
+Circuit wiring — install    circuit_install = 1200    (600 + 600)
+```
+Headline **Combined rate 6128.8** = 4549 + 1579.8 ✓. Both circuit wires are charged, the block
+restates exactly the two lines already inside the point rate, and there is ONE "Use this value".
+
+## ROW 6 — NO SPECIMEN EXISTS IN THE CORPUS (honest negative)
+
+**Search space, stated (agreement #58):** all **251** point_wiring rows carried by the 20 active
+completed suggestion runs, scanned over the FULL payload `_ai_item` builds — the row's own
+description, its own notes, its attached notes, and EVERY ancestor's description and notes. A hit
+required an exclusion token (`exclud*`, `excl.`, `by others`, `separate (line) item`, `paid
+separately`, `not includ*`, `under separate`, `shall be paid under`) within 90 characters of a
+`circuit` / `submain` token.
+
+**Result: 0 rows.** No BoQ in this corpus ever says the circuit run is excluded.
+
+The BEHAVIOUR is nonetheless covered: an exclusion resolves `circuit_wire_included = No`, which is
+the identical path certified on rows 1 and 1b — both charge nothing and price the rest of the row
+normally. What cannot be shown is a real row whose own text says "excluded", because none exists.
+
+## RE-VERIFICATION AFTER THE ABSENT-SPEC ENFORCEMENT
+
+BOQ-26-00086 was re-extracted after rows 1b/2/4 were first certified, so row 2 was read again:
+supply **5327** (circuit_wire1 3300 inside), install **875.8** (circuit 600), block 3300 / 600 —
+**byte-identical to the first reading.** The enforcement changes only `No` rows with a blank spec;
+it cannot touch a `Yes` row, and this confirms it did not.
+
