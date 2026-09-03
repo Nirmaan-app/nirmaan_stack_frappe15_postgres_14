@@ -216,7 +216,32 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # is an identity on the tens-rounded integers cable_boq already produced. If a wiring golden ever moves,
 # the conduit component has leaked onto a row that names no conduit.
 # ⚠️ TERMINATION IS UNTOUCHED (owner ruling ii): `termination_boq` has a ZERO-LINE DIFF at v47.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v50.json"
+# ✅ PW-CIRCUIT-STRETCH (2026-09-02, v51). point_wiring gains the CIRCUIT (submain) run from the DB:
+# eight panel attributes (circuit_wire_included; circuit wire 1 and 2 core/runs/thickness;
+# circuit_wire_length_m) plus the hidden circuit_qty_m, two circuit components on EVERY existing
+# pipeline, and two DISPLAY-ONLY pipelines that give the circuit its own labelled block.
+# sha256 cf91f29460c00381de34b9c13249d13487ffc9b91f86f09181bfa6e79b9e4595 (the WORKING-TREE form,
+# the same recipe v50's c7fe2961... was taken over). ONE config changed; `items` is byte-identical.
+# ⚠️ ONE RATE, TWO PARTS -- AND THAT IS WHY THE BLOCK IS NOT A SECOND RATE. `pw_circuit_supply` /
+# `pw_circuit_install` output `circuit_supply` / `circuit_install`, which `kindForOutput` maps to NO
+# rate kind, so they can never reach `values` and the collapsed headline stays the single point rate.
+# The money is added by the two circuit components INSIDE pw_boq_supply / pw_boq_install, which is
+# the only place a cross-pipeline sum could otherwise have come from -- there is no such mechanism.
+# ⚠️ THE FOUR NO-CIRCUIT GOLDENS pw1-pw4 KEEP EVERY EXPECTED VALUE AND THAT IS THE REGRESSION PROOF.
+# Only their INPUTS grew, exactly as the v45 slot mint did: they now state the circuit wires as
+# positively absent ("None"), `none_skips` zeroes both components and the flat add is 0. If a
+# no-circuit golden ever moves, the circuit stretch has leaked onto a row that carries none.
+# ⚠️ BOTH CIRCUIT THICKNESSES CARRY `allow_none` AND NO DEFAULT, AND THE WORDING IS WHAT MAKES THAT
+# SAFE -- see `TestPointWiringCircuitStretch` and the config's `extraction_none_guidance`. "None"
+# means the DOCUMENT says there is no such wire (price nothing); BLANK means the model COULD NOT READ
+# the gauge (the row REFUSES and a pricer supplies it). Without `allow_none` the string "None" cannot
+# survive `coerceForMatch` on a number_choice, both cases collapse into blank, and EVERY point wiring
+# row stops pricing -- measured 0 of 251. Conflating them in the other direction turns the owner's
+# ruled LOUD failure into a silent under-quote. The distinction is the owner's, dated 2026-09-02.
+# ⚠️ `circuit_length_m` IS UNTOUCHED. It holds the POINT stretch (15/5 by point type) and is merely
+# misnamed; the circuit stretch is `circuit_wire_length_m` and its panel label is deliberately
+# different ("Circuit wiring stretch (m)" vs "Circuit length (m)").
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v51.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -224,6 +249,12 @@ CURRENT_EALL_ASSET = "rate_master_electrical_all_v50.json"
 # `category_config` key, and the merged asset carries the LIST form. Repointing these tests at the
 # merged asset would delete the only coverage the dangerous path has.
 LEGACY_WIRING_ASSET = "rate_master_wiring_cabling_v3.json"
+
+
+# The point_wiring pipelines that PRICE. v51 added two DISPLAY-ONLY siblings (`pw_circuit_supply` /
+# `pw_circuit_install`) which carry neither `circuit_fit` nor the conduit chain, so every assertion
+# about the pricing shape iterates THIS tuple rather than `cfg["pipelines"]`.
+_PW_ASSEMBLY_PIPELINES = ("pw_boq_supply", "pw_boq_install", "pw_bcs")
 
 
 def _asset_path(filename):
@@ -2623,8 +2654,14 @@ class TestRateMaster(FrappeTestCase):
         self.assertIn("1M Blanker", cat)
 
         # every pipeline carries exactly ONE none_skips blank line
-        self.assertEqual(sorted(cfg["pipelines"]), ["pw_bcs", "pw_boq_install", "pw_boq_supply"])
-        for pid, pipe in cfg["pipelines"].items():
+        # v51: the roster grew by two DISPLAY-ONLY circuit pipelines. They price wire and nothing
+        # else -- no plate, so no blanker -- which is why the blank-line loop below is scoped to the
+        # three that assemble a point (test_pw_cs_10 pins their whole step vocabulary).
+        self.assertEqual(sorted(cfg["pipelines"]),
+                         ["pw_bcs", "pw_boq_install", "pw_boq_supply",
+                          "pw_circuit_install", "pw_circuit_supply"])
+        for pid in _PW_ASSEMBLY_PIPELINES:
+            pipe = cfg["pipelines"][pid]
             blanks = [s for s in pipe["steps"]
                       if s.get("step") == "component_ref" and s.get("name") == "blank"]
             self.assertEqual(len(blanks), 1, f"{pid} must carry exactly one blank line")
@@ -2700,7 +2737,13 @@ class TestRateMaster(FrappeTestCase):
         # fallback. It is asserted in full by test_72b; here it only has to be PRESENT, because this
         # list is exhaustive on purpose -- a golden appearing or vanishing unnoticed is the failure
         # this line exists to catch, and it caught pw4 exactly as intended.
-        self.assertEqual(sorted(by_id), ["pw1", "pw2", "pw3", "pw4"])
+        # pw5 (PW-CIRCUIT-STRETCH, 2026-09-02) joins them: the CHARGED row, and the only golden that
+        # exercises the circuit components at a non-zero quantity. It is asserted in full by
+        # test_pw_cs_13, which re-derives it from the catalog rather than from our own interpreter;
+        # here it only has to be PRESENT. ⚠️ pw1-pw4's THREE VALUES BELOW ARE UNCHANGED BY THAT
+        # SLICE, and that is its regression proof -- they carry no circuit wiring, so `none_skips`
+        # zeroes both circuit lines and the flat add is 0.
+        self.assertEqual(sorted(by_id), ["pw1", "pw2", "pw3", "pw4", "pw5"])
         self.assertEqual(by_id["pw1"]["expect"]["pw_boq_supply"]["supply"], 1869.0)
         self.assertEqual(by_id["pw1"]["expect"]["pw_boq_install"]["install"], 735.0)
         self.assertEqual(by_id["pw1"]["expect"]["pw_bcs"]["bcs_supply"], 1370.0)
@@ -2952,6 +2995,12 @@ class TestRateMaster(FrappeTestCase):
         by_id = {c["category_id"]: c for c in payload["category_configs"]}
         for cid in ("switches_sockets", "point_wiring"):
             for pid, pl in by_id[cid]["pipelines"].items():
+                # v51: point_wiring's two DISPLAY-ONLY circuit pipelines price wire and nothing
+                # else -- they carry no module_fit BY DESIGN (test_pw_cs_10 pins their whole step
+                # vocabulary). Skipping them here keeps this guard about the pipelines that fit
+                # modules, which is what it was written to protect.
+                if cid == "point_wiring" and pid not in _PW_ASSEMBLY_PIPELINES:
+                    continue
                 mf = [s for s in pl["steps"] if s.get("step") == "module_fit"]
                 self.assertTrue(mf, f"{cid}.{pid} lost its module_fit")
                 blanks = mf[0]["params"]["blanks"]
@@ -3589,7 +3638,10 @@ class TestRateMaster(FrappeTestCase):
 
         # ---- RULING 1: the box ladder only, in every pipeline ----
         seen = 0
-        for pid, pl in pw["pipelines"].items():
+        # v51: scoped to the three that assemble a point -- the two DISPLAY-ONLY circuit pipelines
+        # fit no modules by design (test_pw_cs_10).
+        for pid in _PW_ASSEMBLY_PIPELINES:
+            pl = pw["pipelines"][pid]
             mf = [s for s in pl["steps"] if s.get("step") == "module_fit"]
             self.assertEqual(len(mf), 1, "%s should carry exactly one module_fit" % pid)
             for lad in mf[0]["params"]["ladders"]:
@@ -3677,6 +3729,11 @@ class TestRateMaster(FrappeTestCase):
             "pw_boq_supply": {"supply": 607.0},
             "pw_boq_install": {"install": 330.0},
             "pw_bcs": {"bcs_supply": 445.0},
+            # v51: pw4 carries no circuit wiring, so the circuit stretch contributes ZERO -- and
+            # THE THREE VALUES ABOVE ARE UNCHANGED, which is the regression proof for the whole
+            # slice (test_pw_cs_12 makes the same assertion across all four no-circuit goldens).
+            "pw_circuit_supply": {"circuit_supply": 0.0},
+            "pw_circuit_install": {"circuit_install": 0.0},
         })
 
     # ══════════════════════════════════════════════════════════════════════════════════
@@ -6293,7 +6350,11 @@ class TestPointWiringConduitAndLength(FrappeTestCase):
         """PIECE 1's config half: without `absent_when` the engine branch is unreachable and a
         dropped conduit would kill the whole row instead of zeroing one line."""
         cfg = self._pw_cfg()
-        for pid, pl in cfg["pipelines"].items():
+        # SCOPED TO THE THREE ASSEMBLY PIPELINES (v51). `pw_circuit_supply` / `pw_circuit_install`
+        # are DISPLAY-ONLY and deliberately size no conduit at all -- their shape is asserted by
+        # TestPointWiringCircuitStretch.test_pw_cs_10, which is also what stops them acquiring one.
+        for pid in _PW_ASSEMBLY_PIPELINES:
+            pl = cfg["pipelines"][pid]
             cf = [s for s in pl["steps"] if s["step"] == "circuit_fit"][0]
             self.assertEqual(cf["params"].get("absent_when"),
                              {"attr": "conduit_type", "equals": "None"}, pid)
@@ -6305,7 +6366,11 @@ class TestPointWiringConduitAndLength(FrappeTestCase):
         step must come LAST so it outranks every inference above it, and the drop-to-None step must
         come AFTER the PVC default so the default does not undo it."""
         cfg = self._pw_cfg()
-        for pid, pl in cfg["pipelines"].items():
+        # SCOPED TO THE THREE ASSEMBLY PIPELINES (v51) -- see test_pw_cfg_01. The last three entries
+        # are the circuit stretch's own chain, appended AFTER the whole conduit table so not one
+        # pre-existing step moved; their meaning is asserted by test_pw_cs_06 / test_pw_cs_07.
+        for pid in _PW_ASSEMBLY_PIPELINES:
+            pl = cfg["pipelines"][pid]
             maps = [s for s in pl["steps"] if s["step"] == "map_attribute"]
             got = [(m["params"]["result_attr"], m["params"].get("from_attr")) for m in maps]
             self.assertEqual(got, [
@@ -6315,6 +6380,9 @@ class TestPointWiringConduitAndLength(FrappeTestCase):
                 ("conduit_included", "conduit_price_excluded"),
                 ("conduit_type", None),
                 ("conduit_type", "conduit_included"),
+                ("circuit_wire_length_m", "circuit_wire_included"),
+                ("circuit_qty_m", None),
+                ("circuit_qty_m", "point_type"),
             ], pid)
 
     def test_pw_cfg_03_silence_includes_PVC_the_OPPOSITE_of_cables(self):
@@ -6376,3 +6444,581 @@ class TestPointWiringConduitAndLength(FrappeTestCase):
                     if s.get("step") == "circuit_fit":
                         self.assertIsNone(s["params"].get("absent_when"),
                                           f"{c['category_id']}.{pid}")
+
+
+class TestPointWiringCircuitStretch(FrappeTestCase):
+    """PW-CIRCUIT-STRETCH (v51, 2026-09-02) -- the CIRCUIT (submain) run from the DB, priced as a
+    COMPONENT of the point rate.
+
+    THE THREE THINGS THAT COULD GO WRONG, AND WHICH TEST HOLDS EACH:
+
+      (a) a row with NO circuit wiring changes price. `test_pw_cs_12` pins every expected value on
+          the four no-circuit goldens; `test_pw_cs_06` pins `none_skips` on both components, which
+          is the mechanism that zeroes them.
+      (b) the circuit amount is charged where the owner ruled it must not be, or scaled by the point
+          count. `test_pw_cs_07` pins the Secondary exclusion; `test_pw_cs_06` pins the flat qty.
+      (c) the "None" / BLANK distinction collapses on the circuit thicknesses -- the one that turns
+          the owner's ruled LOUD failure into a silent under-quote. `test_pw_cs_03` pins the wording
+          and `test_pw_cs_04` pins that the wording actually reaches the model.
+    """
+
+    # ---------- shared readers ----------
+    def _payload(self):
+        import json
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def _prev_payload(self):
+        import json
+        with open(_asset_path("rate_master_electrical_all_v50.json"), "r", encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def _cfg(self):
+        return [c for c in self._payload()["category_configs"]
+                if c["category_id"] == "point_wiring"][0]
+
+    def _prev_cfg(self):
+        return [c for c in self._prev_payload()["category_configs"]
+                if c["category_id"] == "point_wiring"][0]
+
+    # The three pipelines that PRICE. The two `pw_circuit_*` ones are DISPLAY ONLY and are asserted
+    # separately (test_pw_cs_09) -- they deliberately carry neither circuit_fit nor module_fit.
+    ASSEMBLY = ("pw_boq_supply", "pw_boq_install", "pw_bcs")
+    DISPLAY = ("pw_circuit_supply", "pw_circuit_install")
+
+    THICKNESSES = ("circuit_wire1_thickness_sqmm", "circuit_wire2_thickness_sqmm")
+    EIGHT = (
+        "circuit_wire_included",
+        "circuit_wire1_core", "circuit_wire1_runs", "circuit_wire1_thickness_sqmm",
+        "circuit_wire2_core", "circuit_wire2_runs", "circuit_wire2_thickness_sqmm",
+        "circuit_wire_length_m",
+    )
+
+    # ---------- the fields ----------
+    def test_pw_cs_01_the_eight_fields_are_declared_visible_and_editable(self):
+        """POSITIVE (owner: "all the fields will be user editable as we have for the other helper
+        fields"). All eight are panel-visible and none is `selector: false`, so the pricer can see
+        and correct every one. They sit CONTIGUOUSLY so they read as one block on the panel."""
+        cfg = self._cfg()
+        ids = [d["id"] for d in cfg["attribute_definitions"]]
+        by_id = {d["id"]: d for d in cfg["attribute_definitions"]}
+        for fid in self.EIGHT:
+            self.assertIn(fid, by_id, fid)
+            self.assertIsNot(by_id[fid].get("panel"), False, "%s must be visible" % fid)
+            self.assertIsNot(by_id[fid].get("selector"), False, "%s must be editable" % fid)
+        first = ids.index(self.EIGHT[0])
+        self.assertEqual(ids[first:first + len(self.EIGHT)], list(self.EIGHT),
+                         "the eight fields must be contiguous, in the owner's order")
+        # the ninth is the pipeline's own working value and is deliberately NOT a pricer field:
+        # it carries the Secondary exclusion, which is a CODE decision.
+        self.assertIs(by_id["circuit_qty_m"]["panel"], False)
+        self.assertIs(by_id["circuit_qty_m"]["extract"], False)
+
+    def test_pw_cs_02_neither_circuit_thickness_carries_a_default(self):
+        """THE OWNER'S LOUD-FAILURE RULING (2026-09-02): "if it cannot be detremined then it is left
+        blank as we do for all other fields also. in this case the row would not price till the user
+        enters the correct thickness."
+
+        A default would price a GUESSED gauge, which is exactly what was rejected. No default means
+        a blank thickness is a blank PANEL-VISIBLE NON-DERIVED field, which the helper's whole-row
+        missing gate turns into "Complete the missing attributes to price".
+
+        `allow_none` is a different axis and does NOT weaken this: it rescues only the literal string
+        "None" (positive absence), never a blank. Both are asserted here so the pair cannot drift.
+        """
+        cfg = self._cfg()
+        by_id = {d["id"]: d for d in cfg["attribute_definitions"]}
+        for tid in self.THICKNESSES:
+            self.assertNotIn(tid, cfg["extraction_defaults"],
+                             "%s must have NO default -- an unreadable gauge must REFUSE" % tid)
+            self.assertTrue(by_id[tid]["allow_none"], tid)
+            self.assertEqual(by_id[tid]["disables_when_none"],
+                             [tid.replace("_thickness_sqmm", "_core"),
+                              tid.replace("_thickness_sqmm", "_runs")], tid)
+        # ... and the four core/runs fields DO carry the mirrored default of 1, exactly as the point
+        # wiring wire fields do, so a stated circuit wire with an unstated core count still prices.
+        for fid in ("circuit_wire1_core", "circuit_wire1_runs",
+                    "circuit_wire2_core", "circuit_wire2_runs"):
+            self.assertEqual(cfg["extraction_defaults"][fid], 1.0, fid)
+        # SILENCE IS NOT INCLUSION -- the necessary criterion, as a default.
+        self.assertEqual(cfg["extraction_defaults"]["circuit_wire_included"], "No")
+
+    # ---------- the wording: "None" vs BLANK ----------
+    def test_pw_cs_03_the_wording_draws_the_None_vs_blank_line(self):
+        """⚠️ THE TEST THIS SLICE MOST NEEDS. `allow_none` on a circuit thickness is safe ONLY while
+        the model is told, unmistakably, that the two answers mean different things:
+
+            the document positively indicates there is NO such wire -> "None"
+            the model CANNOT TELL what the gauge is                 -> NOTHING (blank)
+
+        If the model answers "None" for "I could not read it", `none_skips` zeroes the component and
+        the row prices with no circuit charge -- the owner's ruled LOUD failure becomes a SILENT
+        under-quote, on the ~103 qualifying rows whose inclusion sentence names no gauge.
+
+        The guidance REPLACES the shipped truthy flag, so the first assertion is that the ORIGINAL
+        default sentence survives verbatim -- the other allow_none fields on this category (socket,
+        plate, wire 2, conduit type) must keep reading exactly as they did.
+        """
+        g = self._cfg()["extraction_none_guidance"]
+        self.assertIsInstance(g, str)
+        # (1) the shipped default wording, preserved word for word
+        self.assertIn(
+            'return "None" when the row\'s enumerated bill names NO such component (positive '
+            "absence -- a real light point may have a switch and plate but no socket, or a single "
+            "wire and no second wire); return null/blank ONLY when the row is too vague to tell.",
+            g,
+        )
+        # (2) the new line, named at BOTH circuit thickness fields
+        for tid in self.THICKNESSES:
+            self.assertIn(tid, g, "the wording must name %s explicitly" % tid)
+        # (3) the two directions, each stated
+        self.assertIn("positively indicates there is no such circuit wire", g)
+        self.assertIn("you cannot tell what gauge it is, answer NOTHING", g)
+        # (4) the prohibition, in the model's own words
+        self.assertIn('NEVER answer "None" to mean "I could not read it"', g)
+        # (5) and WHY -- the consequences, so the instruction is not merely a rule to be traded off
+        self.assertIn("a BLANK stops the row and a pricer is asked to supply the size", g)
+
+    def test_pw_cs_04_the_wording_reaches_the_model(self):
+        """POSITIVE, and the reason (3) above is not enough on its own: the guidance is CONFIG DATA,
+        and config data that never reaches the prompt is inert. This drives the REAL prompt builder
+        (`_extract_batch`) with a stub client and reads the payload it would have sent.
+
+        It also pins the two things that make the section fire at all: `_extraction_attr_defs` must
+        publish both thicknesses as `allow_none` (that list is what the section enumerates), and the
+        custom string must be used VERBATIM rather than the default wording.
+        """
+        from nirmaan_stack.services.boq_rate_master import extraction as ex
+
+        cfg = self._cfg()
+        captured = {}
+
+        class _Block(object):
+            text = "[]"
+
+        class _Resp(object):
+            content = [_Block()]
+            stop_reason = "end_turn"
+            usage = None
+
+        class _Messages(object):
+            def create(self, **kw):
+                captured["content"] = kw["messages"][0]["content"]
+                return _Resp()
+
+        class _Client(object):
+            messages = _Messages()
+
+        defs = ex.build_attribute_defs(cfg, discipline="Electrical")
+        none_ids = [d["id"] for d in defs if d.get("allow_none")]
+        for tid in self.THICKNESSES:
+            self.assertIn(tid, none_ids,
+                          "%s must reach the model as an allow_none field, or the "
+                          "OPTIONAL COMPONENTS section never mentions it" % tid)
+        # `circuit_wire_length_m` is extract:false -- the pipeline supplies 30 and the pricer edits
+        # it; the model is never asked. (`circuit_qty_m` likewise.)
+        sent_ids = [d["id"] for d in defs]
+        self.assertNotIn("circuit_wire_length_m", sent_ids)
+        self.assertNotIn("circuit_qty_m", sent_ids)
+
+        rows = [{"excel_row": 11, "description": "Primary light point wiring",
+                 "sheet_name": "S", "committed_version": 1, "category_id": "point_wiring",
+                 "ancestors": [], "notes": {}}]
+        ex._extract_batch(_Client(), "stub-model", "PROMPT", defs, rows,
+                          defaults=cfg["extraction_defaults"],
+                          none_guidance=cfg["extraction_none_guidance"],
+                          rules=cfg["rules"])
+        sent = captured["content"]
+        self.assertIn('OPTIONAL COMPONENTS (may be "None"):', sent)
+        self.assertIn('NEVER answer "None" to mean "I could not read it"', sent)
+        self.assertIn("you cannot tell what gauge it is, answer NOTHING", sent)
+        # the estimator rule rides the same payload
+        self.assertIn("SILENCE IS No", sent)
+
+    def test_pw_cs_05_the_inclusion_rule_requires_positive_language(self):
+        """THE NECESSARY CRITERION (owner: "The row must carry positive inclusion language").
+
+        The model REPORTS what the row says and never applies the charge rule -- the F-5 failure this
+        codebase already paid for. R13 must therefore (a) demand positive language, (b) say silence
+        is No, (c) forbid the model deciding whether to charge, and (d) repeat the blank-not-None
+        instruction where the estimator reads it.
+        """
+        cfg = self._cfg()
+        r13 = [r for r in cfg["rules"] if r["id"] == "R13"]
+        self.assertEqual(len(r13), 1, "R13 must exist exactly once")
+        r13 = r13[0]
+        for fid in self.EIGHT[:7]:          # the seven the model is asked for
+            self.assertIn(fid, r13["applies_to"], fid)
+        self.assertNotIn("circuit_wire_length_m", r13["applies_to"],
+                         "the stretch is fixed at 30 m by ruling; the model is never asked for it")
+        guidance = r13["guidance"]
+        self.assertIn("answer Yes ONLY when the line POSITIVELY says", guidance)
+        self.assertIn("SILENCE IS No", guidance)
+        self.assertIn("Never decide whether the circuit wiring should be charged", guidance)
+        self.assertIn('leave the thickness BLANK -- never "None"', guidance)
+        # ⚠️ THE NEGATIVE THE TEAM RULED ON (2026-09-02), pinned so the widening cannot come back
+        # by good intentions. A heading that merely DESCRIBES the point wiring -- even one naming a
+        # distribution board AND a wire size, as BOQ-26-00065 r131's parent does -- is NOT an
+        # inclusion statement. It was briefly read as one; the team ruled it is not.
+        self.assertIn("Controlled from DB with 2.5 sqmm x 3 Wire", guidance)
+        self.assertIn("describes what the point wiring IS, and the answer there is No", guidance)
+
+    # ---------- the composition ----------
+    def test_pw_cs_06_the_composition_is_flat_and_once_per_row(self):
+        """OWNER: "circuit wiring rate will be purely additive number added to th eper point rate"
+        and "once per row".
+
+        The two circuit components sit LAST, immediately before `sum_components`, so they land after
+        every per-point figure and are simply added. Their quantity is `circuit_qty_m` -- NOT
+        `circuit_length_m`, which is the POINT stretch and is itself derived from the point count. A
+        circuit component reading that attribute would multiply the charge by the number of points.
+        """
+        cfg = self._cfg()
+        for pid in self.ASSEMBLY:
+            steps = cfg["pipelines"][pid]["steps"]
+            names = [s.get("name") for s in steps if s.get("step") == "component_ref"]
+            self.assertEqual(names[-2:], ["circuit_wire1", "circuit_wire2"],
+                             "%s: the circuit components must come LAST" % pid)
+            self.assertEqual(steps[-1]["step"], "sum_components", pid)
+            self.assertEqual([s.get("name") for s in steps[-3:-1]],
+                             ["circuit_wire1", "circuit_wire2"],
+                             "%s: nothing may sit between the circuit lines and the sum" % pid)
+            for s in steps[-3:-1]:
+                self.assertEqual(s["qty"], {"from_attr": "circuit_qty_m"}, pid)
+                self.assertTrue(s["none_skips"],
+                                "%s/%s: absence must ZERO, not refuse" % (pid, s["name"]))
+                self.assertEqual(s["ref"]["kind"], "cable")
+                self.assertEqual(s["ref"]["core"], "@%s_core" % s["name"])
+                self.assertEqual(s["ref"]["thickness_sqmm"], "@%s_thickness_sqmm" % s["name"])
+
+    def test_pw_cs_07_the_secondary_exclusion_reuses_the_shipped_verdict(self):
+        """OWNER: "the ciricuit wiring cost wil be added only to thr eprimary point rows or mixed
+        rows and not secondary point rows" -- and a SILENT row (no type token at all) IS charged.
+
+        `point_type_of` returns "Secondary" only for a row that IS a secondary point; a mixed row and
+        a silent row both return None, the map's `on_miss: "skip"` leaves the stretch standing, and
+        they are charged. There is NO second reader -- the same verdict the 15/5 length substitution
+        already uses.
+
+        ⚠️ It writes `circuit_qty_m`, never the visible length: a Secondary row still SHOWS 30 m,
+        because the owner's field shape puts 0 on the length only when the wiring is ABSENT.
+        """
+        from nirmaan_stack.services.boq_rate_master import extraction as ex
+        cfg = self._cfg()
+        for pid in self.ASSEMBLY + self.DISPLAY:
+            maps = [s for s in cfg["pipelines"][pid]["steps"] if s["step"] == "map_attribute"]
+            excl = [m for m in maps if m["params"]["result_attr"] == "circuit_qty_m"
+                    and m["params"].get("from_attr") == "point_type"]
+            self.assertEqual(len(excl), 1, pid)
+            p = excl[0]["params"]
+            self.assertEqual(p["table"], {"Secondary": 0}, pid)
+            self.assertEqual(p["on_miss"], "skip",
+                             "%s: Primary, mixed and SILENT rows must keep the charge" % pid)
+            self.assertNotIn("default", p,
+                             "%s: a default here would charge or drop every row" % pid)
+            # it must run AFTER the copy that seeds circuit_qty_m, or the copy would undo it
+            seed = [m for m in maps if m["params"]["result_attr"] == "circuit_qty_m"
+                    and m["params"].get("prefer_attr") == "circuit_wire_length_m"][0]
+            self.assertLess(maps.index(seed), maps.index(excl[0]), pid)
+        # the verdict itself is still CODE-SUPPLIED -- the model is never asked to judge point type
+        self.assertIn("point_type", ex._CODE_SUPPLIED_ATTRS)
+        self.assertEqual(ex.point_type_of({"description": "Secondary light point wiring"}),
+                         "Secondary")
+        self.assertIsNone(ex.point_type_of({"description": "Supply and wiring of light point"}),
+                          "a SILENT row must return None so the charge stands")
+
+    def test_pw_cs_08_NEGATIVE_no_circuit_step_touches_the_point_stretch(self):
+        """⚠️ NEGATIVE, and the reason it is written as its own test: `circuit_length_m` and
+        `circuit_wire_length_m` differ by one word, and a typo in a `result_attr` would silently
+        retarget the POINT stretch -- 15/5 would become 30 on every row and NOTHING on screen would
+        say so. This asserts the point stretch's two steps are byte-identical to the previous asset.
+        """
+        prev = self._prev_cfg()
+        cfg = self._cfg()
+        prev_defs = {d["id"]: d for d in prev["attribute_definitions"]}
+        now_defs = {d["id"]: d for d in cfg["attribute_definitions"]}
+        self.assertEqual(now_defs["circuit_length_m"], prev_defs["circuit_length_m"])
+        for pid in self.ASSEMBLY:
+            def stretch_steps(c):
+                return [s for s in c["pipelines"][pid]["steps"]
+                        if (s.get("params") or {}).get("result_attr") == "circuit_length_m"]
+            self.assertEqual(stretch_steps(cfg), stretch_steps(prev), pid)
+            # and spelled out, so a reader of this test knows WHAT is being protected
+            m, d = stretch_steps(cfg)
+            self.assertEqual(m["params"]["table"], {"Primary": 15, "Secondary": 5})
+            self.assertEqual(m["params"]["prefer_attr"], "circuit_length_m")
+            self.assertEqual(d["params"]["formula"], "base + (points - 1) * per_extra")
+            self.assertEqual(d["params"]["constants"], {"base": 15, "per_extra": 5})
+        # no circuit component anywhere may read the point stretch as its quantity
+        for pid, pl in cfg["pipelines"].items():
+            for s in pl["steps"]:
+                if str(s.get("name") or "").startswith("circuit_wire"):
+                    self.assertNotEqual((s.get("qty") or {}).get("from_attr"), "circuit_length_m",
+                                        "%s/%s reads the POINT stretch" % (pid, s["name"]))
+
+    def test_pw_cs_09_the_block_is_a_component_not_a_second_rate(self):
+        """THE BLOCK (owner: "we canimplement the circuit wiring part as a second block like we do
+        terminations in cable wire and termination category").
+
+        Built from the SHIPPED presentation: the helper renders one labelled section per non-BCS
+        pipeline and a section is DISPLAY-ONLY (`WorkingsGroup` -- "the applied value still comes
+        from Suggestion.values, never a group's finals").
+
+        ⚠️ THE LOAD-BEARING PART IS THE OUTPUT NAMES. Unlike wiring's Cable/Termination pair, this is
+        ONE rate in two parts -- the circuit money is already inside `supply` / `install`. So the
+        display pipelines must name outputs the helper maps to NO rate kind, or the circuit figure
+        would be offered as a second appliable rate and could be double-counted. `kindForOutput`
+        matches "supply"/"install" exactly or the prefixes "supply_"/"install_"; `circuit_supply`
+        and `circuit_install` match none of those, and this test pins that rule literally.
+        """
+        cfg = self._cfg()
+        self.assertEqual(list(cfg["pipelines"]),
+                         ["pw_boq_supply", "pw_boq_install", "pw_circuit_supply",
+                          "pw_circuit_install", "pw_bcs"],
+                         "declaration order IS section order on the panel")
+        self.assertEqual(cfg["pipeline_labels"], {
+            "pw_circuit_supply": "Circuit wiring — supply",
+            "pw_circuit_install": "Circuit wiring — install",
+        })
+        # the existing two keep their shipped headers -- renaming them would be a UI change of its own
+        for pid in ("pw_boq_supply", "pw_boq_install"):
+            self.assertNotIn(pid, cfg["pipeline_labels"])
+
+        def would_fill_a_rate_kind(output):
+            return (output in ("supply", "install")
+                    or output.startswith("supply_") or output.startswith("install_"))
+
+        for pid in self.DISPLAY:
+            outs = cfg["pipelines"][pid]["output"]
+            self.assertEqual(len(outs), 1, pid)
+            self.assertFalse(would_fill_a_rate_kind(outs[0]),
+                             "%s would be applied as a SECOND rate -- it is a COMPONENT of one"
+                             % pid)
+        # ... while the two that DO price still name the kinds they always did
+        self.assertTrue(would_fill_a_rate_kind(cfg["pipelines"]["pw_boq_supply"]["output"][0]))
+        self.assertTrue(would_fill_a_rate_kind(cfg["pipelines"]["pw_boq_install"]["output"][0]))
+        # and each display pipeline computes THE SAME two components as its assembly twin
+        for disp, asm in (("pw_circuit_supply", "pw_boq_supply"),
+                          ("pw_circuit_install", "pw_boq_install")):
+            dc = [s for s in cfg["pipelines"][disp]["steps"] if s.get("step") == "component_ref"]
+            ac = [s for s in cfg["pipelines"][asm]["steps"]
+                  if str(s.get("name") or "").startswith("circuit_wire")]
+            self.assertEqual([(s["name"], s["target"], s["rate_stages"], s["qty"]) for s in dc],
+                             [(s["name"], s["target"], s["rate_stages"], s["qty"]) for s in ac],
+                             "%s must re-state %s's circuit lines EXACTLY -- a drift here would "
+                             "show the pricer a figure the rate does not contain" % (disp, asm))
+
+    def test_pw_cs_10_NEGATIVE_circuit_fit_is_untouched(self):
+        """NEGATIVE: the conduit sizing must not move. `circuit_fit` sums wire diameters to pick a
+        conduit; adding the circuit wires to `wire_specs` would enlarge the conduit -- and change the
+        price -- on every point wiring row, including rows with no circuit wiring at all."""
+        prev = self._prev_cfg()
+        cfg = self._cfg()
+        for pid in self.ASSEMBLY:
+            now = [s for s in cfg["pipelines"][pid]["steps"] if s["step"] == "circuit_fit"][0]
+            was = [s for s in prev["pipelines"][pid]["steps"] if s["step"] == "circuit_fit"][0]
+            self.assertEqual(now, was, pid)
+            flat = [a for spec in now["params"]["wire_specs"] for a in spec]
+            self.assertFalse([a for a in flat if a.startswith("circuit_wire")], pid)
+        # the display pipelines size no conduit at all -- they price wire and nothing else
+        for pid in self.DISPLAY:
+            kinds = set(s["step"] for s in cfg["pipelines"][pid]["steps"])
+            self.assertEqual(kinds, {"map_attribute", "component_ref", "sum_components"}, pid)
+
+    def test_pw_cs_11_the_two_length_labels_are_distinct(self):
+        """#57 item 6. Two lengths now live on one panel and they mean different things: the POINT
+        stretch (15/5, per point) and the CIRCUIT stretch (a flat 30). `circuit_length_m` keeps its
+        shipped label by ruling -- it is misnamed, and renaming it is a separate change -- so the
+        NEW field carries the distinct one."""
+        by_id = {d["id"]: d for d in self._cfg()["attribute_definitions"]}
+        point = by_id["circuit_length_m"]["label"]
+        circuit = by_id["circuit_wire_length_m"]["label"]
+        self.assertEqual(point, "Circuit length (m)", "the shipped label must NOT be renamed")
+        self.assertEqual(circuit, "Circuit wiring stretch (m)")
+        self.assertNotEqual(point, circuit)
+
+    # ---------- the goldens ----------
+    def test_pw_cs_12_the_no_circuit_goldens_keep_every_expected_value(self):
+        """⚠️ THE REGRESSION PROOF, and it is not a coincidence. pw1-pw4 carry no circuit wiring, so
+        both circuit components hit `none_skips`, contribute 0, and the sum is unchanged. Every
+        expected value is asserted against the PREVIOUS asset's, key by key. If one ever moves, the
+        circuit stretch has leaked onto a row that carries none.
+
+        Their INPUTS did grow -- the circuit wires are now stated as positively absent -- which is
+        the same shape the v45 socket-slot mint took, and is what a real extracted row looks like.
+        """
+        prev = dict((g["id"], g) for g in self._prev_payload()["goldens"]["point_wiring"])
+        now = dict((g["id"], g) for g in self._payload()["goldens"]["point_wiring"])
+        self.assertEqual(sorted(now), ["pw1", "pw2", "pw3", "pw4", "pw5"])
+        for gid in ("pw1", "pw2", "pw3", "pw4"):
+            for pid, expected in prev[gid]["expect"].items():
+                self.assertEqual(now[gid]["expect"][pid], expected, "%s/%s" % (gid, pid))
+            self.assertEqual(now[gid]["expect"]["pw_circuit_supply"], {"circuit_supply": 0.0}, gid)
+            self.assertEqual(now[gid]["expect"]["pw_circuit_install"], {"circuit_install": 0.0}, gid)
+            for tid in self.THICKNESSES:
+                self.assertEqual(now[gid]["attrs"][tid], "None", gid)
+            self.assertEqual(now[gid]["attrs"]["circuit_wire_included"], "No", gid)
+
+    def test_pw_cs_13_the_circuit_golden_is_hand_derived_from_the_catalog(self):
+        """pw5 is the charged row, and it is derived from the CATALOG ROW AND THE RATE STAGES rather
+        than from our own interpreter -- a golden recomputed by the thing it is meant to pin passes
+        by construction and pins nothing (the pw4 precedent).
+
+        It is ALSO the silent-row pin: pw5 states no `point_type`, so the Secondary map misses,
+        `on_miss: "skip"` leaves the stretch standing, and the row is charged.
+        """
+        import math
+        payload = self._payload()
+        g = dict((x["id"], x) for x in payload["goldens"]["point_wiring"])
+        pw1, pw5 = g["pw1"], g["pw5"]
+        self.assertNotIn("point_type", pw5["attrs"], "pw5 must stay a SILENT row")
+        self.assertEqual(pw5["attrs"]["circuit_wire_included"], "Yes")
+        self.assertEqual(pw5["attrs"]["circuit_wire2_thickness_sqmm"], "None")
+
+        cable = [it for it in payload["items"]
+                 if it["kind"] == "cable"
+                 and it["attributes"].get("material") == "COPPER"
+                 and it["attributes"].get("insulation") == "UNARMOURED"
+                 and it["attributes"].get("core") == pw5["attrs"]["circuit_wire1_core"]
+                 and it["attributes"].get("thickness_sqmm")
+                 == pw5["attrs"]["circuit_wire1_thickness_sqmm"]]
+        self.assertEqual(len(cable), 1, "the circuit wire must resolve to exactly one catalog row")
+        rates = cable[0]["rates"]
+        runs = pw5["attrs"]["circuit_wire1_runs"]
+        length = 30                                    # the config's default stretch
+
+        supply_add = math.ceil(rates["list_price_per_mtr"] * 0.602 * runs) * length
+        install_add = math.ceil(rates["install_base_per_mtr"] * 2.0
+                                * math.ceil(runs / 3)) * length
+        bcs_add = math.ceil(rates["list_price_per_mtr"] * 0.4515 * runs) * length
+
+        self.assertEqual(pw5["expect"]["pw_circuit_supply"]["circuit_supply"], supply_add)
+        self.assertEqual(pw5["expect"]["pw_circuit_install"]["circuit_install"], install_add)
+        self.assertEqual(pw5["expect"]["pw_boq_supply"]["supply"],
+                         pw1["expect"]["pw_boq_supply"]["supply"] + supply_add)
+        self.assertEqual(pw5["expect"]["pw_boq_install"]["install"],
+                         pw1["expect"]["pw_boq_install"]["install"] + install_add)
+        self.assertEqual(pw5["expect"]["pw_bcs"]["bcs_supply"],
+                         pw1["expect"]["pw_bcs"]["bcs_supply"] + bcs_add)
+        # and the ONLY difference between pw1 and pw5 is the circuit block
+        differing = set(k for k in set(pw1["attrs"]) | set(pw5["attrs"])
+                        if pw1["attrs"].get(k) != pw5["attrs"].get(k))
+        self.assertTrue(all(k.startswith("circuit_wire") for k in differing), differing)
+
+    # ---------- blast radius ----------
+    def test_pw_cs_14_NEGATIVE_no_other_category_gained_a_circuit_field(self):
+        """NEGATIVE: exactly ONE config changed. Asserted over every category so a later mint that
+        copies the block elsewhere has to say so."""
+        payload = self._payload()
+        prev = self._prev_payload()
+        was = dict((c["category_id"], c) for c in prev["category_configs"])
+        now = dict((c["category_id"], c) for c in payload["category_configs"])
+        self.assertEqual(sorted(was), sorted(now))
+        changed = sorted(k for k in now if now[k] != was[k])
+        self.assertEqual(changed, ["point_wiring"])
+        self.assertEqual(payload["items"], prev["items"], "no rate and no item may move")
+        for cid, c in now.items():
+            if cid == "point_wiring":
+                continue
+            ids = [d["id"] for d in c.get("attribute_definitions") or []]
+            self.assertFalse([i for i in ids if i.startswith("circuit_wire")], cid)
+
+    def test_pw_cs_15_the_minted_config_passes_the_server_validator(self):
+        """The whitelist is CLOSED and the reference guard is real: every `@attr` a pipeline binds
+        must be a declared attribute. Running the shipped validator over the minted config is what
+        proves the asset is loadable at all -- the v47 slice lost a round to exactly this."""
+        from nirmaan_stack.api.boq import rate_master as rm
+        payload = self._payload()
+        cfg = dict(self._cfg())
+        cfg["discipline"] = payload["discipline"]
+        cfg["goldens"] = payload["goldens"]["point_wiring"]
+        rm._validate_config(cfg)          # throws on any violation
+        # ⚠️ THE VALIDATOR DOES NOT REACH A component_ref's INLINE `@attr` REFS OR ITS
+        # `qty.from_attr` -- `_ref` is called for rate_stages, circuit_fit and module_fit, but not
+        # for these two. A typo there is a RUNTIME no-compute, so this test walks them by hand.
+        # A ref may also name a STEP BIND (circuit_fit's `fitted_size`) rather than an attribute,
+        # so the legal set is declared attributes PLUS every declared bind.
+        legal = set(d["id"] for d in cfg["attribute_definitions"])
+        for pl in cfg["pipelines"].values():
+            for step in pl["steps"]:
+                legal.update(step.get("binds") or [])
+                for lad in ((step.get("params") or {}).get("ladders") or []):
+                    if lad.get("bind"):
+                        legal.add(lad["bind"])
+                blanks = (step.get("params") or {}).get("blanks") or {}
+                for key in ("bind", "bind_item"):
+                    if blanks.get(key):
+                        legal.add(blanks[key])
+        for pid, pl in cfg["pipelines"].items():
+            for step in pl["steps"]:
+                for _k, v in (step.get("ref") or {}).items():
+                    if isinstance(v, str) and v.startswith("@"):
+                        self.assertIn(v[1:], legal, "%s: unbound ref %s" % (pid, v))
+                q = step.get("qty")
+                if isinstance(q, dict) and "from_attr" in q:
+                    self.assertIn(q["from_attr"], legal, "%s: unbound qty %s" % (pid, q))
+
+    # ---------- the ABSENT-SPEC enforcement (owner 2026-09-03) ----------
+    def test_pw_cs_16_an_absent_component_declares_its_spec_absent_too(self):
+        """CONFIG HALF. The controller declares, in config, what "absent" means and which fields it
+        makes absent -- so no category is named in code (the HV-10 lesson)."""
+        by_id = {d["id"]: d for d in self._cfg()["attribute_definitions"]}
+        ctrl = by_id["circuit_wire_included"]
+        self.assertEqual(ctrl["absent_when_value"], "No")
+        self.assertEqual(ctrl["absent_dependents"], list(self.EIGHT[1:7]))
+        # NEGATIVE: the STRETCH is not a dependent -- its own map already writes 0 when field 1 is
+        # No, and listing it here would make it "None", which resolveQty reads as a no-compute.
+        self.assertNotIn("circuit_wire_length_m", ctrl["absent_dependents"])
+
+    def test_pw_cs_17_the_corrector_fills_blanks_only_and_never_overwrites(self):
+        """⚠️ THE ONE THAT KEEPS IT HONEST. `extraction_none_guidance` ASKS the model to answer
+        "None" for a component the bill does not carry; measured on the 251-row corpus it obeyed on
+        137 rows and left the spec BLANK on 22 others, which refused rows that had already answered
+        "No". This makes the owner's field shape true by construction.
+
+        BLANKS ONLY: a row answering "No" while ALSO naming a gauge is contradicting itself, and
+        overwriting the gauge would destroy the evidence. It costs nothing to keep -- the pipeline
+        zeroes the quantity from the same controller either way.
+        """
+        from nirmaan_stack.services.boq_rate_master import extraction as ex
+        rules = ex.absent_dependent_rules(self._cfg())
+        self.assertIn("circuit_wire_included", rules)
+
+        # (a) the shape the 22 rows were in -- controller says No, spec BLANK -> filled
+        row = {"circuit_wire_included": {"value": "No", "confidence": 0.7},
+               "circuit_wire1_thickness_sqmm": {"value": None},
+               "circuit_wire2_core": {"value": ""}}
+        filled = ex.force_absent_dependents(row, rules)
+        self.assertEqual(sorted(filled), sorted(self.EIGHT[1:7]))
+        for fid in self.EIGHT[1:7]:
+            self.assertEqual(row[fid]["value"], "None", fid)
+
+        # (b) NEGATIVE -- a STATED value survives untouched, contradiction and all
+        row2 = {"circuit_wire_included": {"value": "No"},
+                "circuit_wire1_thickness_sqmm": {"value": 2.5}}
+        ex.force_absent_dependents(row2, rules)
+        self.assertEqual(row2["circuit_wire1_thickness_sqmm"]["value"], 2.5)
+
+        # (c) ⚠️ NEGATIVE, THE LOAD-BEARING ONE -- a QUALIFYING row is never touched, so the owner's
+        # loud failure on an unreadable gauge cannot be filled in behind his back.
+        row3 = {"circuit_wire_included": {"value": "Yes"},
+                "circuit_wire1_thickness_sqmm": {"value": None}}
+        self.assertEqual(ex.force_absent_dependents(row3, rules), [])
+        self.assertIsNone(row3["circuit_wire1_thickness_sqmm"]["value"])
+
+        # (d) NEGATIVE -- a config declaring no rule leaves every row alone
+        self.assertEqual(ex.absent_dependent_rules({"attribute_definitions": [{"id": "x"}]}), {})
+        row4 = {"circuit_wire_included": {"value": "No"}, "circuit_wire1_core": {"value": None}}
+        self.assertEqual(ex.force_absent_dependents(row4, {}), [])
+        self.assertIsNone(row4["circuit_wire1_core"]["value"])
+
+    def test_pw_cs_18_NEGATIVE_no_other_category_declares_an_absent_rule(self):
+        """NEGATIVE: the corrector is inert everywhere else. Asserted over every config so a later
+        mint that adopts the mechanism has to say so."""
+        from nirmaan_stack.services.boq_rate_master import extraction as ex
+        for c in self._payload()["category_configs"]:
+            rules = ex.absent_dependent_rules(c)
+            if c["category_id"] == "point_wiring":
+                self.assertTrue(rules)
+            else:
+                self.assertEqual(rules, {}, c["category_id"])

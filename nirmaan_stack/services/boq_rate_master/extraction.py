@@ -1085,6 +1085,56 @@ def scrub_unpaired_slot_defaults(row_out, defaults):
     return scrubbed
 
 
+def force_absent_dependents(row_out, absent_rules):
+    """PW-CIRCUIT-STRETCH -- a component the row declares ABSENT has an absent SPECIFICATION.
+
+    PURE apart from mutating the `row_out` it is handed, and it returns the ids it filled so the
+    caller can record them -- the same shape as `scrub_unpaired_slot_defaults` directly above.
+
+    ⚠️ THE PROMPT SENTENCE IS GUIDANCE; THIS IS THE ENFORCEMENT. `extraction_none_guidance` already
+    tells the model that a component the bill does not carry is "None", and the model obeys it on
+    most rows and not on all: measured on the 251-row point_wiring corpus, 137 rows answered
+    `circuit_wire_included = No` AND returned "None" for the six spec fields, while 22 answered
+    "No" and left the spec BLANK. A blank panel-visible field refuses the whole row, so those 22
+    stopped pricing for no substantive reason -- the row had already said there is no such wire.
+    The owner's field shape is explicit (`No` / `None` x6 / `0`); this makes it true by construction.
+
+    ⚠️ IT FILLS BLANKS ONLY, AND NEVER OVERWRITES A STATED VALUE. A row answering "No" while also
+    naming a real gauge is CONTRADICTING itself, and discarding the gauge would destroy the evidence
+    of that. Leaving it costs nothing: the pipeline zeroes the quantity from the same controller, so
+    such a row is not charged either way -- but the contradiction stays visible on the panel.
+
+    ⚠️ CONFIG-DRIVEN, NAMING NO CATEGORY (the HV-10 lesson). A definition opts in by declaring
+    `absent_when_value` + `absent_dependents`; a config that declares neither yields no rules and
+    this function is inert -- which is every category but point_wiring today.
+    """
+    forced = []
+    if not absent_rules:
+        return forced
+    for controller, (absent_value, dependents) in absent_rules.items():
+        cell = row_out.get(controller) or {}
+        if cell.get("value") != absent_value:
+            continue
+        for dep in dependents:
+            cur = (row_out.get(dep) or {}).get("value")
+            if cur is not None and cur != "":
+                continue                      # STATED -- never overwritten, see above
+            row_out[dep] = {"value": _NONE_SENTINEL, "confidence": cell.get("confidence")}
+            forced.append(dep)
+    return forced
+
+
+def absent_dependent_rules(cfg):
+    """{controller_id: (absent_value, [dependent ids])} for a config, or {} when it declares none."""
+    out = {}
+    for d in (cfg or {}).get("attribute_definitions") or []:
+        val, deps = d.get("absent_when_value"), d.get("absent_dependents")
+        if val is None or not isinstance(deps, list) or not deps:
+            continue
+        out[d["id"]] = (val, [x for x in deps if isinstance(x, str) and x])
+    return out
+
+
 # -- TPN post-match pole correction (slice: TPN POST-MATCH) -----------------------------
 #
 # THE DEFECT. The decomposition prompt's POLE line tells the model that TPN (and TP+N / TP+NL /
@@ -1281,7 +1331,7 @@ def correct_four_pole_mcb_picks(row_out, row, pole_catalog, tokens=None):
     return changed
 
 
-def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, *, capture_ctx=None):
+def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, absent_rules=None, *, capture_ctx=None):
     """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
     confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
     (<=20 rows, 3 attempts, sleep 2*attempt).
@@ -1423,6 +1473,10 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 # SLICE 5 (B2): {excel_row: [qty_attr, ...]} -- quantities removed because their
                 # paired item slot came back "None". Observation only, like every sibling here.
                 "slot_paired_defaults_scrubbed": {},
+                # PW-CIRCUIT-STRETCH: {excel_row: [attr, ...]} -- spec fields filled with the "None"
+                # sentinel because their controller declared the component absent. Observation
+                # only, like every sibling here.
+                "absent_dependents_filled": {},
                 # TPN POST-MATCH: {excel_row: [{attr, from, to}, ...]} -- three-pole MCB picks
                 # re-selected as their four-pole sibling, and the ones left alone for want of a
                 # unique sibling. Observation only, like every sibling here.
@@ -1508,6 +1562,18 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                     drops["slot_paired_defaults_scrubbed"].setdefault(str(rid), []).append(_aid)
                     if _aid in row_map:
                         row_map[_aid]["scrubbed_unpaired"] = True
+
+                # PW-CIRCUIT-STRETCH -- a component declared ABSENT has an absent SPECIFICATION.
+                # Placed beside the scrub above because it is the same kind of thing: a pure,
+                # deterministic correction of model output, applied to the row dict this loop is
+                # assembling, BEFORE the result is stored. It is the MIRROR of that scrub -- the
+                # scrub REMOVES a quantity for a component the row says is not there; this FILLS the
+                # spec of one, so the row can price instead of refusing on a field it already
+                # answered. Inert for every config declaring no `absent_dependents`.
+                for _aid in force_absent_dependents(row_out, absent_rules):
+                    drops["absent_dependents_filled"].setdefault(str(rid), []).append(_aid)
+                    if _aid in row_map:
+                        row_map[_aid]["forced_absent"] = True
 
                 # TPN POST-MATCH -- THE FOUR-POLE MCB CORRECTION, server-side.
                 #
@@ -1837,6 +1903,9 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
             # (R7 lands on cabletray_raceway, an ordinary attribute category). Absent => None =>
             # the prompt is byte-identical to before.
             "rules": cfg.get("rules"),
+            # PW-CIRCUIT-STRETCH: {controller: (absent_value, [dependents])} read FROM THE CONFIG --
+            # a category declaring none yields {} and the corrector is inert for it.
+            "absent_rules": absent_dependent_rules(cfg),
         }
 
     def _defs_for(r):
@@ -1889,7 +1958,7 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
                 def _call(rows_, _gc=gc):
                     # `boq` is NOT on the row dict -- it lives only in this enclosing scope, so the
                     # capture's join key is threaded in from here.
-                    return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], _gc["pole_catalog"], _gc["code_attrs"], capture_ctx={"boq": boq})
+                    return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], _gc["pole_catalog"], _gc["code_attrs"], _gc["absent_rules"], capture_ctx={"boq": boq})
 
                 # SR-2 (3): ONE iteration when the batch fits (byte-identical to the pre-SR-2 single
                 # call); one per surviving half after a ceiling cut. Everything below is unchanged

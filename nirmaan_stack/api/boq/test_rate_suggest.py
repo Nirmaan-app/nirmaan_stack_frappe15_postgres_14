@@ -1383,7 +1383,12 @@ class TestExtBRules(FrappeTestCase):
         # PW-CONDUIT-OPTIONAL added R12 (the conduit-facts rule: the model REPORTS what the row says
         # about conduit and never applies the decision table). Still EXACT and still in declaration
         # order -- a further new rule must fail here.
-        self.assertEqual(ids, ["R9", "S3", "S1", "S2", "R12"])
+        # R13 (PW-CIRCUIT-STRETCH, 2026-09-02) is the sixth: the CIRCUIT (submain) inclusion verdict
+        # and the circuit wire's own cores/runs/thickness. This list is exhaustive ON PURPOSE -- a
+        # rule appearing or vanishing unnoticed is the failure it exists to catch, and it caught R13
+        # exactly as intended. R13's own content is asserted by
+        # test_rate_master.TestPointWiringCircuitStretch.test_pw_cs_05.
+        self.assertEqual(ids, ["R9", "S3", "S1", "S2", "R12", "R13"])
         r9 = next(r for r in _live_rules("point_wiring") if r["id"] == "R9")
         self.assertEqual(r9["applies_to"], "wire1_runs")
         self.assertEqual(
@@ -1413,8 +1418,13 @@ class TestExtBRules(FrappeTestCase):
             {i: r["applies_to"] for i, r in others.items()},
             # PW-CONDUIT-OPTIONAL: R12 joins them. applies_to pinned IN FULL so a silent drop of any
             # one of the three conduit facts still fails here.
+            # PW-CIRCUIT-STRETCH: R13 joins them, pinned IN FULL for the same reason -- a silent
+            # drop of any one of the seven circuit facts must fail here.
             {"S1": "switch_item", "S2": "switch_item", "S3": "switch_item",
-             "R12": "conduit_handoff, other_conduit, conduit_price_excluded"},
+             "R12": "conduit_handoff, other_conduit, conduit_price_excluded",
+             "R13": ("circuit_wire_included, circuit_wire1_core, circuit_wire1_runs, "
+                     "circuit_wire1_thickness_sqmm, circuit_wire2_core, circuit_wire2_runs, "
+                     "circuit_wire2_thickness_sqmm")},
         )
         cfg = frappe.get_all("BoQ Rate Category Config",
                              filters={"discipline": "Electrical", "category_id": "point_wiring",
