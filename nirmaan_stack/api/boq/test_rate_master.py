@@ -7427,3 +7427,275 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
                     self.assertEqual(after[pid], before[pid],
                                      "%s/%s: %s VALUE moved" % (cat, g["id"], pid))
 
+
+
+class TestBrandColumnProjection(FrappeTestCase):
+    """READ-TIME COLUMN PROJECTION (owner-chosen option (C), 2026-09-03).
+
+    A `BoQ Rate Master Item` stores `brand` as a top-level COLUMN, while every specification the
+    pipelines match on lives inside the `attributes` JSON map. `extraction.project_item_columns`
+    copies each column named in `extraction.PROJECTED_ITEM_COLUMNS` into `attributes` AT READ
+    TIME, at exactly TWO chokepoints -- `api/boq/rate_master.get_rate_master_items` (which feeds
+    every frontend reader AND all 13 `ratePipelineInterpreter.ts` matcher sites) and the three
+    `extraction.py` catalogue readers.
+
+    WHAT THESE TESTS PROTECT, one line each: that the projection REACHES the readers, that a
+    STORED value still wins, that a missing brand stays missing, that adding a second column is
+    one word in one tuple -- and, the four NEGATIVES, that nothing persists the projection, that
+    the CSV round trip and the asset export never see it, and that no live config can notice it.
+
+    The MATCHABILITY half (the one option (B) could not deliver) is necessarily a vitest test,
+    because the matchers are TypeScript:
+    `frontend/src/pages/pricing/rate-master/brandProjectionMatching.test.ts`.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._disciplines = set()
+
+    @classmethod
+    def tearDownClass(cls):
+        for disc in cls._disciplines:
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item"):
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
+            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    # ---- helpers ----
+    def _new_disc(self):
+        disc = "TEST_BP_" + frappe.generate_hash(length=8)
+        type(self)._disciplines.add(disc)
+        return disc
+
+    def _item(self, disc, kind="lms_item", brand="Lutron", unit="Nos.", attrs=None):
+        doc = frappe.get_doc({
+            "doctype": "BoQ Rate Master Item",
+            "discipline": disc, "kind": kind, "brand": brand, "unit": unit,
+            "attributes": json.dumps(attrs if attrs is not None else {"description": "A widget"}),
+            "rates": json.dumps({"rate": 100.0}),
+            "source_sheet": "Test", "source_row": 1,
+            "import_batch": "testbp-" + frappe.generate_hash(length=8),
+            "active": 1,
+        })
+        doc.insert(ignore_permissions=True)
+        return doc
+
+    def _config(self, disc, attr_ids=("description", "brand")):
+        defs = [{"id": a, "label": a.title(), "type": "choice", "values": ["x"]} for a in attr_ids]
+        doc = frappe.get_doc({
+            "doctype": "BoQ Rate Category Config",
+            "discipline": disc, "category_id": "lighting_mgmt_system",
+            "config": json.dumps({
+                "category_id": "lighting_mgmt_system", "discipline": disc,
+                "attribute_definitions": defs, "pipelines": {},
+                "item_kinds": ["lms_item"],
+                "matching_mode": "item_identity", "identity_attribute_id": "description",
+            }),
+            "source_workbook": "test.xlsx",
+            "import_batch": "testbp-" + frappe.generate_hash(length=8),
+            "active": 1,
+        })
+        doc.insert(ignore_permissions=True)
+        return doc
+
+    # ---- POSITIVE ----
+    def test_bp_01_a_projected_item_reaches_the_dropdown_reader(self):
+        """POSITIVE -- the whole point. `values_from_catalog` resolves a `values_from` dropdown
+        (and, through build_slot_spec, the composite catalogues). Before the projection it could
+        only see keys inside `attributes`, so a brand COLUMN was invisible to it and a brand
+        dropdown was impossible without a hand-typed static values list."""
+        disc = self._new_disc()
+        self._item(disc, brand="Lutron", attrs={"description": "A"})
+        self._item(disc, brand="Zen Control", attrs={"description": "B"})
+        frappe.db.commit()
+        got = extraction.values_from_catalog(disc, {"kind": "lms_item", "attr": "brand"})
+        self.assertEqual(sorted(got), ["Lutron", "Zen Control"])
+
+    def test_bp_02_the_projection_is_a_where_filter_key_too(self):
+        """POSITIVE -- a projected column is a first-class MATCH KEY on the backend reader, not
+        merely a list of options: it works on the `where` side of a values_from spec, which is
+        how one catalogue gets narrowed by another's facts."""
+        disc = self._new_disc()
+        self._item(disc, brand="Lutron", attrs={"description": "A"})
+        self._item(disc, brand="Zen Control", attrs={"description": "B"})
+        frappe.db.commit()
+        got = extraction.values_from_catalog(
+            disc, {"kind": "lms_item", "attr": "description", "where": {"brand": "Lutron"}})
+        self.assertEqual(got, ["A"], "the where filter must select on the projected column")
+
+    def test_bp_03_the_api_endpoint_projects_for_every_frontend_reader_and_matcher(self):
+        """POSITIVE -- the OTHER chokepoint. `get_rate_master_items` returns the single `items`
+        array that both frontend dropdown readers and all 13 interpreter matcher sites consume,
+        so projecting here is what makes brand matchable client-side."""
+        disc = self._new_disc()
+        self._item(disc, brand="Lutron", attrs={"description": "A"})
+        frappe.db.commit()
+        res = rate_master.get_rate_master_items(discipline=disc)
+        self.assertEqual(len(res["items"]), 1)
+        self.assertEqual(res["items"][0]["attributes"]["brand"], "Lutron")
+        self.assertEqual(res["items"][0]["brand"], "Lutron",
+                         "the column itself must still be returned -- its readers are unchanged")
+
+    def test_bp_04_a_stored_attribute_wins_over_the_projection(self):
+        """POSITIVE (precedence) -- nothing stores `attributes.brand` today, but if anything ever
+        does, the STORED value is the authority. The projection must stay silent rather than mask
+        it; a projection that overwrote real data would be a silent corruption."""
+        disc = self._new_disc()
+        self._item(disc, brand="Lutron", attrs={"description": "A", "brand": "StoredWins"})
+        frappe.db.commit()
+        got = extraction.values_from_catalog(disc, {"kind": "lms_item", "attr": "brand"})
+        self.assertEqual(got, ["StoredWins"])
+        res = rate_master.get_rate_master_items(discipline=disc)
+        self.assertEqual(res["items"][0]["attributes"]["brand"], "StoredWins")
+
+    def test_bp_05_an_item_with_no_brand_gains_no_key_at_all(self):
+        """POSITIVE (absence) -- NOT an empty string and NOT None. An item with no brand must be
+        indistinguishable from one the projection never touched, or every downstream reader would
+        need its own blank test and `Object.keys(it.attributes)` would gain a phantom member."""
+        disc = self._new_disc()
+        self._item(disc, brand=None, attrs={"description": "A"})
+        self._item(disc, brand="", attrs={"description": "B"})
+        self._item(disc, brand="   ", attrs={"description": "C"})
+        frappe.db.commit()
+        res = rate_master.get_rate_master_items(discipline=disc)
+        self.assertEqual(len(res["items"]), 3)
+        for it in res["items"]:
+            self.assertNotIn("brand", it["attributes"],
+                             "a blank/absent column must contribute NO key")
+        self.assertEqual(
+            extraction.values_from_catalog(disc, {"kind": "lms_item", "attr": "brand"}), [])
+
+    def test_bp_06_adding_a_column_is_one_word_in_one_tuple_read_by_both_sites(self):
+        """POSITIVE -- THE EXTENSIBILITY BAR the owner set: a second column must be a word added
+        to a list, never new code. This patches `PROJECTED_ITEM_COLUMNS` and asserts BOTH
+        chokepoints pick the new column up with no other edit anywhere -- which also proves the
+        two sites read ONE definition and can never drift apart."""
+        disc = self._new_disc()
+        self._item(disc, brand="Lutron", unit="Nos.", attrs={"description": "A"})
+        frappe.db.commit()
+        first = rate_master.get_rate_master_items(discipline=disc)["items"][0]
+        self.assertNotIn("unit", first["attributes"], "baseline: unit is a column, not projected")
+        self.assertEqual(extraction.values_from_catalog(disc, {"kind": "lms_item", "attr": "unit"}), [])
+        original = extraction.PROJECTED_ITEM_COLUMNS
+        try:
+            extraction.PROJECTED_ITEM_COLUMNS = ("brand", "unit")
+            it = rate_master.get_rate_master_items(discipline=disc)["items"][0]
+            self.assertEqual(it["attributes"]["unit"], "Nos.", "api site must follow the tuple")
+            self.assertEqual(it["attributes"]["brand"], "Lutron")
+            self.assertEqual(
+                extraction.values_from_catalog(disc, {"kind": "lms_item", "attr": "unit"}),
+                ["Nos."], "the extraction site must follow the SAME tuple")
+        finally:
+            extraction.PROJECTED_ITEM_COLUMNS = original
+        again = rate_master.get_rate_master_items(discipline=disc)["items"][0]
+        self.assertNotIn("unit", again["attributes"], "restored")
+
+    def test_bp_06b_all_three_extraction_readers_share_one_parse(self):
+        """POSITIVE (structural) -- fails if a reader is added, or reverted, to its own inline
+        `json.loads(row["attributes"])`, which would silently opt that reader out of the
+        projection. THE MECHANISM IS THE SHARED HELPER, never three copies of it."""
+        import inspect as _inspect
+        for fn in ("catalog_values", "values_from_catalog", "attributes_by_item"):
+            body = _inspect.getsource(getattr(extraction, fn))
+            self.assertIn("_row_attributes(r)", body, "%s must use the shared parse" % fn)
+            self.assertIn("_item_read_fields(", body, "%s must use the shared fields list" % fn)
+        src = _inspect.getsource(extraction)
+        self.assertEqual(src.count("\nPROJECTED_ITEM_COLUMNS = ("), 1,
+                         "the projected-column list must have exactly ONE definition")
+
+    # ---- NEGATIVE ----
+    def test_bp_07_a_write_path_never_persists_the_projection(self):
+        """NEGATIVE -- THE INVARIANT THAT KEEPS THIS DESIGN HONEST. If any write path ever read a
+        PROJECTED item and wrote its `attributes` back, the projection would become STORED --
+        recreating exactly the duplication option (A) was rejected for (a second `brand` CSV
+        header, which makes the whole upload file unreadable). This drives the live edit endpoint
+        AFTER a projected read -- the precise ordering that would poison a write -- and asserts
+        the stored map is untouched."""
+        disc = self._new_disc()
+        self._config(disc)
+        doc = self._item(disc, brand="Lutron", attrs={"description": "A"})
+        frappe.db.commit()
+        seen = rate_master.get_rate_master_items(discipline=disc)["items"][0]
+        self.assertEqual(seen["attributes"]["brand"], "Lutron")
+        rate_master.update_rate_master_item(
+            name=doc.name, attributes_patch=json.dumps({"description": "A2"}))
+        # PostgreSQL hydrates a JSON column, so this comes back as a dict, not text.
+        raw = frappe.db.get_value("BoQ Rate Master Item", doc.name, "attributes")
+        stored = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+        self.assertEqual(stored, {"description": "A2"},
+                         "a write path must NEVER persist a projected key")
+        self.assertNotIn("brand", stored)
+
+    def test_bp_08_the_csv_round_trip_never_sees_the_projection(self):
+        """NEGATIVE -- exactly ONE `brand` header, never two. `csv_exporter._keys_for` derives
+        attribute columns from the keys OBSERVED in the items, while `LEAD_COLUMNS` already
+        carries `brand`; a stored `attributes.brand` would emit a duplicate header and
+        `csv_importer.classify_columns` would then refuse the ENTIRE file. That is the failure
+        that rejected option (A) -- pinned so option (C) can never arrive at it by another route."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+        disc = self._new_disc()
+        self._config(disc)
+        self._item(disc, brand="Lutron", attrs={"description": "A"})
+        frappe.db.commit()
+        _text, headers, _n = csv_exporter.build_category_csv(disc, "lighting_mgmt_system")
+        self.assertEqual(headers.count("brand"), 1,
+                         "a duplicate brand header breaks every upload for the whole discipline")
+        _t2, headers2, _n2 = csv_exporter.build_all_categories_csv(disc)
+        self.assertEqual(headers2.count("brand"), 1)
+        spec, errors = csv_importer.classify_columns(headers, {"description", "brand"}, {"rate"})
+        self.assertEqual(errors, [], "the exported header row must be readable by the importer")
+        self.assertIn("brand", spec["fixed"])
+        self.assertNotIn("brand", spec["attributes"])
+
+    def test_bp_09_a_fresh_asset_export_never_carries_the_projection(self):
+        """NEGATIVE -- `exporter.build_asset` emits each item's `attributes` WHOLE and reads the
+        database directly, so a projected key must never reach it. If it did, the asset would
+        carry the same value twice with no rule saying which is authoritative on re-import, and
+        every future asset diff would be noisy."""
+        from nirmaan_stack.services.boq_rate_master import exporter
+        disc = self._new_disc()
+        self._config(disc)
+        self._item(disc, brand="Lutron", attrs={"description": "A"})
+        frappe.db.commit()
+        asset = exporter.build_asset(disc)
+        self.assertEqual(len(asset["items"]), 1)
+        self.assertEqual(asset["items"][0]["attributes"], {"description": "A"},
+                         "the asset must carry the STORED attributes only")
+        self.assertEqual(asset["items"][0]["brand"], "Lutron",
+                         "the column still rides as its own top-level key, exactly as before")
+
+    def test_bp_10_no_live_config_matches_on_a_projected_column(self):
+        """NEGATIVE (backwards compatibility) -- the projection adds a key to EVERY item in every
+        category, so the question that matters is whether any existing dropdown or pipeline could
+        notice. Measured over the shipped asset: no `values_from`, `where`, `ref` or `when`
+        anywhere references a projected column, so no existing catalogue or match can move. This
+        is also what proves no panel gains a visible field: panels render config-declared
+        DEFINITIONS, and no config declares one backed by a projected column."""
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        projected = set(extraction.PROJECTED_ITEM_COLUMNS)
+        offenders = []
+
+        def walk(node, path):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    if k == "values_from" and isinstance(v, dict):
+                        if v.get("attr") in projected or (projected & set(v.get("where") or {})):
+                            offenders.append(path + "/values_from")
+                    if k in ("where", "ref", "when", "attributes") and isinstance(v, dict):
+                        if projected & set(v):
+                            offenders.append(path + "/" + k)
+                    walk(v, path + "/" + str(k))
+            elif isinstance(node, list):
+                for i, v in enumerate(node):
+                    walk(v, path + "/%d" % i)
+
+        for cfg in payload["category_configs"]:
+            walk(cfg, cfg["category_id"])
+        self.assertEqual(offenders, [],
+                         "a live config already matches on a projected column -- the projection "
+                         "would CHANGE its result; re-measure before shipping")

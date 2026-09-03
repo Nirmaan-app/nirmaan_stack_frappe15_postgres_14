@@ -382,6 +382,124 @@ def _load_active_configs(disciplines=None):
     return out
 
 
+# ══════════════════════════════════════════════════════════════════════════════════════════
+# READ-TIME COLUMN PROJECTION -- the mechanism that makes a `BoQ Rate Master Item` COLUMN
+# behave like an ATTRIBUTE. Owner-chosen option (C), 2026-09-03.
+# ══════════════════════════════════════════════════════════════════════════════════════════
+#
+# ⚠️ THE OTHER HALF OF THIS MECHANISM LIVES IN `api/boq/rate_master.py`, in
+#    `get_rate_master_items`. There are exactly TWO projection sites and no others. Each names
+#    the other. If you are changing one, read both.
+#
+# WHAT THIS DOES
+#   A rate-master item stores `brand` (and `unit`, `kind`, ...) as a top-level COLUMN, while
+#   `description`, `material`, `core` and every other specification live inside the `attributes`
+#   JSON map. This copies each listed COLUMN into the `attributes` map AT READ TIME.
+#   ⚠️ NOTHING IS STORED. No write, no migration, no backfill, no asset mint. The database is
+#   byte-untouched; the projection is recomputed on every read and therefore self-heals.
+#
+# WHY
+#   Everything downstream indexes `attributes` and CANNOT reach a column. Two disjoint bodies of
+#   code, and naming both is the point -- the reach is wider than it looks:
+#     * the DROPDOWN readers -- `catalog_values`, `values_from_catalog` and `attributes_by_item`
+#       below (which also carries `build_slot_spec`'s three composite catalogues), plus the two
+#       frontend readers `pricingSheetHelper.attributeOptions` and
+#       `RateMasterDerivation.valuesFromOptions`;
+#     * the MATCHERS -- 13 sites in `frontend/src/pages/pricing/rate-master/
+#       ratePipelineInterpreter.ts` (`component_ref`, `catalog_fit`, `buildModuleLadder`, the
+#       conditional-component `when`, `band_on`, the `lookup` step). Measured 2026-09-03: that
+#       file contains ZERO references to `brand`.
+#   Projecting at these two chokepoints reaches ALL of them, because every frontend reader AND
+#   every frontend matcher consumes the one `items` array `get_rate_master_items` returns.
+#
+# TO ADD ANOTHER COLUMN
+#   Add its name to `PROJECTED_ITEM_COLUMNS` below. That is the whole change.
+#   NO config edit, NO migration, NO backfill, NO asset mint, NO second list to keep in step --
+#   `api/boq/rate_master.py` reads THIS tuple, so there is exactly one definition. (That endpoint
+#   already selects every item column, so its `fields` list needs nothing either; only a
+#   brand-new database column would have to be added there as well.)
+#   Then declare it on the category that wants it as an ordinary attribute definition with
+#   `values_from: {"kind": "<its kind>", "attr": "<the column>"}` -- the same config line
+#   `wire1_thickness_sqmm` and `conduit size_mm` already carry.
+#
+# TO UNDO
+#   Delete `project_item_columns` and its two call sites (`_row_attributes` here, and the loop in
+#   `get_rate_master_items`). Storage was NEVER touched, so nothing else needs reverting -- no
+#   data to clean up, no rows to rewrite.
+#
+# ⚠️ THE INVARIANT THAT KEEPS THIS HONEST
+#   NOTHING MAY READ A PROJECTED ITEM AND WRITE ITS `attributes` BACK. A write-back would PERSIST
+#   the projection and recreate exactly the duplication option (A) was rejected for. Verified
+#   2026-09-03 that no path does: `update_rate_master_item` re-reads `doc.attributes` from the
+#   document, and `RateMasterDataViewer`'s add form builds `attributes` from `attrDefs`, which
+#   excludes brand. Guarded by
+#   `test_rate_master.TestBrandColumnProjection.test_bp_07_a_write_path_never_persists_the_projection`.
+#
+# ⚠️ WHAT WAS REJECTED, AND WHY -- recorded so neither is re-proposed by a reader who cannot see
+#   the measurements (recon_brand_attribute_2026-09-03.md):
+#     (A) WRITE brand into the stored `attributes` at upload time. REJECTED: it BREAKS THE CSV
+#         ROUND TRIP. `csv_exporter._keys_for` derives attribute columns from the keys OBSERVED
+#         in the items while `LEAD_COLUMNS` already contains `brand`, so one such item yields TWO
+#         `brand` headers and `csv_importer.classify_columns` then refuses the whole file
+#         ("Column 'brand' appears more than once") -- for the WHOLE discipline, because Mode B is
+#         one file over all categories. It also reaches only NEWLY uploaded rows (0 of 1,367 live
+#         rows carry `attributes.brand`), and it rests on a convention no code enforces
+#         (`loader._validate_items` checks only that `attributes` is a dict).
+#     (B) WIDEN the dropdown readers to a column whitelist. REJECTED as HALF-EXTENSIBLE: the
+#         readers and the matchers are disjoint code (3 readers vs 13 matcher sites, not one
+#         shared line), so it would ship a picker selecting a value no pipeline can match on --
+#         worse than the status quo, which at least does not offer a control that lies.
+#
+# PRECEDENT -- why a DERIVED key is legitimate in a map whose other keys are stored:
+#   `commit_pipeline._derive_attached_notes` ("DERIVED, not carried", owner-locked) does the same
+#   thing for a node's `attached_notes`. A value recomputed from source on every read is exactly
+#   what makes a historical row self-heal instead of needing a backfill.
+# ══════════════════════════════════════════════════════════════════════════════════════════
+
+# ⚠️ A WHITELIST, DELIBERATELY -- never widen this to "every column". `rate`, `item_uid`,
+# `import_batch` and `source_row` are provenance and identity, NOT specifications; a config able
+# to match on them could ask a question the catalogue has no business answering.
+PROJECTED_ITEM_COLUMNS = ("brand",)
+
+
+def project_item_columns(attributes, row):
+    """PURE. Return a COPY of `attributes` with each `PROJECTED_ITEM_COLUMNS` value from `row`
+    merged in. Two rules, both load-bearing:
+
+      * A STORED attribute ALWAYS WINS -- a key already present is never overwritten. Nothing
+        stores one today, but if anything ever does, the stored value is the authority and the
+        projection must stay silent rather than mask it.
+      * An ABSENT or BLANK column contributes NO KEY -- not `None`, not `""`. An item with no
+        brand must be indistinguishable from one the projection never touched, or every reader's
+        `v not in (None, "")` test would have to be duplicated at each call site.
+    """
+    out = dict(attributes)
+    for col in PROJECTED_ITEM_COLUMNS:
+        if col in out:
+            continue  # STORED WINS
+        value = row.get(col)
+        if isinstance(value, str):
+            value = value.strip()
+        if value in (None, ""):
+            continue  # no value -> no key
+        out[col] = value
+    return out
+
+
+def _item_read_fields(*base):
+    """The `fields` a master-item read needs: the caller's own, plus every projected column.
+    Resolved at CALL time from `PROJECTED_ITEM_COLUMNS`, so adding a name to that tuple is
+    genuinely the only edit -- no `fields` list anywhere needs touching."""
+    return list(base) + [c for c in PROJECTED_ITEM_COLUMNS if c not in base]
+
+
+def _row_attributes(row):
+    """A master-item row's attributes, parsed, with the projected columns merged in. The ONE
+    parse used by all three readers below -- see the projection block above."""
+    a = row["attributes"] if isinstance(row["attributes"], dict) else json.loads(row["attributes"] or "{}")
+    return project_item_columns(a, row)
+
+
 def catalog_values(discipline, cfg):
     """The identity attribute's CATALOG: the distinct identity-attr values across this category's
     active master items (kinds from the config). Empty when the config declares no identity
@@ -395,12 +513,12 @@ def catalog_values(discipline, cfg):
     rows = frappe.get_all(
         _MASTER_ITEM,
         filters={"discipline": discipline, "kind": ["in", kinds], "active": 1},
-        fields=["attributes"],
+        fields=_item_read_fields("attributes"),
     )
     out = []
     seen = set()
     for r in rows:
-        a = r["attributes"] if isinstance(r["attributes"], dict) else json.loads(r["attributes"] or "{}")
+        a = _row_attributes(r)
         v = a.get(attr)
         if isinstance(v, str):
             v = v.strip()
@@ -427,11 +545,11 @@ def values_from_catalog(discipline, spec):
     rows = frappe.get_all(
         _MASTER_ITEM,
         filters={"discipline": discipline, "kind": kind, "active": 1},
-        fields=["attributes"],
+        fields=_item_read_fields("attributes"),
     )
     out, seen = [], set()
     for r in rows:
-        a = r["attributes"] if isinstance(r["attributes"], dict) else json.loads(r["attributes"] or "{}")
+        a = _row_attributes(r)
         if not all(a.get(k) == v for k, v in where.items()):
             continue
         v = a.get(attr)
@@ -461,11 +579,11 @@ def attributes_by_item(discipline, spec):
     rows = frappe.get_all(
         _MASTER_ITEM,
         filters={"discipline": discipline, "kind": kind, "active": 1},
-        fields=["attributes"],
+        fields=_item_read_fields("attributes"),
     )
     out = {}
     for r in rows:
-        a = r["attributes"] if isinstance(r["attributes"], dict) else json.loads(r["attributes"] or "{}")
+        a = _row_attributes(r)
         if not all(a.get(k) == v for k, v in where.items()):
             continue
         name = a.get("item")

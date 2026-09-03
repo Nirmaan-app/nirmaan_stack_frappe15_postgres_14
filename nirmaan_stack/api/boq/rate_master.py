@@ -70,7 +70,42 @@ def get_rate_master_items(discipline=None, kind=None):
         order_by="kind asc, source_row asc",
     )
     for r in rows:
-        r["attributes"] = _parse_json(r.get("attributes"), {})
+        # ══════════════════════════════════════════════════════════════════════════════════
+        # READ-TIME COLUMN PROJECTION -- site 2 of 2. Owner-chosen option (C), 2026-09-03.
+        # ══════════════════════════════════════════════════════════════════════════════════
+        #
+        # ⚠️ THE OTHER SITE IS `services/boq_rate_master/extraction.py`, just above
+        #    `catalog_values`. THE FULL RATIONALE LIVES THERE -- read it before changing either.
+        #    There are exactly TWO projection sites and no others.
+        #
+        # WHAT: each column named in `extraction.PROJECTED_ITEM_COLUMNS` (today: `brand`) is
+        #   copied into this row's `attributes` map. ⚠️ NOTHING IS STORED -- no write, no
+        #   migration, no backfill, no asset mint. The response is built and thrown away.
+        #
+        # WHY HERE: this endpoint returns the ONE `items` array that BOTH the frontend dropdown
+        #   readers (`pricingSheetHelper.attributeOptions`,
+        #   `RateMasterDerivation.valuesFromOptions`) AND all 13 matcher sites in
+        #   `ratePipelineInterpreter.ts` (`component_ref`, `catalog_fit`, `buildModuleLadder`,
+        #   the conditional `when`, `band_on`, the `lookup` step) consume. They all index
+        #   `attributes` and cannot reach a column -- that file contains ZERO references to
+        #   `brand`. One projection here reaches every one of them, INCLUDING the dot-indexed
+        #   `it.attributes?.item` site a per-site patch would have missed.
+        #
+        # TO ADD ANOTHER COLUMN: add its name to `extraction.PROJECTED_ITEM_COLUMNS`. Nothing
+        #   here changes -- the `fields` list above already selects every item column, and the
+        #   tuple is read from that ONE place, so the two sites can never disagree.
+        #
+        # TO UNDO: replace this call with `_parse_json(r.get("attributes"), {})`, and do the same
+        #   at the other site. Storage was never touched, so nothing else needs reverting.
+        #
+        # ⚠️ INVARIANT: nothing may read a projected item and write its `attributes` back -- that
+        #   would PERSIST the projection and recreate the duplication option (A) was rejected
+        #   for. `update_rate_master_item` re-reads `doc.attributes` from the document and must
+        #   keep doing so. Guarded by `test_rate_master.TestBrandColumnProjection.
+        #   test_bp_07_a_write_path_never_persists_the_projection`.
+        r["attributes"] = extraction.project_item_columns(
+            _parse_json(r.get("attributes"), {}), r
+        )
         r["rates"] = _parse_json(r.get("rates"), {})
 
     return {
