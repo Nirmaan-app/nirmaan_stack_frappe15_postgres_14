@@ -398,6 +398,31 @@ editor (Luckysheet-as-static-assets planned) whose workbook state is persisted s
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-master work.
 
+**⚠️ READ-TIME COLUMN PROJECTION -- a `BoQ Rate Master Item` COLUMN can behave like an ATTRIBUTE
+(owner-chosen option (C), 2026-09-03).** A column named in `extraction.PROJECTED_ITEM_COLUMNS`
+(today: `brand`) is copied into the item's `attributes` map at READ TIME, at exactly **TWO
+chokepoints and no others**: the three `extraction.py` catalogue readers (via the shared
+`_row_attributes` / `_item_read_fields`) and `api/boq/rate_master.get_rate_master_items` -- the ONE
+`items` array that feeds every frontend dropdown reader AND all 13 `ratePipelineInterpreter.ts`
+matcher sites. **NOTHING IS STORED**: no write, no migration, no backfill, no asset mint, so every
+row past and future behaves identically and a historical row self-heals. Adding another column is
+**ONE word in that ONE tuple** -- the api site reads it from `extraction.py` (api -> service, the
+legal direction), so the two sites can never drift; a second copy is exactly the disagreement-at-the-
+worst-moment the BCS import-direction law forbids. A STORED attribute always WINS over the
+projection, and a blank column contributes NO KEY (never `""`, never `None`).
+**⚠️ THE LOAD-BEARING INVARIANT: nothing may read a projected item and write its `attributes` back**
+-- that would PERSIST the projection and recreate the duplication this design was chosen to avoid;
+guarded by `test_rate_master.TestBrandColumnProjection.test_bp_07_a_write_path_never_persists_the_projection`.
+**A derived key now sits in a map whose other keys are stored, deliberately** -- precedent:
+`commit_pipeline._derive_attached_notes`, *"DERIVED, not carried"*.
+⚠️ **Two rejected alternatives, recorded so neither is re-proposed:** WRITING brand into the stored
+`attributes` breaks the CSV round trip (`csv_exporter._keys_for` derives columns from OBSERVED item
+keys while `LEAD_COLUMNS` already holds `brand` -> two `brand` headers -> `classify_columns` refuses
+the whole file, for the whole discipline) and reaches only new uploads; WIDENING the dropdown readers
+to a column whitelist is HALF-EXTENSIBLE, because the readers and the matchers are disjoint code
+(3 vs 13 sites, one of them dot-indexed) -- it would ship a picker selecting a value no pipeline can
+match on.
+
 **⚠️ AN EXTRACTION RULE CANNOT BE EDITED IN ISOLATION (owner-locked, measured 2026-09-03).** Every
 `rules` entry of a rate-master category config is injected into ONE `ESTIMATOR_RULES` block in the
 extraction prompt, so **a phrase quoted inside one rule is visible to every other question the

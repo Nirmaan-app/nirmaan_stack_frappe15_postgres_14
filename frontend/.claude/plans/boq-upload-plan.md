@@ -35197,3 +35197,250 @@ Live `point_wiring` config before this slice: doc `BRCC-26-23486`, backup 66,089
 -- no BoQ Cell Pricing row was written this slice, so there is nothing to undo there.
 SELECT name, modified FROM "tabBoQ Rate Category Config" WHERE name = 'BRCC-26-23486';
 ```
+
+
+---
+
+# SLICE — READ-TIME COLUMN PROJECTION (`brand` first)
+
+**Date:** 2026-09-03/04 · **Branch:** `feature/boq-pricing-helper` · **Base tip:** `f0b241de`
+**Owner ruling:** *"ok proceed with option 3"* — the READ-TIME PROJECTION.
+**Recon that specifies it:** `recon_brand_attribute_2026-09-03.md` (its findings are the spec; not re-derived here).
+**Status: BUILT, TESTED, INVARIANTS PROVEN, BROWSER CERT PASSED, COMMITTED (feat `3c39bac7`).**
+
+## The problem, in one line
+
+A `BoQ Rate Master Item` stores `brand` as a top-level COLUMN, while every specification the pipelines
+match on lives inside the `attributes` JSON map — so brand could be neither a catalogue-backed dropdown
+nor a match key. Measured live: **0 of 1,367** active Electrical items carry `attributes.brand`;
+**1,367 of 1,367** carry the column.
+
+## Why it mattered more than a dropdown
+
+`lighting_mgmt_system` has `identity_attribute_id = "description"` and **18 distinct descriptions across
+24 rows** — 6 descriptions carry TWO brands each, with rates diverging up to **6.19×**
+(AV Interface: Lutron ₹65,000 vs Zen Control ₹10,500). `component_ref` refuses on
+`refRows.length !== 1`, so those 6 items were structurally unmatchable. Latent only because LMS ships
+`pipelines: {}` (DATA ONLY, owner ruling 2026-07-29).
+
+## The mechanism — TWO chokepoints, ONE list
+
+| Site | File | What it feeds |
+|---|---|---|
+| 1 | `services/boq_rate_master/extraction.py` — the three catalogue readers `catalog_values`, `values_from_catalog`, `attributes_by_item`, all now sharing `_row_attributes` + `_item_read_fields` | the AI extraction prompt for all 40 `values_from` defs across 9 categories, + `build_slot_spec`'s 3 composite catalogues |
+| 2 | `api/boq/rate_master.py` — `get_rate_master_items`'s response loop | the ONE `items` array consumed by both frontend dropdown readers AND all 13 `ratePipelineInterpreter.ts` matcher sites |
+
+**There was no third site.** The recon's central observation held.
+
+**⚠️ ONE list, not two — a DELIBERATE strengthening of the slice spec (reported, not silent).** The
+spec said "add the name to the list at BOTH sites"; the codebase permits a single definition, because
+`api/boq/rate_master.py` **already imports `extraction`** (L151, module level). `PROJECTED_ITEM_COLUMNS`
+is therefore defined ONCE, in `extraction.py`, and the api site reads it. Rationale: the BCS
+import-direction law already records that **two copies on either side of a seam can disagree at exactly
+the moment it matters** — here that would be the frontend offering a brand the extraction prompt never
+saw. `api -> service` is the legal direction. `test_bp_06` proves both sites follow the one tuple.
+
+```python
+PROJECTED_ITEM_COLUMNS = ("brand",)          # a WHITELIST, never "every column"
+def project_item_columns(attributes, row)     # PURE; stored wins; blank -> no key
+def _item_read_fields(*base)                  # resolved at CALL time, so the tuple is the only edit
+def _row_attributes(row)                      # the ONE parse all three readers use
+```
+
+## Load-bearing invariants
+
+- **NOTHING IS STORED.** No write, no migration, no backfill, no asset mint. The projection is
+  recomputed on every read, so **all 1,367 rows — past and future — behave identically with no
+  backfill**, and a historical row self-heals. This is what killed the "some brands show, some do not"
+  hazard that option (A) could not avoid.
+- **⚠️ THE INVARIANT THAT KEEPS IT HONEST: nothing may read a projected item and write its `attributes`
+  back.** A write-back would PERSIST the projection and recreate option (A)'s duplication. Verified none
+  does (`update_rate_master_item` re-reads `doc.attributes`; `RateMasterDataViewer`'s add form builds
+  from `attrDefs`, which excludes brand). **Guarded by
+  `test_rate_master.TestBrandColumnProjection.test_bp_07_a_write_path_never_persists_the_projection`.**
+- **A STORED `attributes.brand` WINS over the projection** (`test_bp_04`). Nothing stores one today; if
+  anything ever does, the stored value is the authority.
+- **A blank/absent column contributes NO KEY** — not `""`, not `None` (`test_bp_05`), so an item with no
+  brand is indistinguishable from one the projection never touched.
+- **⚠️ A DERIVED KEY NOW SITS IN A MAP WHOSE OTHER KEYS ARE STORED. This is deliberate.** Precedent:
+  `commit_pipeline._derive_attached_notes` — **"DERIVED, not carried"**, owner-locked. A value
+  recomputed from source on every read is exactly what makes a historical row self-heal.
+
+## ⚠️ WHY (A) AND (B) WERE REJECTED — recorded so neither is re-proposed
+
+- **(A) write brand into the stored `attributes` at upload.** REJECTED: it **BREAKS THE CSV ROUND TRIP.**
+  `csv_exporter._keys_for` derives attribute columns from the keys OBSERVED in the items while
+  `LEAD_COLUMNS` already contains `brand` — so one such item emits **TWO `brand` headers** and
+  `csv_importer.classify_columns` then refuses the ENTIRE file ("Column 'brand' appears more than once"),
+  for the WHOLE discipline (Mode B is one file over all categories). It also reaches only NEWLY uploaded
+  rows, and rests on a convention no code enforces (`loader._validate_items` checks only that
+  `attributes` is a dict). Pinned by `test_bp_08`.
+- **(B) widen the dropdown readers to a column whitelist.** REJECTED as **HALF-EXTENSIBLE**: the readers
+  and the matchers are **disjoint code — 3 readers vs 13 matcher sites, not one shared line**, and
+  `ratePipelineInterpreter.ts` contains **ZERO references to `brand`**. It would ship a picker selecting
+  a value no pipeline can match on — **worse than the status quo, which at least does not offer a control
+  that lies.** One of those 13 sites (L2058) is dot-indexed (`it.attributes?.item`), so a
+  bracket-keyed patch would have silently skipped it.
+
+## Adding a second column later
+
+**Add its name to `extraction.PROJECTED_ITEM_COLUMNS`. That is the whole change.** No config edit, no
+migration, no backfill, no asset mint, no second list. Then declare it on the category that wants it as
+an ordinary attribute definition with `values_from: {"kind": "<its kind>", "attr": "<the column>"}` — the
+same config line `wire1_thickness_sqmm` and `conduit size_mm` already carry. (`_validate_config` accepts
+`values_from` in place of `values` and does not structurally validate its shape; attribute definitions
+carry no key allowlist at all.)
+
+**To undo:** delete `project_item_columns` and its two call sites. Storage was never touched, so nothing
+else needs reverting.
+
+## Tests — 11 Python + 7 vitest
+
+| Test | Protects |
+|---|---|
+| `test_bp_01` | a projected item reaches the dropdown reader (`values_from_catalog`) |
+| `test_bp_02` | it is a `where` FILTER key too, not just an options list |
+| `test_bp_03` | the api endpoint projects (the frontend/matcher chokepoint) |
+| `test_bp_04` | a STORED attribute wins over the projection |
+| `test_bp_05` | no brand ⇒ no key (not `""`, not `None`) |
+| `test_bp_06` | adding a column is ONE word in ONE tuple, read by BOTH sites |
+| `test_bp_06b` | all three readers share one parse; the tuple has exactly one definition |
+| `test_bp_07` | **NEGATIVE — no write path persists the projection** (the invariant) |
+| `test_bp_08` | **NEGATIVE — exactly ONE `brand` CSV header; the export round-trips through the importer** |
+| `test_bp_09` | **NEGATIVE — a fresh asset export carries only STORED attributes** |
+| `test_bp_10` | **NEGATIVE — no live config matches on a projected column**, so no existing catalogue or panel can move |
+
+**`frontend/src/pages/pricing/rate-master/brandProjectionMatching.test.ts` (7) — THE PROOF (B) COULD NOT
+DELIVER.** `component_ref` resolves the same LMS description to different rows by brand (65,000 vs
+10,500); `catalog_fit` narrows its ladder to one brand's rungs (120mm fits UP to Legrand's 300, not
+Generic's nearer 150); plus three negatives, one of which reproduces the pre-projection world exactly and
+asserts the ref goes ambiguous. **The interpreter is NOT modified and must not be** — these pass because
+a projected item simply HAS the key the matchers already index.
+
+## Vacuity proof (both sites, separately)
+
+| Probe | Result |
+|---|---|
+| API-site projection disabled | 3 RED: `bp_03`, `bp_06`, `bp_07` — restored, green |
+| Extraction-site projection disabled | 3 RED: `bp_01`, `bp_02`, `bp_06` — restored, green |
+| vitest fixtures stripped of the projected key | 3 RED of 7 — restored, 7/7 green |
+
+`bp_06` reddens for BOTH, which is correct — it is the test that asserts one tuple drives both sites.
+
+## Suites (measured in-session, before → after)
+
+| Suite | Before | After |
+|---|---|---|
+| `test_rate_master` | 251 OK | **262 OK** (+11) |
+| `test_rate_suggest` | 65, 1 fail (`test_27`, known) | 65, 1 fail (`test_27`, known) |
+| `test_extraction_coercion` | 77 OK | 77 OK |
+| vitest | 2968, 1 fail (`writeOffControl`, known) | **2975**, 1 fail (`writeOffControl`, known) (+7; 78 files) |
+
+## Round-trip + price invariants — ALL FIVE BYTE-IDENTICAL
+
+| Artefact | Before | After |
+|---|---|---|
+| CSV Mode A (lms) | `375f5e5a…3624baef` | **identical**, 1 brand header |
+| CSV Mode B (all, 49 cols) | `3ce1233a…debe7c647b` | **identical**, 1 brand header |
+| Fresh asset export | `c05dd5c8…fd1674f2` | **identical**, 0 items with `attributes.brand` |
+| `BoQ Cell Pricing` (31,157 rows) | `79f072ac…6266c195` | **identical** — no price moved |
+| Electrical items (1,367 rows) | `8af4bafb…daebcc0aa35` | **identical** — no stored data changed |
+
+## Backwards compatibility
+
+Measured over the shipped v54 asset: **no `values_from`, `where`, `ref` or `when` anywhere references a
+projected column** (0 hits across all 12 configs), so no existing dropdown, ladder or match can notice
+the added key. The TPN four-pole sibling matcher reads NAMED keys only (`device`/`pole`/`amp_a`/`curve`)
+and never iterates the bag. Pinned as a standing guard by `test_bp_10`.
+
+## The three loose ends the recon named — RESOLVED, no frontend change needed
+
+1. `RateMasterDataViewer.tsx:166` and `:722` — `filter((d) => d.id !== "brand")` filters DEFINITIONS,
+   not item attribute keys. The projection adds a key, never a definition ⇒ **behaviour unchanged, still
+   needed, not dead code.**
+2. `RateMasterDerivation.tsx:427` — the hardcoded `(fixed)` block reads `brandDef?.values?.[0] ??
+   items[0]?.brand`, i.e. the COLUMN, which the projection does not remove ⇒ **unchanged.**
+3. The pre-existing LMS double-render (brand is in `selectableDefs` because its def carries
+   `selector: true`, AND in the hardcoded block) is **untouched by this slice** — pre-existing, and it
+   belongs to the LMS helper slice.
+
+**#57 UI change control: no user-visible change is intended and none is expected** — panels render
+config-declared DEFINITIONS, no config changed, and `test_bp_10` proves none is backed by a projected
+column.
+
+
+## CERT — PASSED ON SCREEN (2026-09-04, after the Docker restart)
+
+Run at `http://localhost:8080`, logged in, DevTools-free read-only inspection. **Write-control exclusion
+restated and PROVEN before the first click:** both endpoints the cert touches
+(`get_rate_master_items`, `get_rate_category_config`) are bare `@frappe.whitelist()` — no
+`methods=["POST"]` — and contain **zero** DML tokens (`insert` / `save` / `delete_doc` / `set_value` /
+`db.sql` / `commit`), verified by audit. No click landed inside the pricing grid.
+⚠️ **A correction found DURING the cert:** the Rate Master **Derivation screen is not write-free** —
+`RateMasterDerivation.tsx:542-547` renders inline-editable **pipeline parameter** cells wired to
+`onSaveParam`, a real persisted write, enabled because the cert user is admin (the ✏️ pencils beside
+`discount 0.4` / `markup 0.55`). Only the top "Configure attributes" selects were touched; `selected`
+is plain `useState` (L273). **Anyone re-running this cert must exclude the derivation results table.**
+
+**Live-code proof (an IDENTIFIER, not a comment)** — the API response through the real browser chain:
+```
+items=24 | attributes.brand present on 24 | distinct projected brands=["Lutron","Zen Control"]
+sample attrs keys=["description","location","brand"]
+```
+
+| # | Row | Result |
+|---|---|---|
+| 1 | `point_wiring` prices | ✅ Derivation computes `pw_boq_supply` **2041**, `pw_boq_install` **743.80**. Every `component_ref` resolves to exactly ONE row (COPPER UNARMOURED 1×2.5, Switch 16A 1-WAY Grey, Socket 6A/16A Grey, Grid+Face Plates 3M, Back Box 3M) — the projection broke no ref uniqueness. Brand renders `Polycab (fixed)`, not a dropdown. |
+| 2 | `db_switchgear` | ✅ **EXACT GOLDEN MATCH on the rendered panel** — `db_buildup_supply` **24360**, `db_buildup_install` **4880**, `db_buildup_bcs` **14760**, identical to asset golden `dbu1` (24360.0 / 4880.0 / 14760.0). Data Viewer: brand appears ONCE, as its own named column. **This is the byte-identical proof.** |
+| 3 | `wiring_cabling` | ✅ Data Viewer: brand once (`Polycab`), no duplicate among attribute columns. Derivation computes `cable_boq` 90/20, `termination_boq` 70/20 with resolved refs. No asset golden matches the screen's default selection, so this row rests on unchanged-shape evidence, not a numeric match — stated rather than overclaimed. |
+| 4 | Derivation screen | ✅ No unexpected option anywhere. Category list is the known 12. Attribute sets are exactly as configured; `Brand` renders as the non-selectable `(fixed)` block on every category — `selector: false` still holds. |
+| 5 | Catalogue-backed dropdown | ✅ Thickness (sqmm) (`values_from: {kind:"cable", attr:"thickness_sqmm"}`) shows exactly **1.5, 2.5, 4, 6, 10, 16, 25** — no brand contamination, no extra entries. |
+
+**Additive-only, proven on live data (1,367 items):** all 1,367 carry `attributes.brand`, and on **all
+1,367** `attributes.brand === it.brand` — the projection invents nothing and disagrees with the column
+nowhere. The catalogue's entire attribute key space is 25 keys, of which `brand` is the only projected
+one. With `test_bp_10` (no config's `values_from`/`where`/`ref`/`when` reads it), the computation
+provably cannot move.
+
+**Hashes, pre- and post-cert — both unchanged, and ZERO `Version` rows written:**
+`BoQ Cell Pricing` `79f072ac…6266c195` (31,157 rows) · Electrical items `8af4bafb…daebcc0aa35` (1,367).
+
+⚠️ **A PRE-EXISTING DISPLAY BUG FOUND DURING THE CERT — NOT CAUSED BY THIS SLICE, NOT FIXED HERE.**
+`db_switchgear` declares no brand definition and its items are all `Generic`, yet the Derivation Brand
+block shows **`Polycab`**. Cause: `RateMasterDerivation.tsx:334`,
+`brandValue = brandDef?.values?.[0] ?? items[0]?.brand ?? "-"` — `items` is the WHOLE discipline sorted
+by kind, whose first row is a `cable` (Polycab). It reads the **column**, which the projection never
+touches, so it is byte-unchanged by this slice. Worth its own ticket.
+
+## THE ENVIRONMENT FAULT THAT BLOCKED THE FIRST CERT ATTEMPT — and the wrong diagnosis that preceded it
+
+⚠️ **Recorded because the wrong answer was written down first and would otherwise be inherited.**
+
+The first cert attempt failed with `localhost:8080` unreachable while `127.0.0.1:8080` served. It was
+diagnosed as *"a missing `127.0.0.1 localhost` hosts entry plus IPv6-first resolution"*. **That was
+wrong**, and the owner correctly rejected it: that condition had been true all along, and certs had
+been running on it for a fortnight.
+
+**The real cause, measured:** `Get-NetTCPConnection` showed **TWO** processes listening — Docker
+(`com.docker.backend`) on `0.0.0.0` + `[::]`, and **`wslrelay.exe --mode 2` on `[::1]`** for every
+published port. `[::1]` is more specific than `[::]`, so `localhost` (which resolves to `::1` first)
+landed on wslrelay, which **accepted the TCP connection and then reset it** — `curl` exit **56**
+("failure receiving network data"), never "refused". A Hyper-V VmSwitch adapter-reconfiguration burst
+at **21:35 IST** killed the relay's forwarding while leaving its sockets bound; it failed silently, with
+no Error event anywhere.
+
+**The lesson: `localhost` failing while `127.0.0.1` works is a ROUTE, not a CAUSE. The query that
+separates the two explanations is "who owns the socket", and it was not run.** A hosts-file entry would
+have "worked" by forcing IPv4 past a broken relay — masking it, and banking a false cause.
+
+**Fix:** restart Docker Desktop (owner did). wslrelay rebuilt; `[::1]:8000` now answers `403` instead of
+resetting. The stack was then cold-started per Runbook §1.5 — `web.1` / `socketio.1` / `watch.1` /
+`schedule.1` / `worker.1`, with the **worker proven CONSUMING** (enqueued `frappe.utils.now` → status
+`finished`, returned `2026-09-04 01:14:20.729502`), then vite, then the chain check through `:8080` with
+the Host header ×3 (shell 200 / api 403 with a genuine Frappe traceback / socketio 200).
+
+⚠️ **One transient during the cold start, disclosed:** immediately after `bench start`, `:8000` timed
+out *even from inside the container*, with the werkzeug child in state **`D` (uninterruptible),
+`wchan = p9_client_rpc`** — blocked on the 9p Windows bind-mount while the watchdog reloader scanned the
+tree. It cleared on its own (9p then measured 0.008 s reads, writes OK). **Re-measured rather than
+concluded — reporting the first observation would have filed a second wrong diagnosis.**
