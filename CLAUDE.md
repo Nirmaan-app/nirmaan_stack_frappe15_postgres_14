@@ -398,6 +398,34 @@ editor (Luckysheet-as-static-assets planned) whose workbook state is persisted s
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-master work.
 
+**⚠️ LMS PRICING IS INVERTED RELATIVE TO ITS OWN FIRST DESIGN, AND THE FACTOR IS 1.3 EITHER WAY
+(owner ruling 2026-09-04, asset v55).** For `lighting_mgmt_system`: **BCS = the catalogue `rate`
+EXACTLY AS STORED, unrounded; BoQ = `roundup(rate x 1.3, tens)`.** The original design said the
+opposite (rate AS the BoQ rate, BCS = rate / 1.3) and the hand-priced data falsified it -- of 26
+rows matched at >=0.60, SIXTEEN land EXACTLY on 1.25 or 1.30 ABOVE the catalogue rate, so the rate
+is the COST basis. ⚠️ **Because the factor is 1.3 in both readings, a build with the division
+restored looks arithmetically correct and is systematically wrong (~23% under-quoted). IT WOULD
+SURVIVE REVIEW** -- which is why it is pinned from both sides: `test_lms_01`/`02`/`04` (config) and
+the `LMS: the inversion` block in `ratePipelineInterpreter.test.ts` (arithmetic). Worked example:
+Lutron 24,500 -> BoQ 31,850, BCS 24,500; the direction proof is 2,250 -> **2,930** (never 2,920).
+⚠️ **LIMIT: a wrong description pick yields a confident, plausible, wrong price with NOTHING
+downstream to check it** -- the pick IS the price. AI confidence and the panel's rendering of the
+chosen description are ADVISORY ONLY; neither gates anything.
+
+**⚠️ A RATE-MASTER ITEM HASH USED AS A STABILITY GUARD MUST EXCLUDE `name`.** `load_rate_master(
+replace=True)` flips prior rows `active = 0` and INSERTS new ones, so `name` regenerates by design
+(freeze-and-supersede) and a raw hash ALWAYS moves across an import while nothing about the data
+changed. Hash the CONTENT (kind/brand/unit/attributes/rates/item_uid/source). `BoQ Cell Pricing`
+remains the unchanged-price guard.
+
+**⚠️ SCOPE A SLICE BY WHAT IT CHANGES, NOT BY THE FILES YOU EXPECT TO TYPE IN (owner ruling
+2026-09-04, after three occurrences in one arc).** **WHEN A SLICE CHANGES BEHAVIOUR, EVERY TEST THAT
+PINS THAT BEHAVIOUR IS IN ITS BLAST RADIUS AND BELONGS IN ITS SCOPE.** Occurrences: four stale
+phrase pins (2026-09-01); `test_rate_suggest.test_e4` (2026-09-03); `test_rate_suggest.test_11`
+(2026-09-04), which halted a slice mid-flight because the file sat outside the declared scope.
+Retire such a pin by INVERTING it -- assert the new truth and keep it failing for anything else --
+never by deleting it.
+
 **⚠️ READ-TIME COLUMN PROJECTION -- a `BoQ Rate Master Item` COLUMN can behave like an ATTRIBUTE
 (owner-chosen option (C), 2026-09-03).** A column named in `extraction.PROJECTED_ITEM_COLUMNS`
 (today: `brand`) is copied into the item's `attributes` map at READ TIME, at exactly **TWO

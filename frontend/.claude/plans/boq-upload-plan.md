@@ -35444,3 +35444,300 @@ out *even from inside the container*, with the werkzeug child in state **`D` (un
 `wchan = p9_client_rpc`** — blocked on the 9p Windows bind-mount while the watchdog reloader scanned the
 tree. It cleared on its own (9p then measured 0.008 s reads, writes OK). **Re-measured rather than
 concluded — reporting the first observation would have filed a second wrong diagnosis.**
+
+
+---
+
+# SLICE — THE LMS PRICING HELPER (asset v55)
+
+**Date:** 2026-09-04 · **Branch:** `feature/boq-pricing-helper` · **Base tip:** `852c1519`
+**Asset:** `rate_master_electrical_all_v55.json` · sha256
+`2c127ef67d13001123b89a2dc5dd53fbddf8ff68851a37befa98f206e5ae6db8` · 818,776 bytes
+**Import batch:** `rmbulk-0bdbf70dc415` (was `rmbulk-bba3d6865620`)
+**Status: BUILT, TESTED, CERTIFIED ON SCREEN (7/7 rows), COMMITTED.**
+
+`lighting_mgmt_system` stops being a DATA-ONLY shell and prices by **PICKING ONE CATALOGUE ITEM**.
+Nothing else in the system works this way except `miscellaneous`, which is the borrowed shape.
+
+---
+
+## ⚠️ THE INVERSION — THE MOST IMPORTANT THING ON THIS PAGE
+
+**The owner ruled against his own earlier design, on measured evidence.**
+
+| | Original design | **Shipped (owner ruling 2026-09-04)** |
+|---|---|---|
+| BoQ rate | the catalogue rate | **`roundup(rate × 1.3, tens)`** |
+| BCS | rate / 1.3 | **the catalogue rate, exactly as stored, unrounded** |
+
+Owner, verbatim: *"ok the rate is BCS and it should be marked up by 1.3 for BoQ"* and *"BoQ rounds
+to tens"*.
+
+**The evidence that forced it.** Of 26 hand-priced rows matched at ≥0.60 against the catalogue,
+**SIXTEEN land EXACTLY on 1.25 or 1.30 ABOVE the catalogue rate** (7 at 1.2500, 9 at 1.3000). So the
+catalogue `rate` is the BCS/cost basis, not the BoQ rate. The original rule would have **under-quoted
+every LMS row by ~23%**, with BCS a further 1.3 below that.
+
+⚠️ **THE TRAP: THE FACTOR IS 1.3 EITHER WAY.** The two readings differ only in *which side of it* the
+catalogue rate sits on. **A build with the division restored looks arithmetically correct and is
+systematically wrong — it would survive review.** That is why the pin exists and why its vacuity was
+probed twice.
+
+**Worked example, and it is the pin:** `BOQ-26-00118` r6, Lutron catalogue **24,500** →
+BoQ **31,850**, BCS **24,500**.
+
+**The direction proof is the 2,250 golden:** 2,250 × 1.3 = 2,925 → rounds UP to tens → **2,930**,
+never 2,920. (`roundup`, `digits: -1`, Excel ROUNDUP away from zero — the only tens-rounding this
+system has.)
+
+**Pinned by:** `test_lms_01` / `test_lms_02` / `test_lms_04` (Python, config side) and the
+`LMS: the inversion` block in `ratePipelineInterpreter.test.ts` (arithmetic side). Restoring the
+division turns **1 Python + 6 vitest** tests red.
+
+---
+
+## The config (v55, `lighting_mgmt_system` only)
+
+Two attributes, both catalogue-driven, **no static `values` anywhere**:
+
+```json
+{"id":"description","label":"Item", "type":"choice","values_from":{"kind":"lms_item","attr":"description"}}
+{"id":"brand",      "label":"Brand","type":"choice","values_from":{"kind":"lms_item","attr":"brand"}}
+```
+
+`brand` resolves **through the read-time column projection** (`3c39bac7`) — it is a top-level column,
+not a stored attribute, and without that projection it would be unaddressable here. No `default`:
+brand stays BLANK when the document does not state one.
+
+Two pipelines, on the `misc_boq` shape:
+
+```
+lms_boq  output ["supply"]      match_master_row{lms_item}
+                                scale  rate → supply, params{markup 0.30}, base*(1+markup)
+                                roundup supply, params{digits -1}
+lms_bcs  output ["bcs_supply"]  match_master_row{lms_item}
+                                scale  rate → bcs_supply, params{factor 1.0}, base*factor
+```
+
+**Three findings established from the code before building:**
+
+1. **The single-rate question.** `kindForOutput` maps only `supply|supply_*` → `supply_rate` and
+   `install|install_*` → `install_rate`; anything else returns `null` and the helper yields no value
+   at all. So the BoQ output is named **`supply`** — **no shared machinery changed.** It is also
+   empirically right: the pricers put the marked-up rate on *supply* and typed install separately
+   (r390: supply 30,625, install 3,500). LMS carries ONE rate key, `rate`; `misc_item` carries
+   `boq_supply`/`boq_install`, so the precedent's targets did **not** transfer.
+2. `match_master_row` seeds `ctx` from `row.rates`, so `ctx["rate"]` = 24,500 and `scale target:"rate"`
+   reads it. A miss returns `status:"no_match"`, `finals:{}` — an honest refusal, no invented price.
+3. **NO `rules` entry, deliberately.** `matching_mode: "item_identity"` already routes to the shared
+   identity prompt and injects the live catalogue as the identity values; `miscellaneous` carries
+   zero rules. Adding one would buy nothing and would enter the shared `ESTIMATOR_RULES` block, whose
+   cross-talk cost was measured twice in two days. The markup and the rounding are **CALCULATIONS**
+   and by standing rule never go in the prompt.
+
+---
+
+## ⚠️ THE SILENT-WRONG-PICK LIMIT — F-29 IN ITS PUREST FORM
+
+**A wrong description pick produces a confident, plausible, wrong price with NOTHING downstream to
+check it.** There is no quantity to sanity-check against, no second leg to disagree, no formula to
+fail. The pick *is* the price.
+
+This is not hypothetical. **The recon's own paper comparison produced a false positive at 4.2×:**
+`BOQ-26-00163` r594 *"scene selctor keypad with all the necessary unit…"* matched
+*"Power supply unit (Board Room)"* at a **perfect 1.00** score — human 35,700 vs catalogue 8,500 —
+because that catalogue description is SHORT and every one of its few tokens appears inside a much
+longer row about something else. **A short catalogue entry is a magnet for long unrelated rows**, and
+the catalogue has several.
+
+**What surfaces it, and both are ADVISORY only:**
+- the **AI confidence** shown beside each field in the panel (`Item 95%`, `Brand 40%`) — a number a
+  pricer may ignore, and it was 97% on a row the model then correctly refused;
+- the panel **rendering the chosen description** next to the row text, so a human can see the
+  mismatch — but only if they look.
+
+**Neither blocks anything. Neither is a gate.** There is no mechanism that refuses a confident wrong
+pick, and adding one would mean the model returning a ranked shortlist with a margin — a change to
+the prompt contract and the `Suggestion` shape, not a config edit.
+
+## ⚠️ ~51 of 235 rows have NO catalogue equivalent — a CATALOGUE gap, not a matching failure
+
+Measured over the 235 lms-classified rows joined to their nodes (1 of 236 has no matching node).
+**31 of those 51 are `Preamble`** — section headers like *"LMS Considerations"*, *"SUSPENDED TYPE"*,
+*"RECESSED TYPE"* — plus rows from other product families entirely (`BOQ-26-00069` r41, a Digital PIR
+sensor). No matching mode can save these. The priceable population is **203 Line Items**.
+
+## ⚠️ The brand stakes: the wrong brand is worth up to 8×
+
+Six of the 18 catalogue descriptions carry two brands. On the 8 hand-priced two-brand rows, the WRONG
+brand gives ratios of 1.83 / 2.34 / 2.43 / 4.00 / 4.18 / 4.38 / **8.05**, while the right brand gives
+a clean 1.25 or 1.30. Every one of them fits Lutron. `(description, brand)` is unique across all 24
+rows (`test_lms_08`), which is the whole requirement — `matchMasterRow` returns a row only on exactly
+one hit.
+
+## ⚠️ THE BLANK-BRAND GATE — what a pricer ACTUALLY sees (corrected on screen)
+
+The build brief said a blank brand means the row prices nothing. My recon Q3(d) *corrected* that,
+because `matchMasterRow` skips a key absent from the selection, so 12 single-brand descriptions would
+still resolve. **The cert showed the brief was right about the PRODUCT and I was right only about the
+MATCHER.**
+
+**The panel's missing-attribute gate sits IN FRONT of the matcher.** Observed on `BOQ-26-00118` r12
+(*"DB BOX **hager make**…"*, Hager not being in the catalogue): Item 85% filled, **Brand 40% → blank,
+red-outlined**, message **"Some attributes are missing -- fill them to compute a rate."**, no value,
+*Use this value* disabled. So end-to-end: **a blank brand prices NOTHING.** Both statements are true
+at their own layer; the vitest pins remain accurate about `matchMasterRow`.
+
+---
+
+## Tests
+
+**Python — `TestLmsPricingHelper` (12)** · **vitest — `LMS:` blocks (10)**
+
+| Test | Protects |
+|---|---|
+| `test_lms_01` | ⚠️ the inversion (config half) — the BoQ leg MULTIPLIES; RED on a restored division |
+| `test_lms_02` | BCS is the stored rate, factor 1.0, **no roundup on that leg** |
+| `test_lms_03` | the BoQ leg rounds UP to tens (`digits: -1`) |
+| `test_lms_04` | goldens **derived from the pipeline's own factor and rounding** — they cannot drift apart |
+| `test_lms_05` | both dropdowns are catalogue-driven `values_from` |
+| `test_lms_06` | ⚠️ NEGATIVE — no static `values`, no `default` on brand (the growth bar) |
+| `test_lms_07` | a new catalogue row needs no config change (goldens excluded — they are fixtures) |
+| `test_lms_08` | `(description, brand)` unique across all 24, incl. the 6 two-brand descriptions |
+| `test_lms_09` | the wrong brand is worth multiples, not rounding |
+| `test_lms_10` | the category is now eligible for the panel |
+| `test_lms_11` | no `rules` entry was added, and the precedent carries none |
+| `test_lms_12` | ⚠️ NEGATIVE — no other category moved between v54 and v55 |
+| vitest ×10 | the numeric pin (31,850 / 24,500), rounding on 3 rates, 2,925→2,930 never 2,920, two-brand resolution (84,500 vs 13,650), and 4 negatives incl. blank brand not picking a side |
+
+**Vacuity — five probes, every one restored:**
+
+| Probe | Observed |
+|---|---|
+| Restore the division in the asset | `test_lms_01` RED |
+| Restore the division in the vitest pipeline | **6 vitest tests RED**, back to 434 on restore |
+| Delete the `roundup` step | `test_lms_03` RED |
+| Add a static `values` list | `test_lms_06` + `test_lms_07` RED |
+| Empty the LMS pipelines in the running config | `test_rate_suggest.test_11` RED (OK → FAILED → OK) |
+
+⚠️ **A probe exposed a real gap and it was fixed, not reported around.** `test_lms_04` stayed GREEN
+when the pipeline was inverted, because it only checked the goldens against themselves — the goldens
+and the pipeline could drift apart silently. It now **derives** the expected figure from the
+pipeline's declared `markup` and `digits`, and re-probing shows it RED on a full inversion *and* on a
+subtle factor change (0.30 → 0.15).
+
+**Five pins outside the new tests needed widening — each made MORE precise, never weaker:**
+- `test_pw_cs_14` / `_23` / `_31` — cumulative "only `point_wiring` moved" pins. `_14`'s own docstring
+  says *"a later mint that copies the block elsewhere has to say so"*; this slice is that mint, so the
+  expected list now names `lighting_mgmt_system`. A **third** category still fails. Their goldens
+  loops also skip the newly-added LMS key.
+- **`test_bp_10`** — the projected-column guard from the previous slice. LMS now deliberately matches
+  on a projected column. ⚠️ **Retired by INVERTING, never deleting:** it names the ONE sanctioned
+  consumer, so a **second** one still fails and must arrive with its own measurement.
+- `test_rate_suggest.test_11` — row 23 now JOINS the extraction population because the category became
+  eligible. The stale comment was **replaced with why it changed**, not deleted.
+
+**Suites (measured in-session, before → after):** `test_rate_master` 262 → **274 OK** ·
+`test_rate_suggest` 65, one known failure (`test_27`) · `test_extraction_coercion` 77 **OK** ·
+vitest 2975 → **2985**, one known failure (`writeOffControl`).
+
+---
+
+## CERT — 7/7 PASSED ON SCREEN
+
+Run at `http://localhost:8080` on `BOQ-26-00118` / sheet `LMS-BOQ`. **Write-control exclusion proven
+before the first click**; the only in-grid controls touched were the **sparkle**
+(`handleSuggestionBadgeClick` → `setHelperPanel` only) and the **tick checkboxes**
+(`setSelectedRows` only) — both verified pure state. *Use this value* and every rate cell untouched.
+
+### Row 1 — THE VALIDATION SET: five hand-priced rows
+
+| Excel row | Item the model picked | Brand | Suggested BoQ | **Human's rate** | **Ratio** |
+|---|---|---|---:|---:|---:|
+| r6 Power Supply Unit | PSU (QSPS-DH) | Lutron 95% | **31,850** | 31,850 | **1.0000** |
+| r5 DALI Dimming controller | DALI (QSN-2DALUNV-D) | Lutron 90% | **112,970** | 112,970 | **1.0000** |
+| r7 QS Sensor Module | QSM5-XW-C | Lutron 85% | **20,670** | 20,670 | **1.0000** |
+| r11 AV Interface (**two-brand**) | QSE-CI-NWK-E | Lutron 90% | **84,500** | 84,500 | **1.0000** |
+| r8 Wireless Occupancy Sensor | LRF5-OCR2B-P-WH | Lutron 85% | **9,360** | 9,400 | **0.99574** ⚠️ |
+
+**Four exact matches to the rupee, and one divergence reported as found.** r8 is 0.43% (₹40) below
+the human: catalogue Lutron 7,200 × 1.3 = 9,360 while the pricer used 9,400. Predicted before the
+cert and confirmed by it. **Nothing was adjusted to close it.**
+
+### Rows 2–7
+
+| # | Row | Result |
+|---|---|---|
+| 2 | two-brand, brand NAMED | ✅ r11 — read **Lutron**, priced 84,500. Had it picked Zen Control: 13,650 — a **6.19× error**. The brand field is doing the work it exists for. |
+| 3 | two-brand, brand NOT named | ✅ r12 — Brand blank + red-outlined, *"Some attributes are missing -- fill them to compute a rate."*, no value, button disabled. (Model refused to guess: the text says "hager make", not in the catalogue.) |
+| 4 | no catalogue equivalent | ✅ r4 and r13 — **Item blank, no invented price.** r4 says "one configurable link" vs the catalogue's "two"; r13's part number `GRX-CBL-46L` differs from the catalogue's `QS-CBL-LSZH`. r4 is notable: mis-picking would have coincidentally hit the human's 422,500, and it declined anyway. |
+| 5 | `point_wiring` REGRESSION GUARD | ✅ **BYTE-IDENTICAL** — `pw_boq_supply` **2041**, `pw_boq_install` **743.80** |
+| 6 | `wiring_cabling` | ✅ unchanged — `cable_boq` **90 / 20**, `termination_boq` **70 / 20** |
+| 7 | `db_switchgear` "(fixed)" brand | ✅ **`Generic (fixed)`** — the pre-existing `Polycab` bug is gone, and `db_switchgear`'s numbers are unmoved (24360 / 4880 / 14760) |
+
+**The panel is exactly the owner's design: TWO FIELDS**, Item and Brand, both catalogue dropdowns,
+with the workings block (`Lms Boq — supply = 31850`) and a final-value field.
+
+**#57 — four items, all confirmed:** the panel is live (no "coming soon"); blank-brand rows wait for a
+pricer (§ blank-brand gate); the helper suggests against the 68 hand-priced rows (§ row 1); and the
+Derivation "(fixed)" brand label is now category-scoped.
+
+**Hashes, pre- and post-cert:** `BoQ Cell Pricing` `79f072ac…6266c195` **unchanged — no price moved**;
+Electrical items CONTENT `b8fe5e4a…b93686` **unchanged**. Only new write: the authorised suggestion
+run.
+
+---
+
+## ⚠️ THREE STANDING LESSONS FROM THIS SLICE
+
+### 1. A slice's scope must include every test that pins the behaviour it changes
+
+**Owner ruling 2026-09-04, after this happened for the THIRD time in one arc:**
+> **WHEN A SLICE CHANGES BEHAVIOUR, EVERY TEST THAT PINS THAT BEHAVIOUR IS IN ITS BLAST RADIUS AND
+> BELONGS IN ITS SCOPE.**
+
+Three occurrences: four stale phrase pins (2026-09-01); `test_rate_suggest.test_e4` (2026-09-03); and
+here, `test_rate_suggest.test_11` — which stopped the slice dead because the file was outside the
+declared FILES IN SCOPE. Scope a slice by *what it changes*, not by the files you expect to type in.
+
+### 2. The item hash: use the CONTENT hash, never the raw one
+
+**A raw `BoQ Rate Master Item` hash that includes `name` CANNOT be a stability guard across an
+import.** `load_rate_master(replace=True)` flips the prior rows `active = 0` and INSERTS new ones, so
+`name` regenerates by design (freeze-and-supersede). Measured here: raw hash moved
+`8af4bafb…` → `437f0fe5…` while the **content** hash (kind/brand/unit/attributes/rates/uid/source) was
+byte-identical `b8fe5e4a…` on both sides, 1,367 rows superseded, 0 left active.
+**Use the content hash. `BoQ Cell Pricing` remains the unchanged-price guard and it held throughout.**
+
+### 3. `isEligibleConfig` is necessary but NOT sufficient for the panel
+
+The helper is also gated on a **run existing**: `SheetPricingPage` builds it only when
+`configsByCategory.size > 0 && suggestRun`, and `rateHelperRegistry` drops it entirely when null — so
+the panel shows only the placeholder helpers, **with no reason text at all**. And `only_rows`
+*requires* a prior completed whole-sheet run ("Run the whole sheet once first"), which no LMS sheet
+could have had, since the category was never eligible before this slice. **First cert of a
+newly-eligible category needs one whole-sheet run.**
+
+## Anomalies disclosed (none caused by this slice)
+
+- **A vite stale-module episode.** The plain module URL served pre-edit code while a cache-buster
+  served the new one; a hard reload was not enough. Cert row 7 showed a **false negative** until vite
+  was killed **by PID** (394/400/411/412 — never `pkill -f yarn`) with `node_modules/.vite` cleared.
+  Trusting the first screen would have produced "the fix doesn't work".
+- **Stale CSRF after a bench restart** made the browser's `start_suggest` POST fail while the
+  server-side call queued fine. The owner's instinct (clear site data + re-login) was the right
+  diagnosis.
+- A recurring `SyntaxError: Unexpected token '{'` at `<page>:32:19` in the SPA shell, present before
+  any change of this slice, on pages that render correctly.
+- A React duplicate-key warning from a Radix `Select` inside `RateMasterDerivation`.
+- `RateMasterDerivation.tsx` has **no DOM test environment** by deliberate repo choice, so the
+  category-scoped fallback fix is structurally untestable by unit test — the browser is its only
+  honest verification (cert row 7).
+
+## Undo
+
+- Config: re-import v54 with `replace=True`, or restore the pre-slice blob
+  (`BRCC-26-23484`, config sha `68c16bf4fb35485b699673c26a1453be987a6be8c36977a81490a67f315f3e52`,
+  batch `rmbulk-bba3d6865620`, saved verbatim in-container at `/tmp/lms_config_BEFORE.json`).
+- Pin: revert `CURRENT_EALL_ASSET` to `rate_master_electrical_all_v54.json`.
+- The suggestion run `BRSR-26-00620` may be left; it writes no rate.
