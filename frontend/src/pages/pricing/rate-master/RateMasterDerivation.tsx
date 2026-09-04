@@ -331,7 +331,21 @@ export function RateMasterDerivation({ items, config, isAdmin, frozen, onSavePar
   // Because `results` is recomputed on every `selected` change, the display updates live for free.
   const derivedAttrs = useMemo(() => derivedQtyAttrs(config), [config]);
 
-  const brandValue = brandDef?.values?.[0] ?? items[0]?.brand ?? "-";
+  // The "(fixed)" brand label is CATEGORY-SCOPED (owner ruling 2026-09-04). `items` is the WHOLE
+  // discipline ordered by kind, so an unscoped `items[0]` reads whichever kind sorts first --
+  // `cable`, i.e. "Polycab" -- and showed that on EVERY category whose own brand def carries no
+  // static `values`. It was already wrong for `db_switchgear`, whose items are all "Generic".
+  // Scope to the config's own `item_kinds` first; fall back to the previous behaviour when the
+  // config declares no kinds or none of its items are loaded, so this can never render blank.
+  const brandValue = useMemo(() => {
+    const declared = config.item_kinds;
+    if (brandDef?.values?.[0] !== undefined) return String(brandDef.values[0]);
+    if (Array.isArray(declared) && declared.length) {
+      const own = items.find((it) => declared.includes(it.kind));
+      if (own?.brand) return own.brand;
+    }
+    return items[0]?.brand ?? "-";
+  }, [brandDef, config.item_kinds, items]);
 
   return (
     <div className="space-y-4">

@@ -5652,3 +5652,167 @@ describe("startsAttributeGroup -- F4b labelled groups", () => {
     expect(startsAttributeGroup([a("Circuit wiring")], 5)).toBe(false);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════════════════════
+// LMS PRICING HELPER -- THE INVERSION PIN AND THE ITEM PICK (owner rulings 2026-09-04)
+// ══════════════════════════════════════════════════════════════════════════════════════════
+//
+// ⚠️ THE MOST IMPORTANT TEST IN THIS FILE IS `the inversion`. READ THIS BEFORE CHANGING A NUMBER.
+//
+// The ORIGINAL design said the catalogue rate IS the BoQ rate and BCS = rate / 1.3. The
+// hand-priced data falsified it: of 26 rows matched at >=0.60 against the catalogue, SIXTEEN land
+// EXACTLY on 1.25 or 1.30 ABOVE the catalogue rate (7 at 1.2500, 9 at 1.3000). So the catalogue
+// rate is the BCS/cost basis and the BoQ rate is the marked-up figure. The owner ruled against his
+// own earlier design on that evidence: "ok the rate is BCS and it should be marked up by 1.3 for
+// BoQ", and "BoQ rounds to tens".
+//
+// *** THE TRAP: THE FACTOR IS 1.3 EITHER WAY. *** The two readings differ only in WHICH SIDE of it
+// the catalogue rate sits on, so a build with the division restored looks arithmetically correct
+// and is systematically wrong -- under-quoting every LMS row by ~23%, and BCS a further 1.3 below.
+// IT WOULD SURVIVE REVIEW. These tests are what stops it: they assert BOTH figures on a real
+// catalogue row, so restoring the division turns them RED.
+//
+// Worked, BOQ-26-00118 r6, Lutron catalogue 24,500:  BoQ 31,850   BCS 24,500
+// ══════════════════════════════════════════════════════════════════════════════════════════
+
+/** The three real `lms_item` rows the v55 goldens pin, shaped as `get_rate_master_items` returns
+ *  them AFTER the read-time brand projection (3c39bac7) -- brand present both as the column and,
+ *  projected, inside `attributes`, which is what makes it addressable by the match at all. */
+function lms(description: string, brand: string, rate: number): RateMasterItem {
+  return {
+    discipline: "Electrical", kind: "lms_item", brand, unit: "Nos.",
+    attributes: { description, brand }, rates: { rate },
+  };
+}
+
+const LMS_PSU = "Supply, Installation, Testing & Commissioning of Power Supply Unit for supply PDUs to Antenna devices Similar to Lutron QSPS-DH -1 -75";
+const LMS_AV = "Supply, Installation, Tesing & Commissioning of AV Interface module";
+const LMS_OCC = "Supply, Installation, Testing & Commissioning of Wireless Occupancy/Vacancy Sensor";
+
+/** Two of these three descriptions carry TWO brands -- the shape that was structurally
+ *  unmatchable before the brand projection, where the wrong brand is worth up to 8x. */
+const LMS_ITEMS: RateMasterItem[] = [
+  lms(LMS_PSU, "Lutron", 24500),        // single-brand
+  lms(LMS_AV, "Lutron", 65000),
+  lms(LMS_AV, "Zen Control", 10500),    // two-brand, 6.19x apart
+  lms(LMS_OCC, "Lutron", 7200),
+  lms(LMS_OCC, "Zen Control", 2250),    // two-brand, 3.2x apart
+];
+
+/** The v55 pipelines, verbatim in shape: match_master_row -> scale -> roundup (BoQ only). */
+const LMS_BOQ: Pipeline = {
+  output: ["supply"],
+  steps: [
+    { step: "match_master_row", params: { kind: "lms_item" } },
+    { step: "scale", target: "rate", result: "supply",
+      params: { markup: 0.30 }, formula: "base*(1+markup)" },
+    { step: "roundup", target: "supply", params: { digits: -1 } },
+  ],
+} as unknown as Pipeline;
+
+const LMS_BCS: Pipeline = {
+  output: ["bcs_supply"],
+  steps: [
+    { step: "match_master_row", params: { kind: "lms_item" } },
+    { step: "scale", target: "rate", result: "bcs_supply",
+      params: { factor: 1.0 }, formula: "base*factor" },
+  ],
+} as unknown as Pipeline;
+
+describe("LMS: the inversion -- BoQ is the MARKED-UP figure, BCS is the catalogue rate", () => {
+  it("⚠️ THE PIN: rate 24,500 -> BoQ 31,850 and BCS 24,500 (RED if the division is restored)", () => {
+    const sel = { description: LMS_PSU, brand: "Lutron" };
+    const boq = runPipeline("lms_boq", LMS_BOQ, LMS_ITEMS, sel);
+    const bcs = runPipeline("lms_bcs", LMS_BCS, LMS_ITEMS, sel);
+    expect(boq.status).toBe("ok");
+    expect(bcs.status).toBe("ok");
+
+    // The owner's ruling, both halves, on one real catalogue row.
+    expect(boq.finals.supply).toBe(31850);
+    expect(bcs.finals.bcs_supply).toBe(24500);
+
+    // ⚠️ AND THE DIRECTION, STATED AS AN INEQUALITY so the intent survives a refactor:
+    // BoQ must be ABOVE the catalogue rate, never below it. Restoring `rate / 1.3` would give
+    // 18,850 here -- still a plausible-looking number, which is exactly why this line exists.
+    expect(boq.finals.supply).toBeGreaterThan(24500);
+    expect(bcs.finals.bcs_supply).toBe(24500);
+    expect(boq.finals.supply / bcs.finals.bcs_supply).toBeCloseTo(1.3, 3);
+  });
+
+  it("BCS is the catalogue rate EXACTLY -- unrounded, never scaled", () => {
+    for (const [desc, brand, rate] of [
+      [LMS_PSU, "Lutron", 24500], [LMS_AV, "Zen Control", 10500], [LMS_OCC, "Zen Control", 2250],
+    ] as [string, string, number][]) {
+      const r = runPipeline("lms_bcs", LMS_BCS, LMS_ITEMS, { description: desc, brand });
+      expect(r.status).toBe("ok");
+      expect(r.finals.bcs_supply).toBe(rate);
+    }
+  });
+
+  it("the rounding: three real rates spanning the range, rounded UP to tens", () => {
+    // 24500*1.3 = 31850.00 -> already a ten      -> 31850
+    // 10500*1.3 = 13650.00 -> already a ten      -> 13650
+    //  2250*1.3 =  2925.00 -> NOT a ten, rounds UP -> 2930   <-- the one that proves direction
+    const cases: [string, string, number][] = [
+      [LMS_PSU, "Lutron", 31850], [LMS_AV, "Zen Control", 13650], [LMS_OCC, "Zen Control", 2930],
+    ];
+    for (const [desc, brand, want] of cases) {
+      const r = runPipeline("lms_boq", LMS_BOQ, LMS_ITEMS, { description: desc, brand });
+      expect(r.status).toBe("ok");
+      expect(r.finals.supply).toBe(want);
+    }
+  });
+
+  it("⚠️ NEGATIVE: rounding is UP, not to nearest -- 2,925 becomes 2,930 and never 2,920", () => {
+    const r = runPipeline("lms_boq", LMS_BOQ, LMS_ITEMS, { description: LMS_OCC, brand: "Zen Control" });
+    expect(r.finals.supply).toBe(2930);
+    expect(r.finals.supply).not.toBe(2920);
+  });
+});
+
+describe("LMS: {description, brand} picks exactly one catalogue item", () => {
+  it("a two-brand description resolves to the NAMED brand's row, and the brands differ 6.19x", () => {
+    const lut = runPipeline("lms_boq", LMS_BOQ, LMS_ITEMS, { description: LMS_AV, brand: "Lutron" });
+    const zen = runPipeline("lms_boq", LMS_BOQ, LMS_ITEMS, { description: LMS_AV, brand: "Zen Control" });
+    expect(lut.finals.supply).toBe(84500);   // 65000 * 1.3
+    expect(zen.finals.supply).toBe(13650);   // 10500 * 1.3
+    expect(lut.finals.supply).not.toBe(zen.finals.supply);
+  });
+
+  it("a single-brand description resolves with the brand supplied", () => {
+    const r = runPipeline("lms_boq", LMS_BOQ, LMS_ITEMS, { description: LMS_PSU, brand: "Lutron" });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply).toBe(31850);
+  });
+
+  it("⚠️ NEGATIVE: a BLANK brand on a TWO-brand description does NOT pick a side", () => {
+    // matchMasterRow skips a key absent from the selection, so brand stops constraining and TWO
+    // rows match -> it returns undefined -> the step refuses. It must NEVER silently take the
+    // cheaper (or the first) row: on this description that is a 6.19x error.
+    const r = runPipeline("lms_boq", LMS_BOQ, LMS_ITEMS, { description: LMS_AV });
+    expect(r.status).toBe("no_match");
+    expect(r.finals.supply).toBeUndefined();
+  });
+
+  it("a BLANK brand on a SINGLE-brand description still prices -- the honest asymmetry", () => {
+    // ⚠️ This is the behaviour the build brief described wrongly. A blank brand is not a blanket
+    // refusal: 12 of the 18 live descriptions carry one brand and resolve on description alone;
+    // the other 6 refuse. Pinned so the asymmetry is deliberate and visible, not accidental.
+    const r = runPipeline("lms_boq", LMS_BOQ, LMS_ITEMS, { description: LMS_PSU });
+    expect(r.status).toBe("ok");
+    expect(r.finals.supply).toBe(31850);
+  });
+
+  it("⚠️ NEGATIVE: an unknown brand matches nothing rather than guessing", () => {
+    const r = runPipeline("lms_boq", LMS_BOQ, LMS_ITEMS, { description: LMS_AV, brand: "Nonesuch" });
+    expect(r.status).toBe("no_match");
+    expect(r.finals.supply).toBeUndefined();
+  });
+
+  it("⚠️ NEGATIVE: an unknown description matches nothing -- no invented price", () => {
+    const r = runPipeline("lms_boq", LMS_BOQ, LMS_ITEMS,
+      { description: "Something the catalogue has never heard of", brand: "Lutron" });
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+  });
+});

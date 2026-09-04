@@ -312,7 +312,7 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # the live corpus and changed ZERO, byte-identical to the prose output. The point axis was already
 # 231-of-237 correct and the other 6 sit ABOVE the floor; moving a working rule for tidiness is
 # exactly the risk that proof exists to retire.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v54.json"
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v55.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -7007,7 +7007,12 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         now = dict((c["category_id"], c) for c in payload["category_configs"])
         self.assertEqual(sorted(was), sorted(now))
         changed = sorted(k for k in now if now[k] != was[k])
-        self.assertEqual(changed, ["point_wiring"])
+        # ⚠️ WIDENED AT THE LMS SLICE (v55, 2026-09-04). This pin is CUMULATIVE -- it compares
+        # the CURRENT asset against an old one -- and its own contract is that "a later mint
+        # that copies the block elsewhere has to say so". The LMS slice is that later mint:
+        # it gave `lighting_mgmt_system` its two pipelines. Naming it here is the pin DOING
+        # ITS JOB, not being relaxed -- a THIRD category appearing still fails.
+        self.assertEqual(changed, ["lighting_mgmt_system", "point_wiring"])
         self.assertEqual(payload["items"], prev["items"], "no rate and no item may move")
         for cid, c in now.items():
             if cid == "point_wiring":
@@ -7238,14 +7243,26 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
             prev = json.load(fh)
         was = {c["category_id"]: c for c in prev["category_configs"]}
         now = {c["category_id"]: c for c in payload["category_configs"]}
-        self.assertEqual(sorted(k for k in now if now[k] != was[k]), ["point_wiring"])
+        # ⚠️ WIDENED AT THE LMS SLICE (v55, 2026-09-04). This pin is CUMULATIVE -- it compares
+        # the CURRENT asset against an old one -- and its own contract is that "a later mint
+        # that copies the block elsewhere has to say so". The LMS slice is that later mint:
+        # it gave `lighting_mgmt_system` its two pipelines. Naming it here is the pin DOING
+        # ITS JOB, not being relaxed -- a THIRD category appearing still fails.
+        self.assertEqual(sorted(k for k in now if now[k] != was[k]),
+                         ["lighting_mgmt_system", "point_wiring"])
         self.assertEqual(payload["items"], prev["items"])
         # ⚠️ SUPERSEDED AT SLICE B. F4a removed two pipelines, and `_validate_config` refuses
         # a golden naming a pipeline the config no longer declares -- so their `expect` keys
         # were FORCED out. The precise claim (deletion only, every surviving value identical)
         # now lives in test_pw_cs_31; here we assert only that no golden was ADDED or DROPPED.
-        self.assertEqual(sorted(payload["goldens"]), sorted(prev["goldens"]))
+        # ⚠️ v55 ADDED a `lighting_mgmt_system` goldens block (the LMS slice). Assert the key
+        # set moved by exactly that ONE addition -- still "no golden was dropped".
+        self.assertEqual(sorted(payload["goldens"]),
+                         sorted(list(prev["goldens"]) + ["lighting_mgmt_system"]))
         for _cat, _golds in payload["goldens"].items():
+            # the LMS slice ADDED this key at v55; it has no counterpart in the older asset
+            if _cat == "lighting_mgmt_system":
+                continue
             self.assertEqual([g["id"] for g in _golds],
                              [g["id"] for g in prev["goldens"][_cat]], _cat)
 
@@ -7408,10 +7425,22 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
             prev = json.load(fh)
         was = {c["category_id"]: c for c in prev["category_configs"]}
         now = {c["category_id"]: c for c in payload["category_configs"]}
-        self.assertEqual(sorted(k for k in now if now[k] != was[k]), ["point_wiring"])
+        # ⚠️ WIDENED AT THE LMS SLICE (v55, 2026-09-04). This pin is CUMULATIVE -- it compares
+        # the CURRENT asset against an old one -- and its own contract is that "a later mint
+        # that copies the block elsewhere has to say so". The LMS slice is that later mint:
+        # it gave `lighting_mgmt_system` its two pipelines. Naming it here is the pin DOING
+        # ITS JOB, not being relaxed -- a THIRD category appearing still fails.
+        self.assertEqual(sorted(k for k in now if now[k] != was[k]),
+                         ["lighting_mgmt_system", "point_wiring"])
         self.assertEqual(payload["items"], prev["items"], "no item may move")
-        self.assertEqual(sorted(payload["goldens"]), sorted(prev["goldens"]))
+        # ⚠️ v55 ADDED a `lighting_mgmt_system` goldens block (the LMS slice). Assert the key
+        # set moved by exactly that ONE addition -- still "no golden was dropped".
+        self.assertEqual(sorted(payload["goldens"]),
+                         sorted(list(prev["goldens"]) + ["lighting_mgmt_system"]))
         for cat, golds in payload["goldens"].items():
+            # the LMS slice ADDED this key at v55; it has no counterpart in the older asset
+            if cat == "lighting_mgmt_system":
+                continue
             prev_by = {g["id"]: g for g in prev["goldens"][cat]}
             self.assertEqual([g["id"] for g in golds], list(prev_by), cat)
             for g in golds:
@@ -7696,6 +7725,233 @@ class TestBrandColumnProjection(FrappeTestCase):
 
         for cfg in payload["category_configs"]:
             walk(cfg, cfg["category_id"])
-        self.assertEqual(offenders, [],
-                         "a live config already matches on a projected column -- the projection "
-                         "would CHANGE its result; re-measure before shipping")
+        # ⚠️ INVERTED AT THE LMS SLICE (v55, 2026-09-04) -- NOT deleted. When this pin was written
+        # NOTHING referenced a projected column, so "zero offenders" meant "the projection cannot
+        # change any existing result". The LMS slice then made brand a DELIBERATE match key, which
+        # is the whole point of the projection. Deleting the pin would check nothing; freezing it at
+        # zero would forbid the feature it was written to protect. So it now names the ONE sanctioned
+        # consumer exactly: a SECOND config picking up a projected column still fails here, and must
+        # come with its own measurement.
+        self.assertEqual(
+            offenders, ["lighting_mgmt_system/attribute_definitions/1/values_from"],
+            "exactly ONE config may match on a projected column -- lighting_mgmt_system's brand "
+            "dropdown (owner 2026-09-04). Any other is unmeasured: re-measure before shipping")
+        # and it is the BRAND def, resolving from the projection -- not something that drifted in
+        lms = [c for c in payload["category_configs"]
+               if c["category_id"] == "lighting_mgmt_system"][0]
+        self.assertEqual(lms["attribute_definitions"][1]["id"], "brand")
+        self.assertEqual(lms["attribute_definitions"][1]["values_from"],
+                         {"kind": "lms_item", "attr": "brand"})
+
+
+class TestLmsPricingHelper(FrappeTestCase):
+    """THE LMS PRICING HELPER (owner rulings 2026-09-04). `lighting_mgmt_system` stops being a
+    DATA-ONLY shell and prices by PICKING ONE CATALOGUE ITEM on {description, brand}.
+
+    ⚠️ THE INVERSION IS THE POINT OF THIS CLASS. The original design had the catalogue rate AS the
+    BoQ rate with BCS = rate / 1.3. The hand-priced data falsified it -- of 26 rows matched at
+    >=0.60, SIXTEEN land EXACTLY on 1.25 or 1.30 ABOVE the catalogue rate -- so the rate is the BCS
+    basis and BoQ is the marked-up figure. The owner ruled against his own earlier design on that
+    evidence. *** THE FACTOR IS 1.3 EITHER WAY, so a build with the division restored looks
+    arithmetically correct and under-quotes every row by ~23%. It would survive review. ***
+
+    The pipeline ARITHMETIC is executed by the TypeScript interpreter, so the numeric pin lives in
+    `ratePipelineInterpreter.test.ts` ("LMS: the inversion"). What THIS class pins is the CONFIG
+    the interpreter is handed: the factor, the rounding, the two catalogue-driven dropdowns, and
+    that no other category moved.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            cls.payload = json.load(fh)
+        cls.lms = [c for c in cls.payload["category_configs"]
+                   if c["category_id"] == "lighting_mgmt_system"][0]
+        cls.lms_items = [i for i in cls.payload["items"] if i["kind"] == "lms_item"]
+
+    # ---- the inversion, as CONFIG ----
+    def test_lms_01_the_boq_leg_MARKS_UP_and_never_divides(self):
+        """⚠️ THE INVERSION PIN (config half). The BoQ leg must MULTIPLY by 1.3 -- expressed as the
+        shipped `markup` idiom `base*(1+markup)` with markup 0.30, exactly as `earthing` and
+        `cabletray_raceway` already do. This test goes RED if anyone restores a division: a
+        `base/...` formula, a factor below 1, or a `bcs_factor`-style divisor on the BoQ leg."""
+        steps = self.lms["pipelines"]["lms_boq"]["steps"]
+        scale = [s for s in steps if s["step"] == "scale"]
+        self.assertEqual(len(scale), 1, "the BoQ leg has exactly one scale step")
+        s = scale[0]
+        self.assertEqual(s["target"], "rate", "reads the ONE rate key lms_item carries")
+        self.assertEqual(s["result"], "supply")
+        self.assertEqual(s["formula"], "base*(1+markup)")
+        self.assertEqual(s["params"], {"markup": 0.30})
+        # the direction, stated so it cannot be inverted quietly
+        self.assertNotIn("/", s["formula"], "the BoQ leg must never DIVIDE the catalogue rate")
+        self.assertGreater(1 + s["params"]["markup"], 1.0, "BoQ must be ABOVE the catalogue rate")
+
+    def test_lms_02_bcs_IS_the_catalogue_rate_unrounded(self):
+        """⚠️ THE INVERSION PIN (the other half). BCS is the stored rate itself -- factor 1.0, and
+        NO roundup step on that leg (owner: only the BoQ leg rounds)."""
+        pl = self.lms["pipelines"]["lms_bcs"]
+        self.assertEqual(pl["output"], ["bcs_supply"])
+        scale = [s for s in pl["steps"] if s["step"] == "scale"]
+        self.assertEqual(len(scale), 1)
+        self.assertEqual(scale[0]["params"], {"factor": 1.0})
+        self.assertEqual(scale[0]["formula"], "base*factor")
+        self.assertEqual([s for s in pl["steps"] if s["step"] == "roundup"], [],
+                         "BCS is UNROUNDED -- only the BoQ leg rounds to tens")
+
+    def test_lms_03_the_boq_leg_rounds_UP_to_tens(self):
+        """The owner's 'BoQ rounds to tens'. `digits: -1` is the only tens-rounding this system
+        has, and it is Excel ROUNDUP (away from zero)."""
+        r = [s for s in self.lms["pipelines"]["lms_boq"]["steps"] if s["step"] == "roundup"]
+        self.assertEqual(len(r), 1)
+        self.assertEqual(r[0]["target"], "supply")
+        self.assertEqual(r[0]["params"], {"digits": -1})
+
+    def test_lms_04_the_goldens_carry_the_inverted_arithmetic(self):
+        """The banked goldens must state BOTH figures, so a silent re-inversion moves them. Pins
+        the worked example the owner ruled on: Lutron 24,500 -> BoQ 31,850, BCS 24,500. The
+        2,250 row is the one that proves the rounding DIRECTION (2,925 -> 2,930, never 2,920)."""
+        # ⚠️ THE GOLDENS ARE DERIVED FROM THE PIPELINE'S OWN DECLARED FACTOR, not from a constant.
+        # A vacuity probe caught this: inverting the pipeline's scale step left this test GREEN,
+        # because the goldens were checked only against themselves. Reading the markup and the
+        # rounding OUT OF THE CONFIG means the goldens and the pipeline can no longer drift apart --
+        # invert one without the other and this goes red.
+        import math
+        scale = [s for s in self.lms["pipelines"]["lms_boq"]["steps"] if s["step"] == "scale"][0]
+        rnd = [s for s in self.lms["pipelines"]["lms_boq"]["steps"] if s["step"] == "roundup"][0]
+        self.assertEqual(scale["formula"], "base*(1+markup)", "the golden derivation assumes markup")
+        factor = 1.0 + scale["params"]["markup"]
+        digits = rnd["params"]["digits"]
+
+        def expected_boq(rate):
+            f = 10.0 ** digits
+            return math.ceil(rate * factor * f - 1e-9) / f
+
+        by = {}
+        for i in self.lms_items:
+            by[(i["attributes"]["description"], i["brand"])] = i["rates"]["rate"]
+        seen = 0
+        for g in self.lms["goldens"]:
+            _rate = by[(g["attrs"]["description"], g["attrs"]["brand"])]
+            self.assertEqual(g["expect"]["lms_boq"]["supply"], expected_boq(_rate),
+                             "golden %s disagrees with the pipeline's own factor/rounding" % g["id"])
+            rate = by[(g["attrs"]["description"], g["attrs"]["brand"])]
+            self.assertEqual(g["expect"]["lms_bcs"]["bcs_supply"], rate,
+                             "BCS golden must equal the stored rate exactly")
+            self.assertGreater(g["expect"]["lms_boq"]["supply"], rate,
+                               "BoQ golden must be ABOVE the rate -- never a division")
+            self.assertEqual(g["expect"]["lms_boq"]["supply"] % 10, 0, "BoQ rounds to tens")
+            if rate == 24500:
+                self.assertEqual(g["expect"]["lms_boq"]["supply"], 31850); seen += 1
+            if rate == 2250:
+                self.assertEqual(g["expect"]["lms_boq"]["supply"], 2930)
+                self.assertNotEqual(g["expect"]["lms_boq"]["supply"], 2920); seen += 1
+        self.assertEqual(seen, 2, "both worked examples must be present in the goldens")
+
+    # ---- the two dropdowns ----
+    def test_lms_05_both_dropdowns_are_catalogue_driven(self):
+        """Both attributes resolve `values_from` the LIVE master -- description from the attributes
+        key, brand from the READ-TIME PROJECTED column (3c39bac7)."""
+        defs = {d["id"]: d for d in self.lms["attribute_definitions"]}
+        self.assertEqual(sorted(defs), ["brand", "description"], "two fields, no more")
+        self.assertEqual(defs["description"]["values_from"],
+                         {"kind": "lms_item", "attr": "description"})
+        self.assertEqual(defs["brand"]["values_from"], {"kind": "lms_item", "attr": "brand"})
+
+    def test_lms_06_NEGATIVE_no_static_values_list_anywhere(self):
+        """⚠️ THE GROWTH BAR. A static `values` list would freeze the dropdown: a catalogue line or
+        a brand added by upload would NOT appear without a config edit. The owner's requirement is
+        that everything updates by upload alone, and it is the reason the brand projection exists.
+        Also asserts no `default` on brand -- brand stays BLANK when the document does not say."""
+        for d in self.lms["attribute_definitions"]:
+            self.assertNotIn("values", d, "%s must have NO static values list" % d["id"])
+        brand = [d for d in self.lms["attribute_definitions"] if d["id"] == "brand"][0]
+        self.assertIsNone(brand.get("default"), "brand must never be defaulted or guessed")
+
+    def test_lms_07_a_new_catalogue_row_needs_no_config_change(self):
+        """Adding a catalogue line changes ITEMS only. The config names a kind and an attribute,
+        never a value, so the dropdown widens by upload alone."""
+        # ⚠️ GOLDENS ARE EXCLUDED, DELIBERATELY. A golden is a TEST FIXTURE: it must name a real
+        # description and brand to assert a real rate, and every category's goldens do. The claim
+        # here is about the LIVE surface the dropdowns are built from -- the attribute definitions
+        # and the pipelines. Embedding a catalogue value THERE is what would freeze the dropdown.
+        live = {k: v for k, v in self.lms.items() if k != "goldens"}
+        blob = json.dumps(live)
+        for i in self.lms_items:
+            self.assertNotIn(i["attributes"]["description"], blob,
+                             "no catalogue description may be embedded in the live config surface")
+        for brand in {i["brand"] for i in self.lms_items}:
+            self.assertNotIn('"%s"' % brand, blob,
+                             "no catalogue brand may be embedded in the live config surface")
+        # and the definitions themselves name a KIND and an ATTRIBUTE, never a value
+        for d in live["attribute_definitions"]:
+            self.assertEqual(sorted(d["values_from"]), ["attr", "kind"])
+
+    # ---- the match ----
+    def test_lms_08_description_plus_brand_is_unique_across_the_catalogue(self):
+        """`matchMasterRow` returns a row ONLY on exactly one hit, so uniqueness of the key is the
+        whole requirement. Includes the 6 two-brand descriptions, which were structurally
+        unmatchable before the brand projection."""
+        pairs = [(i["attributes"]["description"], i["brand"]) for i in self.lms_items]
+        self.assertEqual(len(pairs), 24)
+        self.assertEqual(len(set(pairs)), 24, "(description, brand) must be UNIQUE")
+        descs = collections.Counter(d for d, _ in pairs)
+        two = [d for d, n in descs.items() if n > 1]
+        self.assertEqual(len(two), 6, "6 descriptions carry two brands")
+        for d in two:
+            self.assertEqual(len({b for dd, b in pairs if dd == d}), 2,
+                             "a two-brand description must carry two DISTINCT brands")
+
+    def test_lms_09_the_wrong_brand_is_worth_multiples_not_rounding(self):
+        """WHY the brand field is load-bearing rather than cosmetic: on the two-brand descriptions
+        the two rates differ by large multiples, so picking the wrong side is not a small error."""
+        by = collections.defaultdict(dict)
+        for i in self.lms_items:
+            by[i["attributes"]["description"]][i["brand"]] = i["rates"]["rate"]
+        ratios = []
+        for d, brands in by.items():
+            if len(brands) < 2:
+                continue
+            vals = sorted(brands.values())
+            ratios.append(vals[-1] / vals[0])
+        self.assertEqual(len(ratios), 6)
+        self.assertGreater(max(ratios), 6.0, "the worst two-brand spread exceeds 6x (AV interface)")
+        self.assertGreater(min(ratios), 1.1, "every two-brand pair differs materially")
+
+    # ---- the category, and everything else ----
+    def test_lms_10_the_category_is_now_eligible_for_the_panel(self):
+        """`isEligibleConfig` needs BOTH non-empty pipelines and non-empty definitions. The
+        definitions were always there; the ZERO PIPELINES were what showed 'coming soon'."""
+        self.assertEqual(sorted(self.lms["pipelines"]), ["lms_bcs", "lms_boq"])
+        self.assertEqual(len(self.lms["attribute_definitions"]), 2)
+        self.assertEqual(self.lms["matching_mode"], "item_identity")
+        self.assertEqual(self.lms["identity_attribute_id"], "description")
+        self.assertEqual(self.lms["item_kinds"], ["lms_item"])
+
+    def test_lms_11_no_rules_entry_was_added(self):
+        """DELIBERATE. `item_identity` already routes to the shared identity prompt and injects the
+        live catalogue as the identity values; `miscellaneous` (the working precedent) carries zero
+        rules. A rules entry would buy nothing and would join the shared ESTIMATOR_RULES block,
+        whose cross-talk cost was measured twice in two days. The markup and the rounding are
+        CALCULATIONS and belong in config, never in the prompt."""
+        self.assertFalse(self.lms.get("rules"), "no rules entry for this category")
+        misc = [c for c in self.payload["category_configs"]
+                if c["category_id"] == "miscellaneous"][0]
+        self.assertFalse(misc.get("rules"), "the precedent carries none either")
+
+    def test_lms_12_NEGATIVE_no_other_category_moved(self):
+        """⚠️ The regression guard, at the asset level: v55 differs from v54 in
+        `lighting_mgmt_system` ONLY -- every other config, and every item, byte-identical."""
+        with open(_asset_path("rate_master_electrical_all_v54.json"), "r", encoding="utf-8") as fh:
+            prev = json.load(fh)
+        was = {c["category_id"]: c for c in prev["category_configs"]}
+        now = {c["category_id"]: c for c in self.payload["category_configs"]}
+        self.assertEqual(sorted(now), sorted(was), "no category added or removed")
+        self.assertEqual(sorted(k for k in now if now[k] != was[k]), ["lighting_mgmt_system"])
+        self.assertEqual(self.payload["items"], prev["items"], "no item may move")
+        for cat in was:
+            if cat == "lighting_mgmt_system":
+                continue
+            self.assertEqual(self.payload["goldens"].get(cat), prev["goldens"].get(cat),
+                             "%s goldens must not move" % cat)

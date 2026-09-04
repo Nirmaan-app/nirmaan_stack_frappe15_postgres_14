@@ -340,16 +340,23 @@ class TestRateSuggest(FrappeTestCase):
         frappe.db.commit()
         _insert_cat(self.boq, sheet, 1, 21, "switches_sockets")
         _insert_cat(self.boq, sheet, 1, 22, "conduit_piping")
-        _insert_cat(self.boq, sheet, 1, 23, "lighting_mgmt_system")  # empty pipelines -> NOT eligible
+        # ⚠️ CHANGED AT THE LMS SLICE (asset v55, 2026-09-04). This row USED to be excluded, and the
+        # comment here used to read "empty pipelines -> NOT eligible". That was true while
+        # `lighting_mgmt_system` was a DATA-ONLY shell: `config_is_eligible` requires non-empty
+        # pipelines AND non-empty attribute definitions, and LMS had zero pipelines. The LMS slice
+        # gave it two (`lms_boq` / `lms_bcs`), so it now passes that gate and JOINS the population.
+        # The row moving into `cats` below is the slice working, not a regression.
+        _insert_cat(self.boq, sheet, 1, 23, "lighting_mgmt_system")  # now ELIGIBLE (has pipelines)
         # row 24: no BoQ Row Category -> blank -> excluded
         _insert_cat(self.boq, sheet, 1, 25, "miscellaneous")
         frappe.db.commit()
 
-        # (a) population spans switches + conduit + misc; LMS (empty pipelines) + blank excluded
+        # (a) population spans switches + conduit + LMS + misc; only the blank row is excluded
         cv, rows = extraction.assemble_population(self.boq, sheet)
         self.assertEqual(cv, 1)
         cats = {r["excel_row"]: r["category_id"] for r in rows}
-        self.assertEqual(cats, {21: "switches_sockets", 22: "conduit_piping", 25: "miscellaneous"})
+        self.assertEqual(cats, {21: "switches_sockets", 22: "conduit_piping",
+                                23: "lighting_mgmt_system", 25: "miscellaneous"})
 
         configs = extraction._load_active_configs({"Electrical"})
 
