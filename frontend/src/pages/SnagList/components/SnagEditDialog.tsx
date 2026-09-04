@@ -14,7 +14,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
-import { SnagListRow } from "../config/snagTable.config";
+import {
+  SNAG_NO_REMARK_STATUS,
+  SnagListRow,
+} from "../config/snagTable.config";
 import { UpdateSnagDetailsPayload } from "../types";
 
 export interface SnagEditDialogProps {
@@ -34,14 +37,28 @@ export interface SnagEditDialogProps {
 }
 
 /**
- * Edit ONE snag's Area, Category and Description — AND NOTHING ELSE (owner Q3).
+ * Edit ONE snag's Area, Category, Description — and its Remark (owner 2026-09-04,
+ * REVERSING Q4's "remark is only ever written as part of a status change").
  *
- * What is deliberately absent, and why each absence is load-bearing:
+ * ⚠️ THE REMARK BOX IS OPTIONAL AND THREE-STATE, NOT A FOURTH ALWAYS-WRITTEN FIELD.
+ * Untouched, it sends NOTHING (`undefined`), so the server leaves the stored text
+ * exactly as it is — the same rule `SnagStatusChangeDialog` follows, and for the same
+ * reason: an imported remark is destroyed by an overwrite and the source workbook on
+ * the batch is the only surviving copy. Emptying the box IS a deliberate clear (`""`).
  *
- *  - **NOT status, NOT remark** (owner Q4). Both are owned by the status change
- *    (`SnagStatusChangeDialog`, ADR-0018), whose "Not Applicable takes no remark"
- *    carve-out would have to be reimplemented here and would then be free to drift.
- *    One field, one write path.
+ * ⚠️ `Not Applicable` STILL TAKES NO REMARK (owner Q2a). This dialog shows no editable
+ * box for such a snag — the rule is REUSED from `SNAG_NO_REMARK_STATUS` rather than
+ * re-expressed, and the server refuses a remark on that status whichever dialog sent
+ * it, so the two surfaces cannot drift apart. Any remark such a snag already carries
+ * is shown READ-ONLY: hiding it would make it look deleted when it is not.
+ *
+ * What is still deliberately absent:
+ *
+ *  - **NOT status.** It stays owned by the status change (`SnagStatusChangeDialog`,
+ *    ADR-0018), which is what stamps `status_changed_by` / `status_changed_on`. Note
+ *    the consequence of the remark now being editable here: a remark saved from THIS
+ *    dialog does not move that stamp — correctly, since nobody moved the snag — so
+ *    the row does not name who wrote it. The Version log does.
  *  - **NOT `batch` / `source_row` / `project`.** These are PROVENANCE: they answer
  *    "where did this come from", and an editable answer is worth nothing. The batch
  *    is SHOWN, read-only — with the Batch column and the Batch filter both gone
@@ -68,11 +85,16 @@ export const SnagEditDialog: React.FC<SnagEditDialogProps> = ({
   onCancel,
   onSubmit,
 }) => {
+  const storedRemark = snag?.remark ?? "";
+
   const [area, setArea] = React.useState(snag?.area ?? "");
   const [category, setCategory] = React.useState(snag?.category ?? "");
   const [description, setDescription] = React.useState(snag?.description ?? "");
+  const [remark, setRemark] = React.useState(storedRemark);
 
   if (!snag) return null;
+
+  const takesNoRemark = snag.status === SNAG_NO_REMARK_STATUS;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,6 +104,12 @@ export const SnagEditDialog: React.FC<SnagEditDialogProps> = ({
       area: area.trim(),
       category: category.trim(),
       description: description.trim(),
+      // Untouched -> send NOTHING, so the stored text is left alone; a status that
+      // takes no remark sends nothing either, since there is no box to touch. NOT
+      // trimmed: `update_snag_status` does not trim a remark, and one remark-write
+      // rule means the same text stores the same way from either dialog.
+      remark:
+        takesNoRemark || remark === storedRemark ? undefined : remark,
     });
     if (ok) onCancel();
   };
@@ -97,7 +125,7 @@ export const SnagEditDialog: React.FC<SnagEditDialogProps> = ({
         <DialogHeader>
           <DialogTitle>Edit snag</DialogTitle>
           <DialogDescription>
-            Area, Category and Description only. Status and Remarks are changed
+            Area, Category, Description and Remark. The status itself is changed
             from the status control on the row.
           </DialogDescription>
         </DialogHeader>
@@ -147,6 +175,39 @@ export const SnagEditDialog: React.FC<SnagEditDialogProps> = ({
               placeholder="What is wrong, and where exactly…"
             />
           </div>
+
+          {/* OPTIONAL, and only when the status allows one at all. */}
+          {takesNoRemark ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-[11px] text-amber-800">
+              A snag marked <span className="font-medium">{SNAG_NO_REMARK_STATUS}</span>{" "}
+              takes no remark. Change its status from the row if you need to record a
+              note.
+              {storedRemark.trim() ? (
+                <div className="mt-1.5 whitespace-pre-wrap border-t border-amber-200 pt-1.5 text-amber-900">
+                  <span className="font-medium">Existing remark:</span> {storedRemark}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="snag-edit-remark">
+                Remark{" "}
+                <span className="font-normal text-muted-foreground">(optional)</span>
+              </Label>
+              <Textarea
+                id="snag-edit-remark"
+                rows={3}
+                value={remark}
+                onChange={(e) => setRemark(e.target.value)}
+                placeholder="A note about this snag — what was done, or what is blocking it…"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                {storedRemark.trim()
+                  ? "This replaces the existing remark. Clearing the box removes it."
+                  : "Leave blank if there is nothing to record."}
+              </p>
+            </div>
+          )}
 
           {/* PROVENANCE — read-only, and the only place it is still shown. */}
           <div className="rounded-md border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">

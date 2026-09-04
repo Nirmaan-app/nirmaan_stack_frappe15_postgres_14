@@ -40,11 +40,15 @@ def _assert_status(status):
         )
 
 
-#: The three DATA fields a human may write after creation. Owned jointly by
-#: `add_manual_snag` (create) and `update_snag_details` (edit) -- and by nothing else.
-#: `status` and `remark` are NOT here: they are owned by `update_snag_status` (ADR-0018).
-#: `batch` / `source_row` / `project` are NOT here either: provenance answers "where did
-#: this come from", which an editable answer would make worthless.
+#: The three ALWAYS-OVERWRITTEN data fields a human may write after creation. Owned jointly
+#: by `add_manual_snag` (create) and `update_snag_details` (edit) -- and by nothing else.
+#: `remark` is ALSO editable by `update_snag_details` (owner 2026-09-04) but is NOT in this
+#: tuple, and must not be added to it: these three are a blind overwrite, while a remark has
+#: THREE states (leave / clear / overwrite) and a `Not Applicable` carve-out. Folding it in
+#: would turn "not supplied" into a wipe of the imported text.
+#: `status` is NOT here: `update_snag_status` owns it, because that is what stamps the
+#: attribution. `batch` / `source_row` / `project` are NOT here either: provenance answers
+#: "where did this come from", which an editable answer would make worthless.
 DETAIL_FIELDS = ("area", "category", "description")
 
 
@@ -162,15 +166,17 @@ def bulk_update_snag_status(snags=None, status=None):
 # Manual entry
 # ---------------------------------------------------------------------------
 #
-# There is NO standalone remark endpoint. `update_snag_comments` was deleted with the
-# `comments` field (ADR-0018): a remark is now written as part of a status change, by
-# `update_snag_status` above. Do not add one back.
+# There is STILL no standalone remark endpoint, and there must not be one: `update_snag_comments`
+# was deleted with the `comments` field (ADR-0018). A remark rides one of the TWO existing
+# writers -- `update_snag_status` above, or `update_snag_details` below (owner 2026-09-04, which
+# REVERSED "a remark is only ever written as part of a status change"). Both share one set of
+# three states and one `Not Applicable` carve-out; a third writer is what would let them drift.
 #
-# `update_snag_details` (below, Revision 3) IS a write path that does not touch `status`,
-# and it is the reason the caveat above matters: `status_changed_by` / `status_changed_on`
-# no longer coincide with the LAST edit, only with the last STATUS change. That is exactly
-# what they claim to mean, and exactly the reading ADR-0018 warns not to relabel -- which
-# is why a remark is still not editable there.
+# `update_snag_details` does not touch `status`, and that is the caveat to keep in view:
+# `status_changed_by` / `status_changed_on` do not coincide with the LAST edit, only with the
+# last STATUS change. That is exactly what they claim to mean, and exactly the reading ADR-0018
+# warns not to relabel -- so a remark saved from the edit dialog is unattributed on the row, and
+# the Version log is where its author lives.
 
 
 @frappe.whitelist(methods=["POST"])
@@ -209,15 +215,36 @@ def add_manual_snag(project=None, area=None, category=None, description=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def update_snag_details(snag=None, area=None, category=None, description=None):
-    """Rewrite ONE snag's area / category / description. Admin / Project Lead / PMO.
+def update_snag_details(snag=None, area=None, category=None, description=None, remark=None):
+    """Rewrite ONE snag's area / category / description / remark. Admin / Project Lead / PMO.
 
     THE FIRST POST-CREATE WRITE PATH FOR THIS DOCTYPE'S DATA FIELDS. Until now the three
     were CREATE-ONLY (`add_manual_snag` / the importer) and a typo could not be corrected.
 
-    WHAT IT DELIBERATELY CANNOT TOUCH, and why each one is out:
-      - `status` / `remark` -- owned by `update_snag_status` (ADR-0018). A remark is written
-        as part of a status change; a second writer would un-couple the attribution from it.
+    `remark` IS EDITABLE HERE (owner decision 2026-09-04), REVERSING the original "a remark is
+    only ever written as part of a status change" (ADR-0018). It keeps the SAME THREE STATES as
+    `update_snag_status`, and they are not two:
+      - `None`  -- not supplied. The stored remark is left exactly as it is.
+      - `""`    -- an explicit CLEAR.
+      - text    -- an OVERWRITE. The imported text is destroyed; the source workbook on the
+                   batch is the surviving copy.
+    Collapsing `None` into `""` would wipe the imported remark on every area/category typo fix
+    made by a client that does not send the field.
+
+    ⚠️ `Not Applicable` STILL TAKES NO REMARK (owner decision Q2a) -- the rule is one rule, not
+    one per write path, so it is enforced here too, against the snag's STORED status (this
+    endpoint never moves the status). Without it the carve-out would hold on one screen and not
+    the other, and a snag could end up marked Not Applicable WITH a remark.
+
+    ⚠️ ATTRIBUTION IS UNCHANGED AND THAT IS CORRECT: `status_changed_by` / `status_changed_on`
+    answer "who last MOVED this snag", so a remark edited here does not touch them (the
+    `before_save` controller stamps on a status transition only, and already anticipates a bare
+    remark edit). A remark written from this dialog is therefore NOT attributed to its author --
+    the Version log is where that lives.
+
+    WHAT IT STILL DELIBERATELY CANNOT TOUCH:
+      - `status` -- owned by `update_snag_status` (ADR-0018), which is what stamps the
+        attribution. Two writers on one field is how the stamp starts lying.
       - `batch` / `source_row` / `project` -- provenance. It answers "where did this come
         from", and an editable answer is worth nothing.
 
@@ -232,6 +259,9 @@ def update_snag_details(snag=None, area=None, category=None, description=None):
     `status_changed_by` / `status_changed_on` keep pointing at the last STATUS change, which
     is what they claim to mean.
 
+    All four fields are set before the SINGLE `doc.save()`, so one edit stays one transaction
+    and one Version row.
+
     `description` MAY be blank (ADR-0019).
     """
     if not snag:
@@ -243,8 +273,23 @@ def update_snag_details(snag=None, area=None, category=None, description=None):
 
     details = _normalized_details(area, category, description)
     doc = frappe.get_doc("Project Snag", snag)
+
+    # The carve-out is checked against the STORED status: this endpoint cannot move it, so
+    # the status the snag has now is the status the remark would land beside. An empty string
+    # is refused too -- it is a CLEAR, which is still a remark write.
+    if remark is not None and doc.status == NO_REMARK_STATUS:
+        frappe.throw(
+            f"A snag marked '{NO_REMARK_STATUS}' takes no remark. Change its status first if "
+            f"you need to record a note.",
+            title="No remark on Not Applicable",
+        )
+
     for field in DETAIL_FIELDS:
         setattr(doc, field, details[field])
+    # NOT stripped, exactly as `update_snag_status` leaves it: one remark-write rule, so the
+    # same text saved from either dialog is stored the same way.
+    if remark is not None:
+        doc.remark = remark
     doc.save(ignore_permissions=True)
     frappe.db.commit()
 
@@ -253,6 +298,7 @@ def update_snag_details(snag=None, area=None, category=None, description=None):
         "area": doc.area,
         "category": doc.category,
         "description": doc.description,
+        "remark": doc.remark,
     }
 
 

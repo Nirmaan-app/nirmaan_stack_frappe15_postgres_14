@@ -9,9 +9,10 @@ export interface SnagStatsStripProps {
 }
 
 /**
- * Total / Pending / WIP / Completed.
+ * Total / Pending / WIP / Completed / Not Applicable.
  *
- * `Not Applicable` is intentionally not a tile: it is a disposal, not progress.
+ * `Not Applicable` is a disposal rather than progress, so it sits last and in a
+ * muted tone — it is still counted inside `Total`.
  * There is NO Risk Level tally in this feature (plan § 2) — do not add one.
  */
 export const SnagStatsStrip: React.FC<SnagStatsStripProps> = ({
@@ -35,6 +36,11 @@ export const SnagStatsStrip: React.FC<SnagStatsStripProps> = ({
       value: stats.by_status.Completed,
       tone: "bg-green-50/70 text-green-700",
     },
+    {
+      label: "Not Applicable",
+      value: stats.by_status["Not Applicable"],
+      tone: "bg-gray-50 text-gray-500",
+    },
   ];
 
   return (
@@ -50,7 +56,7 @@ export const SnagStatsStrip: React.FC<SnagStatsStripProps> = ({
           <span className="text-lg font-bold leading-none tabular-nums">
             {isLoading ? "—" : t.value}
           </span>
-          <span className="mt-1 text-[10px] font-medium uppercase tracking-wider opacity-70">
+          <span className="mt-1 whitespace-nowrap text-[10px] font-medium uppercase tracking-wider opacity-70">
             {t.label}
           </span>
         </div>
