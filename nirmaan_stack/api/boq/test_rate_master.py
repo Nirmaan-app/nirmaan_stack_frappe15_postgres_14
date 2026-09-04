@@ -6409,6 +6409,329 @@ class TestPointWiringConduitAndLength(FrappeTestCase):
         item["notes"] = {"attached": ["Secondary point wiring, looped"]}
         self.assertEqual(point_type_of(item), "Secondary")
 
+    # ---------- THE ROW-SHAPE RULES (owner ruling 2026-09-04) ----------
+    # THE UNIFYING IDEA: count the points the row covers and price each by its type. A row covering
+    # n points names one primary and n-1 secondaries, which IS `15 + (n-1) * 5`. So a point-set shape
+    # has BOTH types by construction -> None -> the formula. The formula was never a special case.
+
+    # The exact Olympia ancestor note, verbatim from BOQ-26-00205 `ELE Lowside` row 11. It is the
+    # reason all five point-set rows read Secondary: `looping` fires at distance 1 and nothing at
+    # distance 0 opposed it.
+    _OLYMPIA_NOTE = (
+        "Provide all materials, accessories, labours etc. for wiring for lights, ceiling fans, "
+        "exhaust fans, 6A sockets. The rate for point wiring shall include wiring from first "
+        "switch point and then looping between the points."
+    )
+    # ⚠️ THE SECONDARY-ONLY HALF OF THAT NOTE, AND IT IS WHAT MAKES THE SHAPE TESTS NON-VACUOUS.
+    # The FULL note names BOTH types once the `first ... point` widening is live, so a row under it
+    # reaches None whether or not the shape rules exist -- a test using it proves nothing about the
+    # shape. This clause names ONLY the secondary token, so a row beneath it resolves Secondary
+    # unless its own structure overrides. Caught by the vacuity probe, which is what that probe is
+    # for; do not "simplify" these fixtures back to the full note.
+    _LOOPING_ONLY_NOTE = "The rate shall include looping between the points."
+
+    def test_pw_shape_01_olympia_ladder_takes_the_formula_not_five(self):
+        """POSITIVE, THE DEFECT ITSELF. The three Olympia rows name no type of their own; the parent
+        preamble's note says "looping", which used to decide for them and pinned every rung at 5 m.
+        Their own structure now settles it: both types -> None -> `15 + (n-1) * 5`."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        for desc in ("One (1) light point controlled by a 6A piano key type switch",
+                     "Set of two (2) light points controlled by a 6A piano key type switch",
+                     "Set of three (3) light points controlled by a 6A piano key type  switch"):
+            item = self._item(desc, ancestors=("WIRING SYSTEM", "POINT WIRING"))
+            item["ancestor_chain"][-1]["notes"] = {"attached": [self._LOOPING_ONLY_NOTE]}
+            self.assertIsNone(point_type_of(item), desc)
+
+    def test_pw_shape_02_the_ancestor_looping_no_longer_decides_a_point_set_row(self):
+        """POSITIVE: the payload shape that actually broke -- the real Olympia note, verbatim, in the
+        parent's note block. Two assertions, because they prove different things: under the FULL note
+        the row reaches the formula (that is the end-to-end fix, and with the widening live the note
+        itself names both types); under the LOOPING-ONLY clause it still reaches the formula, and
+        there only the row's own structure can be doing the work."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        desc = "Set of two (2) light points controlled by a 6A piano key type switch"
+        for note in (self._OLYMPIA_NOTE, self._LOOPING_ONLY_NOTE):
+            item = self._item(desc, ancestors=("WIRING SYSTEM", "POINT WIRING"))
+            item["ancestor_chain"][-1]["notes"] = {"attached": [note]}
+            self.assertIsNone(point_type_of(item), note)
+
+    def test_pw_shape_03_the_BOQ_26_00019_ladder_one_through_eight(self):
+        """POSITIVE, THE INDEPENDENT PRODUCTION CASE. `BOQ-26-00019` carries this ladder on two
+        sheets and predates Olympia entirely -- proof the defect is not one client's wording. Every
+        rung must reach the formula, not just the ones Olympia happens to share. Each rung sits under
+        a secondary-naming ancestor, so the shape rule is the only thing that can save it."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        for desc in ("One (1) light point controlled by a 10A modular type switch",
+                     "Two (2) light point controlled by a 10A modular type switch",
+                     "Three (3) light point controlled by a 10A modular type switch",
+                     "Four(4) light points controlled by one(1) 10A modular type switches.",
+                     "Five(5) light points controlled by one(1) 10A modular type switches.",
+                     "Six(6) light points controlled by one(1) 10A modular type switches.",
+                     "Seven(7) light points controlled by one(1) 10A modular type switches.",
+                     "Eight(8) light points controlled by one(1) 10A modular type switches.",
+                     "1light point controlled by 1 - 2way switch"):
+            item = self._item(desc, ancestors=("POINT WIRING",))
+            item["ancestor_chain"][-1]["notes"] = {"attached": [self._LOOPING_ONLY_NOTE]}
+            self.assertIsNone(point_type_of(item), desc)
+
+    def test_pw_shape_04_count_only_shape_upto_n_points(self):
+        """POSITIVE, THE SECOND SHAPE. `Upto 10 Light Points` carries a count but no switch clause.
+        Owner: "this shape is also both primary and secondary and should be evaluated by the
+        formula". Reaches `BOQ-26-00016` rows 50/51/52. Sits under a secondary-naming ancestor, so
+        without this second pattern the row would resolve Secondary and take a flat 5 m."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        for desc in ("Upto 10 Light Points", "Upto 20 Light Points", "Upto 30 Light Points"):
+            item = self._item(desc, ancestors=("WIRING",))
+            item["ancestor_chain"][-1]["notes"] = {"attached": [self._LOOPING_ONLY_NOTE]}
+            self.assertIsNone(point_type_of(item), desc)
+
+    def test_pw_shape_05_count_only_is_anchored_to_the_WHOLE_description(self):
+        """NEGATIVE, AND THE SAFETY PROPERTY OF SHAPE 2. This pattern is far broader than the
+        switch-clause one, so it is anchored `^...$`. Measured on 30,184 line items: unanchored it
+        changes 20 rows and leaks into switch-clause rows; anchored it changes exactly 3. A count of
+        points buried inside a longer sentence must NOT trigger it -- that sentence is prose about
+        the work, not a row covering n points.
+
+        ⚠️ PIN INVERTED 2026-09-05, NOT DELETED. This used to assert the end-to-end verdict on
+        "Cable laid past 10 light points and terminated at the board" -> Secondary. The count rule
+        shipped that day legitimately takes that row to the formula instead: it states ten points,
+        and ten points are one primary plus nine secondaries whatever the sentence around them says.
+        So the OLD assertion is now false for a good reason. What this test was really protecting is
+        the ANCHOR, and that is asserted directly here -- plus an end-to-end case with n=1, where
+        the count rule cannot interfere and the ancestor must still decide."""
+        from nirmaan_stack.services.boq_rate_master.extraction import (
+            point_type_of, _PT_SHAPE_COUNT_ONLY)
+        buried = "Cable laid past 10 light points and terminated at the board"
+        self.assertIsNone(_PT_SHAPE_COUNT_ONLY.search(buried))          # the anchor holds
+        self.assertIsNotNone(_PT_SHAPE_COUNT_ONLY.search("Upto 10 Light Points"))
+        # n = 1, so the count rule stands aside and the ancestor still decides.
+        self.assertEqual(point_type_of(self._item(
+            "Cable laid past 1 light point and terminated at the board",
+            ancestors=("SECONDARY POINT WIRING",))), "Secondary")
+
+    def test_pw_shape_06_NEGATIVE_a_row_naming_its_own_type_is_UNCHANGED(self):
+        """NEGATIVE, THE PRECEDENCE STOP. 244 point-set rows already name their own type and are
+        correctly self-determined. The shape rules must never override them -- a row saying
+        "Secondary light points (loop points after primary)" is still Secondary, and a self-named
+        Primary is still Primary, even though BOTH carry the point-set structure."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        # Both descriptions carry the point-set structure, so the shape rule WOULD claim them if the
+        # precedence guard were not there. Each names its own type, so each keeps it.
+        self.assertEqual(point_type_of(self._item(
+            "Secondary: 3 light points controlled by a 6A switch, loop points")), "Secondary")
+        self.assertEqual(point_type_of(self._item(
+            "Primary light point: 1 light point controlled by a 6A switch")), "Primary")
+
+    def test_pw_shape_07_NEGATIVE_no_token_anywhere_still_reaches_the_formula(self):
+        """NEGATIVE: the 309 rows that already reach the formula with no token anywhere must keep
+        arriving there by their existing route -- the `not by_distance` branch, not the shape branch.
+        Same answer, and the shape rules must not have disturbed the path to it."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertIsNone(point_type_of(self._item("Supply and wiring of light point with 1.5 sq mm wire")))
+        self.assertIsNone(point_type_of(self._item("")))
+
+    def test_pw_shape_08_NEGATIVE_shapes_do_not_fire_on_non_point_wiring_rows(self):
+        """NEGATIVE: cable, conduit and tray rows carry digits and sometimes the word `point`, but
+        they are not point-set rows. Neither shape may claim them."""
+        from nirmaan_stack.services.boq_rate_master.extraction import (
+            _pt_row_shape_is_both_types as shape)
+        for desc in ("3 Cx 1.5sqmm Multi Core Copper FRLS cable in 19mm dia PVC conduit",
+                     "Supply and installation of 25 mm FRLS 2mm thick PVC white/grey conduit",
+                     "300 mm x 40 mm perforated cable tray",
+                     "Supply and installation of 6/16A, 6pin MultiIntel Socket"):
+            self.assertFalse(shape(desc), desc)
+
+    def test_pw_shape_09_NEGATIVE_the_patterns_name_no_fixture_type(self):
+        """NEGATIVE, AND OWNER-LOCKED. "X no of y type points. Y canbe many things and not just
+        lights." A fixture list goes stale on the first BoQ using a word nobody thought of, so the
+        patterns key on STRUCTURE -- a count, `point(s)`, and the verb `controlled`. This test fails
+        the moment a fixture word is introduced into either pattern."""
+        from nirmaan_stack.services.boq_rate_master.extraction import (
+            _PT_SHAPE_SWITCH, _PT_SHAPE_COUNT_ONLY)
+        both = (_PT_SHAPE_SWITCH.pattern + " " + _PT_SHAPE_COUNT_ONLY.pattern).lower()
+        for fixture in ("light", "fan", "exhaust", "sensor", "lamp", "socket", "geyser", "heater"):
+            self.assertNotIn(fixture, both, fixture)
+
+    def test_pw_shape_10_the_shape_outranks_the_ancestor_but_never_the_row_itself(self):
+        """POSITIVE + NEGATIVE in one, because it is the ORDERING that matters. The same shaped
+        description resolves to None under a Secondary-naming ANCESTOR (the shape wins), but to
+        Secondary when the row's OWN text names the type (the row wins). Reversing the two guards
+        would silently break one of the two."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        shaped = "3 light points controlled by a 6A switch"
+        self.assertIsNone(point_type_of(self._item(shaped, ancestors=("Secondary loop point wiring",))))
+        self.assertEqual(point_type_of(self._item("Secondary " + shaped)), "Secondary")
+
+    # ---------- THE `first ... point` WIDENING (owner ruling 2026-09-04) ----------
+
+    def test_pw_widen_01_first_switch_point_is_a_primary_token(self):
+        """POSITIVE, THE OTHER HALF OF THE OLYMPIA DEFECT. `\\bfirst\\s+point` missed `first switch
+        point` over ONE intervening word, so the Olympia note named only its secondary token and the
+        rows read Secondary instead of falling to the formula."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertEqual(point_type_of(self._item("Wiring upto the first switch point")), "Primary")
+
+    def test_pw_widen_02_the_olympia_note_alone_now_names_BOTH_types(self):
+        """POSITIVE: the widening's real job. Read as a row's own text, the Olympia sentence names
+        `first switch point` (primary) AND `looping` (secondary) -> both -> None. Owner: "if both
+        points are mentioned then formula should have been applied"."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertIsNone(point_type_of(self._item(self._OLYMPIA_NOTE)))
+
+    def test_pw_widen_03_NEGATIVE_the_bound_is_one_word_not_two(self):
+        """NEGATIVE, AND IT IS A MEASURED BOUND. Across 30,184 line items no row has two intervening
+        words, so `{0,2}` would widen the blast radius for nothing. Two words must NOT match."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertIsNone(point_type_of(self._item("Wiring upto the first main switch point")))
+
+    def test_pw_widen_04_NEGATIVE_the_referential_guard_still_absorbs_a_widened_hit(self):
+        """NEGATIVE: widening the pattern must not widen a hole in the preposition guard. A row that
+        merely REFERS to another point ("looped to the first switch point") must not read Primary --
+        the widened token matches there, and the guard has to discard it exactly as it discarded the
+        narrow one. The answer is Secondary, not None: `looped` is the row's own honest type, and the
+        guard removing the primary vote is precisely what leaves it standing. Asserting None here
+        would have passed for the wrong reason (both types voting), so this pins the guard itself."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertEqual(point_type_of(self._item("Wiring looped to the first switch point")), "Secondary")
+
+    def test_pw_widen_05_NEGATIVE_looping_still_resolves_Secondary(self):
+        """NEGATIVE, OWNER-LOCKED. `_PT_SECONDARY` was NOT touched and must stay effective:
+        "looping point is secondary point". A row naming only a looping/secondary token, with no
+        point-set structure of its own, is still Secondary -- 5 m, exactly as before."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertEqual(point_type_of(self._item("Looping wiring for the fixture")), "Secondary")
+        self.assertEqual(point_type_of(self._item("Wiring for the loop point")), "Secondary")
+
+    # ---------- THE CRASH: a dict written to but never initialised with that key ----------
+
+    def test_pw_drops_01_every_key_READ_from_drops_is_initialised(self):
+        """⚠️ GENERIC BY DESIGN, AND THE GENERALITY IS THE WHOLE VALUE. A test for
+        `conductor_floor_applied` alone would have caught yesterday's crash and none of the next
+        ones -- the same mistake recurs every time a capture accumulator is added.
+
+        WHAT WENT WRONG: `drops` is initialised as a dict literal, and each recorder does
+        `drops["k"].setdefault(...)` or `drops["k"].append(...)`. Those READ the key first, so a key
+        missing from the literal is not a lost observation -- it is a `KeyError` that kills the whole
+        batch the moment that recorder fires. `conductor_floor_applied` shipped that way on
+        2026-09-03 and made `BOQ-26-00016` unpriceable.
+
+        HOW THIS READS THE CODE: it parses `extraction.py` and compares the literal's keys against
+        every `drops[...]` subscript used in a LOAD context. A plain assignment
+        (`drops["rows_omitted"] = ...`) creates its own key and is correctly ignored.
+        """
+        import ast, inspect
+        from nirmaan_stack.services.boq_rate_master import extraction
+        tree = ast.parse(inspect.getsource(extraction))
+        init_keys, read_keys = set(), set()
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name) and node.targets[0].id == "drops"
+                    and isinstance(node.value, ast.Dict)):
+                init_keys |= {k.value for k in node.value.keys if isinstance(k, ast.Constant)}
+            if (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
+                    and node.value.id == "drops" and isinstance(node.slice, ast.Constant)
+                    and not isinstance(node.ctx, ast.Store)):
+                read_keys.add(node.slice.value)
+        self.assertTrue(init_keys, "no `drops = {...}` literal found -- the guard cannot see it")
+        self.assertEqual(
+            sorted(read_keys - init_keys), [],
+            "these `drops` keys are READ but never initialised, so the first write is a KeyError "
+            "that kills the batch")
+
+    # ---------- THE COUNT OUTRANKS THE TOKEN (owner ruling 2026-09-05) ----------
+
+    def test_pw_count_01_a_multi_point_row_naming_PRIMARY_takes_the_formula(self):
+        """POSITIVE, AND THE RULING ITSELF. A row covering 12 points genuinely has ONE primary and
+        eleven secondaries -- which is what `15 + (n-1) * 5` computes -- so a stated count above one
+        outranks a primary token in the row's own text. This is the real `BOQ-26-00063` shape, where
+        "Point wiring will start from First Light point" (a sentence about WHERE THE WIRING STARTS)
+        was read as the row's TYPE and pinned a 12-point row at a flat 15 m."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertIsNone(point_type_of(self._item(
+            "12 light point controlled by MCB. Rate Shall excluding MCB. "
+            "Point wiring will start from First Light point.")))
+
+    def test_pw_count_02_NEGATIVE_a_ONE_point_row_naming_primary_stays_Primary(self):
+        """NEGATIVE, AND THE BOUNDARY OF THE RULE. One point is one primary -- there is no
+        contradiction to resolve, so the token stands and the row keeps its 15 m. If this ever goes
+        green as None, the rule has stopped being about the count."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertEqual(point_type_of(self._item(
+            "1 light point controlled by MCB. Point wiring will start from First Light point.")),
+            "Primary")
+
+    def test_pw_count_03_NEGATIVE_a_count_of_one_is_not_a_count(self):
+        """NEGATIVE: the same row shape at n=1 with no type token at all still reaches the formula
+        by its EXISTING route (the shape rule), not by the count rule."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertIsNone(point_type_of(self._item("1 light point controlled by a 6A switch")))
+
+    def test_pw_count_04_the_unit_guard_rejects_an_amperage(self):
+        """NEGATIVE, AND IT IS THE REASON THIS EXTRACTOR EXISTS IN THIS SHAPE. "One 16 Amps point
+        per circuit" states an AMPERAGE, not sixteen points. An earlier census read it as n=16 and
+        reported a population for the n x 5 rule that was not real. A unit word may never sit
+        between the number and `point`."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_count_of
+        self.assertIsNone(point_count_of("One 16 Amps point per circuit"))
+        self.assertIsNone(point_count_of("2nos 16 Amps point per circuit"))
+        self.assertIsNone(point_count_of("3 x 2.5 sqmm cable to the point"))
+
+    def test_pw_count_05_the_extractor_reads_digits_and_number_words(self):
+        """POSITIVE: sheets write the count either way, and both real forms must parse."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_count_of
+        self.assertEqual(point_count_of("12 light point controlled by MCB"), 12)
+        self.assertEqual(point_count_of("Upto 10 Light Points"), 10)
+        self.assertEqual(point_count_of("Set of three (3) light points controlled by a switch"), 3)
+        self.assertEqual(point_count_of("Six light points controlled by MCB (Excluding MCB)"), 6)
+        self.assertIsNone(point_count_of("Supply and installation of 25 mm PVC conduit"))
+
+    # ---------- THE n x 5 MECHANISM (owner ruling 2026-09-05) ----------
+
+    def test_pw_n5_01_secondary_only_with_a_count_is_n_times_five(self):
+        """POSITIVE, AND SYNTHETIC BY NECESSITY. Owner: "if the row mentions only secondary then it
+        will be n secondary". No row in the corpus exercises this today -- the two an earlier census
+        offered were amperage false-parses -- so this synthetic case IS the protection."""
+        from nirmaan_stack.services.boq_rate_master.extraction import secondary_length_m
+        self.assertEqual(secondary_length_m(self._item("Secondary wiring for 4 loop points")), 20)
+        self.assertEqual(secondary_length_m(self._item("Looping wiring for 7 light points")), 35)
+
+    def test_pw_n5_02_NEGATIVE_secondary_with_NO_count_keeps_the_flat_five(self):
+        """NEGATIVE: without a count there is nothing to multiply, so the rule declines and the
+        config's flat 5 stands. Returning 5 here would be the same answer by a different route and
+        would hide a broken extractor."""
+        from nirmaan_stack.services.boq_rate_master.extraction import secondary_length_m
+        self.assertIsNone(secondary_length_m(self._item("Secondary light point wiring, looped")))
+
+    def test_pw_n5_03_NEGATIVE_both_types_with_a_count_is_the_formula_not_n_times_five(self):
+        """⚠️ THE ORDERING PIN, AND IT GUARDS BOTH DIRECTIONS AT ONCE. A row naming BOTH types with
+        a count must take the FORMULA (Fix 2), never n x 5 (Fix 3) -- and a row naming ONLY
+        secondary must take n x 5 and stay Secondary, never be swallowed into the formula. Get the
+        order wrong either way and one of the two rulings silently stops applying."""
+        from nirmaan_stack.services.boq_rate_master.extraction import (
+            point_type_of, secondary_length_m)
+        both = self._item("Primary and secondary wiring for 4 light points")
+        self.assertIsNone(point_type_of(both))            # -> the formula
+        self.assertIsNone(secondary_length_m(both))       # -> NOT n x 5
+        sec = self._item("Secondary wiring for 4 loop points")
+        self.assertEqual(point_type_of(sec), "Secondary")  # NOT swallowed by the count rule
+        self.assertEqual(secondary_length_m(sec), 20)
+
+    def test_pw_n5_04_NEGATIVE_a_primary_row_with_a_count_gets_no_n5_length(self):
+        """NEGATIVE: n x 5 is the SECONDARY-only mechanism. A multi-point primary row goes to the
+        formula and must not also be handed a length."""
+        from nirmaan_stack.services.boq_rate_master.extraction import secondary_length_m
+        self.assertIsNone(secondary_length_m(self._item(
+            "12 light point controlled by MCB. Point wiring will start from First Light point.")))
+
+    def test_pw_widen_06_NEGATIVE_secondary_list_is_unchanged(self):
+        """NEGATIVE, OWNER-LOCKED: `_PT_SECONDARY` is not editable. Pinning the exact list so an
+        edit has to be deliberate -- the comment above it was corrected in the same change precisely
+        because its rationale had drifted from this list."""
+        from nirmaan_stack.services.boq_rate_master.extraction import _PT_SECONDARY
+        self.assertEqual(_PT_SECONDARY,
+                         [r"\bsecondary\b", r"\blooping\b", r"\blooped\b", r"\bsecond\s+point",
+                          r"\bthird\b", r"\b3rd\b", r"loop\s+in", r"\bloop\s+point"])
+
     # ---------- the v48 CONFIG SHAPE that pieces 1-3 ride on ----------
     def _pw_cfg(self):
         import json, os

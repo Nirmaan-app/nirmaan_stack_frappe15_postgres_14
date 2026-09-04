@@ -723,7 +723,22 @@ class TestRateSuggest(FrappeTestCase):
         p = frappe.get_all(_RUN, filters={"boq": self.boq, "status": "partial"},
                            fields=["halt_reason", "attempted_rows"])[0]
         self.assertEqual(_j(p["attempted_rows"]), [2, 3])
-        self.assertIn("kept failing", p["halt_reason"])
+        # ⚠️ PIN REWRITTEN 2026-09-05, AND WHY IT CHANGED IS THE POINT.
+        # This asserted the substring "kept failing". The halt message was corrected that day because
+        # a purely local `KeyError('conductor_floor_applied')` was being reported to users as
+        # "An AI request kept failing after 3 attempts" -- an AI failure that never happened. The
+        # `try` around a batch covers the API call AND all local post-processing, and `_is_transient`
+        # defaults an unrecognised error to retryable, so a local bug is retried three times and then
+        # blamed on the provider. That message cost a whole investigation chasing a problem that did
+        # not exist.
+        # This test was never about the wording: what it protects is that an unrecognised error is
+        # RETRIED rather than fast-failed, and that the halt stays NON-TERMINAL. Both are asserted
+        # DIRECTLY above -- 4 calls, 3 sleeps, and the run kept at status="partial" with its finished
+        # batch intact. What remains here is deliberately wording-INDEPENDENT, so the next honest
+        # message change does not break a test that is not about messages.
+        self.assertTrue(p["halt_reason"], "a halt must always carry a reason")
+        self.assertIn(str(extraction._RETRIES), p["halt_reason"],
+                      "the reason must name how many attempts were actually made")
         self.assertNotIn("rejected", p["halt_reason"],
                          "a local parse failure must not be reported as a provider rejection")
 
@@ -948,7 +963,14 @@ class TestRateSuggest(FrappeTestCase):
 
         self.assertNotIsInstance(ctx.exception, extraction.ReplyCeilingExceeded)
         self.assertEqual(client.messages.calls, 3, "retry/backoff must be unchanged for a garbled reply")
-        self.assertIn("kept failing", ctx.exception.reason)
+        # ⚠️ PIN REWRITTEN 2026-09-05 -- same reason as test_19, which carries the full note.
+        # In short: the halt message was corrected because a local `KeyError` was being reported as
+        # an AI failure, and this pin used the old wording as a proxy for "we reached the
+        # retries-exhausted path". That is asserted directly by the call count above and by the
+        # non-terminal flag below, so the wording is no longer part of the contract.
+        self.assertTrue(ctx.exception.reason, "a halt must always carry a reason")
+        self.assertIn(str(extraction._RETRIES), ctx.exception.reason,
+                      "the reason must name how many attempts were actually made")
         self.assertFalse(ctx.exception.terminal)
 
     def test_30_a_ceiling_cut_splits_the_batch_and_sends_both_halves(self):

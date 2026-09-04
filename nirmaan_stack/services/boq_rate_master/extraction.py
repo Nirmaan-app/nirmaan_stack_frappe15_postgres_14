@@ -1008,17 +1008,168 @@ _ROW_CONTEXT_SHAPE_GUIDANCE = (
 # The attributes CODE supplies rather than the model. A config declaring one of these gets it
 # filled deterministically after the model returns; a config that does not is untouched.
 _CODE_SUPPLIED_ATTRS = {"point_type"}
-_PT_PRIMARY = [r"\bprimary\b", r"\bfirst\s+point", r"first\s+light\s+point", r"\b1st\s+point"]
-# WARNING `loop point` is HERE BY OWNER RULING (2026-09-01: "loop point is secondary point"), and
-# bare `loop` is DELIBERATELY STILL ABSENT. The corpus uses bare `loop` for plain method prose too --
-# "the wiring shall be done in complete looping in system", "only looping is allowed in terminal
-# blocks" -- which describes HOW the wiring is run, not what KIND of point the row is. The two-word
-# form carries the meaning; the one-word form does not. Do NOT widen this to bare `loop`.
+# ⚠️ `\bfirst\s+(?:\w+\s+){0,1}point` TOLERATES ONE INTERVENING WORD BY OWNER RULING (2026-09-04).
+# The bare `\bfirst\s+point` missed `first switch point` over that single word, and that near-miss is
+# HALF of the Olympia defect: the preamble sentence names BOTH `first switch point` (primary) and
+# `looping` (secondary), so it should have fallen to the formula -- but only the secondary token
+# matched, so the row read Secondary and took 5 m.
+# ⚠️ THE BOUND IS {0,1} AND IT IS MEASURED, NOT GUESSED: across 30,184 line items / 711 committed
+# sheets / 178 BoQs, `{0,1}` and `{0,2}` produce the IDENTICAL 208 new matches -- no row anywhere has
+# two intervening words. `{0,2}` therefore widens the blast radius for nothing. Do not loosen it
+# without re-measuring.
+_PT_PRIMARY = [r"\bprimary\b", r"\bfirst\s+(?:\w+\s+){0,1}point", r"first\s+light\s+point",
+               r"\b1st\s+point"]
+# ⚠️ RATIONALE CORRECTED 2026-09-04 -- THE LIST IS UNCHANGED, THE REASONING WAS WRONG.
+# This comment used to argue that the one-word form does not carry the meaning ("the two-word form
+# carries the meaning; the one-word form does not"), and it argued it using two `looping` sentences
+# -- while `\blooping\b` sat in the list below, matching both of its own counter-examples. The
+# rationale contradicted the code it was explaining, and a reader trusting it would have concluded
+# `looping` was excluded when it is not.
+#
+# THE OWNER'S RULING IS THE OPPOSITE AND IT GOVERNS: "looping point is secondary point" (2026-09-04,
+# restating 2026-09-01's "loop point is secondary point"). `looping` / `looped` / `loop point` /
+# `loop in` are all SECONDARY tokens and stay in the list.
+#
+# What the two prose examples ("the wiring shall be done in complete looping in system", "only
+# looping is allowed in terminal blocks") actually show is a DIFFERENT problem: a METHOD sentence
+# describing HOW the wiring is run can be read as WHAT KIND of point the row is. That is real -- it
+# is precisely the Olympia defect, where an ancestor note's "...and then looping between the points"
+# decided the type of five line items that named no type at all. But the answer is NOT to weaken this
+# list. It is the ROW-SHAPE RULES in `point_type_of`: a row whose own description carries the
+# point-set structure settles its own type and never consults the ancestor. See the two shape
+# patterns below.
+#
+# ⚠️ `_PT_SECONDARY` IS NOT EDITABLE. Bare `loop` remains deliberately ABSENT (a genuinely weaker
+# signal than `looping`), and nothing here may be added or removed without an owner ruling.
 _PT_SECONDARY = [r"\bsecondary\b", r"\blooping\b", r"\blooped\b", r"\bsecond\s+point",
                  r"\bthird\b", r"\b3rd\b", r"loop\s+in", r"\bloop\s+point"]
 _PT_REFERENTIAL = re.compile(
     r"(looped|loop(?:ing)?|controlled|extended|tapped|connected|drawn|fed)"
     r"\s+(?:to|from|with|off)\s+(?:the\s+)?(primary|first|1st)", re.I)
+
+# ── THE ROW-SHAPE RULES (owner ruling 2026-09-04) ───────────────────────────────────────────────
+# THE UNIFYING IDEA, and it is what makes these one rule rather than two special cases:
+# COUNT THE POINTS THE ROW COVERS AND PRICE EACH BY ITS TYPE. A row covering n points names one
+# primary (the first) and n-1 secondaries looped off it -- which is exactly `15 + (n-1) * 5`. The
+# formula was never a special case; it IS the both-types answer. So a row whose own description
+# carries a point-set structure has BOTH types by construction and must resolve to None, letting the
+# config's `derive_attribute` compute the formula.
+#
+# Owner: "the structure ofthe actual line items x no of ligh/fan/anything else points controlled by
+# Y type switch has both primary and secondary and should be treated as such" and "X no of y type
+# points. Y canbe many things and not just lights."
+#
+# ⚠️ STRUCTURAL, NEVER A FIXTURE LIST. Neither pattern names light, fan, sensor, AC or any other
+# fixture -- they key on a COUNT, the word `point(s)`, and (for the first) the verb `controlled`.
+# A fixture list would go stale on the first BoQ using a word nobody thought of, and the owner ruled
+# the structure explicitly. `test_shape_patterns_name_no_fixture` fails if a fixture word appears.
+# ⚠️ THE CORPUS CANNOT PROVE THE CROSS-FIXTURE PROPERTY: measured over 30,184 line items, the word
+# before `point(s)` in this shape is `light` (143) and `1light` (2) and NOTHING ELSE. The
+# two-fixture-family limit is a fact about the data, not about the pattern; the requirement to
+# demonstrate ten fixture types was WITHDRAWN by the owner as unsatisfiable.
+
+# (1) THE SWITCH-CLAUSE SHAPE: a COUNT of points CONTROLLED BY a switch.
+#     Reaches 23 of the 30 known-affected rows, including both `BOQ-26-00019` production ladders and
+#     all five Olympia rows. Measured: moves 0 of the 244 self-determined rows and 0 of the 309
+#     already-correct formula rows.
+_PT_SHAPE_SWITCH = re.compile(r"\d[^.]{0,30}?\bpoints?\b[^.]{0,40}?\bcontrolled\b", re.I)
+
+# (2) THE COUNT-ONLY SHAPE: a count of points with NO switch clause ("Upto 10 Light Points").
+#     Owner: "this shape is also both primary and secondary and should be evaluated by the formula".
+#     ⚠️ THE WHOLE-DESCRIPTION ANCHOR IS WHAT MAKES THIS SAFE, AND IT WAS MEASURED, NOT ARGUED.
+#     This pattern is far broader than (1) and the corpus was asked three questions before it was
+#     written: unanchored (`\d+\s+(?:\w+\s+){0,2}points?` anywhere in the line) changes 20 rows and
+#     leaks into switch-clause rows that (1) already owns; restricting to the PLURAL alone still
+#     changes 16; anchoring to the WHOLE description changes exactly 3 -- the three target rows,
+#     with zero collateral. Requiring the literal lead-in `upto` was rejected for the same reason a
+#     fixture list is: it enumerates a word, so the lead-in is OPTIONAL here.
+_PT_SHAPE_COUNT_ONLY = re.compile(
+    r"^\W*(?:up\s*to\s+|upto\s+|max(?:imum)?\s+)?"
+    r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty)"
+    r"\s+(?:\w+\s+){0,2}points?\W*$", re.I)
+
+
+def _pt_row_shape_is_both_types(description):
+    """True when the row's OWN description carries a point-set structure -- a count of points, with
+    or without a switch clause -- and therefore covers a primary AND its secondaries."""
+    text = description or ""
+    return bool(_PT_SHAPE_SWITCH.search(text) or _PT_SHAPE_COUNT_ONLY.search(text))
+
+
+# ── THE POINT COUNT (owner ruling 2026-09-05) ───────────────────────────────────────────────────
+# ⚠️ THE UNIT GUARD IS THE WHOLE DESIGN OF THIS EXTRACTOR, AND IT WAS MEASURED INTO EXISTENCE.
+# The obvious pattern -- a number within a couple of words of `point` -- reads "One 16 Amps point
+# per circuit" as SIXTEEN POINTS. It is an AMPERAGE. That false parse is not hypothetical: it is
+# what the first census reported, and it made a rule look like it had a population when it did not.
+# So a unit word may never sit between the number and `point`; every word in the gap must be a
+# non-unit word. Measured over 30,184 line items: the guard rejects both amperage rows and keeps
+# every genuine one (`3 light point` -> 3, `Upto 10 Light Points` -> 10, `Three (3) ...` -> 3).
+_PT_COUNT_UNITS = (r"amp|amps|a|w|watt|watts|sqmm|sq|mm|dia|core|cores|r|c|x|kw|va|kva|no|nos|"
+                   r"pole|way")
+_PT_COUNT_WORDS = {w: i + 1 for i, w in enumerate(
+    "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
+    "sixteen seventeen eighteen nineteen twenty".split())}
+_PT_COUNT_WORDS["thirty"] = 30
+_PT_COUNT_DIGIT = re.compile(
+    r"(\d+)\s+(?:(?!(?:" + _PT_COUNT_UNITS + r")\b)\w+\s+){0,2}?points?\b", re.I)
+_PT_COUNT_WORD = re.compile(
+    r"\b(" + "|".join(_PT_COUNT_WORDS) + r")\b\s*(?:\([^)]*\))?\s*"
+    r"(?:(?!(?:" + _PT_COUNT_UNITS + r")\b)\w+\s+){0,2}?points?\b", re.I)
+
+
+def _stated(row_out, attr):
+    """True when `row_out` already carries a real value for `attr` -- i.e. the model answered it.
+    A code-supplied derivation must never overwrite one."""
+    cell = row_out.get(attr)
+    return isinstance(cell, dict) and cell.get("value") not in (None, "")
+
+
+def point_count_of(description):
+    """How many points the row's OWN description says it covers, or None. Digits first, then number
+    words -- a sheet writes either ("12 light point", "Three (3) light points")."""
+    text = description or ""
+    m = _PT_COUNT_DIGIT.search(text)
+    if m:
+        return int(m.group(1))
+    m = _PT_COUNT_WORD.search(text)
+    return _PT_COUNT_WORDS.get(m.group(1).lower()) if m else None
+
+
+def secondary_length_m(item):
+    """THE n x 5 MECHANISM (owner ruling 2026-09-05: "ok. still buid the mechanism").
+
+    A row that names ONLY secondary points in its OWN text and states a count of n covers n
+    secondaries, so its circuit length is n x 5 -- not the flat 5 every secondary row takes today.
+    Returns the length, or None when the rule does not apply and the flat 5 stands.
+
+    ⚠️ ITS POPULATION IS CURRENTLY ZERO AND THAT IS REPORTED, NOT HIDDEN. Measured over 30,184 line
+    items: no point_wiring row matches. The two rows an earlier census offered were the amperage
+    false-parses the unit guard now rejects. It is built because the owner ruled it built -- so the
+    next such row is right the first time -- and it is pinned by a SYNTHETIC test precisely because
+    the corpus does not exercise it.
+    """
+    n = point_count_of(item.get("description"))
+    if n is None or n <= 1:
+        return None
+    return n * 5 if _pt_own_types(item) == {"S"} else None
+
+
+def _pt_own_types(item):
+    """The type letters the row's OWN text (distance 0) names -- {"P"}, {"S"}, both, or empty."""
+    for distance, text in _pt_layers(item):
+        if distance != 0 or not text:
+            continue
+        got = set()
+        for rx in _PT_PRIMARY:
+            for m in re.finditer(rx, text, re.I):
+                seg = text[max(0, m.start() - 90):m.end() + 90]
+                if not _PT_REFERENTIAL.search(seg):
+                    got.add("P")
+        for rx in _PT_SECONDARY:
+            if re.search(rx, text, re.I):
+                got.add("S")
+        return got
+    return set()
 
 
 def _pt_note_text(block):
@@ -1069,6 +1220,41 @@ def point_type_of(item):
         for rx in _PT_SECONDARY:
             if re.search(rx, text, re.I):
                 by_distance.setdefault(distance, set()).add("S")
+    # ⚠️ THE ROW-SHAPE RULES SIT EXACTLY HERE, AND THE POSITION IS THE WHOLE DESIGN.
+    #
+    # AFTER the scan, so `0 in by_distance` is available and means "the row's own text named a type".
+    # BEFORE nearest-wins, so the row's own STRUCTURE outranks any ancestor -- which is the point:
+    # Olympia's five line items name no type, and an ancestor note's "looping" was deciding for them.
+    #
+    # `0 not in by_distance` is the PRECEDENCE GUARD and it is a STRUCTURAL guarantee, not a measured
+    # one: the 244 self-determined rows are BY DEFINITION the rows with a token at distance 0, so
+    # this branch cannot reach them. A row saying "Secondary light points (loop points after
+    # primary)" stays Secondary. Rows that already reach the formula with no token anywhere are
+    # value-unchanged -- they returned None below and return None here.
+    if 0 not in by_distance and _pt_row_shape_is_both_types(item.get("description")):
+        return None                      # BOTH types by structure -> the formula stands
+    # ⚠️ THE COUNT OUTRANKS THE TOKEN (owner ruling 2026-09-05). THIS IS NOT A WORKAROUND.
+    # A row covering n > 1 points genuinely HAS one primary and n-1 secondaries -- that is exactly
+    # what `15 + (n-1) * 5` computes. So a stated count of more than one is a FACT ABOUT THE ROW
+    # that contradicts any single-type reading of it, and it wins. It is the same idea as the two
+    # shape rules above: the row's own structure outranks a token.
+    #
+    # ⚠️ IT DELIBERATELY REACHES ROWS THAT NAME THEIR OWN TYPE -- unlike the shape rules, which are
+    # fenced out by `0 not in by_distance`. That fence is what protected the self-determined rows,
+    # and it is also what left 57 of them wrong: "12 light point controlled by MCB ... Point wiring
+    # will start from First Light point" read as ONE primary at a flat 15 m, because a sentence
+    # saying WHERE THE WIRING STARTS was taken for the row's type. The count is the evidence that
+    # settles it.
+    #
+    # ⚠️ THE ORDERING WITH THE n x 5 MECHANISM IS LOAD-BEARING:
+    #     count > 1 AND the row's own text names ONLY secondary -> stays Secondary, and
+    #         `secondary_length_m` gives it n x 5. This branch must NOT swallow that population.
+    #     count > 1 AND primary, or both, or neither -> None -> the formula.
+    _count = point_count_of(item.get("description"))
+    if _count is not None and _count > 1:
+        if _pt_own_types(item) == {"S"}:
+            return "Secondary"           # the n x 5 population -- left to `secondary_length_m`
+        return None                      # one primary + (n-1) secondaries -> the formula
     if not by_distance:
         return None                      # NEITHER type named -> the formula stands
     votes = by_distance[min(by_distance)]  # NEAREST WINS
@@ -1739,6 +1925,19 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 # re-selected as their four-pole sibling, and the ones left alone for want of a
                 # unique sibling. Observation only, like every sibling here.
                 "four_pole_mcb_corrections": {},
+                # ⚠️ CONDUCTOR FLOOR: {excel_row: [{attr, action}, ...]}. THIS KEY WAS MISSING AND
+                # THE OMISSION WAS A CRASH, not a lost observation -- its write site uses
+                # `.setdefault(...)`, which READS the key first, so the moment
+                # `apply_conductor_floor` recorded anything the whole batch died with
+                # `KeyError('conductor_floor_applied')`. Shipped with the conductor-floor work
+                # (2026-09-03); it took out every point_wiring batch where the floor actually
+                # applied. `BOQ-26-00016` `Bill 18-_W&C` could not be priced at all because of it.
+                # ⚠️ AND IT LIED ABOUT ITS CAUSE: the except-clause below treats any exception as a
+                # failed AI attempt, so the user was told "An AI request kept failing after 3
+                # attempts" -- see the halt message at the end of this function.
+                # `test_drops_keys_are_all_initialised` now fails for ANY key written here but
+                # missing from this literal, so the next one cannot repeat it.
+                "conductor_floor_applied": {},
             }
             for el in _extract_json_array(text):
                 rid = int(el["id"])
@@ -1880,13 +2079,31 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 #
                 # INERT for every other category: nothing else declares `point_type`.
                 if _row_src is not None and "point_type" in (code_attrs or ()):
-                    _pt = point_type_of(_ai_item(_row_src))
+                    _item_pt = _ai_item(_row_src)
+                    _pt = point_type_of(_item_pt)
                     if _pt is not None:
                         row_out["point_type"] = {"value": _pt, "confidence": 1.0}
                         row_map["point_type"] = {"raw": None, "coerced": _pt,
                                                  "reason": "matched from payload (code)",
                                                  "confidence_raw": None, "confidence": 1.0,
                                                  "defaulted_claimed": False, "defaulted_kept": False}
+                    # THE n x 5 MECHANISM. Supplied here rather than in the config because the
+                    # config's table is a fixed {Primary: 15, Secondary: 5} map and cannot express
+                    # "n times five" -- and this slice ships no asset. The interpreter's step 0
+                    # carries `prefer_attr: circuit_length_m`, whose STATED-WINS branch adopts this
+                    # value and stops the table substituting the flat 5; step 1's formula then
+                    # yields to it for the same reason.
+                    # ⚠️ ONLY when the model stated no length of its own -- a pricer's or the
+                    # model's explicit number always outranks a derived one.
+                    if "circuit_length_m" in defs_by_id and not _stated(row_out, "circuit_length_m"):
+                        _n5 = secondary_length_m(_item_pt)
+                        if _n5 is not None:
+                            row_out["circuit_length_m"] = {"value": _n5, "confidence": 1.0}
+                            row_map["circuit_length_m"] = {
+                                "raw": None, "coerced": _n5,
+                                "reason": "n x 5, secondary points counted (code)",
+                                "confidence_raw": None, "confidence": 1.0,
+                                "defaulted_claimed": False, "defaulted_kept": False}
                 # Attributes the model returned that are NOT declared. Currently read by nothing and
                 # dropped with no else-branch -- the compound-row surplus.
                 surplus = sorted(str(k) for k in set(attrs) - set(defs_by_id))
@@ -1945,8 +2162,27 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
             time.sleep(2 * attempt)
     # Retries exhausted on a transient error. Still a HALT, not a crash: the run keeps every batch
     # completed so far and becomes resumable, instead of discarding the whole run's work.
+    #
+    # ⚠️ THE MESSAGE NAMES THE ACTUAL ERROR, AND THAT IS THE POINT OF THIS WORDING.
+    # It used to assert "An AI request kept failing after 3 attempts" unconditionally. That claim is
+    # only sometimes true: the `try` above wraps the WHOLE batch -- the API call AND every bit of
+    # local post-processing (coercion, the correctors, the `drops` bookkeeping) -- and the
+    # `except Exception` below catches all of it. `_is_transient` then defaults an unrecognised
+    # error to retryable (deliberately, and documented at its definition), so a plain local bug is
+    # retried three times and reported as an AI failure.
+    #
+    # That is exactly what happened with `KeyError('conductor_floor_applied')`: a missing dict key
+    # was reported to the user as an AI problem, and an investigation went looking for one that did
+    # not exist. The real cause was already in `detail`, but nothing surfaced it. A crash that lies
+    # about its cause is worse than a crash.
+    #
+    # ⚠️ NARROWING THE `try` TO THE API CALL ALONE IS THE REAL FIX AND IS DELIBERATELY NOT DONE HERE:
+    # it would restructure the retry/capture/split control flow, which is far more than this slice
+    # authorises. Naming the error is the contained half -- it makes the next such bug legible
+    # immediately instead of costing an investigation.
     raise ExtractionHalted(
-        f"An AI request kept failing after {_RETRIES} attempts, so the run stopped early.",
+        f"The batch failed on all {_RETRIES} attempts, so the run stopped early. "
+        f"Last error: {type(last).__name__}: {last}",
         terminal=False,
         detail=repr(last),
     )
