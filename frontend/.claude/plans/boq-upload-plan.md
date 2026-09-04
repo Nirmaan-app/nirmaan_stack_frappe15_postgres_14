@@ -35741,3 +35741,86 @@ newly-eligible category needs one whole-sheet run.**
   batch `rmbulk-bba3d6865620`, saved verbatim in-container at `/tmp/lms_config_BEFORE.json`).
 - Pin: revert `CURRENT_EALL_ASSET` to `rate_master_electrical_all_v54.json`.
 - The suggestion run `BRSR-26-00620` may be left; it writes no rate.
+
+---
+
+## Follow-up — THE LONG-OPTION WRAPPED READ-OUT (owner ruling 2026-09-04, option C)
+
+**A separate, additive change on top of the LMS slice. Its cert is its own.**
+
+**The problem.** A native `<select>` does NOT wrap option text in any engine we ship to, so an LMS
+item description — 46 to **434** chars, median 215 — is truncated to one line and the pricer cannot
+read what they picked.
+
+**The fix.** A READ-ONLY wrapped `<p>` beneath the control, showing the selected description in full
+(~8 lines, scrollable past that).
+
+⚠️ **THE `<select>` IS NOT TOUCHED, and that was the deciding constraint.** Its blank-versus-fallback
+behaviour is owner-locked — a controlled select with no matching option falls back to the first
+SELECTABLE option, and that rule once cost 12 live rows — so changing it would have withdrawn the LMS
+slice's 7/7 cert from the control. Proven by diff: every changed line is a comment or the new
+paragraph. No select markup, prop, option, value binding or handler was added, removed or modified.
+
+**⚠️ THE THRESHOLD IS A MEASUREMENT, AND THE MARGIN IS THE POINT.** `LONG_OPTION_CHARS = 80`.
+Live Electrical catalogue, 2026-09-04: `lms_item` runs 46–434 (median 215); the longest attribute
+string of EVERY other kind is **48** (`industrial_socket`), then 42, 42, 38, 26. 80 sits in a clear
+gap — it cannot fire on today's other categories, and a future long-option category inherits the
+read-out with **no code change and no category named anywhere**.
+
+**Keyed on LENGTH, never on category.** The gate is the pure exported
+`shouldShowLongOptionReadout(value, hasOptions)`. It was extracted out of the JSX precisely so it is
+unit-testable: this repo has no DOM environment by deliberate choice, so a rule left inline could
+only ever be checked by eye in a browser. A source pin fails if any of `lighting_mgmt_system` /
+`lms_item` / `lms` / `description` / `brand` / `category` / `kind` / `item_kinds` appears inside the
+function.
+
+**Tests — `RateHelperPanel.test.ts`, 9.** The threshold sits above 48 and below 215; a long option
+renders; ⚠️ NEGATIVE a short option does not (including the 48-char longest any other kind can
+produce, and LMS's own 46-char shortest); ⚠️ NEGATIVE nothing selected renders nothing; ⚠️ NEGATIVE a
+free-text field never gets it; the boundary is exact and exclusive; plus three source pins — no
+category name in the gate, the read-out is a `<p>` and never a control, and it reads the SAME `shown`
+value the select is bound to, so the two can never disagree.
+
+**Vacuity — three probes, all restored (9/9):** removing the length test → 2 RED; dropping the
+threshold to 40, where it would fire on other categories → 2 RED; inserting a kind name into the
+gate → 1 RED.
+
+**Suites:** `test_rate_master` 274 OK · `test_rate_suggest` 65 with the known `test_27` ·
+`test_extraction_coercion` 77 OK · vitest **2994** with the known `writeOffControl` (+9).
+
+**Cert:**
+
+1. ✅ LMS row 5 on `LMS-BOQ` — the full DALI description renders wrapped in **exactly 8 lines**
+   beneath the truncated select.
+2. ✅ The same row's select is unchanged: same truncated selection, Brand `Lutron` 90%, suggested
+   value **112970** — identical to the 7/7 cert.
+3. ✅ `point_wiring` (`BOQ-26-00086` / `WIRING AND POWER SOCKET`, row 16) — nine fields, several of
+   them selects with short options (`1`, `2.5`, `None`, `MS`, `— select —`), **not one read-out**.
+   ⚠️ **`wiring_cabling` was NOT observed on screen.** The reachable sheets carrying `wiring_cabling`
+   rows either have no suggestion run for them — in which case no `pricingSheetHelper` is built at
+   all and the panel shows only placeholders — or their badged rows sit outside the virtualized
+   window. The negative therefore rests on `point_wiring` plus the unit test that pins the exact
+   48-char boundary `wiring_cabling`'s longest option would hit. Stated rather than implied.
+
+**Hashes:** `BoQ Cell Pricing` `79f072ac…6266c195` and items CONTENT `b8fe5e4a…b93686`, both unchanged
+before and after.
+
+**#57 — two items:** long-option rows gain a read-only wrapped description beneath the control (LMS
+today, any long-option category in future); no other category's panel changes.
+
+### ⚠️ STANDING ENVIRONMENT FACT — vite does not invalidate its transform cache here
+
+**Reproduced TWICE in one session.** The plain module URL serves PRE-EDIT code while a `?t=`
+cache-buster serves the new one, and a browser hard-reload is NOT enough. **Both times it produced a
+FALSE NEGATIVE on a cert row** — the change looked broken when it was correct, and the first instinct
+("the fix does not work") would have been wrong.
+
+The reliable recipe:
+1. kill vite **by PID** (never `pkill -f yarn`),
+2. `rm -rf node_modules/.vite`,
+3. restart,
+4. **confirm the marker on the PLAIN url** (`curl … | grep -c <identifier>`) before trusting anything
+   on screen.
+
+Expect one blank page immediately after the restart; a hard reload clears it. **Grep an identifier,
+never a comment** — and grep the PLAIN url, because the cache-buster will lie to you by succeeding.
