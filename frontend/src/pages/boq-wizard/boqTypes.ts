@@ -39,6 +39,27 @@ export const ROLE_LABELS: Record<string, string> = {
 };
 
 /**
+ * How ONE mapped column is named wherever the pricing editor names it: `E — Quantity · 7f`.
+ *
+ * ⚠️ THE COLUMN LETTER IS PART OF THE NAME, ON PURPOSE. A role alone is not an identity: a
+ * sheet may map two `qty` columns (one per area) and three rate columns, so "Quantity" names
+ * two different columns at once. The letter is the vocabulary the grid header and the formula
+ * builder's chips already share with the user's own spreadsheet, so it is what makes a column
+ * findable in both directions.
+ *
+ * This is the ONE definition -- PricingGrid's header cells, MarginFormulaBuilder's amount-column
+ * chips and AmountFormulaBuilder's operand palette all render THROUGH it, so a chip can never
+ * name a column differently from the header above it.
+ *
+ * Takes the fields loose rather than a ColumnDescriptor so a header cell can pass its own
+ * shape; falls back to the raw role when there is no friendly label.
+ */
+export function columnChipLabel(d: { col: string; role: string; area: string | null }): string {
+  const role = ROLE_LABELS[d.role] ?? d.role;
+  return `${d.col} — ${role}${d.area ? ` · ${d.area}` : ""}`;
+}
+
+/**
  * Per-column role assignment for the column-role map shared between
  * SheetConfigPanel (editor, Slice 3d-ii+) and SheetDataGrid (annotator, Slice 3d-iii).
  * `area` is null for single-area sheets or when no area has been assigned.

@@ -230,20 +230,27 @@ describe("cycle detection -> broken", () => {
   });
 });
 
-// ── fail-safe: any missing operand blanks the WHOLE formula ───────────────────
-describe("fail-safe (missing operand -> whole formula null)", () => {
-  it("`+` with one missing operand -> not_yet, NOT the present addend", () => {
+// ── fail-safe: a missing RATE blanks the WHOLE formula ────────────────────────
+//
+// ⚠️ THESE ARE THE TESTS THAT KEEP THE EMPTY-IS-ZERO RULE SAFE, and they caught it the first
+// time it was written too broadly. An empty QTY / AMOUNT cell reads as 0 (see the
+// empty-qty-is-zero block below -- owner ruling); an unpriced RATE emphatically does not, and
+// every case here is a RATE. `missing: "rate"` is asserted explicitly rather than ignored,
+// because that tag IS the mechanism: it is what stops an enclosing `+` zero-filling the node.
+describe("fail-safe (missing RATE -> whole formula null)", () => {
+  it("`+` with one missing rate -> not_yet, NOT the present addend", () => {
     const set = [cf("amount_total", null, null, op("+", leaf(ref("rate_supply")), leaf(ref("rate_install"))))];
     const lk = mkLookup({ "rate_supply|null|null": 3 }); // rate_install ABSENT
     const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, lk);
-    expect(r).toEqual({ ok: false, reason: "not_yet" });
+    expect(r).toEqual({ ok: false, reason: "not_yet", missing: "rate" });
     expect(r).not.toMatchObject({ ok: true }); // never the partial sum (3)
   });
 
-  it("`*` with one missing operand -> not_yet (never zero-substituted)", () => {
+  it("`*` with one missing rate -> not_yet (never zero-substituted)", () => {
     const set = [cf("amount_total", null, null, op("*", leaf(ref("qty_total")), leaf(ref("rate_combined"))))];
     const lk = mkLookup({ "qty_total|null|null": 5 }); // rate_combined ABSENT
-    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, lk)).toEqual({ ok: false, reason: "not_yet" });
+    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, lk))
+      .toEqual({ ok: false, reason: "not_yet", missing: "rate" });
   });
 
   it("a missing operand deep in a nested tree blanks the whole formula", () => {
@@ -252,7 +259,8 @@ describe("fail-safe (missing operand -> whole formula null)", () => {
         op("*", leaf(ref("qty_total")), op("+", leaf(ref("rate_supply")), leaf(ref("rate_install"))))),
     ];
     const lk = mkLookup({ "qty_total|null|null": 2, "rate_supply|null|null": 3 }); // rate_install absent
-    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, lk)).toEqual({ ok: false, reason: "not_yet" });
+    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, lk))
+      .toEqual({ ok: false, reason: "not_yet", missing: "rate" });
   });
 
   it("a missing amount-operand propagates not_yet up through the dependency chain", () => {
@@ -263,7 +271,10 @@ describe("fail-safe (missing operand -> whole formula null)", () => {
     ];
     const lk = mkLookup({ "qty_total|null|null": 2, "rate_supply|null|null": 3 }); // rate_install absent
     // amount_install -> not_yet -> grand -> not_yet (no partial = amount_supply only).
-    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, lk)).toEqual({ ok: false, reason: "not_yet" });
+    // ★ THE PROPAGATION TEST: the rate went missing two levels down, inside a `*` inside an
+    // `amount_install` operand, and the outer `+` STILL must not zero-fill it.
+    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, lk))
+      .toEqual({ ok: false, reason: "not_yet", missing: "rate" });
   });
 });
 
@@ -281,12 +292,122 @@ describe("absent vs zero are NOT conflated", () => {
     expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, lk)).toEqual({ ok: true, value: 7 });
   });
 
-  it("the SAME formula: 0 -> ok value 0; absent -> not_yet (proven side by side)", () => {
+  it("★ the SAME formula: an absent QUANTITY now reads as 0, exactly like a typed 0", () => {
+    // ⚠️ THIS TEST ASSERTED THE OPPOSITE UNTIL 2026-09-04, and the reversal is an OWNER RULING,
+    // not a drift: inside a formula an empty quantity cell means "none of this here", so the
+    // amount is 0 rather than unknown. The absent-vs-zero distinction it used to prove is NOT
+    // gone -- it moved to where it earns its keep, the RATE operands (see the fail-safe block
+    // above) and every caller that does not opt in (FoldOptions / the % Margin denominator).
     const set = [cf("amount_total", null, null, op("*", leaf(ref("qty_total")), leaf(ref("rate_combined"))))];
     const zero = mkLookup({ "qty_total|null|null": 0, "rate_combined|null|null": 5 });
     const absent = mkLookup({ "rate_combined|null|null": 5 }); // qty_total missing
     expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, zero)).toEqual({ ok: true, value: 0 });
-    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, absent)).toEqual({ ok: false, reason: "not_yet" });
+    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, absent)).toEqual({ ok: true, value: 0 });
+  });
+});
+
+// ── ★ EMPTY QTY / AMOUNT IS THE NUMBER 0 (owner ruling, 2026-09-04) ───────────
+//
+// THE SHEET THAT FORCED IT: BOQ-26-00185 / "247 - VRF System" maps TWO per-area quantity
+// columns (E = 7f, F = office cfm) and prices a scalar amount column as `rate x (E + F)`.
+// 7 of its 68 lines exist in one area only, so F is EMPTY there -- and the whole row's amount
+// blanked over it. Empty in that cell is a FACT the document states ("none of this in that
+// area"), not a gap, so 20 x 40 is 800, not unknown.
+//
+// The rule is SUBSTITUTION, not omission: the operand becomes the number 0 and flows into the
+// arithmetic like a typed 0 would. That is what makes `*` yield 0 and `/` refuse -- an omitted
+// term would have done neither.
+describe("empty qty / amount reads as 0 inside a formula", () => {
+  const qty = ref("qty_by_area", "7f");
+  const qtyB = ref("qty_by_area", "office cfm");
+  const rate = ref("rate_combined");
+
+  it("★ THE OWNER'S CASE: (20 + <empty>) x 40 = 800", () => {
+    const set = [cf("amount_total", null, null, op("*", leaf(rate), op("+", leaf(qty), leaf(qtyB))))];
+    const lk = mkLookup({ "qty_by_area|7f|null": 20, "rate_combined|null|null": 40 });
+    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, lk)).toEqual({ ok: true, value: 800 });
+  });
+
+  it("both quantities present still computes exactly as before -- 40 x (112 + 204)", () => {
+    const set = [cf("amount_total", null, null, op("*", leaf(rate), op("+", leaf(qty), leaf(qtyB))))];
+    const lk = mkLookup({
+      "qty_by_area|7f|null": 112, "qty_by_area|office cfm|null": 204, "rate_combined|null|null": 40,
+    });
+    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, lk)).toEqual({ ok: true, value: 12640 });
+  });
+
+  it("BOTH quantities empty -> 0, not blank (substitution, not omission)", () => {
+    const set = [cf("amount_total", null, null, op("*", leaf(rate), op("+", leaf(qty), leaf(qtyB))))];
+    const lk = mkLookup({ "rate_combined|null|null": 40 });
+    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, lk)).toEqual({ ok: true, value: 0 });
+  });
+
+  it("an empty quantity under `*` yields 0 -- the substitution reaches every operator", () => {
+    const set = [cf("amount_total", null, null, op("*", leaf(qty), leaf(rate)))];
+    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({ "rate_combined|null|null": 40 })))
+      .toEqual({ ok: true, value: 0 });
+  });
+
+  it("an empty quantity DIVISOR is broken, exactly as a typed 0 divisor is", () => {
+    const set = [cf("amount_total", null, null, op("/", leaf(rate), leaf(qty)))];
+    const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({ "rate_combined|null|null": 40 }));
+    expect(r).toMatchObject({ ok: false, reason: "broken", detail: "divide-by-zero" });
+  });
+
+  it("★ THE RATE IS NOT COVERED: an empty qty and an unpriced rate together -> BLANK", () => {
+    // The zero-fill must not rescue a row whose PRICE is missing. This is the pairing that
+    // would silently print `0` as a real amount if the two kinds were ever conflated.
+    const set = [cf("amount_total", null, null, op("*", leaf(rate), op("+", leaf(qty), leaf(qtyB))))];
+    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({ "qty_by_area|7f|null": 20 })))
+      .toEqual({ ok: false, reason: "not_yet", missing: "rate" });
+  });
+
+  it("an empty AMOUNT operand reads as 0 too (the ruling says qty OR amount)", () => {
+    const set = [cf("amount_total", null, null, op("+", leaf(ref("amount_supply")), leaf(ref("amount_install"))))];
+    const lk = mkLookup({ "amount_supply|null|null": 250 }); // amount_install absent
+    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, lk)).toEqual({ ok: true, value: 250 });
+  });
+
+  it("under `-` a missing SUBTRAHEND is 0 (a - nothing = a)", () => {
+    const set = [cf("amount_total", null, null, op("-", leaf(ref("amount_supply")), leaf(ref("amount_install"))))];
+    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({ "amount_supply|null|null": 250 })))
+      .toEqual({ ok: true, value: 250 });
+  });
+
+  it("under `-` a missing BASE is 0 too -> a negative result, which is a real value", () => {
+    // Consistency over cleverness: 0 - 250. Called out because it is the one substitution that
+    // produces a number of the opposite SIGN, and a reader should meet it here, not in a sheet.
+    const set = [cf("amount_total", null, null, op("-", leaf(ref("amount_supply")), leaf(ref("amount_install"))))];
+    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({ "amount_install|null|null": 250 })))
+      .toEqual({ ok: true, value: -250 });
+  });
+
+  it("a BROKEN operand still beats the zero-fill -- a cycle is not an empty cell", () => {
+    const set = [
+      cf("amount_total", null, null, op("+", leaf(ref("amount_supply")), leaf(qty))),
+      cf("amount_supply", null, null, leaf(ref("amount_total"))), // cycle
+    ];
+    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({})))
+      .toMatchObject({ ok: false, reason: "broken" });
+  });
+
+  it("★ NO AMOUNT THAT COMPUTES TODAY CAN CHANGE: every operand present folds identically", () => {
+    // The data-equivalence property the whole change rests on. When nothing is missing, no
+    // substitution happens, so the arithmetic is the arithmetic it always was.
+    const lk = mkLookup({
+      "qty_by_area|7f|null": 3, "qty_by_area|office cfm|null": 7,
+      "rate_combined|null|null": 11, "rate_supply|null|null": 2, "rate_install|null|null": 5,
+    });
+    const cases: Array<[AmountFormulaNode, number]> = [
+      [op("*", leaf(rate), op("+", leaf(qty), leaf(qtyB))), 110],
+      [op("-", leaf(ref("rate_install")), leaf(ref("rate_supply"))), 3],
+      [op("/", leaf(rate), leaf(ref("rate_install"))), 11 / 5],
+      [op("+", leaf(qty), op("*", leaf(qtyB), leaf(ref("rate_supply")))), 17],
+    ];
+    for (const [tree, want] of cases) {
+      expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, [cf("amount_total", null, null, tree)], lk))
+        .toEqual({ ok: true, value: want });
+    }
   });
 });
 
@@ -326,7 +447,11 @@ describe("malformed tree -> broken; never throws on bad data", () => {
     const present = mkLookup({ "amount_total|null|null": 42 });
     const absent = mkLookup({});
     expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, present)).toEqual({ ok: true, value: 42 });
-    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, absent)).toEqual({ ok: false, reason: "not_yet" });
+    // NO FORMULA -> no fold -> nothing to zero-fill: an absent stored amount is still BLANK, not
+    // a printed 0. Empty-is-zero is a rule about OPERANDS INSIDE a formula, not about a column
+    // that simply has no value.
+    expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, absent))
+      .toEqual({ ok: false, reason: "not_yet", missing: "value" });
   });
 });
 
@@ -409,12 +534,12 @@ describe("F5 -- subtraction", () => {
     expect(r).toEqual({ ok: true, value: -15 });
   });
 
-  it("the fail-safe holds: a missing operand blanks the whole difference (never treated as 0)", () => {
+  it("the fail-safe holds: a missing RATE blanks the whole difference (never treated as 0)", () => {
     const set = [cf("amount_total", null, null, op("-", leaf(sup), leaf(ins)))];
     const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({
       "rate_supply|null|null": 100,
     }));
-    expect(r).toEqual({ ok: false, reason: "not_yet" });
+    expect(r).toEqual({ ok: false, reason: "not_yet", missing: "rate" });
   });
 
   it("a real 0 subtrahend is a real value", () => {
@@ -483,12 +608,12 @@ describe("F5 -- division", () => {
     expect(r).toMatchObject({ reason: "broken", detail: "not-finite" });
   });
 
-  it("an ABSENT divisor is not_yet, not broken -- absence is not a zero", () => {
+  it("an ABSENT RATE divisor is not_yet, not broken -- an unpriced rate is not a zero", () => {
     const set = [cf("amount_total", null, null, op("/", leaf(sup), leaf(ins)))];
     const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({
       "rate_supply|null|null": 100,
     }));
-    expect(r).toEqual({ ok: false, reason: "not_yet" });
+    expect(r).toEqual({ ok: false, reason: "not_yet", missing: "rate" });
   });
 
   it("a zero divisor BEATS a co-occurring not_yet, like every other broken", () => {
