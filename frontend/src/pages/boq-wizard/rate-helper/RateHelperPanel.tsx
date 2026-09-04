@@ -32,6 +32,34 @@ const DEFAULT_PANEL_WIDTH = 300;
 const MIN_PANEL_WIDTH = 280;
 const PANEL_RESIZE_STEP = 16;
 
+/** A selected choice longer than this gets a wrapped read-out under its <select>, because a native
+ *  select truncates option text to one line and never wraps it.
+ *
+ *  ⚠️ THE VALUE IS A MEASUREMENT, NOT A GUESS, AND THE MARGIN IS THE POINT. Live Electrical
+ *  catalogue, 2026-09-04: `lms_item` descriptions run 46-434 chars (median 215); the longest
+ *  attribute string of EVERY other kind is 48 (`industrial_socket`), then 42, 42, 38, 26. So 80
+ *  sits in a clear gap -- it cannot fire on today's other categories, and a future category with
+ *  genuinely long options inherits the read-out with no code change and no category named here. */
+export const LONG_OPTION_CHARS = 80;
+
+/** PURE. Should a choice field carry the wrapped read-out beneath its <select>?
+ *
+ *  Extracted so it is UNIT-TESTABLE: this repo has no DOM test environment by deliberate choice
+ *  (frontend/CLAUDE.md), so a rule left inline in JSX can only ever be checked by eye in a browser.
+ *  The predicate is the part that can be wrong -- the markup it gates is a paragraph.
+ *
+ *  ⚠️ KEYED ON LENGTH ALONE. No category, kind or attribute id may enter this function: the moment
+ *  one does, this becomes an LMS special case and the next long-description category silently does
+ *  not get the read-out. `test_lrd_05` greps this source to keep it that way. */
+export function shouldShowLongOptionReadout(
+  value: string | number | null | undefined,
+  hasOptions: boolean,
+): boolean {
+  if (!hasOptions) return false;          // a free-text field is not truncated by a select
+  if (value === null || value === undefined || value === "") return false;  // nothing picked
+  return String(value).length > LONG_OPTION_CHARS;
+}
+
 function readStoredPanelWidth(): number {
   try {
     const raw = Number(localStorage.getItem(PANEL_WIDTH_STORAGE_KEY));
@@ -589,6 +617,29 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                             </span>
                           )}
                         </label>
+                        {/* LONG-OPTION READ-OUT (owner 2026-09-04). A native <select> does NOT wrap
+                            its option text in any engine we ship to, so a long catalogue description
+                            is truncated to one line and the pricer cannot read what they picked.
+                            `lighting_mgmt_system`'s item descriptions run 46-434 chars (median 215);
+                            EVERY other kind in the live Electrical catalogue tops out at 48, so a
+                            threshold keyed on LENGTH fires only where the problem exists and needs no
+                            category name in code -- a future long-option category inherits it.
+
+                            ⚠️ DISPLAY ONLY, and deliberately so. The <select> above stays exactly as
+                            certified: it remains the control, it keeps its always-selectable
+                            placeholder, and the owner-locked no-matching-option fallback rule
+                            (frontend/CLAUDE.md) is untouched. This block reads `shown`, the same
+                            value the select shows -- it can never disagree with the field, and it
+                            renders nothing when the field is blank, because a blank field has no
+                            text to fit. */}
+                        {shouldShowLongOptionReadout(shown, !!a.options) && (
+                          <p
+                            className="mt-0.5 max-h-28 overflow-y-auto whitespace-pre-wrap break-words rounded border border-dashed bg-muted/40 px-1.5 py-1 text-[10px] leading-snug text-muted-foreground"
+                            title="The full text of the selected item"
+                          >
+                            {shown}
+                          </p>
+                        )}
                         {/* Everything the pipeline must SAY about this field, in the declared
                             ATTR_NOTE_ORDER. Two meanings live here and they are NOT interchangeable:
                             an override (the field shows one thing and the row prices another -- say
