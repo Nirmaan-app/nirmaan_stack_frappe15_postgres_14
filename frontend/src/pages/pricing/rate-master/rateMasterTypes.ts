@@ -238,6 +238,23 @@ export interface CircuitFitStep {
     // EA-4a-r: the thickness attr of an OPTIONAL wire; when it resolves to the "None" sentinel that wire
     // is omitted from the overall_dia sum (a single-wire point fits on wire1 alone).
     optional_wire_when_none?: string;
+    /**
+     * PW-CONDUIT-OPTIONAL: POSITIVE ABSENCE for the WHOLE conduit. When this attribute equals this
+     * value the conduit is deliberately not bought: every `binds` target takes the "None" sentinel
+     * so a `none_skips` component zeroes its line, and THE REST OF THE ROW STILL PRICES.
+     *
+     * ⚠️ SAME SEMANTICS AND SAME MARKER as `catalog_fit`'s `absent_when` (see that field below) --
+     * a CONCLUDED ABSENCE renders "None (computed)", not a missing value. This is deliberately the
+     * SAME convention, not a second one.
+     *
+     * ⚠️ THIS IS NOT THE UNKNOWN-TYPE BRANCH AND MUST NEVER BECOME IT. A conduit_type that is
+     * neither the configured absent value nor a key of `usable` is a DEFECT in the row, and it
+     * still refuses the pipeline. Widening this to "anything unrecognised means no conduit" would
+     * silently price a broken row short.
+     *
+     * ABSENT => byte-identical: no config without this key can reach the branch.
+     */
+    absent_when?: { attr: string; equals: string | number };
   };
   binds: string[];
   explain?: string;

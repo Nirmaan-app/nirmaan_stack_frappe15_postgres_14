@@ -602,7 +602,18 @@ export function mapAttributeOutcomes(
   const out = new Map<string, MapAttributeOutcome>();
   for (const r of results) {
     for (const st of r.steps ?? []) {
-      if (st.mapAttribute && !out.has(st.mapAttribute.result_attr)) {
+      if (st.mapAttribute) {
+        // ⚠️ LAST-WINS, and it used to be FIRST-WINS. The docstring's reason for first-wins was
+        // deduping the SAME step across supply and install -- identical steps write identical
+        // values, so last-wins answers that case identically. What it could NOT handle is a CHAIN:
+        // point_wiring writes `conduit_type` twice (the PVC default, then the drop to "None" when
+        // the run is handed off), and first-wins kept the default. The panel therefore read "PVC
+        // (computed)" while pricing used "None" and charged no conduit -- the owner found it on
+        // screen. THE LAST WRITE IS THE EFFECTIVE VALUE; the panel must show what pricing used.
+        //
+        // ⚠️ MEASURED REACH: across all 12 Electrical category_configs, `conduit_type` on
+        // point_wiring is the ONLY displayed attribute written more than once by a map chain, so
+        // this moves exactly one value on exactly one screen. Re-measure before assuming that holds.
         out.set(st.mapAttribute.result_attr, st.mapAttribute);
       }
     }
@@ -1284,6 +1295,32 @@ export function runPipeline(
       if (miss !== null) {
         steps.push({ step: stepType, label: `attribute '${miss}' missing or non-positive -- no value computed`, runningValues: snapshot() });
         return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
+      // PW-CONDUIT-OPTIONAL. POSITIVE ABSENCE, checked BEFORE the unknown-type refusal below and
+      // AFTER the wire read above -- so a row whose WIRES cannot be read still refuses honestly and
+      // is never mistaken for a no-conduit row.
+      //
+      // MIRRORS `catalog_fit`'s `absent_when` EXACTLY: bind the "None" sentinel so a `none_skips`
+      // component zeroes its line, and let everything else price. Binding is what makes it safe --
+      // an UNBOUND "@fitted_size" would be a bindMiss and would refuse the whole row (the module_fit
+      // lesson), which is the very failure this branch exists to prevent.
+      //
+      // ⚠️ THE REST OF THE ROW MUST STILL PRICE. The wires take their quantity from
+      // `circuit_length_m` directly and the switch/socket/plate/box never read the fit at all, so
+      // zeroing the conduit cannot touch them. Cert row C is exactly this claim on real data.
+      //
+      // ⚠️ AN UNKNOWN TYPE IS NOT THIS. It falls through to the refusal below, unchanged.
+      if (p.absent_when && selected[p.absent_when.attr] === p.absent_when.equals) {
+        const absentBinds = s.binds ?? ["fitted_size", "circuits", "conduit_qty"];
+        absentBinds.forEach((b) => { ctx[b] = NONE_SENTINEL; });
+        steps.push({
+          step: stepType,
+          label: s.explain || "circuit fit",
+          // A CONCLUDED ABSENCE is a computed verdict, not a missing one -- "None (computed)".
+          matchedCondition: `${p.absent_when.attr} is ${String(p.absent_when.equals)} -> no conduit (positive absence)`,
+          runningValues: snapshot(),
+        });
+        continue;
       }
       if (!usable) {
         steps.push({ step: stepType, label: `conduit_type '${String(ctype)}' has no usable fractions -- no value computed`, runningValues: snapshot() });

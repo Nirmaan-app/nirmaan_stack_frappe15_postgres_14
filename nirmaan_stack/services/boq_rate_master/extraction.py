@@ -858,6 +858,109 @@ _ROW_CONTEXT_SHAPE_GUIDANCE = (
 )
 
 
+# ── PIECE 4: the POINT TYPE matcher (deterministic code, never the model) ───────────────────────
+# Owner: "if the line item mentions only Primary/ first or any synonym then length will be 15 mts.
+# if it mentions only secondary/looping/ second/ third etc points then length will be 5 mts" --
+# "that formula is valid if the line item does not mention the type of points or includes both type
+# of points", and "in case of confusion default to the formula".
+#
+# TWO MECHANISMS, AND NEITHER IS SUFFICIENT ALONE:
+#
+#  (a) THE PREPOSITION GUARD. The type a row IS sits bare at the head of the phrase ("Secondary
+#      Light / Fan Point ..."); the type it merely REFERS TO follows a linking verb ("looped TO
+#      Primary Point", "controlled FROM DB"). Without it, the owner's decisive row -- "Secondary ...
+#      Looped to Primary Point", which he ruled IS a secondary point -- reads as naming both types
+#      and falls to the formula. Measured on the live payload corpus: 78 referential rows, 78
+#      resolved SECONDARY, 0 read as primary.
+#      ⚠️ HONEST LIMIT: the verb list is drawn FROM this corpus. A BoQ using a verb outside it slips
+#      through and is read as the wrong type. The owner allowed a close match; the residual error is
+#      bounded by the verb list, not by the grammar.
+#
+#  (b) NEAREST WINS. Only the SHALLOWEST distance carrying any type token votes. The same decisive
+#      row carries "Secondary" at distance 1 and, at distance 2, a note naming BOTH types ("Switch
+#      board to Primary & Secondary Point wiring shall be ..."). A flat scan over the whole chain
+#      reads BOTH and falls to the formula; nearest-wins gives 5 m, as ruled.
+#
+# ⚠️ IT READS THE SAME PAYLOAD `_ai_item` BUILDS -- never raw node text and never a chain assembled
+# here. A match against a reconstruction measures the reconstruction; that error was made and caught
+# on 2026-08-23.
+#
+# Returns "Primary" | "Secondary" | None. None means BOTH types, NEITHER type, or confusion -- and
+# the config's map_attribute skips on it, leaving the existing formula standing untouched.
+# The attributes CODE supplies rather than the model. A config declaring one of these gets it
+# filled deterministically after the model returns; a config that does not is untouched.
+_CODE_SUPPLIED_ATTRS = {"point_type"}
+_PT_PRIMARY = [r"\bprimary\b", r"\bfirst\s+point", r"first\s+light\s+point", r"\b1st\s+point"]
+# WARNING `loop point` is HERE BY OWNER RULING (2026-09-01: "loop point is secondary point"), and
+# bare `loop` is DELIBERATELY STILL ABSENT. The corpus uses bare `loop` for plain method prose too --
+# "the wiring shall be done in complete looping in system", "only looping is allowed in terminal
+# blocks" -- which describes HOW the wiring is run, not what KIND of point the row is. The two-word
+# form carries the meaning; the one-word form does not. Do NOT widen this to bare `loop`.
+_PT_SECONDARY = [r"\bsecondary\b", r"\blooping\b", r"\blooped\b", r"\bsecond\s+point",
+                 r"\bthird\b", r"\b3rd\b", r"loop\s+in", r"\bloop\s+point"]
+_PT_REFERENTIAL = re.compile(
+    r"(looped|loop(?:ing)?|controlled|extended|tapped|connected|drawn|fed)"
+    r"\s+(?:to|from|with|off)\s+(?:the\s+)?(primary|first|1st)", re.I)
+
+
+def _pt_note_text(block):
+    """Every note kind of one payload note block, flattened. Mirrors `_note_block`'s shapes."""
+    if not isinstance(block, dict):
+        return ""
+    out = []
+    for kind in ("own", "attached"):
+        v = block.get(kind)
+        if isinstance(v, list):
+            out.extend(str(x) for x in v)
+        elif v:
+            out.append(str(v))
+    ap = block.get("appended")
+    if isinstance(ap, dict):
+        out.extend(str(x) for x in ap.values())
+    elif ap:
+        out.append(str(ap))
+    return " ".join(out)
+
+
+def _pt_layers(item):
+    """(distance, text) for one payload item. distance 0 = the row itself; the sheet label is NOT a
+    node and never votes."""
+    layers = [(0, (item.get("description") or "") + " " + _pt_note_text(item.get("notes")))]
+    for e in item.get("ancestor_chain") or []:
+        if e.get("relation") == "sheet":
+            continue
+        layers.append((e.get("distance"),
+                       (e.get("description") or "") + " " + _pt_note_text(e.get("notes"))))
+    return layers
+
+
+def point_type_of(item):
+    """The point type this row IS, read from the payload item. See the block comment above."""
+    by_distance = {}
+    for distance, text in _pt_layers(item):
+        if not text or not text.strip() or distance is None:
+            continue
+        for rx in _PT_PRIMARY:
+            for m in re.finditer(rx, text, re.I):
+                seg = text[max(0, m.start() - 90):m.end() + 90]
+                # THE GUARD: a primary token reached through a linking verb is a REFERENCE to another
+                # point, not this row's own type. It does not vote.
+                if _PT_REFERENTIAL.search(seg):
+                    continue
+                by_distance.setdefault(distance, set()).add("P")
+        for rx in _PT_SECONDARY:
+            if re.search(rx, text, re.I):
+                by_distance.setdefault(distance, set()).add("S")
+    if not by_distance:
+        return None                      # NEITHER type named -> the formula stands
+    votes = by_distance[min(by_distance)]  # NEAREST WINS
+    if votes == {"P"}:
+        return "Primary"
+    if votes == {"S"}:
+        return "Secondary"
+    return None                          # BOTH types at the nearest level -> the formula stands
+
+
 def _coerce_value(defn, raw, synonyms_for_attr=None):
     """The VALUE-ONLY contract, UNCHANGED. Every pre-capture caller keeps calling this and gets
     exactly what it got before.
@@ -980,6 +1083,196 @@ def scrub_unpaired_slot_defaults(row_out, defaults):
         row_out[aid].pop("defaulted", None)
         scrubbed.append(aid)
     return scrubbed
+
+
+def force_absent_dependents(row_out, absent_rules):
+    """PW-CIRCUIT-STRETCH -- a component the row declares ABSENT has an absent SPECIFICATION.
+
+    PURE apart from mutating the `row_out` it is handed, and it returns the ids it filled so the
+    caller can record them -- the same shape as `scrub_unpaired_slot_defaults` directly above.
+
+    ⚠️ THE PROMPT SENTENCE IS GUIDANCE; THIS IS THE ENFORCEMENT. `extraction_none_guidance` already
+    tells the model that a component the bill does not carry is "None", and the model obeys it on
+    most rows and not on all: measured on the 251-row point_wiring corpus, 137 rows answered
+    `circuit_wire_included = No` AND returned "None" for the six spec fields, while 22 answered
+    "No" and left the spec BLANK. A blank panel-visible field refuses the whole row, so those 22
+    stopped pricing for no substantive reason -- the row had already said there is no such wire.
+    The owner's field shape is explicit (`No` / `None` x6 / `0`); this makes it true by construction.
+
+    ⚠️ IT FILLS BLANKS ONLY, AND NEVER OVERWRITES A STATED VALUE. A row answering "No" while also
+    naming a real gauge is CONTRADICTING itself, and discarding the gauge would destroy the evidence
+    of that. Leaving it costs nothing: the pipeline zeroes the quantity from the same controller, so
+    such a row is not charged either way -- but the contradiction stays visible on the panel.
+
+    ⚠️ CONFIG-DRIVEN, NAMING NO CATEGORY (the HV-10 lesson). A definition opts in by declaring
+    `absent_when_value` + `absent_dependents`; a config that declares neither yields no rules and
+    this function is inert -- which is every category but point_wiring today.
+    """
+    forced = []
+    if not absent_rules:
+        return forced
+    for controller, (absent_value, dependents) in absent_rules.items():
+        cell = row_out.get(controller) or {}
+        if cell.get("value") != absent_value:
+            continue
+        for dep in dependents:
+            cur = (row_out.get(dep) or {}).get("value")
+            if cur is not None and cur != "":
+                continue                      # STATED -- never overwritten, see above
+            row_out[dep] = {"value": _NONE_SENTINEL, "confidence": cell.get("confidence")}
+            forced.append(dep)
+    return forced
+
+
+def absent_dependent_rules(cfg):
+    """{controller_id: (absent_value, [dependent ids])} for a config, or {} when it declares none."""
+    out = {}
+    for d in (cfg or {}).get("attribute_definitions") or []:
+        val, deps = d.get("absent_when_value"), d.get("absent_dependents")
+        if val is None or not isinstance(deps, list) or not deps:
+            continue
+        out[d["id"]] = (val, [x for x in deps if isinstance(x, str) and x])
+    return out
+
+
+# -- THE CONDUCTOR FLOOR (slice: SLICE B v4) --------------------------------------------
+#
+# ⚠️ THE PROMPT SENTENCE IS GUIDANCE; THIS IS THE ENFORCEMENT -- and here that doctrine is a
+# CORRECTION, not a new idea. The standing rule on this project is that the MODEL READS FACTS and
+# every substitution, ladder and conversion lives in deterministic code or config. The conductor
+# floor is a SUBSTITUTION. It was written as prose inside R9 and should never have been.
+#
+# THE COST OF HAVING IT IN THE PROMPT, MEASURED TWICE IN TWO DAYS. Every `rules` entry is injected
+# into ONE `ESTIMATOR_RULES` block, so a phrase in one rule is visible to every other question the
+# payload asks:
+#   * rewriting R12's conduit example flipped R13's circuit verdict on two rows (2026-09-03);
+#   * extending R9's floor to NAME the circuit wires -- the only way prose could reach them --
+#     moved R13's `circuit_wire_included` on BOQ-26-00200 r11 (Yes -> Yes -> No across three runs).
+# Arithmetic in a shared prompt block is the cause, not the symptom. Moving it here removes the
+# pressure entirely: R9 goes back to teaching how to READ a wire spec, and says nothing about totals.
+#
+# THE RULE (owner, 2026-09-03), applied to each declared GROUP independently:
+#   conductors = core x runs, summed across the wires that EXIST
+#   >= 3            -> TAKE WHAT THE DOCUMENT STATES. Nothing is ever reduced. A FLOOR, not a cap.
+#   single-core     -> raise THAT WIRE'S RUNS to three. NEVER add a second wire.
+#   two single-core -> raise the BIGGER wire's runs.
+#   multi-core      -> keep its cores and runs; ADD a second wire, 1 core, SAME thickness.
+#
+# ⚠️ `3 core, 1 run` IS ALREADY THREE CONDUCTORS AND MUST NOT MOVE. That was the defect in the first
+# formulation of this rule, which counted RUNS: on the 31 corpus rows reading `3 core, 1 run` it
+# would have bought NINE conductors, and on 5 rows the document states as three-phase it would have
+# HALVED the copper.
+#
+# ⚠️ A WIRE WHOSE THICKNESS IS "None" DOES NOT EXIST AND CONTRIBUTES NOTHING. This is the trap in
+# this data: an absent wire still carries the MIRRORED DEFAULT `runs = 1`, so a naive sum reports
+# 3 + 1 = 4 for a row that is already three conductors on one wire. Existence is the THICKNESS.
+#
+# ⚠️ CONFIG-DRIVEN, NAMING NO CATEGORY (the HV-10 lesson). A wire opts in by declaring
+# `conductor_floor` on its THICKNESS definition -- the thickness IS the existence marker, so the
+# block lives where the fact it depends on lives. A config declaring none yields no groups and this
+# function is inert, which is every category but point_wiring today.
+#
+# ⚠️ IT SITS ON THE ATTRIBUTE DEFINITION, NEVER AT THE CONFIG'S TOP LEVEL. Top-level keys are
+# allowlisted by `_KNOWN_CONFIG_KEYS` in `api/boq/rate_master.py`; attribute definitions are
+# documented in that same validator as having NO key allowlist. So this ships with no backend change.
+
+# The floor. Named rather than inlined so the three places that read it cannot drift apart.
+_CONDUCTOR_FLOOR = 3
+
+
+def _cf_num(cell, default=None):
+    """The numeric value of a row_out cell, or `default`. "None" is the ABSENCE sentinel, not a number."""
+    if not isinstance(cell, dict):
+        return default
+    v = cell.get("value")
+    if v is None or v == "" or v == _NONE_SENTINEL:
+        return default
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return default
+    return f
+
+
+def conductor_floor_groups(cfg):
+    """{group_name: [(thickness_attr, core_attr, runs_attr), ...]} in DEFINITION ORDER, or {}.
+
+    Definition order is load-bearing twice over: it decides which wire is "wire 1" when a second one
+    has to be added, and it keeps the walk deterministic.
+    """
+    out = {}
+    for d in (cfg or {}).get("attribute_definitions") or []:
+        spec = d.get("conductor_floor")
+        if not isinstance(spec, dict):
+            continue
+        group = spec.get("group")
+        core, runs = spec.get("core_attr"), spec.get("runs_attr")
+        if not (isinstance(group, str) and group
+                and isinstance(core, str) and core
+                and isinstance(runs, str) and runs):
+            continue
+        out.setdefault(group, []).append((d["id"], core, runs))
+    return out
+
+
+def apply_conductor_floor(row_out, groups):
+    """Raise each declared group to `_CONDUCTOR_FLOOR` conductors. PURE apart from mutating the
+    `row_out` it is handed; returns one record per group changed, the same shape as the correctors
+    above.
+
+    ⚠️ IT ONLY EVER RAISES. There is no branch that lowers a count, which is what makes the
+    "nothing is ever reduced" ruling structural rather than a thing to remember.
+    """
+    changed = []
+    if not row_out or not groups:
+        return changed
+
+    for group, wires in groups.items():
+        present = []          # [(idx, thickness_attr, core_attr, runs_attr, thickness, core, runs)]
+        for idx, (t_attr, c_attr, r_attr) in enumerate(wires):
+            thickness = _cf_num(row_out.get(t_attr))
+            if thickness is None:
+                continue      # the wire DOES NOT EXIST -- its runs default is not a conductor
+            present.append((idx, t_attr, c_attr, r_attr, thickness,
+                            _cf_num(row_out.get(c_attr), 1) or 1,
+                            _cf_num(row_out.get(r_attr), 1) or 1))
+        if not present:
+            continue          # no wire on this axis at all -- never invent one
+
+        total = sum(c * r for (_i, _t, _c, _r, _th, c, r) in present)
+        if total >= _CONDUCTOR_FLOOR:
+            continue          # THE FLOOR. At or above, the document wins untouched.
+        need = _CONDUCTOR_FLOOR - total
+
+        # Prefer raising the RUNS of a SINGLE-CORE wire: its conductors move in steps of one, so it
+        # can land exactly on three. The BIGGER one when there is a choice (owner's ruling); ties
+        # fall to definition order, which is deterministic.
+        singles = [w for w in present if w[5] == 1]
+        if singles:
+            target = max(singles, key=lambda w: (w[4], -w[0]))
+            _i, _t, _c, r_attr, _th, _core, runs = target
+            new_runs = runs + need
+            row_out[r_attr] = {"value": new_runs,
+                               "confidence": (row_out.get(r_attr) or {}).get("confidence")}
+            changed.append({"group": group, "action": "runs", "attr": r_attr,
+                            "from": runs, "to": new_runs, "conductors_before": total})
+            continue
+
+        # Every existing wire is MULTI-CORE, so no run count can land on three (a 2-core wire steps
+        # 2, 4, 6...). Add a wire of ONE core at the SAME thickness, carrying exactly the shortfall.
+        free = [w for w in wires if w[0] not in {p[1] for p in present}]
+        if not free:
+            continue          # both slots taken by multi-core wires -- leave it; the row is honest
+        t_attr, c_attr, r_attr = free[0]
+        donor = present[0]
+        conf = (row_out.get(donor[1]) or {}).get("confidence")
+        row_out[t_attr] = {"value": donor[4], "confidence": conf}
+        row_out[c_attr] = {"value": 1, "confidence": conf}
+        row_out[r_attr] = {"value": need, "confidence": conf}
+        changed.append({"group": group, "action": "added_wire", "attr": t_attr,
+                        "thickness": donor[4], "core": 1, "runs": need,
+                        "conductors_before": total})
+    return changed
 
 
 # -- TPN post-match pole correction (slice: TPN POST-MATCH) -----------------------------
@@ -1178,7 +1471,7 @@ def correct_four_pole_mcb_picks(row_out, row, pole_catalog, tokens=None):
     return changed
 
 
-def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, *, capture_ctx=None):
+def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, absent_rules=None, conductor_groups=None, *, capture_ctx=None):
     """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
     confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
     (<=20 rows, 3 attempts, sleep 2*attempt).
@@ -1320,6 +1613,10 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 # SLICE 5 (B2): {excel_row: [qty_attr, ...]} -- quantities removed because their
                 # paired item slot came back "None". Observation only, like every sibling here.
                 "slot_paired_defaults_scrubbed": {},
+                # PW-CIRCUIT-STRETCH: {excel_row: [attr, ...]} -- spec fields filled with the "None"
+                # sentinel because their controller declared the component absent. Observation
+                # only, like every sibling here.
+                "absent_dependents_filled": {},
                 # TPN POST-MATCH: {excel_row: [{attr, from, to}, ...]} -- three-pole MCB picks
                 # re-selected as their four-pole sibling, and the ones left alone for want of a
                 # unique sibling. Observation only, like every sibling here.
@@ -1406,6 +1703,34 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                     if _aid in row_map:
                         row_map[_aid]["scrubbed_unpaired"] = True
 
+                # PW-CIRCUIT-STRETCH -- a component declared ABSENT has an absent SPECIFICATION.
+                # Placed beside the scrub above because it is the same kind of thing: a pure,
+                # deterministic correction of model output, applied to the row dict this loop is
+                # assembling, BEFORE the result is stored. It is the MIRROR of that scrub -- the
+                # scrub REMOVES a quantity for a component the row says is not there; this FILLS the
+                # spec of one, so the row can price instead of refusing on a field it already
+                # answered. Inert for every config declaring no `absent_dependents`.
+                for _aid in force_absent_dependents(row_out, absent_rules):
+                    drops["absent_dependents_filled"].setdefault(str(rid), []).append(_aid)
+                    if _aid in row_map:
+                        row_map[_aid]["forced_absent"] = True
+
+                # THE CONDUCTOR FLOOR -- the arithmetic that used to live in R9's prose.
+                #
+                # Placed AFTER `force_absent_dependents` deliberately: that corrector writes the
+                # "None" sentinel into the spec of a component the row declares absent, and this one
+                # reads exactly that sentinel to decide a wire DOES NOT EXIST. Run in the other
+                # order, an absent circuit wire would still look like a real one carrying the
+                # mirrored default `runs = 1`, and the floor would top up a run that is not there.
+                #
+                # Inert for every config declaring no `conductor_floor` -- which is every category
+                # but point_wiring today.
+                for _rec in apply_conductor_floor(row_out, conductor_groups):
+                    drops["conductor_floor_applied"].setdefault(str(rid), []).append(_rec)
+                    _a = _rec.get("attr")
+                    if _a in row_map:
+                        row_map[_a]["conductor_floor"] = _rec.get("action")
+
                 # TPN POST-MATCH -- THE FOUR-POLE MCB CORRECTION, server-side.
                 #
                 # THE PROMPT'S POLE LINE IS NOT THE ENFORCEMENT, THIS IS. It is obeyed for TP+N /
@@ -1423,6 +1748,27 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                         _a = _rec.get("attr")
                         if _a in row_map:
                             row_map[_a]["four_pole_corrected"] = _rec.get("to")
+                # PIECE 4 -- THE POINT TYPE, a DETERMINISTIC CODE MATCH over the payload.
+                #
+                # Placed beside the two corrections above because it is the same kind of thing: pure,
+                # deterministic, applied to the row dict this loop is assembling, BEFORE the result is
+                # stored. It differs in one way worth naming -- the model is never asked for
+                # `point_type` at all (`extract: false`), so this does not CORRECT a model answer, it
+                # SUPPLIES the attribute. `point_type_of` reads `_ai_item(row)`: the SAME payload the
+                # model was shown, never raw node text and never a chain assembled here.
+                #
+                # None means both types, neither, or confusion -- the config's map_attribute skips on
+                # it and the 15 + (points-1)*5 formula stands, exactly as the owner ruled.
+                #
+                # INERT for every other category: nothing else declares `point_type`.
+                if _row_src is not None and "point_type" in (code_attrs or ()):
+                    _pt = point_type_of(_ai_item(_row_src))
+                    if _pt is not None:
+                        row_out["point_type"] = {"value": _pt, "confidence": 1.0}
+                        row_map["point_type"] = {"raw": None, "coerced": _pt,
+                                                 "reason": "matched from payload (code)",
+                                                 "confidence_raw": None, "confidence": 1.0,
+                                                 "defaulted_claimed": False, "defaulted_kept": False}
                 # Attributes the model returned that are NOT declared. Currently read by nothing and
                 # dropped with no else-branch -- the compound-row surplus.
                 surplus = sorted(str(k) for k in set(attrs) - set(defs_by_id))
@@ -1702,11 +2048,21 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
             # Composite-only and resolved ONCE per group, exactly like `slot_spec` beside it; None
             # for every other mode, which leaves those categories byte-identical.
             "pole_catalog": breaker_catalog_for(cfg, disc) if is_composite else None,
+            "conductor_groups": conductor_floor_groups(cfg),
+            # PIECE 4: the attribute ids this config declares that CODE supplies rather than the
+            # model. Derived FROM THE CONFIG (never a hardcoded category name -- the HV-10 lesson):
+            # a config that does not declare `point_type` yields an empty set and the matcher is
+            # inert for it, which is every category but point_wiring today.
+            "code_attrs": {d["id"] for d in (cfg.get("attribute_definitions") or [])
+                           if d.get("id") in _CODE_SUPPLIED_ATTRS},
             # EA-4 ext-a: owner-authored estimator rules. DELIBERATELY UNGATED -- unlike slot_spec /
             # resolution_rules (composite-only), these must reach EVERY category, composite or not
             # (R7 lands on cabletray_raceway, an ordinary attribute category). Absent => None =>
             # the prompt is byte-identical to before.
             "rules": cfg.get("rules"),
+            # PW-CIRCUIT-STRETCH: {controller: (absent_value, [dependents])} read FROM THE CONFIG --
+            # a category declaring none yields {} and the corrector is inert for it.
+            "absent_rules": absent_dependent_rules(cfg),
         }
 
     def _defs_for(r):
@@ -1759,7 +2115,8 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
                 def _call(rows_, _gc=gc):
                     # `boq` is NOT on the row dict -- it lives only in this enclosing scope, so the
                     # capture's join key is threaded in from here.
-                    return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], _gc["pole_catalog"], capture_ctx={"boq": boq})
+                    return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], _gc["pole_catalog"], _gc["code_attrs"], _gc["absent_rules"], _gc["conductor_groups"],
+                                          capture_ctx={"boq": boq})
 
                 # SR-2 (3): ONE iteration when the batch fits (byte-identical to the pre-SR-2 single
                 # call); one per surviving half after a ceiling cut. Everything below is unchanged

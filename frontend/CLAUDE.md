@@ -611,10 +611,26 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
   correct rates. (Splitting each conduit fact into a `panel: false` raw attribute plus an `extract: false`
   resolved one did exactly this; caught in a browser cert, not by a test.) The different-id form is
   correct ONLY for `panel: false` internals, which is what `industrial_sockets`' `mcb_pole_norm` is.
-  ⚠️ **And such a target MUST carry a `default`**: `pricingSheetHelper.ts:520-533` narrows a
-  `map_attribute` target out of the missing-gate exemption when it has none and its source reads blank —
-  and `valueOfDef` reads the RAW extraction, which is null on every row for a pipeline-filled attribute.
-  Without the default, ~5,000 wiring rows render "Complete the missing attributes to price".
+  ⚠️ **BEFORE ADDING A `map_attribute` TO ANY CONFIG, ANSWER THESE THREE. Prose did not carry; this
+  is a CHECK — every one of them was violated by point_wiring v50 and the owner found the result on
+  screen (2026-09-01).**
+  1. **Does the target already have another filler?** If it is ALSO a `derive_attribute` target (or a
+     `catalog_fit` / `module_fit` bind), the missing-gate narrowing in `pricingSheetHelper.ts` must
+     not withdraw its exemption — it now skips `derive_attribute` targets explicitly. **166 rows that
+     priced under v47 refused outright because this was missed.** ⚠️ A `default` also silences the
+     narrowing, but a REAL default silently BECOMES the value (`map_attribute` consults `default`
+     before `on_miss`), so it is NOT a safe way to buy the exemption.
+  2. **Is the target written MORE THAN ONCE in the chain?** `mapAttributeOutcomes` is LAST-WINS
+     (it was first-wins until this defect). The panel shows the LAST write; make sure that is the
+     effective one.
+  3. **Will `derive_attribute` run AFTER it on the same target?** Derive's stated-wins sees the map's
+     write, calls it stated, and the display branch then publishes nothing — **the field renders
+     BLANK while pricing uses a real number.** The display consults the map's `stated` verdict to
+     recover it; a value the PRICER typed must still show as theirs, unmarked.
+  ⚠️ **AND THE ORIGINAL RULE STILL HOLDS where none of the above applies:** a panel-visible
+  `map_attribute` target with no other filler MUST carry a `default`, because `valueOfDef` reads the
+  RAW extraction — null on every row for a pipeline-filled attribute — and without it ~5,000 wiring
+  rows render "Complete the missing attributes to price".
 - **Rate-helper embedded panel-as-default + grid scroll conventions (RM-3b, `RateHelperPanel.tsx` /
   `SheetPricingPage.tsx` / `PricingGrid.tsx`; full detail in the plan doc's "Build slice RM-3b"):** three
   owner-locked layout invariants. (1) **EMBEDDED panel-as-default:** the embedded rate-helper panel is

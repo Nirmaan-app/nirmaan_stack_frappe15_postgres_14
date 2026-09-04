@@ -216,7 +216,103 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # is an identity on the tens-rounded integers cable_boq already produced. If a wiring golden ever moves,
 # the conduit component has leaked onto a row that names no conduit.
 # ⚠️ TERMINATION IS UNTOUCHED (owner ruling ii): `termination_boq` has a ZERO-LINE DIFF at v47.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v47.json"
+# ✅ PW-CIRCUIT-STRETCH (2026-09-02, v51). point_wiring gains the CIRCUIT (submain) run from the DB:
+# eight panel attributes (circuit_wire_included; circuit wire 1 and 2 core/runs/thickness;
+# circuit_wire_length_m) plus the hidden circuit_qty_m, two circuit components on EVERY existing
+# pipeline, and two DISPLAY-ONLY pipelines that give the circuit its own labelled block.
+# sha256 cf91f29460c00381de34b9c13249d13487ffc9b91f86f09181bfa6e79b9e4595 (the WORKING-TREE form,
+# the same recipe v50's c7fe2961... was taken over). ONE config changed; `items` is byte-identical.
+# ⚠️ ONE RATE, TWO PARTS -- AND THAT IS WHY THE BLOCK IS NOT A SECOND RATE. `pw_circuit_supply` /
+# `pw_circuit_install` output `circuit_supply` / `circuit_install`, which `kindForOutput` maps to NO
+# rate kind, so they can never reach `values` and the collapsed headline stays the single point rate.
+# The money is added by the two circuit components INSIDE pw_boq_supply / pw_boq_install, which is
+# the only place a cross-pipeline sum could otherwise have come from -- there is no such mechanism.
+# ⚠️ THE FOUR NO-CIRCUIT GOLDENS pw1-pw4 KEEP EVERY EXPECTED VALUE AND THAT IS THE REGRESSION PROOF.
+# Only their INPUTS grew, exactly as the v45 slot mint did: they now state the circuit wires as
+# positively absent ("None"), `none_skips` zeroes both components and the flat add is 0. If a
+# no-circuit golden ever moves, the circuit stretch has leaked onto a row that carries none.
+# ⚠️ BOTH CIRCUIT THICKNESSES CARRY `allow_none` AND NO DEFAULT, AND THE WORDING IS WHAT MAKES THAT
+# SAFE -- see `TestPointWiringCircuitStretch` and the config's `extraction_none_guidance`. "None"
+# means the DOCUMENT says there is no such wire (price nothing); BLANK means the model COULD NOT READ
+# the gauge (the row REFUSES and a pricer supplies it). Without `allow_none` the string "None" cannot
+# survive `coerceForMatch` on a number_choice, both cases collapse into blank, and EVERY point wiring
+# row stops pricing -- measured 0 of 251. Conflating them in the other direction turns the owner's
+# ruled LOUD failure into a silent under-quote. The distinction is the owner's, dated 2026-09-02.
+# ⚠️ `circuit_length_m` IS UNTOUCHED. It holds the POINT stretch (15/5 by point type) and is merely
+# misnamed; the circuit stretch is `circuit_wire_length_m` and its panel label is deliberately
+# different ("Circuit wiring stretch (m)" vs "Circuit length (m)").
+# ✅ SLICE A (2026-09-03, v52). TWO CORRECTIONS, both found on screen after a green cert.
+# sha256 45ba1ff634b5dcfe429d35ddb1912ca20ee9d5f81f9030d71062da502d0bea4d (WORKING-TREE form).
+# ⚠️ F2 -- A WORKED EXAMPLE INSIDE A RULE BECAME A FALSE FRIEND, AND THAT IS THE LESSON. R12 read
+# "'recessed/surface existing conduit' ... so the answer there is Yes". Rows reading
+# 'recessed/surface 16SWG MS conduit' matched that SURFACE FORM while lacking the load-bearing word
+# `existing`, so `conduit_handoff` came back Yes and 36 rows silently dropped a conduit they supply.
+# The example OVERRODE the rule's own closing clause ("Answer No when the run uses a conduit this
+# line supplies"), which was correct all along. An example is as load-bearing as the rule around it.
+# Measured UNSTABLE, not merely wrong: BOQ-26-00086 r51 and r53 share a word-for-word identical
+# grandparent and near-identical text, and one priced its conduit while the other dropped it, both
+# at 0.6 confidence. The example now CONTRASTS the two phrasings; the decision table is unchanged.
+# ⚠️ F5 -- A REACHABILITY REGRESSION, INTRODUCED 2026-09-02 AND NOW REMOVED. The four circuit
+# CORE/RUNS fields lose `allow_none`. A None on runs never had a pricing effect: `none_skips` reads
+# ONLY the component's `ref` bindings (core, thickness_sqmm) and `runs` feeds `absentMeansOne`,
+# which maps "None" to 1. The checkbox promised a drop it could not deliver. Removal is MEASURED
+# INERT -- the REAL shipped helper prices 190 / refuses 61 over the 251 run-covered rows both with
+# the flags and without, on the IDENTICAL row set with identical blank tallies, because
+# `disables_when_none` on the THICKNESS already greys and clears that wire's core and runs.
+# ⚠️ BOTH THICKNESSES KEEP `allow_none` AND NO DEFAULT. Thickness is the working drop control and
+# the owner's loud-failure ruling rests on it. Honouring a None on RUNS instead would mean widening
+# `none_skips` to consult `mult_from_attr` -- an interpreter change to machinery every category runs
+# through. That was the rejected alternative; it is recorded, not built.
+# ✅ SLICE B (2026-09-03, v53). THE RULE ITSELF WAS REVISED BY MEASUREMENT -- record WHY.
+# sha256 925369219c09205ae2a8bcc0e479b7127da120ea3f8b0b3f5ada0bd24887354e (WORKING-TREE form).
+# ⚠️ F1 -- R9 IS A CONDUCTOR FLOOR, NOT A RUN COUNT. The invariant is `core x runs` SUMMED ACROSS
+# THE WIRES THAT EXIST, raised UP to three and NEVER reduced. The FIRST formulation coerced RUNS,
+# and measuring it is what killed it: on the 31 corpus rows reading `3 core, 1 run` -- already three
+# conductors, and the bills say so in words ("one each for phase, neutral and earth") -- coercing
+# runs to 3 would have bought NINE conductors (+Rs 133,792, rows up to +194%); on 5 rows whose text
+# states "three phase" it would have HALVED the copper (-Rs 27,535). Measured on CONDUCTORS the
+# corpus was ALREADY 231 of 237 compliant and the other 6 sat ABOVE three, which is why the rule is
+# a FLOOR. Under it the POINT axis moves ZERO rows and only the circuit axis coerces (46).
+# ⚠️ WHERE THE MISSING CONDUCTOR GOES (owner, 2026-09-03): a SINGLE-CORE short wire takes MORE RUNS
+# and NO second wire is created; with two single-core wires the BIGGER one is raised; a MULTI-CORE
+# short wire keeps its cores and gains a second wire of ONE core at the SAME size. The two shapes
+# price differently (a second wire buys a second install unit) -- the owner chose runs-for-single.
+# ⚠️ "unless the line explicitly states otherwise" STAYS. The earlier instruction to DELETE it was
+# WITHDRAWN when the rule became a floor: a stated count at or above three now always wins, so the
+# clause is exactly right rather than an escape hatch. Do not remove it as leftover.
+# ⚠️ THE INSTALL STEPPING IS CLOSED BY RULING, NOT OPEN. `mult_step_divisor: 3` exists on BOTH axes
+# and is byte-identical, but it is applied PER COMPONENT and never summed across the pair, so two
+# wires carrying three runs between them buy TWO install units. The owner ruled that CORRECT ("we
+# are pricing the 2 wires separately") and ruled the 98 rows that would fall under summed stepping
+# (76 point, 22 circuit) "ignore". Do NOT build multi-attribute stepping.
+# ⚠️ F4a -- the display-only pipelines pw_circuit_supply / pw_circuit_install are REMOVED (with
+# their labels), because the circuit money was ALWAYS inside the point rate and a second block read
+# as an extra charge. Proven rate-neutral at this tip: 190 priced / 61 refused, 0 rows moved.
+# THE GOLDENS HAD TO LOSE THOSE TWO `expect` KEYS -- `_validate_config` refuses a golden naming a
+# pipeline the config no longer declares. That deletion is the ONLY golden movement; the three
+# surviving expectations are asserted byte-identical in the mint.
+# ⚠️ F4b -- `group_label` on an attribute definition is a NEW GENERAL capability (any category, any
+# fields); it sits on the DEFINITION because top-level config keys are allowlisted and definition
+# keys are documented as not, so it ships with NO backend change.
+# ✅ SLICE B v4 (2026-09-03, v54). THE ARITHMETIC LEFT THE PROMPT AND BECAME CODE.
+# sha256 24ff55c057d5819f4a8280eb75e99b062fcc5870d1b7a234c46845328904317c (WORKING-TREE form).
+# ⚠️ THE PROCESS LESSON, WHICH MATTERS MORE THAN THE DIFF. The standing rule on this project is that
+# the MODEL READS FACTS and every substitution, ladder or conversion lives in deterministic code or
+# config. The conductor floor is a SUBSTITUTION and was written as PROSE inside R9. It cost two
+# cross-talk failures in two days -- every `rules` entry is injected into ONE ESTIMATOR_RULES block,
+# so rewriting R12's conduit example flipped R13's circuit verdict, and extending R9's floor to NAME
+# the circuit wires (the only way prose could reach them) moved R13's `circuit_wire_included` on
+# BOQ-26-00200 r11. BEFORE WRITING ANY EXTRACTION WORDING, ASK: is this a FACT TO READ or a
+# CALCULATION TO APPLY? A calculation does not go in the prompt at all.
+# ⚠️ R9 IS NOW READING-ONLY AND POINT-SCOPED. It states no total, names no circuit wire, and the
+# clause "unless the line explicitly states otherwise" is REMOVED -- it excepted a total R9 no
+# longer states, and prose that reads like a rule while governing nothing is worse than silence.
+# The behaviour it protected is structural now: `apply_conductor_floor` only ever RAISES.
+# ⚠️ PROVEN BEFORE THE PROSE WAS TOUCHED: the corrector was run over all 237 in-axis POINT rows of
+# the live corpus and changed ZERO, byte-identical to the prose output. The point axis was already
+# 231-of-237 correct and the other 6 sit ABOVE the floor; moving a working rule for tidiness is
+# exactly the risk that proof exists to retire.
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v54.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -224,6 +320,12 @@ CURRENT_EALL_ASSET = "rate_master_electrical_all_v47.json"
 # `category_config` key, and the merged asset carries the LIST form. Repointing these tests at the
 # merged asset would delete the only coverage the dangerous path has.
 LEGACY_WIRING_ASSET = "rate_master_wiring_cabling_v3.json"
+
+
+# The point_wiring pipelines that PRICE. v51 added two DISPLAY-ONLY siblings (`pw_circuit_supply` /
+# `pw_circuit_install`) which carry neither `circuit_fit` nor the conduit chain, so every assertion
+# about the pricing shape iterates THIS tuple rather than `cfg["pipelines"]`.
+_PW_ASSEMBLY_PIPELINES = ("pw_boq_supply", "pw_boq_install", "pw_bcs")
 
 
 def _asset_path(filename):
@@ -2623,8 +2725,16 @@ class TestRateMaster(FrappeTestCase):
         self.assertIn("1M Blanker", cat)
 
         # every pipeline carries exactly ONE none_skips blank line
-        self.assertEqual(sorted(cfg["pipelines"]), ["pw_bcs", "pw_boq_install", "pw_boq_supply"])
-        for pid, pipe in cfg["pipelines"].items():
+        # v51: the roster grew by two DISPLAY-ONLY circuit pipelines. They price wire and nothing
+        # else -- no plate, so no blanker -- which is why the blank-line loop below is scoped to the
+        # three that assemble a point (test_pw_cs_10 pins their whole step vocabulary).
+        # SLICE B (v53): the two DISPLAY-ONLY circuit pipelines are REMOVED -- the circuit money was
+        # always inside the point rate and a second labelled block read as an extra charge (owner).
+        # The roster is back to the three that assemble a point.
+        self.assertEqual(sorted(cfg["pipelines"]),
+                         ["pw_bcs", "pw_boq_install", "pw_boq_supply"])
+        for pid in _PW_ASSEMBLY_PIPELINES:
+            pipe = cfg["pipelines"][pid]
             blanks = [s for s in pipe["steps"]
                       if s.get("step") == "component_ref" and s.get("name") == "blank"]
             self.assertEqual(len(blanks), 1, f"{pid} must carry exactly one blank line")
@@ -2700,7 +2810,13 @@ class TestRateMaster(FrappeTestCase):
         # fallback. It is asserted in full by test_72b; here it only has to be PRESENT, because this
         # list is exhaustive on purpose -- a golden appearing or vanishing unnoticed is the failure
         # this line exists to catch, and it caught pw4 exactly as intended.
-        self.assertEqual(sorted(by_id), ["pw1", "pw2", "pw3", "pw4"])
+        # pw5 (PW-CIRCUIT-STRETCH, 2026-09-02) joins them: the CHARGED row, and the only golden that
+        # exercises the circuit components at a non-zero quantity. It is asserted in full by
+        # test_pw_cs_13, which re-derives it from the catalog rather than from our own interpreter;
+        # here it only has to be PRESENT. ⚠️ pw1-pw4's THREE VALUES BELOW ARE UNCHANGED BY THAT
+        # SLICE, and that is its regression proof -- they carry no circuit wiring, so `none_skips`
+        # zeroes both circuit lines and the flat add is 0.
+        self.assertEqual(sorted(by_id), ["pw1", "pw2", "pw3", "pw4", "pw5"])
         self.assertEqual(by_id["pw1"]["expect"]["pw_boq_supply"]["supply"], 1869.0)
         self.assertEqual(by_id["pw1"]["expect"]["pw_boq_install"]["install"], 735.0)
         self.assertEqual(by_id["pw1"]["expect"]["pw_bcs"]["bcs_supply"], 1370.0)
@@ -2952,6 +3068,12 @@ class TestRateMaster(FrappeTestCase):
         by_id = {c["category_id"]: c for c in payload["category_configs"]}
         for cid in ("switches_sockets", "point_wiring"):
             for pid, pl in by_id[cid]["pipelines"].items():
+                # v51: point_wiring's two DISPLAY-ONLY circuit pipelines price wire and nothing
+                # else -- they carry no module_fit BY DESIGN (test_pw_cs_10 pins their whole step
+                # vocabulary). Skipping them here keeps this guard about the pipelines that fit
+                # modules, which is what it was written to protect.
+                if cid == "point_wiring" and pid not in _PW_ASSEMBLY_PIPELINES:
+                    continue
                 mf = [s for s in pl["steps"] if s.get("step") == "module_fit"]
                 self.assertTrue(mf, f"{cid}.{pid} lost its module_fit")
                 blanks = mf[0]["params"]["blanks"]
@@ -3589,7 +3711,10 @@ class TestRateMaster(FrappeTestCase):
 
         # ---- RULING 1: the box ladder only, in every pipeline ----
         seen = 0
-        for pid, pl in pw["pipelines"].items():
+        # v51: scoped to the three that assemble a point -- the two DISPLAY-ONLY circuit pipelines
+        # fit no modules by design (test_pw_cs_10).
+        for pid in _PW_ASSEMBLY_PIPELINES:
+            pl = pw["pipelines"][pid]
             mf = [s for s in pl["steps"] if s.get("step") == "module_fit"]
             self.assertEqual(len(mf), 1, "%s should carry exactly one module_fit" % pid)
             for lad in mf[0]["params"]["ladders"]:
@@ -3673,6 +3798,9 @@ class TestRateMaster(FrappeTestCase):
         # derive_attribute step inert while the golden stayed green
         self.assertNotIn("circuit_length_m", a)
         self.assertEqual(a["points"], 1)
+        # SLICE B: the two display-only pipelines were removed, so their expectations went with
+        # them (`_validate_config` refuses a golden naming a pipeline the config no longer declares).
+        # The three assembly values are UNCHANGED -- that is the real no-golden-moved guarantee.
         self.assertEqual(goldens["pw4"]["expect"], {
             "pw_boq_supply": {"supply": 607.0},
             "pw_boq_install": {"install": 330.0},
@@ -6175,3 +6303,1127 @@ class TestConduitInTheCableRate(FrappeTestCase):
         # and no golden carries a conduit attribute -- which is WHY they are unchanged
         for g in cfg["goldens"]:
             self.assertFalse([k for k in g["attrs"] if "conduit" in k or k == "size_mm"])
+
+
+# ---- PW-LENGTH-BY-POINT-TYPE + PW-CONDUIT-OPTIONAL: the v48 point_wiring slice ------------------
+class TestPointWiringConduitAndLength(FrappeTestCase):
+    """PIECE 4's matcher (pure, no DB) and the v48 config SHAPE that pieces 1-3 depend on.
+
+    The matcher is the half that cannot be tested in vitest: it reads the payload `_ai_item` builds,
+    which is Python. The config assertions are what make the interpreter's fixture tests honest --
+    a green interpreter test over a fixture that has drifted from the shipped config proves nothing.
+    """
+
+    # ---------- PIECE 4: the point-type matcher ----------
+    @staticmethod
+    def _item(desc, ancestors=()):
+        """A payload item in `_ai_item`'s exact shape. distance 1 == the immediate parent."""
+        chain = [{"relation": "sheet", "description": "Electrical"}]
+        n = len(ancestors)
+        for i, a in enumerate(ancestors):
+            d = n - i
+            chain.append({"relation": "parent" if d == 1 else "grandparent", "distance": d,
+                          "tier": "full" if d <= 2 else "lean", "node_type": "Preamble",
+                          "description": a})
+        return {"id": 1, "description": desc, "ancestor_chain": chain}
+
+    def test_pw_pt_01_primary_only_is_primary(self):
+        """POSITIVE: a row naming only a primary/first point -> 15 m downstream."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertEqual(point_type_of(self._item("Primary Light Point controlled by switch board")), "Primary")
+        self.assertEqual(point_type_of(self._item("Wiring to the first light point")), "Primary")
+
+    def test_pw_pt_02_secondary_only_is_secondary(self):
+        """POSITIVE: secondary / looping / second / third -> 5 m downstream."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertEqual(point_type_of(self._item("Secondary light points wiring")), "Secondary")
+        self.assertEqual(point_type_of(self._item("LOOP POINT wiring for the fixture")), "Secondary")
+
+    def test_pw_pt_03_the_decisive_row_looped_to_primary_is_SECONDARY(self):
+        """⚠️ THE ONE THAT DECIDES IT. The owner ruled that
+
+              "Secondary Light / Fan Point / AC Circuit Wiring Looped to Primary Point"
+
+        IS A SECONDARY POINT. The word "Primary" appears in it, so a word-presence rule reads BOTH
+        types and falls back to the formula -- which is the wrong answer, not merely a cautious one.
+        The preposition guard is what separates the type a row IS from a type it REFERS TO.
+        """
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        row = "Secondary Light / Fan Point / AC Circuit Wiring Looped to Primary Point with 2.5 sqmm x 3 Wire"
+        self.assertEqual(point_type_of(self._item(row)), "Secondary")
+
+    def test_pw_pt_04_other_referential_verbs_are_also_guarded(self):
+        """POSITIVE: the guard covers the verb list drawn from the corpus, not just 'looped'."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        for row in ("Secondary point wiring looped from first point",
+                    "Secondary light point wiring looped with first point",
+                    "Secondary point extended from primary point"):
+            self.assertEqual(point_type_of(self._item(row)), "Secondary", row)
+
+    def test_pw_pt_05_nearest_wins_over_an_ancestor_naming_both(self):
+        """⚠️ NEAREST WINS -- and the guard ALONE is not sufficient without it.
+
+        The live shape (BOQ-26-00141 r130): the row's parent says "Secondary ... Looped to Primary
+        Point", and its grandparent's note names BOTH types. A flat scan over the whole chain reads
+        BOTH and falls to the formula. Only the shallowest level carrying a type token votes.
+        """
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        item = self._item(
+            "Upto 6 Meters",
+            ancestors=("Switch board to Primary & Secondary Point wiring shall be 1.5 sqmm x 3 wire",
+                       "Secondary Light / Fan Point / AC Circuit Wiring Looped to Primary Point"),
+        )
+        self.assertEqual(point_type_of(item), "Secondary")
+
+    def test_pw_pt_06_primary_from_the_parent_when_the_row_is_a_bare_band(self):
+        """POSITIVE: the mirror case -- the parent says Primary, the row is only a length band."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        item = self._item("Upto 6 Meters",
+                          ancestors=("LIGHT / FAN / AC WIRING",
+                                     "Primary Light / Fan Point / AC Circuit Wiring Controlled from DB"))
+        self.assertEqual(point_type_of(item), "Primary")
+
+    def test_pw_pt_07_NEGATIVE_both_types_at_the_nearest_level_returns_none(self):
+        """NEGATIVE: both types named at the SAME level -> None -> the formula stands, as ruled
+        ("that formula is valid if the line item ... includes both type of points")."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertIsNone(point_type_of(self._item("Primary and secondary light point wiring")))
+
+    def test_pw_pt_08_NEGATIVE_neither_type_returns_none(self):
+        """NEGATIVE: no type named anywhere -> None -> the formula stands, untouched."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertIsNone(point_type_of(self._item("Supply and wiring of light point with 1.5 sq mm wire")))
+        self.assertIsNone(point_type_of(self._item("")))
+
+    def test_pw_pt_09_NEGATIVE_a_referential_primary_alone_does_not_make_it_primary(self):
+        """NEGATIVE, and the sharp edge of the guard: a row whose ONLY primary token is referential
+        and which names no secondary token either must yield None -- never Primary. Reading it as
+        Primary would substitute 15 m on a row that never claimed to be one."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertIsNone(point_type_of(self._item("Wiring drawn from the first point to the fixture")))
+
+    def test_pw_pt_10_notes_are_read_at_the_full_tier(self):
+        """POSITIVE: the matcher reads the payload's note block, not just descriptions."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        item = self._item("Upto 8 Meters")
+        item["notes"] = {"attached": ["Secondary point wiring, looped"]}
+        self.assertEqual(point_type_of(item), "Secondary")
+
+    # ---------- the v48 CONFIG SHAPE that pieces 1-3 ride on ----------
+    def _pw_cfg(self):
+        import json, os
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, _asset_path
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+        return [c for c in d["category_configs"] if c["category_id"] == "point_wiring"][0]
+
+    def test_pw_cfg_01_circuit_fit_declares_positive_absence(self):
+        """PIECE 1's config half: without `absent_when` the engine branch is unreachable and a
+        dropped conduit would kill the whole row instead of zeroing one line."""
+        cfg = self._pw_cfg()
+        # SCOPED TO THE THREE ASSEMBLY PIPELINES (v51). `pw_circuit_supply` / `pw_circuit_install`
+        # are DISPLAY-ONLY and deliberately size no conduit at all -- their shape is asserted by
+        # TestPointWiringCircuitStretch.test_pw_cs_10, which is also what stops them acquiring one.
+        for pid in _PW_ASSEMBLY_PIPELINES:
+            pl = cfg["pipelines"][pid]
+            cf = [s for s in pl["steps"] if s["step"] == "circuit_fit"][0]
+            self.assertEqual(cf["params"].get("absent_when"),
+                             {"attr": "conduit_type", "equals": "None"}, pid)
+            cd = [s for s in pl["steps"] if s.get("name") == "conduit"][0]
+            self.assertTrue(cd.get("none_skips"), pid)
+
+    def test_pw_cfg_02_the_decision_table_chain_is_present_and_ordered(self):
+        """PIECE 2: the three-step chain, IN ORDER. The order IS the table -- the explicit-exclusion
+        step must come LAST so it outranks every inference above it, and the drop-to-None step must
+        come AFTER the PVC default so the default does not undo it."""
+        cfg = self._pw_cfg()
+        # SCOPED TO THE THREE ASSEMBLY PIPELINES (v51) -- see test_pw_cfg_01. The last three entries
+        # are the circuit stretch's own chain, appended AFTER the whole conduit table so not one
+        # pre-existing step moved; their meaning is asserted by test_pw_cs_06 / test_pw_cs_07.
+        for pid in _PW_ASSEMBLY_PIPELINES:
+            pl = cfg["pipelines"][pid]
+            maps = [s for s in pl["steps"] if s["step"] == "map_attribute"]
+            got = [(m["params"]["result_attr"], m["params"].get("from_attr")) for m in maps]
+            self.assertEqual(got, [
+                ("circuit_length_m", "point_type"),
+                ("conduit_included", "conduit_handoff"),
+                ("conduit_included", "other_conduit"),
+                ("conduit_included", "conduit_price_excluded"),
+                ("conduit_type", None),
+                ("conduit_type", "conduit_included"),
+                ("circuit_wire_length_m", "circuit_wire_included"),
+                ("circuit_qty_m", None),
+                ("circuit_qty_m", "point_type"),
+            ], pid)
+
+    def test_pw_cfg_03_silence_includes_PVC_the_OPPOSITE_of_cables(self):
+        """PIECE 3 + the contrast that must never be harmonised.
+
+        wiring_cabling (F-28) maps conduit_included with default "No": a CABLE row silent on conduit
+        EXCLUDES it. point_wiring defaults "Yes" and conduit_type defaults "PVC": a POINT WIRING row
+        silent on conduit INCLUDES it. Point wiring normally carries conduit; cables normally do not.
+        This test asserts BOTH defaults so a future editor cannot quietly make them agree.
+        """
+        import json
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, _asset_path
+        cfg = self._pw_cfg()
+        pl = cfg["pipelines"]["pw_boq_supply"]["steps"]
+        handoff = [s for s in pl if s["step"] == "map_attribute"
+                   and s["params"].get("from_attr") == "conduit_handoff"][0]
+        self.assertEqual(handoff["params"]["default"], "Yes")
+        ctype = [s for s in pl if s["step"] == "map_attribute"
+                 and s["params"]["result_attr"] == "conduit_type"
+                 and s["params"].get("prefer_attr") == "conduit_type"][0]
+        self.assertEqual(ctype["params"]["default"], "PVC")
+        # the cable side, in the SAME asset, must still say No
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+        wc = [c for c in d["category_configs"] if c["category_id"] == "wiring_cabling"][0]
+        cable_ci = [s for s in wc["pipelines"]["cable_boq"]["steps"]
+                    if s["step"] == "map_attribute" and s["params"]["result_attr"] == "conduit_included"][0]
+        self.assertEqual(cable_ci["params"]["default"], "No",
+                         "cables must still EXCLUDE on silence -- the defaults are opposite BY DESIGN")
+
+    def test_pw_cfg_04_the_facts_are_declared_and_hidden_but_still_extracted(self):
+        """The three conduit facts are `panel: false` -- hidden from the pricing panel (the pricer's
+        override surface is conduit_type) but STILL EXTRACTED, and exempt from the whole-row missing
+        gate. `point_type` and `conduit_included` are additionally `extract: false`: code supplies
+        them, so the model must never be asked."""
+        cfg = self._pw_cfg()
+        by_id = {a["id"]: a for a in cfg["attribute_definitions"]}
+        for fid in ("conduit_handoff", "other_conduit", "conduit_price_excluded"):
+            self.assertIs(by_id[fid]["panel"], False, fid)
+            self.assertIsNot(by_id[fid].get("extract"), False, fid)
+        for cid in ("point_type", "conduit_included"):
+            self.assertIs(by_id[cid]["panel"], False, cid)
+            self.assertIs(by_id[cid]["extract"], False, cid)
+        self.assertTrue(by_id["conduit_type"].get("allow_none"))
+
+    def test_pw_cfg_05_NEGATIVE_no_other_category_gained_absent_when(self):
+        """NEGATIVE: piece 1 must not change any other category's behaviour. `circuit_fit` is
+        point_wiring's alone today, but the assertion is over EVERY config so it stays true if
+        another category adopts the step."""
+        import json
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, _asset_path
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+        for c in d["category_configs"]:
+            if c["category_id"] == "point_wiring":
+                continue
+            for pid, pl in (c.get("pipelines") or {}).items():
+                for s in pl.get("steps") or []:
+                    if s.get("step") == "circuit_fit":
+                        self.assertIsNone(s["params"].get("absent_when"),
+                                          f"{c['category_id']}.{pid}")
+
+
+class TestPointWiringCircuitStretch(FrappeTestCase):
+    """PW-CIRCUIT-STRETCH (v51, 2026-09-02) -- the CIRCUIT (submain) run from the DB, priced as a
+    COMPONENT of the point rate.
+
+    THE THREE THINGS THAT COULD GO WRONG, AND WHICH TEST HOLDS EACH:
+
+      (a) a row with NO circuit wiring changes price. `test_pw_cs_12` pins every expected value on
+          the four no-circuit goldens; `test_pw_cs_06` pins `none_skips` on both components, which
+          is the mechanism that zeroes them.
+      (b) the circuit amount is charged where the owner ruled it must not be, or scaled by the point
+          count. `test_pw_cs_07` pins the Secondary exclusion; `test_pw_cs_06` pins the flat qty.
+      (c) the "None" / BLANK distinction collapses on the circuit thicknesses -- the one that turns
+          the owner's ruled LOUD failure into a silent under-quote. `test_pw_cs_03` pins the wording
+          and `test_pw_cs_04` pins that the wording actually reaches the model.
+    """
+
+    # ---------- shared readers ----------
+    def _payload(self):
+        import json
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def _prev_payload(self):
+        import json
+        with open(_asset_path("rate_master_electrical_all_v50.json"), "r", encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def _cfg(self):
+        return [c for c in self._payload()["category_configs"]
+                if c["category_id"] == "point_wiring"][0]
+
+    def _prev_cfg(self):
+        return [c for c in self._prev_payload()["category_configs"]
+                if c["category_id"] == "point_wiring"][0]
+
+    # The three pipelines that PRICE. The two `pw_circuit_*` ones are DISPLAY ONLY and are asserted
+    # separately (test_pw_cs_09) -- they deliberately carry neither circuit_fit nor module_fit.
+    ASSEMBLY = ("pw_boq_supply", "pw_boq_install", "pw_bcs")
+    # SLICE B: RETIRED at v53. Kept as a NAMED roster so the "these are gone" assertions read
+    # in terms of what was removed, rather than repeating two bare strings at each site.
+    RETIRED_DISPLAY = ("pw_circuit_supply", "pw_circuit_install")
+
+    THICKNESSES = ("circuit_wire1_thickness_sqmm", "circuit_wire2_thickness_sqmm")
+    # SLICE B: the eight PANEL-VISIBLE circuit fields that carry `group_label`. Deliberately NOT
+    # `EIGHT` (that tuple is the ABSENT-spec set the extraction corrector fills) and deliberately
+    # excluding `circuit_length_m` (the POINT stretch) and `circuit_qty_m` (panel:false).
+    EIGHT_GROUP = (
+        "circuit_wire_included",
+        "circuit_wire1_core", "circuit_wire1_runs", "circuit_wire1_thickness_sqmm",
+        "circuit_wire2_core", "circuit_wire2_runs", "circuit_wire2_thickness_sqmm",
+        "circuit_wire_length_m",
+    )
+    EIGHT = (
+        "circuit_wire_included",
+        "circuit_wire1_core", "circuit_wire1_runs", "circuit_wire1_thickness_sqmm",
+        "circuit_wire2_core", "circuit_wire2_runs", "circuit_wire2_thickness_sqmm",
+        "circuit_wire_length_m",
+    )
+
+    # ---------- the fields ----------
+    def test_pw_cs_01_the_eight_fields_are_declared_visible_and_editable(self):
+        """POSITIVE (owner: "all the fields will be user editable as we have for the other helper
+        fields"). All eight are panel-visible and none is `selector: false`, so the pricer can see
+        and correct every one. They sit CONTIGUOUSLY so they read as one block on the panel."""
+        cfg = self._cfg()
+        ids = [d["id"] for d in cfg["attribute_definitions"]]
+        by_id = {d["id"]: d for d in cfg["attribute_definitions"]}
+        for fid in self.EIGHT:
+            self.assertIn(fid, by_id, fid)
+            self.assertIsNot(by_id[fid].get("panel"), False, "%s must be visible" % fid)
+            self.assertIsNot(by_id[fid].get("selector"), False, "%s must be editable" % fid)
+        first = ids.index(self.EIGHT[0])
+        self.assertEqual(ids[first:first + len(self.EIGHT)], list(self.EIGHT),
+                         "the eight fields must be contiguous, in the owner's order")
+        # the ninth is the pipeline's own working value and is deliberately NOT a pricer field:
+        # it carries the Secondary exclusion, which is a CODE decision.
+        self.assertIs(by_id["circuit_qty_m"]["panel"], False)
+        self.assertIs(by_id["circuit_qty_m"]["extract"], False)
+
+    def test_pw_cs_02_neither_circuit_thickness_carries_a_default(self):
+        """THE OWNER'S LOUD-FAILURE RULING (2026-09-02): "if it cannot be detremined then it is left
+        blank as we do for all other fields also. in this case the row would not price till the user
+        enters the correct thickness."
+
+        A default would price a GUESSED gauge, which is exactly what was rejected. No default means
+        a blank thickness is a blank PANEL-VISIBLE NON-DERIVED field, which the helper's whole-row
+        missing gate turns into "Complete the missing attributes to price".
+
+        `allow_none` is a different axis and does NOT weaken this: it rescues only the literal string
+        "None" (positive absence), never a blank. Both are asserted here so the pair cannot drift.
+        """
+        cfg = self._cfg()
+        by_id = {d["id"]: d for d in cfg["attribute_definitions"]}
+        for tid in self.THICKNESSES:
+            self.assertNotIn(tid, cfg["extraction_defaults"],
+                             "%s must have NO default -- an unreadable gauge must REFUSE" % tid)
+            self.assertTrue(by_id[tid]["allow_none"], tid)
+            self.assertEqual(by_id[tid]["disables_when_none"],
+                             [tid.replace("_thickness_sqmm", "_core"),
+                              tid.replace("_thickness_sqmm", "_runs")], tid)
+        # ... and the four core/runs fields DO carry the mirrored default of 1, exactly as the point
+        # wiring wire fields do, so a stated circuit wire with an unstated core count still prices.
+        for fid in ("circuit_wire1_core", "circuit_wire1_runs",
+                    "circuit_wire2_core", "circuit_wire2_runs"):
+            self.assertEqual(cfg["extraction_defaults"][fid], 1.0, fid)
+        # SILENCE IS NOT INCLUSION -- the necessary criterion, as a default.
+        self.assertEqual(cfg["extraction_defaults"]["circuit_wire_included"], "No")
+
+    # ---------- the wording: "None" vs BLANK ----------
+    def test_pw_cs_03_the_wording_draws_the_None_vs_blank_line(self):
+        """⚠️ THE TEST THIS SLICE MOST NEEDS. `allow_none` on a circuit thickness is safe ONLY while
+        the model is told, unmistakably, that the two answers mean different things:
+
+            the document positively indicates there is NO such wire -> "None"
+            the model CANNOT TELL what the gauge is                 -> NOTHING (blank)
+
+        If the model answers "None" for "I could not read it", `none_skips` zeroes the component and
+        the row prices with no circuit charge -- the owner's ruled LOUD failure becomes a SILENT
+        under-quote, on the ~103 qualifying rows whose inclusion sentence names no gauge.
+
+        The guidance REPLACES the shipped truthy flag, so the first assertion is that the ORIGINAL
+        default sentence survives verbatim -- the other allow_none fields on this category (socket,
+        plate, wire 2, conduit type) must keep reading exactly as they did.
+        """
+        g = self._cfg()["extraction_none_guidance"]
+        self.assertIsInstance(g, str)
+        # (1) the shipped default wording, preserved word for word
+        self.assertIn(
+            'return "None" when the row\'s enumerated bill names NO such component (positive '
+            "absence -- a real light point may have a switch and plate but no socket, or a single "
+            "wire and no second wire); return null/blank ONLY when the row is too vague to tell.",
+            g,
+        )
+        # (2) the new line, named at BOTH circuit thickness fields
+        for tid in self.THICKNESSES:
+            self.assertIn(tid, g, "the wording must name %s explicitly" % tid)
+        # (3) the two directions, each stated
+        self.assertIn("positively indicates there is no such circuit wire", g)
+        self.assertIn("you cannot tell what gauge it is, answer NOTHING", g)
+        # (4) the prohibition, in the model's own words
+        self.assertIn('NEVER answer "None" to mean "I could not read it"', g)
+        # (5) and WHY -- the consequences, so the instruction is not merely a rule to be traded off
+        self.assertIn("a BLANK stops the row and a pricer is asked to supply the size", g)
+
+    def test_pw_cs_04_the_wording_reaches_the_model(self):
+        """POSITIVE, and the reason (3) above is not enough on its own: the guidance is CONFIG DATA,
+        and config data that never reaches the prompt is inert. This drives the REAL prompt builder
+        (`_extract_batch`) with a stub client and reads the payload it would have sent.
+
+        It also pins the two things that make the section fire at all: `_extraction_attr_defs` must
+        publish both thicknesses as `allow_none` (that list is what the section enumerates), and the
+        custom string must be used VERBATIM rather than the default wording.
+        """
+        from nirmaan_stack.services.boq_rate_master import extraction as ex
+
+        cfg = self._cfg()
+        captured = {}
+
+        class _Block(object):
+            text = "[]"
+
+        class _Resp(object):
+            content = [_Block()]
+            stop_reason = "end_turn"
+            usage = None
+
+        class _Messages(object):
+            def create(self, **kw):
+                captured["content"] = kw["messages"][0]["content"]
+                return _Resp()
+
+        class _Client(object):
+            messages = _Messages()
+
+        defs = ex.build_attribute_defs(cfg, discipline="Electrical")
+        none_ids = [d["id"] for d in defs if d.get("allow_none")]
+        for tid in self.THICKNESSES:
+            self.assertIn(tid, none_ids,
+                          "%s must reach the model as an allow_none field, or the "
+                          "OPTIONAL COMPONENTS section never mentions it" % tid)
+        # `circuit_wire_length_m` is extract:false -- the pipeline supplies 30 and the pricer edits
+        # it; the model is never asked. (`circuit_qty_m` likewise.)
+        sent_ids = [d["id"] for d in defs]
+        self.assertNotIn("circuit_wire_length_m", sent_ids)
+        self.assertNotIn("circuit_qty_m", sent_ids)
+
+        rows = [{"excel_row": 11, "description": "Primary light point wiring",
+                 "sheet_name": "S", "committed_version": 1, "category_id": "point_wiring",
+                 "ancestors": [], "notes": {}}]
+        ex._extract_batch(_Client(), "stub-model", "PROMPT", defs, rows,
+                          defaults=cfg["extraction_defaults"],
+                          none_guidance=cfg["extraction_none_guidance"],
+                          rules=cfg["rules"])
+        sent = captured["content"]
+        self.assertIn('OPTIONAL COMPONENTS (may be "None"):', sent)
+        self.assertIn('NEVER answer "None" to mean "I could not read it"', sent)
+        self.assertIn("you cannot tell what gauge it is, answer NOTHING", sent)
+        # the estimator rule rides the same payload
+        self.assertIn("SILENCE IS No", sent)
+
+    def test_pw_cs_05_the_inclusion_rule_requires_positive_language(self):
+        """THE NECESSARY CRITERION (owner: "The row must carry positive inclusion language").
+
+        The model REPORTS what the row says and never applies the charge rule -- the F-5 failure this
+        codebase already paid for. R13 must therefore (a) demand positive language, (b) say silence
+        is No, (c) forbid the model deciding whether to charge, and (d) repeat the blank-not-None
+        instruction where the estimator reads it.
+        """
+        cfg = self._cfg()
+        r13 = [r for r in cfg["rules"] if r["id"] == "R13"]
+        self.assertEqual(len(r13), 1, "R13 must exist exactly once")
+        r13 = r13[0]
+        for fid in self.EIGHT[:7]:          # the seven the model is asked for
+            self.assertIn(fid, r13["applies_to"], fid)
+        self.assertNotIn("circuit_wire_length_m", r13["applies_to"],
+                         "the stretch is fixed at 30 m by ruling; the model is never asked for it")
+        guidance = r13["guidance"]
+        self.assertIn("answer Yes ONLY when the line POSITIVELY says", guidance)
+        self.assertIn("SILENCE IS No", guidance)
+        self.assertIn("Never decide whether the circuit wiring should be charged", guidance)
+        self.assertIn('leave the thickness BLANK -- never "None"', guidance)
+        # ⚠️ THE NEGATIVE THE TEAM RULED ON (2026-09-02), pinned so the widening cannot come back
+        # by good intentions. A heading that merely DESCRIBES the point wiring -- even one naming a
+        # distribution board AND a wire size, as BOQ-26-00065 r131's parent does -- is NOT an
+        # inclusion statement. It was briefly read as one; the team ruled it is not.
+        self.assertIn("Controlled from DB with 2.5 sqmm x 3 Wire", guidance)
+        self.assertIn("describes what the point wiring IS, and the answer there is No", guidance)
+
+    # ---------- the composition ----------
+    def test_pw_cs_06_the_composition_is_flat_and_once_per_row(self):
+        """OWNER: "circuit wiring rate will be purely additive number added to th eper point rate"
+        and "once per row".
+
+        The two circuit components sit LAST, immediately before `sum_components`, so they land after
+        every per-point figure and are simply added. Their quantity is `circuit_qty_m` -- NOT
+        `circuit_length_m`, which is the POINT stretch and is itself derived from the point count. A
+        circuit component reading that attribute would multiply the charge by the number of points.
+        """
+        cfg = self._cfg()
+        for pid in self.ASSEMBLY:
+            steps = cfg["pipelines"][pid]["steps"]
+            names = [s.get("name") for s in steps if s.get("step") == "component_ref"]
+            self.assertEqual(names[-2:], ["circuit_wire1", "circuit_wire2"],
+                             "%s: the circuit components must come LAST" % pid)
+            self.assertEqual(steps[-1]["step"], "sum_components", pid)
+            self.assertEqual([s.get("name") for s in steps[-3:-1]],
+                             ["circuit_wire1", "circuit_wire2"],
+                             "%s: nothing may sit between the circuit lines and the sum" % pid)
+            for s in steps[-3:-1]:
+                self.assertEqual(s["qty"], {"from_attr": "circuit_qty_m"}, pid)
+                self.assertTrue(s["none_skips"],
+                                "%s/%s: absence must ZERO, not refuse" % (pid, s["name"]))
+                self.assertEqual(s["ref"]["kind"], "cable")
+                self.assertEqual(s["ref"]["core"], "@%s_core" % s["name"])
+                self.assertEqual(s["ref"]["thickness_sqmm"], "@%s_thickness_sqmm" % s["name"])
+
+    def test_pw_cs_07_the_secondary_exclusion_reuses_the_shipped_verdict(self):
+        """OWNER: "the ciricuit wiring cost wil be added only to thr eprimary point rows or mixed
+        rows and not secondary point rows" -- and a SILENT row (no type token at all) IS charged.
+
+        `point_type_of` returns "Secondary" only for a row that IS a secondary point; a mixed row and
+        a silent row both return None, the map's `on_miss: "skip"` leaves the stretch standing, and
+        they are charged. There is NO second reader -- the same verdict the 15/5 length substitution
+        already uses.
+
+        ⚠️ It writes `circuit_qty_m`, never the visible length: a Secondary row still SHOWS 30 m,
+        because the owner's field shape puts 0 on the length only when the wiring is ABSENT.
+        """
+        from nirmaan_stack.services.boq_rate_master import extraction as ex
+        cfg = self._cfg()
+        for pid in self.ASSEMBLY:
+            maps = [s for s in cfg["pipelines"][pid]["steps"] if s["step"] == "map_attribute"]
+            excl = [m for m in maps if m["params"]["result_attr"] == "circuit_qty_m"
+                    and m["params"].get("from_attr") == "point_type"]
+            self.assertEqual(len(excl), 1, pid)
+            p = excl[0]["params"]
+            self.assertEqual(p["table"], {"Secondary": 0}, pid)
+            self.assertEqual(p["on_miss"], "skip",
+                             "%s: Primary, mixed and SILENT rows must keep the charge" % pid)
+            self.assertNotIn("default", p,
+                             "%s: a default here would charge or drop every row" % pid)
+            # it must run AFTER the copy that seeds circuit_qty_m, or the copy would undo it
+            seed = [m for m in maps if m["params"]["result_attr"] == "circuit_qty_m"
+                    and m["params"].get("prefer_attr") == "circuit_wire_length_m"][0]
+            self.assertLess(maps.index(seed), maps.index(excl[0]), pid)
+        # the verdict itself is still CODE-SUPPLIED -- the model is never asked to judge point type
+        self.assertIn("point_type", ex._CODE_SUPPLIED_ATTRS)
+        self.assertEqual(ex.point_type_of({"description": "Secondary light point wiring"}),
+                         "Secondary")
+        self.assertIsNone(ex.point_type_of({"description": "Supply and wiring of light point"}),
+                          "a SILENT row must return None so the charge stands")
+
+    def test_pw_cs_08_NEGATIVE_no_circuit_step_touches_the_point_stretch(self):
+        """⚠️ NEGATIVE, and the reason it is written as its own test: `circuit_length_m` and
+        `circuit_wire_length_m` differ by one word, and a typo in a `result_attr` would silently
+        retarget the POINT stretch -- 15/5 would become 30 on every row and NOTHING on screen would
+        say so. This asserts the point stretch's two steps are byte-identical to the previous asset.
+        """
+        prev = self._prev_cfg()
+        cfg = self._cfg()
+        prev_defs = {d["id"]: d for d in prev["attribute_definitions"]}
+        now_defs = {d["id"]: d for d in cfg["attribute_definitions"]}
+        self.assertEqual(now_defs["circuit_length_m"], prev_defs["circuit_length_m"])
+        for pid in self.ASSEMBLY:
+            def stretch_steps(c):
+                return [s for s in c["pipelines"][pid]["steps"]
+                        if (s.get("params") or {}).get("result_attr") == "circuit_length_m"]
+            self.assertEqual(stretch_steps(cfg), stretch_steps(prev), pid)
+            # and spelled out, so a reader of this test knows WHAT is being protected
+            m, d = stretch_steps(cfg)
+            self.assertEqual(m["params"]["table"], {"Primary": 15, "Secondary": 5})
+            self.assertEqual(m["params"]["prefer_attr"], "circuit_length_m")
+            self.assertEqual(d["params"]["formula"], "base + (points - 1) * per_extra")
+            self.assertEqual(d["params"]["constants"], {"base": 15, "per_extra": 5})
+        # no circuit component anywhere may read the point stretch as its quantity
+        for pid, pl in cfg["pipelines"].items():
+            for s in pl["steps"]:
+                if str(s.get("name") or "").startswith("circuit_wire"):
+                    self.assertNotEqual((s.get("qty") or {}).get("from_attr"), "circuit_length_m",
+                                        "%s/%s reads the POINT stretch" % (pid, s["name"]))
+
+    def test_pw_cs_09_the_block_is_a_component_not_a_second_rate(self):
+        """THE BLOCK (owner: "we canimplement the circuit wiring part as a second block like we do
+        terminations in cable wire and termination category").
+
+        Built from the SHIPPED presentation: the helper renders one labelled section per non-BCS
+        pipeline and a section is DISPLAY-ONLY (`WorkingsGroup` -- "the applied value still comes
+        from Suggestion.values, never a group's finals").
+
+        ⚠️ THE LOAD-BEARING PART IS THE OUTPUT NAMES. Unlike wiring's Cable/Termination pair, this is
+        ONE rate in two parts -- the circuit money is already inside `supply` / `install`. So the
+        display pipelines must name outputs the helper maps to NO rate kind, or the circuit figure
+        would be offered as a second appliable rate and could be double-counted. `kindForOutput`
+        matches "supply"/"install" exactly or the prefixes "supply_"/"install_"; `circuit_supply`
+        and `circuit_install` match none of those, and this test pins that rule literally.
+        """
+        # ⚠️ SLICE B REMOVED THE RISK THIS TEST GUARDED, RATHER THAN THE GUARD DRIFTING.
+        # The original worry was that a display pipeline might name an output the helper maps to a
+        # rate kind, so the circuit figure would be offered as a SECOND appliable rate. With both
+        # display pipelines deleted there is no second block to offer -- the hazard is structural,
+        # not conditional, which is strictly stronger than the naming rule below ever was.
+        #
+        # WHAT REPLACES THE GUARANTEE, so nothing is lost:
+        #   * test_pw_cs_28 pins that both display pipelines AND their labels are gone, and that the
+        #     circuit COMPONENTS still live inside the assembly pipelines (the money stayed).
+        #   * test_pw_cs_13 pins that pw5's circuit amounts appear INSIDE `pw_boq_supply` /
+        #     `pw_boq_install` -- i.e. one rate in two parts, which was the real claim all along.
+        # The `kindForOutput` rule itself is still exercised below against the surviving outputs.
+        cfg = self._cfg()
+        self.assertEqual(list(cfg["pipelines"]),
+                         ["pw_boq_supply", "pw_boq_install", "pw_bcs"],
+                         "declaration order IS section order on the panel")
+        self.assertEqual(cfg["pipeline_labels"], {},
+                         "a label for a pipeline that no longer exists is a trap")
+        for pid in self.RETIRED_DISPLAY:
+            self.assertNotIn(pid, cfg["pipelines"])
+
+        def would_fill_a_rate_kind(output):
+            return (output in ("supply", "install")
+                    or output.startswith("supply_") or output.startswith("install_"))
+
+        # SLICE B: with no display pipeline left, the rule is exercised against the SURVIVORS --
+        # the two that DO fill a rate kind must still name the kinds they always did, and the BCS
+        # pipeline must still name one that fills none.
+        self.assertTrue(would_fill_a_rate_kind(cfg["pipelines"]["pw_boq_supply"]["output"][0]))
+        self.assertTrue(would_fill_a_rate_kind(cfg["pipelines"]["pw_boq_install"]["output"][0]))
+        self.assertFalse(would_fill_a_rate_kind(cfg["pipelines"]["pw_bcs"]["output"][0]),
+                         "the BCS output must never be offered as a client rate")
+        # ⚠️ AND THE MONEY MUST STILL BE THERE. The pair the deleted display pipelines used to
+        # restate is now asserted where it actually prices: inside the assembly pipelines.
+        for pid in ("pw_boq_supply", "pw_boq_install"):
+            names = [c.get("name") for c in cfg["pipelines"][pid]["steps"]
+                     if c.get("step") == "component_ref"]
+            self.assertIn("circuit_wire1", names, pid)
+            self.assertIn("circuit_wire2", names, pid)
+
+    def test_pw_cs_10_NEGATIVE_circuit_fit_is_untouched(self):
+        """NEGATIVE: the conduit sizing must not move. `circuit_fit` sums wire diameters to pick a
+        conduit; adding the circuit wires to `wire_specs` would enlarge the conduit -- and change the
+        price -- on every point wiring row, including rows with no circuit wiring at all."""
+        prev = self._prev_cfg()
+        cfg = self._cfg()
+        for pid in self.ASSEMBLY:
+            now = [s for s in cfg["pipelines"][pid]["steps"] if s["step"] == "circuit_fit"][0]
+            was = [s for s in prev["pipelines"][pid]["steps"] if s["step"] == "circuit_fit"][0]
+            self.assertEqual(now, was, pid)
+            flat = [a for spec in now["params"]["wire_specs"] for a in spec]
+            self.assertFalse([a for a in flat if a.startswith("circuit_wire")], pid)
+        # SLICE B: the display pipelines are GONE, so there is no longer a step vocabulary of
+        # theirs to pin. What still matters is that their removal did not take a `circuit_fit` with
+        # it -- the assembly pipelines above are compared byte-for-byte against the previous asset.
+        for pid in self.RETIRED_DISPLAY:
+            self.assertNotIn(pid, cfg["pipelines"], pid)
+
+    def test_pw_cs_11_the_two_length_labels_are_distinct(self):
+        """#57 item 6. Two lengths now live on one panel and they mean different things: the POINT
+        stretch (15/5, per point) and the CIRCUIT stretch (a flat 30). `circuit_length_m` keeps its
+        shipped label by ruling -- it is misnamed, and renaming it is a separate change -- so the
+        NEW field carries the distinct one."""
+        by_id = {d["id"]: d for d in self._cfg()["attribute_definitions"]}
+        point = by_id["circuit_length_m"]["label"]
+        circuit = by_id["circuit_wire_length_m"]["label"]
+        self.assertEqual(point, "Circuit length (m)", "the shipped label must NOT be renamed")
+        self.assertEqual(circuit, "Circuit wiring stretch (m)")
+        self.assertNotEqual(point, circuit)
+
+    # ---------- the goldens ----------
+    def test_pw_cs_12_the_no_circuit_goldens_keep_every_expected_value(self):
+        """⚠️ THE REGRESSION PROOF, and it is not a coincidence. pw1-pw4 carry no circuit wiring, so
+        both circuit components hit `none_skips`, contribute 0, and the sum is unchanged. Every
+        expected value is asserted against the PREVIOUS asset's, key by key. If one ever moves, the
+        circuit stretch has leaked onto a row that carries none.
+
+        Their INPUTS did grow -- the circuit wires are now stated as positively absent -- which is
+        the same shape the v45 socket-slot mint took, and is what a real extracted row looks like.
+        """
+        prev = dict((g["id"], g) for g in self._prev_payload()["goldens"]["point_wiring"])
+        now = dict((g["id"], g) for g in self._payload()["goldens"]["point_wiring"])
+        self.assertEqual(sorted(now), ["pw1", "pw2", "pw3", "pw4", "pw5"])
+        for gid in ("pw1", "pw2", "pw3", "pw4"):
+            for pid, expected in prev[gid]["expect"].items():
+                self.assertEqual(now[gid]["expect"][pid], expected, "%s/%s" % (gid, pid))
+            # SLICE B: the display pipelines are gone, so their (always-zero) expectations went
+            # with them. A no-circuit row is still proven to charge nothing -- by the ASSEMBLY
+            # values compared against the previous asset in the loop directly above.
+            for pid in self.RETIRED_DISPLAY:
+                self.assertNotIn(pid, now[gid]["expect"], gid)
+            for tid in self.THICKNESSES:
+                self.assertEqual(now[gid]["attrs"][tid], "None", gid)
+            self.assertEqual(now[gid]["attrs"]["circuit_wire_included"], "No", gid)
+
+    def test_pw_cs_13_the_circuit_golden_is_hand_derived_from_the_catalog(self):
+        """pw5 is the charged row, and it is derived from the CATALOG ROW AND THE RATE STAGES rather
+        than from our own interpreter -- a golden recomputed by the thing it is meant to pin passes
+        by construction and pins nothing (the pw4 precedent).
+
+        It is ALSO the silent-row pin: pw5 states no `point_type`, so the Secondary map misses,
+        `on_miss: "skip"` leaves the stretch standing, and the row is charged.
+        """
+        import math
+        payload = self._payload()
+        g = dict((x["id"], x) for x in payload["goldens"]["point_wiring"])
+        pw1, pw5 = g["pw1"], g["pw5"]
+        self.assertNotIn("point_type", pw5["attrs"], "pw5 must stay a SILENT row")
+        self.assertEqual(pw5["attrs"]["circuit_wire_included"], "Yes")
+        self.assertEqual(pw5["attrs"]["circuit_wire2_thickness_sqmm"], "None")
+
+        cable = [it for it in payload["items"]
+                 if it["kind"] == "cable"
+                 and it["attributes"].get("material") == "COPPER"
+                 and it["attributes"].get("insulation") == "UNARMOURED"
+                 and it["attributes"].get("core") == pw5["attrs"]["circuit_wire1_core"]
+                 and it["attributes"].get("thickness_sqmm")
+                 == pw5["attrs"]["circuit_wire1_thickness_sqmm"]]
+        self.assertEqual(len(cable), 1, "the circuit wire must resolve to exactly one catalog row")
+        rates = cable[0]["rates"]
+        runs = pw5["attrs"]["circuit_wire1_runs"]
+        length = 30                                    # the config's default stretch
+
+        supply_add = math.ceil(rates["list_price_per_mtr"] * 0.602 * runs) * length
+        install_add = math.ceil(rates["install_base_per_mtr"] * 2.0
+                                * math.ceil(runs / 3)) * length
+        bcs_add = math.ceil(rates["list_price_per_mtr"] * 0.4515 * runs) * length
+
+        # ⚠️ SLICE B: THIS IS NOW THE PRIMARY GUARANTEE THAT THE CIRCUIT MONEY IS REAL, because the
+        # display pipelines that used to restate it are gone. The hand-derived adds must appear
+        # INSIDE the assembly rates -- one rate in two parts, which was always the actual claim.
+        for pid in self.RETIRED_DISPLAY:
+            self.assertNotIn(pid, pw5["expect"])
+        self.assertEqual(pw5["expect"]["pw_boq_supply"]["supply"],
+                         pw1["expect"]["pw_boq_supply"]["supply"] + supply_add)
+        self.assertEqual(pw5["expect"]["pw_boq_install"]["install"],
+                         pw1["expect"]["pw_boq_install"]["install"] + install_add)
+        self.assertEqual(pw5["expect"]["pw_bcs"]["bcs_supply"],
+                         pw1["expect"]["pw_bcs"]["bcs_supply"] + bcs_add)
+        # and the ONLY difference between pw1 and pw5 is the circuit block
+        differing = set(k for k in set(pw1["attrs"]) | set(pw5["attrs"])
+                        if pw1["attrs"].get(k) != pw5["attrs"].get(k))
+        self.assertTrue(all(k.startswith("circuit_wire") for k in differing), differing)
+
+    # ---------- blast radius ----------
+    def test_pw_cs_14_NEGATIVE_no_other_category_gained_a_circuit_field(self):
+        """NEGATIVE: exactly ONE config changed. Asserted over every category so a later mint that
+        copies the block elsewhere has to say so."""
+        payload = self._payload()
+        prev = self._prev_payload()
+        was = dict((c["category_id"], c) for c in prev["category_configs"])
+        now = dict((c["category_id"], c) for c in payload["category_configs"])
+        self.assertEqual(sorted(was), sorted(now))
+        changed = sorted(k for k in now if now[k] != was[k])
+        self.assertEqual(changed, ["point_wiring"])
+        self.assertEqual(payload["items"], prev["items"], "no rate and no item may move")
+        for cid, c in now.items():
+            if cid == "point_wiring":
+                continue
+            ids = [d["id"] for d in c.get("attribute_definitions") or []]
+            self.assertFalse([i for i in ids if i.startswith("circuit_wire")], cid)
+
+    def test_pw_cs_15_the_minted_config_passes_the_server_validator(self):
+        """The whitelist is CLOSED and the reference guard is real: every `@attr` a pipeline binds
+        must be a declared attribute. Running the shipped validator over the minted config is what
+        proves the asset is loadable at all -- the v47 slice lost a round to exactly this."""
+        from nirmaan_stack.api.boq import rate_master as rm
+        payload = self._payload()
+        cfg = dict(self._cfg())
+        cfg["discipline"] = payload["discipline"]
+        cfg["goldens"] = payload["goldens"]["point_wiring"]
+        rm._validate_config(cfg)          # throws on any violation
+        # ⚠️ THE VALIDATOR DOES NOT REACH A component_ref's INLINE `@attr` REFS OR ITS
+        # `qty.from_attr` -- `_ref` is called for rate_stages, circuit_fit and module_fit, but not
+        # for these two. A typo there is a RUNTIME no-compute, so this test walks them by hand.
+        # A ref may also name a STEP BIND (circuit_fit's `fitted_size`) rather than an attribute,
+        # so the legal set is declared attributes PLUS every declared bind.
+        legal = set(d["id"] for d in cfg["attribute_definitions"])
+        for pl in cfg["pipelines"].values():
+            for step in pl["steps"]:
+                legal.update(step.get("binds") or [])
+                for lad in ((step.get("params") or {}).get("ladders") or []):
+                    if lad.get("bind"):
+                        legal.add(lad["bind"])
+                blanks = (step.get("params") or {}).get("blanks") or {}
+                for key in ("bind", "bind_item"):
+                    if blanks.get(key):
+                        legal.add(blanks[key])
+        for pid, pl in cfg["pipelines"].items():
+            for step in pl["steps"]:
+                for _k, v in (step.get("ref") or {}).items():
+                    if isinstance(v, str) and v.startswith("@"):
+                        self.assertIn(v[1:], legal, "%s: unbound ref %s" % (pid, v))
+                q = step.get("qty")
+                if isinstance(q, dict) and "from_attr" in q:
+                    self.assertIn(q["from_attr"], legal, "%s: unbound qty %s" % (pid, q))
+
+    # ---------- the ABSENT-SPEC enforcement (owner 2026-09-03) ----------
+    def test_pw_cs_16_an_absent_component_declares_its_spec_absent_too(self):
+        """CONFIG HALF. The controller declares, in config, what "absent" means and which fields it
+        makes absent -- so no category is named in code (the HV-10 lesson)."""
+        by_id = {d["id"]: d for d in self._cfg()["attribute_definitions"]}
+        ctrl = by_id["circuit_wire_included"]
+        self.assertEqual(ctrl["absent_when_value"], "No")
+        self.assertEqual(ctrl["absent_dependents"], list(self.EIGHT[1:7]))
+        # NEGATIVE: the STRETCH is not a dependent -- its own map already writes 0 when field 1 is
+        # No, and listing it here would make it "None", which resolveQty reads as a no-compute.
+        self.assertNotIn("circuit_wire_length_m", ctrl["absent_dependents"])
+
+    def test_pw_cs_17_the_corrector_fills_blanks_only_and_never_overwrites(self):
+        """⚠️ THE ONE THAT KEEPS IT HONEST. `extraction_none_guidance` ASKS the model to answer
+        "None" for a component the bill does not carry; measured on the 251-row corpus it obeyed on
+        137 rows and left the spec BLANK on 22 others, which refused rows that had already answered
+        "No". This makes the owner's field shape true by construction.
+
+        BLANKS ONLY: a row answering "No" while ALSO naming a gauge is contradicting itself, and
+        overwriting the gauge would destroy the evidence. It costs nothing to keep -- the pipeline
+        zeroes the quantity from the same controller either way.
+        """
+        from nirmaan_stack.services.boq_rate_master import extraction as ex
+        rules = ex.absent_dependent_rules(self._cfg())
+        self.assertIn("circuit_wire_included", rules)
+
+        # (a) the shape the 22 rows were in -- controller says No, spec BLANK -> filled
+        row = {"circuit_wire_included": {"value": "No", "confidence": 0.7},
+               "circuit_wire1_thickness_sqmm": {"value": None},
+               "circuit_wire2_core": {"value": ""}}
+        filled = ex.force_absent_dependents(row, rules)
+        self.assertEqual(sorted(filled), sorted(self.EIGHT[1:7]))
+        for fid in self.EIGHT[1:7]:
+            self.assertEqual(row[fid]["value"], "None", fid)
+
+        # (b) NEGATIVE -- a STATED value survives untouched, contradiction and all
+        row2 = {"circuit_wire_included": {"value": "No"},
+                "circuit_wire1_thickness_sqmm": {"value": 2.5}}
+        ex.force_absent_dependents(row2, rules)
+        self.assertEqual(row2["circuit_wire1_thickness_sqmm"]["value"], 2.5)
+
+        # (c) ⚠️ NEGATIVE, THE LOAD-BEARING ONE -- a QUALIFYING row is never touched, so the owner's
+        # loud failure on an unreadable gauge cannot be filled in behind his back.
+        row3 = {"circuit_wire_included": {"value": "Yes"},
+                "circuit_wire1_thickness_sqmm": {"value": None}}
+        self.assertEqual(ex.force_absent_dependents(row3, rules), [])
+        self.assertIsNone(row3["circuit_wire1_thickness_sqmm"]["value"])
+
+        # (d) NEGATIVE -- a config declaring no rule leaves every row alone
+        self.assertEqual(ex.absent_dependent_rules({"attribute_definitions": [{"id": "x"}]}), {})
+        row4 = {"circuit_wire_included": {"value": "No"}, "circuit_wire1_core": {"value": None}}
+        self.assertEqual(ex.force_absent_dependents(row4, {}), [])
+        self.assertIsNone(row4["circuit_wire1_core"]["value"])
+
+    def test_pw_cs_18_NEGATIVE_no_other_category_declares_an_absent_rule(self):
+        """NEGATIVE: the corrector is inert everywhere else. Asserted over every config so a later
+        mint that adopts the mechanism has to say so."""
+        from nirmaan_stack.services.boq_rate_master import extraction as ex
+        for c in self._payload()["category_configs"]:
+            rules = ex.absent_dependent_rules(c)
+            if c["category_id"] == "point_wiring":
+                self.assertTrue(rules)
+            else:
+                self.assertEqual(rules, {}, c["category_id"])
+
+
+    # ---------- SLICE A: F2 the conduit false-friend, F5 the None checkbox ----------
+    def test_pw_cs_19_the_conduit_example_cannot_be_matched_without_its_load_bearing_word(self):
+        """⚠️ F2. R12's WORKED EXAMPLE was the defect, not its rule.
+
+        It read "'recessed/surface existing conduit' ... so the answer there is Yes". Rows reading
+        'recessed/surface 16SWG MS conduit' matched that SURFACE FORM while lacking `existing`, so
+        `conduit_handoff` came back Yes and 36 rows silently dropped a conduit they supply -- the
+        example overriding the rule's own closing clause, which was right all along.
+
+        The corrected example must CONTRAST the two phrasings and name the one word that separates
+        them. The NEGATIVE half is what stops a revert: the retired sentence must be GONE.
+        """
+        g = [r for r in self._cfg()["rules"] if r["id"] == "R12"][0]["guidance"]
+        # NEGATIVE -- the false friend is gone. A revert re-introduces it and turns this red.
+        self.assertNotIn("so the answer there is Yes.", g)
+        self.assertNotIn("The old wording was kept here only as the thing NOT to do.", g)
+        # ⚠️ AND THE SECOND NEGATIVE, WHICH IS THE WHOLE POINT OF ATTEMPT 2. Attempt 1 replaced the
+        # false friend with a CONTRASTING PAIR OF QUOTED PHRASES, and its negative half quoted a
+        # string that also lives on rows whose chain says "and circuit wiring with 2 x 2.5 sq mm" --
+        # rows R13 must answer Yes. R13's verdict flipped Yes -> No on them, measured across four
+        # config-switched runs. So R12 must quote NO corpus text at all: a phrase quoted in one rule
+        # is visible to every other question the single ESTIMATOR_RULES payload asks.
+        for corpus in ("16SWG", "16 SWG", "recessed/surface", "MS conduit", "circuit wiring with"):
+            self.assertNotIn(corpus, g,
+                             "R12 must quote no corpus text -- %r collides with other rules" % corpus)
+        # POSITIVE -- it states the TEST instead of illustrating it
+        self.assertIn("Decide this field by ONE TEST", g)
+        self.assertIn("does the document say the conduit is ALREADY THERE?", g)
+        self.assertIn("then this line supplies that conduit and the answer is No", g)
+        # ⚠️ and it says out loud that it governs ONE field, which is the cheapest guard against
+        # the cross-rule bleed that attempt 1 caused.
+        self.assertIn("nothing you decide here should change any other answer", g)
+        # ⚠️ THE CLAUSE THAT WAS ALWAYS CORRECT MUST NOT BE WEAKENED -- the fix is to the example.
+        self.assertIn("Answer No when the run uses a conduit this line supplies.", g)
+        # ⚠️ AND THE HAND-OFF RULE ITSELF IS UNCHANGED: an EXISTING container still answers Yes.
+        self.assertIn("answer Yes when the document says this run uses something already there",
+                      g)
+
+    def test_pw_cs_20_the_decision_table_is_untouched_by_the_wording_fix(self):
+        """NEGATIVE. F2 narrows when the MODEL should answer Yes; it must not touch what CODE does
+        with that answer. The three-step conduit_included chain and the drop-to-None step are
+        byte-compared against the previous asset."""
+        import json
+        with open(_asset_path("rate_master_electrical_all_v51.json"), "r", encoding="utf-8") as fh:
+            prev = [c for c in json.load(fh)["category_configs"]
+                    if c["category_id"] == "point_wiring"][0]
+        cfg = self._cfg()
+        for pid in _PW_ASSEMBLY_PIPELINES:
+            def conduit_steps(c):
+                return [s for s in c["pipelines"][pid]["steps"]
+                        if (s.get("params") or {}).get("result_attr") in
+                        ("conduit_included", "conduit_type")]
+            self.assertEqual(conduit_steps(cfg), conduit_steps(prev), pid)
+            # and circuit_fit's absent_when, which the drop feeds
+            now = [s for s in cfg["pipelines"][pid]["steps"] if s["step"] == "circuit_fit"][0]
+            was = [s for s in prev["pipelines"][pid]["steps"] if s["step"] == "circuit_fit"][0]
+            self.assertEqual(now, was, pid)
+
+    def test_pw_cs_21_the_None_option_is_gone_from_the_four_core_and_runs_fields(self):
+        """⚠️ F5. `allow_none` on a number def is what makes the panel render a "None" checkbox.
+        On the circuit RUNS that checkbox promised a drop it could not deliver: `none_skips` reads
+        only the component's `ref` bindings (core, thickness_sqmm), and `runs` feeds
+        `absentMeansOne`, which maps "None" to 1. So the option is removed.
+
+        ⚠️ BOTH THICKNESSES KEEP IT. Thickness is the working drop control -- it is IN the ref, so
+        `none_skips` fires on it, and its `disables_when_none` greys that wire's core and runs. The
+        owner's loud-failure ruling (blank gauge -> the row refuses) rests on it having NO default.
+        """
+        cfg = self._cfg()
+        by_id = {d["id"]: d for d in cfg["attribute_definitions"]}
+        for fid in ("circuit_wire1_core", "circuit_wire1_runs",
+                    "circuit_wire2_core", "circuit_wire2_runs"):
+            self.assertNotIn("allow_none", by_id[fid], "%s must offer no None" % fid)
+            # the mirrored default of 1 stays -- an unstated core/run count is still 1, not missing
+            self.assertEqual(cfg["extraction_defaults"][fid], 1.0, fid)
+        for tid in self.THICKNESSES:
+            self.assertTrue(by_id[tid]["allow_none"], "%s must KEEP its None" % tid)
+            self.assertNotIn(tid, cfg["extraction_defaults"], "%s must keep NO default" % tid)
+            self.assertEqual(by_id[tid]["disables_when_none"],
+                             [tid.replace("_thickness_sqmm", "_core"),
+                              tid.replace("_thickness_sqmm", "_runs")], tid)
+
+    def test_pw_cs_22_NEGATIVE_the_absent_shape_still_holds_without_the_flags(self):
+        """⚠️ THE NEGATIVE THAT MADE THE REMOVAL SAFE, and the reason it is measured rather than
+        assumed. The four flags were added 2026-09-02 so the owner's `No` / `None` x6 / `0` shape
+        could survive `coerceForMatch`; removing them could have undone that.
+
+        It does not, and this test pins WHY: `force_absent_dependents` still writes "None" into all
+        six spec fields, and the THICKNESS -- which keeps `allow_none` -- carries that "None"
+        through coercion and DISABLES its wire's core and runs. A disabled field is never treated
+        as missing input, so the two whose "None" no longer survives are never asked for.
+
+        Measured with the REAL shipped helper over the 251 run-covered rows: 190 priced / 61 refused
+        with the flags AND without, on the identical row set.
+        """
+        from nirmaan_stack.services.boq_rate_master import extraction as ex
+        cfg = self._cfg()
+        rules = ex.absent_dependent_rules(cfg)
+        # the corrector still fills all six -- unchanged by this slice
+        self.assertEqual(sorted(rules["circuit_wire_included"][1]), sorted(self.EIGHT[1:7]))
+        row = {"circuit_wire_included": {"value": "No"}}
+        ex.force_absent_dependents(row, rules)
+        for fid in self.EIGHT[1:7]:
+            self.assertEqual(row[fid]["value"], "None", fid)
+        # ... and the THICKNESS is the one that carries it through, disabling the other two
+        by_id = {d["id"]: d for d in cfg["attribute_definitions"]}
+        for tid in self.THICKNESSES:
+            self.assertTrue(by_id[tid]["allow_none"])
+            for dep in by_id[tid]["disables_when_none"]:
+                self.assertNotIn("allow_none", by_id[dep],
+                                 "%s is disabled by %s, so it needs no None of its own" % (dep, tid))
+
+    def test_pw_cs_23_NEGATIVE_no_other_category_and_no_golden_moved(self):
+        """NEGATIVE: Slice A is one config and one rule. Every other category byte-identical, no
+        item touched, and EVERY golden value unmoved -- the goldens carry no conduit hand-off fact
+        and no circuit runs the change could reach."""
+        import json
+        payload = self._payload()
+        with open(_asset_path("rate_master_electrical_all_v51.json"), "r", encoding="utf-8") as fh:
+            prev = json.load(fh)
+        was = {c["category_id"]: c for c in prev["category_configs"]}
+        now = {c["category_id"]: c for c in payload["category_configs"]}
+        self.assertEqual(sorted(k for k in now if now[k] != was[k]), ["point_wiring"])
+        self.assertEqual(payload["items"], prev["items"])
+        # ⚠️ SUPERSEDED AT SLICE B. F4a removed two pipelines, and `_validate_config` refuses
+        # a golden naming a pipeline the config no longer declares -- so their `expect` keys
+        # were FORCED out. The precise claim (deletion only, every surviving value identical)
+        # now lives in test_pw_cs_31; here we assert only that no golden was ADDED or DROPPED.
+        self.assertEqual(sorted(payload["goldens"]), sorted(prev["goldens"]))
+        for _cat, _golds in payload["goldens"].items():
+            self.assertEqual([g["id"] for g in _golds],
+                             [g["id"] for g in prev["goldens"][_cat]], _cat)
+
+
+    # ---------- SLICE B: the conductor floor, the removed blocks, the labelled group ----------
+    #
+    # A note on what these protect, because the rule CHANGED between slices and the previous
+    # formulation is the thing most likely to come back:
+    #   24  the hardest case -- `3 core, 1 run` is ALREADY three conductors and must not move
+    #   25  the FLOOR half -- 4 and 6 conductors are left alone; the rule never reduces
+    #   26  where a missing conductor goes, all three owner-ruled shapes
+    #   27  the clause the earlier brief told us to delete SURVIVES, and why
+    #   28  the display-only pipelines are gone, and the labels with them
+    #   29  the group is declared, contiguous, and GENERAL
+    #   30  NEGATIVE: no corpus text in R9, R12 or R13 (the R12 guard, widened)
+    #   31  NEGATIVE: no other category moved, no item moved, and the ONLY golden movement is the
+    #       forced deletion of the two removed pipelines' expectations
+
+    def _r9(self):
+        return [r for r in self._cfg()["rules"] if r["id"] == "R9"][0]["guidance"]
+
+    def test_pw_cs_24_R9_no_longer_carries_the_arithmetic(self):
+        """SLICE B v4 -- THE ARITHMETIC LEFT THE PROMPT.
+
+        The conductor floor is a SUBSTITUTION, and on this project substitutions live in
+        deterministic code, not in extraction prose. Keeping it in R9 cost two prompt cross-talk
+        failures in two days: every `rules` entry is injected into ONE `ESTIMATOR_RULES` block, so
+        R12's rewrite flipped R13's conduit verdict, and extending R9's floor to NAME the circuit
+        wires -- the only way prose could reach them -- moved R13's `circuit_wire_included`.
+
+        Each banned phrase below carried part of the total. If one returns, so has the cross-talk.
+        """
+        g = self._r9()
+        for banned in ("add up to three", "FLOOR", "CORES MULTIPLIED BY ITS RUNS",
+                       "raise it to three", "conductors still missing", "reach three",
+                       "three conductors"):
+            self.assertNotIn(banned, g, "R9 must carry no arithmetic: %r" % banned)
+
+    def test_pw_cs_25_R9_STAYS_POINT_SCOPED_and_names_no_circuit_wire(self):
+        """⚠️ THE SPECIFIC CROSS-TALK THIS SLICE RETIRED. Prose could only reach the circuit fields
+        by NAMING them, and naming them inside R9 put circuit vocabulary in front of R13 -- whose
+        whole job is deciding whether a circuit run is included at all. `circuit_wire_included` on
+        BOQ-26-00200 r11 then read Yes / Yes / No across three runs.
+
+        The corrector reaches both axes from CONFIG, so R9 never has to mention a circuit again."""
+        g = self._r9().lower()
+        for word in ("circuit wire", "circuit_wire", "submain", "distribution board"):
+            self.assertNotIn(word, g, "R9 must stay POINT-scoped: found %r" % word)
+
+    def test_pw_cs_26_R9_still_teaches_how_to_READ_a_wire_spec(self):
+        """⚠️ THE OTHER HALF, AND THE EASY THING TO GET WRONG. Removing the arithmetic must not
+        gut the rule: reading a spec IS a fact-finding job and stays with the model. What the line
+        SAYS -- which figure is cores, which is runs, whether a second conductor is named, how many
+        points are covered -- is exactly what only the model can do."""
+        g = self._r9()
+        self.assertIn("Report the wire specification EXACTLY AS THE LINE STATES IT", g)
+        for keep in ("3R x 1.5 sqmm", "the multiplier is the run count",
+                     "A number before the size is a run" + chr(10) + "count, not a core count",
+                     "NUMBER OF POINTS", "look for a second conductor named separately"):
+            self.assertIn(keep, g, "R9 lost a READING rule: %r" % keep)
+        # ... and the two readings that existed ONLY to reach three are now HONEST readings of what
+        # is written -- the corrector supplies the missing conductors afterwards.
+        self.assertIn("1 run of 1 core at that size", g)
+        self.assertIn("ONE run each", g)
+
+    def test_pw_cs_27_the_explicitly_states_otherwise_clause_is_REMOVED(self):
+        """⚠️ A DELIBERATE REMOVAL, PINNED SO IT IS NOT RESTORED AS AN OVERSIGHT -- and the OPPOSITE
+        of what Slice B v3 pinned, because the rule underneath it changed.
+
+        The clause excepted a TOTAL. R9 no longer states a total, so it had nothing left to except,
+        and prose that reads like a rule while governing nothing is worse than silence. The
+        behaviour it protected -- a stated count at or above three wins -- is now STRUCTURAL:
+        `apply_conductor_floor` has no branch that lowers a count.
+        """
+        self.assertNotIn("unless the line explicitly states otherwise", self._r9())
+
+    def test_pw_cs_28_the_display_only_pipelines_are_gone(self):
+        """F4a. The circuit money was ALWAYS inside the point rate; a second labelled block read as
+        an extra charge (owner). Both display pipelines go, and their labels with them -- a label
+        for a pipeline that does not exist is a trap for the next reader.
+
+        The three ASSEMBLY pipelines are untouched: that is what makes this rate-neutral, and it was
+        MEASURED so (190 priced / 61 refused, 0 rows moved, against the v52 config)."""
+        cfg = self._cfg()
+        self.assertEqual(sorted(cfg["pipelines"]), ["pw_bcs", "pw_boq_install", "pw_boq_supply"])
+        for gone in ("pw_circuit_supply", "pw_circuit_install"):
+            self.assertNotIn(gone, cfg["pipelines"])
+            self.assertNotIn(gone, cfg.get("pipeline_labels") or {})
+        # the circuit COMPONENTS survive INSIDE the assembly pipelines -- removing the display
+        # blocks must not remove the money.
+        for pid in ("pw_boq_supply", "pw_boq_install"):
+            names = [s.get("name") for s in cfg["pipelines"][pid]["steps"] if s["step"] == "component_ref"]
+            self.assertIn("circuit_wire1", names, pid)
+            self.assertIn("circuit_wire2", names, pid)
+
+    def test_pw_cs_29_the_group_is_declared_contiguous_and_general(self):
+        """F4b. `group_label` is a NEW GENERAL capability: a plain string on ANY attribute definition
+        in ANY category, and the panel emits a header whenever it CHANGES between consecutive
+        rendered attributes.
+
+        Three things are pinned. (1) exactly the eight circuit fields carry it, with one label.
+        (2) they are CONTIGUOUS -- the header renders on CHANGE, so a gap would draw a second one.
+        (3) the definition following them is `panel: false`, so no stray header can appear after the
+        group closes.
+
+        ⚠️ IT IS ON THE DEFINITION, NOT THE CONFIG'S TOP LEVEL, and that is what makes it free: the
+        top level is allowlisted by `_KNOWN_CONFIG_KEYS`, attribute definitions are documented in the
+        same validator as having NO key allowlist. Zero backend change.
+        """
+        cfg = self._cfg()
+        defs = cfg["attribute_definitions"]
+        grouped = [d for d in defs if d.get("group_label")]
+        self.assertEqual([d["id"] for d in grouped], list(self.EIGHT_GROUP))
+        self.assertEqual({d["group_label"] for d in grouped},
+                         {"Circuit wiring (included in the point rate)"})
+        order = [d["id"] for d in defs]
+        idx = [order.index(f) for f in self.EIGHT_GROUP]
+        self.assertEqual(idx, list(range(min(idx), min(idx) + len(self.EIGHT_GROUP))),
+                         "the group must be contiguous or a second header renders")
+        self.assertIs(defs[max(idx) + 1].get("panel"), False,
+                      "the definition after the group must be hidden from the panel")
+        # GENERAL: no other category declares one, and nothing in the key is point_wiring-specific.
+        for c in self._payload()["category_configs"]:
+            if c["category_id"] == "point_wiring":
+                continue
+            self.assertEqual([d for d in c.get("attribute_definitions") or [] if d.get("group_label")],
+                             [], "%s must be unaffected" % c["category_id"])
+
+    def test_pw_cs_30_NEGATIVE_no_corpus_text_in_R9_R12_or_R13(self):
+        """⚠️ THE R12 GUARD, WIDENED TO THE OTHER TWO RULES THAT SHARE ITS PROMPT.
+
+        Every `rules` entry is injected into ONE `ESTIMATOR_RULES` block, so a phrase quoted inside
+        one rule is visible to every other question the payload asks. That is not a theory: R12's
+        first rewrite quoted a conduit phrase that also lives on r63/r66's chain and flipped R13's
+        circuit verdict Yes -> No on both, caught only by a two-axis A/B.
+
+        A rule STATES ITS TEST; it does not QUOTE corpus text. Same token list as the R12 guard --
+        this is that guard covering more rules, not a new notion of corpus text.
+        """
+        rules = {r["id"]: r["guidance"] for r in self._cfg()["rules"]}
+        for rid in ("R9", "R12", "R13"):
+            self.assertIn(rid, rules)
+            for corpus in ("16SWG", "16 SWG", "recessed/surface", "MS conduit", "circuit wiring with"):
+                self.assertNotIn(corpus, rules[rid],
+                                 "%s must quote no corpus text -- %r collides with other rules"
+                                 % (rid, corpus))
+
+    def test_pw_cs_31_NEGATIVE_one_config_no_item_and_only_the_forced_golden_deletion(self):
+        """NEGATIVE. Slice B is one config. Every other category byte-identical, no item touched.
+
+        ⚠️ THE GOLDENS DO MOVE HERE, AND EXACTLY ONCE -- this test replaces Slice A's blanket "no
+        golden may move". `_validate_config` refuses a golden naming a pipeline the config no longer
+        declares, so removing the two display pipelines FORCED their `expect` keys out. That is a
+        DELETION and nothing else: every surviving expectation must be byte-identical, which is the
+        real guarantee (a revalued golden would mean the assembly rates moved).
+        """
+        import json
+        payload = self._payload()
+        with open(_asset_path("rate_master_electrical_all_v52.json"), "r", encoding="utf-8") as fh:
+            prev = json.load(fh)
+        was = {c["category_id"]: c for c in prev["category_configs"]}
+        now = {c["category_id"]: c for c in payload["category_configs"]}
+        self.assertEqual(sorted(k for k in now if now[k] != was[k]), ["point_wiring"])
+        self.assertEqual(payload["items"], prev["items"], "no item may move")
+        self.assertEqual(sorted(payload["goldens"]), sorted(prev["goldens"]))
+        for cat, golds in payload["goldens"].items():
+            prev_by = {g["id"]: g for g in prev["goldens"][cat]}
+            self.assertEqual([g["id"] for g in golds], list(prev_by), cat)
+            for g in golds:
+                before, after = prev_by[g["id"]].get("expect") or {}, g.get("expect") or {}
+                if cat != "point_wiring":
+                    self.assertEqual(after, before, "%s/%s must not move" % (cat, g["id"]))
+                    continue
+                self.assertEqual(sorted(after), ["pw_bcs", "pw_boq_install", "pw_boq_supply"])
+                self.assertEqual(sorted(set(before) - set(after)),
+                                 ["pw_circuit_install", "pw_circuit_supply"],
+                                 "the ONLY golden change may be those two deletions")
+                for pid in after:
+                    self.assertEqual(after[pid], before[pid],
+                                     "%s/%s: %s VALUE moved" % (cat, g["id"], pid))
+

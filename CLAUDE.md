@@ -398,6 +398,38 @@ editor (Luckysheet-as-static-assets planned) whose workbook state is persisted s
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-master work.
 
+**⚠️ AN EXTRACTION RULE CANNOT BE EDITED IN ISOLATION (owner-locked, measured 2026-09-03).** Every
+`rules` entry of a rate-master category config is injected into ONE `ESTIMATOR_RULES` block in the
+extraction prompt, so **a phrase quoted inside one rule is visible to every other question the
+payload asks** and the model will match it wherever it fits. Nothing in the config shape hints at
+this -- a rule reads like a private instruction and is not one. **THE CONVENTION: a rule STATES ITS
+TEST; it does NOT quote corpus text.** A stated test leaves no string for another question to
+collide with. This was measured, not assumed: an R12 rewrite that quoted `'recessed/surface 16SWG MS
+conduit'` fixed its own field and silently flipped a DIFFERENT rule's verdict (R13, circuit
+inclusion) Yes -> No on the rows carrying that string, proven over four config-switched extraction
+runs. `test_pw_cs_19` enforces the convention mechanically for R12 by asserting the guidance quotes
+no corpus text; **the same guard now covers R9 and R13** (`test_pw_cs_30`), and must be extended
+again when rewording any other rule.
+
+**⚠️ THE GATE THAT COMES FIRST — FACT TO READ, OR CALCULATION TO APPLY? (owner-locked, 2026-09-03).**
+**Before writing ANY extraction wording, ask which it is. A CALCULATION DOES NOT GO IN THE PROMPT AT
+ALL.** The model READS FACTS; every substitution, ladder and conversion belongs in deterministic code
+or config -- the `extraction.py` corrector layer (`point_type_of`, `force_absent_dependents`,
+`correct_four_pole_mcb_picks`, `apply_conductor_floor`) exists for exactly this, and carries the
+doctrine in its own docstrings: *the prompt sentence is guidance; this is the enforcement.* This rule
+already existed and was NOT applied to the point-wiring conductor floor, which was written as prose
+in R9 -- and cost **two cross-talk failures in two days**: rewriting R12's example flipped R13's
+conduit verdict, then extending R9's floor to NAME the circuit wires (the only way prose could reach
+them) moved R13's `circuit_wire_included`. Moving the arithmetic into `apply_conductor_floor` took
+the pressure off measurably: four of five cert rows became STABLE across runs where they had not
+been. **A rule may say how to READ a spec; it may not say what to COMPUTE from it.**
+
+**⚠️ A PIN ON RULE TEXT IS IN THE SLICE'S BLAST RADIUS.** Twice in one week a phrase pin in a file
+outside the declared scope blocked a deliberate wording change (four stale pins 2026-09-01;
+`test_rate_suggest.test_e4` 2026-09-03). **When a slice changes rule text, EVERY pin on that text
+belongs in its scope.** Retire such a pin by INVERTING it -- assert the old wording is ABSENT and the
+surviving claims are PRESENT -- never by deleting it: a deleted pin checks nothing.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
