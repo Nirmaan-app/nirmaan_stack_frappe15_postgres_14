@@ -36012,3 +36012,212 @@ The `BoQ Cell Pricing` guard used `ORDER BY boq, sheet_name, excel_row, col_lett
 produced three different hashes with zero DB change. It nearly produced a false STOP.
 **Use `ORDER BY name`** (or hash the sorted row set). A guard that reports a change when nothing
 changed is worse than no guard.
+
+---
+
+# SLICE — THE STALE HALT BANNER (server-side read scoping)
+
+**Date:** 2026-09-05 · **Branch:** `feature/boq-pricing-helper` · **Base tip:** `bd5686c7`
+**Live config:** asset v55, import batch `rmbulk-0bdbf70dc415`, 12 Electrical category configs.
+**Status: BUILT, TESTED, CERTIFIED ON SCREEN (4/4 rows), COMMITTED.**
+**Spec:** `recon_stale_banner_2026-09-05.md` (findings taken as given, except one count — see below).
+
+`get_active_suggestion_run` served a superseded partial run for ever, so the pricing editor rendered
+*"Rate suggestions stopped early…"* for sheets whose suggestions had in fact completed.
+
+## ⚠️ THE MECHANISM — AND WHY NOTHING CAUGHT IT
+
+**A partial run is `active=0` BY DESIGN.** That is the whole point of SR-1: a halted run must never
+supersede the last good complete run, so the editor keeps reading trustworthy badges while still
+offering a resume. The read comment at `rate_master.py:913-914` says exactly this.
+
+**So `active` was not available as the staleness filter — and NOTHING WAS PUT IN ITS PLACE.** The
+partial query filtered on `{boq, sheet_name, status: "partial"}` and nothing else.
+
+**`_finalise_run` retires only the previously ACTIVE run** (`rate_master.py:660-669`): its supersede
+loop walks `filters={"boq":…, "sheet_name":…, "active": 1}`. A stranded partial is `active=0`, so
+**that loop never sees it and its `status` stays `"partial"` permanently.** A genuine *resume* does
+clear it (`_open_run_doc` reuses the same doc and run_id), but a user who instead re-runs the sheet
+from scratch creates a NEW document and orphans the old one.
+
+⚠️ **AND THE REFETCH SUMMONS IT.** `SheetPricingPage.tsx:3034-3036` calls `void mutateActiveRun()` in
+the run-completion handler — with the comment *"Refetch either way: a partial still needs the resume
+affordance to appear."* So the false banner did not merely survive a successful run: **it appeared at
+the moment of success.**
+
+⚠️ **THE SWR KEY OMITS RUN IDENTITY, AND THAT IS NOT THE CAUSE.** `useFrappeGetCall` is called with
+`swrKey` omitted (`SheetPricingPage.tsx:702-705`), so the key is method + `{boq, sheet_name}` (SDK
+`index.d.ts:306`). That is the shape a caching bug would take, and it is a red herring here: the
+SERVER returns the stale partial on a cache MISS, so a perfect key changes nothing. **Recorded so it
+is not mistaken for the bug by a later reader.** Nor is any client persistence involved — no
+localStorage / sessionStorage run state, no API service worker, an in-memory-only SWR cache.
+
+## ⚠️ THE RECON'S COUNT WAS WRONG — THREE SHEETS, NOT FIVE
+
+The recon reported 5 of 5 affected. **Measured during the build: 3.** Its criterion — *has a partial
+AND has an active complete run at a matching version* — **never checked the ORDER of the two.**
+
+| sheet | last complete | newest partial | verdict |
+|---|---|---|---|
+| `BOQ-26-00007` / `Electrical` | 00:56:58 | 00:39:52 | complete is NEWER -> **false banner, fixed** |
+| `BOQ-26-00016` / `Bill 18-_W&C` | 09-05 00:26:14 | 09-04 23:38:22 | complete is NEWER -> **false banner, fixed** |
+| `BOQ-26-00196` / `ELECTRICAL` | 00:52:18 | 00:16:59 | complete is NEWER -> **false banner, fixed** |
+| `BOQ-26-00086` / `WIRING AND POWER SOCKET` | 17:19:53 | **17:44:59** | partial is NEWER -> **banner is TRUE, kept** |
+| `BOQ-26-00139` / `RFQ` | 17:20:44 | **17:47:16** | partial is NEWER -> **banner is TRUE, kept** |
+
+On the last two the final thing that happened really was a halt. **A fix that cleared all five would
+have destroyed a legitimate resume affordance to make a number match** — which is why the predicate
+is NEWER-THAN and not mere existence. The coarse criterion overstated the defect by two.
+
+## The fix — Fix A only, server-side
+
+New predicate `rate_master._partial_is_superseded(boq, sheet_name, committed_version, created_at)`:
+TRUE iff a `status="complete"` run exists for the same sheet, at the SAME `committed_version`,
+created more recently than the partial. The read drops the partial when true.
+
+**Why a later complete run settles it:** the worker computes
+`complete = bool(env.get("complete", True)) and not (population - acc_attempted)` — **every
+POPULATION row attempted**, never the pass's scope, so a selected-row run cannot reach `complete` on
+a subset. A later complete run therefore covers, by definition, every row the older partial had
+pending; resuming it could only re-spend AI reproducing results the live run already holds.
+
+- **Checking only the NEWEST partial is sufficient, not a shortcut** — a complete run newer than the
+  newest partial is newer than every older one.
+- **FAIL-OPEN on missing inputs** (no `committed_version` / no `creation`): we cannot PROVE
+  supersession, and the safe error is to keep offering a resume rather than hide a genuine one.
+- ⚠️ **THE READ SCOPES WHAT IS OFFERED, NEVER WHAT IS PERMITTED.** `_validate_resume_target` is
+  deliberately UNTOUCHED, so an explicit resume by run_id still succeeds exactly as before. The
+  asymmetry is intentional and pinned by `test_39`.
+
+## Fix B NOT taken — and the consequence, stated
+
+**Not taken.** `BoQ Rate Suggestion Run.status` is a Select whose options are exactly
+`running / partial / complete / failed`; a terminal "superseded" value needs a **doctype JSON change
++ `bench migrate`**, which this slice's FILES IN SCOPE forbids.
+
+⚠️ **THE OWNER SHOULD KNOW WHICH HE IS GETTING: the READ is now correct while the STATE stays dirty.**
+Stranded partials are inert but they are not cleaned, and **new ones will keep accumulating** — every
+halt that is later re-run from scratch leaves one behind for ever. Harmless today; a candidate for its
+own slice if the row count ever matters.
+
+## The 9 stored partials — inert, NO data write needed
+
+7 of the 9 are now unreachable; the 2 that still surface (`BOQ-26-00086`, `BOQ-26-00139`) do so
+CORRECTLY. **No cleaning was required for the fix to work, so no data write was made or requested.**
+
+⚠️ **The retired wording is NOT load-bearing anywhere, and was deliberately left in the stored rows.**
+All 9 partials carry *"An AI request kept failing after 3 attempts, so the run stopped early."*, which
+**no live code path can produce** (current code emits *"The batch failed on all {n} attempts… Last
+error: …"*, `extraction.py:2183-2186`). The only surviving occurrences are two **comments**
+(`extraction.py:1936, 2167`) and one **fixture input** (`test_rate_master.py:4084`) whose test asserts
+`run_status` / `scoped_row_count` / `pass_attempted_count` / `attempted_count` and **nothing about the
+text**. ⚠️ Consequence to expect on screen: the two sheets that legitimately keep the banner still
+display the retired sentence, because it is historical stored data. A NEW halt carries current wording.
+
+## Tests — 6 new, in `test_rate_suggest.py` (65 -> 71)
+
+| test | what it protects |
+|---|---|
+| `test_35` | POS: a partial a later complete run finished past is NOT surfaced. The defect. |
+| `test_36` | ⚠️ **THE ONE THAT MATTERS MOST** — a partial created AFTER the last complete run IS surfaced, with run_id / attempted_count / halt_reason intact. Asserts the resume PAYLOAD, not mere presence: an empty shell would pass a presence-only test and still break the button. |
+| `test_37` | A sheet with no partial is unchanged. |
+| `test_38` | NEG: replays the real refetch-on-completion ORDER — offered before, gone after. |
+| `test_39` | NEG: `_validate_resume_target` still ACCEPTS a partial the read no longer offers. |
+| `test_40` | The predicate four ways, including the fail-open direction. |
+
+Existing `test_13` / `test_14` are free regression evidence: `test_13` builds a partial AFTER a
+`prior-complete` run and asserts it IS surfaced — the shipped pin for exactly the case Fix A must
+preserve.
+
+## Vacuity proof
+
+Neutered the predicate to `return False and bool(...)`, re-ran the six, restored, re-ran.
+
+| | disabled | restored |
+|---|---|---|
+| `test_35` / `38` / `39` / `40` | **FAILED** | OK |
+| `test_36` / `37` | OK | OK |
+
+⚠️ **36 and 37 staying green under BOTH is the correct result, not a gap** — they pin PRESERVED
+behaviour, so they must be insensitive to the new scoping. They are the guard *against* the fix.
+
+## Suites — measured in-session, before -> after
+
+| suite | before | after |
+|---|---|---|
+| `test_rate_master` | 300 OK | **300 OK** |
+| `test_rate_suggest` | 65, 1 fail (`test_27`, known) | **71**, 1 fail (`test_27`, known) (+6) |
+| `test_extraction_coercion` | 77 OK | 77 OK |
+| vitest | 2,994, 1 fail (`writeOffControl`, known) | 2,994, 1 fail (`writeOffControl`, known) — **identical, no frontend change** |
+
+## CERT — PASSED ON SCREEN (4/4), 2026-09-05
+
+⚠️ **THE DE-STALE THAT MATTERED WAS THE BACKEND, AND IT NEARLY WENT UNNOTICED.** vite was killed BY
+PID (253/252/241/235, never `pkill -f yarn`) with `node_modules/.vite` removed, then restarted — but
+this slice changes **no frontend file**, so vite was never the risk. The `frappe serve` child (PID
+142, started 18:04:15) had **NOT reloaded** after the 20:46:19 edit: the site was serving STALE
+PYTHON, and certifying then would have produced a false negative. Killing the web child took honcho
+down with the whole stack; `bench start` was restarted (new serve child PID 8542 at 21:02:34, after
+the edit). Workers proven CONSUMING (1 live worker, idle, jobs completed, all three queues at 0).
+
+**No bundle marker exists this slice** (no frontend change) — claiming one would be theatre. The
+live-code identifier is at the API layer and is an IDENTIFIER, not a comment: the database still holds
+`status='partial'` row `01150ebf…` for `BOQ-26-00016`, so `partial_run: null` in the real browser HTTP
+response can only come from new code. Measured through the page's own session:
+
+```
+BOQ-26-00016  http=200  run=complete/29 rows   partial_run=null
+BOQ-26-00086  http=200  run=complete/91 rows   partial_run=10d18b27dd08b5f256be98086fb5c4c4
+BOQ-26-00007  http=200  run=complete/267 rows  partial_run=null
+```
+
+**Write-control exclusion, restated and PROVEN before the first click:** `acquirePricingLock` has
+exactly two call sites — the heartbeat (returns early unless we already hold the lock) and
+`ensureLockAcquired`, fired from the grid's `onDirtyChange`, i.e. **first edit-intent only**. A
+passive view acquires nothing. `get_active_suggestion_run` is a bare `@frappe.whitelist()`; it and
+`_partial_is_superseded` contain **zero** DML tokens. Empirically confirmed after the cert:
+`BoQ Sheet Pricing Lock` max(`modified`) unmoved at `2026-09-04 16:39:59`.
+
+| # | row | result |
+|---|---|---|
+| 1 | `BOQ-26-00016` `Bill 18-_W&C` — the sheet that started this | ✅ **Banner GONE.** `sr1-partial-run-strip` absent, "Rate suggestions stopped early" absent, retired wording absent, "Resume run" absent. **The sheet still prices: "16 of 16 priced · ready to finalize", "All changes saved".** |
+| 2 | `BOQ-26-00007` `Electrical` | ✅ Banner GONE; "189 of 193 priceable lines priced". |
+| 3 | ⚠️ **THE RESUME GUARD** — `BOQ-26-00086` `WIRING AND POWER SOCKET` | ✅ **Strip PRESENT, "Resume run" button present and ENABLED.** Text: *"Rate suggestions stopped early. An AI request kept failing after 3 attempts… 91 rows were saved…"*. **Not clicked — that would launch a run and spend AI.** A REAL dev sheet, so nothing was manufactured by writing data. |
+| 4 | `BOQ-26-00009` `ELECTRICAL WORKS` (no partial) | ✅ Unchanged. **And its two unrelated amber banners still render** (formula gate + "215 rows still need a category"), proving amber strips were not blanket-suppressed. |
+
+**Hashes, pre- and post-cert — BOTH UNCHANGED:** `BoQ Cell Pricing` (31,157 rows, `ORDER BY name`,
+the corrected total-key guard) `a24b815a…f581aaed0`; Electrical items CONTENT (1,367)
+`e6a94f29…f8f48cf4`. **Zero residual writes:** `BoQ Cell Pricing` max modified still
+`2026-09-03 14:30:08`; run count still 184 (no new run); 0 `Version` rows today.
+
+**#57 UI change control — TWO items, as authorised (no third):**
+1. **Three** sheets (not five — see the count correction) stop showing *"Rate suggestions stopped
+   early…"* when their run in fact completed.
+2. The resume affordance is UNCHANGED where a partial is genuinely resumable — now demonstrated on
+   real data (`BOQ-26-00086`, `BOQ-26-00139`) rather than merely asserted.
+
+## ⚠️ THE CLASS — THE SECOND SCREEN-LIES-ABOUT-STATE DEFECT IN TWO DAYS
+
+The first was a `KeyError('conductor_floor_applied')` reported to the user as *"An AI request kept
+failing after 3 attempts"* — which **sent an investigation after a problem that did not exist**
+(`extraction.py:1930-1940`). This one is a correct reason attached to a run that is no longer current.
+
+**Different code, different mechanism — the same class:**
+
+> **`halt_reason` is free narrative text, written once and never re-qualified — neither against what
+> actually failed, nor against whether the run it describes is still the one the screen is showing.
+> Both defects are the UI granting that string more authority than the data behind it earns.**
+
+**A screen that lies about state costs more than the defect it hides.** A pricer reading this banner
+either re-runs a job that already succeeded — spending AI on nothing — or stops trusting rates that
+are correct. Neither failure leaves a trace, and both cost more than the wrong pixels.
+
+⚠️ **AND THE SAME CLASS BIT THE RECON ITSELF:** its 5-of-5 count was a confident, plausible number
+produced by a criterion coarser than the defect it was measuring. **The lesson generalises past the
+UI — state a criterion precisely enough that it cannot quietly measure something adjacent.**
+
+## Still owed (recorded, not done here)
+
+- The `halt_reason` over-wide `try` — narrowing it to the API call alone. Deferred at
+  `extraction.py:2179-2182`, out of scope here, unchanged.
+- Fix B (retiring superseded partials in the data) — needs a doctype `status` option + migrate.
