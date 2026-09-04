@@ -882,6 +882,49 @@ def get_suggest_status(boq=None, sheet_name=None):
     return {"state": "idle"}
 
 
+def _partial_is_superseded(boq, sheet_name, committed_version, created_at):
+    """Has some LATER run already completed the work this partial left pending?
+
+    TRUE iff a run for the same sheet exists at status="complete", at the SAME committed_version,
+    created more recently than this partial.
+
+    ⚠️ WHY A LATER COMPLETE RUN SETTLES IT, RATHER THAN MERELY SUGGESTING IT. `complete` is not
+    "the pass finished"; the worker computes it as
+
+        complete = bool(env.get("complete", True)) and not (population - acc_attempted)
+
+    -- i.e. EVERY POPULATION ROW WAS ATTEMPTED. It is the whole population, never the pass's scope,
+    so a selected-row run cannot reach `complete` on a subset. A later complete run at the same
+    committed version therefore covers, by definition, every row an older partial still had
+    pending: resuming it could only re-spend AI to reproduce results the live run already holds.
+
+    ⚠️ SAME committed_version IS LOAD-BEARING. A complete run at a DIFFERENT version says nothing
+    about this partial -- its rows may have changed underneath -- which is the same reason
+    `_validate_resume_target` pins the version before allowing a resume at all.
+
+    ⚠️ NEWER-THAN, NOT MERELY "A COMPLETE RUN EXISTS". A partial created AFTER a complete run is a
+    genuine, unfinished intent and MUST keep its resume affordance; suppressing it would trade this
+    defect for a worse one. That asymmetry is the entire reason this takes a timestamp.
+
+    ⚠️ THIS SCOPES WHAT IS OFFERED, NOT WHAT IS PERMITTED. `_validate_resume_target` is deliberately
+    untouched, so an explicit resume by run_id still succeeds exactly as before -- the read stops
+    volunteering a stale partial; the write path's contract is unchanged."""
+    if committed_version is None or created_at is None:
+        return False
+    return bool(frappe.get_all(
+        RUN_DOCTYPE,
+        filters={
+            "boq": boq,
+            "sheet_name": sheet_name,  # VERBATIM (#152)
+            "status": "complete",
+            "committed_version": committed_version,
+            "creation": [">", created_at],
+        },
+        pluck="name",
+        limit=1,
+    ))
+
+
 @frappe.whitelist()
 def get_active_suggestion_run(boq=None, sheet_name=None):
     """The active BoQ Rate Suggestion Run for (boq, sheet_name), or run=None. Read-only, login
@@ -912,16 +955,39 @@ def get_active_suggestion_run(boq=None, sheet_name=None):
 
     # SR-1: the newest RESUMABLE partial, surfaced ALONGSIDE (never instead of) the active run --
     # a partial is active=0 by design, so without this the editor could not offer a resume.
+    #
+    # ⚠️ AND `active` IS THEREFORE NOT AVAILABLE AS THE STALENESS FILTER -- WHICH IS WHY THIS READ
+    # ONCE HAD NONE AT ALL, AND SERVED A SUPERSEDED PARTIAL FOR EVER. `_finalise_run` retires only
+    # the previously ACTIVE run, so a partial that some LATER run completed past keeps
+    # status="partial" permanently; nothing anywhere cleared it. The editor then rendered a halt
+    # banner for a sheet whose suggestions had in fact completed -- and because the editor refetches
+    # this endpoint on run completion, the false banner appeared AT THE MOMENT OF SUCCESS.
+    # `_partial_is_superseded` is the filter that was missing; see its docstring for why a later
+    # COMPLETE run settles the question.
+    #
+    # ⚠️ THE MEASURED POPULATION IS THREE SHEETS, NOT FIVE. Five dev sheets carry a stranded
+    # partial, but on two of them (BOQ-26-00086, BOQ-26-00139) the newest partial was created
+    # AFTER the last complete run -- the last thing that happened there really was a halt, so the
+    # banner is TRUE and the resume must stay. Counting "has a partial AND has an active complete
+    # run" without checking the ORDER overstates the defect by two; that coarser criterion is what
+    # the recon used. It is the reason this predicate is NEWER-THAN rather than mere existence.
     partials = frappe.get_all(
         RUN_DOCTYPE,
         filters={"boq": boq, "sheet_name": sheet_name, "status": "partial"},
         fields=["run_id", "committed_version", "status", "attempted_rows", "halt_reason", "results",
-                "scope_rows"],
+                "scope_rows", "creation"],
         order_by="creation desc",
         limit=1,
     )
+    # Checking ONLY the newest partial is sufficient, not a shortcut: a complete run newer than the
+    # newest partial is newer than every older one too, so if this one is superseded they all are.
+    if partials and _partial_is_superseded(
+        boq, sheet_name, partials[0].get("committed_version"), partials[0].get("creation")
+    ):
+        partials = []
     if partials:
         p = partials[0]
+        p.pop("creation", None)
         p["attempted_count"] = len(_parse_json(p.get("attempted_rows"), []))
         p["results"] = _parse_json(p.get("results"), [])
         p.pop("attempted_rows", None)

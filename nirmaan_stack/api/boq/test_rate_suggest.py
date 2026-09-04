@@ -23,6 +23,9 @@ Coverage map (behavior -> test):
   - start_suggest D8 gate re-check (NEG: uncommitted, formulas incomplete)                      -> test_10
   - EA-DIFF synonyms: injected into the prompt payload when configured, absent otherwise;
     _coerce_value maps variant->canonical (GI->MS); a non-configured category is untouched       -> test_12
+  - THE STALE HALT BANNER: a partial some LATER complete run finished past is no longer
+    offered (POS test_35 / refetch NEG test_38), a partial created AFTER the last complete
+    run KEEPS its resume affordance (test_36), the resume WRITE path is unnarrowed (test_39)  -> test_35-40
 """
 
 import json
@@ -1065,6 +1068,178 @@ class TestRateSuggest(FrappeTestCase):
         self.assertEqual(ai_voter._AI_MAX_TOKENS, 8000,
                          "the classifier voter is deliberately OUT OF SCOPE for SR-2")
         self.assertEqual(extraction._BATCH, 20, "batch size was explicitly not changed")
+
+    # ══════════════════════════════════════════════════════════════════════════════════
+    # THE STALE HALT BANNER -- get_active_suggestion_run must stop volunteering a partial
+    # that some LATER run already completed past.
+    #
+    # Plain-English coverage summary (test -> what it protects):
+    #   35  A stranded partial (a later complete run at the same version) is NOT surfaced, so
+    #       the editor cannot render "Rate suggestions stopped early" for a sheet that in fact
+    #       finished. This is the defect.
+    #   36  ⚠️ THE ONE THAT MATTERS MOST. A genuinely resumable partial -- one created AFTER
+    #       the last complete run -- IS still surfaced, WITH its resume fields intact. The fix
+    #       must not buy a clean banner by killing the resume affordance.
+    #   37  A sheet with no partial at all is byte-unchanged.
+    #   38  NEGATIVE: the refetch-on-completion sequence that SUMMONED the false banner now
+    #       yields nothing -- replayed in the real order, not asserted in the abstract.
+    #   39  NEGATIVE: the WRITE path is untouched -- an explicit resume by run_id is still
+    #       accepted even for a partial the READ no longer offers.
+    #   40  The predicate itself, four ways, including the fail-open direction.
+    # ══════════════════════════════════════════════════════════════════════════════════
+
+    def _partial_run_doc(self, run_id, created, attempted=(2, 3), cv=None):
+        """A halted run, with `creation` pinned EXPLICITLY. The whole mechanism turns on run
+        ORDER, so leaving it to insert timing would make these tests race their own fixtures."""
+        doc = frappe.new_doc(_RUN)
+        doc.boq = self.boq
+        doc.sheet_name = self.sheet_name
+        doc.committed_version = self.cv if cv is None else cv
+        doc.run_id = run_id
+        doc.ai_status = "ran"
+        doc.status = "partial"
+        doc.halt_reason = "An AI request kept failing after 3 attempts, so the run stopped early."
+        doc.results = json.dumps([{"excel_row": 2, "description": "half", "attributes": {}}])
+        doc.attempted_rows = json.dumps(list(attempted))
+        doc.active = 0
+        doc.insert(ignore_permissions=True)
+        frappe.db.set_value(_RUN, doc.name, "creation", created, update_modified=False)
+        frappe.db.commit()
+        return doc.name
+
+    def _complete_run_doc(self, run_id, created, cv=None, active=1):
+        doc = frappe.new_doc(_RUN)
+        doc.boq = self.boq
+        doc.sheet_name = self.sheet_name
+        doc.committed_version = self.cv if cv is None else cv
+        doc.run_id = run_id
+        doc.ai_status = "ran"
+        doc.status = "complete"
+        doc.results = json.dumps([{"excel_row": 2, "description": "whole", "attributes": {}}])
+        doc.attempted_rows = json.dumps([2, 3, 4])
+        doc.active = active
+        doc.insert(ignore_permissions=True)
+        frappe.db.set_value(_RUN, doc.name, "creation", created, update_modified=False)
+        frappe.db.commit()
+        return doc.name
+
+    def test_35_a_partial_superseded_by_a_later_complete_run_is_not_surfaced(self):
+        """THE DEFECT. A partial is active=0 BY DESIGN, so the read cannot filter on `active` --
+        and nothing was put in its place, so a stranded partial was served for ever. Measured on
+        live dev data before the fix: three sheets were rendering a halt banner for runs that had
+        completed, quoting an error string no live code path can even produce any more."""
+        self._reset_runs()
+        self._partial_run_doc("stranded", "2026-09-04 23:38:22")
+        self._complete_run_doc("later-complete", "2026-09-05 00:26:14")
+
+        out = rate_master.get_active_suggestion_run(self.boq, self.sheet_name)
+
+        self.assertIsNone(out["partial_run"],
+                          "a partial a later complete run finished past must not be offered")
+        # The live run is untouched -- this scopes the partial ONLY.
+        self.assertEqual(out["run"]["run_id"], "later-complete")
+        self.assertEqual(out["run"]["status"], "complete")
+
+    def test_36_a_genuinely_resumable_partial_keeps_its_resume_affordance(self):
+        """⚠️ THE ONE THAT MATTERS MOST -- the fix must not trade one defect for another.
+
+        A partial created AFTER the last complete run is an unfinished intent: the last thing that
+        happened on this sheet WAS a halt, so the banner is TRUE and the resume must still be
+        offered. Two live dev sheets are in exactly this state (BOQ-26-00086, BOQ-26-00139), which
+        is why the predicate is NEWER-THAN and not merely 'a complete run exists'.
+
+        The assertion covers the resume PAYLOAD, not just its presence: run_id, attempted_count and
+        the halt reason are what the affordance is built from, so surfacing an empty shell would
+        pass a presence-only test and still break the button."""
+        self._reset_runs()
+        self._complete_run_doc("earlier-complete", "2026-09-03 17:19:53")
+        self._partial_run_doc("halted-after", "2026-09-03 17:44:59", attempted=(2,))
+
+        out = rate_master.get_active_suggestion_run(self.boq, self.sheet_name)
+
+        self.assertIsNotNone(out["partial_run"], "the resume affordance must survive the fix")
+        self.assertEqual(out["partial_run"]["run_id"], "halted-after")
+        self.assertEqual(out["partial_run"]["attempted_count"], 1)
+        self.assertIn("stopped early", out["partial_run"]["halt_reason"])
+        # ...and the complete run still serves the badges, exactly as before.
+        self.assertEqual(out["run"]["run_id"], "earlier-complete")
+
+    def test_37_a_sheet_with_no_partial_is_unchanged(self):
+        """The regression guard for every sheet that never halted -- the overwhelming majority."""
+        self._reset_runs()
+        self._complete_run_doc("only-complete", "2026-09-03 17:19:53")
+
+        out = rate_master.get_active_suggestion_run(self.boq, self.sheet_name)
+
+        self.assertIsNone(out["partial_run"])
+        self.assertEqual(out["run"]["run_id"], "only-complete")
+        self.assertIsInstance(out["run"]["results"], list)
+
+    def test_38_the_refetch_on_completion_no_longer_delivers_a_stale_partial(self):
+        """NEGATIVE, replaying the ACTUAL sequence rather than asserting the end state.
+
+        The editor refetches this endpoint when a run completes (SheetPricingPage's
+        `void mutateActiveRun()`), so the false banner appeared AT THE MOMENT OF SUCCESS -- the
+        refetch did not merely fail to clear it, it summoned it. Step 1 proves the partial IS
+        offered while it is the newest thing on the sheet; step 2 proves the very next read, after
+        a completion, offers nothing."""
+        self._reset_runs()
+        self._partial_run_doc("halted", "2026-09-04 23:38:22")
+
+        first = rate_master.get_active_suggestion_run(self.boq, self.sheet_name)
+        self.assertIsNotNone(first["partial_run"], "precondition: the halt is real and offered")
+        self.assertEqual(first["partial_run"]["run_id"], "halted")
+
+        self._complete_run_doc("the-rerun", "2026-09-05 00:26:14")
+        refetched = rate_master.get_active_suggestion_run(self.boq, self.sheet_name)
+
+        self.assertIsNone(refetched["partial_run"],
+                          "the completion refetch must not resurrect the halt banner")
+        self.assertEqual(refetched["run"]["run_id"], "the-rerun")
+
+    def test_39_the_resume_write_path_is_untouched_by_the_read_scoping(self):
+        """NEGATIVE -- this slice scopes what is OFFERED, never what is PERMITTED.
+
+        `_validate_resume_target` is the resume contract: exists, belongs to this sheet, still
+        `partial`, pinned to the CURRENT committed version. It is deliberately NOT narrowed here,
+        so a resume by explicit run_id still succeeds even for a partial the read has stopped
+        volunteering. Widening the read's rule into the write path would silently break the
+        end-to-end resume that test_14 covers."""
+        self._reset_runs()
+        self._partial_run_doc("stranded", "2026-09-04 23:38:22")
+        self._complete_run_doc("later-complete", "2026-09-05 00:26:14")
+
+        self.assertIsNone(
+            rate_master.get_active_suggestion_run(self.boq, self.sheet_name)["partial_run"])
+        # The write path still accepts it -- no throw.
+        rate_master._validate_resume_target(self.boq, self.sheet_name, self.cv, "stranded")
+        # ...and still refuses what it always refused.
+        with self.assertRaises(frappe.ValidationError):
+            rate_master._validate_resume_target(self.boq, self.sheet_name, self.cv, "later-complete")
+
+    def test_40_the_supersession_predicate_four_ways(self):
+        """The predicate itself, including the direction it fails in when data is missing.
+
+        FAIL-OPEN is deliberate: with no timestamp we cannot PROVE supersession, and the safe
+        error is to keep offering a resume (a banner that should have gone) rather than to hide a
+        genuine one (a resume the pricer can no longer reach). The stopping condition for this
+        slice was 'the fix must not kill the resume affordance', and this is where that is decided."""
+        self._reset_runs()
+        self._partial_run_doc("p", "2026-09-04 12:00:00")
+        self._complete_run_doc("c-later", "2026-09-04 18:00:00")
+        self._complete_run_doc("c-earlier", "2026-09-04 06:00:00", active=0)
+        self._complete_run_doc("c-other-version", "2026-09-04 23:00:00", cv=self.cv + 7, active=0)
+
+        P = rate_master._partial_is_superseded
+        # (a) a NEWER complete run at the same version supersedes
+        self.assertTrue(P(self.boq, self.sheet_name, self.cv, "2026-09-04 12:00:00"))
+        # (b) an OLDER complete run does not -- the partial is the later intent
+        self.assertFalse(P(self.boq, self.sheet_name, self.cv, "2026-09-04 20:00:00"))
+        # (c) a newer complete run at a DIFFERENT committed version says nothing about this one
+        self.assertFalse(P(self.boq, self.sheet_name, self.cv + 3, "2026-09-04 12:00:00"))
+        # (d) FAIL-OPEN on missing inputs -- never hide a resume we cannot disprove
+        self.assertFalse(P(self.boq, self.sheet_name, None, "2026-09-04 12:00:00"))
+        self.assertFalse(P(self.boq, self.sheet_name, self.cv, None))
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════
