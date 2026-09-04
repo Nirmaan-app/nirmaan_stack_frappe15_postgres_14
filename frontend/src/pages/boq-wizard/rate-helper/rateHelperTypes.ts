@@ -46,6 +46,24 @@ export interface WorkingsAttribute {
    * before using the rate. A human override CLEARS this (the helper drops the mark on recompute), so the
    * highlight can never outlive the correction. */
   defaulted?: boolean;
+  /**
+   * F4b -- THE LABELLED GROUP. A GENERAL capability, not a point_wiring feature: any attribute
+   * definition in any category may declare `group_label`, and the panel emits a header row whenever
+   * this label CHANGES between consecutive rendered attributes. Undefined => no header, which is why
+   * every category that declares none renders exactly as it did before.
+   *
+   * ⚠️ IT IS A LABEL, NOT AN ID, AND THAT IS WHAT KEEPS IT CONTAINED. There is no group registry to
+   * keep in step, no second config key to validate, and no ordering rule of its own -- the grouping
+   * IS the definition order, which the panel already follows. Adjacent definitions sharing a label
+   * are one group; a category may declare several.
+   *
+   * ⚠️ IT LIVES ON THE ATTRIBUTE DEFINITION, NEVER AT THE CONFIG'S TOP LEVEL. Top-level keys are
+   * allowlisted by `_KNOWN_CONFIG_KEYS` in `api/boq/rate_master.py` and a new one would need a
+   * backend edit; that same validator documents attribute definitions as having NO key allowlist.
+   * So this ships with zero backend change -- and moving it upward later would not.
+   */
+  groupLabel?: string;
+  // (see `startsAttributeGroup` below for the rule the panel applies to this field)
   /** DERIVED DISPLAY: the PIPELINE computes this attribute (a `module_fit` ladder bind, or a
    * `{from_fit}` quantity that superseded its `<name>_qty`). Read from CONFIG via `derivedAttrIds` --
    * never a hardcoded id. A derived attribute is NEVER missing user input: blank means "the row did
@@ -226,6 +244,30 @@ export function isShowingDerived(
  * MISSING USER INPUT. The gate stopped REFUSING these rows, but the field kept rendering red -- so the
  * form still said "incomplete" about a row that priced. One predicate, so the two can no longer differ.
  */
+/**
+ * F4b -- does a GROUP HEADER render above the attribute at `i`? PURE.
+ *
+ * The rule is CHANGE-DETECTION over the rendered order, which is what makes the capability general:
+ * consecutive attributes sharing a label are one group, a category declaring no label never gets a
+ * header, and a config may declare several groups without registering anything.
+ *
+ * ⚠️ IT LIVES HERE, EXPORTED, BECAUSE THIS PROJECT HAS NO DOM TEST ENVIRONMENT (see
+ * `frontend/CLAUDE.md`): a header rendered inline in `RateHelperPanel` would be structurally
+ * untestable. Extracting the DECISION keeps the one thing that can be got wrong under test, while
+ * the panel keeps only the markup.
+ *
+ * ⚠️ It reads the RENDERED list, not the config. Attributes hidden from the panel (`panel: false`)
+ * are already absent here, so a hidden definition sitting inside a group cannot split it in two.
+ */
+export function startsAttributeGroup(
+  attrs: ReadonlyArray<Pick<WorkingsAttribute, "groupLabel">>,
+  i: number,
+): boolean {
+  const label = attrs[i]?.groupLabel;
+  if (!label) return false;
+  return label !== attrs[i - 1]?.groupLabel;
+}
+
 export function isAttrBlank(a: Pick<WorkingsAttribute, "value" | "disabled" | "derived">): boolean {
   return !a.disabled && !a.derived && a.value === "";
 }

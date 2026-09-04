@@ -1380,15 +1380,46 @@ class TestExtBRules(FrappeTestCase):
         is still pinned on load-bearing PHRASES, so a further reword still fails."""
         ids = [r.get("id") for r in (_live_rules("point_wiring") or [])]
         # EXACT, and in declaration order -- the order the prompt injection sees them.
-        self.assertEqual(ids, ["R9", "S3", "S1", "S2"])
+        # PW-CONDUIT-OPTIONAL added R12 (the conduit-facts rule: the model REPORTS what the row says
+        # about conduit and never applies the decision table). Still EXACT and still in declaration
+        # order -- a further new rule must fail here.
+        # R13 (PW-CIRCUIT-STRETCH, 2026-09-02) is the sixth: the CIRCUIT (submain) inclusion verdict
+        # and the circuit wire's own cores/runs/thickness. This list is exhaustive ON PURPOSE -- a
+        # rule appearing or vanishing unnoticed is the failure it exists to catch, and it caught R13
+        # exactly as intended. R13's own content is asserted by
+        # test_rate_master.TestPointWiringCircuitStretch.test_pw_cs_05.
+        self.assertEqual(ids, ["R9", "S3", "S1", "S2", "R12", "R13"])
         r9 = next(r for r in _live_rules("point_wiring") if r["id"] == "R9")
         self.assertEqual(r9["applies_to"], "wire1_runs")
         self.assertEqual(
             r9["label"], "Wire runs, cores, and the number of points in point wiring")
-        # the load-bearing claims of the CURRENT rule, phrase by phrase
-        self.assertIn("three conductors", r9["guidance"])
-        self.assertIn("phase, neutral and earth", r9["guidance"])
-        self.assertIn("add up to three", r9["guidance"])
+        # ⚠️ THE THREE CONDUCTOR-COUNT PINS ARE RETIRED (SLICE B v4, 2026-09-03), AND REPLACED BY
+        # THEIR INVERSE RATHER THAN DELETED. They asserted "three conductors", "phase, neutral and
+        # earth" and "add up to three" -- the ARITHMETIC of the conductor floor, which has moved out
+        # of the prompt and into `extraction.apply_conductor_floor`.
+        #
+        # WHY IT MOVED, because a future reader will otherwise put it back: the floor is a
+        # SUBSTITUTION, and the standing rule on this project is that the model reads FACTS while
+        # substitutions live in deterministic code. Kept as prose it cost TWO prompt cross-talk
+        # failures in two days -- every `rules` entry is injected into ONE `ESTIMATOR_RULES` block,
+        # so R12's rewrite flipped R13's conduit verdict, and extending R9's floor to NAME the
+        # circuit wires (the only way prose could reach them) moved R13's `circuit_wire_included`.
+        #
+        # A DELETED PIN CHECKS NOTHING, so the inverse is pinned instead: the arithmetic must be
+        # ABSENT, and R9 must not name a circuit wire. `test_rate_master`'s test_pw_cs_24-27 carry
+        # the same claims from the other side.
+        for _banned in ("three conductors", "phase, neutral and earth", "add up to three",
+                        "FLOOR", "CORES MULTIPLIED BY ITS RUNS",
+                        "unless the line explicitly states otherwise"):
+            self.assertNotIn(_banned, r9["guidance"],
+                             "R9 must carry no arithmetic: %r" % _banned)
+        for _circuit in ("circuit wire", "circuit_wire", "submain", "distribution board"):
+            self.assertNotIn(_circuit, r9["guidance"].lower(),
+                             "R9 must stay POINT-scoped: %r" % _circuit)
+        # ... and the READING rules, which are facts only the model can supply, must SURVIVE.
+        self.assertIn("Report the wire specification EXACTLY AS THE LINE STATES IT", r9["guidance"])
+        self.assertIn("the multiplier is the run count", r9["guidance"])
+        self.assertIn("NUMBER OF POINTS", r9["guidance"])
         self.assertIn("3R x 1.5 sqmm", r9["guidance"])       # the stated-run-count case
         # DELETED (2026-08-23): the "wire 2 is None" closing case NO LONGER EXISTS in R9.
         # The v25 rewrite (37339a10, "compute circuit length from the point count") replaced
@@ -1408,7 +1439,15 @@ class TestExtBRules(FrappeTestCase):
         others = {r["id"]: r for r in _live_rules("point_wiring") if r["id"] != "R9"}
         self.assertEqual(
             {i: r["applies_to"] for i, r in others.items()},
-            {"S1": "switch_item", "S2": "switch_item", "S3": "switch_item"},
+            # PW-CONDUIT-OPTIONAL: R12 joins them. applies_to pinned IN FULL so a silent drop of any
+            # one of the three conduit facts still fails here.
+            # PW-CIRCUIT-STRETCH: R13 joins them, pinned IN FULL for the same reason -- a silent
+            # drop of any one of the seven circuit facts must fail here.
+            {"S1": "switch_item", "S2": "switch_item", "S3": "switch_item",
+             "R12": "conduit_handoff, other_conduit, conduit_price_excluded",
+             "R13": ("circuit_wire_included, circuit_wire1_core, circuit_wire1_runs, "
+                     "circuit_wire1_thickness_sqmm, circuit_wire2_core, circuit_wire2_runs, "
+                     "circuit_wire2_thickness_sqmm")},
         )
         cfg = frappe.get_all("BoQ Rate Category Config",
                              filters={"discipline": "Electrical", "category_id": "point_wiring",
