@@ -35824,3 +35824,191 @@ The reliable recipe:
 
 Expect one blank page immediately after the restart; a hard reload clears it. **Grep an identifier,
 never a comment** — and grep the PLAIN url, because the cache-buster will lie to you by succeeding.
+
+---
+
+## Point-set circuit length — the arc (2026-09-04 / 2026-09-05)
+
+Three slices. The defect: rows covering several light points were priced as if they covered one.
+
+### THE UNIFYING IDEA — count the points the row covers and price each by its type
+
+A row covering n points names one primary and n-1 secondaries looped off it. That IS
+`15 + (n-1) x 5`. **The formula was never a special case** — it is the both-types answer, and every
+rule below is a way of noticing that a row covers more than one point.
+
+### THE MECHANISM, precisely
+
+Two mirror-image misreadings, both of a METHOD sentence taken for the row's TYPE:
+
+* **Olympia** (`BOQ-26-00205`): the parent preamble's note said *"...and then **looping** between the
+  points"*. `looping` is a secondary token, it fired at distance 1, and five line items that named no
+  type at all took a flat **5 m**.
+* **The mirror** (`BOQ-26-00063`): *"12 light point controlled by MCB. Point wiring **will start from
+  First Light point**."* A sentence saying WHERE THE WIRING STARTS read as the row's type, so a
+  twelve-point row took a flat **15 m**.
+
+**The near-miss that decided Olympia:** the same note also said *"wiring from **first switch
+point**"*, which `\bfirst\s+point` missed over ONE intervening word. Had it matched, the level would
+have named both types and fallen to the formula on its own.
+
+### THE FIVE RULES, and the ordering
+
+| # | rule | population |
+|---|---|---|
+| 1 | switch-clause shape: a count of points CONTROLLED BY a switch -> None | 23 rows |
+| 2 | count-only shape: `Upto N Light Points`, whole description -> None | 3 rows |
+| 3 | `\bfirst\s+(?:\w+\s+){0,1}point` widening | 9 rows (7 inert `wiring_cabling`, 2 owner-confirmed misclassifications) |
+| 4 | **the count outranks the token**: own count > 1 -> None | **57 rows, 15 inside the 244** |
+| 5 | **n x 5** for secondary-only with a count | **ZERO** |
+
+⚠️ **THE ORDERING BETWEEN 4 AND 5 IS LOAD-BEARING:**
+* count > 1 AND the row's OWN text names **only secondary** -> stays Secondary, length **n x 5**;
+* count > 1 AND primary, or both, or neither -> **None -> the formula**.
+
+Rule 4 must not swallow rule 5's population. Pinned in both directions by ONE test
+(`test_pw_n5_03`) — get the order wrong either way and one of the two rulings silently stops applying.
+
+⚠️ **RULE 4 IS NOT A WORKAROUND.** A row covering n points genuinely HAS one primary and n-1
+secondaries. The count contradicting a single-type reading is a FACT ABOUT THE ROW, not a patch over
+a misreading. It deliberately reaches rows that name their own type — unlike rules 1 and 2, which are
+fenced by `0 not in by_distance`. That fence protected the self-determined rows and was also what
+left 57 of them wrong.
+
+### ⚠️ THE CRASH THAT LIED ABOUT ITS CAUSE
+
+`extraction.py` built its `drops` capture dict with ten keys while TWELVE were written. The write at
+`drops["conductor_floor_applied"].setdefault(...)` **READS the key first**, so the first time
+`apply_conductor_floor` recorded anything the entire batch died with
+`KeyError('conductor_floor_applied')`. Shipped with the conductor-floor work of **2026-09-03**. It
+made `BOQ-26-00016` `Bill 18-_W&C` unpriceable — 22 of 29 rows, permanently.
+
+**And it was reported to the user as an AI failure:** *"An AI request kept failing after 3 attempts,
+so the run stopped early."* The `try` around a batch covers the API call AND all local
+post-processing; `except Exception` catches everything; `_is_transient` defaults an unrecognised
+error to retryable (deliberately, and documented as load-bearing). So a local bug is retried three
+times and blamed on the provider. **A crash that lies about its cause is worse than a crash** — this
+one sent a whole investigation after an AI problem that did not exist.
+
+**Fixed two ways.** The key is initialised, and the message now names the real error. ⚠️ **The REAL
+fix — narrowing the `try` to the API call alone — is NOT done**: it restructures the
+retry/capture/split control flow. Naming the error is the contained half.
+
+⚠️ **THE GUARD IS GENERIC, AND THE GENERALITY IS THE VALUE.**
+`test_pw_drops_01_every_key_READ_from_drops_is_initialised` parses the module with `ast`, collects
+the dict-literal keys and every `drops[...]` subscript in a LOAD context, and fails if any read key is
+missing. A test for `conductor_floor_applied` alone would have caught this one and none of the next.
+Plain assignments (`drops["rows_omitted"] = ...`) create their own key and are correctly ignored.
+
+⚠️ **AND THE TWO PINS THAT USED THE OLD WORDING WERE REWRITTEN, NOT SWAPPED.**
+`test_rate_suggest.test_19` and `test_29` asserted the substring `"kept failing"` as a proxy for
+"we reached the retries-exhausted path". Neither test is about wording — both already assert the
+retry behaviour DIRECTLY (call counts and sleep counts). They now assert a reason exists, that it
+names how many attempts were made, and that it does not blame the provider — **all
+wording-independent**. Proven by reverting the message and re-running: both still pass.
+
+### ⚠️ THE n x 5 POPULATION IS ZERO, AND THE EARLIER NUMBER WAS NEVER REAL
+
+An earlier census reported two rows taking n x 5 for **+150 m**. Both were
+`BOQ-26-00048` r290/r291: *"One **16 Amps** point per circuit"* and *"2nos **16 Amps** point per
+circuit"*, read as **n = 16**. That is an **AMPERAGE, not a point count**. The extractor's unit guard
+now rejects them, and no `point_wiring` row anywhere matches the rule.
+
+**The mechanism is built, pinned by SYNTHETIC tests, and inert** — on the owner's ruling ("ok. still
+buid the mechanism"), so the next such row is right the first time. **No row moved because of it.**
+
+⚠️ **THE UNIT GUARD IS THE WHOLE DESIGN OF THE COUNT EXTRACTOR.** No unit word may sit between the
+number and `point`. Measured over 30,184 line items: the naive pattern reads the amperage rows as 16;
+the guarded one rejects them and keeps every genuine count.
+
+### ⚠️ THE OWNER'S EXPECTATION WAS INVERTED BY MEASUREMENT
+
+* **primary-with-a-count** was expected to be ZERO ("a point wiring row can have only ONE primary").
+  It is **51 corpus-wide (57 under the corrected extractor), 15 of them inside the 244.**
+* **the n x 5 case** was expected to matter. It has **nothing to act on.**
+
+The population expected to be empty is the larger by an order of magnitude.
+
+### ⚠️ THE BUCKET IS 349, NOT 309 — do not quote the stale figure
+
+The "309 already-correct formula rows" is a PRE-v2 label. The shape rules moved 40 rows into that
+bucket, so it now measures **349**; the original 309 is a strict subset. Both stops were checked
+against 349 and **0 moved**.
+
+### The shape patterns are STRUCTURAL by owner ruling
+
+*"X no of y type points. Y canbe many things and not just lights."* Neither pattern names a fixture;
+they key on a count, `point(s)`, and the verb `controlled`. `test_pw_shape_09` fails if a fixture word
+appears in either.
+
+⚠️ **The cross-fixture PROOF was WITHDRAWN as unsatisfiable.** Across 30,184 line items the word
+before `point(s)` in this shape is `light` (143) and `1light` (2) and nothing else; one widened
+variant reaches `Exhaust fan point controlled`. **Two fixture families exist, not ten.** The property
+is real; the corpus cannot demonstrate it.
+
+### C4 — a method-clause excluder is a QUALIFIED NO (open owner decision)
+
+Method clauses do share a signature (a modal or definitional verb in the passive: `shall be`,
+`will start from`, `means wiring`, `measured`). But it does **not** cleanly separate the sets:
+
+* the largest misfire family is **HOMONYMY, not grammar** — `third` **pin** / `third` **party** /
+  `3rd` **floor** — which no clause rule catches;
+* the counter-set contains misfires that look declarative (`(Third Party)`, `3rd Floor UPS room`).
+
+Applied to both token lists it changes **473** rows and moves **27 of the 244** — nine times what the
+widening moved. **On this evidence the separation needs the model's reading, not a pattern.** Parked.
+
+### ⚠️ OPEN — THE CLASSIFICATION DEFECT (not a pricing bug)
+
+Three `wiring_cabling` rows are classified `point_wiring`, all owner-confirmed:
+`BOQ-26-00052` r183, `BOQ-26-00113` r350 and r353. A misclassified row gets the wrong category's
+entire ruleset applied to it. Each cost time in this investigation. **Still open.**
+
+### Owner rulings, verbatim
+
+> "no looping point is secondary point. however this line mentions both first switch point (primary)
+>  and looping point (secondary) if bothpoints are mentioned then formula should have beenapllied.
+>  further the structure ofthe actual line items x no of ligh/fan/anything else points controlled by
+>  Y type switch has both primary and secondary and should be treated as such"
+
+> "X no of y type points. Y canbe many things and not just lights."
+
+> "Upto 10 Light Points / Upto 20 / Upto 30 — this shape is also both primary and secondary and
+>  should be evaluated by the formula. lets add this shape also in the fix"
+
+> "the system is classifying incorrectly. we need to fix this. As a work around can we build the rule
+>  that if points is greater than 1 then we use the formula to calculate circuit lenght"
+
+> "if the row mentions only secondary then it b=will be n secondary. the primary will be mentioend in
+>  some other row and priced separately. if both primary and secondary are mentioned then we go by the
+>  earlier formula of 15+(n-1)*5. here the 15 is for primary and 5 per n-1 seondary."
+
+> "primary point can be 1 only in a point wiring circuit row. however do a recon"
+
+> "ok. still buid the mechanism"
+
+### Measured effect and cert
+
+**119 of 30,184 rows change (0.394%)** — `point_wiring` 99, `wiring_cabling` 17 (inert), no-category
+2, `hvac_misc` 1. Every other category, `db_switchgear` included: **zero**.
+
+| cert row | result |
+|---|---|
+| `BOQ-26-00016` r50 "Upto 10 Light Points" | Supply **6845** — the sheet that could not complete, now completing |
+| `BOQ-26-00063` r90 "12 light point…" | Supply **10145** — the formula, not a flat 15 m |
+| `BOQ-26-00063` r98 "1 light point…" | Supply **2255** — still Primary, unchanged |
+| `BOQ-26-00019` r266 "Three (3) light point…" | Points 3, **circuit length 25 m** (the formula) |
+| `BOQ-26-00205` rows 12/14/16 | **3536.8 / 4613.8 / 5741.8** — were 1331.80 flat on all three |
+| `BOQ-26-00205` r43 conduit | **52**, unchanged |
+
+⚠️ **The `BOQ-26-00019` ladder is independent validation from HUMAN prices**: 1500 / 1890 / 2290 /
+2680 / 3070 / 3470 / 3860 for one through seven points. The human rate RISES with the count — which
+is what the formula does and what the flat reading does not.
+
+### ⚠️ A HASH GUARD THAT REPORTED A CHANGE WHEN NOTHING CHANGED
+
+The `BoQ Cell Pricing` guard used `ORDER BY boq, sheet_name, excel_row, col_letter, pricing_version`
+— **not a total order**, so tied rows returned in arbitrary physical order and three consecutive runs
+produced three different hashes with zero DB change. It nearly produced a false STOP.
+**Use `ORDER BY name`** (or hash the sorted row set). A guard that reports a change when nothing
+changed is worse than no guard.

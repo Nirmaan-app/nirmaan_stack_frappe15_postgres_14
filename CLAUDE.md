@@ -417,6 +417,12 @@ replace=True)` flips prior rows `active = 0` and INSERTS new ones, so `name` reg
 (freeze-and-supersede) and a raw hash ALWAYS moves across an import while nothing about the data
 changed. Hash the CONTENT (kind/brand/unit/attributes/rates/item_uid/source). `BoQ Cell Pricing`
 remains the unchanged-price guard.
+**⚠️ AND THAT GUARD MUST ORDER BY A TOTAL KEY -- `ORDER BY name`, or hash the SORTED row set.** The
+same class of defect, one level down: an `ORDER BY` on non-unique columns (`boq, sheet_name,
+excel_row, col_letter, pricing_version`) lets PostgreSQL return tied rows in ANY physical order, so
+three consecutive runs produce three different hashes with ZERO database change. Measured 2026-09-05;
+it nearly produced a false STOP mid-slice. **A guard that reports a change when nothing changed is
+worse than no guard** -- it burns the trust that makes the real signal actionable.
 
 **⚠️ SCOPE A SLICE BY WHAT IT CHANGES, NOT BY THE FILES YOU EXPECT TO TYPE IN (owner ruling
 2026-09-04, after three occurrences in one arc).** **WHEN A SLICE CHANGES BEHAVIOUR, EVERY TEST THAT
