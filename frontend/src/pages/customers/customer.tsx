@@ -3,7 +3,8 @@ import { OverviewSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Customers } from "@/types/NirmaanStack/Customers";
 import { useFrappeDocumentEventListener, useFrappeGetDoc } from "frappe-react-sdk";
-import { FilePenLine, LayoutDashboard, Receipt } from "lucide-react";
+import { FilePenLine, LayoutDashboard } from "lucide-react";
+// Financials tab temporarily disabled: import { Receipt } from "lucide-react";
 import React, { Suspense, useCallback, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useParams } from "react-router-dom";
@@ -13,7 +14,8 @@ import { toast } from "@/components/ui/use-toast";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 const CustomerOverview = React.lazy(() => import("./CustomerOverview"));
-const CustomerFinancials = React.lazy(() => import("./CustomerFinancials"));
+// Financials tab temporarily disabled
+// const CustomerFinancials = React.lazy(() => import("./CustomerFinancials"));
 
 export const Customer : React.FC = () => {
 
@@ -22,10 +24,16 @@ export const Customer : React.FC = () => {
   // const [searchParams] = useSearchParams(); 
 
   const [mainTab, setMainTab] = useStateSyncedWithParams<string>("main", "overview") // Default to overview if not specified
+  // Financials tab temporarily disabled - force any stale ?main=financials links back to overview
+  const activeMainTab = mainTab === "financials" ? "overview" : mainTab;
   // const [mainTab, setMainTab] = useState<string>(searchParams.get("main") || "overview")
 
-  const [tab, setTab] = useStateSyncedWithParams<string>("tab", mainTab === "financials" ? "All Payments" : "projects") // Default to All Payments if not specified
+  // Financials tab temporarily disabled - overview is the only main tab, so sub-tabs are always the overview ones
+  const [tab, setTab] = useStateSyncedWithParams<string>("tab", "projects") // Default to projects if not specified
+  // const [tab, setTab] = useStateSyncedWithParams<string>("tab", mainTab === "financials" ? "All Payments" : "projects") // Default to All Payments if not specified
   // const [tab, setTab] = useState<string>(searchParams.get("tab") || mainTab === "financials" ? "All Payments" : "projects")
+  const OVERVIEW_TABS = ["projects", "payments-inflow", "invoices"];
+  const activeTab = OVERVIEW_TABS.includes(tab) ? tab : "projects";
 
   const [editSheetOpen, setEditSheetOpen] = useState(false);
 
@@ -111,16 +119,18 @@ export const Customer : React.FC = () => {
         </Sheet>
       </div>
 
-      <Tabs value={mainTab} onValueChange={handleMainTabChange} className="w-full">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+      <Tabs value={activeMainTab} onValueChange={handleMainTabChange} className="w-full">
+        <TabsList className="grid w-full max-w-md grid-cols-1">
           <TabsTrigger value="overview" className="gap-2">
             <LayoutDashboard className="h-4 w-4" />
             <span>Overview</span>
           </TabsTrigger>
+          {/* Financials tab temporarily disabled
           <TabsTrigger value="financials" className="gap-2">
             <Receipt className="h-4 w-4" />
             <span>Financials</span>
           </TabsTrigger>
+          */}
         </TabsList>
 
         <Suspense fallback={<div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /></div>}>
@@ -131,12 +141,13 @@ export const Customer : React.FC = () => {
               <CustomerOverview
                 data={data}
                 customerId={customerId}
-                tab={tab}
+                tab={activeTab}
                 onClick={handleSubTabChange}
               />
             )}
           </TabsContent>
 
+          {/* Financials tab temporarily disabled
           <TabsContent value="financials">
             <CustomerFinancials
               tab={tab}
@@ -144,6 +155,7 @@ export const Customer : React.FC = () => {
               onClick={handleSubTabChange}
             />
           </TabsContent>
+          */}
         </Suspense>
       </Tabs>
 
