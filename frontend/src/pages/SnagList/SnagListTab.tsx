@@ -135,12 +135,9 @@ export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.E
     bulkUpdateStatus,
     addManualSnag,
     updateSnagDetails,
-    getBatchDeletePreview,
-    deleteBatch,
     isBulkSaving,
     isAdding,
     isSavingDetails,
-    isDeletingBatch,
   } = mutations;
 
   // --- Row-level write handler (withheld entirely when not permitted) ---
@@ -319,15 +316,7 @@ export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.E
               `useSnagBatches` deliberately keeps fetching for everyone: its
               `batches.length` feeds the empty-state gate below. */}
           {perms.canViewBatches && (
-            <SnagBatchesPanel
-              batches={batches}
-              isLoading={batchesLoading}
-              isDeleting={isDeletingBatch}
-              onRequestDeletePreview={
-                perms.canDeleteBatch ? getBatchDeletePreview : undefined
-              }
-              onConfirmDelete={perms.canDeleteBatch ? deleteBatch : undefined}
-            />
+            <SnagBatchesPanel batches={batches} isLoading={batchesLoading} />
           )}
 
           {perms.canAddManual && (
