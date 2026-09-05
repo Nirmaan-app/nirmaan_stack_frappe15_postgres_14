@@ -3,6 +3,8 @@ import { ColumnDef } from "@tanstack/react-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import type { SearchFieldOption } from "@/components/data-table/new-data-table";
 import { formatDate } from "@/utils/FormatDate";
+import { cn } from "@/lib/utils";
+import { WAREHOUSE_MANUAL_LEDGER_REF } from "@/constants/warehouse";
 
 /**
  * Row shape returned by `nirmaan_stack.api.warehouse.get_warehouse_ledger`.
@@ -97,14 +99,23 @@ export const warehouseLedgerColumns: ColumnDef<WarehouseLedgerRow>[] = [
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Ref Doc" />
     ),
-    cell: ({ row }) => (
-      <div className="flex flex-col">
-        <span className="font-medium text-xs">{row.original.docname_ref}</span>
-        <span className="text-xs text-muted-foreground">
-          {row.original.doctype_ref}
-        </span>
-      </div>
-    ),
+    cell: ({ row }) => {
+      const isManual =
+        row.original.doctype_ref === WAREHOUSE_MANUAL_LEDGER_REF;
+      return (
+        <div className="flex flex-col">
+          <span className="font-medium text-xs">{row.original.docname_ref}</span>
+          <span
+            className={cn(
+              "text-xs",
+              isManual ? "text-red-400" : "text-muted-foreground"
+            )}
+          >
+            {row.original.doctype_ref}
+          </span>
+        </div>
+      );
+    },
     size: 180,
     meta: {
       exportHeaderName: "Ref Doc",
