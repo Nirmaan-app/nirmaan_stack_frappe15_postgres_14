@@ -184,16 +184,23 @@ export function useSnagMutations(
   );
 
   const updateSnagDetails = useCallback(
-    async ({ snag, area, category, description, remark }: UpdateSnagDetailsPayload) => {
+    async ({
+      snag,
+      area,
+      category,
+      description,
+      remark,
+      source_serial,
+    }: UpdateSnagDetailsPayload) => {
       setIsSavingDetails(true);
       try {
-        // `remark` is OMITTED when the caller passed nothing, so the server's "leave
-        // it alone" branch is reached — the same three-state contract `updateStatus`
-        // builds explicitly above, for the same reason.
-        const base = { snag, area, category, description };
-        await callUpdateDetails(
-          remark === undefined ? base : { ...base, remark }
-        );
+        // `remark` and `source_serial` are OMITTED when the caller passed nothing, so the
+        // server's "leave it alone" branch is reached for each — the same three-state
+        // contract `updateStatus` builds explicitly above, for the same reason.
+        const base: Record<string, string> = { snag, area, category, description };
+        if (remark !== undefined) base.remark = remark;
+        if (source_serial !== undefined) base.source_serial = source_serial;
+        await callUpdateDetails(base);
         toast({
           title: "Snag updated",
           description: "The snag's details were saved.",

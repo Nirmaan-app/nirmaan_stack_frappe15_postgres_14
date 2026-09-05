@@ -215,8 +215,10 @@ def add_manual_snag(project=None, area=None, category=None, description=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def update_snag_details(snag=None, area=None, category=None, description=None, remark=None):
-    """Rewrite ONE snag's area / category / description / remark. Admin / Project Lead / PMO.
+def update_snag_details(
+    snag=None, area=None, category=None, description=None, remark=None, source_serial=None
+):
+    """Rewrite ONE snag's area / category / description / remark / S.No. Admin / PL / PMO.
 
     THE FIRST POST-CREATE WRITE PATH FOR THIS DOCTYPE'S DATA FIELDS. Until now the three
     were CREATE-ONLY (`add_manual_snag` / the importer) and a typo could not be corrected.
@@ -241,6 +243,18 @@ def update_snag_details(snag=None, area=None, category=None, description=None, r
     `before_save` controller stamps on a status transition only, and already anticipates a bare
     remark edit). A remark written from this dialog is therefore NOT attributed to its author --
     the Version log is where that lives.
+
+    `source_serial` (the S.No) IS EDITABLE HERE (owner decision 2026-09-05), with the SAME
+    THREE STATES as `remark` and for the same reason -- a client that does not send the field
+    must not blank it. It is the ONE provenance-shaped field that is editable, and the line is
+    not arbitrary: the S.No is a LABEL people quote back to a consultant, so a mis-read cell,
+    or a row the import numbered by POSITION because the sheet left it blank, has to be
+    correctable by hand. The three below answer a different question and stay shut.
+
+    It is STRIPPED, unlike `remark`: the import strips it too (`import_wizard._serials_for`),
+    so a serial typed here and one read off a sheet are stored the same way. It is NOT checked
+    for uniqueness -- a real sheet's numbering restarts per section, so duplicates inside one
+    project are the consultant's data, not an error to refuse.
 
     WHAT IT STILL DELIBERATELY CANNOT TOUCH:
       - `status` -- owned by `update_snag_status` (ADR-0018), which is what stamps the
@@ -290,6 +304,10 @@ def update_snag_details(snag=None, area=None, category=None, description=None, r
     # same text saved from either dialog is stored the same way.
     if remark is not None:
         doc.remark = remark
+    # `read_only` on the doctype is a DESK form flag, not a write guard -- this is the one
+    # editor for the field, and it goes through the document layer like every other edit here.
+    if source_serial is not None:
+        doc.source_serial = (source_serial or "").strip()
     doc.save(ignore_permissions=True)
     frappe.db.commit()
 
@@ -299,6 +317,7 @@ def update_snag_details(snag=None, area=None, category=None, description=None, r
         "category": doc.category,
         "description": doc.description,
         "remark": doc.remark,
+        "source_serial": doc.source_serial,
     }
 
 

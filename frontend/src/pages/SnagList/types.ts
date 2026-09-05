@@ -295,6 +295,16 @@ export interface UpdateSnagDetailsPayload {
    * all (owner Q2a) — the dialog shows no box for it and the server refuses one.
    */
   remark?: string;
+  /**
+   * The S.No. THREE STATES, exactly like `remark`: `undefined` omits the key and the
+   * stored value is left alone, `""` clears it, text overwrites.
+   *
+   * The one provenance-shaped field that is editable (owner 2026-09-05): it is a label
+   * quoted back to a consultant, so a mis-read cell — or a row the import numbered by
+   * position because the sheet left it blank — has to be correctable. Stored as text and
+   * NOT unique: a sheet's numbering restarts per section, so duplicates are real data.
+   */
+  source_serial?: string;
 }
 
 /**

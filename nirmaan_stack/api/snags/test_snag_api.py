@@ -1403,6 +1403,51 @@ class TestSnagApi(FrappeTestCase):
         self.assertEqual(after.status, "WIP")
         self.assertEqual(after.remark, "Started")
 
+    def test_update_snag_details_edits_the_s_no_in_three_states(self):
+        """`source_serial` behaves exactly like `remark`: omit / clear / overwrite.
+
+        Omitting it MUST leave the stored number alone -- otherwise every ordinary area
+        typo fix from a client that does not send the field would blank the S.No the
+        import or the consultant put there.
+        """
+        snag = self._a_snag("EditSerial", "Edit serial batch")
+        frappe.db.set_value("Project Snag", snag, "source_serial", "12", update_modified=False)
+
+        # 1. omitted -> untouched
+        tracking.update_snag_details(snag=snag, area="A", category="C", description="D")
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, "source_serial"), "12")
+
+        # 2. text -> overwrite, stripped (the import strips too)
+        out = tracking.update_snag_details(
+            snag=snag, area="A", category="C", description="D", source_serial="  A-3  "
+        )
+        self.assertEqual(out["source_serial"], "A-3")
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, "source_serial"), "A-3")
+
+        # 3. "" -> an explicit clear
+        tracking.update_snag_details(
+            snag=snag, area="A", category="C", description="D", source_serial=""
+        )
+        self.assertFalse(frappe.db.get_value("Project Snag", snag, "source_serial"))
+
+    def test_the_s_no_is_editable_despite_being_read_only_on_the_doctype(self):
+        """`read_only` is a DESK form flag, not a write guard.
+
+        Pinned because the field IS read_only in the doctype JSON -- provenance is not
+        hand-edited in Desk -- and this endpoint is deliberately its one editor. If a
+        Frappe upgrade ever made `read_only` refuse a document-layer write, this fails
+        here rather than silently dropping the edit in production.
+        """
+        self.assertTrue(
+            frappe.get_meta("Project Snag").get_field("source_serial").read_only,
+            "source_serial is expected to stay read_only on the doctype",
+        )
+        snag = self._a_snag("EditSerialRO", "Edit serial read-only batch")
+        tracking.update_snag_details(
+            snag=snag, area="A", category="C", description="D", source_serial="7"
+        )
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, "source_serial"), "7")
+
     def test_update_snag_details_leaves_provenance_alone(self):
         """`batch` / `source_row` / `project` answer 'where did this come from'."""
         snag = self._a_snag("EditProv", "Edit provenance batch")
