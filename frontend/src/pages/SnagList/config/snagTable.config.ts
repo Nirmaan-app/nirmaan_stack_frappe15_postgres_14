@@ -53,6 +53,7 @@ export const SNAG_FIELDS_TO_FETCH: string[] = [
   "description",
   "status",
   "remark",
+  "source_serial",
   "source_row",
   "status_changed_by",
   "status_changed_on",

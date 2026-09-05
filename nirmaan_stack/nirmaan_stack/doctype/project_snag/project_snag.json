@@ -19,6 +19,7 @@
   "description",
   "remark",
   "section_break_3",
+  "source_serial",
   "source_row"
  ],
  "fields": [
@@ -94,6 +95,13 @@
    "fieldname": "section_break_3",
    "fieldtype": "Section Break",
    "label": "Provenance"
+  },
+  {
+   "description": "The consultant's own S.No, kept verbatim from the imported sheet. When the sheet carries no number for a row, the import assigns a running one -- so every imported Snag has one. Blank on Snags imported before this field existed, and on a manually added Snag.",
+   "fieldname": "source_serial",
+   "fieldtype": "Data",
+   "label": "S.No",
+   "read_only": 1
   },
   {
    "fieldname": "source_row",

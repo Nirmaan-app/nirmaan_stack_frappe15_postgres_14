@@ -26,6 +26,11 @@ export interface SnagColumnMapping {
   description: string;
   /** An Excel column LETTER. Its text lands in `ProjectSnag.remark` (singular — ADR-0018). */
   remarks: string | null;
+  /**
+   * The consultant's OWN S.No column. Optional: a sheet without one imports fine, and the
+   * rows it did not number are numbered by their position in the batch at ingest.
+   */
+  serial: string | null;
 }
 
 /** Why the parser declined to read a row as a Snag. Never widened silently. */
@@ -68,6 +73,13 @@ export interface ProjectSnag {
    * **0, never null** — a Manual Snag has `source_row === 0`. Test falsiness, never `=== null`.
    */
   source_row: number;
+  /**
+   * The S.No this Snag is quoted by: the sheet's own number when it had one, else the
+   * position the import gave it within its batch. A Frappe `Data`, so it is TEXT — a
+   * consultant numbering "1.1" or "A-3" keeps that. Empty on a manually added Snag and on
+   * anything imported before the field existed; never assume it parses as a number.
+   */
+  source_serial: string;
   status_changed_by: string | null;
   status_changed_on: string | null;
   creation: string;
@@ -149,6 +161,12 @@ export interface GetSheetColumnsResponse {
 export interface ParsedSnagRow {
   /** 1-based Excel row. The stable identity of a preview row, and the tick key. */
   source_row: number;
+  /**
+   * The sheet's own S.No, VERBATIM; "" when the sheet has no such column or the cell is
+   * blank. The preview shows exactly this — the number an unnumbered row will import as
+   * is assigned at ingest, over the rows actually ticked, which this row cannot know.
+   */
+  serial: string;
   area: string;
   category: string;
   description: string;
@@ -277,6 +295,16 @@ export interface UpdateSnagDetailsPayload {
    * all (owner Q2a) — the dialog shows no box for it and the server refuses one.
    */
   remark?: string;
+  /**
+   * The S.No. THREE STATES, exactly like `remark`: `undefined` omits the key and the
+   * stored value is left alone, `""` clears it, text overwrites.
+   *
+   * The one provenance-shaped field that is editable (owner 2026-09-05): it is a label
+   * quoted back to a consultant, so a mis-read cell — or a row the import numbered by
+   * position because the sheet left it blank — has to be correctable. Stored as text and
+   * NOT unique: a sheet's numbering restarts per section, so duplicates are real data.
+   */
+  source_serial?: string;
 }
 
 /**

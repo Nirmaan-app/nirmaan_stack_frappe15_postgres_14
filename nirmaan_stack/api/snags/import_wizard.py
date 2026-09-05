@@ -27,7 +27,7 @@ from nirmaan_stack.api.snags import file_io
 
 _WHITESPACE = re.compile(r"\s+")
 
-_MAPPING_KEYS = ("area", "category", "description", "remarks")
+_MAPPING_KEYS = ("area", "category", "description", "remarks", "serial")
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +174,10 @@ def _shape_row(row, is_duplicate):
     """
     return {
         "source_row": row.get("source_row"),
+        # The sheet's OWN S.No, verbatim, "" when it has none. The number an unnumbered
+        # row imports as is assigned at ingest, over the rows actually being imported --
+        # the preview cannot know that set, so it shows what the sheet says and nothing more.
+        "serial": row.get("serial") or "",
         "area": row.get("area") or "",
         "category": row.get("category") or "",
         "description": row.get("description") or "",
@@ -211,6 +215,24 @@ def _description_for(row):
     if description.strip():
         return description
     return row.get("preview_text") or ""
+
+
+def _serials_for(rows):
+    """The S.No each row imports as, in the order given. Never blank.
+
+    The sheet's own number wins, VERBATIM -- a consultant numbering `1.1` / `A-3` keeps
+    that, which is why the stored field is Data and not Int. A row the sheet did not
+    number (no S.No column at all, or a blank cell) takes a running 1-based position
+    within THIS batch instead, so every imported Snag can be quoted by number.
+
+    The counter walks the whole batch, not just the unnumbered rows: mixing our count
+    into a sheet's own sequence would produce two rows claiming the same number. It is
+    therefore a POSITION, and it says so.
+    """
+    return [
+        (row.get("serial") or "").strip() or str(position)
+        for position, row in enumerate(rows, start=1)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -475,12 +497,16 @@ def _ingest_one_sheet(project, file_url, entry):
     )
     batch.insert(ignore_permissions=True)
 
-    for row in rows:
+    serials = _serials_for(rows)
+
+    for row, serial in zip(rows, serials):
         frappe.get_doc(
             {
                 "doctype": "Project Snag",
                 "project": project,
                 "batch": batch.name,
+                # The sheet's own S.No, else this row's position in the batch.
+                "source_serial": serial,
                 "area": row.get("area") or "",
                 "category": row.get("category") or "",
                 # ADR-0019: the mapped text, else the row's first non-empty cell, else

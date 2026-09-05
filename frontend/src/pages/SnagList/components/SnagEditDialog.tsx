@@ -86,7 +86,9 @@ export const SnagEditDialog: React.FC<SnagEditDialogProps> = ({
   onSubmit,
 }) => {
   const storedRemark = snag?.remark ?? "";
+  const storedSerial = snag?.source_serial ?? "";
 
+  const [serial, setSerial] = React.useState(storedSerial);
   const [area, setArea] = React.useState(snag?.area ?? "");
   const [category, setCategory] = React.useState(snag?.category ?? "");
   const [description, setDescription] = React.useState(snag?.description ?? "");
@@ -110,6 +112,11 @@ export const SnagEditDialog: React.FC<SnagEditDialogProps> = ({
       // rule means the same text stores the same way from either dialog.
       remark:
         takesNoRemark || remark === storedRemark ? undefined : remark,
+      // Same three-state contract as the remark: untouched -> send NOTHING. Trimmed,
+      // because the import trims it too and one S.No rule means a number typed here
+      // stores exactly like one read off a sheet.
+      source_serial:
+        serial.trim() === storedSerial ? undefined : serial.trim(),
     });
     if (ok) onCancel();
   };
@@ -125,13 +132,26 @@ export const SnagEditDialog: React.FC<SnagEditDialogProps> = ({
         <DialogHeader>
           <DialogTitle>Edit snag</DialogTitle>
           <DialogDescription>
-            Area, Category, Description and Remark. The status itself is changed
-            from the status control on the row.
+            S.No, Area, Category, Description and Remark. The status itself is
+            changed from the status control on the row.
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-[7rem_1fr]">
+            <div className="space-y-1.5">
+              <Label htmlFor="snag-edit-serial">S.No</Label>
+              <Input
+                id="snag-edit-serial"
+                value={serial}
+                onChange={(e) => setSerial(e.target.value)}
+                placeholder="e.g. 12"
+                // Free text, not a number input: a consultant's numbering is a LABEL --
+                // "1.1" and "A-3" are real serials, and a number spinner would refuse them.
+                inputMode="text"
+                title="The consultant's own number for this snag, as printed on the report"
+              />
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="snag-edit-area">Area / Location</Label>
               <Input
@@ -148,6 +168,9 @@ export const SnagEditDialog: React.FC<SnagEditDialogProps> = ({
                 ))}
               </datalist>
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="snag-edit-category">Category</Label>
               <Input

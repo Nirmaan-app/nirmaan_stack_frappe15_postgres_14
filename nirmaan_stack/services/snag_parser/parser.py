@@ -143,7 +143,7 @@ def _distinct(values) -> "list[dict]":
 # ---------------------------------------------------------------------------
 
 
-def _row(source_row, area, category, description, remark, reason, preview) -> dict:
+def _row(source_row, area, category, description, remark, reason, preview, serial="") -> dict:
     """ONE merged preview row — the `ParsedSnagRow` shape minus `is_duplicate`
     (which the API layer folds in; this module knows nothing about the DB).
 
@@ -162,6 +162,10 @@ def _row(source_row, area, category, description, remark, reason, preview) -> di
         # the MAPPING key `remarks` (plural), which is an Excel COLUMN LETTER —
         # see the `remarks_i` lookup a few lines below, in `parse_grid`. ADR-0018.
         "remark": remark,
+        #: The consultant's OWN S.No, VERBATIM, "" when the sheet has no such column
+        #: or the cell is blank. The import supplies a number for those rows; this
+        #: layer never invents one, because a parser row must report what is there.
+        "serial": serial,
         "skipped_reason": reason,
         "tickable": bool(description.strip()),
         "preview_text": preview,
@@ -183,6 +187,10 @@ def parse_grid(sheet_name: str, grid, mapping, header_row: "int | None" = None) 
     # MAPPING KEY `remarks` (PLURAL) -> an Excel COLUMN LETTER. The row VALUE it
     # produces is called `remark` (SINGULAR) — see `_row` below. ADR-0018.
     remarks_i = _col_index(mapping.get("remarks"))
+    serial_i = _col_index(mapping.get("serial"))
+    # ⚠️ `serial_i` is NOT in `mapped_indexes`. That list drives `is_repeated_header`,
+    # so widening it would change how EVERY existing sheet classifies its rows -- for a
+    # column that carries no snag content. The S.No is read, never used to judge a row.
     mapped_indexes = [i for i in (area_i, category_i, desc_i, remarks_i) if i is not None]
 
     # The header row bounds the DATA REGION by POSITION. An explicit `header_row`
@@ -204,6 +212,7 @@ def parse_grid(sheet_name: str, grid, mapping, header_row: "int | None" = None) 
         category = _at(cells, category_i)
         description = _at(cells, desc_i)
         remark = _at(cells, remarks_i)
+        serial = _at(cells, serial_i)
 
         def skip(reason, preview=None):
             rows.append(
@@ -215,6 +224,7 @@ def parse_grid(sheet_name: str, grid, mapping, header_row: "int | None" = None) 
                     remark,
                     reason,
                     preview_text(cells) if preview is None else preview,
+                    serial,
                 )
             )
 
@@ -237,7 +247,7 @@ def parse_grid(sheet_name: str, grid, mapping, header_row: "int | None" = None) 
             skip(SKIP_NO_DESCRIPTION)
             continue
 
-        rows.append(_row(row, area, category, description, remark, None, ""))
+        rows.append(_row(row, area, category, description, remark, None, "", serial))
         accepted += 1
 
     accepted_rows = [r for r in rows if r["skipped_reason"] is None]
