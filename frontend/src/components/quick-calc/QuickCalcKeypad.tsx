@@ -22,6 +22,38 @@ import { cn } from "@/lib/utils";
 
 export type KeypadAction = "clear" | "backspace" | "equals";
 
+/**
+ * Which rung of the clear ladder the C key is currently on -- the same ladder
+ * Escape walks (see useCalcKeyboard):
+ *
+ *   "draft"    the draft holds something  -> face "C",  clears the draft
+ *   "history"  draft empty, tape has rows -> face "AC", clears the history
+ *   "none"     nothing left to clear      -> face "AC", inert
+ *
+ * "AC" carries a red border because that press wipes the saved tape and there is
+ * no undo; the inert state does not, since a border promising a destructive
+ * action that cannot happen is noise.
+ */
+export type ClearMode = "draft" | "history" | "none";
+
+const CLEAR_FACE: Record<ClearMode, string> = {
+    draft: "C",
+    history: "AC",
+    none: "AC",
+};
+
+const CLEAR_LABEL: Record<ClearMode, string> = {
+    draft: "Clear",
+    history: "Clear history",
+    none: "Nothing to clear",
+};
+
+const CLEAR_TITLE: Record<ClearMode, string> = {
+    draft: "Clear what you typed (Esc)",
+    history: "Clear the history (Esc) -- this cannot be undone",
+    none: "Nothing to clear",
+};
+
 export interface KeypadKey {
     /** What the key face shows. */
     face: ReactNode;
@@ -73,20 +105,33 @@ interface QuickCalcKeypadProps {
     onAction: (action: KeypadAction) => void;
     /** 44px targets when the pointer is coarse (the touch minimum); 36px on a mouse. */
     coarsePointer: boolean;
+    /** Which rung the clear key shows. The action itself is decided in QuickCalc. */
+    clearMode: ClearMode;
 }
 
 export const QuickCalcKeypad = memo(function QuickCalcKeypad({
     onInsert,
     onAction,
     coarsePointer,
+    clearMode,
 }: QuickCalcKeypadProps) {
     return (
         <div className="grid grid-cols-4 gap-1 px-3 pb-2.5">
-            {KEYPAD.map((key) => (
+            {KEYPAD.map((key) => {
+                // The clear key is the one face that changes with state, so its
+                // look and its name are resolved per render rather than read off
+                // the static KEYPAD entry.
+                const isClear = key.action === "clear";
+                const destructive = isClear && clearMode === "history";
+                const inert = isClear && clearMode === "none";
+
+                return (
                 <button
                     key={key.id}
                     type="button"
-                    aria-label={key.label ?? key.id}
+                    disabled={inert}
+                    title={isClear ? CLEAR_TITLE[clearMode] : undefined}
+                    aria-label={isClear ? CLEAR_LABEL[clearMode] : (key.label ?? key.id)}
                     // touch-manipulation kills the 300ms tap delay and double-tap zoom.
                     className={cn(
                         "relative grid place-items-center rounded-xl tabular-nums transition-colors duration-100",
@@ -99,7 +144,12 @@ export const QuickCalcKeypad = memo(function QuickCalcKeypad({
                         key.role === "operator" &&
                             "bg-primary/[0.10] font-medium text-primary hover:bg-primary/[0.18]",
                         key.role === "utility" &&
+                            !destructive &&
                             "bg-primary/[0.10] text-[12px] font-medium text-primary hover:bg-primary/[0.18]",
+                        // Red border: this press wipes the saved history, with no undo.
+                        destructive &&
+                            "border border-destructive/60 bg-destructive/[0.08] text-[12px] font-medium text-destructive hover:bg-destructive/[0.16]",
+                        inert && "opacity-40",
                         key.role === "digit" &&
                             "bg-foreground/[0.07] font-medium text-foreground hover:bg-foreground/[0.13]"
                     )}
@@ -123,9 +173,10 @@ export const QuickCalcKeypad = memo(function QuickCalcKeypad({
                             {key.legend}
                         </span>
                     )}
-                    {key.face}
+                    {isClear ? CLEAR_FACE[clearMode] : key.face}
                 </button>
-            ))}
+                );
+            })}
         </div>
     );
 });

@@ -14,7 +14,7 @@ import {
     tryEvaluate,
     CalcError,
 } from "./calc-engine";
-import { KeypadAction, QuickCalcKeypad } from "./QuickCalcKeypad";
+import { ClearMode, KeypadAction, QuickCalcKeypad } from "./QuickCalcKeypad";
 import { useCalcKeyboard, useQuickCalcHotkey } from "./useCalcKeyboard";
 import { usePlatformModifier } from "./usePlatformModifier";
 
@@ -38,7 +38,7 @@ const PILL_SIZE = 44;
 const EDGE_GAP = 16;
 
 export const QuickCalc = () => {
-    const { view, position, tape, tapeExpanded, open, minimise, setPosition, toggleTape, pushTape } =
+    const { view, position, tape, tapeExpanded, open, minimise, setPosition, toggleTape, pushTape, clearTape } =
         useQuickCalcStore();
 
     const { toast } = useToast();
@@ -330,6 +330,28 @@ export const QuickCalc = () => {
         inputRef.current?.focus();
     }, [applyExpression]);
 
+    /**
+     * Whether the draft holds anything -- the first rung of the clear ladder that
+     * both the C key and Escape walk (draft -> history -> put away).
+     *
+     * The expression is read off the input ELEMENT for the same reason `evaluate`
+     * does: a keypad tap and an Escape can land in one batch, and the state from
+     * the last committed render would still read empty and send the press down to
+     * the history rung. A leftover error counts as draft too, so the first press
+     * dismisses it rather than reaching past it; `result` needs no test of its own,
+     * since a result only exists while the expression that produced it is still in
+     * the field.
+     */
+    const hasDraft = useCallback(
+        () => (inputRef.current?.value ?? expression).trim().length > 0 || error !== null,
+        [expression, error]
+    );
+
+    const clearHistory = useCallback(() => {
+        clearTape();
+        inputRef.current?.focus();
+    }, [clearTape]);
+
     const evaluate = useCallback(() => {
         // The input element is the source of truth, not the React state: several
         // keypad taps and then "=" can land in a single batch, and the state from
@@ -409,10 +431,12 @@ export const QuickCalc = () => {
         {
             evaluate,
             clear,
+            clearHistory,
             minimise,
             copyResult,
             insert: insertAtCaret,
-            hasExpression: expression.length > 0,
+            hasDraft,
+            hasHistory: tape.length > 0,
             hasResult: result !== null,
             hasSelection: () => {
                 const input = inputRef.current;
@@ -428,8 +452,24 @@ export const QuickCalc = () => {
         modifier
     );
 
+    /**
+     * The face is rendered from React state while the action re-reads the input
+     * element, so in a pathological same-batch tap the two can disagree -- and the
+     * disagreement falls the safe way round: the key clears the draft when the face
+     * already says AC, never the history when the face says C.
+     */
+    const clearMode: ClearMode =
+        expression.trim().length > 0 || error !== null
+            ? "draft"
+            : tape.length > 0
+              ? "history"
+              : "none";
+
     const onKeypadAction = (action: KeypadAction) => {
-        if (action === "clear") clear();
+        if (action === "clear") {
+            if (hasDraft()) clear();
+            else clearHistory();
+        }
         else if (action === "backspace") backspace();
         else if (action === "equals") evaluate();
         // Tapping a key is an explicit activation, so keeping the caret here is fair.
@@ -671,7 +711,12 @@ export const QuickCalc = () => {
             </div>
 
             {/* E. keypad */}
-            <QuickCalcKeypad onInsert={insertAtCaret} onAction={onKeypadAction} coarsePointer={coarsePointer} />
+            <QuickCalcKeypad
+                onInsert={insertAtCaret}
+                onAction={onKeypadAction}
+                coarsePointer={coarsePointer}
+                clearMode={clearMode}
+            />
 
         </div>
     );
