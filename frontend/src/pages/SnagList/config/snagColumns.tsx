@@ -54,6 +54,26 @@ export const getSnagColumns = ({
   savingStatusFor,
 }: GetSnagColumnsOptions): ColumnDef<SnagListRow>[] => [
   {
+    // The number the snag is quoted by: the consultant's own, or the position the
+    // import gave it. Frappe `Data`, so it sorts as TEXT -- "10" before "2" -- which
+    // is why the LIST's own order stays the default and this column is not the sort
+    // anyone should reach for. Blank on a manually added snag.
+    accessorKey: "source_serial",
+    size: 70,
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="S.No" />
+    ),
+    cell: ({ row }) => (
+      <div className="truncate text-xs tabular-nums text-muted-foreground">
+        {dash(row.original.source_serial)}
+      </div>
+    ),
+    meta: {
+      exportHeaderName: "S.No",
+      exportValue: (r: SnagListRow) => r.source_serial || "",
+    },
+  },
+  {
     accessorKey: "area",
     size: 150,
     header: ({ column }) => (

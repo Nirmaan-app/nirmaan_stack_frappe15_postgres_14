@@ -152,6 +152,7 @@ def _row(
     skipped_reason=None,
     tickable=None,
     preview_text="",
+    serial="",
 ):
     """A parser row. `tickable` defaults to the parser's rule: False iff no description."""
     return {
@@ -160,13 +161,18 @@ def _row(
         "category": category,
         "description": description,
         "remark": remark,
+        #: The sheet's OWN S.No, "" when it did not number this row. The parser never
+        #: invents one -- `_serials_for` does, at ingest.
+        "serial": serial,
         "skipped_reason": skipped_reason,
         "tickable": bool(description.strip()) if tickable is None else tickable,
         "preview_text": preview_text,
     }
 
 
-_MAPPING = {"area": "B", "category": "C", "description": "D", "remarks": "G"}
+#: `serial` is part of the mapping the API coerces and stores on the batch, so it belongs
+#: here even when a test's sheet has no S.No column: `_coerce_mapping` fills every key.
+_MAPPING = {"area": "B", "category": "C", "description": "D", "remarks": "G", "serial": "A"}
 
 
 class TestSnagApi(FrappeTestCase):
@@ -342,6 +348,110 @@ class TestSnagApi(FrappeTestCase):
         # the fixture rows carry no source text.
         self.assertTrue(all(not r.remark for r in rows))
         self.assertFalse(frappe.db.has_column("Project Snag", "comments"))
+
+    # -- S.No (`source_serial`) ------------------------------------------------
+
+    def test_the_sheets_own_s_no_is_stored_verbatim(self):
+        """A consultant's numbering is kept EXACTLY -- including one that is not a number.
+
+        This is why the field is `Data`: coercing "1.1" or "A-3" to an Int would either
+        lose the number or refuse the import, and a snag has to be quotable back to the
+        consultant by the label they gave it.
+        """
+        rows = [
+            _row(8, "Kitchen", "Leaking tap", serial="1.1"),
+            _row(9, "Lobby", "Cracked tile", serial="A-3"),
+            _row(10, "Roof", "Missing sealant", serial="  7  "),
+        ]
+        result = self._one_sheet(sheet="Serials", batch_name="Serial batch", rows=rows)
+
+        stored = frappe.get_all(
+            "Project Snag",
+            filters={"batch": result["results"][0]["batch"]},
+            fields=["source_row", "source_serial"],
+            limit_page_length=0,
+        )
+        self.assertEqual(
+            {r.source_row: r.source_serial for r in stored},
+            {8: "1.1", 9: "A-3", 10: "7"},
+        )
+
+    def test_a_sheet_with_no_s_no_column_is_numbered_by_position_in_the_batch(self):
+        """No S.No anywhere -> every row takes its 1-based position in THIS batch.
+
+        The position is the batch's, not the Excel row's: a sheet whose snags start at
+        row 8 must still read 1, 2, 3.
+        """
+        result = self._one_sheet(sheet="Unnumbered", batch_name="Unnumbered batch")
+
+        stored = frappe.get_all(
+            "Project Snag",
+            filters={"batch": result["results"][0]["batch"]},
+            fields=["source_row", "source_serial"],
+            limit_page_length=0,
+        )
+        self.assertEqual(
+            {r.source_row: r.source_serial for r in stored},
+            {8: "1", 9: "2", 10: "3"},
+        )
+
+    def test_a_blank_cell_takes_its_position_and_never_collides_with_a_real_s_no(self):
+        """The counter walks the WHOLE batch, so a filled row and a blank one cannot
+        both claim the same number.
+
+        Counting only the unnumbered rows would give row 9 the number "1" while row 8
+        already holds "1" -- two snags in one batch quoting the same S.No.
+        """
+        rows = [
+            _row(8, "Kitchen", "Leaking tap", serial="1"),
+            _row(9, "Lobby", "Cracked tile", serial="   "),
+            _row(10, "Roof", "Missing sealant", serial="3"),
+        ]
+        result = self._one_sheet(sheet="Gappy", batch_name="Gappy batch", rows=rows)
+
+        stored = frappe.get_all(
+            "Project Snag",
+            filters={"batch": result["results"][0]["batch"]},
+            fields=["source_row", "source_serial"],
+            limit_page_length=0,
+        )
+        by_row = {r.source_row: r.source_serial for r in stored}
+        self.assertEqual(by_row, {8: "1", 9: "2", 10: "3"})
+        self.assertEqual(len(set(by_row.values())), 3, "S.No collided inside one batch")
+
+    def test_every_imported_snag_gets_an_s_no_even_a_re_ticked_skipped_row(self):
+        """A row the parser skipped still imports when ticked (ADR-0019) -- and it is a
+        row like any other, so it is numbered like one."""
+        rows = [
+            _row(8, "Kitchen", "Leaking tap", serial="1"),
+            _row(9, "", "", skipped_reason="blank", preview_text="RISK SUMMARY"),
+        ]
+        entry = {
+            "sheet_name": "Reticked",
+            "batch_name": "Reticked batch",
+            "mapping": _MAPPING,
+            "header_row": None,
+            "accepted_rows": [8, 9],
+        }
+        result = self._ingest([entry], {"Reticked": _parsed(rows)})
+
+        stored = frappe.get_all(
+            "Project Snag",
+            filters={"batch": result["results"][0]["batch"]},
+            fields=["source_row", "source_serial"],
+            limit_page_length=0,
+        )
+        self.assertEqual({r.source_row: r.source_serial for r in stored}, {8: "1", 9: "2"})
+        self.assertTrue(all(r.source_serial for r in stored), "an imported snag with no S.No")
+
+    def test_a_manual_snag_has_no_s_no(self):
+        """Nothing invents a number outside an import: `source_serial` is provenance, and
+        a hand-added snag has no sheet to have come from."""
+        payload = tracking.add_manual_snag(
+            project=self.project, area="Kitchen", category="Civil", description="Hand added"
+        )
+        type(self)._created_names.add(payload["name"])
+        self.assertFalse(frappe.db.get_value("Project Snag", payload["name"], "source_serial"))
 
     def test_ingest_writes_the_source_remark_onto_the_one_remark_field(self):
         rows = [_row(8, "Kitchen", "Leaking tap", remark="Consultant: urgent, re-check 20th")]
@@ -947,11 +1057,13 @@ class TestSnagApi(FrappeTestCase):
         # A description-less row can never become a Snag -- the preview says so.
         self.assertEqual([r["tickable"] for r in preview["rows"]][-1], False)
         self.assertNotIn("skipped", preview)
-        # Wire contract: ParsedSnagRow, key for key.
+        # Wire contract: ParsedSnagRow, key for key. `serial` is the sheet's own S.No
+        # (types.ts `ParsedSnagRow.serial`), "" when the sheet does not number the row.
         self.assertEqual(
             set(preview["rows"][0].keys()),
             {
                 "source_row",
+                "serial",
                 "area",
                 "category",
                 "description",

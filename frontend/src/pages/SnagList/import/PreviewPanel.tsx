@@ -215,6 +215,12 @@ export function PreviewPanel({
                   <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
                     <th className="w-9 px-2 py-2" />
                     <th className="w-14 px-2 py-2 font-medium">Row</th>
+                    <th
+                      className="w-16 px-2 py-2 font-medium"
+                      title="The sheet's own S.No. A row the sheet did not number is numbered by its position in this batch when it imports."
+                    >
+                      S.No
+                    </th>
                     <th className="w-36 px-2 py-2 font-medium">Area</th>
                     <th className="w-32 px-2 py-2 font-medium">Category</th>
                     <th className="px-2 py-2 font-medium">Description</th>
@@ -302,6 +308,12 @@ function PreviewRow({
             dup
           </span>
         )}
+      </td>
+      {/* The sheet's OWN number, verbatim. A dash where the sheet gave none -- the number
+          such a row imports as depends on which rows stay ticked, so claiming one here
+          would be a guess the import is free to contradict. */}
+      <td className="w-16 px-2 py-1.5 tabular-nums text-muted-foreground">
+        {row.serial || <span title="Numbered on import">—</span>}
       </td>
       <Clamped text={row.area} className="w-36" />
       <Clamped text={row.category} className="w-32" />
