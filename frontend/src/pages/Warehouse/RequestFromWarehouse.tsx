@@ -16,6 +16,7 @@ import {
 import type { Projects } from "@/types/NirmaanStack/Projects";
 import { useWarehouseStock } from "./hooks/useWarehouseStock";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { cn } from "@/lib/utils";
 
 interface ProjectOption extends FuzzyOptionType {
   label: string;
@@ -91,7 +92,7 @@ export default function RequestFromWarehouse() {
           item_name: item.item_name,
           unit: item.unit,
           category: item.category,
-          transfer_quantity: 1,
+          transfer_quantity: 0,
           available_quantity: item.available_quantity,
           estimated_rate: item.estimated_rate,
         }];
@@ -109,16 +110,27 @@ export default function RequestFromWarehouse() {
     );
   }, []);
 
+  // A ticked row sitting at qty 0 is the only invalid state -- updateQuantity
+  // already clamps to available_quantity, so over-max cannot be reached.
+  const hasInvalidQty = useMemo(
+    () => selections.some((s) => !(s.transfer_quantity > 0)),
+    [selections]
+  );
+
   const handleSubmit = async () => {
     if (!targetProject?.value) {
       toast({ title: "Error", description: "Please select a target project.", variant: "destructive" });
       return;
     }
-    const valid = selections.filter((s) => s.transfer_quantity > 0);
-    if (valid.length === 0) {
-      toast({ title: "Error", description: "Select at least one item with quantity > 0.", variant: "destructive" });
+    if (selections.length === 0) {
+      toast({ title: "Error", description: "Select at least one item.", variant: "destructive" });
       return;
     }
+    if (hasInvalidQty) {
+      toast({ title: "Error", description: "Enter a quantity greater than 0 for all selected items.", variant: "destructive" });
+      return;
+    }
+    const valid = selections;
 
     setSubmitting(true);
     try {
@@ -220,10 +232,14 @@ export default function RequestFromWarehouse() {
                         <TableCell className="text-right">
                           {selected ? (
                             <Input
-                              type="number" min={1} max={item.available_quantity}
+                              type="number" min={0} step="any" max={item.available_quantity}
                               value={selected.transfer_quantity}
                               onChange={(e) => updateQuantity(key, parseFloat(e.target.value) || 0)}
-                              className="w-24 text-right ml-auto"
+                              className={cn(
+                                "w-24 text-right ml-auto",
+                                !(selected.transfer_quantity > 0) &&
+                                  "border-destructive focus-visible:ring-destructive"
+                              )}
                             />
                           ) : "-"}
                         </TableCell>
@@ -239,9 +255,14 @@ export default function RequestFromWarehouse() {
       </Card>
 
       {selections.length > 0 && targetProject?.value && (
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {hasInvalidQty && (
+            <p className="text-xs text-destructive mr-auto">
+              Enter a quantity greater than 0 for all selected items.
+            </p>
+          )}
           <Button variant="outline" onClick={() => setSelections([])}>Clear</Button>
-          <Button onClick={handleSubmit} disabled={submitting}>
+          <Button onClick={handleSubmit} disabled={submitting || hasInvalidQty}>
             {submitting ? (
               <TailSpin color="#fff" height={16} width={16} />
             ) : (
