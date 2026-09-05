@@ -25,7 +25,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Loader2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Download, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,7 @@ import { IngestResultScreen } from "./IngestResultScreen";
 import { SheetPickStep } from "./SheetPickStep";
 import { SheetTabPanel } from "./SheetTabPanel";
 import { UploadStep } from "./UploadStep";
+import { useSnagTemplateDownload } from "./templateDownload";
 import {
   PREVIEW_DEBOUNCE_MS,
   buildIngestBatches,
@@ -97,6 +98,9 @@ export function SnagImportDialog({
   const [ingesting, setIngesting] = useState(false);
   const [ingestError, setIngestError] = useState<string | null>(null);
   const [result, setResult] = useState<IngestBatchesResponse | null>(null);
+
+  const { isDownloading: templateDownloading, download: downloadTemplate } =
+    useSnagTemplateDownload();
 
   const { call: columnsCall } = useFrappePostCall<{ message: GetSheetColumnsResponse }>(
     SHEET_COLUMNS_METHOD,
@@ -703,6 +707,20 @@ export function SnagImportDialog({
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
+            {step === "upload" && (
+              <Button
+                variant="outline"
+                disabled={templateDownloading}
+                onClick={() => void downloadTemplate()}
+              >
+                {templateDownloading ? (
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-1.5 h-4 w-4" />
+                )}
+                Download template
+              </Button>
+            )}
             {step === "sheets" && (
               <Button variant="outline" onClick={() => setStep("upload")}>
                 <ArrowLeft className="mr-1.5 h-4 w-4" />
