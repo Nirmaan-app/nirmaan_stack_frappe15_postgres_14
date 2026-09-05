@@ -223,6 +223,7 @@ For BoQ Upload dev-environment setup, clean bench-restart sequence, the CSRF cle
   is SILENT because `frappe.db.set_single_value` bypasses the doc lifecycle and writes **no `Version` row**: a
   `track_changes` audit cannot see it, so the setting appears to change by itself. Correct pattern:
   `test_ai_settings.py` (capture + `addCleanup`) or a `setUpClass` capture restored in `tearDownClass`.
+- **A test on each side of a boundary is not a test of the boundary (STANDING RULE):** when a value crosses a seam (a service result stored by a run and read by the frontend; a capture log beside a stored result), the producer's pin and the consumer's pin can BOTH be green while the join is broken -- the producer asserts what it returned, the consumer asserts what it does with a hand-built input, and nothing asserts the value ARRIVES. Only the rendered screen, or a read of the stored artefact, tests the join; a slice that adds a cross-seam value is not done until one of those has been observed.
 - **After editing any doctype JSON:** Always run `bench --site localhost migrate`. Tests use a separate test database that auto-migrates, so **passing tests do not guarantee the runtime database has the new column**. Verify with `frappe.db.has_column("DocType Name", "field_name")` in the bench console after migration.
 
 ### Projects row fixture pattern

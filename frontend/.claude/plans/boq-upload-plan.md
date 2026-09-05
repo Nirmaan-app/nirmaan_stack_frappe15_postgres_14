@@ -36221,3 +36221,196 @@ UI — state a criterion precisely enough that it cannot quietly measure somethi
 - The `halt_reason` over-wide `try` — narrowing it to the API call alone. Deferred at
   `extraction.py:2179-2182`, out of scope here, unchanged.
 - Fix B (retiring superseded partials in the data) — needs a doctype `status` option + migrate.
+
+
+---
+
+## F-30 slice A -- the poles-plus-neutral ladder on db_switchgear (2026-09-05)
+
+**Owner rulings, verbatim, that this slice serves:** *"so the shape is that for any ploe + Neutral,
+should be matched withnext higher pole: SPN with DP, TPN with 4p"* / *"we need to first match with
+SPN in catalog, if that is not there then we match with DP"* (same ordering for TPN: *"yes"*) /
+*"still build it so that of we later add SPN in catlog it gets matched first"* / for a rating the
+catalogue does not carry: *"next rating"*. SUPERSEDED, recorded so the reversal is visible: the
+2026-08-23 *"let it be for now.. we will check if usaer highlights this"* on SPN, and the same day's
+"SWAP, NEVER BLANK" design of the TPN corrector.
+
+### The ladder as ruled -- three rungs, both families
+
+For a breaker whose OWN row text names it as poles-plus-neutral (SPN family: `SP+NL`, `SP+N`,
+`SP&N`, `SPN`, `1P+N`; TPN family: the prompt's nine `-> FP` tokens), in order:
+
+- **RUNG 1** -- a catalogue row whose STRUCTURED `pole` is literally `SPN` / `TPN`, same device,
+  EXACT amp, same curve. Never the item NAME: 54 live rows are named SPN/TPN/VTPN and every one is
+  a DB shell with no `pole` key (27 `db_shell` + 27 `db_switchgear_item` family `DB`).
+- **RUNG 2** -- count the neutral (SPN -> DP, TPN -> FP), same device, same curve, exact amp else
+  the next amp UP. Never down. The curve is never changed.
+- **RUNG 3** -- nothing at or above the amp on that curve: BLANK (`None`), so the row does not
+  price and a human decides.
+
+`extraction.py`: `_SPN_FAMILY_TOKENS` + `spn_family_tokens()`, `pole_plus_neutral_families()`
+(TPN walked first), `_same_device_and_curve`, `_rung1_rows`, `_ladder_target`,
+`_family_token_amps`, and `apply_pole_plus_neutral_ladder` (the body of the old corrector;
+`correct_four_pole_mcb_picks = apply_pole_plus_neutral_ladder` keeps the call-site and test name --
+one implementation). Records: plain rung-2 swap `{attr, from, to}` (BYTE-IDENTICAL to the TPN
+record); rung 1 adds `rung: 1`; a moved rating adds `amp_moved_up: {from, to}`; a blank is
+`{to: None, reason: "no_rating_at_or_above", rung: 3}`; a tie is `ambiguous_*` and the pick is left
+alone. `stamp_pole_ladder(row_out, records)` stamps `row_out[attr]["pole_ladder"]` -- the RESULT
+cell the run stores and the panel reads -- ONLY when the record carries more than a plain same-amp
+swap, so a plain TPN swap's stored result is byte-identical to before; the call site mirrors the
+value into `row_map` for the capture log (see "The row_map-versus-row_out finding" below -- the
+first build stamped ONLY the capture map and shipped no marker at all).
+
+### Engineering calls (owner-visible, veto was available)
+
+1. **Rung 1 matches the structured `pole` FIELD, never the item NAME** (the 54 shells above).
+2. **The prompt is untouched** (zero-line diff on `boq_composite_decomposition_prompt.md`). The
+   model reads SP for "SPN MCB" -- a FACT READ correctly; counting the neutral is a CALCULATION and
+   lives in code (the CLAUDE.md gate). The SPN vocabulary is a code constant (the
+   `_BOARD_WORDS_AFTER_DEVICE` precedent) because the prompt has no SPN clause to read from; the
+   anti-drift pin is INVERTED -- `test_the_prompt_carries_no_spn_breaker_clause` asserts the prompt
+   carries no `"SPN" ->` clause, so the day one is added the two lists collide loudly.
+
+### Three defects found by measurement, each pinned before it was fixed
+
+- **The residual-current silence (live proof, 549 stored selections):** a first version entered the
+  ladder from any FP/DP pick; 46 stored rows read `'40A FP 30mA, RCBO'` / `'25A, 4P RCCB'` beside
+  an already-FP pick and would have gained an `ambiguous` marker (three mA variants at rung 2).
+  ENTRY is now: from the family's STATED pole the full ladder; from the COUNTED pole only when a
+  rung-1 row exists; from the NAMED pole never. Pin:
+  `test_a_four_pole_residual_current_pick_beside_4p_text_stays_silent`.
+- **The row-wide over-fire (live cert, C2 first pass):** `BOQ-26-00193` r135 names `'6 Nos of 16
+  amp SP MCB's ... controlled by 1 No. 40 amp SPN MCB'`; the adjacency test is row-wide, so the
+  genuinely single-pole outgoings became `25A DP D` with an amp-moved-up note. THE AMP ANCHOR:
+  `_family_token_amps` reads the amps stated within the window BEFORE a qualifying token
+  (`'40 amp SPN MCB'` -> {40}; `'10/16A SPN MCB'` -> {10, 16}); only candidates carrying a named
+  amp are laddered. Pins: `test_only_the_pick_whose_amp_the_spn_token_names_is_laddered`,
+  `test_a_range_beside_the_token_anchors_every_amp_in_it`.
+- **The fallback by another door (live cert, C4):** with the SPN fixture present the model picked
+  the SPN row ITSELF for the incomer and returned the outgoings as `32A SP`; 32 was not the named
+  amp, so the row-wide FALLBACK laddered them. The anchor is now judged over EVERY breaker pick in
+  the family's poles: when any pick carries a named amp, only named candidates move (possibly none);
+  the fallback survives only when NO pick carries a named amp (`'45A TPN MCB'` fitted to 63 A -- the
+  one TP pick still ladders, as today). Pins:
+  `test_the_fallback_does_not_fire_when_the_named_breaker_is_already_accounted_for`,
+  `test_no_amp_beside_the_token_falls_back_to_the_row_wide_rule`,
+  `test_a_named_amp_that_matches_no_pick_falls_back_too`.
+
+### TPN is a no-op, proven not asserted
+
+`head_vs_new.py` loads HEAD's corrector from `git show` and runs it beside the working tree's ladder,
+in memory, over every stored db_switchgear selection with a breaker pick -- 32 active runs + all used
+events, **573 selections, 297 carrying TPN-family or 4P/FP text** -- against the live catalogue:
+**0 differences** in picked values or records after every code change (the one residual replay
+difference is an SPN row whose stored C4 pick points at the deactivated fixture). Rung 3 is
+unreachable for TPN on the live catalogue: TP MCB rows exist at 25/32/40/63 A x C/D and FP rows at
+all eight. Regression pin: `test_tpn_outcomes_are_byte_identical_on_the_existing_fixtures`.
+
+### The two 2026-09-05 rulings mid-slice
+
+1. **S3 --** `test_no_fp_sibling_leaves_the_pick_alone_and_records_why` pinned "swap, never blank".
+   Ruling: *"the ladder supersedes 'swap, never blank'. Invert the pin - no rating at or above, on
+   that curve, blanks. Rename the test to describe what it now asserts, and leave one inline comment
+   naming this ruling and its date."* -> `test_no_rating_at_or_above_on_that_curve_blanks_the_pick`.
+2. **Scope --** #57 item 2 ("where a rating is moved up, the panel says so in words, visibly")
+   needed the rate-helper frontend. Ruling: *extend*, and use the v6.00 notes-list mechanism rather
+   than a second channel. Built: `AttrNote` kind `rating_up` (+ `POLE_WORDS`, `ATTR_NOTE_ORDER`
+   now `["upgrade", "rating_up", "capped", "uncovered"]`, `attrNoteText` ->
+   `No 2 pole MCB at 16A on the D curve — using 25A.`, `ExtractedAttr.pole_ladder`) in
+   `rateHelperTypes.ts`; `ratingUpNote()` producer in `pricingSheetHelper.ts` at the one place an
+   extraction cell becomes a `WorkingsAttribute` (cleared by an override, like `defaulted`; words
+   read from the PRICED row's catalogue attributes); `RateHelperPanel.tsx` NOT needed (renders any
+   note kind). A further owner ruling extended the enumerating pin `ORDERING is declared, not
+   incidental` to the four kinds: *"a note kind whose position is incidental is precisely what that
+   pin exists to forbid"*. Five vitest pins, red before / green after; render is carried by the cert.
+
+### The live cert (2026-09-05, session `admins@nirmaan.app`, :8080 via vite, de-staled per runbook)
+
+Frontend bundle markers on the PLAIN url: `ratingUpNote` x2 in `pricingSheetHelper.ts`, `POLE_WORDS`
+and `"rating_up", "capped"` in `rateHelperTypes.ts`. Backend restarted (kill by PID, `--noreload`,
+ping 200 x3 with the Host header) after every backend edit; :8080 chain 200/200/200 x3; socketio
+restarted on :9000 under explicit owner authority.
+
+| step | row | result on the RENDERED PANEL |
+|---|---|---|
+| C1 | 00193 r135/136/138 | Items, "DB and Switchgear", rate 0, no suggestion (no run existed); 00015 r311 exists as recorded |
+| C2 | 00193 r135 | MCB 2 `40A DP MCB D CURVE` = 2,049 (rung 2 from `40A SP` 923), MCB 1 `16A SP MCB D CURVE` untouched; supply 7,210 / install 1,450 / combined **8,660** (before-value by the panel's own arithmetic: 6,650 / 1,330 / 7,980) |
+| C2 | 00193 r136 | MCB 2 `40A DP MCB D CURVE` 2,049; 6,200 / 1,240 / **7,440** |
+| C2 | 00193 r138 | MCB 2 `40A DP MCB D CURVE` 2,049; 8,520 / 1,710 / **10,230** |
+| C3 | 00015 r311 | not producible there: the row is a qty-less Preamble (qty 0) outside the suggestion population, and its sheet declares no amount formulas (Suggest disabled) |
+| C3 | 00193 r135, borrow-and-return | **OBSERVED ON SCREEN.** With `40A DP MCB D CURVE` (`BRMI-26-10695`) temporarily deactivated, the scoped run `BRSR-26-00282` stored `mcb2_item 63A DP MCB D CURVE` with `pole_ladder {amp_moved_up {40 -> 63}, to: 63A DP MCB D CURVE}` and the panel rendered, character for character, `No 2 pole MCB at 40A on the D curve — using 63A.` as an amber `<p class="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">` directly under the MCB 2 select -- the panel's note area, not the derivation trace. Figures unchanged (7,210 / 1,450 / **8,660**) because 63A DP D costs the same 2,049 as 40A DP D: the item name and the sentence are the whole evidence. Full method + timings below |
+| C4 | 00193 r135 | MCB 2 `40A SPN MCB D CURVE` = **2,999** (the SPN fixture, by pole, distinct price); 7,440 / 1,490 / 8,930 |
+| C4 | 00198 r77 | MCB 1 `40A TPN MCB C CURVE` = **4,444** (the TPN fixture); 21,920 / 4,390 |
+| C5 | 00198 r77 | back to `40A FP MCB C CURVE` 4,012; **21,710 / 4,350** -- exactly C6 |
+| C5 | 00193 r135 | MCB 2 back to `40A DP MCB D CURVE` **2,049** (exactly C2); total 8,370 because the model returned the outgoings as `32A SP` on this call (16A in C2) -- a component the ladder never touched |
+| C6 | 00198 r77 / r88 | re-extracted: `40A FP MCB C CURVE`, **21,710 / 4,350** and **23,450 / 4,690** -- identical to the sheet's priced rates and the 2026-08-23 cert figures; 00200 r77 re-extracts to `32A FP MCB C CURVE` (same record as today; its scoped run saved `partial` -- prior run does not cover 4 newer rows); 00193 r121/r122 show the FP picks (`40A FP` / `63A FP` = 4,012) |
+| C7 | catalogue | active Electrical 1,367 -> 1,369 (fixtures) -> 1,367; residual: three rows, all `active = 0` (`BRMI-26-710067` SPN-C, `-710068` TPN-C, `-710069` SPN-D); no export, snapshot, mint or loader run |
+
+**Fixture note:** every live SPN pick is D-curve (the "SERVER DB - D cruve" header; r138 says "D
+Curve"), so the owner-specified SPN-C fixture could never be selected by rung 1 (exact curve); it
+was deactivated and an SPN 40 A **D** row added at the same distinct price (counterpart `40A DP D`
+= 2,049). With a named-pole row in the slot catalogue the MODEL picks it directly (the ladder is then
+idempotent) -- rung 1 as a correction is exercised by the unit pins, the live path shows the same
+outcome by a shorter route. A whole-sheet run on `BOQ-26-00193 / Sheet1` (153 rows) had to precede
+the scoped runs: `_guard_only_rows` needs a prior run to carry forward.
+
+### C3 on screen -- the borrow-and-return method (2026-09-05, owner-approved, reusable)
+
+The live catalogue carries DP D-curve MCBs at 25/32/40/63 A, so no real row can reach rung 2's
+"next amp UP" branch. The method: **deactivate the exact-amp row for a few minutes, run the ONE
+scoped row, read the panel, give the row back, and re-run once.** Rules held throughout: no export,
+no snapshot, no asset mint, no loader run while the row is off; return the row FIRST if anything
+goes wrong; report the borrow window in minutes and the active count at every step.
+
+- **Reversibility proven FIRST on a throwaway row** (`BRMI-26-710069`, my own fixture): the app
+  exposes only `deactivate_rate_master_item`; reactivation is the Frappe DOCUMENT LAYER (`PUT
+  /api/resource/BoQ Rate Master Item/<name> {"active": 1}` from the logged-in session, or
+  `doc.active = 1; doc.save(ignore_permissions=True)` -- `track_changes` writes a `Version` row
+  `[["active", 0, 1]]` either way; never a raw table write). Deactivate -> `[["active", 1, 0]]`.
+- **Cycle 1 (18:00:37 -> 18:03:37, 3 min; active 1,367 -> 1,366 -> 1,367):** run `BRSR-26-00256`
+  stored the 63 A pick but NO `pole_ladder` on the cell -> S-R3, row returned first, then the
+  row_map-versus-row_out defect below was found, fixed and pinned. The sentence was NOT observed.
+- **Cycle 2 (18:20:59 -> 18:24:07, 3 min; active 1,367 -> 1,366 -> 1,367):** run `BRSR-26-00282`
+  (`ai_status ran`) -> the C3 row in the table above. Every recorded field of `BRMI-26-10695`
+  identical after the return (attributes, rates, item_uid, source, batch); snapshots 10 before and
+  after; the three fixture rows stayed `active = 0`.
+- **The return run `BRSR-26-00283` (row present again) returned a DEGENERATE model reply:** every
+  breaker slot `null` at confidence 0 and one non-catalogue name (`40A DP RCCB 300mA (FP)`) that
+  the mapper dropped; the ladder had nothing to touch. The stored cell carries no `pole_ladder` and
+  the panel shows "Complete the missing attributes to price" with NO amber note -- so "no sentence
+  when nothing moved" holds, but the "back to `40A DP MCB D CURVE` at 2,049" half rests on C5
+  (same code path: a plain swap stamps nothing, pinned by
+  `test_a_plain_same_amp_swap_stamps_nothing`), not on this run. The run budget ("two scoped runs,
+  no more") was spent, so row 135's ACTIVE suggestion is currently that degenerate run; the next
+  whole-sheet or scoped run on `BOQ-26-00193 / Sheet1` replaces it. The row is unpriced (rate 0),
+  so no priced figure is affected. Model non-determinism on a single-row batch is a known shape;
+  nothing in this slice caused it.
+
+### The row_map-versus-row_out finding (its own entry, 2026-09-05)
+
+`_extract_batch` keeps TWO maps per row: `row_out` is the RESULT cell the run stores in
+`BoQ Rate Suggestion Run.results` (what the panel reads); `row_map` is the CAPTURE-LOG map
+(`cap_map[rid] = row_map`, observation only, written to `logs/boq_rate_extraction_capture.jsonl`).
+The first build stamped `pole_ladder` on `row_map`. **A marker written to the capture log is not
+written to the result** -- the ladder ran, the pick moved, the capture log recorded the move, the
+stored cell carried nothing, and the frontend had nothing to word. **Both sides' tests passed while
+the join was broken:** the backend pins asserted the RECORD the ladder returned, the frontend pins
+asserted the note built FROM a cell that already carried `pole_ladder`. Only the rendered screen
+(cycle 1, S-R3) tested the join. Fix: `stamp_pole_ladder(row_out, records)` on the result cell,
+mirrored into `row_map`; pinned by `TestPoleLadderStamp` (4 tests, red-first, vacuity-proven:
+stamp line -> `pass` -> 2 errors). Rule recorded in root `CLAUDE.md` (Testing Conventions): a test on
+each side of a boundary is not a test of the boundary.
+
+### Register (recorded, not fixed): no UI reactivation path for a Rate Master item
+
+The app can DEACTIVATE a `BoQ Rate Master Item` (`deactivate_rate_master_item`, doc.save
+`active = 0`) but offers no way back from the UI: there is no reactivate endpoint and no control on
+the Rate Master page. Reactivation today is the document layer (Desk form / REST PUT / bench
+script), which is audited but admin-only and invisible to the estimation users who use the page.
+Do not fix in this slice; owner to schedule.
+
+### Still owed
+- **Slice B:** `industrial_sockets` (`BOQ-26-00126` r398, "32A SP+N MCB") -- its own
+  `mcb_pole_stated` table and `catalog_fit`, untouched here.
+- **Row 135's active suggestion** on `BOQ-26-00193 / Sheet1` is the degenerate `BRSR-26-00283`
+  (see above); one ordinary re-run restores it.
