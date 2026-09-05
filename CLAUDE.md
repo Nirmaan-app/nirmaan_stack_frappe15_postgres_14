@@ -398,6 +398,65 @@ editor (Luckysheet-as-static-assets planned) whose workbook state is persisted s
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-master work.
 
+**⚠️ LMS PRICING IS INVERTED RELATIVE TO ITS OWN FIRST DESIGN, AND THE FACTOR IS 1.3 EITHER WAY
+(owner ruling 2026-09-04, asset v55).** For `lighting_mgmt_system`: **BCS = the catalogue `rate`
+EXACTLY AS STORED, unrounded; BoQ = `roundup(rate x 1.3, tens)`.** The original design said the
+opposite (rate AS the BoQ rate, BCS = rate / 1.3) and the hand-priced data falsified it -- of 26
+rows matched at >=0.60, SIXTEEN land EXACTLY on 1.25 or 1.30 ABOVE the catalogue rate, so the rate
+is the COST basis. ⚠️ **Because the factor is 1.3 in both readings, a build with the division
+restored looks arithmetically correct and is systematically wrong (~23% under-quoted). IT WOULD
+SURVIVE REVIEW** -- which is why it is pinned from both sides: `test_lms_01`/`02`/`04` (config) and
+the `LMS: the inversion` block in `ratePipelineInterpreter.test.ts` (arithmetic). Worked example:
+Lutron 24,500 -> BoQ 31,850, BCS 24,500; the direction proof is 2,250 -> **2,930** (never 2,920).
+⚠️ **LIMIT: a wrong description pick yields a confident, plausible, wrong price with NOTHING
+downstream to check it** -- the pick IS the price. AI confidence and the panel's rendering of the
+chosen description are ADVISORY ONLY; neither gates anything.
+
+**⚠️ A RATE-MASTER ITEM HASH USED AS A STABILITY GUARD MUST EXCLUDE `name`.** `load_rate_master(
+replace=True)` flips prior rows `active = 0` and INSERTS new ones, so `name` regenerates by design
+(freeze-and-supersede) and a raw hash ALWAYS moves across an import while nothing about the data
+changed. Hash the CONTENT (kind/brand/unit/attributes/rates/item_uid/source). `BoQ Cell Pricing`
+remains the unchanged-price guard.
+**⚠️ AND THAT GUARD MUST ORDER BY A TOTAL KEY -- `ORDER BY name`, or hash the SORTED row set.** The
+same class of defect, one level down: an `ORDER BY` on non-unique columns (`boq, sheet_name,
+excel_row, col_letter, pricing_version`) lets PostgreSQL return tied rows in ANY physical order, so
+three consecutive runs produce three different hashes with ZERO database change. Measured 2026-09-05;
+it nearly produced a false STOP mid-slice. **A guard that reports a change when nothing changed is
+worse than no guard** -- it burns the trust that makes the real signal actionable.
+
+**⚠️ SCOPE A SLICE BY WHAT IT CHANGES, NOT BY THE FILES YOU EXPECT TO TYPE IN (owner ruling
+2026-09-04, after three occurrences in one arc).** **WHEN A SLICE CHANGES BEHAVIOUR, EVERY TEST THAT
+PINS THAT BEHAVIOUR IS IN ITS BLAST RADIUS AND BELONGS IN ITS SCOPE.** Occurrences: four stale
+phrase pins (2026-09-01); `test_rate_suggest.test_e4` (2026-09-03); `test_rate_suggest.test_11`
+(2026-09-04), which halted a slice mid-flight because the file sat outside the declared scope.
+Retire such a pin by INVERTING it -- assert the new truth and keep it failing for anything else --
+never by deleting it.
+
+**⚠️ READ-TIME COLUMN PROJECTION -- a `BoQ Rate Master Item` COLUMN can behave like an ATTRIBUTE
+(owner-chosen option (C), 2026-09-03).** A column named in `extraction.PROJECTED_ITEM_COLUMNS`
+(today: `brand`) is copied into the item's `attributes` map at READ TIME, at exactly **TWO
+chokepoints and no others**: the three `extraction.py` catalogue readers (via the shared
+`_row_attributes` / `_item_read_fields`) and `api/boq/rate_master.get_rate_master_items` -- the ONE
+`items` array that feeds every frontend dropdown reader AND all 13 `ratePipelineInterpreter.ts`
+matcher sites. **NOTHING IS STORED**: no write, no migration, no backfill, no asset mint, so every
+row past and future behaves identically and a historical row self-heals. Adding another column is
+**ONE word in that ONE tuple** -- the api site reads it from `extraction.py` (api -> service, the
+legal direction), so the two sites can never drift; a second copy is exactly the disagreement-at-the-
+worst-moment the BCS import-direction law forbids. A STORED attribute always WINS over the
+projection, and a blank column contributes NO KEY (never `""`, never `None`).
+**⚠️ THE LOAD-BEARING INVARIANT: nothing may read a projected item and write its `attributes` back**
+-- that would PERSIST the projection and recreate the duplication this design was chosen to avoid;
+guarded by `test_rate_master.TestBrandColumnProjection.test_bp_07_a_write_path_never_persists_the_projection`.
+**A derived key now sits in a map whose other keys are stored, deliberately** -- precedent:
+`commit_pipeline._derive_attached_notes`, *"DERIVED, not carried"*.
+⚠️ **Two rejected alternatives, recorded so neither is re-proposed:** WRITING brand into the stored
+`attributes` breaks the CSV round trip (`csv_exporter._keys_for` derives columns from OBSERVED item
+keys while `LEAD_COLUMNS` already holds `brand` -> two `brand` headers -> `classify_columns` refuses
+the whole file, for the whole discipline) and reaches only new uploads; WIDENING the dropdown readers
+to a column whitelist is HALF-EXTENSIBLE, because the readers and the matchers are disjoint code
+(3 vs 13 sites, one of them dot-indexed) -- it would ship a picker selecting a value no pipeline can
+match on.
+
 **⚠️ AN EXTRACTION RULE CANNOT BE EDITED IN ISOLATION (owner-locked, measured 2026-09-03).** Every
 `rules` entry of a rate-master category config is injected into ONE `ESTIMATOR_RULES` block in the
 extraction prompt, so **a phrase quoted inside one rule is visible to every other question the

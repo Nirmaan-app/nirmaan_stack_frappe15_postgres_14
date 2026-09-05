@@ -2861,3 +2861,95 @@ new string for it.
   `writeBlocked` drives the BUTTONS and leaves the layout alone.
 - ⚠️ **The two downloads and the asset backup are NOT gated** (owner ruling R3). They sit in the SAME
   dashed panel as the upload, so the distinction is easy to lose and must not be.
+
+## Amount-formula rework — empty-is-zero, the tier, and the palette (2026-09-04)
+
+Found on `BOQ-26-00185 / 247 - VRF System` (E = Quantity · 7f, F = Quantity · office cfm, G = scalar
+Rate (Combined), H = scalar `amount_total`) and continued on `BOQ-26-00184 / Electrical Est`
+(E rate, F/G qty per floor, H/I `amount_total_by_area`, J `amount_total`). Load-bearing invariants are
+in `frontend/CLAUDE.md`; this is the as-built.
+
+### The originating defect
+`buildOperandPalette`'s predecessor ran `tokenRefForMode(d, mode)` with the BUILDER's mode, which is
+`"default"` for every scalar amount column. Both per-area quantity columns therefore became the SAME
+area-wildcard ref and deduped to ONE chip reading `Quantity`. Two failures at once: **column F was
+unreachable from any chip**, and the one chip that existed inserted `qty_by_area[null]`, which a scalar
+target has no area to bind — so `PricingGrid.validateFormulaRefs` called it dangling and **every amount
+cell rendered blank** while the builder said "Well-formed". Nothing threw and nothing failed to compile.
+
+### What moved where
+| File | Added |
+|---|---|
+| `formulaTokens.ts` | `OperandChip`, `operandGroup`, `targetBindsArea`, `buildOperandPalette`, `unbindableOperands`, `storedDefaultFormula` |
+| `boqTypes.ts` | `columnChipLabel` |
+| `amountFormula.ts` | `MissingKind`, `FoldOptions`, `RATE_VALUE_FIELDS`, the zero-fill + kind propagation in `foldOperands` |
+| `AmountFormulaBuilder.tsx` | consumes the palette; `effectiveMode` pinned; disabled Default tab; leftover-default notice + `handleRemoveStrayDefault`; `inheritedDefault` seeding |
+| `PricingGrid.tsx` | 3 header/chip sites routed through `columnChipLabel` |
+| `operandPalette.test.ts` (new) + `amountFormula.test.ts` | the pure decisions, on the real sheet shapes |
+
+The palette decisions live in `formulaTokens.ts` and NOT in the component because this repo has **no DOM
+test environment** — a rule left inside the dialog is untestable by construction, which is exactly how
+the original bug survived.
+
+### Evaluator — the two kinds of missing
+`evalColumn` tags a lookup miss `missing: RATE_VALUE_FIELDS.has(col.value_field) ? "rate" : "value"`.
+`foldOperands` substitutes `{ok:true, value:0}` ONLY for `missing === "value"` AND only when the caller
+passed `missingValueIsZero`. The tag propagates: a fold that saw a pending rate returns
+`{reason:"not_yet", missing:"rate"}`, so an enclosing `+` cannot rescue it.
+
+Measured before shipping: **≤38 of 74,274** amount cells across 304 sheets change at all (0.05%, an upper
+bound — the scan did not recurse into amount columns that have their own formulas). No cell that computed
+before can change, because substitution only fires on a branch that was previously not-ok (pinned by test).
+There is **no server-side numeric evaluator** — the backend only emits Excel formula strings
+(`ast_to_excel` / `_tree_to_excel`) — so this is frontend-only with no client/server drift, and it CLOSES
+a divergence: the exported workbook already computed these rows, since Excel reads a blank as 0 under `+`.
+
+### Tier + palette rulings, in the order they landed
+1. Concrete refs for a scalar target (the fix above).
+2. `columnChipLabel` shared with the grid header — a role alone is not an identity.
+3. The area-following ("wildcard") chip REMOVED from the palette. Three spellings were rejected in turn:
+   bare `Quantity` ("not present in sheet column"), `F/G — Quantity · this area` ("we don't have F G in
+   one"), `Quantity · matching area` ("no need"). **Do not reintroduce it as a chip.**
+   `boqTypes.wildcardChipLabel` was dropped with it; `labelFor` still names a hydrated wildcard by its bare
+   role, which is reachable only via an inherited default containing one (**0 exist**).
+4. Default tab removed, then RESTORED as permanently disabled — removing it hid that the tier exists.
+5. Per-area targets narrowed to their own area, then REVERSED — every column is offered again. The
+   evidence for narrowing (6 of 6 stored per-area formulas use only their own area) described what had
+   been built, not what is allowed; a shared item apportioned across floors needs the other floor's column.
+
+### Gap-closing pass (2026-09-04, after the commit above)
+
+- **`buildOperandPalette`'s `mode` parameter DELETED.** It resolved to `"override"` on every call from
+  the app (`effectiveMode` is "override" for a per-area target and "default" for a scalar, and a scalar
+  does not bind an area), so the wildcard-collapse branch was unreachable while three tests exercised it
+  and passed — coverage over dead code, which reads as proof and is worse than none. The branch and
+  those tests are gone; one test now asserts NO chip is ever a wildcard.
+- **`RATE_VALUE_FIELDS` parity pinned** (`rateFieldParity.test.ts`). Two hand-synced copies decided
+  different halves of one rule with nothing holding them together; a field added to one and not the
+  other classifies an unpriced rate as `"value"` and zero-fills it. Four cases: identical sets, neither
+  empty (an empty set would pass a naive equality and zero-fill every rate), both rate shapes covered,
+  and nothing but rates in the set.
+- **The bad-data branch hardened.** `evalColumn`'s non-numeric / NaN return is now UNTAGGED, so no fold
+  can zero-fill it: an ABSENT cell is a fact the document states, a non-numeric value is a fact about
+  nothing. Not reachable from the real lookup (`lookupOperandValue` returns `undefined` for a
+  non-number), but it was reachable through the injected-lookup contract.
+- **The inheriting-column notice shipped** (owner's own edit) — "Currently using the all areas formula,
+  shown below. Saving makes it <area>'s own". Better than relabelling the Save button: it states the
+  consequence BEFORE the click, so Save on an inheriting column no longer looks like a no-op.
+
+### The bare-leaf case is a BOUNDARY, not a gap (reverted, 2026-09-04)
+
+A one-chip formula never folds, so it never zero-fills: `= F — Quantity` blanks where
+`F — Quantity × E — Rate` gives 0. This was recorded as a gap and an attempt to close it in `evalColumn`
+was **reverted by two existing tests**, both of which were right:
+
+1. `evalColumn` cannot distinguish an EMPTY cell from NON-NUMERIC junk — both were tagged `"value"` — so
+   a top-level substitution turned bad data into a confident 0 (`amountFormula.test.ts` "never throws on
+   bad data").
+2. Zero is the IDENTITY OF AN OPERATION. With no operator there is nothing for an absent operand to
+   contribute to, so `amount_total = amount_supply` over an empty column would INVENT a number rather
+   than add nothing (`priceability.test.ts` "non-rate not_yet SURVIVES").
+
+The rule is therefore **"an empty operand contributes nothing to an operation"** — a bare leaf is a READ,
+not arithmetic. 0 of 614 stored formulas are bare leaves. Do not "fix" this again without answering both
+tests.

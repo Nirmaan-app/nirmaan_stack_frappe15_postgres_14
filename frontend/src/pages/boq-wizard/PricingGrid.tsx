@@ -92,7 +92,7 @@ import {
 } from "./reviewRender";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { DescriptionColumn } from "./reviewRender";
-import { COLOR_TOKENS, ROLE_LABELS } from "./boqTypes";
+import { COLOR_TOKENS, columnChipLabel } from "./boqTypes";
 import { descendantCount, rowHasDescendants } from "./collapse";
 import {
   DEFAULT_ROW_ESTIMATE_PX,
@@ -861,7 +861,7 @@ export function computeAmount(
 // ── Formula Builder F4: the amount-cell value compute (formula-wins, else the pairing) ──
 // The RATE value_fields whose operand reads are DRAFT-AWARE (the user edits rates -> live
 // recompute). Mirrors the rate descriptor classes (PER_AREA_RATE_FIELD + SCALAR_RATE_FIELDS).
-const RATE_VALUE_FIELDS = new Set<string>([PER_AREA_RATE_FIELD, ...SCALAR_RATE_FIELDS]);
+export const RATE_VALUE_FIELDS = new Set<string>([PER_AREA_RATE_FIELD, ...SCALAR_RATE_FIELDS]);
 
 /**
  * The result of computing one amount cell's displayed value (F4). DISCRIMINATED so the cell
@@ -5987,7 +5987,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   );
 
   const descriptorHeaderCells = visibleDescriptors.map((d) => {
-    const label = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
+    const label = columnChipLabel(d);
     const isAmount = isAmountDescriptor(d);
     // PENDING TINT: a subtle amber wash on an amount column with NO covering formula so a wide
     // sheet is scannable; a covered amount column + every non-amount column keep bg-muted. The
@@ -6085,7 +6085,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
         value_key: d.value_key,
         rate_subkey: d.rate_subkey,
       } as AmountFormulaRef,
-      label: `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`,
+      label: columnChipLabel(d),
       group: "Quantity columns on this sheet",
     }));
 
@@ -6113,11 +6113,9 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
         value_key: d.value_key,
         rate_subkey: d.rate_subkey,
       } as AmountFormulaRef,
-      // ⚠️ THE COLUMN LETTER IS ON THE CHIP ON PURPOSE. Without it a chip reads as a ROLE
-      // name ("Amount (Total)") while the grid header shows the sheet's own Excel header --
-      // two names for one column, which read as a column that does not exist. The letter is
-      // the vocabulary both surfaces already share, so it is what makes a chip findable.
-      label: `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`,
+      // The SHARED naming (boqTypes.columnChipLabel) -- the letter is on the chip on purpose,
+      // and the header cell above renders through the same call, so the two can never disagree.
+      label: columnChipLabel(d),
       group: "Amount columns on this sheet",
     }));
 

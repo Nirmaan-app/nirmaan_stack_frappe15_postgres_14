@@ -368,7 +368,8 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
   round-trip, and that reasoning expired with the layer it was based on.
 - **Formula engine arc F1–F4 (COMPLETE):** PURE `amountFormula.ts` (evaluate) + `AmountFormulaBuilder.tsx` /
   `formulaTokens.ts` (author; click-to-insert, NO literals) + `PricingGrid.evaluateAmountCell` (compute;
-  formula-wins-else-pairing, draft-aware, fail-safe BLANK on any missing operand — never a stale number).
+  formula-wins-else-pairing, draft-aware, fail-safe BLANK on a missing RATE — never a stale number; a
+  missing qty/amount reads as 0, see the empty-operand invariant below).
   `pricingRollup.ts` / `SummaryPanel.tsx` are formula-aware too.
 - **The operator vocabulary is `+ − × ÷` (F5), and the last two are NOT like the first two.** `+`/`*` are
   commutative and associative, so an n-ary node's operand ORDER carries no meaning; `-`/`/` fold LEFT TO
@@ -383,6 +384,57 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
   second. ⚠️ Adding an operator means extending `AmountFormulaBuilder.OP_GLYPH` (a total map, deliberately
   not a ternary) **and** `pricing._FORMULA_OPS` **and** `export_template_workbook._OP_INFIX` — an operator
   missing from that last one exports as a BLANK cell, silently dropping the formula.
+- **★ AN EMPTY QTY / AMOUNT OPERAND READS AS THE NUMBER 0 INSIDE A FORMULA; A MISSING RATE NEVER DOES
+  (owner ruling 2026-09-04, NARROWING F2's absolute fail-safe).** An empty per-area quantity is a FACT the
+  document states ("none of this in that area"), so `(20 + <empty>) x 40` is 800 — a whole row used to
+  blank over it. An UNPRICED RATE is a PENDING ACTION and still blanks the row, and that verdict
+  PROPAGATES (`EvalResult.missing: "rate" | "value"`), so an enclosing `+` cannot zero-fill a node that
+  blanked on a rate two levels down. ⚠️ **ZERO-FILL IS OPT-IN PER CALLER (`FoldOptions.missingValueIsZero`)
+  and `amountFormula.evalNode` is the ONLY site that opts in** — every `bcsColumns` caller passes nothing,
+  so BCS Total, % Margin cost and the % Margin DENOMINATOR stay strictly fail-safe. Zero-filling the
+  denominator shrinks it and makes the margin read BETTER than it is; six existing tests caught exactly
+  that when the rule first shipped unscoped, and BCS's own `EvalResult`s carry no `missing` tag, so the
+  flag alone could not reach them. Substitution happens in `foldOperands`, so it is the ARITHMETIC that
+  changes and NOTHING is written: the stored dict keeps its absent/null key, the quantity cell still
+  renders blank (a typed `0` still renders `0`), and an empty DIVISOR is still `broken` ("check formula"),
+  never 0. ⚠️ **A BARE-LEAF formula (one chip, no operator) DELIBERATELY does not zero-fill**, and an
+  attempt to "close that gap" was reverted by two existing tests: (a) `evalColumn` cannot tell an EMPTY
+  cell from NON-NUMERIC junk — both used to be tagged `"value"` — so substituting at the top level turned
+  bad data into a confident 0; the NaN branch is now UNTAGGED so no fold can zero-fill it either. And (b)
+  zero is the IDENTITY OF AN OPERATION: with no operator there is nothing for an absent operand to
+  contribute to, so `amount_total = amount_supply` over an empty column would be INVENTING a number
+  rather than adding nothing. The rule is "an empty operand contributes nothing to an operation", and a
+  bare leaf is a READ, not arithmetic.
+- **`RATE_VALUE_FIELDS` IS DEFINED TWICE AND THE TWO COPIES ARE PINNED TOGETHER BY TEST
+  (`rateFieldParity.test.ts`).** `PricingGrid`'s copy decides how a lookup RESOLVES (draft-aware,
+  priced-marker, prepopulated-non-zero); `amountFormula`'s decides how a MISS is CLASSIFIED — `"rate"`
+  (blank the row) or `"value"` (may read as 0). ⚠️ **Add a rate field to one and not the other and an
+  UNPRICED RATE is classified `"value"`, so `foldOperands` substitutes 0 and the amount prints a
+  confident number that silently omits a price** — the exact failure the opt-in zero-fill exists to
+  prevent, appearing as a plausible figure on a tender line. `amountFormula` must NOT import
+  `PricingGrid` (F2 stays free of it), so the parity test is the mechanism, per ADR-0010 F1.
+- **The FORMULA TIER FOLLOWS THE COLUMN — there is no tab to choose (owner ruling 2026-09-04).** A column
+  that NAMES AN AREA writes the per-area tier; a column with no area dimension has only the one tier
+  (stored `target_value_key: null`). `AmountFormulaBuilder` pins `effectiveMode` off `targetIsPerArea` and
+  holds NO mode state; "Default (all areas)" still RENDERS on a per-area column but is PERMANENTLY
+  DISABLED — signage, so the tier stays visible without being editable there. ⚠️ **An override ALWAYS
+  beats the default (`pickFormula`), so a default saved while every area is overridden governs NOTHING** —
+  it saves, reports success and is dead on arrival. `formulaTokens.storedDefaultFormula` reports such a
+  leftover ONLY for a column that actually overrides it (a column with no override is INHERITING, not
+  shadowing) and the dialog offers a Remove; the inheriting column SEEDS from the applicable default
+  (`inheritedDefault`), so the formula driving a column is never invisible behind the disabled tab.
+  ⚠️ `target_col` is a stored GUARD, NOT part of the identity — one axis has ONE default record shared by
+  EVERY per-area column on it, so saving a "default" from column I overwrites the one from column H.
+- **The operand palette is EVERY operand column the sheet has, minus the trivial self-reference
+  (`formulaTokens.buildOperandPalette`, which takes NO mode — refs are always concrete).** A SCALAR
+  amount target addresses each
+  per-area column individually — it used to collapse them into one area-wildcard chip that a scalar target
+  could not bind, so every row rendered blank while the builder reported "Well-formed". Other AREAS are
+  offered too (owner ruling, REVERSING a narrowing): the cycle check and the dangling-ref gate are the real
+  boundaries, not the chip list. ⚠️ **A chip is named by `boqTypes.columnChipLabel` (`E — Quantity · 7f`) —
+  the SAME call `PricingGrid`'s header cells and `MarginFormulaBuilder`'s chips render through**, so a chip
+  can never name a column differently from the header above it. A role alone is NOT an identity: a sheet
+  may map two `qty` columns, and naming both "Quantity" left one of them unreachable.
 - **`reconcile.ts` is a PURE LEAF** (imports only types): the SHARED `amountsEqual` epsilon + `resolveDivergence`
   (D1 = DOCUMENT default). It exists so PricingGrid / priceability / pricingRollup share one comparison with NO cycle
   (PricingGrid must NOT import pricingRollup). Divergence fires only on `cell.kind === "value"`.

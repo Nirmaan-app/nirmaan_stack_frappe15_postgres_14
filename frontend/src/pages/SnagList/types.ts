@@ -267,6 +267,16 @@ export interface UpdateSnagDetailsPayload {
   area: string;
   category: string;
   description: string;
+  /**
+   * THREE STATES, NOT TWO — identical to `update_snag_status`'s (ADR-0018):
+   * `undefined` = leave the stored remark alone (the key is OMITTED from the wire),
+   * `""` = an explicit clear, text = an overwrite.
+   *
+   * Sending `""` for "untouched" would wipe the imported remark every time someone
+   * fixes an area typo. A snag whose status is `Not Applicable` takes NO remark at
+   * all (owner Q2a) — the dialog shows no box for it and the server refuses one.
+   */
+  remark?: string;
 }
 
 /**

@@ -52,19 +52,22 @@ export interface UseSnagMutationsResult {
   bulkUpdateStatus: (snags: string[], status: SnagStatus) => Promise<boolean>;
   addManualSnag: (input: AddManualSnagInput) => Promise<boolean>;
   /**
-   * ONE row's Area / Category / Description.
+   * ONE row's Area / Category / Description — and now its Remark (owner 2026-09-04).
    *
-   * DELIBERATELY CANNOT touch status or remark: those are owned by the status
-   * change (ADR-0018), whose "Not Applicable takes no remark" rule would otherwise
-   * have to be duplicated here and would drift. Nor any provenance field — batch /
-   * source_row / project answer "where did this come from", which an editable
-   * answer would make worthless.
+   * STILL CANNOT touch status: it is owned by the status change (ADR-0018), which is
+   * what stamps `status_changed_by`. Nor any provenance field — batch / source_row /
+   * project answer "where did this come from", which an editable answer would make
+   * worthless.
    *
-   * All three values are SENT EVERY TIME (no three-state `undefined` game like
-   * `remark`): the Edit dialog holds the whole set, so a full overwrite of exactly
-   * those three fields is what the user saw and confirmed. A blank description is
-   * ALLOWED — ADR-0019 dropped the `reqd`, so a client-side required check would
-   * refuse what the server accepts.
+   * ⚠️ THE FOUR FIELDS DO NOT BEHAVE THE SAME WAY, and the difference is the whole
+   * point. Area / Category / Description are SENT EVERY TIME (the dialog holds the
+   * whole set, so a full overwrite is what the user saw and confirmed). `remark` is
+   * THREE-STATE like `updateStatus`'s: `undefined` OMITS the key so the server leaves
+   * the stored text alone. Sending it unconditionally would destroy the imported
+   * remark on every area typo fix.
+   *
+   * A blank description is ALLOWED — ADR-0019 dropped the `reqd`, so a client-side
+   * required check would refuse what the server accepts.
    */
   updateSnagDetails: (payload: UpdateSnagDetailsPayload) => Promise<boolean>;
   getBatchDeletePreview: (batch: string) => Promise<DeleteBatchPreview | null>;
@@ -189,10 +192,16 @@ export function useSnagMutations(
   );
 
   const updateSnagDetails = useCallback(
-    async ({ snag, area, category, description }: UpdateSnagDetailsPayload) => {
+    async ({ snag, area, category, description, remark }: UpdateSnagDetailsPayload) => {
       setIsSavingDetails(true);
       try {
-        await callUpdateDetails({ snag, area, category, description });
+        // `remark` is OMITTED when the caller passed nothing, so the server's "leave
+        // it alone" branch is reached — the same three-state contract `updateStatus`
+        // builds explicitly above, for the same reason.
+        const base = { snag, area, category, description };
+        await callUpdateDetails(
+          remark === undefined ? base : { ...base, remark }
+        );
         toast({
           title: "Snag updated",
           description: "The snag's details were saved.",

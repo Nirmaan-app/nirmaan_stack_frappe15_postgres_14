@@ -37,7 +37,7 @@ import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 
 // --- Utils & State ---
 import { parseNumber } from "@/utils/parseNumber";
-import { getExpenseSubmitLabel } from "@/utils/expenseApproval";
+import { getExpenseCreatedToast, getExpenseSubmitLabel } from "@/utils/expenseApproval";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { queryKeys, getProjectExpenseTypeListOptions } from "@/config/queryKeys";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
@@ -294,7 +294,9 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
                 } catch { /* non-blocking: the field URL is set regardless */ }
             }
 
-            toast({ title: "Success", description: "Project expense recorded successfully.", variant: "success" });
+            // Name the path the expense took: an auto-approved one never reaches an
+            // approver, and the server's returned status is the authority on that.
+            toast({ ...getExpenseCreatedToast(created?.status, formState.amount), variant: "success" });
             onSuccess?.();
             handleDialogClose();
         } catch (error: any) {
@@ -349,7 +351,7 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
     const isAmountUncapped = isUncappedExpenseType(formState.type, expenseTypeOptions);
     // The submit label names the path this expense will actually take: a small
     // positive amount is auto-approved on save ("Raise Expense"), anything else
-    // -- ≥ ₹5,000, a refund, or a blank amount -- goes to an approver.
+    // -- above ₹10,000, a refund, or a blank amount -- goes to an approver.
     const submitLabel = getExpenseSubmitLabel(formState.amount);
 
     return (
@@ -400,7 +402,6 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
                         <div className="col-span-3">
                             <Input id="amount" type="number" value={formState.amount} onChange={(e) => handleInputChange('amount', e.target.value)} className={cn(formErrors.amount ? "border-destructive" : "", autofilledFields.has("amount") && "bg-amber-50 border-amber-300 focus-visible:ring-amber-400")} disabled={isLoadingOverall} />
                             {formErrors.amount && <p className="text-xs text-destructive mt-1">{formErrors.amount}</p>}
-                            <p className="text-xs text-muted-foreground mt-1">Expenses under ₹5,000 are auto-approved; ₹5,000 and above require approval.</p>
                             {isAmountUncapped && <p className="text-xs text-muted-foreground mt-0.5">No amount limit for this expense type.</p>}
                         </div>
                     </div>

@@ -40,8 +40,12 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         const accountantDefault = PP_TABS.NEW_PAYMENTS;
         const userDefault = PP_TABS.PAYMENTS_DONE;
         const remDefault = PP_TABS.PO_WISE;
-        return getUrlStringParam("tab", isCEO ? ceoDefault : isAdmin ? adminDefault : isAccountant ? accountantDefault : isProjectRole ? userDefault : remDefault);
-    }, [isCEO, isAdmin, isAccountant, isProjectRole]); // Calculate only once based on role
+        // Approve Payments is Admin-only, so only an approver may DEFAULT to it --
+        // PMO Executive is in PP_ADMIN_ROLES but cannot see the tab, and landing on a
+        // tab that no longer renders would show an empty page.
+        const pmoDefault = PP_TABS.PAYMENTS_PENDING;
+        return getUrlStringParam("tab", isCEO ? ceoDefault : canApprovePayments ? adminDefault : isAdmin ? pmoDefault : isAccountant ? accountantDefault : isProjectRole ? userDefault : remDefault);
+    }, [isCEO, canApprovePayments, isAdmin, isAccountant, isProjectRole]); // Calculate only once based on role
 
     const [tab, setTab] = useState<string>(initialTab);
 
@@ -75,7 +79,8 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     }, [tab]);
 
     // --- Filter tabs based on role ---
-    const adminTabsFiltered = useMemo(() => PP_ADMIN_TAB_OPTIONS, []);
+    // Approve Payments: Admin / Administrator only. Everyone else never sees the tab.
+    const adminTabsFiltered = useMemo(() => (canApprovePayments ? PP_ADMIN_TAB_OPTIONS : []), [canApprovePayments]);
     const ceoTabsFiltered = useMemo(() => (isCEO ? PP_CEO_TAB_OPTIONS : []), [isCEO]);
     const newPaymentsTabsFiltered = useMemo(() => (isAdmin || isAccountant) ? PP_NEW_PAYMENTS_TAB_OPTIONS : [], [isAdmin, isAccountant]);
     const remTabsFiltered = useMemo(() => (isAdmin || isAccountant) ? PP_REM_TAB_OPTIONS : [], [isAdmin, isAccountant]);
@@ -175,17 +180,18 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
             }>
                 {
                     tab === PP_TABS.APPROVE_PAYMENTS ? (
-                        <>
-                            {!canApprovePayments && (
-                                <Alert variant="default" className="border-blue-200 bg-blue-50 mb-4">
-                                    <Info className="h-4 w-4 text-blue-600" />
-                                    <AlertDescription className="text-sm text-blue-800">
-                                        These payments are pending approval from an admin. Contact an admin for urgent cases.
-                                    </AlertDescription>
-                                </Alert>
-                            )}
-                            <ApprovePayments readOnly={!canApprovePayments} />
-                        </>
+                        canApprovePayments ? (
+                            <ApprovePayments />
+                        ) : (
+                            // Reachable only via a hand-edited / bookmarked `?tab=Approve Payments`
+                            // URL -- the tab button is not rendered for these roles.
+                            <Alert variant="default" className="border-blue-200 bg-blue-50 mb-4">
+                                <Info className="h-4 w-4 text-blue-600" />
+                                <AlertDescription className="text-sm text-blue-800">
+                                    Payment approvals are restricted to admins. Contact an admin for urgent cases.
+                                </AlertDescription>
+                            </Alert>
+                        )
                     ) : tab === PP_TABS.CEO_PENDING ? (
                         <ApprovePayments mode="ceo" readOnly={!isCEO} />
                     ) :

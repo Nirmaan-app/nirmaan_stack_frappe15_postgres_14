@@ -312,7 +312,7 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # the live corpus and changed ZERO, byte-identical to the prose output. The point axis was already
 # 231-of-237 correct and the other 6 sit ABOVE the floor; moving a working rule for tidiness is
 # exactly the risk that proof exists to retire.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v54.json"
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v55.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -6409,6 +6409,329 @@ class TestPointWiringConduitAndLength(FrappeTestCase):
         item["notes"] = {"attached": ["Secondary point wiring, looped"]}
         self.assertEqual(point_type_of(item), "Secondary")
 
+    # ---------- THE ROW-SHAPE RULES (owner ruling 2026-09-04) ----------
+    # THE UNIFYING IDEA: count the points the row covers and price each by its type. A row covering
+    # n points names one primary and n-1 secondaries, which IS `15 + (n-1) * 5`. So a point-set shape
+    # has BOTH types by construction -> None -> the formula. The formula was never a special case.
+
+    # The exact Olympia ancestor note, verbatim from BOQ-26-00205 `ELE Lowside` row 11. It is the
+    # reason all five point-set rows read Secondary: `looping` fires at distance 1 and nothing at
+    # distance 0 opposed it.
+    _OLYMPIA_NOTE = (
+        "Provide all materials, accessories, labours etc. for wiring for lights, ceiling fans, "
+        "exhaust fans, 6A sockets. The rate for point wiring shall include wiring from first "
+        "switch point and then looping between the points."
+    )
+    # ⚠️ THE SECONDARY-ONLY HALF OF THAT NOTE, AND IT IS WHAT MAKES THE SHAPE TESTS NON-VACUOUS.
+    # The FULL note names BOTH types once the `first ... point` widening is live, so a row under it
+    # reaches None whether or not the shape rules exist -- a test using it proves nothing about the
+    # shape. This clause names ONLY the secondary token, so a row beneath it resolves Secondary
+    # unless its own structure overrides. Caught by the vacuity probe, which is what that probe is
+    # for; do not "simplify" these fixtures back to the full note.
+    _LOOPING_ONLY_NOTE = "The rate shall include looping between the points."
+
+    def test_pw_shape_01_olympia_ladder_takes_the_formula_not_five(self):
+        """POSITIVE, THE DEFECT ITSELF. The three Olympia rows name no type of their own; the parent
+        preamble's note says "looping", which used to decide for them and pinned every rung at 5 m.
+        Their own structure now settles it: both types -> None -> `15 + (n-1) * 5`."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        for desc in ("One (1) light point controlled by a 6A piano key type switch",
+                     "Set of two (2) light points controlled by a 6A piano key type switch",
+                     "Set of three (3) light points controlled by a 6A piano key type  switch"):
+            item = self._item(desc, ancestors=("WIRING SYSTEM", "POINT WIRING"))
+            item["ancestor_chain"][-1]["notes"] = {"attached": [self._LOOPING_ONLY_NOTE]}
+            self.assertIsNone(point_type_of(item), desc)
+
+    def test_pw_shape_02_the_ancestor_looping_no_longer_decides_a_point_set_row(self):
+        """POSITIVE: the payload shape that actually broke -- the real Olympia note, verbatim, in the
+        parent's note block. Two assertions, because they prove different things: under the FULL note
+        the row reaches the formula (that is the end-to-end fix, and with the widening live the note
+        itself names both types); under the LOOPING-ONLY clause it still reaches the formula, and
+        there only the row's own structure can be doing the work."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        desc = "Set of two (2) light points controlled by a 6A piano key type switch"
+        for note in (self._OLYMPIA_NOTE, self._LOOPING_ONLY_NOTE):
+            item = self._item(desc, ancestors=("WIRING SYSTEM", "POINT WIRING"))
+            item["ancestor_chain"][-1]["notes"] = {"attached": [note]}
+            self.assertIsNone(point_type_of(item), note)
+
+    def test_pw_shape_03_the_BOQ_26_00019_ladder_one_through_eight(self):
+        """POSITIVE, THE INDEPENDENT PRODUCTION CASE. `BOQ-26-00019` carries this ladder on two
+        sheets and predates Olympia entirely -- proof the defect is not one client's wording. Every
+        rung must reach the formula, not just the ones Olympia happens to share. Each rung sits under
+        a secondary-naming ancestor, so the shape rule is the only thing that can save it."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        for desc in ("One (1) light point controlled by a 10A modular type switch",
+                     "Two (2) light point controlled by a 10A modular type switch",
+                     "Three (3) light point controlled by a 10A modular type switch",
+                     "Four(4) light points controlled by one(1) 10A modular type switches.",
+                     "Five(5) light points controlled by one(1) 10A modular type switches.",
+                     "Six(6) light points controlled by one(1) 10A modular type switches.",
+                     "Seven(7) light points controlled by one(1) 10A modular type switches.",
+                     "Eight(8) light points controlled by one(1) 10A modular type switches.",
+                     "1light point controlled by 1 - 2way switch"):
+            item = self._item(desc, ancestors=("POINT WIRING",))
+            item["ancestor_chain"][-1]["notes"] = {"attached": [self._LOOPING_ONLY_NOTE]}
+            self.assertIsNone(point_type_of(item), desc)
+
+    def test_pw_shape_04_count_only_shape_upto_n_points(self):
+        """POSITIVE, THE SECOND SHAPE. `Upto 10 Light Points` carries a count but no switch clause.
+        Owner: "this shape is also both primary and secondary and should be evaluated by the
+        formula". Reaches `BOQ-26-00016` rows 50/51/52. Sits under a secondary-naming ancestor, so
+        without this second pattern the row would resolve Secondary and take a flat 5 m."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        for desc in ("Upto 10 Light Points", "Upto 20 Light Points", "Upto 30 Light Points"):
+            item = self._item(desc, ancestors=("WIRING",))
+            item["ancestor_chain"][-1]["notes"] = {"attached": [self._LOOPING_ONLY_NOTE]}
+            self.assertIsNone(point_type_of(item), desc)
+
+    def test_pw_shape_05_count_only_is_anchored_to_the_WHOLE_description(self):
+        """NEGATIVE, AND THE SAFETY PROPERTY OF SHAPE 2. This pattern is far broader than the
+        switch-clause one, so it is anchored `^...$`. Measured on 30,184 line items: unanchored it
+        changes 20 rows and leaks into switch-clause rows; anchored it changes exactly 3. A count of
+        points buried inside a longer sentence must NOT trigger it -- that sentence is prose about
+        the work, not a row covering n points.
+
+        ⚠️ PIN INVERTED 2026-09-05, NOT DELETED. This used to assert the end-to-end verdict on
+        "Cable laid past 10 light points and terminated at the board" -> Secondary. The count rule
+        shipped that day legitimately takes that row to the formula instead: it states ten points,
+        and ten points are one primary plus nine secondaries whatever the sentence around them says.
+        So the OLD assertion is now false for a good reason. What this test was really protecting is
+        the ANCHOR, and that is asserted directly here -- plus an end-to-end case with n=1, where
+        the count rule cannot interfere and the ancestor must still decide."""
+        from nirmaan_stack.services.boq_rate_master.extraction import (
+            point_type_of, _PT_SHAPE_COUNT_ONLY)
+        buried = "Cable laid past 10 light points and terminated at the board"
+        self.assertIsNone(_PT_SHAPE_COUNT_ONLY.search(buried))          # the anchor holds
+        self.assertIsNotNone(_PT_SHAPE_COUNT_ONLY.search("Upto 10 Light Points"))
+        # n = 1, so the count rule stands aside and the ancestor still decides.
+        self.assertEqual(point_type_of(self._item(
+            "Cable laid past 1 light point and terminated at the board",
+            ancestors=("SECONDARY POINT WIRING",))), "Secondary")
+
+    def test_pw_shape_06_NEGATIVE_a_row_naming_its_own_type_is_UNCHANGED(self):
+        """NEGATIVE, THE PRECEDENCE STOP. 244 point-set rows already name their own type and are
+        correctly self-determined. The shape rules must never override them -- a row saying
+        "Secondary light points (loop points after primary)" is still Secondary, and a self-named
+        Primary is still Primary, even though BOTH carry the point-set structure."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        # Both descriptions carry the point-set structure, so the shape rule WOULD claim them if the
+        # precedence guard were not there. Each names its own type, so each keeps it.
+        self.assertEqual(point_type_of(self._item(
+            "Secondary: 3 light points controlled by a 6A switch, loop points")), "Secondary")
+        self.assertEqual(point_type_of(self._item(
+            "Primary light point: 1 light point controlled by a 6A switch")), "Primary")
+
+    def test_pw_shape_07_NEGATIVE_no_token_anywhere_still_reaches_the_formula(self):
+        """NEGATIVE: the 309 rows that already reach the formula with no token anywhere must keep
+        arriving there by their existing route -- the `not by_distance` branch, not the shape branch.
+        Same answer, and the shape rules must not have disturbed the path to it."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertIsNone(point_type_of(self._item("Supply and wiring of light point with 1.5 sq mm wire")))
+        self.assertIsNone(point_type_of(self._item("")))
+
+    def test_pw_shape_08_NEGATIVE_shapes_do_not_fire_on_non_point_wiring_rows(self):
+        """NEGATIVE: cable, conduit and tray rows carry digits and sometimes the word `point`, but
+        they are not point-set rows. Neither shape may claim them."""
+        from nirmaan_stack.services.boq_rate_master.extraction import (
+            _pt_row_shape_is_both_types as shape)
+        for desc in ("3 Cx 1.5sqmm Multi Core Copper FRLS cable in 19mm dia PVC conduit",
+                     "Supply and installation of 25 mm FRLS 2mm thick PVC white/grey conduit",
+                     "300 mm x 40 mm perforated cable tray",
+                     "Supply and installation of 6/16A, 6pin MultiIntel Socket"):
+            self.assertFalse(shape(desc), desc)
+
+    def test_pw_shape_09_NEGATIVE_the_patterns_name_no_fixture_type(self):
+        """NEGATIVE, AND OWNER-LOCKED. "X no of y type points. Y canbe many things and not just
+        lights." A fixture list goes stale on the first BoQ using a word nobody thought of, so the
+        patterns key on STRUCTURE -- a count, `point(s)`, and the verb `controlled`. This test fails
+        the moment a fixture word is introduced into either pattern."""
+        from nirmaan_stack.services.boq_rate_master.extraction import (
+            _PT_SHAPE_SWITCH, _PT_SHAPE_COUNT_ONLY)
+        both = (_PT_SHAPE_SWITCH.pattern + " " + _PT_SHAPE_COUNT_ONLY.pattern).lower()
+        for fixture in ("light", "fan", "exhaust", "sensor", "lamp", "socket", "geyser", "heater"):
+            self.assertNotIn(fixture, both, fixture)
+
+    def test_pw_shape_10_the_shape_outranks_the_ancestor_but_never_the_row_itself(self):
+        """POSITIVE + NEGATIVE in one, because it is the ORDERING that matters. The same shaped
+        description resolves to None under a Secondary-naming ANCESTOR (the shape wins), but to
+        Secondary when the row's OWN text names the type (the row wins). Reversing the two guards
+        would silently break one of the two."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        shaped = "3 light points controlled by a 6A switch"
+        self.assertIsNone(point_type_of(self._item(shaped, ancestors=("Secondary loop point wiring",))))
+        self.assertEqual(point_type_of(self._item("Secondary " + shaped)), "Secondary")
+
+    # ---------- THE `first ... point` WIDENING (owner ruling 2026-09-04) ----------
+
+    def test_pw_widen_01_first_switch_point_is_a_primary_token(self):
+        """POSITIVE, THE OTHER HALF OF THE OLYMPIA DEFECT. `\\bfirst\\s+point` missed `first switch
+        point` over ONE intervening word, so the Olympia note named only its secondary token and the
+        rows read Secondary instead of falling to the formula."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertEqual(point_type_of(self._item("Wiring upto the first switch point")), "Primary")
+
+    def test_pw_widen_02_the_olympia_note_alone_now_names_BOTH_types(self):
+        """POSITIVE: the widening's real job. Read as a row's own text, the Olympia sentence names
+        `first switch point` (primary) AND `looping` (secondary) -> both -> None. Owner: "if both
+        points are mentioned then formula should have been applied"."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertIsNone(point_type_of(self._item(self._OLYMPIA_NOTE)))
+
+    def test_pw_widen_03_NEGATIVE_the_bound_is_one_word_not_two(self):
+        """NEGATIVE, AND IT IS A MEASURED BOUND. Across 30,184 line items no row has two intervening
+        words, so `{0,2}` would widen the blast radius for nothing. Two words must NOT match."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertIsNone(point_type_of(self._item("Wiring upto the first main switch point")))
+
+    def test_pw_widen_04_NEGATIVE_the_referential_guard_still_absorbs_a_widened_hit(self):
+        """NEGATIVE: widening the pattern must not widen a hole in the preposition guard. A row that
+        merely REFERS to another point ("looped to the first switch point") must not read Primary --
+        the widened token matches there, and the guard has to discard it exactly as it discarded the
+        narrow one. The answer is Secondary, not None: `looped` is the row's own honest type, and the
+        guard removing the primary vote is precisely what leaves it standing. Asserting None here
+        would have passed for the wrong reason (both types voting), so this pins the guard itself."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertEqual(point_type_of(self._item("Wiring looped to the first switch point")), "Secondary")
+
+    def test_pw_widen_05_NEGATIVE_looping_still_resolves_Secondary(self):
+        """NEGATIVE, OWNER-LOCKED. `_PT_SECONDARY` was NOT touched and must stay effective:
+        "looping point is secondary point". A row naming only a looping/secondary token, with no
+        point-set structure of its own, is still Secondary -- 5 m, exactly as before."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertEqual(point_type_of(self._item("Looping wiring for the fixture")), "Secondary")
+        self.assertEqual(point_type_of(self._item("Wiring for the loop point")), "Secondary")
+
+    # ---------- THE CRASH: a dict written to but never initialised with that key ----------
+
+    def test_pw_drops_01_every_key_READ_from_drops_is_initialised(self):
+        """⚠️ GENERIC BY DESIGN, AND THE GENERALITY IS THE WHOLE VALUE. A test for
+        `conductor_floor_applied` alone would have caught yesterday's crash and none of the next
+        ones -- the same mistake recurs every time a capture accumulator is added.
+
+        WHAT WENT WRONG: `drops` is initialised as a dict literal, and each recorder does
+        `drops["k"].setdefault(...)` or `drops["k"].append(...)`. Those READ the key first, so a key
+        missing from the literal is not a lost observation -- it is a `KeyError` that kills the whole
+        batch the moment that recorder fires. `conductor_floor_applied` shipped that way on
+        2026-09-03 and made `BOQ-26-00016` unpriceable.
+
+        HOW THIS READS THE CODE: it parses `extraction.py` and compares the literal's keys against
+        every `drops[...]` subscript used in a LOAD context. A plain assignment
+        (`drops["rows_omitted"] = ...`) creates its own key and is correctly ignored.
+        """
+        import ast, inspect
+        from nirmaan_stack.services.boq_rate_master import extraction
+        tree = ast.parse(inspect.getsource(extraction))
+        init_keys, read_keys = set(), set()
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name) and node.targets[0].id == "drops"
+                    and isinstance(node.value, ast.Dict)):
+                init_keys |= {k.value for k in node.value.keys if isinstance(k, ast.Constant)}
+            if (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
+                    and node.value.id == "drops" and isinstance(node.slice, ast.Constant)
+                    and not isinstance(node.ctx, ast.Store)):
+                read_keys.add(node.slice.value)
+        self.assertTrue(init_keys, "no `drops = {...}` literal found -- the guard cannot see it")
+        self.assertEqual(
+            sorted(read_keys - init_keys), [],
+            "these `drops` keys are READ but never initialised, so the first write is a KeyError "
+            "that kills the batch")
+
+    # ---------- THE COUNT OUTRANKS THE TOKEN (owner ruling 2026-09-05) ----------
+
+    def test_pw_count_01_a_multi_point_row_naming_PRIMARY_takes_the_formula(self):
+        """POSITIVE, AND THE RULING ITSELF. A row covering 12 points genuinely has ONE primary and
+        eleven secondaries -- which is what `15 + (n-1) * 5` computes -- so a stated count above one
+        outranks a primary token in the row's own text. This is the real `BOQ-26-00063` shape, where
+        "Point wiring will start from First Light point" (a sentence about WHERE THE WIRING STARTS)
+        was read as the row's TYPE and pinned a 12-point row at a flat 15 m."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertIsNone(point_type_of(self._item(
+            "12 light point controlled by MCB. Rate Shall excluding MCB. "
+            "Point wiring will start from First Light point.")))
+
+    def test_pw_count_02_NEGATIVE_a_ONE_point_row_naming_primary_stays_Primary(self):
+        """NEGATIVE, AND THE BOUNDARY OF THE RULE. One point is one primary -- there is no
+        contradiction to resolve, so the token stands and the row keeps its 15 m. If this ever goes
+        green as None, the rule has stopped being about the count."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertEqual(point_type_of(self._item(
+            "1 light point controlled by MCB. Point wiring will start from First Light point.")),
+            "Primary")
+
+    def test_pw_count_03_NEGATIVE_a_count_of_one_is_not_a_count(self):
+        """NEGATIVE: the same row shape at n=1 with no type token at all still reaches the formula
+        by its EXISTING route (the shape rule), not by the count rule."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_type_of
+        self.assertIsNone(point_type_of(self._item("1 light point controlled by a 6A switch")))
+
+    def test_pw_count_04_the_unit_guard_rejects_an_amperage(self):
+        """NEGATIVE, AND IT IS THE REASON THIS EXTRACTOR EXISTS IN THIS SHAPE. "One 16 Amps point
+        per circuit" states an AMPERAGE, not sixteen points. An earlier census read it as n=16 and
+        reported a population for the n x 5 rule that was not real. A unit word may never sit
+        between the number and `point`."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_count_of
+        self.assertIsNone(point_count_of("One 16 Amps point per circuit"))
+        self.assertIsNone(point_count_of("2nos 16 Amps point per circuit"))
+        self.assertIsNone(point_count_of("3 x 2.5 sqmm cable to the point"))
+
+    def test_pw_count_05_the_extractor_reads_digits_and_number_words(self):
+        """POSITIVE: sheets write the count either way, and both real forms must parse."""
+        from nirmaan_stack.services.boq_rate_master.extraction import point_count_of
+        self.assertEqual(point_count_of("12 light point controlled by MCB"), 12)
+        self.assertEqual(point_count_of("Upto 10 Light Points"), 10)
+        self.assertEqual(point_count_of("Set of three (3) light points controlled by a switch"), 3)
+        self.assertEqual(point_count_of("Six light points controlled by MCB (Excluding MCB)"), 6)
+        self.assertIsNone(point_count_of("Supply and installation of 25 mm PVC conduit"))
+
+    # ---------- THE n x 5 MECHANISM (owner ruling 2026-09-05) ----------
+
+    def test_pw_n5_01_secondary_only_with_a_count_is_n_times_five(self):
+        """POSITIVE, AND SYNTHETIC BY NECESSITY. Owner: "if the row mentions only secondary then it
+        will be n secondary". No row in the corpus exercises this today -- the two an earlier census
+        offered were amperage false-parses -- so this synthetic case IS the protection."""
+        from nirmaan_stack.services.boq_rate_master.extraction import secondary_length_m
+        self.assertEqual(secondary_length_m(self._item("Secondary wiring for 4 loop points")), 20)
+        self.assertEqual(secondary_length_m(self._item("Looping wiring for 7 light points")), 35)
+
+    def test_pw_n5_02_NEGATIVE_secondary_with_NO_count_keeps_the_flat_five(self):
+        """NEGATIVE: without a count there is nothing to multiply, so the rule declines and the
+        config's flat 5 stands. Returning 5 here would be the same answer by a different route and
+        would hide a broken extractor."""
+        from nirmaan_stack.services.boq_rate_master.extraction import secondary_length_m
+        self.assertIsNone(secondary_length_m(self._item("Secondary light point wiring, looped")))
+
+    def test_pw_n5_03_NEGATIVE_both_types_with_a_count_is_the_formula_not_n_times_five(self):
+        """⚠️ THE ORDERING PIN, AND IT GUARDS BOTH DIRECTIONS AT ONCE. A row naming BOTH types with
+        a count must take the FORMULA (Fix 2), never n x 5 (Fix 3) -- and a row naming ONLY
+        secondary must take n x 5 and stay Secondary, never be swallowed into the formula. Get the
+        order wrong either way and one of the two rulings silently stops applying."""
+        from nirmaan_stack.services.boq_rate_master.extraction import (
+            point_type_of, secondary_length_m)
+        both = self._item("Primary and secondary wiring for 4 light points")
+        self.assertIsNone(point_type_of(both))            # -> the formula
+        self.assertIsNone(secondary_length_m(both))       # -> NOT n x 5
+        sec = self._item("Secondary wiring for 4 loop points")
+        self.assertEqual(point_type_of(sec), "Secondary")  # NOT swallowed by the count rule
+        self.assertEqual(secondary_length_m(sec), 20)
+
+    def test_pw_n5_04_NEGATIVE_a_primary_row_with_a_count_gets_no_n5_length(self):
+        """NEGATIVE: n x 5 is the SECONDARY-only mechanism. A multi-point primary row goes to the
+        formula and must not also be handed a length."""
+        from nirmaan_stack.services.boq_rate_master.extraction import secondary_length_m
+        self.assertIsNone(secondary_length_m(self._item(
+            "12 light point controlled by MCB. Point wiring will start from First Light point.")))
+
+    def test_pw_widen_06_NEGATIVE_secondary_list_is_unchanged(self):
+        """NEGATIVE, OWNER-LOCKED: `_PT_SECONDARY` is not editable. Pinning the exact list so an
+        edit has to be deliberate -- the comment above it was corrected in the same change precisely
+        because its rationale had drifted from this list."""
+        from nirmaan_stack.services.boq_rate_master.extraction import _PT_SECONDARY
+        self.assertEqual(_PT_SECONDARY,
+                         [r"\bsecondary\b", r"\blooping\b", r"\blooped\b", r"\bsecond\s+point",
+                          r"\bthird\b", r"\b3rd\b", r"loop\s+in", r"\bloop\s+point"])
+
     # ---------- the v48 CONFIG SHAPE that pieces 1-3 ride on ----------
     def _pw_cfg(self):
         import json, os
@@ -7007,7 +7330,12 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         now = dict((c["category_id"], c) for c in payload["category_configs"])
         self.assertEqual(sorted(was), sorted(now))
         changed = sorted(k for k in now if now[k] != was[k])
-        self.assertEqual(changed, ["point_wiring"])
+        # ⚠️ WIDENED AT THE LMS SLICE (v55, 2026-09-04). This pin is CUMULATIVE -- it compares
+        # the CURRENT asset against an old one -- and its own contract is that "a later mint
+        # that copies the block elsewhere has to say so". The LMS slice is that later mint:
+        # it gave `lighting_mgmt_system` its two pipelines. Naming it here is the pin DOING
+        # ITS JOB, not being relaxed -- a THIRD category appearing still fails.
+        self.assertEqual(changed, ["lighting_mgmt_system", "point_wiring"])
         self.assertEqual(payload["items"], prev["items"], "no rate and no item may move")
         for cid, c in now.items():
             if cid == "point_wiring":
@@ -7238,14 +7566,26 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
             prev = json.load(fh)
         was = {c["category_id"]: c for c in prev["category_configs"]}
         now = {c["category_id"]: c for c in payload["category_configs"]}
-        self.assertEqual(sorted(k for k in now if now[k] != was[k]), ["point_wiring"])
+        # ⚠️ WIDENED AT THE LMS SLICE (v55, 2026-09-04). This pin is CUMULATIVE -- it compares
+        # the CURRENT asset against an old one -- and its own contract is that "a later mint
+        # that copies the block elsewhere has to say so". The LMS slice is that later mint:
+        # it gave `lighting_mgmt_system` its two pipelines. Naming it here is the pin DOING
+        # ITS JOB, not being relaxed -- a THIRD category appearing still fails.
+        self.assertEqual(sorted(k for k in now if now[k] != was[k]),
+                         ["lighting_mgmt_system", "point_wiring"])
         self.assertEqual(payload["items"], prev["items"])
         # ⚠️ SUPERSEDED AT SLICE B. F4a removed two pipelines, and `_validate_config` refuses
         # a golden naming a pipeline the config no longer declares -- so their `expect` keys
         # were FORCED out. The precise claim (deletion only, every surviving value identical)
         # now lives in test_pw_cs_31; here we assert only that no golden was ADDED or DROPPED.
-        self.assertEqual(sorted(payload["goldens"]), sorted(prev["goldens"]))
+        # ⚠️ v55 ADDED a `lighting_mgmt_system` goldens block (the LMS slice). Assert the key
+        # set moved by exactly that ONE addition -- still "no golden was dropped".
+        self.assertEqual(sorted(payload["goldens"]),
+                         sorted(list(prev["goldens"]) + ["lighting_mgmt_system"]))
         for _cat, _golds in payload["goldens"].items():
+            # the LMS slice ADDED this key at v55; it has no counterpart in the older asset
+            if _cat == "lighting_mgmt_system":
+                continue
             self.assertEqual([g["id"] for g in _golds],
                              [g["id"] for g in prev["goldens"][_cat]], _cat)
 
@@ -7408,10 +7748,22 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
             prev = json.load(fh)
         was = {c["category_id"]: c for c in prev["category_configs"]}
         now = {c["category_id"]: c for c in payload["category_configs"]}
-        self.assertEqual(sorted(k for k in now if now[k] != was[k]), ["point_wiring"])
+        # ⚠️ WIDENED AT THE LMS SLICE (v55, 2026-09-04). This pin is CUMULATIVE -- it compares
+        # the CURRENT asset against an old one -- and its own contract is that "a later mint
+        # that copies the block elsewhere has to say so". The LMS slice is that later mint:
+        # it gave `lighting_mgmt_system` its two pipelines. Naming it here is the pin DOING
+        # ITS JOB, not being relaxed -- a THIRD category appearing still fails.
+        self.assertEqual(sorted(k for k in now if now[k] != was[k]),
+                         ["lighting_mgmt_system", "point_wiring"])
         self.assertEqual(payload["items"], prev["items"], "no item may move")
-        self.assertEqual(sorted(payload["goldens"]), sorted(prev["goldens"]))
+        # ⚠️ v55 ADDED a `lighting_mgmt_system` goldens block (the LMS slice). Assert the key
+        # set moved by exactly that ONE addition -- still "no golden was dropped".
+        self.assertEqual(sorted(payload["goldens"]),
+                         sorted(list(prev["goldens"]) + ["lighting_mgmt_system"]))
         for cat, golds in payload["goldens"].items():
+            # the LMS slice ADDED this key at v55; it has no counterpart in the older asset
+            if cat == "lighting_mgmt_system":
+                continue
             prev_by = {g["id"]: g for g in prev["goldens"][cat]}
             self.assertEqual([g["id"] for g in golds], list(prev_by), cat)
             for g in golds:
@@ -7427,3 +7779,502 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
                     self.assertEqual(after[pid], before[pid],
                                      "%s/%s: %s VALUE moved" % (cat, g["id"], pid))
 
+
+
+class TestBrandColumnProjection(FrappeTestCase):
+    """READ-TIME COLUMN PROJECTION (owner-chosen option (C), 2026-09-03).
+
+    A `BoQ Rate Master Item` stores `brand` as a top-level COLUMN, while every specification the
+    pipelines match on lives inside the `attributes` JSON map. `extraction.project_item_columns`
+    copies each column named in `extraction.PROJECTED_ITEM_COLUMNS` into `attributes` AT READ
+    TIME, at exactly TWO chokepoints -- `api/boq/rate_master.get_rate_master_items` (which feeds
+    every frontend reader AND all 13 `ratePipelineInterpreter.ts` matcher sites) and the three
+    `extraction.py` catalogue readers.
+
+    WHAT THESE TESTS PROTECT, one line each: that the projection REACHES the readers, that a
+    STORED value still wins, that a missing brand stays missing, that adding a second column is
+    one word in one tuple -- and, the four NEGATIVES, that nothing persists the projection, that
+    the CSV round trip and the asset export never see it, and that no live config can notice it.
+
+    The MATCHABILITY half (the one option (B) could not deliver) is necessarily a vitest test,
+    because the matchers are TypeScript:
+    `frontend/src/pages/pricing/rate-master/brandProjectionMatching.test.ts`.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._disciplines = set()
+
+    @classmethod
+    def tearDownClass(cls):
+        for disc in cls._disciplines:
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item"):
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
+            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    # ---- helpers ----
+    def _new_disc(self):
+        disc = "TEST_BP_" + frappe.generate_hash(length=8)
+        type(self)._disciplines.add(disc)
+        return disc
+
+    def _item(self, disc, kind="lms_item", brand="Lutron", unit="Nos.", attrs=None):
+        doc = frappe.get_doc({
+            "doctype": "BoQ Rate Master Item",
+            "discipline": disc, "kind": kind, "brand": brand, "unit": unit,
+            "attributes": json.dumps(attrs if attrs is not None else {"description": "A widget"}),
+            "rates": json.dumps({"rate": 100.0}),
+            "source_sheet": "Test", "source_row": 1,
+            "import_batch": "testbp-" + frappe.generate_hash(length=8),
+            "active": 1,
+        })
+        doc.insert(ignore_permissions=True)
+        return doc
+
+    def _config(self, disc, attr_ids=("description", "brand")):
+        defs = [{"id": a, "label": a.title(), "type": "choice", "values": ["x"]} for a in attr_ids]
+        doc = frappe.get_doc({
+            "doctype": "BoQ Rate Category Config",
+            "discipline": disc, "category_id": "lighting_mgmt_system",
+            "config": json.dumps({
+                "category_id": "lighting_mgmt_system", "discipline": disc,
+                "attribute_definitions": defs, "pipelines": {},
+                "item_kinds": ["lms_item"],
+                "matching_mode": "item_identity", "identity_attribute_id": "description",
+            }),
+            "source_workbook": "test.xlsx",
+            "import_batch": "testbp-" + frappe.generate_hash(length=8),
+            "active": 1,
+        })
+        doc.insert(ignore_permissions=True)
+        return doc
+
+    # ---- POSITIVE ----
+    def test_bp_01_a_projected_item_reaches_the_dropdown_reader(self):
+        """POSITIVE -- the whole point. `values_from_catalog` resolves a `values_from` dropdown
+        (and, through build_slot_spec, the composite catalogues). Before the projection it could
+        only see keys inside `attributes`, so a brand COLUMN was invisible to it and a brand
+        dropdown was impossible without a hand-typed static values list."""
+        disc = self._new_disc()
+        self._item(disc, brand="Lutron", attrs={"description": "A"})
+        self._item(disc, brand="Zen Control", attrs={"description": "B"})
+        frappe.db.commit()
+        got = extraction.values_from_catalog(disc, {"kind": "lms_item", "attr": "brand"})
+        self.assertEqual(sorted(got), ["Lutron", "Zen Control"])
+
+    def test_bp_02_the_projection_is_a_where_filter_key_too(self):
+        """POSITIVE -- a projected column is a first-class MATCH KEY on the backend reader, not
+        merely a list of options: it works on the `where` side of a values_from spec, which is
+        how one catalogue gets narrowed by another's facts."""
+        disc = self._new_disc()
+        self._item(disc, brand="Lutron", attrs={"description": "A"})
+        self._item(disc, brand="Zen Control", attrs={"description": "B"})
+        frappe.db.commit()
+        got = extraction.values_from_catalog(
+            disc, {"kind": "lms_item", "attr": "description", "where": {"brand": "Lutron"}})
+        self.assertEqual(got, ["A"], "the where filter must select on the projected column")
+
+    def test_bp_03_the_api_endpoint_projects_for_every_frontend_reader_and_matcher(self):
+        """POSITIVE -- the OTHER chokepoint. `get_rate_master_items` returns the single `items`
+        array that both frontend dropdown readers and all 13 interpreter matcher sites consume,
+        so projecting here is what makes brand matchable client-side."""
+        disc = self._new_disc()
+        self._item(disc, brand="Lutron", attrs={"description": "A"})
+        frappe.db.commit()
+        res = rate_master.get_rate_master_items(discipline=disc)
+        self.assertEqual(len(res["items"]), 1)
+        self.assertEqual(res["items"][0]["attributes"]["brand"], "Lutron")
+        self.assertEqual(res["items"][0]["brand"], "Lutron",
+                         "the column itself must still be returned -- its readers are unchanged")
+
+    def test_bp_04_a_stored_attribute_wins_over_the_projection(self):
+        """POSITIVE (precedence) -- nothing stores `attributes.brand` today, but if anything ever
+        does, the STORED value is the authority. The projection must stay silent rather than mask
+        it; a projection that overwrote real data would be a silent corruption."""
+        disc = self._new_disc()
+        self._item(disc, brand="Lutron", attrs={"description": "A", "brand": "StoredWins"})
+        frappe.db.commit()
+        got = extraction.values_from_catalog(disc, {"kind": "lms_item", "attr": "brand"})
+        self.assertEqual(got, ["StoredWins"])
+        res = rate_master.get_rate_master_items(discipline=disc)
+        self.assertEqual(res["items"][0]["attributes"]["brand"], "StoredWins")
+
+    def test_bp_05_an_item_with_no_brand_gains_no_key_at_all(self):
+        """POSITIVE (absence) -- NOT an empty string and NOT None. An item with no brand must be
+        indistinguishable from one the projection never touched, or every downstream reader would
+        need its own blank test and `Object.keys(it.attributes)` would gain a phantom member."""
+        disc = self._new_disc()
+        self._item(disc, brand=None, attrs={"description": "A"})
+        self._item(disc, brand="", attrs={"description": "B"})
+        self._item(disc, brand="   ", attrs={"description": "C"})
+        frappe.db.commit()
+        res = rate_master.get_rate_master_items(discipline=disc)
+        self.assertEqual(len(res["items"]), 3)
+        for it in res["items"]:
+            self.assertNotIn("brand", it["attributes"],
+                             "a blank/absent column must contribute NO key")
+        self.assertEqual(
+            extraction.values_from_catalog(disc, {"kind": "lms_item", "attr": "brand"}), [])
+
+    def test_bp_06_adding_a_column_is_one_word_in_one_tuple_read_by_both_sites(self):
+        """POSITIVE -- THE EXTENSIBILITY BAR the owner set: a second column must be a word added
+        to a list, never new code. This patches `PROJECTED_ITEM_COLUMNS` and asserts BOTH
+        chokepoints pick the new column up with no other edit anywhere -- which also proves the
+        two sites read ONE definition and can never drift apart."""
+        disc = self._new_disc()
+        self._item(disc, brand="Lutron", unit="Nos.", attrs={"description": "A"})
+        frappe.db.commit()
+        first = rate_master.get_rate_master_items(discipline=disc)["items"][0]
+        self.assertNotIn("unit", first["attributes"], "baseline: unit is a column, not projected")
+        self.assertEqual(extraction.values_from_catalog(disc, {"kind": "lms_item", "attr": "unit"}), [])
+        original = extraction.PROJECTED_ITEM_COLUMNS
+        try:
+            extraction.PROJECTED_ITEM_COLUMNS = ("brand", "unit")
+            it = rate_master.get_rate_master_items(discipline=disc)["items"][0]
+            self.assertEqual(it["attributes"]["unit"], "Nos.", "api site must follow the tuple")
+            self.assertEqual(it["attributes"]["brand"], "Lutron")
+            self.assertEqual(
+                extraction.values_from_catalog(disc, {"kind": "lms_item", "attr": "unit"}),
+                ["Nos."], "the extraction site must follow the SAME tuple")
+        finally:
+            extraction.PROJECTED_ITEM_COLUMNS = original
+        again = rate_master.get_rate_master_items(discipline=disc)["items"][0]
+        self.assertNotIn("unit", again["attributes"], "restored")
+
+    def test_bp_06b_all_three_extraction_readers_share_one_parse(self):
+        """POSITIVE (structural) -- fails if a reader is added, or reverted, to its own inline
+        `json.loads(row["attributes"])`, which would silently opt that reader out of the
+        projection. THE MECHANISM IS THE SHARED HELPER, never three copies of it."""
+        import inspect as _inspect
+        for fn in ("catalog_values", "values_from_catalog", "attributes_by_item"):
+            body = _inspect.getsource(getattr(extraction, fn))
+            self.assertIn("_row_attributes(r)", body, "%s must use the shared parse" % fn)
+            self.assertIn("_item_read_fields(", body, "%s must use the shared fields list" % fn)
+        src = _inspect.getsource(extraction)
+        self.assertEqual(src.count("\nPROJECTED_ITEM_COLUMNS = ("), 1,
+                         "the projected-column list must have exactly ONE definition")
+
+    # ---- NEGATIVE ----
+    def test_bp_07_a_write_path_never_persists_the_projection(self):
+        """NEGATIVE -- THE INVARIANT THAT KEEPS THIS DESIGN HONEST. If any write path ever read a
+        PROJECTED item and wrote its `attributes` back, the projection would become STORED --
+        recreating exactly the duplication option (A) was rejected for (a second `brand` CSV
+        header, which makes the whole upload file unreadable). This drives the live edit endpoint
+        AFTER a projected read -- the precise ordering that would poison a write -- and asserts
+        the stored map is untouched."""
+        disc = self._new_disc()
+        self._config(disc)
+        doc = self._item(disc, brand="Lutron", attrs={"description": "A"})
+        frappe.db.commit()
+        seen = rate_master.get_rate_master_items(discipline=disc)["items"][0]
+        self.assertEqual(seen["attributes"]["brand"], "Lutron")
+        rate_master.update_rate_master_item(
+            name=doc.name, attributes_patch=json.dumps({"description": "A2"}))
+        # PostgreSQL hydrates a JSON column, so this comes back as a dict, not text.
+        raw = frappe.db.get_value("BoQ Rate Master Item", doc.name, "attributes")
+        stored = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+        self.assertEqual(stored, {"description": "A2"},
+                         "a write path must NEVER persist a projected key")
+        self.assertNotIn("brand", stored)
+
+    def test_bp_08_the_csv_round_trip_never_sees_the_projection(self):
+        """NEGATIVE -- exactly ONE `brand` header, never two. `csv_exporter._keys_for` derives
+        attribute columns from the keys OBSERVED in the items, while `LEAD_COLUMNS` already
+        carries `brand`; a stored `attributes.brand` would emit a duplicate header and
+        `csv_importer.classify_columns` would then refuse the ENTIRE file. That is the failure
+        that rejected option (A) -- pinned so option (C) can never arrive at it by another route."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+        disc = self._new_disc()
+        self._config(disc)
+        self._item(disc, brand="Lutron", attrs={"description": "A"})
+        frappe.db.commit()
+        _text, headers, _n = csv_exporter.build_category_csv(disc, "lighting_mgmt_system")
+        self.assertEqual(headers.count("brand"), 1,
+                         "a duplicate brand header breaks every upload for the whole discipline")
+        _t2, headers2, _n2 = csv_exporter.build_all_categories_csv(disc)
+        self.assertEqual(headers2.count("brand"), 1)
+        spec, errors = csv_importer.classify_columns(headers, {"description", "brand"}, {"rate"})
+        self.assertEqual(errors, [], "the exported header row must be readable by the importer")
+        self.assertIn("brand", spec["fixed"])
+        self.assertNotIn("brand", spec["attributes"])
+
+    def test_bp_09_a_fresh_asset_export_never_carries_the_projection(self):
+        """NEGATIVE -- `exporter.build_asset` emits each item's `attributes` WHOLE and reads the
+        database directly, so a projected key must never reach it. If it did, the asset would
+        carry the same value twice with no rule saying which is authoritative on re-import, and
+        every future asset diff would be noisy."""
+        from nirmaan_stack.services.boq_rate_master import exporter
+        disc = self._new_disc()
+        self._config(disc)
+        self._item(disc, brand="Lutron", attrs={"description": "A"})
+        frappe.db.commit()
+        asset = exporter.build_asset(disc)
+        self.assertEqual(len(asset["items"]), 1)
+        self.assertEqual(asset["items"][0]["attributes"], {"description": "A"},
+                         "the asset must carry the STORED attributes only")
+        self.assertEqual(asset["items"][0]["brand"], "Lutron",
+                         "the column still rides as its own top-level key, exactly as before")
+
+    def test_bp_10_no_live_config_matches_on_a_projected_column(self):
+        """NEGATIVE (backwards compatibility) -- the projection adds a key to EVERY item in every
+        category, so the question that matters is whether any existing dropdown or pipeline could
+        notice. Measured over the shipped asset: no `values_from`, `where`, `ref` or `when`
+        anywhere references a projected column, so no existing catalogue or match can move. This
+        is also what proves no panel gains a visible field: panels render config-declared
+        DEFINITIONS, and no config declares one backed by a projected column."""
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        projected = set(extraction.PROJECTED_ITEM_COLUMNS)
+        offenders = []
+
+        def walk(node, path):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    if k == "values_from" and isinstance(v, dict):
+                        if v.get("attr") in projected or (projected & set(v.get("where") or {})):
+                            offenders.append(path + "/values_from")
+                    if k in ("where", "ref", "when", "attributes") and isinstance(v, dict):
+                        if projected & set(v):
+                            offenders.append(path + "/" + k)
+                    walk(v, path + "/" + str(k))
+            elif isinstance(node, list):
+                for i, v in enumerate(node):
+                    walk(v, path + "/%d" % i)
+
+        for cfg in payload["category_configs"]:
+            walk(cfg, cfg["category_id"])
+        # ⚠️ INVERTED AT THE LMS SLICE (v55, 2026-09-04) -- NOT deleted. When this pin was written
+        # NOTHING referenced a projected column, so "zero offenders" meant "the projection cannot
+        # change any existing result". The LMS slice then made brand a DELIBERATE match key, which
+        # is the whole point of the projection. Deleting the pin would check nothing; freezing it at
+        # zero would forbid the feature it was written to protect. So it now names the ONE sanctioned
+        # consumer exactly: a SECOND config picking up a projected column still fails here, and must
+        # come with its own measurement.
+        self.assertEqual(
+            offenders, ["lighting_mgmt_system/attribute_definitions/1/values_from"],
+            "exactly ONE config may match on a projected column -- lighting_mgmt_system's brand "
+            "dropdown (owner 2026-09-04). Any other is unmeasured: re-measure before shipping")
+        # and it is the BRAND def, resolving from the projection -- not something that drifted in
+        lms = [c for c in payload["category_configs"]
+               if c["category_id"] == "lighting_mgmt_system"][0]
+        self.assertEqual(lms["attribute_definitions"][1]["id"], "brand")
+        self.assertEqual(lms["attribute_definitions"][1]["values_from"],
+                         {"kind": "lms_item", "attr": "brand"})
+
+
+class TestLmsPricingHelper(FrappeTestCase):
+    """THE LMS PRICING HELPER (owner rulings 2026-09-04). `lighting_mgmt_system` stops being a
+    DATA-ONLY shell and prices by PICKING ONE CATALOGUE ITEM on {description, brand}.
+
+    ⚠️ THE INVERSION IS THE POINT OF THIS CLASS. The original design had the catalogue rate AS the
+    BoQ rate with BCS = rate / 1.3. The hand-priced data falsified it -- of 26 rows matched at
+    >=0.60, SIXTEEN land EXACTLY on 1.25 or 1.30 ABOVE the catalogue rate -- so the rate is the BCS
+    basis and BoQ is the marked-up figure. The owner ruled against his own earlier design on that
+    evidence. *** THE FACTOR IS 1.3 EITHER WAY, so a build with the division restored looks
+    arithmetically correct and under-quotes every row by ~23%. It would survive review. ***
+
+    The pipeline ARITHMETIC is executed by the TypeScript interpreter, so the numeric pin lives in
+    `ratePipelineInterpreter.test.ts` ("LMS: the inversion"). What THIS class pins is the CONFIG
+    the interpreter is handed: the factor, the rounding, the two catalogue-driven dropdowns, and
+    that no other category moved.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            cls.payload = json.load(fh)
+        cls.lms = [c for c in cls.payload["category_configs"]
+                   if c["category_id"] == "lighting_mgmt_system"][0]
+        cls.lms_items = [i for i in cls.payload["items"] if i["kind"] == "lms_item"]
+
+    # ---- the inversion, as CONFIG ----
+    def test_lms_01_the_boq_leg_MARKS_UP_and_never_divides(self):
+        """⚠️ THE INVERSION PIN (config half). The BoQ leg must MULTIPLY by 1.3 -- expressed as the
+        shipped `markup` idiom `base*(1+markup)` with markup 0.30, exactly as `earthing` and
+        `cabletray_raceway` already do. This test goes RED if anyone restores a division: a
+        `base/...` formula, a factor below 1, or a `bcs_factor`-style divisor on the BoQ leg."""
+        steps = self.lms["pipelines"]["lms_boq"]["steps"]
+        scale = [s for s in steps if s["step"] == "scale"]
+        self.assertEqual(len(scale), 1, "the BoQ leg has exactly one scale step")
+        s = scale[0]
+        self.assertEqual(s["target"], "rate", "reads the ONE rate key lms_item carries")
+        self.assertEqual(s["result"], "supply")
+        self.assertEqual(s["formula"], "base*(1+markup)")
+        self.assertEqual(s["params"], {"markup": 0.30})
+        # the direction, stated so it cannot be inverted quietly
+        self.assertNotIn("/", s["formula"], "the BoQ leg must never DIVIDE the catalogue rate")
+        self.assertGreater(1 + s["params"]["markup"], 1.0, "BoQ must be ABOVE the catalogue rate")
+
+    def test_lms_02_bcs_IS_the_catalogue_rate_unrounded(self):
+        """⚠️ THE INVERSION PIN (the other half). BCS is the stored rate itself -- factor 1.0, and
+        NO roundup step on that leg (owner: only the BoQ leg rounds)."""
+        pl = self.lms["pipelines"]["lms_bcs"]
+        self.assertEqual(pl["output"], ["bcs_supply"])
+        scale = [s for s in pl["steps"] if s["step"] == "scale"]
+        self.assertEqual(len(scale), 1)
+        self.assertEqual(scale[0]["params"], {"factor": 1.0})
+        self.assertEqual(scale[0]["formula"], "base*factor")
+        self.assertEqual([s for s in pl["steps"] if s["step"] == "roundup"], [],
+                         "BCS is UNROUNDED -- only the BoQ leg rounds to tens")
+
+    def test_lms_03_the_boq_leg_rounds_UP_to_tens(self):
+        """The owner's 'BoQ rounds to tens'. `digits: -1` is the only tens-rounding this system
+        has, and it is Excel ROUNDUP (away from zero)."""
+        r = [s for s in self.lms["pipelines"]["lms_boq"]["steps"] if s["step"] == "roundup"]
+        self.assertEqual(len(r), 1)
+        self.assertEqual(r[0]["target"], "supply")
+        self.assertEqual(r[0]["params"], {"digits": -1})
+
+    def test_lms_04_the_goldens_carry_the_inverted_arithmetic(self):
+        """The banked goldens must state BOTH figures, so a silent re-inversion moves them. Pins
+        the worked example the owner ruled on: Lutron 24,500 -> BoQ 31,850, BCS 24,500. The
+        2,250 row is the one that proves the rounding DIRECTION (2,925 -> 2,930, never 2,920)."""
+        # ⚠️ THE GOLDENS ARE DERIVED FROM THE PIPELINE'S OWN DECLARED FACTOR, not from a constant.
+        # A vacuity probe caught this: inverting the pipeline's scale step left this test GREEN,
+        # because the goldens were checked only against themselves. Reading the markup and the
+        # rounding OUT OF THE CONFIG means the goldens and the pipeline can no longer drift apart --
+        # invert one without the other and this goes red.
+        import math
+        scale = [s for s in self.lms["pipelines"]["lms_boq"]["steps"] if s["step"] == "scale"][0]
+        rnd = [s for s in self.lms["pipelines"]["lms_boq"]["steps"] if s["step"] == "roundup"][0]
+        self.assertEqual(scale["formula"], "base*(1+markup)", "the golden derivation assumes markup")
+        factor = 1.0 + scale["params"]["markup"]
+        digits = rnd["params"]["digits"]
+
+        def expected_boq(rate):
+            f = 10.0 ** digits
+            return math.ceil(rate * factor * f - 1e-9) / f
+
+        by = {}
+        for i in self.lms_items:
+            by[(i["attributes"]["description"], i["brand"])] = i["rates"]["rate"]
+        seen = 0
+        for g in self.lms["goldens"]:
+            _rate = by[(g["attrs"]["description"], g["attrs"]["brand"])]
+            self.assertEqual(g["expect"]["lms_boq"]["supply"], expected_boq(_rate),
+                             "golden %s disagrees with the pipeline's own factor/rounding" % g["id"])
+            rate = by[(g["attrs"]["description"], g["attrs"]["brand"])]
+            self.assertEqual(g["expect"]["lms_bcs"]["bcs_supply"], rate,
+                             "BCS golden must equal the stored rate exactly")
+            self.assertGreater(g["expect"]["lms_boq"]["supply"], rate,
+                               "BoQ golden must be ABOVE the rate -- never a division")
+            self.assertEqual(g["expect"]["lms_boq"]["supply"] % 10, 0, "BoQ rounds to tens")
+            if rate == 24500:
+                self.assertEqual(g["expect"]["lms_boq"]["supply"], 31850); seen += 1
+            if rate == 2250:
+                self.assertEqual(g["expect"]["lms_boq"]["supply"], 2930)
+                self.assertNotEqual(g["expect"]["lms_boq"]["supply"], 2920); seen += 1
+        self.assertEqual(seen, 2, "both worked examples must be present in the goldens")
+
+    # ---- the two dropdowns ----
+    def test_lms_05_both_dropdowns_are_catalogue_driven(self):
+        """Both attributes resolve `values_from` the LIVE master -- description from the attributes
+        key, brand from the READ-TIME PROJECTED column (3c39bac7)."""
+        defs = {d["id"]: d for d in self.lms["attribute_definitions"]}
+        self.assertEqual(sorted(defs), ["brand", "description"], "two fields, no more")
+        self.assertEqual(defs["description"]["values_from"],
+                         {"kind": "lms_item", "attr": "description"})
+        self.assertEqual(defs["brand"]["values_from"], {"kind": "lms_item", "attr": "brand"})
+
+    def test_lms_06_NEGATIVE_no_static_values_list_anywhere(self):
+        """⚠️ THE GROWTH BAR. A static `values` list would freeze the dropdown: a catalogue line or
+        a brand added by upload would NOT appear without a config edit. The owner's requirement is
+        that everything updates by upload alone, and it is the reason the brand projection exists.
+        Also asserts no `default` on brand -- brand stays BLANK when the document does not say."""
+        for d in self.lms["attribute_definitions"]:
+            self.assertNotIn("values", d, "%s must have NO static values list" % d["id"])
+        brand = [d for d in self.lms["attribute_definitions"] if d["id"] == "brand"][0]
+        self.assertIsNone(brand.get("default"), "brand must never be defaulted or guessed")
+
+    def test_lms_07_a_new_catalogue_row_needs_no_config_change(self):
+        """Adding a catalogue line changes ITEMS only. The config names a kind and an attribute,
+        never a value, so the dropdown widens by upload alone."""
+        # ⚠️ GOLDENS ARE EXCLUDED, DELIBERATELY. A golden is a TEST FIXTURE: it must name a real
+        # description and brand to assert a real rate, and every category's goldens do. The claim
+        # here is about the LIVE surface the dropdowns are built from -- the attribute definitions
+        # and the pipelines. Embedding a catalogue value THERE is what would freeze the dropdown.
+        live = {k: v for k, v in self.lms.items() if k != "goldens"}
+        blob = json.dumps(live)
+        for i in self.lms_items:
+            self.assertNotIn(i["attributes"]["description"], blob,
+                             "no catalogue description may be embedded in the live config surface")
+        for brand in {i["brand"] for i in self.lms_items}:
+            self.assertNotIn('"%s"' % brand, blob,
+                             "no catalogue brand may be embedded in the live config surface")
+        # and the definitions themselves name a KIND and an ATTRIBUTE, never a value
+        for d in live["attribute_definitions"]:
+            self.assertEqual(sorted(d["values_from"]), ["attr", "kind"])
+
+    # ---- the match ----
+    def test_lms_08_description_plus_brand_is_unique_across_the_catalogue(self):
+        """`matchMasterRow` returns a row ONLY on exactly one hit, so uniqueness of the key is the
+        whole requirement. Includes the 6 two-brand descriptions, which were structurally
+        unmatchable before the brand projection."""
+        pairs = [(i["attributes"]["description"], i["brand"]) for i in self.lms_items]
+        self.assertEqual(len(pairs), 24)
+        self.assertEqual(len(set(pairs)), 24, "(description, brand) must be UNIQUE")
+        descs = collections.Counter(d for d, _ in pairs)
+        two = [d for d, n in descs.items() if n > 1]
+        self.assertEqual(len(two), 6, "6 descriptions carry two brands")
+        for d in two:
+            self.assertEqual(len({b for dd, b in pairs if dd == d}), 2,
+                             "a two-brand description must carry two DISTINCT brands")
+
+    def test_lms_09_the_wrong_brand_is_worth_multiples_not_rounding(self):
+        """WHY the brand field is load-bearing rather than cosmetic: on the two-brand descriptions
+        the two rates differ by large multiples, so picking the wrong side is not a small error."""
+        by = collections.defaultdict(dict)
+        for i in self.lms_items:
+            by[i["attributes"]["description"]][i["brand"]] = i["rates"]["rate"]
+        ratios = []
+        for d, brands in by.items():
+            if len(brands) < 2:
+                continue
+            vals = sorted(brands.values())
+            ratios.append(vals[-1] / vals[0])
+        self.assertEqual(len(ratios), 6)
+        self.assertGreater(max(ratios), 6.0, "the worst two-brand spread exceeds 6x (AV interface)")
+        self.assertGreater(min(ratios), 1.1, "every two-brand pair differs materially")
+
+    # ---- the category, and everything else ----
+    def test_lms_10_the_category_is_now_eligible_for_the_panel(self):
+        """`isEligibleConfig` needs BOTH non-empty pipelines and non-empty definitions. The
+        definitions were always there; the ZERO PIPELINES were what showed 'coming soon'."""
+        self.assertEqual(sorted(self.lms["pipelines"]), ["lms_bcs", "lms_boq"])
+        self.assertEqual(len(self.lms["attribute_definitions"]), 2)
+        self.assertEqual(self.lms["matching_mode"], "item_identity")
+        self.assertEqual(self.lms["identity_attribute_id"], "description")
+        self.assertEqual(self.lms["item_kinds"], ["lms_item"])
+
+    def test_lms_11_no_rules_entry_was_added(self):
+        """DELIBERATE. `item_identity` already routes to the shared identity prompt and injects the
+        live catalogue as the identity values; `miscellaneous` (the working precedent) carries zero
+        rules. A rules entry would buy nothing and would join the shared ESTIMATOR_RULES block,
+        whose cross-talk cost was measured twice in two days. The markup and the rounding are
+        CALCULATIONS and belong in config, never in the prompt."""
+        self.assertFalse(self.lms.get("rules"), "no rules entry for this category")
+        misc = [c for c in self.payload["category_configs"]
+                if c["category_id"] == "miscellaneous"][0]
+        self.assertFalse(misc.get("rules"), "the precedent carries none either")
+
+    def test_lms_12_NEGATIVE_no_other_category_moved(self):
+        """⚠️ The regression guard, at the asset level: v55 differs from v54 in
+        `lighting_mgmt_system` ONLY -- every other config, and every item, byte-identical."""
+        with open(_asset_path("rate_master_electrical_all_v54.json"), "r", encoding="utf-8") as fh:
+            prev = json.load(fh)
+        was = {c["category_id"]: c for c in prev["category_configs"]}
+        now = {c["category_id"]: c for c in self.payload["category_configs"]}
+        self.assertEqual(sorted(now), sorted(was), "no category added or removed")
+        self.assertEqual(sorted(k for k in now if now[k] != was[k]), ["lighting_mgmt_system"])
+        self.assertEqual(self.payload["items"], prev["items"], "no item may move")
+        for cat in was:
+            if cat == "lighting_mgmt_system":
+                continue
+            self.assertEqual(self.payload["goldens"].get(cat), prev["goldens"].get(cat),
+                             "%s goldens must not move" % cat)

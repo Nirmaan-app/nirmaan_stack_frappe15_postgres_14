@@ -35197,3 +35197,1027 @@ Live `point_wiring` config before this slice: doc `BRCC-26-23486`, backup 66,089
 -- no BoQ Cell Pricing row was written this slice, so there is nothing to undo there.
 SELECT name, modified FROM "tabBoQ Rate Category Config" WHERE name = 'BRCC-26-23486';
 ```
+
+
+---
+
+# SLICE — READ-TIME COLUMN PROJECTION (`brand` first)
+
+**Date:** 2026-09-03/04 · **Branch:** `feature/boq-pricing-helper` · **Base tip:** `f0b241de`
+**Owner ruling:** *"ok proceed with option 3"* — the READ-TIME PROJECTION.
+**Recon that specifies it:** `recon_brand_attribute_2026-09-03.md` (its findings are the spec; not re-derived here).
+**Status: BUILT, TESTED, INVARIANTS PROVEN, BROWSER CERT PASSED, COMMITTED (feat `3c39bac7`).**
+
+## The problem, in one line
+
+A `BoQ Rate Master Item` stores `brand` as a top-level COLUMN, while every specification the pipelines
+match on lives inside the `attributes` JSON map — so brand could be neither a catalogue-backed dropdown
+nor a match key. Measured live: **0 of 1,367** active Electrical items carry `attributes.brand`;
+**1,367 of 1,367** carry the column.
+
+## Why it mattered more than a dropdown
+
+`lighting_mgmt_system` has `identity_attribute_id = "description"` and **18 distinct descriptions across
+24 rows** — 6 descriptions carry TWO brands each, with rates diverging up to **6.19×**
+(AV Interface: Lutron ₹65,000 vs Zen Control ₹10,500). `component_ref` refuses on
+`refRows.length !== 1`, so those 6 items were structurally unmatchable. Latent only because LMS ships
+`pipelines: {}` (DATA ONLY, owner ruling 2026-07-29).
+
+## The mechanism — TWO chokepoints, ONE list
+
+| Site | File | What it feeds |
+|---|---|---|
+| 1 | `services/boq_rate_master/extraction.py` — the three catalogue readers `catalog_values`, `values_from_catalog`, `attributes_by_item`, all now sharing `_row_attributes` + `_item_read_fields` | the AI extraction prompt for all 40 `values_from` defs across 9 categories, + `build_slot_spec`'s 3 composite catalogues |
+| 2 | `api/boq/rate_master.py` — `get_rate_master_items`'s response loop | the ONE `items` array consumed by both frontend dropdown readers AND all 13 `ratePipelineInterpreter.ts` matcher sites |
+
+**There was no third site.** The recon's central observation held.
+
+**⚠️ ONE list, not two — a DELIBERATE strengthening of the slice spec (reported, not silent).** The
+spec said "add the name to the list at BOTH sites"; the codebase permits a single definition, because
+`api/boq/rate_master.py` **already imports `extraction`** (L151, module level). `PROJECTED_ITEM_COLUMNS`
+is therefore defined ONCE, in `extraction.py`, and the api site reads it. Rationale: the BCS
+import-direction law already records that **two copies on either side of a seam can disagree at exactly
+the moment it matters** — here that would be the frontend offering a brand the extraction prompt never
+saw. `api -> service` is the legal direction. `test_bp_06` proves both sites follow the one tuple.
+
+```python
+PROJECTED_ITEM_COLUMNS = ("brand",)          # a WHITELIST, never "every column"
+def project_item_columns(attributes, row)     # PURE; stored wins; blank -> no key
+def _item_read_fields(*base)                  # resolved at CALL time, so the tuple is the only edit
+def _row_attributes(row)                      # the ONE parse all three readers use
+```
+
+## Load-bearing invariants
+
+- **NOTHING IS STORED.** No write, no migration, no backfill, no asset mint. The projection is
+  recomputed on every read, so **all 1,367 rows — past and future — behave identically with no
+  backfill**, and a historical row self-heals. This is what killed the "some brands show, some do not"
+  hazard that option (A) could not avoid.
+- **⚠️ THE INVARIANT THAT KEEPS IT HONEST: nothing may read a projected item and write its `attributes`
+  back.** A write-back would PERSIST the projection and recreate option (A)'s duplication. Verified none
+  does (`update_rate_master_item` re-reads `doc.attributes`; `RateMasterDataViewer`'s add form builds
+  from `attrDefs`, which excludes brand). **Guarded by
+  `test_rate_master.TestBrandColumnProjection.test_bp_07_a_write_path_never_persists_the_projection`.**
+- **A STORED `attributes.brand` WINS over the projection** (`test_bp_04`). Nothing stores one today; if
+  anything ever does, the stored value is the authority.
+- **A blank/absent column contributes NO KEY** — not `""`, not `None` (`test_bp_05`), so an item with no
+  brand is indistinguishable from one the projection never touched.
+- **⚠️ A DERIVED KEY NOW SITS IN A MAP WHOSE OTHER KEYS ARE STORED. This is deliberate.** Precedent:
+  `commit_pipeline._derive_attached_notes` — **"DERIVED, not carried"**, owner-locked. A value
+  recomputed from source on every read is exactly what makes a historical row self-heal.
+
+## ⚠️ WHY (A) AND (B) WERE REJECTED — recorded so neither is re-proposed
+
+- **(A) write brand into the stored `attributes` at upload.** REJECTED: it **BREAKS THE CSV ROUND TRIP.**
+  `csv_exporter._keys_for` derives attribute columns from the keys OBSERVED in the items while
+  `LEAD_COLUMNS` already contains `brand` — so one such item emits **TWO `brand` headers** and
+  `csv_importer.classify_columns` then refuses the ENTIRE file ("Column 'brand' appears more than once"),
+  for the WHOLE discipline (Mode B is one file over all categories). It also reaches only NEWLY uploaded
+  rows, and rests on a convention no code enforces (`loader._validate_items` checks only that
+  `attributes` is a dict). Pinned by `test_bp_08`.
+- **(B) widen the dropdown readers to a column whitelist.** REJECTED as **HALF-EXTENSIBLE**: the readers
+  and the matchers are **disjoint code — 3 readers vs 13 matcher sites, not one shared line**, and
+  `ratePipelineInterpreter.ts` contains **ZERO references to `brand`**. It would ship a picker selecting
+  a value no pipeline can match on — **worse than the status quo, which at least does not offer a control
+  that lies.** One of those 13 sites (L2058) is dot-indexed (`it.attributes?.item`), so a
+  bracket-keyed patch would have silently skipped it.
+
+## Adding a second column later
+
+**Add its name to `extraction.PROJECTED_ITEM_COLUMNS`. That is the whole change.** No config edit, no
+migration, no backfill, no asset mint, no second list. Then declare it on the category that wants it as
+an ordinary attribute definition with `values_from: {"kind": "<its kind>", "attr": "<the column>"}` — the
+same config line `wire1_thickness_sqmm` and `conduit size_mm` already carry. (`_validate_config` accepts
+`values_from` in place of `values` and does not structurally validate its shape; attribute definitions
+carry no key allowlist at all.)
+
+**To undo:** delete `project_item_columns` and its two call sites. Storage was never touched, so nothing
+else needs reverting.
+
+## Tests — 11 Python + 7 vitest
+
+| Test | Protects |
+|---|---|
+| `test_bp_01` | a projected item reaches the dropdown reader (`values_from_catalog`) |
+| `test_bp_02` | it is a `where` FILTER key too, not just an options list |
+| `test_bp_03` | the api endpoint projects (the frontend/matcher chokepoint) |
+| `test_bp_04` | a STORED attribute wins over the projection |
+| `test_bp_05` | no brand ⇒ no key (not `""`, not `None`) |
+| `test_bp_06` | adding a column is ONE word in ONE tuple, read by BOTH sites |
+| `test_bp_06b` | all three readers share one parse; the tuple has exactly one definition |
+| `test_bp_07` | **NEGATIVE — no write path persists the projection** (the invariant) |
+| `test_bp_08` | **NEGATIVE — exactly ONE `brand` CSV header; the export round-trips through the importer** |
+| `test_bp_09` | **NEGATIVE — a fresh asset export carries only STORED attributes** |
+| `test_bp_10` | **NEGATIVE — no live config matches on a projected column**, so no existing catalogue or panel can move |
+
+**`frontend/src/pages/pricing/rate-master/brandProjectionMatching.test.ts` (7) — THE PROOF (B) COULD NOT
+DELIVER.** `component_ref` resolves the same LMS description to different rows by brand (65,000 vs
+10,500); `catalog_fit` narrows its ladder to one brand's rungs (120mm fits UP to Legrand's 300, not
+Generic's nearer 150); plus three negatives, one of which reproduces the pre-projection world exactly and
+asserts the ref goes ambiguous. **The interpreter is NOT modified and must not be** — these pass because
+a projected item simply HAS the key the matchers already index.
+
+## Vacuity proof (both sites, separately)
+
+| Probe | Result |
+|---|---|
+| API-site projection disabled | 3 RED: `bp_03`, `bp_06`, `bp_07` — restored, green |
+| Extraction-site projection disabled | 3 RED: `bp_01`, `bp_02`, `bp_06` — restored, green |
+| vitest fixtures stripped of the projected key | 3 RED of 7 — restored, 7/7 green |
+
+`bp_06` reddens for BOTH, which is correct — it is the test that asserts one tuple drives both sites.
+
+## Suites (measured in-session, before → after)
+
+| Suite | Before | After |
+|---|---|---|
+| `test_rate_master` | 251 OK | **262 OK** (+11) |
+| `test_rate_suggest` | 65, 1 fail (`test_27`, known) | 65, 1 fail (`test_27`, known) |
+| `test_extraction_coercion` | 77 OK | 77 OK |
+| vitest | 2968, 1 fail (`writeOffControl`, known) | **2975**, 1 fail (`writeOffControl`, known) (+7; 78 files) |
+
+## Round-trip + price invariants — ALL FIVE BYTE-IDENTICAL
+
+| Artefact | Before | After |
+|---|---|---|
+| CSV Mode A (lms) | `375f5e5a…3624baef` | **identical**, 1 brand header |
+| CSV Mode B (all, 49 cols) | `3ce1233a…debe7c647b` | **identical**, 1 brand header |
+| Fresh asset export | `c05dd5c8…fd1674f2` | **identical**, 0 items with `attributes.brand` |
+| `BoQ Cell Pricing` (31,157 rows) | `79f072ac…6266c195` | **identical** — no price moved |
+| Electrical items (1,367 rows) | `8af4bafb…daebcc0aa35` | **identical** — no stored data changed |
+
+## Backwards compatibility
+
+Measured over the shipped v54 asset: **no `values_from`, `where`, `ref` or `when` anywhere references a
+projected column** (0 hits across all 12 configs), so no existing dropdown, ladder or match can notice
+the added key. The TPN four-pole sibling matcher reads NAMED keys only (`device`/`pole`/`amp_a`/`curve`)
+and never iterates the bag. Pinned as a standing guard by `test_bp_10`.
+
+## The three loose ends the recon named — RESOLVED, no frontend change needed
+
+1. `RateMasterDataViewer.tsx:166` and `:722` — `filter((d) => d.id !== "brand")` filters DEFINITIONS,
+   not item attribute keys. The projection adds a key, never a definition ⇒ **behaviour unchanged, still
+   needed, not dead code.**
+2. `RateMasterDerivation.tsx:427` — the hardcoded `(fixed)` block reads `brandDef?.values?.[0] ??
+   items[0]?.brand`, i.e. the COLUMN, which the projection does not remove ⇒ **unchanged.**
+3. The pre-existing LMS double-render (brand is in `selectableDefs` because its def carries
+   `selector: true`, AND in the hardcoded block) is **untouched by this slice** — pre-existing, and it
+   belongs to the LMS helper slice.
+
+**#57 UI change control: no user-visible change is intended and none is expected** — panels render
+config-declared DEFINITIONS, no config changed, and `test_bp_10` proves none is backed by a projected
+column.
+
+
+## CERT — PASSED ON SCREEN (2026-09-04, after the Docker restart)
+
+Run at `http://localhost:8080`, logged in, DevTools-free read-only inspection. **Write-control exclusion
+restated and PROVEN before the first click:** both endpoints the cert touches
+(`get_rate_master_items`, `get_rate_category_config`) are bare `@frappe.whitelist()` — no
+`methods=["POST"]` — and contain **zero** DML tokens (`insert` / `save` / `delete_doc` / `set_value` /
+`db.sql` / `commit`), verified by audit. No click landed inside the pricing grid.
+⚠️ **A correction found DURING the cert:** the Rate Master **Derivation screen is not write-free** —
+`RateMasterDerivation.tsx:542-547` renders inline-editable **pipeline parameter** cells wired to
+`onSaveParam`, a real persisted write, enabled because the cert user is admin (the ✏️ pencils beside
+`discount 0.4` / `markup 0.55`). Only the top "Configure attributes" selects were touched; `selected`
+is plain `useState` (L273). **Anyone re-running this cert must exclude the derivation results table.**
+
+**Live-code proof (an IDENTIFIER, not a comment)** — the API response through the real browser chain:
+```
+items=24 | attributes.brand present on 24 | distinct projected brands=["Lutron","Zen Control"]
+sample attrs keys=["description","location","brand"]
+```
+
+| # | Row | Result |
+|---|---|---|
+| 1 | `point_wiring` prices | ✅ Derivation computes `pw_boq_supply` **2041**, `pw_boq_install` **743.80**. Every `component_ref` resolves to exactly ONE row (COPPER UNARMOURED 1×2.5, Switch 16A 1-WAY Grey, Socket 6A/16A Grey, Grid+Face Plates 3M, Back Box 3M) — the projection broke no ref uniqueness. Brand renders `Polycab (fixed)`, not a dropdown. |
+| 2 | `db_switchgear` | ✅ **EXACT GOLDEN MATCH on the rendered panel** — `db_buildup_supply` **24360**, `db_buildup_install` **4880**, `db_buildup_bcs` **14760**, identical to asset golden `dbu1` (24360.0 / 4880.0 / 14760.0). Data Viewer: brand appears ONCE, as its own named column. **This is the byte-identical proof.** |
+| 3 | `wiring_cabling` | ✅ Data Viewer: brand once (`Polycab`), no duplicate among attribute columns. Derivation computes `cable_boq` 90/20, `termination_boq` 70/20 with resolved refs. No asset golden matches the screen's default selection, so this row rests on unchanged-shape evidence, not a numeric match — stated rather than overclaimed. |
+| 4 | Derivation screen | ✅ No unexpected option anywhere. Category list is the known 12. Attribute sets are exactly as configured; `Brand` renders as the non-selectable `(fixed)` block on every category — `selector: false` still holds. |
+| 5 | Catalogue-backed dropdown | ✅ Thickness (sqmm) (`values_from: {kind:"cable", attr:"thickness_sqmm"}`) shows exactly **1.5, 2.5, 4, 6, 10, 16, 25** — no brand contamination, no extra entries. |
+
+**Additive-only, proven on live data (1,367 items):** all 1,367 carry `attributes.brand`, and on **all
+1,367** `attributes.brand === it.brand` — the projection invents nothing and disagrees with the column
+nowhere. The catalogue's entire attribute key space is 25 keys, of which `brand` is the only projected
+one. With `test_bp_10` (no config's `values_from`/`where`/`ref`/`when` reads it), the computation
+provably cannot move.
+
+**Hashes, pre- and post-cert — both unchanged, and ZERO `Version` rows written:**
+`BoQ Cell Pricing` `79f072ac…6266c195` (31,157 rows) · Electrical items `8af4bafb…daebcc0aa35` (1,367).
+
+⚠️ **A PRE-EXISTING DISPLAY BUG FOUND DURING THE CERT — NOT CAUSED BY THIS SLICE, NOT FIXED HERE.**
+`db_switchgear` declares no brand definition and its items are all `Generic`, yet the Derivation Brand
+block shows **`Polycab`**. Cause: `RateMasterDerivation.tsx:334`,
+`brandValue = brandDef?.values?.[0] ?? items[0]?.brand ?? "-"` — `items` is the WHOLE discipline sorted
+by kind, whose first row is a `cable` (Polycab). It reads the **column**, which the projection never
+touches, so it is byte-unchanged by this slice. Worth its own ticket.
+
+## THE ENVIRONMENT FAULT THAT BLOCKED THE FIRST CERT ATTEMPT — and the wrong diagnosis that preceded it
+
+⚠️ **Recorded because the wrong answer was written down first and would otherwise be inherited.**
+
+The first cert attempt failed with `localhost:8080` unreachable while `127.0.0.1:8080` served. It was
+diagnosed as *"a missing `127.0.0.1 localhost` hosts entry plus IPv6-first resolution"*. **That was
+wrong**, and the owner correctly rejected it: that condition had been true all along, and certs had
+been running on it for a fortnight.
+
+**The real cause, measured:** `Get-NetTCPConnection` showed **TWO** processes listening — Docker
+(`com.docker.backend`) on `0.0.0.0` + `[::]`, and **`wslrelay.exe --mode 2` on `[::1]`** for every
+published port. `[::1]` is more specific than `[::]`, so `localhost` (which resolves to `::1` first)
+landed on wslrelay, which **accepted the TCP connection and then reset it** — `curl` exit **56**
+("failure receiving network data"), never "refused". A Hyper-V VmSwitch adapter-reconfiguration burst
+at **21:35 IST** killed the relay's forwarding while leaving its sockets bound; it failed silently, with
+no Error event anywhere.
+
+**The lesson: `localhost` failing while `127.0.0.1` works is a ROUTE, not a CAUSE. The query that
+separates the two explanations is "who owns the socket", and it was not run.** A hosts-file entry would
+have "worked" by forcing IPv4 past a broken relay — masking it, and banking a false cause.
+
+**Fix:** restart Docker Desktop (owner did). wslrelay rebuilt; `[::1]:8000` now answers `403` instead of
+resetting. The stack was then cold-started per Runbook §1.5 — `web.1` / `socketio.1` / `watch.1` /
+`schedule.1` / `worker.1`, with the **worker proven CONSUMING** (enqueued `frappe.utils.now` → status
+`finished`, returned `2026-09-04 01:14:20.729502`), then vite, then the chain check through `:8080` with
+the Host header ×3 (shell 200 / api 403 with a genuine Frappe traceback / socketio 200).
+
+⚠️ **One transient during the cold start, disclosed:** immediately after `bench start`, `:8000` timed
+out *even from inside the container*, with the werkzeug child in state **`D` (uninterruptible),
+`wchan = p9_client_rpc`** — blocked on the 9p Windows bind-mount while the watchdog reloader scanned the
+tree. It cleared on its own (9p then measured 0.008 s reads, writes OK). **Re-measured rather than
+concluded — reporting the first observation would have filed a second wrong diagnosis.**
+
+
+---
+
+# SLICE — THE LMS PRICING HELPER (asset v55)
+
+**Date:** 2026-09-04 · **Branch:** `feature/boq-pricing-helper` · **Base tip:** `852c1519`
+**Asset:** `rate_master_electrical_all_v55.json` · sha256
+`2c127ef67d13001123b89a2dc5dd53fbddf8ff68851a37befa98f206e5ae6db8` · 818,776 bytes
+**Import batch:** `rmbulk-0bdbf70dc415` (was `rmbulk-bba3d6865620`)
+**Status: BUILT, TESTED, CERTIFIED ON SCREEN (7/7 rows), COMMITTED.**
+
+`lighting_mgmt_system` stops being a DATA-ONLY shell and prices by **PICKING ONE CATALOGUE ITEM**.
+Nothing else in the system works this way except `miscellaneous`, which is the borrowed shape.
+
+---
+
+## ⚠️ THE INVERSION — THE MOST IMPORTANT THING ON THIS PAGE
+
+**The owner ruled against his own earlier design, on measured evidence.**
+
+| | Original design | **Shipped (owner ruling 2026-09-04)** |
+|---|---|---|
+| BoQ rate | the catalogue rate | **`roundup(rate × 1.3, tens)`** |
+| BCS | rate / 1.3 | **the catalogue rate, exactly as stored, unrounded** |
+
+Owner, verbatim: *"ok the rate is BCS and it should be marked up by 1.3 for BoQ"* and *"BoQ rounds
+to tens"*.
+
+**The evidence that forced it.** Of 26 hand-priced rows matched at ≥0.60 against the catalogue,
+**SIXTEEN land EXACTLY on 1.25 or 1.30 ABOVE the catalogue rate** (7 at 1.2500, 9 at 1.3000). So the
+catalogue `rate` is the BCS/cost basis, not the BoQ rate. The original rule would have **under-quoted
+every LMS row by ~23%**, with BCS a further 1.3 below that.
+
+⚠️ **THE TRAP: THE FACTOR IS 1.3 EITHER WAY.** The two readings differ only in *which side of it* the
+catalogue rate sits on. **A build with the division restored looks arithmetically correct and is
+systematically wrong — it would survive review.** That is why the pin exists and why its vacuity was
+probed twice.
+
+**Worked example, and it is the pin:** `BOQ-26-00118` r6, Lutron catalogue **24,500** →
+BoQ **31,850**, BCS **24,500**.
+
+**The direction proof is the 2,250 golden:** 2,250 × 1.3 = 2,925 → rounds UP to tens → **2,930**,
+never 2,920. (`roundup`, `digits: -1`, Excel ROUNDUP away from zero — the only tens-rounding this
+system has.)
+
+**Pinned by:** `test_lms_01` / `test_lms_02` / `test_lms_04` (Python, config side) and the
+`LMS: the inversion` block in `ratePipelineInterpreter.test.ts` (arithmetic side). Restoring the
+division turns **1 Python + 6 vitest** tests red.
+
+---
+
+## The config (v55, `lighting_mgmt_system` only)
+
+Two attributes, both catalogue-driven, **no static `values` anywhere**:
+
+```json
+{"id":"description","label":"Item", "type":"choice","values_from":{"kind":"lms_item","attr":"description"}}
+{"id":"brand",      "label":"Brand","type":"choice","values_from":{"kind":"lms_item","attr":"brand"}}
+```
+
+`brand` resolves **through the read-time column projection** (`3c39bac7`) — it is a top-level column,
+not a stored attribute, and without that projection it would be unaddressable here. No `default`:
+brand stays BLANK when the document does not state one.
+
+Two pipelines, on the `misc_boq` shape:
+
+```
+lms_boq  output ["supply"]      match_master_row{lms_item}
+                                scale  rate → supply, params{markup 0.30}, base*(1+markup)
+                                roundup supply, params{digits -1}
+lms_bcs  output ["bcs_supply"]  match_master_row{lms_item}
+                                scale  rate → bcs_supply, params{factor 1.0}, base*factor
+```
+
+**Three findings established from the code before building:**
+
+1. **The single-rate question.** `kindForOutput` maps only `supply|supply_*` → `supply_rate` and
+   `install|install_*` → `install_rate`; anything else returns `null` and the helper yields no value
+   at all. So the BoQ output is named **`supply`** — **no shared machinery changed.** It is also
+   empirically right: the pricers put the marked-up rate on *supply* and typed install separately
+   (r390: supply 30,625, install 3,500). LMS carries ONE rate key, `rate`; `misc_item` carries
+   `boq_supply`/`boq_install`, so the precedent's targets did **not** transfer.
+2. `match_master_row` seeds `ctx` from `row.rates`, so `ctx["rate"]` = 24,500 and `scale target:"rate"`
+   reads it. A miss returns `status:"no_match"`, `finals:{}` — an honest refusal, no invented price.
+3. **NO `rules` entry, deliberately.** `matching_mode: "item_identity"` already routes to the shared
+   identity prompt and injects the live catalogue as the identity values; `miscellaneous` carries
+   zero rules. Adding one would buy nothing and would enter the shared `ESTIMATOR_RULES` block, whose
+   cross-talk cost was measured twice in two days. The markup and the rounding are **CALCULATIONS**
+   and by standing rule never go in the prompt.
+
+---
+
+## ⚠️ THE SILENT-WRONG-PICK LIMIT — F-29 IN ITS PUREST FORM
+
+**A wrong description pick produces a confident, plausible, wrong price with NOTHING downstream to
+check it.** There is no quantity to sanity-check against, no second leg to disagree, no formula to
+fail. The pick *is* the price.
+
+This is not hypothetical. **The recon's own paper comparison produced a false positive at 4.2×:**
+`BOQ-26-00163` r594 *"scene selctor keypad with all the necessary unit…"* matched
+*"Power supply unit (Board Room)"* at a **perfect 1.00** score — human 35,700 vs catalogue 8,500 —
+because that catalogue description is SHORT and every one of its few tokens appears inside a much
+longer row about something else. **A short catalogue entry is a magnet for long unrelated rows**, and
+the catalogue has several.
+
+**What surfaces it, and both are ADVISORY only:**
+- the **AI confidence** shown beside each field in the panel (`Item 95%`, `Brand 40%`) — a number a
+  pricer may ignore, and it was 97% on a row the model then correctly refused;
+- the panel **rendering the chosen description** next to the row text, so a human can see the
+  mismatch — but only if they look.
+
+**Neither blocks anything. Neither is a gate.** There is no mechanism that refuses a confident wrong
+pick, and adding one would mean the model returning a ranked shortlist with a margin — a change to
+the prompt contract and the `Suggestion` shape, not a config edit.
+
+## ⚠️ ~51 of 235 rows have NO catalogue equivalent — a CATALOGUE gap, not a matching failure
+
+Measured over the 235 lms-classified rows joined to their nodes (1 of 236 has no matching node).
+**31 of those 51 are `Preamble`** — section headers like *"LMS Considerations"*, *"SUSPENDED TYPE"*,
+*"RECESSED TYPE"* — plus rows from other product families entirely (`BOQ-26-00069` r41, a Digital PIR
+sensor). No matching mode can save these. The priceable population is **203 Line Items**.
+
+## ⚠️ The brand stakes: the wrong brand is worth up to 8×
+
+Six of the 18 catalogue descriptions carry two brands. On the 8 hand-priced two-brand rows, the WRONG
+brand gives ratios of 1.83 / 2.34 / 2.43 / 4.00 / 4.18 / 4.38 / **8.05**, while the right brand gives
+a clean 1.25 or 1.30. Every one of them fits Lutron. `(description, brand)` is unique across all 24
+rows (`test_lms_08`), which is the whole requirement — `matchMasterRow` returns a row only on exactly
+one hit.
+
+## ⚠️ THE BLANK-BRAND GATE — what a pricer ACTUALLY sees (corrected on screen)
+
+The build brief said a blank brand means the row prices nothing. My recon Q3(d) *corrected* that,
+because `matchMasterRow` skips a key absent from the selection, so 12 single-brand descriptions would
+still resolve. **The cert showed the brief was right about the PRODUCT and I was right only about the
+MATCHER.**
+
+**The panel's missing-attribute gate sits IN FRONT of the matcher.** Observed on `BOQ-26-00118` r12
+(*"DB BOX **hager make**…"*, Hager not being in the catalogue): Item 85% filled, **Brand 40% → blank,
+red-outlined**, message **"Some attributes are missing -- fill them to compute a rate."**, no value,
+*Use this value* disabled. So end-to-end: **a blank brand prices NOTHING.** Both statements are true
+at their own layer; the vitest pins remain accurate about `matchMasterRow`.
+
+---
+
+## Tests
+
+**Python — `TestLmsPricingHelper` (12)** · **vitest — `LMS:` blocks (10)**
+
+| Test | Protects |
+|---|---|
+| `test_lms_01` | ⚠️ the inversion (config half) — the BoQ leg MULTIPLIES; RED on a restored division |
+| `test_lms_02` | BCS is the stored rate, factor 1.0, **no roundup on that leg** |
+| `test_lms_03` | the BoQ leg rounds UP to tens (`digits: -1`) |
+| `test_lms_04` | goldens **derived from the pipeline's own factor and rounding** — they cannot drift apart |
+| `test_lms_05` | both dropdowns are catalogue-driven `values_from` |
+| `test_lms_06` | ⚠️ NEGATIVE — no static `values`, no `default` on brand (the growth bar) |
+| `test_lms_07` | a new catalogue row needs no config change (goldens excluded — they are fixtures) |
+| `test_lms_08` | `(description, brand)` unique across all 24, incl. the 6 two-brand descriptions |
+| `test_lms_09` | the wrong brand is worth multiples, not rounding |
+| `test_lms_10` | the category is now eligible for the panel |
+| `test_lms_11` | no `rules` entry was added, and the precedent carries none |
+| `test_lms_12` | ⚠️ NEGATIVE — no other category moved between v54 and v55 |
+| vitest ×10 | the numeric pin (31,850 / 24,500), rounding on 3 rates, 2,925→2,930 never 2,920, two-brand resolution (84,500 vs 13,650), and 4 negatives incl. blank brand not picking a side |
+
+**Vacuity — five probes, every one restored:**
+
+| Probe | Observed |
+|---|---|
+| Restore the division in the asset | `test_lms_01` RED |
+| Restore the division in the vitest pipeline | **6 vitest tests RED**, back to 434 on restore |
+| Delete the `roundup` step | `test_lms_03` RED |
+| Add a static `values` list | `test_lms_06` + `test_lms_07` RED |
+| Empty the LMS pipelines in the running config | `test_rate_suggest.test_11` RED (OK → FAILED → OK) |
+
+⚠️ **A probe exposed a real gap and it was fixed, not reported around.** `test_lms_04` stayed GREEN
+when the pipeline was inverted, because it only checked the goldens against themselves — the goldens
+and the pipeline could drift apart silently. It now **derives** the expected figure from the
+pipeline's declared `markup` and `digits`, and re-probing shows it RED on a full inversion *and* on a
+subtle factor change (0.30 → 0.15).
+
+**Five pins outside the new tests needed widening — each made MORE precise, never weaker:**
+- `test_pw_cs_14` / `_23` / `_31` — cumulative "only `point_wiring` moved" pins. `_14`'s own docstring
+  says *"a later mint that copies the block elsewhere has to say so"*; this slice is that mint, so the
+  expected list now names `lighting_mgmt_system`. A **third** category still fails. Their goldens
+  loops also skip the newly-added LMS key.
+- **`test_bp_10`** — the projected-column guard from the previous slice. LMS now deliberately matches
+  on a projected column. ⚠️ **Retired by INVERTING, never deleting:** it names the ONE sanctioned
+  consumer, so a **second** one still fails and must arrive with its own measurement.
+- `test_rate_suggest.test_11` — row 23 now JOINS the extraction population because the category became
+  eligible. The stale comment was **replaced with why it changed**, not deleted.
+
+**Suites (measured in-session, before → after):** `test_rate_master` 262 → **274 OK** ·
+`test_rate_suggest` 65, one known failure (`test_27`) · `test_extraction_coercion` 77 **OK** ·
+vitest 2975 → **2985**, one known failure (`writeOffControl`).
+
+---
+
+## CERT — 7/7 PASSED ON SCREEN
+
+Run at `http://localhost:8080` on `BOQ-26-00118` / sheet `LMS-BOQ`. **Write-control exclusion proven
+before the first click**; the only in-grid controls touched were the **sparkle**
+(`handleSuggestionBadgeClick` → `setHelperPanel` only) and the **tick checkboxes**
+(`setSelectedRows` only) — both verified pure state. *Use this value* and every rate cell untouched.
+
+### Row 1 — THE VALIDATION SET: five hand-priced rows
+
+| Excel row | Item the model picked | Brand | Suggested BoQ | **Human's rate** | **Ratio** |
+|---|---|---|---:|---:|---:|
+| r6 Power Supply Unit | PSU (QSPS-DH) | Lutron 95% | **31,850** | 31,850 | **1.0000** |
+| r5 DALI Dimming controller | DALI (QSN-2DALUNV-D) | Lutron 90% | **112,970** | 112,970 | **1.0000** |
+| r7 QS Sensor Module | QSM5-XW-C | Lutron 85% | **20,670** | 20,670 | **1.0000** |
+| r11 AV Interface (**two-brand**) | QSE-CI-NWK-E | Lutron 90% | **84,500** | 84,500 | **1.0000** |
+| r8 Wireless Occupancy Sensor | LRF5-OCR2B-P-WH | Lutron 85% | **9,360** | 9,400 | **0.99574** ⚠️ |
+
+**Four exact matches to the rupee, and one divergence reported as found.** r8 is 0.43% (₹40) below
+the human: catalogue Lutron 7,200 × 1.3 = 9,360 while the pricer used 9,400. Predicted before the
+cert and confirmed by it. **Nothing was adjusted to close it.**
+
+### Rows 2–7
+
+| # | Row | Result |
+|---|---|---|
+| 2 | two-brand, brand NAMED | ✅ r11 — read **Lutron**, priced 84,500. Had it picked Zen Control: 13,650 — a **6.19× error**. The brand field is doing the work it exists for. |
+| 3 | two-brand, brand NOT named | ✅ r12 — Brand blank + red-outlined, *"Some attributes are missing -- fill them to compute a rate."*, no value, button disabled. (Model refused to guess: the text says "hager make", not in the catalogue.) |
+| 4 | no catalogue equivalent | ✅ r4 and r13 — **Item blank, no invented price.** r4 says "one configurable link" vs the catalogue's "two"; r13's part number `GRX-CBL-46L` differs from the catalogue's `QS-CBL-LSZH`. r4 is notable: mis-picking would have coincidentally hit the human's 422,500, and it declined anyway. |
+| 5 | `point_wiring` REGRESSION GUARD | ✅ **BYTE-IDENTICAL** — `pw_boq_supply` **2041**, `pw_boq_install` **743.80** |
+| 6 | `wiring_cabling` | ✅ unchanged — `cable_boq` **90 / 20**, `termination_boq` **70 / 20** |
+| 7 | `db_switchgear` "(fixed)" brand | ✅ **`Generic (fixed)`** — the pre-existing `Polycab` bug is gone, and `db_switchgear`'s numbers are unmoved (24360 / 4880 / 14760) |
+
+**The panel is exactly the owner's design: TWO FIELDS**, Item and Brand, both catalogue dropdowns,
+with the workings block (`Lms Boq — supply = 31850`) and a final-value field.
+
+**#57 — four items, all confirmed:** the panel is live (no "coming soon"); blank-brand rows wait for a
+pricer (§ blank-brand gate); the helper suggests against the 68 hand-priced rows (§ row 1); and the
+Derivation "(fixed)" brand label is now category-scoped.
+
+**Hashes, pre- and post-cert:** `BoQ Cell Pricing` `79f072ac…6266c195` **unchanged — no price moved**;
+Electrical items CONTENT `b8fe5e4a…b93686` **unchanged**. Only new write: the authorised suggestion
+run.
+
+---
+
+## ⚠️ THREE STANDING LESSONS FROM THIS SLICE
+
+### 1. A slice's scope must include every test that pins the behaviour it changes
+
+**Owner ruling 2026-09-04, after this happened for the THIRD time in one arc:**
+> **WHEN A SLICE CHANGES BEHAVIOUR, EVERY TEST THAT PINS THAT BEHAVIOUR IS IN ITS BLAST RADIUS AND
+> BELONGS IN ITS SCOPE.**
+
+Three occurrences: four stale phrase pins (2026-09-01); `test_rate_suggest.test_e4` (2026-09-03); and
+here, `test_rate_suggest.test_11` — which stopped the slice dead because the file was outside the
+declared FILES IN SCOPE. Scope a slice by *what it changes*, not by the files you expect to type in.
+
+### 2. The item hash: use the CONTENT hash, never the raw one
+
+**A raw `BoQ Rate Master Item` hash that includes `name` CANNOT be a stability guard across an
+import.** `load_rate_master(replace=True)` flips the prior rows `active = 0` and INSERTS new ones, so
+`name` regenerates by design (freeze-and-supersede). Measured here: raw hash moved
+`8af4bafb…` → `437f0fe5…` while the **content** hash (kind/brand/unit/attributes/rates/uid/source) was
+byte-identical `b8fe5e4a…` on both sides, 1,367 rows superseded, 0 left active.
+**Use the content hash. `BoQ Cell Pricing` remains the unchanged-price guard and it held throughout.**
+
+### 3. `isEligibleConfig` is necessary but NOT sufficient for the panel
+
+The helper is also gated on a **run existing**: `SheetPricingPage` builds it only when
+`configsByCategory.size > 0 && suggestRun`, and `rateHelperRegistry` drops it entirely when null — so
+the panel shows only the placeholder helpers, **with no reason text at all**. And `only_rows`
+*requires* a prior completed whole-sheet run ("Run the whole sheet once first"), which no LMS sheet
+could have had, since the category was never eligible before this slice. **First cert of a
+newly-eligible category needs one whole-sheet run.**
+
+## Anomalies disclosed (none caused by this slice)
+
+- **A vite stale-module episode.** The plain module URL served pre-edit code while a cache-buster
+  served the new one; a hard reload was not enough. Cert row 7 showed a **false negative** until vite
+  was killed **by PID** (394/400/411/412 — never `pkill -f yarn`) with `node_modules/.vite` cleared.
+  Trusting the first screen would have produced "the fix doesn't work".
+- **Stale CSRF after a bench restart** made the browser's `start_suggest` POST fail while the
+  server-side call queued fine. The owner's instinct (clear site data + re-login) was the right
+  diagnosis.
+- A recurring `SyntaxError: Unexpected token '{'` at `<page>:32:19` in the SPA shell, present before
+  any change of this slice, on pages that render correctly.
+- A React duplicate-key warning from a Radix `Select` inside `RateMasterDerivation`.
+- `RateMasterDerivation.tsx` has **no DOM test environment** by deliberate repo choice, so the
+  category-scoped fallback fix is structurally untestable by unit test — the browser is its only
+  honest verification (cert row 7).
+
+## Undo
+
+- Config: re-import v54 with `replace=True`, or restore the pre-slice blob
+  (`BRCC-26-23484`, config sha `68c16bf4fb35485b699673c26a1453be987a6be8c36977a81490a67f315f3e52`,
+  batch `rmbulk-bba3d6865620`, saved verbatim in-container at `/tmp/lms_config_BEFORE.json`).
+- Pin: revert `CURRENT_EALL_ASSET` to `rate_master_electrical_all_v54.json`.
+- The suggestion run `BRSR-26-00620` may be left; it writes no rate.
+
+---
+
+## Follow-up — THE LONG-OPTION WRAPPED READ-OUT (owner ruling 2026-09-04, option C)
+
+**A separate, additive change on top of the LMS slice. Its cert is its own.**
+
+**The problem.** A native `<select>` does NOT wrap option text in any engine we ship to, so an LMS
+item description — 46 to **434** chars, median 215 — is truncated to one line and the pricer cannot
+read what they picked.
+
+**The fix.** A READ-ONLY wrapped `<p>` beneath the control, showing the selected description in full
+(~8 lines, scrollable past that).
+
+⚠️ **THE `<select>` IS NOT TOUCHED, and that was the deciding constraint.** Its blank-versus-fallback
+behaviour is owner-locked — a controlled select with no matching option falls back to the first
+SELECTABLE option, and that rule once cost 12 live rows — so changing it would have withdrawn the LMS
+slice's 7/7 cert from the control. Proven by diff: every changed line is a comment or the new
+paragraph. No select markup, prop, option, value binding or handler was added, removed or modified.
+
+**⚠️ THE THRESHOLD IS A MEASUREMENT, AND THE MARGIN IS THE POINT.** `LONG_OPTION_CHARS = 80`.
+Live Electrical catalogue, 2026-09-04: `lms_item` runs 46–434 (median 215); the longest attribute
+string of EVERY other kind is **48** (`industrial_socket`), then 42, 42, 38, 26. 80 sits in a clear
+gap — it cannot fire on today's other categories, and a future long-option category inherits the
+read-out with **no code change and no category named anywhere**.
+
+**Keyed on LENGTH, never on category.** The gate is the pure exported
+`shouldShowLongOptionReadout(value, hasOptions)`. It was extracted out of the JSX precisely so it is
+unit-testable: this repo has no DOM environment by deliberate choice, so a rule left inline could
+only ever be checked by eye in a browser. A source pin fails if any of `lighting_mgmt_system` /
+`lms_item` / `lms` / `description` / `brand` / `category` / `kind` / `item_kinds` appears inside the
+function.
+
+**Tests — `RateHelperPanel.test.ts`, 9.** The threshold sits above 48 and below 215; a long option
+renders; ⚠️ NEGATIVE a short option does not (including the 48-char longest any other kind can
+produce, and LMS's own 46-char shortest); ⚠️ NEGATIVE nothing selected renders nothing; ⚠️ NEGATIVE a
+free-text field never gets it; the boundary is exact and exclusive; plus three source pins — no
+category name in the gate, the read-out is a `<p>` and never a control, and it reads the SAME `shown`
+value the select is bound to, so the two can never disagree.
+
+**Vacuity — three probes, all restored (9/9):** removing the length test → 2 RED; dropping the
+threshold to 40, where it would fire on other categories → 2 RED; inserting a kind name into the
+gate → 1 RED.
+
+**Suites:** `test_rate_master` 274 OK · `test_rate_suggest` 65 with the known `test_27` ·
+`test_extraction_coercion` 77 OK · vitest **2994** with the known `writeOffControl` (+9).
+
+**Cert:**
+
+1. ✅ LMS row 5 on `LMS-BOQ` — the full DALI description renders wrapped in **exactly 8 lines**
+   beneath the truncated select.
+2. ✅ The same row's select is unchanged: same truncated selection, Brand `Lutron` 90%, suggested
+   value **112970** — identical to the 7/7 cert.
+3. ✅ `point_wiring` (`BOQ-26-00086` / `WIRING AND POWER SOCKET`, row 16) — nine fields, several of
+   them selects with short options (`1`, `2.5`, `None`, `MS`, `— select —`), **not one read-out**.
+   ⚠️ **`wiring_cabling` was NOT observed on screen.** The reachable sheets carrying `wiring_cabling`
+   rows either have no suggestion run for them — in which case no `pricingSheetHelper` is built at
+   all and the panel shows only placeholders — or their badged rows sit outside the virtualized
+   window. The negative therefore rests on `point_wiring` plus the unit test that pins the exact
+   48-char boundary `wiring_cabling`'s longest option would hit. Stated rather than implied.
+
+**Hashes:** `BoQ Cell Pricing` `79f072ac…6266c195` and items CONTENT `b8fe5e4a…b93686`, both unchanged
+before and after.
+
+**#57 — two items:** long-option rows gain a read-only wrapped description beneath the control (LMS
+today, any long-option category in future); no other category's panel changes.
+
+### ⚠️ STANDING ENVIRONMENT FACT — vite does not invalidate its transform cache here
+
+**Reproduced TWICE in one session.** The plain module URL serves PRE-EDIT code while a `?t=`
+cache-buster serves the new one, and a browser hard-reload is NOT enough. **Both times it produced a
+FALSE NEGATIVE on a cert row** — the change looked broken when it was correct, and the first instinct
+("the fix does not work") would have been wrong.
+
+The reliable recipe:
+1. kill vite **by PID** (never `pkill -f yarn`),
+2. `rm -rf node_modules/.vite`,
+3. restart,
+4. **confirm the marker on the PLAIN url** (`curl … | grep -c <identifier>`) before trusting anything
+   on screen.
+
+Expect one blank page immediately after the restart; a hard reload clears it. **Grep an identifier,
+never a comment** — and grep the PLAIN url, because the cache-buster will lie to you by succeeding.
+
+---
+
+## Point-set circuit length — the arc (2026-09-04 / 2026-09-05)
+
+Three slices. The defect: rows covering several light points were priced as if they covered one.
+
+### THE UNIFYING IDEA — count the points the row covers and price each by its type
+
+A row covering n points names one primary and n-1 secondaries looped off it. That IS
+`15 + (n-1) x 5`. **The formula was never a special case** — it is the both-types answer, and every
+rule below is a way of noticing that a row covers more than one point.
+
+### THE MECHANISM, precisely
+
+Two mirror-image misreadings, both of a METHOD sentence taken for the row's TYPE:
+
+* **Olympia** (`BOQ-26-00205`): the parent preamble's note said *"...and then **looping** between the
+  points"*. `looping` is a secondary token, it fired at distance 1, and five line items that named no
+  type at all took a flat **5 m**.
+* **The mirror** (`BOQ-26-00063`): *"12 light point controlled by MCB. Point wiring **will start from
+  First Light point**."* A sentence saying WHERE THE WIRING STARTS read as the row's type, so a
+  twelve-point row took a flat **15 m**.
+
+**The near-miss that decided Olympia:** the same note also said *"wiring from **first switch
+point**"*, which `\bfirst\s+point` missed over ONE intervening word. Had it matched, the level would
+have named both types and fallen to the formula on its own.
+
+### THE FIVE RULES, and the ordering
+
+| # | rule | population |
+|---|---|---|
+| 1 | switch-clause shape: a count of points CONTROLLED BY a switch -> None | 23 rows |
+| 2 | count-only shape: `Upto N Light Points`, whole description -> None | 3 rows |
+| 3 | `\bfirst\s+(?:\w+\s+){0,1}point` widening | 9 rows (7 inert `wiring_cabling`, 2 owner-confirmed misclassifications) |
+| 4 | **the count outranks the token**: own count > 1 -> None | **57 rows, 15 inside the 244** |
+| 5 | **n x 5** for secondary-only with a count | **ZERO** |
+
+⚠️ **THE ORDERING BETWEEN 4 AND 5 IS LOAD-BEARING:**
+* count > 1 AND the row's OWN text names **only secondary** -> stays Secondary, length **n x 5**;
+* count > 1 AND primary, or both, or neither -> **None -> the formula**.
+
+Rule 4 must not swallow rule 5's population. Pinned in both directions by ONE test
+(`test_pw_n5_03`) — get the order wrong either way and one of the two rulings silently stops applying.
+
+⚠️ **RULE 4 IS NOT A WORKAROUND.** A row covering n points genuinely HAS one primary and n-1
+secondaries. The count contradicting a single-type reading is a FACT ABOUT THE ROW, not a patch over
+a misreading. It deliberately reaches rows that name their own type — unlike rules 1 and 2, which are
+fenced by `0 not in by_distance`. That fence protected the self-determined rows and was also what
+left 57 of them wrong.
+
+### ⚠️ THE CRASH THAT LIED ABOUT ITS CAUSE
+
+`extraction.py` built its `drops` capture dict with ten keys while TWELVE were written. The write at
+`drops["conductor_floor_applied"].setdefault(...)` **READS the key first**, so the first time
+`apply_conductor_floor` recorded anything the entire batch died with
+`KeyError('conductor_floor_applied')`. Shipped with the conductor-floor work of **2026-09-03**. It
+made `BOQ-26-00016` `Bill 18-_W&C` unpriceable — 22 of 29 rows, permanently.
+
+**And it was reported to the user as an AI failure:** *"An AI request kept failing after 3 attempts,
+so the run stopped early."* The `try` around a batch covers the API call AND all local
+post-processing; `except Exception` catches everything; `_is_transient` defaults an unrecognised
+error to retryable (deliberately, and documented as load-bearing). So a local bug is retried three
+times and blamed on the provider. **A crash that lies about its cause is worse than a crash** — this
+one sent a whole investigation after an AI problem that did not exist.
+
+**Fixed two ways.** The key is initialised, and the message now names the real error. ⚠️ **The REAL
+fix — narrowing the `try` to the API call alone — is NOT done**: it restructures the
+retry/capture/split control flow. Naming the error is the contained half.
+
+⚠️ **THE GUARD IS GENERIC, AND THE GENERALITY IS THE VALUE.**
+`test_pw_drops_01_every_key_READ_from_drops_is_initialised` parses the module with `ast`, collects
+the dict-literal keys and every `drops[...]` subscript in a LOAD context, and fails if any read key is
+missing. A test for `conductor_floor_applied` alone would have caught this one and none of the next.
+Plain assignments (`drops["rows_omitted"] = ...`) create their own key and are correctly ignored.
+
+⚠️ **AND THE TWO PINS THAT USED THE OLD WORDING WERE REWRITTEN, NOT SWAPPED.**
+`test_rate_suggest.test_19` and `test_29` asserted the substring `"kept failing"` as a proxy for
+"we reached the retries-exhausted path". Neither test is about wording — both already assert the
+retry behaviour DIRECTLY (call counts and sleep counts). They now assert a reason exists, that it
+names how many attempts were made, and that it does not blame the provider — **all
+wording-independent**. Proven by reverting the message and re-running: both still pass.
+
+### ⚠️ THE n x 5 POPULATION IS ZERO, AND THE EARLIER NUMBER WAS NEVER REAL
+
+An earlier census reported two rows taking n x 5 for **+150 m**. Both were
+`BOQ-26-00048` r290/r291: *"One **16 Amps** point per circuit"* and *"2nos **16 Amps** point per
+circuit"*, read as **n = 16**. That is an **AMPERAGE, not a point count**. The extractor's unit guard
+now rejects them, and no `point_wiring` row anywhere matches the rule.
+
+**The mechanism is built, pinned by SYNTHETIC tests, and inert** — on the owner's ruling ("ok. still
+buid the mechanism"), so the next such row is right the first time. **No row moved because of it.**
+
+⚠️ **THE UNIT GUARD IS THE WHOLE DESIGN OF THE COUNT EXTRACTOR.** No unit word may sit between the
+number and `point`. Measured over 30,184 line items: the naive pattern reads the amperage rows as 16;
+the guarded one rejects them and keeps every genuine count.
+
+### ⚠️ THE OWNER'S EXPECTATION WAS INVERTED BY MEASUREMENT
+
+* **primary-with-a-count** was expected to be ZERO ("a point wiring row can have only ONE primary").
+  It is **51 corpus-wide (57 under the corrected extractor), 15 of them inside the 244.**
+* **the n x 5 case** was expected to matter. It has **nothing to act on.**
+
+The population expected to be empty is the larger by an order of magnitude.
+
+### ⚠️ THE BUCKET IS 349, NOT 309 — do not quote the stale figure
+
+The "309 already-correct formula rows" is a PRE-v2 label. The shape rules moved 40 rows into that
+bucket, so it now measures **349**; the original 309 is a strict subset. Both stops were checked
+against 349 and **0 moved**.
+
+### The shape patterns are STRUCTURAL by owner ruling
+
+*"X no of y type points. Y canbe many things and not just lights."* Neither pattern names a fixture;
+they key on a count, `point(s)`, and the verb `controlled`. `test_pw_shape_09` fails if a fixture word
+appears in either.
+
+⚠️ **The cross-fixture PROOF was WITHDRAWN as unsatisfiable.** Across 30,184 line items the word
+before `point(s)` in this shape is `light` (143) and `1light` (2) and nothing else; one widened
+variant reaches `Exhaust fan point controlled`. **Two fixture families exist, not ten.** The property
+is real; the corpus cannot demonstrate it.
+
+### C4 — a method-clause excluder is a QUALIFIED NO (open owner decision)
+
+Method clauses do share a signature (a modal or definitional verb in the passive: `shall be`,
+`will start from`, `means wiring`, `measured`). But it does **not** cleanly separate the sets:
+
+* the largest misfire family is **HOMONYMY, not grammar** — `third` **pin** / `third` **party** /
+  `3rd` **floor** — which no clause rule catches;
+* the counter-set contains misfires that look declarative (`(Third Party)`, `3rd Floor UPS room`).
+
+Applied to both token lists it changes **473** rows and moves **27 of the 244** — nine times what the
+widening moved. **On this evidence the separation needs the model's reading, not a pattern.** Parked.
+
+### ⚠️ OPEN — THE CLASSIFICATION DEFECT (not a pricing bug)
+
+Three `wiring_cabling` rows are classified `point_wiring`, all owner-confirmed:
+`BOQ-26-00052` r183, `BOQ-26-00113` r350 and r353. A misclassified row gets the wrong category's
+entire ruleset applied to it. Each cost time in this investigation. **Still open.**
+
+### Owner rulings, verbatim
+
+> "no looping point is secondary point. however this line mentions both first switch point (primary)
+>  and looping point (secondary) if bothpoints are mentioned then formula should have beenapllied.
+>  further the structure ofthe actual line items x no of ligh/fan/anything else points controlled by
+>  Y type switch has both primary and secondary and should be treated as such"
+
+> "X no of y type points. Y canbe many things and not just lights."
+
+> "Upto 10 Light Points / Upto 20 / Upto 30 — this shape is also both primary and secondary and
+>  should be evaluated by the formula. lets add this shape also in the fix"
+
+> "the system is classifying incorrectly. we need to fix this. As a work around can we build the rule
+>  that if points is greater than 1 then we use the formula to calculate circuit lenght"
+
+> "if the row mentions only secondary then it b=will be n secondary. the primary will be mentioend in
+>  some other row and priced separately. if both primary and secondary are mentioned then we go by the
+>  earlier formula of 15+(n-1)*5. here the 15 is for primary and 5 per n-1 seondary."
+
+> "primary point can be 1 only in a point wiring circuit row. however do a recon"
+
+> "ok. still buid the mechanism"
+
+### Measured effect and cert
+
+**119 of 30,184 rows change (0.394%)** — `point_wiring` 99, `wiring_cabling` 17 (inert), no-category
+2, `hvac_misc` 1. Every other category, `db_switchgear` included: **zero**.
+
+| cert row | result |
+|---|---|
+| `BOQ-26-00016` r50 "Upto 10 Light Points" | Supply **6845** — the sheet that could not complete, now completing |
+| `BOQ-26-00063` r90 "12 light point…" | Supply **10145** — the formula, not a flat 15 m |
+| `BOQ-26-00063` r98 "1 light point…" | Supply **2255** — still Primary, unchanged |
+| `BOQ-26-00019` r266 "Three (3) light point…" | Points 3, **circuit length 25 m** (the formula) |
+| `BOQ-26-00205` rows 12/14/16 | **3536.8 / 4613.8 / 5741.8** — were 1331.80 flat on all three |
+| `BOQ-26-00205` r43 conduit | **52**, unchanged |
+
+⚠️ **The `BOQ-26-00019` ladder is independent validation from HUMAN prices**: 1500 / 1890 / 2290 /
+2680 / 3070 / 3470 / 3860 for one through seven points. The human rate RISES with the count — which
+is what the formula does and what the flat reading does not.
+
+### ⚠️ A HASH GUARD THAT REPORTED A CHANGE WHEN NOTHING CHANGED
+
+The `BoQ Cell Pricing` guard used `ORDER BY boq, sheet_name, excel_row, col_letter, pricing_version`
+— **not a total order**, so tied rows returned in arbitrary physical order and three consecutive runs
+produced three different hashes with zero DB change. It nearly produced a false STOP.
+**Use `ORDER BY name`** (or hash the sorted row set). A guard that reports a change when nothing
+changed is worse than no guard.
+
+---
+
+# SLICE — THE STALE HALT BANNER (server-side read scoping)
+
+**Date:** 2026-09-05 · **Branch:** `feature/boq-pricing-helper` · **Base tip:** `bd5686c7`
+**Live config:** asset v55, import batch `rmbulk-0bdbf70dc415`, 12 Electrical category configs.
+**Status: BUILT, TESTED, CERTIFIED ON SCREEN (4/4 rows), COMMITTED.**
+**Spec:** `recon_stale_banner_2026-09-05.md` (findings taken as given, except one count — see below).
+
+`get_active_suggestion_run` served a superseded partial run for ever, so the pricing editor rendered
+*"Rate suggestions stopped early…"* for sheets whose suggestions had in fact completed.
+
+## ⚠️ THE MECHANISM — AND WHY NOTHING CAUGHT IT
+
+**A partial run is `active=0` BY DESIGN.** That is the whole point of SR-1: a halted run must never
+supersede the last good complete run, so the editor keeps reading trustworthy badges while still
+offering a resume. The read comment at `rate_master.py:913-914` says exactly this.
+
+**So `active` was not available as the staleness filter — and NOTHING WAS PUT IN ITS PLACE.** The
+partial query filtered on `{boq, sheet_name, status: "partial"}` and nothing else.
+
+**`_finalise_run` retires only the previously ACTIVE run** (`rate_master.py:660-669`): its supersede
+loop walks `filters={"boq":…, "sheet_name":…, "active": 1}`. A stranded partial is `active=0`, so
+**that loop never sees it and its `status` stays `"partial"` permanently.** A genuine *resume* does
+clear it (`_open_run_doc` reuses the same doc and run_id), but a user who instead re-runs the sheet
+from scratch creates a NEW document and orphans the old one.
+
+⚠️ **AND THE REFETCH SUMMONS IT.** `SheetPricingPage.tsx:3034-3036` calls `void mutateActiveRun()` in
+the run-completion handler — with the comment *"Refetch either way: a partial still needs the resume
+affordance to appear."* So the false banner did not merely survive a successful run: **it appeared at
+the moment of success.**
+
+⚠️ **THE SWR KEY OMITS RUN IDENTITY, AND THAT IS NOT THE CAUSE.** `useFrappeGetCall` is called with
+`swrKey` omitted (`SheetPricingPage.tsx:702-705`), so the key is method + `{boq, sheet_name}` (SDK
+`index.d.ts:306`). That is the shape a caching bug would take, and it is a red herring here: the
+SERVER returns the stale partial on a cache MISS, so a perfect key changes nothing. **Recorded so it
+is not mistaken for the bug by a later reader.** Nor is any client persistence involved — no
+localStorage / sessionStorage run state, no API service worker, an in-memory-only SWR cache.
+
+## ⚠️ THE RECON'S COUNT WAS WRONG — THREE SHEETS, NOT FIVE
+
+The recon reported 5 of 5 affected. **Measured during the build: 3.** Its criterion — *has a partial
+AND has an active complete run at a matching version* — **never checked the ORDER of the two.**
+
+| sheet | last complete | newest partial | verdict |
+|---|---|---|---|
+| `BOQ-26-00007` / `Electrical` | 00:56:58 | 00:39:52 | complete is NEWER -> **false banner, fixed** |
+| `BOQ-26-00016` / `Bill 18-_W&C` | 09-05 00:26:14 | 09-04 23:38:22 | complete is NEWER -> **false banner, fixed** |
+| `BOQ-26-00196` / `ELECTRICAL` | 00:52:18 | 00:16:59 | complete is NEWER -> **false banner, fixed** |
+| `BOQ-26-00086` / `WIRING AND POWER SOCKET` | 17:19:53 | **17:44:59** | partial is NEWER -> **banner is TRUE, kept** |
+| `BOQ-26-00139` / `RFQ` | 17:20:44 | **17:47:16** | partial is NEWER -> **banner is TRUE, kept** |
+
+On the last two the final thing that happened really was a halt. **A fix that cleared all five would
+have destroyed a legitimate resume affordance to make a number match** — which is why the predicate
+is NEWER-THAN and not mere existence. The coarse criterion overstated the defect by two.
+
+## The fix — Fix A only, server-side
+
+New predicate `rate_master._partial_is_superseded(boq, sheet_name, committed_version, created_at)`:
+TRUE iff a `status="complete"` run exists for the same sheet, at the SAME `committed_version`,
+created more recently than the partial. The read drops the partial when true.
+
+**Why a later complete run settles it:** the worker computes
+`complete = bool(env.get("complete", True)) and not (population - acc_attempted)` — **every
+POPULATION row attempted**, never the pass's scope, so a selected-row run cannot reach `complete` on
+a subset. A later complete run therefore covers, by definition, every row the older partial had
+pending; resuming it could only re-spend AI reproducing results the live run already holds.
+
+- **Checking only the NEWEST partial is sufficient, not a shortcut** — a complete run newer than the
+  newest partial is newer than every older one.
+- **FAIL-OPEN on missing inputs** (no `committed_version` / no `creation`): we cannot PROVE
+  supersession, and the safe error is to keep offering a resume rather than hide a genuine one.
+- ⚠️ **THE READ SCOPES WHAT IS OFFERED, NEVER WHAT IS PERMITTED.** `_validate_resume_target` is
+  deliberately UNTOUCHED, so an explicit resume by run_id still succeeds exactly as before. The
+  asymmetry is intentional and pinned by `test_39`.
+
+## Fix B NOT taken — and the consequence, stated
+
+**Not taken.** `BoQ Rate Suggestion Run.status` is a Select whose options are exactly
+`running / partial / complete / failed`; a terminal "superseded" value needs a **doctype JSON change
++ `bench migrate`**, which this slice's FILES IN SCOPE forbids.
+
+⚠️ **THE OWNER SHOULD KNOW WHICH HE IS GETTING: the READ is now correct while the STATE stays dirty.**
+Stranded partials are inert but they are not cleaned, and **new ones will keep accumulating** — every
+halt that is later re-run from scratch leaves one behind for ever. Harmless today; a candidate for its
+own slice if the row count ever matters.
+
+## The 9 stored partials — inert, NO data write needed
+
+7 of the 9 are now unreachable; the 2 that still surface (`BOQ-26-00086`, `BOQ-26-00139`) do so
+CORRECTLY. **No cleaning was required for the fix to work, so no data write was made or requested.**
+
+⚠️ **The retired wording is NOT load-bearing anywhere, and was deliberately left in the stored rows.**
+All 9 partials carry *"An AI request kept failing after 3 attempts, so the run stopped early."*, which
+**no live code path can produce** (current code emits *"The batch failed on all {n} attempts… Last
+error: …"*, `extraction.py:2183-2186`). The only surviving occurrences are two **comments**
+(`extraction.py:1936, 2167`) and one **fixture input** (`test_rate_master.py:4084`) whose test asserts
+`run_status` / `scoped_row_count` / `pass_attempted_count` / `attempted_count` and **nothing about the
+text**. ⚠️ Consequence to expect on screen: the two sheets that legitimately keep the banner still
+display the retired sentence, because it is historical stored data. A NEW halt carries current wording.
+
+## Tests — 6 new, in `test_rate_suggest.py` (65 -> 71)
+
+| test | what it protects |
+|---|---|
+| `test_35` | POS: a partial a later complete run finished past is NOT surfaced. The defect. |
+| `test_36` | ⚠️ **THE ONE THAT MATTERS MOST** — a partial created AFTER the last complete run IS surfaced, with run_id / attempted_count / halt_reason intact. Asserts the resume PAYLOAD, not mere presence: an empty shell would pass a presence-only test and still break the button. |
+| `test_37` | A sheet with no partial is unchanged. |
+| `test_38` | NEG: replays the real refetch-on-completion ORDER — offered before, gone after. |
+| `test_39` | NEG: `_validate_resume_target` still ACCEPTS a partial the read no longer offers. |
+| `test_40` | The predicate four ways, including the fail-open direction. |
+
+Existing `test_13` / `test_14` are free regression evidence: `test_13` builds a partial AFTER a
+`prior-complete` run and asserts it IS surfaced — the shipped pin for exactly the case Fix A must
+preserve.
+
+## Vacuity proof
+
+Neutered the predicate to `return False and bool(...)`, re-ran the six, restored, re-ran.
+
+| | disabled | restored |
+|---|---|---|
+| `test_35` / `38` / `39` / `40` | **FAILED** | OK |
+| `test_36` / `37` | OK | OK |
+
+⚠️ **36 and 37 staying green under BOTH is the correct result, not a gap** — they pin PRESERVED
+behaviour, so they must be insensitive to the new scoping. They are the guard *against* the fix.
+
+## Suites — measured in-session, before -> after
+
+| suite | before | after |
+|---|---|---|
+| `test_rate_master` | 300 OK | **300 OK** |
+| `test_rate_suggest` | 65, 1 fail (`test_27`, known) | **71**, 1 fail (`test_27`, known) (+6) |
+| `test_extraction_coercion` | 77 OK | 77 OK |
+| vitest | 2,994, 1 fail (`writeOffControl`, known) | 2,994, 1 fail (`writeOffControl`, known) — **identical, no frontend change** |
+
+## CERT — PASSED ON SCREEN (4/4), 2026-09-05
+
+⚠️ **THE DE-STALE THAT MATTERED WAS THE BACKEND, AND IT NEARLY WENT UNNOTICED.** vite was killed BY
+PID (253/252/241/235, never `pkill -f yarn`) with `node_modules/.vite` removed, then restarted — but
+this slice changes **no frontend file**, so vite was never the risk. The `frappe serve` child (PID
+142, started 18:04:15) had **NOT reloaded** after the 20:46:19 edit: the site was serving STALE
+PYTHON, and certifying then would have produced a false negative. Killing the web child took honcho
+down with the whole stack; `bench start` was restarted (new serve child PID 8542 at 21:02:34, after
+the edit). Workers proven CONSUMING (1 live worker, idle, jobs completed, all three queues at 0).
+
+**No bundle marker exists this slice** (no frontend change) — claiming one would be theatre. The
+live-code identifier is at the API layer and is an IDENTIFIER, not a comment: the database still holds
+`status='partial'` row `01150ebf…` for `BOQ-26-00016`, so `partial_run: null` in the real browser HTTP
+response can only come from new code. Measured through the page's own session:
+
+```
+BOQ-26-00016  http=200  run=complete/29 rows   partial_run=null
+BOQ-26-00086  http=200  run=complete/91 rows   partial_run=10d18b27dd08b5f256be98086fb5c4c4
+BOQ-26-00007  http=200  run=complete/267 rows  partial_run=null
+```
+
+**Write-control exclusion, restated and PROVEN before the first click:** `acquirePricingLock` has
+exactly two call sites — the heartbeat (returns early unless we already hold the lock) and
+`ensureLockAcquired`, fired from the grid's `onDirtyChange`, i.e. **first edit-intent only**. A
+passive view acquires nothing. `get_active_suggestion_run` is a bare `@frappe.whitelist()`; it and
+`_partial_is_superseded` contain **zero** DML tokens. Empirically confirmed after the cert:
+`BoQ Sheet Pricing Lock` max(`modified`) unmoved at `2026-09-04 16:39:59`.
+
+| # | row | result |
+|---|---|---|
+| 1 | `BOQ-26-00016` `Bill 18-_W&C` — the sheet that started this | ✅ **Banner GONE.** `sr1-partial-run-strip` absent, "Rate suggestions stopped early" absent, retired wording absent, "Resume run" absent. **The sheet still prices: "16 of 16 priced · ready to finalize", "All changes saved".** |
+| 2 | `BOQ-26-00007` `Electrical` | ✅ Banner GONE; "189 of 193 priceable lines priced". |
+| 3 | ⚠️ **THE RESUME GUARD** — `BOQ-26-00086` `WIRING AND POWER SOCKET` | ✅ **Strip PRESENT, "Resume run" button present and ENABLED.** Text: *"Rate suggestions stopped early. An AI request kept failing after 3 attempts… 91 rows were saved…"*. **Not clicked — that would launch a run and spend AI.** A REAL dev sheet, so nothing was manufactured by writing data. |
+| 4 | `BOQ-26-00009` `ELECTRICAL WORKS` (no partial) | ✅ Unchanged. **And its two unrelated amber banners still render** (formula gate + "215 rows still need a category"), proving amber strips were not blanket-suppressed. |
+
+**Hashes, pre- and post-cert — BOTH UNCHANGED:** `BoQ Cell Pricing` (31,157 rows, `ORDER BY name`,
+the corrected total-key guard) `a24b815a…f581aaed0`; Electrical items CONTENT (1,367)
+`e6a94f29…f8f48cf4`. **Zero residual writes:** `BoQ Cell Pricing` max modified still
+`2026-09-03 14:30:08`; run count still 184 (no new run); 0 `Version` rows today.
+
+**#57 UI change control — TWO items, as authorised (no third):**
+1. **Three** sheets (not five — see the count correction) stop showing *"Rate suggestions stopped
+   early…"* when their run in fact completed.
+2. The resume affordance is UNCHANGED where a partial is genuinely resumable — now demonstrated on
+   real data (`BOQ-26-00086`, `BOQ-26-00139`) rather than merely asserted.
+
+## ⚠️ THE CLASS — THE SECOND SCREEN-LIES-ABOUT-STATE DEFECT IN TWO DAYS
+
+The first was a `KeyError('conductor_floor_applied')` reported to the user as *"An AI request kept
+failing after 3 attempts"* — which **sent an investigation after a problem that did not exist**
+(`extraction.py:1930-1940`). This one is a correct reason attached to a run that is no longer current.
+
+**Different code, different mechanism — the same class:**
+
+> **`halt_reason` is free narrative text, written once and never re-qualified — neither against what
+> actually failed, nor against whether the run it describes is still the one the screen is showing.
+> Both defects are the UI granting that string more authority than the data behind it earns.**
+
+**A screen that lies about state costs more than the defect it hides.** A pricer reading this banner
+either re-runs a job that already succeeded — spending AI on nothing — or stops trusting rates that
+are correct. Neither failure leaves a trace, and both cost more than the wrong pixels.
+
+⚠️ **AND THE SAME CLASS BIT THE RECON ITSELF:** its 5-of-5 count was a confident, plausible number
+produced by a criterion coarser than the defect it was measuring. **The lesson generalises past the
+UI — state a criterion precisely enough that it cannot quietly measure something adjacent.**
+
+## Still owed (recorded, not done here)
+
+- The `halt_reason` over-wide `try` — narrowing it to the API call alone. Deferred at
+  `extraction.py:2179-2182`, out of scope here, unchanged.
+- Fix B (retiring superseded partials in the data) — needs a doctype `status` option + migrate.

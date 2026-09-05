@@ -71,7 +71,7 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Settled spend (outflow)** — expense money that has actually left, i.e. an Expense at status *Paid*. **Only** *Paid* Expenses are included in any financial rollup — project outflow, the cashflow gap / CEO-Hold, project Financials totals, the Outflow reports, and the 30-day payment dashboard. *Requested* and *Approved* Expenses are commitments, not settled spend, and are excluded from every such number.
 
-- **Auto-approval (of a small Expense)** — a positive Expense below ₹5,000 is created directly at *Approved*, skipping *Requested*. It is an **approval shortcut only** — it makes no claim that the money has been paid, so an auto-approved Expense is still not counted as settled spend until it is separately marked *Paid*. A refund (non-positive amount) or an amount of ₹5,000 or more follows the full *Requested → Approved → Paid* path.
+- **Auto-approval (of a small Expense)** — a positive Expense of ₹10,000 or less is created directly at *Approved*, skipping *Requested*. It is an **approval shortcut only** — it makes no claim that the money has been paid, so an auto-approved Expense is still not counted as settled spend until it is separately marked *Paid*. A refund (non-positive amount) or an amount above ₹10,000 follows the full *Requested → Approved → Paid* path. (2026-09-04: threshold raised from ₹5,000 and the comparison made inclusive — exactly ₹10,000 auto-approves.)
 
 ## Vendor invoices & credit notes
 

@@ -14,12 +14,27 @@
  * only does: tree-walk, + - * / arithmetic, area-binding of wildcard refs, amount-refs-amount
  * dependency resolution, cycle detection, and the fail-safe. Deterministic + side-effect-free.
  *
- * FAIL-SAFE (the section-0 core): ANY operand anywhere in a formula's tree that resolves to
- * missing (undefined/null) makes the WHOLE formula blank -- NO partial sums, NO
- * zero-substitution (a missing operand is NEVER treated as 0; a real 0 IS a real value). A
- * cycle / malformed tree / a ref to a non-existent column is "broken." The evaluator NEVER
- * throws on bad data -- a missing/odd operand is a fail-safe result, so the grid never crashes
- * on one bad cell.
+ * FAIL-SAFE (the section-0 core): an operand that resolves to missing (undefined/null) makes the
+ * WHOLE formula blank -- NO zero-substitution under `*` / `/` (missing is NEVER 1, and NEVER a
+ * confident 0; a real 0 IS a real value). A cycle / malformed tree / a ref to a non-existent
+ * column is "broken." The evaluator NEVER throws on bad data -- a missing/odd operand is a
+ * fail-safe result, so the grid never crashes on one bad cell.
+ *
+ * ★ THE ONE EXEMPTION -- AN EMPTY QTY / AMOUNT CELL IS READ AS THE NUMBER 0 (owner ruling,
+ * 2026-09-04). Inside a formula, a missing quantity or stored amount is not "unknown", it is
+ * ZERO, and it flows into the arithmetic like a typed 0 would: `(20 + <empty>) x 40` is 800.
+ * A real sheet forced this -- two per-area quantity columns (E = 7f, F = office cfm) priced as
+ * `rate x (E + F)`, with F empty on every line that only exists in one area. Empty there means
+ * "none of this in that area", a FACT the document states, and blanking the amount over it hid
+ * rows that were perfectly computable.
+ *
+ * ⚠️ A MISSING **RATE** IS NOT COVERED AND NEVER WILL BE (MissingKind). An unpriced rate is a
+ * PENDING ACTION, not a fact -- `qty x (supply + install)` with install unpriced stays BLANK,
+ * because 0 there would print a confident number that silently omits a price. This distinction
+ * is the whole safety of the exemption, and six tests hold it in place.
+ *
+ * The exemption also applies ONLY to a sheet's own amount columns, not to every sum this module
+ * folds -- see FoldOptions for the % Margin denominator, which stays strictly fail-safe.
  */
 import type {
   AmountFormulaNode,
@@ -34,6 +49,34 @@ import type {
 const AREA_BOUND_VALUE_FIELDS = new Set(["qty_by_area", "rate_by_area", "amount_by_area"]);
 
 /**
+ * The RATE value_fields. Mirrors PricingGrid's RATE_VALUE_FIELDS (kept in sync, not imported --
+ * F2 stays free of PricingGrid), and exists here for ONE reason: to tell the two kinds of
+ * "missing" apart. See MissingKind.
+ */
+export const RATE_VALUE_FIELDS = new Set([
+  "rate_supply", "rate_install", "rate_combined", "rate_by_area",
+]);
+
+/**
+ * ★ WHY "MISSING" IS NOT ONE THING. The zero-fill (FoldOptions) is only safe for one
+ * of these, and conflating them was a regression caught by six existing tests at once.
+ *
+ *   "value" -- an EMPTY SOURCE CELL: a quantity (or a stored amount) the document simply does
+ *     not carry for this row. On a two-area sheet an empty `office cfm` quantity is a FACT --
+ *     "none of this in that area" -- so under `+` it may contribute nothing and let the row
+ *     compute.
+ *
+ *   "rate"  -- an UNPRICED RATE: nobody has entered it YET. That is a PENDING ACTION, not a
+ *     fact, and it is NEVER skipped. `qty x (supply + install)` with install unpriced must stay
+ *     BLANK: folding it as `qty x supply` would put a confident, silently-incomplete number on a
+ *     tender document -- the exact "partial / stale number" the fail-safe exists to refuse.
+ *
+ * The kind PROPAGATES up the tree, so a `x` that blanked on an unpriced rate still refuses to be
+ * skipped by an enclosing `+` (an `amount_install = qty x rate_install` operand, say).
+ */
+export type MissingKind = "rate" | "value";
+
+/**
  * The discriminated evaluation result. F4 maps `reason` to a cell flag:
  *   - "not_yet": a needed operand is legitimately absent (an un-priced rate, a value not yet
  *     entered) -> the normal "needs a rate / not computable yet" state (the 4b flag covers it).
@@ -42,7 +85,7 @@ const AREA_BOUND_VALUE_FIELDS = new Set(["qty_by_area", "rate_by_area", "amount_
  */
 export type EvalResult =
   | { ok: true; value: number }
-  | { ok: false; reason: "not_yet" | "broken"; detail?: string };
+  | { ok: false; reason: "not_yet" | "broken"; detail?: string; missing?: MissingKind };
 
 /**
  * The injected operand lookup F4 satisfies: resolve ONE concrete operand ref (value_key is the
@@ -110,6 +153,28 @@ const OPS = new Set(["+", "*", "-", "/"]);
  */
 const NON_COMMUTATIVE_OPS = new Set(["-", "/"]);
 
+/**
+ * Fold behaviour, per CALLER -- because empty-is-zero is NOT safe for every sum this module
+ * folds, and defaulting it on was a real regression caught by test.
+ *
+ * ⚠️ OFF BY DEFAULT, ON ONLY FOR A SHEET'S OWN AMOUNT COLUMNS (evalNode). The other caller is
+ * `bcsColumns.boqTotalAmount` -- the DENOMINATOR of % Margin, a `+` over the sheet's amount
+ * columns. Zeroing a missing operand there makes the denominator SMALLER, which makes the margin
+ * read BETTER than it is: a costed sheet whose amount half went missing would quietly report a
+ * healthy margin instead of refusing to answer. That is the same failure the sheet's margin
+ * DISCLOSURE exists to prevent, so the denominator stays strictly fail-safe.
+ *
+ * The split is not arbitrary. An amount column is the sheet's OWN arithmetic over source cells,
+ * where an empty per-area quantity means "none in that area" -- a fact, and 0 is what that fact
+ * is worth. A margin denominator is a DERIVED RISK METRIC, where a missing input must never
+ * silently improve the number.
+ */
+export interface FoldOptions {
+  /** Read a MISSING qty / amount operand as the number 0 (owner ruling -- see the module
+   *  docblock). NEVER applies to a missing RATE, whatever this says: see MissingKind. */
+  missingValueIsZero?: boolean;
+}
+
 export type FormulaOp = "+" | "*" | "-" | "/";
 
 /**
@@ -121,23 +186,45 @@ export type FormulaOp = "+" | "*" | "-" | "/";
  * merely drift, it would drift on the two operators whose rules are easiest to get subtly
  * wrong. Callers differ only in how they turn a LEAF into an EvalResult.
  *
- * FAIL-SAFE, unchanged: any not-ok operand makes the whole fold not-ok, "broken" beating
- * "not_yet", with no partial sum and no zero-substitution. See the evalNode docblock for the
- * seed rule and why a zero divisor is refused before the division rather than after it.
+ * FAIL-SAFE: a "broken" operand always makes the whole fold broken, beating "not_yet". A missing
+ * RATE blanks the fold at every tier. A missing QTY / AMOUNT blanks it too, UNLESS the caller
+ * passes `missingValueIsZero` (only a sheet's own amount columns do), in which case it is read as
+ * the number 0 -- see MissingKind and FoldOptions, in that order. Note what zero-filling under
+ * `/` means: an empty divisor is a division by zero, so the fold is BROKEN, not merely blank --
+ * the same answer a typed 0 has always given.
  */
-export function foldOperands(op: FormulaOp, results: readonly EvalResult[]): EvalResult {
+export function foldOperands(
+  op: FormulaOp,
+  results: readonly EvalResult[],
+  opts?: FoldOptions,
+): EvalResult {
   // A non-commutative op has no identity to seed from -- it starts at its FIRST operand.
   const seedFromFirst = NON_COMMUTATIVE_OPS.has(op);
+  const zeroFill = opts?.missingValueIsZero === true;
   let acc = op === "*" ? 1 : 0;
   let seeded = !seedFromFirst; // "+"/"*" are seeded the moment they start
   let sawNotYet = false;
+  let sawPendingRate = false; // a missing operand that must NEVER be zero-filled (see MissingKind)
   let sawBroken = false;
   let brokenDetail: string | undefined;
-  for (const r of results) {
+  for (const r0 of results) {
+    let r = r0;
     if (!r.ok) {
-      if (r.reason === "broken") sawBroken = true;
-      else sawNotYet = true;
-      continue; // keep scanning so "broken" can win the reason; arithmetic is abandoned
+      if (r.reason === "broken") {
+        sawBroken = true;
+        continue; // keep scanning so "broken" can win the reason; arithmetic is abandoned
+      }
+      // MISSING. An UNPRICED RATE always poisons the fold, at every tier -- zero-filling it would
+      // print an amount that quietly omits a price nobody has entered yet (see MissingKind).
+      if (r.missing === "rate" || !zeroFill || r.missing !== "value") {
+        sawNotYet = true;
+        if (r.missing === "rate") sawPendingRate = true;
+        continue;
+      }
+      // AN EMPTY QTY / AMOUNT CELL **IS** THE NUMBER 0 -- not a skipped term, not an unknown.
+      // It flows into the arithmetic like any other value, so `x` yields 0 and `/` by it is
+      // refused as a division by zero, exactly as a typed 0 would be.
+      r = { ok: true, value: 0 };
     }
     if (!seeded) {
       acc = r.value;
@@ -162,7 +249,13 @@ export function foldOperands(op: FormulaOp, results: readonly EvalResult[]): Eva
     }
   }
   if (sawBroken) return { ok: false, reason: "broken", detail: brokenDetail };
-  if (sawNotYet) return { ok: false, reason: "not_yet" };
+  // PROPAGATE the kind: an enclosing fold must never zero-fill a node that blanked on an
+  // unpriced rate, however deep the rate was.
+  if (sawNotYet) {
+    return sawPendingRate
+      ? { ok: false, reason: "not_yet", missing: "rate" }
+      : { ok: false, reason: "not_yet" };
+  }
   // Unreachable from evalNode (an operator node has >= 1 operand), but reachable if a caller
   // hands over an empty list. Defensive rather than thrown -- this module never throws on data.
   if (!seeded) return { ok: false, reason: "broken", detail: "malformed-node" };
@@ -205,10 +298,17 @@ function evalColumn(
 
   // No declared formula -> a plain stored value (qty / rate / un-computed amount).
   if (!formula || !formula.formula) {
+    // An unpriced RATE and an empty source cell are both "missing", and the additive skip treats
+    // them differently -- see MissingKind. This is the ONE place the distinction is made.
+    const missing: MissingKind = RATE_VALUE_FIELDS.has(col.value_field) ? "rate" : "value";
     const v = lookup(col);
-    if (v === null || v === undefined) return { ok: false, reason: "not_yet" };
+    if (v === null || v === undefined) return { ok: false, reason: "not_yet", missing };
     if (typeof v !== "number" || Number.isNaN(v)) {
-      // A non-numeric lookup is bad data, not a value -- fail safe, never throw.
+      // BAD DATA, and deliberately UNTAGGED so no fold can zero-fill it. An ABSENT cell is a fact
+      // the document states ("none here") and may read as 0; a non-numeric value is a fact about
+      // nothing, and substituting 0 for it would put a confident number on a tender line built
+      // from junk. `undefined !== "value"`, so every fold poisons on this exactly as it did
+      // before zero-fill existed. Fail safe, never throw.
       return { ok: false, reason: "not_yet" };
     }
     return { ok: true, value: v };
@@ -258,9 +358,12 @@ function evalNode(
     return evalColumn(col, formulaSet, lookup, visiting);
   }
   if (isOperatorNode(node)) {
+    // THE ONE OPT-IN SITE for the additive skip -- a sheet's own amount column. See FoldOptions
+    // for why boqTotalAmount (the % Margin denominator) deliberately does not opt in.
     return foldOperands(
       node.op,
       node.operands.map((o) => evalNode(o, formulaSet, lookup, visiting, bindArea)),
+      { missingValueIsZero: true },
     );
   }
   // Neither a valid operator nor a valid leaf -> malformed (slipped past F1) -> broken.
