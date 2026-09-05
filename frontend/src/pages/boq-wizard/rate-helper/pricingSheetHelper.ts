@@ -53,9 +53,10 @@ import type {
   RateCategoryConfig,
   RateMasterItem,
 } from "@/pages/pricing/rate-master/rateMasterTypes";
-import { sortAttrNotes } from "./rateHelperTypes";
+import { POLE_WORDS, sortAttrNotes } from "./rateHelperTypes";
 import type {
   AttrNote,
+  ExtractedAttr,
   ExtractionRow,
   HelperResult,
   RateHelper,
@@ -457,6 +458,33 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
   });
 }
 
+/**
+ * F-30 slice A. PURE. A `rating_up` note from the server ladder's `pole_ladder` marker, or undefined
+ * when the marker is absent or carries no amp move (a plain swap, a rung-1 hit, a blank). The pole,
+ * device and curve words are read from the PRICED catalogue row (`pole_ladder.to`) so the sentence can
+ * never disagree with what was bought; a row the catalogue no longer carries still gets the numbers,
+ * with neutral words, rather than no note at all.
+ */
+export function ratingUpNote(
+  ladder: ExtractedAttr["pole_ladder"] | undefined,
+  items: RateMasterItem[],
+): AttrNote | undefined {
+  const mv = ladder?.amp_moved_up;
+  if (!mv || typeof mv.from !== "number" || typeof mv.to !== "number" || !(mv.to > mv.from)) return undefined;
+  const priced = typeof ladder?.to === "string" ? items.find((it) => it.attributes?.item === ladder.to) : undefined;
+  const pole = priced?.attributes?.pole;
+  const device = priced?.attributes?.device;
+  const curve = priced?.attributes?.curve;
+  return {
+    kind: "rating_up",
+    askedAmp: mv.from,
+    usedAmp: mv.to,
+    poleWord: typeof pole === "string" ? POLE_WORDS[pole] ?? pole : "matching",
+    device: typeof device === "string" ? device : "breaker",
+    curve: typeof curve === "string" ? curve : "same",
+  };
+}
+
 /** Map a pipeline output key -> the sheet rate-kind it fills. EA-4a: the assembly categories name their
  * outputs `supply` / `install` (no per-unit suffix), so match those EXACTLY as well as the legacy
  * `supply_*` / `install_*` (conduit/wiring per-mtr, switches per-set). */
@@ -623,6 +651,16 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       if (isDefaulted) {
         defaulted.push(`${d.label}=${coerced}`);
       }
+      // F-30 slice A (owner ruling 2, 2026-09-05) -- THE RATING-UP NOTE. The server-side ladder
+      // stamps `pole_ladder.amp_moved_up` when it priced the next rating UP because the counted pole
+      // (SPN -> 2 pole, TPN -> 4 pole) is not stocked at the stated amp on that curve. That is a
+      // substitution the pricer must SEE on the form, in words -- the face-plate precedent: the
+      // trace is a surface a pricer may never open. It rides the general `notes` list (the v6.00
+      // generalisation), never a second channel. Same clearing rule as `defaulted`: a pricer's
+      // override makes the field theirs again and the note goes. The words come from the PRICED
+      // row's own catalogue attributes (pole / device / curve), read from `items` -- no second
+      // vocabulary. Per-attribute, on the attribute: nothing whole-sheet is carried.
+      const ratingUp = ratingUpNote(!disabled && overridden === undefined ? cell?.pole_ladder : undefined, items);
       // SLICE 2d -- THE ONE PLACE THE PANEL NARROWS. `selected` and `missing` above are computed from
       // the FULL walk and are deliberately untouched: `catalog_fit` reads `selected[mcb_present]` and
       // `selected[mcb_amp_a]`, and `map_attribute` reads the two stated-pole/curve attributes, so
@@ -641,6 +679,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         disabled: disabled || undefined,
         allowNone: d.allow_none || undefined,
         defaulted: isDefaulted || undefined,
+        ...(ratingUp ? { notes: [ratingUp] } : {}),
         // F4b: carry the config's group label through untouched. A non-string (or empty) is dropped
         // rather than rendered -- attribute-definition keys carry no backend type guard, so a bad
         // value must degrade to "no group" here instead of drawing a blank header.

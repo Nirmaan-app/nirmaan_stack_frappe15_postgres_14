@@ -108,8 +108,34 @@ export interface WorkingsAttribute {
  */
 export type AttrNote =
   | ({ kind: "upgrade" } & AttrUpgradeNote)
+  | ({ kind: "rating_up" } & AttrRatingUpNote)
   | { kind: "capped"; stated: number; spare: number }
   | { kind: "uncovered"; stated: number; spare: number; uncovered: number };
+
+/**
+ * F-30 slice A (owner ruling 2, 2026-09-05) -- WE OVERRODE YOU, on the RATING. The server-side
+ * poles-plus-neutral ladder counted a stated neutral into the next pole (SPN -> 2 pole, TPN -> 4 pole)
+ * and found that pole NOT STOCKED at the stated amp on that curve, so it priced the next rating UP.
+ * A fourth kind rather than a reuse of `upgrade`: that kind's payload is module-shaped (holds /
+ * occupies) and its sentence says so; this one is amp-shaped. Both are corrections, so both sit in
+ * the "what is priced" half of `ATTR_NOTE_ORDER`, ahead of the quantity notes.
+ * Carried as DATA (numbers + the words the catalogue row supplies) so the sentence lives in ONE place.
+ */
+export interface AttrRatingUpNote {
+  /** The amp the row STATED. */
+  askedAmp: number;
+  /** The amp actually priced -- the next one the catalogue stocks at that pole and curve. */
+  usedAmp: number;
+  /** The pole in a pricer's words ("2 pole", "4 pole"), from the priced row's catalogue attributes. */
+  poleWord: string;
+  /** The device word from the priced row ("MCB"). */
+  device: string;
+  /** The curve letter, unchanged by the ladder -- it is named so the pricer sees it was HELD. */
+  curve: string;
+}
+
+/** The catalogue's four pole codes in a pricer's words; anything else passes through unchanged. */
+export const POLE_WORDS: Readonly<Record<string, string>> = { SP: "single pole", DP: "2 pole", TP: "3 pole", FP: "4 pole" };
 
 /**
  * RENDER ORDER, declared rather than incidental.
@@ -121,7 +147,7 @@ export type AttrNote =
  * the count reads sensibly. `capped` and `uncovered` are mutually exclusive by construction (a stated
  * count is either above the spare or below it, never both), so their relative order never arises.
  */
-export const ATTR_NOTE_ORDER: readonly AttrNote["kind"][] = ["upgrade", "capped", "uncovered"];
+export const ATTR_NOTE_ORDER: readonly AttrNote["kind"][] = ["upgrade", "rating_up", "capped", "uncovered"];
 
 /** PURE. Notes in `ATTR_NOTE_ORDER`. A STABLE sort, so two notes of one kind keep producer order. */
 export function sortAttrNotes(notes: AttrNote[]): AttrNote[] {
@@ -170,6 +196,10 @@ export function attrNoteText(n: AttrNote): string {
   switch (n.kind) {
     case "upgrade":
       return upgradeWarningText(n);
+    case "rating_up":
+      // Names what was asked for, why it could not be used, and what was used instead -- the
+      // face-plate shape ("... holds 2 modules; contents occupy 3 — using 3M."), amp-shaped.
+      return `No ${n.poleWord} ${n.device} at ${n.askedAmp}A on the ${n.curve} curve — using ${n.usedAmp}A.`;
     case "capped":
       return (
         `${n.spare === 0 ? "No" : n.spare} spare module${n.spare === 1 ? "" : "s"} on this plate; ` +
@@ -286,6 +316,16 @@ export interface ExtractedAttr {
    * gave no positive identification. It ALWAYS arrived on the wire; U2 declares it so the helper can carry
    * it onto the per-attribute contract instead of reading it through an undeclared cast. */
   defaulted?: boolean;
+  /** F-30 slice A: the server-side poles-plus-neutral ladder's record for THIS attribute, stamped only
+   * when it has something to say beyond a plain same-amp swap -- a rung-1 hit (`rung: 1`), a rating
+   * moved UP (`amp_moved_up`), or a blank with its `reason`. `to` is the catalogue item name priced. The
+   * helper turns `amp_moved_up` into a `rating_up` note; the other shapes carry no panel text yet. */
+  pole_ladder?: {
+    to?: string | null;
+    rung?: number;
+    reason?: string;
+    amp_moved_up?: { from: number; to: number };
+  };
 }
 export interface ExtractionRow {
   excelRow: number;

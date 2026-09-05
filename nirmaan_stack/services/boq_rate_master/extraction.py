@@ -1602,6 +1602,17 @@ def apply_conductor_floor(row_out, groups):
 # `amp_a` and `curve` are stored on every catalog row and checked by nothing. The owner ruled
 # "later if the team starts noticing higher error rates we will make th elarger fix". Do NOT
 # generalise this mechanism to those attributes.
+#
+# F-30 SLICE A (owner rulings, 2026-09-05) -- THE POLES-PLUS-NEUTRAL LADDER. The TPN-only
+# correction above became a two-family LADDER: "for any pole + Neutral, should be matched with
+# next higher pole: SPN with DP, TPN with 4p"; "we need to first match with SPN in catalog, if
+# that is not there then we match with DP" (same ordering for TPN); "still build it so that if
+# we later add SPN in catalog it gets matched first"; for a rating the catalogue does not carry,
+# "next rating". The 2026-08-23 "let it be for now" on SPN is REVERSED by these. "POLE ON MCBs
+# ONLY" still holds STRUCTURALLY: the ladder enters only from a pick whose `pole` is the
+# family's stated / counted / named pole, and MCB is the only device carrying SP or TP rows.
+# The prompt is NOT touched -- the model reads SP for an SPN row, correctly (a FACT TO READ);
+# counting the neutral is a CALCULATION TO APPLY and lives here (the CLAUDE.md gate).
 
 # The adjacency window, in INTERVENING WORDS, between a four-pole token and the device word.
 # DERIVED FROM THE REAL CORPUS, not chosen a priori: the three genuinely mis-routed rows sit at
@@ -1617,6 +1628,37 @@ _FOUR_POLE_ADJACENCY_WORDS = 3
 _BOARD_WORDS_AFTER_DEVICE = frozenset({"DB", "DBS", "DB'S", "MCBDB", "BOARD", "BOARDS", "DISTRIBUTION"})
 
 _WORD_RE = re.compile(r"[A-Za-z0-9+']+")
+
+# The SPN-family vocabulary -- a CODE-SIDE constant, the `_BOARD_WORDS_AFTER_DEVICE` precedent.
+#
+# WHY CODE, WHEN THE TPN FAMILY IS READ FROM THE PROMPT: the prompt's POLE line carries NO SPN
+# breaker clause, and must not gain one -- the model already reports SP for "SPN MCB", which is
+# the right READING (single pole is what is stated; the neutral is COUNTED here, deterministically).
+# With nothing in the prompt to read from, a prompt-sourced list would be empty by construction.
+# There is therefore ONE vocabulary, this one; the anti-drift pin is INVERTED -- the test asserts
+# the prompt carries no `"SPN" ->` clause, so the day one is added the two lists collide loudly.
+# Longest-first, like the prompt's TPN order, so "SP+N" can never truncate "SP+NL". Spellings are
+# the ones MEASURED in the corpus (SPN 299, SP+N 5, SP&N 3, 1P+N 1 -- 2026-09-05 census) plus
+# SP+NL, the mirror of the prompt's TP+NL.
+_SPN_FAMILY_TOKENS = ("SP+NL", "SP+N", "SP&N", "SPN", "1P+N")
+
+
+def spn_family_tokens():
+    """The SPN-family spellings, longest first. See `_SPN_FAMILY_TOKENS` for why this is code."""
+    return list(_SPN_FAMILY_TOKENS)
+
+
+def pole_plus_neutral_families():
+    """The two poles-plus-neutral families the ladder walks, TPN FIRST (today's behaviour, kept
+    byte-identical) then SPN. Each names the pole the model STATES for the family (TP / SP), the
+    pole the ladder COUNTS the neutral into (FP / DP), and the literal `pole` value rung 1 looks
+    for on a catalogue row (TPN / SPN)."""
+    return [
+        {"family": "TPN", "tokens": four_pole_tokens(),
+         "stated_pole": "TP", "counted_pole": "FP", "named_pole": "TPN"},
+        {"family": "SPN", "tokens": spn_family_tokens(),
+         "stated_pole": "SP", "counted_pole": "DP", "named_pole": "SPN"},
+    ]
 
 
 def four_pole_tokens():
@@ -1698,6 +1740,49 @@ def _four_pole_near_device(fragment, four_pole_re, device, window):
     return False
 
 
+_AMP_WORD_RE = re.compile(r"^(\d+(?:\.\d+)?)(?:A|AMP|AMPS)?$", re.I)
+
+
+def _family_token_amps(fragment, family_re, device, window):
+    """The amps STATED BESIDE a family token in `fragment` -- the numbers within `window` words
+    BEFORE a token that itself sits within `window` words of a standalone device word ("40 amp
+    SPN MCB" -> {40}; "6No.s.10/16A SPN MCB" -> {10, 16}; "TPN MCB with weather proof" -> {}).
+
+    FOUND ON THE LIVE CERT (2026-09-05): the adjacency test alone is ROW-WIDE, so on a row that
+    reads '6 Nos of 16 amp SP MCB's ... controlled by 1 No. 40 amp SPN MCB' EVERY SP pick was
+    laddered -- the single-pole outgoings became two-pole with an amp-moved-up note. The ruling
+    is 'a breaker whose OWN row text names IT', so the token is anchored to the amp stated beside
+    it; picks whose amp is not named stay where the model put them. Same per-fragment surface and
+    the same anchor/window rules as `_four_pole_near_device`, which is left byte-identical."""
+    if family_re is None or not fragment:
+        return set()
+    words = [(m.group(0), m.start(), m.end()) for m in _WORD_RE.finditer(fragment)]
+    anchors = []
+    for i, (w, _s, _e) in enumerate(words):
+        if w.upper() != device:
+            continue
+        nxt = words[i + 1][0].upper() if i + 1 < len(words) else ""
+        if nxt in _BOARD_WORDS_AFTER_DEVICE:
+            continue
+        anchors.append(i)
+    amps = set()
+    if not anchors:
+        return amps
+    for m in family_re.finditer(fragment):
+        span = [i for i, (_w, ws, we) in enumerate(words) if ws < m.end() and we > m.start()]
+        if not span:
+            continue
+        lo, hi = min(span), max(span)
+        near = any(not (lo <= d <= hi) and ((d - hi - 1) if d > hi else (lo - d - 1)) <= window for d in anchors)
+        if not near:
+            continue
+        for j in range(max(0, lo - window), lo):
+            am = _AMP_WORD_RE.match(words[j][0])
+            if am:
+                amps.add(float(am.group(1)))
+    return amps
+
+
 def row_own_text_fragments(row):
     """The row's OWN text, as SEPARATE fragments: its description, then each note line (own,
     attached, appended).
@@ -1716,63 +1801,193 @@ def row_own_text_fragments(row):
     return [f for f in frags if f]
 
 
-def correct_four_pole_mcb_picks(row_out, row, pole_catalog, tokens=None):
-    """Re-select a THREE-POLE MCB pick as its FOUR-POLE sibling when the row text says four pole.
+def _same_device_and_curve(attrs, pole_catalog):
+    """The catalogue rows a pick may be re-selected among: same device, same curve, a readable
+    amp. The curve is NEVER changed by any rung, so it is fixed here, once."""
+    return [(name, a) for name, a in pole_catalog.items()
+            if a.get("device") == attrs.get("device") and a.get("curve") == attrs.get("curve")
+            and isinstance(a.get("amp_a"), (int, float)) and not isinstance(a.get("amp_a"), bool)]
+
+
+def _rung1_rows(attrs, fam, pole_catalog):
+    """RUNG 1 candidates: rows whose STRUCTURED `pole` is literally the family's named pole
+    (SPN / TPN) at the same device, EXACT amp and same curve. Never the item NAME."""
+    return [name for name, a in _same_device_and_curve(attrs, pole_catalog)
+            if a.get("pole") == fam["named_pole"] and a.get("amp_a") == attrs.get("amp_a")]
+
+
+def _ladder_target(attrs, fam, pole_catalog):
+    """Resolve ONE pick through the three rungs. Returns (target_name, record_extras) where
+    target_name is None for a blank, or ("__ambiguous__", extras) when the catalogue offers more
+    than one row at the chosen rung and picking one would be a guess.
+
+    RUNG 1 -- a row whose STRUCTURED `pole` is literally the family's named pole (SPN / TPN), same
+    device, EXACT amp, same curve. Never the item NAME: 54 live rows are named SPN/TPN/VTPN and
+    every one is a DB shell with no `pole` key.
+    RUNG 2 -- the counted pole (DP / FP), same device, same curve, the exact amp else the NEXT amp
+    UP. Never down. The curve is never changed.
+    RUNG 3 -- nothing at or above the amp on that curve: BLANK (None), so the row does not price
+    and a human decides. This REPLACES the 2026-08-23 "swap, never blank" for the no-sibling case,
+    per the owner's "next rating" ruling (2026-09-05).
+    """
+    device, amp, curve = attrs.get("device"), attrs.get("amp_a"), attrs.get("curve")
+    if not isinstance(amp, (int, float)) or isinstance(amp, bool):
+        return "__unreadable__", {}
+    same = _same_device_and_curve(attrs, pole_catalog)
+    rung1 = _rung1_rows(attrs, fam, pole_catalog)
+    if len(rung1) == 1:
+        return rung1[0], {"rung": 1}
+    if len(rung1) > 1:
+        return "__ambiguous__", {"reason": "ambiguous_named_pole", "candidates": len(rung1), "rung": 1}
+    above = [(a.get("amp_a"), name) for name, a in same
+             if a.get("pole") == fam["counted_pole"] and a.get("amp_a") >= amp]
+    if not above:
+        return None, {"reason": "no_rating_at_or_above", "rung": 3}
+    best = min(x for x, _n in above)
+    at = [name for x, name in above if x == best]
+    if len(at) != 1:
+        return "__ambiguous__", {"reason": "ambiguous_counted_pole", "candidates": len(at), "rung": 2}
+    extras = {} if best == amp else {"amp_moved_up": {"from": float(amp), "to": float(best)}}
+    return at[0], extras
+
+
+def apply_pole_plus_neutral_ladder(row_out, row, pole_catalog, tokens=None):
+    """Re-select a breaker pick through the poles-plus-neutral LADDER when the row's OWN text
+    names it as SPN-family or TPN-family (see `pole_plus_neutral_families`).
 
     PURE apart from mutating the `row_out` it is handed (the same dict `_extract_batch` is
-    assembling) -- the `scrub_unpaired_slot_defaults` shape. Returns a list of records
-    {attr, from, to} for the caller to log, or the reason nothing was done.
+    assembling) -- the `scrub_unpaired_slot_defaults` shape. Returns a list of records for the
+    caller to log: a plain {attr, from, to} for a rung-2 exact swap (BYTE-IDENTICAL to the TPN
+    correction this grew from), plus `rung: 1` for a named-pole hit, `amp_moved_up: {from, to}`
+    when rung 2 went up a rating, and {to: None, reason, rung: 3} for a blank.
 
     `pole_catalog` is {item_name: attributes} for the composite's breaker kind, supplied by the
     caller (the `values_from_catalog` shape) so this stays free of DB access and of any category
-    id.
+    id. `tokens` overrides the TPN family's vocabulary (test seam), never the SPN family's.
 
-    SWAP, NEVER BLANK (decided). A blanked slot makes `component_ref` match zero rows, which
-    refuses the WHOLE pipeline -- turning a slightly-low price into a dead row. A swap between two
-    existing catalog rows always yields a priceable row.
+    THE GUARD IS THE PICK, NOT A PARSE OF THE TEXT'S INTENT: the ladder enters only from a pick
+    whose `pole` is the family's stated, counted or named pole, and only when a family token sits
+    within `_FOUR_POLE_ADJACENCY_WORDS` of a device word that is not part of a board name, in the
+    row's OWN text. MCB is the only device carrying SP or TP rows, so the ladder is structurally
+    unable to alter a shell, an enclosure or a residual-current device.
 
-    NO FP SIBLING AT THAT amp AND curve -> THE PICK IS LEFT EXACTLY ALONE and the reason is
-    recorded. Never swap to a different amp, never to a different curve, never invent a row: a
-    four-pole breaker the catalog does not stock is an honest gap for a human, not something to
-    approximate.
+    The pick is left EXACTLY ALONE (and the reason recorded) only when the catalogue is AMBIGUOUS
+    at the chosen rung -- picking one of two rows would be a guess.
     """
     changed = []
     if not row_out or not pole_catalog:
         return changed
-    four_pole_re = _four_pole_re(four_pole_tokens() if tokens is None else tokens)
-    if four_pole_re is None:
+    families = []
+    for fam in pole_plus_neutral_families():
+        toks = tokens if (tokens is not None and fam["family"] == "TPN") else fam["tokens"]
+        rx = _four_pole_re(toks)
+        if rx is not None:
+            families.append((fam, rx))
+    if not families:
         return changed
     fragments = None
-    for aid in sorted(row_out):
-        cell = row_out.get(aid) or {}
-        picked = cell.get("value")
-        if not isinstance(picked, str):
+    for fam, rx in families:
+        # PASS 1 -- the candidates: every pick this family may ladder, in attribute order.
+        cands = []
+        for aid in sorted(row_out):
+            cell = row_out.get(aid) or {}
+            picked = cell.get("value")
+            if not isinstance(picked, str):
+                continue
+            attrs = pole_catalog.get(picked)
+            if not attrs:
+                continue
+            device, pole = attrs.get("device"), attrs.get("pole")
+            if not device or not pole:
+                continue  # a shell or an enclosure is not a breaker
+            # ENTRY -- from the family's STATED pole (TP / SP), the full ladder; from its COUNTED
+            # pole (FP / DP) ONLY when a rung-1 row exists for the pick (the owner's "if we later
+            # add SPN in catalog it gets matched first"), else silence -- MEASURED: 46 stored rows
+            # read '40A FP 30mA, RCBO' / '25A, 4P RCCB' beside an already-FP residual-current
+            # pick, and today's code emits nothing for them; entering rung 2 there would find the
+            # three mA variants ambiguous and stamp a marker on rows that never had one. From the
+            # NAMED pole (a rung-1 row already picked) never: that is the idempotent case.
+            if pole == fam["stated_pole"]:
+                pass
+            elif pole == fam["counted_pole"]:
+                if not _rung1_rows(attrs, fam, pole_catalog):
+                    continue
+            else:
+                continue
+            if fragments is None:
+                fragments = row_own_text_fragments(row)
+            dev = str(device).upper()
+            if not any(_four_pole_near_device(f, rx, dev, _FOUR_POLE_ADJACENCY_WORDS) for f in fragments):
+                continue
+            cands.append((aid, cell, picked, attrs, dev))
+        if not cands:
             continue
-        attrs = pole_catalog.get(picked)
-        if not attrs:
-            continue
-        device = attrs.get("device")
-        if not device or attrs.get("pole") != "TP":
-            continue  # only a three-pole pick can be mis-routed; everything else is out of reach
-        if fragments is None:
-            fragments = row_own_text_fragments(row)
-        if not any(_four_pole_near_device(f, four_pole_re, str(device).upper(),
-                                          _FOUR_POLE_ADJACENCY_WORDS) for f in fragments):
-            continue
-        siblings = [
-            name for name, a in pole_catalog.items()
-            if a.get("device") == device and a.get("pole") == "FP"
-            and a.get("amp_a") == attrs.get("amp_a") and a.get("curve") == attrs.get("curve")
-        ]
-        if len(siblings) != 1:
-            # 0 -> the catalog stocks no four-pole equivalent. >1 -> the catalog is ambiguous and
-            # picking one would be a guess. Either way: leave the pick, record why.
-            changed.append({"attr": aid, "from": picked, "to": None,
-                            "reason": "no_unique_fp_sibling", "candidates": len(siblings)})
-            continue
-        cell["value"] = siblings[0]
-        changed.append({"attr": aid, "from": picked, "to": siblings[0]})
+        # PASS 2 -- THE AMP ANCHOR (live-cert finding, 2026-09-05). The adjacency test is row-wide:
+        # a row reading '16 amp SP MCB's ... 40 amp SPN MCB' passes it for BOTH SP picks. Anchor the
+        # family token to the amps stated beside it: when at least one candidate's amp is named
+        # there, ONLY the named candidates are laddered. When nothing is named ("TPN MCB with
+        # weather proof enclosure") or nothing matches ("45A TPN MCB" fitted to 63 A), the row-wide
+        # rule stands -- today's behaviour, byte-identical, and what keeps TPN a no-op.
+        named = {}
+        for _aid, _cell, _picked, _attrs, dev in cands:
+            if dev not in named:
+                named[dev] = set()
+                for f in fragments:
+                    named[dev] |= _family_token_amps(f, rx, dev, _FOUR_POLE_ADJACENCY_WORDS)
+        # THE NAMED BREAKER MAY ALREADY BE ACCOUNTED FOR by a pick this pass did not admit -- the
+        # model can pick a rung-1 row (pole SPN / TPN) or the counted pole itself for the incomer,
+        # and neither is a candidate. Found on the live cert (C4): with an SPN row in the catalogue
+        # the model chose it directly, the outgoings came back as 32A SP, and the fallback laddered
+        # them. So the anchor is judged over EVERY breaker pick in the family's poles, not only the
+        # candidates: when any such pick carries a named amp, ONLY named candidates move (possibly
+        # none); the row-wide fallback is kept for the case where NO pick carries a named amp
+        # ("45A TPN MCB" fitted to 63 A -- the one TP pick still ladders, as today).
+        family_poles = (fam["stated_pole"], fam["counted_pole"], fam["named_pole"])
+        named_hit = False
+        for _aid in row_out:
+            _v = (row_out.get(_aid) or {}).get("value")
+            _a = pole_catalog.get(_v) if isinstance(_v, str) else None
+            if _a and _a.get("pole") in family_poles and _a.get("device")                     and _a.get("amp_a") in named.get(str(_a.get("device")).upper(), set()):
+                named_hit = True
+                break
+        if named_hit:
+            cands = [c for c in cands if c[3].get("amp_a") in named.get(c[4], set())]
+        for aid, cell, picked, attrs, _dev in cands:
+            target, extras = _ladder_target(attrs, fam, pole_catalog)
+            if target == "__unreadable__":
+                continue
+            if target == "__ambiguous__":
+                changed.append(dict({"attr": aid, "from": picked, "to": None}, **extras))
+                continue
+            if target == picked:
+                continue  # already resolved (idempotent) -- no record
+            cell["value"] = target
+            changed.append(dict({"attr": aid, "from": picked, "to": target}, **extras))
     return changed
+
+
+# The call-site and test name since the TPN slice (2026-08-23). It IS the ladder -- one
+# implementation, not two; the name is kept so the 30 existing pins keep reading naturally.
+correct_four_pole_mcb_picks = apply_pole_plus_neutral_ladder
+
+
+def stamp_pole_ladder(row_out, records):
+    """Write the ladder's `pole_ladder` marker onto the RESULT cell of each record's attribute --
+    the dict the run STORES and the panel READS (the same dict `defaulted` rides on).
+
+    FOUND ON THE LIVE CERT (C3, 2026-09-05): the marker was first written to `row_map`, which is
+    the CAPTURE-log map (`cap_map[rid] = row_map`, observation only, never stored), so the panel
+    never saw it and the rating-up sentence could not render. Stamped ONLY when the record carries
+    more than a plain same-amp swap -- a rung-1 hit, an `amp_moved_up`, or a blank's reason -- so
+    a plain TPN swap's stored cell stays byte-identical to before this slice."""
+    for rec in records or []:
+        aid = rec.get("attr")
+        cell = row_out.get(aid) if aid else None
+        if not isinstance(cell, dict):
+            continue
+        extras = {k: v for k, v in rec.items() if k not in ("attr", "from", "to")}
+        if extras:
+            cell["pole_ladder"] = dict(extras, to=rec.get("to"))
 
 
 def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, absent_rules=None, conductor_groups=None, *, capture_ctx=None):
@@ -2058,13 +2273,26 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 # deterministic correction of model output, applied to the row dict this loop is
                 # assembling, BEFORE the result is stored. `pole_catalog` is absent for every
                 # non-composite category, so this is inert -- and byte-identical -- for them.
+                # F-30 SLICE A: the same call now walks the poles-plus-neutral LADDER for both
+                # families (TPN first, byte-identical; then SPN). The drops key and the
+                # `four_pole_corrected` mirror are kept as they were. `pole_ladder` is an ADDITIVE
+                # per-attribute record written ONLY when the ladder has something to say beyond a
+                # plain same-amp swap -- a rung-1 hit, an amp moved UP, or a blank with its reason
+                # -- so a plain TPN swap's stored result stays byte-identical to today, and a
+                # panel can read why a rating changed.
                 _row_src = rows_by_id.get(rid)
                 if pole_catalog and _row_src is not None:
-                    for _rec in correct_four_pole_mcb_picks(row_out, _row_src, pole_catalog):
+                    _ladder_recs = apply_pole_plus_neutral_ladder(row_out, _row_src, pole_catalog)
+                    # THE RESULT CELL, not the capture map: `row_out` is what the run stores and
+                    # the panel reads; `row_map` below is the capture log's mirror (observation).
+                    stamp_pole_ladder(row_out, _ladder_recs)
+                    for _rec in _ladder_recs:
                         drops["four_pole_mcb_corrections"].setdefault(str(rid), []).append(_rec)
                         _a = _rec.get("attr")
                         if _a in row_map:
                             row_map[_a]["four_pole_corrected"] = _rec.get("to")
+                            if row_out.get(_a, {}).get("pole_ladder"):
+                                row_map[_a]["pole_ladder"] = row_out[_a]["pole_ladder"]
                 # PIECE 4 -- THE POINT TYPE, a DETERMINISTIC CODE MATCH over the payload.
                 #
                 # Placed beside the two corrections above because it is the same kind of thing: pure,

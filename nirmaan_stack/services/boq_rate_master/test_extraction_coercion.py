@@ -546,16 +546,19 @@ class TestFourPoleMcbCorrection(FrappeTestCase):
         self.assertEqual(out["db_shell_item"]["value"], "TPN 7 SEGMENT DB 6WAY")
 
     # ---- the honest gap --------------------------------------------------------------
-    def test_no_fp_sibling_leaves_the_pick_alone_and_records_why(self):
-        """NEGATIVE. The catalogue stocks no 63A FP MCB at D curve. Never approximate to another
-        amp or curve, and never invent a row: leave the pick and say why, so a human can see it."""
+    def test_no_rating_at_or_above_on_that_curve_blanks_the_pick(self):
+        """NEGATIVE, INVERTED. The catalogue stocks no FP MCB on the D curve at all. Never approximate
+        to another curve and never invent a row -- and never leave a three-pole pick pricing a
+        four-pole row: the pick BLANKS (rung 3) and says why, so the row does not price and a human
+        decides."""
+        # Owner ruling, 2026-09-05: the ladder supersedes "swap, never blank" (2026-08-23). No rating
+        # at or above, on that curve, blanks. This pin was INVERTED under that ruling, not silenced.
         row = _row("Incomer 63A TPN MCB D Curve - 1 No")
         out = {"mcb1_item": _cell("63A TP MCB D CURVE")}
         rec = extraction.correct_four_pole_mcb_picks(out, row, _CAT)
-        self.assertEqual(out["mcb1_item"]["value"], "63A TP MCB D CURVE", "the pick must not move")
-        self.assertEqual(len(rec), 1)
-        self.assertEqual(rec[0]["reason"], "no_unique_fp_sibling")
-        self.assertIsNone(rec[0]["to"])
+        self.assertIsNone(out["mcb1_item"]["value"], "the pick must blank, not stay three-pole")
+        self.assertEqual(rec, [{"attr": "mcb1_item", "from": "63A TP MCB D CURVE", "to": None,
+                                "reason": "no_rating_at_or_above", "rung": 3}])
 
     # ---- the other four tokens -------------------------------------------------------
     def test_each_compound_four_pole_token_also_fires(self):
@@ -777,3 +780,446 @@ class TestConductorFloor(FrappeTestCase):
                     {"group": "", "core_attr": "c", "runs_attr": "r"}, "not-a-dict"):
             cfg = {"attribute_definitions": [{"id": "t", "conductor_floor": bad}]}
             self.assertEqual(extraction.conductor_floor_groups(cfg), {}, repr(bad))
+
+
+# ---------------------------------------------------------------------------------------
+# F-30 SLICE A -- THE POLES-PLUS-NEUTRAL LADDER (SPN family + TPN family), db_switchgear
+# ---------------------------------------------------------------------------------------
+#
+# Owner rulings (2026-09-05): "for any pole + Neutral, should be matched with next higher pole:
+# SPN with DP, TPN with 4p"; "we need to first match with SPN in catalog, if that is not there
+# then we match with DP" (and the same ordering for TPN); "still build it so that if we later
+# add SPN in catalog it gets matched first"; a rating the catalogue does not carry -> "next
+# rating". The ladder: RUNG 1 a row whose structured `pole` is literally "SPN"/"TPN" at the
+# same device/amp/curve; RUNG 2 count the neutral (SPN->DP, TPN->FP) at the same curve, exact
+# amp else the NEXT amp UP, never down; RUNG 3 blank.
+#
+# The fixture EXTENDS `_CAT` with the SP/DP rows the live catalogue carries (SP at every amp,
+# DP only from 25 A up), and keeps its structure: MCB is the only device with SP/DP/TP/FP rows,
+# RCCB/RCBO are DP/FP only, shells carry no `device`. The two OWNER-RULED throwaway rows (pole
+# "SPN" / pole "TPN") are added PER TEST, never to the base fixture, so every rung-2 pin runs
+# against a catalogue that does not carry them -- exactly today's live catalogue.
+_CAT_LADDER = dict(_CAT)
+_CAT_LADDER.update({
+    "16A SP MCB D CURVE": {"family": "Switchgear", "item": "16A SP MCB D CURVE",
+                           "device": "MCB", "pole": "SP", "amp_a": 16.0, "curve": "D"},
+    "40A SP MCB C CURVE": {"family": "Switchgear", "item": "40A SP MCB C CURVE",
+                           "device": "MCB", "pole": "SP", "amp_a": 40.0, "curve": "C"},
+    "40A SP MCB D CURVE": {"family": "Switchgear", "item": "40A SP MCB D CURVE",
+                           "device": "MCB", "pole": "SP", "amp_a": 40.0, "curve": "D"},
+    "63A SP MCB D CURVE": {"family": "Switchgear", "item": "63A SP MCB D CURVE",
+                           "device": "MCB", "pole": "SP", "amp_a": 63.0, "curve": "D"},
+    "32A SP MCB B CURVE": {"family": "Switchgear", "item": "32A SP MCB B CURVE",
+                           "device": "MCB", "pole": "SP", "amp_a": 32.0, "curve": "B"},
+    "25A DP MCB D CURVE": {"family": "Switchgear", "item": "25A DP MCB D CURVE",
+                           "device": "MCB", "pole": "DP", "amp_a": 25.0, "curve": "D"},
+    "40A DP MCB C CURVE": {"family": "Switchgear", "item": "40A DP MCB C CURVE",
+                           "device": "MCB", "pole": "DP", "amp_a": 40.0, "curve": "C"},
+    "40A DP MCB D CURVE": {"family": "Switchgear", "item": "40A DP MCB D CURVE",
+                           "device": "MCB", "pole": "DP", "amp_a": 40.0, "curve": "D"},
+    "63A DP MCB C CURVE": {"family": "Switchgear", "item": "63A DP MCB C CURVE",
+                           "device": "MCB", "pole": "DP", "amp_a": 63.0, "curve": "C"},
+    # DELIBERATELY NO DP row at B curve, and NO DP row at or above 63 A on D curve.
+    # the live catalogue's THREE mA variants of a residual-current device at one amp and pole --
+    # what makes a counted-pole re-selection AMBIGUOUS for RCCB/RCBO, and why the ladder must not
+    # enter from an already-FP residual-current pick (see the silence pin)
+    "40A RCCB 30mA (FP)": {"family": "Switchgear", "item": "40A RCCB 30mA (FP)",
+                           "device": "RCCB", "pole": "FP", "amp_a": 40.0, "curve": "NA"},
+    "40A RCCB 300mA (FP)": {"family": "Switchgear", "item": "40A RCCB 300mA (FP)",
+                            "device": "RCCB", "pole": "FP", "amp_a": 40.0, "curve": "NA"},
+    # a shell NAMED SPN -- the row the ladder must never reach
+    "SPN DB 8WAY": {"family": "DB", "item": "SPN DB 8WAY"},
+})
+# The two owner-ruled throwaway rows, in the shape a real import would give them.
+_SPN_FIXTURE = {"40A SPN MCB C CURVE": {"family": "Switchgear", "item": "40A SPN MCB C CURVE",
+                                        "device": "MCB", "pole": "SPN", "amp_a": 40.0, "curve": "C"}}
+_TPN_FIXTURE = {"40A TPN MCB C CURVE": {"family": "Switchgear", "item": "40A TPN MCB C CURVE",
+                                        "device": "MCB", "pole": "TPN", "amp_a": 40.0, "curve": "C"}}
+
+# The live SPN population for this slice, verbatim (BOQ-26-00193 r135/136/138 share the wording).
+_REAL_193_R135 = _row(
+    "Supply Installation and commossioing Sheet metal enclosed 8 way SPN DB with 6 Nos of "
+    "10/16/20/32 amps SP MCB's i.e. 6 Nos of 16 amp SP MCB's arranged in 1 rows and controlled by "
+    "1 No. 40 amp SPN MCB and neutral link. (Also provide 1 nos. 40 amp DP RCCB of 300 mA "
+    "Sensitivity for each phase)")
+_REAL_015_R311 = _row(
+    "3ø, 4Way, ETPN DB with PPI KIT for Hubrooms",
+    attached=["Incoming -40A 3Pole MCB with Double NL",
+              "Replaceable cartridge type 15kA 3P+N Surge Suppressor",
+              "Sub incommer: 3No.s. 40A DP MCB (D' curve) for each phase",
+              "Outgoings: 6No.s.10/16A SPN MCB ( 'D' curve)", "Supply & Installation"])
+
+
+class TestSpnFamilyVocabulary(FrappeTestCase):
+    """Where the SPN-family spellings come from, and why that is not a second drifting copy."""
+
+    def test_the_spn_tokens_are_a_code_constant_longest_first(self):
+        """POSITIVE. The prompt's POLE line carries no SPN breaker clause (the model correctly
+        reports SP for an SPN row -- reading, not counting), so there is nothing in the prompt to
+        read the SPN vocabulary FROM. It is a code-side constant, the `_BOARD_WORDS_AFTER_DEVICE`
+        precedent, ordered longest-first so "SP+N" can never truncate "SP+NL"."""
+        toks = extraction.spn_family_tokens()
+        self.assertEqual(toks, ["SP+NL", "SP+N", "SP&N", "SPN", "1P+N"])
+        self.assertEqual(len(toks[0]), max(len(t) for t in toks), "the longest token must come first")
+
+    def test_the_prompt_carries_no_spn_breaker_clause(self):
+        """NEGATIVE -- THE ANTI-DRIFT PIN, inverted. The reason the SPN list may live in code is
+        that the prompt says NOTHING about SPN as a breaker pole. The day someone adds an
+        `"SPN" -> DP` clause to the POLE line there WOULD be two vocabularies, and this pin is
+        what makes that day loud: reconcile the two, do not let them drift."""
+        line = next(ln for ln in extraction._read_prompt(extraction._DECOMPOSITION_PROMPT_PATH)
+                    .splitlines() if ln.lstrip().startswith("- POLE"))
+        for tok in extraction.spn_family_tokens():
+            self.assertNotIn('"%s" ->' % tok, line,
+                             "%r has gained a prompt clause -- the code constant and the prompt "
+                             "must be reconciled, not left to drift" % tok)
+        # and the TPN family still comes from the prompt, not from code
+        self.assertEqual(extraction.four_pole_tokens()[:5], ["TP+2NL", "TP+2N", "TP+NL", "TP+N", "TPN"])
+
+    def test_the_two_families_are_tpn_then_spn(self):
+        """The ladder walks TPN first (today's behaviour, byte-identical) and SPN second; each
+        family names its stated pole, its counted pole and the literal `pole` value rung 1 looks
+        for."""
+        fams = extraction.pole_plus_neutral_families()
+        self.assertEqual([f["family"] for f in fams], ["TPN", "SPN"])
+        self.assertEqual((fams[0]["stated_pole"], fams[0]["counted_pole"], fams[0]["named_pole"]),
+                         ("TP", "FP", "TPN"))
+        self.assertEqual((fams[1]["stated_pole"], fams[1]["counted_pole"], fams[1]["named_pole"]),
+                         ("SP", "DP", "SPN"))
+
+    def test_the_legacy_name_is_the_ladder(self):
+        """`correct_four_pole_mcb_picks` is kept as the call-site and test name; it IS the
+        ladder, not a second implementation."""
+        self.assertIs(extraction.correct_four_pole_mcb_picks, extraction.apply_pole_plus_neutral_ladder)
+
+
+class TestPolePlusNeutralLadderSpn(FrappeTestCase):
+    """The SPN family through the ladder. Pure: pick + row text + catalogue dict in."""
+
+    # ---- RUNG 2 -- today's catalogue carries no SPN pole, so the neutral is counted ----
+    def test_real_193_r135_rung_2_swaps_sp_to_dp_same_amp_same_curve(self):
+        """POSITIVE. '40 amp SPN MCB' picked as 40A SP C -> 40A DP C. The record is the plain
+        three-key swap, exactly the shape the TPN swap has always had."""
+        out = {"mcb2_item": _cell("40A SP MCB C CURVE")}
+        rec = extraction.correct_four_pole_mcb_picks(out, _REAL_193_R135, _CAT_LADDER)
+        self.assertEqual(out["mcb2_item"]["value"], "40A DP MCB C CURVE")
+        self.assertEqual(rec, [{"attr": "mcb2_item", "from": "40A SP MCB C CURVE",
+                                "to": "40A DP MCB C CURVE"}])
+
+    def test_real_015_r311_rung_2_goes_up_to_the_next_amp_and_says_so(self):
+        """POSITIVE -- the next-rating case. The note reads '10/16A SPN MCB (D curve)', picked as
+        16A SP D. There is no DP row below 25 A, so the ladder lands on 25A DP D and RECORDS that
+        the amp moved up, 16 -> 25 -- the fact the panel must be able to say in words."""
+        out = {"mcb1_item": _cell("16A SP MCB D CURVE")}
+        rec = extraction.correct_four_pole_mcb_picks(out, _REAL_015_R311, _CAT_LADDER)
+        self.assertEqual(out["mcb1_item"]["value"], "25A DP MCB D CURVE")
+        self.assertEqual(rec, [{"attr": "mcb1_item", "from": "16A SP MCB D CURVE",
+                                "to": "25A DP MCB D CURVE",
+                                "amp_moved_up": {"from": 16.0, "to": 25.0}}])
+
+    def test_rung_2_never_goes_down_an_amp(self):
+        """NEGATIVE. 63A SPN on D curve: DP D exists at 25 and 40 only, both BELOW. Never down
+        -> rung 3, blank."""
+        out = {"mcb1_item": _cell("63A SP MCB D CURVE")}
+        rec = extraction.correct_four_pole_mcb_picks(out, _row("Incomer 63A SPN MCB D curve"),
+                                                     _CAT_LADDER)
+        self.assertIsNone(out["mcb1_item"]["value"], "40A DP would be DOWN; the pick must blank")
+        self.assertEqual(rec[0]["reason"], "no_rating_at_or_above")
+
+    def test_rung_2_takes_the_exact_amp_when_it_exists_not_the_next(self):
+        """POSITIVE. 40A SPN on D curve: 40A DP D exists, so no move-up record."""
+        out = {"mcb1_item": _cell("40A SP MCB D CURVE")}
+        rec = extraction.correct_four_pole_mcb_picks(out, _row("Incomer 40A SPN MCB D curve"),
+                                                     _CAT_LADDER)
+        self.assertEqual(out["mcb1_item"]["value"], "40A DP MCB D CURVE")
+        self.assertNotIn("amp_moved_up", rec[0])
+
+    # ---- RUNG 3 -- blank, only when the curve carries nothing at or above ----
+    def test_rung_3_blanks_when_the_curve_has_no_two_pole_rating_at_all(self):
+        """NEGATIVE. 32A SPN on B curve: the catalogue has no DP row at B. The pick is BLANKED
+        (value None) so the row does not price and a human decides -- and the reason is
+        recorded."""
+        out = {"mcb1_item": _cell("32A SP MCB B CURVE")}
+        rec = extraction.correct_four_pole_mcb_picks(out, _row("Outgoing 32A SPN MCB B curve"),
+                                                     _CAT_LADDER)
+        self.assertIsNone(out["mcb1_item"]["value"])
+        self.assertEqual(rec, [{"attr": "mcb1_item", "from": "32A SP MCB B CURVE", "to": None,
+                                "reason": "no_rating_at_or_above", "rung": 3}])
+
+    def test_the_curve_is_never_changed_by_any_rung(self):
+        """NEGATIVE. 63A SPN on D curve: a 63A DP row EXISTS -- at C curve. The ladder must not
+        borrow it; with nothing at or above 63 A on D the pick blanks instead."""
+        self.assertIn("63A DP MCB C CURVE", _CAT_LADDER)
+        out = {"mcb1_item": _cell("63A SP MCB D CURVE")}
+        extraction.correct_four_pole_mcb_picks(out, _row("Incomer 63A SPN MCB D curve"), _CAT_LADDER)
+        self.assertIsNone(out["mcb1_item"]["value"], "the C-curve row must not serve a D-curve pick")
+
+    # ---- RUNG 1 -- the owner's forward-compatibility ruling ----
+    def test_rung_1_selects_a_catalogue_row_whose_pole_is_literally_spn(self):
+        """POSITIVE. With a row carrying pole "SPN" at 40 A C, an SP pick on '40 amp SPN MCB'
+        goes to THAT row, not to DP -- rung 1 outranks rung 2."""
+        cat = dict(_CAT_LADDER); cat.update(_SPN_FIXTURE)
+        out = {"mcb2_item": _cell("40A SP MCB C CURVE")}
+        rec = extraction.correct_four_pole_mcb_picks(out, _REAL_193_R135, cat)
+        self.assertEqual(out["mcb2_item"]["value"], "40A SPN MCB C CURVE")
+        self.assertEqual(rec, [{"attr": "mcb2_item", "from": "40A SP MCB C CURVE",
+                                "to": "40A SPN MCB C CURVE", "rung": 1}])
+
+    def test_rung_1_also_lifts_an_already_two_pole_pick_onto_the_spn_row(self):
+        """POSITIVE. If the model had picked DP, the named row still wins."""
+        cat = dict(_CAT_LADDER); cat.update(_SPN_FIXTURE)
+        out = {"mcb2_item": _cell("40A DP MCB C CURVE")}
+        extraction.correct_four_pole_mcb_picks(out, _REAL_193_R135, cat)
+        self.assertEqual(out["mcb2_item"]["value"], "40A SPN MCB C CURVE")
+
+    def test_rung_1_is_exact_on_amp_and_curve(self):
+        """NEGATIVE. The SPN fixture is 40 A C. A 40 A D pick does NOT take it (curve differs)
+        and falls to rung 2 -> 40A DP D; a 16 A D pick does NOT take it either -> 25A DP D."""
+        cat = dict(_CAT_LADDER); cat.update(_SPN_FIXTURE)
+        out = {"mcb1_item": _cell("40A SP MCB D CURVE")}
+        extraction.correct_four_pole_mcb_picks(out, _row("Incomer 40A SPN MCB D curve"), cat)
+        self.assertEqual(out["mcb1_item"]["value"], "40A DP MCB D CURVE")
+        out = {"mcb1_item": _cell("16A SP MCB D CURVE")}
+        extraction.correct_four_pole_mcb_picks(out, _REAL_015_R311, cat)
+        self.assertEqual(out["mcb1_item"]["value"], "25A DP MCB D CURVE")
+
+    def test_rung_1_never_reaches_a_shell_named_spn(self):
+        """NEGATIVE, the engineering call. 54 live rows are NAMED SPN/TPN/VTPN and every one is a
+        DB shell with no `pole` key. Rung 1 matches the structured `pole` FIELD, so with only the
+        shell present the SPN row goes to rung 2 (DP), and the shell pick itself is untouched."""
+        out = {"db_shell_item": _cell("SPN DB 8WAY"), "mcb2_item": _cell("40A SP MCB C CURVE")}
+        rec = extraction.correct_four_pole_mcb_picks(out, _REAL_193_R135, _CAT_LADDER)
+        self.assertEqual(out["db_shell_item"]["value"], "SPN DB 8WAY")
+        self.assertEqual(out["mcb2_item"]["value"], "40A DP MCB C CURVE")
+        self.assertEqual([r["attr"] for r in rec], ["mcb2_item"])
+
+    def test_a_rung_1_pick_is_idempotent(self):
+        cat = dict(_CAT_LADDER); cat.update(_SPN_FIXTURE)
+        out = {"mcb2_item": _cell("40A SP MCB C CURVE")}
+        extraction.correct_four_pole_mcb_picks(out, _REAL_193_R135, cat)
+        self.assertEqual(extraction.correct_four_pole_mcb_picks(out, _REAL_193_R135, cat), [])
+
+    # ---- the guards carry over unchanged ----
+    def test_the_board_name_guard_holds_for_spn(self):
+        """NEGATIVE. '8 Way SPN MCB DB' names a board; its SP MCB outgoings must not move."""
+        out = {"mcb1_item": _cell("40A SP MCB C CURVE")}
+        self.assertEqual(extraction.correct_four_pole_mcb_picks(
+            out, _row("8 Way SPN MCB DB", attached=["Incomer : 1No. 40A SP MCB"]), _CAT_LADDER), [])
+        self.assertEqual(out["mcb1_item"]["value"], "40A SP MCB C CURVE")
+
+    def test_the_adjacency_window_holds_for_spn(self):
+        """NEGATIVE. SPN six words away from the device word is outside the 3-word window."""
+        out = {"mcb1_item": _cell("40A SP MCB C CURVE")}
+        row = _row("12 Way SPN type board fitted with one two 40A SP MCB outgoing")
+        self.assertEqual(extraction.correct_four_pole_mcb_picks(out, row, _CAT_LADDER), [])
+
+    def test_only_the_rows_own_text_is_read_for_spn(self):
+        """NEGATIVE. An ancestor board header saying SPN must not fire on a child SP MCB row."""
+        row = _row("Outgoing : 6 Nos. 40A SP MCB of 'C' curve")
+        row["ancestors"] = [{"description": "12 Way SPN MCB distribution board"}]
+        row["anc_texts"] = ["12 Way SPN MCB distribution board"]
+        out = {"mcb1_item": _cell("40A SP MCB C CURVE")}
+        self.assertEqual(extraction.correct_four_pole_mcb_picks(out, row, _CAT_LADDER), [])
+
+    def test_a_bare_sp_row_never_moves(self):
+        """NEGATIVE, the one that matters. 'SP' without a neutral is single pole and stays so."""
+        out = {"mcb1_item": _cell("40A SP MCB C CURVE")}
+        self.assertEqual(extraction.correct_four_pole_mcb_picks(
+            out, _row("Outgoing : 6 Nos. 40A SP MCB of 'C' curve"), _CAT_LADDER), [])
+        self.assertEqual(out["mcb1_item"]["value"], "40A SP MCB C CURVE")
+
+    def test_residual_current_devices_are_untouched_by_spn(self):
+        """NEGATIVE, structural. RCCB/RCBO carry no SP row, so an SPN-worded RCBO pick has
+        nothing to ladder from; it is left exactly alone."""
+        out = {"mcb1_item": _cell("32A RCBO 30mA (DP)")}
+        self.assertEqual(extraction.correct_four_pole_mcb_picks(
+            out, _row("Incomer 32A SPN RCBO 30mA"), _CAT_LADDER), [])
+        self.assertEqual(out["mcb1_item"]["value"], "32A RCBO 30mA (DP)")
+
+    # ---- FOUND ON THE LIVE CERT (2026-09-05), the row-wide over-fire ------------------------
+    def test_only_the_pick_whose_amp_the_spn_token_names_is_laddered(self):
+        """NEGATIVE, found on screen. BOQ-26-00193 r135 names '6 Nos of 16 amp SP MCB's' (single
+        pole, genuinely) AND 'controlled by 1 No. 40 amp SPN MCB'. The first run laddered BOTH SP
+        picks -- the 16 A outgoings became 25A DP D with an amp-moved-up note -- because the
+        adjacency test was row-wide. The ruling is 'a breaker whose OWN row text names IT': the
+        token is anchored to the amp stated beside it, so only the 40 A pick moves."""
+        out = {"mcb1_item": _cell("16A SP MCB D CURVE"), "mcb2_item": _cell("40A SP MCB D CURVE")}
+        rec = extraction.correct_four_pole_mcb_picks(out, _REAL_193_R135, _CAT_LADDER)
+        self.assertEqual(out["mcb1_item"]["value"], "16A SP MCB D CURVE", "the SP outgoings must not move")
+        self.assertEqual(out["mcb2_item"]["value"], "40A DP MCB D CURVE")
+        self.assertEqual([r["attr"] for r in rec], ["mcb2_item"])
+
+    def test_a_range_beside_the_token_anchors_every_amp_in_it(self):
+        """POSITIVE. '6No.s.10/16A SPN MCB' names 10 and 16; a 16 A pick is the named breaker."""
+        out = {"mcb1_item": _cell("16A SP MCB D CURVE"), "mcb2_item": _cell("40A SP MCB D CURVE")}
+        rec = extraction.correct_four_pole_mcb_picks(out, _REAL_015_R311, _CAT_LADDER)
+        self.assertEqual(out["mcb1_item"]["value"], "25A DP MCB D CURVE")
+        self.assertEqual(out["mcb2_item"]["value"], "40A SP MCB D CURVE", "40 A is not named beside SPN")
+        self.assertEqual([r["attr"] for r in rec], ["mcb1_item"])
+
+    def test_the_fallback_does_not_fire_when_the_named_breaker_is_already_accounted_for(self):
+        """NEGATIVE, found on the live cert (C4). With the SPN fixture in the catalogue the model
+        picked '40A SPN MCB D CURVE' ITSELF for the incomer, and returned the outgoings as 32A SP.
+        32 is not the named amp, so the row-wide fallback laddered the outgoings to 32A DP -- the
+        over-fire again by another door. The fallback exists for '45A TPN' fitted to 63 A, where NO
+        pick on the row carries the named amp; when a pick DOES (here the SPN row at 40 A, already
+        resolved), the named breaker is accounted for and nothing else on the row may move."""
+        cat = dict(_CAT_LADDER); cat.update({"40A SPN MCB D CURVE": {"family": "Switchgear", "item": "40A SPN MCB D CURVE",
+                                                                    "device": "MCB", "pole": "SPN", "amp_a": 40.0, "curve": "D"}})
+        cat["32A SP MCB D CURVE"] = {"family": "Switchgear", "item": "32A SP MCB D CURVE", "device": "MCB", "pole": "SP", "amp_a": 32.0, "curve": "D"}
+        cat["32A DP MCB D CURVE"] = {"family": "Switchgear", "item": "32A DP MCB D CURVE", "device": "MCB", "pole": "DP", "amp_a": 32.0, "curve": "D"}
+        out = {"mcb1_item": _cell("32A SP MCB D CURVE"), "mcb2_item": _cell("40A SPN MCB D CURVE")}
+        self.assertEqual(extraction.correct_four_pole_mcb_picks(out, _REAL_193_R135, cat), [])
+        self.assertEqual(out["mcb1_item"]["value"], "32A SP MCB D CURVE", "the SP outgoings must not move")
+        self.assertEqual(out["mcb2_item"]["value"], "40A SPN MCB D CURVE")
+
+    def test_no_amp_beside_the_token_falls_back_to_the_row_wide_rule(self):
+        """REGRESSION guard for today's behaviour. 'TPN MCB with weather proof enclosure' names no
+        amp, so the anchor has nothing to hold and every stated-pole pick is laddered, exactly as
+        before -- the fallback is what keeps TPN byte-identical."""
+        out = {"mcb1_item": _cell("32A TP MCB C CURVE")}
+        extraction.correct_four_pole_mcb_picks(
+            out, _row("Supply, erection, testing and commissioning of TPN MCB with weather proof enclosure"), _CAT_LADDER)
+        self.assertEqual(out["mcb1_item"]["value"], "32A FP MCB C CURVE")
+
+    def test_a_named_amp_that_matches_no_pick_falls_back_too(self):
+        """REGRESSION guard. '45A TPN MCB' -> the model fits 63 A (next higher); 45 matches no pick,
+        so the fallback ladders the one TP pick, as today."""
+        out = {"mcb1_item": _cell("63A TP MCB D CURVE")}
+        cat = dict(_CAT_LADDER); cat["63A FP MCB D CURVE"] = {"family": "Switchgear", "item": "63A FP MCB D CURVE",
+                                                              "device": "MCB", "pole": "FP", "amp_a": 63.0, "curve": "D"}
+        extraction.correct_four_pole_mcb_picks(out, _row("Incomer 45A TPN MCB D curve"), cat)
+        self.assertEqual(out["mcb1_item"]["value"], "63A FP MCB D CURVE")
+
+    def test_every_spn_spelling_fires(self):
+        for tok in ["SPN", "SP+N", "SP + N", "SP+NL", "SP&N", "1P+N", "spn"]:
+            with self.subTest(token=tok):
+                out = {"mcb1_item": _cell("40A SP MCB C CURVE")}
+                extraction.correct_four_pole_mcb_picks(out, _row("Incomer 40A %s MCB C curve" % tok),
+                                                       _CAT_LADDER)
+                self.assertEqual(out["mcb1_item"]["value"], "40A DP MCB C CURVE")
+
+
+class TestPoleLadderStamp(FrappeTestCase):
+    """FOUND ON THE LIVE CERT (C3, 2026-09-05): the `pole_ladder` marker was written to `row_map`,
+    which is the CAPTURE-log map (observation only), never to the RESULT cell the run stores and
+    the panel reads -- so the rating-up sentence could not render. `stamp_pole_ladder` writes it on
+    the result cell, exactly as `defaulted` rides there, and this pins the contract the frontend's
+    `ratingUpNote` consumes."""
+
+    def test_an_amp_move_is_stamped_on_the_result_cell(self):
+        out = {"mcb1_item": _cell("16A SP MCB D CURVE")}
+        recs = extraction.correct_four_pole_mcb_picks(out, _REAL_015_R311, _CAT_LADDER)
+        extraction.stamp_pole_ladder(out, recs)
+        self.assertEqual(out["mcb1_item"]["pole_ladder"],
+                         {"amp_moved_up": {"from": 16.0, "to": 25.0}, "to": "25A DP MCB D CURVE"})
+        self.assertEqual(out["mcb1_item"]["value"], "25A DP MCB D CURVE")
+
+    def test_a_plain_same_amp_swap_stamps_nothing(self):
+        """NEGATIVE. A plain TPN/SPN swap carries no extras, so the stored cell stays byte-identical
+        to before this slice -- the marker exists to explain a CHANGE of rating, not a swap."""
+        out = {"mcb2_item": _cell("40A SP MCB C CURVE")}
+        recs = extraction.correct_four_pole_mcb_picks(out, _REAL_193_R135, _CAT_LADDER)
+        extraction.stamp_pole_ladder(out, recs)
+        self.assertEqual(out["mcb2_item"]["value"], "40A DP MCB C CURVE")
+        self.assertNotIn("pole_ladder", out["mcb2_item"])
+        # and the TPN real row, the same way
+        out = {"mcb1_item": _cell("40A TP MCB C CURVE")}
+        extraction.stamp_pole_ladder(out, extraction.correct_four_pole_mcb_picks(out, _REAL_198_R77, _CAT_LADDER))
+        self.assertNotIn("pole_ladder", out["mcb1_item"])
+
+    def test_a_rung_1_hit_and_a_blank_are_stamped_with_their_reason(self):
+        cat = dict(_CAT_LADDER); cat.update(_SPN_FIXTURE)
+        out = {"mcb2_item": _cell("40A SP MCB C CURVE")}
+        extraction.stamp_pole_ladder(out, extraction.correct_four_pole_mcb_picks(out, _REAL_193_R135, cat))
+        self.assertEqual(out["mcb2_item"]["pole_ladder"], {"rung": 1, "to": "40A SPN MCB C CURVE"})
+        out = {"mcb1_item": _cell("32A SP MCB B CURVE")}
+        extraction.stamp_pole_ladder(out, extraction.correct_four_pole_mcb_picks(out, _row("Outgoing 32A SPN MCB B curve"), _CAT_LADDER))
+        self.assertEqual(out["mcb1_item"]["pole_ladder"], {"reason": "no_rating_at_or_above", "rung": 3, "to": None})
+        self.assertIsNone(out["mcb1_item"]["value"])
+
+    def test_no_records_stamps_nothing_and_an_unknown_attr_is_ignored(self):
+        out = {"mcb1_item": _cell("40A SP MCB C CURVE")}
+        extraction.stamp_pole_ladder(out, [])
+        extraction.stamp_pole_ladder(out, [{"attr": "ghost_item", "from": "x", "to": "y", "rung": 1}])
+        self.assertNotIn("pole_ladder", out["mcb1_item"])
+        self.assertNotIn("ghost_item", out)
+
+
+class TestPolePlusNeutralLadderTpn(FrappeTestCase):
+    """The TPN family: rung 1 reachable only with the throwaway fixture, and today's outcomes
+    byte-identical without it."""
+
+    def test_tpn_outcomes_are_byte_identical_on_the_existing_fixtures(self):
+        """REGRESSION. The three real mis-routed rows and the six real bare-TP rows produce
+        exactly the records they produced before the ladder existed."""
+        expected = []
+        for name, row, picked in [("198 r77", _REAL_198_R77, "40A TP MCB C CURVE"),
+                                  ("198 r88", _REAL_198_R88, "40A TP MCB C CURVE"),
+                                  ("200 r77", _REAL_200_R77, "32A TP MCB C CURVE")]:
+            out = {"mcb1_item": _cell(picked)}
+            rec = extraction.correct_four_pole_mcb_picks(out, row, _CAT_LADDER)
+            expected.append((name, out["mcb1_item"]["value"], rec))
+        self.assertEqual(expected, [
+            ("198 r77", "40A FP MCB C CURVE",
+             [{"attr": "mcb1_item", "from": "40A TP MCB C CURVE", "to": "40A FP MCB C CURVE"}]),
+            ("198 r88", "40A FP MCB C CURVE",
+             [{"attr": "mcb1_item", "from": "40A TP MCB C CURVE", "to": "40A FP MCB C CURVE"}]),
+            ("200 r77", "32A FP MCB C CURVE",
+             [{"attr": "mcb1_item", "from": "32A TP MCB C CURVE", "to": "32A FP MCB C CURVE"}]),
+        ])
+        for name, row, picked in _REAL_BARE_TP:
+            with self.subTest(row=name):
+                out = {"mcb1_item": _cell(picked)}
+                self.assertEqual(extraction.correct_four_pole_mcb_picks(out, row, _CAT_LADDER), [])
+                self.assertEqual(out["mcb1_item"]["value"], picked)
+
+    def test_rung_1_selects_a_row_whose_pole_is_literally_tpn(self):
+        """POSITIVE. With the TPN fixture present, the 198 r77 incomer goes to the TPN row, not
+        to FP -- and an FP pick on the same text is lifted onto it too."""
+        cat = dict(_CAT_LADDER); cat.update(_TPN_FIXTURE)
+        out = {"mcb1_item": _cell("40A TP MCB C CURVE")}
+        rec = extraction.correct_four_pole_mcb_picks(out, _REAL_198_R77, cat)
+        self.assertEqual(out["mcb1_item"]["value"], "40A TPN MCB C CURVE")
+        self.assertEqual(rec[0]["rung"], 1)
+        out = {"mcb1_item": _cell("40A FP MCB C CURVE")}
+        extraction.correct_four_pole_mcb_picks(out, _REAL_198_R77, cat)
+        self.assertEqual(out["mcb1_item"]["value"], "40A TPN MCB C CURVE")
+
+    def test_rung_1_never_reaches_a_shell_named_tpn(self):
+        """NEGATIVE. The base fixture carries 'TPN 7 SEGMENT DB 6WAY' (no pole key); without a
+        pole-TPN breaker the incomer goes to rung 2 (FP), and the shell is untouched."""
+        out = {"db_shell_item": _cell("TPN 7 SEGMENT DB 6WAY"), "mcb1_item": _cell("40A TP MCB C CURVE")}
+        extraction.correct_four_pole_mcb_picks(out, _REAL_198_R77, _CAT_LADDER)
+        self.assertEqual(out["db_shell_item"]["value"], "TPN 7 SEGMENT DB 6WAY")
+        self.assertEqual(out["mcb1_item"]["value"], "40A FP MCB C CURVE")
+
+    def test_rung_2_goes_up_an_amp_for_tpn_too(self):
+        """POSITIVE. A 25A TP C pick with FP C only at 32/40 -> 32A FP C, move-up recorded."""
+        cat = dict(_CAT_LADDER)
+        cat["25A TP MCB C CURVE"] = {"family": "Switchgear", "item": "25A TP MCB C CURVE",
+                                    "device": "MCB", "pole": "TP", "amp_a": 25.0, "curve": "C"}
+        out = {"mcb1_item": _cell("25A TP MCB C CURVE")}
+        rec = extraction.correct_four_pole_mcb_picks(out, _row("Incomer 25A TPN MCB C curve"), cat)
+        self.assertEqual(out["mcb1_item"]["value"], "32A FP MCB C CURVE")
+        self.assertEqual(rec[0]["amp_moved_up"], {"from": 25.0, "to": 32.0})
+
+    def test_a_four_pole_residual_current_pick_beside_4p_text_stays_silent(self):
+        """NEGATIVE -- FOUND ON LIVE DATA, not invented. 46 stored rows read '40A FP 30mA, RCBO'
+        or '63A 4P RCCB': the pick is already FP and today's code never touches it, emits
+        nothing. The ladder must enter from a COUNTED-pole pick ONLY when a named-pole (rung 1)
+        row exists for it -- otherwise the three mA variants at rung 2 look ambiguous and a
+        marker appears on rows that never had one."""
+        for text, picked in [("40A FP 30mA, RCBO", "32A RCBO 30mA (DP)"),
+                             ("25A, 4P RCCB @ 300mA - VRF Unit", "40A RCCB 100mA (FP)"),
+                             ("Incomer 40A FP RCCB 100mA", "40A RCCB 100mA (FP)")]:
+            with self.subTest(text=text):
+                out = {"mcb1_item": _cell(picked)}
+                self.assertEqual(extraction.correct_four_pole_mcb_picks(out, _row(text), _CAT_LADDER), [])
+                self.assertEqual(out["mcb1_item"]["value"], picked)
+
+    def test_an_fp_pick_with_tpn_text_and_no_tpn_row_is_untouched(self):
+        """NEGATIVE. Today's idempotence, restated under the ladder: rung 1 has nothing, rung 2
+        resolves to the pick itself, no record."""
+        out = {"mcb1_item": _cell("40A FP MCB C CURVE")}
+        self.assertEqual(extraction.correct_four_pole_mcb_picks(out, _REAL_198_R77, _CAT_LADDER), [])

@@ -1270,7 +1270,10 @@ describe("DERIVED DISPLAY -- R2: a too-small entry WARNS, it is never silently l
       { kind: "upgrade", stated: "1M", statedHolds: 1, occupied: 3, using: "3M" },
     ]);
     expect(shuffled.map((n) => n.kind)).toEqual(["upgrade", "uncovered"]);
-    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "capped", "uncovered"]);
+    // Owner ruling, 2026-09-05 (F-30 slice A): `rating_up` is REGISTERED in the order, between the
+    // module upgrade and the quantity notes -- a kind whose position is incidental is exactly what
+    // this pin exists to forbid. Extended from three kinds to four under that ruling, not silenced.
+    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "rating_up", "capped", "uncovered"]);
   });
 
   it("the two quantity notes are worded so neither can be mistaken for the other", () => {
@@ -3160,5 +3163,80 @@ describe("D1 -- the gate: a row with a blank map source still prices", () => {
     const r = computeRow({ points: { value: 1, confidence: 0.8 }, point_type: { value: "Secondary", confidence: 1 } });
     const basis = (r as { basis?: string }).basis ?? "";
     expect(basis).not.toContain("Complete the missing attributes");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// F-30 SLICE A -- THE RATING-UP NOTE (owner ruling 2, 2026-09-05; #57 item 2)
+// ---------------------------------------------------------------------------------------------
+//
+// The server-side poles-plus-neutral ladder (extraction.py) may resolve an SPN breaker to the next
+// rating UP when the counted pole is not stocked at the stated amp -- "10/16A SPN MCB (D curve)"
+// prices as 25A DP D. That is a substitution the pricer must be able to SEE on the panel, in words,
+// not only in the derivation trace (the face-plate precedent: "the trace is a surface a pricer may
+// never open"). The backend stamps `pole_ladder: {amp_moved_up: {from, to}, to}` on the attribute;
+// this pins that the helper turns it into a `rating_up` note on the panel's DATA CONTRACT, and
+// leaves the field silent when the marker is absent or carries no move. Render is carried by the
+// browser cert (vitest runs in a node env with no DOM, by deliberate config).
+const DBSW_CONFIG: RateCategoryConfig = {
+  discipline: "Electrical", category_id: "db_switchgear", item_kinds: ["db_switchgear_item"],
+  matching_mode: "composite_decomposition",
+  attribute_definitions: [
+    { id: "mcb1_item", label: "MCB 1", type: "choice", values_from: { kind: "db_switchgear_item", attr: "item", where: { family: "Switchgear" } } },
+    { id: "mcb1_qty", label: "MCB 1 qty", type: "number" },
+  ],
+  pipelines: {
+    db_buildup_supply: {
+      output: ["supply"],
+      steps: [
+        { step: "component_ref", name: "mcb1", ref: { kind: "db_switchgear_item", item: "@mcb1_item", family: "Switchgear" }, target: "list_price", rate_stages: [{ mult: 1.0 }], qty: { from_attr: "mcb1_qty" }, none_skips: true },
+        { step: "sum_components", result: "supply" },
+      ],
+    },
+  },
+} as unknown as RateCategoryConfig;
+function mcbItem(item: string, pole: string, amp: number, curve: string, list: number): RateMasterItem {
+  return { discipline: "Electrical", kind: "db_switchgear_item", attributes: { family: "Switchgear", item, device: "MCB", pole, amp_a: amp, curve }, rates: { list_price: list } };
+}
+const DBSW_ITEMS: RateMasterItem[] = [
+  mcbItem("16A SP MCB D CURVE", "SP", 16, "D", 616),
+  mcbItem("25A DP MCB D CURVE", "DP", 25, "D", 1525),
+  mcbItem("40A SP MCB C CURVE", "SP", 40, "C", 892),
+  mcbItem("40A DP MCB C CURVE", "DP", 40, "C", 2316),
+];
+function dbswRow(excelRow: number, mcb1: Record<string, unknown>) {
+  const map = buildExtractionByRow([{ excel_row: excelRow, attributes: { mcb1_item: mcb1, mcb1_qty: { value: 6, confidence: 0.9 } } as never }]);
+  const helper = makePricingSheetHelper({ configsByCategory: new Map([["db_switchgear", DBSW_CONFIG]]), items: DBSW_ITEMS, extractionByRow: map });
+  const r = helper.compute({ ...ctx(excelRow, "Outgoings: 6No.s.10/16A SPN MCB ( 'D' curve)"), category: "db_switchgear" });
+  expect(isSuggestion(r)).toBe(true);
+  if (!isSuggestion(r)) throw new Error("not a suggestion");
+  return r.workings.attributes.find((a) => a.id === "mcb1_item")!;
+}
+
+describe("F-30 slice A -- the rating-up note reaches the panel's data contract", () => {
+  it("POSITIVE: a backend `pole_ladder.amp_moved_up` marker becomes ONE `rating_up` note, worded for a pricer", () => {
+    const a = dbswRow(311, { value: "25A DP MCB D CURVE", confidence: 0.9, pole_ladder: { amp_moved_up: { from: 16, to: 25 }, to: "25A DP MCB D CURVE" } });
+    expect(a.value).toBe("25A DP MCB D CURVE"); // the field shows what was bought
+    expect(a.notes).toEqual([{ kind: "rating_up", askedAmp: 16, usedAmp: 25, poleWord: "2 pole", device: "MCB", curve: "D" }]);
+    // names what was asked for, why it could not be used, and what was used instead -- no jargon
+    expect(attrNoteText(a.notes![0])).toBe("No 2 pole MCB at 16A on the D curve — using 25A.");
+  });
+  it("NEGATIVE: no marker -> no note (the plain same-amp case, and every row before this slice)", () => {
+    const a = dbswRow(135, { value: "40A DP MCB C CURVE", confidence: 0.9 });
+    expect(a.notes).toBeUndefined();
+  });
+  it("NEGATIVE: a marker WITHOUT an amp move (a rung-1 hit) says nothing about ratings", () => {
+    const a = dbswRow(136, { value: "40A DP MCB C CURVE", confidence: 0.9, pole_ladder: { rung: 1, to: "40A DP MCB C CURVE" } });
+    expect(a.notes).toBeUndefined();
+  });
+  it("a pricer's override clears the note -- the field is theirs again", () => {
+    const map = buildExtractionByRow([{ excel_row: 311, attributes: { mcb1_item: { value: "25A DP MCB D CURVE", confidence: 0.9, pole_ladder: { amp_moved_up: { from: 16, to: 25 }, to: "25A DP MCB D CURVE" } }, mcb1_qty: { value: 6, confidence: 0.9 } } as never }]);
+    const helper = makePricingSheetHelper({ configsByCategory: new Map([["db_switchgear", DBSW_CONFIG]]), items: DBSW_ITEMS, extractionByRow: map });
+    const r = helper.compute({ ...ctx(311, "Outgoings: 6No.s.10/16A SPN MCB ( 'D' curve)"), category: "db_switchgear" }, { mcb1_item: "16A SP MCB D CURVE" } as never);
+    if (!isSuggestion(r)) throw new Error("not a suggestion");
+    expect(r.workings.attributes.find((a) => a.id === "mcb1_item")!.notes).toBeUndefined();
+  });
+  it("the rating-up note renders BEFORE the quantity notes and after a module upgrade, deterministically", () => {
+    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "rating_up", "capped", "uncovered"]);
   });
 });
