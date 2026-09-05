@@ -22,16 +22,18 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { getFrappeError } from "@/utils/frappeErrors";
-import { ROLE_LABELS } from "./boqTypes";
+import { ROLE_LABELS, columnChipLabel } from "./boqTypes";
 import { pickFormula } from "./amountFormula";
 import {
-  OPERAND_VALUE_FIELDS,
+  buildOperandPalette,
   parseTokens,
   refKey,
-  tokenRefForMode,
+  storedDefaultFormula,
   treeToTokens,
+  unbindableOperands,
   wouldCreateCycle,
   type FormulaToken,
+  type OperandChip,
   type OpToken,
 } from "./formulaTokens";
 import type {
@@ -159,15 +161,30 @@ export function AmountFormulaBuilder({
   seedTokensFrom,
 }: AmountFormulaBuilderProps) {
   const [open, setOpen] = useState(false);
-  // A per-area target offers the DEFAULT (all areas) vs THIS-AREA override toggle; a scalar
-  // amount column has no area dimension, so the toggle is hidden and the mode is always default.
+  /**
+   * ★ THE TIER FOLLOWS THE COLUMN. THERE IS NO TAB. (owner ruling 2026-09-04)
+   *
+   * A column that NAMES AN AREA is priced for that area -- so it writes the per-area override
+   * tier, full stop. A column with NO area dimension has only the one tier, which is stored with
+   * a null value_key and happens to be called "default". Neither is a choice, so neither is
+   * offered as one.
+   *
+   * ⚠️ THE TOGGLE DID REAL DAMAGE, WHICH IS WHY IT IS GONE RATHER THAN MERELY DEFAULTED THE OTHER
+   * WAY. It opened on "Default (all areas)", so the FIRST formula anyone built on a per-area
+   * column landed in the wrong tier; they then rebuilt it on "This area only", and the override
+   * shadowed the default (pickFormula resolves override-before-default), leaving a byte-identical
+   * dead record behind. That is exactly what BOQ-26-00184 / "Electrical Est" column H contains,
+   * and the report was "I click default, I make one formula, but its not working".
+   */
   const targetIsPerArea = target.value_field === "amount_by_area" && target.value_key != null;
-  const [mode, setMode] = useState<Mode>("default");
-  const effectiveMode: Mode = targetIsPerArea ? mode : "default";
+  const effectiveMode: Mode = targetIsPerArea ? "override" : "default";
 
   const [tokens, setTokens] = useState<FormulaToken[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Cleared in THIS popover: hide the notice immediately rather than waiting on the parent's
+  // refetch, so the button visibly does something.
+  const [strayCleared, setStrayCleared] = useState(false);
 
   // Resolve a ref to a display label from the descriptor set. A wildcard (area-bound, value_key
   // null) matches by (value_field, rate_subkey) ignoring area and shows no area.
@@ -190,15 +207,20 @@ export function AmountFormulaBuilder({
         (isWildcard || d.value_key === r.value_key),
     );
     if (match) {
-      const role = ROLE_LABELS[match.role] ?? match.role;
-      return !isWildcard && match.area ? `${role} · ${match.area}` : role;
+      // A WILDCARD names a LOGICAL column across every area ("the quantity of whichever area is
+      // being computed"), so no single letter applies and it stays role-only.
+      if (isWildcard) return ROLE_LABELS[match.role] ?? match.role;
+      // A CONCRETE column is named exactly as its grid header names it -- letter included. Two
+      // `qty` columns on one sheet are otherwise two chips reading "Quantity", which is the
+      // state a correct formula cannot be built out of.
+      return columnChipLabel(match);
     }
     return r.rate_subkey ? `${r.value_field} (${r.rate_subkey})` : r.value_field;
   };
 
   // The SAVE target identity (the value_key the backend stores: null for a default/scalar, the
   // concrete area for an override).
-  const saveValueKey = targetIsPerArea && mode === "override" ? target.value_key : null;
+  const saveValueKey = targetIsPerArea ? target.value_key : null;
   const saveTargetRef: AmountFormulaRef = {
     value_field: target.value_field,
     value_key: saveValueKey,
@@ -221,20 +243,53 @@ export function AmountFormulaBuilder({
     columnFormulas,
   );
 
+  /**
+   * ★ THE ALL-AREAS FORMULA THIS COLUMN IS CURRENTLY RUNNING ON, when it has none of its own.
+   *
+   * `existingForMode` looks in the override slot ONLY, so on a sheet built before this change --
+   * the old toggle OPENED on "Default (all areas)", so one formula and no tab click is the normal
+   * history -- it finds nothing, while `applicable` (pickFormula's override-else-default) finds
+   * the default and lights the badge GREEN with a preview. That is one panel saying "covered,
+   * here is the formula" and "Add at least one column." at the same time.
+   *
+   * Seeding from it fixes the contradiction AND is the migration: Save writes these tokens to
+   * THIS AREA's override, so the shared default stops governing the column one column at a time.
+   * Null the moment an override exists (then `existingForMode` IS the formula) and for a scalar
+   * target (where the null-key record already IS `existingForMode`, so this would be the same
+   * object twice).
+   */
+  const inheritedDefault =
+    !operands && targetIsPerArea && !existingForMode?.formula ? applicable : null;
+
   // Hydrate the token list from the existing formula whenever the popover opens or the mode
   // flips (each mode has its own stored formula). Keyed on [open, effectiveMode].
   useEffect(() => {
     if (!open) return;
     setError(null);
-    const seed = existingForMode?.formula ?? seedTokensFrom ?? null;
+    const seed = existingForMode?.formula ?? inheritedDefault?.formula ?? seedTokensFrom ?? null;
     setTokens(seed ? treeToTokens(seed, labelFor) : []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, effectiveMode]);
 
+  /**
+   * The leftover all-areas record: stored, SHADOWED by this column's own override, governing
+   * nothing. See storedDefaultFormula for why the shadow test is the whole safety of this --
+   * unshadowed, the identical record is `inheritedDefault` above, and offering to remove it
+   * would delete the live formula for every area on the axis.
+   */
+  const strayDefault =
+    operands || !targetIsPerArea || strayCleared
+      ? null
+      : storedDefaultFormula(target, columnFormulas);
+
   // ── live validity ────────────────────────────────────────────────────────
   const parsed = parseTokens(tokens);
   const cyclic = parsed.ok && wouldCreateCycle(saveTargetRef, parsed.tree, columnFormulas);
-  const wellFormed = parsed.ok && !cyclic;
+  // A wildcard operand this target can never bind (see unbindableOperands): the formula saves
+  // cleanly and then blanks every cell, so it is refused HERE rather than discovered in the grid.
+  // Empty for a BCS/explicit palette, whose refs are not sheet columns at all.
+  const unbindable = operands ? [] : unbindableOperands(target, descriptors, tokens);
+  const wellFormed = parsed.ok && !cyclic && unbindable.length === 0;
 
   // ── token edits ──────────────────────────────────────────────────────────
   const insert = (t: FormulaToken) => setTokens((prev) => [...prev, t]);
@@ -242,34 +297,19 @@ export function AmountFormulaBuilder({
   const reset = () => setTokens([]);
 
   // ── the operand palette (qty / rate / amount columns) ────────────────────
-  // DEFAULT mode collapses per-area duplicates to one WILDCARD chip per logical column; the
-  // literal self-ref is blocked (amount-refs-OTHER-amount stays allowed).
-  const selfKey = refKey(tokenRefForMode(target, effectiveMode));
-  const seen = new Set<string>();
-  const palette: { ref: AmountFormulaRef; label: string; group: string }[] = [];
-  // BCS-S9: an explicit palette REPLACES the descriptor sweep entirely (its operands are not
-  // sheet columns). Absent -> the original loop, byte-unchanged.
-  const descriptorSource = operands ? [] : descriptors;
   // ⚠️ HIDDEN ENTRIES ARE FILTERED HERE, NOT AT THE CALLER. They exist so a RETIRED operand
   // still has a NAME: a formula stored before an operand left the palette must keep rendering
   // its own words, not the raw `value_field`. That is exactly what broke when `bcs_qty` was
   // retired at S12 -- an existing BCS Total formula started showing a chip reading "bcs_qty",
   // which is not a thing anyone has ever seen on this screen.
-  if (operands) palette.push(...operands.filter((o) => !o.hidden));
-  for (const d of descriptorSource) {
-    if (!OPERAND_VALUE_FIELDS.has(d.value_field)) continue;
-    const r = tokenRefForMode(d, effectiveMode);
-    const k = refKey(r);
-    if (k === selfKey) continue; // block the trivial self-reference
-    if (seen.has(k)) continue; // dedupe (wildcards collapse areas in default mode)
-    seen.add(k);
-    const group = d.value_field.startsWith("qty")
-      ? "Quantity"
-      : d.value_field.startsWith("rate")
-        ? "Rate"
-        : "Amount";
-    palette.push({ ref: r, label: labelFor(r), group });
-  }
+  //
+  // BCS-S9: an explicit palette REPLACES the descriptor sweep entirely (its operands are not
+  // sheet columns). Absent -> buildOperandPalette, which owns the mode/dedupe/self-ref rules
+  // (extracted so they are unit-testable -- this repo has no DOM test environment).
+  const palette: OperandChip[] = operands
+    ? // BCS operands are not sheet columns -- an explicit palette owns its own contents.
+      operands.filter((o) => !o.hidden).map(({ ref, label, group }) => ({ ref, label, group }))
+    : buildOperandPalette(target, descriptors, labelFor);
   const paletteByGroup = (g: string) => palette.filter((p) => p.group === g);
 
   const paletteGroups = paletteGroupOrder(palette);
@@ -291,6 +331,29 @@ export function AmountFormulaBuilder({
       setOpen(false);
     } catch (e: unknown) {
       setError(getFrappeError(e) || "Could not save the formula.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Clear the leftover all-areas record. Targets the DEFAULT tier explicitly (value_key null),
+   *  never the column's own override -- that is what the footer's Remove is for. */
+  const handleRemoveStrayDefault = async () => {
+    if (!onSave) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave({
+        targetValueField: target.value_field,
+        targetValueKey: null,
+        targetRateSubkey: target.rate_subkey,
+        targetCol: target.col,
+        description: columnLabel,
+        formula: null,
+      });
+      setStrayCleared(true);
+    } catch (e: unknown) {
+      setError(getFrappeError(e) || "Could not remove the leftover formula.");
     } finally {
       setSaving(false);
     }
@@ -376,7 +439,11 @@ export function AmountFormulaBuilder({
         <div className="mb-2 flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="text-xs font-medium text-foreground">Formula for {columnLabel}</p>
-            <p className="text-[10px] text-muted-foreground">Click columns and operators to build it.</p>
+            <p className="text-[10px] text-muted-foreground">
+              {targetIsPerArea
+                ? `Applies to ${target.value_key} only. Click columns and operators to build it.`
+                : "Click columns and operators to build it."}
+            </p>
           </div>
           <button
             type="button"
@@ -388,23 +455,60 @@ export function AmountFormulaBuilder({
           </button>
         </div>
 
-        {/* DEFAULT / THIS-AREA toggle (per-area columns only) */}
+        {/* THE TIER TOGGLE -- BOTH TABS RENDER, "Default (all areas)" PERMANENTLY DISABLED on a
+            column that names an area (owner ruling 2026-09-04, REVERSING the removal).
+            Removing it entirely hid the fact that a default tier EXISTS, and a tier you cannot see
+            is one you cannot reason about -- especially with a leftover default stored beneath it.
+            Disabled says the tier is real AND that this column is not where it is edited, which is
+            what the removal could not say. `effectiveMode` is already pinned to "override" here, so
+            there is no state to change and no handler to attach: the control is pure signage. */}
         {targetIsPerArea && (
-          <div className="mb-2 flex rounded-md border border-border overflow-hidden w-full text-[11px]">
+          <div className="mb-2 flex w-full overflow-hidden rounded-md border border-border text-[11px]">
             <button
               type="button"
-              onClick={() => setMode("default")}
-              className={cn("flex-1 px-2 py-1", mode === "default" ? "bg-primary text-primary-foreground" : "hover:bg-muted")}
+              disabled
+              title={`This column is priced for ${target.value_key}, so it writes that area's own formula. The all-areas tier is not edited here.`}
+              className="flex-1 cursor-not-allowed bg-muted/40 px-2 py-1 text-muted-foreground"
             >
               Default (all areas)
             </button>
+            <span className="flex-1 bg-primary px-2 py-1 text-center text-primary-foreground">
+              This area only ({target.value_key})
+            </span>
+          </div>
+        )}
+
+        {/* THE LEFTOVER "all areas" FORMULA -- beneath the disabled tab it belongs to.
+            Not a tier to switch to: a stored record that governs nothing today and would take
+            over silently if an override were ever removed. Shown so it is visible, with the one
+            action worth having. */}
+        {strayDefault && (
+          <div className="mb-2 rounded border border-amber-300 bg-amber-50 px-1.5 py-1 text-[10px] leading-snug text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            <p>
+              A leftover <b>all areas</b> formula is stored on this column and is <b>not used</b> —
+              each area&apos;s own formula wins. It would take over if one were removed.
+            </p>
             <button
               type="button"
-              onClick={() => setMode("override")}
-              className={cn("flex-1 px-2 py-1", mode === "override" ? "bg-primary text-primary-foreground" : "hover:bg-muted")}
+              disabled={saving}
+              onClick={handleRemoveStrayDefault}
+              className="mt-1 rounded border border-amber-400 px-1.5 py-0.5 font-medium hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:hover:bg-amber-900/40"
             >
-              This area only{target.value_key ? ` (${target.value_key})` : ""}
+              {saving ? "Removing..." : "Remove it"}
             </button>
+          </div>
+        )}
+
+        {/* INHERITED, NOT LEFTOVER -- the all-areas formula this column is actually running on.
+            Deliberately NEUTRAL, not amber: nothing is wrong and there is nothing to clean up.
+            It says where the tokens below came from (they were seeded from it) and what Save
+            does with them, because otherwise the canvas looks like a formula this column already
+            owns -- and Save silently changing which record governs the column is the kind of
+            surprise the tier toggle was removed for. NO remove button: the record is live. */}
+        {inheritedDefault?.formula && (
+          <div className="mb-2 rounded border border-border bg-muted/40 px-1.5 py-1 text-[10px] leading-snug text-muted-foreground">
+            Currently using the <b>all areas</b> formula, shown below. Saving makes it{" "}
+            <b>{target.value_key}</b>&apos;s own — the other areas keep using the all-areas one.
           </div>
         )}
 
@@ -446,9 +550,11 @@ export function AmountFormulaBuilder({
             ? "Add at least one column."
             : cyclic
               ? "Circular reference -- a formula can't depend on itself."
-              : parsed.ok
-                ? "Well-formed."
-                : parsed.error}
+              : !parsed.ok
+                ? parsed.error
+                : unbindable.length > 0
+                  ? `"${unbindable[0].label}" covers every area, but ${columnLabel} has no area to pick one. Use the specific column below instead.`
+                  : "Well-formed."}
         </p>
 
         {/* Operators + backspace */}

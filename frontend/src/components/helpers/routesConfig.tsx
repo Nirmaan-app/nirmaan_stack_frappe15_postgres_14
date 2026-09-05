@@ -796,6 +796,11 @@ export const appRoutes: RouteObject[] = [
           // sheetName is encodeURIComponent(sheet_name); React Router v6 auto-decodes.
           { path: "upload-boq/hub/:boqId/pricing/:sheetName", lazy: () => import("@/pages/boq-wizard/SheetPricingPage") },
 
+          // BoQ per-sheet READ-ONLY viewer -- the tab strip + the table, no editing
+          // affordances. Landing target of the project BoQ tab's row click; the pencil
+          // in that list still goes to the wizard hub.
+          { path: "upload-boq/hub/:boqId/view/:sheetName", lazy: () => import("@/pages/boq-wizard/SheetViewPage") },
+
           // Pricing Module (PM-2 -> PW-1) -- one generic page module serving every
           // workbook in the PRICING_WORKBOOKS registry (pages/pricing/pricingWorkbooks.ts);
           // the page resolves which workbook it is from its own route path. Each

@@ -47,7 +47,7 @@ import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 
 // --- Utils & State ---
 import { parseNumber } from "@/utils/parseNumber";
-import { getExpenseSubmitLabel } from "@/utils/expenseApproval";
+import { getExpenseCreatedToast, getExpenseSubmitLabel } from "@/utils/expenseApproval";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { queryKeys, getNonProjectExpenseTypeListOptions } from "@/config/queryKeys";
 
@@ -293,8 +293,10 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
                 ...(recordInvoiceDetails && { invoice_date: formState.invoice_date, invoice_ref: formState.invoice_ref.trim() || undefined, invoice_attachment: invoiceAttachmentUrl }),
             };
 
-            await createDoc("Non Project Expenses", docToCreate);
-            toast({ title: "Success!", description: "Non-project expense added successfully!", variant: "success" });
+            const created = await createDoc("Non Project Expenses", docToCreate);
+            // Name the path the expense took: an auto-approved one never reaches an
+            // approver, and the server's returned status is the authority on that.
+            toast({ ...getExpenseCreatedToast(created?.status, formState.amount), variant: "success" });
             refetchList?.();
             closeDialogAndReset();
         } catch (error: any) {
@@ -350,7 +352,7 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
     const selectedExpenseTypeLabel = expenseTypeOptionsForCommand.find(option => option.value === formState.type)?.label || "Select Expense Type...";
     // The submit label names the path this expense will actually take: a small
     // positive amount is auto-approved on save ("Raise Expense"), anything else
-    // -- ≥ ₹5,000, a refund, or a blank amount -- goes to an approver.
+    // -- above ₹10,000, a refund, or a blank amount -- goes to an approver.
     const submitLabel = getExpenseSubmitLabel(formState.amount);
 
     return (
@@ -423,9 +425,6 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
                         {formErrors.amount && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.amount}</p>}
                         <p className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5">
                             Use negative amount for refunds.
-                        </p>
-                        <p className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5">
-                            Expenses under ₹5,000 are auto-approved; ₹5,000 and above require approval.
                         </p>
                     </div>
 

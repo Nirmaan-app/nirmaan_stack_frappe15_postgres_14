@@ -209,6 +209,171 @@ export function refKey(ref: AmountFormulaRef): string {
   return [ref.value_field, ref.value_key ?? "null", ref.rate_subkey ?? "null"].join("|");
 }
 
+// ── the operand palette (which columns a target may be built from) ────────────
+
+/** One operand chip: the ref it inserts, its display name, its palette group. */
+export interface OperandChip {
+  ref: AmountFormulaRef;
+  label: string;
+  group: string;
+}
+
+/** The palette heading a value_field belongs under. Qty / rate / everything-else-is-amount. */
+export function operandGroup(valueField: string): string {
+  return valueField.startsWith("qty")
+    ? "Quantity"
+    : valueField.startsWith("rate")
+      ? "Rate"
+      : "Amount";
+}
+
+/**
+ * Does this target column carry an AREA when it is evaluated -- i.e. is there anything for a
+ * WILDCARD operand to bind to? True only for an area-bound target holding a concrete area.
+ *
+ * A scalar amount column (`amount_total`, say) is evaluated with `bindArea = null`, and
+ * `bindRef(ref, null)` binds NOTHING -- so a wildcard operand stays `{qty_by_area, null}` and
+ * PricingGrid's dangling-ref gate blanks the cell as "broken".
+ */
+export function targetBindsArea(target: ColumnDescriptor): boolean {
+  return AREA_BOUND_VALUE_FIELDS.has(target.value_field) && target.value_key != null;
+}
+
+/**
+ * The operand palette for one formula target: ONE CHIP PER ADDRESSABLE COLUMN, in the
+ * descriptors' own (Excel) order, minus the trivial self-reference.
+ *
+ * ★ A WILDCARD CHIP IS ONLY OFFERED WHEN THE TARGET HAS AN AREA TO BIND IT TO, and that is the
+ * whole point of this function existing. The palette used to run `tokenRefForMode(d, mode)`
+ * with the BUILDER's mode, which is "default" for every scalar amount column -- so on a sheet
+ * whose quantities are per-area (E = Quantity · 7f, F = Quantity · office cfm) but whose amount
+ * column is a plain `amount_total`, both quantity columns collapsed into ONE wildcard chip
+ * reading "Quantity". Clicking it built `qty_by_area[null] x rate`, which has no area to
+ * resolve against, so every amount cell rendered blank. TWO failures at once: the second
+ * quantity column was unreachable, and the only reachable one could not compute. A scalar
+ * target therefore always takes CONCRETE refs -- `mode` is honoured only when the target can
+ * actually bind an area.
+ *
+ * `labelFor` names a REF (not a descriptor) on purpose: a chip and a token hydrated from a
+ * stored formula then read identically, because they go through the same resolver.
+ *
+ * ⚠️ EVERY OPERAND COLUMN THE SHEET HAS IS OFFERED, INCLUDING OTHER AREAS' (owner ruling
+ * 2026-09-04, REVERSING a narrower cut that hid them). A per-area amount column may therefore be
+ * built from another area's quantity, rate or amount -- a shared item apportioned across floors is
+ * the case that needs it, and the evidence for narrowing (6 of 6 stored formulas use only their own
+ * area) said what people HAD done, never what they were allowed to do. The only operand still
+ * withheld is the TRIVIAL SELF-REFERENCE; anything else that would not compute is caught downstream
+ * by the cycle check and the dangling-ref gate, which are the real boundaries.
+ */
+export function buildOperandPalette(
+  target: ColumnDescriptor,
+  descriptors: ColumnDescriptor[],
+  labelFor: (ref: AmountFormulaRef) => string,
+): OperandChip[] {
+  // ⚠️ ALWAYS THE CONCRETE REF -- there is no mode. This took a `"default" | "override"` argument
+  // until the tier stopped being a choice: `effectiveMode` is "override" for a per-area target and
+  // "default" for a scalar one, and a scalar target does not bind an area, so the resolved mode was
+  // "override" on EVERY call from the app. The wildcard-collapse branch was unreachable in the
+  // product while three tests exercised it and passed -- coverage over dead code, which is worse
+  // than no coverage because it reads as proof. Do not reintroduce the parameter to re-enable
+  // wildcards: the area-following operand was removed by owner ruling (see the palette note above).
+  const selfKey = refKey(tokenRefForMode(target, "override"));
+  const seen = new Set<string>();
+  const out: OperandChip[] = [];
+  for (const d of descriptors) {
+    if (!OPERAND_VALUE_FIELDS.has(d.value_field)) continue;
+    const ref = tokenRefForMode(d, "override");
+    const k = refKey(ref);
+    if (k === selfKey) continue; // block the trivial self-reference
+    if (seen.has(k)) continue; // dedupe (wildcards collapse areas in default mode)
+    seen.add(k);
+    out.push({ ref, label: labelFor(ref), group: operandGroup(d.value_field) });
+  }
+  return out;
+}
+
+/**
+ * The stored DEFAULT (area-wildcard) formula on this target's axis, or null.
+ *
+ * ★ A LEFTOVER, NOT A TIER THE USER PICKS. On a sheet WITH areas every amount column names one
+ * area, so its formula is per-area work and the Default tier has no job -- the builder no longer
+ * offers it. But a default saved before that (or on another column) is still STORED, still
+ * shadowed by the overrides, and would silently take over the moment one was removed. This finds
+ * it so the builder can say so and offer to clear it.
+ *
+ * ⚠️ `target_col` IS NOT PART OF THE IDENTITY (pricing.save_amount_formula: identity is boq /
+ * sheet / version / value_field / target_value_key / rate_subkey; target_col is a stored GUARD).
+ * So one axis has exactly ONE default record shared by EVERY per-area column on it -- saving a
+ * "default" from column I overwrites the one saved from column H. A per-column override tier over
+ * a single shared default is precisely why the tab did not belong on an area sheet.
+ *
+ * ★ SHADOWED, OR IT IS NOT A LEFTOVER -- THIS COLUMN MUST HAVE ITS OWN OVERRIDE. A null-key
+ * record is DEAD only because an override outranks it (pickFormula: override, else default). With
+ * NO override the very same record is the LIVE formula computing this column, and reporting it as
+ * an unused leftover invites the user to delete the thing their sheet runs on -- across EVERY area
+ * on the axis at once, since there is only the one shared record. That also drops the sheet below
+ * `_sheet_formulas_complete`, which blocks rate editing.
+ *
+ * ⚠️ THE UNSHADOWED CASE IS THE COMMON ONE, NOT AN EDGE. The old toggle OPENED on "Default (all
+ * areas)", so "built one formula, never touched the tab" -- the normal history of every sheet
+ * predating this change -- lands exactly there. The builder promotes that formula into the
+ * column's own override instead (see AmountFormulaBuilder's `inheritedDefault`).
+ *
+ * Self-gating on per-area: for a SCALAR column a null `target_value_key` is not a leftover, it is
+ * that column's own formula.
+ */
+export function storedDefaultFormula(
+  target: ColumnDescriptor,
+  columnFormulas: ColumnFormula[],
+): ColumnFormula | null {
+  if (!targetBindsArea(target)) return null;
+  const sameAxis = (f: ColumnFormula) =>
+    f.target_value_field === target.value_field && f.target_rate_subkey === target.rate_subkey;
+  const shadowedBy = columnFormulas.find(
+    (f) => sameAxis(f) && f.target_value_key === target.value_key && f.formula != null,
+  );
+  if (!shadowedBy) return null;
+  return (
+    columnFormulas.find(
+      (f) => sameAxis(f) && f.target_value_key === null && f.formula != null,
+    ) ?? null
+  );
+}
+
+/**
+ * The column tokens in `tokens` that this target can NEVER resolve -- a WILDCARD operand on a
+ * target with no area to bind it to, and no null-key column of its own to fall back on.
+ *
+ * This is the builder-side twin of PricingGrid's `validateFormulaRefs` gate at `bindArea = null`:
+ * exactly the refs that gate would call dangling, and nothing else. It exists because such a
+ * formula SAVES cleanly and then renders every cell blank, with the builder still reporting
+ * "Well-formed." -- the failure the palette fix above stops NEW formulas creating, caught here
+ * for the ones already stored.
+ *
+ * Deliberately silent for an area-bound target: there a wildcard is the correct, intended
+ * spelling of "the current area", so there is nothing to warn about.
+ */
+export function unbindableOperands(
+  target: ColumnDescriptor,
+  descriptors: ColumnDescriptor[],
+  tokens: FormulaToken[],
+): ColumnToken[] {
+  if (targetBindsArea(target)) return [];
+  return tokens.filter((t): t is ColumnToken => {
+    if (t.kind !== "column") return false;
+    if (t.ref.value_key !== null) return false;
+    if (!AREA_BOUND_VALUE_FIELDS.has(t.ref.value_field)) return false;
+    // A sheet may legitimately map an area-bound role with NO area (value_key null); there the
+    // wildcard IS a concrete column and resolves fine.
+    return !descriptors.some(
+      (d) =>
+        d.value_field === t.ref.value_field &&
+        d.rate_subkey === t.ref.rate_subkey &&
+        d.value_key === null,
+    );
+  });
+}
+
 // ── tree -> tokens (hydrate the builder from an existing stored formula) ───────
 
 /** Binding strength: a bare column binds tightest, then x /, then + -. */

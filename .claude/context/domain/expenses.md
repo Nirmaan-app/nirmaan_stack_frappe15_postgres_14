@@ -20,8 +20,10 @@ Both share one approval lifecycle and are entered/managed together in a single u
   but not yet paid (staging); *Paid* = cash actually went out (final).
 - **Settled spend = Paid only.** Only `Paid` expenses count in **every** financial rollup.
   `Requested`/`Approved` are commitments, excluded from those numbers.
-- **Auto-approval:** a positive amount `< ₹5,000` is created directly at `Approved`
-  (skips `Requested`); a refund (non-positive) or `≥ ₹5,000` takes the full path.
+- **Auto-approval:** a positive amount `<= ₹10,000` is created directly at `Approved`
+  (skips `Requested`); a refund (non-positive) or `> ₹10,000` takes the full path.
+  (2026-09-04: raised from ₹5,000, and the comparison made INCLUSIVE — exactly
+  ₹10,000 auto-approves, reversing the original strict `<`.)
 - **Project Expenses use only project-flagged (`project=1`) Expense Types** (ADR 0009).
 
 ---
@@ -32,7 +34,7 @@ Both share one approval lifecycle and are entered/managed together in a single u
 - `status` Select field (`Requested/Approved/Paid`, default `Requested`) on the
   `Project Expenses` and `Non Project Expenses` doctypes.
 - **Auto-approval** in each doctype's `validate` (create-time, `is_new()`-guarded):
-  `project_expenses.py`, `non_project_expenses.py` — `0 < amount < 5000` → `Approved`.
+  `project_expenses.py`, `non_project_expenses.py` — `0 < amount <= 10000` → `Approved`.
   (Owner preference: this small create-time derivation lives in the doctype `.py`
   `validate`, not a controller+hooks.)
 - **Backfill patches:** `v3_0.backfill_project_expenses_status` — classify legacy
@@ -96,7 +98,7 @@ sections; all 5 columns verified via `has_column`.
   plain "Accommodation" all qualify). Defined identically in `NewProjectExpenseDialog.tsx` +
   `EditProjectExpenseDialog.tsx` (`isUncappedExpenseType`); any new project-flagged type
   containing the keyword is exempt automatically — no code change needed. Unrelated to the
-  ₹5,000 backend auto-approve threshold (that still applies). No backend cap enforcement
+  ₹10,000 backend auto-approve threshold (that still applies). No backend cap enforcement
   exists.
 
 ### Description widened to `Text` (2026-07-28, migrate-carrying)
@@ -119,14 +121,16 @@ otherwise. The rule lives in ONE pure module, `frontend/src/utils/expenseApprova
 (`EXPENSE_AUTO_APPROVE_LIMIT`, `isAutoApprovedExpenseAmount`, `getExpenseSubmitLabel`,
 `EXPENSE_SUBMIT_LABELS`) — ADR-0010 F1/F4, unit-tested in `expenseApproval.test.ts` (10 tests).
 
-**Owner ruling: the label mirrors the BACKEND predicate `0 < amount < 5000` exactly, NOT the
-looser phrase "under 5,000".** Two edges depend on it and must not be "simplified":
-- **Exactly ₹5,000 → "Send for Approval"** — the backend comparison is a strict `<`.
+**Owner ruling: the label mirrors the BACKEND predicate `0 < amount <= 10000` exactly.** The
+edges that depend on it and must not be "simplified":
+- **Exactly ₹10,000 → "Raise Expense"** — the comparison is `<=`, so the limit itself
+  auto-approves (owner ruling 2026-09-04, which REVERSED the original strict `<`; anything
+  written against "exactly the limit needs approval" is stale).
 - **A refund (negative amount, which Non-Project explicitly supports) → "Send for Approval"** —
-  it is "less than 5000" but takes the full `Requested → Approved → Paid` path.
+  it is "less than 10000" but takes the full `Requested → Approved → Paid` path.
 - A blank / unparseable amount → "Send for Approval" (`parseNumber` yields 0, which fails `> 0`).
 
-Edit dialogs are untouched (create-only scope). ⚠️ `AUTO_APPROVE_LIMIT = 5000` now exists in
+Edit dialogs are untouched (create-only scope). ⚠️ `AUTO_APPROVE_LIMIT = 10000` (inclusive) now exists in
 **three** places — both doctype `.py` files and this TS module. The backend is authoritative;
 the TS copy exists only to describe the outcome to the user.
 
