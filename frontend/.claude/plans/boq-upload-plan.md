@@ -36590,3 +36590,209 @@ could be reached in the DOM; not persisted.
 - No UI path to reactivate a Rate Master item (from slice A).
 - `63A DP MCB D CURVE` and `40A DP MCB D CURVE` are both priced 2,049.
 - Slice A's degenerate return run left row 135's active suggestion empty on `BOQ-26-00193 / Sheet1`.
+
+
+## F-25 slice 1 -- SHOW the back box: one display attribute on switches_sockets, config only (2026-09-06/07)
+
+**Date:** 2026-09-06 (build) / 2026-09-07 (cert, commits) · **Branch:** `feature/boq-pricing-helper`, off `70d0af55` · **Asset:** `rate_master_electrical_all_v57.json`, sha256 `ef8044e1a9fe9061585e4189e47f312112edf8958903d4bedc2b14d567fe7f19`, 784,378 bytes, LF · **Live batch after import:** `rmbulk-e4a8c133da89`, 1,367 items, 12 configs · **Frontend source changed:** NONE.
+
+### What F-25 is, and where this slice sits
+
+F-25 is the bare-box defect: a switches_sockets row describing a box with no switch and no socket prices a
+confident 0/0/0 (the zero-module branch of `module_fit` binds the None sentinel to `box_item` because the
+switches_sockets ladders carry no `on_zero_modules`; `none_skips` zeroes the `back_box` component). The
+2026-09-06 recons measured **188** rate-editable bare-box rows on 56 sheets, **0 of them sitting on a
+zero** (91 hand-typed non-zero, 97 blank, no used-suggestion event on any), and established the derivation
+of the box on every priced row: `box = fit_on_back_box_ladder( max(stated plate capacity, occupants'
+weighted module sum) )` -- the box size is never an independent fact. Owner rulings (2026-09-06, verbatim):
+*"give th eboix it sown fiedl - but make sure that it functions correctly in all situations ... this new
+field shoudld display the final value from the back box ladder which is used for calculation"*; *"use same
+mechanism of compute labeleing which we have currently"*; a 9M plate driving a 12M box: *"that's ok"* (no
+note); panel overrides surviving a re-run: *"let it be for the time being"* (PARKED); and, after the S5 stop
+on read-only: *"why do we want it. this is just ytransient behavior. once we buil dthe full fix it will not
+matter as chaging would impact price."* -- **READ-ONLY DROPPED.**
+
+Three slices: **slice 1 (this)** shows the box; **slice 2** owes the zero path -- read a stated size (the
+text, incl. parent history: *"the enitre parent history is part of the payload"*), default 3M when no
+module count is readable anywhere, the higher count of a range (`9/8M` -> 9, computed in CODE, never in
+the prompt), the three mm-only rows also 3M (*"this is ok"*), data/voice outlets also 3M; **slice 3** owes
+making a pick EFFECTIVE -- the two-source floor (plate as a MINIMUM) and the ruling that a smaller pick is
+raised to the plate's size with the reason on the panel. ⚠️ **SLICE 3 IS NOW LOAD-BEARING: until it
+ships, the new dropdown is editable and INERT** (see the accepted transient below).
+
+### The one change
+
+`switches_sockets.attribute_definitions` gains, at index 16 (directly after `back_box`, before the hidden
+`modules`):
+```json
+{"id":"box_item","label":"Back box size","type":"choice",
+ "values_from":{"kind":"switch_socket_item","attr":"item","where":{"family":"Back Box"}},
+ "extract":false}
+```
+- **The id IS the box ladder's existing bind.** That is the whole mechanism: `derivedAttrIds` already lists
+  every `module_fit` ladder bind (gate-exempt -- a blank is never "missing input"); `applyDerivedDisplay`
+  already publishes the box ladder's outcome under that bind (`derivedValue` = the fitted rung, marked
+  "(computed)" through the plate's own mechanism); `attributeOptions` already resolves `values_from`.
+  Nothing in `pricingSheetHelper.ts`, `RateHelperPanel.tsx`, `rateHelperTypes.ts`,
+  `rateMasterStructure.ts` or `ratePipelineInterpreter.ts` changed.
+- **`extract: false`** -- the model is never asked. Proven by reading what `build_attribute_defs` emits
+  for the v57 config: 15 ids, `box_item` absent, byte-identical to v56 (`test_f25s1_02`).
+- **No `allow_none`** -- `back_box: Yes/No` is the one "is there a box" fact; a None-able box would be a
+  second source for it.
+- **Label "Back box size"**, not "Back box": the Yes/No field is already labelled "Back box" and sits
+  directly above. Whether vs which. On the panel they read, top to bottom: `Back box` (Yes/No, amber
+  `default` badge when defaulted) then `Back box size` (the rung, italic muted, `(computed)`).
+- **Value list, live catalogue in API order** (`kind asc, source_row asc`): `1M, 2M` (tie on source row
+  53), `3M, 4M, 6M, 8M, 12M, 18M` -- eight rungs, no plate rung (9M/16M are plate-only), no "None"; the
+  panel prepends its `— select —`.
+
+### The invariant -- NO PRICE MOVES -- proven by replay
+
+`switches_sockets.pipelines` are byte-identical to v56 (`test_f25s1_06`), so the interpreter's inputs are
+unchanged and the new attribute is consumed by no step. The dynamic proof: the stored attributes of
+**every switches_sockets row in every active suggestion run -- 372 rows across 40 runs** -- were replayed
+through the real `runPipeline` (esbuild bundle, in-container, offline) on v56 and on v57, both pipelines
+each: **744 comparisons, 0 differing** (148 rows price on `swsock_boq`, of which 54 price exactly 0 -- the
+bare boxes and their kin, still 0 in this slice; 224 refuse on a raw-interpreter miss identically on both).
+Goldens `s1` 120/30/80 and `ss1` 820/170/570 exact; ss1's trace `plate_item 8M (stated 8M), box_item 8M
+(stated 8M); 1 blank` -- the box still follows the plate.
+
+### Delivery path -- real figures
+
+Freeze OFF. Pre-state: active Electrical **1,367** on `rmbulk-2e0909b55e60`, 12 configs, switches_sockets
+`BRCC-26-07913` with **17** attributes. Mint `_mint_v57_tmp.py` (scratch, not committed -- the
+`_mint_v5*_tmp.py` precedent, run from the scratchpad): asserts every v56 precondition (17 ids in order,
+no `box_item`, both box ladders `floor_from: plate_item` / `on_none: computed` / no `on_zero_modules`,
+the eight back-box items), inserts the one attribute, asserts every other config / all 1,367 items /
+every golden / every other top-level key deep-equal (key by key), writes LF like v56. Textual diff v56 ->
+v57 = exactly the 13 inserted lines. `CURRENT_EALL_ASSET` -> v57. `scripts/mint_completeness_check.py
+HEAD:v56 v57`: **PASS, no atoms disappeared**. Import in-container, explicit path, `replace=True`:
+`status loaded`, batch **`rmbulk-e4a8c133da89`**, items_total 1,367, configs_loaded 12,
+items_deactivated 1,367, configs_deactivated 12, retirements existing 6 / created 0. Post-import: active
+**1,367** on the new batch, 12 configs; live switches_sockets `BRCC-26-11013` vs the v57 asset **500 leaves,
+0 differing**; every other config leaf-equal (wiring 310, popup 309, pw 1,154, misc 66, lms 55, jbr 37,
+indsock 291, earthing 101, dbsw 422, conduit 48, tray 385 -- all 0 differing). Only then the services.
+
+### Tests
+
+BEFORE (in-session): coercion **113 OK**, rate_suggest **71 OK**, rate_master **307 OK** (527 s), vitest
+**3,156 of 3,157** (the known `writeOffControl` timeout). AFTER: coercion **113 OK**, rate_suggest **71 OK**,
+rate_master **316 OK** (513 s; 307 + 9 new), vitest **3,164 of 3,165** (+8, same one failure).
+
+New pins, all RED-before / GREEN-after by vacuity (below):
+- `test_rate_master.TestF25Slice1BackBoxField` (9): `_01` the attribute exists with exactly the agreed
+  shape and its id IS the ladder bind (negative: v56 has none); `_02 NEGATIVE` the prompt payload gains no
+  question -- `build_attribute_defs` v57 == v56; `_03 NEGATIVE` not None-able (no `allow_none`, no "None"
+  in the resolved values); `_04` the value list is the Back Box family only (8 rungs, no 9M/16M);
+  `_05` the box ladder's floor is STILL `plate_item` on both pipelines, byte-equal to v56, no
+  `on_zero_modules` -- the pin that stops slice 3 leaking in; `_06` switches_sockets PIPELINES byte-equal
+  to v56 and no step names `box_item` as an input -- the no-price-moves proof, static half; `_07` every
+  other config, item and golden byte-equal to v56, and the ONE difference is exactly one definition;
+  `_08` goldens s1/ss1 to the rupee (ss1 carries the 8M plate); `_09` THE DELIVERY-PATH PIN -- the live
+  active config carries the v57 definitions and pipelines (RED until the import; the runtime is the DB).
+- `test_38_switches_sockets_attribute_shape`: 17 -> 18 plus the box field's shape and its position after
+  `back_box` (mechanical consequence, standing authority; inline comment names the ruling and date).
+- The five cumulative cross-asset pins widened to name `switches_sockets`, each with the dated comment:
+  `TestSpnPoleVocabulary.test_r12_and_every_config_but_the_named_mints_is_byte_identical_to_the_prior_asset`
+  (RENAMED -- its old name "every other config" became untrue; it also now asserts the switches_sockets
+  pipelines equal v55's), `test_pw_cs_14`, `test_pw_cs_23`, `test_pw_cs_31`, `test_lms_12`.
+- `pricingSheetHelper.test.ts` "F-25 slice 1 -- the back box field SHOWS the rung the row is priced on,
+  computed" (8, on an inline probe config mirroring the live shape): blank plate over 3 modules -> `3M`
+  computed, not red, supply 178 (the box alone); stated 6M plate -> `6M` (plate-driven, not contents');
+  9M plate -> `12M` with NO note (owner: "that's ok"); None plate -> `3M` (on_none computed); **NEGATIVE
+  (slice 2 owed): a bare box -> EMPTY field, not red, supply 0**; dropdown = Back Box family only, no
+  "None"; derived => never gates; **KNOWN ACCEPTED TRANSIENT (#57 item 2): a pick of 18M shows `18M`
+  plain and the price stays 178** -- pinned so the transient is a recorded fact, not a rediscovered bug.
+
+**Vacuity (A4):** `box_item` removed from v57 on disk -> `test_38`, `_01` FAIL, `_03`/`_04` ERROR, `_07`
+FAIL (5 red; `_02/_05/_06/_08` trivially green, `_09` vacuously green pre-import); restored by re-running
+the mint -> identical sha; pre-import run: only `_09` red; post-import: all green. Vitest twin: the probe
+fixture's attribute removed -> 7 of 8 red (the derived-set pin stays green by construction); restored -> 8
+green.
+
+### The live cert (2026-09-07 ~00:20-00:45 IST, admins@nirmaan.app, :8080 via vite)
+
+⚠️ The container came back from the owner's 23:14 Docker restart with ONLY `sleep infinity` running -- no
+backend, no worker, no vite -- so there was nothing to kill by PID; declared. Started detached: `bench serve
+--port 8000 --noreload` (PID 1301), `bench worker` (PID 1311), `node_modules/.vite` cleared, `yarn dev`
+(PIDs 1338/1339). :8000 ping **200 x3** with the Host header; :8080 chain **200/200 x3** (`/` and
+`/api/method/ping`). Service worker unregistered (1), caches/localStorage/sessionStorage/IndexedDB
+cleared (3 firebase DBs), session cookie survived; tab closed; new tab; bare root first (dashboard rendered,
+logged in), then the deep routes. **No CSRF break** -- no write was attempted. **No AI call**: every step
+read an existing stored run. **Config-derived bundle marker**: from the page, `get_rate_category_config
+(Electrical, switches_sockets)` returned 18 definitions ending `back_box, box_item, modules`, `box_item` =
+the v57 shape, `import_batch rmbulk-e4a8c133da89`, the box ladder still `floor_from: plate_item`.
+
+| step | row | RENDERED PANEL |
+|---|---|---|
+| F1 | 00242 / LT Electrical works / **50** (qty 66; grid supply **430** / install **90**, unchanged) | ⚠️ AS STORED the panel REFUSES: `Pricing sheet — Complete the missing attributes to price`, **`Plate qty` red and empty** -- the active run (`37a93412`, 2026-09-04 15:19) holds `plate_qty = null` at confidence 0.3 for rows 46-51. Proven PRE-EXISTING and not this slice's: the identical stored attributes on v56 give the identical refusal offline, and the pricer's used event of 2026-09-04 carries `plate_qty: "1"` -- they typed it before "Use". With Plate qty typed `1` (a session override, no write): header **430**; `Frame/Face plate` **3M** italic + `(computed)` (title *"Computed from the assembly -- state a value to set a floor"*); `Blank plate qty` `0 (computed)`; `Colour` White `default`; **`Back box` `Yes` amber `default`**; **`Back box size` `3M` italic muted, marker `(computed)`, title *"Computed from the assembly -- state a value to set a floor"***; `<select>` options `— select —, 1M, 2M, 3M, 4M, 6M, 8M, 12M, 18M`; body `plate: Grid and Face Plates 3M White = 229`, **`back_box: Back Box 3M = 178`**, `supply = 430`, `install = 90`, `combined_rate = supply + install = 520`. Session edits reverted afterwards (Revert). Screenshots `screenshot-1788721436325-24.jpg`, `screenshot-1788721561852-25.png` |
+| F2 | 00217 / ELE-8F / **58** (*"3 Nos 6A Indian sockets ... controlled by 1 no 16A switch in 9 or 10 module plate without back box"*; in the active run, unpriced) | `Switch 16A 1 WAY SWITCH` x1, `Socket 1 6A 3-Pin Socket` x3 = 7 modules; `Frame/Face plate` **9M** plain (stated); `Blank plate qty` `2 (computed)`; `Back box` **No**; **`Back box size` `12M (computed)`** -- the PLATE-driven rung (9 -> next higher 12M on the box ladder), NOT the contents' 8M; NO note (owner: "that's ok"); body `plate: Grid and Face Plates 9M White = 508`, `back_box: Back Box 12M = 0` (Back box is No -> qty 0: the field shows the ladder's rung, the line prices nothing -- RULING 1's "does not re-gate on back_box"), supply **680** / install **140**. No PRICED live row of a shape that distinguishes plate-driven from contents-driven exists: the two priced candidates (`00181/Electrical/39`, `00183/Electrical Works/12`) carry a `1M & 2M` plate over 1 module, where both paths give 1M; the golden `ss1` (8M over 7 -> both 8M) is covered by `test_f25s1_08`. Screenshot `screenshot-1788721804027-27.jpg` |
+| F3 | 00224 / ELECTRICAL / **428** (*"3 Module GI Boxes"*; grid 60 / 20 hand-typed, unchanged) | `Switch None`, `Socket 1..4 None`, `Blank plate None`, `Frame/Face plate` **3M** plain (the model's STATED value, see the investigation below), `Plate qty 1` amber `default`, `Back box Yes`, **`Back box size` EMPTY (`— select —`, no marker, not red)**; body `supply = 0`, `install = 0`, `combined_rate = supply + install = 0`. The zero path is untouched -- slice 2 is still owed. Screenshot `screenshot-1788721699851-26.jpg` |
+| F4 | the two labels together (on F1) | `Back box` [amber `default` badge] `Yes` directly above `Back box size` [`(computed)`] `3M` -- zoom `screenshot-1788721561852-25.png`. They read as two different things: whether, then which. |
+| F5 | grid figures | 00242 r49 **500/100**, r50 **430/90**, r51 **470/100**; 00224 r427-436 **50/10 · 60/20 · 70/20 · 90/20 · 120/30** (GI and PVC blocks) -- every one identical to the `BoQ Cell Pricing` values read on 2026-09-06 |
+| F6 | catalogue + config, after the cert | freeze OFF; active Electrical **1,367** on `rmbulk-e4a8c133da89`; snapshots 10 (none created); live switches_sockets `BRCC-26-11013` **500/500 leaves, 0 differing** vs v57; all 12 configs 0 differing |
+
+No `Use this value` was clicked; no rate cell, remark or colour was written. One mis-aimed click on the
+F1 panel landed on the new `Back box size` dropdown and selected `1M` (a session override -- it showed
+`1M` plain while the price stayed 430/90, i.e. the accepted transient observed live); it was cleared with
+Revert in the same minute, before the F1 reading above. Panel state only, never data.
+
+### Owner questions raised during the cert -- investigated, recorded, NOT fixed
+
+**(a) "plate should not have been blank ... it should have been calculated based on the switch and socket
+selected"** (row 50). The plate ITEM was not blank on screen -- it computed `3M` from the switch and socket
+exactly as ruled. What was blank was the plate QUANTITY, and it is what refused the row. Stored cells, run
+`37a93412` (2026-09-04 15:19), rows 46-51: `plate_item {value: null, confidence 0.3}`, `plate_qty {value:
+null, confidence 0.3}`, no `defaulted` flag. The config's `extraction_defaults.plate_qty = {default: 1,
+requires_named: plate_item}` and the SLOT-PAIRED DEFAULTS prompt sentence say the quantity IS wanted when
+the item is BLANK (only "None" withholds it) -- the model returned null anyway, and nothing server-side
+fills a `requires_named` default (`scrub_unpaired_slot_defaults` only REMOVES). `plate_qty` is a genuine
+input (read via `qty.from_attr`), so a blank gates the row; the pricer typed `1` on each of rows 46-51
+before "Use" (the events' `corrected_attributes` carry `plate_qty: "1"`). **Frequency across the 372
+current-run switches_sockets rows:** plate BLANK & qty present **209** (compliant), plate BLANK & qty
+null **72** (non-compliant; 54 of them have occupants and 30 of those were priced by typing the qty),
+plate NAMED & qty null **0**, plate None **20**, plate NAMED & qty present **71**. The capture-log record
+shape was not parsed this slice, so "the model returned null" vs "a value was coerced away" is inferred
+from the stored cell (null at 0.3, no default flag), not from the raw reply. Candidate fixes, NOT built and
+NOT recommended here: a deterministic corrector filling a `requires_named` default when the named item is
+blank-not-None and the qty is null (code, the CLAUDE.md gate's home for a substitution); or treating the
+plate qty as derived while the plate is derived (helper). Owner's call.
+
+**(b) "for row 428 also check why faceplate was 3m and quantity 1."** Stored cells, run `3258470f`
+(2026-09-02 15:29): row 427 `2 Module GI Boxes` -> `plate_item 2M @0.55`; row 428 `3 Module GI Boxes` ->
+`plate_item 3M @0.55`, `plate_qty 1 defaulted:true`, `back_box Yes @0.6`; row 429 `4 Module GI Boxes` ->
+`plate_item None @0.85`, `plate_qty null`. The model read the BOX's module count into `Frame/Face plate`
+-- the "wrong destination" the 2026-09-06 recon measured on 29 of 49 extracted bare-box rows -- and
+because the plate is then NAMED, the slot-paired default fires and `plate_qty = 1` rides on it
+(`defaulted: true`, hence the amber badge). The same run, same template, gives `None` two rows later, so
+the carrier is inconsistent within one run. Neither value prices anything: the zero path never reaches
+`floor_from`, so the 3M plate is not bought and the box is not fitted -- which is exactly why `Back box
+size` is EMPTY on that row. Slice 2's text-read size must NOT be taken from `plate_item` for this reason
+(the plan doc's own `:32959-32963` warning stands): on a bare box the model's `plate_item` is a mislabelled
+box size 29 times in 49, and a stated `None` or blank 16 times in 45 stated-size rows.
+
+### Register (recorded, not fixed)
+- Panel attribute overrides survive a re-run in the EMBEDDED panel (the component is outside the grid's
+  keyed subtree; `runSuggestRates` clears the selection but not `attrOverrideState`, so re-selecting the
+  same Excel row re-applies old edits on the new extraction). Owner PARKED 2026-09-06.
+- **163 of 372** switches_sockets rows in active runs have `socket3_item` blank/absent (runs predating
+  the slice-5 attributes, plus some fresh rows) and are predicted to refuse with "Complete the missing
+  attributes to price"; screen-checkable example `BOQ-26-00189 / electrical work / 94`.
+- The 72-row blank `plate_qty` defect above (a) -- 30 priced rows had the qty typed by hand.
+- `BOQ-26-00126 / ELEC / 398`: socket misread as three-phase (from the F-30 cert).
+- The board ladder owes the "closer in rating" correction (F-30 slice A register).
+- No UI path to reactivate a Rate Master item.
+- `63A DP MCB D CURVE` and `40A DP MCB D CURVE` both priced 2,049.
+- The pricer-facing refusal line names an internal pipeline id (`No swsock_boq rate row matches ...`);
+  the interpreter's real bail reason (e.g. "20 modules exceeds the largest 'plate_item' the catalog
+  carries (18M)") never reaches the panel.
+- Slice 1's field shows the box ladder's rung even when `back_box = No` (F2: `12M (computed)` beside
+  `Back box No`, line priced 0). Consistent with RULING 1 ("does not re-gate on back_box"); whether the
+  field should blank on No is an owner call for slice 3.
+
+### Files
+`nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v57.json` (new),
+`nirmaan_stack/api/boq/test_rate_master.py` (constant, test_38, five widened pins, one renamed, new class),
+`frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.test.ts` (new describe block), this record.
+`CLAUDE.md`: judged, nothing durable earned -- the slice adds no rule the reference docs do not already
+carry.
