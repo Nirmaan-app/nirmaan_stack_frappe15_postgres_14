@@ -36414,3 +36414,179 @@ Do not fix in this slice; owner to schedule.
   `mcb_pole_stated` table and `catalog_fit`, untouched here.
 - **Row 135's active suggestion** on `BOQ-26-00193 / Sheet1` is the degenerate `BRSR-26-00283`
   (see above); one ordinary re-run restores it.
+
+
+---
+
+## F-30 slice B -- industrial_sockets: the SPN family, the refusal, the amber note (2026-09-06)
+
+**Owner rulings served (verbatim, not extended):** *"so the shape is that for any ploe + Neutral,
+should be matched withnext higher pole: SPN with DP, TPN with 4p"* / *"we need to first match with
+SPN in catalog, if that is not there then we match with DP"* (same for TPN: *"yes"*) / *"next
+rating"* / on refusing rather than pricing the socket alone: *"this is the correct outcome"* / on
+preference at a moved rating: *"no. DP vs SPN should be decided based on which is closer in rating"*
+/ on the amber note: *"implement same for sockets also"* / *"i prefer ride along unless you
+disagree"* / the four visible changes: *"proceed"*. **F-30 is now closed on both engines.**
+
+### Where the socket path resolves a pole (the slice-B recon, corrected premise)
+
+industrial_sockets is NOT "a config table instead of the board code path" -- it is a config table
+FEEDING a second, frontend, catalogue-dependent ladder. The model reads four `panel: false` facts
+under R12 (`mcb_present`, `mcb_amp_a`, `mcb_pole_stated` VERBATIM from an allowed list,
+`mcb_curve_stated`); a `map_attribute` table normalises the stated pole (`mcb_pole_norm`), the socket's
+pin count is the fallback, and `catalog_fit` (ratePipelineInterpreter.ts) fits the stated amp at that
+pole and curve -- exact else next UP. The board ladder in `extraction.py` is structurally unreachable
+here (`pole_catalog` is None for every non-composite config) and was not touched.
+
+### The three changes -- all CONFIG + FRONTEND, no interpreter change, no backend code change
+
+1. **The SPN vocabulary (asset v56).** `mcb_pole_stated.values` 11 -> 16 with `SPN, SP+N, SP+NL,
+   SP&N, 1P+N`, and the normalisation table gains the same five keys -> `DP` in BOTH pipelines; the
+   step `explain` names them. **Why that list:** it is the board ladder's own vocabulary
+   (`extraction._SPN_FAMILY_TOKENS`), the "other input" the owner named; the socket corpus sweep
+   (616 texts, 2026-09-05) uses exactly ONE of them on a breaker, `SP+N`
+   (`BOQ-26-00126/ELEC/r398`). Nothing is padded beyond what one of the two paths uses.
+   **The R12 answer: R12 is NOT touched.** It already says *"recorded VERBATIM as one of the allowed
+   values ... the conversion to the catalogue's pole is computed downstream"*, so widening `values`
+   is sufficient; R12 lives in the SHARED rules block (a phrase in one rule is visible to every other
+   question, measured twice in two days), and `test_r12_and_every_other_config_are_byte_identical_
+   to_the_prior_asset` pins it byte-equal to v55. `notes` is untouched too; this entry is the record.
+2. **Refuse instead of pricing the socket alone (asset v56).** The paired-MCB `catalog_fit` flips
+   `on_miss` `"none"` -> `"no_compute"` in BOTH pipelines. VERIFIED mechanism: the interpreter's
+   `no_compute` branch returns `bail(...)` -- `status: "no_match"`, no finals, no zero, no crash
+   (pinned inline at `ratePipelineInterpreter.test.ts` "THE SHIPPED SHAPE"). `on_missing_fact: none`
+   and `absent_when` are UNCHANGED: a row naming no amp, or no breaker at all, still prices the
+   socket alone -- only "asked for more than we carry" refuses.
+   **What the pricer sees, verbatim:** header `no match for these attributes`; body
+   `No indsock_boq rate row matches Item = ..., Enclosure = ..., Rating = ..., Pole/Phase = ...` (one
+   line per pipeline). ⚠️ **That is JARGON** (`indsock_boq` is a pipeline id; the interpreter's own
+   reason -- `125 exceeds the largest 'paired_mcb' the catalog carries (80 FP MCB) -- no value
+   computed` -- never reaches the panel, only the derivation trace). It is the pre-existing no-match
+   wording every category already shows; this slice ADDS rows to that population and does NOT
+   reword it, because the rewording is a judgement on wording that would change every category's
+   refusal line (an unapproved visible change, #57). RECORDED AS A REGISTER ITEM for the owner.
+3. **The amber note on socket rows (frontend).** ONE WORDING SOURCE, TWO PRODUCERS: the board note
+   comes from the server's `pole_ladder` marker; the socket hop is computed in the frontend
+   `catalog_fit`, which writes no marker. `pricingSheetHelper.catalogFitRatingUpNote(cf, items)` builds
+   the marker shape from the `CatalogFitOutcome` (`requested` -> `size`, `fitted`) and hands it to the
+   SAME `ratingUpNote`, so both paths share one note builder and one sentence (`attrNoteText`);
+   `applyDerivedDisplay` gains an optional `items` param and attaches the note in its FITTED branch.
+   Gated on the fitted row carrying a `device` -- a tray/thickness ladder is a hop too, but "No
+   matching breaker at 300A" would be a fabricated fact. `rateHelperTypes.ts` and `RateHelperPanel.tsx`
+   untouched; `ratePipelineInterpreter.ts` untouched.
+
+**Rung 1 on the socket path is NOT built** (not one of the three changes). The interpreter's
+list-valued `where` (`pole: ["@named", "@counted"]`, earlier member wins a same-size tie, size decides
+first) would deliver exactly *"closer in rating, SPN at ties"* when a literal-SPN/TPN row exists; today
+none does (the only ones are the three inactive slice-A fixtures). On the register with the board
+ladder's owed correction.
+
+### Delivery path -- real figures
+
+Freeze OFF. Pre-import: active Electrical **1,367** on batch `rmbulk-79a607128a2e`, 12 active configs,
+industrial_sockets values 11 / table 11 keys / `on_miss none, none`. Mint `_mint_v56_tmp.py` (scratch,
+not committed -- the `_mint_v5*_tmp.py` precedent): asserts every v55 precondition, changes ONE
+category, asserts every other config / all 1,367 items / all 12 goldens byte-equal (deep equality,
+never a count), prints **21 differing leaves v55 -> v56** (5 values, 2x5 table keys, 2 step explains,
+2 fit explains, 2 `on_miss`), sha256 `1db7ec9e18ada8501f1e95bdbdd9e1ec557617b4e8f4f241d4a7dd4d517706a3`,
+784,125 bytes, LF. `CURRENT_EALL_ASSET` -> v56. `scripts/mint_completeness_check.py HEAD:v55 v56`:
+**PASS, no atoms disappeared** (uninspectable window v15/v16/v16a/v16b/v42/v48/v49 as always).
+Import in-container, explicit path, `replace=True`: loader `status loaded`, batch
+**`rmbulk-2e0909b55e60`**, items_total 1,367, configs_loaded 12, items_deactivated 1,367,
+configs_deactivated 12. Post-import: active **1,367** on the new batch, 12 configs; live
+industrial_sockets (`BRCC-26-07907`) vs the v56 asset: **291 leaves, 0 differing**; every other
+config **12/12 leaf-equal**. Only then the backend restart (kill by PID 11812/11821, `--noreload`,
+ping 200 x3), vite cache cleared, chain 200/200/200 x3, bundle marker `catalogFitRatingUpNote` x2 on
+the plain url.
+
+### Pins (red first, then green; vacuity proven)
+
+- `test_rate_master.TestSpnPoleVocabulary` (7, new): SPN spellings -> DP (POS); offerable values
+  (POS); plain SP/DP/TP/FP pass through -- THE SOCKET-TOKEN NEGATIVE, table half (NEG); four-pole
+  family byte-identical to v55 and the widening is EXACTLY the five keys (NEG, TPN unchanged); SPN
+  spellings named in the explain (POS); paired-MCB fit `no_compute` in both pipelines with
+  `on_missing_fact`/`absent_when`/`direction`/`prefer_attr` unchanged (POS+NEG); R12 + every other
+  config byte-equal to v55, industrial_sockets differs only in the three named places (NEG). RED
+  against v55: 5 of 7 (the two "nothing moved" negatives are green by construction). GREEN against
+  v56: 7/7; `TestTpnPoleVocabulary` 17/17 (its values pin updated to sixteen, ruling dated inline).
+- `pricingSheetHelper.test.ts` "F-30 slice B" (7, new): 20 A -> 25 A hop yields ONE `rating_up` note
+  worded `No 4 pole MCB at 20A on the C curve — using 25A.` (POS); socket note deep-equals the board
+  note built from a server marker with the same numbers (ONE WORDING SOURCE); exact fit says nothing;
+  stated paired MCB says nothing; concluded absence says nothing; a hop on a device-less ladder gets
+  no breaker sentence (NEG); Change 2 through the helper: no `supply_rate`, header + body lines
+  verbatim shape, no note. RED 2/7 before the producer, GREEN 7/7 after.
+- `ratePipelineInterpreter.test.ts`: the `on_miss` sentinel pin RENAMED (mechanism, no longer the
+  shipped socket rule) and the `no_compute` pin promoted to "THE SHIPPED SHAPE", ruling dated inline;
+  interpreter source untouched.
+- VACUITY: producer line replaced by `undefined` -> the two positives red (2 failed / 211 passed) ->
+  restored byte-identical (sha `e472b78cde47`) -> 213/213. Config pins' vacuity IS the v55 red run.
+- Counts in-session: BEFORE coercion 113 / suggest 71 / rate_master 300 / vitest 3,149 of 3,150;
+  AFTER coercion 113 / suggest 71 / rate_master 307 / vitest 3,156 of 3,157 (only the known
+  `writeOffControl` timeout, both times).
+
+### The briefing measurement (read-only) -- rows that REFUSE under Change 2
+
+Recon claimed ELEVEN; the repo says **FOURTEEN** on current committed versions -- the eleven plus
+three RCCB rows the recon's TPN-only vocabulary missed (`4P RCCB` at 100/125 A: R12 counts RCCB as a
+breaker word, `device: MCB` then finds nothing at 100/125 A at FP, so the row refuses):
+
+| row | breaker named | rate today | source of that rate |
+|---|---|---|---|
+| BOQ-26-00143/BOQ r760, r762 | 100A / 125A TPN MCB | supply 22,000 / 2,200; install 3,000 / 3,000 | hand-typed (vanshika, 29-30 Jul; sheet has NO suggestion run) |
+| BOQ-26-00143/BOQ r764, r766, r768 | 200 / 250 / 400A TPN MCB | none | -- |
+| BOQ-26-00153/BOQ r767, r769 | 100A / 125A TPN MCB | supply 104,960 / 104,960; install 36,740 / 36,740 | hand-typed (vanshika, 31 Jul; no run) |
+| BOQ-26-00153/BOQ r771, r773, r775 | 200 / 250 / 400A TPN MCB | none | -- |
+| BOQ-26-00174/Electrical r236 | 125A TPN MCCB | none | (has a pre-R12 run; refuses on re-run) |
+| BOQ-26-00173/Electrical r58 | 100A 4P RCCB | none | -- |
+| BOQ-26-00173/Electrical r217 | 100A 4P RCCB | install 2,500 | hand-typed (sushmitha, 10 Aug; no run) |
+| BOQ-26-00140/Electrical r658 | 125A 4P 30mA RCCB | supply 66,715; install 23,360 | hand-typed (sushmitha, 3 Aug; no run) |
+
+No `BoQ Rate Suggestion Event` exists on any of them -- every rate above was typed, none was a used
+suggestion, and a refusal never touches a typed rate. Search space: every current `BoQ Row Category`
+row set resolving to industrial_sockets on its sheet's current committed version (519), predicted from
+the stored extraction where one exists (stated amp above the top rung at the resolved pole/curve) and
+from the row text otherwise (a breaker word beside an amp above 80).
+
+### The live cert (2026-09-06, admins@nirmaan.app, :8080 via vite)
+
+De-stale as written: web 11812 + worker 11821 + the vite tree killed BY PID, `bench serve --port 8000
+--noreload` + `bench worker` detached (new PIDs 14350 / 14354), :8000 ping **200 x3** with the Host header,
+`node_modules/.vite` cleared, vite detached (14377), :8080 chain **200/200/200 x3** (with the Host header --
+without it the proxied `/api/method/ping` is a 404 for site resolution, a curl artefact not an app one),
+service worker unregistered (1), site storage cleared, tab closed, new tab, bare root first, then the deep
+route. FRONTEND bundle marker on the PLAIN url: `catalogFitRatingUpNote` **x2** in
+`pricingSheetHelper.ts`. ⚠️ **No CSRF break occurred this time** -- the session cookie survived the
+backend restart and the first `start_suggest` POST was accepted (HTTP 200 at 06:29:16); nothing to wait
+for. Every run SCOPED except the one the guard refused (below). AI calls: **four runs** --
+`BRSR-26-00334` (00190/Sheet1, rows 49+179, 1 batch), `BRSR-26-00335` (00174/Electrical, 6 rows, 1 batch),
+the refused scoped start on 00126/ELEC (HTTP 417, no run document, no AI call), and `BRSR-26-00336`
+(00126/ELEC whole sheet, 205 eligible rows, 17 batches).
+
+| step | row | RENDERED PANEL |
+|---|---|---|
+| D1 | 00126/ELEC r398 | exists (`BOQN-26-59799`, Line Item, current v1, `human_category_id = industrial_sockets` since 2026-07-25). Scoped run REFUSED by the guard: server HTTP 417 `Nothing to carry forward -- There is no completed suggestion run for this sheet to carry the untouched rows`; the UI showed only the generic `Suggestion run failed ... check the AI settings/key` modal (pre-existing wording, noted below). Whole-sheet run `BRSR-26-00336`: model `mcb_pole_stated = SP+N` (recorded VERBATIM -- Change 1 at extraction), `mcb_amp_a 32`, curve unstated -> C. Paired MCB **`32A DP MCB C CURVE`** = 729 -- a TWO-POLE 32 A device, not single-pole; supply **11,068** / install **3,880**; no amber note (exact fit). ⚠️ The recon predicted 9,442 / 3,310 on a 3-pin socket; the model read the socket as `5 Pin / 3P+N+E` (the text says `SPN+E Metal Clad Socket`), so the SOCKET line is 10,339 (32A 5-pin IP44/54, 10,550 x 0.98) rather than 8,713 -- a model reading of the socket's pin count, outside this slice's mechanism; the breaker half of the prediction (SP 194 -> DP 729) holds exactly. The row's typed rates (supply 3,400 / install 1,200, 24 Jul) were NOT touched. Screenshot `screenshot-1788679504336-22.png` |
+| D2 | 00190/Sheet1 r49 | model `mcb_pole_stated = SP` (the socket's own SPN NOT reported); Paired MCB **`20A SP MCB C CURVE`** = 223, socket 7,909; supply **8,132** / install **2,850** / combined 10,982; NO amber note. SP stays SP |
+| D2 | 00190/Sheet1 r179 | model `mcb_pole_stated = DP`; Paired MCB **`25A DP MCB C CURVE`** = 729 (20 A DP not carried -> 25 A); supply **8,638** / install **3,030** / combined 11,668. DP stays DP. Before the run both rows read `Complete the missing attributes to price` (their stored extraction predated the four MCB facts) |
+| D3 | 00190/Sheet1 r179 | amber, in the note area directly under **Paired MCB**, class `pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400`: `No 2 pole MCB at 20A on the C curve — using 25A.` (screenshot `screenshot-1788676450697-11.png`) |
+| D3 | 00174/Electrical r220, r222 | `No 4 pole MCB at 16A on the C curve — using 25A.` and `No 4 pole MCB at 20A on the C curve — using 25A.` under Paired MCB; `25A FP MCB C CURVE` = 1,396; 10,618 / 3,720 (= golden i4). Before the run both priced the socket ALONE (9,222 / 3,230) -- an old-run under-pricing the re-extraction corrected |
+| D4 | 00174/Electrical r236 (125A TPN MCCB) | REFUSES: header `no match for these attributes`, headline `—`, Paired MCB `— select —`, body `No indsock_boq rate row matches Item = Industrial Socket with MCB, Enclosure = IP67 - Water Proof, Rating = 125A, Pole/Phase = 5 Pin / 3P+N+E.` + the `indsock_install` twin; no total anywhere. Before the run it priced 73,111 / 25,590 off a model-STATED `125A FP MCCB` (pre-R12 extraction). Screenshot `screenshot-1788676704488-13.png` |
+| D5 | 00174/Electrical r226, r228 | `32A FP MCB C CURVE` = 1,396; **12,372 / 4,340** before AND after the re-run -- unchanged to the rupee |
+| D5 | 00174/Electrical r234 | `63A FP MCB C CURVE` = 1,986; **24,918 / 8,730** before AND after -- unchanged to the rupee |
+| D6 | catalogue + config | after the cert: freeze OFF; active Electrical **1,367** on `rmbulk-2e0909b55e60`; snapshots 10 (no export/snapshot/mint/loader during the cert); every one of the 12 live configs **leaf-equal to v56** (industrial_sockets `BRCC-26-07907` 291/291, 0 differing); the three fixture rows from slice A still `active = 0` |
+
+No `Use this value` was clicked anywhere; no rate cell, remark or colour was written; the only writes are
+the suggestion-run documents the runs themselves create. One accidental client-side VIEW toggle
+(`Show unpriced`, from a mis-aimed click on the 00126 tab) was cleared in the same minute; it is page
+state, not data. `Fast render` was switched OFF on the 00126 tab (page-session A/B toggle) so row 398
+could be reached in the DOM; not persisted.
+
+### Register (recorded, not fixed)
+- The board ladder owes the "closer in rating" correction (rung 1 exact-only vs the socket
+  interpreter's size-first + preference); inert today on both paths (no literal SPN/TPN catalogue row).
+- Rung 1 (named pole first) on the socket path is expressible as a two-member `where.pole` list;
+  not built, inert today.
+- The pricer-facing refusal line is jargon (`No indsock_boq rate row matches ...`) and the interpreter's
+  real reason never reaches the panel; a rewording changes every category's no-match line -- owner call.
+- No UI path to reactivate a Rate Master item (from slice A).
+- `63A DP MCB D CURVE` and `40A DP MCB D CURVE` are both priced 2,049.
+- Slice A's degenerate return run left row 135's active suggestion empty on `BOQ-26-00193 / Sheet1`.
