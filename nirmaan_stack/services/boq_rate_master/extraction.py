@@ -1389,6 +1389,123 @@ def scrub_unpaired_slot_defaults(row_out, defaults):
     return scrubbed
 
 
+# The confidence a CODE-filled paired default carries. The DEFAULTS prompt asks the model for a
+# default "with moderate confidence"; observed model defaults on the live corpus sit at 0.5-0.6.
+# The value is deliberately NOT 1.0: a filled default is a rule, not a reading.
+_PAIRED_FILL_CONFIDENCE = 0.5
+
+
+def paired_fill_plan(cfg):
+    """PAIRED-QUANTITY FILL, case (b) -- which paired ITEM slots the pipeline COMPUTES rather than
+    reads, and which quantity terms decide whether it will. Derived FROM THE CONFIG, never from a
+    category or attribute name (the HV-10 lesson): a config declaring no `module_fit` ladder over a
+    paired item returns None and case (b) is inert for it; case (a) never needs a plan.
+
+    Returns {"computed_items": [item ids that are a module_fit ladder `bind` AND the `requires_named`
+    target of a default], "occupancy_terms": [{"attr": qty_id, "none_when": item_id}, ...]} -- the
+    SAME terms `module_fit` sums, read from the first module_fit step found (every pipeline of a
+    config shares one module_fit shape; the mint pins assert it)."""
+    cfg = cfg or {}
+    defaults = cfg.get("extraction_defaults") or {}
+    pair_items = {spec.get("requires_named") for spec in defaults.values()
+                  if isinstance(spec, dict) and spec.get("requires_named")}
+    if not pair_items:
+        return None
+    computed, terms = set(), []
+    for pl in (cfg.get("pipelines") or {}).values():
+        for step in (pl or {}).get("steps") or []:
+            if step.get("step") != "module_fit":
+                continue
+            params = step.get("params") or {}
+            for ladder in params.get("ladders") or []:
+                if ladder.get("bind") in pair_items:
+                    computed.add(ladder["bind"])
+            if not terms:
+                terms = [{"attr": t.get("attr"), "none_when": t.get("none_when")}
+                         for t in params.get("terms") or [] if t.get("attr")]
+    if not computed:
+        return None
+    return {"computed_items": sorted(computed), "occupancy_terms": terms}
+
+
+def fill_paired_slot_defaults(row_out, defaults, plan=None):
+    """PAIRED-QUANTITY FILL (owner rulings 2026-09-07) -- the MIRROR of the scrub above.
+
+    The scrub REMOVES a quantity whose item is "None". This FILLS a quantity that came back BLANK
+    when its item is present, with the DECLARED default, marked `defaulted: true` exactly as the
+    model's own claimed defaults are marked (`_extract_batch` keeps that flag at the coercion site;
+    the panel's amber badge reads it). Owner, verbatim: "if the item is filled but qty is blank then
+    it should be populated default 1. when item is none or blank it, the default qty rule sshould
+    not be applied" -- and, for the plate only, "this should be included": a plate the row never
+    named but WILL BUY, because the ladder computes one from the occupants.
+
+    THE RULE, exactly:
+      (a) for EVERY `requires_named` pair: qty BLANK and item FILLED (a real value, not "None", not
+          blank) -> fill the declared default.
+      (b) ONLY for a pair whose item is a module_fit ladder BIND (`plan.computed_items` -- the plate):
+          qty BLANK and item BLANK and the row is OCCUPIED -> fill. Occupied mirrors `module_fit`'s
+          own sum: some occupancy term whose item is FILLED (not "None", not blank -- a blank item
+          would bindMiss the row anyway) carries a quantity above zero, AFTER case (a) has run.
+      NEVER when the item is "None". NEVER when the item is blank outside case (b). NEVER over a
+      quantity the model READ -- a read 0 is a value, not a blank, and it is left alone.
+
+    ⚠️ THE PROMPT SENTENCE (SLOT-PAIRED DEFAULTS) ALREADY SAYS ALL OF THIS AND THE MODEL IGNORES
+    IT: measured 2026-09-07, `plate_qty` null on 72 of 281 blank-plate rows (54 with occupants, 30 of
+    them priced only after a pricer typed the 1). This is the enforcement; the sentence stays as
+    guidance. PURE apart from mutating `row_out`; returns the ids filled so the caller records them.
+    Affects NEW extractions only -- stored rows keep their blanks until re-run (owner: "exisiting rows
+    stay broken. it ok")."""
+    filled = []
+    if not defaults:
+        return filled
+    pairs = [(aid, spec) for aid, spec in defaults.items()
+             if isinstance(spec, dict) and spec.get("requires_named") and "default" in spec]
+    if not pairs:
+        return filled
+
+    def _state(item_id):
+        v = (row_out.get(item_id) or {}).get("value")
+        if v == _NONE_SENTINEL:
+            return "none"
+        return "blank" if v is None or v == "" else "filled"
+
+    def _qty_blank(aid):
+        cell = row_out.get(aid)
+        return cell is None or cell.get("value") is None or cell.get("value") == ""
+
+    def _fill(aid, spec):
+        row_out[aid] = {"value": spec["default"], "confidence": _PAIRED_FILL_CONFIDENCE,
+                        "defaulted": True}
+        filled.append(aid)
+
+    # (a) a named item with an unread quantity -- every pair.
+    for aid, spec in pairs:
+        if _qty_blank(aid) and _state(spec["requires_named"]) == "filled":
+            _fill(aid, spec)
+
+    # (b) a COMPUTED item (the plate) the row never named but will buy.
+    if plan:
+        computed = set(plan.get("computed_items") or [])
+
+        def _positive(v):
+            try:
+                return float(v) > 0
+            except (TypeError, ValueError):
+                return False
+
+        occupied = any(
+            (not t.get("none_when") or _state(t["none_when"]) == "filled")
+            and _positive((row_out.get(t["attr"]) or {}).get("value"))
+            for t in plan.get("occupancy_terms") or []
+        )
+        if occupied:
+            for aid, spec in pairs:
+                item = spec["requires_named"]
+                if item in computed and _qty_blank(aid) and _state(item) == "blank":
+                    _fill(aid, spec)
+    return filled
+
+
 def force_absent_dependents(row_out, absent_rules):
     """PW-CIRCUIT-STRETCH -- a component the row declares ABSENT has an absent SPECIFICATION.
 
@@ -1990,7 +2107,7 @@ def stamp_pole_ladder(row_out, records):
             cell["pole_ladder"] = dict(extras, to=rec.get("to"))
 
 
-def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, absent_rules=None, conductor_groups=None, *, capture_ctx=None):
+def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, absent_rules=None, conductor_groups=None, paired_fill=None, *, capture_ctx=None):
     """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
     confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
     (<=20 rows, 3 attempts, sleep 2*attempt).
@@ -2132,6 +2249,10 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 # SLICE 5 (B2): {excel_row: [qty_attr, ...]} -- quantities removed because their
                 # paired item slot came back "None". Observation only, like every sibling here.
                 "slot_paired_defaults_scrubbed": {},
+                # PAIRED-QUANTITY FILL (2026-09-07): {excel_row: [qty_attr, ...]} -- quantities the
+                # code filled with their declared default because the item is present (or, plate
+                # only, will be bought). Observation only, like every sibling here.
+                "paired_slot_defaults_filled": {},
                 # PW-CIRCUIT-STRETCH: {excel_row: [attr, ...]} -- spec fields filled with the "None"
                 # sentinel because their controller declared the component absent. Observation
                 # only, like every sibling here.
@@ -2234,6 +2355,26 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                     drops["slot_paired_defaults_scrubbed"].setdefault(str(rid), []).append(_aid)
                     if _aid in row_map:
                         row_map[_aid]["scrubbed_unpaired"] = True
+
+                # PAIRED-QUANTITY FILL (owner rulings 2026-09-07) -- the scrub's mirror: a quantity
+                # that came back BLANK beside a PRESENT item (or, plate only, beside a plate the row
+                # will buy) is filled with its declared default and marked `defaulted`, so the row
+                # prices without a pricer typing the 1. Placed AFTER the scrub deliberately: the
+                # scrub first settles every "None" slot to "no quantity", so the occupancy test
+                # below never counts a quantity the scrub is about to remove; the two are
+                # commutative on every single slot (None vs filled/blank are disjoint), which the
+                # pins assert, and this order makes the dependency direction explicit. Inert for a
+                # config declaring no `requires_named` default.
+                for _aid in fill_paired_slot_defaults(row_out, defaults, paired_fill):
+                    drops["paired_slot_defaults_filled"].setdefault(str(rid), []).append(_aid)
+                    row_map[_aid] = {
+                        "raw": (row_map.get(_aid) or {}).get("raw"),
+                        "coerced": row_out[_aid]["value"],
+                        "reason": "paired default filled (code)",
+                        "confidence_raw": (row_map.get(_aid) or {}).get("confidence_raw"),
+                        "confidence": row_out[_aid]["confidence"],
+                        "defaulted_claimed": False, "defaulted_kept": True,
+                    }
 
                 # PW-CIRCUIT-STRETCH -- a component declared ABSENT has an absent SPECIFICATION.
                 # Placed beside the scrub above because it is the same kind of thing: a pure,
@@ -2631,6 +2772,10 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
             # for every other mode, which leaves those categories byte-identical.
             "pole_catalog": breaker_catalog_for(cfg, disc) if is_composite else None,
             "conductor_groups": conductor_floor_groups(cfg),
+            # PAIRED-QUANTITY FILL (2026-09-07): which paired item the pipeline COMPUTES (the plate
+            # ladder bind) and the occupancy terms that decide whether it will be bought. Derived
+            # from the config; None for a config with no module_fit over a paired item.
+            "paired_fill": paired_fill_plan(cfg),
             # PIECE 4: the attribute ids this config declares that CODE supplies rather than the
             # model. Derived FROM THE CONFIG (never a hardcoded category name -- the HV-10 lesson):
             # a config that does not declare `point_type` yields an empty set and the matcher is
@@ -2698,6 +2843,7 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
                     # `boq` is NOT on the row dict -- it lives only in this enclosing scope, so the
                     # capture's join key is threaded in from here.
                     return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], _gc["pole_catalog"], _gc["code_attrs"], _gc["absent_rules"], _gc["conductor_groups"],
+                                          _gc["paired_fill"],
                                           capture_ctx={"boq": boq})
 
                 # SR-2 (3): ONE iteration when the batch fits (byte-identical to the pre-SR-2 single

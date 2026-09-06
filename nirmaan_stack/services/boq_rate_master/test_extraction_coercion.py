@@ -11,6 +11,7 @@ The function is PURE (a definition dict + a raw value in, a stored value out), s
 a direct call -- no DB, no AI, no fixtures.
 """
 
+import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -1223,3 +1224,351 @@ class TestPolePlusNeutralLadderTpn(FrappeTestCase):
         resolves to the pick itself, no record."""
         out = {"mcb1_item": _cell("40A FP MCB C CURVE")}
         self.assertEqual(extraction.correct_four_pole_mcb_picks(out, _REAL_198_R77, _CAT_LADDER), [])
+
+
+class TestFillPairedSlotDefaults(FrappeTestCase):
+    """PAIRED-QUANTITY FILL (owner rulings 2026-09-07) -- the scrub's mirror.
+
+    Owner, verbatim: "if the item is filled but qty is blank then it should be populated default 1.
+    when item is none or blank it, the default qty rule sshould not be applied"; the blank-plate-but-
+    computed case: "this should be included"; and "it fills 1 only when it is blank".
+
+    Measured before building (all 372 switches_sockets rows in the 40 active runs): case (a) -- item
+    FILLED, qty BLANK -- is ZERO across all six pairs; case (b) -- plate BLANK, qty BLANK, an occupant
+    named -- is 54 rows (30 of them priced only after a pricer typed the 1). The 18 blank-plate rows
+    with NO occupant and the 20 "None" plates are untouched by construction.
+    """
+
+    DEFAULTS = {
+        "switch_qty": {"default": 1.0, "requires_named": "switch_item"},
+        "socket1_qty": {"default": 1.0, "requires_named": "socket1_item"},
+        "socket2_qty": {"default": 1.0, "requires_named": "socket2_item"},
+        "socket3_qty": {"default": 1.0, "requires_named": "socket3_item"},
+        "socket4_qty": {"default": 1.0, "requires_named": "socket4_item"},
+        "plate_qty": {"default": 1.0, "requires_named": "plate_item"},
+        "back_box": "Yes",           # plain defaults, no pairing
+        "colour": "White",
+    }
+    # The switches_sockets module_fit shape (asserted against the live asset in test_plan_from_live_configs).
+    PLAN = {
+        "computed_items": ["plate_item"],
+        "occupancy_terms": [
+            {"attr": "socket1_qty", "none_when": "socket1_item"},
+            {"attr": "socket2_qty", "none_when": "socket2_item"},
+            {"attr": "socket3_qty", "none_when": "socket3_item"},
+            {"attr": "socket4_qty", "none_when": "socket4_item"},
+            {"attr": "switch_qty", "none_when": "switch_item"},
+        ],
+    }
+    PAIRS = (("switch_qty", "switch_item", "16A 1 WAY SWITCH"),
+             ("socket1_qty", "socket1_item", "6A 3-Pin Socket"),
+             ("socket2_qty", "socket2_item", "6A/16A 3-Pin Socket"),
+             ("socket3_qty", "socket3_item", "RJ 11 Telephone"),
+             ("socket4_qty", "socket4_item", "USB Charger - A Type"),
+             ("plate_qty", "plate_item", "3M"))
+
+    # ── case (a): item FILLED, quantity BLANK -> the declared default, marked defaulted ──────────
+    def test_case_a_fills_a_blank_quantity_beside_a_named_item_on_every_pair(self):
+        """POSITIVE, all six pairs. The filled cell carries `defaulted: True` -- the SAME flag the
+        model's own claimed defaults carry (kept at the coercion site), which is what the panel's
+        amber badge reads. No second mechanism."""
+        for qty, item, label in self.PAIRS:
+            row = {item: _cell(label), qty: _cell(None)}
+            filled = extraction.fill_paired_slot_defaults(row, self.DEFAULTS, self.PLAN)
+            # An OCCUPANT pair also makes the (plate-less) row occupied, so case (b) fills the plate
+            # quantity beside it; the plate pair fills itself alone. Both are the rule, stated.
+            self.assertEqual(filled, [qty] if qty == "plate_qty" else [qty, "plate_qty"], qty)
+            self.assertEqual(row[qty]["value"], 1.0, qty)
+            self.assertIs(row[qty]["defaulted"], True, qty)
+            self.assertEqual(row[qty]["confidence"], extraction._PAIRED_FILL_CONFIDENCE, qty)
+
+    def test_case_a_fills_a_quantity_the_model_omitted_entirely(self):
+        """The coercion loop always writes a null cell for a declared attribute, but the function
+        must not depend on it: a missing key is a blank."""
+        row = {"socket1_item": _cell("6A 3-Pin Socket")}
+        # (the occupied, plate-less row also earns its plate quantity through case (b))
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, self.DEFAULTS, self.PLAN), ["socket1_qty", "plate_qty"])
+        self.assertEqual(row["socket1_qty"]["value"], 1.0)
+
+    def test_case_a_needs_no_plan(self):
+        """Case (a) is the rule for EVERY paired quantity, plan or not."""
+        row = {"socket1_item": _cell("6A 3-Pin Socket"), "socket1_qty": _cell(None)}
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, self.DEFAULTS, None), ["socket1_qty"])
+
+    # ── NEVER when the item is "None" ────────────────────────────────────────────────────────────
+    def test_never_fills_beside_a_None_item(self):
+        """NEGATIVE. "None" is positive absence -- there is nothing to count. All six pairs, with
+        every occupant None so case (b) has no occupancy either."""
+        row = {item: _cell("None") for _q, item, _l in self.PAIRS}
+        row.update({qty: _cell(None) for qty, _i, _l in self.PAIRS})
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, self.DEFAULTS, self.PLAN), [])
+        for qty, _i, _l in self.PAIRS:
+            self.assertIsNone(row[qty]["value"], qty)
+
+    # ── NEVER when the item is blank -- except case (b), plate only ─────────────────────────────
+    def test_never_fills_beside_a_blank_occupant_item(self):
+        """NEGATIVE. A socket nobody identified is never purchased, so its quantity stays blank even
+        when the row is otherwise occupied -- case (b) is PLATE ONLY."""
+        row = {"switch_item": _cell("16A 1 WAY SWITCH"), "switch_qty": _cell(1.0),
+               "socket1_item": _cell(None), "socket1_qty": _cell(None),
+               "plate_item": _cell("3M"), "plate_qty": _cell(1.0)}
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, self.DEFAULTS, self.PLAN), [])
+        self.assertIsNone(row["socket1_qty"]["value"])
+
+    def test_bare_box_blank_plate_no_occupants_is_untouched(self):
+        """NEGATIVE, the bare box (F-25): every occupant None, plate blank, qty blank -> the zero
+        path buys no plate, so no quantity is filled. Slice 2 is still owed and this must not
+        pre-empt it."""
+        row = {"switch_item": _cell("None"), "socket1_item": _cell("None"), "socket2_item": _cell("None"),
+               "socket3_item": _cell("None"), "socket4_item": _cell("None"),
+               "switch_qty": _cell(None), "socket1_qty": _cell(None), "socket2_qty": _cell(None),
+               "socket3_qty": _cell(None), "socket4_qty": _cell(None),
+               "plate_item": _cell(None), "plate_qty": _cell(None), "back_box": _cell("Yes")}
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, self.DEFAULTS, self.PLAN), [])
+        self.assertIsNone(row["plate_qty"]["value"])
+        self.assertNotIn("defaulted", row["plate_qty"])
+
+    # ── case (b): PLATE ONLY, item blank, quantity blank, an occupant named -> 1 ────────────────
+    def test_case_b_fills_the_plate_quantity_when_the_row_will_buy_a_computed_plate(self):
+        """POSITIVE (the row-50 shape, BOQ-26-00242 / LT Electrical works): one switch, one socket,
+        plate BLANK (the ladder computes it), plate qty BLANK -> 1, defaulted. This is the 54-row
+        population the owner ruled on."""
+        row = {"switch_item": _cell("16A 1 WAY SWITCH"), "switch_qty": _cell(1),
+               "socket1_item": _cell("6A/16A 3-Pin Socket"), "socket1_qty": _cell(1),
+               "socket2_item": _cell("None"), "socket2_qty": _cell(None),
+               "socket3_item": _cell("None"), "socket3_qty": _cell(None),
+               "socket4_item": _cell("None"), "socket4_qty": _cell(None),
+               "plate_item": _cell(None), "plate_qty": _cell(None)}
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, self.DEFAULTS, self.PLAN), ["plate_qty"])
+        self.assertEqual(row["plate_qty"]["value"], 1.0)
+        self.assertIs(row["plate_qty"]["defaulted"], True)
+        self.assertIsNone(row["plate_item"]["value"], "the plate ITEM stays blank -- the ladder computes it")
+
+    def test_case_b_counts_an_occupant_whose_quantity_case_a_just_filled(self):
+        """ORDER WITHIN THE FUNCTION: (a) runs before (b), so a named socket with an unread quantity
+        is both filled AND counted as occupancy for the plate."""
+        row = {"socket1_item": _cell("6A 3-Pin Socket"), "socket1_qty": _cell(None),
+               "switch_item": _cell("None"), "switch_qty": _cell(None),
+               "plate_item": _cell(None), "plate_qty": _cell(None)}
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, self.DEFAULTS, self.PLAN),
+                         ["socket1_qty", "plate_qty"])
+
+    def test_case_b_needs_a_positive_occupancy_not_merely_a_named_item(self):
+        """NEGATIVE. Occupancy mirrors module_fit's sum: a named occupant whose READ quantity is 0
+        contributes nothing, so no plate is bought and none is counted."""
+        row = {"switch_item": _cell("16A 1 WAY SWITCH"), "switch_qty": _cell(0),
+               "socket1_item": _cell("None"), "socket1_qty": _cell(None),
+               "plate_item": _cell(None), "plate_qty": _cell(None)}
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, self.DEFAULTS, self.PLAN), [])
+        self.assertIsNone(row["plate_qty"]["value"])
+
+    def test_case_b_ignores_an_occupant_whose_item_is_blank(self):
+        """NEGATIVE. A blank occupant ITEM with a quantity would bindMiss the whole row in the
+        interpreter, so it is not evidence a plate will be bought."""
+        row = {"socket1_item": _cell(None), "socket1_qty": _cell(2),
+               "switch_item": _cell("None"), "switch_qty": _cell(None),
+               "plate_item": _cell(None), "plate_qty": _cell(None)}
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, self.DEFAULTS, self.PLAN), [])
+
+    def test_case_b_is_inert_without_a_plan(self):
+        """NEGATIVE. A config with paired defaults but no module_fit ladder over a paired item never
+        fills a blank-item quantity -- the plate exception exists only because the ladder buys one."""
+        row = {"switch_item": _cell("16A 1 WAY SWITCH"), "switch_qty": _cell(1),
+               "plate_item": _cell(None), "plate_qty": _cell(None)}
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, self.DEFAULTS, None), [])
+        self.assertIsNone(row["plate_qty"]["value"])
+
+    # ── NEVER over a quantity the model READ -- including 0 ─────────────────────────────────────
+    def test_never_overwrites_a_read_quantity_including_zero(self):
+        """NEGATIVE, written explicitly because 0 is the case a careless implementation gets wrong:
+        a read 0 is a VALUE, not a blank. Also a read 3 and a model-claimed default 1."""
+        row = {"switch_item": _cell("16A 1 WAY SWITCH"), "switch_qty": _cell(0),
+               "socket1_item": _cell("6A 3-Pin Socket"), "socket1_qty": _cell(3),
+               "plate_item": _cell("6M"), "plate_qty": _cell(1.0, defaulted=True)}
+        before = {k: dict(v) for k, v in row.items()}
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, self.DEFAULTS, self.PLAN), [])
+        self.assertEqual(row, before)
+        self.assertEqual(row["switch_qty"]["value"], 0)
+        self.assertNotIn("defaulted", row["switch_qty"])
+
+    # ── the scrub is unchanged, and the two commute ────────────────────────────────────────────
+    def test_the_scrub_still_removes_a_quantity_whose_item_is_None(self):
+        """UNCHANGED sibling: a model-supplied quantity beside a None item is still scrubbed, and
+        the fill never puts it back."""
+        row = {"socket1_item": _cell("None"), "socket1_qty": _cell(1.0, defaulted=True)}
+        self.assertEqual(extraction.scrub_unpaired_slot_defaults(row, self.DEFAULTS), ["socket1_qty"])
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, self.DEFAULTS, self.PLAN), [])
+        self.assertIsNone(row["socket1_qty"]["value"])
+
+    def test_the_scrub_keeps_a_blank_item_quantity_and_the_fill_extends_that_contract(self):
+        """THE BOUNDARY. `test_keeps_a_quantity_whose_slot_is_BLANK` pins that a blank-item quantity
+        is KEPT; case (b) EXTENDS it (a blank plate on an occupied row gains one), it never breaks
+        it (a kept quantity is never touched)."""
+        row = {"plate_item": _cell(None), "plate_qty": _cell(1.0, defaulted=True),
+               "switch_item": _cell("16A 1 WAY SWITCH"), "switch_qty": _cell(1)}
+        self.assertEqual(extraction.scrub_unpaired_slot_defaults(row, self.DEFAULTS), [])
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, self.DEFAULTS, self.PLAN), [])
+        self.assertEqual(row["plate_qty"]["value"], 1.0)
+
+    def test_scrub_then_fill_equals_fill_then_scrub_on_a_mixed_row(self):
+        """ORDER AGAINST THE SCRUB. The call site runs scrub -> fill; on a row carrying every shape
+        at once the two orders give the identical row, because None vs filled/blank are disjoint
+        conditions. Pinned so the chosen order is a documented preference, not a hidden dependency."""
+        def mixed():
+            return {"switch_item": _cell("None"), "switch_qty": _cell(1.0, defaulted=True),     # scrubbed
+                    "socket1_item": _cell("6A 3-Pin Socket"), "socket1_qty": _cell(None),      # (a)
+                    "socket2_item": _cell(None), "socket2_qty": _cell(None),                   # blank, stays
+                    "socket3_item": _cell("None"), "socket3_qty": _cell(None),
+                    "socket4_item": _cell("None"), "socket4_qty": _cell(None),
+                    "plate_item": _cell(None), "plate_qty": _cell(None)}                       # (b)
+        a = mixed()
+        extraction.scrub_unpaired_slot_defaults(a, self.DEFAULTS)
+        extraction.fill_paired_slot_defaults(a, self.DEFAULTS, self.PLAN)
+        b = mixed()
+        extraction.fill_paired_slot_defaults(b, self.DEFAULTS, self.PLAN)
+        extraction.scrub_unpaired_slot_defaults(b, self.DEFAULTS)
+        self.assertEqual(a, b)
+        self.assertIsNone(a["switch_qty"]["value"])
+        self.assertEqual(a["socket1_qty"]["value"], 1.0)
+        self.assertIsNone(a["socket2_qty"]["value"])
+        self.assertEqual(a["plate_qty"]["value"], 1.0)
+
+    # ── configs without paired defaults are untouched ───────────────────────────────────────────
+    def test_no_defaults_or_no_pairs_is_a_no_op(self):
+        """NEGATIVE. ABSENT => byte-identical, the gating discipline this codebase uses."""
+        row = {"socket1_item": _cell("6A 3-Pin Socket"), "socket1_qty": _cell(None)}
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, None, self.PLAN), [])
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, {"colour": "White", "runs": 1}, self.PLAN), [])
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, {"socket1_qty": {"default": 1.0}}, self.PLAN), [])
+        self.assertIsNone(row["socket1_qty"]["value"])
+
+    def test_plan_from_live_configs(self):
+        """`paired_fill_plan` is derived from the CONFIG: the three live configs carrying paired
+        defaults over a module_fit (switches_sockets, point_wiring, popup_boxes) yield the plate as
+        the ONE computed item and their module_fit terms as occupancy; every other config yields
+        None (case (b) inert), and a config with pairs but no ladder yields None."""
+        import os
+        with open(os.path.join(os.path.dirname(extraction.__file__), "data",
+                               "rate_master_electrical_all_v57.json"), "r", encoding="utf-8") as fh:
+            configs = {c["category_id"]: c for c in json.load(fh)["category_configs"]}
+        plans = {cid: extraction.paired_fill_plan(cfg) for cid, cfg in configs.items()}
+        self.assertEqual(sorted(cid for cid, p in plans.items() if p),
+                         ["point_wiring", "popup_boxes", "switches_sockets"])
+        for cid in ("switches_sockets", "point_wiring", "popup_boxes"):
+            self.assertEqual(plans[cid]["computed_items"], ["plate_item"], cid)
+            self.assertNotIn("box_item", plans[cid]["computed_items"], cid)  # a bind, but NOT a paired item
+        self.assertEqual([t["attr"] for t in plans["switches_sockets"]["occupancy_terms"]],
+                         ["socket1_qty", "socket2_qty", "socket3_qty", "socket4_qty", "switch_qty"])
+        self.assertIsNone(extraction.paired_fill_plan({"extraction_defaults": self.DEFAULTS, "pipelines": {}}))
+        self.assertIsNone(extraction.paired_fill_plan({}))
+        self.assertIsNone(extraction.paired_fill_plan(None))
+
+    def test_the_fill_is_recorded_in_the_capture_the_same_way_the_scrub_is(self):
+        """The call site mirrors the scrub's bookkeeping: a `drops` key beside
+        `slot_paired_defaults_scrubbed`, and a row_map entry naming the correction. Pinned at the
+        source, the way the rule-text pins are, because the batch call needs a live model."""
+        import inspect
+        src = inspect.getsource(extraction._extract_batch)
+        self.assertIn('"paired_slot_defaults_filled": {}', src)
+        self.assertIn('for _aid in fill_paired_slot_defaults(row_out, defaults, paired_fill):', src)
+        self.assertIn('drops["paired_slot_defaults_filled"].setdefault(str(rid), []).append(_aid)', src)
+        self.assertIn('"reason": "paired default filled (code)"', src)
+        # ORDER: the fill is called AFTER the scrub and BEFORE force_absent_dependents.
+        i_scrub = src.index("for _aid in scrub_unpaired_slot_defaults(row_out, defaults):")
+        i_fill = src.index("for _aid in fill_paired_slot_defaults(row_out, defaults, paired_fill):")
+        i_absent = src.index("for _aid in force_absent_dependents(row_out, absent_rules):")
+        self.assertLess(i_scrub, i_fill)
+        self.assertLess(i_fill, i_absent)
+        # and run_extraction threads the plan through, derived from the config
+        src2 = inspect.getsource(extraction.run_extraction)
+        self.assertIn('"paired_fill": paired_fill_plan(cfg)', src2)
+        self.assertIn('_gc["paired_fill"]', src2)
+
+
+class TestFillPairedSlotDefaultsAcrossCategories(FrappeTestCase):
+    """GENERAL BUILD (owner 2026-09-07: "lets make a general build") -- the rule is config-DERIVED and
+    reaches every config that declares `requires_named` defaults; these pins say what that means on
+    the two OTHER live categories, measured before building on the 40 active runs:
+      point_wiring 263 rows -> case (a) 0, case (b) 0 (its blank-plate occupied rows already carry a
+        quantity; its `on_zero_modules: 3` sits on the BOX ladder, not the plate's, so a zero-module
+        row still buys no plate);
+      popup_boxes 40 rows -> case (a) 1 (a named socket2 with an unread quantity), case (b) 0.
+    And a category with NO module_fit plate ladder is untouched entirely."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        import os
+        with open(os.path.join(os.path.dirname(extraction.__file__), "data",
+                               "rate_master_electrical_all_v57.json"), "r", encoding="utf-8") as fh:
+            cls.configs = {c["category_id"]: c for c in json.load(fh)["category_configs"]}
+
+    def _plan_and_defaults(self, cid):
+        cfg = self.configs[cid]
+        return extraction.paired_fill_plan(cfg), cfg.get("extraction_defaults")
+
+    def test_point_wiring_blank_plate_with_a_present_quantity_is_untouched(self):
+        """NEGATIVE, the cross-category one. point_wiring's live shape: a named socket, a blank plate
+        (the ladder computes it), plate_qty ALREADY 1 -- 132 such rows today. The rule must not
+        invent a case (b) row here: nothing is blank, so nothing is filled and nothing moves."""
+        plan, defaults = self._plan_and_defaults("point_wiring")
+        self.assertEqual(plan["computed_items"], ["plate_item"])
+        row = {"socket_item": _cell("6A 3-Pin Socket"), "socket_qty": _cell(1),
+               "switch_item": _cell("None"), "switch_qty": _cell(None),
+               "plate_item": _cell(None), "plate_qty": _cell(1.0, defaulted=True),
+               "back_box": _cell("Yes"), "colour": _cell("White")}
+        before = {k: dict(v) for k, v in row.items()}
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, defaults, plan), [])
+        self.assertEqual(row, before)
+
+    def test_point_wiring_zero_module_row_buys_a_box_but_no_plate_so_no_quantity_is_filled(self):
+        """NEGATIVE. `on_zero_modules: 3` is on point_wiring's BOX ladder only (asserted from the
+        asset); the plate ladder binds absent at zero modules, so the row buys no plate and the
+        blank plate quantity stays blank -- the light-point-on-an-MCB shape, 143 rows today."""
+        cfg = self.configs["point_wiring"]
+        ladders = cfg["pipelines"]["pw_boq_supply"]["steps"][11]["params"]["ladders"]
+        self.assertEqual(ladders[1]["bind"], "box_item")
+        self.assertEqual(ladders[1]["on_zero_modules"], 3)
+        self.assertNotIn("on_zero_modules", ladders[0])          # the PLATE ladder has none
+        plan, defaults = self._plan_and_defaults("point_wiring")
+        row = {"socket_item": _cell("None"), "socket_qty": _cell(None),
+               "switch_item": _cell("None"), "switch_qty": _cell(None),
+               "plate_item": _cell(None), "plate_qty": _cell(None), "back_box": _cell("Yes")}
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, defaults, plan), [])
+        self.assertIsNone(row["plate_qty"]["value"])
+
+    def test_popup_boxes_case_a_the_one_live_row_gains_its_socket_quantity(self):
+        """POSITIVE. popup_boxes' one case (a) row today: `socket2_item` named, `socket2_qty` blank
+        -> 1, defaulted. Its plate is named with a quantity, so case (b) has nothing to do."""
+        plan, defaults = self._plan_and_defaults("popup_boxes")
+        self.assertEqual(plan["computed_items"], ["plate_item"])
+        row = {"switch_item": _cell("None"), "switch_qty": _cell(None),
+               "socket1_item": _cell("6A 3-Pin Socket"), "socket1_qty": _cell(2),
+               "socket2_item": _cell("USB Charger - A Type"), "socket2_qty": _cell(None),
+               "socket3_item": _cell("None"), "socket3_qty": _cell(None),
+               "socket4_item": _cell("None"), "socket4_qty": _cell(None),
+               "plate_item": _cell("6M"), "plate_qty": _cell(1)}
+        self.assertEqual(extraction.fill_paired_slot_defaults(row, defaults, plan), ["socket2_qty"])
+        self.assertEqual(row["socket2_qty"]["value"], 1.0)
+        self.assertIs(row["socket2_qty"]["defaulted"], True)
+
+    def test_a_category_with_no_module_fit_plate_ladder_is_untouched_entirely(self):
+        """NEGATIVE. Nine of the twelve live configs declare no `requires_named` default at all
+        (the plan is None and the fill returns nothing whatever the row holds); and a synthetic
+        config with pairs but NO module_fit never fills a blank-item quantity."""
+        for cid, cfg in self.configs.items():
+            if cid in ("switches_sockets", "point_wiring", "popup_boxes"):
+                continue
+            self.assertIsNone(extraction.paired_fill_plan(cfg), cid)
+            row = {"item": _cell("Industrial Socket with MCB"), "rating": _cell(None),
+                   "plate_item": _cell(None), "plate_qty": _cell(None), "switch_qty": _cell(None)}
+            self.assertEqual(extraction.fill_paired_slot_defaults(row, cfg.get("extraction_defaults"), None), [], cid)
+        pairs_no_ladder = {"pipelines": {"x": {"steps": [{"step": "component_ref", "name": "sw"}]}},
+                           "extraction_defaults": {"plate_qty": {"default": 1.0, "requires_named": "plate_item"},
+                                                   "switch_qty": {"default": 1.0, "requires_named": "switch_item"}}}
+        self.assertIsNone(extraction.paired_fill_plan(pairs_no_ladder))
+        row = {"switch_item": _cell("16A 1 WAY SWITCH"), "switch_qty": _cell(1),
+               "plate_item": _cell(None), "plate_qty": _cell(None)}
+        self.assertEqual(extraction.fill_paired_slot_defaults(
+            row, pairs_no_ladder["extraction_defaults"], extraction.paired_fill_plan(pairs_no_ladder)), [])
+        self.assertIsNone(row["plate_qty"]["value"])
