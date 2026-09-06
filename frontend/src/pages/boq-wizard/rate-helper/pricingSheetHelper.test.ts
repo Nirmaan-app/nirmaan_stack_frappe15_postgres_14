@@ -3323,3 +3323,164 @@ describe("F-30 slice B -- a catalog_fit hop reaches the panel as the SAME rating
     expect(r.workings.attributes.find((a) => a.id === "paired_mcb")!.notes).toBeUndefined();
   });
 });
+
+// ── F-25 SLICE 1 -- the back box gets its own DISPLAY field (v57, owner rulings 2026-09-06) ────
+// CONFIG ONLY. switches_sockets declares ONE attribute whose id is the box ladder's EXISTING bind
+// (`box_item`). Nothing in this helper changed: the bind is already in `derivedAttrIds` (gate-exempt),
+// `applyDerivedDisplay` already publishes the box ladder's outcome under it (the "(computed)" marker),
+// and `attributeOptions` already resolves its `values_from`. These pins say what that combination
+// SHOWS -- the owner's ruling verbatim: "this new field shoudld display the final value from the back
+// box ladder which is used for calculation".
+//
+// ⚠️ READ-ONLY WAS DROPPED BY RULING ("this is just ytransient behavior ... chaging would impact
+// price"). The field is an ordinary dropdown and a pick is INERT until slice 3 makes the floor
+// two-source. That transient is pinned below AS ACCEPTED, so a later reader finds it recorded rather
+// than rediscovering it as a defect.
+
+/** The live shape: plate + box ladders, the box floored from the PLATE, `on_none: computed`. */
+function boxFieldConfig(): RateCategoryConfig {
+  return {
+    discipline: "Electrical",
+    category_id: "box_probe",
+    attribute_definitions: [
+      { id: "switch_item", label: "Switch", type: "choice", values: ["10A 1 WAY SWITCH"], allow_none: true, disables_when_none: ["switch_qty"] },
+      { id: "switch_qty", label: "Switch qty", type: "number" },
+      { id: "plate_item", label: "Frame/Face plate", type: "choice", allow_none: true, disables_when_none: ["plate_qty"],
+        values_from: { kind: "switch_socket_item", attr: "item", where: { family: "Grid and Face Plates" } } },
+      { id: "plate_qty", label: "Plate qty", type: "number" },
+      { id: "back_box", label: "Back box", type: "choice", values: ["Yes", "No"] },
+      // THE v57 ATTRIBUTE, byte-for-byte the shape the asset carries.
+      { id: "box_item", label: "Back box size", type: "choice",
+        values_from: { kind: "switch_socket_item", attr: "item", where: { family: "Back Box" } }, extract: false },
+    ],
+    pipelines: {
+      probe_boq: {
+        output: ["supply"],
+        steps: [
+          {
+            step: "module_fit",
+            params: {
+              terms: [{ attr: "switch_qty", weight: 1, none_when: "switch_item" }],
+              ladders: [
+                { kind: "switch_socket_item", where: { family: "Grid and Face Plates" }, bind: "plate_item", floor_from: "plate_item", on_none: "none" },
+                { kind: "switch_socket_item", where: { family: "Back Box" }, bind: "box_item", floor_from: "plate_item", on_none: "computed" },
+              ],
+            },
+          },
+          { step: "component_ref", name: "back_box", ref: { kind: "switch_socket_item", family: "Back Box", item: "@box_item" },
+            target: "list_price", qty: { if_attr: { back_box: "Yes" }, then: 1, else: 0 }, none_skips: true },
+          { step: "sum_components", result: "supply" },
+        ],
+      },
+    },
+  } as unknown as RateCategoryConfig;
+}
+
+/** Plate rungs and box rungs as real catalogue rows -- the box ladder lacks 9M/16M on purpose. */
+const BOX_FIELD_ITEMS: RateMasterItem[] = [
+  ...["1M", "3M", "6M", "9M", "12M"].map((item) => ({ family: "Grid and Face Plates", item, price: 100 })),
+  ...[["1M", 121], ["2M", 121], ["3M", 178], ["4M", 205], ["6M", 279], ["8M", 362], ["12M", 465], ["18M", 552]]
+    .map(([item, price]) => ({ family: "Back Box", item: String(item), price: Number(price) })),
+].map(({ family, item, price }) => ({
+  discipline: "Electrical",
+  kind: "switch_socket_item",
+  attributes: { item, family },
+  rates: { list_price: price },
+})) as unknown as RateMasterItem[];
+
+const boxCtx = (excelRow: number): RateHelperRowContext => ({
+  excelRow, description: "box probe", nodeType: "Line Item",
+  category: "box_probe", discipline: "Electrical",
+  rateKinds: ["supply_rate", "install_rate", "combined_rate"] as unknown as never,
+});
+
+function boxCompute(
+  over: Record<string, string | number | null> = {},
+  overrides?: Record<string, string>,
+) {
+  const base: Record<string, string | number | null> = {
+    switch_item: "10A 1 WAY SWITCH", switch_qty: 3, plate_item: null, plate_qty: 1, back_box: "Yes",
+  };
+  const attrs = Object.fromEntries(
+    Object.entries({ ...base, ...over }).map(([k, v]) => [k, { value: v, confidence: 0.9 }]),
+  );
+  const r = makePricingSheetHelper({
+    configsByCategory: new Map([["box_probe", boxFieldConfig()]]),
+    items: BOX_FIELD_ITEMS,
+    extractionByRow: buildExtractionByRow([{ excel_row: 7, attributes: attrs as never }]),
+  }).compute(boxCtx(7), overrides);
+  if (!isSuggestion(r)) throw new Error("expected a suggestion");
+  return { r, attr: (id: string) => r.workings.attributes.find((a) => a.id === id) };
+}
+
+describe("F-25 slice 1 -- the back box field SHOWS the rung the row is priced on, computed", () => {
+  it("POSITIVE (the live row-50 shape): a blank plate over 3 modules shows the 3M box, marked computed", () => {
+    const { r, attr } = boxCompute();
+    const box = attr("box_item")!;
+    expect(box.derived).toBe(true);
+    expect(box.derivedValue).toBe("3M");
+    expect(box.value).toBe("");                          // the row supplied nothing -- never overwritten
+    expect(attrDisplayValue(box)).toBe("3M");
+    expect(isShowingDerived(box)).toBe(true);            // the SAME "(computed)" mechanism the plate uses
+    expect(isAttrBlank(box)).toBe(false);                // a computed field is never a red "missing" one
+    expect(r.values.supply_rate).toBe(178);              // the 3M box, list 178 -- and nothing else moved
+  });
+
+  it("POSITIVE: a stated plate LARGER than the contents drives the box -- 6M plate over 3 modules shows a 6M box", () => {
+    const { attr } = boxCompute({ plate_item: "6M" });
+    expect(attrDisplayValue(attr("box_item")!)).toBe("6M");   // the plate-driven size, not the contents'
+    expect(isShowingDerived(attr("box_item")!)).toBe(true);
+  });
+
+  it("POSITIVE (owner: \"that's ok\"): a 9M plate drives a 12M box -- two different numbers, NO note", () => {
+    const { attr } = boxCompute({ plate_item: "9M" });
+    expect(attrDisplayValue(attr("plate_item")!)).toBe("9M");
+    expect(attrDisplayValue(attr("box_item")!)).toBe("12M");  // next higher on the BOX ladder
+    expect(attr("box_item")!.notes).toBeUndefined();          // no reconciliation on screen, by ruling
+  });
+
+  it("POSITIVE: a None plate keeps the box COMPUTED from the contents (on_none: computed)", () => {
+    const { attr } = boxCompute({ plate_item: "None" });
+    expect(attrDisplayValue(attr("plate_item")!)).toBe("None");
+    expect(attrDisplayValue(attr("box_item")!)).toBe("3M");
+  });
+
+  it("NEGATIVE (slice 2 is still owed): a BARE box -- every occupant None -- shows an EMPTY field and prices 0", () => {
+    const { r, attr } = boxCompute({ switch_item: "None", switch_qty: null, plate_item: "None" });
+    const box = attr("box_item")!;
+    expect(box.derived).toBe(true);
+    expect(box.derivedValue).toBeUndefined();            // the zero path binds the sentinel -- nothing fitted
+    expect(attrDisplayValue(box)).toBe("");
+    expect(isShowingDerived(box)).toBe(false);
+    expect(isAttrBlank(box)).toBe(false);                // empty, but NOT flagged missing -- it is derived
+    expect(r.values.supply_rate).toBe(0);                // the confident zero this slice does NOT touch
+  });
+
+  it("POSITIVE: the dropdown is the Back Box family ONLY -- eight rungs, no plate rung, and no \"None\"", () => {
+    const cfg = boxFieldConfig();
+    const def = cfg.attribute_definitions!.find((d) => d.id === "box_item")!;
+    expect(attributeOptions(def, BOX_FIELD_ITEMS)).toEqual(["1M", "2M", "3M", "4M", "6M", "8M", "12M", "18M"]);
+    expect(attributeOptions(def, BOX_FIELD_ITEMS)).not.toContain("9M");   // a plate rung
+    expect(attributeOptions(def, BOX_FIELD_ITEMS)[0]).not.toBe(NONE_SENTINEL); // not allow_none, by ruling
+    expect(def.allow_none).toBeUndefined();
+  });
+
+  it("NEGATIVE: the field is DERIVED, so a blank box never gates the row as incomplete", () => {
+    const cfg = boxFieldConfig();
+    expect(derivedAttrIds(cfg).has("box_item")).toBe(true);   // the bind IS the id -- gate-exempt for free
+    const { r } = boxCompute();
+    expect(r.basis).not.toBe("Complete the missing attributes to price");
+  });
+
+  it("KNOWN, ACCEPTED TRANSIENT (#57 item 2): a pick SHOWS on screen and the price does NOT follow until slice 3", () => {
+    // The box ladder's floor is `plate_item` and the back_box ref resolves `@box_item` through
+    // fitLabels BEFORE selected -- so a pricer's pick is inert. Owner 2026-09-06: "let it be ... this is
+    // just transient behavior". Pinned so the transient is a recorded fact, not a rediscovered bug.
+    const before = boxCompute().r.values.supply_rate;
+    const { r, attr } = boxCompute({}, { box_item: "18M" });
+    expect(attrDisplayValue(attr("box_item")!)).toBe("18M");   // the pick shows, plain
+    expect(isShowingDerived(attr("box_item")!)).toBe(false);
+    expect(attr("box_item")!.readOnly).toBeUndefined();        // an ORDINARY dropdown, by ruling
+    expect(r.values.supply_rate).toBe(before);                 // ...and the price did not move (178)
+  });
+});
