@@ -234,6 +234,13 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
    * The narrowing can only ever REMOVE a `map_attribute` target on a row whose source is blank.
    */
   rowDerivedIds?: ReadonlySet<string>,
+  /**
+   * F-30 slice B -- the live catalogue, so a `catalog_fit` HOP can be worded as the same
+   * `rating_up` note the board ladder produces (the pole / device / curve words are read from the
+   * PRICED row, exactly as `ratingUpNote` reads them from `pole_ladder.to`). OPTIONAL: absent, no
+   * hop note is produced and every caller that never passed it is byte-identical.
+   */
+  items?: RateMasterItem[],
 ): WorkingsAttribute[] {
   // The ONE derived predicate (both mechanisms) -- reused, never re-implemented (#179).
   const derivedIds = rowDerivedIds ?? derivedAttrIds(config);
@@ -394,11 +401,16 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
         //     not enough on its own -- `whereRefs` is the join key into the map outcomes.
         const maps = mapAttributeOutcomes(results);
         const restsOnASubstitutedFact = cf.whereRefs.some((id) => maps.get(id)?.stated === false);
+        // F-30 slice B (owner 2026-09-05, "implement same for sockets also"): a HOP is said in words,
+        // in the note area, through the ONE producer and the ONE wording the board ladder uses. The
+        // trace already carried "20 not carried -> 25 (next higher)"; a pricer may never open it.
+        const hop = catalogFitRatingUpNote(cf, items);
         return {
           ...a,
           derived: true,
           derivedValue: cf.fitted,
           substituted: cf.substituted || restsOnASubstitutedFact,
+          ...(hop ? { notes: [hop] } : {}),
         };
       }
       // 5. SLICE 3b FINISH -- a `map_attribute` TARGET (the tray thickness). The FIFTH mechanism
@@ -483,6 +495,27 @@ export function ratingUpNote(
     device: typeof device === "string" ? device : "breaker",
     curve: typeof curve === "string" ? curve : "same",
   };
+}
+
+/**
+ * F-30 slice B. PURE. The SECOND PRODUCER of the `rating_up` note -- a frontend `catalog_fit` HOP
+ * (the socket path), where the server writes no marker because the fit happens here. It builds the
+ * marker shape the board producer consumes and hands it to the SAME `ratingUpNote`, so the two paths
+ * share one note builder and one sentence (`attrNoteText`); a fork would have to change both pins.
+ *
+ * Undefined when: nothing fitted, the fit was exact (no rating raised), the size did not move UP, the
+ * catalogue was not supplied, or the fitted row carries no `device` -- a ladder over trays or
+ * thicknesses is a hop too, but "No matching breaker at 300A" would be a fabricated fact.
+ */
+export function catalogFitRatingUpNote(
+  cf: import("@/pages/pricing/rate-master/rateMasterTypes").CatalogFitOutcome | undefined,
+  items: RateMasterItem[] | undefined,
+): AttrNote | undefined {
+  if (!cf || !items || cf.fitted === null || cf.exact) return undefined;
+  if (typeof cf.requested !== "number" || typeof cf.size !== "number" || !(cf.size > cf.requested)) return undefined;
+  const priced = items.find((it) => it.attributes?.item === cf.fitted);
+  if (typeof priced?.attributes?.device !== "string") return undefined;
+  return ratingUpNote({ to: cf.fitted, amp_moved_up: { from: cf.requested, to: cf.size } }, items);
 }
 
 /** Map a pipeline output key -> the sheet rate-kind it fills. EA-4a: the assembly categories name their
@@ -797,7 +830,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         ? `Rate master: ${category.category_id} @ ${attrLine}`
         : "no match for these attributes",
       workings: {
-        attributes: applyDerivedDisplay(workingsAttrs, category, pipelineResults, fillableDerived),
+        attributes: applyDerivedDisplay(workingsAttrs, category, pipelineResults, fillableDerived, items),
         matchedRows: flatMatched,
         derivation: flatDerivation,
         finalValues: { ...values },

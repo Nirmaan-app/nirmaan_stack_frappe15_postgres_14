@@ -3851,7 +3851,12 @@ describe("SLICE 2b -- catalog_fit (the ladder)", () => {
     expect(r.steps.at(-1)!.label).toContain("mcb_amp_a");
   });
 
-  it("NEGATIVE: nothing fits -> the None sentinel, NOT a refusal -- the socket still prices", () => {
+  // Owner ruling 2026-09-05 (F-30 slice B, Change 2): "refusing rather than pricing the socket alone
+  // ... this is the correct outcome". The SHIPPED industrial_sockets config now carries
+  // `on_miss: "no_compute"` (pinned on the asset by test_rate_master.TestSpnPoleVocabulary), so the
+  // two pins below swapped roles: `none` is a MECHANISM the interpreter still offers, no longer the
+  // socket rule; `no_compute` is the shipped shape. Renamed, not deleted -- the mechanism keeps its pin.
+  it("MECHANISM (no longer the shipped socket rule): on_miss none binds the sentinel and the socket prices alone", () => {
     const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, mcb_amp_a: 500 });
     const t = cfTrace(r)!;
     expect(t.catalogFit!.absent).toBe(true);
@@ -3860,10 +3865,12 @@ describe("SLICE 2b -- catalog_fit (the ladder)", () => {
     expect(r.finals.supply).toBe(9222); // socket alone
   });
 
-  it("NEGATIVE: on_miss no_compute refuses instead, naming the top rung (the module_fit choice)", () => {
+  it("THE SHIPPED SHAPE (owner 2026-09-05): on_miss no_compute REFUSES -- no total, an honest no_match naming the top rung", () => {
     const r = runPipeline("indsock_boq", indsockSupply({ on_miss: "no_compute" }), CF_ITEMS, { ...ROW98, mcb_amp_a: 500 });
     expect(r.status).toBe("no_match");
+    expect(r.finals.supply).toBeUndefined(); // nothing prices -- not a zero, not the socket alone
     expect(r.steps.at(-1)!.label).toContain("80 FP MCB");
+    expect(r.steps.at(-1)!.label).toContain("no value computed");
   });
 
   it("NEGATIVE: an unresolvable @-ref in `where` bails cleanly, NAMING the key", () => {

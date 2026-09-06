@@ -34,6 +34,7 @@ import {
   nonBcsPipelines,
   pipelineLabel,
   prettifyPipelineId,
+  ratingUpNote,
 } from "./pricingSheetHelper";
 
 // cable_boq + termination_boq (verbatim shape from RM-1 config; BCS omitted -- not surfaced).
@@ -3238,5 +3239,87 @@ describe("F-30 slice A -- the rating-up note reaches the panel's data contract",
   });
   it("the rating-up note renders BEFORE the quantity notes and after a module upgrade, deterministically", () => {
     expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "rating_up", "capped", "uncovered"]);
+  });
+});
+
+// ── F-30 SLICE B (owner 2026-09-05, "implement same for sockets also") ─────────────────────────
+// ONE WORDING SOURCE, TWO PRODUCERS. The board note is produced from a marker the SERVER writes
+// (`pole_ladder`); the socket hop is computed in the FRONTEND interpreter (`catalog_fit`), which
+// writes no marker. So the producer differs -- and the sentence must not. Both producers build the
+// SAME `rating_up` note through the SAME `ratingUpNote`, and the panel words it through the SAME
+// `attrNoteText`. There is no second sentence anywhere; these pins make a fork fail.
+describe("F-30 slice B -- a catalog_fit hop reaches the panel as the SAME rating-up note", () => {
+  it("POSITIVE: 20 A is not carried -> 25 A fitted -> ONE rating_up note, worded for a pricer", () => {
+    const mcb = cfCompute()("paired_mcb")!;
+    expect(mcb.derivedValue).toBe("25A FP MCB C CURVE");
+    expect(mcb.notes).toEqual([{ kind: "rating_up", askedAmp: 20, usedAmp: 25, poleWord: "4 pole", device: "MCB", curve: "C" }]);
+    expect(attrNoteText(mcb.notes![0])).toBe("No 4 pole MCB at 20A on the C curve — using 25A.");
+  });
+
+  it("ONE WORDING SOURCE: the socket note is byte-equal to the board note built from a server marker with the same numbers", () => {
+    const socket = cfCompute()("paired_mcb")!.notes![0];
+    const board = ratingUpNote({ to: "25A FP MCB C CURVE", amp_moved_up: { from: 20, to: 25 } }, CF_ITEMS)!;
+    expect(socket).toEqual(board);
+    expect(attrNoteText(socket)).toBe(attrNoteText(board));
+  });
+
+  it("NEGATIVE: an EXACT fit says nothing -- no rating was raised", () => {
+    const mcb = cfCompute({ mcb_amp_a: 25 })("paired_mcb")!;
+    expect(mcb.derivedValue).toBe("25A FP MCB C CURVE");
+    expect(mcb.notes).toBeUndefined();
+  });
+
+  it("NEGATIVE: a STATED paired MCB says nothing -- the field is the pricer's", () => {
+    expect(cfCompute({ paired_mcb: "63A FP MCB C CURVE" })("paired_mcb")!.notes).toBeUndefined();
+  });
+
+  it("NEGATIVE: a concluded absence (mcb_present No) says nothing", () => {
+    expect(cfCompute({ mcb_present: "No" })("paired_mcb")!.notes).toBeUndefined();
+  });
+
+  it("NEGATIVE: a hop on a ladder whose rows carry no `device` (a tray, a thickness) gets NO breaker sentence", () => {
+    // The sentence names a pole, a device and a curve. A catalog_fit over rows that have none of
+    // those is not a breaker hop, and wording it as one ("No matching breaker at 300A...") would
+    // be a fabricated fact on a pricer's screen. The gate is the fitted row's `device`.
+    const TRAY_ITEMS = [
+      { discipline: "Electrical", kind: "cabletray", attributes: { item: "Tray 300", width_mm: 300 }, rates: { list_price: 100 } },
+      { discipline: "Electrical", kind: "cabletray", attributes: { item: "Tray 450", width_mm: 450 }, rates: { list_price: 150 } },
+    ] as unknown as RateMasterItem[];
+    const cfg = {
+      discipline: "Electrical", category_id: "tray_probe",
+      attribute_definitions: [
+        { id: "width_mm", label: "Width", type: "number" },
+        { id: "tray_item", label: "Tray", type: "choice", values: ["Tray 300", "Tray 450"] },
+      ],
+      pipelines: { t_boq: { output: ["supply"], steps: [
+        { step: "catalog_fit", params: { bind: "tray_item", kind: "cabletray", where: {}, size_from: { attr: "width_mm" }, fit_from: { attr: "width_mm" }, direction: "up", prefer_attr: "tray_item", on_miss: "none" } },
+        { step: "component_ref", name: "tray", ref: { kind: "cabletray", item: "@tray_item" }, target: "list_price", qty: 1 },
+        { step: "sum_components", result: "supply" },
+      ] } },
+    } as unknown as RateCategoryConfig;
+    const r = makePricingSheetHelper({
+      configsByCategory: new Map([["tray_probe", cfg]]), items: TRAY_ITEMS,
+      extractionByRow: buildExtractionByRow([{ excel_row: 1, attributes: { width_mm: { value: 400, confidence: 0.9 }, tray_item: { value: null, confidence: 0 } } as never }]),
+    }).compute({ ...cfCtx(1), category: "tray_probe" });
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const tray = r.workings.attributes.find((a) => a.id === "tray_item")!;
+    expect(tray.derivedValue).toBe("Tray 450"); // the hop happened
+    expect(tray.notes).toBeUndefined();         // and said nothing
+  });
+
+  it("CHANGE 2, what the pricer sees: nothing at or above the named rating REFUSES -- no figure, a no-match line", () => {
+    // Owner 2026-09-05: refusing rather than pricing the socket alone "is the correct outcome".
+    // The shipped config carries on_miss "no_compute"; this fixture mirrors it.
+    const cfg = catalogFitConfig();
+    (cfg.pipelines!.probe_boq.steps[0] as { params: Record<string, unknown> }).params.on_miss = "no_compute";
+    const r = makePricingSheetHelper({
+      configsByCategory: new Map([["cf_probe", cfg]]), items: CF_ITEMS,
+      extractionByRow: buildExtractionByRow([{ excel_row: 1, attributes: { mcb_present: { value: "Yes", confidence: 0.9 }, mcb_amp_a: { value: 500, confidence: 0.9 }, paired_mcb: { value: null, confidence: 0 } } as never }]),
+    }).compute(cfCtx(1));
+    if (!isSuggestion(r)) throw new Error("expected a suggestion shape");
+    expect(r.values.supply_rate).toBeUndefined();            // no total -- not a zero, not the socket alone
+    expect(r.basis).toBe("no match for these attributes");    // the header line the pricer sees
+    expect(r.workings.derivation.join("\n")).toMatch(/^No probe_boq rate row matches /m); // the body line, verbatim shape
+    expect(r.workings.attributes.find((a) => a.id === "paired_mcb")!.notes).toBeUndefined();
   });
 });

@@ -312,7 +312,7 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # the live corpus and changed ZERO, byte-identical to the prose output. The point axis was already
 # 231-of-237 correct and the other 6 sit ABOVE the floor; moving a working rule for tidiness is
 # exactly the risk that proof exists to retire.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v55.json"
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v56.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -6107,9 +6107,15 @@ class TestTpnPoleVocabulary(FrappeTestCase):
         member here would be a spelling nobody has measured."""
         cfg = self._config("industrial_sockets")
         d = [x for x in cfg["attribute_definitions"] if x["id"] == "mcb_pole_stated"][0]
+        # Owner ruling 2026-09-05 (F-30 slice B, #57 item 1 approved): the dropdown ALSO gains the
+        # five SPN-family spellings -- "for any pole + Neutral, should be matched with next higher
+        # pole: SPN with DP". The list is the board ladder's own vocabulary
+        # (extraction._SPN_FAMILY_TOKENS), of which the socket corpus uses exactly one, SP+N.
+        # Sixteen values now; still no unruled spelling.
         self.assertEqual(sorted(d["values"]),
                          sorted(["SP", "DP", "TP", "FP",
-                                 "TPN", "TP+N", "TP+NL", "TP+2N", "TP+2NL", "4P", "Four Pole"]))
+                                 "TPN", "TP+N", "TP+NL", "TP+2N", "TP+2NL", "4P", "Four Pole",
+                                 "SPN", "SP+N", "SP+NL", "SP&N", "1P+N"]))
         # the four ORIGINAL catalogue poles must survive untouched
         for original in ("SP", "DP", "TP", "FP"):
             self.assertIn(original, d["values"])
@@ -6169,6 +6175,175 @@ class TestTpnPoleVocabulary(FrappeTestCase):
         self.assertIn("VERBATIM", g)
         self.assertIn("computed downstream", g)
         self.assertNotIn("'4P' meaning FP", g)  # the retired conversion instruction
+
+
+# ======================================================================================
+# F-30 SLICE B (owner rulings 2026-09-05) -- THE SPN FAMILY ON THE SOCKET PATH, AND THE REFUSAL.
+#
+# "for any pole + Neutral, should be matched with next higher pole: SPN with DP, TPN with 4p".
+# The socket path resolves a control breaker's pole through a CONFIG TABLE (`map_attribute`,
+# above) feeding a frontend `catalog_fit` -- deterministic, so these pins are PROOF, not evidence.
+# The five SPN spellings are the board ladder's own vocabulary (extraction._SPN_FAMILY_TOKENS);
+# the socket corpus sweep (2026-09-05, 616 texts) found exactly ONE of them naming a breaker,
+# "SP+N" (BOQ-26-00126/ELEC/r398). Nothing here is padded beyond what one of the two paths uses.
+#
+# THE SOCKET-TOKEN HAZARD: in socket text "SPN" usually names the SOCKET, and the breaker's pole
+# is stated separately ("SPN industrial type socket outlet ... 20 A C curve, SP, MCB"). The
+# TABLE'S half of the guarantee is that a stated SP / DP passes through untouched -- pinned
+# below. The MODEL'S half (it must report the MCB's designation, not the socket's) is R12's
+# existing VERBATIM instruction, unchanged by this slice, and is proven on screen (cert D2).
+#
+# CHANGE 2 -- "refusing rather than pricing the socket alone: this is the correct outcome".
+# `catalog_fit` for the paired MCB now carries `on_miss: "no_compute"`: nothing at or above the
+# named rating REFUSES the row (honest no_match), where `none` priced the socket without its
+# breaker. `on_missing_fact` and `absent_when` are deliberately UNCHANGED -- a row that names no
+# amp, or no breaker at all, still prices the socket alone; only "asked for more than we carry"
+# refuses.
+# ======================================================================================
+class TestSpnPoleVocabulary(FrappeTestCase):
+    """F-30 slice B pins on the SHIPPED industrial_sockets config (the asset CURRENT_EALL_ASSET
+    names): the SPN family normalises to DP, the plain poles and the four-pole family are
+    untouched, the paired-MCB fit refuses on a miss, and no other config moved."""
+
+    _SPN_SPELLINGS = ("SPN", "SP+N", "SP+NL", "SP&N", "1P+N")
+    _FOUR_POLE_SPELLINGS = TestTpnPoleVocabulary._FOUR_POLE_SPELLINGS
+    _PRIOR_ASSET = "rate_master_electrical_all_v55.json"  # deliberately historical: the pre-slice-B shape
+
+    def _configs(self, filename=None):
+        with open(_asset_path(filename or CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            return json.load(fh)["category_configs"]
+
+    def _config(self, category_id, filename=None):
+        hit = [c for c in self._configs(filename) if c["category_id"] == category_id]
+        self.assertEqual(len(hit), 1, "expected exactly one %s config" % category_id)
+        return hit[0]
+
+    def _norm_steps(self, cfg):
+        out = {}
+        for pname, pl in (cfg.get("pipelines") or {}).items():
+            steps = pl.get("steps") or []
+            norm = [s for s in steps
+                    if s.get("step") == "map_attribute"
+                    and (s.get("params") or {}).get("result_attr") == "mcb_pole_norm"]
+            self.assertEqual(len(norm), 1, "%s must carry exactly one mcb_pole_norm step" % pname)
+            out[pname] = (steps, norm[0])
+        self.assertEqual(set(out), {"indsock_boq", "indsock_install"})
+        return out
+
+    def _fits(self, cfg):
+        out = {}
+        for pname, pl in (cfg.get("pipelines") or {}).items():
+            fits = [s for s in (pl.get("steps") or [])
+                    if s.get("step") == "catalog_fit" and (s.get("params") or {}).get("bind") == "paired_mcb"]
+            self.assertEqual(len(fits), 1, "%s must carry exactly one paired_mcb catalog_fit" % pname)
+            out[pname] = fits[0]["params"]
+        return out
+
+    # ---- CHANGE 1: the SPN family counts the neutral -> DP ------------------------------
+    def test_spn_spellings_normalise_to_dp(self):
+        """POSITIVE. Protects: a socket row whose CONTROL BREAKER is written SP+N (or any SPN
+        spelling) pairs a TWO-POLE MCB, decided by the table rather than the model. Before this
+        slice the token was outside the domain, was discarded at coercion, and the row fell
+        through to the pin-count default -- single-pole, the wrong price."""
+        cfg = self._config("industrial_sockets")
+        for pname, (_steps, norm) in self._norm_steps(cfg).items():
+            table = norm["params"]["table"]
+            for tok in self._SPN_SPELLINGS:
+                self.assertEqual(table.get(tok), "DP",
+                                 "%s: %r must normalise to DP, got %r" % (pname, tok, table.get(tok)))
+
+    def test_spn_spellings_are_offerable_values(self):
+        """POSITIVE, the other half of the same guarantee: a table key the domain cannot hold is
+        dead config (the model's answer is discarded before storage). Every SPN key is offerable."""
+        cfg = self._config("industrial_sockets")
+        d = [x for x in cfg["attribute_definitions"] if x["id"] == "mcb_pole_stated"][0]
+        for tok in self._SPN_SPELLINGS:
+            self.assertIn(tok, d["values"], "%r must be an offerable mcb_pole_stated value" % tok)
+        self.assertIs(d.get("panel"), False)  # the pricing panel stays out of scope, as for TPN
+
+    def test_plain_poles_pass_through_untouched(self):
+        """NEGATIVE -- THE SOCKET-TOKEN HAZARD, the table's half. A row whose SOCKET is SPN and
+        whose breaker states SP keeps SP; stated DP keeps DP; TP and FP likewise. The widening adds
+        keys, it never re-points the four catalogue poles."""
+        cfg = self._config("industrial_sockets")
+        for pname, (_steps, norm) in self._norm_steps(cfg).items():
+            table = norm["params"]["table"]
+            for plain in ("SP", "DP", "TP", "FP"):
+                self.assertEqual(table.get(plain), plain, "%s: %r must pass through" % (pname, plain))
+
+    def test_four_pole_family_is_byte_identical_to_the_prior_asset(self):
+        """NEGATIVE -- TPN UNCHANGED. Every entry the v55 table carried is carried with the same
+        value, and every four-pole spelling still maps to FP. Protects: a TPN socket row's price
+        cannot move under this slice (cert D5 is the on-screen half)."""
+        now = self._config("industrial_sockets")
+        before = self._config("industrial_sockets", self._PRIOR_ASSET)
+        for pname, (_s, norm) in self._norm_steps(now).items():
+            prior = self._norm_steps(before)[pname][1]["params"]["table"]
+            table = norm["params"]["table"]
+            for k, v in prior.items():
+                self.assertEqual(table.get(k), v, "%s: prior entry %r -> %r moved to %r" % (pname, k, v, table.get(k)))
+            for tok in self._FOUR_POLE_SPELLINGS:
+                self.assertEqual(table.get(tok), "FP")
+            # the widening is EXACTLY the five SPN keys, nothing else
+            self.assertEqual(set(table) - set(prior), set(self._SPN_SPELLINGS))
+
+    def test_the_spn_spellings_are_named_in_the_explain(self):
+        """POSITIVE. The step explains itself ON THE STEP (the v3 lesson): the reader-facing text
+        must name the full vocabulary it maps, SPN family included."""
+        cfg = self._config("industrial_sockets")
+        for pname, (_steps, norm) in self._norm_steps(cfg).items():
+            explain = norm.get("explain") or ""
+            for tok in self._SPN_SPELLINGS:
+                self.assertIn(tok, explain, "%s: step explain does not name %r" % (pname, tok))
+            self.assertIn("DP", explain)
+
+    # ---- CHANGE 2: nothing at or above the named rating REFUSES ---------------------------
+    def test_paired_mcb_fit_refuses_when_nothing_at_or_above_the_rating(self):
+        """POSITIVE + NEGATIVE. Owner 2026-09-05: refusing rather than pricing the socket alone
+        "is the correct outcome". The fit's `on_miss` is `no_compute` in BOTH pipelines (supply
+        and install must refuse together), while the two ABSENCE paths are untouched: a row that
+        names no amp (`on_missing_fact: none`) or no breaker (`absent_when`) still prices the
+        socket alone. The ladder still climbs (`direction: up`)."""
+        for pname, p in self._fits(self._config("industrial_sockets")).items():
+            self.assertEqual(p.get("on_miss"), "no_compute", pname)
+            self.assertEqual(p.get("on_missing_fact"), "none", pname)
+            self.assertEqual(p.get("absent_when"), {"attr": "mcb_present", "equals": "No"}, pname)
+            self.assertEqual(p.get("direction"), "up", pname)
+            self.assertEqual(p.get("prefer_attr"), "paired_mcb", pname)
+
+    # ---- the blast radius: nothing else moved ---------------------------------------------
+    def test_r12_and_every_other_config_are_byte_identical_to_the_prior_asset(self):
+        """NEGATIVE, the mint gate in test form. R12 lives in the SHARED rules block, where a
+        phrase added to one rule is visible to every other question; widening `values` was
+        sufficient, so R12 is byte-equal to v55. Every other category config is byte-equal too,
+        and the industrial_sockets config differs from v55 ONLY in the three places this slice
+        names (the values list, the normalisation step, the paired-MCB fit)."""
+        now = {c["category_id"]: c for c in self._configs()}
+        before = {c["category_id"]: c for c in self._configs(self._PRIOR_ASSET)}
+        self.assertEqual(set(now), set(before))
+        for cid in before:
+            if cid != "industrial_sockets":
+                self.assertEqual(now[cid], before[cid], "%s moved" % cid)
+        n, b = now["industrial_sockets"], before["industrial_sockets"]
+        self.assertEqual(n["rules"], b["rules"])  # R12 untouched
+        for key in n:
+            if key in ("attribute_definitions", "pipelines"):
+                continue
+            self.assertEqual(n[key], b[key], "industrial_sockets.%s moved" % key)
+        for dn, db in zip(n["attribute_definitions"], b["attribute_definitions"]):
+            if dn["id"] != "mcb_pole_stated":
+                self.assertEqual(dn, db)
+        for pname in b["pipelines"]:
+            sn, sb = n["pipelines"][pname]["steps"], b["pipelines"][pname]["steps"]
+            self.assertEqual(len(sn), len(sb), pname)
+            for a, c in zip(sn, sb):
+                if a.get("step") == "map_attribute" and (a.get("params") or {}).get("result_attr") == "mcb_pole_norm":
+                    continue
+                if a.get("step") == "catalog_fit":
+                    self.assertEqual({k: v for k, v in a["params"].items() if k != "on_miss"},
+                                     {k: v for k, v in c["params"].items() if k != "on_miss"}, pname)
+                    continue
+                self.assertEqual(a, c, "%s: an untouched step moved" % pname)
 
 
 class TestConduitInTheCableRate(FrappeTestCase):
@@ -7335,7 +7510,10 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # that copies the block elsewhere has to say so". The LMS slice is that later mint:
         # it gave `lighting_mgmt_system` its two pipelines. Naming it here is the pin DOING
         # ITS JOB, not being relaxed -- a THIRD category appearing still fails.
-        self.assertEqual(changed, ["lighting_mgmt_system", "point_wiring"])
+        # ⚠️ WIDENED AGAIN AT F-30 SLICE B (v56, owner rulings 2026-09-05): `industrial_sockets`
+        # gained the SPN vocabulary and the paired-MCB refusal -- the third category, named for
+        # the same reason. A FOURTH still fails.
+        self.assertEqual(changed, ["industrial_sockets", "lighting_mgmt_system", "point_wiring"])
         self.assertEqual(payload["items"], prev["items"], "no rate and no item may move")
         for cid, c in now.items():
             if cid == "point_wiring":
@@ -7571,8 +7749,11 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # that copies the block elsewhere has to say so". The LMS slice is that later mint:
         # it gave `lighting_mgmt_system` its two pipelines. Naming it here is the pin DOING
         # ITS JOB, not being relaxed -- a THIRD category appearing still fails.
+        # ⚠️ WIDENED AGAIN AT F-30 SLICE B (v56, owner rulings 2026-09-05): `industrial_sockets`
+        # gained the SPN vocabulary and the paired-MCB refusal -- the third category, named for
+        # the same reason. A FOURTH still fails.
         self.assertEqual(sorted(k for k in now if now[k] != was[k]),
-                         ["lighting_mgmt_system", "point_wiring"])
+                         ["industrial_sockets", "lighting_mgmt_system", "point_wiring"])
         self.assertEqual(payload["items"], prev["items"])
         # ⚠️ SUPERSEDED AT SLICE B. F4a removed two pipelines, and `_validate_config` refuses
         # a golden naming a pipeline the config no longer declares -- so their `expect` keys
@@ -7753,8 +7934,11 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # that copies the block elsewhere has to say so". The LMS slice is that later mint:
         # it gave `lighting_mgmt_system` its two pipelines. Naming it here is the pin DOING
         # ITS JOB, not being relaxed -- a THIRD category appearing still fails.
+        # ⚠️ WIDENED AGAIN AT F-30 SLICE B (v56, owner rulings 2026-09-05): `industrial_sockets`
+        # gained the SPN vocabulary and the paired-MCB refusal -- the third category, named for
+        # the same reason. A FOURTH still fails. Its goldens did NOT move (asserted below).
         self.assertEqual(sorted(k for k in now if now[k] != was[k]),
-                         ["lighting_mgmt_system", "point_wiring"])
+                         ["industrial_sockets", "lighting_mgmt_system", "point_wiring"])
         self.assertEqual(payload["items"], prev["items"], "no item may move")
         # ⚠️ v55 ADDED a `lighting_mgmt_system` goldens block (the LMS slice). Assert the key
         # set moved by exactly that ONE addition -- still "no golden was dropped".
@@ -8271,7 +8455,13 @@ class TestLmsPricingHelper(FrappeTestCase):
         was = {c["category_id"]: c for c in prev["category_configs"]}
         now = {c["category_id"]: c for c in self.payload["category_configs"]}
         self.assertEqual(sorted(now), sorted(was), "no category added or removed")
-        self.assertEqual(sorted(k for k in now if now[k] != was[k]), ["lighting_mgmt_system"])
+        # ⚠️ WIDENED AT F-30 SLICE B (v56, owner rulings 2026-09-05). This pin is CUMULATIVE --
+        # it compares the CURRENT asset against v54 -- so the socket slice's ONE config
+        # (`industrial_sockets`: the SPN vocabulary + the paired-MCB refusal) now appears here
+        # beside the LMS one. Naming it is the pin DOING ITS JOB, not being relaxed -- a THIRD
+        # category appearing still fails, and no item and no golden may move.
+        self.assertEqual(sorted(k for k in now if now[k] != was[k]),
+                         ["industrial_sockets", "lighting_mgmt_system"])
         self.assertEqual(self.payload["items"], prev["items"], "no item may move")
         for cat in was:
             if cat == "lighting_mgmt_system":
