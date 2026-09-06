@@ -36796,3 +36796,165 @@ box size 29 times in 49, and a stated `None` or blank 16 times in 45 stated-size
 `frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.test.ts` (new describe block), this record.
 `CLAUDE.md`: judged, nothing durable earned -- the slice adds no rule the reference docs do not already
 carry.
+
+## Paired-quantity fill -- a blank quantity beside a present item is filled with its declared default, GENERAL across configs, code only (2026-09-07)
+
+**Date:** 2026-09-07 · **Branch:** `feature/boq-pricing-helper`, off `a0d910a6` · **Asset:** UNCHANGED (`v57`, live batch `rmbulk-e4a8c133da89`, 1,367 items, 12 configs -- G6 re-verified leaf by leaf on switches_sockets 500 / point_wiring 1,154 / popup_boxes 309 leaves, 0 differing) · **Frontend source changed:** NONE · **Schema changed:** NONE (the run doc, the events, the capture log all keep their shape; one new key inside the batch record's `drops` dict).
+
+### What it is, and the ruling that shaped it
+
+The 2026-09-07 recon on the two plate defects found the model returning `plate_qty` NULL on 72 of 281
+blank-plate switches_sockets rows in the 40 active runs -- despite the SLOT-PAIRED DEFAULTS prompt
+sentence saying exactly when to default it. A blank required quantity gates the whole row on the panel
+("Complete the missing attributes to price"), so on 30 of those rows a pricer typed the 1 by hand before a
+suggestion could be used. Owner rulings, verbatim: *"it fills 1 only when it is blank"*; *"yes all paired
+quantities. if the item is filled but qty is blank then it should be populated default 1. when item is none
+or blank it, the default qty rule sshould not be applied"*; the blank-plate-but-computed case: *"this
+should be included"*; stored rows: *"exisiting rows stay broken. it ok"*; and, after a scope stop on the
+fact that a config-derived rule reaches every config carrying the same shape: *"lets make a general
+build"*.
+
+**THE RULE, exactly** (`extraction.fill_paired_slot_defaults`, the mirror of `scrub_unpaired_slot_defaults`):
+- **(a)** for EVERY `requires_named` pair declared in a config's `extraction_defaults`: quantity BLANK
+  (null, empty, or the key omitted) and item FILLED (a real value, not `"None"`, not blank) -> fill the
+  declared default, `defaulted: true`, confidence `_PAIRED_FILL_CONFIDENCE = 0.5`.
+- **(b)** ONLY for a pair whose item is a `module_fit` ladder `bind` (the plate -- `paired_fill_plan(cfg)`
+  derives it from the pipelines): quantity BLANK, item BLANK, and the row OCCUPIED -> fill. "Occupied"
+  mirrors `module_fit`'s own sum: some occupancy term (the ladder's `terms`) whose item is FILLED carries a
+  quantity above zero, evaluated AFTER case (a). A `"None"` plate is never filled.
+- NEVER over a quantity the model READ -- a read 0 is a value, not a blank, and is left alone.
+
+Case (b) is why this is CODE and not a prompt or config change: it needs two facts the one-pair config
+shape cannot carry -- which item is COMPUTED rather than read (derivable only from a different config
+section, the pipelines), and whether the row will BUY it (a cross-slot fact about OTHER pairs, on the row
+after case (a)). The prompt sentence stays as guidance; this is the enforcement -- the same doctrine as
+`apply_conductor_floor` and `force_absent_dependents`.
+
+**Config-DERIVED, never config-DECLARED, and NO category or attribute name in code** (the HV-10 lesson).
+That derivation is exactly what pulls the two other live categories in: point_wiring and popup_boxes both
+declare `requires_named` pairs AND a `module_fit` plate ladder. Nine of the twelve live configs declare no
+`requires_named` default at all -- the plan is `None` and the fill returns nothing for them (pinned).
+
+### Siting and ordering (load-bearing)
+
+Called in `_extract_batch` directly AFTER the scrub loop and BEFORE `force_absent_dependents`. The scrub
+first settles every `"None"` slot to "no quantity", so the occupancy test never counts a quantity the scrub
+is about to remove. The two are COMMUTATIVE on every single slot (None vs filled/blank are disjoint) --
+pinned by `test_scrub_then_fill_equals_fill_then_scrub_on_a_mixed_row` -- and the order makes the
+dependency direction explicit. Each fill is recorded in the batch capture exactly as the scrub is: a
+`drops["paired_slot_defaults_filled"]` map `{excel_row: [qty_attr, ...]}` and a `row_map` entry with
+`reason: "paired default filled (code)"`, `defaulted_claimed: False`, `defaulted_kept: True`. The plan is
+resolved ONCE per (discipline, category) in `run_extraction`'s group context and passed positionally to
+`_extract_batch` right after `conductor_groups`.
+
+### The measured population (all 40 active runs, before building) -- and a correction
+
+| category | rows | case (a) gains | case (b) gains | total |
+|---|---|---|---|---|
+| switches_sockets | 372 | **0** on all six pairs | **54** (plate) | 54 |
+| point_wiring | 263 | 0 | 0 | 0 |
+| popup_boxes | 40 | 1 (`socket2_qty`) | 0 | 1 |
+
+Total 55. **Case (a) is currently INERT on this corpus** -- the model never left a quantity blank beside an
+item it named, on any of the six switches_sockets pairs; the rule's whole live effect today is case (b).
+Of the 54: all refuse on the panel; 32 carry a hand-typed rate; 30 were priced from a used suggestion
+after the pricer typed the 1; 37 sit on exported sheets, 15 of those with no rate. **Correction to the
+recon's "72":** it was 54 + 18 blank-plate rows with NO occupant (bare boxes and kin), which gain nothing
+by construction; the 20 `"None"` plates gain nothing either. The 137 blank `socket3`/`socket4` rows are a
+different defect (runs predating those attributes) and this rule does not touch them. point_wiring's 132
+blank-plate occupied rows already carry `plate_qty`; its `on_zero_modules: 3` sits on the BOX ladder only,
+so a zero-module row buys no plate and case (b) correctly does not fire there.
+
+**Stored rows stay blank** (owner ruling). The fill runs at extraction only; no backfill, no re-run of
+prior runs. A row gains its quantity the next time its sheet (or the row, scoped) is re-extracted.
+
+### Tests
+
+`nirmaan_stack/services/boq_rate_master/test_extraction_coercion.py`: **113 -> 135** (measured in-session
+both times, bench runner). Two classes:
+- `TestFillPairedSlotDefaults` (18): case (a) on every pair / on an omitted key / needs no plan; never
+  beside a `"None"` item; never beside a blank occupant; bare box (blank plate, no occupants) untouched;
+  case (b) positive; case (b) counts an occupant case (a) just filled; case (b) needs positive occupancy,
+  not merely a named item; ignores an occupant whose item is blank; inert without a plan; never
+  overwrites a read quantity including 0; the scrub still removes a `"None"` quantity; the scrub's
+  blank-item contract extended, not broken; scrub/fill commutative; no-defaults no-op; the plan from the
+  LIVE configs (switches_sockets computed `["plate_item"]`, terms = the five occupant quantities); the
+  call site and ordering pinned via `inspect.getsource` (after the scrub loop, before
+  `force_absent_dependents`, recorded like the scrub).
+- `TestFillPairedSlotDefaultsAcrossCategories` (4, the general-build pins): point_wiring blank plate with
+  a present quantity untouched (NEGATIVE); point_wiring zero-module row buys a box but no plate so nothing
+  is filled (NEGATIVE, asserts `on_zero_modules` sits on the box ladder only); popup_boxes case (a)
+  positive (the one live row); a category with no `module_fit` plate ladder untouched entirely (NEGATIVE,
+  all nine other live configs + a synthetic pairs-without-ladder config).
+- Two pre-existing fixture expectations changed from `[qty]` to `[qty, "plate_qty"]`: their probe rows are
+  plate-less and occupied, so case (b) legitimately fills the plate quantity -- the change is the rule
+  working, verified by hand.
+
+**Vacuity:** with the fill body returning `[]`, 7 positives RED, 15 negatives GREEN; restored -> 135 OK.
+Suites unchanged: `test_rate_suggest` 71 OK, `test_rate_master` 316 OK (524.9 s), vitest 3,164 of 3,165
+(the known `writeOffControl` failure, pre-existing, unrelated).
+
+### The live cert (2026-09-07 ~01:45-02:10 IST, admins@nirmaan.app, :8080 via vite) -- 3 AI calls, all named
+
+Web (PID 3379) and worker (PID 3388) restarted after the file write; the backend bundle marker confirmed
+the bench interpreter resolves a module defining and calling `fill_paired_slot_defaults`; site data
+cleared, SW unregistered, re-login. Every batch record below carries the NEW `paired_slot_defaults_filled`
+key -- proof the new code path ran in the worker.
+
+| # | run | rows | tokens in/out | model returned | code filled | run |
+|---|---|---|---|---|---|---|
+| 1 | `BRSR-26-00462` | `BOQ-26-00242 / LT Electrical works` 47, 50 | 4,059 / 864 | `plate_qty 1.0 defaulted:true` on both | nothing | **partial, inactive** |
+| 2 | `BRSR-26-00463` | `BOQ-26-00224 / ELECTRICAL` 428, 429 | 3,881 / 811 | `plate_item 3M / 4M`, `plate_qty 1.0 defaulted:true`, every occupant null | nothing | complete, active (200/200) |
+| 3 | `BRSR-26-00464` | `BOQ-26-00126 / ELEC` 464 | 7,794 / 907 | `switch_qty 1`, `plate_qty 1`, `socket_item None` | nothing | complete, active (205/205) |
+
+- **G3 (bare box, 428) HOLDS:** rendered panel -- every occupant `-- select --`, Frame/Face plate `3M`
+  (50%, the model parking the box count in the plate slot again), Plate qty `1` with the amber `default`
+  badge, `Back box size` EMPTY, rate refused ("Some attributes are missing"); grid 60/20 unchanged.
+- **G2 (429) -- the premise did NOT reproduce:** the brief expected a `"None"` plate row (the OLD stored
+  run's state). The re-extraction returned `plate_item 4M`, not None, so the row rendered exactly like
+  428 (Plate qty `1` default, Back box size empty, refused); grid 70/20 unchanged. The `"None"` branch is
+  therefore proven by unit pin only (`test_never_fills_beside_a_None_item`), not on a live extraction.
+- **G5 (point_wiring, 464) HOLDS:** panel byte-identical before and after -- `Pricing sheet 2809`,
+  Switch qty 1, Socket None, Blank plate None, Plate qty 1; grid 2180/440 unchanged.
+- **G1/G4 (00242 rows 50/47) NOT VISIBLE ON SCREEN:** run 1 stored `partial` and did NOT activate --
+  the sheet's population is 129 (two `lighting_mgmt_system` rows 16/17 became eligible when LMS shipped)
+  while the carried attempted set is 127, so the panel still reads the old active run `37a93412`.
+  Making it visible means resuming the two pending rows -- AI spend outside the named cert rows -- so it
+  was NOT done (brief: "Any spend beyond the named cert rows -> STOP and ASK first"). Grid 700/140 and
+  430/90 unchanged. The batch evidence for the two rows is complete and recorded above.
+- **G6 HOLDS** (config identical to v57, one batch, 1,367 items).
+- **#57 as written -- "plate quantity shows 1 with amber default badge on newly extracted rows" -- is
+  what the screen shows on 428 and 429, but the badge is the MODEL's default, not the code's: on all
+  five cert rows the model supplied the quantity itself and the fill had nothing to do
+  (`paired_slot_defaults_filled: {}` in all three batches).** The positive path (a blank quantity beside a
+  present item, or beside a computed plate on an occupied row) is proven by the 8 positive unit pins and
+  the vacuity run, NOT by a live extraction: no named cert row exhibited the defect on re-run, and finding
+  one that does would cost AI calls outside the approved set. Prices: NOTHING moved on any cert row
+  (`BoQ Cell Pricing` read before and after); events 1,532 before and after; runs 61 -> 64 (the three
+  above), active 40 -> 40 (the new 00224/00126 runs superseded their predecessors; 00242's partial is
+  inactive).
+- Error Log during the window: ONE entry, 01:54:26 `BoQ suggest run halted (partial saved)` -- run 1's
+  own partial save, expected. Unrelated halted runs at 01:47 on `BOQ-26-00244 / Wiring` ("usage limit
+  reached", JSON truncation) predate the cert and are not mine.
+
+### Register (recorded, not fixed)
+- **The population gap on `BOQ-26-00242 / LT Electrical works`** (129 vs 127): any scoped run there
+  stores `partial` and never activates until rows 16/17 are extracted once. Same class as the SR-1
+  resume design; not a defect of this slice, but it makes scoped runs on that sheet invisible.
+- The model parks the BOX count in `plate_item` on bare boxes (428 `3M`, 429 `4M`, and the recon's 29 of
+  49) -- slice 2's text-read size must NOT come from `plate_item` (F-25 slice 1 record).
+- Case (a) is inert on today's corpus; if it stays inert at production volume the (a) branch is a
+  guard, not a fix -- keep it (owner: "all paired quantities").
+- Panel attribute overrides survive a re-run in the embedded panel (PARKED 2026-09-06).
+- 163 of 372 switches_sockets rows in active runs have `socket3_item` blank/absent (older runs).
+- `BOQ-26-00126 / ELEC / 398`: socket misread as three-phase.
+- No UI path to reactivate a Rate Master item; `63A`/`40A DP MCB D CURVE` both priced 2,049.
+
+### Files
+`nirmaan_stack/services/boq_rate_master/extraction.py` (+148/-1: `_PAIRED_FILL_CONFIDENCE`,
+`paired_fill_plan`, `fill_paired_slot_defaults`, the drops key, the call site, `_extract_batch` gains
+`paired_fill` positionally after `conductor_groups`, `run_extraction` resolves the plan per group),
+`nirmaan_stack/services/boq_rate_master/test_extraction_coercion.py` (+349, two new classes, two
+fixture expectations), this record. `CLAUDE.md`: judged, nothing durable earned -- the rule lives in the
+function's docstring and this record; the one principle it rests on (config-derived, no category name
+in code) is already the HV-10 lesson the file carries.
