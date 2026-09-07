@@ -182,3 +182,63 @@ export const canViewTargetProgress = (
 ): boolean =>
   userId === "Administrator" ||
   (!!role && TARGET_PROGRESS_PROFILES.includes(role));
+
+// ---------------------------------------------------------------------------
+// Route-level access lists (RG-1)
+//
+// These routes had NO guard: plain `element:` entries under ProtectedRoute, so
+// "logged in" was the entire check. Hiding a nav item hid the door, not the
+// room -- a bookmark or a pasted URL still opened the page. `RoleRoute` in
+// `utils/auth/ProtectedRoute` now gates each with the list below.
+//
+// Each list is the UNION across every sidebar entry that links to that route.
+// Several are reachable from more than one entry with different role sets
+// (Customers sits in Admin Options AND on the Accountant sidebar; Project
+// Invoices sits in the Accountant block AND the Sales block). A route list is
+// therefore WIDER than any single sidebar array by design -- narrowing it to
+// one of them would lock out a role whose nav item still points here.
+//
+// The hardcoded "Administrator" user always passes and is never listed.
+// UI gate only; no server-side role check backs these.
+// ---------------------------------------------------------------------------
+
+const ACCOUNTANT_PROFILE = "Nirmaan Accountant Profile";
+const ACCOUNTANT_LEAD_PROFILE = "Nirmaan Accountant Lead Profile";
+const ESTIMATES_EXECUTIVE_PROFILE = "Nirmaan Estimates Executive Profile";
+const SALES_EXECUTIVE_PROFILE = "Nirmaan Sales Executive Profile";
+const SALES_LEAD_PROFILE = "Nirmaan Sales Lead Profile";
+
+/** `/customers` -- Admin Options entry plus the Accountant sidebar entry. */
+export const CUSTOMERS_ACCESS: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+
+/** `/upload-boq` and its hub / revision / sheet children. PMO excluded. */
+export const UPLOAD_BOQ_ACCESS: readonly string[] = [
+  ADMIN_PROFILE,
+  ...PROCUREMENT_PROFILES,
+  ESTIMATES_EXECUTIVE_PROFILE,
+  PROJECT_LEAD_PROFILE,
+];
+
+/**
+ * `/upload-boq/templates`. NARROWER than UPLOAD_BOQ_ACCESS -- the templates
+ * editor is Admin + Estimates only. It gets its own guard because it shares the
+ * `upload-boq` path prefix: folding it into the wizard's wrapper would WIDEN it
+ * to procurement and Project Lead, who have never had it.
+ */
+export const BOQ_TEMPLATES_ACCESS: readonly string[] = [
+  ADMIN_PROFILE,
+  ESTIMATES_EXECUTIVE_PROFILE,
+];
+
+/** `/project-invoices` -- Accountant block plus the Sales block. PMO excluded. */
+export const PROJECT_INVOICES_ACCESS: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+  SALES_EXECUTIVE_PROFILE,
+  SALES_LEAD_PROFILE,
+];
