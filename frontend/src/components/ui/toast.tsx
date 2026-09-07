@@ -30,7 +30,11 @@ const toastVariants = cva(
         default: "border bg-background text-foreground",
         destructive:
           "destructive group border-destructive bg-destructive text-destructive-foreground",
-        success: "border border-green-500 bg-green-500 text-green-100"
+        success: "border border-green-500 bg-green-500 text-green-100",
+        // Amber attention, matching the BoQ grid's warning token. Text is amber-950 (DARK on
+        // amber), not a near-white mirror of `success`: amber-500 against amber-50 measures
+        // ~2:1 contrast and is unreadable. Deliberately NOT copying the success pairing.
+        warning: "border border-amber-500 bg-amber-500 text-amber-950"
       },
     },
     defaultVariants: {

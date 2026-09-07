@@ -215,11 +215,35 @@ export const CUSTOMERS_ACCESS: readonly string[] = [
   ACCOUNTANT_LEAD_PROFILE,
 ];
 
-/** `/upload-boq` and its hub / revision / sheet children. PMO excluded. */
+/**
+ * `/upload-boq` and its hub / revision / sheet children.
+ *
+ * PMO Executive and Billing Executive are both INCLUDED (owner request). This line used to read
+ * "PMO excluded", and billing had no BoQ access at all.
+ *
+ * ⚠️ IT MUST STAY A SUPERSET OF `boq-wizard/boqAccess.BOQ_WIZARD_PROFILES` -- that set decides
+ * who sees the pencil INTO these routes, so a profile with the pencil and no route entry lands
+ * on Access Denied. The two are edited together.
+ *
+ * ⚠️ THIS NO LONGER MATCHES THE BACKEND WIZARD GATE, AND THE ONE PROFILE OF DIFFERENCE IS
+ * BILLING. Adding PMO made the two agree exactly; adding Billing made this list a strict
+ * SUPERSET of `create_from_template._WIZARD_ROLE_PROFILES`, which carries no billing entry. So
+ * a Billing user reaches these screens and is refused by `create_from_template` specifically
+ * ("You are not permitted to create a BoQ from a template"). Every other wizard path is open to
+ * them. Widen the backend set if billing should author from a template.
+ *
+ * ⚠️ BILLING ALSO NEEDS A SERVER-SIDE GRANT THAT THIS LIST CANNOT PROVIDE. Their role profile
+ * carries exactly one role, `Nirmaan Billing Executive`, which has NO permission row on the
+ * `BOQs` doctype -- so the BoQ list 403s at the REST layer no matter what this guard says. READ
+ * on `BOQs` is the whole requirement: every wizard WRITE goes through a whitelisted endpoint
+ * using set_value / ignore_permissions, so no write permission is involved.
+ */
 export const UPLOAD_BOQ_ACCESS: readonly string[] = [
   ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
   ...PROCUREMENT_PROFILES,
   ESTIMATES_EXECUTIVE_PROFILE,
+  BILLING_EXECUTIVE_PROFILE,
   PROJECT_LEAD_PROFILE,
 ];
 
