@@ -20,13 +20,42 @@
  * right if that ever stops being true.
  */
 
-/** Admins + estimation -- the SAME population `PricingRoute` admits. */
+/**
+ * Admins + PMO + estimation + billing.
+ *
+ * ⚠️ THIS IS NO LONGER THE POPULATION `PricingRoute` ADMITS. PMO Executive was added here
+ * (owner request) and that guard was deliberately left alone, so the Pricing Module stays
+ * Admin + estimation. Do not "restore" the equivalence by editing either one to match.
+ *
+ * ⚠️ THE ROUTE GUARD MUST STAY A SUPERSET OF THIS SET. `UPLOAD_BOQ_ACCESS`
+ * (`constants/roles.ts`) is what actually admits a user to `/upload-boq/*`; a profile listed
+ * here but missing there gets a pencil that leads straight to an Access Denied screen -- an
+ * affordance that promises something the very next click refuses. The two are edited together.
+ */
 const BOQ_WIZARD_PROFILES: ReadonlySet<string> = new Set([
   "Nirmaan Admin Profile",
+  "Nirmaan PMO Executive Profile",
   "Nirmaan Estimates Executive Profile",
+  "Nirmaan Billing Executive Profile",
 ]);
 
-/** Admins + estimation + billing -- the wizard set plus the people who bill against a sheet. */
+/**
+ * The wizard set plus the people who bill against a sheet.
+ *
+ * PMO arrives here by the spread, not by being listed, and that is the intended reading: you
+ * cannot author a priced sheet without seeing the figures you are pricing, so anyone admitted to
+ * the wizard is admitted to the commercial columns by construction.
+ *
+ * ⚠️ THE TWO POPULATIONS NOW COINCIDE, and the redundancy is deliberate. Billing used to be the
+ * one profile here and NOT in the wizard set -- the file's original claim was that "billing reads
+ * a priced sheet, it does not author one". That claim was REVERSED by the owner, so billing is
+ * now in the wizard set too and the explicit entry below adds nothing to the Set.
+ *
+ * The two predicates stay SEPARATE anyway, because they answer different questions -- may you
+ * author, versus may you see the figures -- and the populations coinciding today is a fact about
+ * the current roster, not a property of the design. Collapsing them into one predicate would make
+ * the next divergence impossible to express without re-splitting them.
+ */
 const BOQ_COMMERCIALS_PROFILES: ReadonlySet<string> = new Set([
   ...BOQ_WIZARD_PROFILES,
   "Nirmaan Billing Executive Profile",

@@ -434,11 +434,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const isPrivilegedUser = PRIVILEGED_ROLES.includes(role);
   const isAccountant = role === "Nirmaan Accountant Profile" || role === "Nirmaan Accountant Lead Profile";
   const isProcurementExecutive = isProcurementProfile(role);
-  // Billing Executive is a view-only mirror of Estimates Executive (minus pricing/BoQ) --
-  // it inherits every Estimates-Executive gate on this page EXCEPT BoQ (see the BoQ
-  // tab exclusion below).
+  // Billing Executive is a view-only mirror of Estimates Executive. It used to be "minus
+  // pricing/BoQ" with a BoQ exclusion below; the BoQ half was REVERSED by the owner, so the
+  // mirror is now exact on this page and the exclusion is gone.
   const isEstimatesExecutive = role === "Nirmaan Estimates Executive Profile" || role === "Nirmaan Billing Executive Profile";
-  const isBilling = role === "Nirmaan Billing Executive Profile";
   const isProjectManager = role === "Nirmaan Project Manager Profile";
   const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
 
@@ -498,10 +497,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       PROJECT_PAGE_TABS.COMMISSION_REPORT,
       PROJECT_PAGE_TABS.BOQ,
     ]);
-    // Billing Executive has no BoQ access -- hide the BoQ tab (it would 403 on BOQs).
-    if (isBilling) tabs.delete(PROJECT_PAGE_TABS.BOQ);
+    // Billing Executive KEEPS the BoQ tab (owner request). This used to delete it, with the
+    // note "it would 403 on BOQs" -- which was true and is the server-side half of this change:
+    // the `Nirmaan Billing Executive` role needs READ on the BOQs doctype or the list 403s
+    // whatever this set says. Nothing else here is billing-specific, so the memo no longer
+    // depends on isBilling.
     return tabs;
-  }, [isBilling]);
+  }, []);
 
   // Redirect users to allowed tab if on restricted tab
   useEffect(() => {
