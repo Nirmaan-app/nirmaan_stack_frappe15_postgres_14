@@ -100,6 +100,9 @@ export const isBillingProfile = (role?: string | null): boolean =>
   !!role && BILLING_PROFILES.includes(role);
 
 export const ADMIN_PROFILE = "Nirmaan Admin Profile";
+export const PMO_EXECUTIVE_PROFILE = "Nirmaan PMO Executive Profile";
+export const PROJECT_LEAD_PROFILE = "Nirmaan Project Lead Profile";
+export const PROJECT_MANAGER_PROFILE = "Nirmaan Project Manager Profile";
 
 /**
  * May delete a DC / MIR off a PO — admin, procurement (they file them) and
@@ -132,7 +135,7 @@ export const canDeleteDeliveryDocument = (
  */
 const INVOICE_APPROVAL_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
-  "Nirmaan PMO Executive Profile",
+  PMO_EXECUTIVE_PROFILE,
   "Nirmaan Accountant Profile",
   "Nirmaan Accountant Lead Profile",
 ];
@@ -144,3 +147,38 @@ export const canActionInvoiceApprovals = (
 ): boolean =>
   userId === "Administrator" ||
   (!!role && INVOICE_APPROVAL_PROFILES.includes(role));
+
+/**
+ * May see Target Progress in the Work Report: the Target column beside Actual,
+ * and the "With / Without Target Progress" choice in the DPR download dialog.
+ *
+ * Admin + PMO Executive + Project Lead. It was Admin-only; PMO was added first,
+ * then Project Lead.
+ *
+ * PROJECT MANAGER IS DELIBERATELY OUT (owner ruling, corrected after it was
+ * briefly included). A PM records the work actually done on site; the target
+ * they are measured against is the Lead's view, not theirs. Do not add
+ * `PROJECT_MANAGER_PROFILE` here on the assumption it was an oversight.
+ *
+ * The rule lived as THREE identical `isAdmin` copies -- one each in
+ * `MilestonesSummary`, `MilestoneDailySummary` and `PDFDownloadButtons` -- which
+ * had to change together or the Work Report would offer a Target column the
+ * download dialog would not honour. One home now; do not re-inline it.
+ *
+ * SCOPE: Target Progress and nothing else. Every other permission on those
+ * screens keeps its own gate (`canDeleteReport`, for one, already included PMO
+ * and is untouched). Do not widen this predicate to stand for "is privileged".
+ */
+export const TARGET_PROGRESS_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  PROJECT_LEAD_PROFILE,
+];
+
+/** True when `role` (a role PROFILE) may see Target Progress in the Work Report. */
+export const canViewTargetProgress = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" ||
+  (!!role && TARGET_PROGRESS_PROFILES.includes(role));

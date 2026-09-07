@@ -201,6 +201,14 @@ export function NewSidebar() {
     requestNotificationPermission();
   }, [user_id, data]);
 
+  // Customers is Admin-only by owner ruling -- PMO Executive is deliberately NOT
+  // included. Packages Settings and Project GST were briefly gated the same way
+  // and were reverted; PMO sees both.
+  //
+  // Kept as an inline spread rather than a second grouped block so the Admin
+  // Options items stay in their existing visual order.
+  const isAdminOnly = user_id == "Administrator" || role == "Nirmaan Admin Profile";
+
   const items = useMemo(() => [
     { key: "/", icon: LayoutGrid, label: "Dashboard" },
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role as string)
@@ -254,7 +262,7 @@ export function NewSidebar() {
                 { key: "/products", label: "Products" },
                 { key: "/asset-management", label: "Assets" },
                 { key: "/vendors", label: "Vendors" },
-                { key: "/customers", label: "Customers" },
+                ...(isAdminOnly ? [{ key: "/customers", label: "Customers" }] : []),
                 { key: "/packages-settings", label: "Packages Settings" },
                 { key: "/tds-repository", label: "TDS Repository" },
                 { key: "/project-gst", label: "Project GST" },
@@ -423,7 +431,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", ...PROCUREMENT_PROFILES, "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile"].includes(role as string)
       ? [
         {
           key: '/upload-boq',
@@ -570,7 +578,7 @@ export function NewSidebar() {
       ]
       : []),
 
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile"].includes(role as string)
       ? [
         {
           key: '/in-flow-payments',
@@ -588,7 +596,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile"].includes(role as string)
       ? [
         {
           key: '/project-invoices',
@@ -727,7 +735,7 @@ export function NewSidebar() {
 
 
 
-  ], [user_id, role]);
+  ], [user_id, role, isAdminOnly]);
 
   const allKeys = useMemo(() => new Set([
     "projects",

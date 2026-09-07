@@ -35,7 +35,7 @@ const TYPE_CONFIG: {
         },
         {
             type: "Invoice",
-            label: "Outflow Invoices",
+            label: "Vendor Invoices",
             description: "Download PO invoices, WO invoices, or all",
             icon: Receipt,
             iconBg: "bg-purple-50 group-hover:bg-purple-100",
@@ -78,9 +78,12 @@ const TYPE_CONFIG: {
 export const BulkDownloadStep1 = ({ onSelect, counts = {} }: Step1Props) => {
     const { role } = useUserData();
     const isProjectManager = role === "Nirmaan Project Manager Profile";
+    const isPMO = role === "Nirmaan PMO Executive Profile";
 
     const filteredTypeConfig = TYPE_CONFIG.filter((config) => {
         if (isProjectManager && (config.type === "Invoice" || config.type === "ClientInvoice")) return false;
+        // PMO loses Client Invoices only -- Vendor Invoices stays.
+        if (isPMO && config.type === "ClientInvoice") return false;
         return true;
     });
 

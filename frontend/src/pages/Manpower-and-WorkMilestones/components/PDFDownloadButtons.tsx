@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { TargetProgressDownloadDialog } from "./TargetProgressDownloadDialog";
 import { Button } from '@/components/ui/button';
 import { Download, Loader2 } from 'lucide-react';
 import { toast } from '@/components/ui/use-toast';
@@ -20,6 +21,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useUserData } from '@/hooks/useUserData';
+import { canViewTargetProgress } from "@/constants/roles";
 
 interface ZoneProgressInfo {
   status: string | null;
@@ -85,7 +87,7 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
   // The actual is_admin=1 query param is now decided at confirm time so the
   // admin can pick with/without target per download.
   const { user_id, role } = useUserData();
-  const isAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile";
+  const canSeeTargetProgress = canViewTargetProgress(role, user_id);
 
   // Dialog state
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
@@ -268,7 +270,7 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
     setMissingZonesList(missing);
     setPendingAction(type);
 
-    if (isAdmin || missing.length > 0) {
+    if (canSeeTargetProgress || missing.length > 0) {
       setShowConfirmDialog(true);
     } else {
       // Non-admin, all zones complete → direct download without target.
@@ -404,68 +406,38 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
       )}
 
 
-      <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
-        <AlertDialogContent className="sm:max-w-lg">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {missingZonesList.length > 0
-                ? 'Some Zones Have Incomplete Reports'
-                : 'Download Merged Report'}
-            </AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2">
-              {missingZonesList.length > 0 && (
-                <>
-                  Reports are missing for the following zones:
-                  <ul className="list-disc pl-5 mt-2 mb-2">
-                    {missingZonesList.map(zone => (
-                      <li key={zone}>{zone}</li>
-                    ))}
-                  </ul>
-                  Only the completed zones will be included in the merged PDF.
-                </>
-              )}
-              {isAdmin && (
-                <span className="block pt-1 text-sm text-slate-600">
-                  Choose a version of the PDF. The admin version splits the{' '}
-                  <span className="font-semibold text-slate-800">Done</span> column into{' '}
-                  <span className="font-semibold text-slate-800">Target</span> and{' '}
-                  <span className="font-semibold text-slate-800">Actual</span> sub-columns for each milestone.
-                </span>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 pt-2">
-            <AlertDialogCancel className="mt-0 sm:mt-0" onClick={() => setPendingAction(null)}>
-              Cancel
-            </AlertDialogCancel>
-            <div className="flex flex-col-reverse sm:flex-row gap-2">
-              {isAdmin ? (
-                <>
-                  <Button
-                    className="bg-red-600 hover:bg-red-700 text-white"
-                    onClick={() => handleConfirmDownload(false)}
-                  >
-                    Without Target Progress
-                  </Button>
-                  <AlertDialogAction
-                    className="bg-green-600 hover:bg-green-700 text-white"
-                    onClick={() => handleConfirmDownload(true)}
-                  >
-                    With Target Progress
-                  </AlertDialogAction>
-                </>
-              ) : (
-                <AlertDialogAction
-                  className="bg-red-600 hover:bg-red-700 text-white"
-                  onClick={() => handleConfirmDownload(false)}
-                >
-                  Confirm / Download
-                </AlertDialogAction>
-              )}
+      <TargetProgressDownloadDialog
+        open={showConfirmDialog}
+        onOpenChange={setShowConfirmDialog}
+        title={
+          missingZonesList.length > 0
+            ? "Some Zones Have Incomplete Reports"
+            : "Download Merged Report"
+        }
+        canChooseTarget={canSeeTargetProgress}
+        notice={
+          missingZonesList.length > 0 ? (
+            <div>
+              Reports are missing for the following zones:
+              <ul className="mb-2 mt-2 list-disc pl-5">
+                {missingZonesList.map((zone) => (
+                  <li key={zone}>{zone}</li>
+                ))}
+              </ul>
+              Only the completed zones will be included in the merged PDF.
             </div>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          ) : undefined
+        }
+        withReason={
+          <>
+            Splits the <span className="font-semibold text-slate-800">Done</span> column into{" "}
+            <span className="font-semibold text-slate-800">Target</span> and{" "}
+            <span className="font-semibold text-slate-800">Actual</span> sub-columns for each milestone.
+          </>
+        }
+        onCancel={() => setPendingAction(null)}
+        onConfirm={handleConfirmDownload}
+      />
     </div>
   );
 };

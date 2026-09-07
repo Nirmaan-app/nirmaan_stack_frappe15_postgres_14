@@ -5,6 +5,7 @@ import { Trash2 } from 'lucide-react';
 
 import { UserContext } from "@/utils/auth/UserProvider";
 import { useUserData } from "@/hooks/useUserData";
+import { canViewTargetProgress } from "@/constants/roles";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -68,7 +69,7 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
     ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role || "");
 
   // Admin gate for Target % column
-  const isAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile";
+  const canSeeTargetProgress = canViewTargetProgress(role, user_id);
 
   const isToday = useMemo(() => isDateToday(displayDate), [displayDate]);
 
@@ -492,7 +493,7 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
               workMilestonesList={workMilestonesList}
               workHeaderOrderMap={workHeaderOrderMap}
               milestoneTarget={milestoneTarget}
-              showTargetColumn={isAdmin}
+              showTargetColumn={canSeeTargetProgress}
             />
           ) : (
             <Card className="mt-4">
@@ -501,7 +502,7 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
                   selectedProject={selectedProject}
                   projectData={projectData}
                   selectedZone={selectedZone}
-                  isAdmin={isAdmin}
+                  isAdmin={canSeeTargetProgress}
                 />
               </CardContent>
             </Card>

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { REPORTS_TABS } from '../constants'; // Adjust path
+import { PMO_PROJECT_REPORTS, REPORTS_TABS } from '../constants'; // Adjust path
 import {
     MATERIAL_PROCUREMENT_PROFILES,
     PROCUREMENT_PROFILES,
@@ -45,6 +45,11 @@ const getDefaultReportTypeForTabAndRole = (tab: string, userRole?: string): Repo
     if (tab === REPORTS_TABS.PROJECTS) {
         if (userRole === "Nirmaan Project Manager Profile" || isProcurementProfile(userRole)) {
             return 'Inventory Report';
+        }
+        // PMO Executive cannot pick Cash Sheet any more, so it must not be their
+        // default either -- land them on the first report their dropdown offers.
+        if (userRole === "Nirmaan PMO Executive Profile") {
+            return PMO_PROJECT_REPORTS[0] as ProjectReportType;
         }
         // Only Admin and Accountant see Project reports
         if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
