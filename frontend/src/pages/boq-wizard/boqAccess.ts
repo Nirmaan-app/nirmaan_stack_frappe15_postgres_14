@@ -20,13 +20,31 @@
  * right if that ever stops being true.
  */
 
-/** Admins + estimation -- the SAME population `PricingRoute` admits. */
+/**
+ * Admins + PMO + estimation.
+ *
+ * ⚠️ THIS IS NO LONGER THE POPULATION `PricingRoute` ADMITS. PMO Executive was added here
+ * (owner request) and that guard was deliberately left alone, so the Pricing Module stays
+ * Admin + estimation. Do not "restore" the equivalence by editing either one to match.
+ *
+ * ⚠️ THE ROUTE GUARD MUST STAY A SUPERSET OF THIS SET. `UPLOAD_BOQ_ACCESS`
+ * (`constants/roles.ts`) is what actually admits a user to `/upload-boq/*`; a profile listed
+ * here but missing there gets a pencil that leads straight to an Access Denied screen -- an
+ * affordance that promises something the very next click refuses. The two are edited together.
+ */
 const BOQ_WIZARD_PROFILES: ReadonlySet<string> = new Set([
   "Nirmaan Admin Profile",
+  "Nirmaan PMO Executive Profile",
   "Nirmaan Estimates Executive Profile",
 ]);
 
-/** Admins + estimation + billing -- the wizard set plus the people who bill against a sheet. */
+/**
+ * The wizard set plus the people who bill against a sheet -- admins + PMO + estimation + billing.
+ *
+ * PMO arrives here by the spread, not by being listed, and that is the intended reading: you
+ * cannot author a priced sheet without seeing the figures you are pricing, so anyone admitted to
+ * the wizard is admitted to the commercial columns by construction.
+ */
 const BOQ_COMMERCIALS_PROFILES: ReadonlySet<string> = new Set([
   ...BOQ_WIZARD_PROFILES,
   "Nirmaan Billing Executive Profile",

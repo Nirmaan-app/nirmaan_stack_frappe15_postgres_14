@@ -215,9 +215,21 @@ export const CUSTOMERS_ACCESS: readonly string[] = [
   ACCOUNTANT_LEAD_PROFILE,
 ];
 
-/** `/upload-boq` and its hub / revision / sheet children. PMO excluded. */
+/**
+ * `/upload-boq` and its hub / revision / sheet children.
+ *
+ * PMO Executive is INCLUDED (owner request) -- the line here used to read "PMO excluded".
+ * With PMO added, this list is now string-for-string the backend's own wizard gate,
+ * `create_from_template._WIZARD_ROLE_PROFILES`, which has admitted PMO all along; the guard
+ * was the narrower of the two, so PMO could be refused a screen the server would have served.
+ *
+ * ⚠️ IT MUST STAY A SUPERSET OF `boq-wizard/boqAccess.BOQ_WIZARD_PROFILES` -- that set decides
+ * who sees the pencil INTO these routes, so a profile with the pencil and no route entry lands
+ * on Access Denied. The two are edited together.
+ */
 export const UPLOAD_BOQ_ACCESS: readonly string[] = [
   ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
   ...PROCUREMENT_PROFILES,
   ESTIMATES_EXECUTIVE_PROFILE,
   PROJECT_LEAD_PROFILE,
