@@ -484,6 +484,15 @@ them) moved R13's `circuit_wire_included`. Moving the arithmetic into `apply_con
 the pressure off measurably: four of five cert rows became STABLE across runs where they had not
 been. **A rule may say how to READ a spec; it may not say what to COMPUTE from it.**
 
+**⚠️ THE ATTRIBUTE `type` IS AN INSTRUCTION THE MODEL OBEYS OVER THE SHARED BLOCK -- A `number`
+ATTRIBUTE CANNOT BE ASKED FOR A TOKEN "AS WRITTEN" (measured on the bare-box size read).** Told in
+`ESTIMATOR_RULES` to write a box's module count "exactly as the text writes it", the model still
+CONVERTED: a written "9/8M" came back as the number 9 and a written "1/2 module" as 1 or null, never as
+the token. The projected `{id, label, type}` is a stronger channel than any sentence beside it. So a design
+that needs the raw token for a CODE pick must give the attribute a text-capable type (the api validator
+refuses a value-less `choice`), or accept that the model performs the pick; a `number` type plus a code
+parse only LOOKS like "as written, code picks" -- on a written range the model has already chosen.
+
 **⚠️ A PIN ON RULE TEXT IS IN THE SLICE'S BLAST RADIUS.** Twice in one week a phrase pin in a file
 outside the declared scope blocked a deliberate wording change (four stale pins 2026-09-01;
 `test_rate_suggest.test_e4` 2026-09-03). **When a slice changes rule text, EVERY pin on that text
