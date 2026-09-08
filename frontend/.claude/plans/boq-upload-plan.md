@@ -37504,3 +37504,113 @@ refusing, unchanged in verdict; 66 of them now show defaulted never-asked fields
 ### Files
 `frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.ts`, `.../pricingSheetHelper.test.ts`, this record,
 root `CLAUDE.md` (one invariant paragraph: absent vs present-null and the recurring defect).
+
+## F-31 verified, the shared parser's scalar-list defect fixed, the owed Python suites run (2026-09-08)
+
+Owner rulings, verbatim: on the parser, *"keep it logged. we will build this. or bundle it into som ebuild
+slice if work is small"*; on sequence, *"lets do first 3. then we start native price calculator. run to run
+vairance and ghost re run we are not chasing now"*. Run-to-run variance and the missing `BRSR-26-00469..472`
+run records were NOT chased and stay on the register. **The owner's sequence now reaches the NATIVE PRICE
+CALCULATOR.**
+
+### Part A -- F-31, verified, not built: verdict CURED (with one named residual)
+F-31 was a test going red on fixture residue the suites leave in the LIVE site DB. The test is
+`test_rate_suggest.test_27_live_configs_all_validate` (:891): it reads EVERY `active=1` `BoQ Rate Category
+Config` across ALL disciplines and runs `rate_master._validate_config` on each. The plan records two distinct
+past causes: (1) 2026-08 -- a duplicate-insert probe without a savepoint cascaded into a failing
+`tearDownClass`, which orphaned 56 `TEST_RM_*` disciplines (45,432 items / 234 configs / 42 retirements) and
+`test_27` then validated that debris; (2) later, a live Electrical config carrying an unknown top-level key --
+config/asset drift, not residue.
+
+Evidence, in session:
+- `test_27` is **green now**: `test_rate_suggest` ran 71 OK (5.8 s). Nothing in the test changed; it is green
+  because (a) there is no `TEST_RM_*` residue and (b) all 12 live Electrical configs validate.
+- **Residue counts (`TEST_RM_%` on Item / Config / Retirement / Snapshot, plus their Version rows):
+  BEFORE any suite 0 / 0 / 0 / 0 / 0 -> AFTER a full `test_rate_master` (337 OK, 801 s) 0 / 0 / 0 / 0 / 0 ->
+  AFTER `test_rate_suggest` 0 / 0 / 0 / 0 / 0.** Active configs stayed `Electrical: 12`, active items
+  `Electrical: 1,367` throughout.
+- Why it does not rebuild: `test_rate_master.tearDownClass` (:360-378) purges Snapshot, then the Version rows of
+  every Config/Item/Retirement row, then the rows, per discipline the class created, and commits; the
+  second class (:5371) does the same. A completed run therefore leaves nothing -- measured, not intended.
+
+**Ruling: CURED.** The residue is cleaned up by the suite on every completed run and the 2026-08 accumulation
+came from a since-fixed cascade (the probe now sits in a savepoint). **The named residual, NOT built (owner
+decision):** an ABORTED run -- a kill, a crash, a Docker outage mid-class such as today's -- never reaches
+`tearDownClass` and leaves that class's `TEST_RM_*` rows behind with no self-heal, and `test_27` would fire on
+them again. A fix would be small: a `setUpClass` pre-purge of any stray `TEST_RM_%` discipline (the same
+discipline-scoped delete the teardown already performs), or `test_27` excluding the `TEST_RM_` prefix so it
+validates only real disciplines. Either is a test-file change only; neither was made.
+
+### Part B -- the parser defect (verified against the repo; two corrections)
+On 2026-09-07 02:54:13-31 IST the whole-sheet run on `BOQ-26-00224 / ELECTRICAL` (model `claude-opus-4-8`)
+failed three attempts on the junction_box_raceway batch rows `[359, 361, 363, 365, 367]` -- the capture log
+`logs/boq_rate_extraction_capture.jsonl` records 373-375 hold all three, each `error = TypeError("'int' object
+is not subscriptable")`, `transient: True` -- then `ExtractionHalted`. Attempt 1 verbatim opens *"Looking at
+each row, the face sizes are non-standard and must map to the allowed values [350, 250, 200, 150, 100, 300]."*,
+lists each row with arrow glyphs, and closes with the valid five-row array. `_extract_json_array` returned the
+first balanced span that parsed as a list -- `[350, 250, 200, 150, 100, 300]` -- and the call site did
+`int(el["id"])` on an int. **Corrections (S9):** the call site is `extraction.py:2352-2353`, not 2278-2279;
+and the 02:55:19 re-run (record 377) parsed only because that time the model wrote the values WITHOUT
+brackets -- luck, not a fix. The model was not misbehaving; the fix is in the parser, never the prompt.
+
+**Every caller of the shared function, by identity:** `services/boq_category/ai_voter.py:177` (`_ai_batch`,
+the classifier voter); `services/boq_category/harness/electrical_classification_harness.py:117` (imported at
+:28); `services/boq_rate_master/extraction.py:2352` (imported at :46); tests `boq_category/tests/
+test_hv2_voter_harness.py` and (now) `boq_rate_master/test_extraction_coercion.py`. NOT callers:
+`services/boq_ai_assist.py:433` defines a same-named but separate string-returning parser for the review-tree
+assist; the untracked `_classification_review/rerun_harness*.py` carry their own local copies.
+
+**The fix (`ai_voter._extract_json_array`, 2 lines + comment):** a balanced span that parses as a list is
+returned only when every element is a dict (the empty list still returns, as before); otherwise the scan
+continues to the next `[`. A reply holding ONLY a scalar list falls through to the existing bare-object path
+and then the existing loud `ValueError("no parseable JSON array in AI response")`. Truncation and garbage
+raise exactly as before. `extraction.py` is untouched.
+
+**What the run sees now:** the captured attempt-1 reply yields the five rows through the REAL
+`_extract_batch` (values null, confidence 0.9, exactly what the model wrote); a scalar-list-only reply ends
+in `ExtractionHalted("The batch failed on all 3 attempts ... Last error: ValueError: no parseable JSON
+array in AI response")` -- a clean, named halt, never a TypeError.
+
+### Tests (canonical `bench --site localhost run-tests --module ...`, in-container)
+- `boq_category/tests/test_hv2_voter_harness.py` -- new `TestScalarListSkip`, 14 pins: the REAL 2026-09-07
+  reply (verbatim, arrow glyphs included) parses to the five-row array; non-vacuity that the first balanced
+  span really is the scalar list; scalars-only raises the clean `ValueError`, not a TypeError; a skipped list
+  does not block the HV-2 bare-object path; a bare row array is byte-identical (`== json.loads(text)`); `[]`
+  still returns `[]`; a bracketed list of STRINGS and a MIXED list in prose are skipped; nested lists inside
+  the row array are kept; prose nested scalar lists then the array; truncation after a skipped list still
+  raises; the voter `_ai_batch` unchanged on a plain reply AND now surviving a prefaced one; the harness still
+  shares the function by identity. **29 -> 43.**
+- `boq_rate_master/test_extraction_coercion.py` -- new `TestPrefacedReplyAtTheRateCallSite`, 3 pins through
+  the real `_extract_batch` with the shared fake client: the captured prefaced reply yields the rows; the bare
+  array reply equals the prefaced one (invariant); a scalar list alone halts as `ExtractionHalted` whose
+  `detail` names `ValueError` and not `TypeError`. **146 -> 149.**
+- **BEFORE** (parser stashed): hv2 8 red of 43 (5 errors, 3 failures); coercion 3 red of 149, the two errors
+  carrying the production text verbatim -- *"Last error: TypeError: 'int' object is not subscriptable"*.
+  **AFTER:** 43 OK, 149 OK. **VACUITY (A4, the `all(isinstance(el, dict))` test forced to `True`):** the same
+  8 + 3 red; restored: green.
+- **The owed suites (Part C):** `test_extraction_coercion` **149 OK** (was 146), `test_rate_suggest` **71 OK**,
+  `test_rate_master` **337 OK** (801 s), vitest **3,233 passed / 1 failed** (the known `writeOffControl`
+  timeout) -- S6 not triggered. Residue 0 before and 0 after, as above.
+
+### The cert -- a REPLAY, no AI call
+The captured attempt-1 reply was fed to the real `extraction._extract_batch` (the real parser, the real
+`int(el["id"])` site, the real coercion) through the shared fake client, with the batch's own five excel rows.
+Before the fix it reproduced the halt with the production error text; after it, the five rows come back. No
+browser step: a parser, not a panel; #57 NONE -- a pricer sees no change, a run that would have halted now
+completes.
+
+### Register
+- **F-31: CLOSED (cured).** Residual recorded above: an aborted run leaves residue with no self-heal; a
+  pre-purge or a prefix exclusion would close that, not built.
+- Run-to-run variance and the missing `BRSR-26-00469..472` run records -- **explicitly NOT chased, owner
+  ruling**; carried unchanged.
+- Carried unchanged: the 20 non-assembly rows; the 33 genuine read failures; the 7 rows above the plate
+  ladder top; the jargon refusal line; panel overrides surviving a re-run; the never-asked recurring cause
+  (no provenance stamp on run rows); a bare container after a Docker restart needs all four processes.
+- Docker Desktop crashed twice during this slice (API 500, then the pipe gone); the owner restarted it; no
+  suite was running at either crash (the residue counts prove it: 0 throughout).
+
+### Files
+`nirmaan_stack/services/boq_category/ai_voter.py`, `nirmaan_stack/services/boq_category/tests/test_hv2_voter_harness.py`,
+`nirmaan_stack/services/boq_rate_master/test_extraction_coercion.py`, this record, root `CLAUDE.md` (one
+paragraph: the shared parser's list-of-dicts rule, its three callers, and never-in-the-prompt).

@@ -524,6 +524,19 @@ time. **The hazard, owner-accepted: a row that genuinely has a third socket now 
 downstream to catch it; the badge is the only guard.** A new visible attribute without a default or
 `allow_none` will break every older row again -- give it one, or accept the refusals knowingly.
 
+**⚠️ THE SHARED AI-REPLY PARSER RETURNS THE FIRST BALANCED SPAN THAT PARSES AS A LIST OF DICTS -- NOT
+THE FIRST LIST (2026-09-08, owner-logged defect bundled).** `boq_category.ai_voter._extract_json_array`
+serves THREE callers by identity -- the classifier voter (`ai_voter._ai_batch`), the certified harness
+(`harness/electrical_classification_harness.py`) and the rate extractor (`boq_rate_master.extraction`,
+imported at module top) -- so a change there reaches all of them and both users must be proven unchanged.
+On 2026-09-07 a whole-sheet rate run halted with rows stranded because the model prefaced its answer with
+prose quoting its allowed values, `[350, 250, 200, 150, 100, 300]`, and the parser handed that list to
+`int(el["id"])` (TypeError x3, then `ExtractionHalted`). **The model was not misbehaving** -- any reply that
+reasons out loud and happens to contain a bracketed list trips the same wire, on any category, at random --
+so **the fix lives in the parser, never in a prompt**: a balanced span whose elements are not all dicts is
+skipped and the scan continues; a reply holding ONLY such a list still ends in the loud `ValueError`. Do not
+re-narrow it to "first list", and do not add a prompt sentence asking the model not to explain itself.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
