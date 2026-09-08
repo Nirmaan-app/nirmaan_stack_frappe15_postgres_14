@@ -3,7 +3,7 @@ import { useUserData } from "@/hooks/useUserData";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { REPORTS_TABS } from './constants';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { DCMIRReportType, POReportOption, SROption, ProjectReportType, ReportType, useReportStore, VendorReportType } from './store/useReportStore';
+import { DCMIRReportType, POReportOption, SROption, ProjectReportType, ReportType, useReportStore, VendorReportType, CustomerReportType } from './store/useReportStore';
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { cn } from '@/lib/utils';
@@ -19,6 +19,7 @@ const ProjectReports = React.lazy(() => import('./components/ProjectReports'));
 const POReports = React.lazy(() => import('./components/POReports'));
 const SRReports = React.lazy(() => import('./components/SRReports'));
 const VendorReports = React.lazy(() => import('./components/VendorReports'));
+const CustomerReports = React.lazy(() => import('./components/CustomerReports'));
 const DCMIRReports = React.lazy(() => import('./components/DCMIRReports'));
 const ITMDNDCQuantityReport = React.lazy(() => import('./components/ITMDNDCQuantityReport'));
 const ITMDispatchedReport = React.lazy(() => import('./components/ITMDispatchedReport'));
@@ -37,6 +38,9 @@ const projectReportOptions: { label: string; value: ProjectReportType }[] = [
 ];
 const VendorReportOptions: { label: string; value: VendorReportType }[] = [{
     label: 'Vendor Ledger', value: 'Vendor Ledger'
+}];
+const CustomerReportOptions: { label: string; value: CustomerReportType }[] = [{
+    label: 'Customer Receivable', value: 'Customer Receivable'
 }];
 
 const poReportOptions: { label: string; value: POReportOption }[] = [
@@ -163,6 +167,7 @@ export default function ReportsContainer() {
         }
         if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({ label: "Vendors", value: REPORTS_TABS.VENDORS });
+            availableTabs.push({ label: "Customers", value: REPORTS_TABS.CUSTOMERS });
         }
         if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({ label: "PO", value: REPORTS_TABS.PO });
@@ -204,6 +209,10 @@ export default function ReportsContainer() {
         } else if (activeTab === REPORTS_TABS.VENDORS) {
             return ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(role)
                 ? VendorReportOptions
+                : [];
+        } else if (activeTab === REPORTS_TABS.CUSTOMERS) {
+            return ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(role)
+                ? CustomerReportOptions
                 : [];
         } else if (activeTab === REPORTS_TABS.PO) {
             if (role === "Nirmaan Project Manager Profile") {
@@ -311,6 +320,7 @@ export default function ReportsContainer() {
         }
         if (activeTab === REPORTS_TABS.PROJECTS) return <ProjectReports />;
         if (activeTab === REPORTS_TABS.VENDORS) return <VendorReports />;
+        if (activeTab === REPORTS_TABS.CUSTOMERS) return <CustomerReports />;
         if (activeTab === REPORTS_TABS.PO) {
             // PO tab > DN > DC Quantity Report supports a PO/ITM sub-toggle.
             // When ITM is active, render the ITM variant directly (it has its

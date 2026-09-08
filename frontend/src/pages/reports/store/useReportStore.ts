@@ -10,6 +10,7 @@ import {
 export type ProjectReportType = 'Cash Sheet' | 'Inflow Report' | 'Outflow Report(Project)' | 'Outflow Report(Non-Project)' | 'Project Invoices' | 'Project Progress Report' | 'Inventory Report' | 'Project GST' | 'Monthly WIP';
 
 export type VendorReportType = 'Vendor Ledger';
+export type CustomerReportType = 'Customer Receivable';
 // Define the specific report options for POs
 export type POReportOption = 'Pending Invoices' | 'PO with Excess Payments' | 'Dispatched for 1 days' | 'Dispatched (ITM)' | 'Payable > PO Amount' | '2B Reconcile Report' | 'PO Attachment Reconciliation Report' | 'DN > DC Quantity Report';
 
@@ -20,7 +21,7 @@ export type SROption = 'Pending Invoices' | 'PO with Excess Payments' | '2B Reco
 export type DCMIRReportType = 'DC Report' | 'MIR Report';
 
 // Combined type for any selectable report
-export type ReportType = ProjectReportType | VendorReportType | POReportOption | SROption | DCMIRReportType | null;
+export type ReportType = ProjectReportType | VendorReportType | CustomerReportType | POReportOption | SROption | DCMIRReportType | null;
 
 interface ReportState {
     // Keep track of the *type* of report selected for export/filtering
@@ -54,6 +55,11 @@ const getDefaultReportTypeForTabAndRole = (tab: string, userRole?: string): Repo
     } else if (tab === REPORTS_TABS.VENDORS) { // 👈 ADD THIS ENTIRE BLOCK
         if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
             return 'Vendor Ledger';
+        }
+        return null;
+    } else if (tab === REPORTS_TABS.CUSTOMERS) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
+            return 'Customer Receivable';
         }
         return null;
     } else if (tab === REPORTS_TABS.PO) {

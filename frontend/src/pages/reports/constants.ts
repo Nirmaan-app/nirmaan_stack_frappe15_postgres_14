@@ -1,6 +1,7 @@
 export const REPORTS_TABS = {
   PROJECTS: 'projects',
   VENDORS: 'vendors',
+  CUSTOMERS: 'customers',
   PO: 'po',
   SR: 'sr',
   DCS_MIRS: 'dcs_mirs',
