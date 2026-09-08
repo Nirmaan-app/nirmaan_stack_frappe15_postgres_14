@@ -105,7 +105,7 @@ class PaymentSettlementFixture(unittest.TestCase):
     def _row(self, suffix):
         return next(r for r in self.parsed.rows if r.transfer_id.endswith(suffix))
 
-    def _insert_po(self):
+    def _insert_po(self, project=None):
         """A Procurement Order to hang `amount_paid` off, inserted raw for the same reason the
         payments are: going through the document lifecycle would need a PR, a vendor and a category
         tree to obtain a column this suite only ever reads back."""
@@ -115,12 +115,14 @@ class PaymentSettlementFixture(unittest.TestCase):
                    (name, creation, modified, modified_by, owner, docstatus, idx,
                     project, amount_paid)
                VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, 0)""",
-            (name, "Administrator", "Administrator", self.project),
+            (name, "Administrator", "Administrator", project or self.project),
         )
         self.pos.append(name)
         return name
 
-    def _insert_payment(self, *, amount, status, utr, payment_date, link_po=True):
+    def _insert_payment(
+        self, *, amount, status, utr, payment_date, link_po=True, project=None, po=None
+    ):
         """Raw insert, bypassing the document lifecycle.
 
         Going through `new_doc(...).insert()` fires `before_insert`, which resolves a real PO to
@@ -136,12 +138,96 @@ class PaymentSettlementFixture(unittest.TestCase):
                     project, amount, status, utr, payment_date,
                     document_type, document_name)
                VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s, %s)""",
-            (name, "Administrator", "Administrator", self.project, float(amount), status,
-             utr, payment_date,
-             "Procurement Orders" if link_po else None, self.po if link_po else None),
+            (name, "Administrator", "Administrator", project or self.project, float(amount),
+             status, utr, payment_date,
+             "Procurement Orders" if link_po else None,
+             (po or self.po) if link_po else None),
         )
         self.payments.append(name)
         return name
+
+    def _allocation_project(self):
+        """A dedicated `Won` project for the allocation helpers below (Ruling C, Task 4 /
+        ADR-0020), created once per test and cleaned up in `tearDown`.
+
+        ⚠️ NEVER `self.project`. The base fixture picks that one up with
+        `frappe.db.get_value("Projects", {}, "name")` -- whatever happens to be first in the live
+        database, verified 2026-09-09 to be `Tendering` on 114 of 218 real projects. `allocate_row`
+        goes through the ordinary document lifecycle (`settle_payment` -> `doc.save()`), unlike this
+        fixture's raw-SQL payments and POs, so a payment settled against a non-`Won` project is not
+        merely bad hygiene here. And the fixture must never flip an EXISTING project's
+        `tendering_status` to make one settle -- it creates its own instead.
+
+        Follows the documented Projects-row fixture pattern (root `CLAUDE.md`): `generate_pwm`'s
+        `after_insert` hook needs second-precision start/end dates and a `project_scopes` dict
+        carrying a `scopes` key.
+        """
+        if getattr(self, "_alloc_project_name", None):
+            return self._alloc_project_name
+        now = frappe.utils.now()[:19]
+        project = frappe.new_doc("Projects")
+        project.project_name = f"TEST_OFI_ALLOC_{frappe.generate_hash(length=6)}"
+        project.tendering_status = "Won"
+        project.project_start_date = now
+        project.project_end_date = frappe.utils.add_to_date(now, years=1)[:19]
+        project.project_scopes = {"scopes": []}
+        project.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self._alloc_project_name = project.name
+        return project.name
+
+    def _allocation_po(self):
+        """One PO under the dedicated allocation project, shared by every `_approved_payment` in
+        a test -- there is nothing about a fan-out that needs a distinct PO per leg."""
+        if getattr(self, "_alloc_po_name", None):
+            return self._alloc_po_name
+        self._alloc_po_name = self._insert_po(project=self._allocation_project())
+        return self._alloc_po_name
+
+    def _staged_row(self, *, amount, direction="Debit"):
+        """A minimal `Outflow Import Batch` + `Outflow Import Row`, staged directly rather than
+        through the CSV parser -- `allocate_row` only reads `amount`, `direction`,
+        `bank_reference_no`, `transfer_id`, `import_batch` and `row_status`, none of which need a
+        parsed statement behind them.
+
+        Starts at `Matched` -- as though a real match run had already looked and found nothing to
+        settle it outright -- which is the stable, checkable starting point the refusal tests need:
+        a failed `allocate_row` call must leave it exactly here.
+        """
+        batch = frappe.new_doc(BATCH_DOCTYPE)
+        batch.update({"source": "Cashfree", "status": "In Review"})
+        batch.insert(ignore_permissions=True)
+        self.batches.append(batch.name)
+
+        transfer_id = f"alloc-{frappe.generate_hash(length=10)}"
+        row = frappe.new_doc(ROW_DOCTYPE)
+        row.update(
+            {
+                "import_batch": batch.name,
+                "source": "Cashfree",
+                "transfer_id": transfer_id,
+                "amount": float(amount),
+                "direction": direction,
+                "bank_reference_no": transfer_id,
+                "row_status": "Matched",
+            }
+        )
+        row.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return row.name
+
+    def _approved_payment(self, amount):
+        """A fresh, Approved `Project Payments` record against the dedicated allocation
+        project/PO -- never `self.project`/`self.po` (Ruling C). `utr` and `payment_date` are left
+        blank: `settle_payment` writes the reference itself, and nothing here needs a bank date."""
+        return self._insert_payment(
+            amount=float(amount),
+            status="Approved",
+            utr=None,
+            payment_date=None,
+            project=self._allocation_project(),
+            po=self._allocation_po(),
+        )
 
     def tearDown(self):
         frappe.db.delete(MATCH_DOCTYPE, {"import_batch": ["in", self.batches]})
@@ -159,6 +245,11 @@ class PaymentSettlementFixture(unittest.TestCase):
             frappe.db.delete(PAYMENT, {"name": name})
         for name in self.pos:
             frappe.db.delete("Procurement Orders", {"name": name})
+        # The dedicated allocation project (Ruling C), after its PO and payments are gone.
+        if getattr(self, "_alloc_project_name", None):
+            frappe.delete_doc(
+                "Projects", self._alloc_project_name, force=True, ignore_permissions=True
+            )
         frappe.db.commit()
         super().tearDown()
 
@@ -406,8 +497,18 @@ class TestRefusals(PaymentSettlementFixture):
         )
 
     def test_a_reference_already_on_another_payment_is_refused(self):
-        """Owner ruling Q4: a fan-out is report-only, settled by hand, which is exactly why this
-        guard is never legitimately challenged and stays as it is."""
+        """⚠️ INVERTED AT TASK 4 (ADR-0020 D2). Owner ruling Q4 -- "a fan-out is settled by hand,
+        so this guard is never legitimately challenged" -- is REVERSED: `allocate_row` can now
+        settle a fan-out, and a SIBLING settled from the SAME `transfer_id` is allowed (proved in
+        `test_allocate_row.TestAllocatingInOneGo.test_every_leg_carries_the_RAW_bank_reference`,
+        where three payments end up sharing one UTR on purpose).
+
+        What survives, and what this test still pins, is the NON-sibling case: `settle_row` never
+        threads a `transfer_id` into `settle_payment` (it has no fan-out context to widen the guard
+        with), so it reproduces the old strict rule exactly -- a reference already recorded on a
+        payment this row did not itself settle is refused, whether or not that other payment
+        happens to belong to some other transfer.
+        """
         row = self._import_row("0001")
         other = self._insert_payment(
             amount=float(row.amount), status="Approved",
@@ -996,6 +1097,29 @@ class TestTheDeductionSettles(DeductionFixture):
         )
         self.assertAlmostEqual(summary["deduction"]["tds"], self.TDS, places=2)
         self.assertAlmostEqual(summary["deduction"]["implied_pct"], 1.0, places=4)
+
+    def test_the_match_record_carries_the_NET_bank_figure_not_the_gross_payment(self):
+        """⚠️ RULING K (Task 4, ADR-0020). `row_status` alone (the test above) cannot tell a NET
+        `target_amount` from a GROSS one -- `allocation.is_fully_allocated` is one-sided, so a row
+        reads `Settled` either way and a regression here would be invisible to that assertion.
+
+        Before Task 3's fix, `_record_settlement` wrote `result.amount` -- the GROSS approved
+        figure -- as `target_amount` on a TDS-deduction settle, permanently over-allocating every
+        TDS-touched row (`remaining_of` negative forever). Mirrors
+        `TestPartialSettlementHappyPath.test_the_import_row_settles_against_the_half_that_was_paid`
+        (line ~862), which pins the same shape on the ordinary part-payment path.
+        """
+        settle_row_partial(self.partial_row.name, self.big_payment, INTENT_DEDUCTION)
+        matches = frappe.get_all(
+            MATCH_DOCTYPE,
+            filters={"import_row": self.partial_row.name},
+            fields=["target_name", "target_amount"],
+        )
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["target_name"], self.big_payment)
+        # The bank moved `self.BANK` (amount - tds), never `self.RECORD` (the gross approved
+        # figure the payment itself still carries).
+        self.assertAlmostEqual(float(matches[0]["target_amount"]), self.BANK, places=2)
 
     def test_a_two_percent_deduction_also_settles(self):
         frappe.db.set_value(

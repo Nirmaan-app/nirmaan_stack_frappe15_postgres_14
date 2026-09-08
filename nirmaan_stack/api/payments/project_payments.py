@@ -6,6 +6,9 @@ from frappe.model.document import Document
 from frappe.utils import flt, nowdate, getdate, today
 
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
+# api -> service is the one legal direction (ADR-0010). See `reference_guard.py`'s module
+# docstring: this call site and `settle._assert_reference_is_free` must move together.
+from nirmaan_stack.services.outflow_import.reference_guard import assert_reference_is_free
 
 # This constant is a good security practice
 ALLOWED_DOCS = {"Procurement Orders", "Service Requests"}
@@ -360,15 +363,13 @@ def _fulfil_payment(pay, args):
     utr = (args.get("utr") or "").strip()
     if not utr:
         frappe.throw(_("UTR is required"))
-    
-    dup = frappe.db.get_value(
-        "Project Payments",
-        {"utr" : utr},
-        "name"
-    )
 
-    if dup and dup != pay.name:
-        frappe.throw(f"UTR {utr} already exists in payment {dup}")
+    # ⚠️ THE SAME GUARD THE IMPORT USES -- `services/outflow_import/reference_guard.py` (ADR-0020).
+    # `transfer_id=None` because a manual fulfil has no transfer to check against, which reproduces
+    # the strict rule this block used to spell inline. It must stay in step with the import's call:
+    # if only one site learns about siblings, an accountant fulfilling by hand is refused on a UTR
+    # the import wrote seconds earlier.
+    assert_reference_is_free(utr, pay.name)
 
     pay.status        = "Paid"
     pay.utr           = utr

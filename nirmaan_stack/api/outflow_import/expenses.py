@@ -63,9 +63,11 @@ from nirmaan_stack.api.outflow_import.review import (
     ROW_DOCTYPE,
     _StagedRow,
     _refresh_batch_rollup,
+    derive_batch_status,
 )
 from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE, TARGET_SNAPSHOT_FIELDS
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
+from nirmaan_stack.services.outflow_import.amounts import to_decimal
 # ⚠️ THE SPLIT LIVES IN `services/payment_split.py`, THE SAME MODULE THE CEO PARTIAL APPROVAL USES,
 # and this import is the whole reason it was generalised rather than copied (ADR-0010 B1, slice
 # PS-1). Two implementations of the sum invariant and the PO-term surgery, one on either side of
@@ -116,9 +118,11 @@ from nirmaan_stack.services.outflow_import.status import (
 from nirmaan_stack.services.outflow_import.allocation import (
     MATCH_REVERSED,
     MATCH_SETTLED,
+    allocated_of,
     allocation_fits,
     allocation_note,
     is_over_allocated,
+    remaining_of,
     status_for_allocation,
 )
 
@@ -190,6 +194,165 @@ def settle_row(row: str, target_doctype: str, target_name: str):
     frappe.db.commit()
     _link_statement_file_to_target(statement_file_url, result)
     return _summary(row, result, doc["import_batch"], statuses)
+
+
+@frappe.whitelist(methods=["POST"])
+def allocate_row(row: str, targets):
+    """Allocate part or all of one bank transfer across several approved Project Payments.
+
+    URL: /api/method/nirmaan_stack.api.outflow_import.expenses.allocate_row
+
+    ⚠️ ONE CALL, N TARGETS, ONE SAVEPOINT -- and that is the opposite of `settle_row`'s
+    one-row-per-call rule, deliberately. There, N rows were each DECIDED separately, so partial
+    success is the honest shape. Here the N legs are one decision about one transfer: a half-landed
+    tick-set leaves a remaining balance nobody can explain, and the reviewer cannot tell which half
+    landed without re-reading the match table.
+
+    ⚠️ IT DOES NOT REPLACE `settle_row`, AND THE SCREEN STILL CALLS THAT ONE FOR A SINGLE TICK.
+    `settle_row`'s amount guard is STRICT (the record must equal the whole transfer); this one is
+    bounded against the REMAINDER, which is necessarily weaker. Keeping both means every settle
+    that worked before ADR-0020 takes the identical code path, and the weaker guard is reachable
+    only on the new shape.
+
+    ⚠️ WHAT CATCHES A WILDLY WRONG PICK IS NOT A GUARD. A small, wrong payment fits the remainder
+    and is allowed. What stops it disappearing is that the row never reaches `Settled` -- it sits
+    at `Partially Allocated` with a visible leftover balance, forever, on its own tab. Visible, not
+    silent, is the trade this endpoint makes.
+
+    PROJECT PAYMENTS ONLY. Neither expense doctype is offered: `Non Project Expenses` has no
+    project column and cannot be corroborated, and an expense fan-out has never been observed.
+    Widening it is a separate decision with its own evidence.
+    """
+    actor = require_outflow_access()
+    targets = _parse_targets(targets)
+    staged, doc = _load_allocatable_row(row)
+    _guard_is_a_debit(doc)
+    statement_file_url = _statement_file_url(doc["import_batch"])
+
+    savepoint = f"ofi_alloc_{frappe.generate_hash(length=10)}"
+    frappe.db.savepoint(savepoint)
+    try:
+        legs = _live_legs(staged.name)
+        for target in targets:
+            amount = _approved_payment_amount(target["target_name"])
+            if not allocation_fits(doc["amount"], legs, amount):
+                frappe.throw(
+                    f"{target['target_name']} is for {amount}, but only "
+                    f"{remaining_of(doc['amount'], legs)} of this transfer is unallocated.",
+                    title="More than is left",
+                )
+            result = settle_payment(
+                staged,
+                target["target_name"],
+                actor,
+                statement_file_url=statement_file_url,
+                transfer_id=staged.transfer_id,
+                # ⚠️ THE TWO SWITCHES THAT MAKE A LEG A LEG. See settle_payment's docstring: the
+                # bank's figure is the WHOLE transfer, so it must not reach this payment's amount,
+                # and the window must be checked against the payment's own figure.
+                rewrite_amount_to_bank=False,
+                expected_amount=amount,
+            )
+            _record_settlement(staged, doc, result, actor)
+            legs = _live_legs(staged.name)
+        if is_over_allocated(doc["amount"], legs):
+            frappe.throw(
+                f"Those records come to {allocated_of(legs)}, more than the "
+                f"{to_decimal(doc['amount'])} this transfer moved.",
+                title="More than the transfer",
+            )
+        new_status = _refresh_row_allocation(staged.name, actor)
+    except Exception:
+        frappe.db.rollback(save_point=savepoint)
+        raise
+    frappe.db.release_savepoint(savepoint)
+
+    statuses = _refresh_batch_rollup(doc["import_batch"])
+    frappe.db.commit()
+    _link_statement_file_to_target(statement_file_url, result)
+    legs = _live_legs(staged.name)
+    return {
+        "row": row,
+        "row_status": new_status,
+        "allocated": float(allocated_of(legs)),
+        "remaining": float(remaining_of(doc["amount"], legs)),
+        "legs": legs,
+        "batch_status": derive_batch_status(statuses),
+    }
+
+
+def _parse_targets(targets) -> list:
+    """A JSON array of {target_doctype, target_name}. Refuses an empty list and a repeat.
+
+    ⚠️ THE DUPLICATE CHECK IS HERE AS WELL AS IN THE DATABASE. The partial unique index would catch
+    it, but as an IntegrityError after the first leg has already written money -- and the savepoint
+    would then roll back a settlement the reviewer had every reason to expect.
+    """
+    if isinstance(targets, str):
+        targets = frappe.parse_json(targets)
+    if not targets:
+        frappe.throw("Select at least one approved payment to allocate.", title="Nothing selected")
+    parsed, seen = [], set()
+    for target in targets:
+        doctype = (target.get("target_doctype") or "").strip()
+        name = (target.get("target_name") or "").strip()
+        if doctype != PAYMENT_DOCTYPE:
+            frappe.throw(
+                f"Only {PAYMENT_DOCTYPE} can be allocated from one transfer. "
+                f"Settle a '{doctype}' on its own.",
+                title="Not a payment",
+            )
+        if not name:
+            frappe.throw("A target payment is required.", title="Missing target")
+        if name in seen:
+            frappe.throw(f"{name} is selected twice.", title="Repeated record")
+        seen.add(name)
+        parsed.append({"target_doctype": doctype, "target_name": name})
+    return parsed
+
+
+def _load_allocatable_row(row: str):
+    """Like `_load_settleable_row`, but a `Partially Allocated` row is ALLOWED through.
+
+    ⚠️ THAT IS THE ONE DIFFERENCE, AND IT IS WHY THIS IS A SECOND FUNCTION RATHER THAN A FLAG ON
+    THE FIRST. `_load_settleable_row` guards the ordinary settle, which must stay unable to reach a
+    row that has already written money.
+    """
+    doc = frappe.db.get_value(ROW_DOCTYPE, row, "*", as_dict=True)
+    if not doc:
+        frappe.throw(f"Import row '{row}' not found.", title="Not found")
+    if doc.get("row_status") == ROW_SETTLED:
+        frappe.throw(
+            "This transfer is fully allocated. Reverse an allocation to change it.",
+            title="Fully allocated",
+        )
+    if doc.get("row_status") == ROW_SKIPPED:
+        frappe.throw(
+            "This row was skipped. Re-run the match to reconsider it.", title="Row skipped"
+        )
+    return _StagedRow(doc), doc
+
+
+def _live_legs(row_name: str) -> list:
+    """This row's Settled match records, oldest first. Always re-read, never cached across a leg."""
+    return frappe.db.get_all(
+        MATCH_DOCTYPE,
+        filters={"import_row": row_name, "match_kind": MATCH_SETTLED},
+        fields=["name", "target_doctype", "target_name", "target_amount", "match_kind"],
+        order_by="matched_at asc, name asc",
+    )
+
+
+def _approved_payment_amount(name: str):
+    """The payment's own figure, read BEFORE the lock so the fit can be judged.
+
+    ⚠️ THIS IS NOT THE AUTHORITY. `settle_payment` re-reads it under `FOR UPDATE` and re-asserts
+    everything; this read only decides whether to attempt the leg at all.
+    """
+    amount = frappe.db.get_value(PAYMENT_DOCTYPE, name, "amount")
+    if amount is None:
+        frappe.throw(f"Payment '{name}' not found.", title="Not found")
+    return normalize_amount(amount)
 
 
 @frappe.whitelist(methods=["POST"])

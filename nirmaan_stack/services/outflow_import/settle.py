@@ -146,6 +146,9 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     settleable_statuses,
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
+from nirmaan_stack.services.outflow_import.reference_guard import (
+    assert_reference_is_free,
+)
 
 __all__ = [
     "PROJECT_EXPENSE",
@@ -573,6 +576,9 @@ def settle_payment(
     actor: str,
     statement_file_url: str | None = None,
     tds: Decimal | None = None,
+    transfer_id: str | None = None,
+    rewrite_amount_to_bank: bool = True,
+    expected_amount: Decimal | None = None,
 ) -> SettleResult:
     """Mark an already-APPROVED `Project Payments` record `Paid` from a bank row (slice V2).
 
@@ -617,9 +623,28 @@ def settle_payment(
          transfer; here the record is deliberately larger, by exactly the withholding, and
          overwriting it would destroy the invoiced figure the deduction is computed from.
 
-    THE UTR GUARD IS KEPT AS-IS (owner ruling Q4). It refuses a reference already sitting on
-    another payment, which would throw on the second payment of a fan-out group -- and fan-out is
-    report-only, settled by hand, so the guard is never legitimately challenged.
+    ⚠️ THE UTR GUARD IS NARROWED, NOT REMOVED (ADR-0020 D2, reversing owner ruling Q4). It used to
+    refuse a reference already sitting on another payment outright -- fan-out was report-only,
+    settled by hand. It now delegates to `reference_guard.assert_reference_is_free`, which allows a
+    SIBLING settled from THIS SAME `transfer_id` and still refuses everything else, including a
+    payment settled from a different transfer.
+
+    `transfer_id` -- the row's transfer, threaded through so the guard can tell a fan-out sibling
+    from a genuine collision. `None` (the default) reproduces the old strict rule exactly, which is
+    what `settle_row` passes: an ordinary settle has no fan-out context to widen the guard with.
+
+    `rewrite_amount_to_bank=False` is REQUIRED on an allocation leg and must never be defaulted
+    away. X1's rule -- the record takes the bank's figure -- is about a record that should EQUAL
+    the transfer. On a fan-out the bank's figure is the WHOLE TRANSFER, so applying it to leg 1
+    rewrites a Rs 55,819 payment to Rs 2,13,396: a silent, catastrophic corruption that every
+    existing test stays green through, because no existing test allocates. Paise gaps land in
+    `allocation.is_fully_allocated`'s tolerance instead.
+
+    `expected_amount` REPLACES THE BANK'S FIGURE IN THE WINDOW CHECK, FOR AN ALLOCATION LEG ONLY.
+    `settle_row` passes nothing and the assertion is byte-identical to before: the record must equal
+    the whole transfer. An allocation leg passes the payment's own amount, because a leg is by
+    definition smaller than the transfer -- `allocation.allocation_fits` is what bounded it against
+    the REMAINDER, and it has already run under this row's lock.
 
     THE CALLER OWNS THE TRANSACTION. `doc.save()` here fires the payment's own `on_update` and the
     controller's, and the `from_outflow_import` flag stops both from committing mid-save. Nothing
@@ -627,9 +652,16 @@ def settle_payment(
     """
     bank_amount = normalize_amount(getattr(row, "amount", 0))
     reference = (getattr(row, "bank_reference_no", "") or "").strip()
-    current = _lock_and_assert_payment_settleable(target_name, bank_amount, tds=tds)
+    # ⚠️ `expected_amount` REPLACES THE BANK'S FIGURE IN THE WINDOW CHECK, FOR AN ALLOCATION LEG
+    # ONLY. `settle_row` passes nothing and the assertion is byte-identical to before: the record
+    # must equal the whole transfer. An allocation leg passes the payment's own amount, because a
+    # leg is by definition smaller than the transfer -- `allocation.allocation_fits` is what
+    # bounded it against the REMAINDER, and it has already run under this row's lock.
+    current = _lock_and_assert_payment_settleable(
+        target_name, expected_amount if expected_amount is not None else bank_amount, tds=tds
+    )
     if reference:
-        _assert_reference_is_free(reference, target_name)
+        _assert_reference_is_free(reference, target_name, transfer_id=transfer_id)
 
     doc = frappe.get_doc(PAYMENT_DOCTYPE, target_name)
     doc.status = _PAID
@@ -644,15 +676,26 @@ def settle_payment(
 
     written = current
     if tds is None:
-        # X1: the payment takes the amount the bank actually moved, in either direction. `current`
-        # was proven inside the settle window under the row lock a few lines up, so the gap here is
-        # at most Rs 5 and is rounding, not a deduction. `update_parent_amount_paid` SUMS the paid
-        # payments rather than incrementing, so the PO's `amount_paid` picks this up on its own --
-        # inside this same transaction, since that hook's commit is suppressed for this path.
-        exact = rewrite_amount(current, bank_amount)
-        if exact is not None:
-            doc.amount = format_amount_for(PAYMENT_DOCTYPE, exact)
-            written = exact
+        # ⚠️ THE REWRITE ITSELF IS GATED SEPARATELY (`rewrite_amount_to_bank`), NOT FOLDED INTO
+        # THIS `tds is None` CHECK. An allocation leg also has `tds is None` -- it is not a
+        # deduction settle -- so collapsing the two conditions into one `and` sent an allocation
+        # leg straight into the `else` branch below and crashed on `format_tds(None)`. The `tds`
+        # axis picks ordinary-settle vs deduction-settle; the `rewrite_amount_to_bank` axis picks
+        # whether an ordinary settle may touch the amount at all.
+        if rewrite_amount_to_bank:
+            # X1: the payment takes the amount the bank actually moved, in either direction.
+            # `current` was proven inside the settle window under the row lock a few lines up, so
+            # the gap here is at most Rs 5 and is rounding, not a deduction.
+            # `update_parent_amount_paid` SUMS the paid payments rather than incrementing, so the
+            # PO's `amount_paid` picks this up on its own -- inside this same transaction, since
+            # that hook's commit is suppressed for this path.
+            exact = rewrite_amount(current, bank_amount)
+            if exact is not None:
+                doc.amount = format_amount_for(PAYMENT_DOCTYPE, exact)
+                written = exact
+        # ⚠️ ELSE: `rewrite_amount_to_bank=False` (an allocation leg). `bank_amount` here is the
+        # WHOLE TRANSFER, not this leg's share of it -- rewriting to it would turn a Rs 55,819
+        # payment into Rs 2,13,396. The amount stays exactly what it was; `written` stays `current`.
     else:
         # ⚠️ THE AMOUNT IS DELIBERATELY UNTOUCHED. The record is larger than the transfer by exactly
         # the withholding, and that is the point of it: `bank = amount - tds` is the relation the
@@ -752,21 +795,20 @@ def _lock_and_assert_payment_settleable(
     return amount
 
 
-def _assert_reference_is_free(reference: str, target_name: str) -> None:
-    """Refuse a bank reference already recorded on a DIFFERENT payment (owner ruling Q4).
+def _assert_reference_is_free(
+    reference: str, target_name: str, transfer_id: str | None = None
+) -> None:
+    """Delegates to the ONE definition in `services/outflow_import/reference_guard.py`.
 
-    Mirrors the canonical fulfil's guard. The comparison is on the stored value as-is, exactly as
-    that path does it -- this is not the normalised matcher key, and widening it here would change
-    the behaviour of a guard the owner explicitly chose to leave alone.
+    ⚠️ THIS USED TO HOLD THE RULE, AND ITS ERROR TEXT SAID "One transfer covering several payments
+    is settled by hand in the payments screen." That sentence described owner ruling Q4, which
+    ADR-0020 reverses -- the import can do it now. The guard is not removed, it is NARROWED: a
+    payment already carrying this reference is still refused unless it is a sibling settled from
+    THIS SAME TRANSFER.
     """
-    existing = frappe.db.get_value(PAYMENT_DOCTYPE, {"utr": reference}, "name")
-    if existing and existing != target_name:
-        frappe.throw(
-            f"Bank reference {reference} is already recorded on payment {existing}. "
-            f"One transfer covering several payments is settled by hand in the payments screen.",
-            DuplicateReferenceError,
-            title="Reference already used",
-        )
+    assert_reference_is_free(
+        reference, target_name, transfer_id=transfer_id, error_class=DuplicateReferenceError
+    )
 
 
 def _advance_po_latest_payment_date(doc, payment_date) -> None:
