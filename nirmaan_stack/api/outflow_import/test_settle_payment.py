@@ -340,16 +340,22 @@ class TestTheAmountIsCorrectedToTheBank(PaymentSettlementFixture):
 
         self.assertEqual(self._po_amount_paid(), float(row.amount))
 
-    def test_the_row_note_says_the_amount_was_corrected(self):
-        """The import's own screen is where somebody asks "why is this 31 paise off what I
-        approved". The Version log holds the fact durably; the note is what surfaces it."""
+    def test_the_row_note_states_the_balance_not_the_amount_correction(self):
+        """INVERTED at the allocation slice (ADR-0020, Task 3). The note used to be
+        `_settled_note`'s job and named the amount correction directly; it is now
+        `_allocation_note`'s job and states the row's BALANCE instead, because the deriver that
+        writes it cannot see a rewrite it never performed. The amount-correction fact did not
+        disappear -- it survives on the settled result (`amount_changed` / `original_amount`,
+        pinned by `test_the_result_reports_what_was_written_not_what_was_found`) and durably on the
+        Version log; this test used to assert the correction was *in the note* and now asserts it
+        is not, on purpose."""
         row, shifted = self._shift_planted("0008", -0.14)
 
         settle_row(row.name, PAYMENT, self.planted["0008"])
 
         note = frappe.db.get_value(ROW_DOCTYPE, row.name, "outcome_note") or ""
-        self.assertIn("corrected", note.lower())
-        self.assertIn(str(shifted), note.replace(",", ""))
+        self.assertIn("fully allocated", note.lower())
+        self.assertNotIn("corrected", note.lower())
 
     def test_the_result_reports_what_was_written_not_what_was_found(self):
         """`SettleResult.amount` changed meaning at X1. The bulk-confirm surface shows the delta per

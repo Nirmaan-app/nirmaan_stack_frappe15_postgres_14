@@ -96,6 +96,9 @@ from nirmaan_stack.services.outflow_import.settle import (
 )
 from nirmaan_stack.services.outflow_import.status import (
     ORIGIN_ACCEPTED,
+    ROW_MATCHED,
+    ROW_MISMATCHED,
+    ROW_PARTIALLY_ALLOCATED,
     ROW_SETTLED,
     ROW_SKIPPED,
     # ⚠️ THE ONE DEFINITION OF THE DIRECTION AXIS, REUSED RATHER THAN RE-SPELLED (ADR-0010 B1).
@@ -106,6 +109,18 @@ from nirmaan_stack.services.outflow_import.status import (
     is_received_direction,
     settlement_origin,
 )
+# ADR-0020 (Task 3): the row's status is now DERIVED from its `Outflow Row Match` legs, never
+# written directly by `_record_settlement`. See `_refresh_row_allocation`.
+from nirmaan_stack.services.outflow_import.allocation import (
+    MATCH_REVERSED,
+    MATCH_SETTLED,
+    allocated_of,
+    allocation_fits,
+    is_over_allocated,
+    remaining_of,
+    status_for_allocation,
+)
+from nirmaan_stack.services.outflow_import.amounts import to_decimal
 
 # The one status a partial settlement reads or writes. Both halves are Approved: the money was
 # already sanctioned, and this import re-partitions a sanction rather than creating one.
@@ -154,6 +169,10 @@ def settle_row(row: str, target_doctype: str, target_name: str):
                 statement_file_url=statement_file_url,
             )
         _record_settlement(staged, doc, result, actor)
+        # ⚠️ INSIDE THE SAVEPOINT. The status is derived from the legs, so it must be recomputed in
+        # the same transaction that added one -- otherwise a rolled-back settle leaves a row
+        # claiming money that was never written.
+        _refresh_row_allocation(staged.name, actor)
     except Exception:
         # Roll back to the savepoint rather than the whole request: the caller gets the real error
         # and the database is exactly as it was before this row was attempted.
@@ -259,6 +278,8 @@ def settle_row_partial(row: str, target_name: str, intent: str):
             staged, target_name, actor, statement_file_url=statement_file_url
         )
         _record_settlement(staged, doc, result, actor)
+        # ⚠️ INSIDE THE SAVEPOINT -- see `settle_row`'s call site for why.
+        _refresh_row_allocation(staged.name, actor)
     except Exception:
         frappe.db.rollback(save_point=savepoint)
         raise
@@ -309,6 +330,8 @@ def _settle_as_deduction(
             tds=eligibility.tds,
         )
         _record_settlement(staged, doc, result, actor)
+        # ⚠️ INSIDE THE SAVEPOINT -- see `settle_row`'s call site for why.
+        _refresh_row_allocation(staged.name, actor)
     except Exception:
         frappe.db.rollback(save_point=savepoint)
         raise
@@ -570,6 +593,8 @@ def create_expense(
             statement_file_url=statement_file_url,
         )
         _record_settlement(staged, doc, result, actor)
+        # ⚠️ INSIDE THE SAVEPOINT -- see `settle_row`'s call site for why.
+        _refresh_row_allocation(staged.name, actor)
     except Exception:
         frappe.db.rollback(save_point=savepoint)
         raise
@@ -723,12 +748,19 @@ def _guard_is_a_debit(doc) -> None:
 
 
 def _record_settlement(staged, doc, result, actor) -> None:
-    """The import-side half: the match record, then the row's own status.
+    """The import-side half: the match record. THE ROW'S OWN STATUS IS NO LONGER WRITTEN HERE.
+
+    ⚠️ THE FLIP MOVED TO `_refresh_row_allocation` (ADR-0020). It used to set `row_status` to
+    `Settled` unconditionally, plus `outcome_note` / `decided_at` / `decided_by` /
+    `settlement_origin`. Under incremental allocation this function runs once PER LEG, so the last
+    leg would overwrite every earlier leg's facts and a 10%-allocated transfer would read `Settled`
+    on the master table. The status is now DERIVED from the legs, which is the only form that can
+    be right for both one leg and six.
 
     The match record carries the (transfer_id, target) unique constraint, so it is what stops the
     same transfer settling the same expense twice -- from a re-upload, an overlapping export, or a
-    double-clicked button. It is written BEFORE the row flips so a constraint violation aborts the
-    settlement rather than leaving a Settled row with nothing behind it.
+    double-clicked button. It is written BEFORE the row's allocation is recomputed so a constraint
+    violation aborts the settlement rather than leaving a row claiming money that was never written.
 
     ⚠️ `match_basis` USED TO BE THE LITERAL "Manual", ON EVERY SETTLEMENT (fixed at slice Q1). It
     was not merely lazy: the field's Select options were `Bank reference / Vendor+amount+date /
@@ -737,6 +769,10 @@ def _record_settlement(staged, doc, result, actor) -> None:
     found every one of 849 settlements, when the machine had found 843 of them. The options are now
     the matcher's own vocabulary and the tier is copied from the row, which has carried it all
     along.
+
+    ⚠️ `target_project` / `target_vendor` ARE SET HERE, IN THE SAME `match.update()` CALL THAT
+    INSERTS THE RECORD, AND MUST STAY THAT WAY. `Outflow Row Match.validate()` (Task 2) freezes
+    every non-reversal field once a record exists, so a later write to either would be refused.
     """
     origin = settlement_origin(doc.get("suggested_name"), result.name)
     match = frappe.new_doc(MATCH_DOCTYPE)
@@ -748,7 +784,7 @@ def _record_settlement(staged, doc, result, actor) -> None:
             "target_doctype": result.doctype,
             "target_name": result.name,
             "target_amount": float(result.amount),
-            "match_kind": "Settled",
+            "match_kind": MATCH_SETTLED,
             # The tier that FOUND the counterpart, or "Manual" when the matcher found nothing and
             # the person went looking. ⚠️ Two DIFFERENT questions live side by side here -- this one
             # is "how was it found", `settlement_origin` is "did a person accept that". A row can be
@@ -758,44 +794,113 @@ def _record_settlement(staged, doc, result, actor) -> None:
             "settlement_origin": origin,
             "matched_at": frappe.utils.now_datetime(),
             "matched_by": actor,
+            # SNAPSHOTS at allocation time -- never recomputed. See the field descriptions.
+            **_target_snapshot(result.doctype, result.name),
         }
     )
     match.insert(ignore_permissions=True)
 
+
+# ⚠️ THE PROJECT FIELD IS NAMED DIFFERENTLY ON EACH LEDGER, and `Non Project Expenses` has neither
+# a project nor a vendor. A single `doc.get("project")` would silently snapshot None on every
+# Project Expense -- correct-looking and wrong.
+_SNAPSHOT_FIELDS = {
+    "Project Payments": ("project", "vendor"),
+    "Project Expenses": ("projects", "vendor"),
+    "Non Project Expenses": (None, None),
+}
+
+
+def _target_snapshot(doctype: str, name: str) -> dict:
+    project_field, vendor_field = _SNAPSHOT_FIELDS.get(doctype, (None, None))
+    fields = [f for f in (project_field, vendor_field) if f]
+    if not fields:
+        return {"target_project": None, "target_vendor": None}
+    values = frappe.db.get_value(doctype, name, fields, as_dict=True) or {}
+    return {
+        "target_project": values.get(project_field) if project_field else None,
+        "target_vendor": values.get(vendor_field) if vendor_field else None,
+    }
+
+
+def _refresh_row_allocation(row_name: str, actor: str) -> str:
+    """Recompute a row's allocation from its legs and write the derived status. Returns it.
+
+    ⚠️ THE SUM IS ALWAYS FRESH. Nothing is incremented, so a reversal, a re-allocation and an
+    ordinary settle all repair the row exactly, and a reconcile pass can prove the figure at any
+    time.
+
+    ⚠️ THE FALLBACK IS THE CALLER'S DECISION IN `allocation.py` AND IS MADE HERE: a row whose last
+    leg was reversed returns to `Matched` if its suggestion survived and `Mismatched` otherwise.
+    Both are ACTIVE and neither is frozen, so a later re-match can reconsider the row -- which is
+    exactly right, because nothing is written against it any more.
+
+    ⚠️ RULING B (Task 3) -- `settlement_origin` IS WRITTEN HERE, ONLY WHEN THE ROW REACHES
+    `ROW_SETTLED`, AND CLEARED OTHERWISE. It answers "did the settlement take the machine's pick",
+    which is meaningless while a row is still `Partially Allocated` -- more legs may still land, and
+    none of them has to agree with the others. It is DERIVED here (from the most recent LIVE leg),
+    never threaded from the caller, so it stays correct however many call sites eventually write a
+    leg -- `allocate_row` (Task 4) will be a fifth. `get_outflow_summary`'s `from_suggestion`
+    aggregate and `_FACET_COLUMNS["settlement_origin"]` (`review.py`) both read this column off the
+    row; leaving it unset here would silently zero both once a row reaches `Settled` through this
+    path.
+
+    ⚠️ `frappe.db.set_value` bypasses the document lifecycle, and that is correct here: this row
+    carries no `doc_events`, and the batch rollup it feeds is invoked explicitly by the caller.
+    """
+    row = frappe.db.get_value(
+        ROW_DOCTYPE, row_name, ["name", "amount", "suggested_name"], as_dict=True
+    )
+    legs = frappe.db.get_all(
+        MATCH_DOCTYPE,
+        filters={"import_row": row_name},
+        fields=["name", "target_doctype", "target_name", "target_amount", "match_kind"],
+        order_by="matched_at asc, name asc",
+    )
+    fallback = ROW_MATCHED if (row.get("suggested_name") or "").strip() else ROW_MISMATCHED
+    new_status = status_for_allocation(row.get("amount"), legs, fallback=fallback)
+
+    live_legs = [leg for leg in legs if (leg.get("match_kind") or "") == MATCH_SETTLED]
+    origin = (
+        settlement_origin(row.get("suggested_name"), live_legs[-1]["target_name"])
+        if live_legs
+        else None
+    )
+
     frappe.db.set_value(
         ROW_DOCTYPE,
-        staged.name,
+        row_name,
         {
-            "row_status": ROW_SETTLED,
-            "outcome_note": _settled_note(result),
+            "row_status": new_status,
+            "outcome_note": _allocation_note(row.get("amount"), legs, new_status),
             "decided_at": frappe.utils.now_datetime(),
             "decided_by": actor,
-            # ⚠️ DENORMALISED IN THE SAME CALL AS THE STATUS, never on its own -- the safety rule
-            # `auto_matched` already follows. It exists so the review screen can filter and count
-            # settlements by origin without joining the match table.
-            "settlement_origin": origin,
+            # See the docstring: only meaningful -- and only written -- once the row is Settled.
+            "settlement_origin": origin if new_status == ROW_SETTLED else None,
         },
         update_modified=False,
     )
+    return new_status
 
 
-def _settled_note(result) -> str:
-    """The sentence a reviewer reads on a settled row.
+def _allocation_note(row_amount, legs, new_status: str) -> str:
+    """The sentence a reviewer reads. It states the BALANCE, never a leg count.
 
-    ⚠️ IT NAMES AN AMOUNT CORRECTION WHEN THERE WAS ONE (X1). The rewrite edits an approved figure,
-    and the note is the only place that fact survives on the import's own screen -- the Version log
-    holds it durably, but nobody opens a Version log to answer "why is this payment 31 paise
-    different from what I approved". Silent by design when nothing changed: a note that said
-    "amount unchanged" on every ordinary row would train people to stop reading it.
+    ⚠️ A COUNT WOULD BE THE ONE NUMBER THAT CANNOT BE CHECKED. "3 of 6 allocated" invites the
+    question "six according to whom?", and nothing in the data answers it -- the transfer does not
+    know how many payments it was meant to cover. The remaining amount is checkable against the
+    statement line by eye, which is what a reviewer actually needs.
     """
-    verb = "Recorded" if result.created else "Settled"
-    note = f"{verb} {result.doctype} {result.name}."
-    if result.amount_changed:
-        note += (
-            f" Amount corrected from {result.original_amount} to {result.amount} "
-            f"to match the transfer."
-        )
-    return note
+    live = [leg for leg in legs if (leg.get("match_kind") or "") == MATCH_SETTLED]
+    if not live:
+        return "Nothing is allocated against this transfer."
+    names = ", ".join(f"{leg['target_doctype']} {leg['target_name']}" for leg in live)
+    if new_status == ROW_SETTLED:
+        return f"Fully allocated. Settled {names}."
+    return (
+        f"Partly allocated: {allocated_of(legs)} of {to_decimal(row_amount)}, "
+        f"{remaining_of(row_amount, legs)} still to allocate. Settled {names}."
+    )
 
 
 def _summary(row: str, result, batch: str, statuses) -> dict:
