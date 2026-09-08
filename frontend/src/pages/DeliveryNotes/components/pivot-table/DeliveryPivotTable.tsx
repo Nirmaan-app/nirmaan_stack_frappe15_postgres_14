@@ -22,7 +22,7 @@ import { useDownloadDN } from "../../hooks/useDownloadDN";
 import { PivotTableHeader } from "./PivotTableHeader";
 import { PivotTableBody } from "./PivotTableBody";
 import { VendorDCDialog, VendorDCOverrides } from "../VendorDCDialog";
-import { DeliveryPivotTableProps, DNColumn } from "./types";
+import { DeliveryPivotTableProps, DNColumn, DELIVERY_DELETE_ROLES } from "./types";
 import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
 import { isCreatedToday } from "@/utils/FormatDate";
 import { parseNumber } from "@/utils/parseNumber";
@@ -134,7 +134,10 @@ export function DeliveryPivotTable({
   const [selectedDnForDC, setSelectedDnForDC] = useState<DeliveryNote | null>(null);
 
   const { role } = useUserData();
-  const isAdmin = role === "Nirmaan Admin Profile";
+  // Deletion is narrower than editing — see DELIVERY_DELETE_ROLES.
+  // No explicit "Administrator" check needed: useUserData already maps that
+  // user to the "Nirmaan Admin Profile" role.
+  const canDelete = (DELIVERY_DELETE_ROLES as readonly string[]).includes(role);
 
   const {
     isDeleting,
@@ -355,7 +358,7 @@ export function DeliveryPivotTable({
             canEditDn={editHook.canEditDn}
             onEditDn={handleStartEdit}
             onDeleteDn={handleDeleteClick}
-            isAdmin={isAdmin}
+            canDelete={canDelete}
             onOpenVendorDC={handleOpenVendorDC}
             viewMode={viewMode}
             showReturn={showReturn && !editHook.editingDnName}

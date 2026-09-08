@@ -53,16 +53,91 @@ interface ProjectFinancialsTabProps {
 // Sales users (Executive / Lead) only see these financial sub-tabs.
 const SALES_ALLOWED_TABS = ["Project Invoices", "Inflow", "Client PO"];
 
+// PMO Executive does NOT see these financial sub-tabs (owner ruling), leaving
+// All Payments + All PO Invoices.
+//
+// The values coincide with SALES_ALLOWED_TABS today, but the two are opposite
+// in polarity -- one is an allow-list, the other a deny-list -- and they answer
+// different questions. Kept separate on purpose: aliasing them would mean a
+// later change to what Sales may see silently changes what PMO may not.
+const PMO_HIDDEN_TABS = ["Project Invoices", "Inflow", "Client PO"];
+
+type SummaryItem = {
+  label: string;
+  value: string | number;
+  style?: string;
+  info?: string;
+  onClick?: () => void;
+  breakdown?: {
+    poAmount: number;
+    srAmount: number;
+    projectExpensesAmount: number;
+  };
+};
+
+/**
+ * The client-facing money: what the project is worth and what the client has
+ * invoiced and paid. Shown as its own first row, above a divider, separate from
+ * the operational figures (PO/SR spend, credit, liabilities).
+ *
+ * This list is BOTH the membership test and the display ORDER of that group --
+ * the render maps over these labels, so reordering here reorders the row.
+ *
+ * Partitioning by LABEL means every item lands in exactly one group and nothing
+ * can be dropped: rename a label in `amountsSummaryItems` without updating this
+ * list and the tile falls into the operational block, still visible, just
+ * ungrouped. That is the safe direction to fail.
+ */
+const CLIENT_SUMMARY_LABELS: readonly string[] = [
+  "Total Inflow Amount",
+  "Total Client Invoiced (Incl. GST)",
+  "Project Value (Excl. GST)",
+  "Project Value (Incl. GST)",
+];
+
+const SummaryTile: React.FC<{ item: SummaryItem }> = ({ item }) => (
+  <div className="flex flex-col gap-2">
+    <p className="text-gray-700 tracking-tight">
+      <HoverCard>
+        <HoverCardTrigger asChild>
+          <span className="inline-flex items-center gap-1">
+            {item.label}
+            <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+          </span>
+        </HoverCardTrigger>
+        <HoverCardContent className="text-xs w-auto p-1.5">{item.info || ""}</HoverCardContent>
+      </HoverCard>
+    </p>
+
+    {item.breakdown ? (
+      <AmountBreakdownHoverCard {...item.breakdown}>
+        <p className={`text-sm font-bold text-gray-900 ${item.style} border-b border-dashed cursor-pointer w-fit`}>
+          {formatToRoundedIndianRupee(item.value)}
+        </p>
+      </AmountBreakdownHoverCard>
+    ) : (
+      <p onClick={item.onClick} className={`text-sm font-bold text-gray-900  ${item.style} ${item.onClick ? 'cursor-pointer' : ''}`}>
+        {formatToRoundedIndianRupee(item.value)}
+      </p>
+    )}
+  </div>
+);
+
 export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ projectData, projectCustomer, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, getAllPODeliveredAmount, poPaymentAgainstDelivery, advanceAgainstPO }) => {
 
   const { role } = useUserData();
   const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
+  const isPMO = role === "Nirmaan PMO Executive Profile";
 
   const initialTab = useMemo(() => {
     const urlTab = getUrlStringParam("fTab", "All Payments");
     // Sales users default to (and are confined to) their allowed sub-tabs.
     if (isSales && !SALES_ALLOWED_TABS.includes(urlTab)) {
       return "Project Invoices";
+    }
+    // A stale ?fTab pointing at a hidden tab must not open it for PMO.
+    if (isPMO && PMO_HIDDEN_TABS.includes(urlTab)) {
+      return "All Payments";
     }
     return urlTab;
   }, []); // Calculate once
@@ -236,6 +311,28 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
   ], [totalInflowAmount, totalProjectInvoiceAmount, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value, relatedTotalBalanceCredit, relatedTotalCreditPaid, getAllPODeliveredAmount, poPaymentAgainstDelivery, advanceAgainstPO])
 
 
+  // Ordered by CLIENT_SUMMARY_LABELS, not by position in amountsSummaryItems.
+  //
+  // Withheld entirely from PMO (owner ruling): Total Inflow Amount, Total Client
+  // Invoiced and both Project Value figures. Returning [] rather than filtering
+  // the labels keeps the group an all-or-nothing block -- the render gates the
+  // divider on this being non-empty, so PMO gets no stray rule above the
+  // operational tiles.
+  const clientSummaryItems = useMemo(
+    () =>
+      isPMO
+        ? []
+        : (CLIENT_SUMMARY_LABELS
+            .map((label) => amountsSummaryItems.find((item) => item.label === label))
+            .filter(Boolean) as SummaryItem[]),
+    [amountsSummaryItems, isPMO]
+  );
+
+  const operationalSummaryItems = useMemo(
+    () => amountsSummaryItems.filter((item) => !CLIENT_SUMMARY_LABELS.includes(item.label)) as SummaryItem[],
+    [amountsSummaryItems]
+  );
+
   const tabs = useMemo(() => {
     const allTabs = [
       {
@@ -264,8 +361,11 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       },
     ];
     // Sales users only see Project Invoices, Inflow, and Client PO.
-    return isSales ? allTabs.filter((t) => SALES_ALLOWED_TABS.includes(t.value)) : allTabs;
-  }, [isSales])
+    if (isSales) return allTabs.filter((t) => SALES_ALLOWED_TABS.includes(t.value));
+    // PMO loses those same three, keeping All Payments + All PO Invoices.
+    if (isPMO) return allTabs.filter((t) => !PMO_HIDDEN_TABS.includes(t.value));
+    return allTabs;
+  }, [isSales, isPMO])
 
   const onClick = useCallback(
     (value: string) => {
@@ -281,8 +381,10 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
   useEffect(() => {
     if (isSales && !SALES_ALLOWED_TABS.includes(tab)) {
       setTab("Project Invoices");
+    } else if (isPMO && PMO_HIDDEN_TABS.includes(tab)) {
+      setTab("All Payments");
     }
-  }, [isSales, tab]);
+  }, [isSales, isPMO, tab]);
 
   return (
     <div className="flex-1 space-y-4">
@@ -290,40 +392,28 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
         <CardHeader>
           <CardTitle className="text-2xl">Summary</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-3 gap-6">
-          {amountsSummaryItems.map((item) => (
-            <div key={item.label} className="flex flex-col gap-2">
-              <p className="text-gray-700 tracking-tight">
-                <HoverCard>
-                  <HoverCardTrigger asChild>
-                    {/* The original Link was commented out. If you activate it, ensure its Info icon also gets proper styling. */}
-                    <span className="inline-flex items-center gap-1"> {/* Use inline-flex to keep the overall element inline */}
-                      {item.label}
-                      <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+        <CardContent className="space-y-6">
+          {/* Client-facing money first: project value, what we invoiced, what came in.
+              The divider belongs to this block -- without the group there is nothing
+              to divide, so both are gated on the same condition. */}
+          {clientSummaryItems.length > 0 && (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                {clientSummaryItems.map((item) => (
+                  <SummaryTile key={item.label} item={item} />
+                ))}
+              </div>
 
-                    </span>
-                    {/* <Link to={`/vendors/${row.original.vendor}`}><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" /></Link> */}
-                  </HoverCardTrigger>
-                  <HoverCardContent className="text-xs w-auto p-1.5">{item.info || ""}</HoverCardContent>
-                </HoverCard>
-                {/* MODIFIED: Use a flex container for the icon and label */}
+              <div className="border-t border-gray-200" />
+            </>
+          )}
 
-              </p>
-
-              {/* --- (Indicator) MODIFIED: Conditionally wrap with hover card --- */}
-              {item.breakdown ? (
-                <AmountBreakdownHoverCard {...item.breakdown}>
-                  <p className={`text-sm font-bold text-gray-900 ${item.style} border-b border-dashed cursor-pointer w-fit`}>
-                    {formatToRoundedIndianRupee(item.value)}
-                  </p>
-                </AmountBreakdownHoverCard>
-              ) : (
-                <p onClick={item.onClick} className={`text-sm font-bold text-gray-900  ${item.style} ${item.onClick ? 'cursor-pointer' : ''}`}>
-                  {formatToRoundedIndianRupee(item.value)}
-                </p>
-              )}
-            </div>
-          ))}
+          {/* Operational money: PO/SR spend, credit, delivery and liabilities. */}
+          <div className="grid grid-cols-3 gap-6">
+            {operationalSummaryItems.map((item) => (
+              <SummaryTile key={item.label} item={item} />
+            ))}
+          </div>
         </CardContent>
       </Card>
 

@@ -21,6 +21,8 @@ interface BulkPdfDownloadButtonProps {
 export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloadButtonProps) => {
   const { role } = useUserData();
   const isProjectManager = role === "Nirmaan Project Manager Profile";
+  // PMO loses Client Invoices only -- Vendor Invoices stays.
+  const isPMO = role === "Nirmaan PMO Executive Profile";
 
   const {
     loading,
@@ -69,7 +71,7 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
           {!isProjectManager && (
             <DropdownMenuItem onClick={initiateInvoiceDownload} className="cursor-pointer">
               <Download className="mr-2 h-4 w-4" />
-              <span>Download All Outflow Invoices</span>
+              <span>Download All Vendor Invoices</span>
             </DropdownMenuItem>
           )}
           <DropdownMenuItem onClick={() => handleBulkDownload("DC", "Delivery Challans")} className="cursor-pointer">
@@ -84,7 +86,7 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
             <Download className="mr-2 h-4 w-4" />
             <span>Download All DNs</span>
           </DropdownMenuItem>
-          {!isProjectManager && (
+          {!isProjectManager && !isPMO && (
             <DropdownMenuItem onClick={() => handleBulkDownload("ClientInvoice", "Client Invoices")} className="cursor-pointer">
               <Download className="mr-2 h-4 w-4" />
               <span>Download All Client Invoices</span>

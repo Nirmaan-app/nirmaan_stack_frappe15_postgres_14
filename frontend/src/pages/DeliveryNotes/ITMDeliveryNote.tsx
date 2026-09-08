@@ -33,6 +33,7 @@ import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { formatDate, isCreatedToday } from "@/utils/FormatDate";
 import { decodeFrappeId } from "./constants";
+import { DELIVERY_DELETE_ROLES } from "./components/pivot-table";
 import { ITMDeliveryMetadataBar } from "./components/ITMDeliveryMetadataBar";
 import { useITMDeliveryEdit } from "./hooks/useITMDeliveryEdit";
 import { useITMDeliveryDelete } from "./hooks/useITMDeliveryDelete";
@@ -82,9 +83,9 @@ const ITMDeliveryNote: React.FC = () => {
   const userData = useUserData();
   const isProjectManager =
     userData?.role === "Nirmaan Project Manager Profile";
-  // Delete button is Admin-only in the UI — mirrors the PO DN convention.
-  const isAdmin =
-    userData?.role === "Nirmaan Admin Profile" ||
+  // Delete is Admin + PMO in the UI — mirrors the PO DN convention.
+  const canDelete =
+    (DELIVERY_DELETE_ROLES as readonly string[]).includes(userData?.role) ||
     userData?.user_id === "Administrator";
   const hideTotalReceived = isProjectManager && viewMode === "create";
 
@@ -144,7 +145,7 @@ const ITMDeliveryNote: React.FC = () => {
   }, [usersList]);
 
   // Edit + Delete hooks — same role gate as PO DN (Admin/PMO/PL/Procurement
-  // always; PM same-day + creator). Delete UI is gated separately on isAdmin.
+  // always; PM same-day + creator). Delete UI is gated separately on canDelete.
   const {
     editingDnName,
     editedQuantities,
@@ -495,7 +496,7 @@ const ITMDeliveryNote: React.FC = () => {
                   // Match PO: pencil/trash stay visible while user types
                   // a new DN; only hide when another DN is being edited.
                   const showEditBtn = !editingDnName && canEditDn(dnCol);
-                  const showDeleteBtn = !editingDnName && isAdmin;
+                  const showDeleteBtn = !editingDnName && canDelete;
                   return (
                     <TableHead
                       key={dn.name}
@@ -697,7 +698,7 @@ const ITMDeliveryNote: React.FC = () => {
         }}
       />
 
-      {/* Delete confirmation dialog — Admin-only action (button gated above). */}
+      {/* Delete confirmation dialog — Admin/PMO action (button gated above). */}
       <AlertDialog
         open={deleteConfirmDialog}
         onOpenChange={setDeleteConfirmDialog}

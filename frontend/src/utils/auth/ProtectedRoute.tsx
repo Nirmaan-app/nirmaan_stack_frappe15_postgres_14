@@ -105,9 +105,10 @@ export const UserProfileRoute = () => {
 export const InflowPaymentsRoute = () => {
     const { role, user_id } = useUserData()
 
+    // PMO Executive deliberately excluded (owner ruling) -- mirrors the
+    // In-Flow Payments role array in NewSidebar.tsx. Keep the two in sync.
     const canAccessInflowPayments =
         role === "Nirmaan Admin Profile" ||
-        role === "Nirmaan PMO Executive Profile" ||
         role === "Nirmaan Accountant Profile" ||
         role === "Nirmaan Accountant Lead Profile" ||
         role === "Nirmaan Project Lead Profile" ||
@@ -215,6 +216,44 @@ export const OutflowImportRoute = () => {
             <div className="text-center">
                 <h2 className="text-xl font-semibold text-gray-800">Access Denied</h2>
                 <p className="text-gray-600 mt-2">Bulk Import Outflow is limited to Accountants and Admins.</p>
+            </div>
+        </div>
+    )
+}
+
+
+/**
+ * Generic role-profile gate for routes whose only protection was the sidebar.
+ * Before this, `/customers`, `/upload-boq`, `/upload-boq/templates` and
+ * `/project-invoices` were plain `element:` entries under ProtectedRoute --
+ * logged in was the whole check, so removing a nav item hid the door and not
+ * the room.
+ *
+ * `allowed` holds role_profile strings and MUST mirror that route's role array
+ * in NewSidebar.tsx; the hardcoded "Administrator" user always passes.
+ *
+ * UI gate only. These endpoints carry no server-side role check -- the Frappe
+ * doctype permissions still answer the API, exactly as for every other role
+ * restriction in this app.
+ */
+export const RoleRoute = ({
+    allowed,
+    what,
+}: {
+    allowed: readonly string[]
+    what: string
+}) => {
+    const { role, user_id } = useUserData()
+
+    if (user_id === "Administrator" || (!!role && allowed.includes(role))) {
+        return <Outlet />
+    }
+
+    return (
+        <div className="flex items-center justify-center h-[50vh]">
+            <div className="text-center">
+                <h2 className="text-xl font-semibold text-gray-800">Access Denied</h2>
+                <p className="text-gray-600 mt-2">You don't have permission to access {what}.</p>
             </div>
         </div>
     )

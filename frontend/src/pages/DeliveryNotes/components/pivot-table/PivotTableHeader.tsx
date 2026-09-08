@@ -26,7 +26,8 @@ interface PivotTableHeaderProps {
   canEditDn?: (col: DNColumn) => boolean;
   onEditDn?: (col: DNColumn) => void;
   onDeleteDn?: (col: DNColumn) => void;
-  isAdmin?: boolean;
+  /** Whether the current user may delete a DN — see DELIVERY_DELETE_ROLES */
+  canDelete?: boolean;
   viewMode?: "create" | "view-only" | "full";
   showReturn?: boolean;
   hideTotalReceived?: boolean;
@@ -42,7 +43,7 @@ export function PivotTableHeader({
   canEditDn,
   onEditDn,
   onDeleteDn,
-  isAdmin = false,
+  canDelete = false,
   viewMode = "full",
   showReturn = false,
   hideTotalReceived = false,
@@ -164,7 +165,7 @@ export function PivotTableHeader({
                       </Tooltip>
                     )}
 
-                    {!editingDnName && viewMode === "full" && isAdmin && (
+                    {!editingDnName && viewMode === "full" && canDelete && (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button

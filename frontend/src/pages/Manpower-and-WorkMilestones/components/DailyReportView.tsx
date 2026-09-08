@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { TargetProgressDownloadDialog } from "./TargetProgressDownloadDialog";
 import { ChevronDown, ChevronUp, MessagesSquare, Eye, EyeOff, Download, FileText, MapPin, UserCheck, UserX } from 'lucide-react';
 import { format } from 'date-fns';
 import { formatDate } from '@/utils/FormatDate';
@@ -861,52 +862,25 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
         )}
       </div>
 
-      {/* Admin: choose whether the PDF should include Target Progress */}
-      <AlertDialog open={showAdminDownloadDialog} onOpenChange={setShowAdminDownloadDialog}>
-        <AlertDialogContent className="sm:max-w-lg">
-          <AlertDialogHeader className="space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-red-50 text-red-600">
-                <Download className="h-4 w-4" />
-              </div>
-              <AlertDialogTitle className="text-lg">Download Report</AlertDialogTitle>
-            </div>
-            <AlertDialogDescription className="text-sm text-slate-600 leading-relaxed">
-              Choose a version of the PDF. The admin version adds{" "}
-              <span className="font-semibold text-slate-800">Zone Target</span>,{" "}
-              <span className="font-semibold text-slate-800">Header Target</span> and a{" "}
-              <span className="font-semibold text-slate-800">per-milestone Target column</span>{" "}
-              alongside actual progress.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-
-          <AlertDialogFooter className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 pt-2">
-            <AlertDialogCancel className="mt-0 sm:mt-0">Cancel</AlertDialogCancel>
-            <div className="flex flex-col-reverse sm:flex-row gap-2">
-              <Button
-                className="bg-red-600 hover:bg-red-700 text-white"
-                onClick={() => {
-                  setShowAdminDownloadDialog(false);
-                  handleDownloadReport(false);
-                }}
-              >
-                Without Target Progress
-              </Button>
-              <AlertDialogAction
-                onClick={() => {
-                  setShowAdminDownloadDialog(false);
-                  handleDownloadReport(true);
-                }}
-
-                className="bg-green-600 hover:bg-green-700 text-white"
-
-              >
-                With Target Progress
-              </AlertDialogAction>
-            </div>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Choose whether the PDF should include Target Progress. */}
+      <TargetProgressDownloadDialog
+        open={showAdminDownloadDialog}
+        onOpenChange={setShowAdminDownloadDialog}
+        title="Download Report"
+        canChooseTarget
+        withReason={
+          <>
+            Adds <span className="font-semibold text-slate-800">Zone Target</span>,{" "}
+            <span className="font-semibold text-slate-800">Header Target</span> and a{" "}
+            <span className="font-semibold text-slate-800">per-milestone Target column</span>{" "}
+            alongside actual progress.
+          </>
+        }
+        onConfirm={(includeTarget) => {
+          setShowAdminDownloadDialog(false);
+          handleDownloadReport(includeTarget);
+        }}
+      />
     </div>
   );
 };
