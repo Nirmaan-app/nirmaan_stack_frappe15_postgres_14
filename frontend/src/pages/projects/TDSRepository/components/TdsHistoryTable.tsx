@@ -81,17 +81,14 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
     const isAdmin = role === "Nirmaan Admin Profile" || role === "Administrator";
     const isPMO = role === "Nirmaan PMO Executive Profile";
 
-    // Statuses a PMO may delete: rows that have NOT been finalised. An Approved
-    // row is part of the signed submittal record, so it stays Admin-only.
-    const PMO_DELETABLE_STATUSES = ["Pending", "Rejected"];
-
-    const canDeleteRow = (item: ProjectTDSItem) =>
-        isAdmin ||
-        (isPMO && PMO_DELETABLE_STATUSES.includes((item.tds_status || "").trim()));
-
-    // Gates the COLUMN — whether this role can delete anything at all. The
-    // per-row check above decides which buttons actually render inside it, so a
-    // PMO sees the column but only an actionable button on eligible rows.
+    // Gates the Actions column AND every button in it. A PMO deletes on the same
+    // terms as an Admin, at ANY status (owner ruling) — the previous rule let a
+    // PMO delete only Pending / Rejected rows and rendered "--" on Approved ones,
+    // which is what put an unusable column in front of them.
+    //
+    // Nothing behind this re-checks: `Project TDS Item List` carries only a
+    // `before_save` hook (no `on_trash`), and the doctype already grants
+    // `Nirmaan PMO Executive` delete permission — so this gate IS the boundary.
     const canManageTDS = isAdmin || isPMO;
 
     // --- 2. Define Columns (with dependency on userMap) ---
@@ -258,22 +255,24 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
             {
                 id: "actions",
                 header: "Actions",
-                cell: ({ row }: { row: any }) =>
-                    canDeleteRow(row.original) ? (
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-red-400 hover:text-red-600 hover:bg-red-50"
-                            onClick={() => handleDeleteClick(row.original.name)}
-                        >
-                            <Trash2 className="h-4 w-4" />
-                        </Button>
-                    ) : "--",
+                // Unconditional: the column only exists when `canManageTDS`, and
+                // that same flag now grants every row. The old "--" branch is gone
+                // with the per-row status check it belonged to.
+                cell: ({ row }: { row: any }) => (
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-red-400 hover:text-red-600 hover:bg-red-50"
+                        onClick={() => handleDeleteClick(row.original.name)}
+                    >
+                        <Trash2 className="h-4 w-4" />
+                    </Button>
+                ),
                 size: 80,
                 enableSorting: false,
             }
         ] : [])
-    ], [userMap, role, canManageTDS, isAdmin, isPMO]);
+    ], [userMap, role, canManageTDS]);
 
     const searchableFields: SearchFieldOption[] = [
         { label: "Item Name", value: "tds_item_name" },
@@ -311,7 +310,12 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
         searchableFields: searchableFields,
         defaultSort: "creation desc",
         additionalFilters: staticFilters,
-        urlSyncKey: `tds_history_${projectId}_${refreshTrigger}`
+        urlSyncKey: `tds_history_${projectId}_${refreshTrigger}`,
+        // Item ID is an internal `Items` key nobody reads off this screen -- Item
+        // Name is the identifying column. Hidden rather than deleted: the column
+        // def, its facet and its fetch field all stay, so it is one click away in
+        // "Toggle columns" and still lands in the export when switched back on.
+        initialState: { columnVisibility: { tds_item_id: false } },
     });
 
     // --- Facet Filters (self-fetching: ADR-0010 "Option 2") ---
