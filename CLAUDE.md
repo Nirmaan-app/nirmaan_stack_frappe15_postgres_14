@@ -223,6 +223,7 @@ For BoQ Upload dev-environment setup, clean bench-restart sequence, the CSRF cle
   is SILENT because `frappe.db.set_single_value` bypasses the doc lifecycle and writes **no `Version` row**: a
   `track_changes` audit cannot see it, so the setting appears to change by itself. Correct pattern:
   `test_ai_settings.py` (capture + `addCleanup`) or a `setUpClass` capture restored in `tearDownClass`.
+- **A test on each side of a boundary is not a test of the boundary (STANDING RULE):** when a value crosses a seam (a service result stored by a run and read by the frontend; a capture log beside a stored result), the producer's pin and the consumer's pin can BOTH be green while the join is broken -- the producer asserts what it returned, the consumer asserts what it does with a hand-built input, and nothing asserts the value ARRIVES. Only the rendered screen, or a read of the stored artefact, tests the join; a slice that adds a cross-seam value is not done until one of those has been observed.
 - **After editing any doctype JSON:** Always run `bench --site localhost migrate`. Tests use a separate test database that auto-migrates, so **passing tests do not guarantee the runtime database has the new column**. Verify with `frappe.db.has_column("DocType Name", "field_name")` in the bench console after migration.
 
 ### Projects row fixture pattern
@@ -483,11 +484,58 @@ them) moved R13's `circuit_wire_included`. Moving the arithmetic into `apply_con
 the pressure off measurably: four of five cert rows became STABLE across runs where they had not
 been. **A rule may say how to READ a spec; it may not say what to COMPUTE from it.**
 
+**⚠️ THE ATTRIBUTE `type` IS AN INSTRUCTION THE MODEL OBEYS OVER THE SHARED BLOCK -- A `number`
+ATTRIBUTE CANNOT BE ASKED FOR A TOKEN "AS WRITTEN" (measured on the bare-box size read).** Told in
+`ESTIMATOR_RULES` to write a box's module count "exactly as the text writes it", the model still
+CONVERTED: a written "9/8M" came back as the number 9 and a written "1/2 module" as 1 or null, never as
+the token. The projected `{id, label, type}` is a stronger channel than any sentence beside it. So a design
+that needs the raw token for a CODE pick must give the attribute a text-capable type (the api validator
+refuses a value-less `choice`), or accept that the model performs the pick; a `number` type plus a code
+parse only LOOKS like "as written, code picks" -- on a written range the model has already chosen.
+
 **⚠️ A PIN ON RULE TEXT IS IN THE SLICE'S BLAST RADIUS.** Twice in one week a phrase pin in a file
 outside the declared scope blocked a deliberate wording change (four stale pins 2026-09-01;
 `test_rate_suggest.test_e4` 2026-09-03). **When a slice changes rule text, EVERY pin on that text
 belongs in its scope.** Retire such a pin by INVERTING it -- assert the old wording is ABSENT and the
 surviving claims are PRESENT -- never by deleting it: a deleted pin checks nothing.
+
+**⚠️ A `module_fit` LADDER HAS TWO READ SITES, AND A LADDER KEY WIRED ON ONE ALONE SHIPS HALF
+(owner-locked, 2026-09-08).** The floor branch (rows with a plate or contents) and the zero branch (a
+bare box) are SEPARATE reads of the same ladder spec; `on_zero_from` is read only on the zero branch by
+design, `floor_from` only on the floor branch. A key that must reach the pricer on every row --
+`pick_from`, the pricer's pick -- is read at BOTH, through ONE shared reader (`readPick`) so the two
+sites cannot disagree. **Confine such a key by KEY PRESENCE, never by a category name in code**:
+point_wiring and popup_boxes carry the same ladder shape and no `pick_from`, and stay byte-identical.
+**Every ladder key that names an attribute is `_ref`-guarded in `_validate_config`** -- an unguarded
+`on_zero_from` typo once read silently as "assumed 3M".
+
+**⚠️ A CONFIG ATTRIBUTE ADDED AFTER A RUN REFUSES EVERY OLDER ROW OF THAT CATEGORY -- A RECURRING DEFECT,
+AND THE READ SIDE IS NOW TOLERANT, NOT THE CAUSE (owner ruling 2026-09-08: "Treat a never-asked field as
+answered").** A stored run row carries only the keys asked at ITS extraction; the panel gate walks the CURRENT
+config's list, so every later, panel-visible, non-derived attribute reads blank on every older row (measured:
+408 rows across four categories, 347 with no other blocker). `pricingSheetHelper` now distinguishes **KEY
+ABSENT** (never asked -> the config default: `extraction_defaults` scalar / `requires_named`-on-a-filled-item,
+or `allow_none` -> "None"; badged `defaulted`, no confidence shown, a trace line naming it) from
+**PRESENT-NULL** (asked and blank -> a real read failure, still refuses). **The distinction holds ONLY because
+`extraction._extract_batch` writes a cell for EVERY asked attribute, null when unanswered -- an extractor that
+stops doing that silently turns every read failure into a "never asked" default.** A field with no sensible
+default (`face_mm`) keeps refusing by design; a `{default, text_overrides}` spec is not reproduced at read
+time. **The hazard, owner-accepted: a row that genuinely has a third socket now prices LOW with nothing
+downstream to catch it; the badge is the only guard.** A new visible attribute without a default or
+`allow_none` will break every older row again -- give it one, or accept the refusals knowingly.
+
+**⚠️ THE SHARED AI-REPLY PARSER RETURNS THE FIRST BALANCED SPAN THAT PARSES AS A LIST OF DICTS -- NOT
+THE FIRST LIST (2026-09-08, owner-logged defect bundled).** `boq_category.ai_voter._extract_json_array`
+serves THREE callers by identity -- the classifier voter (`ai_voter._ai_batch`), the certified harness
+(`harness/electrical_classification_harness.py`) and the rate extractor (`boq_rate_master.extraction`,
+imported at module top) -- so a change there reaches all of them and both users must be proven unchanged.
+On 2026-09-07 a whole-sheet rate run halted with rows stranded because the model prefaced its answer with
+prose quoting its allowed values, `[350, 250, 200, 150, 100, 300]`, and the parser handed that list to
+`int(el["id"])` (TypeError x3, then `ExtractionHalted`). **The model was not misbehaving** -- any reply that
+reasons out loud and happens to contain a bracketed list trips the same wire, on any category, at random --
+so **the fix lives in the parser, never in a prompt**: a balanced span whose elements are not all dicts is
+skipped and the scan continues; a reply holding ONLY such a list still ends in the loud `ValueError`. Do not
+re-narrow it to "first list", and do not add a prompt sentence asking the model not to explain itself.
 
 ## BoQ Rate Suggestion (RM-3)
 

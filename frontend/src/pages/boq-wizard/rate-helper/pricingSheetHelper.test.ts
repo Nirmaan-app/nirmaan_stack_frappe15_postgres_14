@@ -34,6 +34,7 @@ import {
   nonBcsPipelines,
   pipelineLabel,
   prettifyPipelineId,
+  ratingUpNote,
 } from "./pricingSheetHelper";
 
 // cable_boq + termination_boq (verbatim shape from RM-1 config; BCS omitted -- not surfaced).
@@ -1270,7 +1271,14 @@ describe("DERIVED DISPLAY -- R2: a too-small entry WARNS, it is never silently l
       { kind: "upgrade", stated: "1M", statedHolds: 1, occupied: 3, using: "3M" },
     ]);
     expect(shuffled.map((n) => n.kind)).toEqual(["upgrade", "uncovered"]);
-    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "capped", "uncovered"]);
+    // Owner ruling, 2026-09-05 (F-30 slice A): `rating_up` is REGISTERED in the order, between the
+    // module upgrade and the quantity notes -- a kind whose position is incidental is exactly what
+    // this pin exists to forbid. Extended from three kinds to four under that ruling, not silenced.
+    // F-25 slice 2 (owner 2026-09-07): `assumed` + `size_up` REGISTERED between rating_up and the
+    // quantity notes -- both settle WHICH rung is priced. Four -> six, again not silenced.
+    // F-25 slice 3 (owner 2026-09-08): `plate_floor` REGISTERED directly after `upgrade` -- a
+    // plate-driven raise of the pricer's box pick is the pick's own upgrade. Six -> seven, not silenced.
+    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "plate_floor", "rating_up", "assumed", "size_up", "capped", "uncovered"]);
   });
 
   it("the two quantity notes are worded so neither can be mistaken for the other", () => {
@@ -3160,5 +3168,853 @@ describe("D1 -- the gate: a row with a blank map source still prices", () => {
     const r = computeRow({ points: { value: 1, confidence: 0.8 }, point_type: { value: "Secondary", confidence: 1 } });
     const basis = (r as { basis?: string }).basis ?? "";
     expect(basis).not.toContain("Complete the missing attributes");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// F-30 SLICE A -- THE RATING-UP NOTE (owner ruling 2, 2026-09-05; #57 item 2)
+// ---------------------------------------------------------------------------------------------
+//
+// The server-side poles-plus-neutral ladder (extraction.py) may resolve an SPN breaker to the next
+// rating UP when the counted pole is not stocked at the stated amp -- "10/16A SPN MCB (D curve)"
+// prices as 25A DP D. That is a substitution the pricer must be able to SEE on the panel, in words,
+// not only in the derivation trace (the face-plate precedent: "the trace is a surface a pricer may
+// never open"). The backend stamps `pole_ladder: {amp_moved_up: {from, to}, to}` on the attribute;
+// this pins that the helper turns it into a `rating_up` note on the panel's DATA CONTRACT, and
+// leaves the field silent when the marker is absent or carries no move. Render is carried by the
+// browser cert (vitest runs in a node env with no DOM, by deliberate config).
+const DBSW_CONFIG: RateCategoryConfig = {
+  discipline: "Electrical", category_id: "db_switchgear", item_kinds: ["db_switchgear_item"],
+  matching_mode: "composite_decomposition",
+  attribute_definitions: [
+    { id: "mcb1_item", label: "MCB 1", type: "choice", values_from: { kind: "db_switchgear_item", attr: "item", where: { family: "Switchgear" } } },
+    { id: "mcb1_qty", label: "MCB 1 qty", type: "number" },
+  ],
+  pipelines: {
+    db_buildup_supply: {
+      output: ["supply"],
+      steps: [
+        { step: "component_ref", name: "mcb1", ref: { kind: "db_switchgear_item", item: "@mcb1_item", family: "Switchgear" }, target: "list_price", rate_stages: [{ mult: 1.0 }], qty: { from_attr: "mcb1_qty" }, none_skips: true },
+        { step: "sum_components", result: "supply" },
+      ],
+    },
+  },
+} as unknown as RateCategoryConfig;
+function mcbItem(item: string, pole: string, amp: number, curve: string, list: number): RateMasterItem {
+  return { discipline: "Electrical", kind: "db_switchgear_item", attributes: { family: "Switchgear", item, device: "MCB", pole, amp_a: amp, curve }, rates: { list_price: list } };
+}
+const DBSW_ITEMS: RateMasterItem[] = [
+  mcbItem("16A SP MCB D CURVE", "SP", 16, "D", 616),
+  mcbItem("25A DP MCB D CURVE", "DP", 25, "D", 1525),
+  mcbItem("40A SP MCB C CURVE", "SP", 40, "C", 892),
+  mcbItem("40A DP MCB C CURVE", "DP", 40, "C", 2316),
+];
+function dbswRow(excelRow: number, mcb1: Record<string, unknown>) {
+  const map = buildExtractionByRow([{ excel_row: excelRow, attributes: { mcb1_item: mcb1, mcb1_qty: { value: 6, confidence: 0.9 } } as never }]);
+  const helper = makePricingSheetHelper({ configsByCategory: new Map([["db_switchgear", DBSW_CONFIG]]), items: DBSW_ITEMS, extractionByRow: map });
+  const r = helper.compute({ ...ctx(excelRow, "Outgoings: 6No.s.10/16A SPN MCB ( 'D' curve)"), category: "db_switchgear" });
+  expect(isSuggestion(r)).toBe(true);
+  if (!isSuggestion(r)) throw new Error("not a suggestion");
+  return r.workings.attributes.find((a) => a.id === "mcb1_item")!;
+}
+
+describe("F-30 slice A -- the rating-up note reaches the panel's data contract", () => {
+  it("POSITIVE: a backend `pole_ladder.amp_moved_up` marker becomes ONE `rating_up` note, worded for a pricer", () => {
+    const a = dbswRow(311, { value: "25A DP MCB D CURVE", confidence: 0.9, pole_ladder: { amp_moved_up: { from: 16, to: 25 }, to: "25A DP MCB D CURVE" } });
+    expect(a.value).toBe("25A DP MCB D CURVE"); // the field shows what was bought
+    expect(a.notes).toEqual([{ kind: "rating_up", askedAmp: 16, usedAmp: 25, poleWord: "2 pole", device: "MCB", curve: "D" }]);
+    // names what was asked for, why it could not be used, and what was used instead -- no jargon
+    expect(attrNoteText(a.notes![0])).toBe("No 2 pole MCB at 16A on the D curve — using 25A.");
+  });
+  it("NEGATIVE: no marker -> no note (the plain same-amp case, and every row before this slice)", () => {
+    const a = dbswRow(135, { value: "40A DP MCB C CURVE", confidence: 0.9 });
+    expect(a.notes).toBeUndefined();
+  });
+  it("NEGATIVE: a marker WITHOUT an amp move (a rung-1 hit) says nothing about ratings", () => {
+    const a = dbswRow(136, { value: "40A DP MCB C CURVE", confidence: 0.9, pole_ladder: { rung: 1, to: "40A DP MCB C CURVE" } });
+    expect(a.notes).toBeUndefined();
+  });
+  it("a pricer's override clears the note -- the field is theirs again", () => {
+    const map = buildExtractionByRow([{ excel_row: 311, attributes: { mcb1_item: { value: "25A DP MCB D CURVE", confidence: 0.9, pole_ladder: { amp_moved_up: { from: 16, to: 25 }, to: "25A DP MCB D CURVE" } }, mcb1_qty: { value: 6, confidence: 0.9 } } as never }]);
+    const helper = makePricingSheetHelper({ configsByCategory: new Map([["db_switchgear", DBSW_CONFIG]]), items: DBSW_ITEMS, extractionByRow: map });
+    const r = helper.compute({ ...ctx(311, "Outgoings: 6No.s.10/16A SPN MCB ( 'D' curve)"), category: "db_switchgear" }, { mcb1_item: "16A SP MCB D CURVE" } as never);
+    if (!isSuggestion(r)) throw new Error("not a suggestion");
+    expect(r.workings.attributes.find((a) => a.id === "mcb1_item")!.notes).toBeUndefined();
+  });
+  it("the rating-up note renders BEFORE the quantity notes and after a module upgrade, deterministically", () => {
+    // F-25 slice 2 (owner 2026-09-07): the two bare-box notes sit AFTER rating_up and BEFORE the
+    // quantity notes; rating_up's own position (after upgrade, before capped) is unchanged.
+    // F-25 slice 3 (owner 2026-09-08): `plate_floor` REGISTERED directly after `upgrade` -- a
+    // plate-driven raise of the pricer's box pick is the pick's own upgrade. Six -> seven, not silenced.
+    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "plate_floor", "rating_up", "assumed", "size_up", "capped", "uncovered"]);
+  });
+});
+
+// ── F-30 SLICE B (owner 2026-09-05, "implement same for sockets also") ─────────────────────────
+// ONE WORDING SOURCE, TWO PRODUCERS. The board note is produced from a marker the SERVER writes
+// (`pole_ladder`); the socket hop is computed in the FRONTEND interpreter (`catalog_fit`), which
+// writes no marker. So the producer differs -- and the sentence must not. Both producers build the
+// SAME `rating_up` note through the SAME `ratingUpNote`, and the panel words it through the SAME
+// `attrNoteText`. There is no second sentence anywhere; these pins make a fork fail.
+describe("F-30 slice B -- a catalog_fit hop reaches the panel as the SAME rating-up note", () => {
+  it("POSITIVE: 20 A is not carried -> 25 A fitted -> ONE rating_up note, worded for a pricer", () => {
+    const mcb = cfCompute()("paired_mcb")!;
+    expect(mcb.derivedValue).toBe("25A FP MCB C CURVE");
+    expect(mcb.notes).toEqual([{ kind: "rating_up", askedAmp: 20, usedAmp: 25, poleWord: "4 pole", device: "MCB", curve: "C" }]);
+    expect(attrNoteText(mcb.notes![0])).toBe("No 4 pole MCB at 20A on the C curve — using 25A.");
+  });
+
+  it("ONE WORDING SOURCE: the socket note is byte-equal to the board note built from a server marker with the same numbers", () => {
+    const socket = cfCompute()("paired_mcb")!.notes![0];
+    const board = ratingUpNote({ to: "25A FP MCB C CURVE", amp_moved_up: { from: 20, to: 25 } }, CF_ITEMS)!;
+    expect(socket).toEqual(board);
+    expect(attrNoteText(socket)).toBe(attrNoteText(board));
+  });
+
+  it("NEGATIVE: an EXACT fit says nothing -- no rating was raised", () => {
+    const mcb = cfCompute({ mcb_amp_a: 25 })("paired_mcb")!;
+    expect(mcb.derivedValue).toBe("25A FP MCB C CURVE");
+    expect(mcb.notes).toBeUndefined();
+  });
+
+  it("NEGATIVE: a STATED paired MCB says nothing -- the field is the pricer's", () => {
+    expect(cfCompute({ paired_mcb: "63A FP MCB C CURVE" })("paired_mcb")!.notes).toBeUndefined();
+  });
+
+  it("NEGATIVE: a concluded absence (mcb_present No) says nothing", () => {
+    expect(cfCompute({ mcb_present: "No" })("paired_mcb")!.notes).toBeUndefined();
+  });
+
+  it("NEGATIVE: a hop on a ladder whose rows carry no `device` (a tray, a thickness) gets NO breaker sentence", () => {
+    // The sentence names a pole, a device and a curve. A catalog_fit over rows that have none of
+    // those is not a breaker hop, and wording it as one ("No matching breaker at 300A...") would
+    // be a fabricated fact on a pricer's screen. The gate is the fitted row's `device`.
+    const TRAY_ITEMS = [
+      { discipline: "Electrical", kind: "cabletray", attributes: { item: "Tray 300", width_mm: 300 }, rates: { list_price: 100 } },
+      { discipline: "Electrical", kind: "cabletray", attributes: { item: "Tray 450", width_mm: 450 }, rates: { list_price: 150 } },
+    ] as unknown as RateMasterItem[];
+    const cfg = {
+      discipline: "Electrical", category_id: "tray_probe",
+      attribute_definitions: [
+        { id: "width_mm", label: "Width", type: "number" },
+        { id: "tray_item", label: "Tray", type: "choice", values: ["Tray 300", "Tray 450"] },
+      ],
+      pipelines: { t_boq: { output: ["supply"], steps: [
+        { step: "catalog_fit", params: { bind: "tray_item", kind: "cabletray", where: {}, size_from: { attr: "width_mm" }, fit_from: { attr: "width_mm" }, direction: "up", prefer_attr: "tray_item", on_miss: "none" } },
+        { step: "component_ref", name: "tray", ref: { kind: "cabletray", item: "@tray_item" }, target: "list_price", qty: 1 },
+        { step: "sum_components", result: "supply" },
+      ] } },
+    } as unknown as RateCategoryConfig;
+    const r = makePricingSheetHelper({
+      configsByCategory: new Map([["tray_probe", cfg]]), items: TRAY_ITEMS,
+      extractionByRow: buildExtractionByRow([{ excel_row: 1, attributes: { width_mm: { value: 400, confidence: 0.9 }, tray_item: { value: null, confidence: 0 } } as never }]),
+    }).compute({ ...cfCtx(1), category: "tray_probe" });
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const tray = r.workings.attributes.find((a) => a.id === "tray_item")!;
+    expect(tray.derivedValue).toBe("Tray 450"); // the hop happened
+    expect(tray.notes).toBeUndefined();         // and said nothing
+  });
+
+  it("CHANGE 2, what the pricer sees: nothing at or above the named rating REFUSES -- no figure, a no-match line", () => {
+    // Owner 2026-09-05: refusing rather than pricing the socket alone "is the correct outcome".
+    // The shipped config carries on_miss "no_compute"; this fixture mirrors it.
+    const cfg = catalogFitConfig();
+    (cfg.pipelines!.probe_boq.steps[0] as { params: Record<string, unknown> }).params.on_miss = "no_compute";
+    const r = makePricingSheetHelper({
+      configsByCategory: new Map([["cf_probe", cfg]]), items: CF_ITEMS,
+      extractionByRow: buildExtractionByRow([{ excel_row: 1, attributes: { mcb_present: { value: "Yes", confidence: 0.9 }, mcb_amp_a: { value: 500, confidence: 0.9 }, paired_mcb: { value: null, confidence: 0 } } as never }]),
+    }).compute(cfCtx(1));
+    if (!isSuggestion(r)) throw new Error("expected a suggestion shape");
+    expect(r.values.supply_rate).toBeUndefined();            // no total -- not a zero, not the socket alone
+    expect(r.basis).toBe("no match for these attributes");    // the header line the pricer sees
+    expect(r.workings.derivation.join("\n")).toMatch(/^No probe_boq rate row matches /m); // the body line, verbatim shape
+    expect(r.workings.attributes.find((a) => a.id === "paired_mcb")!.notes).toBeUndefined();
+  });
+});
+
+// ── F-25 SLICE 1 -- the back box gets its own DISPLAY field (v57, owner rulings 2026-09-06) ────
+// CONFIG ONLY. switches_sockets declares ONE attribute whose id is the box ladder's EXISTING bind
+// (`box_item`). Nothing in this helper changed: the bind is already in `derivedAttrIds` (gate-exempt),
+// `applyDerivedDisplay` already publishes the box ladder's outcome under it (the "(computed)" marker),
+// and `attributeOptions` already resolves its `values_from`. These pins say what that combination
+// SHOWS -- the owner's ruling verbatim: "this new field shoudld display the final value from the back
+// box ladder which is used for calculation".
+//
+// ⚠️ READ-ONLY WAS DROPPED BY RULING ("this is just ytransient behavior ... chaging would impact
+// price"). The field is an ordinary dropdown and a pick is INERT until slice 3 makes the floor
+// two-source. That transient is pinned below AS ACCEPTED, so a later reader finds it recorded rather
+// than rediscovering it as a defect.
+
+/** The live shape: plate + box ladders, the box floored from the PLATE, `on_none: computed`. */
+// F-25 SLICE 3 (v59, 2026-09-08): the box ladder declares `pick_from: "box_item"` by default -- the
+// live shape. `withPick = false` is the v58 ladder, kept so the no-pick INVARIANT can be pinned
+// with and without the key.
+function boxFieldConfig(withPick = true): RateCategoryConfig {
+  return {
+    discipline: "Electrical",
+    category_id: "box_probe",
+    attribute_definitions: [
+      { id: "switch_item", label: "Switch", type: "choice", values: ["10A 1 WAY SWITCH"], allow_none: true, disables_when_none: ["switch_qty"] },
+      { id: "switch_qty", label: "Switch qty", type: "number" },
+      { id: "plate_item", label: "Frame/Face plate", type: "choice", allow_none: true, disables_when_none: ["plate_qty"],
+        values_from: { kind: "switch_socket_item", attr: "item", where: { family: "Grid and Face Plates" } } },
+      { id: "plate_qty", label: "Plate qty", type: "number" },
+      { id: "back_box", label: "Back box", type: "choice", values: ["Yes", "No"] },
+      // THE v57 ATTRIBUTE, byte-for-byte the shape the asset carries.
+      { id: "box_item", label: "Back box size", type: "choice",
+        values_from: { kind: "switch_socket_item", attr: "item", where: { family: "Back Box" } }, extract: false },
+    ],
+    pipelines: {
+      probe_boq: {
+        output: ["supply"],
+        steps: [
+          {
+            step: "module_fit",
+            params: {
+              terms: [{ attr: "switch_qty", weight: 1, none_when: "switch_item" }],
+              ladders: [
+                { kind: "switch_socket_item", where: { family: "Grid and Face Plates" }, bind: "plate_item", floor_from: "plate_item", on_none: "none" },
+                { kind: "switch_socket_item", where: { family: "Back Box" }, bind: "box_item", floor_from: "plate_item", on_none: "computed",
+                  ...(withPick ? { pick_from: "box_item" } : {}) },
+              ],
+            },
+          },
+          { step: "component_ref", name: "back_box", ref: { kind: "switch_socket_item", family: "Back Box", item: "@box_item" },
+            target: "list_price", qty: { if_attr: { back_box: "Yes" }, then: 1, else: 0 }, none_skips: true },
+          { step: "sum_components", result: "supply" },
+        ],
+      },
+    },
+  } as unknown as RateCategoryConfig;
+}
+
+/** Plate rungs and box rungs as real catalogue rows -- the box ladder lacks 9M/16M on purpose. */
+const BOX_FIELD_ITEMS: RateMasterItem[] = [
+  ...["1M", "3M", "6M", "9M", "12M"].map((item) => ({ family: "Grid and Face Plates", item, price: 100 })),
+  ...[["1M", 121], ["2M", 121], ["3M", 178], ["4M", 205], ["6M", 279], ["8M", 362], ["12M", 465], ["18M", 552]]
+    .map(([item, price]) => ({ family: "Back Box", item: String(item), price: Number(price) })),
+].map(({ family, item, price }) => ({
+  discipline: "Electrical",
+  kind: "switch_socket_item",
+  attributes: { item, family },
+  rates: { list_price: price },
+})) as unknown as RateMasterItem[];
+
+const boxCtx = (excelRow: number): RateHelperRowContext => ({
+  excelRow, description: "box probe", nodeType: "Line Item",
+  category: "box_probe", discipline: "Electrical",
+  rateKinds: ["supply_rate", "install_rate", "combined_rate"] as unknown as never,
+});
+
+function boxCompute(
+  over: Record<string, string | number | null> = {},
+  overrides?: Record<string, string>,
+  withPick = true,
+) {
+  const base: Record<string, string | number | null> = {
+    switch_item: "10A 1 WAY SWITCH", switch_qty: 3, plate_item: null, plate_qty: 1, back_box: "Yes",
+  };
+  const attrs = Object.fromEntries(
+    Object.entries({ ...base, ...over }).map(([k, v]) => [k, { value: v, confidence: 0.9 }]),
+  );
+  const r = makePricingSheetHelper({
+    configsByCategory: new Map([["box_probe", boxFieldConfig(withPick)]]),
+    items: BOX_FIELD_ITEMS,
+    extractionByRow: buildExtractionByRow([{ excel_row: 7, attributes: attrs as never }]),
+  }).compute(boxCtx(7), overrides);
+  if (!isSuggestion(r)) throw new Error("expected a suggestion");
+  return { r, attr: (id: string) => r.workings.attributes.find((a) => a.id === id) };
+}
+
+describe("F-25 slice 1 -- the back box field SHOWS the rung the row is priced on, computed", () => {
+  it("POSITIVE (the live row-50 shape): a blank plate over 3 modules shows the 3M box, marked computed", () => {
+    const { r, attr } = boxCompute();
+    const box = attr("box_item")!;
+    expect(box.derived).toBe(true);
+    expect(box.derivedValue).toBe("3M");
+    expect(box.value).toBe("");                          // the row supplied nothing -- never overwritten
+    expect(attrDisplayValue(box)).toBe("3M");
+    expect(isShowingDerived(box)).toBe(true);            // the SAME "(computed)" mechanism the plate uses
+    expect(isAttrBlank(box)).toBe(false);                // a computed field is never a red "missing" one
+    expect(r.values.supply_rate).toBe(178);              // the 3M box, list 178 -- and nothing else moved
+  });
+
+  it("POSITIVE: a stated plate LARGER than the contents drives the box -- 6M plate over 3 modules shows a 6M box", () => {
+    const { attr } = boxCompute({ plate_item: "6M" });
+    expect(attrDisplayValue(attr("box_item")!)).toBe("6M");   // the plate-driven size, not the contents'
+    expect(isShowingDerived(attr("box_item")!)).toBe(true);
+  });
+
+  it("POSITIVE (owner: \"that's ok\"): a 9M plate drives a 12M box -- two different numbers, NO note", () => {
+    const { attr } = boxCompute({ plate_item: "9M" });
+    expect(attrDisplayValue(attr("plate_item")!)).toBe("9M");
+    expect(attrDisplayValue(attr("box_item")!)).toBe("12M");  // next higher on the BOX ladder
+    expect(attr("box_item")!.notes).toBeUndefined();          // no reconciliation on screen, by ruling
+  });
+
+  it("POSITIVE: a None plate keeps the box COMPUTED from the contents (on_none: computed)", () => {
+    const { attr } = boxCompute({ plate_item: "None" });
+    expect(attrDisplayValue(attr("plate_item")!)).toBe("None");
+    expect(attrDisplayValue(attr("box_item")!)).toBe("3M");
+  });
+
+  // F-25 SLICE 2 (2026-09-07) INVERTED this pin's meaning without changing its assertions: it no longer
+  // says "slice 2 is owed", it says the zero path is ADDITIVE -- with NO `on_zero_from` / `on_zero_modules`
+  // on the ladder (this fixture) a bare box still binds the sentinel. The delivered behaviour is pinned
+  // in the slice-2 block at the end of this file.
+  it("NEGATIVE (additivity, was 'slice 2 is still owed'): a BARE box on a ladder WITHOUT the zero keys shows an EMPTY field and prices 0", () => {
+    const { r, attr } = boxCompute({ switch_item: "None", switch_qty: null, plate_item: "None" });
+    const box = attr("box_item")!;
+    expect(box.derived).toBe(true);
+    expect(box.derivedValue).toBeUndefined();            // the zero path binds the sentinel -- nothing fitted
+    expect(attrDisplayValue(box)).toBe("");
+    expect(isShowingDerived(box)).toBe(false);
+    expect(isAttrBlank(box)).toBe(false);                // empty, but NOT flagged missing -- it is derived
+    expect(r.values.supply_rate).toBe(0);                // the confident zero this slice does NOT touch
+  });
+
+  it("POSITIVE: the dropdown is the Back Box family ONLY -- eight rungs, no plate rung, and no \"None\"", () => {
+    const cfg = boxFieldConfig();
+    const def = cfg.attribute_definitions!.find((d) => d.id === "box_item")!;
+    expect(attributeOptions(def, BOX_FIELD_ITEMS)).toEqual(["1M", "2M", "3M", "4M", "6M", "8M", "12M", "18M"]);
+    expect(attributeOptions(def, BOX_FIELD_ITEMS)).not.toContain("9M");   // a plate rung
+    expect(attributeOptions(def, BOX_FIELD_ITEMS)[0]).not.toBe(NONE_SENTINEL); // not allow_none, by ruling
+    expect(def.allow_none).toBeUndefined();
+  });
+
+  it("NEGATIVE: the field is DERIVED, so a blank box never gates the row as incomplete", () => {
+    const cfg = boxFieldConfig();
+    expect(derivedAttrIds(cfg).has("box_item")).toBe(true);   // the bind IS the id -- gate-exempt for free
+    const { r } = boxCompute();
+    expect(r.basis).not.toBe("Complete the missing attributes to price");
+  });
+
+  it("THE TRANSIENT ENDS (F-25 slice 3, 2026-09-08 -- INVERTED from 'the price does NOT follow'): a pick SHOWS and the price FOLLOWS", () => {
+    // Slice 1 pinned this as the KNOWN, ACCEPTED TRANSIENT (#57 item 2): the box ladder's floor was
+    // `plate_item` and nothing read `selected.box_item`, so a pick showed and priced nothing. Slice 3
+    // gives the ladder `pick_from: "box_item"`, read at BOTH module_fit sites. The same assertions,
+    // with the ONE that recorded the defect inverted: the price now moves. Never deleted.
+    const before = boxCompute().r.values.supply_rate;          // 178, the computed 3M box
+    const { r, attr } = boxCompute({}, { box_item: "18M" });
+    expect(attrDisplayValue(attr("box_item")!)).toBe("18M");   // the pick shows, plain
+    expect(isShowingDerived(attr("box_item")!)).toBe(false);
+    expect(attr("box_item")!.readOnly).toBeUndefined();        // an ORDINARY dropdown, by ruling
+    expect(before).toBe(178);
+    expect(r.values.supply_rate).toBe(552);                    // ...and the price FOLLOWED (the 18M box)
+    // NEGATIVE (additivity): on the v58 ladder -- no pick_from -- the same pick is still inert
+    const v58 = boxCompute({}, { box_item: "18M" }, false);
+    expect(v58.r.values.supply_rate).toBe(178);
+  });
+});
+
+// ── F-25 SLICE 2 -- a bare box prices as its back box, and the PANEL SAYS WHEN IT GUESSED ──────────
+// (v58, owner rulings 2026-09-06/07). The box ladder gains `on_zero_from: box_modules_stated` +
+// `on_zero_modules: 3`; the config gains the `panel: false` number attribute the model reads. On the
+// zero-module path `box_item` (slice 1's field) shows the rung priced, "(computed)", and carries a
+// note: `assumed` when nothing readable stated the size (THE note the owner called the most important
+// thing in the slice), `size_up` when the stated count was moved up to the next stocked rung.
+function bareBoxConfig(withKeys = true, withPick = true): RateCategoryConfig {
+  const base = boxFieldConfig(withPick) as unknown as {
+    attribute_definitions: Array<Record<string, unknown>>;
+    pipelines: { probe_boq: { steps: Array<{ step: string; params?: { ladders?: Array<Record<string, unknown>> } }> } };
+  };
+  if (withKeys) {
+    // the v58 attribute, byte-for-byte, directly after box_item
+    const i = base.attribute_definitions.findIndex((d) => d.id === "box_item");
+    base.attribute_definitions.splice(i + 1, 0, { id: "box_modules_stated", label: "Back box module count", type: "number", panel: false });
+    const box = base.pipelines.probe_boq.steps[0].params!.ladders![1];
+    box.on_zero_from = "box_modules_stated";
+    box.on_zero_modules = 3;
+  }
+  return base as unknown as RateCategoryConfig;
+}
+// F-25 slice 3: `overrides` = the pricer's panel picks; `withPick` = the v59 ladder (default) vs v58.
+function bareBoxCompute(
+  stated: string | number | null,
+  over: Record<string, string | number | null> = {},
+  withKeys = true,
+  overrides?: Record<string, string>,
+  withPick = true,
+) {
+  const attrs = Object.fromEntries(
+    Object.entries({
+      switch_item: "None", switch_qty: null, plate_item: "None", plate_qty: null, back_box: "Yes",
+      box_modules_stated: stated, ...over,
+    }).map(([k, v]) => [k, { value: v, confidence: 0.9 }]),
+  );
+  const r = makePricingSheetHelper({
+    configsByCategory: new Map([["box_probe", bareBoxConfig(withKeys, withPick)]]),
+    items: BOX_FIELD_ITEMS,
+    extractionByRow: buildExtractionByRow([{ excel_row: 9, attributes: attrs as never }]),
+  }).compute(boxCtx(9), overrides);
+  if (!isSuggestion(r)) throw new Error("expected a suggestion: " + JSON.stringify(r));
+  return { r, attr: (id: string) => r.workings.attributes.find((a) => a.id === id) };
+}
+
+describe("F-25 slice 2 -- a bare box prices as its back box, and the panel says when it guessed", () => {
+  it("POSITIVE (H1): a stated 3 -> Back box size shows 3M (computed), supply 178, NO note", () => {
+    const { r, attr } = bareBoxCompute(3);
+    const box = attr("box_item")!;
+    expect(attrDisplayValue(box)).toBe("3M");
+    expect(isShowingDerived(box)).toBe(true);
+    expect(box.notes).toBeUndefined();
+    expect(r.values.supply_rate).toBe(178);
+  });
+
+  it("POSITIVE (H3): a stated 9 -> 12M with the size_up note, worded for a pricer", () => {
+    const { r, attr } = bareBoxCompute(9);
+    const box = attr("box_item")!;
+    expect(attrDisplayValue(box)).toBe("12M");
+    expect(box.notes?.map((n) => n.kind)).toEqual(["size_up"]);
+    expect(attrNoteText(box.notes![0])).toBe("No 9M in the catalogue — using 12M, the next size up.");
+    expect(r.values.supply_rate).toBe(465);
+  });
+
+  it("POSITIVE (H4/H5 -- THE MOST IMPORTANT NOTE): nothing readable -> 3M (computed) AND the panel says it was assumed", () => {
+    for (const stated of [null, ""] as const) {
+      const { r, attr } = bareBoxCompute(stated);
+      const box = attr("box_item")!;
+      expect(attrDisplayValue(box)).toBe("3M");
+      expect(isShowingDerived(box)).toBe(true);
+      expect(box.notes?.map((n) => n.kind)).toEqual(["assumed"]);
+      expect(attrNoteText(box.notes![0])).toBe("No module size readable in the row or its headings — assumed 3M. Check it.");
+      expect(r.values.supply_rate).toBe(178);
+      expect(r.basis).not.toBe("Complete the missing attributes to price"); // the hidden attribute never gates
+    }
+  });
+
+  it("NEGATIVE: the assumed note is ABSENT when the size was read, and size_up is absent on an exact rung", () => {
+    expect(bareBoxCompute(8).attr("box_item")!.notes).toBeUndefined();
+    expect(bareBoxCompute(2).attr("box_item")!.notes).toBeUndefined(); // H2's 1/2 module -> 2 -> the live 2M row, exact
+    expect(attrDisplayValue(bareBoxCompute(2).attr("box_item")!)).toBe("2M");
+  });
+
+  it("NEGATIVE: the size does NOT come from plate_item -- a phantom 9M plate on a bare box still yields the ASSUMED 3M", () => {
+    const { r, attr } = bareBoxCompute(null, { plate_item: "9M", plate_qty: 1 });
+    expect(attrDisplayValue(attr("box_item")!)).toBe("3M");
+    expect(attr("box_item")!.notes?.map((n) => n.kind)).toEqual(["assumed"]);
+    expect(r.values.supply_rate).toBe(178);
+  });
+
+  it("NEGATIVE: the stated-count attribute is HIDDEN from the panel (panel: false) and never gates the row", () => {
+    const { r } = bareBoxCompute(null);
+    expect(r.workings.attributes.find((a) => a.id === "box_modules_stated")).toBeUndefined();
+    expect(r.basis).not.toBe("Complete the missing attributes to price");
+  });
+
+  it("THE INVARIANT: a row WITH a plate is byte-identical with and without the slice-2 keys", () => {
+    const plated = { switch_item: "10A 1 WAY SWITCH", switch_qty: 3, plate_item: "9M", plate_qty: 1, back_box: "Yes" };
+    const a = bareBoxCompute(4, plated, true);   // a stray stated 4 must NOT be consulted
+    const b = bareBoxCompute(null, plated, false);
+    expect(a.r.values).toEqual(b.r.values);
+    expect(attrDisplayValue(a.attr("box_item")!)).toBe("12M");                  // still the plate-driven rung
+    expect(a.attr("box_item")!.notes).toEqual(b.attr("box_item")!.notes);         // both undefined: "that's ok"
+    expect(a.attr("box_item")!.notes).toBeUndefined();
+    expect(a.r.workings.attributes.filter((x) => x.id !== "box_modules_stated"))
+      .toEqual(b.r.workings.attributes.filter((x) => x.id !== "box_modules_stated"));
+  });
+
+  it("NEGATIVE (the slice-1 pin, INVERTED): without the keys a bare box still shows an EMPTY field and prices 0", () => {
+    const { r, attr } = bareBoxCompute(null, {}, false);
+    expect(attrDisplayValue(attr("box_item")!)).toBe("");
+    expect(r.values.supply_rate).toBe(0);
+  });
+
+  it("the two notes are ordered assumed -> size_up when both apply (a default that has no exact rung)", () => {
+    // the assumed count is config; if the catalogue lacked a 3M box, the default would round up too
+    const notes = sortAttrNotes([
+      { kind: "size_up", asked: 3, using: "4M" },
+      { kind: "assumed", assumed: 3, using: "4M" },
+    ]);
+    expect(notes.map((n) => n.kind)).toEqual(["assumed", "size_up"]);
+  });
+});
+
+// ── F-25 SLICE 3 -- THE BOX FIELD BECOMES EFFECTIVE (owner rulings 2026-09-06/08) ──────────────────
+// v59: the box ladder declares `pick_from: "box_item"`. A pricer's pick (a panel override) now reaches
+// the price at BOTH module_fit sites. On the panel: an honoured pick shows PLAIN (the pricer's own
+// value); a raised pick shows what was bought, "(computed)", with the reason -- `plate_floor` (a new
+// kind: "3M is smaller than the 6M face plate — using 6M.") when the PLATE set the floor, the EXISTING
+// `upgrade` sentence when the contents did. On a bare box a pick wins and the `assumed` note goes.
+describe("F-25 slice 3 -- the floor branch on the panel: the plate is a minimum", () => {
+  it("POSITIVE: a pick ABOVE the plate is honoured, shown PLAIN, no note -- 6M plate / 3 modules, pick 8M -> 362", () => {
+    const { r, attr } = boxCompute({ plate_item: "6M" }, { box_item: "8M" });
+    const box = attr("box_item")!;
+    expect(attrDisplayValue(box)).toBe("8M");
+    expect(isShowingDerived(box)).toBe(false);                 // the pricer's own value, unmarked
+    expect(box.substituted).toBeUndefined();
+    expect(box.notes).toBeUndefined();
+    expect(r.values.supply_rate).toBe(362);
+  });
+
+  it("POSITIVE: a pick BELOW the plate is RAISED to the PLATE's size, marked, with the new sentence -- pick 3M under 6M -> 279", () => {
+    const { r, attr } = boxCompute({ plate_item: "6M" }, { box_item: "3M" });
+    const box = attr("box_item")!;
+    expect(attrDisplayValue(box)).toBe("6M");                   // what was BOUGHT, not what was picked
+    expect(isShowingDerived(box)).toBe(true);
+    expect(box.substituted).toBe(true);
+    expect(box.notes?.map((n) => n.kind)).toEqual(["plate_floor"]);
+    expect(attrNoteText(box.notes![0])).toBe("3M is smaller than the 6M face plate — using 6M.");
+    expect(r.values.supply_rate).toBe(279);
+  });
+
+  it("POSITIVE: a pick EQUAL to the plate is honoured, no note", () => {
+    const { r, attr } = boxCompute({ plate_item: "6M" }, { box_item: "6M" });
+    expect(attrDisplayValue(attr("box_item")!)).toBe("6M");
+    expect(isShowingDerived(attr("box_item")!)).toBe(false);
+    expect(attr("box_item")!.notes).toBeUndefined();
+    expect(r.values.supply_rate).toBe(279);
+  });
+
+  it("POSITIVE: with NO plate the floor is the contents and the EXISTING upgrade sentence carries it -- pick 1M under 3 modules -> 3M", () => {
+    const { r, attr } = boxCompute({}, { box_item: "1M" });
+    const box = attr("box_item")!;
+    expect(attrDisplayValue(box)).toBe("3M");
+    expect(box.notes?.map((n) => n.kind)).toEqual(["upgrade"]);
+    expect(attrNoteText(box.notes![0])).toBe("1M holds 1 module; contents occupy 3 — using 3M.");
+    expect(r.values.supply_rate).toBe(178);
+  });
+
+  it("NEGATIVE: the plate field is untouched by a box pick -- its own value, its own notes", () => {
+    const { attr } = boxCompute({ plate_item: "6M" }, { box_item: "3M" });
+    expect(attrDisplayValue(attr("plate_item")!)).toBe("6M");
+    expect(attr("plate_item")!.notes).toBeUndefined();
+  });
+
+  it("NEGATIVE: the raised pick is a session override -- the field stays editable, never readOnly", () => {
+    const { attr } = boxCompute({ plate_item: "6M" }, { box_item: "3M" });
+    expect(attr("box_item")!.readOnly).toBeUndefined();
+  });
+});
+
+describe("F-25 slice 3 -- the zero branch on the panel: a pick wins and the assumed note disappears", () => {
+  it("POSITIVE: nothing readable, pick 6M -> 6M PLAIN, NO assumed note, supply 279", () => {
+    const { r, attr } = bareBoxCompute(null, {}, true, { box_item: "6M" });
+    const box = attr("box_item")!;
+    expect(attrDisplayValue(box)).toBe("6M");
+    expect(isShowingDerived(box)).toBe(false);
+    expect(box.notes).toBeUndefined();                         // the ASSUMED sentence is GONE
+    expect(r.values.supply_rate).toBe(279);
+  });
+
+  it("POSITIVE: a pick beats a STATED count -- stated 8, pick 3M -> 3M, 178, no note", () => {
+    const { r, attr } = bareBoxCompute(8, {}, true, { box_item: "3M" });
+    expect(attrDisplayValue(attr("box_item")!)).toBe("3M");
+    expect(attr("box_item")!.notes).toBeUndefined();
+    expect(r.values.supply_rate).toBe(178);
+  });
+
+  it("POSITIVE: a pick the catalogue does not stock hops UP with the EXISTING size_up sentence -- pick 5M -> 6M", () => {
+    const { r, attr } = bareBoxCompute(null, {}, true, { box_item: "5M" });
+    const box = attr("box_item")!;
+    expect(attrDisplayValue(box)).toBe("6M");                  // what was BOUGHT, marked
+    expect(isShowingDerived(box)).toBe(true);
+    expect(box.notes?.map((n) => n.kind)).toEqual(["size_up"]);
+    expect(attrNoteText(box.notes![0])).toBe("No 5M in the catalogue — using 6M, the next size up.");
+    expect(r.values.supply_rate).toBe(279);
+  });
+
+  it("REVERT: clearing the pick brings the assumed 3M and its sentence back", () => {
+    const picked = bareBoxCompute(null, {}, true, { box_item: "6M" });
+    expect(picked.attr("box_item")!.notes).toBeUndefined();
+    const cleared = bareBoxCompute(null, {}, true, {});
+    expect(attrDisplayValue(cleared.attr("box_item")!)).toBe("3M");
+    expect(cleared.attr("box_item")!.notes?.map((n) => n.kind)).toEqual(["assumed"]);
+    expect(cleared.r.values.supply_rate).toBe(178);
+  });
+});
+
+describe("F-25 slice 3 -- THE INVARIANT on the panel: no pick = byte-identical to v58", () => {
+  it("floor branch: every slice-1 shape renders identically with and without pick_from", () => {
+    const shapes: Record<string, string | number | null>[] = [{}, { plate_item: "6M" }, { plate_item: "9M" }, { plate_item: "None" }, { plate_item: "1M" }];
+    for (const over of shapes) {
+      const a = boxCompute(over, undefined, true);
+      const b = boxCompute(over, undefined, false);
+      expect(a.r.values).toEqual(b.r.values);
+      expect(a.r.workings.attributes).toEqual(b.r.workings.attributes);
+    }
+  });
+  it("zero branch: stated / assumed / next-higher render identically with and without pick_from", () => {
+    for (const stated of [3, 9, null, ""] as const) {
+      const a = bareBoxCompute(stated, {}, true, undefined, true);
+      const b = bareBoxCompute(stated, {}, true, undefined, false);
+      expect(a.r.values).toEqual(b.r.values);
+      expect(a.r.workings.attributes).toEqual(b.r.workings.attributes);
+    }
+  });
+  it("NEGATIVE: the box field is still DERIVED (gate-exempt) with pick_from declared", () => {
+    expect(derivedAttrIds(boxFieldConfig()).has("box_item")).toBe(true);
+    expect(boxCompute().r.basis).not.toBe("Complete the missing attributes to price");
+  });
+});
+
+describe("F-25 slice 3 -- the plate_floor note kind", () => {
+  it("ONE wording source: attrNoteText words it, in the register of the shipped sentences", () => {
+    expect(attrNoteText({ kind: "plate_floor", picked: "1M", plate: "12M", using: "12M" }))
+      .toBe("1M is smaller than the 12M face plate — using 12M.");
+  });
+  it("ORDER: plate_floor sits directly after upgrade and before rating_up", () => {
+    const sorted = sortAttrNotes([
+      { kind: "rating_up", askedAmp: 20, usedAmp: 25, poleWord: "2 pole", device: "MCB", curve: "C" },
+      { kind: "plate_floor", picked: "3M", plate: "6M", using: "6M" },
+      { kind: "upgrade", stated: "1M", statedHolds: 1, occupied: 3, using: "3M" },
+    ]);
+    expect(sorted.map((n) => n.kind)).toEqual(["upgrade", "plate_floor", "rating_up"]);
+  });
+});
+
+// ---- 2026-09-08: NEVER-ASKED DEFAULTS (owner ruling: "Treat a never-asked field as answered -- this is ok";
+// condition: only a genuinely optional field; no sensible default -> stays blank and keeps refusing).
+//
+// THE DISTINCTION: the extractor writes a cell for EVERY attribute it asks (value null when unanswered), so on
+// an in-run row KEY ABSENT = never asked (the config gained the attribute after this run) and PRESENT-NULL =
+// asked and blank (a real read failure). This block pins the rule from BOTH sides; the negative on
+// present-null is the pin that stops the slice over-reaching.
+describe("never-asked defaults -- an ABSENT key takes its config default; a PRESENT-NULL key does not", () => {
+  /** moduleFitConfig() + a paired socket3 slot, a scalar-default colour, a no-default input, and a
+   * panel-hidden fact -- the shapes the live switches_sockets / cabletray configs carry. */
+  function neverAskedConfig(): RateCategoryConfig {
+    const cfg = moduleFitConfig() as unknown as Record<string, any>;
+    cfg.category_id = "na_probe";
+    cfg.attribute_definitions = [
+      ...cfg.attribute_definitions,
+      { id: "socket3_item", label: "Socket 3", type: "choice", values: ["SOCK"], allow_none: true, disables_when_none: ["socket3_qty"] },
+      { id: "socket3_qty", label: "Socket 3 qty", type: "number" },
+      { id: "colour", label: "Colour", type: "choice", values: ["White", "Grey"] },
+      { id: "mount", label: "Mount", type: "choice", values: ["Flush", "Surface"] }, // NO default, NOT allow_none
+      { id: "hidden_fact", label: "Hidden", type: "number", panel: false },              // panel-hidden: never gated
+    ];
+    cfg.extraction_defaults = {
+      colour: "White",
+      switch_qty: { default: 1, requires_named: "switch_item" },
+      socket3_qty: { default: 1, requires_named: "socket3_item" },
+    };
+    // The probe as shipped prices nothing (its one component_ref never resolves), so the pipeline is
+    // rebuilt in the LIVE swsock_boq shape: a plate ladder, a blanker fit, socket3 / blank / plate refs.
+    cfg.pipelines.probe_boq.steps = [
+      {
+        step: "module_fit",
+        params: {
+          terms: [{ attr: "socket3_qty", weight: 3, none_when: "socket3_item" }, { attr: "switch_qty", weight: 1 }],
+          ladders: [{ kind: "switch_socket_item", where: { family: "Grid and Face Plates" }, bind: "plate_item", floor_from: "plate_item", on_none: "none" }],
+          blanks: { bind: "blank_count", from_ladder: "plate_item", qty_attr: "blank_qty", bind_item: "blank_fit_item", item_when_positive: "1M Blanker" },
+        },
+      },
+      { step: "component_ref", name: "socket3", ref: { kind: "switch_socket_item", family: "Socket", item: "@socket3_item" }, target: "list_price", rate_stages: [{ mult: 1.0, round: null }], qty: { from_attr: "socket3_qty" }, none_skips: true },
+      { step: "component_ref", name: "blank", ref: { kind: "switch_socket_item", family: "Switch", item: "@blank_fit_item" }, target: "list_price", rate_stages: [{ mult: 1.0, round: null }], qty: { from_fit: "blank_count" }, none_skips: true },
+      { step: "component_ref", name: "plate", ref: { kind: "switch_socket_item", family: "Grid and Face Plates", item: "@plate_item" }, target: "list_price", rate_stages: [{ mult: 1.0, round: null }], qty: { from_attr: "plate_qty" }, none_skips: true },
+      { step: "sum_components", result: "supply" },
+    ];
+    return cfg as unknown as RateCategoryConfig;
+  }
+  const ITEMS_NA: RateMasterItem[] = [
+    { discipline: "Electrical", kind: "switch_socket_item", attributes: { item: "3M", family: "Grid and Face Plates", modules: 3 }, rates: { list_price: 100 } },
+    { discipline: "Electrical", kind: "switch_socket_item", attributes: { item: "6M", family: "Grid and Face Plates", modules: 6 }, rates: { list_price: 200 } },
+    { discipline: "Electrical", kind: "switch_socket_item", attributes: { item: "1M Blanker", family: "Switch", modules: 1 }, rates: { list_price: 10 } },
+    { discipline: "Electrical", kind: "switch_socket_item", attributes: { item: "SOCK", family: "Socket", modules: 3 }, rates: { list_price: 50 } },
+  ];
+  const ctxNA = (excelRow: number): RateHelperRowContext => ({
+    excelRow, description: "probe row", nodeType: "Line Item", category: "na_probe", discipline: "Electrical",
+    rateKinds: ["supply_rate", "install_rate", "combined_rate"] as unknown as never,
+  });
+  type Cell = { value: string | number | null; confidence: number; defaulted?: boolean };
+  const helperNA = (attrs: Record<string, Cell>, cfg: RateCategoryConfig = neverAskedConfig()) =>
+    makePricingSheetHelper({
+      configsByCategory: new Map([["na_probe", cfg]]),
+      items: ITEMS_NA,
+      extractionByRow: buildExtractionByRow([{ excel_row: 1, attributes: attrs }]),
+    });
+  const attrOf = (r: unknown, id: string) =>
+    ((r as { workings?: { attributes: Array<Record<string, unknown>> } }).workings?.attributes ?? []).find((a) => a.id === id);
+  const neverAskedLine = (r: unknown) =>
+    ((r as { workings?: { derivation: string[] } }).workings?.derivation ?? []).find((l) => l.startsWith("(never asked at extraction"));
+  // A row extracted BEFORE socket3 / colour existed on the config, with mount answered (present).
+  const OLD_ROW: Record<string, Cell> = {
+    switch_item: { value: "10A 1 WAY SWITCH", confidence: 0.9 },
+    switch_qty: { value: 1, confidence: 0.9 },
+    plate_item: { value: null, confidence: 0.3 },
+    plate_qty: { value: 1, confidence: 0.9 },
+    blank_qty: { value: null, confidence: 0.5 },
+    mount: { value: "Flush", confidence: 0.8 },
+  };
+  // The SAME row as the model would return it today: socket3 "None" claimed as a default, colour defaulted.
+  const NEW_ROW: Record<string, Cell> = {
+    ...OLD_ROW,
+    socket3_item: { value: "None", confidence: 0.6, defaulted: true },
+    socket3_qty: { value: null, confidence: 0 },
+    colour: { value: "White", confidence: 0.5, defaulted: true },
+  };
+
+  it("POSITIVE: KEY ABSENT on an allow_none slot -> None, badged defaulted, gate passes, row prices", () => {
+    const r = helperNA(OLD_ROW).compute(ctxNA(1));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.basis).not.toMatch(/Complete the missing attributes/);
+    expect(Object.keys(r.values).length).toBeGreaterThan(0);
+    const s3 = attrOf(r, "socket3_item");
+    expect(s3?.value).toBe("None");
+    expect(s3?.defaulted).toBe(true);
+    expect(s3?.confidence).toBeUndefined();          // no model confidence to show -- never rendered as 0%
+    expect(attrOf(r, "socket3_qty")?.disabled).toBe(true); // None disables the paired qty (existing mechanism)
+    const col = attrOf(r, "colour");
+    expect(col?.value).toBe("White");                 // the scalar extraction_defaults source
+    expect(col?.defaulted).toBe(true);
+    expect(neverAskedLine(r)).toMatch(/Socket 3=None/);
+    expect(neverAskedLine(r)).toMatch(/Colour=White/);
+    // The panel shows SECTION derivations (not the flat list) on every module_fit category, so the
+    // line must ride every section too -- otherwise it would exist only in this test.
+    const secs = r.workings.sections ?? [];
+    expect(secs.length).toBeGreaterThan(0);
+    for (const s of secs) expect(s.derivation.some((l) => l.startsWith("(never asked at extraction"))).toBe(true);
+  });
+
+  it("NEGATIVE (the over-reach pin): PRESENT-NULL on the same slot is a real read failure -> still refuses", () => {
+    const r = helperNA({ ...OLD_ROW, socket3_item: { value: null, confidence: 0.2 }, socket3_qty: { value: null, confidence: 0 }, colour: { value: "White", confidence: 0.5 } }).compute(ctxNA(1));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.basis).toMatch(/Complete the missing attributes/);
+    expect(Object.keys(r.values)).toHaveLength(0);
+    expect(attrOf(r, "socket3_item")?.value).toBe("");
+    expect(attrOf(r, "socket3_item")?.defaulted).toBeUndefined();
+    expect(neverAskedLine(r)).toBeUndefined();
+  });
+
+  it("NEGATIVE: an attribute with NO sensible default, key absent -> still refuses (the face_mm case)", () => {
+    const { mount: _omit, ...withoutMount } = OLD_ROW;
+    const r = helperNA(withoutMount).compute(ctxNA(1));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.basis).toMatch(/Complete the missing attributes/);
+    expect(attrOf(r, "mount")?.value).toBe("");
+    expect(attrOf(r, "mount")?.defaulted).toBeUndefined();
+  });
+
+  it("NEGATIVE: a {default, text_overrides} spec is NOT reproduced at read time -> stays blank, refuses", () => {
+    const cfg = neverAskedConfig() as unknown as Record<string, any>;
+    cfg.attribute_definitions.push({ id: "install_pos", label: "Install", type: "choice", values: ["Ceiling", "Floor"] });
+    cfg.extraction_defaults.install_pos = { default: "Ceiling", text_overrides: [{ contains: "raceway", value: "Floor" }] };
+    const r = helperNA(OLD_ROW, cfg as unknown as RateCategoryConfig).compute(ctxNA(1));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.basis).toMatch(/Complete the missing attributes/);
+    expect(attrOf(r, "install_pos")?.value).toBe("");
+  });
+
+  it("THE INVARIANT: a row with EVERY key present is byte-identical -- no synthesized cell, no trace line", () => {
+    const r = helperNA(NEW_ROW).compute(ctxNA(1));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(neverAskedLine(r)).toBeUndefined();
+    // the model-claimed defaults are still badged by the EXISTING mechanism, untouched
+    expect(attrOf(r, "socket3_item")?.defaulted).toBe(true);
+    expect(attrOf(r, "socket3_item")?.confidence).toBe(0.6); // a REAL cell keeps its confidence
+    expect(Object.keys(r.values).length).toBeGreaterThan(0);
+  });
+
+  it("POSITIVE: a never-asked default participates in pricing EXACTLY as a model-claimed default does", () => {
+    const old = helperNA(OLD_ROW).compute(ctxNA(1));
+    const fresh = helperNA(NEW_ROW).compute(ctxNA(1));
+    expect(isSuggestion(old) && isSuggestion(fresh)).toBe(true);
+    if (!isSuggestion(old) || !isSuggestion(fresh)) return;
+    expect(old.values).toEqual(fresh.values);
+    expect(old.workings.finalValues).toEqual(fresh.workings.finalValues);
+    const dl = (r: typeof old) => r.workings.derivation.find((l) => l.startsWith("(defaulted --"));
+    expect(dl(old)).toMatch(/Socket 3=None/);
+    expect(dl(fresh)).toMatch(/Socket 3=None/);
+  });
+
+  it("POSITIVE: a pricer's override still wins over a never-asked default, and clears the badge", () => {
+    const h = helperNA(OLD_ROW);
+    const base = h.compute(ctxNA(1));
+    const over = h.compute(ctxNA(1), { socket3_item: "SOCK", socket3_qty: "1" });
+    expect(isSuggestion(base) && isSuggestion(over)).toBe(true);
+    if (!isSuggestion(base) || !isSuggestion(over)) return;
+    expect(over.values).not.toEqual(base.values);          // 3 more modules -> 6M, a different plate fit
+    expect(attrOf(over, "socket3_item")?.value).toBe("SOCK");
+    expect(attrOf(over, "socket3_item")?.defaulted).toBeUndefined();
+    expect(neverAskedLine(over)).not.toMatch(/Socket 3/);   // the overridden field leaves the line ...
+    expect(neverAskedLine(over)).toMatch(/Colour=White/);   // ... the still-defaulted one stays on it
+  });
+
+  it("POSITIVE: a requires_named quantity defaults ONLY when its item is FILLED (the paired-fill mirror)", () => {
+    // item present and named, qty key absent -> qty 1 (defaulted); prices like an explicit qty 1
+    const named = helperNA({ ...OLD_ROW, socket3_item: { value: "SOCK", confidence: 0.9 } }).compute(ctxNA(1));
+    const explicit = helperNA({ ...OLD_ROW, socket3_item: { value: "SOCK", confidence: 0.9 }, socket3_qty: { value: 1, confidence: 0.9 } }).compute(ctxNA(1));
+    expect(isSuggestion(named) && isSuggestion(explicit)).toBe(true);
+    if (!isSuggestion(named) || !isSuggestion(explicit)) return;
+    expect(attrOf(named, "socket3_qty")?.value).toBe("1");
+    expect(attrOf(named, "socket3_qty")?.defaulted).toBe(true);
+    expect(named.values).toEqual(explicit.values);
+    // item absent -> None -> the qty gets NO default and is disabled, never a phantom 1
+    const none = helperNA(OLD_ROW).compute(ctxNA(1));
+    expect(attrOf(none, "socket3_qty")?.value).toBe("");
+    expect(attrOf(none, "socket3_qty")?.defaulted).toBeUndefined();
+  });
+
+  it("NEGATIVE: a DERIVED attribute (a ladder bind) is never seeded -- absent plate_item prices via the ladder", () => {
+    const { plate_item: _omit, ...noPlate } = OLD_ROW;
+    const a = helperNA(noPlate).compute(ctxNA(1));
+    const b = helperNA(OLD_ROW).compute(ctxNA(1));
+    expect(isSuggestion(a) && isSuggestion(b)).toBe(true);
+    if (!isSuggestion(a) || !isSuggestion(b)) return;
+    expect(a.values).toEqual(b.values);
+    expect(attrOf(a, "plate_item")?.defaulted).toBeUndefined();
+  });
+
+  it("NEGATIVE: a MANUAL row (not in the run) is untouched -- still Fill the attributes to price this row", () => {
+    const h = makePricingSheetHelper({ configsByCategory: new Map([["na_probe", neverAskedConfig()]]), items: ITEMS_NA, extractionByRow: new Map() });
+    const r = h.compute(ctxNA(7));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.basis).toBe("Fill the attributes to price this row");
+    expect(attrOf(r, "socket3_item")?.value).toBe("");
+    expect(neverAskedLine(r)).toBeUndefined();
+  });
+
+  it("NEGATIVE: a category whose rows carry every key is untouched (the wiring goldens above run unchanged)", () => {
+    const map = buildExtractionByRow([{ excel_row: 3, attributes: ext({ material: "COPPER", insulation: "ARMOURED", core: 3, thickness_sqmm: 2.5 }) }]);
+    const r = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map }).compute(ctx(3, "3 core"));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(neverAskedLine(r)).toBeUndefined();
+    expect(r.workings.attributes.some((a) => a.defaulted)).toBe(false);
+  });
+
+  // ---- the rule is GENERAL: point_wiring's circuit block, added 2026-09-03, on a row extracted before it ----
+  function pwWithCircuit(): RateCategoryConfig {
+    const cfg = structuredClone(PW_CONFIG) as unknown as Record<string, any>;
+    cfg.attribute_definitions.push(
+      { id: "circuit_wire_included", label: "Circuit wiring included", type: "choice", values: ["Yes", "No"] },
+      { id: "circuit_wire1_core", label: "Circuit wire 1 - cores", type: "number" },
+      { id: "circuit_wire1_thickness_sqmm", label: "Circuit wire 1 - thickness (sqmm)", type: "number", allow_none: true },
+    );
+    cfg.extraction_defaults = { circuit_wire_included: "No", circuit_wire1_core: 1.0 };
+    return cfg as unknown as RateCategoryConfig;
+  }
+  const pwHelper = (attrs: Record<string, Cell>, cfg: RateCategoryConfig) =>
+    makePricingSheetHelper({ configsByCategory: new Map([["point_wiring", cfg]]), items: PW_HELPER_ITEMS, extractionByRow: buildExtractionByRow([{ excel_row: 40, attributes: attrs }]) });
+  const pwCtx = { ...ctx(40, "Point wiring for a light point"), category: "point_wiring" };
+
+  it("POSITIVE (point_wiring): the never-asked circuit fields default (No / 1 / None), badged, and the row prices as before the config grew", () => {
+    const before = pwHelper(PW_EXT as unknown as Record<string, Cell>, PW_CONFIG).compute(pwCtx);
+    const after = pwHelper(PW_EXT as unknown as Record<string, Cell>, pwWithCircuit()).compute(pwCtx);
+    expect(isSuggestion(before) && isSuggestion(after)).toBe(true);
+    if (!isSuggestion(before) || !isSuggestion(after)) return;
+    expect(after.basis).not.toMatch(/Complete the missing attributes/);
+    expect(after.values).toEqual(before.values);
+    expect(attrOf(after, "circuit_wire_included")?.value).toBe("No");
+    expect(attrOf(after, "circuit_wire_included")?.defaulted).toBe(true);
+    expect(attrOf(after, "circuit_wire1_core")?.value).toBe("1");
+    expect(attrOf(after, "circuit_wire1_thickness_sqmm")?.value).toBe("None");
+    expect(neverAskedLine(after)).toMatch(/Circuit wiring included=No/);
+  });
+
+  it("NEGATIVE (point_wiring): PRESENT-NULL circuit_wire_included -> still refuses", () => {
+    const attrs = { ...(PW_EXT as unknown as Record<string, Cell>), circuit_wire_included: { value: null, confidence: 0 } };
+    const r = pwHelper(attrs, pwWithCircuit()).compute(pwCtx);
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.basis).toMatch(/Complete the missing attributes/);
+    expect(attrOf(r, "circuit_wire_included")?.value).toBe("");
   });
 });

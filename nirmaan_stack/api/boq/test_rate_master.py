@@ -312,7 +312,7 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # the live corpus and changed ZERO, byte-identical to the prose output. The point axis was already
 # 231-of-237 correct and the other 6 sit ABOVE the floor; moving a working rule for tidiness is
 # exactly the risk that proof exists to retire.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v55.json"
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v59.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -2542,7 +2542,28 @@ class TestRateMaster(FrappeTestCase):
         defs = {d["id"]: d for d in cfg["attribute_definitions"]}
         # SLICE 5: 12 -> 17. FOUR from the two new socket slots (R8: socket3/socket4, item + qty
         # each), and ONE from the per-SKU `modules` width fact.
-        self.assertEqual(len(defs), 17)
+        # F-25 SLICE 1 (v57, owner 2026-09-06): 17 -> 18. ONE declared attribute whose id is the box
+        # ladder's EXISTING bind (`box_item`), so the panel SHOWS the back box the row is priced on,
+        # marked "(computed)" by the mechanism the plate already uses. Display only: the box
+        # ladder's floor stays `plate_item` (slice 3), the zero path is untouched (slice 2).
+        # F-25 SLICE 2 (v58, owner 2026-09-07): 18 -> 19. ONE hidden `number` the MODEL reads, the
+        # back box's STATED module count (`box_modules_stated`, panel: false), sitting after
+        # `box_item`; the box ladder's zero path now reads it (TestF25Slice2BareBox).
+        self.assertEqual(len(defs), 19)
+        size = defs["box_modules_stated"]
+        self.assertEqual(size, {"id": "box_modules_stated", "label": "Back box module count",
+                                "type": "number", "panel": False})
+        box = defs["box_item"]
+        self.assertEqual(box["label"], "Back box size")  # NOT "Back box" -- that is the Yes/No field
+        self.assertEqual(box["type"], "choice")
+        self.assertEqual(box["values_from"], {"kind": "switch_socket_item", "attr": "item",
+                                              "where": {"family": "Back Box"}})
+        self.assertIs(box["extract"], False)  # the box is COMPUTED, never asked of the model
+        self.assertNotIn("allow_none", box)   # back_box Yes/No is the one "is there a box" fact
+        self.assertNotIn("values", box)       # never a static list that goes stale
+        # it sits directly after the Yes/No field so the two read together on the panel
+        ids = [d["id"] for d in cfg["attribute_definitions"]]
+        self.assertEqual(ids[15:], ["back_box", "box_item", "box_modules_stated", "modules"])
         # NEGATIVE: the flat identity attributes are gone
         self.assertNotIn("family", defs)
         self.assertNotIn("item", defs)
@@ -6107,9 +6128,15 @@ class TestTpnPoleVocabulary(FrappeTestCase):
         member here would be a spelling nobody has measured."""
         cfg = self._config("industrial_sockets")
         d = [x for x in cfg["attribute_definitions"] if x["id"] == "mcb_pole_stated"][0]
+        # Owner ruling 2026-09-05 (F-30 slice B, #57 item 1 approved): the dropdown ALSO gains the
+        # five SPN-family spellings -- "for any pole + Neutral, should be matched with next higher
+        # pole: SPN with DP". The list is the board ladder's own vocabulary
+        # (extraction._SPN_FAMILY_TOKENS), of which the socket corpus uses exactly one, SP+N.
+        # Sixteen values now; still no unruled spelling.
         self.assertEqual(sorted(d["values"]),
                          sorted(["SP", "DP", "TP", "FP",
-                                 "TPN", "TP+N", "TP+NL", "TP+2N", "TP+2NL", "4P", "Four Pole"]))
+                                 "TPN", "TP+N", "TP+NL", "TP+2N", "TP+2NL", "4P", "Four Pole",
+                                 "SPN", "SP+N", "SP+NL", "SP&N", "1P+N"]))
         # the four ORIGINAL catalogue poles must survive untouched
         for original in ("SP", "DP", "TP", "FP"):
             self.assertIn(original, d["values"])
@@ -6169,6 +6196,195 @@ class TestTpnPoleVocabulary(FrappeTestCase):
         self.assertIn("VERBATIM", g)
         self.assertIn("computed downstream", g)
         self.assertNotIn("'4P' meaning FP", g)  # the retired conversion instruction
+
+
+# ======================================================================================
+# F-30 SLICE B (owner rulings 2026-09-05) -- THE SPN FAMILY ON THE SOCKET PATH, AND THE REFUSAL.
+#
+# "for any pole + Neutral, should be matched with next higher pole: SPN with DP, TPN with 4p".
+# The socket path resolves a control breaker's pole through a CONFIG TABLE (`map_attribute`,
+# above) feeding a frontend `catalog_fit` -- deterministic, so these pins are PROOF, not evidence.
+# The five SPN spellings are the board ladder's own vocabulary (extraction._SPN_FAMILY_TOKENS);
+# the socket corpus sweep (2026-09-05, 616 texts) found exactly ONE of them naming a breaker,
+# "SP+N" (BOQ-26-00126/ELEC/r398). Nothing here is padded beyond what one of the two paths uses.
+#
+# THE SOCKET-TOKEN HAZARD: in socket text "SPN" usually names the SOCKET, and the breaker's pole
+# is stated separately ("SPN industrial type socket outlet ... 20 A C curve, SP, MCB"). The
+# TABLE'S half of the guarantee is that a stated SP / DP passes through untouched -- pinned
+# below. The MODEL'S half (it must report the MCB's designation, not the socket's) is R12's
+# existing VERBATIM instruction, unchanged by this slice, and is proven on screen (cert D2).
+#
+# CHANGE 2 -- "refusing rather than pricing the socket alone: this is the correct outcome".
+# `catalog_fit` for the paired MCB now carries `on_miss: "no_compute"`: nothing at or above the
+# named rating REFUSES the row (honest no_match), where `none` priced the socket without its
+# breaker. `on_missing_fact` and `absent_when` are deliberately UNCHANGED -- a row that names no
+# amp, or no breaker at all, still prices the socket alone; only "asked for more than we carry"
+# refuses.
+# ======================================================================================
+class TestSpnPoleVocabulary(FrappeTestCase):
+    """F-30 slice B pins on the SHIPPED industrial_sockets config (the asset CURRENT_EALL_ASSET
+    names): the SPN family normalises to DP, the plain poles and the four-pole family are
+    untouched, the paired-MCB fit refuses on a miss, and no other config moved."""
+
+    _SPN_SPELLINGS = ("SPN", "SP+N", "SP+NL", "SP&N", "1P+N")
+    _FOUR_POLE_SPELLINGS = TestTpnPoleVocabulary._FOUR_POLE_SPELLINGS
+    _PRIOR_ASSET = "rate_master_electrical_all_v55.json"  # deliberately historical: the pre-slice-B shape
+
+    def _configs(self, filename=None):
+        with open(_asset_path(filename or CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            return json.load(fh)["category_configs"]
+
+    def _config(self, category_id, filename=None):
+        hit = [c for c in self._configs(filename) if c["category_id"] == category_id]
+        self.assertEqual(len(hit), 1, "expected exactly one %s config" % category_id)
+        return hit[0]
+
+    def _norm_steps(self, cfg):
+        out = {}
+        for pname, pl in (cfg.get("pipelines") or {}).items():
+            steps = pl.get("steps") or []
+            norm = [s for s in steps
+                    if s.get("step") == "map_attribute"
+                    and (s.get("params") or {}).get("result_attr") == "mcb_pole_norm"]
+            self.assertEqual(len(norm), 1, "%s must carry exactly one mcb_pole_norm step" % pname)
+            out[pname] = (steps, norm[0])
+        self.assertEqual(set(out), {"indsock_boq", "indsock_install"})
+        return out
+
+    def _fits(self, cfg):
+        out = {}
+        for pname, pl in (cfg.get("pipelines") or {}).items():
+            fits = [s for s in (pl.get("steps") or [])
+                    if s.get("step") == "catalog_fit" and (s.get("params") or {}).get("bind") == "paired_mcb"]
+            self.assertEqual(len(fits), 1, "%s must carry exactly one paired_mcb catalog_fit" % pname)
+            out[pname] = fits[0]["params"]
+        return out
+
+    # ---- CHANGE 1: the SPN family counts the neutral -> DP ------------------------------
+    def test_spn_spellings_normalise_to_dp(self):
+        """POSITIVE. Protects: a socket row whose CONTROL BREAKER is written SP+N (or any SPN
+        spelling) pairs a TWO-POLE MCB, decided by the table rather than the model. Before this
+        slice the token was outside the domain, was discarded at coercion, and the row fell
+        through to the pin-count default -- single-pole, the wrong price."""
+        cfg = self._config("industrial_sockets")
+        for pname, (_steps, norm) in self._norm_steps(cfg).items():
+            table = norm["params"]["table"]
+            for tok in self._SPN_SPELLINGS:
+                self.assertEqual(table.get(tok), "DP",
+                                 "%s: %r must normalise to DP, got %r" % (pname, tok, table.get(tok)))
+
+    def test_spn_spellings_are_offerable_values(self):
+        """POSITIVE, the other half of the same guarantee: a table key the domain cannot hold is
+        dead config (the model's answer is discarded before storage). Every SPN key is offerable."""
+        cfg = self._config("industrial_sockets")
+        d = [x for x in cfg["attribute_definitions"] if x["id"] == "mcb_pole_stated"][0]
+        for tok in self._SPN_SPELLINGS:
+            self.assertIn(tok, d["values"], "%r must be an offerable mcb_pole_stated value" % tok)
+        self.assertIs(d.get("panel"), False)  # the pricing panel stays out of scope, as for TPN
+
+    def test_plain_poles_pass_through_untouched(self):
+        """NEGATIVE -- THE SOCKET-TOKEN HAZARD, the table's half. A row whose SOCKET is SPN and
+        whose breaker states SP keeps SP; stated DP keeps DP; TP and FP likewise. The widening adds
+        keys, it never re-points the four catalogue poles."""
+        cfg = self._config("industrial_sockets")
+        for pname, (_steps, norm) in self._norm_steps(cfg).items():
+            table = norm["params"]["table"]
+            for plain in ("SP", "DP", "TP", "FP"):
+                self.assertEqual(table.get(plain), plain, "%s: %r must pass through" % (pname, plain))
+
+    def test_four_pole_family_is_byte_identical_to_the_prior_asset(self):
+        """NEGATIVE -- TPN UNCHANGED. Every entry the v55 table carried is carried with the same
+        value, and every four-pole spelling still maps to FP. Protects: a TPN socket row's price
+        cannot move under this slice (cert D5 is the on-screen half)."""
+        now = self._config("industrial_sockets")
+        before = self._config("industrial_sockets", self._PRIOR_ASSET)
+        for pname, (_s, norm) in self._norm_steps(now).items():
+            prior = self._norm_steps(before)[pname][1]["params"]["table"]
+            table = norm["params"]["table"]
+            for k, v in prior.items():
+                self.assertEqual(table.get(k), v, "%s: prior entry %r -> %r moved to %r" % (pname, k, v, table.get(k)))
+            for tok in self._FOUR_POLE_SPELLINGS:
+                self.assertEqual(table.get(tok), "FP")
+            # the widening is EXACTLY the five SPN keys, nothing else
+            self.assertEqual(set(table) - set(prior), set(self._SPN_SPELLINGS))
+
+    def test_the_spn_spellings_are_named_in_the_explain(self):
+        """POSITIVE. The step explains itself ON THE STEP (the v3 lesson): the reader-facing text
+        must name the full vocabulary it maps, SPN family included."""
+        cfg = self._config("industrial_sockets")
+        for pname, (_steps, norm) in self._norm_steps(cfg).items():
+            explain = norm.get("explain") or ""
+            for tok in self._SPN_SPELLINGS:
+                self.assertIn(tok, explain, "%s: step explain does not name %r" % (pname, tok))
+            self.assertIn("DP", explain)
+
+    # ---- CHANGE 2: nothing at or above the named rating REFUSES ---------------------------
+    def test_paired_mcb_fit_refuses_when_nothing_at_or_above_the_rating(self):
+        """POSITIVE + NEGATIVE. Owner 2026-09-05: refusing rather than pricing the socket alone
+        "is the correct outcome". The fit's `on_miss` is `no_compute` in BOTH pipelines (supply
+        and install must refuse together), while the two ABSENCE paths are untouched: a row that
+        names no amp (`on_missing_fact: none`) or no breaker (`absent_when`) still prices the
+        socket alone. The ladder still climbs (`direction: up`)."""
+        for pname, p in self._fits(self._config("industrial_sockets")).items():
+            self.assertEqual(p.get("on_miss"), "no_compute", pname)
+            self.assertEqual(p.get("on_missing_fact"), "none", pname)
+            self.assertEqual(p.get("absent_when"), {"attr": "mcb_present", "equals": "No"}, pname)
+            self.assertEqual(p.get("direction"), "up", pname)
+            self.assertEqual(p.get("prefer_attr"), "paired_mcb", pname)
+
+    # ---- the blast radius: nothing else moved ---------------------------------------------
+    def test_r12_and_every_config_but_the_named_mints_is_byte_identical_to_the_prior_asset(self):
+        """NEGATIVE, the mint gate in test form. R12 lives in the SHARED rules block, where a
+        phrase added to one rule is visible to every other question; widening `values` was
+        sufficient, so R12 is byte-equal to v55. Every other category config is byte-equal too,
+        and the industrial_sockets config differs from v55 ONLY in the three places this slice
+        names (the values list, the normalisation step, the paired-MCB fit)."""
+        now = {c["category_id"]: c for c in self._configs()}
+        before = {c["category_id"]: c for c in self._configs(self._PRIOR_ASSET)}
+        self.assertEqual(set(now), set(before))
+        # WIDENED AT F-25 SLICE 1 (v57, owner 2026-09-06): `switches_sockets` gained ONE attribute
+        # definition (`box_item`, the box ladder's bind, display-only). Named here for the same reason
+        # the LMS and socket mints were named in the cumulative pins -- a THIRD moving category still
+        # fails. Its pipelines/rules/goldens are pinned byte-equal to v56 in TestF25Slice1BackBoxField.
+        for cid in before:
+            if cid not in ("industrial_sockets", "switches_sockets"):
+                self.assertEqual(now[cid], before[cid], "%s moved" % cid)
+        # WIDENED AGAIN AT F-25 SLICE 2 (v58, owner 2026-09-07): the switches_sockets BOX ladder gained
+        # `on_zero_from` + `on_zero_modules` on both pipelines (pinned key by key in TestF25Slice2BareBox);
+        # everything else in those pipelines is still byte-equal to v55, asserted here with the two
+        # keys stripped -- a THIRD key, or a change to any other step, still fails.
+        # WIDENED AGAIN AT F-25 SLICE 3 (v59, owner 2026-09-08): the same BOX ladder gained `pick_from`
+        # (pinned key by key in TestF25Slice3PickFrom); the strip list grows to three, and a FOURTH
+        # key, or a change to any other step, still fails.
+        for pname, pb in before["switches_sockets"]["pipelines"].items():
+            pa = now["switches_sockets"]["pipelines"][pname]
+            self.assertEqual(pa["output"], pb["output"], pname)
+            self.assertEqual(pa["steps"][1:], pb["steps"][1:], pname)
+            la, lb = pa["steps"][0]["params"]["ladders"], pb["steps"][0]["params"]["ladders"]
+            self.assertEqual(la[0], lb[0], pname)
+            self.assertEqual({k: v for k, v in la[1].items() if k not in ("on_zero_from", "on_zero_modules", "pick_from")}, lb[1], pname)
+            self.assertEqual({k: v for k, v in pa["steps"][0]["params"].items() if k != "ladders"},
+                             {k: v for k, v in pb["steps"][0]["params"].items() if k != "ladders"}, pname)
+        n, b = now["industrial_sockets"], before["industrial_sockets"]
+        self.assertEqual(n["rules"], b["rules"])  # R12 untouched
+        for key in n:
+            if key in ("attribute_definitions", "pipelines"):
+                continue
+            self.assertEqual(n[key], b[key], "industrial_sockets.%s moved" % key)
+        for dn, db in zip(n["attribute_definitions"], b["attribute_definitions"]):
+            if dn["id"] != "mcb_pole_stated":
+                self.assertEqual(dn, db)
+        for pname in b["pipelines"]:
+            sn, sb = n["pipelines"][pname]["steps"], b["pipelines"][pname]["steps"]
+            self.assertEqual(len(sn), len(sb), pname)
+            for a, c in zip(sn, sb):
+                if a.get("step") == "map_attribute" and (a.get("params") or {}).get("result_attr") == "mcb_pole_norm":
+                    continue
+                if a.get("step") == "catalog_fit":
+                    self.assertEqual({k: v for k, v in a["params"].items() if k != "on_miss"},
+                                     {k: v for k, v in c["params"].items() if k != "on_miss"}, pname)
+                    continue
+                self.assertEqual(a, c, "%s: an untouched step moved" % pname)
 
 
 class TestConduitInTheCableRate(FrappeTestCase):
@@ -7335,7 +7551,13 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # that copies the block elsewhere has to say so". The LMS slice is that later mint:
         # it gave `lighting_mgmt_system` its two pipelines. Naming it here is the pin DOING
         # ITS JOB, not being relaxed -- a THIRD category appearing still fails.
-        self.assertEqual(changed, ["lighting_mgmt_system", "point_wiring"])
+        # ⚠️ WIDENED AGAIN AT F-30 SLICE B (v56, owner rulings 2026-09-05): `industrial_sockets`
+        # gained the SPN vocabulary and the paired-MCB refusal -- the third category, named for
+        # the same reason. A FOURTH still fails.
+        # WIDENED AGAIN AT F-25 SLICE 1 (v57, owner 2026-09-06): `switches_sockets` gained ONE
+        # display-only attribute (`box_item`); no circuit field, no pipeline, no golden moved (pinned
+        # in TestF25Slice1BackBoxField). A FIFTH still fails.
+        self.assertEqual(changed, ["industrial_sockets", "lighting_mgmt_system", "point_wiring", "switches_sockets"])
         self.assertEqual(payload["items"], prev["items"], "no rate and no item may move")
         for cid, c in now.items():
             if cid == "point_wiring":
@@ -7571,8 +7793,14 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # that copies the block elsewhere has to say so". The LMS slice is that later mint:
         # it gave `lighting_mgmt_system` its two pipelines. Naming it here is the pin DOING
         # ITS JOB, not being relaxed -- a THIRD category appearing still fails.
+        # ⚠️ WIDENED AGAIN AT F-30 SLICE B (v56, owner rulings 2026-09-05): `industrial_sockets`
+        # gained the SPN vocabulary and the paired-MCB refusal -- the third category, named for
+        # the same reason. A FOURTH still fails.
+        # WIDENED AGAIN AT F-25 SLICE 1 (v57, owner 2026-09-06): `switches_sockets` gained ONE
+        # display-only attribute (`box_item`); its goldens did NOT move (asserted below). A FIFTH
+        # still fails.
         self.assertEqual(sorted(k for k in now if now[k] != was[k]),
-                         ["lighting_mgmt_system", "point_wiring"])
+                         ["industrial_sockets", "lighting_mgmt_system", "point_wiring", "switches_sockets"])
         self.assertEqual(payload["items"], prev["items"])
         # ⚠️ SUPERSEDED AT SLICE B. F4a removed two pipelines, and `_validate_config` refuses
         # a golden naming a pipeline the config no longer declares -- so their `expect` keys
@@ -7753,8 +7981,14 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # that copies the block elsewhere has to say so". The LMS slice is that later mint:
         # it gave `lighting_mgmt_system` its two pipelines. Naming it here is the pin DOING
         # ITS JOB, not being relaxed -- a THIRD category appearing still fails.
+        # ⚠️ WIDENED AGAIN AT F-30 SLICE B (v56, owner rulings 2026-09-05): `industrial_sockets`
+        # gained the SPN vocabulary and the paired-MCB refusal -- the third category, named for
+        # the same reason. A FOURTH still fails. Its goldens did NOT move (asserted below).
+        # WIDENED AGAIN AT F-25 SLICE 1 (v57, owner 2026-09-06): `switches_sockets` gained ONE
+        # display-only attribute (`box_item`); its goldens did NOT move (asserted below). A FIFTH
+        # still fails.
         self.assertEqual(sorted(k for k in now if now[k] != was[k]),
-                         ["lighting_mgmt_system", "point_wiring"])
+                         ["industrial_sockets", "lighting_mgmt_system", "point_wiring", "switches_sockets"])
         self.assertEqual(payload["items"], prev["items"], "no item may move")
         # ⚠️ v55 ADDED a `lighting_mgmt_system` goldens block (the LMS slice). Assert the key
         # set moved by exactly that ONE addition -- still "no golden was dropped".
@@ -8271,10 +8505,574 @@ class TestLmsPricingHelper(FrappeTestCase):
         was = {c["category_id"]: c for c in prev["category_configs"]}
         now = {c["category_id"]: c for c in self.payload["category_configs"]}
         self.assertEqual(sorted(now), sorted(was), "no category added or removed")
-        self.assertEqual(sorted(k for k in now if now[k] != was[k]), ["lighting_mgmt_system"])
+        # ⚠️ WIDENED AT F-30 SLICE B (v56, owner rulings 2026-09-05). This pin is CUMULATIVE --
+        # it compares the CURRENT asset against v54 -- so the socket slice's ONE config
+        # (`industrial_sockets`: the SPN vocabulary + the paired-MCB refusal) now appears here
+        # beside the LMS one. Naming it is the pin DOING ITS JOB, not being relaxed -- a THIRD
+        # category appearing still fails, and no item and no golden may move.
+        # WIDENED AGAIN AT F-25 SLICE 1 (v57, owner 2026-09-06): `switches_sockets` gained ONE
+        # display-only attribute (`box_item`). A FOURTH still fails.
+        self.assertEqual(sorted(k for k in now if now[k] != was[k]),
+                         ["industrial_sockets", "lighting_mgmt_system", "switches_sockets"])
         self.assertEqual(self.payload["items"], prev["items"], "no item may move")
         for cat in was:
             if cat == "lighting_mgmt_system":
                 continue
             self.assertEqual(self.payload["goldens"].get(cat), prev["goldens"].get(cat),
                              "%s goldens must not move" % cat)
+
+
+class TestF25Slice1BackBoxField(FrappeTestCase):
+    """F-25 SLICE 1 (v57, owner rulings 2026-09-06) -- the back box gets its own DISPLAY field.
+
+    ONE attribute is declared on switches_sockets whose id is the box ladder's EXISTING bind
+    (`box_item`). Because it is a ladder bind it is already exempt from the missing-attribute gate
+    (`derivedAttrIds`) and already published by `applyDerivedDisplay` from the box ladder's outcome, so
+    the panel shows "the final value from the back box ladder which is used for calculation", marked
+    "(computed)" through the existing mechanism. NO frontend source changed; NO pipeline changed.
+
+    Owner rulings honoured verbatim: read-only DROPPED ("this is just ytransient behavior ... chaging
+    would impact price" -- the field is an ordinary dropdown and a pick is INERT until slice 3);
+    a 9M plate driving a 12M box is "that's ok" (no note); the model is NOT asked (`extract: false`);
+    NO `allow_none` (`back_box: Yes/No` is the one "is there a box" fact).
+
+    THE INVARIANT OF THE SLICE -- no price moves anywhere -- is pinned three ways below: the
+    switches_sockets PIPELINES byte-equal to v56 (so the interpreter's inputs are unchanged), every
+    other config / item / golden byte-equal to v56, and the goldens s1/ss1 to the rupee (ss1 carries
+    an 8M plate over 7 modules: the box still follows the plate). The 372-row replay that proved it on
+    the live stored extractions is recorded in the slice record, not re-run here.
+    """
+
+    _PRIOR_ASSET = "rate_master_electrical_all_v56.json"
+    # F-25 SLICE 2 (v58, 2026-09-07): this class pins SLICE 1's delta (v57 over v56) and is therefore
+    # frozen to v57 explicitly -- following CURRENT_EALL_ASSET would make `_02` (the model is not asked
+    # for the box) and `_05`/`_06`/`_07` (pipelines byte-equal to v56) false the moment slice 2 gave
+    # the box ladder its zero path. The precedent is test_353's "must NOT follow CURRENT_EALL_ASSET".
+    # `_09` (the live config) DOES follow the current asset -- the runtime must carry the CURRENT one.
+    _NOW_ASSET = "rate_master_electrical_all_v57.json"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(cls._NOW_ASSET), "r", encoding="utf-8") as fh:
+            cls.now = json.load(fh)
+        with open(_asset_path(cls._PRIOR_ASSET), "r", encoding="utf-8") as fh:
+            cls.was = json.load(fh)
+        cls.ss_now = [c for c in cls.now["category_configs"] if c["category_id"] == "switches_sockets"][0]
+        cls.ss_was = [c for c in cls.was["category_configs"] if c["category_id"] == "switches_sockets"][0]
+
+    def _box_def(self):
+        return [d for d in self.ss_now["attribute_definitions"] if d["id"] == "box_item"][0]
+
+    def test_f25s1_01_box_item_is_declared_with_the_agreed_shape(self):
+        """POSITIVE: the attribute exists, its id IS the box ladder's bind, and its shape is exactly
+        the one certified offline -- a live-catalogue choice over the Back Box family."""
+        ids = [d["id"] for d in self.ss_now["attribute_definitions"]]
+        self.assertIn("box_item", ids)
+        for pid in ("swsock_boq", "swsock_bcs"):
+            ladders = self.ss_now["pipelines"][pid]["steps"][0]["params"]["ladders"]
+            self.assertEqual(ladders[1]["bind"], "box_item", pid)  # the id IS the bind
+        box = self._box_def()
+        self.assertEqual(box, {
+            "id": "box_item",
+            "label": "Back box size",
+            "type": "choice",
+            "values_from": {"kind": "switch_socket_item", "attr": "item", "where": {"family": "Back Box"}},
+            "extract": False,
+        })
+        # NEGATIVE (the prior shape): v56 carried no such attribute.
+        self.assertNotIn("box_item", [d["id"] for d in self.ss_was["attribute_definitions"]])
+
+    def test_f25s1_02_NEGATIVE_the_model_is_not_asked_for_the_box(self):
+        """The prompt payload gains NO question. `build_attribute_defs` is what `_extract_batch`
+        serialises into ATTRIBUTE_DEFINITIONS; `extract: false` must keep `box_item` out of it, and
+        the v57 payload must be byte-identical to v56's."""
+        defs_now = extraction.build_attribute_defs(self.ss_now, discipline="Electrical")
+        defs_was = extraction.build_attribute_defs(self.ss_was, discipline="Electrical")
+        self.assertNotIn("box_item", [d["id"] for d in defs_now])
+        self.assertEqual(defs_now, defs_was)
+
+    def test_f25s1_03_NEGATIVE_the_box_field_is_not_none_able(self):
+        """`back_box: Yes/No` already says whether there is a box. A None-able box field would be a
+        second source for one fact, so the definition carries no `allow_none` and the resolved value
+        list carries no "None"."""
+        box = self._box_def()
+        self.assertNotIn("allow_none", box)
+        self.assertNotIn("None", extraction.values_from_catalog("Electrical", box["values_from"]))
+
+    def test_f25s1_04_the_value_list_is_the_back_box_family_only(self):
+        """POSITIVE: the dropdown resolves from the LIVE master to exactly the eight back-box rungs
+        -- and to nothing from any other family (no plate, no switch, no socket label)."""
+        vals = extraction.values_from_catalog("Electrical", self._box_def()["values_from"])
+        self.assertEqual(sorted(vals), ["12M", "18M", "1M", "2M", "3M", "4M", "6M", "8M"])
+        self.assertNotIn("9M", vals)   # a PLATE rung, not a box rung
+        self.assertNotIn("16M", vals)  # likewise
+
+    def test_f25s1_05_the_box_ladder_floor_is_still_plate_item(self):
+        """THE PIN THAT STOPS SLICE 3 LEAKING IN. The box ladder still takes its floor from the
+        plate, still computes on a None plate, and still declares NO zero-module fallback (slice 2).
+        Byte-identical to v56 on both pipelines."""
+        for pid in ("swsock_boq", "swsock_bcs"):
+            now_l = self.ss_now["pipelines"][pid]["steps"][0]["params"]["ladders"]
+            was_l = self.ss_was["pipelines"][pid]["steps"][0]["params"]["ladders"]
+            self.assertEqual(now_l, was_l, pid)
+            self.assertEqual(now_l[1]["floor_from"], "plate_item", pid)
+            self.assertEqual(now_l[1]["on_none"], "computed", pid)
+            self.assertNotIn("on_zero_modules", now_l[1], pid)
+
+    def test_f25s1_06_switches_sockets_pipelines_are_byte_identical_to_v56(self):
+        """THE NO-PRICE-MOVES PROOF (static half). The interpreter reads only the pipelines and the
+        selected attributes; with the pipelines unchanged and the new attribute consumed by no step,
+        no stored row can compute differently. The dynamic half is the 372-row replay in the record."""
+        self.assertEqual(self.ss_now["pipelines"], self.ss_was["pipelines"])
+        blob = json.dumps(self.ss_now["pipelines"])
+        # NEGATIVE: no step of any pipeline names the new attribute as an INPUT (it is only a bind)
+        self.assertNotIn('"from_attr": "box_item"', blob)
+        self.assertNotIn('"floor_from": "box_item"', blob)
+        self.assertNotIn('"none_when": "box_item"', blob)
+        # everything else on the config is unchanged too
+        for key in self.ss_was:
+            if key == "attribute_definitions":
+                continue
+            self.assertEqual(self.ss_now[key], self.ss_was[key], "switches_sockets.%s moved" % key)
+        self.assertEqual(set(self.ss_now), set(self.ss_was))
+
+    def test_f25s1_07_every_other_config_item_and_golden_is_byte_equal_to_v56(self):
+        """NEGATIVE, key by key never by count: the mint changed ONE category's attribute list and
+        nothing else in the whole asset."""
+        now = {c["category_id"]: c for c in self.now["category_configs"]}
+        was = {c["category_id"]: c for c in self.was["category_configs"]}
+        self.assertEqual(set(now), set(was))
+        for cid in was:
+            if cid != "switches_sockets":
+                self.assertEqual(now[cid], was[cid], "%s moved" % cid)
+        self.assertEqual(self.now["items"], self.was["items"], "no item may move")
+        self.assertEqual(self.now["goldens"], self.was["goldens"], "no golden may move")
+        for k in self.was:
+            if k != "category_configs":
+                self.assertEqual(self.now[k], self.was[k], "top-level %s moved" % k)
+        # the ONE difference, exactly
+        old_defs = self.ss_was["attribute_definitions"]
+        new_defs = self.ss_now["attribute_definitions"]
+        self.assertEqual(len(new_defs), len(old_defs) + 1)
+        self.assertEqual([d for d in new_defs if d["id"] != "box_item"], old_defs)
+
+    def test_f25s1_08_goldens_s1_and_ss1_are_unchanged_to_the_rupee(self):
+        """ss1 is the LIVE proof the box still follows the plate: an 8M plate over 7 modules prices
+        820/170/570 exactly as on v56."""
+        g = {x["id"]: x for x in self.now["goldens"]["switches_sockets"]}
+        self.assertEqual(g["s1"]["expect"], {"swsock_boq": {"supply": 120.0, "install": 30.0},
+                                             "swsock_bcs": {"bcs_supply": 80.0}})
+        self.assertEqual(g["ss1"]["expect"], {"swsock_boq": {"supply": 820.0, "install": 170.0},
+                                              "swsock_bcs": {"bcs_supply": 570.0}})
+        self.assertEqual(g["ss1"]["attrs"]["plate_item"], "8M")
+        self.assertEqual(self.now["goldens"]["switches_sockets"], self.was["goldens"]["switches_sockets"])
+        self.assertEqual(self.ss_now["goldens"], self.ss_was["goldens"])
+
+    def test_f25s1_09_the_live_config_carries_the_box_field(self):
+        """THE DELIVERY-PATH PIN. The runtime reads the DATABASE, not the asset: the active live
+        switches_sockets config must carry `box_item` with the v57 shape. RED until v57 is imported.
+        F-25 SLICE 2 (2026-09-07): the live config must equal the CURRENT asset (v58 and on), which
+        still carries `box_item` byte-for-byte; the v57-frozen `ss_now` is deliberately not used here."""
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            current = [c for c in json.load(fh)["category_configs"] if c["category_id"] == "switches_sockets"][0]
+        live = _obj(frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": "Electrical", "category_id": "switches_sockets", "active": 1}, "config",
+        ))
+        self.assertEqual(live["attribute_definitions"], current["attribute_definitions"])
+        self.assertEqual(live["pipelines"], current["pipelines"])
+        self.assertEqual([d for d in live["attribute_definitions"] if d["id"] == "box_item"], [self._box_def()])
+
+
+class TestF25Slice2BareBox(FrappeTestCase):
+    """F-25 SLICE 2 (v58, owner rulings 2026-09-06/07) -- A BARE BOX PRICES AS ITS BACK BOX.
+
+    ONE category changes (switches_sockets), in exactly THREE places: (a) one `number` attribute the
+    MODEL reads, `box_modules_stated` (`panel: false`: the pricer sees the RESULT on slice 1's
+    `box_item`, and hidden means gate-exempt so an unreadable count can never refuse the row);
+    (b) one shared-block rule S4 that STATES ITS TEST and quotes no corpus text; (c) the BOX ladder of
+    both pipelines gains `on_zero_from` + `on_zero_modules: 3`, read ONLY on the zero-module path.
+
+    Owner rulings honoured verbatim: "the enitre parent history is part of the payload given for
+    extraction"; "in case of absence or confusion on the size, we default to 3M"; "extraction should
+    provide the higher count and then we match it as per our rule - exact or next higher"; the
+    millimetre-only rows to 3M: "this is ok"; "Keep 3M for data and voice outlet also"; the assumed
+    marking: "agree". The higher-of-a-range pick is CODE (`extraction.module_count_from_text`), never
+    prompt. The channel is the shared ESTIMATOR_RULES block -- the only one there is -- so the axis
+    proof in the slice record is mandatory and this class pins the wording's constraints."""
+
+    _PRIOR_ASSET = "rate_master_electrical_all_v57.json"
+    # F-25 SLICE 3 (v59, 2026-09-08): this class pins SLICE 2's delta (v58 over v57) and is therefore
+    # frozen to v58 explicitly -- following CURRENT_EALL_ASSET would make `_04` (the box ladder's exact
+    # seven keys) and `_06` (exactly three places differ from v57) false the moment slice 3 gave the
+    # box ladder `pick_from`. The slice-1 precedent (`TestF25Slice1BackBoxField._NOW_ASSET`), which
+    # follows test_353's "must NOT follow CURRENT_EALL_ASSET". `_10` (the delivery pin) is re-pointed
+    # at CURRENT below, exactly as slice 2 re-pointed slice 1's `_09`.
+    _NOW_ASSET = "rate_master_electrical_all_v58.json"
+    SIZE_ATTR = "box_modules_stated"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(cls._NOW_ASSET), "r", encoding="utf-8") as fh:
+            cls.now = json.load(fh)
+        with open(_asset_path(cls._PRIOR_ASSET), "r", encoding="utf-8") as fh:
+            cls.was = json.load(fh)
+        cls.ss_now = [c for c in cls.now["category_configs"] if c["category_id"] == "switches_sockets"][0]
+        cls.ss_was = [c for c in cls.was["category_configs"] if c["category_id"] == "switches_sockets"][0]
+
+    def _size_def(self):
+        return [d for d in self.ss_now["attribute_definitions"] if d["id"] == self.SIZE_ATTR][0]
+
+    def _box_ladder(self, cfg, pid):
+        return cfg["pipelines"][pid]["steps"][0]["params"]["ladders"][1]
+
+    def test_f25s2_01_the_stated_count_attribute_has_the_agreed_shape_and_position(self):
+        """POSITIVE: a hidden `number` the model reads, directly after slice 1's `box_item`."""
+        self.assertEqual(self._size_def(), {
+            "id": self.SIZE_ATTR, "label": "Back box module count", "type": "number", "panel": False,
+        })
+        ids = [d["id"] for d in self.ss_now["attribute_definitions"]]
+        self.assertEqual(ids[15:], ["back_box", "box_item", self.SIZE_ATTR, "modules"])
+        self.assertNotIn(self.SIZE_ATTR, [d["id"] for d in self.ss_was["attribute_definitions"]])
+        # NEGATIVE: not None-able (back_box Yes/No is the one "is there a box" fact), not extract:false
+        self.assertNotIn("allow_none", self._size_def())
+        self.assertNotIn("extract", self._size_def())
+
+    def test_f25s2_02_the_model_IS_asked_and_asked_nothing_else_new(self):
+        """The prompt payload gains EXACTLY one question -- and it is number-typed, so the raw token is
+        picked by code before coercion (test_extraction_coercion pins the pick)."""
+        defs_now = extraction.build_attribute_defs(self.ss_now, discipline="Electrical")
+        defs_was = extraction.build_attribute_defs(self.ss_was, discipline="Electrical")
+        self.assertEqual([d for d in defs_now if d["id"] != self.SIZE_ATTR], defs_was)
+        new = [d for d in defs_now if d["id"] == self.SIZE_ATTR]
+        self.assertEqual(new, [{"id": self.SIZE_ATTR, "label": "Back box module count", "type": "number"}])
+        # the projection carries no instruction channel: `panel` is dropped, nothing else rides through
+        self.assertNotIn("panel", new[0])
+
+    def test_f25s2_03_the_rule_states_its_test_and_quotes_no_corpus_text(self):
+        """THE SHARED-BLOCK CONSTRAINTS, mechanically. A phrase in S4 is visible to every other question
+        the payload asks (the R12/R13 lesson, measured twice), so it must: state its test; quote no
+        corpus text; contain NO arithmetic (the higher-of-a-range pick is code); say the size may sit
+        anywhere in the payload incl. the ancestor chain; say record AS WRITTEN; say null when no count
+        appears incl. a millimetre-only row; say a port/node count is not a size; and say nothing that
+        could move a socket, switch or plate pick."""
+        rules = {r["id"]: r for r in self.ss_now["rules"]}
+        self.assertEqual(list(rules), ["S3", "S1", "S2", "S4"])
+        self.assertEqual([r for r in self.ss_now["rules"] if r["id"] != "S4"], self.ss_was["rules"])
+        s4 = rules["S4"]
+        self.assertEqual(s4["applies_to"], self.SIZE_ATTR)
+        g = s4["guidance"]
+        # states its test / where to look / as written / null cases / not-a-count
+        for must in ("BACK BOX itself", "ancestor_chain", "exactly as the text writes it",
+                     "more than one count", "as written", "null", "millimetres", "ports, nodes or outlets",
+                     "changes nothing about how any other attribute is read"):
+            self.assertIn(must, g, must)
+        # NO arithmetic, NO pick: the higher-of-a-range rule is code
+        for banned in ("higher", "larger", "largest", "maximum", "max(", "+", "next"):
+            self.assertNotIn(banned, g.lower(), banned)
+        # NO corpus text (the exact strings on the cert rows and their kin)
+        for corpus in ("9/8M", "GI Box", "GI box", "MS GI", "1/2 module", "2/3 module", "1 or 2 Module",
+                       "3 Module", "data outlet", "voice", "SITC", "16SWG", "16 SWG"):
+            self.assertNotIn(corpus, g, corpus)
+        # NOTHING that names a switch, socket or plate PICK (the words the other questions match on)
+        for pick in ("16A", "6A", "10A", "1 WAY", "2 WAY", "way", "plate", "socket", "switch", "1M", "2M", "3M"):
+            self.assertNotIn(pick, g, pick)
+
+    def test_f25s2_04_both_box_ladders_gain_the_two_keys_and_the_plate_ladder_gains_nothing(self):
+        """POSITIVE: `on_zero_from` names the attribute (declared -- the api validator does NOT
+        reference-guard this key, so this pin is the guard); `on_zero_modules: 3` is the owner's
+        default. The PLATE ladder must never declare either (with nothing on it there is no plate).
+        `floor_from` stays `plate_item` (slice 3) and `on_none` stays `computed`."""
+        ids = {d["id"] for d in self.ss_now["attribute_definitions"]}
+        for pid in ("swsock_boq", "swsock_bcs"):
+            box = self._box_ladder(self.ss_now, pid)
+            self.assertEqual(box, {
+                "kind": "switch_socket_item", "where": {"family": "Back Box"}, "bind": "box_item",
+                "floor_from": "plate_item", "on_none": "computed",
+                "on_zero_from": self.SIZE_ATTR, "on_zero_modules": 3,
+            }, pid)
+            self.assertIn(box["on_zero_from"], ids)
+            plate = self.ss_now["pipelines"][pid]["steps"][0]["params"]["ladders"][0]
+            self.assertNotIn("on_zero_from", plate)
+            self.assertNotIn("on_zero_modules", plate)
+            self.assertEqual(plate, self.ss_was["pipelines"][pid]["steps"][0]["params"]["ladders"][0])
+        # NEGATIVE: v57 carried neither key
+        for pid in ("swsock_boq", "swsock_bcs"):
+            self.assertNotIn("on_zero_from", self._box_ladder(self.ss_was, pid))
+            self.assertNotIn("on_zero_modules", self._box_ladder(self.ss_was, pid))
+
+    def test_f25s2_05_every_other_config_item_and_golden_is_byte_equal_to_v57(self):
+        """NEGATIVE, key by key never by count. point_wiring in particular: the zero branch is SHARED and
+        its `on_zero_modules: 3` box ladder must not gain `on_zero_from`."""
+        now = {c["category_id"]: c for c in self.now["category_configs"]}
+        was = {c["category_id"]: c for c in self.was["category_configs"]}
+        self.assertEqual(set(now), set(was))
+        for cid in was:
+            if cid != "switches_sockets":
+                self.assertEqual(now[cid], was[cid], "%s moved" % cid)
+        for pid, pl in now["point_wiring"]["pipelines"].items():
+            mf = [s for s in pl["steps"] if s["step"] == "module_fit"][0]
+            self.assertEqual(mf["params"]["ladders"][1].get("on_zero_modules"), 3, pid)
+            self.assertNotIn("on_zero_from", mf["params"]["ladders"][1], pid)
+        self.assertEqual(self.now["items"], self.was["items"], "no item may move")
+        self.assertEqual(self.now["goldens"], self.was["goldens"], "no golden may move")
+        for k in self.was:
+            if k != "category_configs":
+                self.assertEqual(self.now[k], self.was[k], "top-level %s moved" % k)
+
+    def test_f25s2_06_switches_sockets_differs_from_v57_in_exactly_the_three_places(self):
+        for key in self.ss_was:
+            if key in ("attribute_definitions", "rules", "pipelines"):
+                continue
+            self.assertEqual(self.ss_now[key], self.ss_was[key], "switches_sockets.%s moved" % key)
+        self.assertEqual(set(self.ss_now), set(self.ss_was))
+        self.assertEqual([d for d in self.ss_now["attribute_definitions"] if d["id"] != self.SIZE_ATTR],
+                         self.ss_was["attribute_definitions"])
+        self.assertEqual(self.ss_now["rules"][:-1], self.ss_was["rules"])
+        for pid in self.ss_was["pipelines"]:
+            a, b = self.ss_now["pipelines"][pid], self.ss_was["pipelines"][pid]
+            self.assertEqual(a["output"], b["output"], pid)
+            self.assertEqual(a["steps"][1:], b["steps"][1:], "%s: a step after module_fit moved" % pid)
+            pa, pb = a["steps"][0]["params"], b["steps"][0]["params"]
+            self.assertEqual({k: v for k, v in pa.items() if k != "ladders"},
+                             {k: v for k, v in pb.items() if k != "ladders"}, pid)
+            stripped = {k: v for k, v in pa["ladders"][1].items() if k not in ("on_zero_from", "on_zero_modules")}
+            self.assertEqual(stripped, pb["ladders"][1], pid)
+        # NEGATIVE: no step names the stated attribute as any OTHER kind of input
+        blob = json.dumps(self.ss_now["pipelines"])
+        for bad in ('"from_attr": "%s"', '"floor_from": "%s"', '"none_when": "%s"', '"prefer_attr": "%s"'):
+            self.assertNotIn(bad % self.SIZE_ATTR, blob)
+
+    def test_f25s2_07_goldens_s1_and_ss1_are_unchanged_to_the_rupee(self):
+        """ss1 (8M plate over 7 modules) and s1 (lone socket, no plate) both have OCCUPANTS, so the zero
+        path never fires and every figure stands."""
+        g = {x["id"]: x for x in self.now["goldens"]["switches_sockets"]}
+        self.assertEqual(g["s1"]["expect"], {"swsock_boq": {"supply": 120.0, "install": 30.0},
+                                             "swsock_bcs": {"bcs_supply": 80.0}})
+        self.assertEqual(g["ss1"]["expect"], {"swsock_boq": {"supply": 820.0, "install": 170.0},
+                                              "swsock_bcs": {"bcs_supply": 570.0}})
+        self.assertEqual(self.now["goldens"]["switches_sockets"], self.was["goldens"]["switches_sockets"])
+
+    def test_f25s2_08_the_minted_config_passes_the_server_validator(self):
+        """The api validator has NO ladder-key allowlist and does NOT `_ref` `on_zero_from` (recorded in
+        the slice register); the minted config must still pass everything it does check, so the
+        Derivation configurator can save it back unchanged."""
+        from nirmaan_stack.api.boq import rate_master as rm
+        cfg = dict(self.ss_now)
+        cfg["discipline"] = self.now["discipline"]
+        cfg["goldens"] = self.now["goldens"]["switches_sockets"]
+        rm._validate_config(cfg)  # throws on any violation
+
+    def test_f25s2_09_the_backend_parse_set_is_derived_from_the_minted_ladders(self):
+        """The cross-seam join, static half: the attribute the ladders name is the attribute the
+        extraction layer parses -- one key, read on both sides."""
+        self.assertEqual(extraction.zero_path_stated_attrs(self.ss_now), [self.SIZE_ATTR])
+        self.assertEqual(extraction.zero_path_stated_attrs(self.ss_was), [])
+        pw = [c for c in self.now["category_configs"] if c["category_id"] == "point_wiring"][0]
+        self.assertEqual(extraction.zero_path_stated_attrs(pw), [])
+
+    def test_f25s2_10_the_live_config_carries_the_slice(self):
+        """THE DELIVERY-PATH PIN. The runtime reads the DATABASE, not the asset: the active live
+        switches_sockets config must carry the v58 definitions, rules and pipelines. RED until v58 is
+        imported. F-25 SLICE 3 (2026-09-08): the live config must equal the CURRENT asset (v59 and on),
+        which still carries every slice-2 atom; the v58-frozen `ss_now` is deliberately not used for
+        the pipelines here (they gained `pick_from`), only for the definitions and rules, which are
+        byte-equal across v58 -> v59."""
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            current = [c for c in json.load(fh)["category_configs"] if c["category_id"] == "switches_sockets"][0]
+        live = _obj(frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": "Electrical", "category_id": "switches_sockets", "active": 1}, "config",
+        ))
+        self.assertEqual(live["attribute_definitions"], self.ss_now["attribute_definitions"])
+        self.assertEqual(live["attribute_definitions"], current["attribute_definitions"])
+        self.assertEqual(live["pipelines"], current["pipelines"])
+        self.assertEqual(live["rules"], self.ss_now["rules"])
+        self.assertEqual(extraction.zero_path_stated_attrs(live), [self.SIZE_ATTR])
+        for pid in ("swsock_boq", "swsock_bcs"):
+            self.assertEqual(self._box_ladder(live, pid)["on_zero_from"], self.SIZE_ATTR, pid)
+            self.assertEqual(self._box_ladder(live, pid)["on_zero_modules"], 3, pid)
+
+
+class TestF25Slice3PickFrom(FrappeTestCase):
+    """F-25 SLICE 3 (v59, owner rulings 2026-09-06/08) -- THE BOX FIELD BECOMES EFFECTIVE.
+
+    ONE category changes (switches_sockets), in exactly ONE kind of place: the BOX ladder of BOTH
+    pipelines gains `pick_from: "box_item"` -- a DECLARED config key naming the attribute the PRICER may
+    pick for that ladder (slice 1's `Back box size` dropdown). The interpreter reads it at BOTH
+    `module_fit` sites (the floor branch and the zero branch), so the slice-1 transient -- "a pick shows
+    and the price does not follow" -- is CLOSED. No attribute, rule or golden is added; the plate
+    ladders gain nothing; point_wiring / popup_boxes are byte-equal (confinement by KEY PRESENCE, never
+    by a category name in code -- the HV-10 lesson).
+
+    Why a DECLARED key (candidate b): `floor_from: box_item` (a) severs the plate from the box and cannot
+    reach the zero branch; an implicit own-bind rule (c) would make any ladder whose bind happens to be a
+    declared attribute editable with nothing in the config saying so.
+
+    Also closes the register's reference-guard gap: `on_zero_from` was not `_ref`-guarded (a typo read
+    silently as "assumed 3M"); it and `pick_from` now are, positive and negative."""
+
+    _PRIOR_ASSET = "rate_master_electrical_all_v58.json"
+    PICK_ATTR = "box_item"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            cls.now = json.load(fh)
+        with open(_asset_path(cls._PRIOR_ASSET), "r", encoding="utf-8") as fh:
+            cls.was = json.load(fh)
+        cls.ss_now = [c for c in cls.now["category_configs"] if c["category_id"] == "switches_sockets"][0]
+        cls.ss_was = [c for c in cls.was["category_configs"] if c["category_id"] == "switches_sockets"][0]
+
+    def _box_ladder(self, cfg, pid):
+        return cfg["pipelines"][pid]["steps"][0]["params"]["ladders"][1]
+
+    def _plate_ladder(self, cfg, pid):
+        return cfg["pipelines"][pid]["steps"][0]["params"]["ladders"][0]
+
+    def test_f25s3_01_both_box_ladders_declare_pick_from_naming_the_box_field(self):
+        """POSITIVE: `pick_from` is the box field's id, which IS the ladder's bind; appended LAST; the
+        four v58 keys unchanged. NEGATIVE: v58 carried no such key; the plate ladders carry none."""
+        ids = {d["id"] for d in self.ss_now["attribute_definitions"]}
+        for pid in ("swsock_boq", "swsock_bcs"):
+            box = self._box_ladder(self.ss_now, pid)
+            self.assertEqual(box, {
+                "kind": "switch_socket_item", "where": {"family": "Back Box"}, "bind": "box_item",
+                "floor_from": "plate_item", "on_none": "computed",
+                "on_zero_from": "box_modules_stated", "on_zero_modules": 3,
+                "pick_from": self.PICK_ATTR,
+            }, pid)
+            self.assertEqual(list(box.keys())[-1], "pick_from", pid)
+            self.assertEqual(box["pick_from"], box["bind"], pid)   # the pick lands on the field it shows in
+            self.assertIn(box["pick_from"], ids)
+            self.assertNotIn("pick_from", self._box_ladder(self.ss_was, pid))
+            self.assertNotIn("pick_from", self._plate_ladder(self.ss_now, pid))
+            self.assertEqual(self._plate_ladder(self.ss_now, pid), self._plate_ladder(self.ss_was, pid))
+
+    def test_f25s3_02_the_box_field_itself_is_unchanged_and_no_attribute_was_added(self):
+        """NEGATIVE: the dropdown is slice 1's definition byte-for-byte (a choice over the live Back Box
+        family, extract:false, no allow_none); 19 attributes, same order; rules and goldens untouched."""
+        self.assertEqual(self.ss_now["attribute_definitions"], self.ss_was["attribute_definitions"])
+        box = [d for d in self.ss_now["attribute_definitions"] if d["id"] == self.PICK_ATTR][0]
+        self.assertEqual(box, {"id": "box_item", "label": "Back box size", "type": "choice",
+                               "values_from": {"kind": "switch_socket_item", "attr": "item",
+                                               "where": {"family": "Back Box"}}, "extract": False})
+        self.assertEqual(self.ss_now["rules"], self.ss_was["rules"])
+        self.assertEqual(self.now["goldens"]["switches_sockets"], self.was["goldens"]["switches_sockets"])
+        # the model is still not asked for the box (extract:false survives)
+        self.assertEqual(extraction.build_attribute_defs(self.ss_now), extraction.build_attribute_defs(self.ss_was))
+
+    def test_f25s3_03_switches_sockets_differs_from_v58_in_exactly_the_two_ladder_keys(self):
+        """NEGATIVE, key by key: strip `pick_from` from both box ladders and the config equals v58."""
+        now = copy.deepcopy(self.ss_now)
+        for pid in ("swsock_boq", "swsock_bcs"):
+            del now["pipelines"][pid]["steps"][0]["params"]["ladders"][1]["pick_from"]
+        self.assertEqual(now, self.ss_was)
+
+    def test_f25s3_04_every_other_config_item_and_golden_is_byte_equal_to_v58(self):
+        """NEGATIVE, key by key never by count. point_wiring and popup_boxes in particular: the same
+        ladder shape, NO `pick_from` -- confinement by key presence."""
+        now = {c["category_id"]: c for c in self.now["category_configs"]}
+        was = {c["category_id"]: c for c in self.was["category_configs"]}
+        self.assertEqual(set(now), set(was))
+        for cid in was:
+            if cid != "switches_sockets":
+                self.assertEqual(now[cid], was[cid], "%s moved" % cid)
+        self.assertEqual(self.now["items"], self.was["items"])
+        self.assertEqual(self.now["goldens"], self.was["goldens"])
+        for key in self.was:
+            if key != "category_configs":
+                self.assertEqual(self.now[key], self.was[key], "top-level %s moved" % key)
+        self.assertNotIn("pick_from", json.dumps(now["point_wiring"]))
+        self.assertNotIn("pick_from", json.dumps(now["popup_boxes"]))
+        pw_box = [s for s in now["point_wiring"]["pipelines"]["pw_boq_supply"]["steps"] if s["step"] == "module_fit"][0]["params"]["ladders"][1]
+        self.assertEqual(pw_box.get("on_zero_modules"), 3)
+        self.assertNotIn("on_zero_from", pw_box)
+
+    def test_f25s3_05_the_minted_config_passes_the_server_validator(self):
+        """POSITIVE: the v59 config saves (both new guards satisfied by real attribute ids)."""
+        from nirmaan_stack.api.boq import rate_master as rm
+        rm._validate_config(copy.deepcopy(self.ss_now))  # must not raise
+
+    # ---- the reference guards: pick_from AND on_zero_from (the register's gap, closed) ----------
+    def _ladder_config(self, ladder_extra):
+        return {
+            "discipline": "Electrical", "category_id": "pick_probe",
+            "attribute_definitions": [
+                {"id": "switch_qty", "label": "Switch qty", "type": "number"},
+                {"id": "plate_item", "label": "Plate", "type": "choice", "values": ["3M"]},
+                {"id": "box_item", "label": "Box", "type": "choice", "values": ["3M"], "extract": False},
+                {"id": "box_modules_stated", "label": "Count", "type": "number", "panel": False},
+            ],
+            "pipelines": {"p": {"output": ["supply"], "steps": [
+                {"step": "module_fit", "params": {
+                    "terms": [{"attr": "switch_qty", "weight": 1}],
+                    "ladders": [dict({
+                        "kind": "switch_socket_item", "where": {"family": "Back Box"},
+                        "bind": "box_item", "floor_from": "plate_item", "on_none": "computed",
+                    }, **ladder_extra)],
+                }},
+            ]}},
+        }
+
+    def test_f25s3_06_pick_from_and_on_zero_from_are_accepted_when_they_name_declared_attributes(self):
+        """POSITIVE, both keys, and absence stays valid (the plate ladder's shape)."""
+        from nirmaan_stack.api.boq import rate_master as rm
+        rm._validate_config(self._ladder_config({"pick_from": "box_item"}))
+        rm._validate_config(self._ladder_config({"on_zero_from": "box_modules_stated", "on_zero_modules": 3}))
+        rm._validate_config(self._ladder_config({"on_zero_from": "box_modules_stated", "on_zero_modules": 3, "pick_from": "box_item"}))
+        rm._validate_config(self._ladder_config({}))
+
+    def test_f25s3_07_pick_from_is_reference_guarded(self):
+        """NEGATIVE: an UNDEFINED `pick_from` is rejected by name -- unguarded, a typo would read as
+        'nothing picked' and leave the dropdown inert with no error anywhere."""
+        from nirmaan_stack.api.boq import rate_master as rm
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rm._validate_config(self._ladder_config({"pick_from": "box_itemm"}))
+        self.assertIn("box_itemm", str(cm.exception))
+        self.assertIn("pick_from", str(cm.exception))
+
+    def test_f25s3_08_on_zero_from_is_reference_guarded(self):
+        """NEGATIVE (the register's gap): an UNDEFINED `on_zero_from` is rejected by name -- it used to
+        pass silently and read as 'nothing stated -> assumed 3M'."""
+        from nirmaan_stack.api.boq import rate_master as rm
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rm._validate_config(self._ladder_config({"on_zero_from": "box_modules_statedd", "on_zero_modules": 3}))
+        self.assertIn("box_modules_statedd", str(cm.exception))
+        self.assertIn("on_zero_from", str(cm.exception))
+
+    def test_f25s3_09_both_keys_reject_a_blank_or_non_string_value(self):
+        """NEGATIVE, shape: a blank / non-string value is not an attribute id."""
+        from nirmaan_stack.api.boq import rate_master as rm
+        for key in ("pick_from", "on_zero_from"):
+            for bad in ("", 7, True, ["box_item"]):
+                with self.subTest(key=key, bad=bad):
+                    with self.assertRaises(frappe.ValidationError) as cm:
+                        rm._validate_config(self._ladder_config({key: bad}))
+                    self.assertIn(key, str(cm.exception))
+
+    def test_f25s3_10_goldens_s1_and_ss1_are_unchanged_to_the_rupee(self):
+        """NEGATIVE: neither golden picks a box, so the pick key is inert on both and every figure stands."""
+        g = {x["id"]: x for x in self.now["goldens"]["switches_sockets"]}
+        self.assertEqual(g["s1"]["expect"], {"swsock_boq": {"supply": 120.0, "install": 30.0},
+                                             "swsock_bcs": {"bcs_supply": 80.0}})
+        self.assertEqual(g["ss1"]["expect"], {"swsock_boq": {"supply": 820.0, "install": 170.0},
+                                              "swsock_bcs": {"bcs_supply": 570.0}})
+        for gid in ("s1", "ss1"):
+            self.assertNotIn(self.PICK_ATTR, g[gid]["attrs"])
+
+    def test_f25s3_11_the_live_config_carries_the_slice(self):
+        """THE DELIVERY-PATH PIN. The runtime reads the DATABASE, not the asset: the active live
+        switches_sockets config must carry the v59 pipelines. RED until v59 is imported."""
+        live = _obj(frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": "Electrical", "category_id": "switches_sockets", "active": 1}, "config",
+        ))
+        self.assertEqual(live["attribute_definitions"], self.ss_now["attribute_definitions"])
+        self.assertEqual(live["pipelines"], self.ss_now["pipelines"])
+        self.assertEqual(live["rules"], self.ss_now["rules"])
+        for pid in ("swsock_boq", "swsock_bcs"):
+            self.assertEqual(self._box_ladder(live, pid)["pick_from"], self.PICK_ATTR, pid)

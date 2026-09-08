@@ -121,7 +121,20 @@ def _extract_json_array(text):
             i = text.find("[", i + 1)
             continue
         if isinstance(parsed, list):
-            return parsed
+            # 2026-09-08 (owner-logged parser defect, bundled): the FIRST balanced span that parses as
+            # a list is not necessarily the row array. On 2026-09-07 a whole-sheet rate run halted
+            # with 15 rows stranded because the reply opened with prose that quoted the allowed
+            # values -- "... must map to the allowed values [350, 250, 200, 150, 100, 300] ..." --
+            # and that list was returned as the payload; the call site then did `int(el["id"])` on
+            # an int and raised TypeError three times. The model was not misbehaving: it reasoned
+            # out loud because the values did not fit the row, and any reply that does so and
+            # happens to contain a bracketed list trips this, on any category, at random. The fix
+            # is HERE, never in the prompt: a list whose elements are not all dicts is skipped and
+            # the scan continues to the next '['. A row array (a list of dicts, or the empty list)
+            # returns exactly as before, so every existing caller and pin is byte-unaffected; a
+            # reply holding ONLY such a list still ends in the loud ValueError below, never a crash.
+            if all(isinstance(el, dict) for el in parsed):
+                return parsed
         i = text.find("[", i + 1)
 
     # Single-row batch (eligible % 20 == 1): the model may return a bare JSON object instead of a

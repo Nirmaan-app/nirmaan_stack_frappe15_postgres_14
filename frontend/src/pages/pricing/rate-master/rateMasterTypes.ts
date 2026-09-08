@@ -366,6 +366,38 @@ export interface ModuleLadderSpec {
   // ABSENT => positive absence for this ladder, byte-identical to slice 2. The PLATE ladder must never
   // declare it: with nothing on it there is no plate.
   on_zero_modules?: number;
+  // F-25 SLICE 2 (owner rulings 2026-09-06/07) -- THE STATED COUNT ON THE ZERO-MODULE PATH.
+  //
+  // Names the attribute whose STATED module count this ladder fits when the computed count is ZERO
+  // (a bare box: no switch, no socket, no plate). The model reads it as written; the extraction layer
+  // picks the higher of a range in CODE, so what arrives here is a plain positive number. It is read
+  // ONLY on the zero-count path -- a row with occupants never consults it, which is what keeps every
+  // plated row byte-identical -- and it is NEVER `plate_item`: on a bare box the model parks the
+  // box's count in the plate slot (a phantom plate, on the register), and that slot is not the carrier.
+  //
+  // Blank / absent / non-numeric => fall back to `on_zero_modules` (3 by ruling) and the outcome says
+  // the size was ASSUMED, so the panel can say so -- a defaulted 3M on a row whose text says 8M is a
+  // finished-looking price 184 rupees short, and nothing else on screen would distinguish it.
+  //
+  // ABSENT => the RULING 1 path exactly as before (point_wiring's shape), byte-identical.
+  on_zero_from?: string;
+  // F-25 SLICE 3 (owner rulings 2026-09-06/08) -- THE PRICER'S PICK. Names the attribute carrying
+  // a value the PRICER may choose for this ladder (the `Back box size` dropdown). It is read on BOTH
+  // paths, because the pick is otherwise inert at two separate sites:
+  //   * the floor branch (a row with a plate or contents): the floor settled above -- the PLATE's
+  //     size when a plate is stated and holds the contents, else the contents' count -- is a
+  //     MINIMUM. A pick at or above it is honoured; a pick BELOW it is RAISED to the floor and the
+  //     outcome says so (a plate-driven raise and a contents-driven raise carry different reasons).
+  //   * the zero branch (a bare box): a pick WINS OUTRIGHT and the size is no longer "assumed".
+  // NO PICK => byte-identical to the ladder without this key, on both branches. That is the
+  // invariant slice 3 was certified on.
+  //
+  // ⚠️ A DECLARED KEY, NEVER AN IMPLICIT RULE. A ladder whose bind happens to be a declared attribute
+  // is NOT thereby editable; only a ladder naming `pick_from` reads a pick. This is what confines the
+  // behaviour to switches_sockets without naming a category in code (the HV-10 lesson): point_wiring
+  // and popup_boxes carry the same ladder shape and no `pick_from`, so their `selected` is never read
+  // here. `pick_from` names an ATTRIBUTE and is `_ref`-guarded by the api validator like `floor_from`.
+  pick_from?: string;
 }
 
 // SLICE 2: compute a module count, then resolve it against catalog ladders.
@@ -739,6 +771,46 @@ export interface ModuleFitLadderOutcome {
    * upgrade is the one outcome that must never be silent -- the BoQ said one size and we price
    * another -- so the numbers travel as data and any surface can say so in its own words. */
   upgraded?: { stated: string; statedHolds: number; occupied: number };
+  /** F-25 SLICE 2: set ONLY on the zero-module path of a ladder declaring `on_zero_from`. Says where
+   * the fitted count came from, so the panel can say when it GUESSED (`assumed`) and when it moved
+   * the stated count UP to the next stocked rung (`nextHigher`). Absent on every other path -- in
+   * particular on point_wiring's `on_zero_modules`-only shape, which stays byte-identical. */
+  zeroPath?: {
+    /** The count the row STATED (already the higher of a range), or null when nothing was readable. */
+    stated: number | null;
+    /** The count actually fitted: the stated one, or `on_zero_modules` when `assumed`. */
+    fitted: number;
+    /** Nothing readable -> the ladder's declared default was used. THE MARK THE OWNER ASKED FOR. */
+    assumed: boolean;
+    /** The fitted count had no exact rung and the NEXT HIGHER one was priced. */
+    nextHigher: boolean;
+  };
+  /** F-25 SLICE 3: set ONLY when a ladder declaring `pick_from` read a PICK on the row. Says what was
+   * picked, whether it was raised to the ladder's floor, and what that floor WAS -- so the panel can
+   * word a plate-driven raise ("3M is smaller than the 6M face plate") differently from a
+   * contents-driven one ("1M holds 1 module; contents occupy 3"). Absent on every no-pick row, so
+   * every existing trace, golden and pin is byte-unaffected. When present, `upgraded` is NOT
+   * published for the same ladder: the pick has replaced the plate as this ladder's stated source. */
+  pick?: {
+    /** The rung the pricer picked, as the catalog labels it ("3M"). */
+    label: string;
+    /** How many modules that pick holds (its largest covered size). */
+    holds: number;
+    /** The pick was BELOW the floor and the floor was priced instead. Never silent. */
+    raised: boolean;
+    /** The count actually fitted had no exact rung and the NEXT HIGHER one was priced (a pick the
+     * catalog does not stock). The dropdown offers only stocked rungs, so this is rare -- but a
+     * value bought that differs from the value picked must always be marked. */
+    nextHigher: boolean;
+    /** The minimum this ladder enforced: the plate's size, the contents' count, or 0 on a bare box. */
+    floor: number;
+    /** Where the floor came from. "plate" = a stated plate that holds the contents (its label in
+     * `plate`); "contents" = the occupants' count (no plate, a None plate, or a plate itself
+     * upgraded to the contents); "none" = the zero branch, where nothing floors a pick. */
+    floorFrom: "plate" | "contents" | "none";
+    /** The stated plate's label when `floorFrom` is "plate". */
+    plate?: string;
+  };
 }
 
 /**

@@ -1389,6 +1389,193 @@ def scrub_unpaired_slot_defaults(row_out, defaults):
     return scrubbed
 
 
+# The confidence a CODE-filled paired default carries. The DEFAULTS prompt asks the model for a
+# default "with moderate confidence"; observed model defaults on the live corpus sit at 0.5-0.6.
+# The value is deliberately NOT 1.0: a filled default is a rule, not a reading.
+_PAIRED_FILL_CONFIDENCE = 0.5
+
+
+def paired_fill_plan(cfg):
+    """PAIRED-QUANTITY FILL, case (b) -- which paired ITEM slots the pipeline COMPUTES rather than
+    reads, and which quantity terms decide whether it will. Derived FROM THE CONFIG, never from a
+    category or attribute name (the HV-10 lesson): a config declaring no `module_fit` ladder over a
+    paired item returns None and case (b) is inert for it; case (a) never needs a plan.
+
+    Returns {"computed_items": [item ids that are a module_fit ladder `bind` AND the `requires_named`
+    target of a default], "occupancy_terms": [{"attr": qty_id, "none_when": item_id}, ...]} -- the
+    SAME terms `module_fit` sums, read from the first module_fit step found (every pipeline of a
+    config shares one module_fit shape; the mint pins assert it)."""
+    cfg = cfg or {}
+    defaults = cfg.get("extraction_defaults") or {}
+    pair_items = {spec.get("requires_named") for spec in defaults.values()
+                  if isinstance(spec, dict) and spec.get("requires_named")}
+    if not pair_items:
+        return None
+    computed, terms = set(), []
+    for pl in (cfg.get("pipelines") or {}).values():
+        for step in (pl or {}).get("steps") or []:
+            if step.get("step") != "module_fit":
+                continue
+            params = step.get("params") or {}
+            for ladder in params.get("ladders") or []:
+                if ladder.get("bind") in pair_items:
+                    computed.add(ladder["bind"])
+            if not terms:
+                terms = [{"attr": t.get("attr"), "none_when": t.get("none_when")}
+                         for t in params.get("terms") or [] if t.get("attr")]
+    if not computed:
+        return None
+    return {"computed_items": sorted(computed), "occupancy_terms": terms}
+
+
+def fill_paired_slot_defaults(row_out, defaults, plan=None):
+    """PAIRED-QUANTITY FILL (owner rulings 2026-09-07) -- the MIRROR of the scrub above.
+
+    The scrub REMOVES a quantity whose item is "None". This FILLS a quantity that came back BLANK
+    when its item is present, with the DECLARED default, marked `defaulted: true` exactly as the
+    model's own claimed defaults are marked (`_extract_batch` keeps that flag at the coercion site;
+    the panel's amber badge reads it). Owner, verbatim: "if the item is filled but qty is blank then
+    it should be populated default 1. when item is none or blank it, the default qty rule sshould
+    not be applied" -- and, for the plate only, "this should be included": a plate the row never
+    named but WILL BUY, because the ladder computes one from the occupants.
+
+    THE RULE, exactly:
+      (a) for EVERY `requires_named` pair: qty BLANK and item FILLED (a real value, not "None", not
+          blank) -> fill the declared default.
+      (b) ONLY for a pair whose item is a module_fit ladder BIND (`plan.computed_items` -- the plate):
+          qty BLANK and item BLANK and the row is OCCUPIED -> fill. Occupied mirrors `module_fit`'s
+          own sum: some occupancy term whose item is FILLED (not "None", not blank -- a blank item
+          would bindMiss the row anyway) carries a quantity above zero, AFTER case (a) has run.
+      NEVER when the item is "None". NEVER when the item is blank outside case (b). NEVER over a
+      quantity the model READ -- a read 0 is a value, not a blank, and it is left alone.
+
+    ⚠️ THE PROMPT SENTENCE (SLOT-PAIRED DEFAULTS) ALREADY SAYS ALL OF THIS AND THE MODEL IGNORES
+    IT: measured 2026-09-07, `plate_qty` null on 72 of 281 blank-plate rows (54 with occupants, 30 of
+    them priced only after a pricer typed the 1). This is the enforcement; the sentence stays as
+    guidance. PURE apart from mutating `row_out`; returns the ids filled so the caller records them.
+    Affects NEW extractions only -- stored rows keep their blanks until re-run (owner: "exisiting rows
+    stay broken. it ok")."""
+    filled = []
+    if not defaults:
+        return filled
+    pairs = [(aid, spec) for aid, spec in defaults.items()
+             if isinstance(spec, dict) and spec.get("requires_named") and "default" in spec]
+    if not pairs:
+        return filled
+
+    def _state(item_id):
+        v = (row_out.get(item_id) or {}).get("value")
+        if v == _NONE_SENTINEL:
+            return "none"
+        return "blank" if v is None or v == "" else "filled"
+
+    def _qty_blank(aid):
+        cell = row_out.get(aid)
+        return cell is None or cell.get("value") is None or cell.get("value") == ""
+
+    def _fill(aid, spec):
+        row_out[aid] = {"value": spec["default"], "confidence": _PAIRED_FILL_CONFIDENCE,
+                        "defaulted": True}
+        filled.append(aid)
+
+    # (a) a named item with an unread quantity -- every pair.
+    for aid, spec in pairs:
+        if _qty_blank(aid) and _state(spec["requires_named"]) == "filled":
+            _fill(aid, spec)
+
+    # (b) a COMPUTED item (the plate) the row never named but will buy.
+    if plan:
+        computed = set(plan.get("computed_items") or [])
+
+        def _positive(v):
+            try:
+                return float(v) > 0
+            except (TypeError, ValueError):
+                return False
+
+        occupied = any(
+            (not t.get("none_when") or _state(t["none_when"]) == "filled")
+            and _positive((row_out.get(t["attr"]) or {}).get("value"))
+            for t in plan.get("occupancy_terms") or []
+        )
+        if occupied:
+            for aid, spec in pairs:
+                item = spec["requires_named"]
+                if item in computed and _qty_blank(aid) and _state(item) == "blank":
+                    _fill(aid, spec)
+    return filled
+
+
+# ── F-25 SLICE 2: the back box's STATED module count -- read by the model AS WRITTEN, picked by CODE ──
+#
+# THE PROMPT SENTENCE IS GUIDANCE; THIS IS THE ENFORCEMENT -- the same doctrine as `apply_conductor_floor`
+# and `fill_paired_slot_defaults`. The model is asked (rule S4, the shared block) to write the box's
+# module count EXACTLY as the text writes it and to convert nothing; the owner's "higher of a range"
+# pick ("9/8M" -> 9, "1 or 2 Module" -> 2, "2/3 module way" -> 3) is a CALCULATION, and a calculation
+# does not go in the prompt at all. It lives here, at the extraction layer, for one structural reason:
+# the attribute is `number`-typed (the api validator refuses a value-less `choice`, and a number is what
+# the interpreter reads), so `_coerce_value_ex` would DROP a token like "9/8" as not-a-number. The raw
+# token therefore exists in exactly one place -- the model's reply, before coercion -- and that is
+# where the pick has to happen. The capture log keeps the raw token beside the parsed count.
+#
+# ⚠️ A DIMENSION IS NOT A COUNT. A row giving only millimetres ("72 mm x 90 mm x 50 mm") defaults to
+# 3M by owner ruling ("this is ok"), so numbers carrying a millimetre unit and whole dimension chains
+# (a x b x c) are struck out BEFORE the integers are read -- otherwise "50mm" would buy a box that does
+# not exist and the whole row would refuse. The prompt says the same thing; this is what makes it true.
+#
+# ⚠️ CONFIG-DERIVED, NAMING NO CATEGORY OR ATTRIBUTE (the HV-10 lesson). The attribute set is read from
+# the pipelines: an attribute a `module_fit` ladder names as `on_zero_from` is one whose stated count the
+# interpreter reads on the zero-module path, so it is the one that must arrive as a count. A config with
+# no such ladder key yields an empty list and the parse is inert for it -- every category but
+# switches_sockets today (point_wiring carries `on_zero_modules` only, and is untouched).
+
+_MM_UNIT_RE = re.compile(r"\d+(?:\.\d+)?\s*(?:mm|millimet(?:re|er)s?)\b", re.IGNORECASE)
+_DIMENSION_CHAIN_RE = re.compile(r"\d+(?:\.\d+)?\s*[x×*]\s*\d+(?:\.\d+)?(?:\s*[x×*]\s*\d+(?:\.\d+)?)*", re.IGNORECASE)
+
+
+def module_count_from_text(raw):
+    """The module count a stated token carries, as an int, or None when it carries none.
+
+    A number arrives as itself (9 -> 9; 9.0 -> 9; a non-integer or non-positive number is NOT a
+    count -> None). A string is read for its integers AFTER every millimetre-unit number and every
+    dimension chain has been struck out; the HIGHEST remaining integer is the count (the owner's
+    range rule: extraction provides the higher count and the ladder fits it, exact or next higher).
+    None / blank -> None. PURE."""
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        v = float(raw)
+        if v != v or v <= 0 or v != int(v):
+            return None
+        return int(v)
+    text = str(raw).strip()
+    if not text:
+        return None
+    text = _DIMENSION_CHAIN_RE.sub(" ", text)
+    text = _MM_UNIT_RE.sub(" ", text)
+    found = [int(n) for n in re.findall(r"\d+", text)]
+    found = [n for n in found if n > 0]
+    return max(found) if found else None
+
+
+def zero_path_stated_attrs(cfg):
+    """The attribute ids some `module_fit` ladder reads as its stated count on the ZERO-module path
+    (`on_zero_from`), sorted, de-duplicated. Derived FROM THE CONFIG; [] for a config declaring none,
+    which makes `_extract_batch`'s parse inert for it."""
+    out = set()
+    for pl in ((cfg or {}).get("pipelines") or {}).values():
+        for step in (pl or {}).get("steps") or []:
+            if step.get("step") != "module_fit":
+                continue
+            for ladder in (step.get("params") or {}).get("ladders") or []:
+                src = ladder.get("on_zero_from")
+                if isinstance(src, str) and src.strip():
+                    out.add(src.strip())
+    return sorted(out)
+
+
 def force_absent_dependents(row_out, absent_rules):
     """PW-CIRCUIT-STRETCH -- a component the row declares ABSENT has an absent SPECIFICATION.
 
@@ -1602,6 +1789,17 @@ def apply_conductor_floor(row_out, groups):
 # `amp_a` and `curve` are stored on every catalog row and checked by nothing. The owner ruled
 # "later if the team starts noticing higher error rates we will make th elarger fix". Do NOT
 # generalise this mechanism to those attributes.
+#
+# F-30 SLICE A (owner rulings, 2026-09-05) -- THE POLES-PLUS-NEUTRAL LADDER. The TPN-only
+# correction above became a two-family LADDER: "for any pole + Neutral, should be matched with
+# next higher pole: SPN with DP, TPN with 4p"; "we need to first match with SPN in catalog, if
+# that is not there then we match with DP" (same ordering for TPN); "still build it so that if
+# we later add SPN in catalog it gets matched first"; for a rating the catalogue does not carry,
+# "next rating". The 2026-08-23 "let it be for now" on SPN is REVERSED by these. "POLE ON MCBs
+# ONLY" still holds STRUCTURALLY: the ladder enters only from a pick whose `pole` is the
+# family's stated / counted / named pole, and MCB is the only device carrying SP or TP rows.
+# The prompt is NOT touched -- the model reads SP for an SPN row, correctly (a FACT TO READ);
+# counting the neutral is a CALCULATION TO APPLY and lives here (the CLAUDE.md gate).
 
 # The adjacency window, in INTERVENING WORDS, between a four-pole token and the device word.
 # DERIVED FROM THE REAL CORPUS, not chosen a priori: the three genuinely mis-routed rows sit at
@@ -1617,6 +1815,37 @@ _FOUR_POLE_ADJACENCY_WORDS = 3
 _BOARD_WORDS_AFTER_DEVICE = frozenset({"DB", "DBS", "DB'S", "MCBDB", "BOARD", "BOARDS", "DISTRIBUTION"})
 
 _WORD_RE = re.compile(r"[A-Za-z0-9+']+")
+
+# The SPN-family vocabulary -- a CODE-SIDE constant, the `_BOARD_WORDS_AFTER_DEVICE` precedent.
+#
+# WHY CODE, WHEN THE TPN FAMILY IS READ FROM THE PROMPT: the prompt's POLE line carries NO SPN
+# breaker clause, and must not gain one -- the model already reports SP for "SPN MCB", which is
+# the right READING (single pole is what is stated; the neutral is COUNTED here, deterministically).
+# With nothing in the prompt to read from, a prompt-sourced list would be empty by construction.
+# There is therefore ONE vocabulary, this one; the anti-drift pin is INVERTED -- the test asserts
+# the prompt carries no `"SPN" ->` clause, so the day one is added the two lists collide loudly.
+# Longest-first, like the prompt's TPN order, so "SP+N" can never truncate "SP+NL". Spellings are
+# the ones MEASURED in the corpus (SPN 299, SP+N 5, SP&N 3, 1P+N 1 -- 2026-09-05 census) plus
+# SP+NL, the mirror of the prompt's TP+NL.
+_SPN_FAMILY_TOKENS = ("SP+NL", "SP+N", "SP&N", "SPN", "1P+N")
+
+
+def spn_family_tokens():
+    """The SPN-family spellings, longest first. See `_SPN_FAMILY_TOKENS` for why this is code."""
+    return list(_SPN_FAMILY_TOKENS)
+
+
+def pole_plus_neutral_families():
+    """The two poles-plus-neutral families the ladder walks, TPN FIRST (today's behaviour, kept
+    byte-identical) then SPN. Each names the pole the model STATES for the family (TP / SP), the
+    pole the ladder COUNTS the neutral into (FP / DP), and the literal `pole` value rung 1 looks
+    for on a catalogue row (TPN / SPN)."""
+    return [
+        {"family": "TPN", "tokens": four_pole_tokens(),
+         "stated_pole": "TP", "counted_pole": "FP", "named_pole": "TPN"},
+        {"family": "SPN", "tokens": spn_family_tokens(),
+         "stated_pole": "SP", "counted_pole": "DP", "named_pole": "SPN"},
+    ]
 
 
 def four_pole_tokens():
@@ -1698,6 +1927,49 @@ def _four_pole_near_device(fragment, four_pole_re, device, window):
     return False
 
 
+_AMP_WORD_RE = re.compile(r"^(\d+(?:\.\d+)?)(?:A|AMP|AMPS)?$", re.I)
+
+
+def _family_token_amps(fragment, family_re, device, window):
+    """The amps STATED BESIDE a family token in `fragment` -- the numbers within `window` words
+    BEFORE a token that itself sits within `window` words of a standalone device word ("40 amp
+    SPN MCB" -> {40}; "6No.s.10/16A SPN MCB" -> {10, 16}; "TPN MCB with weather proof" -> {}).
+
+    FOUND ON THE LIVE CERT (2026-09-05): the adjacency test alone is ROW-WIDE, so on a row that
+    reads '6 Nos of 16 amp SP MCB's ... controlled by 1 No. 40 amp SPN MCB' EVERY SP pick was
+    laddered -- the single-pole outgoings became two-pole with an amp-moved-up note. The ruling
+    is 'a breaker whose OWN row text names IT', so the token is anchored to the amp stated beside
+    it; picks whose amp is not named stay where the model put them. Same per-fragment surface and
+    the same anchor/window rules as `_four_pole_near_device`, which is left byte-identical."""
+    if family_re is None or not fragment:
+        return set()
+    words = [(m.group(0), m.start(), m.end()) for m in _WORD_RE.finditer(fragment)]
+    anchors = []
+    for i, (w, _s, _e) in enumerate(words):
+        if w.upper() != device:
+            continue
+        nxt = words[i + 1][0].upper() if i + 1 < len(words) else ""
+        if nxt in _BOARD_WORDS_AFTER_DEVICE:
+            continue
+        anchors.append(i)
+    amps = set()
+    if not anchors:
+        return amps
+    for m in family_re.finditer(fragment):
+        span = [i for i, (_w, ws, we) in enumerate(words) if ws < m.end() and we > m.start()]
+        if not span:
+            continue
+        lo, hi = min(span), max(span)
+        near = any(not (lo <= d <= hi) and ((d - hi - 1) if d > hi else (lo - d - 1)) <= window for d in anchors)
+        if not near:
+            continue
+        for j in range(max(0, lo - window), lo):
+            am = _AMP_WORD_RE.match(words[j][0])
+            if am:
+                amps.add(float(am.group(1)))
+    return amps
+
+
 def row_own_text_fragments(row):
     """The row's OWN text, as SEPARATE fragments: its description, then each note line (own,
     attached, appended).
@@ -1716,66 +1988,196 @@ def row_own_text_fragments(row):
     return [f for f in frags if f]
 
 
-def correct_four_pole_mcb_picks(row_out, row, pole_catalog, tokens=None):
-    """Re-select a THREE-POLE MCB pick as its FOUR-POLE sibling when the row text says four pole.
+def _same_device_and_curve(attrs, pole_catalog):
+    """The catalogue rows a pick may be re-selected among: same device, same curve, a readable
+    amp. The curve is NEVER changed by any rung, so it is fixed here, once."""
+    return [(name, a) for name, a in pole_catalog.items()
+            if a.get("device") == attrs.get("device") and a.get("curve") == attrs.get("curve")
+            and isinstance(a.get("amp_a"), (int, float)) and not isinstance(a.get("amp_a"), bool)]
+
+
+def _rung1_rows(attrs, fam, pole_catalog):
+    """RUNG 1 candidates: rows whose STRUCTURED `pole` is literally the family's named pole
+    (SPN / TPN) at the same device, EXACT amp and same curve. Never the item NAME."""
+    return [name for name, a in _same_device_and_curve(attrs, pole_catalog)
+            if a.get("pole") == fam["named_pole"] and a.get("amp_a") == attrs.get("amp_a")]
+
+
+def _ladder_target(attrs, fam, pole_catalog):
+    """Resolve ONE pick through the three rungs. Returns (target_name, record_extras) where
+    target_name is None for a blank, or ("__ambiguous__", extras) when the catalogue offers more
+    than one row at the chosen rung and picking one would be a guess.
+
+    RUNG 1 -- a row whose STRUCTURED `pole` is literally the family's named pole (SPN / TPN), same
+    device, EXACT amp, same curve. Never the item NAME: 54 live rows are named SPN/TPN/VTPN and
+    every one is a DB shell with no `pole` key.
+    RUNG 2 -- the counted pole (DP / FP), same device, same curve, the exact amp else the NEXT amp
+    UP. Never down. The curve is never changed.
+    RUNG 3 -- nothing at or above the amp on that curve: BLANK (None), so the row does not price
+    and a human decides. This REPLACES the 2026-08-23 "swap, never blank" for the no-sibling case,
+    per the owner's "next rating" ruling (2026-09-05).
+    """
+    device, amp, curve = attrs.get("device"), attrs.get("amp_a"), attrs.get("curve")
+    if not isinstance(amp, (int, float)) or isinstance(amp, bool):
+        return "__unreadable__", {}
+    same = _same_device_and_curve(attrs, pole_catalog)
+    rung1 = _rung1_rows(attrs, fam, pole_catalog)
+    if len(rung1) == 1:
+        return rung1[0], {"rung": 1}
+    if len(rung1) > 1:
+        return "__ambiguous__", {"reason": "ambiguous_named_pole", "candidates": len(rung1), "rung": 1}
+    above = [(a.get("amp_a"), name) for name, a in same
+             if a.get("pole") == fam["counted_pole"] and a.get("amp_a") >= amp]
+    if not above:
+        return None, {"reason": "no_rating_at_or_above", "rung": 3}
+    best = min(x for x, _n in above)
+    at = [name for x, name in above if x == best]
+    if len(at) != 1:
+        return "__ambiguous__", {"reason": "ambiguous_counted_pole", "candidates": len(at), "rung": 2}
+    extras = {} if best == amp else {"amp_moved_up": {"from": float(amp), "to": float(best)}}
+    return at[0], extras
+
+
+def apply_pole_plus_neutral_ladder(row_out, row, pole_catalog, tokens=None):
+    """Re-select a breaker pick through the poles-plus-neutral LADDER when the row's OWN text
+    names it as SPN-family or TPN-family (see `pole_plus_neutral_families`).
 
     PURE apart from mutating the `row_out` it is handed (the same dict `_extract_batch` is
-    assembling) -- the `scrub_unpaired_slot_defaults` shape. Returns a list of records
-    {attr, from, to} for the caller to log, or the reason nothing was done.
+    assembling) -- the `scrub_unpaired_slot_defaults` shape. Returns a list of records for the
+    caller to log: a plain {attr, from, to} for a rung-2 exact swap (BYTE-IDENTICAL to the TPN
+    correction this grew from), plus `rung: 1` for a named-pole hit, `amp_moved_up: {from, to}`
+    when rung 2 went up a rating, and {to: None, reason, rung: 3} for a blank.
 
     `pole_catalog` is {item_name: attributes} for the composite's breaker kind, supplied by the
     caller (the `values_from_catalog` shape) so this stays free of DB access and of any category
-    id.
+    id. `tokens` overrides the TPN family's vocabulary (test seam), never the SPN family's.
 
-    SWAP, NEVER BLANK (decided). A blanked slot makes `component_ref` match zero rows, which
-    refuses the WHOLE pipeline -- turning a slightly-low price into a dead row. A swap between two
-    existing catalog rows always yields a priceable row.
+    THE GUARD IS THE PICK, NOT A PARSE OF THE TEXT'S INTENT: the ladder enters only from a pick
+    whose `pole` is the family's stated, counted or named pole, and only when a family token sits
+    within `_FOUR_POLE_ADJACENCY_WORDS` of a device word that is not part of a board name, in the
+    row's OWN text. MCB is the only device carrying SP or TP rows, so the ladder is structurally
+    unable to alter a shell, an enclosure or a residual-current device.
 
-    NO FP SIBLING AT THAT amp AND curve -> THE PICK IS LEFT EXACTLY ALONE and the reason is
-    recorded. Never swap to a different amp, never to a different curve, never invent a row: a
-    four-pole breaker the catalog does not stock is an honest gap for a human, not something to
-    approximate.
+    The pick is left EXACTLY ALONE (and the reason recorded) only when the catalogue is AMBIGUOUS
+    at the chosen rung -- picking one of two rows would be a guess.
     """
     changed = []
     if not row_out or not pole_catalog:
         return changed
-    four_pole_re = _four_pole_re(four_pole_tokens() if tokens is None else tokens)
-    if four_pole_re is None:
+    families = []
+    for fam in pole_plus_neutral_families():
+        toks = tokens if (tokens is not None and fam["family"] == "TPN") else fam["tokens"]
+        rx = _four_pole_re(toks)
+        if rx is not None:
+            families.append((fam, rx))
+    if not families:
         return changed
     fragments = None
-    for aid in sorted(row_out):
-        cell = row_out.get(aid) or {}
-        picked = cell.get("value")
-        if not isinstance(picked, str):
+    for fam, rx in families:
+        # PASS 1 -- the candidates: every pick this family may ladder, in attribute order.
+        cands = []
+        for aid in sorted(row_out):
+            cell = row_out.get(aid) or {}
+            picked = cell.get("value")
+            if not isinstance(picked, str):
+                continue
+            attrs = pole_catalog.get(picked)
+            if not attrs:
+                continue
+            device, pole = attrs.get("device"), attrs.get("pole")
+            if not device or not pole:
+                continue  # a shell or an enclosure is not a breaker
+            # ENTRY -- from the family's STATED pole (TP / SP), the full ladder; from its COUNTED
+            # pole (FP / DP) ONLY when a rung-1 row exists for the pick (the owner's "if we later
+            # add SPN in catalog it gets matched first"), else silence -- MEASURED: 46 stored rows
+            # read '40A FP 30mA, RCBO' / '25A, 4P RCCB' beside an already-FP residual-current
+            # pick, and today's code emits nothing for them; entering rung 2 there would find the
+            # three mA variants ambiguous and stamp a marker on rows that never had one. From the
+            # NAMED pole (a rung-1 row already picked) never: that is the idempotent case.
+            if pole == fam["stated_pole"]:
+                pass
+            elif pole == fam["counted_pole"]:
+                if not _rung1_rows(attrs, fam, pole_catalog):
+                    continue
+            else:
+                continue
+            if fragments is None:
+                fragments = row_own_text_fragments(row)
+            dev = str(device).upper()
+            if not any(_four_pole_near_device(f, rx, dev, _FOUR_POLE_ADJACENCY_WORDS) for f in fragments):
+                continue
+            cands.append((aid, cell, picked, attrs, dev))
+        if not cands:
             continue
-        attrs = pole_catalog.get(picked)
-        if not attrs:
-            continue
-        device = attrs.get("device")
-        if not device or attrs.get("pole") != "TP":
-            continue  # only a three-pole pick can be mis-routed; everything else is out of reach
-        if fragments is None:
-            fragments = row_own_text_fragments(row)
-        if not any(_four_pole_near_device(f, four_pole_re, str(device).upper(),
-                                          _FOUR_POLE_ADJACENCY_WORDS) for f in fragments):
-            continue
-        siblings = [
-            name for name, a in pole_catalog.items()
-            if a.get("device") == device and a.get("pole") == "FP"
-            and a.get("amp_a") == attrs.get("amp_a") and a.get("curve") == attrs.get("curve")
-        ]
-        if len(siblings) != 1:
-            # 0 -> the catalog stocks no four-pole equivalent. >1 -> the catalog is ambiguous and
-            # picking one would be a guess. Either way: leave the pick, record why.
-            changed.append({"attr": aid, "from": picked, "to": None,
-                            "reason": "no_unique_fp_sibling", "candidates": len(siblings)})
-            continue
-        cell["value"] = siblings[0]
-        changed.append({"attr": aid, "from": picked, "to": siblings[0]})
+        # PASS 2 -- THE AMP ANCHOR (live-cert finding, 2026-09-05). The adjacency test is row-wide:
+        # a row reading '16 amp SP MCB's ... 40 amp SPN MCB' passes it for BOTH SP picks. Anchor the
+        # family token to the amps stated beside it: when at least one candidate's amp is named
+        # there, ONLY the named candidates are laddered. When nothing is named ("TPN MCB with
+        # weather proof enclosure") or nothing matches ("45A TPN MCB" fitted to 63 A), the row-wide
+        # rule stands -- today's behaviour, byte-identical, and what keeps TPN a no-op.
+        named = {}
+        for _aid, _cell, _picked, _attrs, dev in cands:
+            if dev not in named:
+                named[dev] = set()
+                for f in fragments:
+                    named[dev] |= _family_token_amps(f, rx, dev, _FOUR_POLE_ADJACENCY_WORDS)
+        # THE NAMED BREAKER MAY ALREADY BE ACCOUNTED FOR by a pick this pass did not admit -- the
+        # model can pick a rung-1 row (pole SPN / TPN) or the counted pole itself for the incomer,
+        # and neither is a candidate. Found on the live cert (C4): with an SPN row in the catalogue
+        # the model chose it directly, the outgoings came back as 32A SP, and the fallback laddered
+        # them. So the anchor is judged over EVERY breaker pick in the family's poles, not only the
+        # candidates: when any such pick carries a named amp, ONLY named candidates move (possibly
+        # none); the row-wide fallback is kept for the case where NO pick carries a named amp
+        # ("45A TPN MCB" fitted to 63 A -- the one TP pick still ladders, as today).
+        family_poles = (fam["stated_pole"], fam["counted_pole"], fam["named_pole"])
+        named_hit = False
+        for _aid in row_out:
+            _v = (row_out.get(_aid) or {}).get("value")
+            _a = pole_catalog.get(_v) if isinstance(_v, str) else None
+            if _a and _a.get("pole") in family_poles and _a.get("device")                     and _a.get("amp_a") in named.get(str(_a.get("device")).upper(), set()):
+                named_hit = True
+                break
+        if named_hit:
+            cands = [c for c in cands if c[3].get("amp_a") in named.get(c[4], set())]
+        for aid, cell, picked, attrs, _dev in cands:
+            target, extras = _ladder_target(attrs, fam, pole_catalog)
+            if target == "__unreadable__":
+                continue
+            if target == "__ambiguous__":
+                changed.append(dict({"attr": aid, "from": picked, "to": None}, **extras))
+                continue
+            if target == picked:
+                continue  # already resolved (idempotent) -- no record
+            cell["value"] = target
+            changed.append(dict({"attr": aid, "from": picked, "to": target}, **extras))
     return changed
 
 
-def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, absent_rules=None, conductor_groups=None, *, capture_ctx=None):
+# The call-site and test name since the TPN slice (2026-08-23). It IS the ladder -- one
+# implementation, not two; the name is kept so the 30 existing pins keep reading naturally.
+correct_four_pole_mcb_picks = apply_pole_plus_neutral_ladder
+
+
+def stamp_pole_ladder(row_out, records):
+    """Write the ladder's `pole_ladder` marker onto the RESULT cell of each record's attribute --
+    the dict the run STORES and the panel READS (the same dict `defaulted` rides on).
+
+    FOUND ON THE LIVE CERT (C3, 2026-09-05): the marker was first written to `row_map`, which is
+    the CAPTURE-log map (`cap_map[rid] = row_map`, observation only, never stored), so the panel
+    never saw it and the rating-up sentence could not render. Stamped ONLY when the record carries
+    more than a plain same-amp swap -- a rung-1 hit, an `amp_moved_up`, or a blank's reason -- so
+    a plain TPN swap's stored cell stays byte-identical to before this slice."""
+    for rec in records or []:
+        aid = rec.get("attr")
+        cell = row_out.get(aid) if aid else None
+        if not isinstance(cell, dict):
+            continue
+        extras = {k: v for k, v in rec.items() if k not in ("attr", "from", "to")}
+        if extras:
+            cell["pole_ladder"] = dict(extras, to=rec.get("to"))
+
+
+def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, absent_rules=None, conductor_groups=None, paired_fill=None, module_count_attrs=None, *, capture_ctx=None):
     """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
     confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
     (<=20 rows, 3 attempts, sleep 2*attempt).
@@ -1917,6 +2319,14 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 # SLICE 5 (B2): {excel_row: [qty_attr, ...]} -- quantities removed because their
                 # paired item slot came back "None". Observation only, like every sibling here.
                 "slot_paired_defaults_scrubbed": {},
+                # PAIRED-QUANTITY FILL (2026-09-07): {excel_row: [qty_attr, ...]} -- quantities the
+                # code filled with their declared default because the item is present (or, plate
+                # only, will be bought). Observation only, like every sibling here.
+                "paired_slot_defaults_filled": {},
+                # F-25 SLICE 2: {excel_row: [{attr, raw, parsed}, ...]} -- a stated box module count
+                # the model wrote AS WRITTEN, and the count code read from it (the higher of a range;
+                # None when the token carries no count). Observation only, like every sibling here.
+                "module_count_parsed": {},
                 # PW-CIRCUIT-STRETCH: {excel_row: [attr, ...]} -- spec fields filled with the "None"
                 # sentinel because their controller declared the component absent. Observation
                 # only, like every sibling here.
@@ -1964,6 +2374,19 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                     if aid not in attrs:
                         absent.append(aid)
                     raw = cell.get("value")
+                    # F-25 SLICE 2 -- THE STATED BOX COUNT, picked by CODE before coercion. The model
+                    # writes the token as written ("9/8M", "1 or 2 Module", "3 Module"); a `number`
+                    # coercion would drop every one of those. `module_count_from_text` reads the
+                    # higher count (dimensions struck out first) and THAT is what coercion sees.
+                    # The raw token is kept in the capture beside the count. Inert for every config
+                    # whose ladders declare no `on_zero_from` (the set is config-derived).
+                    model_raw = raw
+                    parsed_count = None
+                    if module_count_attrs and aid in module_count_attrs and raw is not None:
+                        parsed_count = module_count_from_text(raw)
+                        drops["module_count_parsed"].setdefault(str(rid), []).append(
+                            {"attr": aid, "raw": raw, "parsed": parsed_count})
+                        raw = parsed_count
                     value, reason = _coerce_value_ex(defn, raw, (synonyms or {}).get(aid))
                     conf_raw = cell.get("confidence")
                     try:
@@ -1990,7 +2413,7 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                         if claimed_default:
                             defaulted_lost.append(aid)
                     row_map[aid] = {
-                        "raw": raw,
+                        "raw": model_raw,  # the model's token, never the parsed count (F-25 slice 2)
                         "coerced": value,
                         "reason": reason,
                         "confidence_raw": conf_raw,
@@ -1998,6 +2421,8 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                         "defaulted_claimed": claimed_default,
                         "defaulted_kept": bool(row_out[aid].get("defaulted")),
                     }
+                    if model_raw is not None and raw is not model_raw:
+                        row_map[aid]["module_count_parsed"] = parsed_count
                 # SLICE 5 (B2 / R-B) -- THE SLOT-PAIRED DEFAULT SCRUB, server-side.
                 #
                 # ⚠️ THE PROMPT SENTENCE ABOVE IS NOT THE ENFORCEMENT, THIS IS. The phantom quantities
@@ -2019,6 +2444,26 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                     drops["slot_paired_defaults_scrubbed"].setdefault(str(rid), []).append(_aid)
                     if _aid in row_map:
                         row_map[_aid]["scrubbed_unpaired"] = True
+
+                # PAIRED-QUANTITY FILL (owner rulings 2026-09-07) -- the scrub's mirror: a quantity
+                # that came back BLANK beside a PRESENT item (or, plate only, beside a plate the row
+                # will buy) is filled with its declared default and marked `defaulted`, so the row
+                # prices without a pricer typing the 1. Placed AFTER the scrub deliberately: the
+                # scrub first settles every "None" slot to "no quantity", so the occupancy test
+                # below never counts a quantity the scrub is about to remove; the two are
+                # commutative on every single slot (None vs filled/blank are disjoint), which the
+                # pins assert, and this order makes the dependency direction explicit. Inert for a
+                # config declaring no `requires_named` default.
+                for _aid in fill_paired_slot_defaults(row_out, defaults, paired_fill):
+                    drops["paired_slot_defaults_filled"].setdefault(str(rid), []).append(_aid)
+                    row_map[_aid] = {
+                        "raw": (row_map.get(_aid) or {}).get("raw"),
+                        "coerced": row_out[_aid]["value"],
+                        "reason": "paired default filled (code)",
+                        "confidence_raw": (row_map.get(_aid) or {}).get("confidence_raw"),
+                        "confidence": row_out[_aid]["confidence"],
+                        "defaulted_claimed": False, "defaulted_kept": True,
+                    }
 
                 # PW-CIRCUIT-STRETCH -- a component declared ABSENT has an absent SPECIFICATION.
                 # Placed beside the scrub above because it is the same kind of thing: a pure,
@@ -2058,13 +2503,26 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 # deterministic correction of model output, applied to the row dict this loop is
                 # assembling, BEFORE the result is stored. `pole_catalog` is absent for every
                 # non-composite category, so this is inert -- and byte-identical -- for them.
+                # F-30 SLICE A: the same call now walks the poles-plus-neutral LADDER for both
+                # families (TPN first, byte-identical; then SPN). The drops key and the
+                # `four_pole_corrected` mirror are kept as they were. `pole_ladder` is an ADDITIVE
+                # per-attribute record written ONLY when the ladder has something to say beyond a
+                # plain same-amp swap -- a rung-1 hit, an amp moved UP, or a blank with its reason
+                # -- so a plain TPN swap's stored result stays byte-identical to today, and a
+                # panel can read why a rating changed.
                 _row_src = rows_by_id.get(rid)
                 if pole_catalog and _row_src is not None:
-                    for _rec in correct_four_pole_mcb_picks(row_out, _row_src, pole_catalog):
+                    _ladder_recs = apply_pole_plus_neutral_ladder(row_out, _row_src, pole_catalog)
+                    # THE RESULT CELL, not the capture map: `row_out` is what the run stores and
+                    # the panel reads; `row_map` below is the capture log's mirror (observation).
+                    stamp_pole_ladder(row_out, _ladder_recs)
+                    for _rec in _ladder_recs:
                         drops["four_pole_mcb_corrections"].setdefault(str(rid), []).append(_rec)
                         _a = _rec.get("attr")
                         if _a in row_map:
                             row_map[_a]["four_pole_corrected"] = _rec.get("to")
+                            if row_out.get(_a, {}).get("pole_ladder"):
+                                row_map[_a]["pole_ladder"] = row_out[_a]["pole_ladder"]
                 # PIECE 4 -- THE POINT TYPE, a DETERMINISTIC CODE MATCH over the payload.
                 #
                 # Placed beside the two corrections above because it is the same kind of thing: pure,
@@ -2403,6 +2861,15 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
             # for every other mode, which leaves those categories byte-identical.
             "pole_catalog": breaker_catalog_for(cfg, disc) if is_composite else None,
             "conductor_groups": conductor_floor_groups(cfg),
+            # PAIRED-QUANTITY FILL (2026-09-07): which paired item the pipeline COMPUTES (the plate
+            # ladder bind) and the occupancy terms that decide whether it will be bought. Derived
+            # from the config; None for a config with no module_fit over a paired item.
+            "paired_fill": paired_fill_plan(cfg),
+            # F-25 SLICE 2: the attribute ids some module_fit ladder reads as its stated count on the
+            # zero-module path (`on_zero_from`). The model writes them AS WRITTEN; `_extract_batch`
+            # reads the higher count in CODE before coercion. Derived from the config; [] for a
+            # config declaring none, which leaves every other category byte-identical.
+            "module_count_attrs": zero_path_stated_attrs(cfg),
             # PIECE 4: the attribute ids this config declares that CODE supplies rather than the
             # model. Derived FROM THE CONFIG (never a hardcoded category name -- the HV-10 lesson):
             # a config that does not declare `point_type` yields an empty set and the matcher is
@@ -2470,6 +2937,7 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
                     # `boq` is NOT on the row dict -- it lives only in this enclosing scope, so the
                     # capture's join key is threaded in from here.
                     return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], _gc["pole_catalog"], _gc["code_attrs"], _gc["absent_rules"], _gc["conductor_groups"],
+                                          _gc["paired_fill"], _gc["module_count_attrs"],
                                           capture_ctx={"boq": boq})
 
                 # SR-2 (3): ONE iteration when the batch fits (byte-identical to the pre-SR-2 single
