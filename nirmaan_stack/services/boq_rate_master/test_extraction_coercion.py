@@ -12,6 +12,8 @@ a direct call -- no DB, no AI, no fixtures.
 """
 
 import json
+import os
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -1572,3 +1574,149 @@ class TestFillPairedSlotDefaultsAcrossCategories(FrappeTestCase):
         self.assertEqual(extraction.fill_paired_slot_defaults(
             row, pairs_no_ladder["extraction_defaults"], extraction.paired_fill_plan(pairs_no_ladder)), [])
         self.assertIsNone(row["plate_qty"]["value"])
+
+
+# ── F-25 SLICE 2: the back box's STATED module count -- read by the model AS WRITTEN, picked by CODE ──
+class TestModuleCountFromText(FrappeTestCase):
+    """F-25 SLICE 2 (owner rulings 2026-09-06/07). The model records the box's module size exactly as
+    the text writes it; the HIGHER-OF-A-RANGE pick is a calculation and lives HERE, at the extraction
+    layer, because the attribute is number-typed and the raw token exists only before coercion.
+
+    Owner, verbatim: "for such cases extraction should provide the higher copunt and then we match it
+    as per our rulr - exact opr next higher if exact is not available"; on the millimetre-only rows
+    defaulting to 3M: "this is ok"."""
+
+    def test_a_number_arrives_as_itself(self):
+        self.assertEqual(extraction.module_count_from_text(3), 3)
+        self.assertEqual(extraction.module_count_from_text(9.0), 9)
+        self.assertEqual(extraction.module_count_from_text("12"), 12)
+
+    def test_a_range_yields_the_HIGHER_count(self):
+        """The three owner-named shapes: 9/8M -> 9, 1 or 2 Module -> 2, 2/3 module way -> 3."""
+        self.assertEqual(extraction.module_count_from_text("9/8M"), 9)
+        self.assertEqual(extraction.module_count_from_text("9/8"), 9)
+        self.assertEqual(extraction.module_count_from_text("1 or 2 Module"), 2)
+        self.assertEqual(extraction.module_count_from_text("2/3 module way"), 3)
+        self.assertEqual(extraction.module_count_from_text("1/2 module GI box"), 2)  # H2's parent text
+        self.assertEqual(extraction.module_count_from_text("3 Module GI Boxes"), 3)   # H1's own text
+
+    def test_NEGATIVE_a_millimetre_dimension_is_not_a_count(self):
+        """H5's shape: only millimetres -> None, so the ladder's declared 3M is ASSUMED downstream."""
+        self.assertIsNone(extraction.module_count_from_text("72 mm x 90 mm x 50 mm"))
+        self.assertIsNone(extraction.module_count_from_text("100x100x50mm"))
+        self.assertIsNone(extraction.module_count_from_text("75 mm deep"))
+        self.assertIsNone(extraction.module_count_from_text("100 x 100 mm"))
+        # a millimetre depth BESIDE a module count does not hide the count
+        self.assertEqual(extraction.module_count_from_text("3M box 75 mm deep"), 3)
+
+    def test_NEGATIVE_nothing_readable_is_None(self):
+        for raw in (None, "", "   ", "GI box", "abc", 0, -2, 2.5, True, False):
+            self.assertIsNone(extraction.module_count_from_text(raw), repr(raw))
+
+    def test_NEGATIVE_a_port_or_node_count_is_not_a_count_HERE_either(self):
+        """The parse never sees a port count -- the PROMPT tells the model to leave the attribute null
+        for one -- but if a model wrote "4 port" into the field the parse cannot tell; this pins that the
+        guard is the rule text (test_f25s2 in test_rate_master), not a heuristic here."""
+        self.assertEqual(extraction.module_count_from_text("4 port"), 4)
+
+
+class TestZeroPathStatedAttrs(FrappeTestCase):
+    """The parse set is CONFIG-DERIVED from the ladders' `on_zero_from` (the HV-10 lesson: no category or
+    attribute name in code). Read from the CURRENT asset, not the live DB, so the pin holds before and
+    after the import."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        here = os.path.dirname(os.path.abspath(extraction.__file__))
+        with open(os.path.join(here, "data", "rate_master_electrical_all_v58.json"), encoding="utf-8") as fh:
+            cls.configs = {c["category_id"]: c for c in json.load(fh)["category_configs"]}
+
+    def test_switches_sockets_declares_the_one_attribute(self):
+        self.assertEqual(extraction.zero_path_stated_attrs(self.configs["switches_sockets"]), ["box_modules_stated"])
+
+    def test_NEGATIVE_every_other_config_declares_none(self):
+        """point_wiring carries `on_zero_modules` ONLY -- the shared zero branch, untouched -- and the
+        other ten declare no module_fit zero path at all."""
+        for cid, cfg in self.configs.items():
+            if cid == "switches_sockets":
+                continue
+            self.assertEqual(extraction.zero_path_stated_attrs(cfg), [], cid)
+        pw = self.configs["point_wiring"]
+        for pid, pl in pw["pipelines"].items():
+            mf = [s for s in pl["steps"] if s["step"] == "module_fit"][0]
+            self.assertEqual(mf["params"]["ladders"][1].get("on_zero_modules"), 3, pid)
+            self.assertNotIn("on_zero_from", mf["params"]["ladders"][1], pid)
+
+    def test_shape_tolerance(self):
+        self.assertEqual(extraction.zero_path_stated_attrs({}), [])
+        self.assertEqual(extraction.zero_path_stated_attrs(None), [])
+        self.assertEqual(extraction.zero_path_stated_attrs({"pipelines": {}}), [])
+        self.assertEqual(extraction.zero_path_stated_attrs(
+            {"pipelines": {"p": {"steps": [{"step": "module_fit", "params": {"ladders": [{"on_zero_from": " x "}, {"on_zero_from": ""}]}}]}}}), ["x"])
+
+
+class TestModuleCountAtTheBatchSite(FrappeTestCase):
+    """The parse sits BEFORE coercion in `_extract_batch`, gated on the config-derived attribute set, and
+    is recorded in the capture beside the model's raw token. Proven end to end through a fake client:
+    the model writes "9/8M" as a string into a `number` attribute and the stored value is 9."""
+
+    DEFS = [
+        {"id": "back_box", "label": "Back box", "type": "choice", "values": ["Yes", "No"]},
+        {"id": "box_modules_stated", "label": "Back box module count", "type": "number"},
+    ]
+    ROWS = [{"excel_row": 169, "description": "9/8M MS GI Coated Box", "ancestors": [], "sheet_name": "s"},
+            {"excel_row": 115, "description": "72 mm x 90 mm x 50 mm MS box", "ancestors": [], "sheet_name": "s"},
+            {"excel_row": 428, "description": "3 Module GI Boxes", "ancestors": [], "sheet_name": "s"}]
+
+    @staticmethod
+    def _client(reply):
+        from nirmaan_stack.api.boq.wizard.test_classify import _FakeClient, _Resp
+        return _FakeClient(lambda call, kwargs: _Resp(json.dumps(reply)))
+
+    def _reply(self):
+        return [
+            {"id": 169, "attributes": {"back_box": {"value": "Yes", "confidence": 0.9},
+                                       "box_modules_stated": {"value": "9/8M", "confidence": 0.8}}},
+            {"id": 115, "attributes": {"back_box": {"value": "Yes", "confidence": 0.9},
+                                       "box_modules_stated": {"value": "72 mm x 90 mm x 50 mm", "confidence": 0.4}}},
+            {"id": 428, "attributes": {"back_box": {"value": "Yes", "confidence": 0.9},
+                                       "box_modules_stated": {"value": 3, "confidence": 0.9}}},
+        ]
+
+    def test_POSITIVE_the_token_is_parsed_before_coercion_when_the_attribute_is_in_the_set(self):
+        out = extraction._extract_batch(self._client(self._reply()), "m", "P", self.DEFS, self.ROWS,
+                                        None, None, None, None, None, None, None, None, None, None,
+                                        None, ["box_modules_stated"])
+        self.assertEqual(out[169]["box_modules_stated"]["value"], 9)      # the HIGHER of 9/8
+        self.assertIsNone(out[115]["box_modules_stated"]["value"])        # millimetres -> nothing read
+        self.assertEqual(out[428]["box_modules_stated"]["value"], 3)
+        self.assertEqual(out[169]["back_box"]["value"], "Yes")            # nothing else touched
+
+    def test_NEGATIVE_without_the_set_the_token_is_dropped_by_number_coercion_exactly_as_before(self):
+        """The pre-slice behaviour for a string in a number attribute: COERCE_NOT_A_NUMBER -> None. This is
+        why the pick had to sit BEFORE coercion, and why an empty set leaves every other config alone."""
+        out = extraction._extract_batch(self._client(self._reply()), "m", "P", self.DEFS, self.ROWS)
+        self.assertIsNone(out[169]["box_modules_stated"]["value"])
+        self.assertEqual(out[428]["box_modules_stated"]["value"], 3)      # a real number still coerces
+        out2 = extraction._extract_batch(self._client(self._reply()), "m", "P", self.DEFS, self.ROWS,
+                                         None, None, None, None, None, None, None, None, None, None,
+                                         None, [])
+        self.assertIsNone(out2[169]["box_modules_stated"]["value"])
+
+    def test_the_parse_is_recorded_in_the_capture_beside_the_raw_token(self):
+        """Pinned at the source, the way the paired-fill call site is: the drops key, the row_map raw
+        keeping the MODEL's token, the parse placed BEFORE `_coerce_value_ex`, and run_extraction
+        threading the config-derived set through."""
+        import inspect
+        src = inspect.getsource(extraction._extract_batch)
+        self.assertIn('"module_count_parsed": {}', src)
+        self.assertIn('parsed_count = module_count_from_text(raw)', src)
+        self.assertIn('drops["module_count_parsed"].setdefault(str(rid), []).append(', src)
+        self.assertIn('"raw": model_raw,', src)
+        i_parse = src.index("parsed_count = module_count_from_text(raw)")
+        i_coerce = src.index("value, reason = _coerce_value_ex(defn, raw, (synonyms or {}).get(aid))")
+        self.assertLess(i_parse, i_coerce)
+        src2 = inspect.getsource(extraction.run_extraction)
+        self.assertIn('"module_count_attrs": zero_path_stated_attrs(cfg)', src2)
+        self.assertIn('_gc["module_count_attrs"]', src2)

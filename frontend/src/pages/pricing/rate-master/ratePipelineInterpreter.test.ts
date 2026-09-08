@@ -5823,3 +5823,168 @@ describe("LMS: {description, brand} picks exactly one catalogue item", () => {
     expect(r.finals).toEqual({});
   });
 });
+
+// ── F-25 SLICE 2 (owner rulings 2026-09-06/07): A BARE BOX PRICES AS ITS BACK BOX ─────────────────
+// The zero-module path gains ONE config key, `on_zero_from`: the attribute carrying the box's STATED
+// module count (a plain positive number -- the model wrote the token as written and the extraction
+// layer picked the higher of a range in code). Stated -> fit on the box ladder, exact or NEXT HIGHER,
+// never down, honest no-compute above the top rung. Blank -> `on_zero_modules` (3 by ruling), MARKED
+// assumed. It is read ONLY on the zero path and NEVER from `plate_item`. Additive: without the key the
+// RULING 1 block above is byte-identical (its verbatim trace pins are the additivity proof).
+const BOX_LADDER_ITEMS: RateMasterItem[] = [
+  ...["1M & 2M", "3M", "4M", "6M", "8M", "9M", "12M", "16M", "18M"].map((i) => ssItem("Grid and Face Plates", i, "White", 100)),
+  ...([["1M & 2M", 121], ["3M", 178], ["4M", 205], ["6M", 279], ["8M", 362], ["12M", 465], ["18M", 552]] as const)
+    .map(([i, p]) => ssItem("Back Box", i, "NA", p)),
+  ssItem("Switch", "10A 1 WAY SWITCH", "White", 90),
+];
+const SS_BOX_LADDER = {
+  kind: "switch_socket_item", where: { family: "Back Box" }, bind: "box_item",
+  floor_from: "plate_item", on_none: "computed", on_zero_from: "box_modules_stated", on_zero_modules: 3,
+};
+const bareBoxFit = (ladder: Record<string, unknown> = SS_BOX_LADDER) => ({
+  step: "module_fit" as const,
+  params: {
+    terms: [{ attr: "switch_qty", weight: 1, none_when: "switch_item" }],
+    ladders: [
+      { kind: "switch_socket_item", where: { family: "Grid and Face Plates" }, bind: "plate_item", floor_from: "plate_item", on_none: "none" },
+      ladder,
+    ],
+  },
+});
+const bareBoxPipe = (mf: unknown = bareBoxFit()): Pipeline => ({
+  output: ["supply"],
+  steps: [
+    mf,
+    cref("switch", ssRef("Switch", "@switch_item", "@colour"), "list_price", [{ mult: 1 }], { from_attr: "switch_qty" }),
+    { step: "component_ref", name: "back_box", ref: ssRef("Back Box", "@box_item", "NA"), target: "list_price",
+      rate_stages: [{ mult: 1 }], qty: { if_attr: { back_box: "Yes" }, then: 1, else: 0 }, none_skips: true },
+    { step: "sum_components", result: "supply" },
+  ] as Pipeline["steps"],
+});
+/** A bare box: every occupant None, no plate, back box Yes; `box_modules_stated` as given. */
+const bare = (stated: string | number | null | undefined, over: Record<string, string | number> = {}) => {
+  const row: Record<string, string | number> = { switch_item: "None", plate_item: "None", colour: "White", back_box: "Yes", ...over };
+  if (stated !== null && stated !== undefined) row.box_modules_stated = stated;
+  return row;
+};
+const boxOutcome = (r: ReturnType<typeof runPipeline>) =>
+  r.steps.find((s) => s.step === "module_fit")?.moduleFit?.ladders.find((l) => l.bind === "box_item");
+
+describe("F-25 slice 2 -- a bare box prices on its STATED size, exact or next higher, never down", () => {
+  it("POSITIVE (H1 shape): a stated 3 prices the 3M back box -- not zero", () => {
+    const r = runPipeline("p", bareBoxPipe(), BOX_LADDER_ITEMS, bare(3));
+    expect(r.status).toBe("ok");
+    expect(lineOf(r, "back_box")).toBe(178);
+    expect(r.finals).toEqual({ supply: 178 });
+    expect(mfTrace(r)).toContain("= 0 modules -> no plate_item (nothing to fit), box_item 3M (nothing to fit -- stated box_modules_stated 3)");
+    expect(mfTrace(r)).not.toContain("(next higher)");
+    expect(boxOutcome(r)?.zeroPath).toEqual({ stated: 3, fitted: 3, assumed: false, nextHigher: false });
+  });
+
+  it("POSITIVE (H3 shape): the range's HIGHER count 9 has no rung -> fits 12M, marked next higher", () => {
+    // The 9 arrives already picked: "9/8M" -> 9 is the extraction layer's job, pinned in Python.
+    const r = runPipeline("p", bareBoxPipe(), BOX_LADDER_ITEMS, bare(9));
+    expect(lineOf(r, "back_box")).toBe(465);
+    expect(mfTrace(r)).toContain("box_item 12M (nothing to fit -- stated box_modules_stated 9) (next higher)");
+    expect(boxOutcome(r)?.zeroPath).toEqual({ stated: 9, fitted: 9, assumed: false, nextHigher: true });
+  });
+
+  it("POSITIVE: 10 fits 12M and 16 fits 18M -- never down; 12 and 18 are exact", () => {
+    expect(lineOf(runPipeline("p", bareBoxPipe(), BOX_LADDER_ITEMS, bare(10)), "back_box")).toBe(465);
+    expect(lineOf(runPipeline("p", bareBoxPipe(), BOX_LADDER_ITEMS, bare(16)), "back_box")).toBe(552);
+    expect(lineOf(runPipeline("p", bareBoxPipe(), BOX_LADDER_ITEMS, bare(12)), "back_box")).toBe(465);
+    expect(lineOf(runPipeline("p", bareBoxPipe(), BOX_LADDER_ITEMS, bare(18)), "back_box")).toBe(552);
+    expect(boxOutcome(runPipeline("p", bareBoxPipe(), BOX_LADDER_ITEMS, bare(12)))?.zeroPath?.nextHigher).toBe(false);
+    // a stated 2 lands on the combined "1M & 2M" rung exactly (H2's 1/2 module -> 2)
+    const two = runPipeline("p", bareBoxPipe(), BOX_LADDER_ITEMS, bare(2));
+    expect(lineOf(two, "back_box")).toBe(121);
+    expect(mfTrace(two)).toContain("box_item 1M & 2M (nothing to fit -- stated box_modules_stated 2)");
+    expect(boxOutcome(two)?.zeroPath?.nextHigher).toBe(false);
+  });
+
+  it("NEGATIVE: a stated count ABOVE the top rung is an HONEST no-compute, never a clamp to 18M", () => {
+    const r = runPipeline("p", bareBoxPipe(), BOX_LADDER_ITEMS, bare(19));
+    expect(r.status).toBe("no_match");
+    expect(r.steps[r.steps.length - 1].label).toContain("19 modules exceeds the largest 'box_item' the catalog carries (18M)");
+  });
+
+  it("POSITIVE (H4/H5 shape): nothing readable -> the declared 3 is fitted AND MARKED ASSUMED", () => {
+    for (const stated of [null, undefined, "", "abc"] as const) {
+      const r = runPipeline("p", bareBoxPipe(), BOX_LADDER_ITEMS, bare(stated));
+      expect(r.status).toBe("ok");
+      expect(lineOf(r, "back_box")).toBe(178);
+      expect(mfTrace(r)).toContain("box_item 3M (nothing to fit -- no box_modules_stated readable -- ASSUMED 3)");
+      expect(boxOutcome(r)?.zeroPath).toEqual({ stated: null, fitted: 3, assumed: true, nextHigher: false });
+    }
+    // a non-positive number is not a count either
+    expect(boxOutcome(runPipeline("p", bareBoxPipe(), BOX_LADDER_ITEMS, bare(0)))?.zeroPath?.assumed).toBe(true);
+  });
+
+  it("NEGATIVE: the assumed mark is ABSENT when the size was read", () => {
+    expect(boxOutcome(runPipeline("p", bareBoxPipe(), BOX_LADDER_ITEMS, bare(8)))?.zeroPath).toEqual(
+      { stated: 8, fitted: 8, assumed: false, nextHigher: false },
+    );
+  });
+
+  it("NEGATIVE: the size NEVER comes from plate_item on the zero path -- a phantom 9M plate does not make a 12M box", () => {
+    // The model parks the box's count in plate_item on bare boxes (29 of 49 measured). With the
+    // stated attribute blank the box must be the ASSUMED 3M, not the plate's 9 -> 12M.
+    const r = runPipeline("p", bareBoxPipe(), BOX_LADDER_ITEMS, bare(null, { plate_item: "9M" }));
+    expect(lineOf(r, "back_box")).toBe(178);
+    expect(boxOutcome(r)?.zeroPath).toEqual({ stated: null, fitted: 3, assumed: true, nextHigher: false });
+    expect(lineOf(r, "plate")).toBeUndefined(); // no plate line is priced on the zero path (unchanged)
+    // and with a stated 4 beside that phantom plate, the STATED 4 wins over the plate's 9
+    const s = runPipeline("p", bareBoxPipe(), BOX_LADDER_ITEMS, bare(4, { plate_item: "9M" }));
+    expect(lineOf(s, "back_box")).toBe(205);
+  });
+
+  it("NEGATIVE: back_box 'No' still prices NO box -- the component's own qty gate, not a second one", () => {
+    const r = runPipeline("p", bareBoxPipe(), BOX_LADDER_ITEMS, bare(8, { back_box: "No" }));
+    expect(r.status).toBe("ok");
+    expect(lineOf(r, "back_box")).toBe(0);
+    expect(boxOutcome(r)?.label).toBe("8M"); // the field still shows the rung (RULING 1's "does not re-gate")
+  });
+
+  it("THE INVARIANT: a row WITH occupants is byte-identical with and without the two keys (the zero path is the ONLY change)", () => {
+    const withKeys = bareBoxPipe();
+    const without = bareBoxPipe(bareBoxFit({ kind: "switch_socket_item", where: { family: "Back Box" }, bind: "box_item", floor_from: "plate_item", on_none: "computed" }));
+    const plated = { switch_item: "10A 1 WAY SWITCH", switch_qty: 2, plate_item: "9M", plate_qty: 1, colour: "White", back_box: "Yes", box_modules_stated: 4 };
+    const a = runPipeline("p", withKeys, BOX_LADDER_ITEMS, plated);
+    const b = runPipeline("p", without, BOX_LADDER_ITEMS, plated);
+    expect(a.finals).toEqual(b.finals);
+    expect(mfTrace(a)).toBe(mfTrace(b));
+    expect(mfTrace(a)).toContain("box_item 12M (stated 9M) (next higher)"); // the plate still drives the box
+    expect(boxOutcome(a)?.zeroPath).toBeUndefined();               // no zero-path outcome off the zero path
+    // ...and the stated 4 was NOT consulted (it would have downgraded a correctly-sized 12M box)
+    const noStated = runPipeline("p", withKeys, BOX_LADDER_ITEMS, { ...plated, box_modules_stated: undefined as unknown as number });
+    expect(noStated.finals).toEqual(a.finals);
+    // a "None" plate with a NON-ZERO count (STATE B) is likewise untouched
+    const stateB = { ...plated, plate_item: "None", plate_qty: 0 };
+    expect(runPipeline("p", withKeys, BOX_LADDER_ITEMS, stateB).finals).toEqual(runPipeline("p", without, BOX_LADDER_ITEMS, stateB).finals);
+  });
+
+  it("THE CROSS-CATEGORY NEGATIVE: point_wiring's zero-module row (on_zero_modules only) is byte-identical -- no zeroPath, RULING 1 trace verbatim", () => {
+    const r = runPipeline("pw_boq_supply", pwZeroPipe(PW_MODULE_FIT_ZERO3), PW198_ITEMS, PW_ROW198);
+    expect(r.finals).toEqual({ supply: 2359 });
+    expect(mfTrace(r)).toBe(
+      "2 x socket_qty(None) + 1 x switch_qty(None) = 0 modules -> " +
+        "no plate_item (nothing to fit), box_item 3M (nothing to fit -- default 3); no plate -> 0 blanks",
+    );
+    expect(boxOutcome(r)).toBeDefined();
+    expect(boxOutcome(r)?.zeroPath).toBeUndefined();
+    // and a stray `box_modules_stated` on a point_wiring row changes nothing -- the key is not declared there
+    const stray = runPipeline("pw_boq_supply", pwZeroPipe(PW_MODULE_FIT_ZERO3), PW198_ITEMS, { ...PW_ROW198, box_modules_stated: 8 });
+    expect(stray.finals).toEqual({ supply: 2359 });
+    expect(mfTrace(stray)).toBe(mfTrace(r));
+  });
+
+  it("NEGATIVE (additivity): on_zero_from with NO on_zero_modules and nothing stated binds the sentinel exactly as before", () => {
+    const noDefault = bareBoxPipe(bareBoxFit({ kind: "switch_socket_item", where: { family: "Back Box" }, bind: "box_item", floor_from: "plate_item", on_none: "computed", on_zero_from: "box_modules_stated" }));
+    const r = runPipeline("p", noDefault, BOX_LADDER_ITEMS, bare(null));
+    expect(r.status).toBe("ok");
+    expect(lineOf(r, "back_box")).toBe(0);
+    expect(mfTrace(r)).toContain("no box_item (nothing to fit)");
+    // ...while a stated count still prices even without a default
+    expect(lineOf(runPipeline("p", noDefault, BOX_LADDER_ITEMS, bare(6)), "back_box")).toBe(279);
+  });
+});

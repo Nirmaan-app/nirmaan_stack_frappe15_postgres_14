@@ -109,6 +109,20 @@ export interface WorkingsAttribute {
 export type AttrNote =
   | ({ kind: "upgrade" } & AttrUpgradeNote)
   | ({ kind: "rating_up" } & AttrRatingUpNote)
+  // F-25 SLICE 2 -- the two things a bare box's size field must say (owner 2026-09-07):
+  //   assumed -> WE GUESSED. Nothing readable stated the box's module size, so the declared default
+  //              (3M) was priced. THE MOST IMPORTANT NOTE OF THE SLICE: a defaulted 3M on a row whose
+  //              text says 8M is a finished-looking price 184 rupees short, and nothing else on screen
+  //              would distinguish it. Neither existing kind can carry it: `upgrade` is module-shaped
+  //              around a STATED rung, and the amber `default` badge reads the EXTRACTION flag, which
+  //              a pipeline value never carries.
+  //   size_up -> WE MOVED YOU UP. The stated count has no exact rung on the box ladder, so the next
+  //              stocked size was priced (9 -> 12M). `upgrade`'s sentence ("holds N; contents occupy
+  //              M") is about capacity vs contents and would read as nonsense here; `rating_up` is
+  //              amp-shaped. Both are corrections, so both sit in the "what is priced" half of the
+  //              render order.
+  | { kind: "assumed"; assumed: number; using: string }
+  | { kind: "size_up"; asked: number; using: string }
   | { kind: "capped"; stated: number; spare: number }
   | { kind: "uncovered"; stated: number; spare: number; uncovered: number };
 
@@ -147,7 +161,9 @@ export const POLE_WORDS: Readonly<Record<string, string>> = { SP: "single pole",
  * the count reads sensibly. `capped` and `uncovered` are mutually exclusive by construction (a stated
  * count is either above the spare or below it, never both), so their relative order never arises.
  */
-export const ATTR_NOTE_ORDER: readonly AttrNote["kind"][] = ["upgrade", "rating_up", "capped", "uncovered"];
+// F-25 slice 2: `assumed` (why THIS count) precedes `size_up` (how it was fitted); both precede the
+// quantity notes because they settle WHICH rung is priced.
+export const ATTR_NOTE_ORDER: readonly AttrNote["kind"][] = ["upgrade", "rating_up", "assumed", "size_up", "capped", "uncovered"];
 
 /** PURE. Notes in `ATTR_NOTE_ORDER`. A STABLE sort, so two notes of one kind keep producer order. */
 export function sortAttrNotes(notes: AttrNote[]): AttrNote[] {
@@ -200,6 +216,13 @@ export function attrNoteText(n: AttrNote): string {
       // Names what was asked for, why it could not be used, and what was used instead -- the
       // face-plate shape ("... holds 2 modules; contents occupy 3 — using 3M."), amp-shaped.
       return `No ${n.poleWord} ${n.device} at ${n.askedAmp}A on the ${n.curve} curve — using ${n.usedAmp}A.`;
+    case "assumed":
+      // F-25 slice 2 -- WE GUESSED, and the pricer must be told to look. Names where we looked (the
+      // row and its headings, i.e. the whole payload incl. the parent history) and what was priced.
+      return `No module size readable in the row or its headings — assumed ${n.assumed}M. Check it.`;
+    case "size_up":
+      // F-25 slice 2 -- the rating_up shape, module-sized: what was asked, why, what was used.
+      return `No ${n.asked}M in the catalogue — using ${n.using}, the next size up.`;
     case "capped":
       return (
         `${n.spare === 0 ? "No" : n.spare} spare module${n.spare === 1 ? "" : "s"} on this plate; ` +

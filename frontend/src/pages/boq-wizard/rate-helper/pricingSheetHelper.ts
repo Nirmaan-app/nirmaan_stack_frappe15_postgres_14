@@ -48,6 +48,7 @@ import {
 import { derivedQtyValue } from "@/pages/pricing/rate-master/RateMasterDerivation";
 import type {
   AttributeDefinition,
+  ModuleFitLadderOutcome,
   Pipeline,
   PipelineResult,
   RateCategoryConfig,
@@ -453,21 +454,38 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
       // for. The narrowed contract lives in `attrDisplayValue`: a stated value the pipeline USED is
       // still never overwritten; only a SUBSTITUTED one is.
       ...(ladder.upgraded && ladder.label ? { substituted: true } : {}),
-      ...(ladder.upgraded && ladder.label
-        ? {
-            notes: [
-              {
-                kind: "upgrade" as const,
-                stated: ladder.upgraded.stated,
-                statedHolds: ladder.upgraded.statedHolds,
-                occupied: ladder.upgraded.occupied,
-                using: ladder.label,
-              },
-            ],
-          }
-        : {}),
+      ...(ladderNotes(ladder)),
     };
   });
+}
+
+/**
+ * F-25 slice 2. PURE. Everything a `module_fit` ladder outcome must SAY on its field, as notes:
+ *   - the take-the-larger `upgrade` (slice 2d, unchanged wording, unchanged condition);
+ *   - on the ZERO-MODULE path of a ladder declaring `on_zero_from` (a bare box), `assumed` when
+ *     nothing readable stated the size and the declared default was priced, and `size_up` when the
+ *     fitted count had no exact rung and the next stocked size was priced. Both ride the general
+ *     `notes` list through the ONE wording site (`attrNoteText`); the panel renders them unchanged.
+ * Absent `zeroPath` (every non-zero path, and point_wiring's `on_zero_modules`-only shape) yields
+ * exactly the pre-slice-2 result -- an `upgrade` note or nothing.
+ */
+function ladderNotes(ladder: ModuleFitLadderOutcome): { notes?: AttrNote[] } {
+  const notes: AttrNote[] = [];
+  if (ladder.upgraded && ladder.label) {
+    notes.push({
+      kind: "upgrade",
+      stated: ladder.upgraded.stated,
+      statedHolds: ladder.upgraded.statedHolds,
+      occupied: ladder.upgraded.occupied,
+      using: ladder.label,
+    });
+  }
+  const z = ladder.zeroPath;
+  if (z && ladder.label) {
+    if (z.assumed) notes.push({ kind: "assumed", assumed: z.fitted, using: ladder.label });
+    if (z.nextHigher) notes.push({ kind: "size_up", asked: z.fitted, using: ladder.label });
+  }
+  return notes.length ? { notes: sortAttrNotes(notes) } : {};
 }
 
 /**

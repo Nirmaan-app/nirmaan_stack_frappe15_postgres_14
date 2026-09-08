@@ -366,6 +366,21 @@ export interface ModuleLadderSpec {
   // ABSENT => positive absence for this ladder, byte-identical to slice 2. The PLATE ladder must never
   // declare it: with nothing on it there is no plate.
   on_zero_modules?: number;
+  // F-25 SLICE 2 (owner rulings 2026-09-06/07) -- THE STATED COUNT ON THE ZERO-MODULE PATH.
+  //
+  // Names the attribute whose STATED module count this ladder fits when the computed count is ZERO
+  // (a bare box: no switch, no socket, no plate). The model reads it as written; the extraction layer
+  // picks the higher of a range in CODE, so what arrives here is a plain positive number. It is read
+  // ONLY on the zero-count path -- a row with occupants never consults it, which is what keeps every
+  // plated row byte-identical -- and it is NEVER `plate_item`: on a bare box the model parks the
+  // box's count in the plate slot (a phantom plate, on the register), and that slot is not the carrier.
+  //
+  // Blank / absent / non-numeric => fall back to `on_zero_modules` (3 by ruling) and the outcome says
+  // the size was ASSUMED, so the panel can say so -- a defaulted 3M on a row whose text says 8M is a
+  // finished-looking price 184 rupees short, and nothing else on screen would distinguish it.
+  //
+  // ABSENT => the RULING 1 path exactly as before (point_wiring's shape), byte-identical.
+  on_zero_from?: string;
 }
 
 // SLICE 2: compute a module count, then resolve it against catalog ladders.
@@ -739,6 +754,20 @@ export interface ModuleFitLadderOutcome {
    * upgrade is the one outcome that must never be silent -- the BoQ said one size and we price
    * another -- so the numbers travel as data and any surface can say so in its own words. */
   upgraded?: { stated: string; statedHolds: number; occupied: number };
+  /** F-25 SLICE 2: set ONLY on the zero-module path of a ladder declaring `on_zero_from`. Says where
+   * the fitted count came from, so the panel can say when it GUESSED (`assumed`) and when it moved
+   * the stated count UP to the next stocked rung (`nextHigher`). Absent on every other path -- in
+   * particular on point_wiring's `on_zero_modules`-only shape, which stays byte-identical. */
+  zeroPath?: {
+    /** The count the row STATED (already the higher of a range), or null when nothing was readable. */
+    stated: number | null;
+    /** The count actually fitted: the stated one, or `on_zero_modules` when `assumed`. */
+    fitted: number;
+    /** Nothing readable -> the ladder's declared default was used. THE MARK THE OWNER ASKED FOR. */
+    assumed: boolean;
+    /** The fitted count had no exact rung and the NEXT HIGHER one was priced. */
+    nextHigher: boolean;
+  };
 }
 
 /**

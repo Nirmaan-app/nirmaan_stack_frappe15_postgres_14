@@ -1508,25 +1508,59 @@ export function runPipeline(
             typeof L.on_zero_modules === "number" && Number.isFinite(L.on_zero_modules) && L.on_zero_modules > 0
               ? L.on_zero_modules
               : null;
-          if (zeroFit !== null) {
+          // F-25 SLICE 2 (owner rulings 2026-09-06/07) -- A BARE BOX PRICES AS ITS BACK BOX, on the
+          // size the row STATED when one is readable, else the declared default (3M by ruling).
+          //
+          // `on_zero_from` names the attribute carrying the stated count. It arrives as a plain
+          // positive number: the model wrote the token as written and the extraction layer picked the
+          // higher of a range in code, so nothing here parses text. It is read ONLY on this zero path
+          // -- a row with occupants never reaches it -- and it is NEVER `plate_item` (the phantom
+          // plate the model parks a box's count in is not the carrier). A blank falls back to
+          // `on_zero_modules` exactly as before and is MARKED assumed, because a guessed 3M on a row
+          // that says 8M is a finished-looking price nobody could tell from a read one.
+          //
+          // ⚠️ ADDITIVE. With no `on_zero_from` (point_wiring's shape) `statedZero` is null, the count
+          // is `zeroFit`, the trace string is the RULING 1 string verbatim, and no `zeroPath` is
+          // published -- byte-identical, pinned by the RULING 1 block's verbatim trace assertions.
+          let statedZero: number | null = null;
+          if (L.on_zero_from) {
+            const sr = selected[L.on_zero_from];
+            const n = Number(sr);
+            if (sr !== undefined && sr !== null && sr !== "" && Number.isFinite(n) && n > 0) statedZero = n;
+          }
+          const zeroCount = statedZero ?? zeroFit;
+          if (zeroCount !== null) {
             const rungs = buildModuleLadder(items, L);
             if (!rungs.length) {
               return bail(`ladder '${L.bind}' (${L.kind}) has no catalog rows -- no value computed`);
             }
-            const fit = fitModuleLadder(rungs, zeroFit);
+            const fit = fitModuleLadder(rungs, zeroCount);
             if (!fit) {
+              // A stated count above the ladder's top is an HONEST no-compute, never a clamp -- the
+              // same rule the non-zero path applies (a count ABOVE the ladder's top refuses).
               const top = rungs[rungs.length - 1];
               return bail(
-                `${fmtNum(zeroFit)} modules exceeds the largest '${L.bind}' the catalog carries (${top.label}) -- no value computed`
+                `${fmtNum(zeroCount)} modules exceeds the largest '${L.bind}' the catalog carries (${top.label}) -- no value computed`
               );
             }
             fitLabels[L.bind] = fit.label;
             fittedByBind[L.bind] = fit.modules;
             if (L.bind_modules) ctx[L.bind_modules] = fit.modules;
+            const how =
+              statedZero !== null
+                ? `stated ${L.on_zero_from} ${fmtNum(statedZero)}`
+                : L.on_zero_from
+                  ? `no ${L.on_zero_from} readable -- ASSUMED ${fmtNum(zeroCount)}`
+                  : `default ${fmtNum(zeroCount)}`;
             ladderParts.push(
-              `${L.bind} ${fit.label} (nothing to fit -- default ${fmtNum(zeroFit)})${fit.exact ? "" : " (next higher)"}`
+              `${L.bind} ${fit.label} (nothing to fit -- ${how})${fit.exact ? "" : " (next higher)"}`
             );
-            ladderOutcomes.push({ bind: L.bind, floorFrom: L.floor_from, label: fit.label, modules: fit.modules, absent: false });
+            ladderOutcomes.push({
+              bind: L.bind, floorFrom: L.floor_from, label: fit.label, modules: fit.modules, absent: false,
+              ...(L.on_zero_from
+                ? { zeroPath: { stated: statedZero, fitted: zeroCount, assumed: statedZero === null, nextHigher: !fit.exact } }
+                : {}),
+            });
             continue;
           }
           // Nothing to fit on ANY ladder. Bind the None sentinel so a `none_skips` component reading

@@ -1274,7 +1274,9 @@ describe("DERIVED DISPLAY -- R2: a too-small entry WARNS, it is never silently l
     // Owner ruling, 2026-09-05 (F-30 slice A): `rating_up` is REGISTERED in the order, between the
     // module upgrade and the quantity notes -- a kind whose position is incidental is exactly what
     // this pin exists to forbid. Extended from three kinds to four under that ruling, not silenced.
-    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "rating_up", "capped", "uncovered"]);
+    // F-25 slice 2 (owner 2026-09-07): `assumed` + `size_up` REGISTERED between rating_up and the
+    // quantity notes -- both settle WHICH rung is priced. Four -> six, again not silenced.
+    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "rating_up", "assumed", "size_up", "capped", "uncovered"]);
   });
 
   it("the two quantity notes are worded so neither can be mistaken for the other", () => {
@@ -3238,7 +3240,9 @@ describe("F-30 slice A -- the rating-up note reaches the panel's data contract",
     expect(r.workings.attributes.find((a) => a.id === "mcb1_item")!.notes).toBeUndefined();
   });
   it("the rating-up note renders BEFORE the quantity notes and after a module upgrade, deterministically", () => {
-    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "rating_up", "capped", "uncovered"]);
+    // F-25 slice 2 (owner 2026-09-07): the two bare-box notes sit AFTER rating_up and BEFORE the
+    // quantity notes; rating_up's own position (after upgrade, before capped) is unchanged.
+    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "rating_up", "assumed", "size_up", "capped", "uncovered"]);
   });
 });
 
@@ -3445,7 +3449,11 @@ describe("F-25 slice 1 -- the back box field SHOWS the rung the row is priced on
     expect(attrDisplayValue(attr("box_item")!)).toBe("3M");
   });
 
-  it("NEGATIVE (slice 2 is still owed): a BARE box -- every occupant None -- shows an EMPTY field and prices 0", () => {
+  // F-25 SLICE 2 (2026-09-07) INVERTED this pin's meaning without changing its assertions: it no longer
+  // says "slice 2 is owed", it says the zero path is ADDITIVE -- with NO `on_zero_from` / `on_zero_modules`
+  // on the ladder (this fixture) a bare box still binds the sentinel. The delivered behaviour is pinned
+  // in the slice-2 block at the end of this file.
+  it("NEGATIVE (additivity, was 'slice 2 is still owed'): a BARE box on a ladder WITHOUT the zero keys shows an EMPTY field and prices 0", () => {
     const { r, attr } = boxCompute({ switch_item: "None", switch_qty: null, plate_item: "None" });
     const box = attr("box_item")!;
     expect(box.derived).toBe(true);
@@ -3482,5 +3490,121 @@ describe("F-25 slice 1 -- the back box field SHOWS the rung the row is priced on
     expect(isShowingDerived(attr("box_item")!)).toBe(false);
     expect(attr("box_item")!.readOnly).toBeUndefined();        // an ORDINARY dropdown, by ruling
     expect(r.values.supply_rate).toBe(before);                 // ...and the price did not move (178)
+  });
+});
+
+// ── F-25 SLICE 2 -- a bare box prices as its back box, and the PANEL SAYS WHEN IT GUESSED ──────────
+// (v58, owner rulings 2026-09-06/07). The box ladder gains `on_zero_from: box_modules_stated` +
+// `on_zero_modules: 3`; the config gains the `panel: false` number attribute the model reads. On the
+// zero-module path `box_item` (slice 1's field) shows the rung priced, "(computed)", and carries a
+// note: `assumed` when nothing readable stated the size (THE note the owner called the most important
+// thing in the slice), `size_up` when the stated count was moved up to the next stocked rung.
+function bareBoxConfig(withKeys = true): RateCategoryConfig {
+  const base = boxFieldConfig() as unknown as {
+    attribute_definitions: Array<Record<string, unknown>>;
+    pipelines: { probe_boq: { steps: Array<{ step: string; params?: { ladders?: Array<Record<string, unknown>> } }> } };
+  };
+  if (withKeys) {
+    // the v58 attribute, byte-for-byte, directly after box_item
+    const i = base.attribute_definitions.findIndex((d) => d.id === "box_item");
+    base.attribute_definitions.splice(i + 1, 0, { id: "box_modules_stated", label: "Back box module count", type: "number", panel: false });
+    const box = base.pipelines.probe_boq.steps[0].params!.ladders![1];
+    box.on_zero_from = "box_modules_stated";
+    box.on_zero_modules = 3;
+  }
+  return base as unknown as RateCategoryConfig;
+}
+function bareBoxCompute(stated: string | number | null, over: Record<string, string | number | null> = {}, withKeys = true) {
+  const attrs = Object.fromEntries(
+    Object.entries({
+      switch_item: "None", switch_qty: null, plate_item: "None", plate_qty: null, back_box: "Yes",
+      box_modules_stated: stated, ...over,
+    }).map(([k, v]) => [k, { value: v, confidence: 0.9 }]),
+  );
+  const r = makePricingSheetHelper({
+    configsByCategory: new Map([["box_probe", bareBoxConfig(withKeys)]]),
+    items: BOX_FIELD_ITEMS,
+    extractionByRow: buildExtractionByRow([{ excel_row: 9, attributes: attrs as never }]),
+  }).compute(boxCtx(9));
+  if (!isSuggestion(r)) throw new Error("expected a suggestion: " + JSON.stringify(r));
+  return { r, attr: (id: string) => r.workings.attributes.find((a) => a.id === id) };
+}
+
+describe("F-25 slice 2 -- a bare box prices as its back box, and the panel says when it guessed", () => {
+  it("POSITIVE (H1): a stated 3 -> Back box size shows 3M (computed), supply 178, NO note", () => {
+    const { r, attr } = bareBoxCompute(3);
+    const box = attr("box_item")!;
+    expect(attrDisplayValue(box)).toBe("3M");
+    expect(isShowingDerived(box)).toBe(true);
+    expect(box.notes).toBeUndefined();
+    expect(r.values.supply_rate).toBe(178);
+  });
+
+  it("POSITIVE (H3): a stated 9 -> 12M with the size_up note, worded for a pricer", () => {
+    const { r, attr } = bareBoxCompute(9);
+    const box = attr("box_item")!;
+    expect(attrDisplayValue(box)).toBe("12M");
+    expect(box.notes?.map((n) => n.kind)).toEqual(["size_up"]);
+    expect(attrNoteText(box.notes![0])).toBe("No 9M in the catalogue — using 12M, the next size up.");
+    expect(r.values.supply_rate).toBe(465);
+  });
+
+  it("POSITIVE (H4/H5 -- THE MOST IMPORTANT NOTE): nothing readable -> 3M (computed) AND the panel says it was assumed", () => {
+    for (const stated of [null, ""] as const) {
+      const { r, attr } = bareBoxCompute(stated);
+      const box = attr("box_item")!;
+      expect(attrDisplayValue(box)).toBe("3M");
+      expect(isShowingDerived(box)).toBe(true);
+      expect(box.notes?.map((n) => n.kind)).toEqual(["assumed"]);
+      expect(attrNoteText(box.notes![0])).toBe("No module size readable in the row or its headings — assumed 3M. Check it.");
+      expect(r.values.supply_rate).toBe(178);
+      expect(r.basis).not.toBe("Complete the missing attributes to price"); // the hidden attribute never gates
+    }
+  });
+
+  it("NEGATIVE: the assumed note is ABSENT when the size was read, and size_up is absent on an exact rung", () => {
+    expect(bareBoxCompute(8).attr("box_item")!.notes).toBeUndefined();
+    expect(bareBoxCompute(2).attr("box_item")!.notes).toBeUndefined(); // H2's 1/2 module -> 2 -> the live 2M row, exact
+    expect(attrDisplayValue(bareBoxCompute(2).attr("box_item")!)).toBe("2M");
+  });
+
+  it("NEGATIVE: the size does NOT come from plate_item -- a phantom 9M plate on a bare box still yields the ASSUMED 3M", () => {
+    const { r, attr } = bareBoxCompute(null, { plate_item: "9M", plate_qty: 1 });
+    expect(attrDisplayValue(attr("box_item")!)).toBe("3M");
+    expect(attr("box_item")!.notes?.map((n) => n.kind)).toEqual(["assumed"]);
+    expect(r.values.supply_rate).toBe(178);
+  });
+
+  it("NEGATIVE: the stated-count attribute is HIDDEN from the panel (panel: false) and never gates the row", () => {
+    const { r } = bareBoxCompute(null);
+    expect(r.workings.attributes.find((a) => a.id === "box_modules_stated")).toBeUndefined();
+    expect(r.basis).not.toBe("Complete the missing attributes to price");
+  });
+
+  it("THE INVARIANT: a row WITH a plate is byte-identical with and without the slice-2 keys", () => {
+    const plated = { switch_item: "10A 1 WAY SWITCH", switch_qty: 3, plate_item: "9M", plate_qty: 1, back_box: "Yes" };
+    const a = bareBoxCompute(4, plated, true);   // a stray stated 4 must NOT be consulted
+    const b = bareBoxCompute(null, plated, false);
+    expect(a.r.values).toEqual(b.r.values);
+    expect(attrDisplayValue(a.attr("box_item")!)).toBe("12M");                  // still the plate-driven rung
+    expect(a.attr("box_item")!.notes).toEqual(b.attr("box_item")!.notes);         // both undefined: "that's ok"
+    expect(a.attr("box_item")!.notes).toBeUndefined();
+    expect(a.r.workings.attributes.filter((x) => x.id !== "box_modules_stated"))
+      .toEqual(b.r.workings.attributes.filter((x) => x.id !== "box_modules_stated"));
+  });
+
+  it("NEGATIVE (the slice-1 pin, INVERTED): without the keys a bare box still shows an EMPTY field and prices 0", () => {
+    const { r, attr } = bareBoxCompute(null, {}, false);
+    expect(attrDisplayValue(attr("box_item")!)).toBe("");
+    expect(r.values.supply_rate).toBe(0);
+  });
+
+  it("the two notes are ordered assumed -> size_up when both apply (a default that has no exact rung)", () => {
+    // the assumed count is config; if the catalogue lacked a 3M box, the default would round up too
+    const notes = sortAttrNotes([
+      { kind: "size_up", asked: 3, using: "4M" },
+      { kind: "assumed", assumed: 3, using: "4M" },
+    ]);
+    expect(notes.map((n) => n.kind)).toEqual(["assumed", "size_up"]);
   });
 });

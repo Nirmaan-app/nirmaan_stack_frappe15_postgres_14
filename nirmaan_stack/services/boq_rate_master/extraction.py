@@ -1506,6 +1506,76 @@ def fill_paired_slot_defaults(row_out, defaults, plan=None):
     return filled
 
 
+# ── F-25 SLICE 2: the back box's STATED module count -- read by the model AS WRITTEN, picked by CODE ──
+#
+# THE PROMPT SENTENCE IS GUIDANCE; THIS IS THE ENFORCEMENT -- the same doctrine as `apply_conductor_floor`
+# and `fill_paired_slot_defaults`. The model is asked (rule S4, the shared block) to write the box's
+# module count EXACTLY as the text writes it and to convert nothing; the owner's "higher of a range"
+# pick ("9/8M" -> 9, "1 or 2 Module" -> 2, "2/3 module way" -> 3) is a CALCULATION, and a calculation
+# does not go in the prompt at all. It lives here, at the extraction layer, for one structural reason:
+# the attribute is `number`-typed (the api validator refuses a value-less `choice`, and a number is what
+# the interpreter reads), so `_coerce_value_ex` would DROP a token like "9/8" as not-a-number. The raw
+# token therefore exists in exactly one place -- the model's reply, before coercion -- and that is
+# where the pick has to happen. The capture log keeps the raw token beside the parsed count.
+#
+# ⚠️ A DIMENSION IS NOT A COUNT. A row giving only millimetres ("72 mm x 90 mm x 50 mm") defaults to
+# 3M by owner ruling ("this is ok"), so numbers carrying a millimetre unit and whole dimension chains
+# (a x b x c) are struck out BEFORE the integers are read -- otherwise "50mm" would buy a box that does
+# not exist and the whole row would refuse. The prompt says the same thing; this is what makes it true.
+#
+# ⚠️ CONFIG-DERIVED, NAMING NO CATEGORY OR ATTRIBUTE (the HV-10 lesson). The attribute set is read from
+# the pipelines: an attribute a `module_fit` ladder names as `on_zero_from` is one whose stated count the
+# interpreter reads on the zero-module path, so it is the one that must arrive as a count. A config with
+# no such ladder key yields an empty list and the parse is inert for it -- every category but
+# switches_sockets today (point_wiring carries `on_zero_modules` only, and is untouched).
+
+_MM_UNIT_RE = re.compile(r"\d+(?:\.\d+)?\s*(?:mm|millimet(?:re|er)s?)\b", re.IGNORECASE)
+_DIMENSION_CHAIN_RE = re.compile(r"\d+(?:\.\d+)?\s*[x×*]\s*\d+(?:\.\d+)?(?:\s*[x×*]\s*\d+(?:\.\d+)?)*", re.IGNORECASE)
+
+
+def module_count_from_text(raw):
+    """The module count a stated token carries, as an int, or None when it carries none.
+
+    A number arrives as itself (9 -> 9; 9.0 -> 9; a non-integer or non-positive number is NOT a
+    count -> None). A string is read for its integers AFTER every millimetre-unit number and every
+    dimension chain has been struck out; the HIGHEST remaining integer is the count (the owner's
+    range rule: extraction provides the higher count and the ladder fits it, exact or next higher).
+    None / blank -> None. PURE."""
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        v = float(raw)
+        if v != v or v <= 0 or v != int(v):
+            return None
+        return int(v)
+    text = str(raw).strip()
+    if not text:
+        return None
+    text = _DIMENSION_CHAIN_RE.sub(" ", text)
+    text = _MM_UNIT_RE.sub(" ", text)
+    found = [int(n) for n in re.findall(r"\d+", text)]
+    found = [n for n in found if n > 0]
+    return max(found) if found else None
+
+
+def zero_path_stated_attrs(cfg):
+    """The attribute ids some `module_fit` ladder reads as its stated count on the ZERO-module path
+    (`on_zero_from`), sorted, de-duplicated. Derived FROM THE CONFIG; [] for a config declaring none,
+    which makes `_extract_batch`'s parse inert for it."""
+    out = set()
+    for pl in ((cfg or {}).get("pipelines") or {}).values():
+        for step in (pl or {}).get("steps") or []:
+            if step.get("step") != "module_fit":
+                continue
+            for ladder in (step.get("params") or {}).get("ladders") or []:
+                src = ladder.get("on_zero_from")
+                if isinstance(src, str) and src.strip():
+                    out.add(src.strip())
+    return sorted(out)
+
+
 def force_absent_dependents(row_out, absent_rules):
     """PW-CIRCUIT-STRETCH -- a component the row declares ABSENT has an absent SPECIFICATION.
 
@@ -2107,7 +2177,7 @@ def stamp_pole_ladder(row_out, records):
             cell["pole_ladder"] = dict(extras, to=rec.get("to"))
 
 
-def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, absent_rules=None, conductor_groups=None, paired_fill=None, *, capture_ctx=None):
+def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, absent_rules=None, conductor_groups=None, paired_fill=None, module_count_attrs=None, *, capture_ctx=None):
     """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
     confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
     (<=20 rows, 3 attempts, sleep 2*attempt).
@@ -2253,6 +2323,10 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 # code filled with their declared default because the item is present (or, plate
                 # only, will be bought). Observation only, like every sibling here.
                 "paired_slot_defaults_filled": {},
+                # F-25 SLICE 2: {excel_row: [{attr, raw, parsed}, ...]} -- a stated box module count
+                # the model wrote AS WRITTEN, and the count code read from it (the higher of a range;
+                # None when the token carries no count). Observation only, like every sibling here.
+                "module_count_parsed": {},
                 # PW-CIRCUIT-STRETCH: {excel_row: [attr, ...]} -- spec fields filled with the "None"
                 # sentinel because their controller declared the component absent. Observation
                 # only, like every sibling here.
@@ -2300,6 +2374,19 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                     if aid not in attrs:
                         absent.append(aid)
                     raw = cell.get("value")
+                    # F-25 SLICE 2 -- THE STATED BOX COUNT, picked by CODE before coercion. The model
+                    # writes the token as written ("9/8M", "1 or 2 Module", "3 Module"); a `number`
+                    # coercion would drop every one of those. `module_count_from_text` reads the
+                    # higher count (dimensions struck out first) and THAT is what coercion sees.
+                    # The raw token is kept in the capture beside the count. Inert for every config
+                    # whose ladders declare no `on_zero_from` (the set is config-derived).
+                    model_raw = raw
+                    parsed_count = None
+                    if module_count_attrs and aid in module_count_attrs and raw is not None:
+                        parsed_count = module_count_from_text(raw)
+                        drops["module_count_parsed"].setdefault(str(rid), []).append(
+                            {"attr": aid, "raw": raw, "parsed": parsed_count})
+                        raw = parsed_count
                     value, reason = _coerce_value_ex(defn, raw, (synonyms or {}).get(aid))
                     conf_raw = cell.get("confidence")
                     try:
@@ -2326,7 +2413,7 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                         if claimed_default:
                             defaulted_lost.append(aid)
                     row_map[aid] = {
-                        "raw": raw,
+                        "raw": model_raw,  # the model's token, never the parsed count (F-25 slice 2)
                         "coerced": value,
                         "reason": reason,
                         "confidence_raw": conf_raw,
@@ -2334,6 +2421,8 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                         "defaulted_claimed": claimed_default,
                         "defaulted_kept": bool(row_out[aid].get("defaulted")),
                     }
+                    if model_raw is not None and raw is not model_raw:
+                        row_map[aid]["module_count_parsed"] = parsed_count
                 # SLICE 5 (B2 / R-B) -- THE SLOT-PAIRED DEFAULT SCRUB, server-side.
                 #
                 # ⚠️ THE PROMPT SENTENCE ABOVE IS NOT THE ENFORCEMENT, THIS IS. The phantom quantities
@@ -2776,6 +2865,11 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
             # ladder bind) and the occupancy terms that decide whether it will be bought. Derived
             # from the config; None for a config with no module_fit over a paired item.
             "paired_fill": paired_fill_plan(cfg),
+            # F-25 SLICE 2: the attribute ids some module_fit ladder reads as its stated count on the
+            # zero-module path (`on_zero_from`). The model writes them AS WRITTEN; `_extract_batch`
+            # reads the higher count in CODE before coercion. Derived from the config; [] for a
+            # config declaring none, which leaves every other category byte-identical.
+            "module_count_attrs": zero_path_stated_attrs(cfg),
             # PIECE 4: the attribute ids this config declares that CODE supplies rather than the
             # model. Derived FROM THE CONFIG (never a hardcoded category name -- the HV-10 lesson):
             # a config that does not declare `point_type` yields an empty set and the matcher is
@@ -2843,7 +2937,7 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
                     # `boq` is NOT on the row dict -- it lives only in this enclosing scope, so the
                     # capture's join key is threaded in from here.
                     return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], _gc["pole_catalog"], _gc["code_attrs"], _gc["absent_rules"], _gc["conductor_groups"],
-                                          _gc["paired_fill"],
+                                          _gc["paired_fill"], _gc["module_count_attrs"],
                                           capture_ctx={"boq": boq})
 
                 # SR-2 (3): ONE iteration when the batch fits (byte-identical to the pre-SR-2 single
