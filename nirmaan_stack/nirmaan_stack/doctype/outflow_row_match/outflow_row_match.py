@@ -75,11 +75,20 @@ class OutflowRowMatch(Document):
                 "mints a new match record, which the partial unique index permits."
             )
 
-        # ⚠️ EVERY OTHER FIELD IS FROZEN. Without this the "immutable" claim in the docstring is a
-        # comment rather than a rule, and a re-pointed target_name would silently move a settlement
-        # onto a record nobody allocated.
-        for field in ("import_row", "import_batch", "transfer_id", "target_doctype",
-                      "target_name", "target_amount", "match_basis", "matched_at", "matched_by"):
+        # ⚠️ EVERY OTHER FIELD IS FROZEN, and the set is DERIVED rather than hand-typed: a field
+        # is frozen unless it is explicitly one of the four reversal fields. A hand-typed tuple
+        # here is exactly the bug this replaced -- it silently leaves a newly added field (this
+        # task's own target_project/target_vendor, plus the pre-existing settlement_origin) fully
+        # editable after insert, contradicting both this docstring and their own "SNAPSHOT ...
+        # never recomputed" field descriptions. `self.meta.fields` yields only the doctype's OWN
+        # fields, so standard `modified`/`modified_by`/`owner` are excluded automatically.
+        frozen = [
+            f.fieldname
+            for f in self.meta.fields
+            if f.fieldname not in _REVERSAL_FIELDS
+            and f.fieldtype not in ("Section Break", "Column Break")
+        ]
+        for field in frozen:
             if (before.get(field) or "") != (self.get(field) or ""):
                 frappe.throw(
                     f"'{field}' is immutable on a match record. A correction supersedes rather "

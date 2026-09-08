@@ -109,6 +109,24 @@ class TestTheImmutabilityRuleIsNarrowedNotDropped(MatchRecordFixture):
         with self.assertRaises(frappe.ValidationError):
             doc.save(ignore_permissions=True)
 
+    def test_the_freeze_covers_every_non_reversal_field_not_just_the_hand_typed_ones(self):
+        """The freeze list is DERIVED (self.meta.fields minus the four reversal fields), not a
+        hand-typed tuple -- so a field added after the tuple was written (target_project,
+        target_vendor: this task's own new fields) and a pre-existing field the original tuple
+        simply omitted (settlement_origin) are all frozen too, matching their own "SNAPSHOT ...
+        never recomputed" / immutable-audit-row descriptions."""
+        for field, value in (
+            ("target_project", "SOME-OTHER-PROJECT"),
+            ("target_vendor", "SOME-OTHER-VENDOR"),
+            ("settlement_origin", "Suggestion accepted"),
+        ):
+            with self.subTest(field=field):
+                doc = self._match()
+                doc.flags.ignore_links = True
+                setattr(doc, field, value)
+                with self.assertRaises(frappe.ValidationError):
+                    doc.save(ignore_permissions=True)
+
 
 class TestThePartialUniqueIndex(MatchRecordFixture):
     def test_two_settled_legs_of_one_transfer_are_allowed(self):
