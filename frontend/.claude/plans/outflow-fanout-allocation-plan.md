@@ -82,7 +82,7 @@ That combination does not exist today; `open` and `frozen` are currently opposit
 | `services/outflow_import/status.py:1013-1014` `open_rows` / `open_value` | must read `ACTIVE_ROW_STATUSES` too, or the summary's `Total = Settled + Still open` band stops reconciling |
 | `services/outflow_import/status.py:1345-1361` `derive_batch_counters` | `settled_rows` must NOT count a partial — it is not settled |
 | `services/outflow_import/status.py:1046` `decided_rows` | a half-allocated row counts 0% decided. Accepted; note it |
-| `frontend/.../outflowImportStatus.ts:25-64,127-134` | mirror the constant, the sets, and **`ROW_STATUS_TONE`** (amber) — the fallback is grey, pixel-identical to `Pending match run` |
+| `frontend/.../outflowImportStatus.ts:25-64,127-134` | mirror the constant, the sets, and **`ROW_STATUS_TONE`** — the fallback is grey, pixel-identical to `Pending match run`. ⚠️ **NOT amber: amber is already `Mismatched`'s tone** (`bg-amber-50 text-amber-700`), and two statuses sharing a tone is the same defect as no tone at all. Use **sky** (`bg-sky-50 text-sky-700`) |
 | `frontend/.../outflowTableModel.ts:472-504` | a 4th tab `partlyAllocated` -> scope `partly`. `tabCountParts` (538-564) is UNTOUCHED |
 | `frontend/.../OutflowRowsTable.tsx:701` | **stop hardcoding** `row.row_status === "Settled" \|\| === "Skipped"`; read `TERMINAL_ROW_STATUSES` |
 
@@ -172,10 +172,18 @@ IS the audit.
 
 ### Indexes
 
+⚠️ **CORRECTED WHILE PLANNING: `ofm_match_target_unique` is a table CONSTRAINT, not a bare index.**
+`frappe.db.add_unique` issues `ALTER TABLE ... ADD CONSTRAINT`, and `pg_indexes` renders a
+constraint-backed index identically to a plain one — so **`DROP INDEX` fails on it**. Two
+consequences: the patch must `ALTER TABLE ... DROP CONSTRAINT`, and **`on_doctype_update` must stop
+calling `add_unique`**, or the next migrate silently re-adds the non-partial key beside the partial
+one and a reversed-then-reallocated payment fails on the old constraint. The new index therefore
+takes a NEW name so the two can never be confused.
+
 ```sql
--- 1. REPLACE the plain unique constraint with a PARTIAL unique INDEX
-DROP INDEX ofm_match_target_unique;
-CREATE UNIQUE INDEX ofm_match_target_unique
+-- 1. REPLACE the plain unique CONSTRAINT with a PARTIAL unique INDEX
+ALTER TABLE "tabOutflow Row Match" DROP CONSTRAINT ofm_match_target_unique;
+CREATE UNIQUE INDEX ofm_match_settled_target_unique
   ON "tabOutflow Row Match" (transfer_id, target_doctype, target_name)
   WHERE match_kind = 'Settled';
 
@@ -423,3 +431,13 @@ Slices 1-3 are inert by construction and can land ahead of the decision to ship 
   controller declares it. **Check `pg_indexes` on the production DB before slice 2.**
 - **No bulk allocation.** `get_confirmable_rows` is `Matched`-only and stays that way. Allocating
   a fan-out is deliberately one row at a time.
+
+
+---
+
+## Implementation plan
+
+`docs/superpowers/plans/2026-09-09-outflow-fanout-allocation.md` — 7 tasks, 61 TDD steps, written
+against this document. Two corrections were found while writing it and are folded back in above:
+the badge tone (amber was already taken by `Mismatched`) and the constraint-vs-index shape of the
+unique key.
