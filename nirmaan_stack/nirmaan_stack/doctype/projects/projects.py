@@ -188,14 +188,43 @@ class Projects(Document):
 				title="Invalid Recheck Date",
 			)
 
+	def _set_derived_value(self, fieldname, value):
+		"""Assign a recomputed project value ONLY when the NUMBER actually moved.
+
+		`project_value` / `project_value_gst` are declared **Data** (varchar), so the DB
+		hands them back as STRINGS ('71100000.0') while this recompute produces a FLOAT
+		(71100000.0). Python compares those as unequal by type, so assigning
+		unconditionally made Frappe's `get_diff` record a `changed` entry on EVERY save of
+		EVERY derived-value project — a phantom "Project Value 71100000.0 -> 71100000" in
+		the activity timeline each time an unrelated field (a status, a CEO Hold recheck
+		date) was touched. The value written back was byte-identical, so nothing ever
+		actually changed; the audit log just said it did.
+
+		That noise is not free: `services/ceo_hold/core._find_previous_status` walks these
+		same Version rows to decide where a released project reverts to.
+
+		Comparing NUMERICALLY (not by string) also absorbs float-repr drift, so a genuine
+		change is still written. A blank/None current value is always written, so a fresh
+		project still gets populated.
+		"""
+		current = self.get(fieldname)
+		if current in (None, "") or flt(current) != flt(value):
+			self.set(fieldname, value)
+
 	def before_save(self):
 		# Project value has two modes, decided by the `manual_project_value` flag:
 		#   manual_project_value = 1 -> the values were entered by a human; leave them alone.
 		#   manual_project_value = 0 -> derive them from the Customer PO rows (default; unchanged
 		#                               from the historical behaviour, including zeroing on an empty list).
 		if not self.get("manual_project_value"):
-			self.project_value = sum(flt(d.customer_po_value_exctax) for d in self.get("customer_po_details", []))
-			self.project_value_gst = sum(flt(d.customer_po_value_inctax) for d in self.get("customer_po_details", []))
+			self._set_derived_value(
+				"project_value",
+				sum(flt(d.customer_po_value_exctax) for d in self.get("customer_po_details", [])),
+			)
+			self._set_derived_value(
+				"project_value_gst",
+				sum(flt(d.customer_po_value_inctax) for d in self.get("customer_po_details", [])),
+			)
 		#self.project_duration = (datetime.strptime(self.project_end_date, '%Y-%m-%d %H:%M:%S') - datetime.strptime(self.project_start_date, '%Y-%m-%d %H:%M:%S')).days or 0
 		# self.project_city = self.get_project_address()["city"] or ""
 		# self.project_state = self.get_project_address()["state"] or ""
