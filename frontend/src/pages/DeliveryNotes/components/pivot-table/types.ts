@@ -51,6 +51,18 @@ export const DELIVERY_EDIT_ROLES = [
   ...MATERIAL_PROCUREMENT_PROFILES,
 ] as const;
 
+/**
+ * Roles allowed to DELETE delivery notes (including return notes).
+ *
+ * Deliberately narrower than `DELIVERY_EDIT_ROLES`: deletion is destructive and
+ * rewrites the PO's `received_quantity`, `po_amount_delivered`, status and
+ * vendor credit via the backend `after_delete` hook.
+ */
+export const DELIVERY_DELETE_ROLES = [
+  "Nirmaan Admin Profile",
+  "Nirmaan PMO Executive Profile",
+] as const;
+
 /** Roles allowed to create return notes */
 export const RETURN_NOTE_ROLES = [
   "Nirmaan Admin Profile",
