@@ -499,6 +499,16 @@ outside the declared scope blocked a deliberate wording change (four stale pins 
 belongs in its scope.** Retire such a pin by INVERTING it -- assert the old wording is ABSENT and the
 surviving claims are PRESENT -- never by deleting it: a deleted pin checks nothing.
 
+**⚠️ A `module_fit` LADDER HAS TWO READ SITES, AND A LADDER KEY WIRED ON ONE ALONE SHIPS HALF
+(owner-locked, 2026-09-08).** The floor branch (rows with a plate or contents) and the zero branch (a
+bare box) are SEPARATE reads of the same ladder spec; `on_zero_from` is read only on the zero branch by
+design, `floor_from` only on the floor branch. A key that must reach the pricer on every row --
+`pick_from`, the pricer's pick -- is read at BOTH, through ONE shared reader (`readPick`) so the two
+sites cannot disagree. **Confine such a key by KEY PRESENCE, never by a category name in code**:
+point_wiring and popup_boxes carry the same ladder shape and no `pick_from`, and stay byte-identical.
+**Every ladder key that names an attribute is `_ref`-guarded in `_validate_config`** -- an unguarded
+`on_zero_from` typo once read silently as "assumed 3M".
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
