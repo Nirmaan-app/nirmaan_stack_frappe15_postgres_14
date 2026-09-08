@@ -1,10 +1,10 @@
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowUpFromLine, Package } from "lucide-react";
+import { ArrowUpFromLine, Package, Plus } from "lucide-react";
 
 import { DataTable } from "@/components/data-table/new-data-table";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -26,13 +26,41 @@ import {
 } from "./config/warehouseLedgerTable.config";
 import { useWarehouseStockList } from "./hooks/useWarehouseStockList";
 import { useWarehouseLedgerList } from "./hooks/useWarehouseLedgerList";
+import { AddWarehouseStockDialog } from "./AddWarehouseStockDialog";
+import { WAREHOUSE_ADD_STOCK_ROLES } from "@/constants/warehouse";
+import { useUserData } from "@/hooks/useUserData";
 
 export default function WarehouseStockPage() {
+  const { role } = useUserData();
+  const canAddStock = WAREHOUSE_ADD_STOCK_ROLES.includes(role);
+  const [addOpen, setAddOpen] = useState(false);
+
+  // StockTabBody owns the table hook (and unmounts when the Ledger tab is
+  // active, which we want to keep). It registers its `refetch` here so the
+  // dialog can refresh the table from its success handler rather than via an
+  // effect. Lifting the hook to this level instead would make the stock table
+  // fetch while the user is on the Ledger tab.
+  const stockRefetchRef = useRef<(() => void) | null>(null);
+  const handleStockAdded = useCallback(() => {
+    stockRefetchRef.current?.();
+  }, []);
+
   return (
     <div className="flex-1 space-y-4 p-4">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold tracking-tight">Warehouse</h2>
         <div className="flex gap-2">
+          {canAddStock && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setAddOpen(true)}
+              className="border-primary text-primary hover:bg-primary/5"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Add Item
+            </Button>
+          )}
           <Link to="/warehouse/request">
             <Button size="sm" variant="outline">
               <ArrowUpFromLine className="mr-2 h-4 w-4" />
@@ -49,13 +77,21 @@ export default function WarehouseStockPage() {
         </TabsList>
 
         <TabsContent value="stock" className="space-y-4">
-          <StockTabBody />
+          <StockTabBody refetchRef={stockRefetchRef} />
         </TabsContent>
 
         <TabsContent value="ledger" className="space-y-4">
           <LedgerTabBody />
         </TabsContent>
       </Tabs>
+
+      {canAddStock && (
+        <AddWarehouseStockDialog
+          open={addOpen}
+          onOpenChange={setAddOpen}
+          onSuccess={handleStockAdded}
+        />
+      )}
     </div>
   );
 }
@@ -64,7 +100,11 @@ export default function WarehouseStockPage() {
 // Stock tab
 // ---------------------------------------------------------------------------
 
-function StockTabBody() {
+interface StockTabBodyProps {
+  refetchRef: React.MutableRefObject<(() => void) | null>;
+}
+
+function StockTabBody({ refetchRef }: StockTabBodyProps) {
   const {
     table,
     totalCount,
@@ -77,7 +117,17 @@ function StockTabBody() {
     setSelectedSearchField,
     exportAllRows,
     isExporting,
+    refetch,
   } = useWarehouseStockList();
+
+  // Publish this tab's refetch to the page. Registration only — the actual
+  // refresh is triggered from the dialog's success handler.
+  useEffect(() => {
+    refetchRef.current = refetch;
+    return () => {
+      refetchRef.current = null;
+    };
+  }, [refetch, refetchRef]);
 
   // Summary cards: totals come from the currently loaded page only; for a true
   // warehouse-wide total we'd need an aggregates endpoint — acceptable tradeoff
