@@ -237,7 +237,13 @@ export interface OutflowRowsPage {
      * strip; `skipped` exists so the Skipped chip's dialog can ask for those rows by name, and it
      * is deliberately absent from `SCOPE_FOR_TAB` — there is no tab to map to it.
      */
-    tab_counts: { all: number; not_matched: number; matched: number; skipped: number };
+    tab_counts: {
+        all: number;
+        not_matched: number;
+        partly: number;
+        matched: number;
+        skipped: number;
+    };
     /**
      * The SAME population as `tab_counts`, broken down by status instead of by tab.
      *

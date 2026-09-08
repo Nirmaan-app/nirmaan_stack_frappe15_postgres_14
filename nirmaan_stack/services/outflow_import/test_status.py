@@ -45,10 +45,12 @@ from nirmaan_stack.services.outflow_import.status import (
     BATCH_IN_REVIEW,
     BATCH_PARTIALLY_SETTLED,
     BATCH_STATUSES,
+    ACTIVE_ROW_STATUSES,
     OPEN_ROW_STATUSES,
     ROW_ERROR,
     ROW_MATCHED,
     ROW_MISMATCHED,
+    ROW_PARTIALLY_ALLOCATED,
     ROW_PENDING_MATCH,
     ROW_SETTLED,
     ROW_SKIPPED,
@@ -132,13 +134,17 @@ def _match_many(targets=(), expenses=(), basis=BASIS_BANK_REFERENCE):
 
 
 class TestVocabulary(unittest.TestCase):
-    def test_exactly_six_row_statuses_in_reviewer_order(self):
+    # REPLACES test_exactly_six_row_statuses_in_reviewer_order
+    def test_exactly_seven_row_statuses_in_reviewer_order(self):
+        """`Partially Allocated` sits between Mismatched and Settled -- the order a reviewer meets
+        it: nothing lined up, then part of it did, then all of it did."""
         self.assertEqual(
             ROW_STATUSES,
             (
                 "Pending match run",
                 "Matched",
                 "Mismatched",
+                "Partially Allocated",
                 "Settled",
                 "Skipped",
                 "Error",
@@ -183,9 +189,61 @@ class TestVocabulary(unittest.TestCase):
         v3 settles, so a row that found something and was not confirmed is unfinished work."""
         self.assertEqual(TERMINAL_ROW_STATUSES, frozenset({ROW_SETTLED, ROW_SKIPPED}))
 
-    def test_open_and_terminal_partition_the_vocabulary(self):
-        self.assertEqual(set(ROW_STATUSES), OPEN_ROW_STATUSES | TERMINAL_ROW_STATUSES)
+    # REPLACES test_open_and_terminal_partition_the_vocabulary -- INVERTED, not deleted.
+    def test_open_and_terminal_no_longer_partition_the_vocabulary(self):
+        """⚠️ THE PARTITION IS DELIBERATELY BROKEN (ADR-0020 D5). `Partially Allocated` is the first
+        status where MONEY IS ALREADY WRITTEN BUT WORK REMAINS, so it is in neither set. Kept as an
+        inverted pin rather than deleted: a future reader restoring the partition would put the
+        status into one of the two sets, and either choice is a silent defect -- OPEN enrols it in
+        cross-batch claim contention, TERMINAL tells the screen it is finished.
+        """
+        self.assertNotIn(ROW_PARTIALLY_ALLOCATED, OPEN_ROW_STATUSES)
+        self.assertNotIn(ROW_PARTIALLY_ALLOCATED, TERMINAL_ROW_STATUSES)
+        self.assertNotEqual(set(ROW_STATUSES), OPEN_ROW_STATUSES | TERMINAL_ROW_STATUSES)
         self.assertFalse(OPEN_ROW_STATUSES & TERMINAL_ROW_STATUSES)
+
+    def test_active_and_terminal_partition_the_vocabulary(self):
+        """The partition that replaced it. ACTIVE means 'still needs a human'."""
+        self.assertEqual(set(ROW_STATUSES), ACTIVE_ROW_STATUSES | TERMINAL_ROW_STATUSES)
+        self.assertFalse(ACTIVE_ROW_STATUSES & TERMINAL_ROW_STATUSES)
+
+    def test_active_is_exactly_open_plus_partially_allocated(self):
+        self.assertEqual(
+            ACTIVE_ROW_STATUSES, OPEN_ROW_STATUSES | {ROW_PARTIALLY_ALLOCATED}
+        )
+
+    def test_a_batch_of_only_partially_allocated_rows_is_not_completed(self):
+        """⚠️ THE BUG THIS TASK EXISTS TO PREVENT. `derive_batch_status`'s first branch is
+        `if not open_rows: return BATCH_COMPLETED`. A status in NEITHER set makes that branch fire
+        on a batch full of unfinished work -- and `batch_is_open` then drops the statement out of
+        `match_period` forever, the invisible-exclusion class its own docstring warns about.
+        """
+        self.assertEqual(
+            derive_batch_status([ROW_PARTIALLY_ALLOCATED] * 3), BATCH_PARTIALLY_SETTLED
+        )
+        self.assertEqual(
+            derive_batch_status([ROW_PARTIALLY_ALLOCATED, ROW_MATCHED]),
+            BATCH_PARTIALLY_SETTLED,
+        )
+
+    def test_batch_status_is_byte_identical_for_every_pre_existing_shape(self):
+        """ACTIVE == OPEN until a partial allocation exists, so nothing already in the database
+        moves. Pinned so the substitution can never be a silent behaviour change."""
+        self.assertEqual(derive_batch_status([]), BATCH_DRAFT)
+        self.assertEqual(derive_batch_status([ROW_SETTLED, ROW_SKIPPED]), BATCH_COMPLETED)
+        self.assertEqual(derive_batch_status([ROW_MATCHED, ROW_MISMATCHED]), BATCH_IN_REVIEW)
+        self.assertEqual(
+            derive_batch_status([ROW_MATCHED, ROW_SETTLED]), BATCH_PARTIALLY_SETTLED
+        )
+
+    def test_a_partial_allocation_is_reviewed_but_not_settled(self):
+        """`derive_batch_counters` needs NO change -- `settled_rows` keys on `== ROW_SETTLED` and
+        `reviewed_rows` on `!= ROW_PENDING_MATCH`, both of which are already right. Pinned so a
+        later 'tidy-up' cannot fold the new status into settled_rows."""
+        counters = derive_batch_counters([ROW_PARTIALLY_ALLOCATED])
+        self.assertEqual(counters["settled_rows"], 0)
+        self.assertEqual(counters["reviewed_rows"], 1)
+        self.assertEqual(counters["total_rows"], 1)
 
     def test_matched_and_mismatched_are_both_open(self):
         """Owner ruling: a mismatch must be RESOLVABLE, not merely reported. Marking it terminal

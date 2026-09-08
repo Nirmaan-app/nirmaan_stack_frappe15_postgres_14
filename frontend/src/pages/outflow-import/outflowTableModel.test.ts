@@ -958,14 +958,24 @@ describe("the Vendor / Description cell", () => {
 });
 
 describe("tabs", () => {
-    it("is All / Not-Matched / Matched-Settled, in that order", () => {
+    it("is All / Not-Matched / Partly Allocated / Matched-Settled, in that order", () => {
         // ⚠️ THERE IS NO SKIPPED TAB, and "All" excludes Skipped too (owner ruling 2026-08-10) --
         // it means everything a person might still act on, not every row in the table. The import
         // summary panel is the only place skipped transfers are reported.
-        expect(OUTFLOW_TABS.map((t) => t.id)).toEqual(["all", "notMatched", "matched"]);
+        //
+        // `Partly Allocated` got its OWN tab rather than being folded into `matched` -- see the
+        // `_SCOPE_STATUSES` comment in review.py: a third status under "Matched / Settled" would
+        // break `tabCountParts`' two-chip split.
+        expect(OUTFLOW_TABS.map((t) => t.id)).toEqual([
+            "all",
+            "notMatched",
+            "partlyAllocated",
+            "matched",
+        ]);
         expect(OUTFLOW_TABS.map((t) => t.label)).toEqual([
             "All",
             "Not-Matched",
+            "Partly Allocated",
             "Matched / Settled",
         ]);
     });
@@ -980,6 +990,7 @@ describe("tabs", () => {
         // would silently scope to the server's fallback rather than to what the label promises.
         expect(SCOPE_FOR_TAB.all).toBe("all");
         expect(SCOPE_FOR_TAB.notMatched).toBe("not_matched");
+        expect(SCOPE_FOR_TAB.partlyAllocated).toBe("partly");
         expect(SCOPE_FOR_TAB.matched).toBe("matched");
     });
 
@@ -2667,7 +2678,7 @@ describe("previewCounts", () => {
 describe("tabCountParts", () => {
     // ⚠️ `skipped` IS A SCOPE WITH NO TAB. It rides `tab_counts` because every count derives from
     // `_SCOPE_STATUSES`, and it must never appear in the tab strip -- pinned below.
-    const tabCounts = { all: 996, not_matched: 133, matched: 863, skipped: 47 };
+    const tabCounts = { all: 996, not_matched: 133, partly: 0, matched: 863, skipped: 47 };
     const statusCounts = {
         "Pending match run": 0,
         Matched: 863,

@@ -1585,7 +1585,11 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
         `all` silently reverts to "no WHERE clause", this is what catches it.
         """
         counts = self._page()["tab_counts"]
-        self.assertEqual(counts["not_matched"] + counts["matched"], counts["all"])
+        # ⚠️ `+ partly` -- `Partially Allocated` is inert this slice (nothing writes it yet), so
+        # `counts["partly"]` is 0 today, but the arithmetic must hold once something does.
+        self.assertEqual(
+            counts["not_matched"] + counts["partly"] + counts["matched"], counts["all"]
+        )
 
         # ⚠️ COUNTED FROM THE DATABASE, NOT THROUGH `_rows_by_transfer_suffix`. That helper is keyed
         # by transfer id, and this fixture deliberately REPEATS one -- so the two rows of the
@@ -1621,7 +1625,11 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
     def test_the_skipped_scope_does_not_change_what_all_holds(self):
         """Adding a scope must not widen the working views by one row."""
         counts = self._page()["tab_counts"]
-        self.assertEqual(counts["not_matched"] + counts["matched"], counts["all"])
+        # ⚠️ `+ partly` -- `Partially Allocated` is inert this slice (nothing writes it yet), so
+        # `counts["partly"]` is 0 today, but the arithmetic must hold once something does.
+        self.assertEqual(
+            counts["not_matched"] + counts["partly"] + counts["matched"], counts["all"]
+        )
         self.assertGreater(counts["skipped"], 0)
 
     def test_the_failed_filter_splits_skipped_into_the_two_facts_it_hides(self):

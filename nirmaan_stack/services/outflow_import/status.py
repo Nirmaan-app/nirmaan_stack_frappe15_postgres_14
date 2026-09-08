@@ -117,6 +117,7 @@ __all__ = [
     "ROW_PENDING_MATCH",
     "ROW_MATCHED",
     "ROW_MISMATCHED",
+    "ROW_PARTIALLY_ALLOCATED",
     "ROW_SETTLED",
     "ROW_SKIPPED",
     "ROW_ERROR",
@@ -124,6 +125,7 @@ __all__ = [
     "ROW_STATUSES",
     "TERMINAL_ROW_STATUSES",
     "OPEN_ROW_STATUSES",
+    "ACTIVE_ROW_STATUSES",
     "BATCH_DRAFT",
     "BATCH_IN_REVIEW",
     "BATCH_PARTIALLY_SETTLED",
@@ -164,6 +166,14 @@ __all__ = [
 ROW_PENDING_MATCH = "Pending match run"
 ROW_MATCHED = "Matched"
 ROW_MISMATCHED = "Mismatched"
+# ⚠️ MONEY IS WRITTEN AND WORK REMAINS -- the first status for which both are true (ADR-0020 D5).
+# One bank transfer may settle several approved payments, allocated over several sittings; a row
+# holds this status while `allocated < amount`. It is derived exactly like every other status here:
+# `allocation.status_for_allocation` compares a fresh SUM over `Outflow Row Match` against the
+# row's own amount. There is no leg counter and no completion flag, because a BALANCE answers
+# "is this finished?" and a CARDINALITY cannot -- an aggregate over an open set needs no count,
+# which is what makes an unbounded number of legs safe.
+ROW_PARTIALLY_ALLOCATED = "Partially Allocated"
 ROW_SETTLED = "Settled"
 ROW_SKIPPED = "Skipped"
 ROW_ERROR = "Error"
@@ -179,6 +189,7 @@ ROW_STATUSES = (
     ROW_PENDING_MATCH,
     ROW_MATCHED,
     ROW_MISMATCHED,
+    ROW_PARTIALLY_ALLOCATED,
     ROW_SETTLED,
     ROW_SKIPPED,
     ROW_ERROR,
@@ -194,6 +205,23 @@ TERMINAL_ROW_STATUSES = frozenset({ROW_SETTLED, ROW_SKIPPED})
 
 # Open = a person still owes this row a decision. Everything that is not terminal.
 OPEN_ROW_STATUSES = frozenset({ROW_PENDING_MATCH, ROW_MATCHED, ROW_MISMATCHED, ROW_ERROR})
+
+# Active = this row still needs a human, whether or not money has already moved against it.
+#
+# ⚠️ THIS IS NOT `not TERMINAL`, AND `Partially Allocated` IS WHY. That status is in NEITHER
+# `OPEN_ROW_STATUSES` NOR `TERMINAL_ROW_STATUSES`, on purpose:
+#
+#   - putting it in OPEN would enrol it in the four cross-batch reads that walk that set
+#     (`review._disambiguate_matched`, `_enforce_single_claim`, `_load_open_rows_for_keys`), so a
+#     half-allocated row would start contending for records a different row already holds;
+#   - putting it in TERMINAL would tell `derive_batch_status`, `batch_is_open` and the screen that
+#     a transfer with money still to allocate is finished.
+#
+# So the "does anybody still owe this row a decision?" question moved to its OWN set, and the two
+# readers that ask it -- `derive_batch_status` and `derive_import_summary`'s open figures -- read
+# THIS one. `ACTIVE == OPEN` until the first partial allocation exists, so nothing already in the
+# database moves; that equivalence is pinned by test rather than left to be noticed.
+ACTIVE_ROW_STATUSES = OPEN_ROW_STATUSES | {ROW_PARTIALLY_ALLOCATED}
 
 # Statuses that leave `derive_import_summary`'s STATEMENT TOTALS (`total_rows` / `total_value`).
 #
@@ -719,12 +747,21 @@ def derive_batch_status(row_statuses: Iterable[str]) -> str:
     if not statuses:
         return BATCH_DRAFT
 
-    open_rows = [s for s in statuses if s in OPEN_ROW_STATUSES]
-    terminal_rows = [s for s in statuses if s in TERMINAL_ROW_STATUSES]
+    # ⚠️ `active`, NOT `open`. A status in neither OPEN nor TERMINAL would make the branch below
+    # fire on a batch full of unfinished work and report `Completed` -- and `batch_is_open` would
+    # then drop that statement out of `match_period` forever. See `ACTIVE_ROW_STATUSES`.
+    active_rows = [s for s in statuses if s in ACTIVE_ROW_STATUSES]
+    # `banked` = money has landed, or a decision was taken. A partially allocated row qualifies:
+    # some of its money HAS been written, which is precisely what `Partially Settled` means.
+    banked_rows = [
+        s
+        for s in statuses
+        if s in TERMINAL_ROW_STATUSES or s == ROW_PARTIALLY_ALLOCATED
+    ]
 
-    if not open_rows:
+    if not active_rows:
         return BATCH_COMPLETED
-    if terminal_rows:
+    if banked_rows:
         return BATCH_PARTIALLY_SETTLED
     return BATCH_IN_REVIEW
 
@@ -1010,8 +1047,11 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
     def value(status: str) -> Decimal:
         return by_status.get(status, {}).get("value", Decimal("0"))
 
-    open_rows = sum(rows(s) for s in OPEN_ROW_STATUSES)
-    open_value = sum((value(s) for s in OPEN_ROW_STATUSES), Decimal("0"))
+    # ⚠️ ACTIVE, NOT OPEN -- a partially allocated row's money is NOT settled, so it must stay in
+    # the "still open" figure or the summary panel's `Total = Settled + Still open` band silently
+    # stops adding up. `settled_rows + open_rows == total_rows` is the invariant being preserved.
+    open_rows = sum(rows(s) for s in ACTIVE_ROW_STATUSES)
+    open_value = sum((value(s) for s in ACTIVE_ROW_STATUSES), Decimal("0"))
 
     def open_side(received: bool) -> tuple[int, Decimal]:
         """One direction's share of what is still open.
@@ -1023,7 +1063,7 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
         lie, and an unrecognised status falls out of both halves exactly as it falls out of
         `open_rows`.
 
-        ⚠️ IT WALKS THE SAME `OPEN_ROW_STATUSES` SET, so the halves inherit every exclusion the
+        ⚠️ IT WALKS THE SAME `ACTIVE_ROW_STATUSES` SET, so the halves inherit every exclusion the
         whole already has: a failed transfer never reached the dict, and `Skipped` is terminal and
         so is absent from the set. `SUMMARY_EXCLUDED_STATUSES` therefore needs no second mention
         here -- stating it again would be a second rule to keep in step with the first.
@@ -1031,7 +1071,7 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
         selected = [
             bucket
             for (status, is_received), bucket in by_status_direction.items()
-            if status in OPEN_ROW_STATUSES and is_received == received
+            if status in ACTIVE_ROW_STATUSES and is_received == received
         ]
         return (
             sum(bucket["count"] for bucket in selected),

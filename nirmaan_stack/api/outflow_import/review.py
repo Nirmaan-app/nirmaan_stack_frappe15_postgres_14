@@ -94,6 +94,7 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_ERROR,
     ROW_MATCHED,
     ROW_MISMATCHED,
+    ROW_PARTIALLY_ALLOCATED,
     ROW_PENDING_MATCH,
     ROW_SETTLED,
     ROW_SKIPPED,
@@ -115,8 +116,12 @@ BATCH_DOCTYPE = "Outflow Import Batch"
 ROW_DOCTYPE = "Outflow Import Row"
 MATCH_DOCTYPE = "Outflow Row Match"
 
-# A row in either of these states is left exactly as it is -- see the module docstring.
-_FROZEN_ROW_STATUSES = (ROW_SKIPPED, ROW_SETTLED)
+# ⚠️ `Partially Allocated` JOINS THIS SET AND THAT IS THE WHOLE SAFETY ARGUMENT FOR ADR-0020.
+# `match_batch` skips these rows; everything else re-persists an outcome, and `_persist_row_outcome`
+# ends with `frappe.db.delete(MATCH_DOCTYPE, {"import_row": row.name})`. A partially allocated row
+# reaching that line would have its settlement evidence deleted while the payments stayed Paid --
+# silently. Frozen does NOT mean finished here: the row is still ACTIVE and still needs a human.
+_FROZEN_ROW_STATUSES = (ROW_SKIPPED, ROW_SETTLED, ROW_PARTIALLY_ALLOCATED)
 
 
 class _StagedRow:
@@ -1031,6 +1036,16 @@ def skip_row(row: str, reason: str):
             "This row has already settled an expense and cannot be skipped.",
             title="Already settled",
         )
+    # ⚠️ A PARTIALLY ALLOCATED ROW MAY NOT BE SKIPPED. Money has already been written against it,
+    # and `Skipped` is terminal -- skipping would strand live `Outflow Row Match` records under a
+    # row that claims nothing was ever done. Reverse the allocations first (`reverse_allocation`),
+    # which returns the row to `Matched`/`Mismatched` and makes it skippable again.
+    if current.row_status == ROW_PARTIALLY_ALLOCATED:
+        frappe.throw(
+            "This row has already settled part of its amount. Reverse its allocations before "
+            "skipping it.",
+            title="Partially allocated",
+        )
 
     frappe.db.set_value(
         ROW_DOCTYPE,
@@ -1703,6 +1718,7 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
 # per-tab on the screen.
 SCOPE_ALL = "all"
 SCOPE_NOT_MATCHED = "not_matched"
+SCOPE_PARTLY = "partly"
 SCOPE_MATCHED = "matched"
 SCOPE_SKIPPED = "skipped"
 
@@ -1713,6 +1729,12 @@ _SCOPE_STATUSES = {
     # tab nobody would think to check.
     SCOPE_ALL: tuple(s for s in ROW_STATUSES if s != ROW_SKIPPED),
     SCOPE_NOT_MATCHED: (ROW_PENDING_MATCH, ROW_MISMATCHED, ROW_ERROR),
+    # ⚠️ ITS OWN SCOPE, NOT FOLDED INTO `matched`. `outflowTableModel.tabCountParts` splits the
+    # Matched tab into exactly TWO chips (Matched + Settled); a third status there makes the chips
+    # stop summing to the tab total -- the precise defect that function was written to fix. It is
+    # also a different job: "money moved, finish the allocation" is not "nothing matched, go find
+    # something", and the screen's default landing tab is Not-Matched.
+    SCOPE_PARTLY: (ROW_PARTIALLY_ALLOCATED,),
     SCOPE_MATCHED: (ROW_MATCHED, ROW_SETTLED),
     # ⚠️ A SCOPE, AND DELIBERATELY NOT A TAB (owner confirmed 2026-08-11). The ruling that "All means
     # everything a person might still act on, not every row" is UNCHANGED, and no tab reaches a

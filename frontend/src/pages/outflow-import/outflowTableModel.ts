@@ -469,11 +469,12 @@ export const DEFAULT_HIDDEN_COLUMNS: string[] = OUTFLOW_COLUMNS.filter(
  * consequence is that the tab holds a mix, which is why row selection is per-row on this screen
  * rather than per-tab.
  */
-export type OutflowTab = "all" | "notMatched" | "matched";
+export type OutflowTab = "all" | "notMatched" | "partlyAllocated" | "matched";
 
 export const OUTFLOW_TABS: { id: OutflowTab; label: string }[] = [
     { id: "all", label: "All" },
     { id: "notMatched", label: "Not-Matched" },
+    { id: "partlyAllocated", label: "Partly Allocated" },
     { id: "matched", label: "Matched / Settled" },
 ];
 
@@ -500,6 +501,7 @@ export type OutflowScope = keyof OutflowRowsPage["tab_counts"];
 export const SCOPE_FOR_TAB: Record<OutflowTab, OutflowScope> = {
     all: "all",
     notMatched: "not_matched",
+    partlyAllocated: "partly",
     matched: "matched",
 };
 
