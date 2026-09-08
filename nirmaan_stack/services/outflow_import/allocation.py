@@ -44,6 +44,7 @@ __all__ = [
     "status_for_allocation",
     "allocation_fits",
     "is_over_allocated",
+    "allocation_note",
 ]
 
 # The `Outflow Row Match.match_kind` vocabulary, owned here rather than on the doctype controller,
@@ -111,5 +112,49 @@ def allocation_fits(row_amount, legs: Iterable[Mapping], candidate_amount) -> bo
 
 
 def is_over_allocated(row_amount, legs: Iterable[Mapping]) -> bool:
-    """More has been written than the bank moved. The write path refuses to leave a row here."""
+    """More has been written than the bank moved.
+
+    ⚠️ NOTHING CALLS THIS AS A GATE YET (Task 3). Today's four settle paths (`settle_row`,
+    `settle_row_partial`, the TDS-deduction branch, `create_expense`) each write EXACTLY ONE leg per
+    row -- `_load_settleable_row` refuses a second call once `row_status` reads `Settled` -- and
+    that one leg is chosen to match the transfer within `settle.py`'s own amount window before it
+    ever reaches `_record_settlement`. So no currently-wired path can leave a row here, but that is
+    an emergent property of THOSE paths' own guards, not of this function being consulted anywhere.
+    `allocate_row` (Task 4) is the first caller expected to actually gate a WRITE on this verdict,
+    refusing a leg that would push `remaining_of` negative -- read this docstring again once that
+    lands, and correct it if the gate turns out to live somewhere else.
+
+    ⚠️ THE TDS-DEDUCTION LEG WAS THE ONE PATH THAT COULD BREAK THIS, AND IT IS FIXED AT THE CALL
+    SITE, NOT HERE. `settle.SettleResult.amount` on that path is the GROSS approved figure -- the
+    payment record is deliberately never rewritten, and `tds_written` carries the withheld part
+    separately -- so `_record_settlement` must write `amount - tds_written` as `target_amount`, not
+    `amount`. Writing the gross would make this function permanently `True` for every TDS-touched
+    row, invisible today only because `is_fully_allocated` is one-sided and would have surfaced the
+    moment Task 4 started gating writes on this instead.
+    """
     return remaining_of(row_amount, legs) < -AMOUNT_TOLERANCE
+
+
+def allocation_note(row_amount, legs: Iterable[Mapping], new_status: str) -> str:
+    """The sentence a reviewer reads. It states the BALANCE, never a leg count.
+
+    ⚠️ A COUNT WOULD BE THE ONE NUMBER THAT CANNOT BE CHECKED. "3 of 6 allocated" invites the
+    question "six according to whom?", and nothing in the data answers it -- the transfer does not
+    know how many payments it was meant to cover. The remaining amount is checkable against the
+    statement line by eye, which is what a reviewer actually needs.
+
+    PURE, LIKE THE REST OF THIS MODULE (moved out of `api/outflow_import/expenses.py` at review,
+    ADR-0020): it is arithmetic-plus-wording over legs, which is this module's job, and living in
+    `api/` had put its "Partly allocated" branch outside the bench-free pure suite where nothing
+    exercised it.
+    """
+    live = [leg for leg in legs if (leg.get("match_kind") or "") == MATCH_SETTLED]
+    if not live:
+        return "Nothing is allocated against this transfer."
+    names = ", ".join(f"{leg['target_doctype']} {leg['target_name']}" for leg in live)
+    if new_status == ROW_SETTLED:
+        return f"Fully allocated. Settled {names}."
+    return (
+        f"Partly allocated: {allocated_of(legs)} of {to_decimal(row_amount)}, "
+        f"{remaining_of(row_amount, legs)} still to allocate. Settled {names}."
+    )

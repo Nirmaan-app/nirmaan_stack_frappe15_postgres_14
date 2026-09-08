@@ -15,6 +15,7 @@ from nirmaan_stack.services.outflow_import.allocation import (
     MATCH_SETTLED,
     allocated_of,
     allocation_fits,
+    allocation_note,
     is_fully_allocated,
     is_over_allocated,
     remaining_of,
@@ -155,3 +156,52 @@ class TestTheGates(unittest.TestCase):
 
     def test_an_empty_row_is_not_over_allocated(self):
         self.assertFalse(is_over_allocated("1000", []))
+
+
+class TestAllocationNote(unittest.TestCase):
+    """The reviewer-facing sentence. Moved out of `api/outflow_import/expenses.py` at review
+    (ADR-0020) specifically so its 'Partly allocated' branch -- the artifact this whole feature
+    exists to produce -- is exercised by the bench-free pure suite, not left unreachable."""
+
+    def test_nothing_allocated(self):
+        note = allocation_note(_REAL_TOTAL, [], ROW_MISMATCHED)
+        self.assertEqual(note, "Nothing is allocated against this transfer.")
+
+    def test_nothing_allocated_when_every_leg_is_reversed(self):
+        """A reversed leg is not `live`, so it must read exactly like no leg at all."""
+        legs = [_leg("55819", MATCH_REVERSED)]
+        note = allocation_note(_REAL_TOTAL, legs, ROW_MISMATCHED)
+        self.assertEqual(note, "Nothing is allocated against this transfer.")
+
+    def test_partly_allocated_names_every_live_leg(self):
+        """The sentence must be checkable against the statement line by eye -- so the numbers in
+        it must be the real allocated / remaining figures (55819 + 5310 = 61129 of 213396, leaving
+        152267), not a leg count -- and every live target must be named."""
+        legs = [
+            {"target_amount": "55819", "match_kind": MATCH_SETTLED,
+             "target_doctype": "Project Payments", "target_name": "PAY-1"},
+            {"target_amount": "5310", "match_kind": MATCH_SETTLED,
+             "target_doctype": "Project Expenses", "target_name": "EXP-1"},
+        ]
+        note = allocation_note(_REAL_TOTAL, legs, ROW_PARTIALLY_ALLOCATED)
+        self.assertIn("Project Payments PAY-1", note)
+        self.assertIn("Project Expenses EXP-1", note)
+        self.assertIn("Partly allocated: 61129 of 213396, 152267 still to allocate.", note)
+
+    def test_fully_allocated_names_what_was_settled(self):
+        legs = [
+            {"target_amount": "5000", "match_kind": MATCH_SETTLED,
+             "target_doctype": "Project Payments", "target_name": "PAY-9"},
+        ]
+        note = allocation_note("5000", legs, ROW_SETTLED)
+        self.assertEqual(note, "Fully allocated. Settled Project Payments PAY-9.")
+
+    def test_a_reversed_leg_is_absent_from_a_settled_notes_names(self):
+        legs = [
+            {"target_amount": "5000", "match_kind": MATCH_SETTLED,
+             "target_doctype": "Project Payments", "target_name": "PAY-9"},
+            {"target_amount": "5000", "match_kind": MATCH_REVERSED,
+             "target_doctype": "Project Payments", "target_name": "PAY-OLD"},
+        ]
+        note = allocation_note("5000", legs, ROW_SETTLED)
+        self.assertNotIn("PAY-OLD", note)

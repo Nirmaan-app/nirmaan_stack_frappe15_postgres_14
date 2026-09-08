@@ -40,6 +40,7 @@ __all__ = [
     "LEDGER_DOCTYPES",
     "RECEIVED_LEDGER_DOCTYPES",
     "SETTLEABLE_STATUSES",
+    "TARGET_SNAPSHOT_FIELDS",
     "PAID",
     "APPROVED",
     "DECIDED_ON_SQL",
@@ -110,6 +111,21 @@ SETTLEABLE_STATUSES: dict[str, tuple[str, ...]] = {
     PAYMENT_DOCTYPE: (APPROVED,),
     PROJECT_EXPENSE_DOCTYPE: (APPROVED,),
     NON_PROJECT_EXPENSE_DOCTYPE: (APPROVED,),
+}
+
+
+# The per-ledger PROJECT/VENDOR field names for the `Outflow Row Match` snapshot taken at
+# settlement time (ADR-0020, Task 3). It lives beside `SETTLEABLE_STATUSES` for the same reason:
+# a per-ledger column fact gets ONE owner, and `expenses._target_snapshot` reads THIS map rather
+# than a private copy.
+#
+# ⚠️ THE PROJECT FIELD IS NAMED DIFFERENTLY ON EACH LEDGER, and `Non Project Expenses` has neither
+# a project nor a vendor. A single `doc.get("project")` at the call site would silently snapshot
+# `None` on every Project Expense -- correct-looking and wrong.
+TARGET_SNAPSHOT_FIELDS: dict[str, tuple[str | None, str | None]] = {
+    PAYMENT_DOCTYPE: ("project", "vendor"),
+    PROJECT_EXPENSE_DOCTYPE: ("projects", "vendor"),
+    NON_PROJECT_EXPENSE_DOCTYPE: (None, None),
 }
 
 

@@ -64,7 +64,7 @@ from nirmaan_stack.api.outflow_import.review import (
     _StagedRow,
     _refresh_batch_rollup,
 )
-from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE
+from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE, TARGET_SNAPSHOT_FIELDS
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 # ⚠️ THE SPLIT LIVES IN `services/payment_split.py`, THE SAME MODULE THE CEO PARTIAL APPROVAL USES,
 # and this import is the whole reason it was generalised rather than copied (ADR-0010 B1, slice
@@ -110,17 +110,17 @@ from nirmaan_stack.services.outflow_import.status import (
     settlement_origin,
 )
 # ADR-0020 (Task 3): the row's status is now DERIVED from its `Outflow Row Match` legs, never
-# written directly by `_record_settlement`. See `_refresh_row_allocation`.
+# written directly by `_record_settlement`. See `_refresh_row_allocation`. `allocation_note` moved
+# here from a private `expenses.py` helper at review -- it is pure arithmetic-plus-wording over
+# legs, which is this module's job, not `api/`'s.
 from nirmaan_stack.services.outflow_import.allocation import (
     MATCH_REVERSED,
     MATCH_SETTLED,
-    allocated_of,
     allocation_fits,
+    allocation_note,
     is_over_allocated,
-    remaining_of,
     status_for_allocation,
 )
-from nirmaan_stack.services.outflow_import.amounts import to_decimal
 
 # The one status a partial settlement reads or writes. Both halves are Approved: the money was
 # already sanctioned, and this import re-partitions a sanction rather than creating one.
@@ -783,7 +783,19 @@ def _record_settlement(staged, doc, result, actor) -> None:
             "transfer_id": staged.transfer_id,
             "target_doctype": result.doctype,
             "target_name": result.name,
-            "target_amount": float(result.amount),
+            # ⚠️ NET, NOT `result.amount`, AND THIS IS WHY THE SUBTRACTION EXISTS. On the TDS-
+            # deduction path (`settle.py:_settle_as_deduction` / `settle_payment(..., tds=...)`)
+            # `result.amount` is deliberately the GROSS approved figure -- the record itself is
+            # never rewritten, and `result.tds_written` carries the withheld part separately (see
+            # `SettleResult`'s own docstring). `target_amount` means "how much of THIS TRANSFER went
+            # to this target", and the bank only ever moved `amount - tds`. Writing the gross here
+            # would claim the transfer covered money it never sent: `remaining_of` would read
+            # negative and `is_over_allocated` would read permanently true for every TDS-touched
+            # row, invisible only as long as nothing downstream (Task 4's `allocation_fits`, the
+            # partial branch of `allocation.allocation_note`) actually reads the balance. The gross stays
+            # fully auditable on the payment itself (`amount` plus `tds`); nothing needs a second
+            # field for it here.
+            "target_amount": float(result.amount - (result.tds_written or 0)),
             "match_kind": MATCH_SETTLED,
             # The tier that FOUND the counterpart, or "Manual" when the matcher found nothing and
             # the person went looking. ⚠️ Two DIFFERENT questions live side by side here -- this one
@@ -801,18 +813,11 @@ def _record_settlement(staged, doc, result, actor) -> None:
     match.insert(ignore_permissions=True)
 
 
-# ⚠️ THE PROJECT FIELD IS NAMED DIFFERENTLY ON EACH LEDGER, and `Non Project Expenses` has neither
-# a project nor a vendor. A single `doc.get("project")` would silently snapshot None on every
-# Project Expense -- correct-looking and wrong.
-_SNAPSHOT_FIELDS = {
-    "Project Payments": ("project", "vendor"),
-    "Project Expenses": ("projects", "vendor"),
-    "Non Project Expenses": (None, None),
-}
-
-
 def _target_snapshot(doctype: str, name: str) -> dict:
-    project_field, vendor_field = _SNAPSHOT_FIELDS.get(doctype, (None, None))
+    """Reads the DB, so it stays here -- `ledgers.TARGET_SNAPSHOT_FIELDS` (the map itself, moved
+    there at review since a per-ledger field map is the same kind of fact `SETTLEABLE_STATUSES`
+    already owns) is pure; this function is not."""
+    project_field, vendor_field = TARGET_SNAPSHOT_FIELDS.get(doctype, (None, None))
     fields = [f for f in (project_field, vendor_field) if f]
     if not fields:
         return {"target_project": None, "target_vendor": None}
@@ -845,6 +850,14 @@ def _refresh_row_allocation(row_name: str, actor: str) -> str:
     row; leaving it unset here would silently zero both once a row reaches `Settled` through this
     path.
 
+    ⚠️ `decided_at` / `decided_by` ARE ALSO WRITTEN ONLY WHILE SOMETHING IS ACTUALLY ALLOCATED
+    (`Settled` or `Partially Allocated`), AND CLEARED TO `None` ON THE FALLBACK -- fixed at review
+    (Task 3), same shape as `settlement_origin` and for the same class of reason. Unreachable today
+    (nothing yet reverses a leg), but the moment Task 5's reversal drives a row back to `Matched` or
+    `Mismatched`, a stale `decided_by` would drop that row out of `review.py`'s
+    `undecided_by_a_person` bucket while the screen shows it as undecided -- a decision that has
+    been fully reversed has been undone, and the row honestly has no decider any more.
+
     ⚠️ `frappe.db.set_value` bypasses the document lifecycle, and that is correct here: this row
     carries no `doc_events`, and the batch rollup it feeds is invoked explicitly by the caller.
     """
@@ -859,6 +872,7 @@ def _refresh_row_allocation(row_name: str, actor: str) -> str:
     )
     fallback = ROW_MATCHED if (row.get("suggested_name") or "").strip() else ROW_MISMATCHED
     new_status = status_for_allocation(row.get("amount"), legs, fallback=fallback)
+    something_allocated = new_status in (ROW_SETTLED, ROW_PARTIALLY_ALLOCATED)
 
     live_legs = [leg for leg in legs if (leg.get("match_kind") or "") == MATCH_SETTLED]
     origin = (
@@ -872,35 +886,16 @@ def _refresh_row_allocation(row_name: str, actor: str) -> str:
         row_name,
         {
             "row_status": new_status,
-            "outcome_note": _allocation_note(row.get("amount"), legs, new_status),
-            "decided_at": frappe.utils.now_datetime(),
-            "decided_by": actor,
+            "outcome_note": allocation_note(row.get("amount"), legs, new_status),
+            # See the docstring: a fully-reversed row has no decider any more.
+            "decided_at": frappe.utils.now_datetime() if something_allocated else None,
+            "decided_by": actor if something_allocated else None,
             # See the docstring: only meaningful -- and only written -- once the row is Settled.
             "settlement_origin": origin if new_status == ROW_SETTLED else None,
         },
         update_modified=False,
     )
     return new_status
-
-
-def _allocation_note(row_amount, legs, new_status: str) -> str:
-    """The sentence a reviewer reads. It states the BALANCE, never a leg count.
-
-    ⚠️ A COUNT WOULD BE THE ONE NUMBER THAT CANNOT BE CHECKED. "3 of 6 allocated" invites the
-    question "six according to whom?", and nothing in the data answers it -- the transfer does not
-    know how many payments it was meant to cover. The remaining amount is checkable against the
-    statement line by eye, which is what a reviewer actually needs.
-    """
-    live = [leg for leg in legs if (leg.get("match_kind") or "") == MATCH_SETTLED]
-    if not live:
-        return "Nothing is allocated against this transfer."
-    names = ", ".join(f"{leg['target_doctype']} {leg['target_name']}" for leg in live)
-    if new_status == ROW_SETTLED:
-        return f"Fully allocated. Settled {names}."
-    return (
-        f"Partly allocated: {allocated_of(legs)} of {to_decimal(row_amount)}, "
-        f"{remaining_of(row_amount, legs)} still to allocate. Settled {names}."
-    )
 
 
 def _summary(row: str, result, batch: str, statuses) -> dict:
