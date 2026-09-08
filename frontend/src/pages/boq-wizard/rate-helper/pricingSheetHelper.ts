@@ -585,6 +585,68 @@ function readGroupLabel(d: unknown): string | undefined {
   return typeof raw === "string" && raw.trim() !== "" ? raw : undefined;
 }
 
+/**
+ * NEVER-ASKED DEFAULTS (owner ruling 2026-09-08: "Treat a never-asked field as answered -- this is ok";
+ * condition: ONLY a genuinely optional field, a field with no sensible default stays blank and keeps
+ * refusing).
+ *
+ * THE DISTINCTION THIS WHOLE RULE RESTS ON -- ABSENT vs PRESENT-NULL -- and where it comes from:
+ * the extractor writes a cell for EVERY attribute it asks, whether or not the model answered
+ * (`extraction._extract_batch`: `for aid, defn in defs_by_id.items(): ... row_out[aid] =
+ * {"value": value, "confidence": ...}`, value None when the model returned nothing; the blank-row and
+ * `_row_result` fallbacks write `{d["id"]: {"value": None, ...}}` for every def as well). So on an
+ * IN-RUN row:
+ *   - KEY PRESENT, value null  -> the model WAS asked and came back blank. A real read failure.
+ *                                 UNTOUCHED here; the gate keeps refusing.
+ *   - KEY ABSENT               -> the attribute was not in the config when this row was extracted
+ *                                 (a config gained it later), i.e. the model was NEVER asked.
+ * The only other way a key is absent by design is `extract: false`, which is excluded explicitly.
+ *
+ * WHICH DEFAULT (the two sources the owner saw, nothing wider):
+ *   1. the config's top-level `extraction_defaults[id]` -- a scalar, or `{default, requires_named}`
+ *      (the paired-quantity shape: the default applies only when the named item is FILLED, mirroring
+ *      `extraction.fill_paired_slot_defaults` case (a)). A `{default, text_overrides}` spec is NOT
+ *      defaulted: reproducing the extractor's text rule here would be a second copy of it, so that
+ *      field stays blank and keeps refusing (inert on the live corpus -- measured 2026-09-08).
+ *   2. `allow_none` -> "None": the honest answer for a slot the model was never shown.
+ * Anything else (no default, `panel: false`, a DERIVED attribute the pipeline computes -- a ladder
+ * bind such as `plate_item` must never be seeded, it is the ladder's FLOOR) -> undefined -> untouched.
+ *
+ * ⚠️ THE HAZARD, stated plainly: a row that GENUINELY has a third socket now prices LOW, with nothing
+ * downstream to catch it -- the same class as the LMS silent-wrong-pick limit. The `defaulted` badge
+ * (reused, not a second mark) plus the "(never asked at extraction ...)" derivation line are the only
+ * guard. A pricer's override still wins, exactly as over a model-claimed default.
+ */
+function readExtractionDefaults(config: RateCategoryConfig): Record<string, unknown> {
+  // `extraction_defaults` is carried by the config but is not on the RateCategoryConfig type (out of
+  // this slice's scope) -- read through `unknown`, the `readGroupLabel` precedent.
+  const raw = (config as unknown as { extraction_defaults?: unknown }).extraction_defaults;
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+}
+
+function neverAskedDefault(
+  d: AttributeDefinition,
+  defaults: Record<string, unknown>,
+  valueOf: (id: string) => string | number | null,
+): string | number | undefined {
+  if (d.id in defaults) {
+    const spec = defaults[d.id];
+    if (spec !== null && typeof spec === "object") {
+      const s = spec as { default?: unknown; requires_named?: unknown; text_overrides?: unknown };
+      if (Array.isArray(s.text_overrides) && s.text_overrides.length) return undefined;
+      if (typeof s.requires_named === "string") {
+        const item = valueOf(s.requires_named);
+        if (item === null || item === NONE_SENTINEL) return undefined;
+      }
+      return typeof s.default === "string" || typeof s.default === "number" ? s.default : undefined;
+    }
+    if (typeof spec === "string" || typeof spec === "number") return spec;
+    return undefined;
+  }
+  if (d.allow_none) return NONE_SENTINEL;
+  return undefined;
+}
+
 export function makePricingSheetHelper(deps: Deps): RateHelper {
   const { config, configsByCategory, items, extractionByRow } = deps;
 
@@ -613,6 +675,40 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     }
     const category = cfg!;
     const defs = selectableDefs(category);
+    // The attributes THIS config computes rather than accepts -- a blank one is not missing input.
+    // (Hoisted above the never-asked pass, which must not seed a derived attribute.)
+    const derived = derivedAttrIds(category);
+
+    // NEVER-ASKED DEFAULTS (owner ruling 2026-09-08; the rule and its hazard are on
+    // `neverAskedDefault` above). IN-RUN rows only: a manual row has no stored attributes at all and
+    // keeps its "Fill the attributes to price this row" path untouched. A synthesized cell carries the
+    // EXISTING `defaulted` flag, so the badge, the trace line and the override precedence are the
+    // ones a model-claimed default already has. Two passes so a paired quantity (`requires_named`)
+    // can see an item defaulted in the same walk regardless of definition order.
+    const neverAsked = new Map<string, ExtractedAttr>();
+    if (ext) {
+      const defaults = readExtractionDefaults(category);
+      const valueOfId = (id: string): string | number | null => {
+        const dd = defs.find((x) => x.id === id);
+        if (!dd) return null;
+        const ov = overrides?.[id];
+        const raw = ov !== undefined ? ov : (ext.attributes[id] ?? neverAsked.get(id))?.value ?? null;
+        return coerceForMatch(dd, raw as string | number | null);
+      };
+      for (let pass = 0; pass < 2; pass++) {
+        for (const d of defs) {
+          if (neverAsked.has(d.id)) continue;
+          if (Object.prototype.hasOwnProperty.call(ext.attributes, d.id)) continue; // ASKED -- untouched
+          // `extract` is a config key the AttributeDefinition type does not declare (types out of scope).
+          if ((d as { extract?: boolean }).extract === false || d.panel === false || derived.has(d.id)) continue;
+          const v = neverAskedDefault(d, defaults, valueOfId);
+          if (v !== undefined) neverAsked.set(d.id, { value: v, confidence: 0, defaulted: true });
+        }
+      }
+    }
+    /** The stored cell for a def, or the never-asked synthesized one. */
+    const cellOf = (d: AttributeDefinition): ExtractedAttr | undefined =>
+      ext?.attributes[d.id] ?? neverAsked.get(d.id);
 
     // EA-4a-r: which defs are DISABLED because an allow_none controller is set to "None" (positive
     // absence) -- e.g. plate_item="None" disables plate_qty AND back_box. A controller can disable a def
@@ -620,7 +716,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     // pre-pass. A disabled target is greyed + cleared and is NOT treated as an unknown (never blocks).
     const valueOfDef = (d: AttributeDefinition): string | number | null => {
       const ov = overrides?.[d.id];
-      const raw = ov !== undefined ? ov : ext?.attributes[d.id]?.value ?? null;
+      const raw = ov !== undefined ? ov : cellOf(d)?.value ?? null;
       return coerceForMatch(d, raw as string | number | null);
     };
     const disabledByNone = new Set<string>();
@@ -634,8 +730,8 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     const workingsAttrs: WorkingsAttribute[] = [];
     const selected: Record<string, string | number> = {};
     const defaulted: string[] = []; // EA-4a: attrs the extraction filled from a config default
-    // The attributes THIS config computes rather than accepts -- a blank one is not missing input.
-    const derived = derivedAttrIds(category);
+    const neverAskedTrace: string[] = []; // 2026-09-08: the subset of `defaulted` this helper synthesized
+    // (`derived` is hoisted above the never-asked pass.)
     // SLICE 3b (owner ruling R8) -- THE CONDITIONAL EXEMPTION, resolved PER ROW.
     //
     // Four of the five derivation mechanisms can always run, so config membership IS the answer. A
@@ -696,7 +792,8 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         : new Set([...derived].filter((id) => !unfillableDerived.has(id)));
     let missing = false;
     for (const d of defs) {
-      const cell = ext?.attributes[d.id];
+      const cell = cellOf(d);
+      const wasNeverAsked = neverAsked.has(d.id);
       const overridden = overrides?.[d.id];
       const disabled = disabledByNone.has(d.id);
       const rawValue = disabled ? null : overridden !== undefined ? overridden : cell?.value ?? null;
@@ -727,6 +824,8 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         !disabled && overridden === undefined && coerced !== null && cell?.defaulted === true;
       if (isDefaulted) {
         defaulted.push(`${d.label}=${coerced}`);
+        // The badge cannot tell a never-asked default from a model-claimed one; this trace line can.
+        if (wasNeverAsked) neverAskedTrace.push(`${d.label}=${coerced}`);
       }
       // F-30 slice A (owner ruling 2, 2026-09-05) -- THE RATING-UP NOTE. The server-side ladder
       // stamps `pole_ladder.amp_moved_up` when it priced the next rating UP because the counted pole
@@ -751,7 +850,8 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         // the Derivation screen) -- only the coercion above differs, and that is the whole point.
         options: isDropdownAttributeType(d.type) ? attributeOptions(d, items) : undefined,
         value: coerced === null ? "" : String(coerced),
-        confidence: disabled ? undefined : cell?.confidence,
+        // A never-asked default has no model confidence to show -- omit it rather than render 0.
+        confidence: disabled || (wasNeverAsked && overridden === undefined) ? undefined : cell?.confidence,
         corroborated: disabled ? undefined : cell?.corroborated,
         disabled: disabled || undefined,
         allowNone: d.allow_none || undefined,
@@ -864,6 +964,17 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     // so the pricer sees, and can correct, every defaulted value before using the rate.
     if (defaulted.length) {
       flatDerivation.push(`(defaulted -- no positive text identification): ${defaulted.join(", ")}`);
+    }
+    // 2026-09-08: a never-asked default is ALSO in the line above (same badge, same mechanism); this
+    // second line is what lets a future reader tell a defaulted third socket from a real one.
+    // ⚠️ The panel renders `sections[i].derivation` and NOT the flat list whenever sections exist (every
+    // module_fit category -- exactly the never-asked population), so the line is ALSO appended to every
+    // section, the way the combined line is added to a single section above. Otherwise the badge would be
+    // the only trace on screen and this sentence would exist only in tests.
+    if (neverAskedTrace.length) {
+      const neverAskedLine = `(never asked at extraction -- config default applied; re-run the sheet to read it): ${neverAskedTrace.join(", ")}`;
+      flatDerivation.push(neverAskedLine);
+      for (const s of sections) s.derivation.push(neverAskedLine);
     }
 
     return {

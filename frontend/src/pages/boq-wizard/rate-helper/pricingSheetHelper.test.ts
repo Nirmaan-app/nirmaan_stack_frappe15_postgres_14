@@ -3762,3 +3762,259 @@ describe("F-25 slice 3 -- the plate_floor note kind", () => {
     expect(sorted.map((n) => n.kind)).toEqual(["upgrade", "plate_floor", "rating_up"]);
   });
 });
+
+// ---- 2026-09-08: NEVER-ASKED DEFAULTS (owner ruling: "Treat a never-asked field as answered -- this is ok";
+// condition: only a genuinely optional field; no sensible default -> stays blank and keeps refusing).
+//
+// THE DISTINCTION: the extractor writes a cell for EVERY attribute it asks (value null when unanswered), so on
+// an in-run row KEY ABSENT = never asked (the config gained the attribute after this run) and PRESENT-NULL =
+// asked and blank (a real read failure). This block pins the rule from BOTH sides; the negative on
+// present-null is the pin that stops the slice over-reaching.
+describe("never-asked defaults -- an ABSENT key takes its config default; a PRESENT-NULL key does not", () => {
+  /** moduleFitConfig() + a paired socket3 slot, a scalar-default colour, a no-default input, and a
+   * panel-hidden fact -- the shapes the live switches_sockets / cabletray configs carry. */
+  function neverAskedConfig(): RateCategoryConfig {
+    const cfg = moduleFitConfig() as unknown as Record<string, any>;
+    cfg.category_id = "na_probe";
+    cfg.attribute_definitions = [
+      ...cfg.attribute_definitions,
+      { id: "socket3_item", label: "Socket 3", type: "choice", values: ["SOCK"], allow_none: true, disables_when_none: ["socket3_qty"] },
+      { id: "socket3_qty", label: "Socket 3 qty", type: "number" },
+      { id: "colour", label: "Colour", type: "choice", values: ["White", "Grey"] },
+      { id: "mount", label: "Mount", type: "choice", values: ["Flush", "Surface"] }, // NO default, NOT allow_none
+      { id: "hidden_fact", label: "Hidden", type: "number", panel: false },              // panel-hidden: never gated
+    ];
+    cfg.extraction_defaults = {
+      colour: "White",
+      switch_qty: { default: 1, requires_named: "switch_item" },
+      socket3_qty: { default: 1, requires_named: "socket3_item" },
+    };
+    // The probe as shipped prices nothing (its one component_ref never resolves), so the pipeline is
+    // rebuilt in the LIVE swsock_boq shape: a plate ladder, a blanker fit, socket3 / blank / plate refs.
+    cfg.pipelines.probe_boq.steps = [
+      {
+        step: "module_fit",
+        params: {
+          terms: [{ attr: "socket3_qty", weight: 3, none_when: "socket3_item" }, { attr: "switch_qty", weight: 1 }],
+          ladders: [{ kind: "switch_socket_item", where: { family: "Grid and Face Plates" }, bind: "plate_item", floor_from: "plate_item", on_none: "none" }],
+          blanks: { bind: "blank_count", from_ladder: "plate_item", qty_attr: "blank_qty", bind_item: "blank_fit_item", item_when_positive: "1M Blanker" },
+        },
+      },
+      { step: "component_ref", name: "socket3", ref: { kind: "switch_socket_item", family: "Socket", item: "@socket3_item" }, target: "list_price", rate_stages: [{ mult: 1.0, round: null }], qty: { from_attr: "socket3_qty" }, none_skips: true },
+      { step: "component_ref", name: "blank", ref: { kind: "switch_socket_item", family: "Switch", item: "@blank_fit_item" }, target: "list_price", rate_stages: [{ mult: 1.0, round: null }], qty: { from_fit: "blank_count" }, none_skips: true },
+      { step: "component_ref", name: "plate", ref: { kind: "switch_socket_item", family: "Grid and Face Plates", item: "@plate_item" }, target: "list_price", rate_stages: [{ mult: 1.0, round: null }], qty: { from_attr: "plate_qty" }, none_skips: true },
+      { step: "sum_components", result: "supply" },
+    ];
+    return cfg as unknown as RateCategoryConfig;
+  }
+  const ITEMS_NA: RateMasterItem[] = [
+    { discipline: "Electrical", kind: "switch_socket_item", attributes: { item: "3M", family: "Grid and Face Plates", modules: 3 }, rates: { list_price: 100 } },
+    { discipline: "Electrical", kind: "switch_socket_item", attributes: { item: "6M", family: "Grid and Face Plates", modules: 6 }, rates: { list_price: 200 } },
+    { discipline: "Electrical", kind: "switch_socket_item", attributes: { item: "1M Blanker", family: "Switch", modules: 1 }, rates: { list_price: 10 } },
+    { discipline: "Electrical", kind: "switch_socket_item", attributes: { item: "SOCK", family: "Socket", modules: 3 }, rates: { list_price: 50 } },
+  ];
+  const ctxNA = (excelRow: number): RateHelperRowContext => ({
+    excelRow, description: "probe row", nodeType: "Line Item", category: "na_probe", discipline: "Electrical",
+    rateKinds: ["supply_rate", "install_rate", "combined_rate"] as unknown as never,
+  });
+  type Cell = { value: string | number | null; confidence: number; defaulted?: boolean };
+  const helperNA = (attrs: Record<string, Cell>, cfg: RateCategoryConfig = neverAskedConfig()) =>
+    makePricingSheetHelper({
+      configsByCategory: new Map([["na_probe", cfg]]),
+      items: ITEMS_NA,
+      extractionByRow: buildExtractionByRow([{ excel_row: 1, attributes: attrs }]),
+    });
+  const attrOf = (r: unknown, id: string) =>
+    ((r as { workings?: { attributes: Array<Record<string, unknown>> } }).workings?.attributes ?? []).find((a) => a.id === id);
+  const neverAskedLine = (r: unknown) =>
+    ((r as { workings?: { derivation: string[] } }).workings?.derivation ?? []).find((l) => l.startsWith("(never asked at extraction"));
+  // A row extracted BEFORE socket3 / colour existed on the config, with mount answered (present).
+  const OLD_ROW: Record<string, Cell> = {
+    switch_item: { value: "10A 1 WAY SWITCH", confidence: 0.9 },
+    switch_qty: { value: 1, confidence: 0.9 },
+    plate_item: { value: null, confidence: 0.3 },
+    plate_qty: { value: 1, confidence: 0.9 },
+    blank_qty: { value: null, confidence: 0.5 },
+    mount: { value: "Flush", confidence: 0.8 },
+  };
+  // The SAME row as the model would return it today: socket3 "None" claimed as a default, colour defaulted.
+  const NEW_ROW: Record<string, Cell> = {
+    ...OLD_ROW,
+    socket3_item: { value: "None", confidence: 0.6, defaulted: true },
+    socket3_qty: { value: null, confidence: 0 },
+    colour: { value: "White", confidence: 0.5, defaulted: true },
+  };
+
+  it("POSITIVE: KEY ABSENT on an allow_none slot -> None, badged defaulted, gate passes, row prices", () => {
+    const r = helperNA(OLD_ROW).compute(ctxNA(1));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.basis).not.toMatch(/Complete the missing attributes/);
+    expect(Object.keys(r.values).length).toBeGreaterThan(0);
+    const s3 = attrOf(r, "socket3_item");
+    expect(s3?.value).toBe("None");
+    expect(s3?.defaulted).toBe(true);
+    expect(s3?.confidence).toBeUndefined();          // no model confidence to show -- never rendered as 0%
+    expect(attrOf(r, "socket3_qty")?.disabled).toBe(true); // None disables the paired qty (existing mechanism)
+    const col = attrOf(r, "colour");
+    expect(col?.value).toBe("White");                 // the scalar extraction_defaults source
+    expect(col?.defaulted).toBe(true);
+    expect(neverAskedLine(r)).toMatch(/Socket 3=None/);
+    expect(neverAskedLine(r)).toMatch(/Colour=White/);
+    // The panel shows SECTION derivations (not the flat list) on every module_fit category, so the
+    // line must ride every section too -- otherwise it would exist only in this test.
+    const secs = r.workings.sections ?? [];
+    expect(secs.length).toBeGreaterThan(0);
+    for (const s of secs) expect(s.derivation.some((l) => l.startsWith("(never asked at extraction"))).toBe(true);
+  });
+
+  it("NEGATIVE (the over-reach pin): PRESENT-NULL on the same slot is a real read failure -> still refuses", () => {
+    const r = helperNA({ ...OLD_ROW, socket3_item: { value: null, confidence: 0.2 }, socket3_qty: { value: null, confidence: 0 }, colour: { value: "White", confidence: 0.5 } }).compute(ctxNA(1));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.basis).toMatch(/Complete the missing attributes/);
+    expect(Object.keys(r.values)).toHaveLength(0);
+    expect(attrOf(r, "socket3_item")?.value).toBe("");
+    expect(attrOf(r, "socket3_item")?.defaulted).toBeUndefined();
+    expect(neverAskedLine(r)).toBeUndefined();
+  });
+
+  it("NEGATIVE: an attribute with NO sensible default, key absent -> still refuses (the face_mm case)", () => {
+    const { mount: _omit, ...withoutMount } = OLD_ROW;
+    const r = helperNA(withoutMount).compute(ctxNA(1));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.basis).toMatch(/Complete the missing attributes/);
+    expect(attrOf(r, "mount")?.value).toBe("");
+    expect(attrOf(r, "mount")?.defaulted).toBeUndefined();
+  });
+
+  it("NEGATIVE: a {default, text_overrides} spec is NOT reproduced at read time -> stays blank, refuses", () => {
+    const cfg = neverAskedConfig() as unknown as Record<string, any>;
+    cfg.attribute_definitions.push({ id: "install_pos", label: "Install", type: "choice", values: ["Ceiling", "Floor"] });
+    cfg.extraction_defaults.install_pos = { default: "Ceiling", text_overrides: [{ contains: "raceway", value: "Floor" }] };
+    const r = helperNA(OLD_ROW, cfg as unknown as RateCategoryConfig).compute(ctxNA(1));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.basis).toMatch(/Complete the missing attributes/);
+    expect(attrOf(r, "install_pos")?.value).toBe("");
+  });
+
+  it("THE INVARIANT: a row with EVERY key present is byte-identical -- no synthesized cell, no trace line", () => {
+    const r = helperNA(NEW_ROW).compute(ctxNA(1));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(neverAskedLine(r)).toBeUndefined();
+    // the model-claimed defaults are still badged by the EXISTING mechanism, untouched
+    expect(attrOf(r, "socket3_item")?.defaulted).toBe(true);
+    expect(attrOf(r, "socket3_item")?.confidence).toBe(0.6); // a REAL cell keeps its confidence
+    expect(Object.keys(r.values).length).toBeGreaterThan(0);
+  });
+
+  it("POSITIVE: a never-asked default participates in pricing EXACTLY as a model-claimed default does", () => {
+    const old = helperNA(OLD_ROW).compute(ctxNA(1));
+    const fresh = helperNA(NEW_ROW).compute(ctxNA(1));
+    expect(isSuggestion(old) && isSuggestion(fresh)).toBe(true);
+    if (!isSuggestion(old) || !isSuggestion(fresh)) return;
+    expect(old.values).toEqual(fresh.values);
+    expect(old.workings.finalValues).toEqual(fresh.workings.finalValues);
+    const dl = (r: typeof old) => r.workings.derivation.find((l) => l.startsWith("(defaulted --"));
+    expect(dl(old)).toMatch(/Socket 3=None/);
+    expect(dl(fresh)).toMatch(/Socket 3=None/);
+  });
+
+  it("POSITIVE: a pricer's override still wins over a never-asked default, and clears the badge", () => {
+    const h = helperNA(OLD_ROW);
+    const base = h.compute(ctxNA(1));
+    const over = h.compute(ctxNA(1), { socket3_item: "SOCK", socket3_qty: "1" });
+    expect(isSuggestion(base) && isSuggestion(over)).toBe(true);
+    if (!isSuggestion(base) || !isSuggestion(over)) return;
+    expect(over.values).not.toEqual(base.values);          // 3 more modules -> 6M, a different plate fit
+    expect(attrOf(over, "socket3_item")?.value).toBe("SOCK");
+    expect(attrOf(over, "socket3_item")?.defaulted).toBeUndefined();
+    expect(neverAskedLine(over)).not.toMatch(/Socket 3/);   // the overridden field leaves the line ...
+    expect(neverAskedLine(over)).toMatch(/Colour=White/);   // ... the still-defaulted one stays on it
+  });
+
+  it("POSITIVE: a requires_named quantity defaults ONLY when its item is FILLED (the paired-fill mirror)", () => {
+    // item present and named, qty key absent -> qty 1 (defaulted); prices like an explicit qty 1
+    const named = helperNA({ ...OLD_ROW, socket3_item: { value: "SOCK", confidence: 0.9 } }).compute(ctxNA(1));
+    const explicit = helperNA({ ...OLD_ROW, socket3_item: { value: "SOCK", confidence: 0.9 }, socket3_qty: { value: 1, confidence: 0.9 } }).compute(ctxNA(1));
+    expect(isSuggestion(named) && isSuggestion(explicit)).toBe(true);
+    if (!isSuggestion(named) || !isSuggestion(explicit)) return;
+    expect(attrOf(named, "socket3_qty")?.value).toBe("1");
+    expect(attrOf(named, "socket3_qty")?.defaulted).toBe(true);
+    expect(named.values).toEqual(explicit.values);
+    // item absent -> None -> the qty gets NO default and is disabled, never a phantom 1
+    const none = helperNA(OLD_ROW).compute(ctxNA(1));
+    expect(attrOf(none, "socket3_qty")?.value).toBe("");
+    expect(attrOf(none, "socket3_qty")?.defaulted).toBeUndefined();
+  });
+
+  it("NEGATIVE: a DERIVED attribute (a ladder bind) is never seeded -- absent plate_item prices via the ladder", () => {
+    const { plate_item: _omit, ...noPlate } = OLD_ROW;
+    const a = helperNA(noPlate).compute(ctxNA(1));
+    const b = helperNA(OLD_ROW).compute(ctxNA(1));
+    expect(isSuggestion(a) && isSuggestion(b)).toBe(true);
+    if (!isSuggestion(a) || !isSuggestion(b)) return;
+    expect(a.values).toEqual(b.values);
+    expect(attrOf(a, "plate_item")?.defaulted).toBeUndefined();
+  });
+
+  it("NEGATIVE: a MANUAL row (not in the run) is untouched -- still Fill the attributes to price this row", () => {
+    const h = makePricingSheetHelper({ configsByCategory: new Map([["na_probe", neverAskedConfig()]]), items: ITEMS_NA, extractionByRow: new Map() });
+    const r = h.compute(ctxNA(7));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.basis).toBe("Fill the attributes to price this row");
+    expect(attrOf(r, "socket3_item")?.value).toBe("");
+    expect(neverAskedLine(r)).toBeUndefined();
+  });
+
+  it("NEGATIVE: a category whose rows carry every key is untouched (the wiring goldens above run unchanged)", () => {
+    const map = buildExtractionByRow([{ excel_row: 3, attributes: ext({ material: "COPPER", insulation: "ARMOURED", core: 3, thickness_sqmm: 2.5 }) }]);
+    const r = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map }).compute(ctx(3, "3 core"));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(neverAskedLine(r)).toBeUndefined();
+    expect(r.workings.attributes.some((a) => a.defaulted)).toBe(false);
+  });
+
+  // ---- the rule is GENERAL: point_wiring's circuit block, added 2026-09-03, on a row extracted before it ----
+  function pwWithCircuit(): RateCategoryConfig {
+    const cfg = structuredClone(PW_CONFIG) as unknown as Record<string, any>;
+    cfg.attribute_definitions.push(
+      { id: "circuit_wire_included", label: "Circuit wiring included", type: "choice", values: ["Yes", "No"] },
+      { id: "circuit_wire1_core", label: "Circuit wire 1 - cores", type: "number" },
+      { id: "circuit_wire1_thickness_sqmm", label: "Circuit wire 1 - thickness (sqmm)", type: "number", allow_none: true },
+    );
+    cfg.extraction_defaults = { circuit_wire_included: "No", circuit_wire1_core: 1.0 };
+    return cfg as unknown as RateCategoryConfig;
+  }
+  const pwHelper = (attrs: Record<string, Cell>, cfg: RateCategoryConfig) =>
+    makePricingSheetHelper({ configsByCategory: new Map([["point_wiring", cfg]]), items: PW_HELPER_ITEMS, extractionByRow: buildExtractionByRow([{ excel_row: 40, attributes: attrs }]) });
+  const pwCtx = { ...ctx(40, "Point wiring for a light point"), category: "point_wiring" };
+
+  it("POSITIVE (point_wiring): the never-asked circuit fields default (No / 1 / None), badged, and the row prices as before the config grew", () => {
+    const before = pwHelper(PW_EXT as unknown as Record<string, Cell>, PW_CONFIG).compute(pwCtx);
+    const after = pwHelper(PW_EXT as unknown as Record<string, Cell>, pwWithCircuit()).compute(pwCtx);
+    expect(isSuggestion(before) && isSuggestion(after)).toBe(true);
+    if (!isSuggestion(before) || !isSuggestion(after)) return;
+    expect(after.basis).not.toMatch(/Complete the missing attributes/);
+    expect(after.values).toEqual(before.values);
+    expect(attrOf(after, "circuit_wire_included")?.value).toBe("No");
+    expect(attrOf(after, "circuit_wire_included")?.defaulted).toBe(true);
+    expect(attrOf(after, "circuit_wire1_core")?.value).toBe("1");
+    expect(attrOf(after, "circuit_wire1_thickness_sqmm")?.value).toBe("None");
+    expect(neverAskedLine(after)).toMatch(/Circuit wiring included=No/);
+  });
+
+  it("NEGATIVE (point_wiring): PRESENT-NULL circuit_wire_included -> still refuses", () => {
+    const attrs = { ...(PW_EXT as unknown as Record<string, Cell>), circuit_wire_included: { value: null, confidence: 0 } };
+    const r = pwHelper(attrs, pwWithCircuit()).compute(pwCtx);
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.basis).toMatch(/Complete the missing attributes/);
+    expect(attrOf(r, "circuit_wire_included")?.value).toBe("");
+  });
+});
