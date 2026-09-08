@@ -400,6 +400,27 @@ export function moduleSizesFromLabel(label: string): number[] {
 }
 
 /**
+ * F-25 SLICE 3. PURE. Read the pricer's PICK for a ladder declaring `pick_from`.
+ *   null   -> no `pick_from`, or nothing picked on the row (blank / absent / the "None" sentinel).
+ *             THE ADDITIVITY CASE: every caller must be byte-identical to slice 2 here.
+ *   "bad"  -> something was picked but it carries no module size -- the caller bails honestly.
+ *   else   -> the pick's label, the sizes it covers, and its capacity (the largest covered size).
+ * ONE reader for BOTH branches of `module_fit`, so the two sites cannot disagree about what counts
+ * as a pick -- the reason the pick was inert at two sites is that they were two separate reads.
+ */
+export function readPick(
+  L: { pick_from?: string },
+  selected: Record<string, string | number>,
+): null | "bad" | { label: string; sizes: number[]; holds: number } {
+  if (!L.pick_from) return null;
+  const raw = selected[L.pick_from];
+  if (raw === undefined || raw === null || raw === "" || raw === NONE_SENTINEL) return null;
+  const sizes = moduleSizesFromLabel(String(raw));
+  if (!sizes.length) return "bad";
+  return { label: String(raw), sizes, holds: sizes[sizes.length - 1] };
+}
+
+/**
  * Build a ladder from the CATALOG: every active master row of `kind` whose stored attributes match
  * every `where` entry EXACTLY, expanded by `moduleSizesFromLabel` and sorted ascending by size.
  * A size served by more than one label keeps the first after a deterministic (size, label) sort, so
@@ -1528,7 +1549,23 @@ export function runPipeline(
             const n = Number(sr);
             if (sr !== undefined && sr !== null && sr !== "" && Number.isFinite(n) && n > 0) statedZero = n;
           }
-          const zeroCount = statedZero ?? zeroFit;
+          // F-25 SLICE 3 (owner 2026-09-08) -- THE ZERO-BRANCH READ OF THE PRICER'S PICK. This is the
+          // SECOND of the two sites a pick must reach (the floor branch below is the first); wiring
+          // only one ships an editable box on ordinary rows and a dead one on the bare boxes this
+          // feature exists for. On a bare box nothing floors a pick -- no plate, no contents -- so the
+          // pick WINS OUTRIGHT over the stated count and over the declared default, and the size is
+          // no longer "assumed" (chat's proposal, put to the owner and not corrected). It still
+          // resolves on the catalog ladder exactly as every other count does (exact, else next
+          // higher, honest no-compute above the top), so a pick the dropdown cannot offer behaves
+          // like any stated count.
+          //
+          // ⚠️ ADDITIVE, BY KEY PRESENCE. With no `pick_from` (point_wiring's shape) or no pick on
+          // the row, `pickZero` is null and every line below is byte-identical to slice 2.
+          const pickZero = readPick(L, selected);
+          if (pickZero === "bad") {
+            return bail(`picked '${L.pick_from}' ("${String(selected[L.pick_from!])}") carries no module size -- no value computed`);
+          }
+          const zeroCount = pickZero ? pickZero.holds : (statedZero ?? zeroFit);
           if (zeroCount !== null) {
             const rungs = buildModuleLadder(items, L);
             if (!rungs.length) {
@@ -1547,19 +1584,24 @@ export function runPipeline(
             fittedByBind[L.bind] = fit.modules;
             if (L.bind_modules) ctx[L.bind_modules] = fit.modules;
             const how =
-              statedZero !== null
-                ? `stated ${L.on_zero_from} ${fmtNum(statedZero)}`
-                : L.on_zero_from
-                  ? `no ${L.on_zero_from} readable -- ASSUMED ${fmtNum(zeroCount)}`
-                  : `default ${fmtNum(zeroCount)}`;
+              pickZero
+                ? `picked ${L.pick_from} ${pickZero.label}`
+                : statedZero !== null
+                  ? `stated ${L.on_zero_from} ${fmtNum(statedZero)}`
+                  : L.on_zero_from
+                    ? `no ${L.on_zero_from} readable -- ASSUMED ${fmtNum(zeroCount)}`
+                    : `default ${fmtNum(zeroCount)}`;
             ladderParts.push(
               `${L.bind} ${fit.label} (nothing to fit -- ${how})${fit.exact ? "" : " (next higher)"}`
             );
             ladderOutcomes.push({
               bind: L.bind, floorFrom: L.floor_from, label: fit.label, modules: fit.modules, absent: false,
-              ...(L.on_zero_from
-                ? { zeroPath: { stated: statedZero, fitted: zeroCount, assumed: statedZero === null, nextHigher: !fit.exact } }
+              // `zeroPath` is published when the ladder declares `on_zero_from` (slice 2, unchanged)
+              // OR a pick was read (slice 3): with a pick, `assumed` is false whatever was stated.
+              ...(L.on_zero_from || pickZero
+                ? { zeroPath: { stated: statedZero, fitted: zeroCount, assumed: !pickZero && statedZero === null, nextHigher: !fit.exact } }
                 : {}),
+              ...(pickZero ? { pick: { label: pickZero.label, holds: pickZero.holds, raised: false, nextHigher: !fit.exact, floor: 0, floorFrom: "none" as const } } : {}),
             });
             continue;
           }
@@ -1577,6 +1619,10 @@ export function runPipeline(
         let fitCount = occupied;
         let floorNote = "";
         let upgraded: { stated: string; statedHolds: number; occupied: number } | undefined;
+        // F-25 slice 3: the stated plate that HOLDS the contents, when there is one -- the label a
+        // plate-driven raise names. Left undefined on the upgrade path (the plate itself was raised
+        // to the contents, so the floor is the contents') and when no plate is stated.
+        let plateFloorLabel: string | undefined;
         if (L.floor_from) {
           const statedRaw = selected[L.floor_from];
           if (statedRaw === NONE_SENTINEL) {
@@ -1605,8 +1651,42 @@ export function runPipeline(
               // The stated plate is a FLOOR, never a ceiling: a bigger plate than needed is bought.
               fitCount = statedSizes.find((n) => n >= occupied) ?? statedCap;
               floorNote = ` (stated ${String(statedRaw)})`;
+              plateFloorLabel = String(statedRaw);
             }
           }
+        }
+        // F-25 SLICE 3 (owner 2026-09-08) -- THE FLOOR-BRANCH READ OF THE PRICER'S PICK. The FIRST of
+        // the two sites (the zero branch above is the second). The floor settled just above is a
+        // MINIMUM: a pick at or above it is honoured (the pick is what gets bought); a pick BELOW it
+        // is RAISED to the floor -- the PLATE's size when a stated plate holds the contents (owner:
+        // "agree", 2026-09-08), else the contents' count -- and the raise is never silent: the trace
+        // says it here and the outcome carries the reason so the panel can word it. With a pick the
+        // ladder's `upgraded` is not published: the pick has replaced the plate as this ladder's
+        // stated source, and the raise note is the one that explains the rung.
+        //
+        // ⚠️ ADDITIVE, BY KEY PRESENCE. No `pick_from`, or no pick on the row, leaves `fitCount`,
+        // `floorNote`, `upgraded` and the outcome exactly as slice 2 left them.
+        let pick: import("./rateMasterTypes").ModuleFitLadderOutcome["pick"];
+        const picked = readPick(L, selected);
+        if (picked === "bad") {
+          return bail(`picked '${L.pick_from}' ("${String(selected[L.pick_from!])}") carries no module size -- no value computed`);
+        }
+        if (picked) {
+          const floorFrom: "plate" | "contents" = plateFloorLabel !== undefined ? "plate" : "contents";
+          if (picked.holds < fitCount) {
+            pick = { label: picked.label, holds: picked.holds, raised: true, nextHigher: false, floor: fitCount, floorFrom, ...(plateFloorLabel !== undefined ? { plate: plateFloorLabel } : {}) };
+            floorNote +=
+              floorFrom === "plate"
+                ? ` (picked ${picked.label} holds ${fmtNum(picked.holds)}, below the ${plateFloorLabel} plate -- RAISED)`
+                : ` (picked ${picked.label} holds ${fmtNum(picked.holds)}, contents occupy ${fmtNum(fitCount)} -- RAISED)`;
+          } else {
+            // Honoured: the smallest size the pick covers that still holds the floor ("1M & 2M" over
+            // a floor of 1 fits as 1), else its capacity.
+            fitCount = picked.sizes.find((n) => n >= fitCount) ?? picked.holds;
+            pick = { label: picked.label, holds: picked.holds, raised: false, nextHigher: false, floor: fitCount, floorFrom, ...(plateFloorLabel !== undefined ? { plate: plateFloorLabel } : {}) };
+            floorNote += ` (picked ${picked.label})`;
+          }
+          upgraded = undefined;
         }
         const rungs = buildModuleLadder(items, L);
         if (!rungs.length) {
@@ -1630,6 +1710,8 @@ export function runPipeline(
           modules: fit.modules,
           absent: false,
           ...(upgraded ? { upgraded } : {}),
+          // the fit is known only here: a pick the catalog does not stock was moved UP
+          ...(pick ? { pick: { ...pick, nextHigher: !fit.exact } } : {}),
         });
       }
 

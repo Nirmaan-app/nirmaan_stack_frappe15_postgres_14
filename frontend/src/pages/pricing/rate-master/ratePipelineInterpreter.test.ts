@@ -17,6 +17,7 @@ import {
   matchMasterRow,
   moduleFitOutcome,
   moduleSizesFromLabel,
+  readPick,
   roundUp,
   runAllPipelines,
   runPipeline,
@@ -5986,5 +5987,223 @@ describe("F-25 slice 2 -- a bare box prices on its STATED size, exact or next hi
     expect(mfTrace(r)).toContain("no box_item (nothing to fit)");
     // ...while a stated count still prices even without a default
     expect(lineOf(runPipeline("p", noDefault, BOX_LADDER_ITEMS, bare(6)), "back_box")).toBe(279);
+  });
+});
+
+// ── F-25 SLICE 3 -- THE BOX FIELD BECOMES EFFECTIVE (owner rulings 2026-09-06/08) ──────────────────
+// A DECLARED ladder key `pick_from: "box_item"` names the attribute the pricer may pick. The pick is
+// read at BOTH module_fit sites -- the floor branch (rows with a plate or contents) and the zero branch
+// (bare boxes) -- because each is a separate read and wiring one alone leaves the other dead.
+//   floor branch: the floor (the PLATE's size when a stated plate holds the contents, else the
+//                 contents' count) is a MINIMUM -- a pick at/above is honoured, below is RAISED and
+//                 the outcome says why (plate-driven vs contents-driven);
+//   zero branch:  a pick WINS OUTRIGHT and the size is no longer "assumed".
+// THE INVARIANT: no pick => byte-identical to v58 on both branches. Pinned with and without the key.
+const SS_BOX_LADDER_PICK = { ...SS_BOX_LADDER, pick_from: "box_item" };
+const pickPipe = () => bareBoxPipe(bareBoxFit(SS_BOX_LADDER_PICK));
+/** A plated row: 3 modules of contents under the given plate, back box Yes; a pick as given. */
+const plated = (plate: string | null, pick?: string, over: Record<string, string | number> = {}) => {
+  const row: Record<string, string | number> = {
+    switch_item: "10A 1 WAY SWITCH", switch_qty: 3, colour: "White", back_box: "Yes", plate_qty: 1, ...over,
+  };
+  if (plate !== null) row.plate_item = plate;
+  if (pick !== undefined) row.box_item = pick;
+  return row;
+};
+
+describe("F-25 slice 3 -- readPick: ONE reader for both sites", () => {
+  it("null without pick_from, null on blank / absent / the None sentinel; 'bad' on a size-less pick", () => {
+    expect(readPick({}, { box_item: "6M" })).toBeNull();
+    expect(readPick({ pick_from: "box_item" }, {})).toBeNull();
+    expect(readPick({ pick_from: "box_item" }, { box_item: "" })).toBeNull();
+    expect(readPick({ pick_from: "box_item" }, { box_item: "None" })).toBeNull();
+    expect(readPick({ pick_from: "box_item" }, { box_item: "Big" })).toBe("bad");
+    expect(readPick({ pick_from: "box_item" }, { box_item: "6M" })).toEqual({ label: "6M", sizes: [6], holds: 6 });
+    expect(readPick({ pick_from: "box_item" }, { box_item: "1M & 2M" })).toEqual({ label: "1M & 2M", sizes: [1, 2], holds: 2 });
+  });
+});
+
+describe("F-25 slice 3 -- THE FLOOR BRANCH: the plate is a MINIMUM for the pick", () => {
+  it("POSITIVE: a pick ABOVE the plate is honoured -- 6M plate over 3 modules, pick 8M -> the 8M box (362)", () => {
+    const r = runPipeline("p", pickPipe(), BOX_LADDER_ITEMS, plated("6M", "8M"));
+    expect(r.status).toBe("ok");
+    expect(lineOf(r, "back_box")).toBe(362);
+    expect(mfTrace(r)).toContain("box_item 8M (stated 6M) (picked 8M)");
+    expect(boxOutcome(r)?.pick).toEqual({ label: "8M", holds: 8, raised: false, nextHigher: false, floor: 8, floorFrom: "plate", plate: "6M" });
+    expect(boxOutcome(r)?.upgraded).toBeUndefined();
+  });
+
+  it("POSITIVE: a pick BELOW the plate is RAISED to the PLATE's size (not the contents') -- pick 3M under a 6M plate over 3 modules -> 6M (279)", () => {
+    const r = runPipeline("p", pickPipe(), BOX_LADDER_ITEMS, plated("6M", "3M"));
+    expect(lineOf(r, "back_box")).toBe(279);                       // the plate's 6M, NOT the contents' 3M
+    expect(mfTrace(r)).toContain("box_item 6M (stated 6M) (picked 3M holds 3, below the 6M plate -- RAISED)");
+    expect(boxOutcome(r)?.pick).toEqual({ label: "3M", holds: 3, raised: true, nextHigher: false, floor: 6, floorFrom: "plate", plate: "6M" });
+    expect(boxOutcome(r)?.label).toBe("6M");
+  });
+
+  it("POSITIVE: a pick EQUAL to the plate is honoured with no raise", () => {
+    const r = runPipeline("p", pickPipe(), BOX_LADDER_ITEMS, plated("6M", "6M"));
+    expect(lineOf(r, "back_box")).toBe(279);
+    expect(boxOutcome(r)?.pick).toEqual({ label: "6M", holds: 6, raised: false, nextHigher: false, floor: 6, floorFrom: "plate", plate: "6M" });
+    expect(mfTrace(r)).toContain("box_item 6M (stated 6M) (picked 6M)");
+  });
+
+  it("POSITIVE: with NO plate the floor is the CONTENTS -- pick 1M & 2M under 3 modules -> 3M, raised, contents-driven", () => {
+    const r = runPipeline("p", pickPipe(), BOX_LADDER_ITEMS, plated(null, "1M & 2M"));
+    expect(lineOf(r, "back_box")).toBe(178);
+    expect(mfTrace(r)).toContain("box_item 3M (picked 1M & 2M holds 2, contents occupy 3 -- RAISED)");
+    expect(boxOutcome(r)?.pick).toEqual({ label: "1M & 2M", holds: 2, raised: true, nextHigher: false, floor: 3, floorFrom: "contents" });
+    // and a pick above the contents is honoured
+    const h = runPipeline("p", pickPipe(), BOX_LADDER_ITEMS, plated(null, "12M"));
+    expect(lineOf(h, "back_box")).toBe(465);
+    expect(boxOutcome(h)?.pick?.raised).toBe(false);
+  });
+
+  it("POSITIVE: a None plate (on_none computed) floors on the contents too", () => {
+    const r = runPipeline("p", pickPipe(), BOX_LADDER_ITEMS, plated("None", "1M & 2M"));
+    expect(lineOf(r, "back_box")).toBe(178);
+    expect(boxOutcome(r)?.pick?.floorFrom).toBe("contents");
+  });
+
+  it("POSITIVE: an UPGRADED plate (too small for its contents) floors the pick on the contents, and the pick REPLACES the plate's upgrade on the box ladder", () => {
+    // 1M & 2M plate under 3 modules: the plate ladder upgrades to 3M; the box's floor is the contents (3)
+    const r = runPipeline("p", pickPipe(), BOX_LADDER_ITEMS, plated("1M & 2M", "1M & 2M"));
+    expect(lineOf(r, "back_box")).toBe(178);
+    const box = boxOutcome(r)!;
+    expect(box.pick).toEqual({ label: "1M & 2M", holds: 2, raised: true, nextHigher: false, floor: 3, floorFrom: "contents" });
+    expect(box.upgraded).toBeUndefined();                          // the pick is the stated source now
+    const plateOut = r.steps.find((s) => s.step === "module_fit")?.moduleFit?.ladders.find((l) => l.bind === "plate_item");
+    expect(plateOut?.upgraded).toEqual({ stated: "1M & 2M", statedHolds: 2, occupied: 3 }); // the PLATE's upgrade is untouched
+    // a pick above the contents on such a row is honoured
+    const h = runPipeline("p", pickPipe(), BOX_LADDER_ITEMS, plated("1M & 2M", "8M"));
+    expect(lineOf(h, "back_box")).toBe(362);
+    expect(boxOutcome(h)?.pick?.raised).toBe(false);
+  });
+
+  it("NEGATIVE: a pick carrying no module size is an HONEST no-compute naming the attribute", () => {
+    const r = runPipeline("p", pickPipe(), BOX_LADDER_ITEMS, plated("6M", "Big"));
+    expect(r.status).toBe("no_match");
+    expect(r.steps[r.steps.length - 1].label).toContain("picked 'box_item' (\"Big\") carries no module size");
+  });
+
+  it("NEGATIVE: back_box 'No' with a pick still prices NO box -- the component's own gate", () => {
+    const r = runPipeline("p", pickPipe(), BOX_LADDER_ITEMS, plated("6M", "8M", { back_box: "No" }));
+    expect(lineOf(r, "back_box")).toBe(0);
+    expect(boxOutcome(r)?.label).toBe("8M");
+  });
+});
+
+describe("F-25 slice 3 -- THE ZERO BRANCH: a pick on a bare box WINS OUTRIGHT", () => {
+  it("POSITIVE: a pick beats the stated count -- stated 8, pick 3M -> 3M (178), and NOT assumed", () => {
+    const r = runPipeline("p", pickPipe(), BOX_LADDER_ITEMS, bare(8, { box_item: "3M" }));
+    expect(r.status).toBe("ok");
+    expect(lineOf(r, "back_box")).toBe(178);
+    expect(mfTrace(r)).toContain("box_item 3M (nothing to fit -- picked box_item 3M)");
+    expect(boxOutcome(r)?.zeroPath).toEqual({ stated: 8, fitted: 3, assumed: false, nextHigher: false });
+    expect(boxOutcome(r)?.pick).toEqual({ label: "3M", holds: 3, raised: false, nextHigher: false, floor: 0, floorFrom: "none" });
+  });
+
+  it("POSITIVE: a pick beats the ASSUMED default -- nothing readable, pick 6M -> 6M (279), assumed FALSE", () => {
+    for (const stated of [null, "", "abc"] as const) {
+      const r = runPipeline("p", pickPipe(), BOX_LADDER_ITEMS, bare(stated, { box_item: "6M" }));
+      expect(lineOf(r, "back_box")).toBe(279);
+      expect(boxOutcome(r)?.zeroPath).toEqual({ stated: null, fitted: 6, assumed: false, nextHigher: false });
+      expect(mfTrace(r)).not.toContain("ASSUMED");
+    }
+  });
+
+  it("POSITIVE: a pick the catalog does not stock still hops UP -- 5M -> 6M, marked next higher (the size_up note's data)", () => {
+    const r = runPipeline("p", pickPipe(), BOX_LADDER_ITEMS, bare(null, { box_item: "5M" }));
+    expect(lineOf(r, "back_box")).toBe(279);
+    expect(mfTrace(r)).toContain("box_item 6M (nothing to fit -- picked box_item 5M) (next higher)");
+    expect(boxOutcome(r)?.zeroPath).toEqual({ stated: null, fitted: 5, assumed: false, nextHigher: true });
+  });
+
+  it("NEGATIVE: a pick above the top rung is an HONEST no-compute, never a clamp", () => {
+    const r = runPipeline("p", pickPipe(), BOX_LADDER_ITEMS, bare(null, { box_item: "20M" }));
+    expect(r.status).toBe("no_match");
+    expect(r.steps[r.steps.length - 1].label).toContain("20 modules exceeds the largest 'box_item' the catalog carries (18M)");
+  });
+
+  it("NEGATIVE: a pick never manufactures a plate or blanks on the zero path", () => {
+    const r = runPipeline("p", pickPipe(), BOX_LADDER_ITEMS, bare(null, { box_item: "6M" }));
+    expect(mfTrace(r)).toContain("no plate_item (nothing to fit)");
+  });
+});
+
+describe("F-25 slice 3 -- THE INVARIANT: no pick = byte-identical to v58, on BOTH branches", () => {
+  const v58 = bareBoxPipe();          // the v58 ladder (no pick_from)
+  const v59 = pickPipe();             // the v59 ladder (pick_from present, nothing picked)
+  const same = (row: Record<string, string | number>) => {
+    const a = runPipeline("p", v58, BOX_LADDER_ITEMS, row);
+    const b = runPipeline("p", v59, BOX_LADDER_ITEMS, row);
+    expect(b.status).toBe(a.status);
+    expect(b.finals).toEqual(a.finals);
+    expect(mfTrace(b)).toBe(mfTrace(a));
+    expect(b.steps.find((s) => s.step === "module_fit")?.moduleFit).toEqual(a.steps.find((s) => s.step === "module_fit")?.moduleFit);
+    return b;
+  };
+  it("floor branch: plate holds the contents (6M/3), plate upgraded (1M & 2M/3), no plate, None plate -- all identical, no `pick` published", () => {
+    for (const row of [plated("6M"), plated("1M & 2M"), plated(null), plated("None"), plated("9M")]) {
+      const b = same(row);
+      expect(boxOutcome(b)?.pick).toBeUndefined();
+    }
+    expect(mfTrace(same(plated("9M")))).toContain("box_item 12M (stated 9M) (next higher)"); // the plate still drives the box
+  });
+  it("zero branch: stated 3, stated 9 (next higher), nothing readable (ASSUMED), back_box No -- all identical", () => {
+    for (const row of [bare(3), bare(9), bare(null), bare(""), bare(8, { back_box: "No" })]) {
+      const b = same(row);
+      expect(boxOutcome(b)?.pick).toBeUndefined();
+    }
+    expect(mfTrace(same(bare(null)))).toContain("ASSUMED 3");
+  });
+  it("a BLANK pick and a 'None' pick are 'no pick' -- identical to v58", () => {
+    for (const row of [plated("6M", ""), plated("6M", "None"), bare(null, { box_item: "" })]) {
+      const a = runPipeline("p", v58, BOX_LADDER_ITEMS, row);
+      const b = runPipeline("p", v59, BOX_LADDER_ITEMS, row);
+      expect(b.finals).toEqual(a.finals);
+      expect(mfTrace(b)).toBe(mfTrace(a));
+    }
+  });
+});
+
+describe("F-25 slice 3 -- THE CROSS-CATEGORY NEGATIVE: confined by KEY PRESENCE, never by name", () => {
+  it("point_wiring's ladder (on_zero_modules only, no pick_from) ignores a stray box_item on the zero path -- RULING 1 verbatim, supply 2359", () => {
+    const stray = { ...PW_ROW198, box_item: "18M" };
+    const r = runPipeline("pw_boq_supply", pwZeroPipe(PW_MODULE_FIT_ZERO3), PW198_ITEMS, stray);
+    const base = runPipeline("pw_boq_supply", pwZeroPipe(PW_MODULE_FIT_ZERO3), PW198_ITEMS, PW_ROW198);
+    expect(r.finals).toEqual({ supply: 2359 });
+    expect(mfTrace(r)).toBe(mfTrace(base));
+    expect(mfTrace(r)).toBe(
+      "2 x socket_qty(None) + 1 x switch_qty(None) = 0 modules -> " +
+        "no plate_item (nothing to fit), box_item 3M (nothing to fit -- default 3); no plate -> 0 blanks",
+    );
+    expect(boxOutcome(r)?.pick).toBeUndefined();
+    expect(boxOutcome(r)?.zeroPath).toBeUndefined();
+  });
+  it("a v58-shaped box ladder (no pick_from) on the FLOOR branch ignores a stray box_item -- the slice-1 transient, now the additivity pin", () => {
+    const r = runPipeline("p", bareBoxPipe(), BOX_LADDER_ITEMS, plated("6M", "18M"));
+    expect(lineOf(r, "back_box")).toBe(279);                      // the plate's 6M; the 18M is never read
+    expect(boxOutcome(r)?.pick).toBeUndefined();
+  });
+  it("a popup_boxes-shaped module_fit (plate ladder only, no pick_from) is byte-identical with a stray box_item", () => {
+    const popupFit = () => ({
+      step: "module_fit" as const,
+      params: {
+        terms: [{ attr: "switch_qty", weight: 1, none_when: "switch_item" }],
+        ladders: [{ kind: "switch_socket_item", where: { family: "Grid and Face Plates" }, bind: "plate_item", floor_from: "plate_item", on_none: "none" }],
+        blanks: { bind: "blank_count", from_ladder: "plate_item" },
+      },
+    });
+    const pl: Pipeline = { output: ["blank_count"], steps: [popupFit()] };
+    const a = runPipeline("popup", pl, BOX_LADDER_ITEMS, plated("6M"));
+    const b = runPipeline("popup", pl, BOX_LADDER_ITEMS, plated("6M", "18M"));
+    expect(b.finals).toEqual(a.finals);
+    expect(mfTrace(b)).toBe(mfTrace(a));
+    expect(b.steps.find((s) => s.step === "module_fit")?.moduleFit).toEqual(a.steps.find((s) => s.step === "module_fit")?.moduleFit);
+  });
+  it("NEGATIVE: the interpreter source names no category", () => {
+    // the confinement lives in the config key, so nothing here may special-case a category id
+    expect(readPick.toString()).not.toMatch(/switches_sockets|point_wiring|popup_boxes/);
   });
 });

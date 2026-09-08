@@ -123,6 +123,13 @@ export type AttrNote =
   //              render order.
   | { kind: "assumed"; assumed: number; using: string }
   | { kind: "size_up"; asked: number; using: string }
+  // F-25 SLICE 3 (owner 2026-09-08, "agree" on raising to the PLATE's size):
+  //   plate_floor -> WE OVERRODE YOU. The pricer picked a back box SMALLER than the face plate, so
+  //                  the plate's size was priced. `upgrade` cannot carry it: its sentence is
+  //                  contents-shaped ("holds N; contents occupy M") and a plate-driven raise would
+  //                  read "3M holds 3 modules; contents occupy 3 -- using 6M", which explains
+  //                  nothing. A contents-driven raise (no plate) DOES use `upgrade`, verbatim.
+  | { kind: "plate_floor"; picked: string; plate: string; using: string }
   | { kind: "capped"; stated: number; spare: number }
   | { kind: "uncovered"; stated: number; spare: number; uncovered: number };
 
@@ -163,7 +170,10 @@ export const POLE_WORDS: Readonly<Record<string, string>> = { SP: "single pole",
  */
 // F-25 slice 2: `assumed` (why THIS count) precedes `size_up` (how it was fitted); both precede the
 // quantity notes because they settle WHICH rung is priced.
-export const ATTR_NOTE_ORDER: readonly AttrNote["kind"][] = ["upgrade", "rating_up", "assumed", "size_up", "capped", "uncovered"];
+// F-25 slice 3 (owner 2026-09-08): `plate_floor` sits directly after `upgrade` -- both are
+// module-shaped corrections of WHICH rung is bought, and a plate-driven raise is the pick's own
+// upgrade. Six -> seven, registered rather than incidental.
+export const ATTR_NOTE_ORDER: readonly AttrNote["kind"][] = ["upgrade", "plate_floor", "rating_up", "assumed", "size_up", "capped", "uncovered"];
 
 /** PURE. Notes in `ATTR_NOTE_ORDER`. A STABLE sort, so two notes of one kind keep producer order. */
 export function sortAttrNotes(notes: AttrNote[]): AttrNote[] {
@@ -223,6 +233,10 @@ export function attrNoteText(n: AttrNote): string {
     case "size_up":
       // F-25 slice 2 -- the rating_up shape, module-sized: what was asked, why, what was used.
       return `No ${n.asked}M in the catalogue — using ${n.using}, the next size up.`;
+    case "plate_floor":
+      // F-25 slice 3 -- WE OVERRODE YOU, on the box: what was picked, why it could not be used (the
+      // face plate is bigger), what was used instead. The one place this sentence lives.
+      return `${n.picked} is smaller than the ${n.plate} face plate — using ${n.using}.`;
     case "capped":
       return (
         `${n.spare === 0 ? "No" : n.spare} spare module${n.spare === 1 ? "" : "s"} on this plate; ` +

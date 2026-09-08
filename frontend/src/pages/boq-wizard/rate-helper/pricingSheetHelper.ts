@@ -453,7 +453,11 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
       // the size priced, which is what the "warns rather than being silently overridden" rule asked
       // for. The narrowed contract lives in `attrDisplayValue`: a stated value the pipeline USED is
       // still never overwritten; only a SUBSTITUTED one is.
-      ...(ladder.upgraded && ladder.label ? { substituted: true } : {}),
+      // F-25 slice 3: a PICK RAISED to the floor is the same kind of substitution -- the pricer
+      // picked 3M, the pipeline buys 6M -- so it shows what was bought, marked, with its note. A pick
+      // that was honoured is NOT marked: the value on screen is the pricer's own.
+      // A pick whose bought rung DIFFERS from the picked label (raised, or moved up) is likewise marked.
+      ...((ladder.upgraded || (ladder.pick && ladder.pick.label !== ladder.label)) && ladder.label ? { substituted: true } : {}),
       ...(ladderNotes(ladder)),
     };
   });
@@ -479,6 +483,28 @@ function ladderNotes(ladder: ModuleFitLadderOutcome): { notes?: AttrNote[] } {
       occupied: ladder.upgraded.occupied,
       using: ladder.label,
     });
+  }
+  // F-25 slice 3 (owner 2026-09-08): a PICK raised to the ladder's floor says why, in the register
+  // of the existing sentences. TWO reasons, TWO kinds, ONE wording site each:
+  //   plate-driven  -> `plate_floor` ("3M is smaller than the 6M face plate — using 6M."), because
+  //                    the contents-shaped `upgrade` sentence cannot explain a raise the contents
+  //                    did not cause;
+  //   contents-driven -> the EXISTING `upgrade`, verbatim ("1M holds 1 module; contents occupy 3 —
+  //                    using 3M."): the pick is a stated rung too small for the contents, which is
+  //                    exactly what that sentence was written for. No fork, no seventh wording.
+  // A pick that was HONOURED says nothing -- the field shows the pricer's own value, plain.
+  const pk = ladder.pick;
+  if (pk && pk.raised && ladder.label) {
+    if (pk.floorFrom === "plate" && pk.plate) {
+      notes.push({ kind: "plate_floor", picked: pk.label, plate: pk.plate, using: ladder.label });
+    } else {
+      notes.push({ kind: "upgrade", stated: pk.label, statedHolds: pk.holds, occupied: pk.floor, using: ladder.label });
+    }
+  }
+  // A pick the catalog does not stock, moved UP on the floor branch: the existing `size_up` sentence
+  // (the zero branch says the same through `zeroPath.nextHigher` below -- never both).
+  if (pk && !pk.raised && pk.nextHigher && ladder.label && !ladder.zeroPath) {
+    notes.push({ kind: "size_up", asked: pk.holds, using: ladder.label });
   }
   const z = ladder.zeroPath;
   if (z && ladder.label) {

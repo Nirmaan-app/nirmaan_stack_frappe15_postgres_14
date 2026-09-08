@@ -1884,6 +1884,18 @@ def _validate_config(cfg):
                             f"{where}: module_fit ladders[{li}].on_zero_modules, when present, "
                             "must be a positive finite number (a module count)."
                         )
+                    # F-25 SLICE 2 / SLICE 3 (2026-09-08): `on_zero_from` (the stated count on the
+                    # zero path) and `pick_from` (the pricer's pick, read on BOTH paths) each NAME AN
+                    # ATTRIBUTE, so both are reference-guarded exactly like `floor_from`. The gap this
+                    # closes was on the register: an unguarded `on_zero_from` typo read silently as
+                    # "nothing stated -> assumed 3M", and an unguarded `pick_from` typo would read as
+                    # "nothing picked" and leave the dropdown inert with no error anywhere.
+                    for akey in ("on_zero_from", "pick_from"):
+                        aval = lad.get(akey)
+                        if aval is not None:
+                            if not isinstance(aval, str) or not aval:
+                                _vthrow(f"{where}: module_fit ladders[{li}].{akey} must be an attribute id.")
+                            _ref(aval, f"{where} (ladders[{li}].{akey})")
                 blanks = p.get("blanks")
                 if blanks is not None:
                     if not isinstance(blanks, dict):

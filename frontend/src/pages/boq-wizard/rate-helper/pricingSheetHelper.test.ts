@@ -1276,7 +1276,9 @@ describe("DERIVED DISPLAY -- R2: a too-small entry WARNS, it is never silently l
     // this pin exists to forbid. Extended from three kinds to four under that ruling, not silenced.
     // F-25 slice 2 (owner 2026-09-07): `assumed` + `size_up` REGISTERED between rating_up and the
     // quantity notes -- both settle WHICH rung is priced. Four -> six, again not silenced.
-    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "rating_up", "assumed", "size_up", "capped", "uncovered"]);
+    // F-25 slice 3 (owner 2026-09-08): `plate_floor` REGISTERED directly after `upgrade` -- a
+    // plate-driven raise of the pricer's box pick is the pick's own upgrade. Six -> seven, not silenced.
+    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "plate_floor", "rating_up", "assumed", "size_up", "capped", "uncovered"]);
   });
 
   it("the two quantity notes are worded so neither can be mistaken for the other", () => {
@@ -3242,7 +3244,9 @@ describe("F-30 slice A -- the rating-up note reaches the panel's data contract",
   it("the rating-up note renders BEFORE the quantity notes and after a module upgrade, deterministically", () => {
     // F-25 slice 2 (owner 2026-09-07): the two bare-box notes sit AFTER rating_up and BEFORE the
     // quantity notes; rating_up's own position (after upgrade, before capped) is unchanged.
-    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "rating_up", "assumed", "size_up", "capped", "uncovered"]);
+    // F-25 slice 3 (owner 2026-09-08): `plate_floor` REGISTERED directly after `upgrade` -- a
+    // plate-driven raise of the pricer's box pick is the pick's own upgrade. Six -> seven, not silenced.
+    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "plate_floor", "rating_up", "assumed", "size_up", "capped", "uncovered"]);
   });
 });
 
@@ -3342,7 +3346,10 @@ describe("F-30 slice B -- a catalog_fit hop reaches the panel as the SAME rating
 // than rediscovering it as a defect.
 
 /** The live shape: plate + box ladders, the box floored from the PLATE, `on_none: computed`. */
-function boxFieldConfig(): RateCategoryConfig {
+// F-25 SLICE 3 (v59, 2026-09-08): the box ladder declares `pick_from: "box_item"` by default -- the
+// live shape. `withPick = false` is the v58 ladder, kept so the no-pick INVARIANT can be pinned
+// with and without the key.
+function boxFieldConfig(withPick = true): RateCategoryConfig {
   return {
     discipline: "Electrical",
     category_id: "box_probe",
@@ -3367,7 +3374,8 @@ function boxFieldConfig(): RateCategoryConfig {
               terms: [{ attr: "switch_qty", weight: 1, none_when: "switch_item" }],
               ladders: [
                 { kind: "switch_socket_item", where: { family: "Grid and Face Plates" }, bind: "plate_item", floor_from: "plate_item", on_none: "none" },
-                { kind: "switch_socket_item", where: { family: "Back Box" }, bind: "box_item", floor_from: "plate_item", on_none: "computed" },
+                { kind: "switch_socket_item", where: { family: "Back Box" }, bind: "box_item", floor_from: "plate_item", on_none: "computed",
+                  ...(withPick ? { pick_from: "box_item" } : {}) },
               ],
             },
           },
@@ -3401,6 +3409,7 @@ const boxCtx = (excelRow: number): RateHelperRowContext => ({
 function boxCompute(
   over: Record<string, string | number | null> = {},
   overrides?: Record<string, string>,
+  withPick = true,
 ) {
   const base: Record<string, string | number | null> = {
     switch_item: "10A 1 WAY SWITCH", switch_qty: 3, plate_item: null, plate_qty: 1, back_box: "Yes",
@@ -3409,7 +3418,7 @@ function boxCompute(
     Object.entries({ ...base, ...over }).map(([k, v]) => [k, { value: v, confidence: 0.9 }]),
   );
   const r = makePricingSheetHelper({
-    configsByCategory: new Map([["box_probe", boxFieldConfig()]]),
+    configsByCategory: new Map([["box_probe", boxFieldConfig(withPick)]]),
     items: BOX_FIELD_ITEMS,
     extractionByRow: buildExtractionByRow([{ excel_row: 7, attributes: attrs as never }]),
   }).compute(boxCtx(7), overrides);
@@ -3480,16 +3489,21 @@ describe("F-25 slice 1 -- the back box field SHOWS the rung the row is priced on
     expect(r.basis).not.toBe("Complete the missing attributes to price");
   });
 
-  it("KNOWN, ACCEPTED TRANSIENT (#57 item 2): a pick SHOWS on screen and the price does NOT follow until slice 3", () => {
-    // The box ladder's floor is `plate_item` and the back_box ref resolves `@box_item` through
-    // fitLabels BEFORE selected -- so a pricer's pick is inert. Owner 2026-09-06: "let it be ... this is
-    // just transient behavior". Pinned so the transient is a recorded fact, not a rediscovered bug.
-    const before = boxCompute().r.values.supply_rate;
+  it("THE TRANSIENT ENDS (F-25 slice 3, 2026-09-08 -- INVERTED from 'the price does NOT follow'): a pick SHOWS and the price FOLLOWS", () => {
+    // Slice 1 pinned this as the KNOWN, ACCEPTED TRANSIENT (#57 item 2): the box ladder's floor was
+    // `plate_item` and nothing read `selected.box_item`, so a pick showed and priced nothing. Slice 3
+    // gives the ladder `pick_from: "box_item"`, read at BOTH module_fit sites. The same assertions,
+    // with the ONE that recorded the defect inverted: the price now moves. Never deleted.
+    const before = boxCompute().r.values.supply_rate;          // 178, the computed 3M box
     const { r, attr } = boxCompute({}, { box_item: "18M" });
     expect(attrDisplayValue(attr("box_item")!)).toBe("18M");   // the pick shows, plain
     expect(isShowingDerived(attr("box_item")!)).toBe(false);
     expect(attr("box_item")!.readOnly).toBeUndefined();        // an ORDINARY dropdown, by ruling
-    expect(r.values.supply_rate).toBe(before);                 // ...and the price did not move (178)
+    expect(before).toBe(178);
+    expect(r.values.supply_rate).toBe(552);                    // ...and the price FOLLOWED (the 18M box)
+    // NEGATIVE (additivity): on the v58 ladder -- no pick_from -- the same pick is still inert
+    const v58 = boxCompute({}, { box_item: "18M" }, false);
+    expect(v58.r.values.supply_rate).toBe(178);
   });
 });
 
@@ -3499,8 +3513,8 @@ describe("F-25 slice 1 -- the back box field SHOWS the rung the row is priced on
 // zero-module path `box_item` (slice 1's field) shows the rung priced, "(computed)", and carries a
 // note: `assumed` when nothing readable stated the size (THE note the owner called the most important
 // thing in the slice), `size_up` when the stated count was moved up to the next stocked rung.
-function bareBoxConfig(withKeys = true): RateCategoryConfig {
-  const base = boxFieldConfig() as unknown as {
+function bareBoxConfig(withKeys = true, withPick = true): RateCategoryConfig {
+  const base = boxFieldConfig(withPick) as unknown as {
     attribute_definitions: Array<Record<string, unknown>>;
     pipelines: { probe_boq: { steps: Array<{ step: string; params?: { ladders?: Array<Record<string, unknown>> } }> } };
   };
@@ -3514,7 +3528,14 @@ function bareBoxConfig(withKeys = true): RateCategoryConfig {
   }
   return base as unknown as RateCategoryConfig;
 }
-function bareBoxCompute(stated: string | number | null, over: Record<string, string | number | null> = {}, withKeys = true) {
+// F-25 slice 3: `overrides` = the pricer's panel picks; `withPick` = the v59 ladder (default) vs v58.
+function bareBoxCompute(
+  stated: string | number | null,
+  over: Record<string, string | number | null> = {},
+  withKeys = true,
+  overrides?: Record<string, string>,
+  withPick = true,
+) {
   const attrs = Object.fromEntries(
     Object.entries({
       switch_item: "None", switch_qty: null, plate_item: "None", plate_qty: null, back_box: "Yes",
@@ -3522,10 +3543,10 @@ function bareBoxCompute(stated: string | number | null, over: Record<string, str
     }).map(([k, v]) => [k, { value: v, confidence: 0.9 }]),
   );
   const r = makePricingSheetHelper({
-    configsByCategory: new Map([["box_probe", bareBoxConfig(withKeys)]]),
+    configsByCategory: new Map([["box_probe", bareBoxConfig(withKeys, withPick)]]),
     items: BOX_FIELD_ITEMS,
     extractionByRow: buildExtractionByRow([{ excel_row: 9, attributes: attrs as never }]),
-  }).compute(boxCtx(9));
+  }).compute(boxCtx(9), overrides);
   if (!isSuggestion(r)) throw new Error("expected a suggestion: " + JSON.stringify(r));
   return { r, attr: (id: string) => r.workings.attributes.find((a) => a.id === id) };
 }
@@ -3606,5 +3627,138 @@ describe("F-25 slice 2 -- a bare box prices as its back box, and the panel says 
       { kind: "assumed", assumed: 3, using: "4M" },
     ]);
     expect(notes.map((n) => n.kind)).toEqual(["assumed", "size_up"]);
+  });
+});
+
+// ── F-25 SLICE 3 -- THE BOX FIELD BECOMES EFFECTIVE (owner rulings 2026-09-06/08) ──────────────────
+// v59: the box ladder declares `pick_from: "box_item"`. A pricer's pick (a panel override) now reaches
+// the price at BOTH module_fit sites. On the panel: an honoured pick shows PLAIN (the pricer's own
+// value); a raised pick shows what was bought, "(computed)", with the reason -- `plate_floor` (a new
+// kind: "3M is smaller than the 6M face plate — using 6M.") when the PLATE set the floor, the EXISTING
+// `upgrade` sentence when the contents did. On a bare box a pick wins and the `assumed` note goes.
+describe("F-25 slice 3 -- the floor branch on the panel: the plate is a minimum", () => {
+  it("POSITIVE: a pick ABOVE the plate is honoured, shown PLAIN, no note -- 6M plate / 3 modules, pick 8M -> 362", () => {
+    const { r, attr } = boxCompute({ plate_item: "6M" }, { box_item: "8M" });
+    const box = attr("box_item")!;
+    expect(attrDisplayValue(box)).toBe("8M");
+    expect(isShowingDerived(box)).toBe(false);                 // the pricer's own value, unmarked
+    expect(box.substituted).toBeUndefined();
+    expect(box.notes).toBeUndefined();
+    expect(r.values.supply_rate).toBe(362);
+  });
+
+  it("POSITIVE: a pick BELOW the plate is RAISED to the PLATE's size, marked, with the new sentence -- pick 3M under 6M -> 279", () => {
+    const { r, attr } = boxCompute({ plate_item: "6M" }, { box_item: "3M" });
+    const box = attr("box_item")!;
+    expect(attrDisplayValue(box)).toBe("6M");                   // what was BOUGHT, not what was picked
+    expect(isShowingDerived(box)).toBe(true);
+    expect(box.substituted).toBe(true);
+    expect(box.notes?.map((n) => n.kind)).toEqual(["plate_floor"]);
+    expect(attrNoteText(box.notes![0])).toBe("3M is smaller than the 6M face plate — using 6M.");
+    expect(r.values.supply_rate).toBe(279);
+  });
+
+  it("POSITIVE: a pick EQUAL to the plate is honoured, no note", () => {
+    const { r, attr } = boxCompute({ plate_item: "6M" }, { box_item: "6M" });
+    expect(attrDisplayValue(attr("box_item")!)).toBe("6M");
+    expect(isShowingDerived(attr("box_item")!)).toBe(false);
+    expect(attr("box_item")!.notes).toBeUndefined();
+    expect(r.values.supply_rate).toBe(279);
+  });
+
+  it("POSITIVE: with NO plate the floor is the contents and the EXISTING upgrade sentence carries it -- pick 1M under 3 modules -> 3M", () => {
+    const { r, attr } = boxCompute({}, { box_item: "1M" });
+    const box = attr("box_item")!;
+    expect(attrDisplayValue(box)).toBe("3M");
+    expect(box.notes?.map((n) => n.kind)).toEqual(["upgrade"]);
+    expect(attrNoteText(box.notes![0])).toBe("1M holds 1 module; contents occupy 3 — using 3M.");
+    expect(r.values.supply_rate).toBe(178);
+  });
+
+  it("NEGATIVE: the plate field is untouched by a box pick -- its own value, its own notes", () => {
+    const { attr } = boxCompute({ plate_item: "6M" }, { box_item: "3M" });
+    expect(attrDisplayValue(attr("plate_item")!)).toBe("6M");
+    expect(attr("plate_item")!.notes).toBeUndefined();
+  });
+
+  it("NEGATIVE: the raised pick is a session override -- the field stays editable, never readOnly", () => {
+    const { attr } = boxCompute({ plate_item: "6M" }, { box_item: "3M" });
+    expect(attr("box_item")!.readOnly).toBeUndefined();
+  });
+});
+
+describe("F-25 slice 3 -- the zero branch on the panel: a pick wins and the assumed note disappears", () => {
+  it("POSITIVE: nothing readable, pick 6M -> 6M PLAIN, NO assumed note, supply 279", () => {
+    const { r, attr } = bareBoxCompute(null, {}, true, { box_item: "6M" });
+    const box = attr("box_item")!;
+    expect(attrDisplayValue(box)).toBe("6M");
+    expect(isShowingDerived(box)).toBe(false);
+    expect(box.notes).toBeUndefined();                         // the ASSUMED sentence is GONE
+    expect(r.values.supply_rate).toBe(279);
+  });
+
+  it("POSITIVE: a pick beats a STATED count -- stated 8, pick 3M -> 3M, 178, no note", () => {
+    const { r, attr } = bareBoxCompute(8, {}, true, { box_item: "3M" });
+    expect(attrDisplayValue(attr("box_item")!)).toBe("3M");
+    expect(attr("box_item")!.notes).toBeUndefined();
+    expect(r.values.supply_rate).toBe(178);
+  });
+
+  it("POSITIVE: a pick the catalogue does not stock hops UP with the EXISTING size_up sentence -- pick 5M -> 6M", () => {
+    const { r, attr } = bareBoxCompute(null, {}, true, { box_item: "5M" });
+    const box = attr("box_item")!;
+    expect(attrDisplayValue(box)).toBe("6M");                  // what was BOUGHT, marked
+    expect(isShowingDerived(box)).toBe(true);
+    expect(box.notes?.map((n) => n.kind)).toEqual(["size_up"]);
+    expect(attrNoteText(box.notes![0])).toBe("No 5M in the catalogue — using 6M, the next size up.");
+    expect(r.values.supply_rate).toBe(279);
+  });
+
+  it("REVERT: clearing the pick brings the assumed 3M and its sentence back", () => {
+    const picked = bareBoxCompute(null, {}, true, { box_item: "6M" });
+    expect(picked.attr("box_item")!.notes).toBeUndefined();
+    const cleared = bareBoxCompute(null, {}, true, {});
+    expect(attrDisplayValue(cleared.attr("box_item")!)).toBe("3M");
+    expect(cleared.attr("box_item")!.notes?.map((n) => n.kind)).toEqual(["assumed"]);
+    expect(cleared.r.values.supply_rate).toBe(178);
+  });
+});
+
+describe("F-25 slice 3 -- THE INVARIANT on the panel: no pick = byte-identical to v58", () => {
+  it("floor branch: every slice-1 shape renders identically with and without pick_from", () => {
+    const shapes: Record<string, string | number | null>[] = [{}, { plate_item: "6M" }, { plate_item: "9M" }, { plate_item: "None" }, { plate_item: "1M" }];
+    for (const over of shapes) {
+      const a = boxCompute(over, undefined, true);
+      const b = boxCompute(over, undefined, false);
+      expect(a.r.values).toEqual(b.r.values);
+      expect(a.r.workings.attributes).toEqual(b.r.workings.attributes);
+    }
+  });
+  it("zero branch: stated / assumed / next-higher render identically with and without pick_from", () => {
+    for (const stated of [3, 9, null, ""] as const) {
+      const a = bareBoxCompute(stated, {}, true, undefined, true);
+      const b = bareBoxCompute(stated, {}, true, undefined, false);
+      expect(a.r.values).toEqual(b.r.values);
+      expect(a.r.workings.attributes).toEqual(b.r.workings.attributes);
+    }
+  });
+  it("NEGATIVE: the box field is still DERIVED (gate-exempt) with pick_from declared", () => {
+    expect(derivedAttrIds(boxFieldConfig()).has("box_item")).toBe(true);
+    expect(boxCompute().r.basis).not.toBe("Complete the missing attributes to price");
+  });
+});
+
+describe("F-25 slice 3 -- the plate_floor note kind", () => {
+  it("ONE wording source: attrNoteText words it, in the register of the shipped sentences", () => {
+    expect(attrNoteText({ kind: "plate_floor", picked: "1M", plate: "12M", using: "12M" }))
+      .toBe("1M is smaller than the 12M face plate — using 12M.");
+  });
+  it("ORDER: plate_floor sits directly after upgrade and before rating_up", () => {
+    const sorted = sortAttrNotes([
+      { kind: "rating_up", askedAmp: 20, usedAmp: 25, poleWord: "2 pole", device: "MCB", curve: "C" },
+      { kind: "plate_floor", picked: "3M", plate: "6M", using: "6M" },
+      { kind: "upgrade", stated: "1M", statedHolds: 1, occupied: 3, using: "3M" },
+    ]);
+    expect(sorted.map((n) => n.kind)).toEqual(["upgrade", "plate_floor", "rating_up"]);
   });
 });
