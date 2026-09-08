@@ -163,6 +163,7 @@ export function columnOptionTitle(col: WorkbookColumn): string {
 }
 
 export const EMPTY_MAPPING: SnagColumnMapping = {
+  serial: null,
   area: null,
   category: null,
   description: "",
@@ -172,6 +173,7 @@ export const EMPTY_MAPPING: SnagColumnMapping = {
 export function initialMapping(guess: SnagColumnMapping | null): SnagColumnMapping {
   if (!guess) return { ...EMPTY_MAPPING };
   return {
+    serial: guess.serial ?? null,
     area: guess.area ?? null,
     category: guess.category ?? null,
     description: guess.description ?? "",
@@ -179,8 +181,8 @@ export function initialMapping(guess: SnagColumnMapping | null): SnagColumnMappi
   };
 }
 
-/** The four mapping roles, in the order the fields render. */
-export const MAPPING_ROLES = ["area", "category", "description", "remarks"] as const;
+/** The five mapping roles, in the order the fields render (sheet order: S.No first). */
+export const MAPPING_ROLES = ["serial", "area", "category", "description", "remarks"] as const;
 export type MappingRole = (typeof MAPPING_ROLES)[number];
 
 export function isKnownColumn(
@@ -241,6 +243,10 @@ export function mappingSignature(
 ): string {
   if (!mapping) return "";
   return [
+    // `serial` belongs here like every other role: the preview renders the S.No column
+    // straight off the mapping, so a signature blind to it would leave the old column's
+    // values on screen under a new mapping.
+    mapping.serial ?? "",
     mapping.area ?? "",
     mapping.category ?? "",
     mapping.description ?? "",

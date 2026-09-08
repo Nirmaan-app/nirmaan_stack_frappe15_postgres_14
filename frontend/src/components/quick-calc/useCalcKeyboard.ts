@@ -21,12 +21,23 @@ import { PlatformModifier } from "./usePlatformModifier";
 
 export interface CalcKeyboardActions {
     evaluate: () => void;
+    /** Clears the draft: the expression, and the result or error under it. */
     clear: () => void;
+    /** Clears the tape. The second rung of the Escape ladder; no undo. */
+    clearHistory: () => void;
     minimise: () => void;
     copyResult: () => void;
     /** Used only for `x`/`X` -> `*`; every other character is left to the native input. */
     insert: (text: string) => void;
-    hasExpression: boolean;
+    /**
+     * Whether the draft holds anything -- read imperatively, not passed as a
+     * boolean. The expression lives on the input element (see QuickCalc), and a
+     * keypad tap plus an Escape can land in one batch, where state from the last
+     * committed render would still read empty and send Escape down the wrong rung.
+     */
+    hasDraft: () => boolean;
+    /** Whether the tape holds anything for the ladder's second rung. */
+    hasHistory: boolean;
     hasResult: boolean;
     /** True when the user has selected text in the expression field. */
     hasSelection: () => boolean;
@@ -50,10 +61,12 @@ export function useCalcKeyboard(
     const {
         evaluate,
         clear,
+        clearHistory,
         minimise,
         copyResult,
         insert,
-        hasExpression,
+        hasDraft,
+        hasHistory,
         hasResult,
         hasSelection,
         resultIsSettled,
@@ -90,9 +103,13 @@ export function useCalcKeyboard(
                     return;
 
                 case "Escape":
-                    // State-aware, so it never closes work still on screen.
+                    // A ladder, one rung per press, so Escape never closes work still
+                    // on screen: draft first, then history, then put away. It is a
+                    // check and not a fixed count -- an empty calculator closes on the
+                    // first press, and one with only history behind it on the second.
                     event.preventDefault();
-                    if (hasExpression) clear();
+                    if (hasDraft()) clear();
+                    else if (hasHistory) clearHistory();
                     else minimise();
                     return;
 
@@ -129,10 +146,12 @@ export function useCalcKeyboard(
         [
             evaluate,
             clear,
+            clearHistory,
             minimise,
             copyResult,
             insert,
-            hasExpression,
+            hasDraft,
+            hasHistory,
             hasResult,
             hasSelection,
             resultIsSettled,

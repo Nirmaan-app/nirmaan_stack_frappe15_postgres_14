@@ -24,14 +24,22 @@ from openpyxl import Workbook
 
 from openpyxl import load_workbook
 
-from .guess import guess_mapping
+from .guess import guess_mapping, looks_like_header_label
 from .parser import parse_grid, parse_sheet
 from .reader import columns_for_header_row, inspect_sheet, inspect_workbook, read_grid
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "food_box_mep_snags.xlsx")
 
 #: The mapping the wizard pre-selects for the fixture's Sheet1.
-FOOD_BOX_MAPPING = {"area": "B", "category": "C", "description": "D", "remarks": "G"}
+#: Column A of the fixture is the consultant's own "S.No" -- claimed by the `serial`
+#: role, which is why this is a five-key mapping.
+FOOD_BOX_MAPPING = {
+    "area": "B",
+    "category": "C",
+    "description": "D",
+    "remarks": "G",
+    "serial": "A",
+}
 
 
 def _reasons(preview):
@@ -242,6 +250,7 @@ class TestParseFoodBoxSheet1(unittest.TestCase):
             "category",
             "description",
             "remark",
+            "serial",
             "skipped_reason",
             "tickable",
             "preview_text",
@@ -253,6 +262,42 @@ class TestParseFoodBoxSheet1(unittest.TestCase):
                 {None, "blank", "repeated_header", "summary_block", "no_description", "above_header"},
             )
         self.assertEqual(self.preview["sheet_name"], "Sheet1")
+
+    def test_serial_is_the_sheets_own_number_and_is_never_invented(self):
+        """The parser REPORTS the S.No column; it never supplies one.
+
+        Numbering a row the sheet left blank is the IMPORT's job (`_serials_for`), because
+        the number is a position within the set of rows actually being imported -- which
+        this layer cannot see.
+        """
+        numbered = [r for r in self.preview["rows"] if r["serial"]]
+        self.assertTrue(numbered, "the fixture's S.No column produced no values at all")
+
+        unmapped = parse_sheet(
+            FIXTURE,
+            "Sheet1",
+            {k: v for k, v in FOOD_BOX_MAPPING.items() if k != "serial"},
+        )
+        self.assertTrue(
+            all(r["serial"] == "" for r in unmapped["rows"]),
+            "a sheet with no S.No mapping must report no serials, not made-up ones",
+        )
+
+    def test_mapping_a_serial_column_changes_no_other_row_field(self):
+        """The S.No column is READ, never used to judge a row.
+
+        `serial_i` is deliberately kept out of `mapped_indexes`, which drives repeated-header
+        detection -- so mapping it must not move a single classification. Every existing
+        sheet parses identically whether or not an S.No column is mapped.
+        """
+        unmapped = parse_sheet(
+            FIXTURE,
+            "Sheet1",
+            {k: v for k, v in FOOD_BOX_MAPPING.items() if k != "serial"},
+        )
+        strip = lambda rows: [{k: v for k, v in r.items() if k != "serial"} for r in rows]
+        self.assertEqual(strip(self.preview["rows"]), strip(unmapped["rows"]))
+        self.assertEqual(self.preview["accepted_count"], unmapped["accepted_count"])
 
     def test_the_remark_key_is_singular_and_source_remarks_is_gone(self):
         """ADR-0018: the row VALUE is `remark`; `remarks` is a MAPPING key
@@ -314,13 +359,13 @@ class TestGuessMapping(unittest.TestCase):
     def test_matches_case_insensitively(self):
         self.assertEqual(
             guess_mapping(self._columns("AREA", "category", "DeScRiPtIoN", "remarks")),
-            {"area": "A", "category": "B", "description": "C", "remarks": "D"},
+            {"area": "A", "category": "B", "description": "C", "remarks": "D", "serial": None},
         )
 
     def test_synonyms(self):
         self.assertEqual(
             guess_mapping(self._columns("Zone", "Discipline", "Observation", "Action")),
-            {"area": "A", "category": "B", "description": "C", "remarks": "D"},
+            {"area": "A", "category": "B", "description": "C", "remarks": "D", "serial": None},
         )
 
     def test_most_specific_wins(self):
@@ -339,10 +384,45 @@ class TestGuessMapping(unittest.TestCase):
         letters = [v for v in mapping.values() if v]
         self.assertEqual(len(letters), len(set(letters)))
 
+    def test_the_s_no_column_is_claimed_by_the_serial_role(self):
+        for label in ("S.No", "S. No", "Sr.No", "SL NO", "Serial No", "serial number"):
+            with self.subTest(label=label):
+                mapping = guess_mapping(self._columns(label, "Snag Description"))
+                self.assertEqual(mapping["serial"], "A", label)
+
+    def test_serial_never_takes_a_column_a_content_role_wanted(self):
+        """`serial` is claimed LAST, so a column both could read goes to the content role.
+
+        Nothing in the shipped vocabulary overlaps today; the order is what keeps a future
+        synonym from quietly stealing the Description column, where the loss would be total
+        (no description mapped -> `guess_mapping` returns None -> the sheet looks unreadable).
+        """
+        mapping = guess_mapping(self._columns("Snag Description", "S.No"))
+        self.assertEqual(mapping["description"], "A")
+        self.assertEqual(mapping["serial"], "B")
+
+    def test_a_label_containing_no_is_still_not_a_header(self):
+        """THE regression the `serial` role could have caused.
+
+        `_HEADER_WORDS` is a WHOLE-TOKEN test derived from the CONTENT roles only. Deriving
+        it from every role instead would inject `s` / `no` / `sr` / `sl` / `number`, and
+        header detection decides which rows are data at all -- so a body cell reading
+        "Not Applicable" or "No." would start marking its row as a header and silently
+        drop real snags.
+        """
+        for label in ("Not Applicable", "No.", "No", "Number of items", "S"):
+            with self.subTest(label=label):
+                self.assertFalse(looks_like_header_label(label), label)
+        # ...while the S.No labels themselves still read as header cells, via the
+        # KNOWN_HEADER_LABELS set they were already in before the role existed.
+        for label in ("S.No", "Serial No"):
+            with self.subTest(label=label):
+                self.assertTrue(looks_like_header_label(label), label)
+
     def test_unmapped_roles_are_none(self):
         self.assertEqual(
             guess_mapping(self._columns("S.No", "Snag Description", "Risk Level")),
-            {"area": None, "category": None, "description": "B", "remarks": None},
+            {"area": None, "category": None, "description": "B", "remarks": None, "serial": "A"},
         )
 
 

@@ -65,28 +65,29 @@ def _tokens(text: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 #: Role -> synonyms, MOST SPECIFIC FIRST. Role order is the claim order:
-#: description first, then area, category, remarks. A column letter can only
-#: ever be claimed once.
+#: description first, then area, category, remarks, and serial LAST. A column
+#: letter can only ever be claimed once.
 ROLE_SYNONYMS: "dict[str, tuple[str, ...]]" = {
     "description": ("snag description", "description", "observation", "defect", "snag"),
     "area": ("area / location", "area", "location", "zone"),
     "category": ("category", "discipline", "trade", "system", "work header"),
     "remarks": ("remarks", "remark", "comment", "comments", "action"),
+    #: The consultant's OWN numbering, kept verbatim when present. Claimed last so
+    #: it can never take a column one of the four content roles wanted.
+    "serial": ("s.no", "s. no", "sr.no", "sr. no", "sl.no", "sl no", "serial no", "serial number"),
 }
 
-ROLE_ORDER: "tuple[str, ...]" = ("description", "area", "category", "remarks")
+ROLE_ORDER: "tuple[str, ...]" = ("description", "area", "category", "remarks", "serial")
+
+#: The roles that carry a snag's CONTENT. `serial` is deliberately absent -- see
+#: `_HEADER_WORDS`, which is derived from these and these only.
+_CONTENT_ROLES: "tuple[str, ...]" = ("description", "area", "category", "remarks")
 
 #: Header labels that are NOT mapped to a role but still mark a row as a header
-#: (they are what a repeated header row is full of).
+#: (they are what a repeated header row is full of). The S.No spellings USED to
+#: live here; they moved up into the `serial` role and reach this set through
+#: `KNOWN_HEADER_LABELS` instead, so the set is unchanged.
 _EXTRA_HEADER_LABELS: "tuple[str, ...]" = (
-    "s.no",
-    "s. no",
-    "sr.no",
-    "sr. no",
-    "sl.no",
-    "sl no",
-    "serial no",
-    "serial number",
     "risk level",
     "risk",
     "status",
@@ -104,8 +105,13 @@ KNOWN_HEADER_LABELS: "frozenset[str]" = frozenset(
 #: header word ("Snag Description" -> description). Deliberately does NOT
 #: include plurals like "snags", so a title row reading "Total Snags:124" is
 #: not mistaken for a header.
+#: ⚠️ DERIVED FROM `_CONTENT_ROLES`, NEVER FROM ALL OF `ROLE_SYNONYMS`. The serial
+#: synonyms tokenise to `s` / `no` / `sr` / `sl` / `serial` / `number`, and this set
+#: is a WHOLE-TOKEN test -- feeding them in would make any label containing the word
+#: "no" ("Not Applicable", "No.") read as a header, and header detection drives which
+#: rows are data at all.
 _HEADER_WORDS: "frozenset[str]" = frozenset(
-    w for syns in ROLE_SYNONYMS.values() for s in syns for w in _tokens(s)
+    w for role in _CONTENT_ROLES for s in ROLE_SYNONYMS[role] for w in _tokens(s)
 )
 
 
@@ -154,13 +160,15 @@ def _find_letter(columns, synonym: str, taken) -> "str | None":
 
 
 def guess_mapping(columns) -> "dict | None":
-    """Guess {area, category, description, remarks} -> Excel column letters.
+    """Guess {area, category, description, remarks, serial} -> Excel column letters.
 
     `columns` is the `WorkbookColumn[]` shape: [{"letter": "B", "label": "Area"}].
     Returns None when no description column can be found — description is the
-    one REQUIRED mapping, because row detection keys on it.
+    one REQUIRED mapping, because row detection keys on it. `serial` is the
+    consultant's own S.No; a sheet without one simply maps it to None and the
+    import numbers those rows itself.
     """
-    mapping = {"area": None, "category": None, "description": None, "remarks": None}
+    mapping = {role: None for role in ROLE_ORDER}
     taken: "set[str]" = set()
 
     for role in ROLE_ORDER:
