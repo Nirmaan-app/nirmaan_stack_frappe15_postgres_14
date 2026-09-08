@@ -1,7 +1,7 @@
 // src/pages/outflow-import/outflowTableModel.ts
 //
-// PURE MODULE -- no React, no fetching, no DOM. The model behind the batch screen's three tabs
-// (slice V4).
+// PURE MODULE -- no React, no fetching, no DOM. The model behind the batch screen's four tabs
+// (slice V4; the fourth, Partly Allocated, joined at the ADR-0020 D5 status).
 //
 // ⚠️ THIS FILE EXISTS BECAUSE OF WHAT CANNOT BE TESTED. There is no DOM test environment in this
 // repository, by deliberate choice, so the table, the dialog and the selection behaviour are React
@@ -456,7 +456,8 @@ export const DEFAULT_HIDDEN_COLUMNS: string[] = OUTFLOW_COLUMNS.filter(
 ).map((c) => c.id);
 
 /**
- * The three tabs (owner ruling 2026-08-10, replacing Pending / Settled / Skipped).
+ * The four tabs (owner ruling 2026-08-10, replacing Pending / Settled / Skipped; `Partly
+ * Allocated` joined later as its own tab, ADR-0020 D5).
  *
  * ⚠️ THERE IS NO SKIPPED TAB, AND `all` EXCLUDES SKIPPED TOO. "All" here means everything a person
  * might still act on, not every row in the table. Skipped rows are bookkeeping -- a failed

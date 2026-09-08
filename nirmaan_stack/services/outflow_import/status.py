@@ -740,8 +740,7 @@ def derive_batch_status(row_statuses: Iterable[str]) -> str:
     ⚠️ THE `force_closed` PARAMETER IS GONE with `Completed with exceptions` (owner ruling). Closing
     a batch no longer changes what its status SAYS -- it records `closed_at` and nothing more, so a
     batch closed with rows outstanding still reads `Partially Settled`, which is the truth. The
-    three tabs show the outstanding work directly, which is what the retired status was standing in
-    for.
+    tabs show the outstanding work directly, which is what the retired status was standing in for.
     """
     statuses = list(row_statuses)
     if not statuses:

@@ -233,9 +233,10 @@ export interface OutflowRowsPage {
      * summary panel reports them instead.
      */
     /**
-     * ⚠️ `skipped` IS A SCOPE WITH NO TAB (owner ruling). The three working scopes label the tab
-     * strip; `skipped` exists so the Skipped chip's dialog can ask for those rows by name, and it
-     * is deliberately absent from `SCOPE_FOR_TAB` — there is no tab to map to it.
+     * ⚠️ `skipped` IS A SCOPE WITH NO TAB (owner ruling). The four working scopes (`all`,
+     * `not_matched`, `partly`, `matched`) label the tab strip; `skipped` exists so the Skipped
+     * chip's dialog can ask for those rows by name, and it is deliberately absent from
+     * `SCOPE_FOR_TAB` — there is no tab to map to it.
      */
     tab_counts: {
         all: number;

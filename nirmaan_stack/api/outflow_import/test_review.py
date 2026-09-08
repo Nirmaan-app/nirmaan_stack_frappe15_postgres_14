@@ -1578,11 +1578,12 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
         for row in page["rows"]:
             self.assertIn(row["row_status"], ("Pending match run", "Mismatched", "Error"))
 
-    def test_the_two_working_scopes_partition_everything_except_skipped(self):
+    def test_the_three_working_scopes_partition_everything_except_skipped(self):
         """⚠️ `all` IS NOT EVERY ROW (owner ruling 2026-08-10). It is everything a person might
-        still act on -- skipped rows are excluded from it, exactly as they are from the other two,
-        because they have no tab at all. Asserted as arithmetic rather than a code read: the day
-        `all` silently reverts to "no WHERE clause", this is what catches it.
+        still act on -- skipped rows are excluded from it, exactly as they are from the other
+        three (`not_matched`, `partly`, `matched`), because they have no tab at all. Asserted as
+        arithmetic rather than a code read: the day `all` silently reverts to "no WHERE clause",
+        this is what catches it.
         """
         counts = self._page()["tab_counts"]
         # ⚠️ `+ partly` -- `Partially Allocated` is inert this slice (nothing writes it yet), so
@@ -1724,7 +1725,7 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
         # ⚠️ AGAINST THE SCOPE'S OWN COUNT, not against every parsed row. `all` stopped meaning
         # every row at the 2026-08-10 retab -- it excludes `Skipped` -- and this test is about
         # paging, so pinning it to the file length would make it fail for a reason it does not
-        # describe. `test_the_two_working_scopes_partition_everything_except_skipped` owns that
+        # describe. `test_the_three_working_scopes_partition_everything_except_skipped` owns that
         # arithmetic.
         self.assertEqual(page["total"], page["tab_counts"]["all"])
         self.assertGreater(page["total"], 2)
@@ -2685,7 +2686,7 @@ class TestStackAutoPairing(OutflowReviewFixture):
 
 
 # ⚠️ `get_reconciliation_report` AND ITS TWO TESTS WERE DELETED AT V5, and one capability went with
-# them that the three tabs do NOT replace: the REVERSE VIEW -- payments we recorded as Paid inside
+# them that the four tabs do NOT replace: the REVERSE VIEW -- payments we recorded as Paid inside
 # the statement's period with no bank row behind them. The tabs answer "is this transfer recorded?";
 # nothing now answers "is every payment we recorded backed by a real transfer?". That is a
 # deliberate scope decision, not an oversight; if it is wanted back it is a revert of this commit,
@@ -3130,7 +3131,7 @@ class TestThePeriodScopedSummary(OutflowReviewFixture):
         The bank's date column is free text and does not always parse; the parser stores NULL rather
         than guessing, and this fixture carries a literal `not-a-date` row for the case. Under a
         plain `>=` / `<` bound such a row matches NO window -- so once the period became the SCREEN'S
-        SCOPE it would vanish from the summary, all three tabs and the Skipped dialog at once, with
+        SCOPE it would vanish from the summary, all four tabs and the Skipped dialog at once, with
         no filter on screen able to bring it back.
 
         The transfer still moved money and still needs settling, so it survives every period instead.

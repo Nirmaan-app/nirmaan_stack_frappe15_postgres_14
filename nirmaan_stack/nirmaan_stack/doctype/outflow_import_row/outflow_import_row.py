@@ -39,7 +39,7 @@ def on_doctype_update():
     SILENT no-op -- the index simply never appears and nothing reports it.
 
     ⚠️ THE THIRD INDEX IS THE ONE X3 ADDED, AND ITS COLUMN ORDER IS THE WHOLE POINT. The master
-    table queries ACROSS every import: it filters on `row_status` (the three tabs are status sets)
+    table queries ACROSS every import: it filters on `row_status` (the tabs are status sets)
     and orders by `added_on`. The existing `(import_batch, row_status)` index cannot serve that --
     its leading column is the one the master query does NOT constrain. Equality column first,
     ordering column second, so the scope filter and the sort are one index scan.

@@ -143,7 +143,7 @@ export const OutflowMasterPage = () => {
     );
 
     /**
-     * Which of the three tabs is open.
+     * Which of the four tabs is open.
      *
      * ⚠️ IT SEEDS FROM THE HISTORY ENTRY'S STATE, and that is the ONE thing carrying a tab across a
      * remount. Selecting an import navigates between two separate route entries, which unmounts and
@@ -164,11 +164,11 @@ export const OutflowMasterPage = () => {
     const tabRef = useRef(tab);
     tabRef.current = tab;
     /**
-     * The far-right view, which is NOT one of the three tabs.
+     * The far-right view, which is NOT one of the four tabs.
      *
-     * ⚠️ IT IS NOT AN `OutflowTab` AND MUST NOT BECOME ONE. The three tabs are three SCOPES over
+     * ⚠️ IT IS NOT AN `OutflowTab` AND MUST NOT BECOME ONE. The four tabs are four SCOPES over
      * `Outflow Import Row`; this reads the three LEDGERS and has no import row anywhere in it. A
-     * fourth entry in `OUTFLOW_TABS` would put it through `SCOPE_FOR_TAB`, which has nothing to map
+     * fifth entry in `OUTFLOW_TABS` would put it through `SCOPE_FOR_TAB`, which has nothing to map
      * it to, and would hand it a `tab_counts` number describing a different population entirely.
      */
     const [showingApproved, setShowingApproved] = useState(false);
@@ -804,7 +804,7 @@ export const OutflowMasterPage = () => {
                             rather than decoration -- it holds an OPEN status beside a TERMINAL one,
                             so one number there meant two things and was read as the terminal one
                             (863 under "Matched / Settled" while nothing was settled). The split
-                            comes from the pure `tabCountParts`; the other two tabs are unchanged.
+                            comes from the pure `tabCountParts`; the other three tabs are unchanged.
 
                             ⚠️ KEYED THROUGH `SCOPE_FOR_TAB` inside that helper, never by the tab id.
                             The endpoint returns its counts under the SCOPE names, and the two
@@ -825,8 +825,8 @@ export const OutflowMasterPage = () => {
                     </button>
                 ))}
 
-                {/* ⚠️ A BUTTON, NOT A FOURTH TAB (owner, 2026-08-11), and the distinction is the
-                    whole reason it looks different. The three tabs to its left are three SCOPES over
+                {/* ⚠️ A BUTTON, NOT A FIFTH TAB (owner, 2026-08-11), and the distinction is the
+                    whole reason it looks different. The four tabs to its left are four SCOPES over
                     ONE population — `Outflow Import Row` — so their counts sit in a row precisely
                     because they can be compared and subtracted. This opens a view over three OTHER
                     doctypes with no import row in it at all. Rendering it as a tab put a control for

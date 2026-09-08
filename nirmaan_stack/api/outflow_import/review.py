@@ -1699,10 +1699,12 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
 
 # --- the master table (slice X3) ----------------------------------------------------------------
 
-# The three tabs, as STATUS SETS (owner ruling 2026-08-10, replacing Pending / Settled / Skipped).
+# The four tabs, as STATUS SETS (owner ruling 2026-08-10, replacing Pending / Settled / Skipped;
+# `partly` joined later as its own tab, ADR-0020 D5).
 #
 #   all           everything EXCEPT Skipped
 #   not_matched   the work: staged, did not line up, or the write failed
+#   partly        money already written, some of it still unallocated
 #   matched       found something, or already written -- the two "this is handled" states
 #
 # ⚠️ `Skipped` HAS NO TAB, AND IS EXCLUDED FROM `all` TOO (owner ruling). It is not "everything";
@@ -2147,7 +2149,7 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
     # The bank's date column is free text and does not always parse -- the parser stores NULL rather
     # than guessing, and the test fixture carries a literal `not-a-date` for exactly this case. Under
     # plain `>=` / `<` such a row matches NO period at all, so once the period became the SCREEN'S
-    # SCOPE (P1) it would have disappeared from the summary, from all three tabs and from the Skipped
+    # SCOPE (P1) it would have disappeared from the summary, from all four tabs and from the Skipped
     # dialog simultaneously -- with no filter on screen that could bring it back, because every
     # window excludes it equally.
     #
