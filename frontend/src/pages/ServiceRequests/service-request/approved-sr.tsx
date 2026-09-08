@@ -740,7 +740,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                     {payment?.status === "Paid" && orderData?.name ? (
                                                         <PaymentVoucherActions
                                                             payment={payment}
-                                                            srName={orderData.name} // Pass SR ID for file naming (if orderData is ServiceRequests)
+                                                            orderName={orderData.name} // WO id — used for the voucher filename
                                                             onVoucherUpdate={projectPaymentsMutate} // Pass the SWR mutate function to refresh payments after upload/delete
                                                             hideActions={isEstimatesExecutive}
                                                         />

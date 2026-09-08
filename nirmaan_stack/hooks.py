@@ -359,6 +359,7 @@ scheduler_events = {
         "nirmaan_stack.tasks.cleanup_orphan_commission_attachments.cleanup_orphan_commission_attachments",
         "nirmaan_stack.tasks.cashflow_gap_limit_default.set_default_cashflow_gap_limit",
         "nirmaan_stack.tasks.cleanup_orphan_private_files.cleanup_orphan_private_files",
+        "nirmaan_stack.tasks.ceo_hold_recheck.run_due_ceo_hold_rechecks",
 	],
 	"cron": {
 		"30 4 * * *": [

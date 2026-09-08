@@ -30,6 +30,7 @@ import { ValidationMessages } from "@/components/validations/ValidationMessages"
 import SITEURL from "@/constants/siteURL";
 import { usePOValidation } from "@/hooks/usePOValidation";
 import { useUserData } from "@/hooks/useUserData";
+import { PaymentVoucherActions } from "@/components/paymentsVoucher/PaymentVoucherActions";
 import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/DeletePaymentDialog";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
@@ -326,6 +327,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
               <TableHead className="text-black font-bold">UTR No.</TableHead>
               <TableHead className="text-black font-bold">Payment Date</TableHead>
               <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
+              <TableHead className="text-black font-bold text-center">Voucher</TableHead>
               <TableHead ></TableHead>
             </TableRow>
           </TableHeader>
@@ -387,6 +389,18 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                         <Badge variant="outline">{payment?.status}</Badge>
                       )}
                     </TableCell>
+                    {/* Voucher: download-only on POs — generated from the payment, never uploaded. */}
+                    <TableCell className="text-center w-[10%]">
+                      {payment?.status === "Paid" && PO?.name ? (
+                        <PaymentVoucherActions
+                          payment={payment}
+                          orderName={PO.name}
+                          onVoucherUpdate={poPaymentsMutate}
+                          hideActions={estimatesViewing}
+                          downloadOnly
+                        />
+                      ) : ("--")}
+                    </TableCell>
                     <TableCell className="text-red-500 text-end w-[5%]">
                       {!["Paid", "Approved"].includes(payment?.status) && !estimatesViewing && !summaryPage &&
                         role !== "Nirmaan Accountant Profile" && role !== "Nirmaan Accountant Lead Profile" &&
@@ -407,7 +421,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
               })
             ) : (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-2">
+                <TableCell colSpan={6} className="text-center py-2">
                   No Payments Found
                 </TableCell>
               </TableRow>

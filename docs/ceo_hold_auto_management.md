@@ -237,3 +237,58 @@ A. No. Completed status is terminal — the cron skips it entirely.
 - **Realtime trigger** — Hooks that fire on every save of Payments, Expenses, Inflows, POs (only on `po_amount_delivered` / `amount_paid` changes), and the project's gap limit. The primary mechanism — state stays current without waiting for any cron.
 - **Safety-net cron** — Weekly Sunday 05:00 job registered in code to re-evaluate every project. Whether it is actively scheduled in production depends on environment configuration; check with engineering. Functions as a backstop for edge cases the realtime hooks might miss (e.g., direct SQL writes, partial rollbacks, batch-save scenarios where multiple records change in a single request).
 - **Batch-save edge case** — When a single request saves multiple gap-affecting documents (e.g., a script that creates 5 Project Payments in one go), the realtime check evaluates the gap once based on the first save's state. The cumulative effect of saves 2-N may not trigger an auto-hold within that request. The very next single save on the project, or the safety-net cron (when active), corrects this.
+
+---
+
+## 13. 2026-09 update — SCHEDULED RECHECK (release now, decide on a named date)
+
+Everything above assumes the only way off an automatic hold is to **resolve** the condition. That is
+still the rule for everyone. The authorized user (`nitesh@nirmaan.app`) now has one more option.
+
+**What it is.** When the CEO changes a held project's status to anything that is not `CEO Hold`,
+`Completed` or `Halted`, the confirmation dialog asks for a **CEO Hold Recheck Date**. It opens
+pre-filled with the **day after tomorrow** (today + 2) and can be moved to any date from today
+onward — usually further out. The date is mandatory: there is no "change the status without a
+recheck" option, and cancelling leaves the project exactly as it was, on CEO Hold. Confirming
+writes the new status and the schedule in **one save**.
+
+**What it does.** Two fields on the project record it:
+
+| Field | Meaning |
+|---|---|
+| `ceo_hold_recheck_scheduled` | `1` = the project is in **scheduled-recheck mode** |
+| `ceo_hold_recheck_date` | The date the system decides again |
+
+While the flag is `1`, **every automatic CEO Hold evaluation is skipped** — the payment, expense,
+inflow, PO and delivery-note hooks all still do their normal work, but none of them may place or
+lift a hold on this project. The reason rows freeze exactly as the release left them (they are the
+record of *why* it was held); they are not treated as truth again until the recheck.
+
+**How it ends.** A daily job (2 AM, sharing the nightly reconcile's slot) picks up every scheduled
+project whose date is **on or before today** — `<= today`, not `== today`, so a missed or delayed run
+still catches up. For each one it clears the schedule and then re-runs **the same** cashflow and
+delivery-pending evaluations described in §3–§4. Whatever they decide is the outcome:
+
+- conditions still failing → the project goes back on `CEO Hold`;
+- conditions now fine → it keeps the status the CEO released it to.
+
+Either way `ceo_hold_recheck_scheduled` returns to `0` and `ceo_hold_recheck_date` is cleared, so
+normal realtime evaluation resumes immediately.
+
+**Protections.**
+
+- `Completed` and `Halted` never take part. The dialog does not offer a recheck for them, a schedule
+  cannot be created alongside them, and a schedule that somehow goes stale on such a project is
+  cleared by the job **without** the project ever being put back on CEO Hold.
+- Putting the project back on `CEO Hold` by hand clears the schedule in the same save (the flag goes
+  off and the date empties), so the hold is real again rather than half-deferred.
+- The date may not be in the past, only the authorized user can set one, and it can only be set in
+  the same save that releases a hold. All four rules are enforced on the server, not just in the UI.
+
+**What it does NOT do.** None of these writes touch `modified` / `modified_by` — every write in
+the CEO Hold engine passes `update_modified=False`, so `modified` stays the record of what a HUMAN
+last did to the project and a nightly sweep never reshuffles a list sorted on it.
+
+**Where it lives:** `nirmaan_stack/tasks/ceo_hold_recheck.py` (the job),
+`services/ceo_hold/core.is_recheck_scheduled` (the bypass all sources ask), and
+`Projects._validate_ceo_hold_recheck` (the rules).

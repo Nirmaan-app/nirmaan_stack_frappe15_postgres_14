@@ -37,6 +37,8 @@
   "tendering_status",
   "status",
   "ceo_hold_by",
+  "ceo_hold_recheck_scheduled",
+  "ceo_hold_recheck_date",
   "project_work_packages",
   "project_scopes",
   "subdivisions",
@@ -184,6 +186,20 @@
    "hidden": 1,
    "label": "CEO Hold Set By",
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Scheduled-recheck mode. Set when the authorized user releases a CEO Hold WITHOUT resolving its reasons, deferring the decision to `ceo_hold_recheck_date`. While this is 1 the Payment / Inflow / DN hooks skip the CEO Hold evaluation entirely -- only the daily recheck cron may evaluate, and it clears this flag first. Never 1 on a CEO Hold / Completed / Halted project (Projects.validate normalises it).",
+   "fieldname": "ceo_hold_recheck_scheduled",
+   "fieldtype": "Check",
+   "label": "CEO Hold Recheck Scheduled"
+  },
+  {
+   "depends_on": "eval:doc.ceo_hold_recheck_scheduled",
+   "description": "The date from which the daily cron re-runs the existing CEO Hold evaluation (`<= today`, so a missed cron run still catches up). Cleared together with the flag once the recheck has run.",
+   "fieldname": "ceo_hold_recheck_date",
+   "fieldtype": "Date",
+   "label": "CEO Hold Recheck Date"
   },
   {
    "fieldname": "project_work_packages",

@@ -94,6 +94,15 @@ export interface Projects {
 	tendering_status?: "Tendering" | "Won" | "Lost"
 	/** CEO Hold Set By : Data (read_only, hidden) */
 	ceo_hold_by?: string
+	/**
+	 * CEO Hold Recheck Scheduled : Check — the project was released from CEO Hold WITHOUT
+	 * its reasons being resolved. While this is 1 the backend's payment / inflow / DN hooks
+	 * skip the CEO Hold evaluation; only the daily cron may decide, on
+	 * `ceo_hold_recheck_date`. Never 1 on a CEO Hold / Completed / Halted project.
+	 */
+	ceo_hold_recheck_scheduled?: 0 | 1
+	/** CEO Hold Recheck Date : Date — when the cron re-runs the evaluation (`<= today`). */
+	ceo_hold_recheck_date?: string | null
 	/**	Project Work Packages : JSON	*/
 	project_work_packages?: {
 		work_packages: WorkPackage[]

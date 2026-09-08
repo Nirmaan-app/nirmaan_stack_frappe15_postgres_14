@@ -6,15 +6,20 @@ from frappe.model.document import Document
 from frappe.model.naming import getseries
 from datetime import datetime, timedelta
 
-from frappe.utils import flt
+from frappe.utils import flt, getdate, today
 from nirmaan_stack.api.milestone.project_schedule import sync_project_schedule
 from nirmaan_stack.constants.authorized_users import (
 	CEO_AUTHORIZED_USER as CEO_HOLD_AUTHORIZED_USER,
 	CEO_HOLD_SYSTEM_USER,
 )
+from nirmaan_stack.services.ceo_hold.core import RECHECK_EXCLUDED_STATUSES
 
 class Projects(Document):
 	def validate(self):
+		# Order matters: the recheck validator NORMALISES the two schedule fields (and
+		# proves a newly-set schedule is legitimate), and `_validate_ceo_hold_status` then
+		# reads the normalised flag to decide whether the FORK-9 reason guard applies.
+		self._validate_ceo_hold_recheck()
 		self._validate_ceo_hold_status()
 		self._validate_manual_project_value()
 
@@ -74,19 +79,28 @@ class Projects(Document):
 			# themselves when the underlying condition is resolved (ADR-0004 FORK 9).
 			# recompute's auto-release uses set_value (bypasses validate), so it is
 			# unaffected by this guard.
-			active = frappe.get_all(
-				"CEO Hold Reason",
-				filters={"project": self.name},
-				fields=["reason_text"],
-				limit_page_length=0,
-			)
-			if active:
-				texts = ", ".join(r.reason_text for r in active if r.reason_text) or "active system conditions"
-				frappe.throw(
-					f"Cannot release CEO Hold while it is held by: {texts}. "
-					"These clear automatically when the underlying conditions are resolved.",
-					frappe.PermissionError,
+			#
+			# THE ONE EXEMPTION is a SCHEDULED RECHECK: the authorized user releases now
+			# and names a date for the system to re-run the very same evaluation. That is
+			# deliberately a release WITHOUT the reason being resolved, so the guard has to
+			# stand down — but only after `_validate_ceo_hold_recheck` (which ran first) has
+			# proved the flag: authorized user, released from CEO Hold, non-past date
+			# present. It also cleared the flag for Completed / Halted, so a terminal move
+			# still hits this guard exactly as before.
+			if not self.ceo_hold_recheck_scheduled:
+				active = frappe.get_all(
+					"CEO Hold Reason",
+					filters={"project": self.name},
+					fields=["reason_text"],
+					limit_page_length=0,
 				)
+				if active:
+					texts = ", ".join(r.reason_text for r in active if r.reason_text) or "active system conditions"
+					frappe.throw(
+						f"Cannot release CEO Hold while it is held by: {texts}. "
+						"These clear automatically when the underlying conditions are resolved.",
+						frappe.PermissionError,
+					)
 
 			# Cron-set holds (ceo_hold_by = CEO_HOLD_SYSTEM_USER) are clearable
 			# by the authorized human, since no real user "owns" them.
@@ -102,14 +116,115 @@ class Projects(Document):
 				)
 			self.ceo_hold_by = None
 
+	def _validate_ceo_hold_recheck(self):
+		"""Server-side rules for the CEO Hold scheduled-recheck fields.
+
+		The authorized user may release a CEO Hold WITHOUT resolving its reasons by naming
+		the date on which the system should re-run the SAME evaluation. Between the release
+		and that date the project sits in "scheduled-recheck mode": every Payment / Inflow /
+		DN hook skips the CEO Hold decision (`services/ceo_hold/core.is_recheck_scheduled`),
+		so ONLY `tasks/ceo_hold_recheck.py` can put the hold back.
+
+		This is the server-side half of the dialog — the frontend must not be the only thing
+		enforcing it. Four rules, all of which the UI also applies:
+
+		  1. `ceo_hold_recheck_scheduled` may be turned ON only by the authorized user, and
+		     only in the SAME save that moves the project OFF CEO Hold. That coupling is
+		     what makes "status changed but the schedule was not saved" unrepresentable —
+		     the flag is also the key that unlocks the FORK-9 reason guard, so a release
+		     that drops the schedule is rejected outright rather than silently half-applied.
+		  2. A schedule with no date is rejected (the date is mandatory).
+		  3. A date in the past is rejected when the schedule is created or its date moved —
+		     but NOT on later unrelated saves, or an overdue schedule (cron not yet run)
+		     would start failing every edit of the project.
+		  4. CEO Hold / Completed / Halted can never CARRY a schedule. Normalising instead
+		     of throwing is deliberate: it is how a manual re-hold, or a move to a terminal
+		     status, returns the project to normal evaluation mode in one save. This is the
+		     validate-side half of the terminal-project protection; the cron holds the other
+		     half for schedules that go stale without a save.
+		"""
+		old_doc = self.get_doc_before_save()
+
+		# (4) Excluded statuses never carry a schedule.
+		if self.status in RECHECK_EXCLUDED_STATUSES:
+			self.ceo_hold_recheck_scheduled = 0
+			self.ceo_hold_recheck_date = None
+			return
+
+		if not self.ceo_hold_recheck_scheduled:
+			self.ceo_hold_recheck_date = None  # flag off → never leave an orphan date
+			return
+
+		newly_scheduled = not (old_doc and old_doc.ceo_hold_recheck_scheduled)
+
+		# (1) Who may schedule, and from where.
+		if newly_scheduled:
+			if frappe.session.user != CEO_HOLD_AUTHORIZED_USER:
+				frappe.throw(
+					"Only the authorized user can schedule a CEO Hold recheck.",
+					frappe.PermissionError,
+				)
+			if not (old_doc and old_doc.status == "CEO Hold"):
+				frappe.throw(
+					"A CEO Hold recheck can only be scheduled while releasing a project that "
+					"is currently on CEO Hold.",
+					title="Not On CEO Hold",
+				)
+
+		# (2) The date is mandatory.
+		if not self.ceo_hold_recheck_date:
+			frappe.throw(
+				"Select the date on which the CEO Hold conditions should be checked again.",
+				title="Recheck Date Required",
+			)
+
+		# (3) No past dates on create / change.
+		date_changed = not old_doc or str(old_doc.ceo_hold_recheck_date or "") != str(
+			self.ceo_hold_recheck_date or ""
+		)
+		if (newly_scheduled or date_changed) and getdate(self.ceo_hold_recheck_date) < getdate(today()):
+			frappe.throw(
+				"The CEO Hold Recheck Date cannot be in the past.",
+				title="Invalid Recheck Date",
+			)
+
+	def _set_derived_value(self, fieldname, value):
+		"""Assign a recomputed project value ONLY when the NUMBER actually moved.
+
+		`project_value` / `project_value_gst` are declared **Data** (varchar), so the DB
+		hands them back as STRINGS ('71100000.0') while this recompute produces a FLOAT
+		(71100000.0). Python compares those as unequal by type, so assigning
+		unconditionally made Frappe's `get_diff` record a `changed` entry on EVERY save of
+		EVERY derived-value project — a phantom "Project Value 71100000.0 -> 71100000" in
+		the activity timeline each time an unrelated field (a status, a CEO Hold recheck
+		date) was touched. The value written back was byte-identical, so nothing ever
+		actually changed; the audit log just said it did.
+
+		That noise is not free: `services/ceo_hold/core._find_previous_status` walks these
+		same Version rows to decide where a released project reverts to.
+
+		Comparing NUMERICALLY (not by string) also absorbs float-repr drift, so a genuine
+		change is still written. A blank/None current value is always written, so a fresh
+		project still gets populated.
+		"""
+		current = self.get(fieldname)
+		if current in (None, "") or flt(current) != flt(value):
+			self.set(fieldname, value)
+
 	def before_save(self):
 		# Project value has two modes, decided by the `manual_project_value` flag:
 		#   manual_project_value = 1 -> the values were entered by a human; leave them alone.
 		#   manual_project_value = 0 -> derive them from the Customer PO rows (default; unchanged
 		#                               from the historical behaviour, including zeroing on an empty list).
 		if not self.get("manual_project_value"):
-			self.project_value = sum(flt(d.customer_po_value_exctax) for d in self.get("customer_po_details", []))
-			self.project_value_gst = sum(flt(d.customer_po_value_inctax) for d in self.get("customer_po_details", []))
+			self._set_derived_value(
+				"project_value",
+				sum(flt(d.customer_po_value_exctax) for d in self.get("customer_po_details", [])),
+			)
+			self._set_derived_value(
+				"project_value_gst",
+				sum(flt(d.customer_po_value_inctax) for d in self.get("customer_po_details", [])),
+			)
 		#self.project_duration = (datetime.strptime(self.project_end_date, '%Y-%m-%d %H:%M:%S') - datetime.strptime(self.project_start_date, '%Y-%m-%d %H:%M:%S')).days or 0
 		# self.project_city = self.get_project_address()["city"] or ""
 		# self.project_state = self.get_project_address()["state"] or ""
