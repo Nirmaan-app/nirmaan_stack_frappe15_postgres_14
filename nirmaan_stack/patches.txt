@@ -149,3 +149,7 @@ nirmaan_stack.patches.v3_0.backfill_document_amount_invoiced
 nirmaan_stack.patches.v3_0.backfill_document_amount_due
 nirmaan_stack.patches.v3_0.retire_po_number_gate
 nirmaan_stack.patches.v3_0.backfill_snag_source_serial
+nirmaan_stack.patches.v3_0.add_outflow_master_index
+nirmaan_stack.patches.v3_0.add_outflow_stack_index
+nirmaan_stack.patches.v3_0.add_outflow_match_import_row_index
+nirmaan_stack.patches.v3_0.outflow_match_partial_unique

@@ -14,13 +14,18 @@
   "target_doctype",
   "target_name",
   "target_amount",
+  "target_project",
+  "target_vendor",
   "classification_section",
   "match_kind",
   "match_basis",
   "settlement_origin",
   "provenance_section",
   "matched_at",
-  "matched_by"
+  "matched_by",
+  "reversed_at",
+  "reversed_by",
+  "reversal_reason"
  ],
  "fields": [
   {
@@ -81,19 +86,35 @@
    "label": "Target Amount"
   },
   {
+   "description": "SNAPSHOT of the settled record's project AT ALLOCATION TIME -- not a derived field and never recomputed. If the payment is later re-pointed at another project this record keeps what was true when the money was allocated, which is what an immutable audit row should say. Blank on Non Project Expenses, which has no project column. Exists so a fan-out view can group by project without joining three ledgers. Same disposition as Internal Transfer Memo.estimated_rate.",
+   "fieldname": "target_project",
+   "fieldtype": "Link",
+   "label": "Target Project",
+   "options": "Projects",
+   "read_only": 1
+  },
+  {
+   "description": "SNAPSHOT of the settled record's vendor AT ALLOCATION TIME. See target_project -- same rule, same reason. Blank on Non Project Expenses.",
+   "fieldname": "target_vendor",
+   "fieldtype": "Link",
+   "label": "Target Vendor",
+   "options": "Vendors",
+   "read_only": 1
+  },
+  {
    "fieldname": "classification_section",
    "fieldtype": "Section Break",
    "label": "Classification"
   },
   {
    "default": "Settled",
-   "description": "Always Settled. This table records SETTLEMENTS ONLY -- a row here means money was written: a payment or expense marked Paid, or an expense created at Paid. The v2 kind 'Reconciled' (matched, nothing written) was retired at the v3 reversal, because a suggestion and a settlement addressing the same record would contend for the (transfer_id, target_doctype, target_name) unique constraint -- which IS this feature's idempotency guarantee. The field is kept as a Select rather than dropped so the intent stays legible and a future write kind has somewhere to go.",
+   "description": "Settled = money was written: a payment or expense marked Paid, or an expense created at Paid. Reversed = that settlement was undone by reverse_allocation; the record is KEPT so the mistake stays auditable, and it is excluded from the allocated SUM and from the partial unique index, so the same payment may be allocated to this transfer again. The transition is one-way: Settled -> Reversed, once, never back -- a correction supersedes rather than un-happens. The v2 kind 'Reconciled' (matched, nothing written) was retired at the v3 reversal because a suggestion and a settlement addressing the same record would contend for the (transfer_id, target_doctype, target_name) key.",
    "fieldname": "match_kind",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Match Kind",
-   "options": "Settled",
+   "options": "Settled\nReversed",
    "reqd": 1
   },
   {
@@ -131,6 +152,24 @@
    "fieldtype": "Data",
    "label": "Matched By",
    "read_only": 1
+  },
+  {
+   "fieldname": "reversed_at",
+   "fieldtype": "Datetime",
+   "label": "Reversed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reversed_by",
+   "fieldtype": "Data",
+   "label": "Reversed By",
+   "read_only": 1
+  },
+  {
+   "description": "Why this settlement was undone. REQUIRED by reverse_allocation, not by this field -- a JSON reqd would refuse every ordinary Settled insert. Same standard skip_row already holds: undoing money needs a stated reason.",
+   "fieldname": "reversal_reason",
+   "fieldtype": "Small Text",
+   "label": "Reversal Reason"
   }
  ],
  "index_web_pages_for_search": 1,
