@@ -28,6 +28,8 @@ import json
 import unittest
 from dataclasses import replace
 from datetime import datetime
+from decimal import Decimal
+from unittest import mock
 
 import frappe
 
@@ -51,10 +53,27 @@ from nirmaan_stack.api.outflow_import.review import (
 )
 from nirmaan_stack.api.outflow_import.expenses import settle_row
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
+from nirmaan_stack.services.outflow_import import candidates as C
 from nirmaan_stack.services.outflow_import.amounts import AMOUNT_TOLERANCE
 from nirmaan_stack.services.outflow_import.normalize import normalize_account
 from nirmaan_stack.services.outflow_import.parser import parse_statement
-from nirmaan_stack.services.outflow_import.status import OPEN_ROW_STATUSES, ROW_STATUSES
+from nirmaan_stack.services.outflow_import.sources import (
+    BANK_STATEMENT_SOURCES,
+    source_has_settlement_path,
+)
+from nirmaan_stack.services.outflow_import.stacks import StackKey
+from nirmaan_stack.services.outflow_import.status import (
+    OPEN_ROW_STATUSES,
+    ROW_MATCHED,
+    ROW_MISMATCHED,
+    ROW_SKIPPED,
+    ROW_STATUSES,
+    SKIP_REASON_ALREADY_PAID,
+    STAGED_NOTE_NO_SETTLEMENT_PATH,
+    derive_row_outcome,
+    settleable_candidates,
+    sole_suggestion,
+)
 
 FIXTURE = (
     frappe.get_app_path("nirmaan_stack")
@@ -140,8 +159,15 @@ class OutflowReviewFixture(unittest.TestCase):
         cls.payments.append(name)
         return name
 
+    #: What `_insert_project_expense` writes into `description`. Named so an assertion on the
+    #: record-picker payload can pin the VALUE that reaches the wire rather than merely that a key
+    #: is present -- `description` is now emitted under its own key, not only folded into `detail`.
+    EXPENSE_DESCRIPTION = "Outflow import test expense"
+
     @classmethod
-    def _insert_project_expense(cls, *, amount, status="Approved", vendor=None, project=None):
+    def _insert_project_expense(
+        cls, *, amount, status="Approved", vendor=None, project=None, expense_type=None
+    ):
         """A `Project Expenses` ROW, inserted raw for the same reasons as a payment.
 
         Going through the document lifecycle would fire `project_cashflow_hold_update`, which
@@ -151,17 +177,22 @@ class OutflowReviewFixture(unittest.TestCase):
         ⚠️ `amount` is a Data column of numeric STRINGS on this doctype, and real Currency on the
         non-project one. Inserting a float here would work today and read back as an unpredictable
         string tomorrow -- the asymmetry is stored, not incidental.
+
+        ⚠️ `expense_type` DEFAULTS TO `None`, so every existing call plants the same row it always
+        did. It exists so one fixture can carry a NON-BLANK `type` and prove the payload's
+        `expense_type` key reports it -- a key that is blank on every row proves only that the key
+        spells correctly.
         """
         name = f"TEST-OFE-{frappe.generate_hash(length=12)}"
         frappe.db.sql(
             """
             INSERT INTO "tabProject Expenses"
                 (name, creation, modified, modified_by, owner, docstatus, idx,
-                 projects, vendor, status, amount, description)
-            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s)
+                 projects, vendor, status, amount, description, type)
+            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s)
             """,
             (name, "Administrator", "Administrator", project, vendor, status,
-             str(amount), "Outflow import test expense"),
+             str(amount), cls.EXPENSE_DESCRIPTION, expense_type),
         )
         cls.expenses.append(name)
         return name
@@ -578,11 +609,19 @@ class TestSearchSettleableRecords(OutflowReviewFixture):
         super().setUpClass()
         vendor = frappe.db.get_value("Vendors", {}, ["name", "vendor_name"], as_dict=True)
         cls.vendor = vendor
+        # ⚠️ AN EXISTING `Expense Type`, LOOKED UP RATHER THAN INVENTED. `Project Expenses.type` is
+        # a Link, and this suite inserts raw -- so a made-up string would sit in the column as a
+        # dangling reference for as long as the row lives. `None` when the database has none, in
+        # which case the value assertion below skips rather than pretends.
+        cls.expense_type = frappe.db.get_value("Expense Type", {}, "name")
         # An approved project expense with REAL links, at row 0009's Rs 1,234.50 -- close enough to
         # that row's amount to be offered, and linked so the id-vs-name assertion has something to
         # bite on.
         cls.expense_linked = cls._insert_project_expense(
-            amount="1234.50", vendor=vendor.name if vendor else None, project=cls.project
+            amount="1234.50",
+            vendor=vendor.name if vendor else None,
+            project=cls.project,
+            expense_type=cls.expense_type,
         )
         frappe.db.commit()
 
@@ -716,6 +755,73 @@ class TestSearchSettleableRecords(OutflowReviewFixture):
         for record in records:
             self.assertIn("vendor_nickname", record)
             self.assertIn("contact_person", record)
+
+    def test_every_record_carries_the_description_and_expense_type_keys(self):
+        """Structural, on ALL THREE ledgers: the shape of this payload is UNIFORM.
+
+        The list merges three books into one dropdown, so a reader that has to ask which ledger a
+        record came from before it knows whether a key exists is a reader that will get it wrong on
+        the ledger nobody tested. A `Project Payment` has neither column, and answers `""` -- an
+        empty value is not the same as a missing key.
+        """
+        records = search_settleable_records(self._row_name(), "")
+        self.assertTrue(records)
+        for ledger in ("Project Payments", "Project Expenses", "Non Project Expenses"):
+            for record in (r for r in records if r["target_doctype"] == ledger):
+                self.assertIn("description", record, ledger)
+                self.assertIn("expense_type", record, ledger)
+                self.assertIsInstance(record["description"], str, ledger)
+                self.assertIsInstance(record["expense_type"], str, ledger)
+
+    def test_an_expense_reports_its_description_under_its_OWN_key_not_only_inside_detail(self):
+        """⚠️ THE DEFECT THIS FIXES. `description` was already SELECTED and then dropped -- it
+        survived only folded into `detail`, which joins three facts and is CUT AT 120 CHARACTERS.
+        A truncated join is a display string, not data: the screen could not lay the description
+        out, and a long one silently lost its tail."""
+        records = search_settleable_records(self._row_name(), "")
+        expense = next(r for r in records if r["name"] == self.expense_linked)
+        self.assertEqual(expense["description"], self.EXPENSE_DESCRIPTION)
+
+    def test_a_payment_reports_a_blank_description_rather_than_omitting_it(self):
+        """`Project Payments` has no description column at all -- not a blank value, no column."""
+        records = search_settleable_records(self._row_name(), "Project Payments")
+        self.assertTrue(records)
+        for record in records:
+            self.assertEqual(record["description"], "")
+            self.assertEqual(record["expense_type"], "")
+
+    def test_the_expense_type_gets_its_OWN_key_and_stops_masquerading_as_an_order(self):
+        """⚠️ `document_name` MEANS "the PO/SR this payment is against" -- it is typed and
+        documented that way on the client (`outflowTableModel.ts`). The expense branches were
+        writing the expense TYPE into it, so a reviewer's order column showed a category.
+
+        ⚠️ THE OVERLOAD IS KEPT, DELIBERATELY, AND THIS PINS BOTH HALVES. `recordPickerView`'s
+        `matchesText` puts `document_name` in its search haystack, so removing it here would
+        silently stop a reviewer finding an expense by typing its type -- a search that quietly
+        narrows is worse than one that visibly breaks. The two keys must therefore AGREE on the
+        expense ledgers until the client's haystack moves in the same edit as the removal.
+        """
+        if not self.expense_type:
+            self.skipTest("no Expense Type in this database to link the fixture expense to")
+        records = search_settleable_records(self._row_name(), "")
+        expense = next(r for r in records if r["name"] == self.expense_linked)
+        self.assertEqual(expense["expense_type"], self.expense_type)
+        self.assertEqual(expense["document_name"], expense["expense_type"])
+        # And the honest key for an order stays honest: an expense has no parent order at all.
+        self.assertEqual(expense["document_type"], "")
+
+    def test_a_non_project_expense_answers_both_new_keys_too(self):
+        """The ledger with no vendor and no project still carries a description and a type -- those
+        are its OWN two columns, and they are the only facts a reviewer can pick one by."""
+        records = search_settleable_records(self._row_name(), "Non Project Expenses")
+        if not records:
+            self.skipTest("no approved Non Project Expenses in this database")
+        for record in records:
+            stored = frappe.db.get_value(
+                "Non Project Expenses", record["name"], ["description", "type"], as_dict=True
+            )
+            self.assertEqual(record["description"], stored.description or "")
+            self.assertEqual(record["expense_type"], stored.type or "")
 
     def test_a_non_project_expense_reports_no_vendor_rather_than_omitting_the_field(self):
         records = search_settleable_records(self._row_name(), "Non Project Expenses")
@@ -885,8 +991,17 @@ class TestTheOrderNameForLinking(OutflowReviewFixture):
     def test_the_master_table_carries_it_too(self):
         """⚠️ BOTH READS OR NEITHER. The master table is where most of these links are clicked;
         enriching only the batch view would leave the app's route working in one place and not the
-        other, which is harder to diagnose than it not working anywhere."""
-        rows = get_outflow_rows(scope="all", limit=200)["rows"]
+        other, which is harder to diagnose than it not working anywhere.
+
+        ⚠️ SCOPED TO THIS BATCH, AND THAT IS NOT A WEAKENING -- IT IS WHAT MAKES THE TEST MEAN
+        ANYTHING. It read `scope="all"` unscoped, and `_MAX_PAGE_SIZE` caps that read at 200 rows
+        while this suite runs against the LIVE dev database, which passed 200 open rows and pushed
+        the fixture off the first page: `StopIteration`, reported as a broken deriver when nothing
+        was broken. The `batch` filter changes WHICH rows come back, not WHICH FUNCTION returns
+        them -- `get_outflow_rows` is still the master-table read, still a different function from
+        `get_batch_rows`, so "both reads or neither" is tested exactly as before. Passing on an
+        empty DB and failing on a full one was never evidence about `suggested_order_name`."""
+        rows = get_outflow_rows(scope="all", batch=self.batch.name, limit=200)["rows"]
         row = self._row_0001(rows)
         self.assertEqual(row["suggested_order_name"], self.ORDER)
 
@@ -1158,6 +1273,192 @@ class TestImportSummaryEndpoint(OutflowReviewFixture):
         the total, a row is in a status neither set recognises and the panel is quietly lying."""
         summary = get_import_summary(self.batch.name)["totals"]
         self.assertEqual(summary["open_rows"] + summary["decided_rows"], summary["total_rows"])
+
+    # --- the statement total, cut by direction ---------------------------------------------------
+
+    def _settleable_row_for_direction(self):
+        """One staged row that is IN the totals: successful at the bank, and not `Skipped`.
+
+        Both exclusions have to be avoided or flipping its direction moves nothing -- a failed or
+        skipped row is absent from `total_*` and therefore from both halves, which is itself
+        asserted separately. Raw SQL because the two exclusions are exactly the SQL predicates the
+        summary applies.
+        """
+        rows = frappe.db.sql(
+            """
+            SELECT name, amount, direction
+            FROM "tabOutflow Import Row"
+            WHERE import_batch = %s
+              AND row_status <> %s
+              AND UPPER(TRIM(COALESCE(status_raw, ''))) = %s
+            ORDER BY name
+            LIMIT 1
+            """,
+            (self.batch.name, ROW_SKIPPED, "SUCCESS"),
+            as_dict=True,
+        )
+        return rows[0] if rows else None
+
+    def test_the_two_direction_halves_partition_the_statement_total(self):
+        """⚠️ THE INVARIANT THE SPLIT RESTS ON, asserted end-to-end against a real batch.
+
+        "Total transferred" became "Total paid out" + "Total received" (owner ruling). The two tiles
+        sit beside figures derived from `total_*`, so they have to add back to it exactly -- a row
+        in NEITHER half is money visible in the total and missing from both tiles under it, and a
+        row in BOTH double-counts the statement.
+        """
+        summary = get_import_summary(self.batch.name)["totals"]
+        for key in ("paid_rows", "paid_value", "received_rows", "received_value"):
+            self.assertIn(key, summary, key)
+
+        self.assertEqual(
+            summary["paid_rows"] + summary["received_rows"], summary["total_rows"]
+        )
+        self.assertAlmostEqual(
+            summary["paid_value"] + summary["received_value"],
+            summary["total_value"],
+            places=2,
+        )
+
+    def test_the_money_reaches_the_wire_as_floats_like_its_siblings(self):
+        """`_jsonable_summary` converts for transport; the deriver stays in `Decimal`. A `Decimal`
+        escaping onto the wire is not JSON-serialisable and the panel would simply not load."""
+        summary = get_import_summary(self.batch.name)["totals"]
+        self.assertIsInstance(summary["paid_value"], float)
+        self.assertIsInstance(summary["received_value"], float)
+        self.assertIsInstance(summary["paid_rows"], int)
+        self.assertIsInstance(summary["received_rows"], int)
+
+    def test_a_credit_row_moves_from_the_paid_half_to_the_received_one_and_nowhere_else(self):
+        """The axis is the ROW's stated direction, and flipping ONE row moves exactly one row's
+        worth of money across -- while `total_*` does not budge, because the two halves are carved
+        out of it rather than computed beside it.
+
+        ⚠️ THE FIXTURE IS A GATEWAY STATEMENT AND HAS NO CREDITS, which is precisely why the
+        received half has to be exercised by planting one: a suite that only ever sees `Debit`
+        would pass identically if the split ignored direction altogether.
+        """
+        row = self._settleable_row_for_direction()
+        if not row:
+            self.skipTest("no successful non-skipped row in this batch to flip")
+
+        before = get_import_summary(self.batch.name)["totals"]
+
+        original = row.get("direction")
+        frappe.db.set_value(
+            ROW_DOCTYPE, row["name"], "direction", "Credit", update_modified=False
+        )
+        frappe.db.commit()
+        self.addCleanup(frappe.db.commit)
+        self.addCleanup(
+            frappe.db.set_value,
+            ROW_DOCTYPE,
+            row["name"],
+            "direction",
+            original,
+            update_modified=False,
+        )
+
+        after = get_import_summary(self.batch.name)["totals"]
+        amount = float(row["amount"] or 0)
+
+        self.assertEqual(after["received_rows"], before["received_rows"] + 1)
+        self.assertAlmostEqual(
+            after["received_value"], before["received_value"] + amount, places=2
+        )
+        self.assertEqual(after["paid_rows"], before["paid_rows"] - 1)
+        self.assertAlmostEqual(after["paid_value"], before["paid_value"] - amount, places=2)
+
+        # ⚠️ AND THE FIGURE THE SPLIT WAS CARVED OUT OF IS UNMOVED. Direction changes which tile the
+        # money is reported in; it never changes how much of it the statement holds.
+        self.assertEqual(after["total_rows"], before["total_rows"])
+        self.assertAlmostEqual(after["total_value"], before["total_value"], places=2)
+        self.assertEqual(
+            after["paid_rows"] + after["received_rows"], after["total_rows"]
+        )
+
+    def test_a_credit_that_is_skipped_or_failed_reaches_neither_half(self):
+        """⚠️ THE TWO EXCLUSIONS APPLY TO THE HALVES EXACTLY AS THEY APPLY TO THE TOTAL, or the
+        tiles are drawn from a different population than the one figure they replaced. A skipped
+        transfer is money already counted elsewhere; a failed one never left the account. Marking
+        either as a receipt must move nothing."""
+        skipped = frappe.db.sql(
+            """
+            SELECT name, direction
+            FROM "tabOutflow Import Row"
+            WHERE import_batch = %s AND row_status = %s
+            ORDER BY name
+            LIMIT 1
+            """,
+            (self.batch.name, ROW_SKIPPED),
+            as_dict=True,
+        )
+        if not skipped:
+            self.skipTest("no skipped row in this batch")
+
+        before = get_import_summary(self.batch.name)["totals"]
+
+        original = skipped[0].get("direction")
+        frappe.db.set_value(
+            ROW_DOCTYPE, skipped[0]["name"], "direction", "Credit", update_modified=False
+        )
+        frappe.db.commit()
+        self.addCleanup(frappe.db.commit)
+        self.addCleanup(
+            frappe.db.set_value,
+            ROW_DOCTYPE,
+            skipped[0]["name"],
+            "direction",
+            original,
+            update_modified=False,
+        )
+
+        after = get_import_summary(self.batch.name)["totals"]
+        self.assertEqual(after["received_rows"], before["received_rows"])
+        self.assertAlmostEqual(after["received_value"], before["received_value"], places=2)
+        self.assertEqual(after["paid_rows"], before["paid_rows"])
+        # The row is still reported where it always was -- excluded from the totals, never hidden.
+        self.assertEqual(after["skipped_rows"], before["skipped_rows"])
+
+    def test_the_split_is_computed_under_the_SAME_filters_as_the_total_it_partitions(self):
+        """⚠️ ONE `_row_filters` WHERE CLAUSE, ONE GROUPED QUERY, ONE MORE GROUP KEY. A figure
+        computed under different filters than the panel it sits on reads as a paging bug and is not
+        one -- so the partition has to survive every filtered view, not just the unfiltered read."""
+        for kwargs in (
+            {"batch": self.batch.name},
+            {"batch": self.batch.name, "failed": 0},
+            {"batch": self.batch.name, "failed": 1},
+            {"batch": self.batch.name, "amount_min": 1000},
+            {"batch": self.batch.name, "amount_max": 1000},
+        ):
+            summary = get_outflow_summary(**kwargs)["totals"]
+            self.assertEqual(
+                summary["paid_rows"] + summary["received_rows"],
+                summary["total_rows"],
+                kwargs,
+            )
+            self.assertAlmostEqual(
+                summary["paid_value"] + summary["received_value"],
+                summary["total_value"],
+                places=2,
+                msg=str(kwargs),
+            )
+
+    def test_the_split_is_NOT_the_settled_direction_blocks(self):
+        """⚠️ TWO CUTS ON THE SAME AXIS OVER DIFFERENT POPULATIONS, AND THEY MUST STAY DISTINGUISHABLE.
+        `settled_by_direction` breaks down SETTLED rows only, by ledger; `paid_*` / `received_*` are
+        the WHOLE statement. Two keys totalling the same money would be two chances to disagree --
+        these deliberately total different money, and the panel must never reconcile one to the
+        other."""
+        payload = get_import_summary(self.batch.name)
+        summary = payload["totals"]
+        blocks = {b["direction"]: b for b in payload["settled_by_direction"]}
+        self.assertIn("Paid", blocks)
+
+        settled_paid = blocks["Paid"]["rows"]
+        # The settled block can only ever be a SUBSET of the statement's paid half -- matched,
+        # mismatched and pending rows are paid transfers too, and none of them is settled yet.
+        self.assertLessEqual(settled_paid, summary["paid_rows"])
 
     def test_the_money_agrees_with_the_rows_it_describes(self):
         """Pinned against `get_batch_rows`, which is the other read of the same data. The summary is
@@ -1516,6 +1817,221 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
         programming error and must be loud rather than silently empty."""
         with self.assertRaises(frappe.ValidationError):
             get_outflow_facet_values("amount); DROP TABLE x; --")
+
+
+class TestTheDirectionFacet(OutflowReviewFixture):
+    """`direction` as a FILTER (owner ruling 2026-09-09), and the facet is the DERIVED LABEL.
+
+    ⚠️ THE ENTRY IN `_FACET_COLUMNS` IS AN EXPRESSION, NOT `r.direction`:
+
+        CASE WHEN r.direction = 'Credit' THEN 'Received' ELSE 'Paid' END
+
+    The stored field has THREE values -- `Debit`, `Credit` and BLANK -- while the screen shows only
+    TWO badges. Blank means the statement did not say (a gateway export carries no direction column
+    at all), and the doctype forbids reading it as "Debit by default". So on the RAW column the
+    funnel would offer a third, unlabelled option and a `Debit` tick would silently drop every blank
+    row whose own badge reads `Paid`.
+
+    ⚠️ AND THE LIVE TABLE CANNOT SHOW THAT: measured 2026-09-09 it holds `Debit` 894 / `Credit` 5 /
+    BLANK 0, so raw and derived are INDISTINGUISHABLE on production data today. This fixture PLANTS
+    a blank row for exactly that reason -- a test that passes because the failing case is absent
+    proves nothing, and would keep proving nothing right up to the first statement without the
+    column.
+
+    The `CASE` mirrors `status.is_received_direction` -- one positive test on `"Credit"` -- so this
+    filter and the summary's direction split are ONE partition, which is what
+    `test_the_two_labels_are_a_PARTITION...` pins.
+    """
+
+    #: What the screen shows, and therefore the only two values this funnel may ever offer.
+    #: `get_outflow_facet_values` sorts ASC, so this is also the expected order.
+    DERIVED_LABELS = ["Paid", "Received"]
+
+    #: EVERY row this fixture plants as a credit, in every spelling. Derived in one place so that
+    #: planting another spelling widens the expectations with it instead of leaving a stale literal.
+    CREDIT_ROWS = staticmethod(lambda cls: [cls.credit_row, cls.padded_credit_row])
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # The fixture is a Cashfree export, whose parser fills `direction` from the `Amount` cell --
+        # so every staged row arrives `Debit`. Both interesting cases have to be planted.
+        rows = frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": cls.batch.name, "row_status": ["!=", ROW_SKIPPED]},
+            fields=["name"],
+            order_by="transfer_id asc",
+        )
+        assert len(rows) >= 4, "fixture precondition: four non-skipped rows to split"
+        cls.credit_row = rows[0]["name"]
+        cls.blank_row = rows[1]["name"]
+        #: A PADDED credit -- `" Credit "`. Both readers of this axis STRIP:
+        #: `status.is_received_direction` is `(direction or "").strip() == "Credit"` and the client's
+        #: `isCreditRow` trims for the same reason, so this row's badge reads **Received**. The facet
+        #: must agree, or ticking `Received` hides a row whose own badge names the value that was
+        #: ticked. Planted because no real row carries padding today -- which is precisely what would
+        #: have made the untrimmed `CASE` ship green and stay green.
+        cls.padded_credit_row = rows[2]["name"]
+
+        # ⚠️ RAW WRITES, DELIBERATELY. `set_value` bypasses the document lifecycle -- but no
+        # `Outflow Import Row` doc_event is registered in `hooks.py`, so there is nothing to skip,
+        # and `direction` feeds no stored derived field (the summary's split is computed at read
+        # time from this column). `update_modified=False` keeps the audit honest: these rows were
+        # not edited by a person today.
+        frappe.db.set_value(
+            ROW_DOCTYPE, cls.credit_row, "direction", "Credit", update_modified=False
+        )
+        frappe.db.set_value(ROW_DOCTYPE, cls.blank_row, "direction", "", update_modified=False)
+        frappe.db.set_value(
+            ROW_DOCTYPE, cls.padded_credit_row, "direction", " Credit ", update_modified=False
+        )
+        frappe.db.commit()
+
+    def test_a_PADDED_credit_is_Received_on_both_sides_of_the_wire(self):
+        """⚠️ THE `TRIM()` IN THE FACET EXPRESSION IS WHAT THIS PINS, AND IT IS NOT COSMETIC.
+
+        `status.is_received_direction` strips; so does the client's `isCreditRow` (slice D5 named
+        that rule precisely because four untrimmed copies had drifted apart). A `CASE` without
+        `TRIM` therefore renders a **Received** badge on this row while filing it under **Paid** --
+        so ticking `Received` HIDES A ROW WHOSE OWN BADGE SAYS RECEIVED, and the summary band counts
+        it on the opposite side from the funnel.
+
+        No production row carries padding, so an untrimmed expression ships green and stays green.
+        That is the whole reason this row is planted rather than found.
+        """
+        received, _ = self._names(facets=json.dumps({"direction": ["Received"]}))
+        self.assertIn(self.padded_credit_row, received)
+        paid, _ = self._names(facets=json.dumps({"direction": ["Paid"]}))
+        self.assertNotIn(self.padded_credit_row, paid)
+        # The funnel still offers two labels -- a padded value must not mint a third option.
+        values = get_outflow_facet_values(
+            column="direction", batch=self.batch.name, scope="all"
+        )
+        self.assertEqual(values["values"], self.DERIVED_LABELS)
+
+    def test_the_facet_agrees_with_the_python_predicate_on_every_stored_spelling(self):
+        """The two sides of the axis, pinned against each other rather than each against a literal.
+
+        ⚠️ ASSERTED THROUGH THE REAL ENDPOINT, NOT BY RE-IMPLEMENTING THE `CASE` IN PYTHON. A test
+        that re-spells the rule to check the rule passes whenever the two spellings match each
+        other, which is not the question.
+        """
+        from nirmaan_stack.services.outflow_import.status import is_received_direction
+
+        for row_name in (self.credit_row, self.blank_row, self.padded_credit_row):
+            stored = frappe.db.get_value(ROW_DOCTYPE, row_name, "direction")
+            expected = "Received" if is_received_direction(stored) else "Paid"
+            names, _ = self._names(facets=json.dumps({"direction": [expected]}))
+            self.assertIn(
+                row_name,
+                names,
+                f"stored {stored!r} -> the predicate says {expected}, the facet disagreed",
+            )
+
+    def _page(self, **kwargs):
+        # ⚠️ ALWAYS SCOPED TO THIS CLASS'S OWN BATCH. `get_outflow_rows` spans every import, and the
+        # live database carries other statements -- 899 rows of them at the last count -- so a bare
+        # assertion on a total here would pass or fail on whatever somebody else uploaded.
+        kwargs.setdefault("batch", self.batch.name)
+        return get_outflow_rows(**kwargs)
+
+    def _names(self, **kwargs):
+        page = self._page(scope="all", limit=200, **kwargs)
+        return [r["name"] for r in page["rows"]], page
+
+    def test_the_funnel_offers_EXACTLY_the_two_labels_the_screen_shows(self):
+        """⚠️ THE ASSERTION THAT CATCHES A LATER SWITCH BACK TO THE RAW COLUMN. On `r.direction`
+        this returns `["Credit", "Debit"]` -- two values nothing on the screen is labelled with --
+        and, on a population containing a blank, a third empty option too (which
+        `get_outflow_facet_values` would then strip, leaving the blank rows filterable by nothing).
+        """
+        values = get_outflow_facet_values(column="direction", batch=self.batch.name, scope="all")
+        self.assertEqual(values["column"], "direction")
+        self.assertEqual(values["values"], self.DERIVED_LABELS)
+        # Said again as negatives, because the list above is what a careless "fix" would rewrite.
+        self.assertNotIn("Debit", values["values"])
+        self.assertNotIn("Credit", values["values"])
+        for value in values["values"]:
+            self.assertTrue(value.strip(), "a blank option is not a thing a person can tick")
+
+    def test_Received_selects_the_credit_rows_and_nothing_else(self):
+        """⚠️ BOTH SPELLINGS OF A CREDIT, compared as a SET.
+
+        This pinned `[self.credit_row]` and `total == 1` while the fixture planted exactly one
+        credit. A padded `" Credit "` row was added afterwards to pin the facet's `TRIM()`, and both
+        spellings are credits -- so the expectation WIDENED with the fixture rather than the new row
+        being excused from it. A set, because `_names` returns the page's own sort order and this
+        test makes no claim about which credit comes first.
+        """
+        names, page = self._names(facets=json.dumps({"direction": ["Received"]}))
+        self.assertEqual(set(names), set(self.CREDIT_ROWS(self)))
+        self.assertEqual(page["total"], len(self.CREDIT_ROWS(self)))
+
+    def test_Paid_INCLUDES_the_row_whose_stored_direction_is_BLANK(self):
+        """⚠️ THE LOAD-BEARING ONE. The blank row's badge reads `Paid`, so the `Paid` tick must
+        return it. On the raw column this test does not merely fail differently -- `["Paid"]`
+        matches no stored value at all and the page comes back EMPTY."""
+        names, page = self._names(facets=json.dumps({"direction": ["Paid"]}))
+        self.assertIn(self.blank_row, names)
+        for credit in self.CREDIT_ROWS(self):
+            self.assertNotIn(credit, names)
+        # The two labels partition the batch, so Paid is everything that is not a credit.
+        self.assertEqual(
+            page["total"],
+            self._page(scope="all", limit=200)["total"] - len(self.CREDIT_ROWS(self)),
+        )
+
+    def test_the_raw_stored_values_are_not_something_a_client_can_tick(self):
+        """The other side of the same coin: `Debit` is not a value this funnel offers, so sending it
+        selects nothing rather than quietly working and diverging from the option list."""
+        names, page = self._names(facets=json.dumps({"direction": ["Debit"]}))
+        self.assertEqual(names, [])
+        self.assertEqual(page["total"], 0)
+
+    def test_an_empty_selection_is_a_pass_through_not_match_nothing(self):
+        """The rule `_row_filters` already states for every facet: unticking the last value clears
+        the filter, it does not blank the table."""
+        self.assertEqual(
+            self._page(scope="all", limit=200, facets=json.dumps({"direction": []}))["total"],
+            self._page(scope="all", limit=200)["total"],
+        )
+
+    def test_the_two_labels_are_a_PARTITION_of_the_population(self):
+        """Both ticked is the whole set, and the two halves add back to it. That is what makes this
+        the same cut as `status.is_received_direction` and the summary's direction split -- a row
+        that fell through both would be visible in neither, on a screen whose whole job is that
+        nothing goes unreviewed."""
+        everything = self._page(scope="all", limit=200)["total"]
+        both = self._page(
+            scope="all", limit=200, facets=json.dumps({"direction": self.DERIVED_LABELS})
+        )["total"]
+        paid = self._page(scope="all", limit=200, facets=json.dumps({"direction": ["Paid"]}))
+        received = self._page(
+            scope="all", limit=200, facets=json.dumps({"direction": ["Received"]})
+        )
+        self.assertEqual(both, everything)
+        self.assertEqual(paid["total"] + received["total"], everything)
+
+    def test_the_filter_narrows_the_TAB_COUNTS_with_the_page(self):
+        """`_row_filters` is ONE builder for the page, its count, the tab counts, the facet values
+        and the summary. A fragment that works in the page query and not the others is a count
+        computed under different filters than the rows it labels."""
+        page = self._page(scope="all", limit=200, facets=json.dumps({"direction": ["Received"]}))
+        self.assertEqual(page["tab_counts"]["all"], page["total"])
+
+    def test_the_row_still_SHIPS_its_raw_direction_to_the_screen(self):
+        """⚠️ FILTERING AND CARRYING ARE TWO SEPARATE EDITS (the Q1 defect). The facet is derived;
+        the ROW payload keeps the raw field, because the decision dialog reads it to offer "Create a
+        project inflow" on a credit. Registering the facet must not have changed what a row holds.
+        """
+        by_name = {r["name"]: r for r in self._page(scope="all", limit=200)["rows"]}
+        self.assertIn("direction", by_name[self.credit_row])
+        self.assertEqual(by_name[self.credit_row]["direction"], "Credit")
+        self.assertIn("direction", by_name[self.blank_row])
+        # Still BLANK on the wire, not back-filled to the `Paid` label the funnel now offers -- the
+        # doctype's own description forbids reading a blank as "Debit by default", and the payload
+        # is where that would first stop being true.
+        self.assertFalse((by_name[self.blank_row]["direction"] or "").strip())
 
 
 class TestConfirmableRows(OutflowReviewFixture):
@@ -2722,6 +3238,66 @@ class TestMatchPeriod(OutflowReviewFixture):
         self.assertIn("status", entry)
         self.assertTrue(entry["is_open"], "fixture precondition: this batch still has open rows")
 
+    def test_the_summary_reports_whether_a_statement_will_be_MATCHED_or_only_duplicate_checked(self):
+        """⚠️ THE CAPTION SAID "Re-run reaches N open imports" WHILE THE BUTTON DID TWO DIFFERENT
+        THINGS (owner ruling 2026-09-09). `match_batch` FORKS on `source_has_settlement_path`: a
+        source without one never loads a settlement pool and never calls `match_row` -- it runs the
+        duplicate guard and returns. One number covering both described the wider action for every
+        statement in the set.
+
+        ⚠️ THE DERIVED BOOLEAN SHIPS, NEVER `b.source`. The rule has an owner, and the fork reads the
+        same function -- so the caption and the fork cannot come to disagree about a source. Handing
+        the client the string would put a second copy of "which sources match" in the frontend, free
+        to drift the day a fourth source lands.
+        """
+        summary = get_outflow_summary(batch=self.batch.name)
+        entry = next(b for b in summary["imports"] if b["name"] == self.batch.name)
+        self.assertIn("has_settlement_path", entry)
+        self.assertIsInstance(entry["has_settlement_path"], bool)
+        # The fixture is a Cashfree export, which DOES match -- asserted as a precondition so a
+        # future fixture change reports itself instead of looking like a broken deriver.
+        self.assertEqual(
+            frappe.db.get_value(BATCH_DOCTYPE, self.batch.name, "source"),
+            "Cashfree",
+            "fixture precondition: a source that has a settlement path",
+        )
+        self.assertTrue(entry["has_settlement_path"])
+        # ⚠️ THE PAYLOAD AGREES WITH THE PREDICATE THE FORK READS, asserted through the real endpoint
+        # rather than by re-spelling the rule -- a test that re-spells a rule to check it passes
+        # whenever the two spellings agree with each other, which is not the question.
+        self.assertEqual(
+            entry["has_settlement_path"],
+            source_has_settlement_path(
+                frappe.db.get_value(BATCH_DOCTYPE, self.batch.name, "source") or ""
+            ),
+        )
+
+    def test_a_bank_statement_reports_that_it_will_NOT_be_matched(self):
+        """The other half, and the one the ruling is about. ⚠️ THE SOURCE IS PLANTED, because this
+        fixture is Cashfree and a test that passes because the failing case is absent proves nothing
+        -- the same reason `TestTheDirectionFacet` plants its blank and padded rows.
+        """
+        original = frappe.db.get_value(BATCH_DOCTYPE, self.batch.name, "source")
+        # ⚠️ RAW WRITE, RESTORED IN A `finally`. No `Outflow Import Batch` doc_event is registered in
+        # `hooks.py`, and `source` feeds no stored derived field -- the fork computes from it at read
+        # time. `update_modified=False` keeps the audit honest.
+        frappe.db.set_value(
+            BATCH_DOCTYPE, self.batch.name, "source", "ICICI Bank Statement", update_modified=False
+        )
+        frappe.db.commit()
+        try:
+            summary = get_outflow_summary(batch=self.batch.name)
+            entry = next(b for b in summary["imports"] if b["name"] == self.batch.name)
+            self.assertFalse(
+                entry["has_settlement_path"],
+                "a bank statement is duplicate-checked, never matched -- the caption reads this",
+            )
+        finally:
+            frappe.db.set_value(
+                BATCH_DOCTYPE, self.batch.name, "source", original, update_modified=False
+            )
+            frappe.db.commit()
+
 
 class TestTheConfirmableCap(OutflowReviewFixture):
     """`_MAX_CONFIRMABLE` -- the reviewability limit on "Confirm all matched" (slice P1)."""
@@ -2914,7 +3490,7 @@ class TestTheMatchingOrder(unittest.TestCase):
 
 
 class TestTheSettledLedgerSplit(OutflowReviewFixture):
-    """`settled_by_ledger` on the summary, and `settled_ledger` on the row (slice V1).
+    """`settled_by_direction` on the summary, and `settled_ledger` on the row (V1, widened at B8b).
 
     ⚠️ THE FIXTURE SETTLES EXACTLY ONE ROW, AND THAT IS ENOUGH TO TEST BOTH HALVES. What has to
     hold is that the breakdown ADDS UP to the tile above it and that the ledgers nothing landed in
@@ -2938,6 +3514,24 @@ class TestTheSettledLedgerSplit(OutflowReviewFixture):
         frappe.db.commit()
 
     # --- the summary breakdown ---------------------------------------------------------------
+    #
+    # ⚠️ THE PANEL IS TWO BLOCKS SINCE B8b (owner ruling Q14, option a) -- Received and Paid, each
+    # reconciling to its OWN total, NEVER netted. `settled_by_ledger` is GONE and
+    # `settled_by_direction` replaced it; a stale reader gets `undefined` and renders no breakdown,
+    # which is the intended loud failure rather than a quietly halved figure.
+
+    def test_the_old_flat_key_is_GONE_rather_than_kept_beside_the_new_one(self):
+        """Two payload keys totalling the same money are two chances to disagree about it."""
+        payload = get_outflow_summary(batch=self.batch.name)
+        self.assertNotIn("settled_by_ledger", payload)
+        self.assertIn("settled_by_direction", payload)
+
+    def test_a_debit_only_statement_renders_ONLY_the_paid_block(self):
+        """⚠️ THE CASHFREE / CASHBOOK GUARANTEE. Both are SINGLE-DIRECTION sources -- they cannot
+        produce a credit, ever -- so a two-block panel must not put an empty Received block on an
+        import where there was none. Every one of the 809 live staged rows is `Debit`."""
+        blocks = get_outflow_summary(batch=self.batch.name)["settled_by_direction"]
+        self.assertEqual([b["direction"] for b in blocks], ["Paid"])
 
     def test_all_three_ledgers_are_reported_even_when_nothing_landed_in_two_of_them(self):
         """⚠️ ZERO-FILLED, NOT OMITTED, for the reason `derive_import_summary` already gives about
@@ -2948,12 +3542,13 @@ class TestTheSettledLedgerSplit(OutflowReviewFixture):
         The ORDER is `ledgers.LEDGER_DOCTYPES` and is never sorted by value, or the same figure sits
         in a different place each time the panel is read and nothing is comparable at a glance.
         """
-        split = get_outflow_summary(batch=self.batch.name)["settled_by_ledger"]
+        blocks = get_outflow_summary(batch=self.batch.name)["settled_by_direction"]
+        paid = {b["direction"]: b for b in blocks}["Paid"]
         self.assertEqual(
-            [b["ledger"] for b in split],
+            [b["ledger"] for b in paid["ledgers"]],
             ["Project Payments", "Project Expenses", "Non Project Expenses"],
         )
-        by_ledger = {b["ledger"]: b for b in split}
+        by_ledger = {b["ledger"]: b for b in paid["ledgers"]}
         self.assertEqual(by_ledger["Project Payments"]["rows"], 1)
         self.assertAlmostEqual(
             by_ledger["Project Payments"]["value"], self.settled_amount, places=2
@@ -2962,9 +3557,26 @@ class TestTheSettledLedgerSplit(OutflowReviewFixture):
             self.assertEqual(by_ledger[empty]["rows"], 0)
             self.assertEqual(by_ledger[empty]["value"], 0)
 
-    def test_the_three_values_sum_EXACTLY_to_the_settled_value_tile(self):
-        """⚠️ THE LOAD-BEARING ONE. The breakdown sits directly under the `settled_value` tile, so a
-        reviewer reads the three figures as its parts. They have to BE its parts.
+    def test_EACH_BLOCK_reconciles_EXACTLY_to_its_own_lines(self):
+        """⚠️ THE LOAD-BEARING ONE, HALF ONE. A reviewer reads a block's ledger lines as the parts
+        of the total printed above them. They have to BE its parts, per block -- and the deriver
+        sums each total FROM the lines it just built, so this is exact by construction rather than
+        by two numbers happening to agree."""
+        for block in get_outflow_summary(batch=self.batch.name)["settled_by_direction"]:
+            self.assertEqual(
+                block["rows"], sum(b["rows"] for b in block["ledgers"]), block["direction"]
+            )
+            self.assertAlmostEqual(
+                block["value"],
+                sum(b["value"] for b in block["ledgers"]),
+                places=2,
+                msg=block["direction"],
+            )
+
+    def test_the_two_blocks_TOGETHER_sum_EXACTLY_to_the_settled_value_tile(self):
+        """⚠️ THE LOAD-BEARING ONE, HALF TWO -- and the surviving half of the pre-B8b invariant.
+        Splitting the panel must not lose or double a rupee: the blocks partition the settled rows,
+        so their totals add back to `settled_value`.
 
         This is why the query sums `r.amount` -- the ROW's amount, which is what `settled_value` is
         a sum of -- and NOT `m.target_amount`. The two are equal on every settle where the transfer
@@ -2973,13 +3585,80 @@ class TestTheSettledLedgerSplit(OutflowReviewFixture):
         stops adding up to the total above it. Green everywhere until the first partial.
         """
         payload = get_outflow_summary(batch=self.batch.name)
-        split = payload["settled_by_ledger"]
+        blocks = payload["settled_by_direction"]
         self.assertEqual(
-            sum(b["rows"] for b in split), payload["totals"]["settled_rows"]
+            sum(b["rows"] for b in blocks), payload["totals"]["settled_rows"]
         )
         self.assertAlmostEqual(
-            sum(b["value"] for b in split), payload["totals"]["settled_value"], places=2
+            sum(b["value"] for b in blocks), payload["totals"]["settled_value"], places=2
         )
+
+    def test_a_CREDIT_settlement_opens_the_received_block_and_both_still_reconcile(self):
+        """⚠️ THE SQL GROUPS ON `r.direction`, THE ROW'S OWN DIRECTION -- not on the ledger, which
+        genuinely cannot answer it (a non-project RECEIPT is a NEGATIVE `Non Project Expense`).
+
+        The fixture's source stages only debits, so the direction is flipped on the settled row and
+        put back afterwards. It is a plain column read by nothing derived, and the endpoint under
+        test only READS -- `update_modified=False` keeps the row otherwise untouched.
+
+        The row settled a `Project Payment`, which no credit can reach, so it lands in the received
+        block's `Other` slot. That is the anomaly slot doing its job: made VISIBLE rather than
+        dropped, and the block still adds up.
+        """
+        self.addCleanup(
+            frappe.db.set_value,
+            "Outflow Import Row",
+            self.settled_row,
+            "direction",
+            "Debit",
+            update_modified=False,
+        )
+        frappe.db.set_value(
+            "Outflow Import Row", self.settled_row, "direction", "Credit",
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+        payload = get_outflow_summary(batch=self.batch.name)
+        blocks = payload["settled_by_direction"]
+        self.assertEqual([b["direction"] for b in blocks], ["Paid", "Received"])
+        by_direction = {b["direction"]: b for b in blocks}
+
+        # Paid still renders, zero-filled -- "0 settled" is the fact a reviewer needs.
+        self.assertEqual(by_direction["Paid"]["rows"], 0)
+        self.assertEqual(
+            [b["ledger"] for b in by_direction["Paid"]["ledgers"]],
+            ["Project Payments", "Project Expenses", "Non Project Expenses"],
+        )
+        # Received carries its OWN two books, plus the anomaly.
+        received = by_direction["Received"]
+        self.assertEqual(received["rows"], 1)
+        self.assertEqual(
+            [b["ledger"] for b in received["ledgers"]][:2],
+            ["Project Inflows", "Non Project Expenses"],
+        )
+        self.assertEqual(received["ledgers"][-1]["ledger"], "Other")
+
+        # Both reconciliations, and the sum, all still exact.
+        for block in blocks:
+            self.assertAlmostEqual(
+                block["value"], sum(b["value"] for b in block["ledgers"]), places=2
+            )
+            self.assertEqual(block["rows"], sum(b["rows"] for b in block["ledgers"]))
+        self.assertAlmostEqual(
+            sum(b["value"] for b in blocks), payload["totals"]["settled_value"], places=2
+        )
+        self.assertEqual(
+            sum(b["rows"] for b in blocks), payload["totals"]["settled_rows"]
+        )
+
+    def test_the_blocks_are_NEVER_netted(self):
+        """The owner's ruling in one assertion: a single figure would hide both halves, and adding
+        money in to money out means nothing. Each block keeps its own total, always."""
+        for block in get_outflow_summary(batch=self.batch.name)["settled_by_direction"]:
+            self.assertIn("value", block)
+            self.assertIn("rows", block)
+            self.assertIn("ledgers", block)
 
     def test_it_moves_with_the_filters_exactly_as_every_other_figure_does(self):
         """It runs under the SAME `_row_filters` the panel, the tabs and the page query run under.
@@ -2992,15 +3671,19 @@ class TestTheSettledLedgerSplit(OutflowReviewFixture):
         )
         self.assertEqual(elsewhere["totals"]["settled_rows"], 0)
         self.assertEqual(
-            sum(b["rows"] for b in elsewhere["settled_by_ledger"]), 0
+            sum(b["rows"] for b in elsewhere["settled_by_direction"]), 0
         )
-        # Still all three, still zero-filled: an empty population changes the numbers, not the shape.
-        self.assertEqual(len(elsewhere["settled_by_ledger"]), 3)
+        # Still the paid block, still all three ledgers zero-filled, and still no received block:
+        # an empty population changes the numbers, not the shape.
+        self.assertEqual([b["direction"] for b in elsewhere["settled_by_direction"]], ["Paid"])
+        self.assertEqual(len(elsewhere["settled_by_direction"][0]["ledgers"]), 3)
 
         # And an amount floor above every row empties it the same way.
         beyond = max(float(r.amount) for r in self.parsed.rows) + 1
         nothing = get_outflow_summary(batch=self.batch.name, amount_min=beyond)
-        self.assertEqual(sum(b["value"] for b in nothing["settled_by_ledger"]), 0)
+        self.assertEqual(
+            sum(b["value"] for b in nothing["settled_by_direction"]), 0
+        )
         self.assertEqual(nothing["totals"]["settled_value"], 0)
 
     def test_the_batch_endpoint_carries_it_because_it_is_a_PURE_DELEGATE(self):
@@ -3008,15 +3691,19 @@ class TestTheSettledLedgerSplit(OutflowReviewFixture):
         appears there for free. If this ever goes red the delegate has grown a body."""
         delegated = get_import_summary(self.batch.name)
         direct = get_outflow_summary(batch=self.batch.name)
-        self.assertEqual(delegated["settled_by_ledger"], direct["settled_by_ledger"])
+        self.assertEqual(delegated["settled_by_direction"], direct["settled_by_direction"])
 
     def test_every_value_crosses_the_wire_as_a_number(self):
         """The deriver works in Decimal because money does; JSON does not carry one. A Decimal that
         reached the response would serialise as a string and every arithmetic on the screen would
         silently concatenate."""
-        for bucket in get_outflow_summary(batch=self.batch.name)["settled_by_ledger"]:
-            self.assertIsInstance(bucket["value"], float)
-            self.assertIsInstance(bucket["rows"], int)
+        for block in get_outflow_summary(batch=self.batch.name)["settled_by_direction"]:
+            self.assertIsInstance(block["value"], float)
+            self.assertIsInstance(block["rows"], int)
+            self.assertIsInstance(block["direction"], str)
+            for bucket in block["ledgers"]:
+                self.assertIsInstance(bucket["value"], float)
+                self.assertIsInstance(bucket["rows"], int)
 
     # --- the column on the row ----------------------------------------------------------------
 
@@ -3226,3 +3913,535 @@ class TestTheOutflowExport(OutflowReviewFixture):
         self.assertEqual(R._MAX_PAGE_SIZE, 200)
         self.assertEqual(R._MAX_EXPORT, 20000)
         self.assertGreater(R._MAX_EXPORT, R._MAX_PAGE_SIZE)
+
+
+# --- slice B4: a bank statement has NO settlement path, only a duplicate guard --------------------
+
+
+ICICI_FIXTURE = (
+    frappe.get_app_path("nirmaan_stack")
+    + "/services/outflow_import/tests/fixtures/icici_sample.csv"
+)
+
+
+def _fresh_icici_parse():
+    """The ICICI fixture in a private transfer-id namespace, for the same reason `_fresh_parse` is.
+
+    ⚠️ ONLY `transfer_id` IS PREFIXED. `remarks` and `direction` are the axes the widened identity
+    turns on, and `bank_reference_no` is what the duplicate guard matches -- namespacing any of them
+    would change what these tests are testing. `test_upload` keeps a twin of this helper; it is a
+    six-line fixture builder, and importing one test module from another to save it would couple two
+    suites that are edited independently.
+    """
+    with open(ICICI_FIXTURE, "rb") as handle:
+        parsed = parse_statement(handle.read(), source="ICICI Bank Statement")
+    prefix = frappe.generate_hash(length=10)
+    return replace(
+        parsed,
+        rows=tuple(replace(r, transfer_id=f"{prefix}-{r.transfer_id}") for r in parsed.rows),
+    )
+
+
+# The three fixture rows this slice is argued on. Each is a SUCCESS debit/credit that survives the
+# `bank_exclusions` ruleset, so it reaches the match run rather than being skipped at staging.
+#   ...0020  Rs 2,10,000, ref ICICR42026030500000002 -- given a PERFECT tier-0 Approved candidate
+#   ...0006  Rs 1,20,968, ref IN42600000000001       -- given an already-PAID payment, exact amount
+#   ...0005  Rs   12,500, ref 601200000002           -- given an already-PAID payment, Rs 100 out
+#   ...0002  Rs   44,275, ref AXISP00111222333       -- given nothing at all
+_BANK_PERFECT_CANDIDATE = "S10000020"
+_BANK_ALREADY_PAID = "S10000006"
+_BANK_PAID_BUT_SHORT = "S10000005"
+_BANK_PLAIN = "S10000002"
+
+
+class BankStatementFixture(OutflowReviewFixture):
+    """A staged ICICI statement BESIDE the base class's staged Cashfree export.
+
+    ⚠️ BOTH SOURCES IN ONE FIXTURE IS THE POINT. Every assertion below about what a bank statement
+    does NOT get is only worth anything next to a gateway batch, matched by the same code, in the
+    same database, on the same run, that DOES get it. Otherwise "no suggestion anywhere" is equally
+    consistent with the matcher being broken.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.icici = _fresh_icici_parse()
+        cls.icici_batch = _stage_batch(
+            cls.icici,
+            file_url="/private/files/test-b4-icici.csv",
+            filename="test-b4-icici.csv",
+            user="Administrator",
+        )
+        cls.batches.append(cls.icici_batch.name)
+        cls._plant_bank_targets()
+        frappe.db.commit()
+
+    @classmethod
+    def _icici_row(cls, suffix):
+        return next(r for r in cls.icici.rows if r.transfer_id.endswith(suffix))
+
+    @classmethod
+    def _plant_bank_targets(cls):
+        """Records that WOULD settle these bank rows if this source had a settlement path."""
+        perfect = cls._icici_row(_BANK_PERFECT_CANDIDATE)
+        # ⚠️ APPROVED, and its `utr` is the row's own bank reference -- i.e. a tier-0 hit, the
+        # strongest thing the ladder can produce. On a Cashfree row this exact shape is `Matched`
+        # with a pre-selected suggestion (`TestMatchBatch`). Here it must produce nothing.
+        cls.bank_perfect = cls._insert_payment_row(
+            amount=float(perfect.amount),
+            status="Approved",
+            utr=perfect.bank_reference_no,
+            payment_date=perfect.added_on.date() if perfect.added_on else None,
+        )
+        already = cls._icici_row(_BANK_ALREADY_PAID)
+        # PAID at the exact amount -- the guard that is KEPT (owner ruling Q31a, 41 of 711 rows).
+        cls.bank_already_paid = cls._insert_payment_row(
+            amount=float(already.amount),
+            status="Paid",
+            utr=already.bank_reference_no,
+            payment_date=already.added_on.date() if already.added_on else None,
+        )
+        short = cls._icici_row(_BANK_PAID_BUT_SHORT)
+        # PAID but Rs 100 out -- well outside the +-Rs 5 rounding window, so the guard's OTHER
+        # branch fires: Mismatched, naming the record and the gap.
+        cls.bank_paid_short = cls._insert_payment_row(
+            amount=float(short.amount) + 100,
+            status="Paid",
+            utr=short.bank_reference_no,
+            payment_date=short.added_on.date() if short.added_on else None,
+        )
+
+    def _bank_row_list(self):
+        """EVERY staged row, as a list.
+
+        ⚠️ NOT THE DICT BELOW, for anything that COUNTS or walks the statement. The fixture carries
+        two pairs of rows sharing a transfer id ON PURPOSE -- an SGST/CGST pair and both legs of a
+        general-ledger transfer, which is what the widened identity exists for -- so a dict keyed by
+        that id silently drops one of each pair. It cost this suite a red test to notice.
+        """
+        return frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": self.icici_batch.name},
+            fields=[
+                "name", "transfer_id", "row_status", "outcome_note", "skip_reason",
+                "resolved_vendor", "suggested_doctype", "suggested_name", "suggestion_rule",
+                "match_basis", "auto_matched", "source",
+            ],
+            order_by="creation asc, name asc",
+        )
+
+    def _bank_rows(self):
+        """Keyed by the fixture's ORIGINAL transfer id -- for addressing the four named rows only.
+
+        Lossy by construction (see `_bank_row_list`); every one of the four constants above is a
+        transfer id that appears exactly once.
+        """
+        return {r["transfer_id"].split("-", 1)[1]: r for r in self._bank_row_list()}
+
+
+class TestABankStatementIsDuplicateGuardOnly(BankStatementFixture):
+    """Owner rulings Q31 / Q31a, slice B4.
+
+    A bank passbook has NO settlement path -- tier 1 is structurally unreachable, tier 0's
+    Approved-only pool is empty by construction, and tier 2 fires zero times on 711 real debits with
+    all seven near-misses false positives (see `sources.source_has_settlement_path`). So the match
+    run for such a batch produces NO settlement candidate at all, keeps the already-recorded-as-Paid
+    duplicate guard, and lands everything else `Mismatched` for a person to resolve by CREATING a
+    record.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.bank_result = match_batch(cls.icici_batch.name)
+        cls.gateway_result = match_batch(cls.batch.name)
+
+    # --- preconditions: the candidates really are there to be found ------------------------------
+
+    def test_the_precondition_a_perfect_tier_zero_candidate_IS_in_the_settleable_pool(self):
+        """⚠️ WITHOUT THIS EVERY ASSERTION BELOW IS VACUOUS. "No suggestion" is the expected result
+        of a source that cannot settle AND of a database with nothing to settle against. This proves
+        the planted payment is `Approved`, carries the row's own bank reference, and is returned by
+        the very loader `_load_pools` uses for tier 0 -- so the only reason it is not offered is the
+        one this slice introduced."""
+        row = self._icici_row(_BANK_PERFECT_CANDIDATE)
+        pool = C.load_payments_by_reference([row.bank_reference_no])
+        self.assertIn(self.bank_perfect, {t.name for t in pool})
+
+    def test_the_precondition_the_MATCHER_WOULD_have_pre_selected_it_if_it_were_ASKED(self):
+        """⚠️ THE STRONGEST ANTI-VACUITY GUARD IN THIS CLASS, AND THE ONE THAT MAKES THE SLICE'S
+        CLAIM FALSIFIABLE.
+
+        The test above proves the record is in the pool. This proves the whole machinery, handed
+        this exact staged row and the pools it would have loaded, produces a tier-0 group, calls it
+        `Matched`, and PRE-SELECTS that record by name. So the shipped run's blank suggestion is not
+        the matcher failing to find anything -- it is the source having no settlement path, and
+        nothing else. Delete the fork in `match_batch` and this row settles Rs 2,10,000 unattended.
+        """
+        from nirmaan_stack.api.outflow_import import review as R
+
+        name = self._bank_rows()[_BANK_PERFECT_CANDIDATE]["name"]
+        staged = next(
+            R._StagedRow(r) for r in R._load_rows(self.icici_batch.name) if r["name"] == name
+        )
+        pools = R._load_pools([staged], self.icici_batch.name)
+        result = R.match_row(
+            staged, pools["vendors"], pools["payments"], pools["expenses"], pools["projects"]
+        )
+        found = {t.name for group in (result.payment_groups or ()) for t in group.targets}
+        self.assertIn(self.bank_perfect, found)
+
+        outcome = derive_row_outcome(staged, result)
+        self.assertEqual(outcome.status, ROW_MATCHED)
+        self.assertEqual(len(settleable_candidates(result)), 1)
+        suggestion = sole_suggestion(outcome, result)
+        self.assertIsNotNone(suggestion)
+        self.assertEqual(suggestion.name, self.bank_perfect)
+
+        # ...and the shipped run, over the same row and the same database, offered nothing.
+        self.assertFalse(self._bank_rows()[_BANK_PERFECT_CANDIDATE]["suggested_name"])
+
+    def test_the_precondition_the_gateway_batch_beside_it_DID_get_suggestions(self):
+        """The control. Same run, same code, same database -- a Cashfree batch still pre-selects."""
+        suggested = [
+            r for r in self._rows_by_transfer_suffix().values() if r["suggested_name"]
+        ]
+        self.assertTrue(suggested)
+
+    def test_the_precondition_these_bank_rows_reached_the_run_rather_than_being_staged_skipped(self):
+        rows = self._bank_rows()
+        for suffix in (
+            _BANK_PERFECT_CANDIDATE, _BANK_ALREADY_PAID, _BANK_PAID_BUT_SHORT, _BANK_PLAIN
+        ):
+            self.assertIn(suffix, rows, suffix)
+            self.assertNotIn("bank-statement rule", rows[suffix]["skip_reason"] or "", suffix)
+
+    # --- ruling 1: no settlement candidate, ever -------------------------------------------------
+
+    def test_not_one_row_of_the_statement_carries_a_suggestion(self):
+        rows = self._bank_row_list()
+        self.assertEqual(len(rows), 20)
+        for row in rows:
+            label = row["transfer_id"]
+            self.assertFalse(row["suggested_doctype"], label)
+            self.assertFalse(row["suggested_name"], label)
+            self.assertFalse(row["suggestion_rule"], label)
+            self.assertFalse(row["match_basis"], label)
+            self.assertIn(row["auto_matched"], (0, None), label)
+
+    def test_no_row_of_the_statement_ends_up_MATCHED(self):
+        """`Matched` shares a tab with `Settled` under the reviewer's heading "this transfer has a
+        record". Nothing here has one."""
+        self.assertNotIn(ROW_MATCHED, {r["row_status"] for r in self._bank_row_list()})
+
+    def test_the_PERFECT_tier_zero_candidate_is_not_offered(self):
+        """THE ONE THAT MATTERS. An `Approved` payment carrying this row's own bank reference at its
+        exact amount is the strongest hit the ladder can produce, and it is still not suggested."""
+        row = self._bank_rows()[_BANK_PERFECT_CANDIDATE]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertFalse(row["suggested_name"])
+        self.assertEqual(row["outcome_note"], STAGED_NOTE_NO_SETTLEMENT_PATH)
+
+    def test_no_vendor_is_resolved_either(self):
+        """Resolving a vendor is the first half of finding a record to settle. The run does not do
+        it, so the field is written blank rather than left to a stale earlier value."""
+        for row in self._bank_row_list():
+            self.assertFalse(row["resolved_vendor"], row["transfer_id"])
+
+    def test_the_run_writes_no_match_record(self):
+        self.assertEqual(
+            frappe.db.count(MATCH_DOCTYPE, {"import_batch": self.icici_batch.name}), 0
+        )
+
+    def test_the_four_pass_counters_come_back_ZERO_rather_than_absent(self):
+        """`match_period` sums these across batches and the screen reads them. Zero is the truth --
+        no pass ran, so no pass did anything -- and an absent key would be a special case for every
+        caller."""
+        for key in (
+            "stack_paired_rows", "released_rows", "rule_picked_rows", "swept_to_mismatched_rows"
+        ):
+            self.assertEqual(self.bank_result[key], 0, key)
+        self.assertEqual(self.bank_result["batch"], self.icici_batch.name)
+        self.assertIn("counters", self.bank_result)
+        self.assertIn("status", self.bank_result)
+
+    def test_the_run_reaches_neither_the_pools_nor_the_matcher(self):
+        """⚠️ THE STRUCTURAL PROOF, AT RUNTIME. "No candidate is produced" must be a property of the
+        CODE, not of today's data: with the ladder merely enabled, seven real rows would auto-suggest
+        settling Rs 1.15 lakh against an unrelated project through a cheque drawee bank code, inside
+        the +-Rs 5 window. Booby-trapping both entry points and running the batch anyway proves the
+        fork happens ABOVE them -- there is nothing to filter, because nothing is ever fetched."""
+        from nirmaan_stack.api.outflow_import import review as R
+
+        def _explode(*_args, **_kwargs):
+            raise AssertionError("a bank-statement match run reached the settlement machinery")
+
+        with mock.patch.object(R, "match_row", _explode), \
+                mock.patch.object(R, "_load_pools", _explode), \
+                mock.patch.object(R, "_resolve_stacks", _explode), \
+                mock.patch.object(R, "_disambiguate_matched", _explode), \
+                mock.patch.object(R, "_enforce_single_claim", _explode), \
+                mock.patch.object(R, "_sweep_unresolved_to_mismatched", _explode):
+            before = self._bank_row_list()
+            again = match_batch(self.icici_batch.name)
+        self.assertEqual(self._bank_row_list(), before)
+        self.assertEqual(again["batch"], self.icici_batch.name)
+        # ⚠️ NOT `== self.bank_result["matched_rows"]`, AND THE DIFFERENCE IS A REAL PROPERTY.
+        # `matched_rows` counts the UNFROZEN rows a run examined, and the FIRST run skipped the
+        # already-Paid duplicate -- `Skipped` is frozen, so every later run legitimately examines
+        # one fewer. The rows themselves are what must not move.
+        self.assertLessEqual(again["matched_rows"], self.bank_result["matched_rows"])
+
+    def test_the_guard_only_path_names_none_of_the_settlement_machinery(self):
+        """⚠️ READ THROUGH THE AST, NOT THE TEXT -- the same lesson `test_cashbook_import` records.
+        `_guard_duplicates_only`'s own docstring names these functions in the sentence explaining why
+        it does not call them, and a prose scan cannot tell a prohibition from a violation."""
+        import ast
+        import inspect
+
+        from nirmaan_stack.api.outflow_import import review as R
+
+        forbidden = {
+            "match_row", "match_payments", "_load_pools", "_resolve_stacks",
+            "_disambiguate_matched", "_enforce_single_claim", "_sweep_unresolved_to_mismatched",
+            "pick_from_several", "resolve_claims", "resolve_vendors", "settleable_candidates",
+            "sole_suggestion", "ranked_records", "load_payments_by_reference",
+            "load_payments_by_amount", "load_expense_targets",
+        }
+        tree = ast.parse(inspect.getsource(R._guard_duplicates_only).strip())
+        called = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                name = getattr(func, "id", None) or getattr(func, "attr", None)
+                if name:
+                    called.add(name)
+        self.assertEqual(sorted(called & forbidden), [])
+        # ...and it DOES call the two things it is for, so the assertion above cannot pass by the
+        # function having been emptied out.
+        self.assertIn("_paid_duplicate_for", called)
+        self.assertIn("load_paid_payments_by_reference", called)
+
+    # --- ruling 2: the paid-duplicate guard is KEPT ----------------------------------------------
+
+    def test_the_already_paid_duplicate_guard_still_fires(self):
+        """41 of 711 real debits. Without it those arrive as ordinary work, and the obvious next
+        click books the same money a second time."""
+        row = self._bank_rows()[_BANK_ALREADY_PAID]
+        self.assertEqual(row["row_status"], ROW_SKIPPED)
+        self.assertIn(self.bank_already_paid, row["outcome_note"])
+        self.assertIn("Already recorded as Paid on", row["outcome_note"])
+
+    def test_the_skip_sentence_is_the_SHARED_one_not_a_bank_specific_retype(self):
+        row = self._bank_rows()[_BANK_ALREADY_PAID]
+        self.assertEqual(
+            row["outcome_note"],
+            SKIP_REASON_ALREADY_PAID.format(records=self.bank_already_paid),
+        )
+
+    def test_the_guard_s_amount_disagreement_branch_survives_too(self):
+        """The other half of the same guard: already recorded, but for more than the bank moved."""
+        row = self._bank_rows()[_BANK_PAID_BUT_SHORT]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertIn(self.bank_paid_short, row["outcome_note"])
+        self.assertIn("Already recorded as Paid on", row["outcome_note"])
+        self.assertFalse(row["suggested_name"])
+
+    def test_a_skipped_duplicate_is_an_AUTOMATIC_skip_and_carries_no_manual_reason(self):
+        self.assertIsNone(self._bank_rows()[_BANK_ALREADY_PAID]["skip_reason"])
+
+    # --- ruling 3: everything else is Mismatched, honestly ---------------------------------------
+
+    def test_everything_the_guard_did_not_catch_is_mismatched_for_a_person(self):
+        already_paid = self._bank_rows()[_BANK_ALREADY_PAID]["name"]
+        untouched = [
+            r for r in self._bank_row_list()
+            if r["name"] != already_paid
+            and "bank-statement rule" not in (r["skip_reason"] or "")
+        ]
+        self.assertEqual(len(untouched), 14)
+        self.assertEqual({r["row_status"] for r in untouched}, {ROW_MISMATCHED})
+
+    def test_the_note_says_CREATE_a_record_rather_than_claiming_nothing_matched(self):
+        """⚠️ "No approved payment or expense matches this transfer" would be a finding about a
+        search that never ran, and it sends a reviewer hunting for a record that does not exist."""
+        note = self._bank_rows()[_BANK_PLAIN]["outcome_note"]
+        self.assertEqual(note, STAGED_NOTE_NO_SETTLEMENT_PATH)
+        self.assertNotIn("No approved payment", note)
+
+    def test_the_run_does_not_disturb_the_rows_the_exclusions_already_skipped(self):
+        excluded = [
+            r for r in self._bank_row_list()
+            if "bank-statement rule" in (r["skip_reason"] or "")
+        ]
+        self.assertEqual(len(excluded), 5)
+        for row in excluded:
+            self.assertEqual(row["row_status"], ROW_SKIPPED)
+
+    # --- the properties the run has always had ---------------------------------------------------
+
+    def test_re_running_the_guard_is_idempotent(self):
+        before = self._bank_rows()
+        match_batch(self.icici_batch.name)
+        self.assertEqual(self._bank_rows(), before)
+
+    def test_the_run_writes_nothing_to_any_payment(self):
+        """The oldest promise this feature makes -- "nothing settles itself, ever" -- and the new
+        path must keep it too."""
+        def snapshot():
+            return frappe.db.sql(
+                """SELECT name, status, utr, amount FROM "tabProject Payments"
+                   WHERE name IN %(names)s ORDER BY name""",
+                {"names": tuple(self.payments)},
+                as_dict=True,
+            )
+
+        before = snapshot()
+        match_batch(self.icici_batch.name)
+        self.assertEqual(snapshot(), before)
+
+    def test_the_batch_rollup_is_still_refreshed(self):
+        statuses = {r["row_status"] for r in self._bank_rows().values()}
+        self.assertEqual(
+            self.bank_result["status"],
+            frappe.db.get_value(BATCH_DOCTYPE, self.icici_batch.name, "status"),
+        )
+        self.assertTrue(statuses <= set(ROW_STATUSES))
+
+    def test_the_gateway_batch_is_BYTE_UNMOVED_by_the_bank_statement_beside_it(self):
+        """⚠️ THE HALF THAT IS EASIEST TO BREAK AND HARDEST TO NOTICE. Cashfree carries live settled
+        data, and the four global passes read ACROSS imports -- so a bank statement sitting in the
+        same table must not change one row of it."""
+        before = self._rows_by_transfer_suffix()
+        match_batch(self.icici_batch.name)
+        self.assertEqual(self._rows_by_transfer_suffix(), before)
+
+    def test_the_fork_is_driven_by_the_SOURCE_and_by_nothing_else(self):
+        from nirmaan_stack.api.outflow_import import review as R
+
+        self.assertFalse(source_has_settlement_path(R._batch_source(self.icici_batch.name)))
+        self.assertTrue(source_has_settlement_path(R._batch_source(self.batch.name)))
+
+
+class TestAGatewayRunCannotReachABankStatementRow(BankStatementFixture):
+    """The SECOND fence, and the one a reader is most likely to think unnecessary.
+
+    ⚠️ `_load_open_rows_for_keys` IS THE ONE PLACE THIS FEATURE WRITES A SUGGESTION ACROSS IMPORTS.
+    A bank-statement row lands `Mismatched`, which is an OPEN status, so without a fence there a
+    CASHFREE batch's stack pass could pull one into a stack and write a settlement suggestion onto
+    it -- precisely the outcome `match_batch`'s fork exists to prevent, arriving through another
+    statement's run. Fencing the batch's own path is not enough; the fence has to be on every path
+    that can reach the row.
+
+    Today ICICI narrations carry no beneficiary account at all, so `stacks.stack_key` returns `None`
+    and no bank row can join a stack anyway. That is a property of the PARSER, one narration-format
+    change away from being false -- which is exactly the kind of accidental safety this slice exists
+    to replace with a structural one. The rows below are given an account BY HAND to prove the fence
+    itself works rather than testing the parser's silence.
+    """
+
+    ACCOUNT = "B4FENCEACCT0001"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        bank = frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": cls.icici_batch.name, "row_status": ROW_MISMATCHED},
+            fields=["name", "amount"],
+            limit=1,
+        )
+        cls.bank_row = bank[0]["name"]
+        cls.amount = bank[0]["amount"]
+        gateway = frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": cls.batch.name, "row_status": ["in", tuple(OPEN_ROW_STATUSES)]},
+            fields=["name"],
+            limit=1,
+        )
+        cls.gateway_row = gateway[0]["name"]
+        for name in (cls.bank_row, cls.gateway_row):
+            frappe.db.set_value(
+                ROW_DOCTYPE,
+                name,
+                {"normalized_account": cls.ACCOUNT, "amount": cls.amount},
+                update_modified=False,
+            )
+        frappe.db.commit()
+
+    def _found(self):
+        from nirmaan_stack.api.outflow_import import review as R
+
+        key = StackKey(account=self.ACCOUNT, amount=Decimal(str(self.amount)))
+        return {r["name"] for r in R._load_open_rows_for_keys([key])}
+
+    def test_the_precondition_the_gateway_row_IS_reachable_on_that_key(self):
+        """Without this the exclusion below could pass because the query returns nothing at all."""
+        self.assertIn(self.gateway_row, self._found())
+
+    def test_the_bank_statement_row_is_NOT_reachable_on_the_same_key(self):
+        self.assertNotIn(self.bank_row, self._found())
+
+    def test_the_fence_reads_the_per_row_source_because_this_read_spans_imports(self):
+        self.assertEqual(
+            frappe.db.get_value(ROW_DOCTYPE, self.bank_row, "source"), "ICICI Bank Statement"
+        )
+        self.assertIn(
+            frappe.db.get_value(ROW_DOCTYPE, self.bank_row, "source"), BANK_STATEMENT_SOURCES
+        )
+
+    def test_a_row_with_NO_source_at_all_stays_reachable(self):
+        """⚠️ `COALESCE(source, '')` IS LOAD-BEARING. A row staged before that column existed reads
+        blank, which is not a bank-statement source -- so every legacy gateway row stays exactly as
+        reachable as it has always been. A fence that swallowed them would silently stop the stack
+        pass pairing the imports it was built for."""
+        frappe.db.set_value(ROW_DOCTYPE, self.gateway_row, {"source": None}, update_modified=False)
+        frappe.db.commit()
+        self.addCleanup(
+            lambda: frappe.db.set_value(
+                ROW_DOCTYPE, self.gateway_row, {"source": "Cashfree"}, update_modified=False
+            )
+        )
+        self.assertIn(self.gateway_row, self._found())
+
+
+class TestInflowDoctypeSpelling(unittest.TestCase):
+    """The one string `ledgers.py` and `settle.py` both spell, pinned (slice B8b).
+
+    ⚠️ `ledgers.py` IS A PURE LEAF AND MAY NOT IMPORT `settle.py`, which imports `frappe` --
+    `status.py` imports `ledgers` under a transitive purity test whose whole point is that the
+    deriver stays callable with no bench. So the name is spelled twice, on exactly the precedent
+    `settle.DIRECTION_CREDIT` set for the identical reason, and the pin lives HERE because only a
+    bench-backed suite may import `settle`.
+
+    A rename reaching only one of them would silently move every settled `Project Inflow` into the
+    received block's `Other` slot -- visible, but wrong, and nothing else would fail.
+    """
+
+    def test_the_two_modules_spell_the_inflow_doctype_identically(self):
+        from nirmaan_stack.services.outflow_import.ledgers import INFLOW_DOCTYPE as FROM_LEDGERS
+        from nirmaan_stack.services.outflow_import.settle import INFLOW_DOCTYPE as FROM_SETTLE
+
+        self.assertEqual(FROM_LEDGERS, FROM_SETTLE)
+
+    def test_it_names_a_real_doctype(self):
+        from nirmaan_stack.services.outflow_import.ledgers import INFLOW_DOCTYPE
+
+        self.assertTrue(frappe.db.exists("DocType", INFLOW_DOCTYPE))
+
+    def test_the_inflow_ledger_is_not_settleable_and_not_creatable_as_an_expense(self):
+        """⚠️ IT IS A DISPLAY ORDER AND NOTHING MORE. Adding it to either tuple would make an
+        inflow look like an approved record waiting to be paid, which does not exist."""
+        from nirmaan_stack.services.outflow_import.ledgers import (
+            EXPENSE_DOCTYPES,
+            INFLOW_DOCTYPE,
+            LEDGER_DOCTYPES,
+            is_expense_doctype,
+            settleable_statuses,
+        )
+
+        self.assertNotIn(INFLOW_DOCTYPE, LEDGER_DOCTYPES)
+        self.assertNotIn(INFLOW_DOCTYPE, EXPENSE_DOCTYPES)
+        self.assertFalse(is_expense_doctype(INFLOW_DOCTYPE))
+        self.assertEqual(settleable_statuses(INFLOW_DOCTYPE), ())

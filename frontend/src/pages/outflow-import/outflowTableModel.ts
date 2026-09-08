@@ -78,12 +78,155 @@ export function shortReference(text: string | null | undefined): string {
     return value.slice(-REFERENCE_DISPLAY_MAX);
 }
 
-/** Which ledger a row is being settled against, or a brand-new expense. */
+/** Widest a wrapped remarks line gets before it is broken. */
+export const REMARKS_WRAP_CHARS = 64;
+
+/**
+ * A remark as the table SHOWS it: broken into lines of at most 64 characters.
+ *
+ * ⚠️ DISPLAY ONLY, AND IT MUST NEVER REACH `column.get` -- the same rule `shortReference` documents
+ * above, for the same reason. `get` feeds the sort, the funnels, the CSV export and
+ * `get_outflow_facet_values`, so wrapping there would ship a stored narration with line breaks
+ * inside it into an archived file and into the server's facet values, and a reader pasting a
+ * narration into the search box would find nothing -- silently, because a search that matches no
+ * rows looks exactly like a search with no results.
+ *
+ * ⚠️ IT TRUNCATES NOTHING. Every character of the original survives into some line; this is the
+ * opposite decision from `shortReference`, and deliberately so. A bank narration is the only
+ * account of what a transfer was FOR, and the part that identifies it is as likely to be at the end
+ * (`...NEFT INB ACME ELECTRICALS INV 4471`) as at the front. Height is free here; a lost word is
+ * not.
+ *
+ * Breaks on word boundaries where the word fits, and HARD-breaks any single token longer than the
+ * limit -- a 90-character reference string has no space to break at, and leaving it on one line
+ * would defeat the wrap it was the reason for.
+ */
+export function wrapRemarks(text: string | null | undefined): string[] {
+    return wrapToWidth(text, REMARKS_WRAP_CHARS);
+}
+
+/**
+ * The shared wrapper behind `wrapRemarks` and `vendorDescriptionLabel`.
+ *
+ * ⚠️ ONE IMPLEMENTATION, TWO WIDTHS. The two call sites differ only in how wide their column is,
+ * and a second copy would be free to disagree about the one case that is easy to get wrong -- a
+ * token longer than the limit, which must be hard-broken rather than left to overflow.
+ */
+function wrapToWidth(text: string | null | undefined, width: number): string[] {
+    const value = (text ?? "").trim();
+    if (!value) return [];
+
+    const lines: string[] = [];
+    let current = "";
+
+    const flush = () => {
+        if (current) {
+            lines.push(current);
+            current = "";
+        }
+    };
+
+    for (const word of value.split(/\s+/)) {
+        let token = word;
+        // A token that cannot fit on a line of its own is hard-broken. It is chopped at the limit
+        // rather than hyphenated: a hyphen inside a reference number would read as part of it.
+        while (token.length > width) {
+            const room = width - (current ? current.length + 1 : 0);
+            if (room > 0) {
+                current = current ? `${current} ${token.slice(0, room)}` : token.slice(0, room);
+                token = token.slice(room);
+            }
+            flush();
+        }
+        if (!token) continue;
+        if (!current) {
+            current = token;
+        } else if (current.length + 1 + token.length <= width) {
+            current = `${current} ${token}`;
+        } else {
+            flush();
+            current = token;
+        }
+    }
+    flush();
+    return lines;
+}
+
+/**
+ * Which ledger a row is being settled against, or which kind of record it is CREATING.
+ *
+ * ⚠️ `new`, `inflow` AND `receipt` ARE NOT LEDGERS AND NEVER APPEAR ON A `SettleableRecord`. The
+ * first three members are real doctypes and are what `recordKey` / `parseRecordKey` round-trip; the
+ * last three are CREATE intents, which have no record to key. Anything narrowing this union for a
+ * record list must exclude them rather than assume they cannot occur.
+ *
+ * ⚠️ `inflow` AND `receipt` ARE THE TWO THAT MOVE MONEY THE OTHER WAY, and both are offered only on
+ * a row whose `direction` is `Credit`. They divide on whether a PROJECT is behind the money:
+ *   * `inflow` (B6) — a client receipt, written as a `Project Inflow`.
+ *   * `receipt` (B7) — everything else (FD interest, an FD closing, a loan drawdown, an advance
+ *     coming back), written as a **negative** `Non Project Expense`.
+ *
+ * ⚠️ `receipt` IS NOT `"Non Project Expenses"`, AND THE COLLISION IS WHY IT IS SPELLED DIFFERENTLY.
+ * That member means "SETTLE an approved non-project expense that already exists"; this one means
+ * "CREATE a new one, negative, from a credit". Same doctype, opposite direction, different endpoint
+ * — folding them would make `settleOne` pick a write path off a value that cannot tell them apart.
+ */
 export type DecisionTarget =
     | "Project Payments"
     | "Project Expenses"
     | "Non Project Expenses"
-    | "new";
+    | "new"
+    | "inflow"
+    | "receipt";
+
+/** The debit-side dispositions: settle an approved record, or create the expense that is missing. */
+const PAID_TARGETS: readonly DecisionTarget[] = [
+    "Project Payments",
+    "Project Expenses",
+    "Non Project Expenses",
+    "new",
+];
+
+/** The credit-side dispositions, in the order the dialog offers them (B6 then B7). */
+const RECEIVED_TARGETS: readonly DecisionTarget[] = ["inflow", "receipt"];
+
+/**
+ * Did this transfer bring money IN? THE one definition of the axis on this side of the wire.
+ *
+ * ⚠️ IT MIRRORS `services/outflow_import/status.py::is_received_direction` EXACTLY, and the shape
+ * is the point: a SINGLE POSITIVE TEST. Every row is `Credit` or it is not, so the two sides
+ * PARTITION and no row can land in neither. The failure this rules out is a decision that neither
+ * disposition will accept -- a row a reviewer can open, fill in and never confirm, with nothing on
+ * the screen saying why.
+ *
+ * ⚠️ A BLANK DIRECTION IS NOT CREDIT, AND THAT IS NOT THE SAME AS READING IT AS `Debit`. Blank
+ * means the statement did not say -- a gateway export with one amount column, or a bank line with
+ * BOTH money columns populated that the parser refused to guess about. It lands on the paid side
+ * because the receipt paths refuse anything that is not `Credit` at the WRITE, so such a row is
+ * structurally incapable of having become a receipt; calling it received would offer a disposition
+ * it can never complete. Nothing here decides that a blank row IS a debit.
+ *
+ * ⚠️ IT IS TRIMMED, like the server's. An unrecognised value is not credit, by the same branch --
+ * there is no third answer on this axis.
+ */
+export function isCreditRow(row: Pick<OutflowImportRow, "direction">): boolean {
+    return (row.direction ?? "").trim() === "Credit";
+}
+
+/**
+ * Which dispositions this row may legally take.
+ *
+ * ⚠️ THE TWO LISTS ARE DISJOINT AND TOGETHER THEY ARE THE WHOLE UNION. That is what makes this a
+ * partition rather than two independent filters: a target is offered on exactly one side, so the
+ * screen, the confirmability check and the server's guards cannot disagree about a row by
+ * accident. `isConfirmable` refuses anything outside the row's list, and `DecisionDialog` renders
+ * only the cards inside it.
+ */
+export function availableDecisionTargets(
+    row: Pick<OutflowImportRow, "direction">
+): DecisionTarget[] {
+    return isCreditRow(row) ? [...RECEIVED_TARGETS] : [...PAID_TARGETS];
+}
 
 /** The reviewer's in-progress decision for one row. Client state until they confirm. */
 export interface RowDecision {
@@ -107,7 +250,62 @@ export interface RowDecision {
         description?: string;
         vendor?: string | null;
     };
+    /**
+     * Only for `target: "inflow"` — a bank CREDIT recorded as a `Project Inflow` (slice B6).
+     *
+     * ⚠️ THERE IS NO AMOUNT, DATE OR REFERENCE HERE, DELIBERATELY, exactly as `newExpense` has none.
+     * The statement is the source of truth for all three and the server reads them off the staged
+     * bank row; a client that could name them could record a receipt the bank never sent.
+     *
+     * ⚠️ `customer` IS DERIVED FROM `project`, NEVER CHOSEN. It is a fact about the project (the
+     * existing inflow dialog derives it the same way), and the server re-reads it and refuses a
+     * value that disagrees. It is carried here so the screen can DISABLE Confirm on a project that
+     * has no customer instead of posting a request the server will refuse.
+     */
+    newInflow?: {
+        project?: string | null;
+        customer?: string | null;
+        invoice?: string | null;
+    };
+    /**
+     * Only for `target: "receipt"` — a bank CREDIT that belongs to NO project, recorded as a
+     * **negative** `Non Project Expense` (slice B7, owner ruling Q3 / ADR-0016 decision 3).
+     *
+     * ⚠️ THERE IS NO AMOUNT HERE AND, ABOVE ALL, NO SIGN. The magnitude, the payment date and the
+     * reference are read server-side off the staged bank row, and the NEGATION is applied in the
+     * write path from the row's own `direction`. A client that could post a negative number could
+     * book a debit as income — the books wrong by twice the transfer, with nothing looking odd.
+     *
+     * ⚠️ THERE IS NO `doctype` EITHER, AND THERE MUST NOT BE. This disposition writes exactly one
+     * ledger; the server's own writer takes no doctype argument for the same reason, so a credit
+     * can never become a negative `Project Expense`.
+     */
+    newReceipt?: {
+        expenseType?: string | null;
+        description?: string;
+    };
 }
+
+/**
+ * What the ledger will actually hold for a non-project receipt: the bank's magnitude, NEGATED.
+ *
+ * ⚠️ IT EXISTS SO THE SCREEN CAN SAY THE SIGN OUT LOUD. The reviewer is recording money that
+ * ARRIVED into a doctype called *Expenses*; the one thing the form must not do is show them the
+ * positive figure the bank printed and then store its opposite. It mirrors the server rule exactly
+ * — magnitude in, negative out — and is a pure function so that rule is testable without a DOM.
+ *
+ * `Math.abs` rather than a bare `-`: the staged amount is a positive magnitude on every source by
+ * design, and if one ever arrived signed this must still describe a receipt rather than flip it
+ * back to a payment.
+ */
+export const receiptStoredAmount = (amount: number | null | undefined): number => {
+    const magnitude = Math.abs(Number(amount ?? 0));
+    // ⚠️ ZERO IS RETURNED AS `0`, NEVER `-0`. `-0` compares equal to `0` and formats identically,
+    // so it would never be seen -- and would then surprise the next person who reaches for `Object.is`
+    // or a snapshot. A zero credit is refused server-side regardless.
+    if (!Number.isFinite(magnitude) || magnitude === 0) return 0;
+    return -magnitude;
+};
 
 /**
  * ⚠️ `date` IS NOT A FACET, AND IT USED TO BE (slice P1). `added_on` shipped as `filter: "facet"`,
@@ -143,7 +341,47 @@ export const OUTFLOW_COLUMNS: OutflowColumn[] = [
     // date filter that ANDs with this one -- see `PERIOD_COLUMN_ID` below.
     { id: "added_on", title: "Payment Date", get: (r) => dateOnly(r.added_on), filter: "date", mono: true, width: "126px" },
     { id: "beneficiary_name", title: "Beneficiary", get: (r) => r.beneficiary_name ?? "", filter: "facet", width: "230px" },
-    { id: "amount", title: "Amount Paid", get: (r) => r.amount ?? 0, filter: "range", align: "right", width: "140px" },
+    // ⚠️ "Amount", NOT "Amount Paid" (owner ruling). This table has carried CREDITS since the bank
+    // statement joined it, and `amount` is the positive magnitude on every source by design -- so
+    // on a deposit the old heading called money that ARRIVED "paid". The Amount column cannot say
+    // which way the money went; `direction` is the only field that can, and it says so in its own
+    // right. A neutral heading over a signless figure is the honest one.
+    //
+    // ⚠️ `get` IS UNTOUCHED. It feeds the sort, the range funnel, `get_outflow_facet_values` and
+    // the CSV export -- see `shortReference` for why a display concern never reaches it. The CSV
+    // heading follows this title, which is correct: the file carries both directions too.
+    { id: "amount", title: "Amount", get: (r) => r.amount ?? 0, filter: "range", align: "right", width: "140px" },
+    // ⚠️ ITS OWN COLUMN, WITH ITS OWN FUNNEL (owner ruling 2026-09-09, reversing D8). The marker
+    // shipped INSIDE the amount cell for a day; a fact worth filtering on cannot live inside
+    // another column's cell, because in this table the funnel lives in the `<th>` -- there is no
+    // way to offer the filter without declaring the column.
+    //
+    // It stands immediately after Amount for the reason the Ledger column stands after Status: a
+    // column that QUALIFIES its neighbour belongs against it. "₹1,25,000" and "which way it went"
+    // are halves of one reading, and a scrolling column between them would separate a figure from
+    // the word that gives it its sign.
+    //
+    // ⚠️ `get` RETURNS THE DERIVED LABEL, AND THAT IS NOT THE `shortReference` RULE BEING BROKEN.
+    // That rule forbids a DISPLAY TRANSFORM -- a truncation, a wrap -- reaching `get`, because
+    // `get` feeds the sort, the funnel, `get_outflow_facet_values` and the CSV, so a shortened
+    // value there is a value nothing can search for. Here the two-word label IS this column's
+    // value; there is no longer, truer string it is a rendering of. The CSV must read `Paid` or
+    // `Received` on every row and never a blank, which is exactly what this returns.
+    //
+    // ⚠️ BLANK LANDS ON `Paid`, AND NOT BECAUSE BLANK MEANS `Debit`. `isCreditRow` is the single
+    // positive test on `"Credit"` that mirrors the server's `is_received_direction`, so the two
+    // values PARTITION every row and none can land in neither. A blank direction means the
+    // statement did not say -- a gateway export has no direction column at all -- and it reads as
+    // Paid as a CONSEQUENCE: the receipt paths refuse anything that is not `Credit` at the write,
+    // so such a row is structurally incapable of ever having become a receipt.
+    //
+    // ⚠️ DERIVED, NOT THE RAW `direction` FIELD, AND THE MEASUREMENT IS WHY. The live table holds
+    // `Debit` 894 / `Credit` 5 / blank 0, so a raw column and this one render identically today --
+    // which is precisely how the raw one would pass review and ship. The day a blank row lands, a
+    // raw column shows an empty cell and grows a third, unlabelled funnel entry while the screen
+    // still shows two badges. Deriving it means the column can only ever hold the two values the
+    // rest of this screen partitions on.
+    { id: "direction", title: "Direction", get: (r) => (isCreditRow(r) ? "Received" : "Paid"), filter: "facet", width: "110px" },
     { id: "remarks", title: "Remarks", get: (r) => r.remarks ?? "", filter: "text", width: "230px" },
     // ⚠️ "Reference", NOT "Reference (UTR)" (owner ruling, slice CF/S1). A Cashbook row has no UTR
     // and never will -- `referenceValue` falls back to the wallet's own transaction id, which is
@@ -455,8 +693,17 @@ export const isDateFilterValue = (
  */
 export const SOURCE_COLUMN_ID = "source";
 
-/** The two sources a row can come from. Mirrors the `Outflow Import Batch.source` Select. */
-export const SOURCE_OPTIONS: readonly string[] = ["Cashfree", "Cashbook"];
+/**
+ * The sources a row can come from. Mirrors the `Outflow Import Batch.source` Select.
+ *
+ * ⚠️ FOUR PLACES CARRY THESE STRINGS AND ALL FOUR MUST MOVE TOGETHER: the parser's adapter keys
+ * (`parser._ADAPTERS`), the doctype Select options, the upload dialog's `SOURCES`, and this list.
+ * The first three are pinned together by test because a mismatch there fails Frappe validation on
+ * every batch insert. THIS one fails more quietly: a source missing here still imports fine and its
+ * rows still appear, but the Source scope control cannot select it — so a screen filtered to a
+ * source the user cannot name looks like a screen with missing rows.
+ */
+export const SOURCE_OPTIONS: readonly string[] = ["Cashfree", "Cashbook", "ICICI Bank Statement"];
 
 /**
  * What the Source dropdown displays for a given selection.
@@ -554,6 +801,19 @@ export const SERVER_FACET_COLUMNS: readonly string[] = [
     // is the only thing that can enumerate it -- there is nothing on the loaded page to build a
     // funnel from, and no client-side derivation to fall back to.
     "settled_ledger",
+    // ⚠️ THE THIRD LIST, ADDED IN THE SAME CHANGE AS THE COLUMN. A facet needs all three or it
+    // fails SILENTLY: `filter: "facet"` draws the funnel, `review._FACET_COLUMNS` lets the server
+    // apply it, and ONLY this list decides whether the ticked selection is ever SENT. That is the
+    // slice Q1 defect -- a tick box that registered, showed "Clear filters (1)", and left the row
+    // set unmoved.
+    //
+    // ⚠️ THE SERVER FACETS THE DERIVED LABEL, NOT THE RAW COLUMN, so what the funnel OFFERS is
+    // what this column's `get` RENDERS -- `Paid` / `Received`, the same two values. Its
+    // `_FACET_COLUMNS` entry is a `CASE` mirroring `is_received_direction`, used for both the
+    // `DISTINCT` that builds the options and the `WHERE` that applies them. Over the raw field the
+    // funnel would grow a third, unlabelled option for blank, and ticking `Debit` would silently
+    // drop rows whose badge reads `Paid`.
+    "direction",
 ];
 
 /**
@@ -881,6 +1141,17 @@ export interface SummaryImport {
      * screen is trying to state a scope honestly.
      */
     is_open?: boolean;
+    /**
+     * Will Re-run MATCH this statement, or only duplicate-check it?
+     *
+     * ⚠️ THE SERVER DECIDES, EXACTLY AS WITH `is_open`, AND FOR A SHARPER REASON. `match_batch`
+     * FORKS on `sources.source_has_settlement_path`: a source without one never loads a settlement
+     * pool and never calls `match_row` — it runs the duplicate guard and returns. Re-deriving that
+     * here would mean re-spelling "ICICI Bank Statement has no settlement path" in the client, a
+     * second copy of a rule that already has an owner and is free to drift the day a fourth source
+     * lands. The server sends the ANSWER, never the source string.
+     */
+    has_settlement_path?: boolean;
 }
 
 /** The statements "Re-run match" will actually touch — the finished ones are skipped (CF/S5). */
@@ -888,6 +1159,25 @@ export const openImports = (imports: readonly SummaryImport[]): SummaryImport[] 
     // ⚠️ `!== false`, NOT `=== true`. An older server does not send the flag, and a client reading
     // its absence as "closed" would silently re-run nothing at all while reporting success.
     imports.filter((b) => b.is_open !== false);
+
+/**
+ * Of the statements Re-run touches, the ones it will actually MATCH.
+ *
+ * ⚠️ `!== false` FOR THE SAME REASON `openImports` USES IT, and the default matters more here: an
+ * older server sends no flag, and reading its absence as "duplicate-check only" would report every
+ * gateway import — the ones the matcher genuinely works on — as doing almost nothing.
+ */
+export const matchedImports = (imports: readonly SummaryImport[]): SummaryImport[] =>
+    openImports(imports).filter((b) => b.has_settlement_path !== false);
+
+/**
+ * Of the statements Re-run touches, the ones it will only DUPLICATE-CHECK.
+ *
+ * The complement of `matchedImports` over `openImports`, written as its own filter rather than a
+ * subtraction so a reader can see the predicate rather than infer it.
+ */
+export const duplicateCheckedImports = (imports: readonly SummaryImport[]): SummaryImport[] =>
+    openImports(imports).filter((b) => b.has_settlement_path === false);
 
 /**
  * The line under "Re-run match" naming how far it reaches (slice CF/S5).
@@ -902,12 +1192,38 @@ export const openImports = (imports: readonly SummaryImport[]): SummaryImport[] 
  * ⚠️ IT COUNTS OPEN IMPORTS ONLY. `match_period` skips `Completed` statements, so counting them
  * here would name a set the button does not act on.
  *
- * Silent for a single import: one statement needs no warning that the action reaches one statement.
+ * ⚠️ AND IT SEPARATES *MATCHED* FROM *DUPLICATE-CHECKED*, because the button does two different
+ * things (owner ruling 2026-09-09). `match_batch` forks on `source_has_settlement_path`: a bank
+ * statement never loads a settlement pool and never calls `match_row` — it runs the duplicate guard
+ * and returns. One number covering both described the wider action for every statement in the set,
+ * which is the same class of lie as "button 688, table 893" that this sentence exists to prevent,
+ * arriving from a third direction. Naming the smaller action is not a caveat; it is the scope.
+ *
+ * Silent for a single import that will be matched: one statement needs no warning that the action
+ * reaches one statement. ⚠️ But NOT silent when that single statement is duplicate-checked only —
+ * there the sentence is no longer about REACH, it is the only thing on screen saying the button
+ * will not match at all, and suppressing it would leave a reviewer expecting a match that never
+ * runs.
  */
 export const rematchReachLabel = (imports: readonly SummaryImport[]): string => {
-    const open = openImports(imports);
-    if (open.length <= 1) return "";
-    return `Re-run reaches ${open.length} open imports.`;
+    const matched = matchedImports(imports);
+    const duplicateChecked = duplicateCheckedImports(imports);
+
+    const statements = (n: number) => `${n} open import${n === 1 ? "" : "s"}`;
+
+    if (!duplicateChecked.length) {
+        // Unchanged from before this split, byte for byte, so every gateway-only period reads
+        // exactly as it always has.
+        if (matched.length <= 1) return "";
+        return `Re-run reaches ${matched.length} open imports.`;
+    }
+    if (!matched.length) {
+        return `Re-run duplicate-checks ${statements(duplicateChecked.length)}; none will be matched.`;
+    }
+    return (
+        `Re-run matches ${statements(matched.length)}; ` +
+        `${duplicateChecked.length} duplicate-checked only.`
+    );
 };
 
 /** "3 imports" / "1 import" / "" — the caption beside the period control. */
@@ -955,9 +1271,24 @@ export const rematchWarning = (allImports: readonly SummaryImport[]): string => 
         .join(", ");
     const more = imports.length > 3 ? ` and ${imports.length - 3} more` : "";
 
+    // ⚠️ THE LIST STAYS WHOLE, AND THE CLAUSE QUALIFIES IT (owner ruling 2026-09-09). A bank
+    // statement IS touched by the button -- `match_batch` runs its duplicate guard -- so dropping it
+    // from the names would understate the reach, which is the opposite of this sentence's job. What
+    // was wrong is the VERB: "Re-runs the match for" describes one action while two run, because
+    // `match_batch` forks on `source_has_settlement_path` and such a batch never calls `match_row`.
+    // So the set is unchanged and the difference is named after it.
+    const duplicateOnly = duplicateCheckedImports(allImports);
+    const qualifier = duplicateOnly.length
+        ? ` ${duplicateOnly.length === imports.length ? "All" : `${duplicateOnly.length}`} of them ${
+              duplicateOnly.length === 1 ? "is a bank statement" : "are bank statements"
+          }, which ${
+              duplicateOnly.length === 1 ? "is" : "are"
+          } duplicate-checked rather than matched.`
+        : "";
+
     const base = `Re-runs the match for ${imports.length} import${
         imports.length === 1 ? "" : "s"
-    }: ${names}${more}.`;
+    }: ${names}${more}.${qualifier}`;
 
     if (!straddling.length) return base;
 
@@ -1679,15 +2010,63 @@ export const isConfirmable = (
     if (!OPEN_ROW_STATUSES.has(row.row_status)) return false;
     if (row.row_status === "Pending match run") return false;
     if (!decision) return false;
+    /**
+     * ⚠️ A DEBIT (OR BLANK) ONLY -- THE MIRROR OF THE TWO CREDIT GATES BELOW. Creating an expense
+     * out of money that ARRIVED files a receipt as a spend, which is the same class of error as
+     * recording a debit as an inflow and is wrong by twice the transfer in the same way. The credit
+     * dispositions (`inflow` / `receipt`) are the ones that exist for such a row.
+     */
     if (decision.target === "new") {
+        if (isCreditRow(row)) return false;
         const form = decision.newExpense;
         if (!form?.doctype || !form.expenseType) return false;
         if (form.doctype === "Project Expenses" && !form.project) return false;
         return true;
     }
-    // ⚠️ BOTH, not just the link. The ledger now arrives with the chosen record rather than from a
-    // card clicked beforehand, so a link with no target is a half-written decision -- and
-    // `settle_row` would be called with an undefined doctype.
+    /**
+     * ⚠️ A CREDIT ONLY, AND THE CHECK IS ON THE ROW (slice B6). `direction` is what separates money
+     * that arrived from money that left -- `amount` is the positive magnitude on every source by
+     * design -- so without it a debit could be recorded as a receipt. The server refuses that too,
+     * twice; this keeps the bulk bar from counting such a row as decided in the first place.
+     *
+     * ⚠️ BOTH `project` AND `customer` ARE REQUIRED, and the second is not redundant. The customer
+     * is DERIVED from the project, so a blank one means the project has none -- which the server
+     * refuses (owner ruling Q13). Requiring it here is what turns that refusal into a disabled
+     * button with a reason beside it, rather than a click that fails.
+     */
+    if (decision.target === "inflow") {
+        if (!isCreditRow(row)) return false;
+        const form = decision.newInflow;
+        return Boolean(form?.project && form.customer);
+    }
+    /**
+     * ⚠️ A CREDIT ONLY, AND THE DIRECTION CHECK MATTERS MORE HERE THAN ANYWHERE ELSE (slice B7).
+     * This disposition writes a NEGATIVE amount, so on a debit row it would not merely file money
+     * in the wrong place — it would file money that LEFT the account as money that arrived, and the
+     * books would be wrong by twice the transfer. The server refuses it twice as well; this keeps
+     * the bulk bar from counting such a row as decided in the first place.
+     *
+     * ⚠️ ONLY THE EXPENSE TYPE IS REQUIRED. There is no project (this receipt has none — that is
+     * what makes it this disposition rather than an inflow), and the description is optional
+     * because the server composes one from the payer and the narration when it is blank.
+     */
+    if (decision.target === "receipt") {
+        if (!isCreditRow(row)) return false;
+        return Boolean(decision.newReceipt?.expenseType);
+    }
+    /**
+     * ⚠️ A DEBIT (OR BLANK) ONLY -- THE MISSING HALF, AND THE ONE THAT MOVED REAL MONEY. Every
+     * record this branch can link to is an APPROVED PAYABLE waiting to be paid; settling one
+     * against a CREDIT marks a payment we owe as discharged out of money that came IN, leaving the
+     * payable closed, the receipt unrecorded and the books wrong on both sides. The `inflow` and
+     * `receipt` branches have refused a debit since B6/B7 -- this is the mirror they were always
+     * half of, and it is what makes `availableDecisionTargets` a partition rather than a hint.
+     *
+     * ⚠️ BOTH, not just the link. The ledger now arrives with the chosen record rather than from a
+     * card clicked beforehand, so a link with no target is a half-written decision -- and
+     * `settle_row` would be called with an undefined doctype.
+     */
+    if (isCreditRow(row)) return false;
     return Boolean(decision.target && decision.linkTo);
 };
 
@@ -1771,6 +2150,13 @@ export const orderPaymentsHref = (orderName: string): string =>
  * and amount -- never the record id. There is no `/expense/:id` route either. Adding the id to one
  * of those lists is what would make `exact` true.
  *
+ * ⚠️ THEY ARE DEEP-LINKED TO A TAB, THOUGH (owner ruling 2026-09-09), and the two are different
+ * claims. Both lists read a namespaced status param -- `pe_status` / `npe_status` -- so the link
+ * now lands on the tab the record is actually IN. It previously landed on each page's DEFAULT tab,
+ * which is role-based and never `Paid`, so a settled expense sent the reviewer somewhere it could
+ * not be. The tab follows `settled`, exactly as the payment branch does, because a suggestion's
+ * expense is still `Approved`.
+ *
  * ⚠️ WHATEVER THIS RETURNS MUST BE RENDERED THROUGH REACT ROUTER, never a raw `<a href>`. The
  * router carries a `basename` (`VITE_BASE_NAME`: "" in dev, 'frontend' in production), so an
  * anchor resolves to the SERVER ROOT and 404s in production while working perfectly in dev.
@@ -1815,11 +2201,33 @@ export const settlementLink = (
     }
     if (doctype === "Project Expenses" || doctype === "Non Project Expenses") {
         const isProject = doctype === "Project Expenses";
+        // ⚠️ THE STATUS TAB RIDES THE URL, AND IT FOLLOWS `settled` RATHER THAN BEING HARDCODED
+        // (owner ruling 2026-09-09). Both lists read a namespaced status param on mount and
+        // subscribe to it — `pe_status` (`ProjectExpensesList`) and `npe_status`
+        // (`NonProjectExpensesPage`), each documented there as supporting an external deep link.
+        //
+        // ⚠️ WITHOUT IT THE LINK LANDED ON THE PAGE'S DEFAULT TAB, WHICH IS ROLE-BASED AND NEVER
+        // `Paid`: `Requested` for most users, `Approved` for an Accountant. So a SETTLED expense —
+        // which is `Paid` by definition, this import having just written it — sent the reviewer to a
+        // tab that provably could not contain it, with nothing on screen explaining the empty table.
+        //
+        // ⚠️ AND THAT IS EXACTLY WHY THE TAB IS NOT HARDCODED TO `Paid`. A SUGGESTION has settled
+        // nothing and its expense is still `Approved` (`SETTLEABLE_STATUSES` is Approved-only), so
+        // pinning `Paid` here would reproduce the same defect pointing the other way — the one the
+        // payment branch above already records finding live.
+        const tab = settled ? "Paid" : "Approved";
+        const base = isProject ? "/expense/project" : "/expense/non-project";
+        const param = isProject ? "pe_status" : "npe_status";
         return {
-            href: isProject ? "/expense/project" : "/expense/non-project",
+            href: `${base}?${param}=${tab}`,
             label: name,
+            // ⚠️ STILL `false`, AND THE TAB DOES NOT CHANGE THAT. `exact` means "this lands on the
+            // record", and it does not: neither table has the record id in its searchable fields
+            // (`PE_SEARCHABLE_FIELDS` / `NPE_SEARCHABLE_FIELDS`) and there is no `/expense/:id`
+            // route, so the reviewer still arrives at a filtered LIST. Flipping this to `true`
+            // because the tab narrowed would overstate what the link does.
             exact: false,
-            title: `Open ${isProject ? "Project" : "Non Project"} Expenses — ${name} cannot be linked to directly`,
+            title: `Open ${isProject ? "Project" : "Non Project"} Expenses → ${tab} — ${name} is in this list; it cannot be linked to directly`,
         };
     }
     return null;
@@ -2203,6 +2611,19 @@ export interface SettleableRecord {
      */
     document_type: string;
     /**
+     * The record's own description and expense type, shaped by `review._search_one_ledger`.
+     *
+     * ⚠️ OPTIONAL BECAUSE A SERVER MAY NOT SEND THEM YET. They arrive in the same payload as
+     * everything above, but declaring them required would make an older backend's response fail to
+     * type -- and, worse, would have the cell render a confident blank where the fact was simply
+     * never asked for. Absent is a different thing from empty, and only an optional key can say so.
+     *
+     * `description` is what identifies a `Non Project Expense`, which has no vendor to identify it
+     * by -- see `vendorDescriptionLabel`.
+     */
+    description?: string;
+    expense_type?: string;
+    /**
      * The project's LINK ID, beside `project_name` rather than instead of it (slice N1).
      *
      * ⚠️ `project_name` FALLS BACK TO THE ID when the join finds nothing, so it cannot be compared
@@ -2530,6 +2951,77 @@ export const RECORD_DATE_LABELS: Record<RecordDateKind, string> = {
     updated: "Updated",
 };
 
+/**
+ * Widest a wrapped line of the Vendor / Description column gets. The column is 220px.
+ *
+ * ⚠️ 24, WIDENED FROM 16 (owner ruling), AND THE COLUMN WIDENED WITH IT -- the two numbers are one
+ * decision. 24 characters at `text-sm` is roughly 168px, and a 180px column has a 164px content box
+ * once `px-2` is taken off each side, so leaving the width alone would have wrapped the text for a
+ * box it no longer fits. `RECORD_COLUMNS` pays for the extra 40px out of `record`, which lost its
+ * document id at D11 -- see the budget arithmetic there.
+ */
+export const VENDOR_DESCRIPTION_WRAP_CHARS = 24;
+
+/**
+ * Beyond this many characters the DESCRIPTION is cut, with an ellipsis.
+ *
+ * ⚠️ 72, RAISED FROM 48 (owner ruling), and it still measures the DESCRIPTION ALONE -- the vendor
+ * name is not part of this budget, for the reason `vendorDescriptionLabel` states.
+ */
+export const VENDOR_DESCRIPTION_MAX_CHARS = 72;
+
+/** What the Vendor / Description cell renders, as data. */
+export interface VendorDescriptionLabel {
+    /** The vendor's name, or `""` when the ledger has no vendor at all. */
+    vendor: string;
+    /** The description, capped and then wrapped. Empty when there is none. */
+    descriptionLines: string[];
+    /** Whether the cap cut anything -- the cell owes a `title` when it did. */
+    truncated: boolean;
+    /** The UNtruncated description, for that `title`. */
+    full: string;
+}
+
+/**
+ * The Vendor / Description cell, as data.
+ *
+ * ⚠️ THE 72-CHARACTER CAP MEASURES THE DESCRIPTION ALONE, NOT VENDOR-PLUS-DESCRIPTION (owner
+ * decision). A long vendor name would otherwise eat the budget of the description beside it, so two
+ * records from the same vendor would be cut to different lengths and stop being comparable down the
+ * page -- which is the entire reason these facts became a table.
+ *
+ * ⚠️ NO VENDOR MEANS NO PLACEHOLDER (owner decision). `Non Project Expenses` has no vendor FIELD --
+ * no column, no join, and the payload sends null -- so an em dash there would report an absent
+ * value where the ledger has no such fact to state. The caller renders the description alone.
+ *
+ * ⚠️ THE CAP RUNS BEFORE THE WRAP, AND THE ORDER IS LOAD-BEARING. Wrapping first and cutting after
+ * would cut a LINE, so how much text survived would depend on where the words happened to break --
+ * two records with the same length of description would keep different amounts of it.
+ *
+ * The ellipsis is counted OUTSIDE the 72, so a capped description is 73 characters rendered. That
+ * is a deliberate departure from `truncateColumnLabel` (`SnagList/import/importState.ts`), which
+ * counts it inside because its dropdown has a hard pixel budget; this cell wraps, so the extra
+ * character costs nothing and the 72 stays a round number a reader can reason about. The
+ * trim-before-ellipsis behaviour IS taken from there -- "word …" must never render.
+ */
+export function vendorDescriptionLabel(
+    vendorName: string | null | undefined,
+    description: string | null | undefined
+): VendorDescriptionLabel {
+    const vendor = (vendorName ?? "").trim();
+    const full = (description ?? "").trim();
+    const truncated = full.length > VENDOR_DESCRIPTION_MAX_CHARS;
+    const capped = truncated
+        ? `${full.slice(0, VENDOR_DESCRIPTION_MAX_CHARS).trimEnd()}…`
+        : full;
+    return {
+        vendor,
+        descriptionLines: wrapToWidth(capped, VENDOR_DESCRIPTION_WRAP_CHARS),
+        truncated,
+        full,
+    };
+}
+
 export interface RecordColumn {
     id: string;
     title: string;
@@ -2557,9 +3049,25 @@ export interface RecordColumn {
  *
  * The facts did not change; five columns fit where six did not.
  */
+/**
+ * ⚠️ THE WIDTH BUDGET, STATED SO THE NEXT PERSON MOVING ONE KNOWS WHAT THEY ARE SPENDING. The
+ * dialog is 960px with ~48px of padding and a ~36px radio column, leaving 876px; the five columns
+ * sum to 850px (190 + 220 + 160 + 130 + 150). Outgrow the 876 and AMOUNT is the column that falls
+ * off the right edge -- the one fact that decides whether a record can be settled at all -- so a
+ * widening has to be PAID FOR out of another column, never simply added.
+ *
+ * The 40px `vendor` took to reach 220px came from `record`, which lost its document id at D11 and
+ * had the room to give. That is the whole reason `vendor` could grow: `VENDOR_DESCRIPTION_WRAP_CHARS`
+ * went to 24, and 24 characters at `text-sm` will not fit a 180px column's 164px content box.
+ */
 export const RECORD_COLUMNS: RecordColumn[] = [
-    { id: "record", title: "Record", width: "210px" },
-    { id: "vendor", title: "Vendor", width: "180px" },
+    { id: "record", title: "Record", width: "190px" },
+    // ⚠️ "Vendor / Description", NOT "Vendor". `Non Project Expenses` has no vendor field at all --
+    // no column and no join to make -- so under the old heading every non-project row read as a
+    // record whose vendor was missing, when in truth its ledger has no such fact. The column now
+    // states what it actually carries: the vendor where there is one, and the description that
+    // identifies the record where there is not. The id stays `vendor`; only the heading moved.
+    { id: "vendor", title: "Vendor / Description", width: "220px" },
     { id: "project", title: "Project", width: "160px" },
     { id: "date", title: "Approval Date", width: "130px" },
     { id: "amount", title: "Amount", width: "150px", align: "right" },

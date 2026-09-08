@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+    BANK_STEPS,
     CASHBOOK_STEPS,
     CASHFREE_STEPS,
     CONFIRM_STEP_NOTE,
@@ -11,6 +12,9 @@ import {
     importSteps,
     type ImportFlowState,
 } from "./importWizard";
+
+/** The one source string that selects the bank flow. Spelled as the parser's adapter key. */
+const BANK = "ICICI Bank Statement";
 
 /**
  * The import wizard's step model (slice CF/S7).
@@ -29,20 +33,37 @@ const flow = (over: Partial<ImportFlowState> = {}): ImportFlowState => ({
 });
 
 describe("the step lists", () => {
-    it("gives Cashfree four steps and Cashbook three", () => {
-        // ⚠️ TWO LISTS, NOT ONE SHARED SHAPE (owner ruling). A Cashfree import PAYS what somebody
-        // approved; a Cashbook import CREATES what a wallet already spent. The deepest difference
-        // is at step 3: by then Cashfree has already written its rows and Cashbook has not.
+    it("gives Cashfree four steps, Cashbook three and the bank three", () => {
+        // ⚠️ ONE LIST PER SOURCE, NOT ONE SHARED SHAPE (owner ruling). A Cashfree import PAYS what
+        // somebody approved; a Cashbook import CREATES what a wallet already spent; a bank import
+        // merely BRINGS THE ROWS IN. The deepest difference is at step 3: by then Cashfree has
+        // already written its rows and Cashbook has not.
         expect(CASHFREE_STEPS.map((s) => s.key)).toEqual(["upload", "check", "run", "confirm"]);
         expect(CASHBOOK_STEPS.map((s) => s.key)).toEqual(["upload", "review", "create"]);
+        expect(BANK_STEPS.map((s) => s.key)).toEqual(["upload", "check", "import"]);
+    });
+
+    it("⚠️ ends the bank flow where the work ends, with no Confirm step", () => {
+        // Owner ruling (C6). A bank row carries nothing the matcher can settle against, so
+        // Cashfree's Confirm step would be STRUCTURALLY empty here — every time, for every file.
+        // A wizard that ends on a permanently empty screen reports the import as having found
+        // nothing, which is not what happened.
+        expect(BANK_STEPS.map((s) => s.key)).not.toContain("confirm");
+        expect(BANK_STEPS).toHaveLength(3);
     });
 
     it("picks the list from the source", () => {
         expect(importSteps("Cashbook")).toBe(CASHBOOK_STEPS);
         expect(importSteps("Cashfree")).toBe(CASHFREE_STEPS);
-        // An unknown source falls to the bank flow rather than rendering no steps at all.
+        expect(importSteps(BANK)).toBe(BANK_STEPS);
+        // ⚠️ AN UNKNOWN SOURCE FALLS TO CASHFREE'S LIST rather than rendering no steps at all: a
+        // stepper with nothing in it reads as a crash, where the wrong-but-plausible stepper reads
+        // as the mis-configuration it is. (This assertion is unchanged from before the bank source
+        // existed; only its comment was, because "the bank flow" now names a real third list.)
         expect(importSteps("")).toBe(CASHFREE_STEPS);
+        expect(importSteps("HDFC Bank Statement")).toBe(CASHFREE_STEPS);
     });
+
 });
 
 describe("which step the flow is on", () => {
@@ -69,11 +90,69 @@ describe("which step the flow is on", () => {
         expect(currentStepIndex("Cashbook", flow({ previewed: true, staged: true }))).toBe(2);
     });
 
+    it("walks the bank source from upload to import", () => {
+        expect(currentStepIndex(BANK, flow())).toBe(0);
+        expect(currentStepIndex(BANK, flow({ previewed: true }))).toBe(1);
+        expect(currentStepIndex(BANK, flow({ previewed: true, staged: true }))).toBe(2);
+    });
+
+    it("⚠️ leaves a FAILED bank match on the last step, where the Re-run button is", () => {
+        // The Cashfree ruling arriving somewhere else. There the distinction is enforced by NOT
+        // advancing to Confirm; here 2 IS the last step, so there is nowhere to be wrongly
+        // advanced to and the index is the same either way. The two sentences — "nothing matched"
+        // and "the match never ran" — are still told apart on screen, by the error banner and the
+        // footer's Re-run button, both of which render from step 3 on.
+        const succeeded = flow({ previewed: true, staged: true, matched: true });
+        const failed = flow({ previewed: true, staged: true, matched: false });
+        expect(currentStepIndex(BANK, failed)).toBe(2);
+        expect(currentStepIndex(BANK, succeeded)).toBe(2);
+        // ⚠️ AND THAT SAMENESS MUST NOT LEAK BACK TO CASHFREE, which is the whole point of the
+        // ruling: there, the two states are different steps.
+        expect(currentStepIndex("Cashfree", failed)).not.toBe(
+            currentStepIndex("Cashfree", succeeded)
+        );
+    });
+
     it("never reports a step past the end of its own list", () => {
-        // `matched` is meaningless on the Cashbook flow; it must not push it off its three steps.
+        // `matched` is meaningless on the Cashbook and bank flows; it must not push either off the
+        // end. This is the invariant the shared `SOURCE_FLOWS` table exists to make unbreakable:
+        // the list and the index are read from the SAME entry, so they cannot disagree about how
+        // many steps a source has.
+        const states = [
+            flow(),
+            flow({ previewed: true }),
+            flow({ previewed: true, staged: true }),
+            flow({ previewed: true, staged: true, matched: true }),
+            // Incoherent, but a stepper must not point off the end even so.
+            flow({ staged: true, matched: true }),
+        ];
+        for (const source of ["Cashfree", "Cashbook", BANK, "an unshipped source"]) {
+            for (const state of states) {
+                const index = currentStepIndex(source, state);
+                expect(index).toBeGreaterThanOrEqual(0);
+                expect(index).toBeLessThan(importSteps(source).length);
+            }
+        }
+        // Named explicitly too, so a regression reads as the concrete thing it is.
         const over = flow({ previewed: true, staged: true, matched: true });
         expect(currentStepIndex("Cashbook", over)).toBeLessThan(CASHBOOK_STEPS.length);
         expect(currentStepIndex("Cashfree", over)).toBeLessThan(CASHFREE_STEPS.length);
+        expect(currentStepIndex(BANK, over)).toBeLessThan(BANK_STEPS.length);
+    });
+
+    it("⚠️ leaves Cashfree and Cashbook byte-identical to before the bank source existed", () => {
+        // Both carry live settled data. The C6 change replaced two branch literals with a lookup
+        // table, and the whole value of that refactor depends on those two sources coming out
+        // exactly where they went in.
+        const walk = (source: string) =>
+            [
+                flow(),
+                flow({ previewed: true }),
+                flow({ previewed: true, staged: true }),
+                flow({ previewed: true, staged: true, matched: true }),
+            ].map((state) => currentStepIndex(source, state));
+        expect(walk("Cashfree")).toEqual([0, 1, 2, 3]);
+        expect(walk("Cashbook")).toEqual([0, 1, 2, 2]);
     });
 });
 
@@ -104,6 +183,22 @@ describe("stepping back", () => {
         const written = flow({ previewed: true, staged: true, matched: true });
         expect(clickableStepIndex("Cashfree", written, 0)).toBe(false);
         expect(clickableStepIndex("Cashfree", written, 1)).toBe(false);
+    });
+
+    it("⚠️ lets the bank source back out of the Check step, and not past the import", () => {
+        // The bank Check step is where the header row is chosen and NOTHING has been posted
+        // anywhere — so going back to the file picker is free, exactly as on the other two
+        // sources. `canStepBack` is source-blind on purpose: the boundary is "has anything been
+        // written", which is a fact about the flow state and not about the file's columns.
+        const checking = flow({ previewed: true });
+        expect(canStepBack(checking)).toBe(true);
+        expect(clickableStepIndex(BANK, checking, 0)).toBe(true);
+        expect(clickableStepIndex(BANK, checking, 1)).toBe(false);
+
+        const imported = flow({ previewed: true, staged: true });
+        expect(canStepBack(imported)).toBe(false);
+        expect(clickableStepIndex(BANK, imported, 0)).toBe(false);
+        expect(clickableStepIndex(BANK, imported, 1)).toBe(false);
     });
 });
 

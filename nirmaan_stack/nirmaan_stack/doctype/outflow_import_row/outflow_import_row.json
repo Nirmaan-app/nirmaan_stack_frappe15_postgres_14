@@ -13,6 +13,7 @@
   "bank_section",
   "added_on",
   "amount",
+  "direction",
   "status_raw",
   "beneficiary_name",
   "beneficiary_id",
@@ -283,6 +284,15 @@
    "label": "Suggested Expense Type",
    "read_only": 1,
    "description": "Cashbook only. The expense type the plan chose from this row's remark, stored so the background job writes exactly what the preview showed rather than deciding again."
+  },
+  {
+   "fieldname": "direction",
+   "fieldtype": "Select",
+   "label": "Direction",
+   "options": "\nDebit\nCredit",
+   "read_only": 1,
+   "in_standard_filter": 1,
+   "description": "Which way the money went, as the STATEMENT said it -- copied verbatim from services/outflow_import/parser.RawRow.direction. AN EXPLICIT FIELD, NEVER A SIGNED AMOUNT: amounts.amounts_match, both SQL pool queries, the settle guard and every summary sum assume a positive magnitude, so a negative amount would pass all of them and settle the wrong way round in silence. BLANK MEANS THE STATEMENT DID NOT SAY, AND MUST NEVER BE READ AS 'Debit BY DEFAULT'. A gateway export (Cashfree, Cashbook) has a single amount column and states no direction at all, so it stages blank; a bank passbook (ICICI) states it by which of Withdrawal / Deposit it filled in, and blank there means BOTH were filled -- corrupt input the parser refused to guess about, and which the exclusion rules therefore cannot judge either. Rows staged before this field existed were backfilled to Debit by patches/v3_0/backfill_outflow_row_direction.py, which is scoped to the two outflow-only gateway sources for exactly that reason."
   }
  ],
  "index_web_pages_for_search": 1,

@@ -20,10 +20,12 @@ import {
     OUTFLOW_COLUMNS,
     SERVER_SORT_COLUMNS,
     highlightSegments,
+    isCreditRow,
     isDateFilterValue,
     referenceValue,
     rowSettlementLinks,
     shortReference,
+    wrapRemarks,
     type ColumnFilters,
     type DecisionOrigin,
     type OutflowColumn,
@@ -529,14 +531,44 @@ const Cell = ({
             );
 
         case "amount":
+            // The figure alone. ⚠️ The `Received` / `Paid` marker that briefly led this cell (slice
+            // D8) now has its own `direction` column beside it (owner reversal, 2026-09-09). The
+            // reason it had to LEAD was to protect this right-aligned `tabular-nums` column from a
+            // variable-width prefix; with the marker gone, so is that constraint.
             return <>{formatToRoundedIndianRupee(row.amount)}</>;
 
-        case "remarks":
+        case "direction":
+            return <DirectionCell row={row} />;
+
+        case "remarks": {
+            // ⚠️ WRAPPED, NOT CLIPPED (see `wrapRemarks`). `truncate` cut the narration to one line
+            // with no `title` beneath it, so the tail was unrecoverable from the screen -- and the
+            // part naming what a transfer was FOR is as often at the end as at the front. The full
+            // string still rides the `title`, exactly as the Reference and Outcome cells do.
+            const lines = wrapRemarks(row.remarks);
+            if (!lines.length) return <>—</>;
             return (
-                <span className="block truncate text-muted-foreground">
-                    <Highlight text={row.remarks} query={query} />
-                </span>
+                // ⚠️ WIDTH ON THE CONTENT, NOT THE COLUMN -- the same rule `OUTCOME_CELL_WIDTH`
+                // documents below. This table is auto-layout, so a 64-character line would simply
+                // widen the column and take the space from Reference, Status and Outcome.
+                <div
+                    className={`${REMARKS_CELL_WIDTH} break-words text-muted-foreground`}
+                    title={row.remarks}
+                >
+                    {/* ⚠️ WRAP FIRST, HIGHLIGHT PER LINE. `highlightSegments` computes offsets over
+                        the RAW string, so feeding it text with break characters already inserted
+                        would shift every offset past the first break and mark the wrong
+                        characters. The accepted consequence is that a hit STRADDLING a wrap
+                        boundary renders as two <mark>s rather than one -- which is what a hit
+                        spanning a line break looks like in any wrapped text. */}
+                    {lines.map((line, index) => (
+                        <span key={index} className="block">
+                            <Highlight text={line} query={query} />
+                        </span>
+                    ))}
+                </div>
             );
+        }
 
         case "bank_reference_no": {
             // ⚠️ THE FULL VALUE STAYS REACHABLE, ON THE `title`. The visible text is the last 12
@@ -590,6 +622,56 @@ const Cell = ({
         default:
             return <>{String(column.get(row) ?? "") || "—"}</>;
     }
+};
+
+/**
+ * Kept in step with the `remarks` column's declared `width` (230px) minus the cell's own px-2
+ * padding on each side. The column's width is the hint; this is the enforcement -- see the ruling
+ * on `OUTCOME_CELL_WIDTH` below for why the hint alone does nothing in an auto-layout table.
+ */
+const REMARKS_CELL_WIDTH = "w-[214px]";
+
+/**
+ * Which way the money went.
+ *
+ * ⚠️ THE FIGURE CANNOT SAY IT ON ITS OWN, WHICH IS WHY THIS COLUMN EXISTS. `Outflow Import Row.amount`
+ * is a POSITIVE MAGNITUDE on every source by design -- a signed amount would pass every guard and
+ * settle the wrong way round in silence -- so a deposit and a payment print identically. The heading
+ * beside this one used to read "Amount Paid", which called an arriving deposit "paid"; it is now the
+ * neutral "Amount", and this column carries the direction that heading gave up.
+ *
+ * ⚠️ IT IS ITS OWN COLUMN AS OF 2026-09-09 (owner reversal). Slice D8 put this marker INSIDE the
+ * amount cell, ahead of the figure, because a variable-width marker AFTER a number breaks a
+ * right-aligned `tabular-nums` column. Out here that constraint does not apply at all: this is a
+ * normal left-aligned text cell, so the badge simply sits in it.
+ *
+ * ⚠️ SKY FOR RECEIVED, MUTED FOR PAID -- the screen's existing language, not a new token. Sky is the
+ * summary panel's received-block tone (`ImportSummaryPanel`'s `Figure`), chosen there precisely
+ * because emerald already means "settled, money out". Emerald is spoken for HERE too: it is the
+ * decided Outcome button's fill. A quiet marker on the ~99% of rows that are debits also keeps this
+ * out of the row's other annotation channels -- the selected row's `bg-primary/5`, the status badge
+ * and the emerald Outcome button all stay legible over it.
+ *
+ * ⚠️ BLANK IS RENDERED AS "Paid", AND THAT IS NOT A CLAIM THAT BLANK MEANS DEBIT. A gateway export
+ * (Cashfree, Cashbook) has one amount column and states no direction at all. Such a row lands on the
+ * paid side as a CONSEQUENCE -- the receipt write paths refuse anything that is not `Credit`, so it
+ * is structurally incapable of ever having become a receipt.
+ *
+ * ⚠️ `isCreditRow`, NEVER AN INLINE `row.direction === "Credit"`. It is the single positive test both
+ * sides of the wire share (it mirrors the server's `is_received_direction`), and it TRIMS, which the
+ * four hand-written copies slice D5 replaced did not.
+ */
+const DirectionCell = ({ row }: { row: OutflowImportRow }) => {
+    const received = isCreditRow(row);
+    return (
+        <span
+            className={`inline-block rounded px-1 text-[10px] font-medium leading-4 ${
+                received ? "bg-sky-50 text-sky-700" : "text-muted-foreground"
+            }`}
+        >
+            {received ? "Received" : "Paid"}
+        </span>
+    );
 };
 
 /**

@@ -62,7 +62,22 @@ import {
 } from "./outflowTableModel";
 
 /**
- * Bulk Import Outflow -- ONE screen (slices X3 + X4).
+ * Which tab a finished import lands on, for the sources that need to move off the default.
+ *
+ * ⚠️ A LOOKUP WITH A DEFAULT, NOT A `source === "Cashbook"` LITERAL (slice C8). Absence from this
+ * map is the ordinary case and means "stay where the reader was" — so a source is listed here only
+ * because its rows would otherwise land somewhere they cannot be seen. A third source is an entry
+ * or an omission; it is DATA, and the question is answered in one place rather than at the branch.
+ *
+ * The per-source reasoning lives at the one call site, in `handleImported`, beside the pin it has
+ * to travel with.
+ */
+const POST_IMPORT_TAB: Record<string, OutflowTab> = {
+    Cashbook: "matched",
+};
+
+/**
+ * Bulk Import Transactions -- ONE screen (slices X3 + X4).
  *
  * ⚠️ THE SHAPE REVERSED HERE, AND THE OLD SHAPE IS WORTH STATING SO THE CHANGE IS LEGIBLE. Until
  * X3 a SHEET was a place: you opened a list of imports, opened one, and saw its rows. Rows only
@@ -92,7 +107,7 @@ export const OutflowMasterPage = () => {
      * The selected import, or undefined for ALL of them.
      *
      * ⚠️ THE ROUTE PARAM IS THE SELECTION — there is no second copy in page state, and that is what
-     * keeps the two from contradicting each other. `/bulk-import-outflow/:id` used to be a separate
+     * keeps the two from contradicting each other. `/bulk-import-transactions/:id` used to be a separate
      * "deep-linked" MODE with its own header and no way back; it is now simply the URL that says
      * which import the selector has chosen. Picking one navigates there, picking "All imports"
      * navigates back to the bare path, and every pre-existing bookmark keeps working while gaining a
@@ -120,7 +135,7 @@ export const OutflowMasterPage = () => {
             // filter that is written down but not applied — the same contradiction the disabled
             // control exists to avoid, in the address bar.
             navigate(
-                batch ? `/bulk-import-outflow/${encodeURIComponent(batch)}` : "/bulk-import-outflow",
+                batch ? `/bulk-import-transactions/${encodeURIComponent(batch)}` : "/bulk-import-transactions",
                 carryTab ? { state: { outflowTab: carryTab } } : undefined
             );
         },
@@ -273,6 +288,25 @@ export const OutflowMasterPage = () => {
     const { call: callCreate } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.expenses.create_expense"
     );
+    // ⚠️ ITS OWN ENDPOINT IN ITS OWN MODULE (slice B6), because it writes the other direction. Every
+    // endpoint in `expenses.py` records money that LEFT; this one records money that ARRIVED, into a
+    // doctype with no status and no approval — a created `Project Inflow` is live the instant it
+    // commits and can release a CEO Cashflow Hold. The bank row is the review gate (owner ruling Q8).
+    const { call: callCreateInflow } = useFrappePostCall(
+        "nirmaan_stack.api.outflow_import.inflows.create_inflow"
+    );
+    // ⚠️ THE SECOND CREDIT DISPOSITION (slice B7), AND THE ONLY SIGNED WRITE IN THIS SCREEN. It
+    // records a credit that belongs to no project as a NEGATIVE `Non Project Expense` — there is no
+    // non-project inflow doctype in this app and none is being created (owner ruling Q3, ADR-0016
+    // decision 3). It lives in `inflows.py` because this module splits on DIRECTION, not doctype:
+    // `expenses.py`'s stated property is that every endpoint in it writes an OUTFLOW, and its
+    // `amount <= 0` guard is read against that.
+    //
+    // ⚠️ THE PAYLOAD CARRIES NO AMOUNT AND NO SIGN. The magnitude, date and reference are read
+    // server-side off the staged row, and the negation is applied there from the row's `direction`.
+    const { call: callCreateReceipt } = useFrappePostCall(
+        "nirmaan_stack.api.outflow_import.inflows.create_non_project_receipt"
+    );
     // ⚠️ A SEPARATE ENDPOINT, AND THE SEPARATION IS THE GUARD (slice PS). The bulk confirm loops
     // `settleOne`, which calls `settle_row`; a partial can only ever be reached from one reviewer
     // answering one question about one row, which is what keeps it outside the settle window
@@ -387,6 +421,32 @@ export const OutflowMasterPage = () => {
                     description: form.description || undefined,
                     vendor: form.vendor || undefined,
                 });
+            } else if (decision.target === "inflow") {
+                // ⚠️ NO AMOUNT, DATE OR REFERENCE IN THE PAYLOAD, exactly as the create-expense
+                // branch sends none: the statement is the source of truth and the server reads all
+                // three off the staged row. `customer` is a CROSS-CHECK, not an input — the server
+                // reads it off the project and refuses a value that disagrees, which is how a stale
+                // screen is caught rather than silently overruled.
+                const form = decision.newInflow!;
+                await callCreateInflow({
+                    row: row.name,
+                    project: form.project,
+                    customer: form.customer || undefined,
+                    invoice: form.invoice || undefined,
+                });
+            } else if (decision.target === "receipt") {
+                // ⚠️ NO AMOUNT AND, ABOVE ALL, NO SIGN IN THE PAYLOAD (slice B7). The server reads
+                // the magnitude off the staged row and negates it from that row's own `direction`.
+                // A client that could post a negative number could book a debit as income.
+                //
+                // ⚠️ AND NO `doctype`, EITHER: the endpoint writes `Non Project Expenses` and only
+                // that, so a credit can never land as a negative `Project Expense`.
+                const form = decision.newReceipt!;
+                await callCreateReceipt({
+                    row: row.name,
+                    expense_type: form.expenseType,
+                    description: form.description || undefined,
+                });
             } else {
                 await callSettle({
                     row: row.name,
@@ -395,7 +455,7 @@ export const OutflowMasterPage = () => {
                 });
             }
         },
-        [callCreate, callSettle]
+        [callCreate, callCreateInflow, callCreateReceipt, callSettle]
     );
 
     const handleConfirmOne = useCallback(async () => {
@@ -575,7 +635,7 @@ export const OutflowMasterPage = () => {
              * is the very "reads as a failed upload" defect the period move existed to prevent.
              *
              * ⚠️ THE PIN IS DEFERRED TO THE DIALOG'S CLOSE, and it must be. Pinning navigates to
-             * `/bulk-import-outflow/<id>`, which REMOUNTS this page; Cashfree keeps its dialog open
+             * `/bulk-import-transactions/<id>`, which REMOUNTS this page; Cashfree keeps its dialog open
              * through step 4 (CF/S7), so pinning here would unmount the wizard in the middle of the
              * confirm step. Cashbook closes immediately after importing. One open→closed transition
              * serves both, so there is one rule rather than a per-source special case.
@@ -609,6 +669,19 @@ export const OutflowMasterPage = () => {
              * Cashfree keeps the default: its rows arrive needing a person, so the worklist IS
              * where they belong and moving somebody away from it would hide their work.
              *
+             * ⚠️ THE BANK SOURCE KEEPS THE DEFAULT TOO, AND FOR A STRONGER FORM OF THE SAME REASON
+             * (slice C8). A bank narration carries no transfer id anybody approved against, so the
+             * matcher settles nothing and EVERY row lands `Mismatched` — the Not-Matched worklist
+             * is not merely where its rows belong, it is the only tab that will have any. Moving a
+             * bank import to `matched` would land it on the one table guaranteed to be empty,
+             * producing the exact "reads as an import that did nothing" defect this ruling exists
+             * to prevent, arriving from the other direction.
+             *
+             * ⚠️ WHICH IS WHY THE EXCEPTION IS A LOOKUP AND THE DEFAULT IS "DO NOT MOVE" (see
+             * `POST_IMPORT_TAB`). Staying put can only ever leave a reader where they chose to be;
+             * moving them is the act that can hide their work, so it is the one that has to be
+             * asked for by name.
+             *
              * ⚠️ IT HAS TO TRAVEL WITH THE PIN, and setting it here alone would no longer be
              * enough. The pin navigates between two route entries, so this page remounts and `tab`
              * — page state — is rebuilt at its default; the Cashbook reader would land on the
@@ -616,7 +689,8 @@ export const OutflowMasterPage = () => {
              * prevent. Setting it here STILL matters for the case where the pin navigates nowhere
              * (re-importing while already pinned to that same statement, where nothing remounts).
              */
-            const nextTab: OutflowTab = source === "Cashbook" ? "matched" : tabRef.current;
+            const nextTab: OutflowTab =
+                (source ? POST_IMPORT_TAB[source] : undefined) ?? tabRef.current;
             setTab(nextTab);
 
             // Remembered, not acted on — the pin fires when the dialog closes. See the ref's own
@@ -653,7 +727,7 @@ export const OutflowMasterPage = () => {
     return (
         <div className="flex-1 space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-xl font-bold tracking-tight">Bulk Import Outflow</h2>
+                <h2 className="text-xl font-bold tracking-tight">Bulk Import Transactions</h2>
                 {/* ⚠️ THE "showing X only" CHIP IS GONE (2026-08-12). It existed when a deep link was
                     a MODE you could not leave, so the screen had to announce that it was in one. The
                     Import selector now states the same fact in a control you can act on, and a chip

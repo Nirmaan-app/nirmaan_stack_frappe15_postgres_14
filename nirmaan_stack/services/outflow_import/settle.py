@@ -32,6 +32,40 @@ recorded in two rows. What remains forbidden is unchanged: this module cannot mo
 `Approved`, and "create a new entry" is still expenses-only, because a `Project Payment` is born
 from a PO or SR request and nothing here may originate one.
 
+⚠️ SLICE B6 ADDS A FOURTH DOCTYPE THIS MODULE MAY WRITE, AND IT IS NOT AN OUTFLOW AT ALL.
+`create_inflow_from_row` records a bank CREDIT as a `Project Inflow`. It changes none of the spine
+above: it settles nothing, approves nothing, and creates only from a row a person confirmed. What it
+DOES do that nothing else here does is write a record with NO status and NO approval workflow --
+every consumer sums `Project Inflows` unfiltered, so the row is live the instant it commits and can
+release a CEO Cashflow Hold. The bank row is the review gate (owner ruling Q8, option c). Read that
+function's docstring before touching it.
+
+⚠️ SLICE B7 ADDS THE ONE PLACE IN THIS MODULE WHERE A STORED AMOUNT IS **NEGATIVE**, AND IT IS THE
+SENTENCE TO READ BEFORE TOUCHING ANY AMOUNT IN THIS FILE. `create_non_project_receipt_from_row`
+records a bank CREDIT that belongs to no project as a `Non Project Expense` with a NEGATIVE amount
+(ADR-0016 decision 3, owner ruling Q3). There is no non-project inflow doctype in this app and none
+is being created; a negative non-project expense is the app's own existing construct for money
+coming back, is rendered green by the list screen, and is deliberately excluded from auto-approval.
+
+The signed path is opened as NARROWLY as it can be, and every part of the narrowing is structural
+rather than promised:
+  * it is a SEPARATE function, not a mode flag on `create_expense_from_row` -- whose `amount <= 0`
+    guard is therefore untouched and still refuses every debit, which is correct for a debit;
+  * it takes NO `doctype` parameter at all, so a credit can never become a negative
+    `Project Expense` (a Data column, with project/vendor/payment_by fields that mean nothing on a
+    receipt) -- there is no argument by which a caller could ask for one;
+  * `direction` is REQUIRED and must be `Credit`. The sibling `create_inflow_from_row` tolerates
+    `None`; this one does not, because there the direction merely selects a ledger and here it
+    selects a SIGN;
+  * the bank row's own `amount` is read as a POSITIVE MAGNITUDE, exactly as on every other path,
+    and the negation happens HERE. Nothing trusts a sign arriving from a row or a client.
+
+⚠️ THE COST IS REAL AND IS NOT OURS TO RE-LITIGATE: money coming IN now lives in a doctype called
+*Expenses*. Anyone reading or summing a Non-Project Expenses list meets a negative row. That was
+weighed against a new doctype with new permissions, list views and reports, and the owner chose
+this; ADR-0016 records it as accepted risk R3. The new `non_project=1` Expense Types (Q19) are what
+make such a row say what it is.
+
 NO REQUEST CONTEXT. The actor is passed IN rather than read from `frappe.session`, so this stays a
 service the api layer drives (ADR-0010: api -> service is the one legal direction). DB writes here
 are fine; reaching for the request is not.
@@ -116,6 +150,8 @@ from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 __all__ = [
     "PROJECT_EXPENSE",
     "NON_PROJECT_EXPENSE",
+    "INFLOW_DOCTYPE",
+    "DIRECTION_CREDIT",
     "SETTLEABLE_STATUSES",
     "ExpenseSettlementError",
     "AlreadyPaidError",
@@ -123,12 +159,31 @@ __all__ = [
     "AmountMismatchError",
     "ExpenseTypeScopeError",
     "DuplicateReferenceError",
+    "InflowNotRecordableError",
     "SettleResult",
     "settle_existing_expense",
     "settle_payment",
     "create_expense_from_row",
+    "create_inflow_from_row",
+    "create_non_project_receipt_from_row",
     "format_amount_for",
+    "statement_attachment_field",
 ]
+
+#: The one ledger this module writes that is NOT an outflow (slice B6).
+#:
+#: ⚠️ DELIBERATELY NOT IN `ledgers.py`. That module is the vocabulary of the three ledgers this
+#: import SETTLES, and `LEDGER_DOCTYPES` is read as a DISPLAY ORDER by
+#: `status.derive_settled_ledger_split` -- adding a fourth name there would grow a column in the
+#: settled-by-ledger panel for a ledger that is never settled, only created. An inflow is not a
+#: settlement candidate and can never become one: there is no approved inflow waiting to be paid.
+INFLOW_DOCTYPE = "Project Inflows"
+
+#: The direction an `Outflow Import Row` must carry before it may become an inflow (slice B6).
+#: Spelled here rather than imported from `parser`, which is not otherwise a dependency of this
+#: module; `test_inflows` pins the two spellings against each other so a rename cannot reach only
+#: one of them.
+DIRECTION_CREDIT = "Credit"
 
 
 # ⚠️ THE SETTLEABLE-STATUS MAP MOVED TO `ledgers.py` AT V1, and the names above are re-exports so
@@ -180,6 +235,24 @@ class DuplicateReferenceError(ExpenseSettlementError):
         report-only, settled by hand in the payments screen, which is precisely why the existing
         UTR guard is never challenged and stays exactly as it is.
       * a real double-settle attempt from a re-uploaded or overlapping statement.
+    """
+
+
+class InflowNotRecordableError(ExpenseSettlementError):
+    """This bank CREDIT cannot be recorded as a `Project Inflow` (slice B6).
+
+    ⚠️ ITS OWN TYPE, NOT `WrongStatusError`, BECAUSE NOTHING ABOUT IT IS A STATUS. `Project Inflows`
+    has no status field and no approval workflow at all -- an inflow is recorded as fact -- so every
+    refusal on this path is about the SHAPE of the request: the row is a debit, the project is
+    missing, or the project has no customer to receive money from. Reusing the status error would
+    tell a caller to look for a workflow that does not exist.
+
+    ⚠️ SLICE B7 WIDENS IT ONE STEP, TO "MONEY IN CANNOT BE RECORDED", AND NO TWIN TYPE WAS MINTED.
+    `create_non_project_receipt_from_row` records a credit that belongs to no project as a NEGATIVE
+    `Non Project Expense`, and its only shape refusal is the SAME fact this type already names: the
+    row's direction forbids treating it as money that arrived. Its other two refusals already have
+    owners -- `ExpenseTypeScopeError` for the type and `AmountMismatchError` for the figure -- so a
+    second class would have exactly one member and would differ from this one in name only.
     """
 
 
@@ -246,6 +319,23 @@ def _outflow_import_write():
 # that does not is a change in one place rather than a grep.
 PAYMENT_ATTACHMENT_FIELD = "payment_attachment"
 
+#: ⚠️ THE FOURTH LEDGER THE LINE ABOVE ANTICIPATED ARRIVED AT B6, AND IT SPELLS IT DIFFERENTLY.
+#: `Project Inflows` calls the same field `inflow_attachment`. This map is the "change in one place"
+#: that note promised: everything outside it keeps `payment_attachment`, so the three settle ledgers
+#: are byte-unchanged, and NOTHING else in the feature has to know that a ledger disagrees.
+_STATEMENT_ATTACHMENT_FIELDS = {INFLOW_DOCTYPE: "inflow_attachment"}
+
+
+def statement_attachment_field(doctype: str) -> str:
+    """Where THIS doctype keeps the proof of the transfer.
+
+    ⚠️ IT IS ALSO WHAT `api/outflow_import` MUST WRITE INTO A `File` ROW'S `attached_to_field`.
+    A `File` naming a field the doctype does not have is a link Frappe cannot authorise back to the
+    record, which surfaces as an attachment that is visibly present and refuses to open -- exactly
+    the failure `_link_statement_file_to_target` exists to prevent. One resolver, both writers.
+    """
+    return _STATEMENT_ATTACHMENT_FIELDS.get(doctype, PAYMENT_ATTACHMENT_FIELD)
+
 
 def apply_statement_attachment(doc, statement_file_url: str | None) -> bool:
     """Point the record's `payment_attachment` at the bank statement it was settled from.
@@ -269,12 +359,22 @@ def apply_statement_attachment(doc, statement_file_url: str | None) -> bool:
     """
     if not statement_file_url:
         return False
-    if not doc.meta.has_field(PAYMENT_ATTACHMENT_FIELD):
+    field = statement_attachment_field(doc.doctype)
+    if not doc.meta.has_field(field):
         return False
-    if (doc.get(PAYMENT_ATTACHMENT_FIELD) or "").strip():
+    if (doc.get(field) or "").strip():
         return False
-    doc.set(PAYMENT_ATTACHMENT_FIELD, statement_file_url)
+    doc.set(field, statement_file_url)
     return True
+
+
+#: The doctypes whose `amount` is a **Data** column holding a bare numeric STRING.
+#:
+#: ⚠️ A SET, NOT AN `==`, SINCE B6 -- and the second member was MEASURED, not assumed. All 463 live
+#: `Project Inflows` hold `'1500000'` / `'2402'`-shaped strings and NONE of them would break a
+#: numeric cast, exactly as `Project Expenses` does. `Non Project Expenses` and `Project Payments`
+#: are real Currency columns and are unchanged by this widening.
+_DATA_AMOUNT_DOCTYPES = frozenset({PROJECT_EXPENSE, INFLOW_DOCTYPE})
 
 
 def format_amount_for(doctype: str, amount: Decimal):
@@ -285,8 +385,12 @@ def format_amount_for(doctype: str, amount: Decimal):
     and the numeric CAST the candidate query relies on would still work but the column would stop
     being self-consistent. `Non Project Expenses.amount` is a real Currency column and wants a
     number.
+
+    ⚠️ `Project Inflows.amount` IS THE SAME DATA-COLUMN SHAPE (B6), which is why the test below is
+    membership rather than an equality against one name. Writing a float there would put `44275.0`
+    beside 463 rows that all read `44275`, and every consumer sums that column with no filter.
     """
-    if doctype == PROJECT_EXPENSE:
+    if doctype in _DATA_AMOUNT_DOCTYPES:
         normalized = amount.normalize()
         if normalized == normalized.to_integral_value():
             return str(int(normalized))
@@ -773,8 +877,318 @@ def create_expense_from_row(
     # which is the point: a record created FROM a statement should carry that statement.
     apply_statement_attachment(doc, statement_file_url)
 
-    doc.insert(ignore_permissions=True)
+    # ⚠️ THE INSERT IS WRAPPED, AND IT WAS NOT UNTIL B6a. `project_cashflow_hold_update.
+    # on_project_expense` is wired to `Project Expenses` `after_insert`, it fires on an insert made
+    # at `Paid`, and its manual-hold-releasable branch inserts a notification and calls
+    # `frappe.db.commit()`. A commit inside `expenses.create_expense`'s per-row savepoint makes that
+    # rollback A SILENT NO-OP -- a later failure would leave the expense standing while the caller
+    # believed it had undone everything.
+    #
+    # It was harmless only because the path was DARK: `SHOW_CREATE_NEW_EXPENSE` was `false` from
+    # slice R2 until B5 turned it on for the create-only bank-statement source. Enabling a path is
+    # what made a latent transaction bug live, which is the general lesson worth keeping.
+    #
+    # The flag suppresses that ONE notification branch. The gap recomputation and the CEO-Hold
+    # mirror still run, inside our transaction -- see `_outflow_import_write` for why this is a
+    # request-level flag rather than a `doc.flags` one (the committer is an inner helper that never
+    # sees the doc). `create_inflow_from_row` has always wrapped its insert for the same reason.
+    with _outflow_import_write():
+        doc.insert(ignore_permissions=True)
     return SettleResult(doctype=doctype, name=doc.name, amount=amount, created=True)
+
+
+def create_inflow_from_row(
+    row,
+    actor: str,
+    project: str,
+    customer: str | None = None,
+    invoice: str | None = None,
+    utr: str | None = None,
+    payment_date=None,
+    statement_file_url: str | None = None,
+    direction: str | None = None,
+) -> SettleResult:
+    """Record a bank CREDIT as a new `Project Inflow` (slice B6).
+
+    ⚠️ A SIBLING OF `create_expense_from_row`, NEVER A WIDENING OF IT. That function opens with a
+    hard `is_expense_doctype` guard and its whole contract is expense-shaped -- a `type`, a
+    `status`, a `payment_by`, an auto-approval rule it deliberately bypasses. An inflow has none of
+    those. What the two DO share is the machinery, and every bit of it is reused rather than
+    re-typed: `apply_statement_attachment`, `format_amount_for`, `_outflow_import_write`.
+
+    ⚠️ THIS IS THE ONE WRITE IN THIS FEATURE WITH NO DRAFT STATE ANYWHERE BEHIND IT, and that is an
+    owner ruling (Q8, option c), not an oversight. `Project Inflows` has no `status` field, and
+    EVERY consumer sums it unfiltered -- `api/projects/project_aggregates`,
+    `api/payments/get_project_payment_summary`, `api/customers/customer_financials`, and
+    `integrations/controllers/project_cashflow_hold_update`, which computes
+    `cashflow_gap = outflow + liabilities - inflow` and drives CEO Cashflow Hold. So a row created
+    here is LIVE the instant it commits and can RELEASE a CEO Hold. The review gate is the bank row
+    itself: a person confirms the transfer, and confirming creates. Do NOT add a status field to
+    this doctype to give this path a draft -- that is a migration across every financial screen and
+    ~4,000 existing rows, and it is not what the owner asked for.
+
+    ⚠️ THE `tendering_status == "Won"` GUARD IS INHERITED, NOT REPEATED.
+    `integrations/controllers/project_inflows.validate` enforces it on every new inflow, which is
+    why this path writes through `doc.insert()` -- a `frappe.db.set_value`-style write would skip
+    the document lifecycle and the guard with it. Duplicating the check here would be a second copy
+    of a rule that already has an owner.
+
+    ⚠️ THE CUSTOMER REQUIREMENT IS ENFORCED HERE, AND DELIBERATELY NOT ON THE DOCTYPE (owner ruling
+    Q13). Today it lives only in `NewInflowPayment.tsx` -- client-side, on a screen nobody asked to
+    change. Moving it onto `Project Inflows.validate` would start refusing writes from that existing
+    dialog and from every legacy edit, which is a behaviour change to a working screen riding a
+    slice about bank statements. Enforcing it on the path that writes SERVER-SIDE is what closes the
+    hole this endpoint opens without touching anything else.
+
+    ⚠️ THE CUSTOMER IS READ FROM THE PROJECT, NEVER TAKEN ON TRUST. It is a FACT about the project,
+    not a free choice -- the existing dialog derives it exactly this way. A `customer` argument that
+    disagrees is a screen that has gone stale, and is refused rather than silently overruled.
+    """
+    # A DEBIT recorded as an inflow would book money that LEFT the account as money that arrived.
+    # The direction is passed in because `_StagedRow` does not carry it (`__slots__`), and it is
+    # checked here rather than in the endpoint so the rule sits with the write it governs.
+    if direction is not None and (direction or "").strip() != DIRECTION_CREDIT:
+        frappe.throw(
+            "Only a credit can be recorded as a project inflow. This transfer is a "
+            f"{(direction or '').strip() or 'transfer with no stated direction'}.",
+            InflowNotRecordableError,
+            title="Not a credit",
+        )
+
+    amount = normalize_amount(getattr(row, "amount", 0))
+    if amount <= 0:
+        # Mirrors `create_expense_from_row`'s guard, in the inflow's own voice. `AmountMismatchError`
+        # rather than the inflow error because the fault is the FIGURE, which is the one thing on
+        # this path the reviewer cannot correct.
+        frappe.throw(
+            "A credit of zero or less cannot be recorded as a project inflow.",
+            AmountMismatchError,
+            title="Nothing to record",
+        )
+
+    if not project:
+        frappe.throw(
+            "A project is required to record a project inflow.",
+            InflowNotRecordableError,
+            title="Missing project",
+        )
+    on_project = frappe.db.get_value("Projects", project, ["name", "customer"], as_dict=True)
+    if not on_project:
+        frappe.throw(
+            f"Project '{project}' not found.", InflowNotRecordableError, title="Missing project"
+        )
+
+    on_record = (on_project.get("customer") or "").strip()
+    if not on_record:
+        frappe.throw(
+            f"{project} has no customer, so money received against it cannot be recorded. "
+            f"Add the customer to the project first.",
+            InflowNotRecordableError,
+            title="Project has no customer",
+        )
+    supplied = (customer or "").strip()
+    if supplied and supplied != on_record:
+        frappe.throw(
+            f"{project}'s customer is {on_record}, not {supplied}. Reopen this row and try again.",
+            InflowNotRecordableError,
+            title="Customer changed",
+        )
+
+    linked_invoice = (invoice or "").strip() or None
+    if linked_invoice:
+        # ⚠️ THE INVOICE MUST BELONG TO THE PROJECT. Nothing on `Project Inflows` enforces it, and a
+        # cross-project link would silently credit one project's receipt against another's bill.
+        invoice_project = frappe.db.get_value("Project Invoices", linked_invoice, "project")
+        if not invoice_project:
+            frappe.throw(
+                f"Invoice '{linked_invoice}' not found.",
+                InflowNotRecordableError,
+                title="Missing invoice",
+            )
+        if invoice_project != project:
+            frappe.throw(
+                f"Invoice {linked_invoice} belongs to {invoice_project}, not {project}.",
+                InflowNotRecordableError,
+                title="Invoice is on another project",
+            )
+
+    doc = frappe.new_doc(INFLOW_DOCTYPE)
+    doc.update(
+        {
+            "project": project,
+            "customer": on_record,
+            "invoice": linked_invoice,
+            # WHAT FINDS THIS RECEIPT AT THE OTHER END, and the axis the duplicate guard keys on.
+            # Defaulted from the row's own bank reference; the caller may name a different field for
+            # a source whose reference lives elsewhere, exactly as `create_expense_from_row` allows.
+            "utr": (utr or "").strip() or (getattr(row, "bank_reference_no", "") or "") or None,
+            # `Project Inflows.amount` is a Data column -- see `format_amount_for`.
+            "amount": format_amount_for(INFLOW_DOCTYPE, amount),
+            "payment_date": payment_date or getattr(row, "added_on_date", None),
+        }
+    )
+    # ⚠️ `actor` IS NOT WRITTEN ONTO THE RECORD, AND THAT IS NOT AN OVERSIGHT -- IT IS UNWRITEABLE.
+    # This ledger has no `payment_by` counterpart (the `Project Expenses` asymmetry, one field
+    # further), and `owner` cannot carry it either: `frappe.model.document.set_user_and_timestamp`
+    # OVERWRITES `owner` with `frappe.session.user` on every new doc, unconditionally. Assigning it
+    # here would read as deliberate and be a silent no-op -- so it is left to Frappe, which lands the
+    # same value because `require_outflow_access` returns the session user. The DURABLE answer to
+    # "who recorded this" is the `Outflow Row Match`'s `matched_by`, written by the caller.
+    #
+    # The parameter stays because it is part of this family's signature and a future ledger, or a
+    # background caller running as someone else, will need it.
+
+    # A brand-new inflow has no proof of its own, so the blank-only rule always lets this land.
+    # ⚠️ IT WRITES `inflow_attachment`, NOT `payment_attachment` -- see `statement_attachment_field`.
+    apply_statement_attachment(doc, statement_file_url)
+
+    # ⚠️ THE REQUEST FLAG IS REQUIRED HERE, AND `create_expense_from_row` NOT HAVING ONE IS NOT
+    # EVIDENCE THAT IT IS OPTIONAL. `hooks.py` wires `project_cashflow_hold_update.on_project_inflow`
+    # to this doctype's `after_insert` AND `on_update`, and that module reaches a `frappe.db.commit()`
+    # in ONE branch -- notifying the holder of a MANUAL CEO Hold that has become releasable. An
+    # inflow is the single largest thing that can move a cashflow gap the right way, so that branch
+    # is not hypothetical here. A commit inside the caller's per-row savepoint makes its rollback a
+    # silent no-op. The flag suppresses the NOTIFY only; `sync_cashflow_reason` still recomputes the
+    # gap and still mirrors the CEO-Hold state, inside our transaction, which is what the owner
+    # ruling requires -- an inflow recorded here is live immediately.
+    with _outflow_import_write():
+        doc.insert(ignore_permissions=True)
+
+    return SettleResult(doctype=INFLOW_DOCTYPE, name=doc.name, amount=amount, created=True)
+
+
+def create_non_project_receipt_from_row(
+    row,
+    actor: str,
+    expense_type: str,
+    direction: str,
+    description: str | None = None,
+    comment: str | None = None,
+    statement_file_url: str | None = None,
+) -> SettleResult:
+    """Record a bank CREDIT that belongs to no project, as a NEGATIVE `Non Project Expense` (B7).
+
+    The second disposition a credit can take. `create_inflow_from_row` handles a receipt that has a
+    project and a customer behind it -- a client payment against an invoice. This one handles the
+    rest: FD and RD interest, an FD closing and returning its principal, a loan drawdown landing,
+    a site advance coming back. None of those name a project, so none of them can be an inflow.
+
+    ⚠️ THERE IS NO NON-PROJECT INFLOW DOCTYPE IN THIS APP AND NONE IS BEING CREATED (owner ruling
+    Q3, ADR-0016 decision 3). A negative `Non Project Expense` is not a hack invented here -- it is
+    the construct the app already has for money coming back, and three separate places already know
+    about it: `NewNonProjectExpense.tsx` tells the user "use negative for refunds",
+    `nonProjectExpensesColumns.tsx` renders a negative amount GREEN, and `utils/expenseApproval.ts`
+    (mirrored by this doctype's own controller) excludes a negative amount from auto-approval.
+
+    ⚠️ THE COST, STATED HONESTLY BECAUSE IT IS INHERENT TO THE RULING AND NOT OURS TO SOFTEN: money
+    ARRIVING is now stored in a doctype called *Expenses*, and anyone summing that table meets a
+    negative row. The alternative -- a new doctype with new permissions, list views and reports --
+    was weighed and rejected; ADR-0016 carries it as accepted risk R3. The new `non_project=1`
+    Expense Types (Q19) are what make such a row say what it is on the screen it lands in.
+
+    ⚠️ THIS IS THE ONE SIGNED WRITE IN THIS MODULE, AND EVERY PART OF HOW IT IS FENCED IS
+    STRUCTURAL. Read all four before changing anything here:
+
+      1. **It is a separate function, never a widening of `create_expense_from_row`.** That one's
+         `amount <= 0` guard is CORRECT for a debit -- a transfer out of zero or less is not a
+         spend -- and it is on a live path. A `signed=True` flag would have put two opposite rules
+         inside one body, where the wrong branch is one boolean away and reads as a typo.
+      2. **There is no `doctype` parameter.** `NON_PROJECT_EXPENSE` is spelled once, below, and
+         cannot be overridden by any caller. That is what makes "a credit never becomes a negative
+         `Project Expense`" a property of the signature rather than a guard someone could forget:
+         that ledger's `amount` is a **Data** column holding bare numeric strings, and its
+         `projects` / `vendor` / `payment_by` fields mean nothing on a receipt.
+      3. **`direction` is REQUIRED and must be `Credit`**, where the sibling
+         `create_inflow_from_row` tolerates `None`. The difference is deliberate: there the
+         direction picks a LEDGER and a wrong one is refused downstream by the project/customer
+         rules; here it picks a SIGN, and a missing direction defaulting open would let a DEBIT be
+         booked as income -- the books wrong by twice the transfer, with nothing on screen looking
+         odd. Silence is not consent on this path.
+      4. **The negation happens HERE, from the direction, never from the row.** `row.amount` is the
+         positive magnitude every source stores and every other guard in this feature assumes
+         (ADR-0016 rejected a signed amount column for exactly that reason). Nothing trusts a sign
+         arriving from a staged row or from a client.
+
+    ⚠️ IT IS CREATED AT `Paid`, LIKE ITS DEBIT SIBLING, AND THAT DELIBERATELY BYPASSES THE
+    APPROVAL LADDER. `validate()` returns early for any status other than `Requested`, so the
+    negative-amount exclusion from auto-approval never evaluates -- which is the right outcome, not
+    a way around it: the money has already arrived, and asking somebody to *approve* a receipt the
+    bank has already credited is theatre. The review gate is the bank row itself (owner ruling Q8),
+    exactly as for an inflow.
+    """
+    # (3) above. Checked before anything else is read, because everything after it is signed.
+    if (direction or "").strip() != DIRECTION_CREDIT:
+        frappe.throw(
+            "Only a credit can be recorded as a non-project receipt. This transfer is a "
+            f"{(direction or '').strip().lower() or 'transfer with no stated direction'}, so it "
+            f"took money out.",
+            InflowNotRecordableError,
+            title="Not a credit",
+        )
+
+    _assert_type_scope(NON_PROJECT_EXPENSE, expense_type)
+
+    # THE MAGNITUDE, exactly as every other path reads it. The guard is on the magnitude and reads
+    # the same way `create_expense_from_row`'s does -- a credit of nothing is nothing to record.
+    magnitude = normalize_amount(getattr(row, "amount", 0))
+    if magnitude <= 0:
+        frappe.throw(
+            "A credit of zero or less cannot be recorded as a non-project receipt.",
+            AmountMismatchError,
+            title="Nothing to record",
+        )
+
+    # (4) above: the sign is applied here, once, from the direction already asserted.
+    received = -magnitude
+
+    beneficiary = (getattr(row, "beneficiary_name", "") or "").strip()
+    remarks = (getattr(row, "remarks", "") or "").strip()
+
+    doc = frappe.new_doc(NON_PROJECT_EXPENSE)
+    doc.update(
+        {
+            "type": expense_type,
+            # See the docstring: explicit, and it is what bypasses the approval ladder.
+            "status": _PAID,
+            # `Non Project Expenses.amount` is a real Currency column, so this is a float -- and it
+            # is the ONE place in this module where that float is below zero.
+            "amount": format_amount_for(NON_PROJECT_EXPENSE, received),
+            "payment_date": getattr(row, "added_on_date", None),
+            # WHAT FINDS THIS RECEIPT AT THE OTHER END. The same field the debit path writes, from
+            # the same place on the row -- a receipt is reconciled against the statement exactly as
+            # a payment is.
+            "payment_ref": getattr(row, "bank_reference_no", "") or None,
+            # ⚠️ THE PAYER LANDS IN THE DESCRIPTION, and on this ledger there is nowhere else for
+            # them to go: `Non Project Expenses` has NO vendor column. `_default_description` is
+            # shared with the debit path for that same reason.
+            "description": description or _default_description(
+                NON_PROJECT_EXPENSE, beneficiary, remarks
+            ),
+            "comment": comment or None,
+        }
+    )
+
+    # A brand-new record has no proof of its own, so the blank-only rule always lets this land.
+    apply_statement_attachment(doc, statement_file_url)
+
+    # ⚠️ WRAPPED EVEN THOUGH `Non Project Expenses` CARRIES NO COMMITTING HOOK TODAY -- its only
+    # `doc_events` entry is `on_trash`. The flag costs nothing, restores the previous value, and is
+    # what the other two create paths do; the alternative is a bare insert that becomes a
+    # savepoint-corrupting hazard the day somebody wires an `after_insert` here, with nothing at
+    # this call site to say so. `create_expense_from_row` learned that at B6a, on a path that had
+    # been dark.
+    with _outflow_import_write():
+        doc.insert(ignore_permissions=True)
+
+    # ⚠️ `amount` IS THE NEGATIVE FIGURE THAT WAS WRITTEN, not the bank's magnitude, because that is
+    # what `SettleResult.amount` means ("the amount written, not the amount found"). It reaches the
+    # `Outflow Row Match`'s `target_amount` and the export's `settled_target_amount`, where a
+    # negative is the truth about what this settlement recorded. ⚠️ It is NOT summed anywhere: the
+    # batch totals read the ROW's own `amount` (`review.py` says so in its own note), so a negative
+    # here cannot net anything off.
+    return SettleResult(
+        doctype=NON_PROJECT_EXPENSE, name=doc.name, amount=received, created=True
+    )
 
 
 def _default_description(doctype: str, beneficiary: str, remarks: str) -> str:

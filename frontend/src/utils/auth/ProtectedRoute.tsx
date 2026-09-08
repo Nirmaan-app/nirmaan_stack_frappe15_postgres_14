@@ -189,7 +189,7 @@ export const PricingRoute = () => {
 }
 
 /**
- * Guards Bulk Import Outflow (/bulk-import-outflow and its children).
+ * Guards Bulk Import Transactions (/bulk-import-transactions and its children).
  *
  * Owner ruling: Accountant, Accountant Lead, Admin. Mirrors the backend gate
  * `api/outflow_import/permissions.require_outflow_access`, which reads the SAME source
@@ -214,7 +214,7 @@ export const OutflowImportRoute = () => {
         <div className="flex items-center justify-center h-[50vh]">
             <div className="text-center">
                 <h2 className="text-xl font-semibold text-gray-800">Access Denied</h2>
-                <p className="text-gray-600 mt-2">Bulk Import Outflow is limited to Accountants and Admins.</p>
+                <p className="text-gray-600 mt-2">Bulk Import Transactions is limited to Accountants and Admins.</p>
             </div>
         </div>
     )

@@ -39,13 +39,13 @@
   },
   {
    "default": "Cashfree",
-   "description": "Which outflow channel the uploaded statement came from. Each source has its own parser adapter; adding one is an adapter plus an option here.",
+   "description": "Which outflow channel the uploaded statement came from. Each source has its own parser adapter; adding one is an adapter plus an option here. THE OPTION STRINGS ARE services/outflow_import/parser.SUPPORTED_SOURCES VERBATIM -- upload.py validates the posted source against that tuple and then writes it straight into this Select, so a spelling that differs by one character makes every upload of that source fail Frappe's own Select validation. ICICI is a BANK PASSBOOK rather than a payout gateway: its rows carry a direction, its non-spending lines are excluded at stage time, and it has no settlement path.",
    "fieldname": "source",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Source",
-   "options": "Cashfree\nCashbook",
+   "options": "Cashfree\nCashbook\nICICI Bank Statement",
    "reqd": 1
   },
   {

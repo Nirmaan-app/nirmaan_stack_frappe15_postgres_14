@@ -35,8 +35,10 @@ __all__ = [
     "PAYMENT_DOCTYPE",
     "PROJECT_EXPENSE_DOCTYPE",
     "NON_PROJECT_EXPENSE_DOCTYPE",
+    "INFLOW_DOCTYPE",
     "EXPENSE_DOCTYPES",
     "LEDGER_DOCTYPES",
+    "RECEIVED_LEDGER_DOCTYPES",
     "SETTLEABLE_STATUSES",
     "PAID",
     "APPROVED",
@@ -63,11 +65,44 @@ EXPENSE_DOCTYPES = (PROJECT_EXPENSE_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE)
 #
 # ⚠️ THE ORDER IS NOW READ AS A DISPLAY ORDER, not just a membership list.
 # `status.derive_settled_ledger_split` walks this tuple to lay out the settled-by-ledger breakdown,
-# and zero-fills from it, so reordering it reorders that panel. It is deliberately the order a
+# and zero-fills from it, so reordering it reorders that panel -- specifically its PAID block since
+# B8b, the received block having its own order below. It is deliberately the order a
 # reviewer meets the three ledgers -- the main one first, then the two expense books -- and NOT a
 # ranking by volume, which would rearrange itself between statements. Anything that needs the three
 # names must bind THIS tuple; a second list is how one grows a ledger the other does not have.
 LEDGER_DOCTYPES = (PAYMENT_DOCTYPE, *EXPENSE_DOCTYPES)
+
+# The ledger a bank CREDIT can become, and the one thing this module names that is NOT settleable.
+#
+# ⚠️ IT IS **NOT** IN `LEDGER_DOCTYPES`, `EXPENSE_DOCTYPES` OR `SETTLEABLE_STATUSES`, AND MUST NEVER
+# BE ADDED TO ANY OF THEM. `settle.INFLOW_DOCTYPE` states the rule this obeys: an inflow is never
+# SETTLED, only CREATED -- there is no approved inflow waiting to be paid -- so putting it in
+# `LEDGER_DOCTYPES` would grow a fourth column on the PAID breakdown for a book no debit can ever
+# reach, and would make it look like a settle candidate to `settleable_statuses`.
+#
+# ⚠️ THE STRING IS SPELLED HERE RATHER THAN IMPORTED, on exactly the precedent
+# `settle.DIRECTION_CREDIT` set: `settle.py` imports `frappe`, and this module is a PURE leaf that
+# `status.py` imports under a transitive purity test. Importing upward would make `status.py`
+# bench-dependent, which is the one property that test exists to protect.
+# `api/outflow_import/test_review.TestInflowDoctypeSpelling` pins the two spellings against each
+# other, under bench, so a rename cannot reach only one of them.
+INFLOW_DOCTYPE = "Project Inflows"
+
+# The DISPLAY ORDER of the RECEIVED half of the settled-money panel (slice B8b).
+#
+# ⚠️ A SECOND ORDER, NOT A WIDENING OF THE FIRST, BECAUSE THE TWO BLOCKS HOLD DIFFERENT BOOKS. A
+# receipt can land in exactly two places: a `Project Inflow` (B6), or a NEGATIVE
+# `Non Project Expense` (B7) -- which is why `Non Project Expenses` legitimately appears in BOTH
+# tuples and is NOT a copy-paste slip. A credit can never become a `Project Payment` or a
+# `Project Expense`, so zero-filling the received block from `LEDGER_DOCTYPES` would put two
+# permanent zeroes on the panel asserting that receipts could have landed in books they cannot
+# reach -- the exact opposite of what the zero-fill is for ("nothing settled here, this time").
+#
+# ⚠️ IT IS READ AS A DISPLAY ORDER, exactly as `LEDGER_DOCTYPES` is, and by the same function:
+# `status.derive_settled_ledger_split` takes the order as a PARAMETER so there is ONE
+# implementation of ordering, zero-filling and the `Other` slot, not two. Reordering this tuple
+# reorders the received block. It is NEVER sorted by value.
+RECEIVED_LEDGER_DOCTYPES = (INFLOW_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE)
 
 # THE single source of the Approved-only rule. Read by `candidates.py` (what may be offered) and by
 # `settle.py` (what may be written), so the two can never disagree about the same record.

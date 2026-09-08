@@ -14,8 +14,18 @@ export interface OutflowImportBatch {
     modified: string;
     owner: string;
 
-    /** Which outflow channel the statement came from. */
-    source: "Cashfree" | "Cashbook";
+    /** Which channel the statement came from.
+     *
+     * ⚠️ These strings ARE the parser's adapter keys (`parser._ADAPTERS`) and the doctype Select
+     * options, all three spellings pinned together by test. A value here that does not match the
+     * Select fails Frappe's validation on every batch insert for that source, so this union is not
+     * cosmetic — widen it in the same change as the other two, never on its own.
+     *
+     * ⚠️ `ICICI Bank Statement` names the BANK, not "a bank statement", deliberately: the source
+     * selects a COLUMN ADAPTER, and a second bank has different columns and a different narration
+     * grammar. Adding HDFC later is one more option, not a re-fit of this one.
+     */
+    source: "Cashfree" | "Cashbook" | "ICICI Bank Statement";
     /** The stored CSV. Attached to the BATCH and only the batch (owner ruling R3). */
     source_file?: string;
     original_filename?: string;
@@ -96,6 +106,17 @@ export interface OutflowImportRow {
     ifsc?: string;
     remarks?: string;
     bank_reference_no?: string;
+    /**
+     * `Debit` / `Credit` / blank — WHICH WAY THE MONEY WENT (slices B3, shipped to the screen at B6).
+     *
+     * ⚠️ A FIELD, NEVER A SIGN ON `amount`. `amount` is the positive magnitude the statement printed
+     * on every source, so NOTHING else on this row can tell a receipt from a payment. The decision
+     * dialog offers "Create a project inflow" on a `Credit` and only on a `Credit`.
+     *
+     * ⚠️ BLANK IS NOT "Debit BY DEFAULT". A gateway export has no direction column at all, and a
+     * bank row is blank when the parser found a figure in BOTH money columns and refused to guess.
+     */
+    direction?: string;
     service_charge: number;
     service_tax: number;
     added_by_raw?: string;
@@ -344,22 +365,103 @@ export interface OutflowImportSummary {
          */
         failed_rows: number;
         failed_value: number;
+        /**
+         * The WHOLE-STATEMENT figure split by which way the money went, as plain counts and
+         * totals (`status.derive_import_summary`).
+         *
+         * ⚠️ THEY PARTITION `total_rows` / `total_value`, **NOT** `settled_rows` /
+         * `settled_value` — every row the panel counts, whatever its status, not just the
+         * settled ones. `status.py` states the identity twice (~906, ~993) and it is proven on
+         * live data: `246 = 241 + 5`. They share the axis of `settled_by_direction` and NOTHING
+         * ELSE; `status.py` ~1005 carries an explicit warning that the two deliberately total
+         * DIFFERENT money. Reading them as a settled split — which an earlier version of this
+         * very comment did — is exactly the confusion that warning exists to prevent.
+         *
+         * ⚠️ ALL FOUR ARE OPTIONAL, ON THE `settled_from_suggestion` / `settled_by_direction`
+         * PRECEDENT, AND THAT IS NOT DEFENSIVENESS ABOUT THE TYPE. An older server does not send
+         * them, and a required `number` would render as a confident `₹0` on data that simply
+         * predates the field — a screen stating that nothing was received when it does not know.
+         * Absent must render NOTHING. Check for `undefined`, never for falsiness: a real 0 and an
+         * unsent key are different facts and `!x` cannot tell them apart.
+         *
+         * ⚠️ THEY ARE NEVER NETTED AGAINST EACH OTHER (owner ruling Q14 (a)). Money in and money
+         * out are two totals, not one difference. And each is READ AS SENT — never obtain one by
+         * subtracting the other from `total_value`, or a rounding disagreement becomes a figure
+         * nothing on the server ever computed.
+         */
+        paid_rows?: number;
+        paid_value?: number;
+        received_rows?: number;
+        received_value?: number;
+        /**
+         * `Still open` on the SAME axis — the third figure each of the panel's two direction
+         * BANDS needs (`status.derive_import_summary`).
+         *
+         * ⚠️ THEY PARTITION `open_rows` / `open_value` — what somebody still owes a decision on,
+         * cut by which way the money went. **NOT** `total_rows` / `total_value` (that cut is
+         * `paid_*` / `received_*` above) and **NOT** the settled population (that is
+         * `settled_by_direction`). Three different populations of the one direction axis, which
+         * is exactly what lets a band's three cards reconcile:
+         *
+         *     <dir>_value == settled_by_direction[<dir>].value + open_<dir>_value
+         *
+         * proven on live data whole-system and per import (2026-09-08): paid
+         * `3,798,616.00 + 5,853,190.00 = 9,651,806.00`, received `0 + 4,268,880.20 =
+         * 4,268,880.20`. `status.py` pins the partition itself on every input.
+         *
+         * ⚠️ THE SETTLED HALF IS DELIBERATELY NOT A KEY HERE. `settled_by_direction` already
+         * carries it, WITH the per-ledger lines the Settled card renders, and two keys totalling
+         * the same money are two chances to disagree about it.
+         *
+         * ⚠️ ALL FOUR ARE OPTIONAL, on the same precedent and for the same reason as the four
+         * above: an older server does not send them, and a required `number` would render a
+         * confident `₹0` over money that is genuinely open. Check for `undefined`, never for
+         * falsiness — a real 0 (nothing left open on that side) and an unsent key are different
+         * facts, and `!x` cannot tell them apart. Absent means the panel falls back to its single
+         * flat row of tiles.
+         */
+        open_paid_rows?: number;
+        open_paid_value?: number;
+        open_received_rows?: number;
+        open_received_value?: number;
     };
     /**
-     * Where the settled money went, one entry per ledger — ORDERED AND ZERO-FILLED BY THE SERVER.
+     * Where the settled money went, as TWO BLOCKS — Paid and Received (slice B8b, owner Q14 (a)).
+     *
+     * ⚠️ IT REPLACED `settled_by_ledger`, WHICH IS GONE RATHER THAN KEPT BESIDE IT. The screen now
+     * carries money IN as well as OUT, and one flat list could only be a single figure that hides
+     * both halves, a meaningless sum of the two directions, or a total that silently omits receipts.
+     * Two payload keys totalling the same money would be two chances to disagree about it.
+     *
+     * ⚠️ EACH BLOCK CARRIES ITS OWN TOTAL, AND ITS `ledgers` LINES ADD UP TO IT EXACTLY — the
+     * server sums each total from the lines it just built (`status.derive_settled_direction_blocks`),
+     * so the reconciliation holds by construction. The two block totals in turn add back to
+     * `totals.settled_value`. NEVER net one against the other.
+     *
+     * ⚠️ THE PAID BLOCK IS ALWAYS SENT, ZERO-FILLED; THE RECEIVED BLOCK ONLY WHEN IT HOLDS ROWS.
+     * Cashfree and Cashbook are single-direction sources, so an empty received block would sit on
+     * every gateway import forever, claiming receipts were possible where none can occur.
      *
      * ⚠️ OPTIONAL, so a client running against a server that predates the key renders nothing
-     * rather than claiming every ledger settled zero — the call `settled_from_suggestion` above
-     * already makes, for the same reason. `outflowTableModel.settledLedgerRows` is the one reader
-     * and passes the list through untouched: the order and the fill are the server's, because it
-     * holds the `GROUP BY` (`derive_import_summary`), and a client that re-sorted or re-totalled
-     * would be a second opinion about figures printed beside the server's own.
+     * rather than claiming nothing settled — the call `settled_from_suggestion` above already makes,
+     * for the same reason. `settledDirectionBlocks.ts` is the one reader and passes the list through
+     * untouched: the split, the order and the fill are the server's, because it holds the
+     * `GROUP BY`, and a client that re-sorted, re-partitioned or re-totalled would be a second
+     * opinion about figures printed beside the server's own.
      */
-    settled_by_ledger?: {
-        /** `Project Payments` / `Project Expenses` / `Non Project Expenses` / `Other`. */
-        ledger: string;
+    settled_by_direction?: {
+        /** `Paid` or `Received`. */
+        direction: string;
         rows: number;
         value: number;
+        /** This block's own books. `Project Payments` / `Project Expenses` /
+         *  `Non Project Expenses` / `Other` when paid; `Project Inflows` /
+         *  `Non Project Expenses` / `Other` when received. */
+        ledgers: {
+            ledger: string;
+            rows: number;
+            value: number;
+        }[];
     }[];
     auto_skipped_rows: number;
     manually_skipped_rows: number;
@@ -404,6 +506,59 @@ export interface OutflowRowCandidates {
 
 /** The payload `upload_outflow_statement` returns. */
 /**
+ * One field the parser will read, and the sheet column(s) it reads it from.
+ *
+ * ⚠️ DERIVED SERVER-SIDE FROM THE ADAPTER'S OWN COLUMN MAP, never a second hand-written list. The
+ * screen states what the parser will do; a separate list would be free to disagree with it, and the
+ * screen is the thing a reviewer trusts before committing an import.
+ *
+ * `columns` holds MORE THAN ONE entry when the field is resolved across several columns, in the
+ * order the parser consults them -- a date that prefers `Transaction Date` and falls back to
+ * `Value Date`, or the withdrawal/deposit pair that yields the amount AND the direction together.
+ * `note` says which rule applies and is absent for a plain single-column field.
+ */
+export interface StatementSheetColumnRead {
+    label: string;
+    columns: { header: string; letter: string }[];
+    note?: string;
+}
+
+/**
+ * Where the table sits inside an uploaded sheet, for the Check step's header picker.
+ *
+ * ⚠️ PRESENT ONLY FOR A SOURCE WHOSE EXPORT WRAPS ITS TABLE IN A PREAMBLE. A raw ICICI download
+ * carries sixteen rows of account information above the header and a totals-plus-legends trailer
+ * below the last transaction; Cashfree and Cashbook carry neither, so `sheet` is ABSENT for them
+ * and their flows stay byte-identical.
+ *
+ * ⚠️ EVERY ROW NUMBER HERE IS 1-BASED AND MEANS THE SHEET'S OWN ROW, so it matches what the person
+ * sees in Excel. `grid[0]` is always sheet row 1, so sheet row N is `grid[N - 1]`; there is
+ * deliberately no offset field, because an offset is one more thing that can be wrong.
+ *
+ * ⚠️ `trailing_rows_ignored` IS REPORTED RATHER THAN LEFT SILENT. The table ends at the first
+ * wholly-blank row, and a rule that ends a table is a rule that can truncate one -- so the count of
+ * what was dropped is on screen, where a wrong answer is visible.
+ */
+export interface StatementSheetInfo {
+    /** 1-based row where auto-detection found the header. */
+    detected_header_row: number;
+    /** 1-based row actually used -- differs from the detected one only after an override. */
+    header_row_used: number;
+    was_overridden: boolean;
+    total_sheet_rows: number;
+    /** 1-based first data row, always `header_row_used + 1`. */
+    table_start_row: number;
+    /** 1-based last data row. */
+    table_end_row: number;
+    /** NON-BLANK rows below `table_end_row` that were not read. */
+    trailing_rows_ignored: number;
+    grid_truncated: boolean;
+    /** Capped, padded, trimmed cells. `grid[0]` is sheet row 1. Never null. */
+    grid: string[][];
+    columns_read: StatementSheetColumnRead[];
+}
+
+/**
  * What importing this statement WOULD do, from `preview_outflow_statement`. Nothing is written to
  * produce it, and the browser re-posts the same file to confirm (slice V3).
  *
@@ -431,6 +586,11 @@ export interface OutflowPreviewResult {
     overlaps_batch: string | null;
     warnings: string[];
     duplicate_transfer_ids: string[];
+    /**
+     * Where the table sits in the uploaded sheet. PRESENT ONLY for a source whose export wraps
+     * its table in a preamble (a raw bank statement); ABSENT for Cashfree and Cashbook.
+     */
+    sheet?: StatementSheetInfo;
 }
 
 export interface OutflowUploadResult {
@@ -473,6 +633,16 @@ export interface ApprovedRecord {
     order_name: string;
     /** Expenses only: the Expense Type. */
     expense_type: string;
+    /**
+     * Both expense ledgers only — `Project Payments` has no description column at all, the exact
+     * inverse of the `approved_on` asymmetry above (`ledger_read.py` asymmetry 4).
+     *
+     * ⚠️ OPTIONAL BECAUSE AN OLDER SERVER DOES NOT SEND THE KEY, and `null` because a ledger that
+     * cannot have one must be renderable as an absence rather than as an empty description somebody
+     * forgot to fill in. Today's server sends `""` for a payment, in the same style as every other
+     * string key in the shared shape.
+     */
+    description?: string | null;
     approved_on: string;
     updated_on: string;
 }
