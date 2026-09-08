@@ -93,7 +93,9 @@ export const ExpenseRequestsPage: React.FC = () => {
     }, [scopedByName]);
     const canReview = useCallback((name: string) => reviewable.has(name), [reviewable]);
 
-    // Server-computed, and DISJOINT from `reviewable` by design -- see `update.can_edit`.
+    // Server-computed -- see `update.can_edit`. Disjoint from `reviewable` for everyone
+    // EXCEPT an Admin, who may now edit any pending request and review it too; that
+    // overlap is the owner's ruling, not an oversight, so a row can offer both actions.
     const editable = useMemo(() => {
         const s = new Set<string>();
         scopedByName.forEach((r, name) => { if (r.can_edit) s.add(name); });

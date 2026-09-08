@@ -25,8 +25,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import {
-    Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+    FuzzySearchSelect, FuzzyOptionType, TokenSearchConfig,
+} from "@/components/ui/fuzzy-search-select";
 import { useToast } from "@/components/ui/use-toast";
 import ProjectSelect from "@/components/custom-select/project-select";
 import VendorSelect, { OTHERS_VENDOR_VALUE } from "@/components/custom-select/vendor-select";
@@ -46,6 +46,30 @@ import {
 import FormatFieldsRenderer, {
     FormatAnswers, FormatFiles, requiredKeys, toResponses,
 } from "./FormatFieldsRenderer";
+
+/** One option per expense type, carrying the category it belongs to.
+ *
+ *  The old picker grouped the list under category headings; a searchable one cannot keep
+ *  react-select groups (the token scorer walks a FLAT list), so the category travels ON each
+ *  option instead -- shown on the right of the row and SEARCHABLE, which is the part the
+ *  headings could not do. Typing "hotel" or "travel" now surfaces the whole group.
+ */
+interface ExpenseTypeOption extends FuzzyOptionType {
+    value: string;
+    label: string;
+    category: string;
+}
+
+// The type name is what people search by; the category is a weaker secondary, exactly as
+// `vendor-select` weights the vendor name over its id.
+const EXPENSE_TYPE_SEARCH: TokenSearchConfig = {
+    searchFields: ["label", "category"],
+    minSearchLength: 1,
+    partialMatch: true,
+    minTokenLength: 1,
+    fieldWeights: { label: 2.0, category: 1.2 },
+    minTokenMatches: 1,
+};
 
 interface Props {
     onSuccess?: () => void;
@@ -133,14 +157,34 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                 const res = await checkDuplicates({
                     expense_type: form.expense_type,
                     source_data: JSON.stringify({ responses: JSON.parse(answersKey) }),
+                    // While EDITING, the request in this dialog is not its own duplicate --
+                    // it is the same saved answers coming back. Without this the warning
+                    // names the very row being corrected, which reads as the check being
+                    // broken and trains the requester to ignore a real finding.
+                    exclude: editing?.name,
                 });
                 if (live) setDuplicates(res?.message ?? null);
             } catch { if (live) setDuplicates(null); }
         }, 500);
         return () => { live = false; clearTimeout(t); };
-    }, [form.expense_type, answersKey, parsedFormat, checkDuplicates]);
+    }, [form.expense_type, answersKey, parsedFormat, checkDuplicates, editing?.name]);
 
     const categories = catalogRes?.message?.categories ?? [];
+
+    const typeOptions: ExpenseTypeOption[] = useMemo(
+        () => categories
+            .filter((c) => c.types.length > 0)
+            .flatMap((c) => c.types.map((t) => ({
+                value: t.expense_type, label: t.expense_type, category: c.category,
+            }))),
+        [categories]
+    );
+    // Resolved from the options rather than held in state, so the chosen row and the form's
+    // value can never disagree -- and an unloaded catalog reads as nothing selected.
+    const selectedTypeOption = useMemo(
+        () => typeOptions.find((o) => o.value === form.expense_type) ?? null,
+        [typeOptions, form.expense_type]
+    );
 
     const typesById = useMemo(() => {
         const m = new Map<string, RequestCatalogType>();
@@ -239,7 +283,13 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         setForm({
             expense_type: editing.type ?? "",
             projects: editing.projects ?? "",
-            vendor: editing.vendor ?? "",
+            // "Others (No Vendor)" is a UI-ONLY sentinel that submit strips, so a request
+            // saved with it is stored exactly like one whose Vendor field was never touched
+            // -- both hold an empty `vendor`, and nothing records which happened. On a SAVED
+            // request there is no undecided state left to represent: an empty vendor IS "no
+            // vendor on record", so seed the sentinel back and the field reads as the
+            // requester left it instead of as an untouched prompt.
+            vendor: editing.vendor || OTHERS_VENDOR_VALUE,
             amount: String(editing.amount ?? ""),
             // A format-less request keeps its typed text under the synthetic `detail`
             // key -- the doctype has no `description` column to read it back from.
@@ -347,23 +397,34 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                 <div className="space-y-4 py-2">
                     <div className="space-y-1.5">
                         <Label>Expense Type <span className="text-destructive">*</span></Label>
-                        <Select value={form.expense_type} onValueChange={handleTypeChange}>
-                            <SelectTrigger>
-                                <SelectValue placeholder={catalogLoading ? "Loading…" : "Select a type"} />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {categories.filter((c) => c.types.length > 0).map((c) => (
-                                    <SelectGroup key={c.category}>
-                                        <SelectLabel>{c.category}</SelectLabel>
-                                        {c.types.map((t) => (
-                                            <SelectItem key={t.expense_type} value={t.expense_type}>
-                                                {t.expense_type}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectGroup>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                        <FuzzySearchSelect<ExpenseTypeOption, false>
+                            allOptions={typeOptions}
+                            tokenSearchConfig={EXPENSE_TYPE_SEARCH}
+                            isLoading={catalogLoading}
+                            value={selectedTypeOption}
+                            onChange={(o) => handleTypeChange(o?.value ?? "")}
+                            placeholder={catalogLoading ? "Loading…" : "Search or select a type…"}
+                            // The menu renders in the body -- REQUIRED inside a dialog or it
+                            // clips at the dialog's edge, the same reason VendorSelect portals.
+                            menuPortalTarget={document.body}
+                            menuPosition="fixed"
+                            // Clearing the type would leave the form with a format and no type
+                            // to file it under; switching to another type is the way out.
+                            isClearable={false}
+                            formatOptionLabel={(option, meta) => {
+                                // The chosen row stays a clean type name; the category only
+                                // helps while choosing -- the VendorSelect convention.
+                                if (meta.context === "value") return option.label;
+                                return (
+                                    <span className="flex items-center justify-between gap-2 w-full">
+                                        <span className="truncate">{option.label}</span>
+                                        <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                                            {option.category}
+                                        </span>
+                                    </span>
+                                );
+                            }}
+                        />
                     </div>
 
                     {showProject && (

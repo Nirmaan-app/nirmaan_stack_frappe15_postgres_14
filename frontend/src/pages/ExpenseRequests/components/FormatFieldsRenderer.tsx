@@ -12,7 +12,8 @@
 // must also never instruct the impossible: there is no attachment field on Expense Request,
 // so "attach it afterwards" was a lie and the attachment slot is rendered here instead.
 
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,7 +22,10 @@ import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { CustomAttachment, AcceptedFileType } from "@/components/helpers/CustomAttachment";
-import type { ParsedFormat } from "@/utils/expenseFormat";
+import {
+    Collapsible, CollapsibleContent, CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import type { FormatSection, ParsedFormat } from "@/utils/expenseFormat";
 
 /** Answers keyed `sectionId.fieldKey` — flat, so React state stays trivial. */
 export type FormatAnswers = Record<string, string>;
@@ -63,6 +67,112 @@ export const toResponses = (answers: FormatAnswers): Record<string, Record<strin
     return out;
 };
 
+/** Whether a `collapsed` section must be OPEN anyway.
+
+ *  A section the format marks `collapsed` starts closed -- an optional block almost nobody
+ *  fills should not push the fields that matter below the fold. Two cases override that,
+ *  both because a hidden answer is worse than a long form:
+ *    * IT ALREADY HAS ANSWERS -- editing a request whose bank details are filled must SHOW
+ *      them; a closed header would read as "nothing here" and invite them to be re-typed.
+ *    * IT DECLARES A REQUIRED FIELD -- `requiredKeys` gates submit, so a required answer
+ *      behind a closed header disables the button with nothing on screen explaining why.
+ */
+const mustBeOpen = (section: FormatSection, answers: FormatAnswers): boolean =>
+    !section.collapsed
+    || (section.fields ?? []).some(
+        (f) => f.required || `${answers[`${section.id}.${f.key}`] ?? ""}`.trim() !== ""
+    );
+
+const FieldsSection: React.FC<{
+    section: FormatSection;
+    answers: FormatAnswers;
+    onChange: (key: string, value: string) => void;
+    disabled?: boolean;
+}> = ({ section, answers, onChange, disabled }) => {
+    const [open, setOpen] = useState(() => mustBeOpen(section, answers));
+
+    // The edit dialog seeds its answers AFTER mount, so the initial state above ran against
+    // an empty map. This only ever FORCES OPEN -- never closed -- so a requester who
+    // deliberately collapsed a filled section is not fought on their next keystroke.
+    useEffect(() => {
+        if (mustBeOpen(section, answers)) setOpen(true);
+    }, [answers, section]);
+
+    const heading = section.title && (
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {section.title}
+        </p>
+    );
+
+    const fields = (
+        <>
+            {(section.fields ?? []).map((f) => {
+                const key = `${section.id}.${f.key}`;
+                const value = answers[key] ?? "";
+                return (
+                    <div key={key} className="space-y-1.5">
+                        <Label className="text-sm">
+                            {f.label}
+                            {f.required && <span className="text-destructive"> *</span>}
+                            {f.unit && (
+                                <span className="ml-1 text-xs text-muted-foreground">({f.unit})</span>
+                            )}
+                        </Label>
+
+                        {f.type === "textarea" ? (
+                            <Textarea value={value} disabled={disabled}
+                                onChange={(e) => onChange(key, e.target.value)} />
+                        ) : f.type === "select" ? (
+                            <Select value={value} onValueChange={(v) => onChange(key, v)}
+                                disabled={disabled}>
+                                <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                                <SelectContent>
+                                    {(f.options ?? []).map((o) => (
+                                        <SelectItem key={o} value={o}>{o}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        ) : (
+                            <Input
+                                type={f.type === "number" ? "number" : f.type === "date" ? "date" : "text"}
+                                value={value}
+                                min={f.min}
+                                max={f.max}
+                                disabled={disabled}
+                                onChange={(e) => onChange(key, e.target.value)}
+                            />
+                        )}
+                    </div>
+                );
+            })}
+        </>
+    );
+
+    if (!section.collapsed) {
+        return (
+            <div className="space-y-3 rounded border bg-muted/30 p-3">
+                {heading}
+                {fields}
+            </div>
+        );
+    }
+
+    return (
+        <Collapsible open={open} onOpenChange={setOpen}
+            className="rounded border bg-muted/30 p-3">
+            <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 text-left">
+                {heading}
+                <ChevronDown
+                    className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+                />
+            </CollapsibleTrigger>
+            {/* The answers live in the PARENT's state, so unmounting these inputs while closed
+                cannot lose anything the requester typed. */}
+            <CollapsibleContent className="space-y-3 pt-3">{fields}</CollapsibleContent>
+        </Collapsible>
+    );
+};
+
 interface Props {
     format: ParsedFormat;
     answers: FormatAnswers;
@@ -85,52 +195,13 @@ export const FormatFieldsRenderer: React.FC<Props> = ({
     return (
         <div className="space-y-4">
             {sections.filter((s) => s.type === FIELDS).map((section) => (
-                <div key={section.id} className="space-y-3 rounded border bg-muted/30 p-3">
-                    {section.title && (
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            {section.title}
-                        </p>
-                    )}
-                    {(section.fields ?? []).map((f) => {
-                        const key = `${section.id}.${f.key}`;
-                        const value = answers[key] ?? "";
-                        return (
-                            <div key={key} className="space-y-1.5">
-                                <Label className="text-sm">
-                                    {f.label}
-                                    {f.required && <span className="text-destructive"> *</span>}
-                                    {f.unit && (
-                                        <span className="ml-1 text-xs text-muted-foreground">({f.unit})</span>
-                                    )}
-                                </Label>
-
-                                {f.type === "textarea" ? (
-                                    <Textarea value={value} disabled={disabled}
-                                        onChange={(e) => onChange(key, e.target.value)} />
-                                ) : f.type === "select" ? (
-                                    <Select value={value} onValueChange={(v) => onChange(key, v)}
-                                        disabled={disabled}>
-                                        <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                                        <SelectContent>
-                                            {(f.options ?? []).map((o) => (
-                                                <SelectItem key={o} value={o}>{o}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                ) : (
-                                    <Input
-                                        type={f.type === "number" ? "number" : f.type === "date" ? "date" : "text"}
-                                        value={value}
-                                        min={f.min}
-                                        max={f.max}
-                                        disabled={disabled}
-                                        onChange={(e) => onChange(key, e.target.value)}
-                                    />
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
+                <FieldsSection
+                    key={section.id}
+                    section={section}
+                    answers={answers}
+                    onChange={onChange}
+                    disabled={disabled}
+                />
             ))}
 
             {sections.filter((s) => s.type === ATTACHMENTS).map((section) => (

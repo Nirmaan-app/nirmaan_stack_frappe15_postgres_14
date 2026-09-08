@@ -72,8 +72,9 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		r["request_category"] = category_for_type(r["type"])
 		r["reviewer_role"] = reviewer_role_for_type(r["type"])
 		# Server-owned, exactly like `can_review`: the table must never re-derive a
-		# permission, and the two answers are deliberately DISJOINT -- a reviewer who could
-		# also edit could rewrite an amount and then approve it.
+		# permission. The two answers are disjoint for a routed REVIEWER -- one who could also
+		# edit could rewrite an amount and then approve it -- but NOT for an Admin, who holds
+		# both by owner ruling. See the amendment note in `update`.
 		r["can_edit"] = can_edit(r, user)
 		r["can_review"] = profile == ADMIN_PROFILE or (
 			profile == r["reviewer_role"] and r["owner"] != user

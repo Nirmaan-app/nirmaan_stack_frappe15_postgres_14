@@ -593,16 +593,42 @@ class TestExpenseRequests(FrappeTestCase):
 		"""The asymmetry IS the control.
 
 		`guard_reviewer` stops self-approval; a reviewer who could rewrite the amount and then
-		approve it would have walked around it by another door. Admin is refused for the same
-		reason -- they are the fallback reviewer for every unrouted category.
+		approve it would have walked around it by another door. An ADMIN is now the deliberate
+		exception (see below); a routed reviewer is not.
 		"""
 		res = self._raise_as(PM_USER)
 		with self.assertRaises(frappe.PermissionError):
 			self._edit(PM2_USER, res, amount=99999)
-		with self.assertRaises(frappe.PermissionError):
-			update_expense_request(name=res["name"], expense_type=NON_PROJECT_TYPE, amount=99999)
 		self.assertEqual(
 			frappe.db.get_value("Expense Request", res["name"], "amount"), 4300)
+
+	def test_an_admin_may_edit_a_request_they_did_not_raise(self):
+		"""Owner ruling, REVERSING the earlier admin refusal.
+
+		Pinned on BOTH surfaces on purpose: the write path must accept the save, and the read
+		path must offer the pencil. When those two disagreed the button appeared on a row the
+		save then refused, which reads as the product being broken rather than as a rule.
+		"""
+		res = self._raise_as(PM_USER, amount=4300)
+
+		update_expense_request(name=res["name"], expense_type=NON_PROJECT_TYPE, amount=8800,
+		                       comment="fixed by admin")
+		doc = frappe.get_doc("Expense Request", res["name"])
+		self.assertEqual(doc.amount, 8800)
+		self.assertEqual(doc.comment, "fixed by admin")
+		self.assertEqual(doc.owner, PM_USER)          # editing never re-owns the ask
+		self.assertEqual(doc.status, "Pending Approval")
+
+		row = next(r for r in get_my_expense_requests()["requests"] if r["name"] == res["name"])
+		self.assertTrue(row["can_edit"])
+
+	def test_an_admin_still_cannot_edit_a_DECIDED_request(self):
+		"""The pending gate is not what was relaxed -- an approved request has a ledger row,
+		and editing it would leave the two describing different money."""
+		res = self._raise_as(PM_USER)
+		approve_expense_request(res["name"])
+		with self.assertRaises(frappe.ValidationError):
+			update_expense_request(name=res["name"], expense_type=NON_PROJECT_TYPE, amount=1)
 
 	def test_an_approved_request_can_no_longer_be_edited(self):
 		"""A ledger row exists; editing would leave the two describing different money."""
@@ -849,9 +875,33 @@ class TestExpenseRequests(FrappeTestCase):
 		self.assertIsNone(subject_of({"a": "  "}, rule))
 		self.assertIsNone(subject_of({}, rule))
 
-	def _check(self, expense_type, answers):
+	def _check(self, expense_type, answers, exclude=None):
 		from nirmaan_stack.api.expense_requests.similar import check_new_request
-		return check_new_request(expense_type, json.dumps({"responses": {"detail": answers}}))
+		return check_new_request(expense_type, json.dumps({"responses": {"detail": answers}}),
+		                         exclude=exclude)
+
+	def test_a_request_being_edited_is_not_its_own_duplicate(self):
+		"""The edit dialog re-sends the SAVED answers, so without an exclusion the warning
+		names the very request open inside it -- which reads as the check being broken and
+		teaches the requester to dismiss a real finding."""
+		mine = self._travel(PM_USER, "Zeb Traveller", "2026-09-01")
+		answers = {"traveller_name": "Zeb Traveller", "depart_date": "2026-09-01"}
+
+		# Unexcluded -- the create dialog's question -- still finds it.
+		self.assertIn(mine["name"],
+		              [h["name"] for h in self._check(NON_PROJECT_TYPE, answers)["overlapping"]])
+		# Excluded -- the edit dialog's question -- does not.
+		self.assertNotIn(
+			mine["name"],
+			[h["name"] for h in self._check(NON_PROJECT_TYPE, answers,
+			                                exclude=mine["name"])["overlapping"]])
+
+		# And the exclusion is NARROW: a real duplicate raised by somebody else survives it.
+		other = self._travel(PM2_USER, "Zeb Traveller", "2026-09-01")
+		self.assertIn(
+			other["name"],
+			[h["name"] for h in self._check(NON_PROJECT_TYPE, answers,
+			                                exclude=mine["name"])["overlapping"]])
 
 	def test_a_duplicate_is_WARNED_ABOUT_and_never_refused(self):
 		"""Owner ruling 2026-08-20, REVERSING the submission block.

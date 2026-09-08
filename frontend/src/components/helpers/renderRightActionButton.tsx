@@ -212,12 +212,12 @@ export const RenderRightActionButton = ({
       </DropdownMenu>
     );
   } else if (locationPath === "/expense/non-project") {
-    return (
-      <Button onClick={toggleNewNonProjectExpenseDialog} className="sm:mr-4 mr-2">
-        <CirclePlus className="w-5 h-5 pr-1" />
-        Add <span className="hidden md:flex pl-1">New Expense</span>
-      </Button>
-    );
+    // return (
+    //   <Button onClick={toggleNewNonProjectExpenseDialog} className="sm:mr-4 mr-2">
+    //     <CirclePlus className="w-5 h-5 pr-1" />
+    //     Add <span className="hidden md:flex pl-1">New Expense</span>
+    //   </Button>
+    // );
   } else if (locationPath === "/expense/requests") {
     // No role gate: anyone who can reach the Expense module may RAISE a request. The
     // approval side is what is gated, and it is gated on the SERVER.
@@ -230,12 +230,12 @@ export const RenderRightActionButton = ({
   } else if (locationPath === "/expense/project") {
     // Same access as the Non-Project button: no role gate, shown to everyone
     // with Expense-module access.
-    return (
-      <Button onClick={toggleNewProjectExpenseDialog} className="sm:mr-4 mr-2">
-        <CirclePlus className="w-5 h-5 pr-1" />
-        Add <span className="hidden md:flex pl-1">New Project Expense</span>
-      </Button>
-    );
+    // return (
+    //   <Button onClick={toggleNewProjectExpenseDialog} className="sm:mr-4 mr-2">
+    //     <CirclePlus className="w-5 h-5 pr-1" />
+    //     Add <span className="hidden md:flex pl-1">New Project Expense</span>
+    //   </Button>
+    // );
   } else if (locationPath === "/reminders") {
     // Reminders are Admin-only to manage (owner ruling): Add, Edit and Delete all share
     // one gate. Every other role with sidebar access sees the table read-only.

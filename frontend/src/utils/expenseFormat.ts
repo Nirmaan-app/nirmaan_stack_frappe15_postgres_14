@@ -53,6 +53,9 @@ export interface FormatSection {
     id: string;
     type: string;
     title?: string;
+    /** Render the section closed, for an optional block most requesters skip. The renderer
+     *  overrides it when the section holds an answer or declares a required field. */
+    collapsed?: boolean;
     fields?: FormatField[];
     slots?: { key: string; label: string }[];
 }

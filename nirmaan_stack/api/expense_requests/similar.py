@@ -53,17 +53,22 @@ HISTORY_LIMIT = 6
 
 
 @frappe.whitelist()
-def check_new_request(expense_type: str, source_data=None) -> dict:
-	"""Warn about duplicates for a request that does not exist yet.
+def check_new_request(expense_type: str, source_data=None, exclude: str | None = None) -> dict:
+	"""Warn about duplicates for a request being TYPED -- new, or under edit.
 
-	The create dialog calls this while the form is being filled, so it CANNOT take a request
-	name -- which is why `get_similar` could not serve it. Read-only, and it refuses nothing:
-	the requester sees the finding and decides.
+	The dialog calls this while the form is being filled, so it takes the answers rather than
+	a saved request -- which is why `get_similar` could not serve it. Read-only, and it
+	refuses nothing: the requester sees the finding and decides.
+
+	⚠️ `exclude` IS THE REQUEST BEING EDITED, and omitting it is why the same dialog used to
+	report the very request open inside it as its own duplicate: an edit re-sends the saved
+	answers, which of course still match the saved row. `get_similar` never had the bug
+	because it knows its own name (`name != req.name`); this entry point has to be told.
 
 	Returns an EMPTY list for a type with no rule, an unanswered form, or a blank subject --
 	the same three silences the finder already applies, so a half-filled form never nags.
 	"""
-	hits = find_overlapping(expense_type, source_data)
+	hits = find_overlapping(expense_type, source_data, exclude=exclude)
 	rule = rule_for(expense_type)
 	flat = _flat(source_data)
 	return {
