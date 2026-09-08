@@ -30,6 +30,7 @@ export const VENDOR_LIST_FIELDS_TO_FETCH: (keyof VendorsType | 'name' | 'vendor_
     'bank_branch',
     'vendor_contact_person_name',
     'vendor_mobile',
+    'tds_deduction_percentage',
 ];
 
 /**
@@ -46,6 +47,7 @@ export const VENDOR_HIDDEN_COLUMNS: Record<string, boolean> = {
     vendor_gst: false,
     vendor_contact_person_name: false,
     vendor_mobile: false,
+    tds_deduction_percentage: false,
 };
 
 export const VENDOR_SEARCHABLE_FIELDS: SearchFieldOption[] = [

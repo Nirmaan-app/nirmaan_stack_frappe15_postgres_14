@@ -165,6 +165,19 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
       //         message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
       //     }),
       vendor_gst: finalVendorGstSchema,
+      // `coerce` because an <Input type="number"> hands back a string. Without it
+      // every submit fails a zod number check on a field the user never touched.
+      // ⚠️ A BLANK MUST NOT REACH `z.coerce.number()` -- `Number("")` is 0, so an
+      // empty box would silently save as "0% TDS" instead of failing. Map blank to
+      // NaN so it reports as a missing value. This pairs with the input sending the
+      // raw string (never `undefined`) -- see the onChange note below.
+      tds_deduction_percentage: z.preprocess(
+          (v) => (typeof v === "string" && v.trim() === "" ? NaN : v),
+          z.coerce
+              .number({ invalid_type_error: "Enter a TDS percentage." })
+              .min(0, { message: "TDS % cannot be negative." })
+              .max(100, { message: "TDS % cannot exceed 100." })
+      ),
       account_number: accountNumberSchema,
       confirm_account_number:confirmAccountNumberSchema,
       account_name: z
@@ -238,7 +251,9 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
     const VendorFormSchema = getVendorFormSchema(vendorType === "Service", taxationType === "GST", accountNumber, existingVendors, bank_details, pincode_data)
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
-        defaultValues: {},
+        // Every other field starts blank; this one is the sole seeded default, so
+        // the standard 2% applies unless the user deliberately changes it.
+        defaultValues: { tds_deduction_percentage: 2 },
         mode: 'all',
         reValidateMode: 'onChange',
     })
@@ -288,6 +303,9 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
             vendor_mobile: undefined,
             vendor_alt_mobile: undefined,
             vendor_gst: undefined,
+            // NOT `undefined` like its neighbours -- "Reset" must return this to
+            // the standard rate, the same state a freshly-opened form is in.
+            tds_deduction_percentage: 2,
             account_number: undefined,
             confirm_account_number: undefined,
             account_name: undefined,
@@ -637,6 +655,45 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                                             {/* {gstError && <FormMessage>{gstError}</FormMessage>} */}
                                         </FormItem>
 
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="tds_deduction_percentage"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="flex">TDS Deduction Percentage<sup className="text-sm text-red-600">*</sup></FormLabel>
+                                            <FormControl>
+                                                <Input
+                                                    type="number"
+                                                    // `any`, NOT a fixed step. `step="0.01"` made the
+                                                    // spinner arrows crawl 2 -> 2.01 -> 2.02, which is
+                                                    // useless for a rate that moves in whole points.
+                                                    // With `any` the arrows move by 1 (1, 2, 3...) and a
+                                                    // typed decimal like 2.5 is still accepted.
+                                                    step="any"
+                                                    min={0}
+                                                    max={100}
+                                                    placeholder="2"
+                                                    {...field}
+                                                    // `??` (not `||`) so a deliberate 0% renders as "0".
+                                                    value={field.value ?? ""}
+                                                    // ⚠️ ALWAYS the raw string -- NEVER `undefined` on a
+                                                    // cleared box, the way the fields around this one do
+                                                    // it. RHF resolves a field as
+                                                    // `get(_formValues, name, get(_defaultValues, name))`
+                                                    // and `get` returns the DEFAULT whenever the stored
+                                                    // value is `undefined` -- so clearing this box wrote
+                                                    // `undefined` and read back as the default 2, snapping
+                                                    // the input to 2 mid-keystroke and making it
+                                                    // impossible to type anything else. The neighbours are
+                                                    // safe only because none of them has a default.
+                                                    onChange={(e) => field.onChange(e.target.value)}
+                                                />
+                                            </FormControl>
+                                            <p className="text-xs text-muted-foreground">Applied to this vendor's payments. Defaults to 2%.</p>
+                                            <FormMessage />
+                                        </FormItem>
                                     )}
                                 />
                                 {(renderCategorySelection && vendorType !== "Service") && (

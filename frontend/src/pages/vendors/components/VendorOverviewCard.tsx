@@ -86,6 +86,14 @@ export const VendorOverviewCard: React.FC<VendorOverviewCardProps> = ({
 
                     <InfoItem label="GST Number" value={vendor?.vendor_gst} />
                     <InfoItem label="Pincode" value={vendorAddress?.pincode} className="lg:text-end" />
+
+                    {/* The right column is the address stack and has run out of
+                        fields, so this row needs an explicit empty cell -- without
+                        it the grid pulls nothing up beside TDS and the pairing of
+                        any row added later silently shifts. `??` (not `||`) so a
+                        deliberate 0% shows as 0, not as "--". */}
+                    <InfoItem label="TDS Deduction %" value={vendor?.tds_deduction_percentage != null ? `${vendor.tds_deduction_percentage}%` : "--"} />
+                    <div aria-hidden />
                 </div>
               </CardContent>
             </Card>

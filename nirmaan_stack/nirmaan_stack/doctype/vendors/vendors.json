@@ -37,6 +37,7 @@
   "vendor_taxation_details_section",
   "invoice_balancing",
   "vendor_gst",
+  "tds_deduction_percentage",
   "po_amount_balance",
   "payment_balance",
   "invoice_balance",
@@ -174,6 +175,13 @@
    "fieldname": "vendor_gst",
    "fieldtype": "Data",
    "label": "Vendor GST"
+  },
+  {
+   "default": "2",
+   "description": "Tax Deducted at Source rate applied to this vendor's payments. Unrelated to the Technical Data Sheet (\"TDS Items\") doctypes.",
+   "fieldname": "tds_deduction_percentage",
+   "fieldtype": "Percent",
+   "label": "TDS Deduction Percentage"
   },
   {
    "fieldname": "vendor_category",

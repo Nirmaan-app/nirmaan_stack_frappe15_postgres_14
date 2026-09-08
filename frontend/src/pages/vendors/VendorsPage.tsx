@@ -346,6 +346,24 @@ export default function VendorsPage() {
         meta: { exportHeaderName: "GST Number" },
       },
       {
+        accessorKey: "tds_deduction_percentage",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="TDS %" />
+        ),
+        cell: ({ row }) => (
+          <div className="font-medium text-sm whitespace-nowrap">
+            {/* `!= null` (not a truthiness test) so a deliberate 0% renders as
+                "0%" rather than falling through to "--". */}
+            {row.original.tds_deduction_percentage != null
+              ? `${row.original.tds_deduction_percentage}%`
+              : "--"}
+          </div>
+        ),
+        size: 110,
+        enableSorting: false,
+        meta: { exportHeaderName: "TDS Deduction %" },
+      },
+      {
         accessorKey: "vendor_contact_person_name",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Contact Person" />
