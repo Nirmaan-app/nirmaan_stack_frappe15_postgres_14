@@ -26,6 +26,7 @@ import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { toast } from "@/components/ui/use-toast";
 import { CEO_HOLD_AUTHORIZED_USER } from "@/constants/ceoHold";
+import { shouldScheduleCeoHoldRecheck } from "@/utils/ceoHoldRecheck";
 import { useUserData } from "@/hooks/useUserData";
 import { Customers } from "@/types/NirmaanStack/Customers";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
@@ -349,6 +350,21 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const [newStatus, setNewStatus] = useState<string>("");
   const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false);
+
+  // CEO Hold scheduled recheck: the authorized user taking a held project to a
+  // non-terminal status must name the date on which the system re-runs the CEO Hold
+  // evaluation. Until then the backend hooks stop deciding for this project, so the date
+  // is mandatory — the dialog offers no way to change the status without one, and Cancel
+  // simply leaves the project on CEO Hold. Backend twin: Projects._validate_ceo_hold_recheck.
+  const requiresCeoHoldRecheck = useMemo(
+    () =>
+      shouldScheduleCeoHoldRecheck({
+        currentStatus: data?.status,
+        newStatus,
+        userId: user_id,
+      }),
+    [data?.status, newStatus, user_id]
+  );
   const {
     updateDoc,
     updateDocLoading,
@@ -1243,6 +1259,18 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     try {
       const updateFields: any = { status: newStatus };
 
+      // The schedule rides the SAME save as the status, so the two can never be
+      // persisted apart. The backend refuses the release outright if the flag is
+      // missing while a hold reason is active, which is what makes that guarantee real
+      // rather than a UI convention.
+      if (requiresCeoHoldRecheck) {
+        if (!options?.ceoHoldRecheckDate) {
+          throw new Error("Select a CEO Hold recheck date before changing the status.");
+        }
+        updateFields.ceo_hold_recheck_scheduled = 1;
+        updateFields.ceo_hold_recheck_date = options.ceoHoldRecheckDate;
+      }
+
       if ((newStatus === "Halted" || newStatus === "Handover" || newStatus === "Completed") && options) {
         updateFields.disabled_dpr = options.isDPRDisabled ? 1 : 0;
         updateFields.disabled_dpr_date = options.isDPRDisabled ? options.dprDisableDate : null;
@@ -1462,6 +1490,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             variant: "success",
           });
         }
+      } else if (requiresCeoHoldRecheck) {
+        toast({
+          title: "CEO Hold released",
+          description: `Status changed to ${newStatus}. The CEO Hold conditions will be checked again on ${options?.ceoHoldRecheckDate}.`,
+          variant: "success",
+        });
       } else {
         toast({
           title: "Success!",
@@ -1471,7 +1505,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       }
     } catch (error: any) {
       console.log("error", error);
-      let description = `Failed to change status to ${newStatus}.`;
+      let description = error?.message || `Failed to change status to ${newStatus}.`;
       try {
         if (error?._server_messages) {
           const msgs = JSON.parse(error._server_messages);
@@ -1659,6 +1693,16 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
               {isCEOHoldStatus && !canChangeStatus && (
                 <span className="text-xs text-red-600 ml-2">Locked by CEO Hold</span>
               )}
+              {/* A released-with-recheck project looks completely normal otherwise — this
+                  is the only place that says the CEO Hold decision is merely deferred. */}
+              {!!data?.ceo_hold_recheck_scheduled && data?.ceo_hold_recheck_date && (
+                <span
+                  className="text-xs text-amber-700 ml-2 whitespace-nowrap"
+                  title="The CEO Hold conditions are not evaluated until this date."
+                >
+                  CEO Hold recheck: {formatDate(data.ceo_hold_recheck_date)}
+                </span>
+              )}
 
               <ProjectStatusDialog
                 open={showStatusChangeDialog}
@@ -1671,6 +1715,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                 onConfirm={handleConfirmStatus}
                 onCancel={handleCancelStatus}
                 isLoading={updateDocLoading || handoverTasksLoading || createCommissionReportLoading}
+                requireRecheck={requiresCeoHoldRecheck}
               />
             </>
 
