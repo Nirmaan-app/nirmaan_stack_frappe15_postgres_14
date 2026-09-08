@@ -4,7 +4,13 @@ from typing import List, Dict, Union
 
 @frappe.whitelist()
 def create_vendor_and_address(
-    values: Dict[str, Union[str, None]],
+    # ⚠️ `int` / `float` ARE REQUIRED, not tidiness. Frappe validates a whitelisted
+    # endpoint's annotations with pydantic and REJECTS THE WHOLE REQUEST on a
+    # mismatch -- so once `tds_deduction_percentage` started arriving as a number,
+    # the old `Dict[str, Union[str, None]]` failed every vendor creation with
+    # "Input should be a valid string ... input_type=int". Any future non-string
+    # field in this payload must be admitted here too.
+    values: Dict[str, Union[str, int, float, None]],
     vendorType: str,
     category_json: List[str],
     service_categories: List[str],
@@ -16,7 +22,8 @@ def create_vendor_and_address(
     Create New Vendor and Associated New Address entries.
 
     Args:
-        values (Dict[str, Union[str, None]]): A dictionary mapping field names to values.
+        values (Dict[str, Union[str, int, float, None]]): A dictionary mapping field
+            names to values. Mostly strings; `tds_deduction_percentage` is numeric.
         vendorType (str): Vendor Type : Service | Material | Material & Service.
         category_json (List[str]): A list of selected item names.
         service_categories (List[str]): A list of default service categories.
@@ -59,6 +66,15 @@ def create_vendor_and_address(
         vendorDoc.vendor_alt_mobile = values.get("vendor_alt_mobile")
         vendorDoc.vendor_email = values.get("vendor_email")
         vendorDoc.vendor_gst = values.get("vendor_gst")
+        # The default is applied HERE, not by the doctype: this builds the doc
+        # field-by-field, so whatever this line assigns wins over the field default,
+        # and an omitted key would write 0.
+        #
+        # ⚠️ Tested against `None`/`""`, NEVER `or` -- `0 or 2` is 2, so a vendor
+        # deliberately set to 0% TDS would be silently saved at 2%. The form allows
+        # 0 (the zod rule is `.min(0)`), so that value is reachable, not theoretical.
+        _tds = values.get("tds_deduction_percentage")
+        vendorDoc.tds_deduction_percentage = 2 if _tds is None or _tds == "" else _tds
         vendorDoc.account_number = values.get("account_number")
         vendorDoc.account_name = values.get("account_name")
         vendorDoc.bank_name = values.get("bank_name")
