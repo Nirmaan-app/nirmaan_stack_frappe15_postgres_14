@@ -21,15 +21,27 @@ def sync_cashflow_reason(project_id: str) -> None:
 	`cashflow_gap_limit`, and its computed gap exceeds that limit. (Replaces the former
 	evaluate_project_ceo_hold / evaluate_project_ceo_release pair, which wrote status
 	directly — see docs/adr/0004-multi-source-ceo-hold.md.)
+
+	SCHEDULED RECHECK: while the project is in scheduled-recheck mode this returns before
+	ANY evaluation — the gap is not computed, the `cashflow` reason row is left frozen, and
+	no notification fires. This is the single choke point for the whole cashflow SOURCE, so
+	one guard covers every caller: the Payment / Expense / Inflow / PO doc_events (via
+	`trigger_check`), the `cashflow_gap_limit` change hook, the daily gap-limit seeder, and
+	the bulk `update_projects_cashflow_hold` evaluator. The recheck cron clears the schedule
+	first and then calls straight back in here — reusing this same evaluation, never a copy
+	of it.
 	"""
 	row = frappe.db.get_value(
 		"Projects",
 		project_id,
-		["status", "ceo_hold_by", "cashflow_gap_limit"],
+		["status", "ceo_hold_by", "cashflow_gap_limit", core.RECHECK_SCHEDULED_FIELD],
 		as_dict=True,
 	)
 	if not row:
 		return
+
+	if row.get(core.RECHECK_SCHEDULED_FIELD):
+		return  # scheduled-recheck mode — only tasks.ceo_hold_recheck may decide.
 
 	limit = flt(row.cashflow_gap_limit)
 	over_limit = False
