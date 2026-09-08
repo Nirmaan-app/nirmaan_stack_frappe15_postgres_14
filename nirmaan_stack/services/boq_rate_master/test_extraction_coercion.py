@@ -1720,3 +1720,60 @@ class TestModuleCountAtTheBatchSite(FrappeTestCase):
         src2 = inspect.getsource(extraction.run_extraction)
         self.assertIn('"module_count_attrs": zero_path_stated_attrs(cfg)', src2)
         self.assertIn('_gc["module_count_attrs"]', src2)
+
+
+class TestPrefacedReplyAtTheRateCallSite(FrappeTestCase):
+    """2026-09-08 -- the shared parser's scalar-list skip, proven at THE RATE EXTRACTOR'S call site
+    (`extraction.py` `for el in _extract_json_array(text): rid = int(el["id"])`), which is where the
+    2026-09-07 halt actually happened. The reply is the captured one: prose quoting the allowed face
+    sizes `[350, 250, 200, 150, 100, 300]`, then the row array. Through the real `_extract_batch`
+    with a fake client -- the same replay the cert uses -- it now yields the rows; a reply holding
+    ONLY the scalar list ends in the named ExtractionHalted, with a ValueError inside, never a
+    TypeError."""
+
+    DEFS = [{"id": "face_mm", "label": "Face size (mm)", "type": "number_choice",
+             "values": [100, 150, 200, 250, 300, 350]}]
+    ROWS = [{"excel_row": r, "description": d, "ancestors": [], "sheet_name": "s"} for r, d in
+            ((359, "175x175x50MM"), (361, "275x275x50MM"), (363, "375x375x50MM"), (365, "475x475x50MM"), (367, "125x1255x50MM"))]
+    # The 2026-09-07 02:54:13 attempt-1 reply, verbatim from the capture log (rows 359-367).
+    REPLY = (
+            "Looking at each row, the face sizes are non-standard and must map to the allowed values [350, 250, 200, 150, 100, 300].\n"
+            "\n"
+            "Row 359: 175x175 \u2192 face 175, not an allowed value \u2192 null\n"
+            "Row 361: 275x275 \u2192 275, not allowed \u2192 null\n"
+            "Row 363: 375x375 \u2192 375, not allowed \u2192 null\n"
+            "Row 365: 475x475 \u2192 475, not allowed \u2192 null\n"
+            "Row 367: 125x1255 \u2192 125/1255 (larger 1255), not allowed \u2192 null\n"
+            "\n"
+            "None match the allowed values, so all return null.\n"
+            "\n"
+            "[{\"id\": 359, \"attributes\": {\"face_mm\": {\"value\": null, \"confidence\": 0.9}}}, {\"id\": 361, \"attributes\": {\"face_mm\": {\"value\": null, \"confidence\": 0.9}}}, {\"id\": 363, \"attributes\": {\"face_mm\": {\"value\": null, \"confidence\": 0.9}}}, {\"id\": 365, \"attributes\": {\"face_mm\": {\"value\": null, \"confidence\": 0.9}}}, {\"id\": 367, \"attributes\": {\"face_mm\": {\"value\": null, \"confidence\": 0.9}}}]"
+)
+    ARRAY = REPLY[REPLY.rfind("\n[") + 1:]
+    PREFACE = REPLY[: REPLY.rfind("\n[") + 1]
+
+    @staticmethod
+    def _client(text):
+        from nirmaan_stack.api.boq.wizard.test_classify import _FakeClient, _Resp
+        return _FakeClient(lambda call, kwargs: _Resp(text))
+
+    def test_POSITIVE_the_captured_prefaced_reply_now_yields_the_rows(self):
+        out = extraction._extract_batch(self._client(self.REPLY), "m", "P", self.DEFS, self.ROWS)
+        self.assertEqual(sorted(out), [359, 361, 363, 365, 367])
+        self.assertTrue(all(out[r]["face_mm"]["value"] is None for r in out))
+        self.assertEqual(out[359]["face_mm"]["confidence"], 0.9)
+
+    def test_INVARIANT_the_bare_array_reply_is_unchanged(self):
+        a = extraction._extract_batch(self._client(self.ARRAY), "m", "P", self.DEFS, self.ROWS)
+        b = extraction._extract_batch(self._client(self.REPLY), "m", "P", self.DEFS, self.ROWS)
+        self.assertEqual(a, b)
+
+    def test_NEGATIVE_a_scalar_list_alone_halts_cleanly_not_a_TypeError(self):
+        """What the run sees: the batch fails on every attempt with the parser's own ValueError and the
+        extractor raises its named halt -- the same shape as any unparseable reply, no crash."""
+        with self.assertRaises(extraction.ExtractionHalted) as cm:
+            extraction._extract_batch(self._client("Allowed values are [350, 250, 200, 150, 100, 300]. None fit."),
+                                      "m", "P", self.DEFS, self.ROWS)
+        detail = getattr(cm.exception, "detail", "") or ""
+        self.assertIn("ValueError", detail)
+        self.assertNotIn("TypeError", detail)
