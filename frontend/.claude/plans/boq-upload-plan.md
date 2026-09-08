@@ -37360,3 +37360,147 @@ De-stale: SW unregistered (1), caches 0, localStorage/sessionStorage cleared, 3 
 
 ### Files
 `nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v59.json` (new), `nirmaan_stack/api/boq/rate_master.py` (the two `_ref` guards, +12), `nirmaan_stack/api/boq/test_rate_master.py` (constant -> v59, TestF25Slice2BareBox frozen + `_10` re-pointed, test_r12 widened, TestF25Slice3PickFrom), `frontend/src/pages/pricing/rate-master/rateMasterTypes.ts` (`pick_from`, `pick` outcome), `frontend/src/pages/pricing/rate-master/ratePipelineInterpreter.ts` (`readPick`, both branches) + test, `frontend/src/pages/boq-wizard/rate-helper/rateHelperTypes.ts` (`plate_floor` + order + sentence), `frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.ts` (`ladderNotes`, `substituted`) + test, this record. `CLAUDE.md` root: ONE durable rule earned and added -- a `module_fit` ladder feature has TWO read sites, and a key wired on one alone ships half.
+
+## Never-asked defaults -- a config attribute added after a run no longer refuses the older rows (2026-09-08, frontend only)
+
+### The owner's ruling (verbatim, not extended)
+Presented with three candidates from the 167-row recon, the owner ruled on candidate 4: *"Treat a never-asked
+field as answered -- this is ok"*, with the attached condition that it defaults ONLY a genuinely optional field
+-- a field with no sensible default stays blank and keeps refusing. Then: *"lets do it now"*.
+
+### The defect this answers -- RECORDED AS A RECURRING DEFECT, NOT A ONE-OFF
+The panel's missing-attribute gate (`pricingSheetHelper.compute`) walks the CURRENT config's attribute list
+against a stored run row that carries only the keys asked at ITS extraction. **Every panel-visible, non-derived
+attribute added to a config after a run reads as blank on every older row of that category and refuses it.**
+Nothing records which config a row was extracted under. Measured 2026-09-08 over the 42 active runs (5,001
+rows) with the REAL helper: 408 rows across four categories, 347 with no other blocker --
+switches_sockets 158 (138 pure; `socket3/4_item/qty`, added 2026-08-21 v45), point_wiring 200 (170 pure; the
+seven `circuit_wire_*` fields, added 2026-09-03 v51), junction_box_raceway 34 (`face_mm`, 2026-08-15),
+popup_boxes 16 (5 pure; the composite, 2026-08-21). v58's `box_modules_stated` escaped only because it is
+`panel: false`. **This slice makes the READ side tolerant; it does not stop the cause.** The next visible
+attribute added to any config will break every older row of that category again unless it carries a default or
+`allow_none`.
+
+### The rule, and the distinction it rests on
+**KEY ABSENT vs PRESENT-NULL -- the whole slice.** The extractor writes a cell for EVERY attribute it asks,
+whether or not the model answered: `extraction._extract_batch` iterates `for aid, defn in defs_by_id.items()`
+and writes `row_out[aid] = {"value": value, "confidence": ...}` (value None when the model returned nothing);
+the fallback paths `_blank_row` / `_row_result` write `{d["id"]: {"value": None, ...}}` for every def. So on an
+IN-RUN row:
+- **KEY PRESENT, value null** -> the model WAS asked and came back blank. A real read failure. UNTOUCHED; the
+  gate keeps refusing (53 of the switches_sockets rows are exactly this).
+- **KEY ABSENT** -> the attribute was not in the config at extraction time; the model was NEVER asked. It takes
+  its config default. The only other way a key is absent by design is `extract: false`, excluded explicitly.
+
+**Which default (the two sources the owner saw, nothing wider):** (1) the config's top-level
+`extraction_defaults[id]` -- a scalar, or `{default, requires_named}` (applied only when the named item is
+FILLED, mirroring `fill_paired_slot_defaults` case (a)); a `{default, text_overrides}` spec is NOT reproduced at
+read time (that would be a second copy of the extractor's text rule) so that field stays blank and refuses --
+inert on the live corpus; (2) `allow_none` -> `"None"`, the honest answer for a slot the model was never shown.
+Anything else (no default, `panel: false`, a DERIVED attribute -- a ladder bind such as `plate_item` is the
+ladder's FLOOR and must never be seeded) is untouched. IN-RUN rows only: a manual row keeps "Fill the
+attributes to price this row". The per-definition `default` key is deliberately NOT a source.
+
+**Where:** `pricingSheetHelper.ts` only -- `readExtractionDefaults` + `neverAskedDefault` beside
+`readGroupLabel`, a two-pass synthesis of `ExtractedAttr` cells (`{value, confidence: 0, defaulted: true}`)
+inside `compute` before the `disabledByNone` pre-pass, and a `cellOf(d)` reader that both `valueOfDef` and the
+main walk use. `extraction_defaults` and `extract` are read through `unknown` (the types file is out of scope).
+No interpreter change, no extraction change, no config, no asset, no stored run touched.
+
+### The qualifying attribute list (Step One, measured before building)
+| category | attribute | default | source | rows in active runs gaining it |
+|---|---|---|---|---|
+| switches_sockets | `socket3_item`, `socket4_item` | `None` | allow_none | 158 each |
+| point_wiring | `circuit_wire_included` | `No` | extraction_defaults | 200 |
+| point_wiring | `circuit_wire1_core`, `circuit_wire1_runs`, `circuit_wire2_core`, `circuit_wire2_runs` | `1` | extraction_defaults | 200 each |
+| point_wiring | `circuit_wire1_thickness_sqmm`, `circuit_wire2_thickness_sqmm` | `None` | allow_none | 200 each |
+| popup_boxes | `switch_item`, `socket1..4_item` | `None` | allow_none | 16 each |
+| popup_boxes | `colour` | `White` | extraction_defaults | 16 |
+
+**DOES NOT qualify (no sensible default; keeps refusing):** junction_box_raceway `face_mm` (34 rows);
+popup_boxes `has_modules` / `module_count` / `plate_qty` / the five `*_qty` (16 rows -- so NO popup row is
+unblocked, its sockets merely render as defaulted None while it still refuses); switches_sockets
+`socket3_qty` / `socket4_qty` are `requires_named` on an item that defaults to None, so they take no default and
+are DISABLED by the existing `disables_when_none` -- never a phantom 1.
+
+**Unblocked: 308 rows** (138 switches_sockets + 170 point_wiring) -- the #57 figure. 66 more rows (20
+switches_sockets, 30 point_wiring, 16 popup_boxes) gain defaulted fields but keep refusing on a present-null
+blocker; their VERDICT is unchanged (#57 item 2 holds on the verdict axis; disclosed here on the field axis).
+
+### THE INVARIANT -- proven, not asserted
+The real `makePricingSheetHelper` + `buildExtractionByRow` bundled with the project's esbuild in-container
+(`--alias:@=./src`, no DB, no network) and run over all 5,001 rows of the 42 active runs against the 12 live
+configs and 1,367 live items, under BOTH the run category and the live category, before and after (and again
+with the final helper): **10,002 verdicts compared; 0 rows that priced before changed a verdict, a value or a
+final.** Run category: 308 verdicts changed (304 now price; 4 -- `BOQ-26-00206/207/208/209 BOQ -ELEC` rows
+265/263/263/269 -- pass the gate and refuse honestly at the plate ladder top, 10 sockets = 21 modules above 18M,
+the register's known class). Live category: 301 changed. A unit pin also holds the invariant (a row with every
+key present is byte-identical).
+
+### The honesty -- the badge is the guard, and what it can and cannot say
+Every never-asked value carries the EXISTING `defaulted` flag: the same amber `default` badge, the same
+override precedence (a pricer's pick clears it), the same "(defaulted -- ...)" trace line. **The badge cannot
+tell a never-asked default from a model-claimed one.** Two things can: the field shows NO confidence percentage
+(a model-claimed default shows its own, e.g. `default 85%` on `00224/294`), and a second derivation line
+`(never asked at extraction -- config default applied; re-run the sheet to read it): ...` names exactly the
+never-asked fields. ⚠️ The panel renders `sections[i].derivation`, NOT the flat list, whenever sections exist --
+every module_fit category, i.e. exactly the never-asked population -- so the line is appended to every section
+too (the combined-line precedent); without that it existed only in tests. Found on the live screen, not by a test.
+
+⚠️ **THE HAZARD (owner-accepted): a row that GENUINELY has a third socket now prices LOW, with nothing
+downstream to catch it.** Same class as the LMS silent-wrong-pick limit. The badge, the missing percentage and
+the trace line are the only guard; a pricer who does not open the workings sees a plausible figure.
+
+### Tests (in-container vitest)
+Baseline full suite 3,220 passed / 1 failed (the known `writeOffControl` timeout); after 3,233 / 1 (+13 pins, same
+failure). Helper file 245 -> 258. BEFORE (helper stashed, pins present): the 5 positives red, 253 green.
+VACUITY (A4, `neverAskedDefault` forced to `undefined`): the same 5 red; restored: 258 green. Pins: absent
+allow_none -> None/badged/gate passes (positive); PRESENT-NULL same slot -> still refuses (the over-reach pin);
+no-default attribute absent -> refuses; `{default, text_overrides}` -> refuses; every key present -> byte-identical;
+never-asked == model-claimed in pricing; override wins and clears the badge; `requires_named` defaults only on a
+FILLED item, never a phantom 1; a derived bind is never seeded; manual row untouched; a full-key category
+untouched; point_wiring circuit block positive + present-null negative; the section-level trace line.
+tsc: 0 errors in the touched file (2 pre-existing in `useDocCountStore.ts`). Residence check F2 223 / F5 119,
+identical with this slice's files stashed (pre-existing drift; a comment containing the literal `JSON.parse`
+briefly counted as F2 224 and was removed).
+
+### The browser live cert (2026-09-08 ~16:40-17:30 IST, admins@nirmaan.app, :8080 via vite) -- ZERO AI calls, ZERO writes
+All four processes restarted by PID (`kill -9` needed, declared), `.vite` cleared, `:8000/:8080/:9000` 200 x3;
+FRONTEND-derived bundle marker on the plain URL: `neverAskedDefault` x2, `s.derivation.push(neverAskedLine)` x1.
+⚠️ The first page load showed a stale module (plain-URL fetch 0 markers while `?t=` fetch had them) -- the
+standing Vite stale-module recipe applied (vite killed by PID, `.vite` cleared, restart) and the plain URL then
+carried the marker. A Docker Desktop outage mid-cert (API 500 then the pipe gone) was ridden out; the container
+came back bare (`sleep infinity`) and all four were started again from `sites/`.
+| step | row | result |
+|---|---|---|
+| **K1 (SUBSTITUTED, S12)** | `BOQ-26-00171 / Electrical / 107` "mounting box fixed flush with the wall." (10A switch + 6A socket, run predates socket3/4) | **PRICES 320 / 70 / 390** (offline 320/70/390). Socket 3 = `None`, Socket 4 = `None`, each with the amber `default` badge and NO percentage; Socket 3 qty / Socket 4 qty disabled; both section blocks carry the `(never asked at extraction ...)` line. Grid hand rates 290/60 untouched. The brief's `BOQ-26-00181 / 39` could not be opened: that sheet has 55 blank categories, the category gate hides every opener, and lifting it is an admin override WRITE (out of scope). Offline it prices 170/40/210 with the same badges. |
+| **K2** | `BOQ-26-00171 / Electrical / 141` "Three Light Controlled by one MCB / SENSOR" (point_wiring, run predates the circuit block) | **PRICES 4736 / 630** (offline 4736/630/5366). `Circuit wiring included = No` badged default, both circuit thicknesses `None` badged, cores/runs disabled; the never-asked line under BOTH Pw Boq Supply and Pw Boq Install. Grid 7560/1380 untouched. |
+| **K3 (negative)** | `BOQ-26-00229 / Electrical BOQ / 340` "TV CO - AXIAL SOCKET" (`socket1_qty 1`, `socket1_item` PRESENT-NULL) | **STILL REFUSES** -- "Complete the missing attributes to price", Socket 1 blank and red, no value, no never-asked line. |
+| **K4 (no default)** | `BOQ-26-00171 / Electrical / 268` "100x100x50MM" (junction box, `face_mm` absent) | **STILL REFUSES** -- Face size (mm) blank and red, "Some attributes are missing -- fill them to compute a rate." |
+| **K5 invariant** | `BOQ-26-00229 / 322` (switches_sockets, badge "Suggested value used") and `BOQ-26-00224 / 294` (point_wiring, "Suggested value used") | **630 / 130 / 760** and **5111 / 880**, to the rupee as before; no never-asked line; 294's model-claimed `default 85%` still shows its percentage. |
+| **K6** | before / after | runs 71 (42 active), events 1,532, items 1,367 on `rmbulk-0bd36d23eaca`, 12 configs, max `modified` on runs/events/configs unchanged. No pricer pick made, nothing to revert. |
+
+Screenshots: `claude-chrome-screenshots-vr4U8B/screenshot-1788867667568-31.jpg` (K1 panel),
+`...-1788867702835-32.png` (K1 zoom incl. the trace line), `...-1788867753344-33.png` (K2 both sections),
+`...-1788867797914-34.png` (K4 refusal).
+
+### #57 UI change control -- delivered as approved
+1. 308 rows that read "Complete the missing attributes to price" now price; the never-asked fields show their
+default with the defaulted badge (and no confidence percentage). 2. Present-null and no-default rows keep
+refusing, unchanged in verdict; 66 of them now show defaulted never-asked fields beside the real blocker.
+
+### Register (recorded, not fixed)
+- **The plan record documents a re-run across 22 sheets / 251 rows remedying the point_wiring stale rows, citing
+  `BRSR-26-00469..472` -- those runs DO NOT EXIST in the live database and no run of that date exists on any
+  affected sheet.** Either they were wiped by a refresh or the record is wrong about something it claims happened.
+- The 20 non-assembly rows (removals, dummy plates) that no pick prices correctly; the 33 genuine read failures
+  (present-null items); the 3 (now 7 incl. the four `BOQ -ELEC` rows above) rows above the plate ladder top; the
+  `_extract_json_array` parser defect; run-to-run variance; the jargon refusal line; panel overrides surviving a
+  re-run; the standing register.
+- The recurring cause above: the extractor/config side still has no provenance stamp; a future visible attribute
+  without a default or `allow_none` refuses every older row again.
+- A Docker Desktop outage during the cert; the container returns bare and needs all four processes.
+
+### Files
+`frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.ts`, `.../pricingSheetHelper.test.ts`, this record,
+root `CLAUDE.md` (one invariant paragraph: absent vs present-null and the recurring defect).

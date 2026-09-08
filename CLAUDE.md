@@ -509,6 +509,21 @@ point_wiring and popup_boxes carry the same ladder shape and no `pick_from`, and
 **Every ladder key that names an attribute is `_ref`-guarded in `_validate_config`** -- an unguarded
 `on_zero_from` typo once read silently as "assumed 3M".
 
+**⚠️ A CONFIG ATTRIBUTE ADDED AFTER A RUN REFUSES EVERY OLDER ROW OF THAT CATEGORY -- A RECURRING DEFECT,
+AND THE READ SIDE IS NOW TOLERANT, NOT THE CAUSE (owner ruling 2026-09-08: "Treat a never-asked field as
+answered").** A stored run row carries only the keys asked at ITS extraction; the panel gate walks the CURRENT
+config's list, so every later, panel-visible, non-derived attribute reads blank on every older row (measured:
+408 rows across four categories, 347 with no other blocker). `pricingSheetHelper` now distinguishes **KEY
+ABSENT** (never asked -> the config default: `extraction_defaults` scalar / `requires_named`-on-a-filled-item,
+or `allow_none` -> "None"; badged `defaulted`, no confidence shown, a trace line naming it) from
+**PRESENT-NULL** (asked and blank -> a real read failure, still refuses). **The distinction holds ONLY because
+`extraction._extract_batch` writes a cell for EVERY asked attribute, null when unanswered -- an extractor that
+stops doing that silently turns every read failure into a "never asked" default.** A field with no sensible
+default (`face_mm`) keeps refusing by design; a `{default, text_overrides}` spec is not reproduced at read
+time. **The hazard, owner-accepted: a row that genuinely has a third socket now prices LOW with nothing
+downstream to catch it; the badge is the only guard.** A new visible attribute without a default or
+`allow_none` will break every older row again -- give it one, or accept the refusals knowingly.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
