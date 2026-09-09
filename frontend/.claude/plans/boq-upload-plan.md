@@ -38023,3 +38023,119 @@ conduit. Nothing changes on any row where nobody picks None (proven above). The 
 `frontend/src/pages/pricing/rate-master/ratePipelineInterpreter.test.ts` (+9 pins), this record. Root `CLAUDE.md`:
 judged -- the rule is pinned and documented here; no durable convention beyond the existing "None is positive
 absence" line was earned, so nothing added.
+
+## Calculator layout slice -- price blocks two-up on top, fields in adaptive columns (2026-09-09)
+
+Tip on entry `063c3960` (2 ahead of origin, not pushed). LAYOUT ONLY: no engine, config, asset, mint, import,
+extraction or prompt change. Owner, verbatim: *"the grid has expanded too much and its difficult to assciate the
+field labels with the boxes."*; *"pricing show n in top is better. but we need to keep a separate block for it. we
+just put these bl;ocks at the top and maybe side by side and not one below the other. we can show in 1*2 grid per
+row which then gets repeated as required if therie are more than 2 blocks."*; *"this works"* (the mockup); *"empty
+blocks at the top"*; *"split as per order"*; *"can we make the column layout dynamic so that it renders 1/2/3
+column as required."*
+
+### THE LAYOUT (calculator variant only; the BoQ panel is byte-unchanged)
+- **Price blocks two per row, at the top, from the first render.** `PricingCalculator` derives the block labels
+  from the CONFIG before anything prices -- `calculatorBlockLabels(config)` = one label per non-BCS pipeline in
+  declaration order, through the helper's own `pipelineLabel` -- and hands them to the panel as
+  `calculatorBlocks`. With no sections yet, the panel renders them as PLACEHOLDER groups (`figures: {}` -> three
+  em dashes, no copy button) through the ONE `renderSection` closure a priced block uses; the "fill them"
+  sentence sits under them. Once priced the real sections replace the placeholders one-for-one (pinned per golden:
+  labels before == labels after, all 12 categories), so the layout never jumps. Blocks per row come from the
+  calculator's OWN observed width (`blockColumnsFor`: 2, folding to 1 below 640 px) -- never more than two. A CSS
+  grid stretches its row, so two blocks with one and five derivation lines are the same height (measured: both
+  104 px on point_wiring priced, both 122 px on wiring).
+- **Fields below, label ABOVE its box, in 1 / 2 / 3 equal columns.** `fieldColumns` = `columnsFor(visible field
+  count, observed width)` = `min(content maximum, width cap)`. CONTENT sets the maximum from the measured
+  distribution; WIDTH may only reduce it. The order is the panel's own render order split across the columns
+  ("split as per order" -- pinned: `visibleFieldIds(config)` == the ids the helper renders); a config's group
+  heading spans every column where it falls. Boxes are `w-full` within a column (the Switch dropdown no longer
+  starts further left). Computed fields keep their "(computed)" marker and muted tone -- display only.
+- **The BoQ variants are untouched**: every calculator class is a ternary on `isCalculator` with the ORIGINAL
+  string as the other branch (pinned verbatim, six strings); the JSX order is unchanged and the calculator reorders
+  by CSS `order-*`; the three new props (`calculatorBlocks`, `fieldColumns`, `blockColumns`) are read only under
+  `isCalculator` and `SheetPricingPage` passes none (pinned). ONE section renderer, ONE `DISPLAY_RATE_KINDS.map`,
+  ONE `CopyFigureButton` site (pinned) -- no fork.
+
+### THE MEASURED FIELD COUNTS AND THE BANDS (2026-09-09, panel-visible defs: `selector !== false && panel !== false`)
+| category | visible fields | columns (wide) |
+|---|---|---|
+| junction_box_raceway 1, miscellaneous 1, conduit_piping 2, lighting_mgmt_system 2, earthing 3 | <= 4 | **1** |
+| industrial_sockets 5, cabletray_raceway 8, wiring_cabling 8 | 5-12 | **2** |
+| db_switchgear 14, popup_boxes 17, switches_sockets 17, point_wiring 27 | >= 13 | **3** |
+Bands `COLUMN_BANDS`: <= 4 -> 1, 5-12 -> 2, >= 13 -> 3. Both edges (4/5, 12/13) fall in EMPTY gaps of the
+distribution (3 -> 5, 8 -> 14), so no live category sits on a boundary and no category looked wrong in two bands
+(S8 did not fire). The middling categories -- earthing 3 (one column), industrial_sockets 5 and cabletray /
+wiring 8 (two) -- are shown on screen in the cert for the owner to judge. Width caps `WIDTH_COLUMN_CAPS`:
+< 640 px -> 1, < 1024 -> 2, else 3 (Tailwind sm / lg edges), measured on the calculator's container by a
+ResizeObserver. Corrections to the brief: point_wiring has 27 visible fields (not ~24) and miscellaneous has 1
+(not 2); the count is the def list minus `panel:false` (industrial_sockets carries 9 defs, 4 hidden).
+
+### THE INVARIANT -- proven
+Real helper bundled in-container from a full `src` copy at HEAD vs the working tree, over all **5,001 rows of the
+42 active runs**, run category AND live category: **10,002 verdicts, 0 moved**, figure-set hash `da71b4f4bc6d`
+before and after. The engine files are untouched (the layout lives in `PricingCalculator.tsx` and the panel's
+calculator branches only).
+
+### Tests (in-container vitest)
+`pricingCalculator.test.ts` +36 pins in four describes: blocks known BEFORE pricing (per category, labels before ==
+section labels after, every golden; the count table; wiring = ["Cable — per Mtr", "Termination — per Set"];
+NEGATIVE no picks -> no sections, the blocks come from the config); the field ORDER (per category,
+`visibleFieldIds` == the helper's rendered ids; the measured counts; NEGATIVE hidden facts are not fields); the
+column rule (the bands as a table incl. every boundary; the twelve categories by band; NEGATIVE width only
+reduces; NEGATIVE a one-field category is one column at any width incl. Infinity; the width caps and the block
+fold at the same edge); the BoQ panel unchanged (props read only under `isCalculator`, the six original class
+strings verbatim, >= 7 `isCalculator ?` ternaries, ONE section renderer / ONE figure map / ONE copy button, the
+helper output unchanged). RED before: the block-label and order pins fail against the HEAD calculator + panel.
+GREEN: 88 / 88 in the file. **VACUITY x2**: (a) block-count derivation returning [] -> the 12 per-category block
+pins + the count pin red, restored to `de2061127f15`; (b) the content half of the column rule returning 3 -> the
+band table, the twelve-categories, width-only-reduces and one-field pins red (4 fail / 84 pass), restored. Full
+vitest **3,350 passed / 1 failed** (the known `writeOffControl` timeout); the three rate files 841. Python
+coercion **149 OK**, hv2 **43 OK**, rate_suggest **71 OK**, rate_master **337 OK**. tsc: no new errors in the
+touched files. One bug caught by a pin during the build: `maxColumnsForWidth(Infinity)` read as 0 (one column);
+fixed to treat an unbounded width as wide.
+
+### The browser live cert (2026-09-09 ~23:20-23:45, admins@nirmaan.app, tab VISIBLE, zero AI, no writes)
+Web / worker / socketio / vite restarted BY PID (7395 / 7399 / 7406 / 7416 / 7428 -> 9154 / 9158 / 9165 / 9187;
+vite once more 9175 / 9187 -> 9571 / 9583 after a stale-module finding), `.vite` cleared, :8000 + :8080 200 x3,
+markers on the plain module URLs (`calculatorBlockLabels` / `COLUMN_BANDS` x4, `calculatorBlocks` x3, then
+`blockColumns` x2). Session intact, no CSRF break.
+| P | result | capture |
+|---|---|---|
+| P1 | Point Wiring, nothing answered: TWO blocks already on screen with dashes ("Point Wiring — Supply" / "— Install", 872 x 50 each, equal) | `2026-09-09_layout_P1_P2_point_wiring_empty_blocks_three_columns.jpg` |
+| P2 | same screen: 27 fields in THREE columns (x 318 / 911 / 1503), every label directly above its box (27 / 27), one box width (568 px), the "circuit wiring" heading spanning all three | same capture |
+| P3 | the none-fix attributes -> **1565 / 313**, blocks equal at 104 px | `..._P3_point_wiring_1565_313.jpg` |
+| P4 | Wiring: Cable 1490 / 130 / 1620 and Termination 2610 / 660 / 3270 side by side, three figures + three copy buttons each, equal height 122 px; 8 fields in two columns | `..._P4_wiring_two_blocks.jpg` |
+| P5 | judged by eye: junction_box_raceway 1 field -> 1 column; earthing 3 -> 1 column (its boxes span the full width -- the rule's own outcome, shown for the owner); industrial_sockets 5 -> 2 columns; cabletray_raceway 8 -> 2 columns; point_wiring 27 -> 3 | `..._P5_junction_box_1_field_1_col.jpg`, `..._P5_earthing_3_fields_1_col.jpg`, `..._P5_industrial_5_fields_2_cols.jpg`, `..._P5_cabletray_8_fields_2_cols.jpg` |
+| P6 | NO live category has more than two blocks (pinned: max = 2), so the wrap row cannot be shown on live data; the grid wraps by construction (`repeat(2, ...)`) | - |
+| P7 | copy on the Cable block's supply figure -> clipboard exactly `1490` (4 chars, no symbol) | - |
+| P8 | BoQ editor, BOQ-26-00015 row 370: panel 320 px, label and box on ONE line (measured), sections BELOW the fields, no grid style, 320 / 70 / 390 -- nothing moved | `..._P8_boq_panel_unchanged_320px.jpg` |
+| P9 | ⚠️ the window would not resize through the extension (innerWidth stayed 2133 after two `resize_window` calls -- the Chrome window is maximised); certified instead by narrowing the CALCULATOR CONTAINER, which is what the layout actually observes: 1000 px -> two columns and two blocks per row; 600 px -> ONE column and the blocks STACKED one per row (y 273 then 332); junction_box at 600 px stays one column | `..._P9_narrow_600px_container_emulated_blocks_stacked_one_column.jpg` |
+Writes: none beyond the page's own access log (1,597 -> 1,603: three loads of `/electrical-pricing`); runs 71,
+events 1,532, `BoQ Cell Pricing` 37,699, locks 295, BCS 1,524 unchanged. Picks session-only.
+Anomaly found and fixed mid-cert: vite on the bind mount served the STALE panel module after the second panel edit
+(no `blockColumns` in the served source) until vite was restarted -- the standing Vite stale-module recipe; the
+first cert pass therefore showed the blocks NOT folding at a narrow container, which is what prompted keying the
+blocks on the observed width rather than the viewport `sm:` breakpoint.
+
+### #57 -- what landed
+1 The Calculator screen is rearranged: price blocks two per row at the top, present from the start with dashes;
+fields in one, two or three columns by field count and width, each label above its box. Nothing on the BoQ
+editor; no figure anywhere. The list did not grow.
+
+### Register (record, do not fix)
+- **The parked split-pipeline shape is now MORE visible**: point wiring's (and cable tray's, industrial's) two
+  blocks sit side by side, each with one figure and two dashes, and the eye wants to add them. When the owner's
+  corrected intent lands (one line per THING priced) they collapse into one block; the pin in
+  `pricingCalculator.test.ts` moves with it.
+- A ONE-COLUMN category stretches its boxes to the full calculator width (earthing, junction box) -- the rule's
+  outcome, not a cap; an owner call whether a single column should have a maximum width.
+- The Chrome window cannot be resized through the extension while maximised; a true-viewport P9 is owed if the
+  owner wants it (resize the browser by hand; the same rule applies to the container).
+- Standing register unchanged (units; the access-log row per load; "Unclear" owner-parked; the size_mm discard).
+
+### Files
+`frontend/src/pages/pricing/PricingCalculator.tsx` (block labels, visible fields, bands, caps, `columnsFor`,
+`blockColumnsFor`, the observed width), `frontend/src/pages/boq-wizard/rate-helper/RateHelperPanel.tsx` (three
+optional props, the calculator branches, `renderSection`), `frontend/src/pages/pricing/pricingCalculator.test.ts`
+(+36), this record. Root `CLAUDE.md`: judged -- nothing durable beyond what the plan doc and the pins carry.
