@@ -6207,3 +6207,141 @@ describe("F-25 slice 3 -- THE CROSS-CATEGORY NEGATIVE: confined by KEY PRESENCE,
     expect(readPick.toString()).not.toMatch(/switches_sockets|point_wiring|popup_boxes/);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// THE NONE-PICK RULE (owner 2026-09-09) -- a hand-picked "None" is honoured by a `map_attribute`
+// ONLY when the step prefers ITS OWN attribute (i) AND its default is not itself "None" (ii).
+//
+// Both conditions were MEASURED on the 5,001 rows of the 42 active runs (recon 4, 2026-09-09):
+//   dropping (i)  -> 59 live rows move, 25 of them stop pricing (industrial_sockets' hidden curve);
+//   dropping (ii) -> 14 wiring_cabling rows drop a conduit the text names at a non-catalogue size.
+// With both: 0 of 10,002 verdicts move. Each condition has its own NEGATIVE pin below, named for the
+// population it protects, so removing either goes red with a test name that says why.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe("THE NONE-PICK RULE -- a self-preferring map with a non-None default honours a stated None", () => {
+  // point_wiring's live shape (v59 pw_boq_supply steps 5, 6 and 10): the default-PVC map, the hidden
+  // drop, then circuit_fit with `absent_when conduit_type == None`, then the assembly with a
+  // `none_skips` conduit component.
+  const PVC_DEFAULT_MAP = {
+    step: "map_attribute" as const,
+    params: { result_attr: "conduit_type", prefer_attr: "conduit_type", default: "PVC" },
+  };
+  const HIDDEN_DROP = {
+    step: "map_attribute" as const,
+    params: { result_attr: "conduit_type", from_attr: "conduit_included", table: { No: NONE_SENTINEL }, on_miss: "skip" },
+  };
+  const CF_ABSENT = {
+    ...PW_CIRCUIT_FIT,
+    params: { ...PW_CIRCUIT_FIT.params, absent_when: { attr: "conduit_type", equals: NONE_SENTINEL } },
+  };
+  const livePipe = (): Pipeline => ({
+    output: ["supply"],
+    steps: [
+      PVC_DEFAULT_MAP,
+      HIDDEN_DROP,
+      CF_ABSENT,
+      ...(PW_PIPELINES.pw_boq_supply.steps.slice(1) as Array<Record<string, unknown>>).map((st) =>
+        st.name === "conduit" ? { ...st, none_skips: true } : st,
+      ),
+    ] as Pipeline["steps"],
+  });
+  const run = (sel: Record<string, string | number>) => runPipeline("pw_boq_supply", livePipe(), PW_ITEMS, sel);
+  const mapOut = (r: ReturnType<typeof runPipeline>) => mapAttributeOutcomes([r]).get("conduit_type");
+  const line = (r: ReturnType<typeof runPipeline>, name: string) => r.steps.find((s) => s.produced?.key === name)?.produced?.value;
+  const { conduit_type: _pvc, ...PW1_NO_TYPE } = PW1;
+
+  it("POSITIVE (the defect): a stated None on point_wiring's conduit_type is HONOURED -- no conduit is priced", () => {
+    const withPvc = run({ ...PW1_NO_TYPE, conduit_type: "PVC" });
+    const picked = run({ ...PW1_NO_TYPE, conduit_type: NONE_SENTINEL });
+    expect(picked.status).toBe("ok");
+    expect(mapOut(picked)).toEqual({ result_attr: "conduit_type", stated: true, value: NONE_SENTINEL });
+    expect(picked.steps[0].matchedCondition).toContain("conduit_type stated as None -- kept (a stated value wins)");
+    expect(line(withPvc, "conduit")).toBeGreaterThan(0);
+    expect(line(picked, "conduit")).toBe(0);
+    expect(picked.finals.supply).toBe(withPvc.finals.supply - (line(withPvc, "conduit") as number));
+  });
+
+  it("POSITIVE (end to end): the hand-picked None reaches the SAME price the hidden facts reach", () => {
+    // extraction's route: conduit_included = No -> the drop writes None. The pricer's route: None picked.
+    const viaHiddenFacts = run({ ...PW1_NO_TYPE, conduit_included: "No" });
+    const viaPick = run({ ...PW1_NO_TYPE, conduit_type: NONE_SENTINEL });
+    expect(viaHiddenFacts.status).toBe("ok");
+    expect(viaPick.finals).toEqual(viaHiddenFacts.finals);
+  });
+
+  it("POSITIVE (the consumers): the honoured None fires circuit_fit's absent_when and component_ref's none_skips", () => {
+    const picked = run({ ...PW1_NO_TYPE, conduit_type: NONE_SENTINEL });
+    const cf = picked.steps.find((s) => s.step === "circuit_fit");
+    expect(cf?.matchedCondition).toContain("no conduit (positive absence)");
+    const conduit = picked.steps.find((s) => s.produced?.key === "conduit");
+    expect(conduit?.matchedCondition).toBe("None -> 0");
+    // and every other component of the point still prices -- the wires never read the fit
+    expect(line(picked, "wire1")).toBeGreaterThan(0);
+    expect(line(picked, "switch")).toBeGreaterThan(0);
+  });
+
+  it("POSITIVE (the screen): an honoured None is published as STATED, so the panel renders the pick plain, never '(computed)'", () => {
+    // `applyDerivedDisplay`'s map branch publishes NO derivedValue for a stated outcome, so
+    // `attrDisplayValue` shows the row's own value ("None") and `isShowingDerived` is false.
+    const picked = run({ ...PW1_NO_TYPE, conduit_type: NONE_SENTINEL });
+    expect(mapOut(picked)?.stated).toBe(true);
+    expect(mapOut(picked)?.value).toBe(NONE_SENTINEL);
+  });
+
+  it("UNCHANGED: a non-None stated value still wins, and an UNSTATED field still takes the PVC default", () => {
+    const ms = run({ ...PW1_NO_TYPE, conduit_type: "MS" });
+    expect(mapOut(ms)).toEqual({ result_attr: "conduit_type", stated: true, value: "MS" });
+    const silent = run({ ...PW1_NO_TYPE });
+    expect(mapOut(silent)).toEqual({ result_attr: "conduit_type", stated: false, value: "PVC" });
+    expect(silent.finals).toEqual(run({ ...PW1_NO_TYPE, conduit_type: "PVC" }).finals);
+    const blank = run({ ...PW1_NO_TYPE, conduit_type: "" });
+    expect(mapOut(blank)).toEqual({ result_attr: "conduit_type", stated: false, value: "PVC" });
+  });
+
+  it("NEGATIVE, condition (i): industrial_sockets' hidden curve -- a None on a map that prefers ANOTHER attribute is STILL discarded (dropping (i) moves 59 live rows and 25 stop pricing)", () => {
+    // `mcb_curve` prefers `mcb_curve_stated`, which the model writes as "None" on 107 of 147 live
+    // rows. The curve must still fall to C: measured 2026-09-09, honouring that None sends the
+    // catalog_fit to NA-curve rows (prices rise, e.g. 4528 -> 6919) or to a refusal (25 rows).
+    const pl: Pipeline = { output: ["mcb_curve"], steps: [CURVE_MAP] as Pipeline["steps"] };
+    const r = runPipeline("curve", pl, CF_ITEMS, { mcb_curve_stated: NONE_SENTINEL });
+    expect(mapAttributeOutcomes([r]).get("mcb_curve")).toEqual({ result_attr: "mcb_curve", stated: false, value: "C" });
+    expect(r.steps[0].matchedCondition).toContain("nothing stated -> C (default)");
+    // the full row: ROW98 carries mcb_curve_stated None and must still fit a C-curve MCB as before
+    const full = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    expect(full.status).toBe("ok");
+    expect(cfTrace(full)!.catalogFit!.fitted).not.toBeNull();
+  });
+
+  it("NEGATIVE, condition (ii): the 14 wiring rows -- a None on a self-preferring map whose default IS None behaves exactly as today", () => {
+    // wiring_cabling size_mm: prefer itself, table {MS: 25}, default None. The model writes "None"
+    // for a conduit named at a non-catalogue size (19 mm, 40 mm); charging the 25 mm rung there is
+    // ruling (vi). Measured 2026-09-09: honouring that None drops the conduit on 14 live rows
+    // (240/50 -> 180/30). The wiring conduit_type map (default None) is the same shape.
+    const SIZE_MAP = { step: "map_attribute" as const, params: { result_attr: "size_mm", prefer_attr: "size_mm", from_attr: "conduit_type", table: { MS: 25, PVC: 25 }, default: NONE_SENTINEL } };
+    const TYPE_MAP = { step: "map_attribute" as const, params: { result_attr: "conduit_type", prefer_attr: "conduit_type", default: NONE_SENTINEL } };
+    const pl: Pipeline = { output: ["size_mm"], steps: [TYPE_MAP, SIZE_MAP] as Pipeline["steps"] };
+    const r = runPipeline("size", pl, CF_ITEMS, { conduit_type: "MS", size_mm: NONE_SENTINEL });
+    const out = mapAttributeOutcomes([r]);
+    expect(out.get("size_mm")).toEqual({ result_attr: "size_mm", stated: false, value: 25 });
+    expect(r.steps[1].matchedCondition).toContain("conduit_type MS -> 25");
+    // and a None on the default-None type map resolves to the default, unmarked as stated (as today)
+    const t = runPipeline("type", pl, CF_ITEMS, { conduit_type: NONE_SENTINEL });
+    expect(mapAttributeOutcomes([t]).get("conduit_type")).toEqual({ result_attr: "conduit_type", stated: false, value: NONE_SENTINEL });
+  });
+
+  it("NEGATIVE (a different predicate): catalog_fit's stated-None path is byte-identical -- owner-locked, not this rule", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, paired_mcb: NONE_SENTINEL });
+    expect(cfTrace(r)!.catalogFit!.stated).toBe(NONE_SENTINEL);
+    expect(cfTrace(r)!.catalogFit!.absent).toBe(true);
+    expect(r.finals.supply).toBe(9222);
+  });
+
+  it("NEGATIVE (the source): both conditions are spelled out in the predicate, as config keys, never as a category", () => {
+    // The rule reads two CONFIG keys of the step. A category id in the predicate would be the HV-10
+    // defect; the comments may name the populations they protect, the code may not test for them.
+    const src = runPipeline.toString();
+    expect(src).toContain("p.prefer_attr === p.result_attr");
+    expect(src).toContain("p.default !== NONE_SENTINEL");
+    expect(src).not.toMatch(/=== ["']point_wiring["']|=== ["']wiring_cabling["']|=== ["']industrial_sockets["']/);
+  });
+});

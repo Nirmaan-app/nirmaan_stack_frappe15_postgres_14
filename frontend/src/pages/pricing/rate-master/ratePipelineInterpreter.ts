@@ -961,10 +961,35 @@ export function runPipeline(
       const isStated = (v: string | number | undefined) =>
         v !== undefined && v !== null && v !== "" && v !== NONE_SENTINEL;
 
+      // THE NONE-PICK RULE (owner ruling 2026-09-09: "the none selection is inert now" -> "ok. proceed
+      // with build"). `isStated` above EXCLUDES the "None" sentinel on purpose -- for a map that fills
+      // its target from ANOTHER attribute, "None" means "the source said nothing" and the mapping
+      // must still run. But when a pricer picks "None" on the attribute a map READS BACK INTO ITSELF,
+      // the sentinel is a DECISION ("this row has no conduit"), and discarding it made a valid panel
+      // selection silently do nothing: point_wiring's `conduit_type` rendered "PVC (computed)" over
+      // the pick and priced a conduit the pricer had declined (owner-reproduced on
+      // BOQ-26-00174 / Electrical / 251: 1775 / 358 unchanged after picking None).
+      //
+      // ⚠️ NARROW BY DESIGN -- BOTH conditions are load-bearing and both were MEASURED on the 5,001
+      // rows of the 42 active runs (recon 4, 2026-09-09). Do not simplify to one:
+      //   (i)  `prefer_attr` must BE `result_attr` (the field reads its own value). Without this,
+      //        industrial_sockets' hidden `mcb_curve_stated` -- which the model writes as "None" on
+      //        107 of 147 live rows -- becomes the curve instead of falling to C: 59 live rows move
+      //        and 25 of them stop pricing altogether. The catalog_fit test "STATED 'None' STICKS"
+      //        pins that asymmetry as deliberate.
+      //   (ii) `default` must NOT itself be the "None" sentinel. Without this, 14 wiring_cabling rows
+      //        that NAME a conduit at a non-catalogue size (the model writes size_mm "None") drop
+      //        their conduit (240/50 -> 180/30); charging the 25 mm rung there is ruling (vi).
+      // With both conditions: 0 of 10,002 verdicts move on the live corpus; only a pricer's pick can.
+      // This rule is NOT guessable from the config -- the pins named for each condition are the guard.
+      const noneIsADecision =
+        typeof p.prefer_attr === "string" && p.prefer_attr === p.result_attr &&   // (i)
+        p.default !== undefined && p.default !== NONE_SENTINEL;                   // (ii)
+
       // (a) STATED-WINS, checked FIRST -- before the source is even read, so a stated value resolves
       // even when the attribute the table would have mapped is blank or unreadable.
       const stated = p.prefer_attr ? selected[p.prefer_attr] : undefined;
-      if (isStated(stated)) {
+      if (isStated(stated) || (noneIsADecision && stated === NONE_SENTINEL)) {
         selected[p.result_attr] = stated as string | number;
         steps.push({
           step: stepType,
