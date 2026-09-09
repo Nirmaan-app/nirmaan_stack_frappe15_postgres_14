@@ -293,7 +293,13 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
       const remainingMap = new Map(Object.entries(remainingItems));
       items = processedItems.map((item) => {
         const key = `${item.categoryName}_${item.itemId}`;
-        const isHighValue = item.categoryName !== "Additional Charges" && (item.totalAmount ?? 0) > 5000;
+        // "Pending Delivery" = ordered but nothing received yet, so the RIR form never
+        // lists it (useEligibleItems requires dnQuantity > 0). Show N/A instead of an
+        // unclearable "Pending".
+        const isHighValue =
+          item.categoryName !== "Additional Charges" &&
+          (item.totalAmount ?? 0) > 5000 &&
+          item.deliveryStatus !== "Pending Delivery";
         const remaining = remainingMap.get(key);
 
         return {
