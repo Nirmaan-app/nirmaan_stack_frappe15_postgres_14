@@ -1975,6 +1975,45 @@ def _validate_config(cfg):
                             f"{where}: module_fit blanks needs 'bind_item' and 'item_when_positive' "
                             f"together -- one without the other binds nothing."
                         )
+                # INCLUDES-MODULES GATE (owner rulings 2026-09-10). `include_when: {attr, equals}` names
+                # the attribute that says whether the modules are in the price at all (popup_boxes'
+                # `has_modules` / "Yes"). Three guards, each closing a SILENT failure:
+                #   * `attr` is `_ref`-guarded like `floor_from` / `pick_from` -- a typo would otherwise
+                #     read every row as "blank" and refuse the whole category with no error anywhere;
+                #   * `equals` must be one of the attribute's declared `values` when it carries a list --
+                #     an `equals: "yes"` typo would otherwise EXCLUDE every Yes row (the switch reads
+                #     "not equal" as No), a wrong price that looks finished;
+                #   * every term must carry `none_when` -- the gate excludes a term THROUGH its item bind,
+                #     so a term without one could not be excluded and would price under No, silently.
+                # NOTE: the loader (`services/boq_rate_master/loader.py`) does NOT run this validator, so
+                # an asset typo passes at import; only the api write path (and the tests that validate
+                # the shipped asset) catch it.
+                iw = p.get("include_when")
+                if iw is not None:
+                    if (
+                        not isinstance(iw, dict)
+                        or not isinstance(iw.get("attr"), str) or not iw.get("attr")
+                        or not isinstance(iw.get("equals"), str) or not iw.get("equals")
+                    ):
+                        _vthrow(
+                            f"{where}: module_fit include_when must be an object "
+                            f"{{attr: <attribute id>, equals: <one of its values>}}."
+                        )
+                    _ref(iw["attr"], f"{where} (include_when.attr)")
+                    gate_def = next((d for d in defs if isinstance(d, dict) and d.get("id") == iw["attr"]), None)
+                    gate_values = gate_def.get("values") if isinstance(gate_def, dict) else None
+                    if isinstance(gate_values, list) and gate_values and iw["equals"] not in gate_values:
+                        _vthrow(
+                            f"{where}: module_fit include_when.equals '{iw['equals']}' is not one of "
+                            f"'{iw['attr']}' values ({', '.join(str(v) for v in gate_values)}) -- "
+                            f"every row would read as excluded."
+                        )
+                    for ti, t in enumerate(terms):
+                        if not t.get("none_when"):
+                            _vthrow(
+                                f"{where}: module_fit include_when needs every term to carry none_when -- "
+                                f"terms[{ti}] ('{t.get('attr')}') has none, so the gate could not exclude it."
+                            )
             elif st == "derive_attribute":
                 # CIRCUIT LENGTH part 1. params.terms binds formula identifiers to ATTRIBUTE ids and
                 # params.constants holds the rule's fixed numbers -- so the formula, its inputs AND its

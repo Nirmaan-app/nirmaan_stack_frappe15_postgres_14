@@ -314,7 +314,7 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # exactly the risk that proof exists to retire.
 # TWO WAYS (v61, owner 2026-09-10): cabletray_raceway.width_mm and .thickness_mm are dropdowns on screen and
 # free numbers to the model (`extract_as`); the ONE change over v59, cabletray only. See TestV61TwoWays.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v61.json"
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v62.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -6352,8 +6352,11 @@ class TestSpnPoleVocabulary(FrappeTestCase):
         # (width_mm also becoming a catalogue-backed number_choice); the ladder and the SWG map byte-equal,
         # pinned in TestV61TwoWays. Named here for the same reason as every prior mint. A further category
         # still fails.
+        # WIDENED AGAIN AT THE INCLUDES-MODULES GATE (v62, owner 2026-09-10): `popup_boxes`' one module_fit
+        # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
+        # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
         for cid in before:
-            if cid not in ("industrial_sockets", "switches_sockets", "cabletray_raceway"):
+            if cid not in ("industrial_sockets", "switches_sockets", "cabletray_raceway", "popup_boxes"):
                 self.assertEqual(now[cid], before[cid], "%s moved" % cid)
         # WIDENED AGAIN AT F-25 SLICE 2 (v58, owner 2026-09-07): the switches_sockets BOX ladder gained
         # `on_zero_from` + `on_zero_modules` on both pipelines (pinned key by key in TestF25Slice2BareBox);
@@ -7567,7 +7570,10 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # (width_mm also becoming a catalogue-backed number_choice); the ladder and the SWG map byte-equal,
         # pinned in TestV61TwoWays. Named here for the same reason as every prior mint. A further category
         # still fails.
-        self.assertEqual(changed, ["cabletray_raceway", "industrial_sockets", "lighting_mgmt_system", "point_wiring", "switches_sockets"])
+        # WIDENED AGAIN AT THE INCLUDES-MODULES GATE (v62, owner 2026-09-10): `popup_boxes`' one module_fit
+        # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
+        # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
+        self.assertEqual(changed, ["cabletray_raceway", "industrial_sockets", "lighting_mgmt_system", "point_wiring", "popup_boxes", "switches_sockets"])
         self.assertEqual(payload["items"], prev["items"], "no rate and no item may move")
         for cid, c in now.items():
             if cid == "point_wiring":
@@ -7813,8 +7819,11 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # (width_mm also becoming a catalogue-backed number_choice); the ladder and the SWG map byte-equal,
         # pinned in TestV61TwoWays. Named here for the same reason as every prior mint. A further category
         # still fails.
+        # WIDENED AGAIN AT THE INCLUDES-MODULES GATE (v62, owner 2026-09-10): `popup_boxes`' one module_fit
+        # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
+        # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
         self.assertEqual(sorted(k for k in now if now[k] != was[k]),
-                         ["cabletray_raceway", "industrial_sockets", "lighting_mgmt_system", "point_wiring", "switches_sockets"])
+                         ["cabletray_raceway", "industrial_sockets", "lighting_mgmt_system", "point_wiring", "popup_boxes", "switches_sockets"])
         self.assertEqual(payload["items"], prev["items"])
         # ⚠️ SUPERSEDED AT SLICE B. F4a removed two pipelines, and `_validate_config` refuses
         # a golden naming a pipeline the config no longer declares -- so their `expect` keys
@@ -8005,8 +8014,11 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # (width_mm also becoming a catalogue-backed number_choice); the ladder and the SWG map byte-equal,
         # pinned in TestV61TwoWays. Named here for the same reason as every prior mint. A further category
         # still fails.
+        # WIDENED AGAIN AT THE INCLUDES-MODULES GATE (v62, owner 2026-09-10): `popup_boxes`' one module_fit
+        # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
+        # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
         self.assertEqual(sorted(k for k in now if now[k] != was[k]),
-                         ["cabletray_raceway", "industrial_sockets", "lighting_mgmt_system", "point_wiring", "switches_sockets"])
+                         ["cabletray_raceway", "industrial_sockets", "lighting_mgmt_system", "point_wiring", "popup_boxes", "switches_sockets"])
         self.assertEqual(payload["items"], prev["items"], "no item may move")
         # ⚠️ v55 ADDED a `lighting_mgmt_system` goldens block (the LMS slice). Assert the key
         # set moved by exactly that ONE addition -- still "no golden was dropped".
@@ -8534,8 +8546,11 @@ class TestLmsPricingHelper(FrappeTestCase):
         # (width_mm also becoming a catalogue-backed number_choice); the ladder and the SWG map byte-equal,
         # pinned in TestV61TwoWays. Named here for the same reason as every prior mint. A further category
         # still fails.
+        # WIDENED AGAIN AT THE INCLUDES-MODULES GATE (v62, owner 2026-09-10): `popup_boxes`' one module_fit
+        # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
+        # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
         self.assertEqual(sorted(k for k in now if now[k] != was[k]),
-                         ["cabletray_raceway", "industrial_sockets", "lighting_mgmt_system", "switches_sockets"])
+                         ["cabletray_raceway", "industrial_sockets", "lighting_mgmt_system", "popup_boxes", "switches_sockets"])
         self.assertEqual(self.payload["items"], prev["items"], "no item may move")
         for cat in was:
             if cat == "lighting_mgmt_system":
@@ -9004,8 +9019,11 @@ class TestF25Slice3PickFrom(FrappeTestCase):
         # (width_mm also becoming a catalogue-backed number_choice); the ladder and the SWG map byte-equal,
         # pinned in TestV61TwoWays. Named here for the same reason as every prior mint. A further category
         # still fails.
+        # WIDENED AGAIN AT THE INCLUDES-MODULES GATE (v62, owner 2026-09-10): `popup_boxes`' one module_fit
+        # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
+        # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
         for cid in was:
-            if cid not in ("switches_sockets", "cabletray_raceway"):
+            if cid not in ("switches_sockets", "cabletray_raceway", "popup_boxes"):
                 self.assertEqual(now[cid], was[cid], "%s moved" % cid)
         self.assertEqual(self.now["items"], self.was["items"])
         self.assertEqual(self.now["goldens"], self.was["goldens"])
@@ -9192,8 +9210,11 @@ class TestV61TwoWays(FrappeTestCase):
         was = {c["category_id"]: c for c in self.was["category_configs"]}
         self.assertEqual(set(now), set(was))
         self.assertEqual(len(now), 12)
+        # WIDENED AGAIN AT THE INCLUDES-MODULES GATE (v62, owner 2026-09-10): `popup_boxes`' one module_fit
+        # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
+        # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
         for cid in now:
-            if cid != "cabletray_raceway":
+            if cid not in ("cabletray_raceway", "popup_boxes"):
                 self.assertEqual(now[cid], was[cid], "%s moved" % cid)
         self.assertEqual(self.now["items"], self.was["items"])
         self.assertEqual(len(self.now["items"]), 1367)
@@ -9322,3 +9343,143 @@ class TestV61TwoWays(FrappeTestCase):
         for aid in self.TWO:
             self.assertEqual(live_defs[aid]["type"], "number", aid)
             self.assertNotIn("values", live_defs[aid], aid)
+
+
+class TestIncludesModulesGate(FrappeTestCase):
+    """THE INCLUDES-MODULES GATE (owner rulings 2026-09-10) -- the validator entry for
+    `module_fit.params.include_when` and the v62 asset pins.
+
+    popup_boxes' `has_modules` was an EXTRACTION instruction (rule P1) nothing at pricing time read;
+    v62 puts `include_when: {has_modules, Yes}` on its one module_fit. Each NEGATIVE here closes a
+    silent failure: an unguarded attr typo reads every row as blank (the whole category refuses); an
+    `equals` typo excludes every Yes row; a term without `none_when` prices under No."""
+
+    @staticmethod
+    def _cfg(gate=None, terms=None, defs_extra=None):
+        defs = [
+            {"id": "has_modules", "label": "Includes modules", "type": "choice", "values": ["Yes", "No"]},
+            {"id": "switch_item", "label": "Switch", "type": "choice", "values": ["A"], "allow_none": True},
+            {"id": "switch_qty", "label": "Switch qty", "type": "number"},
+            {"id": "plate_item", "label": "Plate", "type": "choice", "values": ["6M"], "allow_none": True},
+            {"id": "colour", "label": "Colour", "type": "choice", "values": ["White"]},
+        ] + (defs_extra or [])
+        params = {
+            "terms": terms if terms is not None else [{"attr": "switch_qty", "weight": 1, "none_when": "switch_item"}],
+            "ladders": [{"kind": "switch_socket_item", "where": {"family": "Grid and Face Plates"},
+                         "bind": "plate_item", "floor_from": "plate_item", "on_none": "none"}],
+        }
+        if gate is not None:
+            params["include_when"] = gate
+        return {
+            "attribute_definitions": defs,
+            "pipelines": {"p": {"output": ["supply"], "steps": [
+                {"step": "module_fit", "params": params},
+                {"step": "component_ref", "name": "switch", "ref": {"kind": "switch_socket_item", "family": "Switch",
+                 "item": "@switch_item", "colour": "@colour"}, "target": "list_price",
+                 "rate_stages": [{"mult": 1.0}], "qty": {"from_attr": "switch_qty"}, "none_skips": True},
+                {"step": "sum_components", "result": "supply"},
+            ]}},
+        }
+
+    def test_img_01_the_key_is_accepted_when_it_names_a_declared_attribute_and_one_of_its_values(self):
+        """POSITIVE -- and ABSENCE stays valid (switches_sockets' / point_wiring's shape)."""
+        from nirmaan_stack.api.boq import rate_master as rm
+        rm._validate_config(self._cfg({"attr": "has_modules", "equals": "Yes"}))
+        rm._validate_config(self._cfg({"attr": "has_modules", "equals": "No"}))
+        rm._validate_config(self._cfg(None))
+
+    def test_img_02_attr_is_reference_guarded(self):
+        """NEGATIVE: an UNDEFINED attr is rejected BY NAME -- unguarded, every row would read as blank."""
+        from nirmaan_stack.api.boq import rate_master as rm
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rm._validate_config(self._cfg({"attr": "has_modulez", "equals": "Yes"}))
+        self.assertIn("has_modulez", str(cm.exception))
+        self.assertIn("include_when", str(cm.exception))
+
+    def test_img_03_equals_must_be_one_of_the_attributes_declared_values(self):
+        """NEGATIVE: an `equals` outside the choice list is rejected -- it would EXCLUDE every Yes row."""
+        from nirmaan_stack.api.boq import rate_master as rm
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rm._validate_config(self._cfg({"attr": "has_modules", "equals": "yes"}))
+        self.assertIn("'yes'", str(cm.exception))
+        self.assertIn("Yes, No", str(cm.exception))
+        # a value-less attribute (no static list) is not checked against a list -- only the reference guard applies
+        rm._validate_config(self._cfg({"attr": "free", "equals": "5"},
+                                      defs_extra=[{"id": "free", "label": "Free", "type": "number"}]))
+
+    def test_img_04_every_term_must_carry_none_when(self):
+        """NEGATIVE: the gate excludes a term THROUGH its item bind; a term without one would price under No."""
+        from nirmaan_stack.api.boq import rate_master as rm
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rm._validate_config(self._cfg({"attr": "has_modules", "equals": "Yes"},
+                                          terms=[{"attr": "switch_qty", "weight": 1}]))
+        self.assertIn("none_when", str(cm.exception))
+        self.assertIn("switch_qty", str(cm.exception))
+        # the same term shape WITHOUT the gate is fine (point_wiring's terms carry none_when only where needed)
+        rm._validate_config(self._cfg(None, terms=[{"attr": "switch_qty", "weight": 1}]))
+
+    def test_img_05_shape_is_checked(self):
+        """NEGATIVE: a non-object, a missing key or a blank value is not a gate."""
+        from nirmaan_stack.api.boq import rate_master as rm
+        for bad in ("has_modules", {"attr": "has_modules"}, {"equals": "Yes"}, {"attr": "", "equals": "Yes"},
+                    {"attr": "has_modules", "equals": ""}, {"attr": "has_modules", "equals": 1}):
+            with self.assertRaises(frappe.ValidationError, msg=repr(bad)) as cm:
+                rm._validate_config(self._cfg(bad))
+            self.assertIn("include_when", str(cm.exception))
+
+    def test_img_06_v62_popup_boxes_carries_the_gate_and_no_other_module_fit_does(self):
+        """THE ASSET: popup's ONE module_fit carries {has_modules, Yes}; switches_sockets (2) and
+        point_wiring (3) carry NO gate -- the key-presence pin; every config validates."""
+        from nirmaan_stack.api.boq import rate_master as rm
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            asset = json.load(fh)
+        self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v62.json")
+        fits = {}
+        goldens = asset.get("goldens") or {}
+        for c in asset["category_configs"]:
+            cc = dict(c)
+            cc["discipline"] = "Electrical"
+            if cc["category_id"] in goldens:
+                cc["goldens"] = goldens[cc["category_id"]]
+            rm._validate_config(cc)  # the whole shipped asset validates, gate included
+            for pid, p in (c.get("pipelines") or {}).items():
+                for s in p["steps"]:
+                    if s["step"] == "module_fit":
+                        fits.setdefault(c["category_id"], []).append(s["params"].get("include_when"))
+        self.assertEqual(fits["popup_boxes"], [{"attr": "has_modules", "equals": "Yes"}])
+        self.assertEqual(sorted(k for k in fits if k != "popup_boxes"), ["point_wiring", "switches_sockets"])
+        self.assertEqual(fits["switches_sockets"], [None, None])
+        self.assertEqual(fits["point_wiring"], [None, None, None])
+
+    def test_img_07_v62_differs_from_v61_in_exactly_the_gate_key_the_explain_and_the_notes(self):
+        """MINT COMPLETENESS: every other category, every item, every golden byte-equal; popup's own
+        goldens unchanged (p1 -- switch No, every slot None -- still 10800 / 1200)."""
+        with open(_asset_path("rate_master_electrical_all_v61.json"), "r", encoding="utf-8") as fh:
+            was = json.load(fh)
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            now = json.load(fh)
+        self.assertEqual(now["items"], was["items"])
+        self.assertEqual(now["goldens"], was["goldens"])
+        for k in was:
+            if k != "category_configs":
+                self.assertEqual(now[k], was[k], k)
+        for c in was["category_configs"]:
+            n = [x for x in now["category_configs"] if x["category_id"] == c["category_id"]][0]
+            if c["category_id"] != "popup_boxes":
+                self.assertEqual(n, c, c["category_id"])
+                continue
+            for k in set(c) | set(n):
+                if k not in ("pipelines", "notes"):
+                    self.assertEqual(n[k], c[k], k)
+            self.assertIn("v62", n["notes"])
+            os_, ns_ = c["pipelines"]["popup_boq"]["steps"], n["pipelines"]["popup_boq"]["steps"]
+            self.assertEqual(len(os_), len(ns_))
+            for o, m in zip(os_, ns_):
+                if o["step"] != "module_fit":
+                    self.assertEqual(m, o)
+                    continue
+                self.assertEqual({k: v for k, v in m["params"].items() if k != "include_when"}, o["params"])
+                self.assertEqual(m["params"]["include_when"], {"attr": "has_modules", "equals": "Yes"})
+        p1 = [g for g in now["goldens"]["popup_boxes"] if g["id"] == "p1"][0]
+        self.assertEqual(p1["attrs"]["has_modules"], "No")
+        self.assertEqual(p1["expect"], {"popup_boq": {"supply": 10800.0, "install": 1200.0}})

@@ -366,6 +366,26 @@ function chooseBand(bands: { when: string; target: string }[], rawVal: unknown):
   return undefined;
 }
 
+// ---- INCLUDES-MODULES GATE (owner rulings 2026-09-10): the ONE reader of `include_when` ----
+
+/**
+ * The verdict of a `module_fit` step's `include_when` gate for one row. PURE, and the ONLY place the
+ * key is interpreted, so the trace and the bindings can never disagree about what the switch said.
+ *   "included" -> the value equals the declared one: the step runs exactly as without the key.
+ *   "blank"    -> undefined / null / "": whether the modules are included is not stated -> refuse.
+ *   "excluded" -> any other value: the modules contribute nothing; the box prices alone.
+ * No category is named here -- the behaviour is confined by the KEY'S PRESENCE on the step.
+ */
+export function moduleFitGateVerdict(
+  gate: { attr: string; equals: string } | undefined,
+  selected: Record<string, string | number>,
+): "included" | "blank" | "excluded" {
+  if (!gate) return "included";
+  const v = selected[gate.attr];
+  if (v === undefined || v === null || v === "") return "blank";
+  return String(v) === gate.equals ? "included" : "excluded";
+}
+
 // ---- SLICE 2: module-count ladder helpers (used only by module_fit) ----
 
 /** One resolvable rung of a catalog ladder: a module SIZE and the catalog LABEL that serves it. */
@@ -1413,6 +1433,67 @@ export function runPipeline(
         steps.push({ step: stepType, label, runningValues: snapshot() });
         return { pipelineId, outputs: pipeline.output, status: "no_match" as const, steps, finals: {}, matchedItem, note: pipeline.note };
       };
+
+      // (0) INCLUDES-MODULES GATE (owner rulings 2026-09-10) -- THE SWITCH WINS OVER THE SLOTS.
+      //
+      // `popup_boxes.has_modules` was an EXTRACTION instruction (rule P1) that nothing at pricing time
+      // read: a pricer who set it to No expecting the bare box was still charged the modules
+      // (BOQ-26-00241 / "BOQ | Electircal" / 123 priced 3060 / 380 / 3440 with the switch at Yes AND
+      // at No). Four config mechanisms were tried first and all four fail -- see the key's note in
+      // the types -- so it is a step-level key, read ONCE here through the ONE reader above.
+      //   * included -> fall through: the step below is byte-identical, trace included. Yes with
+      //                 every slot empty is the same number either way and needs nothing extra
+      //                 (owner: "no change required") -- no note, no refusal.
+      //   * blank    -> an honest no-compute (owner: "blank refuses").
+      //   * excluded -> every term's controlling item, every ladder bind and the blanker item bind
+      //                 take the None sentinel in `fitLabels` -- the existing shadow-the-selection
+      //                 channel -- so each `none_skips` component zeroes its line exactly as a "None"
+      //                 slot does, and the box prices alone. `selected` IS NEVER WRITTEN: the slot
+      //                 picks stay on screen and simply are not charged (owner: "they stay and just
+      //                 dont get included in the price"), so flipping back restores the full price
+      //                 without re-picking. `bind_modules` binds a truthful 0 (nothing is included).
+      //
+      // CONFINED BY KEY PRESENCE, NEVER BY A CATEGORY NAME (the HV-10 lesson). `module_fit` is
+      // shared by switches_sockets, point_wiring and popup_boxes; a step without `include_when`
+      // never enters this block (pinned per category in the test file). The api validator
+      // `_ref`-guards `attr`, requires `equals` to be a declared value of that attribute (an
+      // `equals: "yes"` typo would otherwise EXCLUDE every Yes row, silently) and requires every term
+      // to carry `none_when`, because the gate excludes a term THROUGH its item.
+      const gateVerdict = moduleFitGateVerdict(p?.include_when, selected);
+      if (gateVerdict === "blank") {
+        return bail(`'${p!.include_when!.attr}' is blank -- whether the modules are included is not stated, no value computed`);
+      }
+      if (gateVerdict === "excluded") {
+        const gate = p!.include_when!;
+        const bound: string[] = [];
+        for (const t of p?.terms ?? []) {
+          if (t.none_when && !bound.includes(t.none_when)) {
+            fitLabels[t.none_when] = NONE_SENTINEL;
+            bound.push(t.none_when);
+          }
+        }
+        const ladderOutcomesOff: import("./rateMasterTypes").ModuleFitLadderOutcome[] = [];
+        for (const L of p?.ladders ?? []) {
+          fitLabels[L.bind] = NONE_SENTINEL;
+          if (L.bind_modules) ctx[L.bind_modules] = 0;
+          bound.push(L.bind);
+          ladderOutcomesOff.push({ bind: L.bind, floorFrom: L.floor_from, label: null, modules: null, absent: true });
+        }
+        if (p?.blanks?.bind_item) {
+          fitLabels[p.blanks.bind_item] = NONE_SENTINEL;
+          bound.push(p.blanks.bind_item);
+        }
+        steps.push({
+          step: stepType,
+          label: s.explain || "module fit",
+          matchedCondition:
+            `${gate.attr} is ${String(selected[gate.attr])} -> modules not included: ` +
+            `${bound.join(", ")} -> None (the slot picks stay; none is priced)`,
+          moduleFit: { occupied: 0, ladders: ladderOutcomesOff, excluded: { attr: gate.attr, value: String(selected[gate.attr]) } },
+          runningValues: snapshot(),
+        });
+        continue;
+      }
 
       // (a) the parameterised weighted sum -------------------------------------------------------
       let occupied = 0;
