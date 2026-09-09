@@ -46,6 +46,43 @@ PR Created → RFQ Sent → Quotes Received → Quote Selected → PO Generated 
    - Auto-approve + generate PO
    - Unless 8th consecutive (forces manual review)
 
+## PR Package Tagging (post-v3.0)
+
+**`Procurement Requests.work_package` no longer holds the procurement package.** The v3.0 patch
+`nirmaan_stack.patches.v3_0.migrate_work_package_to_pr_tags` (`patches.txt` #11) moved packages onto the
+PR's `PR Tag Child Table` rows and rewrote `work_package` to the PR **type**.
+
+| Field | Doctype | Meaning now |
+|---|---|---|
+| `work_package` | `Procurement Requests` | PR type — `"Normal"` (had a legacy package name, migrated to a tag) or `"Custom"` (package derived from the first item / the project's category mapping, or unmappable). A value that is neither is a pre-patch survivor still carrying a real package name. |
+| `tag_package` | `PR Tag Child Table` | **The package.** Link → `Procurement Packages`. |
+| `tag_header` | `PR Tag Child Table` | Link → `PR Tag Headers`; one package can map to several headers, so one legacy package name can mint several tag rows. |
+
+How the patch decided (see its module docstring for the full flow):
+
+1. `work_package` held a legacy package name → validate against `PR Tag Headers`, mint a tag row per matching
+   header, set `work_package = "Normal"`.
+2. `work_package` was empty → fall back to the PR's first `Procurement Request Item Detail`:
+   `Additional Charges` is skipped entirely; `DX System` and `HVAC Hardware & Accessories` are hardcoded
+   overrides; otherwise the item's `procurement_package`, else the project's
+   `Project Work Package Category Make` category mapping. **Every item-fallback path — hit or miss — sets
+   `work_package = "Custom"`.**
+3. The patch is all-or-nothing: a single unmapped PR raises and rolls the whole migration back.
+
+**Consequences for any code resolving a PO's or PR's package:**
+
+- Read the tags, not the field. A non-`Normal`/`Custom` `work_package` is a legacy fallback only.
+- **A PR's package is a SET.** One PR can carry several tag rows, so a join against
+  `tabPR Tag Child Table` returns one row per tag and a tag-less PR returns once with `tag_package` NULL.
+- Some PRs resolve to no package at all — keep them reachable (the frontend folds them into the
+  `"Custom"` bucket) rather than dropping them.
+
+Measured on the live DB 2026-09-09: 5062 `Normal`, 191 `Custom`, 2 survivors (`Electrical Work`);
+9196 tag rows; 14 PRs with more than one distinct `tag_package`; 3 PRs with no tag row.
+
+Frontend reference implementation: `filterPOsByPackage` / `buildPRPackageMap` in
+`frontend/src/pages/projects/CriticalPOTasks/utils.tsx`.
+
 ## Doctype Relationships
 
 ```
