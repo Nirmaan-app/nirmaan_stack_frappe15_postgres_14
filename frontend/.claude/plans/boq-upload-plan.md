@@ -37777,3 +37777,133 @@ panel; and a PARITY TEST asserting both surfaces produce identical `values`, `he
 `.../pricingSheetHelper.test.ts`, `frontend/src/lib/clipboard.ts` (new), this record. Root `CLAUDE.md`: judged, nothing
 earned -- the never-summed rule and the derived-blank exemption are already recorded invariants; the per-line `figures`
 contract is a panel detail that belongs here and in the frontend domain doc.
+
+## Calculator slice 2 -- the plumbing exported once, the tab on /electrical-pricing, the calculator screen, the parity test (2026-09-09)
+
+Tip on entry e6dd4656 (pushed, in step with origin). Owner rulings, verbatim: "create a new tab beside the excel
+screen"; the sheet's lock on a switch: "release"; warning first: "Don't warn. - no work is lost"; "calculator lays
+out its own screen. functionally it should be excatly same with the helper"; "it can be used by multiple users
+simultaneously"; audience narrowing: "that is ok"; the split-pipeline two-dash shape: "let it be for now. we will
+change this latr if it becomes too much of an irritant... we will fix both calvulator and helper later together".
+
+### ONE -- the plumbing, exported once (`rate-helper/rateHelperPlumbing.tsx`)
+`RATE_MASTER_CONFIG_TARGETS`, `RateConfigFetcher`, `useConfigsByCategory` (the accumulate-once map + its
+reference-stable `onLoaded`) and `useRateMasterItems(enabled, discipline = "Electrical")` moved out of
+`SheetPricingPage.tsx` (which held them privately at :329-356 and :671-690) into ONE module. **A move, not a
+redesign**: the same method names, arguments, SWR keys (`boq-rm-config::<d>::<c>`, and `boq-rm-items-electrical`
+for the default discipline) and load-once logic (`if (prev.has(categoryId)) return prev;`). The BoQ page now
+imports them and renders the fetchers exactly as before (`RATE_MASTER_CONFIG_TARGETS.map(... <RateConfigFetcher
+onLoaded={handleRateConfigLoaded}/>)`, `useRateMasterItems(RATE_HELPER_ENABLED)`); `PricingCalculator.tsx` imports
+the SAME module. Pinned from both sides: the page no longer defines any of the three and names none of the two
+endpoints; the calculator defines no target list of its own; the targets equal the registry (12).
+
+### TWO -- the tab (`PricingWorkbookPage.tsx`)
+The page is now a tab strip ("Spreadsheet" | "Calculator") over two children. The whole former page component is
+`PricingWorkbookSheet` (behaviour untouched; `inTabs` only swaps its NORMAL root class for `flex flex-col flex-1
+min-h-0` so it fills the strip's column -- the full-screen class and every lifecycle path are the same). The tab
+renders only on a workbook with a calculator discipline (`CALCULATOR_WORKBOOKS = {"/electrical-pricing":
+"Electrical"}`, kept in the calculator module so the workbook registry is untouched); HVAC / ELV render the sheet
+alone. **Switching to the Calculator UNMOUNTS the sheet by conditional render** (`tab === "sheet" ?
+<PricingWorkbookSheet inTabs/> : <PricingCalculator/>`), so the sheet's EXISTING unmount cleanup runs -- the
+`release` beacon (only when `lockMineRef` says the lock is ours) and `luckysheet.destroy()` -- the same path the
+route comment requires between workbooks. No warning, no confirm, no new release path (pinned: the file still has
+exactly the two `.release` sites it had). Switching back REMOUNTS the sheet as a fresh read-only open:
+`list_workbooks` + `get_workbook` run again, and `get_workbook` writes its `Pricing Access Log` "open" row as it
+does on every load. **Measured: 2 rows per mount in dev** (React StrictMode runs the load effect twice -- the
+owner's own 18:05 opens show the same pair), i.e. one row per open in production. The page has no dirty flag and
+the engine reports nothing back, so there is nothing to warn on even if the ruling were otherwise.
+
+### THREE -- the calculator screen (`pages/pricing/PricingCalculator.tsx`)
+A Category dropdown (registry categories, labelled from each config's `category_display` via `categoryLabel`),
+the picked category's fields all starting BLANK, and the price panel -- **the SAME `RateHelperPanel`**, mounted in
+a new `variant="calculator"`. **The helper is constructed, not copied:** `makePricingSheetHelper({
+configsByCategory, items, extractionByRow: new Map() })`, the picks reaching `compute` as `overrides` through the
+panel exactly as a BoQ-row override does. The panel gets a sentinel row context (`calculatorCtx`: `excelRow` =
+registry index + 1 -- DISTINCT per category so the panel's row-scoped edit state cannot carry a pick from one
+category to the next; `description: ""`; `col: "calculator"`; `kind: "supply_rate"`). The `calculator` variant is
+a VARIANT, NOT A FORK: it drops only the panel shell (the "Rate suggestions" banner, the "Row N · kind" scope
+line, the final-value field and "Use this value" -- `onUse` is now optional and absent), opens its one card by
+default, and takes the width it is given; every field, note, figure, section and refusal sentence is rendered by
+the same lines the two BoQ variants render. Nothing is read from a BoQ, nothing saved, no lock, no BCS, no stub
+cards, no `useFrappePostCall`. Units: nothing added (wiring's two `pipeline_labels` remain the only units).
+Layout note from the cert: the panel wrapper is a `min-w-0` COLUMN so a long basis line truncates instead of pushing
+the header figures past the viewport (seen once on wiring at full width, fixed and re-verified: stacked headlines end
+at x=2051 of 2133).
+
+### THE PARKED SHAPE, reproduced not fixed (owner 2026-09-09)
+On `point_wiring`, `cabletray_raceway` and `industrial_sockets` the panel renders two blocks each with ONE figure
+and two em dashes; the calculator renders the same panel and therefore the same shape -- pinned per category with
+a dated PARKED-BY-RULING comment, and demonstrated on screen (M7: Ladder / GI / 2 mm / 600 / Cover No / Ceiling /
+no cutting / no refill -> "Supply 711 · Install -- · Combined --" and "Supply -- · Install 380 · Combined --" on
+BOTH surfaces). **The owner's corrected intent, recorded so a later reader does not start from the wrong reading:
+ONE line per THING PRICED -- cable and termination are two things; a category's supply and install halves are ONE
+thing.** The fix moves both surfaces together, and this pin moves with it.
+
+### THE PARITY TEST (`pages/pricing/pricingCalculator.test.ts`) -- what it covers and what it does NOT
+For EVERY golden in the live v59 asset (34 across the 12 categories; all 12 configs and 1,367 items loaded from
+the asset, brand projected as the endpoint does): helper A = in-run row with the golden's attributes; V = the
+picks a user would make to reproduce what A's panel SHOWS (`attrDisplayValue` of every non-read-only,
+non-disabled field -- the row's value or the pipeline's computed one); helper B = the calculator's construction
+(EMPTY map) computing `rowCtx` with `overrides = V`; helper C = the same with the calculator's own sentinel ctx.
+**Asserted deep-equal on A, B and C: `values`, `headlines`, every section's `figures`**, and the basis LABEL.
+Priced population: >= 25 of 34 (a refusal on both sides is parity too). Two findings the test records:
+(1) **the picks must be the DISPLAYED values, not the extracted ones** -- `industrial_sockets` derives its paired
+MCB from hidden `panel: false` facts (`mcb_present`, `mcb_amp_a`) only an extraction carries, but the panel SHOWS
+the fitted MCB in the visible `paired_mcb` field and that visible pick reproduces the price (10,618 on i4; with the
+extracted-only set the calculator gave 9,222); (2) the **basis line is not compared for equality** -- it lists the
+attributes the row STATED, and a calculator user states values the in-run row derived, so its list is longer.
+**THE GAP, stated:** `values` (the header / Use figure) follows the ROW'S TEXT on wiring (`isTerminationRow`); the
+calculator has no text, so it is cable-primary while a termination-texted BoQ row is termination-primary --
+headlines and every section's figures are still identical (pinned). **NOT COVERED: the RENDER.** No DOM here;
+that is why the three figures live in the one panel component and the calculator reuses it -- a second render of a
+figure would sit outside both the test and the cert.
+
+### Tests (in-container vitest)
+New file 52 pins (parity x34 + population + gap; plumbing x3; blank/None x3; construction/no-arithmetic/no-write/
+sentinel x4; parked shape x3; tab x2). RED-before: the file cannot resolve `PricingCalculator` / the plumbing
+module at HEAD (file-level red). Full suite BEFORE 3,253 / 1 (slice 1's after); **AFTER 3,305 passed / 1 failed**
+(the known `writeOffControl` timeout; total 3,306 = 3,254 + 52). VACUITY x5, each restored to the identical diff
+hash: a local targets definition re-added to the BoQ page -> 1 red; the sentinel row made constant -> 1 red; the
+calculator variant rendering "Use this value" -> 1 red; the tab no longer unmounting by the pinned conditional ->
+1 red; the calculator ctx given row text -> 7 red (the five wiring parities, the gap pin, the sentinel pin).
+Python (read-only baselines): coercion **149 OK**, hv2 **43 OK**, rate_suggest **71 OK**, rate_master **337 OK**
+(492 s). tsc: 0 errors in the touched files. Residence F2 223 / F5 119 (pre-existing drift, unchanged).
+
+### The browser live cert (2026-09-09, admins@nirmaan.app, :8080 via vite) -- ZERO AI calls; writes = the page's own access-log rows
+Processes restarted BY PID (971/973/975/2101/2102; `kill -9` needed for four, declared) -> 3831 / 3833 / 3835 /
+3861, `node_modules/.vite` cleared, :8000 ping 200 x3, :8080 200 x3; FRONTEND markers on the plain URLs
+`calculatorDisciplineForPath` x2, `CALCULATOR_WORKBOOKS` x2, `rateHelperPlumbing` x1, `isCalculator` x7. De-stale
+(1 SW unregistered, storage cleared, tab closed/reopened); no CSRF break (the cert makes no POST).
+| M | result |
+|---|---|
+| M1 | `/electrical-pricing`: tab strip "Spreadsheet | Calculator", the sheet under it with Edit / Sandbox / Full screen; Luckysheet mounted (1 container) |
+| M2 | switch to Calculator: 0 engine containers, 0 dialogs, network = 12 config GETs + the items GET only. DB before AND after: `Electrical Pricing` `checked_out_by = None` -- **no lock was HELD**: taking one needs a `checkout` (a write beyond the access log, S10), so the lock-held variant is OWED to the owner (hold Edit yourself, then switch); the release path itself is the untouched unmount cleanup, source-pinned |
+| M3 | calculator Switches and Sockets with row 370's picks -> **320 · 70 · 390**; the panel on row 370 -> **320 · 70 · 390**, identical component lines. Wiring with row 10's picks -> **1490 · 130 · 1620** and **2610 · 660 · 3270** on both surfaces |
+| M4 | with Colour left blank: header "Fill the attributes to price" + em dash, line "No extracted attributes -- fill them to compute a rate.", the blank select red, no figures; Colour = White -> the figures appear |
+| M5 | **NOT DEMONSTRATED**: every copy click reported no tick and the paste came back empty -- the tab was `visibilityState: "hidden"` (the owner's window in front), and the clipboard API refuses writes to a hidden document; slice 1's cert put `3270` on the clipboard with the tab visible. Owed: one copy with the tab in front |
+| M6 | calculator wiring: Cable 1490 / 130 / 1620, Termination 2610 / 660 / 3270, six copy buttons; 4100 / 790 / 4890 appear nowhere |
+| M7 | cabletray, above -- the same two-dash shape on both surfaces |
+| M8 | before -> after: access log 1,560 -> 1,566 (six "open" rows, all mine, 3 mounts x 2); suggestion runs 71 -> 71; events 1,532 -> 1,532; `BoQ Cell Pricing` 37,699 -> 37,699; sheet locks 295 -> 295; BCS rows 1,524 -> 1,524; workbook lock None throughout |
+Tool anomaly: CDP ref-clicks silently no-op'd on several controls (a tab, a badge, a funnel) while the tab was
+hidden; DOM `click()` / keyboard-driven Radix worked. Session picks on the calculator are session-only by design.
+
+### #57 -- what landed
+1 the tab strip on `/electrical-pricing`; 2 the Calculator screen. Nothing changed on the BoQ editor (the plumbing
+move is behaviour-identical, pinned). The list did not grow.
+
+### Register (record, do not fix)
+- The split-pipeline two-dash shape, PARKED, with the owner's corrected intent above.
+- Units are not data anywhere; nothing added.
+- `get_workbook` writes one access-log row per open (two in dev StrictMode); a tab switch back is an open.
+- `values` follows the row's text on wiring; the calculator is cable-primary (both blocks shown regardless).
+- A calculator user cannot state `panel: false` facts (industrial_sockets' MCB presence / amps); the visible
+  `paired_mcb` pick reproduces the price -- but a pricer who does not know the MCB gets the socket alone.
+- The panel is reachable by six profiles; `/electrical-pricing` by two (owner: "that is ok").
+- Owed to the owner: M5 with the tab visible; M2 with a lock actually held (needs a checkout).
+- Standing register carried unchanged.
+
+### Files
+`frontend/src/pages/boq-wizard/rate-helper/rateHelperPlumbing.tsx` (new), `.../SheetPricingPage.tsx` (the import
+swap), `.../rate-helper/RateHelperPanel.tsx` (the `calculator` variant), `frontend/src/pages/pricing/
+PricingWorkbookPage.tsx` (the tab), `frontend/src/pages/pricing/PricingCalculator.tsx` (new),
+`frontend/src/pages/pricing/pricingCalculator.test.ts` (new), this record. Root `CLAUDE.md`: judged, nothing earned.
