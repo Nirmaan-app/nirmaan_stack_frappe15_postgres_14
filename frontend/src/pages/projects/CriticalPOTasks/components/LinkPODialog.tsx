@@ -31,6 +31,7 @@ import {
   useAllCriticalPOTasks
 } from "@/pages/projects/data/critical-po/useCriticalPOQueries";
 import { useUpdateCriticalPOTask } from "@/pages/projects/data/critical-po/useCriticalPOMutations";
+import { filterPOsByPackage } from "@/pages/projects/CriticalPOTasks/utils";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
@@ -178,27 +179,12 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
     }
   }, [task.associated_pos]);
 
-  // Filter POs by work package and already linked status
+  // Filter POs by procurement package and already linked status
   const availablePOs = useMemo(() => {
     if (!procurementOrders || !procurementRequests) return [];
 
-    // Create a map from PO -> work_package via PR
-    const poToWorkPackageMap = new Map<string, string>();
-    procurementOrders.forEach((po) => {
-      const pr = procurementRequests.find((pr) => pr.name === po.procurement_request);
-      const workPackage = pr?.work_package?.trim() ? pr.work_package : "Custom";
-      poToWorkPackageMap.set(po.name, workPackage);
-    });
-
-    // Filter POs by selected work package
-    let filteredPOs = procurementOrders;
-
-    if (selectedPackage) {
-      filteredPOs = procurementOrders.filter((po) => {
-        const poWorkPackage = poToWorkPackageMap.get(po.name);
-        return poWorkPackage === selectedPackage;
-      });
-    }
+    // A PO's package comes from its PR's tags — see filterPOsByPackage.
+    const filteredPOs = filterPOsByPackage(procurementOrders, procurementRequests, selectedPackage);
 
     // Filter out already linked POs
     return filteredPOs.filter((po) => !currentlyLinkedPOs.has(po.name));
