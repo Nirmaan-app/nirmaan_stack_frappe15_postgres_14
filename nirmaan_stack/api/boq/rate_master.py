@@ -159,9 +159,32 @@ _BOQ_SHEET = "BoQ Sheet"
 
 _S_STATUS_PREFIX = "boq_suggest_status"
 _S_MARKER_PREFIX = "boq_suggest_marker"
+
+# ── The suggest run's THREE clocks, and why they are DERIVED from one another ────────
+#
+# A real sheet needs ~75s per 20-row AI batch, so a 193-row sheet is ~16 batches ~= 1200s.
+# The RQ job timeout was 600s, and rq's monitor SIGKILLs the work horse at timeout + 60s --
+# a HARD kill, so `_suggest_worker`'s `except Exception` never runs: the run doc stays at
+# status="running" forever, no terminal payload is published, and the editor's progress modal
+# spins with no way out. Measured on prod 2026-09-08: sixteen consecutive runs on one sheet,
+# every one killed at exactly 660s having checkpointed 123 of 193 rows.
+#
+# ⚠️ THE THREE MUST MOVE TOGETHER, and the ORDER is the invariant (pinned by test):
+#     job timeout  <  stale threshold  <  marker TTL
+#   * _STALE_SUGGEST_SECONDS is the "a run is already in progress" guard. Below the job
+#     timeout it declares a LIVE run dead and lets a SECOND worker start on the same sheet --
+#     two runs, double the AI spend. It must clear the job timeout AND rq's 60s kill grace.
+#   * _S_MARKER_TTL_SEC is the Redis key holding the progress bar. If it expires mid-run the
+#     bar goes blank while the work is still going.
+# Raising the timeout alone is what WAKES the stale-guard bug, which is why it is derived here
+# rather than left as an independent literal.
+_SUGGEST_JOB_TIMEOUT_SEC = 3600
+_RQ_KILL_GRACE_SEC = 60  # rq's monitor_work_horse kills at job.timeout + 60
+_STALE_SUGGEST_SECONDS = _SUGGEST_JOB_TIMEOUT_SEC + _RQ_KILL_GRACE_SEC + 240
+_S_MARKER_TTL_SEC = _SUGGEST_JOB_TIMEOUT_SEC * 2
+# The terminal payload's TTL starts AFTER the run ends -- it is how long the poll can still
+# read the result -- so it is NOT part of the ordering above and stays at one hour.
 _S_STATUS_TTL_SEC = 3600
-_S_MARKER_TTL_SEC = 3600
-_STALE_SUGGEST_SECONDS = 1200  # mirrors classify._STALE_CLASSIFY_SECONDS
 
 
 # ── Redis key + marker helpers (per (boq, sheet_name)) ──────────────────────────────
@@ -436,7 +459,7 @@ def start_suggest(boq=None, sheet_name=None, resume_run_id=None, only_rows=None)
     frappe.enqueue(
         "nirmaan_stack.api.boq.rate_master._suggest_worker",
         queue="long",
-        timeout=600,
+        timeout=_SUGGEST_JOB_TIMEOUT_SEC,
         job_id=raw_job_id,
         user=user,
         boq=boq,

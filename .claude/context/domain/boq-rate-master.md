@@ -1284,6 +1284,54 @@ invariants:
   identity), rate extraction. ⚠️ The same-named function at `services/boq_ai_assist.py:431` returns a `str` and
   is a DIFFERENT function — do not confuse them.
 
+### SR-3 - the run's three clocks (the 660s hard kill)
+
+- **THE DEFECT (prod, measured 2026-09-08).** Sixteen consecutive whole-sheet suggest runs on
+  `BOQ-26-00245 / ELECTRICAL BOQ` stopped at exactly **123 of 193 rows**, every one of them, across
+  two users and both committed versions. Not a halt, not a failure: `status` stayed `running`,
+  `halt_reason` was NULL, and there was **no Error Log entry at all**. The pricer saw the progress
+  modal spin forever with no terminal state and no way out.
+  The worker log named the cause in one line per run — `Killed horse pid N` /
+  `Moving job to FailedJobRegistry (Work-horse terminated unexpectedly; waitpid returned None)`,
+  **exactly 660 seconds after each start** (13:18:09 -> 13:29:09, 12:53:40 -> 13:04:40,
+  05:27:47 -> 05:38:47, and so on). That is `timeout=600` plus rq's 60s kill grace: `monitor_work_horse`
+  **SIGKILLs** the horse, so no Python runs — `_suggest_worker`'s `except Exception` never fires,
+  `_mark_run_failed` never runs, and no `boq:suggest_sheet_done` is ever published.
+- **123 IS NOT A MAGIC NUMBER, IT IS A CLOCK.** The sheet holds 193 eligible rows = 16 AI batches at
+  `_BATCH` 20; measured ~75s per batch, so a full run needs **~1200s** against a 600s wall. 600s buys
+  8 batches = 123 rows. The single outlier at 152 rows is a faster-than-usual day, which is itself the
+  proof that the boundary is TIME and not data.
+- ⚠️ **RETRYING NEVER HELPED, AND THAT IS BY DESIGN, NOT A SECOND BUG.** A fresh press of "Suggest
+  rates" mints a NEW run doc and starts from row 0 (`_open_run_doc` with no `resume_run_id`), so each
+  attempt re-bought the same 123 rows of AI and died in the same place. SR-1's checkpointing worked
+  perfectly throughout — all 123 rows were durably saved in every one of the sixteen run docs. **The
+  work was never lost; only the terminal state was.**
+- **THE FIX — THREE CLOCKS, DERIVED FROM ONE, AND THE ORDER IS THE INVARIANT** (`api/boq/rate_master.py`):
+  `_SUGGEST_JOB_TIMEOUT_SEC = 3600` is the one number; `_STALE_SUGGEST_SECONDS` and `_S_MARKER_TTL_SEC`
+  are computed FROM it, and `start_suggest` enqueues with the constant rather than a literal.
+  **job timeout < stale threshold < marker TTL**, pinned by `test_rate_suggest.test_42`.
+- ⚠️ **RAISING THE TIMEOUT ALONE WAKES A SECOND, WORSE BUG — this is why the three are derived and not
+  three independent literals.** `_STALE_SUGGEST_SECONDS` (was 1200) is the *"a suggestion run is already
+  in progress"* guard in `_s_maybe_self_heal`. Below the job timeout it declares a **LIVE** run dead,
+  `start_suggest` stops throwing, and a SECOND worker launches on the same sheet — two runs, two sets of
+  AI calls, both writing the same run doc. At the old pairing (600 job / 1200 stale) that was unreachable
+  only because every job died at 660s; the timeout raise is precisely what makes it reachable. It must
+  also clear rq's kill grace, or the guard can expire inside the window between the timeout firing and the
+  horse actually dying. `_S_MARKER_TTL_SEC` (was 3600) holds the progress bar in Redis and must outlive
+  the job or the bar goes blank mid-run.
+- **`_S_STATUS_TTL_SEC` is deliberately NOT in that chain** and stays at 3600: its clock starts AFTER the
+  run ends (how long the poll can still read the terminal payload), so it answers a different question.
+- ⚠️ **KNOWN, ACCEPTED COST: the `long` queue has ONE worker** (`bench worker --queue long,default,short`),
+  and a suggest run holds it for its whole life. The blast radius was capped at 11 minutes and is now
+  capped at 61. Two concurrent suggest presses serialise. A dedicated queue or more workers is the real
+  answer and is NOT part of this change.
+- **WHAT THIS DOES NOT FIX (and the shape of the follow-up):** a hard kill still leaves no terminal
+  state, so a sheet that ever exceeds 60 minutes hangs identically. The durable fix is to make the
+  ORPHAN VISIBLE rather than to keep raising the ceiling — when the Redis marker is gone but the run doc
+  still reads `running`, `get_suggest_status` should report **partial**, closing the modal and offering
+  the SR-1 resume that the checkpointed rows already support. The sixteen orphaned `status=running` runs
+  on `BOQ-26-00245` are left as-is; they are inert (`active=0`, so they never supersede a good run).
+
 ### SR-2 - the reply ceiling
 
 - **The reply ceiling (SR-2, owner-locked, EXTRACTION ONLY):** `extraction._AI_MAX_TOKENS` is an EXPLICIT

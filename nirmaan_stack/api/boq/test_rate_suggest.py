@@ -1241,6 +1241,76 @@ class TestRateSuggest(FrappeTestCase):
         self.assertFalse(P(self.boq, self.sheet_name, None, "2026-09-04 12:00:00"))
         self.assertFalse(P(self.boq, self.sheet_name, self.cv, None))
 
+    # ---- the suggest run's three clocks (the 660s hard-kill fix) ----
+    def test_41_the_enqueue_carries_the_job_timeout_constant_not_a_literal(self):
+        """The run is enqueued with `_SUGGEST_JOB_TIMEOUT_SEC`, and that value clears a real sheet.
+
+        WHY THIS EXISTS. Before the fix `timeout=600` was a literal, and 600s does not fit a real
+        sheet: ~75s per 20-row AI batch means a 193-row sheet needs ~1200s. rq's monitor then
+        SIGKILLs the work horse at timeout + 60 -- a HARD kill, so `_suggest_worker`'s
+        `except Exception` never runs, the run doc stays at status="running", no terminal payload
+        is published, and the pricer's progress modal spins forever. Measured on prod 2026-09-08:
+        sixteen consecutive runs on one sheet, every one killed at exactly 660s with 123 of 193
+        rows checkpointed. The literal is what made that value invisible to the ordering pin
+        below, so pinning the CONSTANT is half the fix."""
+        # Drive THROUGH the live D8 gate rather than round it -- the sanctioned fixture pattern
+        # (owner ruling: categorise, never the admin override). Without this the sheet trips the
+        # category gate and the enqueue is never reached.
+        from nirmaan_stack.api.boq.wizard.test_pricing import _categorise_fixture_eligible_rows
+        _categorise_fixture_eligible_rows(self.boq, self.sheet_name, self.cv)
+
+        captured = {}
+
+        def _fake_enqueue(method, **kwargs):
+            captured["method"] = method
+            captured.update(kwargs)
+
+        with mock.patch.object(frappe, "enqueue", side_effect=_fake_enqueue):
+            rate_master.start_suggest(boq=self.boq, sheet_name=self.sheet_name)
+        # The marker is set on a successful start; clear it so the "already in progress" guard
+        # cannot leak into a later test in this class.
+        rate_master._s_clear_marker(self.boq, self.sheet_name)
+
+        self.assertEqual(captured["method"],
+                         "nirmaan_stack.api.boq.rate_master._suggest_worker")
+        self.assertEqual(captured["timeout"], rate_master._SUGGEST_JOB_TIMEOUT_SEC,
+                         "the enqueue must carry the CONSTANT -- a literal here is invisible to "
+                         "the ordering invariant and is how the 600s wall got in")
+        self.assertGreaterEqual(
+            rate_master._SUGGEST_JOB_TIMEOUT_SEC, 1800,
+            "a real sheet needs ~1200s (193 rows / 16 batches at ~75s); anything near the old "
+            "600s reintroduces the hard kill",
+        )
+
+    def test_42_the_three_clocks_stay_in_order(self):
+        """job timeout < stale threshold < marker TTL. THIS IS THE ONE THAT MUST NOT GO RED.
+
+        ⚠️ The failure it guards is NOT the timeout -- it is what raising the timeout ALONE
+        wakes up. `_STALE_SUGGEST_SECONDS` is the "a suggestion run is already in progress"
+        guard in `_s_maybe_self_heal`; below the job timeout it declares a LIVE run dead, so
+        `start_suggest` stops throwing and a SECOND worker launches on the same sheet -- two
+        runs, two sets of AI calls, both writing the same run doc. At the old values (600 job /
+        1200 stale) the bug was unreachable only because every job died at 660s. Raising one
+        number without the others is precisely what makes it reachable, which is why the two
+        derived constants are DERIVED and this pin exists.
+
+        The stale threshold must also clear rq's kill grace (`timeout + 60`), or the guard can
+        expire in the window between the timeout firing and the horse actually dying.
+
+        `_S_STATUS_TTL_SEC` is deliberately NOT in this chain: its clock starts AFTER the run
+        ends (it is how long the poll can still read the terminal payload), so it answers a
+        different question and must not be dragged into the ordering."""
+        job = rate_master._SUGGEST_JOB_TIMEOUT_SEC
+        stale = rate_master._STALE_SUGGEST_SECONDS
+        marker = rate_master._S_MARKER_TTL_SEC
+
+        self.assertGreater(stale, job + rate_master._RQ_KILL_GRACE_SEC,
+                           "the in-progress guard must outlast the job AND rq's kill grace, or a "
+                           "second run can start on top of a live one")
+        self.assertGreater(marker, job,
+                           "the progress marker must outlive the job, or the progress bar goes "
+                           "blank while the run is still going")
+
 
 # ══════════════════════════════════════════════════════════════════════════════════════
 # EA-7 -- the rate-extraction payload builder
