@@ -27,12 +27,36 @@ for the caller to narrow its duplicate lookup by period first: a missed duplicat
 confusing row, not double-paid money.
 
 ⚠️ NOTE THE TWO KEYS ARE DIFFERENT, AND THAT IS DELIBERATE. `Outflow Row Match`'s constraint is on
-`transfer_id` alone (with the target); THIS module's identity is `(transfer_id, amount, date)` --
-see `row_identity`. They answer different questions: the constraint asks "has this transfer already
-been used to settle this record?", which is about money and must stay as tight as possible, while
-the identity asks "have we seen this line of this statement before?", which is about work and may
-be more discriminating. Do not "align" them -- widening the constraint to a triple would let the
+`transfer_id` alone (with the target); THIS module's identity STARTS at `(transfer_id, amount, date)`
+-- see `row_identity`. They answer different questions: the constraint asks "has this transfer
+already been used to settle this record?", which is about money and must stay as tight as possible,
+while the identity asks "have we seen this line of this statement before?", which is about work and
+may be more discriminating. Do not "align" them -- widening the constraint to a triple would let the
 same transfer settle the same record twice under a corrected amount.
+
+⚠️ THE IDENTITY IS SOURCE-AWARE FROM SLICE B3, AND THE ASYMMETRY IS MEASURED, NOT A PREFERENCE. A
+bank passbook repeats a transaction id in ways a payout export structurally cannot, so `ICICI` keys
+on five fields while `Cashfree` and `Cashbook` keep the proven triple BYTE-IDENTICAL. See
+`WIDE_IDENTITY_SOURCES` and `row_identity` for the numbers, and for why each extra field is
+load-bearing on its own.
+
+⚠️ THERE ARE THREE READERS OF THIS KEY AND ALL THREE NOW AGREE (the gap closed at B3a).
+`upload._stage_batch` (the in-file repeat check), `candidates.find_earlier_batches_for_rows` (the
+cross-batch lookup) and `parser._duplicate_transfer_ids` (the preview warning) all pass the source
+and get the same key. Keep it that way -- the D3 notes exist because a key that differs between
+readers lets one call two rows duplicates while another calls them distinct, on the same file.
+
+The gap is recorded rather than deleted because it was REAL and its shape is instructive. Between
+B3 and B3a the parser was still on the triple, and the divergence pointed the SAFE way: that
+function feeds only the `duplicate_transfer_ids` WARNING payload, so on an ICICI statement the
+preview OVER-REPORTED -- naming ids as repeated that staging then correctly kept as distinct.
+Nothing was ever dropped. Measured on the real 1,274-row statement: the preview named **5** ids
+where the wide key finds **0** in-file repeats (1,274 distinct identities, against 1,269 on the
+triple).
+
+⚠️ If a fourth reader appears it joins the key. Do NOT close a divergence by narrowing the staging
+key back -- that direction loses rows silently, which is the one failure this module exists to
+prevent.
 """
 
 from __future__ import annotations
@@ -52,26 +76,83 @@ __all__ = [
     "find_prior_sighting",
     "index_prior_sightings",
     "row_identity",
+    "row_identity_of",
+    "WIDE_IDENTITY_SOURCES",
 ]
 
 # Owner ruling Q2. One number, deliberately.
 DUPLICATE_WARN_RATIO = 0.90
 
 
-# --- what makes two staged transfers THE SAME transfer (slice D3) --------------------------------
+# --- what makes two staged transfers THE SAME transfer (slice D3, widened per source at B3) ------
 
-#: `(transfer_id, amount, date)`. The date is `None` when the statement's Added On was unreadable.
-RowIdentity = tuple[str, Decimal, "date | None"]
+#: Sources whose identity is the FIVE-field key rather than the triple. See `row_identity` for the
+#: measurement; this constant exists so the SET is readable at a glance and a future source is one
+#: word rather than a condition buried in a function.
+#:
+#: ⚠️ THE STRINGS ARE `parser.SUPPORTED_SOURCES` MEMBERS AND MUST STAY SPELLED AS THE PARSER SPELLS
+#: THEM. They cannot be imported: `parser` imports THIS module, so the arrow only runs one way and
+#: binding the name here would be a cycle. `test_duplicates.TestSourceVocabulary` pins every member
+#: against `parser.SUPPORTED_SOURCES` instead, so a rename that reaches only one file fails loudly
+#: rather than silently reverting a source to the triple.
+WIDE_IDENTITY_SOURCES = frozenset({"ICICI Bank Statement"})
+
+#: `(transfer_id, amount, date)` for a payout export, plus `(direction, remarks)` for a bank
+#: passbook. The date is `None` when the statement's Added On was unreadable.
+RowIdentity = tuple
 
 
-def row_identity(transfer_id: str, amount: Decimal, added_on_date: "date | None") -> RowIdentity:
-    """The identity of one staged transfer -- THE one definition, used by both duplicate checks.
+def row_identity(
+    transfer_id: str,
+    amount: Decimal,
+    added_on_date: "date | None",
+    source: str = "",
+    direction: str = "",
+    remarks: str = "",
+) -> RowIdentity:
+    """The identity of one staged transfer -- THE one definition, used by every duplicate check.
 
     ⚠️ THIS WIDENED FROM `transfer_id` ALONE (owner, slice D3), AND WIDENING MEANS **STRICTER**.
     It is worth stating in that direction because the instinct runs the other way: a longer key
     matches FEWER things, so this catches FEWER duplicates than it used to, not more. A statement
     re-issued with the same transfer id but a corrected amount now imports as new work instead of
     being silently skipped -- which is the point, since a different amount is a different fact.
+
+    ⚠️ IT WIDENED AGAIN AT SLICE B3, BUT **ONLY FOR A BANK PASSBOOK**, AND THE SPLIT IS THE DESIGN.
+    `source` selects the key; anything outside `WIDE_IDENTITY_SOURCES` -- which today means every
+    caller that passes nothing, i.e. Cashfree and Cashbook -- gets the triple back BYTE-IDENTICALLY.
+    That default is not laziness, it is the guarantee: those two sources carry live settled data
+    whose duplicate behaviour is proven in production, and this slice must not be able to move it.
+
+    THE NUMBERS, measured against the real 1,274-row ICICI statement (do not re-derive them):
+
+        (tid, amount, date)             1269 distinct   5 rows silently LOST
+        + direction                     1270 distinct   4 rows lost
+        + remarks                       1273 distinct   1 row lost
+        + direction + remarks           1274 distinct   0 rows lost
+
+    ⚠️ BOTH EXTRA FIELDS ARE LOAD-BEARING AND EACH CATCHES A DIFFERENT FAILURE -- neither is
+    padding, and dropping either loses real rows:
+
+    * `remarks` catches four SGST/CGST pairs. Same id, same date, same amount, same direction,
+      differing only in narration (`SGST202603186870599968` / `CGST202603186870599971`, Rs 18,630
+      each). Both legs are an INGEST category, so on the triple the second leg of each pair is
+      swallowed as an in-file repeat and the money it represents never reaches a reviewer.
+    * `direction` catches the bank's general-ledger transfer, whose two legs carry BYTE-IDENTICAL
+      narration (`Ac xfr from gl 05051 to 60010`, Rs 3.19 Cr each way). Remarks cannot separate
+      them; only which money column the bank filled in can.
+
+    ⚠️ AND THESE ARE BANK-NARRATION ARTEFACTS THAT CANNOT OCCUR IN A PAYOUT EXPORT -- a GST charge
+    split into two legs, a ledger move posted both ways. That is the whole argument for keying on
+    the source rather than simply widening for everybody: there is no failure on the gateway sources
+    for the extra fields to fix, so widening them would be a change to proven behaviour bought with
+    nothing.
+
+    ⚠️ THE WIDE KEY IS AN **EXTENSION** OF THE TRIPLE, NOT A RE-ORDERING. The first three positions
+    are the same three values in the same order, so the legacy key is a prefix of the new one and
+    the two shapes can be read side by side. Only the SET of fields was measured -- a tuple's
+    distinct count does not depend on the order of its members -- so the extension form is chosen
+    for legibility and costs nothing.
 
     ⚠️ THE AMOUNT IS COMPARED EXACTLY, AND MUST NOT ACQUIRE A TOLERANCE. `AMOUNT_TOLERANCE` is the
     SETTLE window -- what may be WRITTEN against a record -- and it has no business deciding whether
@@ -81,11 +162,41 @@ def row_identity(transfer_id: str, amount: Decimal, added_on_date: "date | None"
     Both sides reach this through `normalize_amount`, which returns `Decimal` precisely so an exact
     comparison is safe.
 
+    ⚠️ `remarks` IS COMPARED VERBATIM -- no strip, no case fold, no normalisation. The parser keeps
+    the narration exactly as the bank wrote it for the same reason, and the comparison never crosses
+    a database round trip (the cross-batch lookup settles the id, the amount and the date; remarks
+    only ever separate two rows of the SAME parsed file), so there is nothing for a normalisation to
+    repair and it could only make two genuinely different lines collide.
+
     ⚠️ THE DATE, NOT THE DATETIME. `Outflow Import Row.added_on` is a Datetime and two exports of
     the same transfer can carry different clock times; `RawRow.added_on_date` already exists for
     exactly this. Comparing the full timestamp would make a re-export look like new work.
     """
+    if source in WIDE_IDENTITY_SOURCES:
+        return (transfer_id, amount, added_on_date, direction, remarks)
     return (transfer_id, amount, added_on_date)
+
+
+def row_identity_of(row, source: str = "") -> RowIdentity:
+    """`row_identity` for a parsed `RawRow` -- an ADAPTER over the one rule, never a second rule.
+
+    It exists because the widening added two fields that live ON the row, and every call site would
+    otherwise have to remember to pass them. Two sites reading five attributes each is two chances
+    to forget one, and forgetting `remarks` degrades ICICI silently back to the four-field key --
+    it still works, it just loses four rows a statement and says nothing.
+
+    ⚠️ IT MUST NEVER GROW A BRANCH. Every decision about which fields matter belongs in
+    `row_identity`; this reads attributes and delegates. A `getattr` default covers the callers that
+    build a `RawRow`-shaped object by hand and predate `direction`.
+    """
+    return row_identity(
+        row.transfer_id,
+        row.amount,
+        row.added_on_date,
+        source=source,
+        direction=getattr(row, "direction", "") or "",
+        remarks=getattr(row, "remarks", "") or "",
+    )
 
 
 def dates_agree(left: "date | None", right: "date | None") -> bool:

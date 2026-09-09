@@ -64,6 +64,10 @@ class TestApprovedInbox(FrappeTestCase):
             for key in (
                 "target_doctype", "name", "amount", "status", "vendor_name",
                 "project_name", "order_doctype", "order_name", "expense_type",
+                # ⚠️ `description` IS HERE ON EVERY LEDGER, INCLUDING THE ONE THAT CANNOT HAVE ONE
+                # (asymmetry 4). A key carried by two of the three is the accidental asymmetry this
+                # module exists to prevent -- the caller would have to ask which ledger it holds.
+                "description",
                 "approved_on", "updated_on",
             ):
                 self.assertIn(key, row)
@@ -150,6 +154,38 @@ class TestApprovedInbox(FrappeTestCase):
         for row in page["rows"]:
             self.assertNotEqual(row["target_doctype"], NON_PROJECT_EXPENSE)
             self.assertEqual(row["project_name"], project)
+
+    # --- asymmetry 4: only the two expense ledgers have a description --------------------------
+
+    def test_an_expense_description_comes_back_verbatim(self):
+        """⚠️ IT IS ALREADY A SEARCH COLUMN ON BOTH EXPENSE LEDGERS, which is what made its absence
+        from the payload worth closing: a reviewer could find a record by a word in its description
+        and then not be shown the description they searched for."""
+        row = next(
+            r for r in list_approved_records(search="TESTZEPHYR", limit=50)["rows"]
+            if r["name"] == self.planted
+        )
+        self.assertEqual(row["description"], "TESTZEPHYR unmistakable description")
+
+    def test_a_payment_never_carries_a_description_it_cannot_have(self):
+        """The inverse of asymmetry 1, on the same rule. `Project Payments` has NO description
+        column, so the key is present and BLANK -- never absent, and never filled from somewhere
+        else. Anything non-empty here would be a value invented for a doctype that has none."""
+        rows = list_approved_records(ledger=PAYMENT, limit=100)["rows"]
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertIn("description", row)
+            self.assertEqual(row["description"], "", row["name"])
+
+    def test_the_three_ledgers_still_union_after_the_column_was_added(self):
+        """⚠️ `UNION ALL` MATCHES BY POSITION, NOT BY NAME. A column added to two of the three
+        selects, or added in a different slot, is a runtime SQL error on the mixed read -- and the
+        single-ledger reads above would all still pass. This is the one that would catch it."""
+        page = list_approved_records(limit=100)
+        seen = {r["target_doctype"] for r in page["rows"]}
+        self.assertTrue(len(seen) >= 2, "the mixed read returned only one ledger")
+        for row in page["rows"]:
+            self.assertIsInstance(row["description"], str)
 
     # --- counts, filters and paging ------------------------------------------------------------
 
@@ -300,6 +336,9 @@ class TestTheApprovedExport(FrappeTestCase):
         for key in (
             "target_doctype", "name", "amount", "status", "vendor_name",
             "project_name", "order_doctype", "order_name", "expense_type",
+            # The export and the page are ONE row type; a key on one and not the other is the
+            # second renderer this test exists to keep from appearing.
+            "description",
             "approved_on", "updated_on",
         ):
             self.assertIn(key, row)

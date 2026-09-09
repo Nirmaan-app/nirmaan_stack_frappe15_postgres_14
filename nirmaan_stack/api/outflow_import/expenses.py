@@ -88,14 +88,22 @@ from nirmaan_stack.services.outflow_import.partial_settle import (
 from nirmaan_stack.services.outflow_import.settle import (
     NON_PROJECT_EXPENSE,
     PROJECT_EXPENSE,
+    ExpenseSettlementError,
     create_expense_from_row,
     settle_existing_expense,
     settle_payment,
+    statement_attachment_field,
 )
 from nirmaan_stack.services.outflow_import.status import (
     ORIGIN_ACCEPTED,
     ROW_SETTLED,
     ROW_SKIPPED,
+    # ⚠️ THE ONE DEFINITION OF THE DIRECTION AXIS, REUSED RATHER THAN RE-SPELLED (ADR-0010 B1).
+    # `_guard_is_a_debit` is the exact NEGATION of the receipt side's rule, so it must read the
+    # same predicate `status.derive_settled_direction_blocks` sorts settled rows with. A second
+    # copy of `direction == "Credit"` here could disagree with that one, and the disagreement
+    # would present as money settled on the debit side but reported under `Received`.
+    is_received_direction,
     settlement_origin,
 )
 
@@ -123,6 +131,11 @@ def settle_row(row: str, target_doctype: str, target_name: str):
     """
     actor = require_outflow_access()
     staged, doc = _load_settleable_row(row)
+    # ⚠️ BEFORE THE SAVEPOINT, NOT INSIDE IT. Nothing here needs rolling back -- the point is that
+    # a credit never reaches a write at all, in any of the three ledgers this endpoint dispatches
+    # across. The same guard sits on `create_expense`; every path in this module that moves money
+    # OUT carries it.
+    _guard_is_a_debit(doc)
     statement_file_url = _statement_file_url(doc["import_batch"])
 
     savepoint = f"ofi_settle_{frappe.generate_hash(length=10)}"
@@ -212,6 +225,11 @@ def settle_row_partial(row: str, target_name: str, intent: str):
             title="No intent given",
         )
     staged, doc = _load_settleable_row(row)
+    # ⚠️ THE THIRD MONEY-OUT DOOR, AND IT HAD THE SAME HOLE AS THE OTHER TWO. This one both settles
+    # a payment AND performs surgery on a PO's terms, so an unguarded credit would leave a split
+    # sanction behind it as well as a wrongly-Paid record. Guarded here rather than only in the two
+    # branches below, because both of them spend.
+    _guard_is_a_debit(doc)
     statement_file_url = _statement_file_url(doc["import_batch"])
     bank_amount = normalize_amount(doc.get("amount"))
 
@@ -528,6 +546,11 @@ def create_expense(
     """
     actor = require_outflow_access()
     staged, doc = _load_settleable_row(row)
+    # ⚠️ THE SAME GUARD `settle_row` CARRIES, AND IT MATTERS AT LEAST AS MUCH HERE. A settle at
+    # least has an approved record in front of it that somebody sanctioned; this path CREATES a
+    # `Paid` expense out of the bank row alone, so an unguarded credit would mint a brand-new
+    # payment-out document for money that arrived.
+    _guard_is_a_debit(doc)
     statement_file_url = _statement_file_url(doc["import_batch"])
 
     savepoint = f"ofi_create_{frappe.generate_hash(length=10)}"
@@ -623,7 +646,14 @@ def _link_statement_file_to_target(statement_file_url: str | None, result) -> No
                 "file_name": statement_file_url.rsplit("/", 1)[-1],
                 "attached_to_doctype": result.doctype,
                 "attached_to_name": result.name,
-                "attached_to_field": "payment_attachment",
+                # ⚠️ RESOLVED, NOT SPELLED (B6). Three ledgers call this field `payment_attachment`
+                # and `Project Inflows` calls it `inflow_attachment`; a `File` naming a field the
+                # doctype does not have is a link Frappe cannot authorise back to the record --
+                # visibly attached, 403 on click, which is the exact failure this function exists to
+                # prevent. `settle.statement_attachment_field` is the one answer, shared with
+                # `apply_statement_attachment` so the doc field and the File row can never disagree.
+                # Byte-identical for the three settle ledgers.
+                "attached_to_field": statement_attachment_field(result.doctype),
                 "is_private": 1,
             }
         ).insert(ignore_permissions=True)
@@ -649,6 +679,47 @@ def _load_settleable_row(row: str):
             "This row was skipped. Re-run the match to reconsider it.", title="Row skipped"
         )
     return _StagedRow(doc), doc
+
+
+def _guard_is_a_debit(doc) -> None:
+    """Refuse a bank CREDIT on a path that spends money, before anything else is read.
+
+    ⚠️ THE MIRROR OF `inflows._guard_is_a_credit`, AND IT CLOSES THE SAME HOLE FROM THE OTHER SIDE.
+    Until this existed, `_load_settleable_row` checked only `row_status`, so a Credit row -- money
+    the bank put INTO the account -- could be settled against an approved `Project Payment` or
+    turned into a Paid expense. That is not a mismatch anybody would notice: the payment goes Paid,
+    the transfer goes Settled, and both figures agree. Only the DIRECTION is wrong, and nothing on
+    either screen states it.
+
+    ⚠️ IT IS THE EXACT NEGATION OF ONE PREDICATE, NOT A SECOND RULE. `is_received_direction` is the
+    single POSITIVE test that partitions every settled row into Received and Paid; asking it here is
+    what keeps the write and the reporting on one definition. Re-spelling `direction == "Credit"`
+    would be a second copy free to drift from the block the row is later counted in.
+
+    ⚠️ A BLANK DIRECTION PASSES, AND THAT IS THE WHOLE REASON THE TEST IS POSITIVE. Cashfree and
+    Cashbook state no direction at all -- blank means "the statement did not say", never "this is a
+    receipt" -- so refusing a blank would refuse every gateway row this feature was built for.
+    `is_received_direction` reads a blank as Paid for the same reason, and the two agree by
+    construction rather than by two functions happening to make the same choice.
+
+    ⚠️ THERE IS NO SERVICE TWIN ON THIS SIDE, AND THAT IS A STATEMENT OF FACT RATHER THAN A CLAIM OF
+    SYMMETRY. `settle_payment`, `settle_existing_expense` and `create_expense_from_row` take no
+    `direction` argument at all, so there is nothing in the service layer for the value to be
+    re-checked against -- unlike the credit paths, where the direction chooses a SIGN and the
+    service therefore has to see it.
+    """
+    if not is_received_direction(doc.get("direction")):
+        return
+    # ⚠️ THE REFUSAL NAMES THE RULE IT BROKE AND THE ROUTE THAT IS RIGHT (the D1 register). A bare
+    # "invalid direction" would leave a reviewer with a row they cannot dispose of and no idea that
+    # the two credit dispositions exist one tab away.
+    frappe.throw(
+        "Only a debit can settle an approved record or be recorded as an expense. This transfer "
+        "is a credit, so it brought money IN -- record it as a project inflow or as a "
+        "non-project receipt instead.",
+        ExpenseSettlementError,
+        title="Not a debit",
+    )
 
 
 def _record_settlement(staged, doc, result, actor) -> None:

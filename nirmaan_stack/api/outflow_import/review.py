@@ -18,6 +18,14 @@ matches from scratch each time -- it deletes that row's existing `Outflow Row Ma
 writing fresh ones, which is also what keeps the (transfer_id, target) unique constraint from
 tripping on the second run.
 
+ONE SOURCE IS NEVER MATCHED AT ALL (slice B4). A bank passbook has no settlement path -- see
+`services/outflow_import/sources.source_has_settlement_path` for the measurement -- so
+`match_batch` forks at the top into `_guard_duplicates_only`, which runs the already-recorded-as-
+Paid duplicate guard and NOTHING else. It never loads a settlement pool and never calls `match_row`,
+so no tier 0, tier 1 or tier 2 candidate is ever produced for such a batch. That guard is KEPT
+rather than skipping the source entirely (owner ruling Q31a): it catches 41 of 711 real debits, and
+without it those arrive as ordinary work that can be booked twice.
+
 TWO ROW STATES ARE NEVER RE-MATCHED:
   * `Skipped`  -- a duplicate, a failed transfer, or a person's deliberate decision. Re-matching
                   would silently overturn all three.
@@ -67,6 +75,10 @@ from nirmaan_stack.services.outflow_import.similarity import (
     build_row_signals,
     ranked_records,
 )
+from nirmaan_stack.services.outflow_import.sources import (
+    BANK_STATEMENT_SOURCES,
+    source_has_settlement_path,
+)
 from nirmaan_stack.services.outflow_import.stacks import (
     Stack,
     group_into_stacks,
@@ -93,8 +105,9 @@ from nirmaan_stack.services.outflow_import.status import (
     derive_batch_status,
     several_found_note,
     derive_import_summary,
+    derive_duplicate_guard_outcome,
     derive_row_outcome,
-    derive_settled_ledger_split,
+    derive_settled_direction_blocks,
     sole_suggestion,
 )
 
@@ -157,6 +170,14 @@ def match_batch(batch: str):
     rows = [_StagedRow(r) for r in _load_rows(batch)]
     matchable = [r for r in rows if r.row_status not in _FROZEN_ROW_STATUSES]
 
+    # ⚠️ THE FORK IS HERE, ABOVE EVERYTHING, AND IT IS A DIFFERENT PATH RATHER THAN A FILTER (slice
+    # B4). A source with no settlement path must produce NO settlement candidate -- so the run for
+    # such a batch never loads a settlement pool and never calls `match_row` at all. Filtering
+    # candidates out afterwards would leave "no candidate is produced" a property of the filter,
+    # one convenient line away from being false; this way there is nothing to filter.
+    if not source_has_settlement_path(_batch_source(batch)):
+        return _guard_duplicates_only(batch, matchable)
+
     paired = 0
     released = 0
     picked = 0
@@ -217,6 +238,75 @@ def match_batch(batch: str):
         # Rows that found approved records but ended with no pre-selection, and now read as
         # Not-Matched. Reported so a run leaving a lot of decisions on the table is visible.
         "swept_to_mismatched_rows": swept,
+        "counters": derive_batch_counters(statuses),
+        "status": derive_batch_status(statuses),
+    }
+
+
+def _batch_source(batch: str) -> str:
+    """The statement source this batch was uploaded under, or `""`.
+
+    Read from the BATCH, not from the denormalised `Outflow Import Row.source`, because the fork it
+    feeds is a decision about the whole run. A batch predates that per-row column (it was added at
+    slice B3), so a legacy batch answers `""` -- which `source_has_settlement_path` treats as HAVING
+    a settlement path, leaving every pre-B3 import on the path it has always been on.
+    """
+    return (frappe.db.get_value(BATCH_DOCTYPE, batch, "source") or "").strip()
+
+
+def _guard_duplicates_only(batch: str, matchable) -> dict:
+    """The whole match run for a source with NO SETTLEMENT PATH (slice B4, owner rulings Q31/Q31a).
+
+    IT DOES EXACTLY ONE THING: asks each unfrozen row whether the transfer it names is ALREADY
+    RECORDED as Paid. A hit lands `Skipped` with the same "Already recorded as Paid on ..." sentence
+    a gateway row gets; everything else lands `Mismatched` carrying the staging sentence that says
+    this statement is resolved by CREATING a record. Measured on 711 real ICICI debits: 41 hits.
+
+    ⚠️ WHAT IS NOT HERE IS THE POINT. No `_load_pools`, so the `Approved` payment/expense/vendor/
+    project pools are never even queried. No `match_row`, so no tier 0, tier 1 or tier 2 candidate
+    exists to be suggested. No claim pass, no Option B, no stack pass, no sweep -- all four exist to
+    choose BETWEEN candidates, and there are none. `_persist_row_outcome` is handed `result=None`,
+    so `sole_suggestion` and `_sole_vendor` have nothing to read even if a later edit reached them.
+    The absence of a settlement candidate is therefore STRUCTURAL, not a filter someone can relax:
+    see `sources.source_has_settlement_path` for the measurement behind the ruling.
+
+    ⚠️ IT STILL WRITES THE FULL SUGGESTION PAYLOAD, ALWAYS BLANK. Same reason the main loop does:
+    clearing is the load-bearing half. A row that carried a suggestion under an older build -- or
+    that a Cashfree run's stack pass reached before `_load_open_rows_for_keys` was fenced -- has it
+    cleared on the next run rather than left pointing at a record this source may never settle.
+
+    ⚠️ IT REUSES `_paid_duplicate_for`, WHICH REUSES `match_by_reference`. One definition of "this
+    transfer is already recorded", shared with the gateway path. Hand-rolling a reference compare
+    here would give a bank statement its own idea of a duplicate, and a FAN-OUT recorded by hand
+    would come back as a shortfall against whichever payment was found first.
+
+    ⚠️ THE RETURN SHAPE IS THE FULL ONE, WITH THE FOUR PASS COUNTERS AT ZERO. `match_period` sums
+    these across batches and the screen reads them; omitting a key would be an absence the caller
+    has to special-case, while a zero is the truth -- no pass ran, so no pass did anything.
+    """
+    if matchable:
+        # The ONLY pool this path loads, and it is a duplicate guard, never a settle candidate --
+        # `load_paid_payments_by_reference` returns PAID payments (owner ruling Q14).
+        pools = {
+            "paid_duplicates": C.load_paid_payments_by_reference(
+                [r.normalized_reference for r in matchable]
+            )
+        }
+        for row in matchable:
+            outcome = derive_duplicate_guard_outcome(
+                row, paid_duplicate=_paid_duplicate_for(row, pools)
+            )
+            _persist_row_outcome(row, outcome, None, batch)
+
+    statuses = _refresh_batch_rollup(batch)
+    frappe.db.commit()
+    return {
+        "batch": batch,
+        "matched_rows": len(matchable),
+        "stack_paired_rows": 0,
+        "released_rows": 0,
+        "rule_picked_rows": 0,
+        "swept_to_mismatched_rows": 0,
         "counters": derive_batch_counters(statuses),
         "status": derive_batch_status(statuses),
     }
@@ -856,12 +946,34 @@ def _load_open_rows_for_keys(keys) -> list:
 
     The `(normalized_account, amount) IN ((...), (...))` form is a row-constructor comparison, which
     PostgreSQL supports and which the `(normalized_account, amount)` index serves directly.
+
+    ⚠️ A ROW FROM A SOURCE WITH NO SETTLEMENT PATH IS EXCLUDED, AND THIS IS THE SECOND HALF OF
+    SLICE B4. This read is the ONE place the feature writes a suggestion ACROSS imports: a
+    bank-statement row lands `Mismatched`, which is an OPEN status, so without this clause a
+    CASHFREE batch's stack pass could pair one into a stack and write a settlement suggestion onto
+    it -- the exact outcome the fork in `match_batch` exists to make impossible, arriving through
+    another statement's run. Fencing the batch's own path is not enough; the fence has to be on
+    every path that can reach the row.
+
+    It is fenced by the DENORMALISED per-row `source`, because this read spans imports and has no
+    single batch to ask. `COALESCE(source, '')` is load-bearing: a row staged before that column
+    existed reads blank, which is NOT a bank-statement source, so every legacy Cashfree row stays
+    exactly as reachable as it was.
+
+    ⚠️ IT IS AN EXCLUSION, NOT A NARROWING TO CASHFREE. A new gateway source flows through with no
+    code change here, which is the same default `sources.source_has_settlement_path` takes.
     """
     pairs = sorted((k.account, k.amount) for k in keys)
     key_ph = ", ".join(["(%s, %s)"] * len(pairs))
     status_ph = ", ".join(["%s"] * len(OPEN_ROW_STATUSES))
     params = [value for pair in pairs for value in pair]
     params.extend(sorted(OPEN_ROW_STATUSES))
+
+    no_path_clause = ""
+    if BANK_STATEMENT_SOURCES:
+        no_path_ph = ", ".join(["%s"] * len(BANK_STATEMENT_SOURCES))
+        no_path_clause = f"AND COALESCE(source, '') NOT IN ({no_path_ph})"
+        params.extend(sorted(BANK_STATEMENT_SOURCES))
 
     return frappe.db.sql(
         f"""
@@ -871,6 +983,7 @@ def _load_open_rows_for_keys(keys) -> list:
         FROM "tabOutflow Import Row"
         WHERE (normalized_account, amount) IN ({key_ph})
           AND row_status IN ({status_ph})
+          {no_path_clause}
         """,
         tuple(params),
         as_dict=True,
@@ -883,7 +996,14 @@ def _sole_vendor(result):
     An ambiguous resolution -- a shared bank account, or several similar names -- is left blank on
     purpose. Storing the top-ranked guess would turn a suggestion the reviewer is supposed to
     settle into a recorded fact nobody chose.
+
+    `None` for NO MATCH RESULT AT ALL -- the duplicate-guard-only run never resolves vendors,
+    because resolving one is the first half of finding a candidate to settle (slice B4). Blank
+    rather than left alone, for the reason `_persist_row_outcome` writes every field on every run:
+    clearing is the load-bearing half.
     """
+    if result is None:
+        return None
     resolution = result.vendor
     if resolution.ambiguous or not resolution.best:
         return None
@@ -1430,6 +1550,13 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
                 # one: reading the other would make every payment pass the service check silently.
                 "document_type": r.get("document_type") or "",
                 "document_name": r.get("document_name") or "",
+                # ⚠️ BLANK ON THIS LEDGER, AND PRESENT ANYWAY. A `Project Payment` has neither a
+                # free-text description nor an expense type -- no such columns exist. The shape of
+                # this payload is UNIFORM across all three ledgers, so the client can read a key
+                # without first asking which book the record came from; an absent key would make
+                # every reader branch on the ledger, which is exactly the shape this list avoids.
+                "description": "",
+                "expense_type": "",
                 "approved_on": str(r["approved_on"]) if r.get("approved_on") else "",
                 "updated_on": "",
                 "detail": " · ".join(
@@ -1522,7 +1649,20 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
             # Blank on both expense ledgers -- an expense has no parent order at all, which is also
             # why neither can carry a deduction (slice TD, ruling R6).
             "document_type": "",
+            # ⚠️ THIS IS THE EXPENSE **TYPE**, OVERLOADED ONTO A KEY THAT MEANS "the PO/SR this
+            # payment is against". It is KEPT rather than corrected in place because
+            # `recordPickerView.matchesText` puts `document_name` in its search haystack, so
+            # dropping it here would silently stop a reviewer finding an expense by typing its
+            # type -- a search that quietly narrows is worse than one that visibly breaks. The
+            # honest key sits beside it below; retiring this one is its own change, with the
+            # client's haystack moved in the same edit.
             "document_name": r.get("type") or "",
+            # The two facts a reviewer picks an EXPENSE by, each under its own name and each its
+            # own field so the dropdown can lay them out rather than parse `detail` back apart.
+            # `detail` still joins them, capped at 120 chars -- which is precisely why they have to
+            # be emitted separately: a truncated join is a display string, not data.
+            "description": r.get("description") or "",
+            "expense_type": r.get("type") or "",
             "approved_on": "",
             "updated_on": str(r["modified"]) if r.get("modified") else "",
             "detail": " · ".join(
@@ -1645,6 +1785,56 @@ _FACET_COLUMNS = {
     # staging by both sources, and `v3_0.backfill_outflow_row_source` fills the rows that predate
     # the field -- without which the funnel would draw itself over 1,043 blanks.
     "source": "r.source",
+    # ⚠️ THE FACET IS THE DERIVED TWO-VALUE LABEL, NOT THE RAW COLUMN -- and this entry REVERSES a
+    # deliberate decision. `direction` shipped at B6 as a COLUMN ONLY, and the note beside it in
+    # `get_outflow_rows`' SELECT list said in as many words that it was "deliberately NOT in
+    # `_FACET_COLUMNS` -- this ships a column, it does not add a filter". The owner reversed that on
+    # 2026-09-09: the screen grew a visible `Direction` column in the SAME change, and in this table
+    # a FILTER IS A COLUMN HEADER -- so a shipped column with no funnel is exactly the half the
+    # `settled_ledger` note below refuses to allow. The old sentence is rewritten there, not
+    # deleted: it was a decision, and a reader deserves to know it was taken and then reversed.
+    #
+    # ⚠️ AN EXPRESSION, AND THE `CASE` IS THE WHOLE POINT -- the map already holds one correlated
+    # subquery, so an expression is an established shape here. `_FACET_COLUMNS[column]` is used in
+    # BOTH places -- `CAST({expression} AS text) IN (...)` for the WHERE in `_row_filters`, and
+    # `SELECT DISTINCT CAST({expression} AS text)` for the funnel's options in
+    # `get_outflow_facet_values` -- so ONE expression keeps what the funnel OFFERS and what the
+    # filter MATCHES in lockstep BY CONSTRUCTION, rather than by two spellings happening to agree.
+    #
+    # ⚠️ THE STORED FIELD HAS THREE VALUES: `Debit`, `Credit` and BLANK. Blank means THE STATEMENT
+    # DID NOT SAY -- a gateway export (Cashfree, Cashbook) has no direction column at all -- and the
+    # doctype's own description forbids reading it as "Debit by default". The screen shows only TWO
+    # badges. On the RAW field the funnel would therefore grow a THIRD, UNLABELLED option (an empty
+    # string), and ticking `Debit` would SILENTLY DROP every blank row even though the badge on that
+    # row reads `Paid`. A filter that hides rows matching the label it was ticked from is the worst
+    # shape available: it looks like it worked.
+    #
+    # ⚠️ MEASURED 2026-09-09 ON LIVE DATA: `Debit` 894 / `Credit` 5 / BLANK 0, over 899 rows -- so
+    # the raw and the derived forms are INDISTINGUISHABLE TODAY. That is precisely why the raw
+    # version is the dangerous one: it would ship green, stay green, and break on the first
+    # statement that arrives without a direction column, long after anyone is looking.
+    #
+    # The `CASE` MIRRORS `services/outflow_import/status.is_received_direction` -- a single POSITIVE
+    # test on `"Credit"`, everything else Paid -- so this filter, the row's badge, the summary's
+    # direction split and `settled_by_direction` are ONE partition of the same rows. It is SQL and
+    # cannot import that predicate, so the mirror is stated here; do NOT re-spell the rule anywhere
+    # else in this file.
+    #
+    # ⚠️ THE `TRIM()` IS THE MIRROR, NOT TIDINESS -- REMOVE IT AND THE TWO SIDES DISAGREE.
+    # `is_received_direction` is `(direction or "").strip() == "Credit"`, and the client's
+    # `isCreditRow` trims for exactly that reason (slice D5 named the rule precisely because four
+    # untrimmed copies had drifted). Without it, a `" Credit "` row renders a **Received** badge and
+    # is filed by this facet under **Paid** -- so ticking `Received` HIDES A ROW WHOSE OWN BADGE SAYS
+    # RECEIVED, and the summary band counts it on the other side from the funnel. Today's data
+    # carries no padded value, so the defect would have been latent: it looks like it worked, which
+    # this file elsewhere calls the worst available outcome. `TRIM(NULL)` is NULL and `NULL =
+    # 'Credit'` is NULL, so a blank still falls to `ELSE` -- Paid, unchanged.
+    #
+    # Index cost, stated rather than left unexamined: a `CASE` expression is not index-backed. The
+    # table is ~899 rows and every other facet already runs an unindexed `DISTINCT` over the same
+    # scan, so this costs nothing at this size -- and this line is what to re-measure if it ever
+    # stops being true.
+    "direction": "CASE WHEN TRIM(r.direction) = 'Credit' THEN 'Received' ELSE 'Paid' END",
     # ⚠️ THE ONE FACET THAT IS NOT A COLUMN ON THIS TABLE. It is `ledgers.SETTLED_LEDGER_SQL` -- a
     # SCALAR CORRELATED SUBQUERY over `Outflow Row Match`, which is precisely why it can live in
     # this map at all: `_row_filters` builds single-table fragments against the alias `r`, shared by
@@ -1802,6 +1992,25 @@ def get_outflow_rows(
                -- 849 settled rows while the summary beside it reported 843 auto-matched. Caught in
                -- the browser, by nothing else: every suite was green.
                r.settlement_origin, r.source,
+               -- WHICH WAY THE MONEY WENT (slice B6). Shipped to the screen because the decision
+               -- dialog offers "Create a project inflow" on a CREDIT and nothing else can tell one
+               -- from a debit: `amount` is the positive magnitude on every source by design.
+               --
+               -- ⚠️ THIS NOTE USED TO SAY THE COLUMN WAS "deliberately NOT in `_FACET_COLUMNS` --
+               -- this ships a column, it does not add a filter". THE OWNER REVERSED THAT DECISION
+               -- (2026-09-09), and the sentence is rewritten rather than quietly dropped. The
+               -- reason for the reversal is the rule the `settled_ledger` note below states: in
+               -- this table a FILTER IS A COLUMN HEADER, so once a visible `Direction` column ships
+               -- to the screen -- which it does, in the same change -- withholding the funnel is
+               -- the mismatched half that note exists to forbid.
+               --
+               -- ⚠️ WHAT IS REGISTERED THERE IS NOT THIS RAW FIELD. The facet is the DERIVED
+               -- two-value label (`Received` / `Paid`), because this column carries a THIRD value
+               -- -- blank -- that the screen never shows and that a raw funnel would offer as an
+               -- unlabelled option while silently dropping those rows from a `Debit` tick. The full
+               -- reasoning and the measurement live on the `_FACET_COLUMNS["direction"]` entry;
+               -- read it before changing either side.
+               r.direction,
                -- WHICH BOOK THE MONEY LANDED IN, on the row that landed it. Registered in
                -- `_FACET_COLUMNS` in the SAME change as this line, for the reason four lines up.
                -- Blank on every unsettled row, which is honest: an open transfer has not landed
@@ -2757,10 +2966,18 @@ def get_outflow_summary(
     # ⚠️ THE `r.` ALIAS IS REQUIRED, NOT DECORATION. `_row_filters` writes every fragment against
     # `r`, so the FROM clause has to bind that alias or the shared builder cannot be used here at
     # all -- which is the one thing this endpoint must not fall back on.
+    #
+    # ⚠️ AND `direction` IS A THIRD GROUP KEY ON THAT SAME QUERY, NEVER A SECOND QUERY. The panel's
+    # "Total paid out" / "Total received" tiles must be computed under the SAME `_row_filters`
+    # WHERE clause as `total_value` and as the tab counts, or a filtered view shows two halves that
+    # do not add up to the whole above them -- which reads as a paging bug and is not one. It is a
+    # plain column on the row table, so the shared builder needs no change at all: ONE more
+    # `GROUP BY` term, and `derive_import_summary` does the splitting.
     grouped = frappe.db.sql(
         f"""
         SELECT r.row_status                                        AS status,
                UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s        AS failed,
+               COALESCE(r.direction, '')                           AS direction,
                COUNT(*)                                            AS count,
                COALESCE(SUM(r.amount), 0)                          AS value,
                COALESCE(SUM(CASE WHEN COALESCE(r.suggested_name, '') <> ''
@@ -2775,7 +2992,8 @@ def get_outflow_summary(
                                  THEN 1 ELSE 0 END), 0)            AS from_suggestion
         FROM "tabOutflow Import Row" r
         {clause}
-        GROUP BY r.row_status, UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s
+        GROUP BY r.row_status, UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s,
+                 COALESCE(r.direction, '')
         """,
         (BANK_SUCCESS_STATUS, ORIGIN_ACCEPTED) + tuple(params) + (BANK_SUCCESS_STATUS,),
         as_dict=True,
@@ -2790,6 +3008,7 @@ def get_outflow_summary(
             suggested_value=normalize_amount(g["suggested_value"]),
             failed=bool(g["failed"]),
             from_suggestion=int(g["from_suggestion"] or 0),
+            direction=g["direction"] or "",
         )
         for g in grouped
     )
@@ -2808,9 +3027,15 @@ def get_outflow_summary(
     return {
         "batch": batch,
         "imports": _imports_in_scope(where, params),
-        # Which of the three books the settled money actually landed in. A SECOND grouped query
-        # under the SAME `where, params` -- see `_settled_by_ledger`.
-        "settled_by_ledger": _settled_by_ledger(where, params),
+        # The settled money as TWO blocks -- Paid and Received -- each broken down by the book it
+        # landed in and each carrying its OWN total. A SECOND grouped query under the SAME
+        # `where, params` -- see `_settled_by_direction`.
+        #
+        # ⚠️ IT REPLACED `settled_by_ledger`, WHICH IS GONE RATHER THAN KEPT BESIDE IT. Two payload
+        # keys totalling the same money are two chances to disagree about it; a stale reader now
+        # gets `undefined` and renders no breakdown, which is the intended loud failure -- the same
+        # disposition `derive_import_summary` chose when `unmatched_rows` was retired.
+        "settled_by_direction": _settled_by_direction(where, params),
         # ⚠️ THE STATEMENT'S OWN METADATA, ONLY WHEN ONE IS SELECTED. A period spanning several
         # imports has no single filename, uploader or declared period, and inventing one would be a
         # caption that quietly describes the wrong statement. Absent is the honest shape there; the
@@ -2824,8 +3049,14 @@ def get_outflow_summary(
     }
 
 
-def _settled_by_ledger(where, params) -> list[dict]:
-    """The settled transfers broken down by the ledger the money landed in.
+def _settled_by_direction(where, params) -> list[dict]:
+    """The settled transfers as TWO blocks -- Paid and Received -- each broken down by ledger.
+
+    ⚠️ THE SPLIT KEYS ON `r.direction`, THE ROW'S OWN STATED DIRECTION, AND NOT ON THE LEDGER. The
+    ledger genuinely cannot answer which way the money went: a non-project RECEIPT is stored as a
+    NEGATIVE `Non Project Expense` (B7), so that doctype legitimately appears in BOTH blocks. It is
+    a plain column on the row table, so nothing about `_row_filters` changes to select it -- adding
+    a JOIN or a second filter path here is what `SETTLED_LEDGER_SQL`'s own comment forbids.
 
     ⚠️ IT RUNS UNDER THE SAME `where, params` `get_outflow_summary` ALREADY BUILT WITH
     `_row_filters`, and takes them as arguments precisely so it CANNOT build its own. A second
@@ -2834,9 +3065,10 @@ def _settled_by_ledger(where, params) -> list[dict]:
     not one. The only thing added to the shared clause is the `Settled` restriction -- which is not
     a filter but the definition of the population this figure describes.
 
-    ⚠️ IT SUMS `r.amount`, THE ROW'S AMOUNT -- **NOT** `m.target_amount`. The three figures sit
-    directly under the `settled_value` tile and must reconcile to it EXACTLY, and `settled_value` is
-    a sum of ROW amounts (`derive_import_summary`, off `StatusTally.value`). On a PARTIAL settle the
+    ⚠️ IT SUMS `r.amount`, THE ROW'S AMOUNT -- **NOT** `m.target_amount`. Each block's ledger lines
+    sit directly under that block's own total, and the two block totals must still add up to
+    `settled_value`, which is a sum of ROW amounts (`derive_import_summary`, off
+    `StatusTally.value`). On a PARTIAL settle the
     two differ by construction: the transfer pays part of a larger approved record, so the record's
     own amount is bigger than the money that moved. Live data currently has no partials, which is
     exactly why picking the wrong column here would ship as a LATENT defect -- green everywhere,
@@ -2849,10 +3081,12 @@ def _settled_by_ledger(where, params) -> list[dict]:
     is BOUND rather than spelled, exactly as the query above binds it: two spellings of the bank's
     vocabulary is how one of them learns about a status word the other has not.
 
-    ⚠️ ONE `GROUP BY`, AND THE ASSEMBLY IS THE PURE DERIVER'S. The database counts and sums (ADR-0010),
-    `status.derive_settled_ledger_split` zero-fills the three ledgers in their fixed order and folds
-    anything unrecognised into the `Other` slot. Nothing about which ledgers exist, or what order
-    they read in, is decided here.
+    ⚠️ ONE `GROUP BY`, AND THE ASSEMBLY IS THE PURE DERIVER'S. The database counts and sums
+    (ADR-0010); `status.derive_settled_direction_blocks` cuts the two blocks, gives each its own
+    ledger order, zero-fills it, folds anything unrecognised into that block's `Other` slot, and
+    totals each block FROM THE LINES IT RENDERS. Nothing about which ledgers exist, what order they
+    read in, which side a blank direction lands on, or whether an empty received block renders at
+    all, is decided here.
     """
     settled_where = where + [
         "r.row_status = %s",
@@ -2864,21 +3098,23 @@ def _settled_by_ledger(where, params) -> list[dict]:
     grouped = frappe.db.sql(
         f"""
         SELECT COALESCE({SETTLED_LEDGER_SQL}, '') AS ledger,
+               COALESCE(r.direction, '')          AS direction,
                COUNT(*)                           AS count,
                COALESCE(SUM(r.amount), 0)         AS value
         FROM "tabOutflow Import Row" r
         {clause}
-        GROUP BY 1
+        GROUP BY 1, 2
         """,
         tuple(settled_params),
         as_dict=True,
     )
 
-    split = derive_settled_ledger_split(
+    blocks = derive_settled_direction_blocks(
         SettledLedgerEntry(
             ledger=g["ledger"] or "",
             count=int(g["count"] or 0),
             value=normalize_amount(g["value"]),
+            direction=g["direction"] or "",
         )
         for g in grouped
     )
@@ -2887,8 +3123,16 @@ def _settled_by_ledger(where, params) -> list[dict]:
     # widening it to walk arbitrary nested shapes would make it a generic serialiser rather than a
     # statement about one payload.
     return [
-        {"ledger": bucket["ledger"], "rows": bucket["rows"], "value": float(bucket["value"])}
-        for bucket in split
+        {
+            "direction": block["direction"],
+            "rows": block["rows"],
+            "value": float(block["value"]),
+            "ledgers": [
+                {"ledger": bucket["ledger"], "rows": bucket["rows"], "value": float(bucket["value"])}
+                for bucket in block["ledgers"]
+            ],
+        }
+        for block in blocks
     ]
 
 
@@ -2969,17 +3213,38 @@ def _imports_in_scope(where, params) -> list:
             # not touch is the same class of lie as "button 688, table 893", pointing the other way.
             "status": g["status"],
             "is_open": batch_is_open(g["status"]),
+            # ⚠️ WHAT RE-RUN WILL ACTUALLY DO TO THIS STATEMENT, AND IT IS NOT THE SAME FOR EVERY
+            # SOURCE. `match_batch` FORKS above everything on exactly this predicate: a source with
+            # no settlement path never loads a settlement pool and never calls `match_row` at all --
+            # it runs the duplicate guard and returns. So "Re-run reaches 3 open imports" describes
+            # ONE action while performing two different ones, which is the same class of lie as
+            # "button 688, table 893" that the `is_open` note above already guards against, arriving
+            # from a third direction.
+            #
+            # ⚠️ THE DERIVED BOOLEAN SHIPS, NEVER THE RAW `b.source`. The rule lives in
+            # `services/outflow_import/sources.source_has_settlement_path` -- the same function the
+            # fork reads -- so the caption and the fork cannot come to disagree about a source. A
+            # client given the string would have to re-spell "ICICI Bank Statement has no settlement
+            # path", which is a second copy of a rule that has an owner, free to drift the day a
+            # fourth source lands.
+            #
+            # ⚠️ A LEGACY BATCH ANSWERS `""`, WHICH `source_has_settlement_path` TREATS AS HAVING A
+            # PATH -- deliberately, and stated here because the default decides the caption too: a
+            # batch predating the `source` field is a gateway import, and calling it
+            # duplicate-checked-only would understate what the button does to it.
+            "has_settlement_path": source_has_settlement_path(g["source"] or ""),
         }
         for g in frappe.db.sql(
             f"""
             SELECT b.name, b.original_filename, b.period_from, b.period_to, b.uploaded_at, b.status,
+                   b.source,
                    COUNT(*) AS row_count,
                    COALESCE(MAX(b.total_rows), 0) AS total_rows
             FROM "tabOutflow Import Row" r
             JOIN "tabOutflow Import Batch" b ON b.name = r.import_batch
             {clause}
             GROUP BY b.name, b.original_filename, b.period_from, b.period_to, b.uploaded_at,
-                     b.status
+                     b.status, b.source
             ORDER BY b.period_to DESC NULLS LAST, b.uploaded_at DESC NULLS LAST, b.name DESC
             """,
             tuple(params),

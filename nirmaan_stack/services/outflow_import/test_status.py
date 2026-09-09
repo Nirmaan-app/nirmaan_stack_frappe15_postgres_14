@@ -20,7 +20,13 @@ or one half of the app renders a status the other has never heard of.
 import unittest
 from decimal import Decimal
 
-from nirmaan_stack.services.outflow_import.ledgers import LEDGER_DOCTYPES
+from nirmaan_stack.services.outflow_import.ledgers import (
+    INFLOW_DOCTYPE,
+    LEDGER_DOCTYPES,
+    NON_PROJECT_EXPENSE_DOCTYPE,
+    RECEIVED_LEDGER_DOCTYPES,
+    SETTLEABLE_STATUSES,
+)
 from nirmaan_stack.services.outflow_import.matcher import (
     BASIS_BANK_REFERENCE,
     ExpenseCandidate,
@@ -47,7 +53,10 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_SETTLED,
     ROW_SKIPPED,
     ROW_STATUSES,
+    SETTLED_BLOCK_PAID,
+    SETTLED_BLOCK_RECEIVED,
     SETTLED_LEDGER_OTHER,
+    ROW_DIRECTION_CREDIT,
     SUMMARY_EXCLUDED_STATUSES,
     TERMINAL_ROW_STATUSES,
     RowOutcome,
@@ -56,9 +65,13 @@ from nirmaan_stack.services.outflow_import.status import (
     Suggestion,
     derive_batch_counters,
     derive_settled_ledger_split,
+    derive_settled_direction_blocks,
+    is_received_direction,
     batch_is_open,
     derive_batch_status,
     derive_import_summary,
+    STAGED_NOTE_NO_SETTLEMENT_PATH,
+    derive_duplicate_guard_outcome,
     derive_row_outcome,
     derive_staged_row_outcome,
     several_found_note,
@@ -594,6 +607,207 @@ class TestStagedOutcome(unittest.TestCase):
         )
 
 
+class TestStagedOutcomeForABankStatement(unittest.TestCase):
+    """The two slice-B3 parameters: the ingest exclusion, and the source with no settlement path.
+
+    ⚠️ THE DEFAULTS ARE HALF OF WHAT IS PINNED HERE, and `TestStagedOutcome` above is left untouched
+    precisely to pin them: Cashfree and Cashbook pass neither parameter, so their staging is
+    byte-identical to before this slice.
+    """
+
+    def test_an_excluded_line_is_skipped_and_the_reason_names_the_rule(self):
+        """The category id itself is in the sentence, not a prettier synonym for it.
+
+        `bank_exclusions` fits ten narration patterns to eight months of ONE account and says the
+        per-category counts are what makes a new narration form noticeable. A reviewer who can read
+        `platform_porter` off the row can find that rule, count how often it fires and argue with
+        it; "Skipped -- not a spend" is unauditable.
+        """
+        outcome = derive_staged_row_outcome(_Row(), excluded_category="platform_porter")
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertIn("platform_porter", outcome.note)
+
+    def test_a_blank_category_is_not_an_exclusion(self):
+        """`""` is the ruleset's INGEST answer and must not read as a falsy skip."""
+        self.assertEqual(
+            derive_staged_row_outcome(_Row(), excluded_category="").status, ROW_PENDING_MATCH
+        )
+
+    def test_the_exclusion_outranks_both_duplicate_checks(self):
+        """PRECEDENCE, and it changes no status -- only which sentence the reviewer reads.
+
+        Every branch here ends at `Skipped`. What the order decides is whether a re-uploaded
+        statement's 405 excluded rows name the ten rules that fired, or all read "already imported
+        in batch X" -- a batch where they were, correctly, skipped as exclusions too.
+        """
+        outcome = derive_staged_row_outcome(
+            _Row(),
+            already_imported_in="OFI-26-00003",
+            duplicate_in_file=True,
+            excluded_category="internal_gl_transfer",
+        )
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertIn("internal_gl_transfer", outcome.note)
+        self.assertNotIn("OFI-26-00003", outcome.note)
+
+    def test_a_source_with_no_settlement_path_lands_on_mismatched(self):
+        """Owner ruling Q31. `Pending match run` would promise a run that settles nothing, and the
+        reviewer would press it once per statement forever."""
+        outcome = derive_staged_row_outcome(_Row(), no_settlement_path=True)
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+        self.assertTrue(outcome.note)
+
+    def test_that_landing_leaves_the_row_open_to_a_later_match_run(self):
+        """⚠️ THE POINT OF LANDING ON `Mismatched` RATHER THAN `Skipped`.
+
+        The already-recorded-as-Paid duplicate guard is KEPT on this source (owner ruling Q31a; it
+        catches 41 of 711 real debits) and it lives in the match run, which skips
+        `review._FROZEN_ROW_STATUSES` -- Skipped and Settled. `Mismatched` is in neither, so the row
+        stays reachable. Landing it `Skipped` would have deleted that guard silently.
+        """
+        outcome = derive_staged_row_outcome(_Row(), no_settlement_path=True)
+        self.assertIn(outcome.status, OPEN_ROW_STATUSES)
+        self.assertNotIn(outcome.status, TERMINAL_ROW_STATUSES)
+
+    def test_an_exclusion_still_wins_over_the_landing(self):
+        outcome = derive_staged_row_outcome(
+            _Row(), excluded_category="platform_cashfree", no_settlement_path=True
+        )
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+
+    def test_a_non_success_row_is_still_skipped_on_such_a_source(self):
+        """The landing is the LAST branch, so it can never rescue a row an earlier rule refused."""
+        outcome = derive_staged_row_outcome(
+            _Row(is_success=False, status_raw="FAILED"), no_settlement_path=True
+        )
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+
+    def test_the_landing_note_does_not_claim_the_matcher_never_runs(self):
+        """⚠️ A DELIBERATE NEGATIVE PIN, and the wording is the whole substance of it.
+
+        There is no SETTLEMENT path on this source; there IS still a match run, carrying the paid
+        duplicate guard. A note asserting the stronger claim would give the next reader a reason to
+        fence the source out of the run entirely, taking the guard with it.
+        """
+        note = derive_staged_row_outcome(_Row(), no_settlement_path=True).note.lower()
+        self.assertNotIn("never", note)
+        self.assertNotIn("no match", note)
+
+
+# --- the duplicate-guard-only deriver (slice B4) --------------------------------------------------
+
+
+class TestDeriveDuplicateGuardOutcome(unittest.TestCase):
+    """The match-time deriver for a source with NO SETTLEMENT PATH (owner rulings Q31 / Q31a).
+
+    Its whole job is to keep ONE of `derive_row_outcome`'s findings -- "this transfer is already
+    recorded as Paid" -- and drop the other, because on a bank passbook there is nothing to match:
+    tier 1 is structurally unreachable, tier 0's Approved-only pool is empty by construction, and
+    tier 2 fires zero times with all seven near-misses false positives (see
+    `sources.source_has_settlement_path`).
+    """
+
+    def test_it_takes_no_match_argument_at_all(self):
+        """⚠️ THE SIGNATURE IS THE GUARANTEE, AND THIS IS THE TEST THAT SAYS SO OUT LOUD.
+
+        A `match` parameter would be a place for a caller to hand candidates in, and the entire
+        slice is that no settlement candidate is ever produced for this source. With nothing to
+        suggest a record FROM, suggesting one is not something a later edit can quietly re-enable
+        here -- it would have to change the signature, which is visible in review.
+        """
+        import inspect
+
+        params = list(inspect.signature(derive_duplicate_guard_outcome).parameters)
+        self.assertEqual(params, ["row", "paid_duplicate"])
+
+    def test_a_row_with_no_paid_duplicate_is_mismatched_for_a_person(self):
+        outcome = derive_duplicate_guard_outcome(_Row())
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+
+    def test_it_gives_back_the_STAGING_sentence_not_the_found_nothing_one(self):
+        """⚠️ BOTH ARE `Mismatched`, SO THE NOTE IS THE ENTIRE DIFFERENCE.
+
+        "No approved payment or expense matches this transfer" would be a finding about a search
+        that never ran, and it sends a reviewer hunting for a record that does not exist. Reusing
+        the sentence the row was STAGED with also keeps a re-run byte-idempotent on the note.
+        """
+        self.assertEqual(
+            derive_duplicate_guard_outcome(_Row()).note, STAGED_NOTE_NO_SETTLEMENT_PATH
+        )
+        self.assertNotIn("No approved payment", derive_duplicate_guard_outcome(_Row()).note)
+
+    def test_the_already_paid_guard_still_fires_and_names_the_record(self):
+        """THE 41-of-711 CASE, AND THE REASON THIS SOURCE STILL REACHES THE MATCH RUN AT ALL."""
+        outcome = derive_duplicate_guard_outcome(
+            _Row(), paid_duplicate=_group([_payment("PAY-OLD", status="Paid")])
+        )
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertIn("PAY-OLD", outcome.note)
+        self.assertIn("Already recorded as Paid", outcome.note)
+
+    def test_a_hand_recorded_fan_out_is_ONE_already_recorded_transfer(self):
+        outcome = derive_duplicate_guard_outcome(
+            _Row(amount="5000"),
+            paid_duplicate=_group(
+                [
+                    _payment("PAY-A", amount="2000", status="Paid"),
+                    _payment("PAY-B", amount="3000", status="Paid"),
+                ]
+            ),
+        )
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertIn("PAY-A", outcome.note)
+        self.assertIn("PAY-B", outcome.note)
+
+    def test_an_amount_disagreement_is_mismatched_and_names_the_shortfall(self):
+        outcome = derive_duplicate_guard_outcome(
+            _Row(amount="5000"),
+            paid_duplicate=_group([_payment("PAY-OLD", amount="6000", status="Paid")]),
+        )
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+        self.assertIn("PAY-OLD", outcome.note)
+        self.assertIn("1000", outcome.note)
+
+    def test_the_rounding_window_is_the_SAME_one_the_gateway_path_uses(self):
+        """⚠️ THE REASON BRANCHES 2 AND 3 WERE FACTORED OUT RATHER THAN COPIED. A second copy could
+        drift back to an exact comparison on one path only -- and 31.4% of payments carry paise, so
+        the bank's whole-rupee rounding would announce a "discrepancy" on every one of them, with a
+        note suggesting TDS, for a gap of a few paise."""
+        near = _group([_payment("PAY-OLD", amount="18899", status="Paid")])
+        self.assertEqual(
+            derive_duplicate_guard_outcome(_Row(amount="18898.99"), paid_duplicate=near).status,
+            derive_row_outcome(_Row(amount="18898.99"), paid_duplicate=near).status,
+        )
+        self.assertEqual(
+            derive_duplicate_guard_outcome(_Row(amount="18898.99"), paid_duplicate=near).status,
+            ROW_SKIPPED,
+        )
+
+    def test_a_failed_transfer_is_still_skipped_before_anything_else(self):
+        outcome = derive_duplicate_guard_outcome(_Row(is_success=False, status_raw="REVERSED"))
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertIn("REVERSED", outcome.note)
+
+    def test_an_empty_paid_group_is_not_a_duplicate(self):
+        """A group-shaped object with no targets is "we looked and found nothing", not a hit."""
+        outcome = derive_duplicate_guard_outcome(_Row(), paid_duplicate=_group([]))
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+        self.assertEqual(outcome.note, STAGED_NOTE_NO_SETTLEMENT_PATH)
+
+    def test_its_landing_status_is_the_one_STAGING_already_used(self):
+        """The staged row and the matched row must read identically, or a reviewer would see a row
+        change for no reason on a run that found nothing new about it."""
+        self.assertEqual(
+            derive_duplicate_guard_outcome(_Row()),
+            derive_staged_row_outcome(_Row(), no_settlement_path=True),
+        )
+
+    def test_the_landing_stays_OPEN_so_a_later_run_can_still_guard_it(self):
+        outcome = derive_duplicate_guard_outcome(_Row())
+        self.assertIn(outcome.status, OPEN_ROW_STATUSES)
+        self.assertNotIn(outcome.status, TERMINAL_ROW_STATUSES)
+
+
 # --- batch rollup --------------------------------------------------------------------------------
 
 
@@ -859,6 +1073,451 @@ class TestImportSummary(unittest.TestCase):
         )
         self.assertEqual(summary["total_rows"], 1)
         self.assertEqual(summary["skipped_rows"], 1)
+
+
+class TestTheStatementTotalSplitsByDirection(unittest.TestCase):
+    """"Total transferred" became "Total paid out" + "Total received" (owner ruling).
+
+    The panel showed ONE tile summing both directions -- `derive_import_summary` had no direction
+    axis at all, which was documented and deliberate while the axis did not exist on this screen.
+    Money out and money in are different facts, and one figure adding them together means nothing.
+
+    ⚠️ THE WHOLE REASON THE SPLIT IS SAFE IS THAT IT PARTITIONS, EXACTLY:
+
+        paid_rows + received_rows == total_rows
+        paid_value + received_value == total_value
+
+    on every input. Anything that can put a row in NEITHER half -- or in BOTH -- ships two tiles
+    that do not add up to the figure they replaced, which is the one number nobody thinks to doubt.
+
+    ⚠️ THIS IS NOT `derive_settled_direction_blocks`. That cuts the SAME axis over a DIFFERENT
+    population -- Settled rows only, broken down by ledger -- and the two deliberately total
+    different money. `TestSettledDirectionBlocks` pins that one; keeping them apart in the tests is
+    how the naming stays honest in the code.
+    """
+
+    def test_the_two_halves_partition_the_total_exactly(self):
+        summary = derive_import_summary(
+            [
+                StatusTally(ROW_SETTLED, 2, Decimal("5000.50"), direction="Debit"),
+                StatusTally(ROW_SETTLED, 1, Decimal("900.25"), direction=ROW_DIRECTION_CREDIT),
+                StatusTally(ROW_MISMATCHED, 3, Decimal("1200"), direction="Debit"),
+                StatusTally(ROW_MATCHED, 4, Decimal("400.75"), direction=ROW_DIRECTION_CREDIT),
+            ]
+        )
+        self.assertEqual(summary["paid_rows"], 5)
+        self.assertEqual(summary["paid_value"], Decimal("6200.50"))
+        self.assertEqual(summary["received_rows"], 5)
+        self.assertEqual(summary["received_value"], Decimal("1301.00"))
+
+        self.assertEqual(
+            summary["paid_rows"] + summary["received_rows"], summary["total_rows"]
+        )
+        self.assertEqual(
+            summary["paid_value"] + summary["received_value"], summary["total_value"]
+        )
+
+    def test_the_partition_holds_across_every_mixture_of_status_direction_and_failure(self):
+        """The invariant asserted as a PROPERTY rather than on one hand-picked input. Every
+        combination that can reach this deriver at once: both directions, a blank one, an
+        unrecognised one, a skipped status, an unknown status, and a failed transfer."""
+        tallies = [
+            StatusTally(status, n, Decimal(str(n * 11.25)), failed=failed, direction=direction)
+            for n, (status, direction, failed) in enumerate(
+                [
+                    (ROW_SETTLED, "Debit", False),
+                    (ROW_SETTLED, ROW_DIRECTION_CREDIT, False),
+                    (ROW_SETTLED, ROW_DIRECTION_CREDIT, True),
+                    (ROW_MATCHED, "", False),
+                    (ROW_MISMATCHED, "credit", False),
+                    (ROW_PENDING_MATCH, "Debit", False),
+                    (ROW_SKIPPED, ROW_DIRECTION_CREDIT, False),
+                    (ROW_SKIPPED, "Debit", False),
+                    (ROW_ERROR, "Debit", True),
+                    ("Reconciled", ROW_DIRECTION_CREDIT, False),
+                ],
+                start=1,
+            )
+        ]
+        summary = derive_import_summary(tallies)
+        self.assertEqual(
+            summary["paid_rows"] + summary["received_rows"], summary["total_rows"]
+        )
+        self.assertEqual(
+            summary["paid_value"] + summary["received_value"], summary["total_value"]
+        )
+        # And it is not vacuous -- both halves carry rows.
+        self.assertGreater(summary["paid_rows"], 0)
+        self.assertGreater(summary["received_rows"], 0)
+
+    def test_a_tally_built_positionally_lands_on_the_paid_side(self):
+        """⚠️ `StatusTally.direction` IS DEFAULTED FOR THIS REASON. Every pre-split construction --
+        in this suite and anywhere else -- keeps working and keeps landing where it always did.
+        Same disposition `SettledLedgerEntry.direction` already took."""
+        summary = derive_import_summary([StatusTally(ROW_SETTLED, 3, Decimal("300"))])
+        self.assertEqual(summary["paid_rows"], 3)
+        self.assertEqual(summary["paid_value"], Decimal("300"))
+        self.assertEqual(summary["received_rows"], 0)
+        self.assertEqual(summary["received_value"], Decimal("0"))
+
+    def test_a_blank_or_unrecognised_direction_is_PAID_rather_than_neither(self):
+        """⚠️ A CONSEQUENCE, NOT A GUESS. `settle.create_inflow_from_row` refuses anything that is
+        not `Credit` at the WRITE, so such a row is structurally incapable of having become a
+        receipt. Calling it received would put it in a block it could not have reached; leaving it
+        out of both would be money in `total_value` and in neither tile beside it."""
+        summary = derive_import_summary(
+            [
+                StatusTally(ROW_MATCHED, 1, Decimal("100"), direction=""),
+                StatusTally(ROW_MATCHED, 1, Decimal("200"), direction="   "),
+                StatusTally(ROW_MATCHED, 1, Decimal("400"), direction="Reversal"),
+                StatusTally(ROW_MATCHED, 1, Decimal("800"), direction="credit"),
+            ]
+        )
+        self.assertEqual(summary["received_rows"], 0)
+        self.assertEqual(summary["paid_rows"], 4)
+        self.assertEqual(summary["paid_value"], Decimal("1500"))
+
+    def test_the_split_uses_the_ONE_definition_of_the_axis(self):
+        """`is_received_direction` decides membership here exactly as it decides it for the settled
+        blocks. A second predicate -- an inline `== "Credit"`, say -- would be free to drift from
+        the one the write path is built on, and the drift would show as money in one tile only."""
+        received = StatusTally(ROW_SETTLED, 1, Decimal("50"), direction=ROW_DIRECTION_CREDIT)
+        self.assertTrue(is_received_direction(received.direction))
+        self.assertEqual(derive_import_summary([received])["received_rows"], 1)
+
+        paid = StatusTally(ROW_SETTLED, 1, Decimal("50"), direction="Debit")
+        self.assertFalse(is_received_direction(paid.direction))
+        self.assertEqual(derive_import_summary([paid])["paid_rows"], 1)
+
+    def test_a_failed_receipt_is_absent_from_BOTH_halves(self):
+        """⚠️ THE SAME TWO EXCLUSIONS THE TOTAL ALREADY APPLIES, OR THE TILES DESCRIBE A DIFFERENT
+        POPULATION FROM THE FIGURE THEY REPLACED. A transfer the bank refused to move is out of
+        every figure this summary reports (option B, 2026-08-10) -- including a credit."""
+        summary = derive_import_summary(
+            [
+                StatusTally(
+                    ROW_SETTLED, 2, Decimal("700"), failed=True, direction=ROW_DIRECTION_CREDIT
+                ),
+                StatusTally(ROW_SETTLED, 1, Decimal("300"), direction="Debit"),
+            ]
+        )
+        self.assertEqual(summary["received_rows"], 0)
+        self.assertEqual(summary["received_value"], Decimal("0"))
+        self.assertEqual(summary["paid_rows"], 1)
+        self.assertEqual(summary["failed_rows"], 2)
+        self.assertEqual(
+            summary["paid_value"] + summary["received_value"], summary["total_value"]
+        )
+
+    def test_a_skipped_receipt_is_absent_from_BOTH_halves_and_still_reported(self):
+        """The second exclusion, for the second reason: a skipped transfer is money already counted
+        somewhere else. It leaves the two tiles exactly as it leaves the total -- and is still
+        reported as `skipped_*` and in `by_status`, which is what stops the exclusion becoming a
+        disappearance."""
+        summary = derive_import_summary(
+            [
+                StatusTally(
+                    ROW_SKIPPED, 1, Decimal("99.49"), direction=ROW_DIRECTION_CREDIT
+                ),
+                StatusTally(ROW_SETTLED, 1, Decimal("300"), direction="Debit"),
+            ]
+        )
+        self.assertEqual(summary["received_rows"], 0)
+        self.assertEqual(summary["paid_rows"], 1)
+        self.assertEqual(summary["skipped_rows"], 1)
+        self.assertEqual(summary["skipped_value"], Decimal("99.49"))
+        self.assertEqual(
+            summary["paid_rows"] + summary["received_rows"], summary["total_rows"]
+        )
+
+    def test_an_empty_import_reports_both_halves_at_zero_rather_than_omitting_them(self):
+        """Zero-filled for the reason every other figure here is: a tile that vanishes reads as
+        "does not apply", when what it means is "none of these, right now"."""
+        summary = derive_import_summary([])
+        for key in ("paid_rows", "received_rows"):
+            self.assertEqual(summary[key], 0)
+        for key in ("paid_value", "received_value"):
+            self.assertEqual(summary[key], Decimal("0"))
+
+    def test_the_money_is_Decimal_never_float(self):
+        """Same reasoning as every other figure here -- these are money, and the endpoint converts
+        for the wire in `_jsonable_summary` rather than the deriver rounding early."""
+        summary = derive_import_summary(
+            [StatusTally(ROW_SETTLED, 1, Decimal("0.10"), direction=ROW_DIRECTION_CREDIT)]
+        )
+        self.assertIsInstance(summary["received_value"], Decimal)
+        self.assertIsInstance(summary["paid_value"], Decimal)
+
+    def test_the_figures_the_split_sits_beside_are_untouched(self):
+        """⚠️ A REGRESSION PIN. `total_*`, `open_*` and `decided_percent` are the numbers the split
+        was carved out of, and every one of them must be what it was before there was an axis."""
+        tallies = [
+            StatusTally(ROW_SETTLED, 3, Decimal("300"), direction=ROW_DIRECTION_CREDIT),
+            StatusTally(ROW_SKIPPED, 1, Decimal("100"), direction="Debit"),
+            StatusTally(ROW_MATCHED, 4, Decimal("400"), direction="Debit"),
+        ]
+        with_direction = derive_import_summary(tallies)
+        without = derive_import_summary(
+            [StatusTally(t.status, t.count, t.value) for t in tallies]
+        )
+        for key in (
+            "total_rows",
+            "total_value",
+            "open_rows",
+            "open_value",
+            "decided_rows",
+            "decided_percent",
+            "settled_rows",
+            "settled_value",
+            "skipped_rows",
+            "skipped_value",
+        ):
+            self.assertEqual(with_direction[key], without[key], key)
+
+
+class TestStillOpenSplitsByDirection(unittest.TestCase):
+    """`Still open` cut by direction -- the ONE genuinely new figure the two-band panel needed.
+
+    The panel became two labelled bands (owner ruling), each holding Total, Settled and Still open,
+    with Decided shared below them. Total was already cut by direction (`paid_*` / `received_*`) and
+    Settled already had `derive_settled_direction_blocks` -- WITH the per-ledger lines the card
+    renders, which is why nothing here re-derives it: two keys totalling the same money are two
+    chances to disagree about it. Still open had nothing, because `by_status` is keyed by STATUS
+    ALONE and both directions were folded together before `open_rows` was ever summed from it.
+
+    ⚠️ THE PARTITION IS THE WHOLE REASON THIS IS SAFE TO RENDER:
+
+        open_paid_rows + open_received_rows == open_rows
+        open_paid_value + open_received_value == open_value
+
+    A band whose three cards do not add up is worse than no band at all.
+    """
+
+    def test_the_two_halves_partition_what_is_still_open(self):
+        summary = derive_import_summary(
+            [
+                StatusTally(ROW_MATCHED, 3, Decimal("1200.50"), direction="Debit"),
+                StatusTally(ROW_MISMATCHED, 2, Decimal("300.25"), direction="Debit"),
+                StatusTally(ROW_MATCHED, 4, Decimal("900.75"), direction=ROW_DIRECTION_CREDIT),
+                StatusTally(ROW_SETTLED, 5, Decimal("7000"), direction="Debit"),
+            ]
+        )
+        self.assertEqual(summary["open_paid_rows"], 5)
+        self.assertEqual(summary["open_paid_value"], Decimal("1500.75"))
+        self.assertEqual(summary["open_received_rows"], 4)
+        self.assertEqual(summary["open_received_value"], Decimal("900.75"))
+
+        self.assertEqual(
+            summary["open_paid_rows"] + summary["open_received_rows"], summary["open_rows"]
+        )
+        self.assertEqual(
+            summary["open_paid_value"] + summary["open_received_value"], summary["open_value"]
+        )
+
+    def test_the_partition_holds_across_every_mixture_of_status_direction_and_failure(self):
+        """The invariant as a PROPERTY rather than on one hand-picked input -- the same shape, and
+        nearly the same input set, `TestTheStatementTotalSplitsByDirection` uses for the total."""
+        tallies = [
+            StatusTally(status, n, Decimal(str(n * 11.25)), failed=failed, direction=direction)
+            for n, (status, direction, failed) in enumerate(
+                [
+                    (ROW_SETTLED, "Debit", False),
+                    (ROW_SETTLED, ROW_DIRECTION_CREDIT, False),
+                    (ROW_MATCHED, ROW_DIRECTION_CREDIT, True),
+                    (ROW_MATCHED, "", False),
+                    (ROW_MISMATCHED, "credit", False),
+                    (ROW_MISMATCHED, ROW_DIRECTION_CREDIT, False),
+                    (ROW_PENDING_MATCH, "Debit", False),
+                    (ROW_SKIPPED, ROW_DIRECTION_CREDIT, False),
+                    (ROW_SKIPPED, "Debit", False),
+                    (ROW_ERROR, "Debit", True),
+                    (ROW_ERROR, ROW_DIRECTION_CREDIT, False),
+                    ("Reconciled", ROW_DIRECTION_CREDIT, False),
+                ],
+                start=1,
+            )
+        ]
+        summary = derive_import_summary(tallies)
+        self.assertEqual(
+            summary["open_paid_rows"] + summary["open_received_rows"], summary["open_rows"]
+        )
+        self.assertEqual(
+            summary["open_paid_value"] + summary["open_received_value"], summary["open_value"]
+        )
+        # And it is not vacuous -- both halves carry rows.
+        self.assertGreater(summary["open_paid_rows"], 0)
+        self.assertGreater(summary["open_received_rows"], 0)
+
+    def test_a_band_reconciles_total_equals_settled_plus_still_open(self):
+        """⚠️ THE ARITHMETIC A BAND'S THREE CARDS REST ON, stated here in the pure layer where every
+        input can be chosen:
+
+            <dir>_rows == settled_<dir>_rows + open_<dir>_rows
+
+        The panel reads its Settled card off `settled_by_direction`, which is a DIFFERENT query over
+        the same rows; the endpoint's own tests pin those two against a real batch. There is
+        deliberately no `settled_paid_rows` key -- see the return dict -- so the settled half is
+        reconstructed here from the tallies this test itself built."""
+        paid_settled = StatusTally(ROW_SETTLED, 6, Decimal("6000"), direction="Debit")
+        paid_open = StatusTally(ROW_MISMATCHED, 2, Decimal("250.50"), direction="Debit")
+        received_settled = StatusTally(
+            ROW_SETTLED, 1, Decimal("400"), direction=ROW_DIRECTION_CREDIT
+        )
+        received_open = StatusTally(
+            ROW_MATCHED, 3, Decimal("75.25"), direction=ROW_DIRECTION_CREDIT
+        )
+        summary = derive_import_summary(
+            [paid_settled, paid_open, received_settled, received_open]
+        )
+
+        self.assertEqual(paid_settled.count + summary["open_paid_rows"], summary["paid_rows"])
+        self.assertEqual(paid_settled.value + summary["open_paid_value"], summary["paid_value"])
+        self.assertEqual(
+            received_settled.count + summary["open_received_rows"], summary["received_rows"]
+        )
+        self.assertEqual(
+            received_settled.value + summary["open_received_value"], summary["received_value"]
+        )
+
+    def test_a_failed_transfer_is_absent_from_BOTH_halves(self):
+        """The same exclusion `open_rows` already applies, because the halves are cut from the same
+        buckets on the same side of the `failed` `continue`. A transfer the bank refused to move is
+        out of every figure this summary reports (option B, 2026-08-10) -- including an open one."""
+        summary = derive_import_summary(
+            [
+                StatusTally(
+                    ROW_MATCHED, 2, Decimal("700"), failed=True, direction=ROW_DIRECTION_CREDIT
+                ),
+                StatusTally(ROW_MATCHED, 4, Decimal("900"), failed=True, direction="Debit"),
+                StatusTally(ROW_MISMATCHED, 1, Decimal("300"), direction="Debit"),
+            ]
+        )
+        self.assertEqual(summary["open_received_rows"], 0)
+        self.assertEqual(summary["open_received_value"], Decimal("0"))
+        self.assertEqual(summary["open_paid_rows"], 1)
+        self.assertEqual(summary["open_paid_value"], Decimal("300"))
+        self.assertEqual(summary["failed_rows"], 6)
+        self.assertEqual(
+            summary["open_paid_rows"] + summary["open_received_rows"], summary["open_rows"]
+        )
+
+    def test_a_skipped_transfer_is_in_neither_half_because_it_is_not_open(self):
+        """`Skipped` is TERMINAL, so it was never in `open_rows` -- and it is in
+        `SUMMARY_EXCLUDED_STATUSES` besides. The halves inherit both by walking
+        `OPEN_ROW_STATUSES`, which is why `open_side` states neither exclusion a second time."""
+        summary = derive_import_summary(
+            [
+                StatusTally(ROW_SKIPPED, 3, Decimal("999"), direction=ROW_DIRECTION_CREDIT),
+                StatusTally(ROW_SKIPPED, 2, Decimal("111"), direction="Debit"),
+                StatusTally(ROW_MATCHED, 1, Decimal("50"), direction="Debit"),
+            ]
+        )
+        self.assertEqual(summary["open_received_rows"], 0)
+        self.assertEqual(summary["open_paid_rows"], 1)
+        self.assertEqual(summary["skipped_rows"], 5)
+        self.assertEqual(
+            summary["open_paid_value"] + summary["open_received_value"], summary["open_value"]
+        )
+
+    def test_a_blank_or_unrecognised_direction_is_OPEN_PAID_rather_than_neither(self):
+        """⚠️ A CONSEQUENCE, NOT A GUESS, and the same one the total's cut already makes: the
+        receipt write paths refuse anything that is not `Credit`, so such a row is structurally
+        incapable of having become a receipt. Leaving it out of both halves would be money in
+        `open_value` and in neither card beside it."""
+        summary = derive_import_summary(
+            [
+                StatusTally(ROW_MATCHED, 1, Decimal("100"), direction=""),
+                StatusTally(ROW_MISMATCHED, 1, Decimal("200"), direction="   "),
+                StatusTally(ROW_ERROR, 1, Decimal("400"), direction="Reversal"),
+                StatusTally(ROW_PENDING_MATCH, 1, Decimal("800"), direction="credit"),
+            ]
+        )
+        self.assertEqual(summary["open_received_rows"], 0)
+        self.assertEqual(summary["open_paid_rows"], 4)
+        self.assertEqual(summary["open_paid_value"], Decimal("1500"))
+
+    def test_the_split_uses_the_ONE_definition_of_the_axis(self):
+        """`is_received_direction` decides membership here exactly as it decides it for the total's
+        cut and for the settled blocks. A second predicate -- an inline `== "Credit"` -- would be
+        free to drift from the one the write path is built on."""
+        received = StatusTally(ROW_MATCHED, 1, Decimal("50"), direction=ROW_DIRECTION_CREDIT)
+        self.assertTrue(is_received_direction(received.direction))
+        self.assertEqual(derive_import_summary([received])["open_received_rows"], 1)
+
+        paid = StatusTally(ROW_MATCHED, 1, Decimal("50"), direction="Debit")
+        self.assertFalse(is_received_direction(paid.direction))
+        self.assertEqual(derive_import_summary([paid])["open_paid_rows"], 1)
+
+    def test_every_open_status_reaches_the_split(self):
+        """⚠️ NOT VACUOUS BY CONSTRUCTION. A half walking a narrower set than `open_rows` does would
+        under-report silently and still pass a partition test on any input that happened to avoid
+        the missing status. Every member of `OPEN_ROW_STATUSES` is asserted to land."""
+        for status in sorted(OPEN_ROW_STATUSES):
+            summary = derive_import_summary(
+                [
+                    StatusTally(status, 1, Decimal("10"), direction="Debit"),
+                    StatusTally(status, 1, Decimal("20"), direction=ROW_DIRECTION_CREDIT),
+                ]
+            )
+            self.assertEqual(summary["open_paid_rows"], 1, status)
+            self.assertEqual(summary["open_paid_value"], Decimal("10"), status)
+            self.assertEqual(summary["open_received_rows"], 1, status)
+            self.assertEqual(summary["open_received_value"], Decimal("20"), status)
+
+    def test_an_empty_import_reports_both_halves_at_zero_rather_than_omitting_them(self):
+        summary = derive_import_summary([])
+        for key in ("open_paid_rows", "open_received_rows"):
+            self.assertEqual(summary[key], 0)
+        for key in ("open_paid_value", "open_received_value"):
+            self.assertEqual(summary[key], Decimal("0"))
+
+    def test_the_money_is_Decimal_never_float(self):
+        summary = derive_import_summary(
+            [
+                StatusTally(ROW_MATCHED, 1, Decimal("0.10"), direction=ROW_DIRECTION_CREDIT),
+                StatusTally(ROW_MATCHED, 1, Decimal("0.10"), direction="Debit"),
+            ]
+        )
+        self.assertIsInstance(summary["open_received_value"], Decimal)
+        self.assertIsInstance(summary["open_paid_value"], Decimal)
+
+    def test_every_figure_the_split_sits_beside_is_byte_unchanged(self):
+        """⚠️ THE REGRESSION PIN, RUN WITH AND WITHOUT DIRECTIONS. `total_*`, `open_*`, `decided_*`,
+        `settled_*` and `by_status` are the figures this cut was carved out of, and every one of
+        them must be exactly what it was before there was a second axis on `open`."""
+        tallies = [
+            StatusTally(ROW_SETTLED, 3, Decimal("300"), direction=ROW_DIRECTION_CREDIT),
+            StatusTally(ROW_SKIPPED, 1, Decimal("100"), direction="Debit"),
+            StatusTally(ROW_MATCHED, 4, Decimal("400"), direction="Debit"),
+            StatusTally(ROW_MISMATCHED, 2, Decimal("50.25"), direction=ROW_DIRECTION_CREDIT),
+            StatusTally(ROW_ERROR, 1, Decimal("9"), failed=True, direction="Debit"),
+        ]
+        with_direction = derive_import_summary(tallies)
+        without = derive_import_summary(
+            [StatusTally(t.status, t.count, t.value, failed=t.failed) for t in tallies]
+        )
+        for key in (
+            "total_rows",
+            "total_value",
+            "open_rows",
+            "open_value",
+            "decided_rows",
+            "decided_percent",
+            "settled_rows",
+            "settled_value",
+            "skipped_rows",
+            "skipped_value",
+            "failed_rows",
+            "failed_value",
+            "matched_rows",
+            "matched_value",
+            "mismatched_rows",
+            "mismatched_value",
+            "pending_rows",
+            "error_rows",
+            "by_status",
+        ):
+            self.assertEqual(with_direction[key], without[key], key)
 
 
 class TestPurity(unittest.TestCase):
@@ -1218,3 +1877,262 @@ class TestSettledLedgerSplit(unittest.TestCase):
         with self.assertRaises(Exception):
             entry.count = 2
 
+
+
+class TestReceivedDirection(unittest.TestCase):
+    """`is_received_direction` -- the ONE definition of the axis the two blocks are cut on (B8b).
+
+    It is a single POSITIVE test on purpose: every settled row is `Credit` or it is not, so the two
+    blocks partition the population and no row can land in neither. A figure that appears in neither
+    total is the failure mode this shape rules out.
+    """
+
+    def test_credit_is_the_only_thing_that_means_money_arrived(self):
+        self.assertTrue(is_received_direction("Credit"))
+        self.assertTrue(is_received_direction("  Credit  "))
+
+    def test_a_debit_is_not_received(self):
+        self.assertFalse(is_received_direction("Debit"))
+
+    def test_a_BLANK_direction_is_PAID_not_received_and_never_neither(self):
+        """⚠️ THE DISPOSITION OF A BLANK, PINNED.
+
+        A blank is a CONSEQUENCE, not a guess: `settle.create_inflow_from_row` refuses anything that
+        is not `Credit` at the write, naming "a transfer with no stated direction", so a blank-
+        direction row is structurally incapable of having become a receipt. Calling it received
+        would put a row in a block it could not have reached. What must never happen is that it
+        lands in NEITHER -- money that is settled, counted in `settled_value`, and missing from both
+        breakdowns beside it.
+        """
+        for blank in ("", "   ", None):
+            self.assertFalse(is_received_direction(blank))
+
+    def test_an_unrecognised_value_is_PAID_too(self):
+        """There is no `Other` slot on this axis -- the owner ruled TWO blocks -- so falling to the
+        side that cannot lie about a receipt is the only disposition that keeps both totals whole."""
+        self.assertFalse(is_received_direction("Reversal"))
+        self.assertFalse(is_received_direction("credit"))  # case matters; the Select is exact
+
+    def test_the_spelling_matches_the_parser_that_writes_it(self):
+        """⚠️ SPELLED IN `status.py` RATHER THAN IMPORTED FROM `settle.py` (which needs `frappe`),
+        on the precedent `settle.DIRECTION_CREDIT` set. `parser` is bench-free, so the pin can live
+        here; a rename that reached only one of them would silently move every credit to the paid
+        block, with no test failing anywhere else."""
+        from nirmaan_stack.services.outflow_import.parser import DIRECTION_CREDIT
+
+        self.assertEqual(ROW_DIRECTION_CREDIT, DIRECTION_CREDIT)
+
+
+class TestSettledLedgerSplitOrderParameter(unittest.TestCase):
+    """The `ledgers` parameter added at B8b -- ONE implementation, two orders."""
+
+    def test_the_default_is_byte_identical_to_the_pre_B8b_behaviour(self):
+        entries = [SettledLedgerEntry("Project Expenses", 2, Decimal("20"))]
+        self.assertEqual(
+            derive_settled_ledger_split(entries),
+            derive_settled_ledger_split(entries, LEDGER_DOCTYPES),
+        )
+
+    def test_a_supplied_order_zero_fills_and_orders_from_THAT_tuple(self):
+        split = derive_settled_ledger_split([], RECEIVED_LEDGER_DOCTYPES)
+        self.assertEqual([b["ledger"] for b in split], list(RECEIVED_LEDGER_DOCTYPES))
+
+    def test_the_Other_slot_still_works_under_a_supplied_order(self):
+        """A `Project Payment` cannot be a receipt, so under the received order it is exactly the
+        unrecognised value the anomaly slot exists to make visible."""
+        split = derive_settled_ledger_split(
+            [SettledLedgerEntry("Project Payments", 1, Decimal("10"))], RECEIVED_LEDGER_DOCTYPES
+        )
+        self.assertEqual(split[-1], {"ledger": SETTLED_LEDGER_OTHER, "rows": 1, "value": Decimal("10")})
+
+    def test_the_received_order_is_the_two_books_a_credit_can_reach(self):
+        """⚠️ `Non Project Expenses` IS IN BOTH TUPLES ON PURPOSE, NOT BY COPY-PASTE. A non-project
+        RECEIPT is stored as a NEGATIVE `Non Project Expense` (B7), so the ledger cannot tell you
+        the direction -- which is exactly why the split keys on the ROW's direction."""
+        self.assertEqual(RECEIVED_LEDGER_DOCTYPES, (INFLOW_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE))
+        self.assertIn(NON_PROJECT_EXPENSE_DOCTYPE, LEDGER_DOCTYPES)
+
+    def test_the_inflow_ledger_is_never_settleable(self):
+        """⚠️ IT IS A DISPLAY ORDER AND NOTHING MORE. An inflow is CREATED, never SETTLED -- there is
+        no approved inflow waiting to be paid -- so it must stay out of every tuple that decides
+        what may be offered or written."""
+        self.assertNotIn(INFLOW_DOCTYPE, LEDGER_DOCTYPES)
+        self.assertNotIn(INFLOW_DOCTYPE, SETTLEABLE_STATUSES)
+
+
+class TestSettledDirectionBlocks(unittest.TestCase):
+    """`derive_settled_direction_blocks` -- the settled money as TWO blocks (B8b, owner Q14 (a)).
+
+    Each block reconciles to its OWN total, and neither is ever netted against the other.
+    """
+
+    @staticmethod
+    def _by_direction(blocks):
+        return {b["direction"]: b for b in blocks}
+
+    def test_a_statement_with_no_credits_renders_ONLY_the_paid_block(self):
+        """⚠️ CASHFREE AND CASHBOOK ARE SINGLE-DIRECTION SOURCES AND MUST LOOK EXACTLY AS THEY DO
+        TODAY. A zero-filled received block on those imports would be a permanent empty heading over
+        two zero lines, for something that cannot occur -- and it would change how every existing
+        import renders."""
+        blocks = derive_settled_direction_blocks(
+            [SettledLedgerEntry("Project Payments", 114, Decimal("3748174"), "Debit")]
+        )
+        self.assertEqual([b["direction"] for b in blocks], [SETTLED_BLOCK_PAID])
+
+    def test_the_paid_block_is_ALWAYS_present_even_at_zero(self):
+        """It is the successor of the single `Settled` tile, whose zero-fill is load-bearing: "0
+        settled" is precisely the fact a reviewer needs when nothing has been settled yet."""
+        blocks = derive_settled_direction_blocks([])
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]["direction"], SETTLED_BLOCK_PAID)
+        self.assertEqual(blocks[0]["rows"], 0)
+        self.assertEqual(blocks[0]["value"], Decimal("0"))
+        self.assertEqual([b["ledger"] for b in blocks[0]["ledgers"]], list(LEDGER_DOCTYPES))
+
+    def test_the_paid_block_is_byte_identical_to_the_pre_B8b_flat_split(self):
+        """The proof that today's live data renders unchanged: 809 staged rows, every one `Debit`."""
+        entries = [
+            SettledLedgerEntry("Project Payments", 114, Decimal("3748174"), "Debit"),
+            SettledLedgerEntry("Project Expenses", 19, Decimal("33897"), "Debit"),
+            SettledLedgerEntry("Non Project Expenses", 13, Decimal("16545"), "Debit"),
+        ]
+        blocks = derive_settled_direction_blocks(entries)
+        legacy = derive_settled_ledger_split(entries)
+        self.assertEqual(blocks[0]["ledgers"], legacy)
+
+    def test_the_received_block_appears_once_a_credit_settles(self):
+        blocks = derive_settled_direction_blocks(
+            [
+                SettledLedgerEntry("Project Payments", 2, Decimal("200"), "Debit"),
+                SettledLedgerEntry("Project Inflows", 3, Decimal("1800"), "Credit"),
+            ]
+        )
+        self.assertEqual(
+            [b["direction"] for b in blocks], [SETTLED_BLOCK_PAID, SETTLED_BLOCK_RECEIVED]
+        )
+        received = self._by_direction(blocks)[SETTLED_BLOCK_RECEIVED]
+        self.assertEqual(received["rows"], 3)
+        self.assertEqual(received["value"], Decimal("1800"))
+
+    def test_received_is_APPENDED_so_the_paid_block_never_moves(self):
+        """⚠️ THE FIXED-ORDER RULE, ONE LEVEL UP. A block whose position depends on whether another
+        block exists has to be re-found every time the period changes."""
+        with_credits = derive_settled_direction_blocks(
+            [
+                SettledLedgerEntry("Project Payments", 1, Decimal("1"), "Debit"),
+                SettledLedgerEntry("Project Inflows", 1, Decimal("1"), "Credit"),
+            ]
+        )
+        without = derive_settled_direction_blocks(
+            [SettledLedgerEntry("Project Payments", 1, Decimal("1"), "Debit")]
+        )
+        self.assertEqual(with_credits[0]["direction"], without[0]["direction"])
+
+    def test_the_order_does_not_follow_value_either(self):
+        """A ₹18 Cr receipts block still sits AFTER a ₹1 paid block."""
+        blocks = derive_settled_direction_blocks(
+            [
+                SettledLedgerEntry("Project Payments", 1, Decimal("1"), "Debit"),
+                SettledLedgerEntry("Project Inflows", 1, Decimal("180000000"), "Credit"),
+            ]
+        )
+        self.assertEqual(blocks[0]["direction"], SETTLED_BLOCK_PAID)
+
+    def test_EACH_BLOCK_RECONCILES_EXACTLY_TO_ITS_OWN_LINES(self):
+        """⚠️ THE INVARIANT. Exact BY CONSTRUCTION -- the total is summed from the split this
+        function just built, including its `Other` slot, so no arrangement of input entries can make
+        a block's lines fail to add up to the figure above them."""
+        blocks = derive_settled_direction_blocks(
+            [
+                SettledLedgerEntry("Project Payments", 4, Decimal("400.55"), "Debit"),
+                SettledLedgerEntry("Project Expenses", 2, Decimal("20.10"), "Debit"),
+                SettledLedgerEntry("Some Retired Doctype", 1, Decimal("9.35"), "Debit"),
+                SettledLedgerEntry("Project Inflows", 3, Decimal("1800.01"), "Credit"),
+                SettledLedgerEntry("Non Project Expenses", 1, Decimal("-50.01"), "Credit"),
+                SettledLedgerEntry("Mystery Book", 2, Decimal("7"), "Credit"),
+            ]
+        )
+        for block in blocks:
+            self.assertEqual(
+                block["value"],
+                sum((b["value"] for b in block["ledgers"]), Decimal("0")),
+                block["direction"],
+            )
+            self.assertEqual(
+                block["rows"], sum(b["rows"] for b in block["ledgers"]), block["direction"]
+            )
+
+    def test_the_two_blocks_together_hold_EVERY_row_and_are_NEVER_netted(self):
+        """⚠️ NEITHER HALF MAY VANISH. The blocks partition the input, so their totals add back to
+        the whole -- which is what `settled_value` is, and what the endpoint test asserts against a
+        real batch. Netting would report ₹350 here, which is the figure the owner ruled out."""
+        entries = [
+            SettledLedgerEntry("Project Payments", 4, Decimal("400"), "Debit"),
+            SettledLedgerEntry("Project Inflows", 3, Decimal("1800"), "Credit"),
+            SettledLedgerEntry("Non Project Expenses", 1, Decimal("-50"), "Credit"),
+            SettledLedgerEntry("Project Expenses", 2, Decimal("20"), ""),
+        ]
+        blocks = derive_settled_direction_blocks(entries)
+        self.assertEqual(sum(b["rows"] for b in blocks), 10)
+        self.assertEqual(
+            sum((b["value"] for b in blocks), Decimal("0")), Decimal("2170")
+        )
+
+    def test_a_blank_direction_lands_in_the_paid_block_and_is_never_dropped(self):
+        """The named failure mode: a settled row that appears in NEITHER total."""
+        blocks = derive_settled_direction_blocks(
+            [SettledLedgerEntry("Project Expenses", 5, Decimal("500"), "")]
+        )
+        self.assertEqual([b["direction"] for b in blocks], [SETTLED_BLOCK_PAID])
+        self.assertEqual(blocks[0]["rows"], 5)
+        self.assertEqual(blocks[0]["value"], Decimal("500"))
+
+    def test_non_project_expenses_appears_in_BOTH_blocks_when_both_sides_use_it(self):
+        """⚠️ THE B7 TRAP, PINNED. A non-project RECEIPT is a NEGATIVE `Non Project Expense`, so the
+        target doctype genuinely cannot tell you the direction -- the ROW's does."""
+        blocks = derive_settled_direction_blocks(
+            [
+                SettledLedgerEntry("Non Project Expenses", 3, Decimal("300"), "Debit"),
+                SettledLedgerEntry("Non Project Expenses", 1, Decimal("-40"), "Credit"),
+            ]
+        )
+        by = self._by_direction(blocks)
+        paid_npe = [b for b in by[SETTLED_BLOCK_PAID]["ledgers"] if b["ledger"] == NON_PROJECT_EXPENSE_DOCTYPE]
+        recd_npe = [b for b in by[SETTLED_BLOCK_RECEIVED]["ledgers"] if b["ledger"] == NON_PROJECT_EXPENSE_DOCTYPE]
+        self.assertEqual(paid_npe[0]["value"], Decimal("300"))
+        self.assertEqual(recd_npe[0]["value"], Decimal("-40"))
+
+    def test_the_received_block_zero_fills_its_OWN_two_books(self):
+        """Not the three settle ledgers -- a credit can never be a `Project Payment`, and two
+        permanent zeroes saying otherwise is the opposite of what a zero-fill is for."""
+        blocks = derive_settled_direction_blocks(
+            [SettledLedgerEntry("Project Inflows", 1, Decimal("10"), "Credit")]
+        )
+        received = self._by_direction(blocks)[SETTLED_BLOCK_RECEIVED]
+        self.assertEqual([b["ledger"] for b in received["ledgers"]], list(RECEIVED_LEDGER_DOCTYPES))
+
+    def test_money_stays_exact_Decimal_never_float(self):
+        blocks = derive_settled_direction_blocks(
+            [
+                SettledLedgerEntry("Project Inflows", 1, Decimal("0.1"), "Credit"),
+                SettledLedgerEntry("Project Inflows", 1, Decimal("0.2"), "Credit"),
+            ]
+        )
+        received = self._by_direction(blocks)[SETTLED_BLOCK_RECEIVED]
+        self.assertEqual(received["value"], Decimal("0.3"))
+        self.assertIsInstance(received["value"], Decimal)
+
+    def test_it_accepts_a_generator(self):
+        """The endpoint passes a genexp straight off the query rows, as both other derivers do."""
+        blocks = derive_settled_direction_blocks(
+            SettledLedgerEntry(ledger, 1, Decimal("5"), "Debit") for ledger in LEDGER_DOCTYPES
+        )
+        self.assertEqual(blocks[0]["rows"], 3)
+
+    def test_a_three_argument_entry_still_constructs_and_lands_paid(self):
+        """Every pre-B8b caller and test builds this positionally with three arguments."""
+        blocks = derive_settled_direction_blocks(
+            [SettledLedgerEntry("Project Payments", 1, Decimal("1"))]
+        )
+        self.assertEqual([b["direction"] for b in blocks], [SETTLED_BLOCK_PAID])

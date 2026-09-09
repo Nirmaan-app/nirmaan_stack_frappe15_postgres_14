@@ -30,7 +30,12 @@ import { exportToCsv } from "@/utils/exportToCsv";
 
 import { ExportButton } from "./ExportButton";
 import { TablePagination } from "./OutflowRowsTable";
-import { describeFrappeError, ledgerLabel, settlementLink } from "../outflowTableModel";
+import {
+    describeFrappeError,
+    ledgerLabel,
+    settlementLink,
+    vendorDescriptionLabel,
+} from "../outflowTableModel";
 import type {
     ApprovedRecord,
     ApprovedRecordsPage,
@@ -97,6 +102,11 @@ const APPROVED_EXPORT_COLUMNS: ApprovedExportColumn[] = [
     // ⚠️ NEVER HEADED "PO" — a quarter of the payments are against a Service Request.
     approvedColumn("order_name", "Order", (r) => r.order_name ?? ""),
     approvedColumn("expense_type", "Expense type", (r) => r.expense_type ?? ""),
+    // ⚠️ THE RAW DESCRIPTION, NEVER THE FORM THE CELL SHOWS. On screen it is capped at 48
+    // characters and wrapped to the column; a file carrying that shape would be a truncated
+    // description with nothing beside it saying so, and a spreadsheet outlives the session that
+    // produced it. Blank on `Project Payments`, whose ledger has no description column at all.
+    approvedColumn("description", "Description", (r) => r.description ?? ""),
     approvedColumn("vendor_name", "Vendor", (r) => r.vendor_name ?? ""),
     approvedColumn("project_name", "Project", (r) => r.project_name ?? ""),
     approvedColumn("status", "Status", (r) => r.status ?? ""),
@@ -350,7 +360,17 @@ export const ApprovedRecordsPanel = () => {
                     <table className="w-full border-collapse text-sm">
                         <thead className="bg-muted/60">
                             <tr className="text-left">
-                                {["Record", "Vendor", "Project", "Approved", "Amount"].map(
+                                {/* ⚠️ "Vendor / Description", NOT "Vendor" — `Non Project
+                                    Expenses` has no vendor field at all, so under the old heading
+                                    every non-project row read as a record whose vendor was
+                                    missing, when its ledger has no such fact to state. */}
+                                {[
+                                    "Record",
+                                    "Vendor / Description",
+                                    "Project",
+                                    "Approved",
+                                    "Amount",
+                                ].map(
                                     (heading, i) => (
                                         <th
                                             key={heading}
@@ -367,12 +387,38 @@ export const ApprovedRecordsPanel = () => {
                         <tbody>
                             {rows.map((row) => {
                                 const link = settlementLink(row.target_doctype, row.name, false, row.order_name);
+                                // ⚠️ WHAT THE RECORD IS FOR, NOT WHAT IT IS CALLED (owner
+                                // decision). `PAY-00105-034` names nothing anyone recognises; the
+                                // order a payment is against and the type an expense was booked
+                                // under are what a reader can match against a bank statement. The
+                                // id stays reachable as the cell's `title` and inside the link's
+                                // own, and it is still a Record column in the CSV.
+                                //
+                                // ⚠️ THE ID IS THE FALLBACK, NOT A DASH: a payment with no order
+                                // and an expense with no type would otherwise leave the row's only
+                                // navigation affordance with no name to render.
+                                const order = (row.order_name ?? "").trim();
+                                const expenseType = (row.expense_type ?? "").trim();
+                                const recordLabel =
+                                    (row.target_doctype === "Project Payments"
+                                        ? order && `Against ${order}`
+                                        : expenseType) || row.name;
+                                const vendorLabel = vendorDescriptionLabel(
+                                    row.vendor_name,
+                                    row.description
+                                );
+                                const vendorTitle =
+                                    [vendorLabel.vendor, vendorLabel.full]
+                                        .filter(Boolean)
+                                        .join(" — ") || undefined;
                                 return (
                                     <tr
                                         key={`${row.target_doctype}|${row.name}`}
                                         className="border-t align-top hover:bg-muted/30"
                                     >
-                                        <td className="px-3 py-2">
+                                        {/* The id lives here now: one hover from any part of the
+                                            label that replaced it. */}
+                                        <td className="px-3 py-2" title={row.name}>
                                             <div className="flex flex-wrap items-center gap-1.5">
                                                 <Badge
                                                     variant="outline"
@@ -391,37 +437,49 @@ export const ApprovedRecordsPanel = () => {
                                                     exact shape that survives every local test.
                                                     Any in-app navigation added here must go
                                                     through the router for the same reason. */}
+                                                {/* ⚠️ THE LABEL IS THE LINK, and it is the panel's
+                                                    only navigation affordance — so the fact worth
+                                                    reading and the thing worth clicking are the
+                                                    same object rather than two competing for the
+                                                    eye. ⚠️ NEVER LABELLED "PO" UNLESS IT IS ONE —
+                                                    a quarter of the payments are against a Service
+                                                    Request, which is why it reads "Against". */}
                                                 {link ? (
                                                     <Link
                                                         to={link.href}
                                                         title={link.title}
-                                                        className="font-mono text-xs text-primary underline-offset-2 hover:underline"
+                                                        className="text-xs text-primary underline-offset-2 hover:underline"
                                                     >
-                                                        {row.name}
+                                                        {recordLabel}
                                                     </Link>
                                                 ) : (
-                                                    <span className="font-mono text-xs">
-                                                        {row.name}
-                                                    </span>
+                                                    <span className="text-xs">{recordLabel}</span>
                                                 )}
                                             </div>
-                                            {/* ⚠️ NEVER LABELLED "PO" UNLESS IT IS ONE — a quarter
-                                                of the payments are against a Service Request. */}
-                                            {row.order_name && (
-                                                <div className="font-mono text-[11px] text-muted-foreground">
-                                                    {row.order_name}
-                                                </div>
-                                            )}
-                                            {row.expense_type && (
-                                                <div className="text-[11px] text-muted-foreground">
-                                                    {row.expense_type}
-                                                </div>
-                                            )}
                                         </td>
-                                        <td className="px-3 py-2 text-xs">
-                                            {row.vendor_name || (
-                                                <span className="text-muted-foreground">—</span>
-                                            )}
+                                        {/* ⚠️ NO VENDOR IS NOT A MISSING VENDOR ON `Non Project
+                                            Expenses` — that ledger has no vendor field at all, so
+                                            a dash above the description would report an absent
+                                            value where there is no such fact. The dash survives
+                                            only when the cell would otherwise be entirely empty. */}
+                                        <td className="px-3 py-2 text-xs" title={vendorTitle}>
+                                            {vendorLabel.vendor && <div>{vendorLabel.vendor}</div>}
+                                            {vendorLabel.descriptionLines.map((line, i) => (
+                                                <div
+                                                    key={`${i}-${line}`}
+                                                    className={`text-[11px] leading-tight text-muted-foreground ${
+                                                        i === 0 && vendorLabel.vendor
+                                                            ? "mt-0.5"
+                                                            : ""
+                                                    }`}
+                                                >
+                                                    {line}
+                                                </div>
+                                            ))}
+                                            {!vendorLabel.vendor &&
+                                                vendorLabel.descriptionLines.length === 0 && (
+                                                    <span className="text-muted-foreground">—</span>
+                                                )}
                                         </td>
                                         <td className="px-3 py-2 text-xs">
                                             {row.project_name || (

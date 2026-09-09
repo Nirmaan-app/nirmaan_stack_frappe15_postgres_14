@@ -875,7 +875,7 @@ export const appRoutes: RouteObject[] = [
             ],
           },
 
-          // Bulk Import Outflow -- ONE screen (slices X3 + X4): a master table of every staged
+          // Bulk Import Transactions -- ONE screen (slices X3 + X4): a master table of every staged
           // transfer, with the summary of a chosen import above it and the upload in a dialog.
           // Guarded to Accountant / Accountant Lead / Admin; the backend gate in
           // api/outflow_import/permissions.py is the real boundary. Single top-level segment, which
@@ -885,8 +885,19 @@ export const appRoutes: RouteObject[] = [
           // link and bookmark written before X3 points at a batch. It now lands on the master table
           // pre-scoped to that import rather than 404ing. The "new" route is GONE -- the upload is
           // a dialog on the master screen, so there is nowhere for it to go.
+          //
+          // ⚠️ RENAMED FROM `bulk-import-outflow` AT B8a, AND THERE IS DELIBERATELY NO REDIRECT
+          // (owner ruling Q27, option a). The module now carries money IN as well as OUT, so the
+          // screen is "Bulk Import Transactions"; existing bookmarks on the old path 404, and that
+          // was accepted rather than mitigated. Do NOT add a redirect route back -- it would be a
+          // reversal of the ruling, not a tidy-up.
+          //
+          // ⚠️ THE FOLDER, THE BACKEND MODULES AND ALL FIVE DOCTYPES KEEP THEIR `outflow_import`
+          // NAMES (owner ruling Q1). A doctype rename is a migration with dynamic links and a
+          // unique index riding on it and buys nothing; a user-facing name and an internal module
+          // name do not have to match.
           {
-            path: "bulk-import-outflow",
+            path: "bulk-import-transactions",
             element: <OutflowImportRoute />,
             children: [
               { index: true, lazy: () => import("@/pages/outflow-import/OutflowMasterPage") },

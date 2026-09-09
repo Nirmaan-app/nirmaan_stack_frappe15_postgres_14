@@ -14,6 +14,7 @@ import {
     ledgerLabel,
     recordDateParts,
     recordKey,
+    vendorDescriptionLabel,
     type SettleableRecord,
 } from "../outflowTableModel";
 import {
@@ -133,9 +134,9 @@ export const SettleableRecordTable = ({
                         >
                             {/* ⚠️ THE RECORD COLUMN IS NOT SORTABLE OR FILTERABLE, and that is the
                                 owner's list rather than an omission: Vendor, Project, Approved and
-                                Amount are the four facts a reviewer narrows by. The id column
-                                carries the ledger label and the record name, neither of which is
-                                something anyone filters a list of approved records down to. */}
+                                Amount are the four facts a reviewer narrows by. The Record column
+                                carries the ledger label and what the record is for, neither of
+                                which is something anyone filters approved records down to. */}
                             {column.id === "record" ? (
                                 column.title
                             ) : (
@@ -243,6 +244,29 @@ const RecordRow = ({
     const key = recordKey(record);
     const verdict = amountVerdict(record.amount, bankAmount);
     const dateParts = recordDateParts(record, formatDate);
+
+    // ⚠️ WHAT THIS RECORD IS FOR, NOT WHAT IT IS CALLED (owner decision). `PAY-00105-034` is a
+    // sequence number: it names nothing a reviewer holding a bank statement recognises. The order
+    // the payment is against, and the type an expense was booked under, are what the statement line
+    // can actually be compared to. The id has NOT been thrown away -- it is the cell's `title` and
+    // the radio's `aria-label`, and `matchesText` still searches it, so typing an id still finds
+    // its row; it is one hover from view rather than in view.
+    const isPayment = record.target_doctype === "Project Payments";
+    const against = (record.document_name ?? "").trim();
+    const expenseType = (record.expense_type ?? "").trim();
+    // ⚠️ THE ID IS THE FALLBACK, NOT AN EM DASH. A payment with no order and an expense with no
+    // type are both records whose identifying fact is simply absent -- and a dash there would leave
+    // the row with NOTHING naming it, which is worse than the id this cell was replacing. So the
+    // rule reads: the meaningful label where there is one, the id where there is not, never blank.
+    const recordCaption = isPayment
+        ? against && `Against ${against}`
+        : expenseType;
+
+    const vendorLabel = vendorDescriptionLabel(record.vendor_name, record.description);
+    // Vendor and the WHOLE description, for the hover -- the cell renders the description capped at
+    // 48 characters, and a reader who needs the rest must be able to reach it.
+    const vendorTitle =
+        [vendorLabel.vendor, vendorLabel.full].filter(Boolean).join(" — ") || undefined;
     // The badge is two words wide; the tooltip carries the whole statement for anyone hovering.
     const dateTitle = dateParts
         ? `${RECORD_DATE_LABELS[dateParts.kind]} ${dateParts.date}`
@@ -279,7 +303,9 @@ const RecordRow = ({
                 which is what three separate cards used to say by existing. But as a sixth column it
                 pushed AMOUNT past the right edge, and the amount is the fact that decides whether a
                 record can be settled at all. It stacks above the id it qualifies instead. */}
-            <td className="px-2 py-2 align-top">
+            {/* The id lives here now: the whole cell carries it, so it is one hover away from any
+                part of the label that replaced it. */}
+            <td className="px-2 py-2 align-top" title={record.name}>
                 <span className="inline-block rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-foreground/70">
                     {ledgerLabel(record.target_doctype)}
                 </span>
@@ -295,8 +321,8 @@ const RecordRow = ({
                         candidate
                     </span>
                 )}
-                <div className="mt-0.5 truncate font-mono text-xs" title={record.name}>
-                    {record.name}
+                <div className={`mt-0.5 truncate text-xs ${recordCaption ? "" : "font-mono"}`}>
+                    {recordCaption || record.name}
                 </div>
                 {/* ⚠️ WHY THIS RECORD IS WHERE IT IS (slice N2). The whole list is ordered by
                     `similarity.py` and, until N2, nothing on screen said so — a record could sit
@@ -315,20 +341,39 @@ const RecordRow = ({
             </td>
 
             {/* ⚠️ `PAY-00105-034` SAYS NOTHING ABOUT WHOSE MONEY IT IS. A reviewer with three
-                approved records in front of them picks by vendor and project. An em dash rather
-                than a blank, so an absent vendor reads as absent rather than as a rendering gap. */}
+                approved records in front of them picks by vendor and project -- or, where the
+                ledger has no vendor, by what the record says it was for. */}
             {/* ⚠️ THE NICKNAME IS SHOWN ONLY WHEN IT ADDS SOMETHING. It is tier 3 of the ranking,
                 so a record can be near the top BECAUSE of it -- and a reviewer who cannot see the
                 name that put it there has been given an order they cannot check. Suppressed when it
                 merely repeats the vendor name, which would be noise on every row that has one. */}
-            <td className="px-2 py-2 align-top" title={record.vendor_name || undefined}>
-                <div className="truncate">
-                    {record.vendor_name || <span className="text-muted-foreground">—</span>}
-                </div>
+            {/* ⚠️ NO VENDOR IS NOT A MISSING VENDOR ON `Non Project Expenses`. That ledger has no
+                vendor field at all -- no column, no join -- so an em dash above the description
+                would report an absent value where there is no such fact to state. The description
+                stands alone there, and the dash survives for exactly one case: the cell would
+                otherwise be entirely empty, which IS something missing. */}
+            <td className="px-2 py-2 align-top" title={vendorTitle}>
+                {vendorLabel.vendor && <div className="truncate">{vendorLabel.vendor}</div>}
                 {record.vendor_nickname && record.vendor_nickname !== record.vendor_name && (
                     <div className="truncate text-[11px] text-muted-foreground">
                         {record.vendor_nickname}
                     </div>
+                )}
+                {/* Pre-wrapped to the column's width by the model, one line per element: the cap
+                    runs before the wrap, so how much text survives never depends on where the
+                    words happened to break. */}
+                {vendorLabel.descriptionLines.map((line, i) => (
+                    <div
+                        key={`${i}-${line}`}
+                        className={`text-[11px] leading-tight text-muted-foreground ${
+                            i === 0 && vendorLabel.vendor ? "mt-0.5" : ""
+                        }`}
+                    >
+                        {line}
+                    </div>
+                ))}
+                {!vendorLabel.vendor && vendorLabel.descriptionLines.length === 0 && (
+                    <span className="text-muted-foreground">—</span>
                 )}
             </td>
 

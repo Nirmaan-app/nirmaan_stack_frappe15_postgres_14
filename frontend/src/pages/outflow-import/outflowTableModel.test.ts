@@ -4,6 +4,13 @@ import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import {
     DEFAULT_HIDDEN_COLUMNS,
     UPLOADER_DISPLAY_MAX,
+    isCreditRow,
+    availableDecisionTargets,
+    wrapRemarks,
+    REMARKS_WRAP_CHARS,
+    vendorDescriptionLabel,
+    VENDOR_DESCRIPTION_WRAP_CHARS,
+    VENDOR_DESCRIPTION_MAX_CHARS,
     importUploaderLabel,
     settledLedgerRows,
     DEFAULT_TAB,
@@ -69,7 +76,10 @@ import {
     importStatusTone,
     importsForSource,
     openImports,
+    receiptStoredAmount,
     rematchReachLabel,
+    matchedImports,
+    duplicateCheckedImports,
     sourceSelectorValue,
     REFERENCE_DISPLAY_MAX,
     referenceValue,
@@ -135,11 +145,22 @@ describe("columns", () => {
         // (`settlement_origin`, `import_batch`) ship hidden: the owner asked for the COLUMN on the
         // Matched/Settled tab, where about half the rows carry a value. On the Not-Matched tab it
         // is empty, which is honest rather than broken.
+        //
+        // ⚠️ "Amount", NOT "Amount Paid" -- INVERTED here rather than dropped. This table has
+        // carried CREDITS since the bank statement joined it and `amount` is the positive magnitude
+        // on every source, so the old heading called a deposit "paid". The column cannot say which
+        // way the money went; `direction` is the only field that can.
+        //
+        // ⚠️ "Direction" JOINED VISIBLE, immediately after "Amount", and this pin was updated
+        // deliberately rather than worked around. The marker lived inside the amount CELL for a
+        // day; a fact worth filtering on cannot, because the funnel lives in the `<th>`. It sits
+        // where it does for the reason "Ledger" sits after "Status": it qualifies its neighbour.
         const shown = OUTFLOW_COLUMNS.filter((c) => !c.hiddenByDefault).map((c) => c.title);
         expect(shown).toEqual([
             "Payment Date",
             "Beneficiary",
-            "Amount Paid",
+            "Amount",
+            "Direction",
             "Remarks",
             "Reference",
             "Status",
@@ -197,6 +218,74 @@ describe("columns", () => {
         const ids = OUTFLOW_COLUMNS.map((c) => c.id);
         expect(ids[ids.indexOf("row_status") + 1]).toBe("settled_ledger");
         expect(ids[ids.indexOf("settled_ledger") + 1]).toBe("outcome");
+    });
+
+    it("puts Direction immediately after Amount, where it qualifies one", () => {
+        // The same rule that puts Ledger after Status: a column that qualifies its neighbour
+        // belongs against it. A figure and the word that gives it its sign are one reading.
+        const ids = OUTFLOW_COLUMNS.map((c) => c.id);
+        expect(ids[ids.indexOf("amount") + 1]).toBe("direction");
+    });
+
+    it("ships Direction VISIBLE, with its own funnel", () => {
+        // ⚠️ THE WHOLE REASON IT IS A COLUMN (owner ruling 2026-09-09, reversing D8). The marker
+        // shipped inside the AMOUNT CELL for a day, and a fact worth filtering on cannot live
+        // there: in this table the funnel lives in the `<th>`, so there is no way to offer the
+        // filter without declaring the column.
+        const col = OUTFLOW_COLUMNS.find((c) => c.id === "direction")!;
+        expect(col.title).toBe("Direction");
+        expect(col.filter).toBe("facet");
+        expect(col.hiddenByDefault).toBeUndefined();
+        expect(DEFAULT_HIDDEN_COLUMNS).not.toContain("direction");
+    });
+
+    it("reads Received on a credit and Paid on an explicit debit", () => {
+        const col = OUTFLOW_COLUMNS.find((c) => c.id === "direction")!;
+        expect(col.get(row({ direction: "Credit" }))).toBe("Received");
+        expect(col.get(row({ direction: "Debit" }))).toBe("Paid");
+    });
+
+    it("⚠️ reads Paid on a BLANK direction, and never a blank cell", () => {
+        // Blank means the statement did not say -- a gateway export has no direction column at
+        // all. It lands on Paid as a CONSEQUENCE of the single positive test on "Credit", not
+        // because blank is read as Debit: the receipt paths refuse anything that is not `Credit`
+        // at the write, so such a row could never have become a receipt. `get` feeds the CSV, so
+        // an empty string here would be a blank cell in an archived file.
+        const col = OUTFLOW_COLUMNS.find((c) => c.id === "direction")!;
+        expect(col.get(row({ direction: "" }))).toBe("Paid");
+        expect(col.get(row({ direction: undefined }))).toBe("Paid");
+        expect(col.get(row({ direction: "Something Else" }))).toBe("Paid");
+    });
+
+    it("trims, because it derives from `isCreditRow` rather than comparing inline", () => {
+        // The D5 defect, at a new site: a `" Credit "` row had its inflow cards hidden while
+        // `isConfirmable` treated it as a credit. One predicate is what stops that recurring.
+        const col = OUTFLOW_COLUMNS.find((c) => c.id === "direction")!;
+        expect(col.get(row({ direction: " Credit " }))).toBe("Received");
+        expect(col.get(row({ direction: "\tCredit\n" }))).toBe("Received");
+    });
+
+    it("is a two-value PARTITION -- every row gets one label, none gets neither", () => {
+        // ⚠️ WHY IT IS DERIVED AND NOT THE RAW `direction` FIELD. The live table holds Debit 894 /
+        // Credit 5 / blank 0, so a raw column would render identically today -- which is exactly
+        // how it would have shipped. A raw column shows an empty cell on the first blank row and
+        // grows a third, unlabelled funnel entry while the screen still shows two badges.
+        const col = OUTFLOW_COLUMNS.find((c) => c.id === "direction")!;
+        const inputs = ["Credit", "Debit", "", " Credit ", "credit", "CREDIT", "Cr", undefined];
+        for (const direction of inputs) {
+            const value = col.get(row({ direction } as Partial<OutflowImportRow>));
+            expect(["Paid", "Received"]).toContain(value);
+        }
+    });
+
+    it("agrees with `isCreditRow`, the one definition of the axis", () => {
+        // A second spelling of `direction === "Credit"` is free to drift, and the drift presents as
+        // a row labelled Received on screen that the settle guard treats as a debit.
+        const col = OUTFLOW_COLUMNS.find((c) => c.id === "direction")!;
+        for (const direction of ["Credit", "Debit", "", " Credit ", "Cr", "credit"]) {
+            const r = row({ direction });
+            expect(col.get(r)).toBe(isCreditRow(r) ? "Received" : "Paid");
+        }
     });
 
     it("ships the Ledger column VISIBLE, unlike the other late additions", () => {
@@ -298,6 +387,88 @@ describe("what Re-run match will touch", () => {
         expect(rematchReachLabel([imp()])).toBe("");
         expect(rematchReachLabel([])).toBe("");
         expect(rematchReachLabel([imp({ is_open: false }), imp({ name: "B", is_open: false })])).toBe("");
+    });
+
+    describe("⚠️ a bank statement is DUPLICATE-CHECKED, not matched, and the caption says so", () => {
+        // `match_batch` FORKS on `source_has_settlement_path`: such a batch never loads a settlement
+        // pool and never calls `match_row`. One number covering both actions described the wider one
+        // for every statement in the set — the "button 688, table 893" failure from a third
+        // direction, on the one sentence whose whole job is stating scope honestly.
+        const bank = (over: Partial<SummaryImport> = {}) =>
+            imp({ has_settlement_path: false, ...over });
+
+        it("splits the sentence when the set is mixed", () => {
+            expect(
+                rematchReachLabel([imp({ name: "A" }), imp({ name: "B" }), bank({ name: "ICICI" })]),
+            ).toBe("Re-run matches 2 open imports; 1 duplicate-checked only.");
+        });
+
+        it("says plainly that NOTHING will be matched when every statement is a bank one", () => {
+            // ⚠️ NOT SILENT, even at one statement. The single-import silence rule is about REACH —
+            // one statement needs no warning that the action reaches one statement. This sentence is
+            // no longer about reach: it is the only thing on screen saying the button will not match
+            // at all, so suppressing it leaves a reviewer expecting a match that never runs.
+            expect(rematchReachLabel([bank({ name: "ICICI" })])).toBe(
+                "Re-run duplicate-checks 1 open import; none will be matched.",
+            );
+            expect(rematchReachLabel([bank({ name: "A" }), bank({ name: "B" })])).toBe(
+                "Re-run duplicate-checks 2 open imports; none will be matched.",
+            );
+        });
+
+        it("⚠️ a FINISHED bank statement counts on neither side", () => {
+            // `match_period` skips it entirely, so it is not matched AND not duplicate-checked.
+            // Counting it as duplicate-checked would name an action that does not run.
+            expect(
+                rematchReachLabel([
+                    imp({ name: "A" }),
+                    imp({ name: "B" }),
+                    bank({ name: "DONE", is_open: false }),
+                ]),
+            ).toBe("Re-run reaches 2 open imports.");
+        });
+
+        it("⚠️ a MISSING flag means MATCHED, never duplicate-checked", () => {
+            // An older server sends no flag. Reading its absence as "duplicate-check only" would
+            // report every gateway import — the ones the matcher genuinely works on — as doing
+            // almost nothing, which is the failure direction that understates the button.
+            expect(matchedImports([imp({ has_settlement_path: undefined })])).toHaveLength(1);
+            expect(duplicateCheckedImports([imp({ has_settlement_path: undefined })])).toHaveLength(0);
+        });
+
+        it("⚠️ is BYTE-IDENTICAL to the pre-split wording when no bank statement is in view", () => {
+            // The regression pin. Every gateway-only period — which is every period staged before
+            // the bank source existed — must read exactly as it always has.
+            expect(rematchReachLabel([imp({ name: "A" }), imp({ name: "B" })])).toBe(
+                "Re-run reaches 2 open imports.",
+            );
+            expect(rematchReachLabel([imp({ name: "A" })])).toBe("");
+        });
+
+        it("the tooltip keeps the whole list and qualifies it, rather than dropping names", () => {
+            // ⚠️ A BANK STATEMENT IS TOUCHED BY THE BUTTON — its duplicate guard runs — so removing
+            // it from the names would UNDERSTATE the reach, the opposite of this sentence's job.
+            // What was wrong was the verb, so the set is unchanged and the difference is named.
+            const warning = rematchWarning([
+                imp({ name: "A", original_filename: "aug.csv" }),
+                bank({ name: "ICICI", original_filename: "bank.xlsx" }),
+            ]);
+            expect(warning).toContain("aug.csv");
+            expect(warning).toContain("bank.xlsx");
+            expect(warning).toContain("1 of them is a bank statement");
+            expect(warning).toContain("duplicate-checked rather than matched");
+        });
+
+        it("the tooltip says ALL of them when every statement is a bank one", () => {
+            const warning = rematchWarning([bank({ name: "A" }), bank({ name: "B" })]);
+            expect(warning).toContain("All of them are bank statements");
+        });
+
+        it("⚠️ the tooltip is unqualified when no bank statement is in view", () => {
+            const warning = rematchWarning([imp({ name: "A" }), imp({ name: "B" })]);
+            expect(warning).not.toContain("duplicate-checked");
+            expect(warning).not.toContain("bank statement");
+        });
     });
 
     it("⚠️ the tooltip names only the statements the button acts on", () => {
@@ -406,8 +577,17 @@ describe("the source scope", () => {
         expect(sourceSelectorValue(["Cashfree", "Cashbook"])).toBe("mixed");
     });
 
-    it("offers exactly the two sources a batch can have", () => {
-        expect([...SOURCE_OPTIONS]).toEqual(["Cashfree", "Cashbook"]);
+    it("offers exactly the sources a batch can have", () => {
+        // ⚠️ THE INVERTED PIN. This asserted the TWO gateway sources until the bank-statement slice;
+        // the reasoning is kept so nobody trims the list back.
+        //
+        // It is an exact-equality assertion on purpose, not a `toContain`. These strings are the
+        // parser's adapter keys AND the doctype Select options AND the upload dialog's `SOURCES`,
+        // and this list is the one of the four that fails QUIETLY: a source missing here still
+        // imports and its rows still render, but the Source scope control cannot name it — so the
+        // screen looks like it is missing rows rather than missing an option. Exact equality is
+        // what turns "somebody added a source and forgot this list" into a red test.
+        expect([...SOURCE_OPTIONS]).toEqual(["Cashfree", "Cashbook", "ICICI Bank Statement"]);
     });
 
     it("narrows the imports on offer to the chosen source", () => {
@@ -501,6 +681,279 @@ describe("the reference a transfer is known by", () => {
         const col = OUTFLOW_COLUMNS.find((c) => c.id === "bank_reference_no")!;
         expect(col.get(long)).toBe("CF-WALLET-8891203471");
         expect(String(col.get(long)).length).toBeGreaterThan(REFERENCE_DISPLAY_MAX);
+    });
+});
+
+describe("which way the money went — the ONE definition of the axis", () => {
+    // ⚠️ IT MIRRORS `status.py::is_received_direction` EXACTLY, and the mirror is the point: the
+    // client and the server must PARTITION the same way or a reviewer can fill in a decision the
+    // write path will refuse.
+
+    it("is a single POSITIVE test on `Credit`", () => {
+        expect(isCreditRow({ direction: "Credit" } as any)).toBe(true);
+        expect(isCreditRow({ direction: "Debit" } as any)).toBe(false);
+    });
+
+    it("trims, exactly as the server's `(direction or '').strip()` does", () => {
+        expect(isCreditRow({ direction: "  Credit  " } as any)).toBe(true);
+        expect(isCreditRow({ direction: "\tCredit\n" } as any)).toBe(true);
+    });
+
+    it("⚠️ a BLANK direction is NOT Credit — and that is not the same as calling it Debit", () => {
+        // Blank means the statement did not say: a gateway export with one amount column, or a bank
+        // line with BOTH money columns populated that the parser refused to guess about. It lands
+        // on the paid side because the receipt paths refuse anything that is not `Credit` at the
+        // WRITE, so such a row could never have BECOME a receipt. Nothing here decides it IS a
+        // debit.
+        expect(isCreditRow({ direction: "" } as any)).toBe(false);
+        expect(isCreditRow({ direction: "   " } as any)).toBe(false);
+        expect(isCreditRow({ direction: null } as any)).toBe(false);
+        expect(isCreditRow({ direction: undefined } as any)).toBe(false);
+        expect(isCreditRow({} as any)).toBe(false);
+    });
+
+    it("reads an unrecognised value as not-credit, by the same branch", () => {
+        // There is no third answer on this axis. The owner ruled TWO sides, so a value nobody
+        // recognises falls to the side that cannot lie about a receipt.
+        expect(isCreditRow({ direction: "credit" } as any)).toBe(false);
+        expect(isCreditRow({ direction: "CREDIT" } as any)).toBe(false);
+        expect(isCreditRow({ direction: "Cr" } as any)).toBe(false);
+        expect(isCreditRow({ direction: "Refund" } as any)).toBe(false);
+    });
+
+    it("offers the two credit dispositions on a credit row, and nothing else", () => {
+        expect(availableDecisionTargets({ direction: "Credit" } as any)).toEqual([
+            "inflow",
+            "receipt",
+        ]);
+    });
+
+    it("offers the settle and create-expense dispositions on a debit or blank row", () => {
+        const paid = ["Project Payments", "Project Expenses", "Non Project Expenses", "new"];
+        expect(availableDecisionTargets({ direction: "Debit" } as any)).toEqual(paid);
+        expect(availableDecisionTargets({ direction: "" } as any)).toEqual(paid);
+        expect(availableDecisionTargets({} as any)).toEqual(paid);
+    });
+
+    it("⚠️ PARTITIONS the union — disjoint, and together the whole of it", () => {
+        // This is what lets `isConfirmable` refuse a target simply because it is not on the row's
+        // list, and what keeps the dialog's cards and the confirmability check from disagreeing.
+        const credit = availableDecisionTargets({ direction: "Credit" } as any);
+        const debit = availableDecisionTargets({ direction: "Debit" } as any);
+        expect(credit.filter((t) => debit.includes(t))).toEqual([]);
+        expect([...credit, ...debit].sort()).toEqual(
+            [
+                "Project Payments",
+                "Project Expenses",
+                "Non Project Expenses",
+                "new",
+                "inflow",
+                "receipt",
+            ].sort()
+        );
+    });
+
+    it("hands back a fresh array, so a caller cannot edit the rule for everyone", () => {
+        const first = availableDecisionTargets({ direction: "Credit" } as any);
+        first.pop();
+        expect(availableDecisionTargets({ direction: "Credit" } as any)).toHaveLength(2);
+    });
+});
+
+describe("wrapRemarks", () => {
+    it("returns nothing at all for an empty remark, rather than one empty line", () => {
+        expect(wrapRemarks("")).toEqual([]);
+        expect(wrapRemarks("   ")).toEqual([]);
+        expect(wrapRemarks(null)).toEqual([]);
+        expect(wrapRemarks(undefined)).toEqual([]);
+    });
+
+    it("leaves a remark of exactly the limit on one line", () => {
+        const exact = "x".repeat(REMARKS_WRAP_CHARS);
+        expect(exact).toHaveLength(64);
+        expect(wrapRemarks(exact)).toEqual([exact]);
+    });
+
+    it("breaks at a word boundary rather than mid-word when the word fits", () => {
+        // 60 characters, then a 6-letter word that no longer fits.
+        const text = `${"a".repeat(60)} second`;
+        expect(wrapRemarks(text)).toEqual(["a".repeat(60), "second"]);
+    });
+
+    it("HARD-breaks a single token longer than the limit", () => {
+        // A 90-character reference has no space to break at, and leaving it whole would defeat the
+        // wrap it is the reason for.
+        const token = "R".repeat(90);
+        const lines = wrapRemarks(token);
+        expect(lines).toEqual(["R".repeat(64), "R".repeat(26)]);
+        expect(lines.join("")).toBe(token);
+    });
+
+    it("⚠️ TRUNCATES NOTHING — every character survives into some line", () => {
+        // The opposite decision from `shortReference`, deliberately. A bank narration is the only
+        // account of what a transfer was for, and the identifying part is as often at the end as at
+        // the front.
+        const text =
+            "NEFT INB ACME ELECTRICALS PRIVATE LIMITED INVOICE 4471 AND 4472 PARTIAL SETTLEMENT AGAINST PO 2291";
+        const lines = wrapRemarks(text);
+        expect(lines.length).toBeGreaterThan(1);
+        expect(lines.join(" ")).toBe(text);
+        for (const line of lines) expect(line.length).toBeLessThanOrEqual(REMARKS_WRAP_CHARS);
+    });
+
+    it("never leaves a line wider than the limit, whatever the input", () => {
+        for (const text of [
+            "one",
+            "word ".repeat(40),
+            `${"Z".repeat(200)} tail`,
+            `short ${"Q".repeat(70)} short`,
+        ]) {
+            for (const line of wrapRemarks(text)) {
+                expect(line.length).toBeLessThanOrEqual(REMARKS_WRAP_CHARS);
+            }
+        }
+    });
+});
+
+describe("the Vendor / Description cell", () => {
+    it("carries the vendor and wraps the description beside it", () => {
+        // ⚠️ INVERTED at the 16 -> 24 widening, not worked around. "Site wiring materials" is 21
+        // characters: it broke across two lines under the old width and now fits on one, which is
+        // the widening doing exactly what it was asked to do. The old two-line shape is asserted
+        // GONE so a revert of the constant cannot pass here.
+        const label = vendorDescriptionLabel("Acme Electricals", "Site wiring materials");
+        expect(label.vendor).toBe("Acme Electricals");
+        expect(label.descriptionLines).toEqual(["Site wiring materials"]);
+        expect(label.descriptionLines).not.toEqual(["Site wiring", "materials"]);
+        expect(label.truncated).toBe(false);
+    });
+
+    it("⚠️ leaves the vendor EMPTY with no placeholder when the ledger has no vendor field", () => {
+        // `Non Project Expenses` has no vendor column and no join to make -- the payload sends
+        // null. An em dash would report an absent VALUE where the ledger has no such FACT (owner
+        // decision); the caller renders the description alone.
+        for (const missing of [null, undefined, "", "   "]) {
+            const label = vendorDescriptionLabel(missing, "Office rent");
+            expect(label.vendor).toBe("");
+            expect(label.descriptionLines).toEqual(["Office rent"]);
+        }
+    });
+
+    it("survives a record with neither fact", () => {
+        const label = vendorDescriptionLabel(null, null);
+        expect(label).toEqual({
+            vendor: "",
+            descriptionLines: [],
+            truncated: false,
+            full: "",
+        });
+    });
+
+    it("wraps at 24 and caps at 72 -- INVERTED from 16 / 48 (owner ruling)", () => {
+        // ⚠️ INVERTED, not deleted: the old pair is asserted GONE so a revert cannot pass this
+        // file. The wrap and the column width are ONE decision -- 24 characters at `text-sm` is
+        // ~168px, which does not fit a 180px column's 164px content box, so `vendor` widened to
+        // 220px in the same change.
+        expect(VENDOR_DESCRIPTION_WRAP_CHARS).toBe(24);
+        expect(VENDOR_DESCRIPTION_MAX_CHARS).toBe(72);
+        expect(VENDOR_DESCRIPTION_WRAP_CHARS).not.toBe(16);
+        expect(VENDOR_DESCRIPTION_MAX_CHARS).not.toBe(48);
+    });
+
+    it("leaves a description of exactly the cap alone, and does not flag it truncated", () => {
+        const exact = "d".repeat(VENDOR_DESCRIPTION_MAX_CHARS);
+        expect(exact).toHaveLength(72);
+        const label = vendorDescriptionLabel("V", exact);
+        expect(label.truncated).toBe(false);
+        expect(label.descriptionLines.join("")).toBe(exact);
+        expect(label.full).toBe(exact);
+    });
+
+    it("cuts one character past the cap, flags it, and keeps the full text for the tooltip", () => {
+        const over = "d".repeat(VENDOR_DESCRIPTION_MAX_CHARS + 1);
+        const label = vendorDescriptionLabel("V", over);
+        expect(label.truncated).toBe(true);
+        expect(label.full).toBe(over);
+        // The ellipsis is counted OUTSIDE the 72, so 72 characters survive plus the mark.
+        expect(label.descriptionLines.join("")).toBe(`${"d".repeat(72)}…`);
+    });
+
+    it("keeps a description between the OLD cap and the new one whole", () => {
+        // The widening's whole point, stated as behaviour rather than as a constant: 60 characters
+        // used to lose its last twelve and gain an ellipsis. Nothing is cut now.
+        const sixty = "d".repeat(60);
+        const label = vendorDescriptionLabel("V", sixty);
+        expect(label.truncated).toBe(false);
+        expect(label.descriptionLines.join("")).toBe(sixty);
+    });
+
+    it("trims before the ellipsis, so `word …` never renders", () => {
+        // Taken from `truncateColumnLabel` (SnagList/import/importState.ts).
+        const text = `${"a".repeat(71)} trailing words here`;
+        const label = vendorDescriptionLabel(null, text);
+        expect(label.descriptionLines.join("")).toBe(`${"a".repeat(71)}…`);
+        expect(label.descriptionLines.join("")).not.toContain(" …");
+    });
+
+    it("⚠️ measures the DESCRIPTION ALONE, never vendor-plus-description", () => {
+        // Owner decision. A long vendor name would otherwise eat the description's budget, so two
+        // records from the same vendor would be cut to different lengths and stop being comparable
+        // down the page -- the whole reason these facts became a table.
+        const description = "d".repeat(VENDOR_DESCRIPTION_MAX_CHARS);
+        const short = vendorDescriptionLabel("A", description);
+        const long = vendorDescriptionLabel("A".repeat(120), description);
+        expect(short.truncated).toBe(false);
+        expect(long.truncated).toBe(false);
+        expect(long.descriptionLines).toEqual(short.descriptionLines);
+    });
+
+    it("HARD-breaks a description token longer than the wrap width", () => {
+        // ⚠️ THE TOKEN GREW WITH THE WRAP. `SUPERCALIFRAGILISTIC` is 20 characters and used to
+        // exceed the old 16; at 24 it fits on one line, so this test would have gone on passing
+        // while testing nothing. The token has to be longer than the width for the hard break to
+        // be the thing under test.
+        const token = "SUPERCALIFRAGILISTICEXPIALIDOCIOUS";
+        expect(token.length).toBeGreaterThan(VENDOR_DESCRIPTION_WRAP_CHARS);
+        const label = vendorDescriptionLabel(null, `${token} materials`);
+        expect(label.descriptionLines.length).toBeGreaterThan(1);
+        for (const line of label.descriptionLines) {
+            expect(line.length).toBeLessThanOrEqual(VENDOR_DESCRIPTION_WRAP_CHARS);
+        }
+        expect(label.descriptionLines.join("").replace(/\s/g, "")).toBe(`${token}materials`);
+    });
+
+    it("wraps on word boundaries where the words fit -- 24 is wider than a word", () => {
+        // The wrap is only a hard break when it has to be. Two short words that fit inside 24
+        // together must share a line, or the widening bought nothing.
+        const label = vendorDescriptionLabel("V", "Site 4 cabling works, ground floor");
+        for (const line of label.descriptionLines) {
+            expect(line.length).toBeLessThanOrEqual(VENDOR_DESCRIPTION_WRAP_CHARS);
+        }
+        expect(label.descriptionLines[0]).toBe("Site 4 cabling works,");
+        expect(label.truncated).toBe(false);
+    });
+
+    it("never leaves a wrapped line wider than the column, capped text included", () => {
+        const label = vendorDescriptionLabel("V", "Q".repeat(300));
+        expect(label.truncated).toBe(true);
+        for (const line of label.descriptionLines) {
+            expect(line.length).toBeLessThanOrEqual(VENDOR_DESCRIPTION_WRAP_CHARS);
+        }
+    });
+
+    it("names the column Vendor / Description, keeping its id", () => {
+        // ⚠️ INVERTED, not dropped: the heading used to be "Vendor", which reported every
+        // non-project record as one whose vendor was missing. The id is what the rest of the model
+        // matches on and does not move.
+        const column = RECORD_COLUMNS.find((c) => c.id === "vendor")!;
+        expect(column.title).toBe("Vendor / Description");
+        // ⚠️ 220px, INVERTED from 180px, and it is not a styling tweak. The wrap went to 24
+        // characters (~168px at `text-sm`) and a 180px column has only a 164px content box after
+        // `px-2` a side, so the text would have been wrapped for a box it no longer fits. The 40px
+        // came out of `record`, which lost its document id at D11.
+        expect(column.width).toBe("220px");
+        expect(column.width).not.toBe("180px");
+        expect(RECORD_COLUMNS.find((c) => c.id === "record")!.width).toBe("190px");
     });
 });
 
@@ -832,6 +1285,413 @@ describe("isConfirmable", () => {
             })
         ).toBe(true);
     });
+
+    // --- the `new` branch, re-pinned when the create path came back on (slice B5) ----------------
+    //
+    // ⚠️ THESE EXIST BECAUSE THE PATH WAS DARK FOR A MONTH. `SHOW_CREATE_NEW_EXPENSE` was off from
+    // 2026-08-07, so nothing in the product exercised this branch and nothing here pinned its
+    // half-filled shapes. The dialog's Confirm button and the bulk bar BOTH gate on this one
+    // function, so a hole in it is a create posted with a field the server will refuse -- and the
+    // bulk path posts without anyone looking at the row.
+
+    it("refuses a `new` decision with no form behind it at all", () => {
+        // Clicking the create card seeds a form, but a decision can also arrive from elsewhere.
+        // A bare `{ target: "new" }` has answered nothing.
+        expect(isConfirmable(row({ row_status: "Unmatched" }), { target: "new" })).toBe(false);
+    });
+
+    it("refuses a `new` decision whose type is blank rather than absent", () => {
+        // ⚠️ The picker writes `null` on a ledger switch and the server's `_assert_type_scope`
+        // throws on a blank type, so an empty string must fail here rather than at the endpoint.
+        const base = row({ row_status: "Unmatched" });
+        expect(
+            isConfirmable(base, {
+                target: "new",
+                newExpense: { doctype: "Non Project Expenses", expenseType: "" },
+            })
+        ).toBe(false);
+        expect(
+            isConfirmable(base, {
+                target: "new",
+                newExpense: { doctype: "Non Project Expenses", expenseType: null },
+            })
+        ).toBe(false);
+    });
+
+    it("refuses a project expense whose project is blank rather than absent", () => {
+        expect(
+            isConfirmable(row({ row_status: "Unmatched" }), {
+                target: "new",
+                newExpense: { doctype: "Project Expenses", expenseType: "Rent", project: "" },
+            })
+        ).toBe(false);
+    });
+
+    it("ignores a leftover `linkTo` on a `new` decision", () => {
+        // Picking a record and THEN choosing the create card leaves the old link in the object --
+        // `settleOne` reads only `newExpense` when the target is `new`, so it must not tip the
+        // verdict either way. Here the form is complete, so the answer is yes despite the link.
+        expect(
+            isConfirmable(row({ row_status: "Matched" }), {
+                target: "new",
+                linkTo: "PAY-1",
+                newExpense: { doctype: "Non Project Expenses", expenseType: "Rent" },
+            })
+        ).toBe(true);
+    });
+
+    it("still refuses a complete `new` form on a row the match has not run on", () => {
+        // The evidence rule is about the ROW, not about which kind of decision was made on it.
+        expect(
+            isConfirmable(row({ row_status: "Pending match run" }), {
+                target: "new",
+                newExpense: { doctype: "Non Project Expenses", expenseType: "Rent" },
+            })
+        ).toBe(false);
+    });
+
+    // --- the `inflow` branch (slice B6) ---------------------------------------------------------
+    //
+    // ⚠️ THIS ONE WRITES THE OTHER DIRECTION, INTO A DOCTYPE WITH NO STATUS AND NO APPROVAL. Every
+    // consumer sums `Project Inflows` unfiltered, so a created inflow is live immediately and can
+    // release a CEO Cashflow Hold. The bulk bar counts with this same function and posts without
+    // anyone reopening the row, which is why each half-filled shape is pinned rather than assumed.
+
+    const CREDIT = { row_status: "Mismatched", direction: "Credit" } as any;
+
+    it("accepts a credit row with a project and its derived customer", () => {
+        expect(
+            isConfirmable(row(CREDIT), {
+                target: "inflow",
+                newInflow: { project: "P-1", customer: "CUST-1" },
+            })
+        ).toBe(true);
+    });
+
+    it("refuses a DEBIT row, whatever the form says", () => {
+        // ⚠️ `direction` IS THE ONLY THING THAT CAN SAY SO -- `amount` is the positive magnitude on
+        // every source by design, so without this check money that LEFT could be recorded as money
+        // that arrived. The server refuses it twice as well.
+        expect(
+            isConfirmable(row({ row_status: "Mismatched", direction: "Debit" } as any), {
+                target: "inflow",
+                newInflow: { project: "P-1", customer: "CUST-1" },
+            })
+        ).toBe(false);
+    });
+
+    it("refuses a row with no direction at all", () => {
+        // Blank is NOT "Debit by default" and it is NOT "Credit by default": the parser leaves it
+        // blank when it found a figure in BOTH money columns and refused to guess. Nothing may be
+        // recorded on a row whose direction we could not read.
+        expect(
+            isConfirmable(row({ row_status: "Mismatched" }), {
+                target: "inflow",
+                newInflow: { project: "P-1", customer: "CUST-1" },
+            })
+        ).toBe(false);
+    });
+
+    it("refuses an `inflow` decision with no form behind it at all", () => {
+        expect(isConfirmable(row(CREDIT), { target: "inflow" })).toBe(false);
+    });
+
+    it("refuses a project whose customer is blank rather than absent", () => {
+        // ⚠️ A BLANK CUSTOMER MEANS THE PROJECT HAS NONE, which the server refuses (owner ruling
+        // Q13). Requiring it here is what turns that refusal into a disabled button with the reason
+        // beside it, rather than a click that fails.
+        expect(
+            isConfirmable(row(CREDIT), {
+                target: "inflow",
+                newInflow: { project: "P-1", customer: "" },
+            })
+        ).toBe(false);
+        expect(
+            isConfirmable(row(CREDIT), {
+                target: "inflow",
+                newInflow: { project: "P-1", customer: null },
+            })
+        ).toBe(false);
+        expect(
+            isConfirmable(row(CREDIT), { target: "inflow", newInflow: { project: "P-1" } })
+        ).toBe(false);
+    });
+
+    it("refuses a blank project", () => {
+        expect(
+            isConfirmable(row(CREDIT), {
+                target: "inflow",
+                newInflow: { project: "", customer: "CUST-1" },
+            })
+        ).toBe(false);
+    });
+
+    it("does not require an invoice -- it is optional", () => {
+        expect(
+            isConfirmable(row(CREDIT), {
+                target: "inflow",
+                newInflow: { project: "P-1", customer: "CUST-1", invoice: null },
+            })
+        ).toBe(true);
+    });
+
+    it("ignores a leftover `linkTo` on an `inflow` decision", () => {
+        // Picking a record and THEN choosing the inflow card leaves the old link in the object;
+        // `settleOne` reads only `newInflow` when the target is `inflow`.
+        expect(
+            isConfirmable(row({ row_status: "Matched", direction: "Credit" } as any), {
+                target: "inflow",
+                linkTo: "PAY-1",
+                newInflow: { project: "P-1", customer: "CUST-1" },
+            })
+        ).toBe(true);
+    });
+
+    it("still refuses a complete inflow form on a row the match has not run on", () => {
+        expect(
+            isConfirmable(
+                row({ row_status: "Pending match run", direction: "Credit" } as any),
+                { target: "inflow", newInflow: { project: "P-1", customer: "CUST-1" } }
+            )
+        ).toBe(false);
+    });
+
+    it("still refuses a complete inflow form on an already terminal row", () => {
+        for (const status of ["Settled", "Skipped"]) {
+            expect(
+                isConfirmable(row({ row_status: status, direction: "Credit" } as any), {
+                    target: "inflow",
+                    newInflow: { project: "P-1", customer: "CUST-1" },
+                })
+            ).toBe(false);
+        }
+    });
+
+    // --- the `receipt` branch (slice B7) ---------------------------------------------------------
+    //
+    // ⚠️ THE ONE SIGNED WRITE IN THIS SCREEN. A credit that belongs to no project becomes a
+    // NEGATIVE `Non Project Expense` -- there is no non-project inflow doctype in this app and none
+    // is being created (owner ruling Q3, ADR-0016 decision 3). The bulk bar counts with this same
+    // function and posts without anyone reopening the row, so a shape that slips through here is a
+    // signed write nobody looked at.
+
+    it("accepts a credit row with a receipt type chosen", () => {
+        expect(
+            isConfirmable(row(CREDIT), {
+                target: "receipt",
+                newReceipt: { expenseType: "Interest Received" },
+            })
+        ).toBe(true);
+    });
+
+    it("refuses a DEBIT row, whatever the form says", () => {
+        // ⚠️ THE REFUSAL THAT MATTERS MOST ON THIS BRANCH. On a debit this would not merely file
+        // money in the wrong place -- it would store money that LEFT the account as a negative
+        // expense, i.e. as income, and the books would be wrong by twice the transfer. The server
+        // refuses it twice as well.
+        expect(
+            isConfirmable(row({ row_status: "Mismatched", direction: "Debit" } as any), {
+                target: "receipt",
+                newReceipt: { expenseType: "Interest Received" },
+            })
+        ).toBe(false);
+    });
+
+    it("refuses a row with no direction at all", () => {
+        // Blank is NOT "Credit by default". The parser leaves it blank when it found a figure in
+        // BOTH money columns and refused to guess; nothing signed may ride a guess.
+        expect(
+            isConfirmable(row({ row_status: "Mismatched" }), {
+                target: "receipt",
+                newReceipt: { expenseType: "Interest Received" },
+            })
+        ).toBe(false);
+    });
+
+    it("refuses a `receipt` decision with no form, or with no type chosen", () => {
+        expect(isConfirmable(row(CREDIT), { target: "receipt" })).toBe(false);
+        expect(isConfirmable(row(CREDIT), { target: "receipt", newReceipt: {} })).toBe(false);
+        expect(
+            isConfirmable(row(CREDIT), { target: "receipt", newReceipt: { expenseType: "" } })
+        ).toBe(false);
+        expect(
+            isConfirmable(row(CREDIT), { target: "receipt", newReceipt: { expenseType: null } })
+        ).toBe(false);
+    });
+
+    it("does not require a description -- the server composes one from the payer", () => {
+        expect(
+            isConfirmable(row(CREDIT), {
+                target: "receipt",
+                newReceipt: { expenseType: "Loan Received", description: "" },
+            })
+        ).toBe(true);
+    });
+
+    it("does NOT require a project -- having none is what makes it this disposition", () => {
+        // The distinction from `inflow`, pinned: a receipt with a project behind it is an inflow,
+        // and `Non Project Expenses` has no project column at all.
+        expect(
+            isConfirmable(row(CREDIT), {
+                target: "receipt",
+                newReceipt: { expenseType: "Advance Returned" },
+            })
+        ).toBe(true);
+    });
+
+    it("ignores a leftover `linkTo` or `newInflow` on a `receipt` decision", () => {
+        // Picking a record, then the inflow card, then this one leaves both behind in the object;
+        // `settleOne` reads only `newReceipt` when the target is `receipt`.
+        expect(
+            isConfirmable(row({ row_status: "Matched", direction: "Credit" } as any), {
+                target: "receipt",
+                linkTo: "PAY-1",
+                newInflow: { project: "P-1", customer: "CUST-1" },
+                newReceipt: { expenseType: "Interest Received" },
+            })
+        ).toBe(true);
+    });
+
+    it("still refuses a complete receipt form on a row the match has not run on", () => {
+        expect(
+            isConfirmable(row({ row_status: "Pending match run", direction: "Credit" } as any), {
+                target: "receipt",
+                newReceipt: { expenseType: "Interest Received" },
+            })
+        ).toBe(false);
+    });
+
+    it("still refuses a complete receipt form on an already terminal row", () => {
+        for (const status of ["Settled", "Skipped"]) {
+            expect(
+                isConfirmable(row({ row_status: status, direction: "Credit" } as any), {
+                    target: "receipt",
+                    newReceipt: { expenseType: "Interest Received" },
+                })
+            ).toBe(false);
+        }
+    });
+
+    // --- the MIRROR of the credit gate: the debit-side dispositions ------------------------------
+    //
+    // ⚠️ THE HALF THAT WAS MISSING. `inflow` and `receipt` have refused a debit since B6/B7, but
+    // the settle branch and the `new` branch had NO direction check at all -- so a CREDIT row could
+    // be confirmed against a debit-side approved payment, marking a payment we owe as paid out of
+    // money that came IN. `isCreditRow` is the one predicate, and the two sides now PARTITION.
+
+    it("refuses to settle a CREDIT row against an approved payment", () => {
+        expect(
+            isConfirmable(row({ row_status: "Matched", direction: "Credit" } as any), link)
+        ).toBe(false);
+    });
+
+    it("refuses to settle a CREDIT row against either expense ledger", () => {
+        for (const target of ["Project Expenses", "Non Project Expenses"] as const) {
+            expect(
+                isConfirmable(row({ row_status: "Mismatched", direction: "Credit" } as any), {
+                    target,
+                    linkTo: "EXP-1",
+                })
+            ).toBe(false);
+        }
+    });
+
+    it("refuses a `new` expense on a CREDIT row, however complete the form", () => {
+        // Creating an expense out of money that ARRIVED files an inflow as a spend. The credit
+        // dispositions (`inflow` / `receipt`) are the only ones that may run on this row.
+        expect(
+            isConfirmable(row({ row_status: "Matched", direction: "Credit" } as any), {
+                target: "new",
+                newExpense: { doctype: "Non Project Expenses", expenseType: "Rent" },
+            })
+        ).toBe(false);
+        expect(
+            isConfirmable(row({ row_status: "Matched", direction: "Credit" } as any), {
+                target: "new",
+                newExpense: {
+                    doctype: "Project Expenses",
+                    expenseType: "Rent",
+                    project: "P-1",
+                },
+            })
+        ).toBe(false);
+    });
+
+    it("still accepts the debit-side dispositions on a BLANK direction", () => {
+        // ⚠️ THE OTHER HALF OF THE PARTITION, AND THE REASON THE TEST IS A SINGLE POSITIVE ONE.
+        // Blank is not read as "Debit by default" -- it is simply NOT Credit, so it lands on the
+        // paid side, exactly as `status.is_received_direction` disposes of it on the server.
+        expect(isConfirmable(row({ row_status: "Matched" }), link)).toBe(true);
+        expect(
+            isConfirmable(row({ row_status: "Matched" }), {
+                target: "new",
+                newExpense: { doctype: "Non Project Expenses", expenseType: "Rent" },
+            })
+        ).toBe(true);
+    });
+
+    it("still accepts the debit-side dispositions on an explicit Debit", () => {
+        expect(
+            isConfirmable(row({ row_status: "Matched", direction: "Debit" } as any), link)
+        ).toBe(true);
+    });
+});
+
+describe("what a non-project receipt will actually store (slice B7)", () => {
+    // ⚠️ THE CRUX OF THE SLICE, AND THE ONE PART OF IT A UNIT TEST CAN REACH. The bank row carries a
+    // POSITIVE magnitude on every source -- ADR-0016 rejected a signed amount column outright -- and
+    // the negation is applied in the write path. This helper is what lets the FORM say the same
+    // thing the server will do, so the reviewer is never shown the positive figure and handed the
+    // negative one.
+
+    it("negates the bank's magnitude", () => {
+        expect(receiptStoredAmount(44275)).toBe(-44275);
+        expect(receiptStoredAmount(2500.5)).toBe(-2500.5);
+    });
+
+    it("stays negative even if a signed amount ever reached it", () => {
+        // The staged amount should never be signed. If one ever is, this must still describe a
+        // RECEIPT rather than quietly flipping it back into a payment -- which is why it is
+        // `-Math.abs(...)` and not a bare `-`.
+        expect(receiptStoredAmount(-44275)).toBe(-44275);
+    });
+
+    it("reads a missing or unusable amount as zero rather than NaN", () => {
+        // A NaN would render as "₹--" beside a card that says money arrived, which is worse than a
+        // zero: it looks like a bug in the screen rather than a fact about the row.
+        expect(receiptStoredAmount(null)).toBe(0);
+        expect(receiptStoredAmount(undefined)).toBe(0);
+        expect(receiptStoredAmount(Number.NaN)).toBe(0);
+    });
+
+    it("returns a plain 0 for zero, never -0", () => {
+        // `-0` compares equal to `0` and formats identically, so it would never be SEEN -- and
+        // would then surprise whoever next reaches for `Object.is` or a snapshot.
+        expect(Object.is(receiptStoredAmount(0), 0)).toBe(true);
+    });
+});
+
+describe("the machine never proposes CREATING an expense (slice B5)", () => {
+    it("seeds only the three settleable ledgers, never `new`", () => {
+        // ⚠️ THE ASYMMETRY IS THE SAFETY. A seeded decision can be confirmed in bulk without anyone
+        // opening the row, so the only thing the match run may pre-fill is a link to a record that
+        // ALREADY EXISTS. Creating a document is a person's act; `suggested_doctype` can never
+        // carry `new`, and this pins that the reader agrees.
+        expect(
+            suggestedDecision(
+                row({ row_status: "Matched", suggested_doctype: "new", suggested_name: "X" } as any)
+            )
+        ).toBeNull();
+        expect(
+            suggestedDecision(
+                row({
+                    row_status: "Matched",
+                    suggested_doctype: "Project Payments",
+                    suggested_name: "PAY-1",
+                } as any)
+            )
+        ).toEqual({ target: "Project Payments", linkTo: "PAY-1" });
+    });
 });
 
 describe("the bulk bar counts DECIDED rows, not selected ones", () => {
@@ -865,6 +1725,31 @@ describe("the bulk bar counts DECIDED rows, not selected ones", () => {
 
     it("ignores a decision for a row that is not selected", () => {
         expect(countDecided(rows, new Set(["c"]), decisions)).toBe(0);
+    });
+
+    // ⚠️ THE BAR COUNTS A `new` DECISION EXACTLY LIKE A LINK, AND IT HAS TO (slice B5). The
+    // create-only ICICI source resolves almost every row this way, so a bar that counted only links
+    // would report "0 decided" over a screenful of finished forms and the bulk button would refuse
+    // the whole statement. `decidedRows` is what `handleBulkConfirm` actually loops, so the count
+    // and the action are the same list by construction -- do not let them become two predicates.
+    it("counts a completed new-expense form beside a linked record", () => {
+        const withCreate = new Map(decisions).set("c", {
+            target: "new" as const,
+            newExpense: { doctype: "Project Expenses" as const, expenseType: "Rent", project: "P-1" },
+        });
+        const selected = new Set(["a", "b", "c"]);
+        expect(countDecided(rows, selected, withCreate)).toBe(3);
+        expect(decidedRows(rows, selected, withCreate).map((r) => r.name)).toEqual(["a", "b", "c"]);
+    });
+
+    it("does NOT count a half-filled new-expense form", () => {
+        // The project is missing, so the endpoint would throw `Missing project`. A row in this
+        // state must not be swept up by a bulk confirm that nobody re-reads.
+        const halfFilled = new Map(decisions).set("c", {
+            target: "new" as const,
+            newExpense: { doctype: "Project Expenses" as const, expenseType: "Rent" },
+        });
+        expect(countDecided(rows, new Set(["a", "b", "c"]), halfFilled)).toBe(2);
     });
 });
 
@@ -922,12 +1807,72 @@ describe("links to the record a row settles — the app's own route (slice E3)",
     it("never routes an EXPENSE to the payments route, whatever it is handed", () => {
         // `document_name` holds the expense TYPE on both expense ledgers, so an order id passed
         // here would be a category name, not a document.
-        expect(settlementLink("Project Expenses", "EXP-1", false, "Travel")!.href).toBe(
-            "/expense/project"
+        // ⚠️ `toMatch(/^…/)`, NOT `toBe`. The href now carries a status-tab query param, and the
+        // claim under test is the ROUTE — that an expense never reaches the payments route — not the
+        // exact string. Pinning the whole href here would make this test fail for a reason it is not
+        // about, the next time the tab rule changes.
+        expect(settlementLink("Project Expenses", "EXP-1", false, "Travel")!.href).toMatch(
+            /^\/expense\/project(\?|$)/
         );
-        expect(settlementLink("Non Project Expenses", "NPE-1", false, "Travel")!.href).toBe(
-            "/expense/non-project"
+        expect(settlementLink("Non Project Expenses", "NPE-1", false, "Travel")!.href).toMatch(
+            /^\/expense\/non-project(\?|$)/
         );
+    });
+});
+
+describe("⚠️ an expense link lands on the tab the record is actually IN", () => {
+    // Both lists read a namespaced status param on mount and subscribe to it — `pe_status` in
+    // `ProjectExpensesList`, `npe_status` in `NonProjectExpensesPage` — each documented there as
+    // supporting an external deep link.
+    it("sends a SETTLED expense to Paid, on both ledgers", () => {
+        // ⚠️ THE DEFECT THIS FIXES. Without the param the link landed on each page's DEFAULT tab,
+        // which is role-based and never `Paid`: `Requested` for most users, `Approved` for an
+        // Accountant. A settled expense is `Paid` by definition — this import just wrote it — so the
+        // reviewer was sent to a tab that provably could not contain it, with nothing on screen
+        // explaining the empty table.
+        expect(settlementLink("Project Expenses", "PE-1", true)!.href).toBe(
+            "/expense/project?pe_status=Paid",
+        );
+        expect(settlementLink("Non Project Expenses", "NPE-1", true)!.href).toBe(
+            "/expense/non-project?npe_status=Paid",
+        );
+    });
+
+    it("⚠️ sends a SUGGESTED expense to Approved, NOT to Paid", () => {
+        // A suggestion has settled nothing and its expense is still `Approved` —
+        // `SETTLEABLE_STATUSES` is Approved-only. Hardcoding `Paid` would reproduce the very defect
+        // above pointing the other way, which is the shape the payment branch already records
+        // finding live.
+        expect(settlementLink("Project Expenses", "PE-1", false)!.href).toBe(
+            "/expense/project?pe_status=Approved",
+        );
+        expect(settlementLink("Non Project Expenses", "NPE-1", false)!.href).toBe(
+            "/expense/non-project?npe_status=Approved",
+        );
+    });
+
+    it("⚠️ stays `exact: false` — a tab is not a record", () => {
+        // `exact` means "this lands on the record", and it still does not: neither table has the id
+        // in its searchable fields and there is no `/expense/:id` route, so the reviewer arrives at
+        // a filtered LIST. Narrowing the tab must not be mistaken for pinpointing the row.
+        expect(settlementLink("Project Expenses", "PE-1", true)!.exact).toBe(false);
+        expect(settlementLink("Non Project Expenses", "NPE-1", true)!.exact).toBe(false);
+    });
+
+    it("names the tab in the title, so the destination is stated before the click", () => {
+        expect(settlementLink("Project Expenses", "PE-1", true)!.title).toContain("→ Paid");
+        expect(settlementLink("Non Project Expenses", "NPE-1", false)!.title).toContain(
+            "→ Approved",
+        );
+    });
+
+    it("⚠️ the param keys are the ones those pages actually read", () => {
+        // Spelled out as literals because they are a CONTRACT WITH ANOTHER MODULE, not a local
+        // choice: `pe_status` / `npe_status` are namespaced in those files precisely so they cannot
+        // collide with a project page's own `?tab=`. A rename there silently strands this link on
+        // the default tab — the failure this whole block exists to prevent — so it must break here.
+        expect(settlementLink("Project Expenses", "PE-1", true)!.href).toContain("pe_status=");
+        expect(settlementLink("Non Project Expenses", "NPE-1", true)!.href).toContain("npe_status=");
     });
 });
 
@@ -979,13 +1924,17 @@ describe("links to the record a row settles — the FALLBACK path, with no order
         // Not a shortcoming of this helper: PE_SEARCHABLE_FIELDS / NPE_SEARCHABLE_FIELDS cover
         // description, type, vendor and amount -- never `name`. Rendering it like a payment link
         // would promise a precision it does not have.
+        // ⚠️ THE HREF NOW CARRIES A STATUS TAB, AND `exact` IS STILL FALSE — the two are different
+        // claims and this test is about the second. Landing on the right TAB narrows the list; it
+        // does not find the ROW, because the id is still not searchable. Both calls omit `settled`,
+        // so they default to the suggestion case: `Approved`.
         const pe = settlementLink("Project Expenses", "i87sop52n3")!;
         expect(pe.exact).toBe(false);
-        expect(pe.href).toBe("/expense/project");
+        expect(pe.href).toBe("/expense/project?pe_status=Approved");
 
         const npe = settlementLink("Non Project Expenses", "abc123")!;
         expect(npe.exact).toBe(false);
-        expect(npe.href).toBe("/expense/non-project");
+        expect(npe.href).toBe("/expense/non-project?npe_status=Approved");
     });
 
     it("refuses a half-written or unknown target", () => {
@@ -1372,7 +2321,13 @@ describe("the settleable-record table model", () => {
     it("keeps the whole table inside the dialog without horizontal scroll", () => {
         // The dialog is 960px wide with ~48px of padding and a ~36px radio column. If the columns
         // outgrow that, Amount is the one that falls off -- which is what this change fixed.
+        //
+        // ⚠️ THE CAP IS UNCHANGED; THE SUM MOVED UNDER IT. `vendor` went 180 -> 220 for the 24-char
+        // wrap and `record` went 210 -> 190 to pay for it, so the total is 850 against a budget of
+        // 876. A widening has to be PAID FOR out of another column -- raising the cap instead would
+        // be raising the dialog's width, which nothing here can do.
         const total = RECORD_COLUMNS.reduce((sum, c) => sum + parseInt(c.width, 10), 0);
+        expect(total).toBe(850);
         expect(total).toBeLessThanOrEqual(960 - 48 - 36);
     });
 
@@ -2353,7 +3308,7 @@ function anImport(overrides: Partial<SummaryImport> = {}): SummaryImport {
 describe("a pinned batch and the period", () => {
     /**
      * ⚠️ FOUND IN THE BROWSER, NOT BY A TEST, AND IT WAS THE WORST KIND OF WRONG. On
-     * `/bulk-import-outflow/:id` the period control is HIDDEN, so a period left in the store by an
+     * `/bulk-import-transactions/:id` the period control is HIDDEN, so a period left in the store by an
      * earlier visit kept narrowing the view with nothing on screen able to reveal or clear it. A
      * deep link to a 1,043-row statement reported 274 transfers under a panel headed "Showing
      * OFI-26-00289": every number wrong, everything looking right.
