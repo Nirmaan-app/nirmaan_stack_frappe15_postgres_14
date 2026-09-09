@@ -9,7 +9,15 @@ Wire contract: `frontend/src/pages/SnagList/types.ts`
   inspect_workbook  -> InspectWorkbookResponse
   get_sheet_columns -> GetSheetColumnsResponse
   parse_preview     -> ParsePreviewResponse
-  ingest_batches    -> IngestBatchesResponse
+  ingest_batch      -> IngestBatchResponse
+
+⚠️ A BATCH IS THE FILE, NOT THE SHEET (owner decision 2026-09-09). `ingest_batch`
+creates ONE `Project Snag Batch` per upload, holding the combined rows of every ticked
+sheet. The wizard still asks for a mapping / header row / row ticks PER SHEET -- those
+are per-sheet facts -- but the grouping, the batch name and the Import History row are
+all per FILE. This reverses plan section 4's "One Batch per ticked sheet", and with it
+that section's per-sheet failure isolation: see `ingest_batch` on why the two cannot
+both be true.
 """
 
 from __future__ import annotations
@@ -424,17 +432,67 @@ def parse_preview(project=None, file_url=None, sheet_name=None, mapping=None, he
 # ---------------------------------------------------------------------------
 
 
-def _ingest_one_sheet(project, file_url, entry):
-    """Create ONE `Project Snag Batch` plus its Snags. Returns a SheetIngestResult body.
+#: `Project Snag Batch.source_sheet` is Data(140). A batch now names EVERY sheet it
+#: drew from, so the joined string has to be kept inside the column.
+_SOURCE_SHEET_MAX_LEN = 140
 
-    Caller owns the savepoint -- this raises on any failure so the caller can roll THIS
-    sheet back and leave the others standing.
+
+def _joined_sheet_names(names):
+    """The sheets a batch drew from, as one Data value.
+
+    Truncated by WHOLE NAMES with a stated remainder ("A, B +3 more"), never mid-name:
+    half a sheet name reads as a sheet that does not exist, and the count is the part a
+    reader actually needs when the list is too long to print.
+    """
+    joined = ", ".join(names)
+    if len(joined) <= _SOURCE_SHEET_MAX_LEN:
+        return joined
+
+    kept = []
+    for name in names:
+        candidate = ", ".join(kept + [name])
+        # Leave room for the " +NN more" suffix.
+        if len(candidate) + 10 > _SOURCE_SHEET_MAX_LEN:
+            break
+        kept.append(name)
+    return f"{', '.join(kept)} +{len(names) - len(kept)} more"
+
+
+def _default_batch_name(file_name):
+    """The batch's name when the user did not type one: the FILE, minus its extension.
+
+    A batch is now the FILE (not the sheet), so the file is what names it. The old
+    default was `<file> — <sheet>`, which no longer identifies anything once one batch
+    spans several sheets.
+    """
+    base = os.path.splitext(file_name or "")[0].strip()
+    return base or "Imported snags"
+
+
+def _sheet_rows(file_url, entry):
+    """Parse ONE ticked sheet and return the rows the user left ticked. WRITES NOTHING.
+
+    Every sheet is parsed through here BEFORE any document is created, which is what
+    makes the import atomic: a sheet that raises does so while the database is still
+    untouched, so there is no half-built batch to clean up.
+
+    The server re-parses and filters to the ticked rows -- the client never sends row
+    CONTENT, so a tampered payload cannot invent a snag.
+
+    `parsed["rows"]` is ONE merged list, accepted and skipped interleaved in Excel row
+    order, and the filter runs over ALL of it. That is the whole point: the preview lets
+    the user re-tick a row the parser skipped, and this is where that promise is kept.
+    Filtering the accepted rows alone is exactly the bug this replaced -- a re-ticked row
+    was not in the list being filtered, so it vanished with no error.
+
+    EVERY ticked row that exists in the parse is imported (ADR-0019). There is no
+    importability filter here: the tick is the human's decision and this layer does not
+    overrule it. A row with no description takes `_description_for`'s fallback.
     """
     sheet_name = entry.get("sheet_name")
     if not sheet_name:
-        raise ValueError("sheet_name is required for every batch entry.")
+        raise ValueError("sheet_name is required for every sheet entry.")
 
-    batch_name = (entry.get("batch_name") or "").strip() or sheet_name
     mapping = _coerce_mapping(entry.get("mapping"))
     accepted = {int(r) for r in (entry.get("accepted_rows") or [])}
     # The SAME header row the preview was computed with. Without it the re-parse silently
@@ -451,131 +509,150 @@ def _ingest_one_sheet(project, file_url, entry):
         except OSError:
             pass
 
-    # The server re-parses and filters to the rows the user left TICKED -- the client
-    # never sends row CONTENT, so a tampered payload cannot invent a snag.
-    #
-    # `parsed["rows"]` is ONE merged list, accepted and skipped interleaved in Excel row
-    # order, and the filter runs over ALL of it. That is the whole point: the preview lets
-    # the user re-tick a row the parser skipped, and this is where that promise is kept.
-    # Filtering the accepted rows alone is exactly the bug this replaced -- a re-ticked row
-    # was not in the list being filtered, so it vanished with no error and `imported` came
-    # back lower than the footer promised.
-    # EVERY ticked row that exists in the parse is imported (ADR-0019). There is no
-    # importability filter here any more: the tick is the human's decision and this layer
-    # does not overrule it. A row with no description takes `_description_for`'s fallback.
     rows = [r for r in (parsed.get("rows") or []) if r.get("source_row") in accepted]
 
     if not rows:
         # TWO genuinely different failures, two different messages. The single
         # "No accepted rows were found" this replaced read like a parser crash whichever
         # one had actually happened.
-        #
-        # There used to be a THIRD -- "everything you ticked has no description". ADR-0019
-        # made it unreachable, so it is gone rather than left as a message that can never
-        # fire (a dead branch reads as a live rule to the next person here).
         if not accepted:
-            raise ValueError(
-                f"No rows were ticked for sheet '{sheet_name}'. Nothing was imported."
-            )
+            raise ValueError(f"No rows were ticked for sheet '{sheet_name}'.")
         raise ValueError(
             f"None of the {len(accepted)} ticked row(s) exist in sheet '{sheet_name}' as it "
-            f"parses now. Nothing was imported -- re-check the header row and re-preview."
+            f"parses now -- re-check the header row and re-preview."
         )
 
-    batch = frappe.get_doc(
-        {
-            "doctype": "Project Snag Batch",
-            "project": project,
-            "batch_name": batch_name,
-            "source_sheet": sheet_name,
-            "source_file": file_url,
-            "uploaded_by": frappe.session.user,
-            "uploaded_on": now(),
-            "snag_count": len(rows),
-            "column_mapping": json.dumps(mapping),
-        }
-    )
-    batch.insert(ignore_permissions=True)
-
-    serials = _serials_for(rows)
-
-    for row, serial in zip(rows, serials):
-        frappe.get_doc(
-            {
-                "doctype": "Project Snag",
-                "project": project,
-                "batch": batch.name,
-                # The sheet's own S.No, else this row's position in the batch.
-                "source_serial": serial,
-                "area": row.get("area") or "",
-                "category": row.get("category") or "",
-                # ADR-0019: the mapped text, else the row's first non-empty cell, else
-                # blank. Never an invented placeholder.
-                "description": _description_for(row),
-                # The source file's own Status vocabulary is not ours -- every imported
-                # snag starts at Pending (plan section 2).
-                "status": "Pending",
-                # ONE remark field (ADR-0018). It arrives holding the source author's
-                # text and is overwritten by whoever next changes this snag's status.
-                "remark": row.get("remark") or "",
-                "source_row": row.get("source_row"),
-            }
-        ).insert(ignore_permissions=True)
-
-    return {
-        "sheet_name": sheet_name,
-        "ok": True,
-        "batch": batch.name,
-        "batch_name": batch.batch_name,
-        "imported": len(rows),
-        # ADR-0019-DEAD: structurally always 0 -- nothing is refused any more. RETAINED on
-        # the wire rather than deleted, deliberately: it is the counter that proved
-        # Revision 2's silent-drop bug fixed, and a result payload that can still SAY
-        # "nothing was refused" is worth more than one that cannot express the question.
-        "refused_no_description": 0,
-    }
+    return {"sheet_name": sheet_name, "mapping": mapping, "rows": rows}
 
 
 @frappe.whitelist(methods=["POST"])
-def ingest_batches(project=None, file_url=None, file_name=None, batches=None):
-    """Create one Batch per entry, with PER-SHEET FAILURE ISOLATION.
+def ingest_batch(project=None, file_url=None, file_name=None, batch_name=None, sheets=None):
+    """Create ONE batch from the whole uploaded FILE, combining every ticked sheet.
 
-    Each sheet runs inside its own savepoint: a sheet that raises is rolled back to that
-    savepoint and reported with its error, and every OTHER sheet still imports. A silent
-    partial success is a defect, so each failure is also written to the Error Log.
+    ⚠️ THIS IS PER FILE, NOT PER SHEET (owner decision 2026-09-09, REVERSING plan section 4's
+    "One Batch per ticked sheet"). A workbook with three ticked sheets now produces ONE
+    `Project Snag Batch` holding all three sheets' rows -- one row in Import History, one
+    tab on the snag list. The wizard still asks for a mapping, a header row and row ticks
+    PER SHEET, because those are per-sheet facts; only the GROUPING moved.
 
-    `file_name` is accepted for provenance/logging; the batch's durable pointer to the
-    workbook is `source_file = file_url`.
+    ATOMIC, and that is the deliberate cost of the change. Per-sheet savepoint isolation is
+    GONE: a sheet that fails now fails the whole import and nothing is created. It cannot
+    survive per-file batching -- a batch that claims to be the file while silently missing
+    one sheet's rows is worse than a clean failure the user can retry, because nothing on
+    screen would ever say which rows are absent.
+
+    Every sheet is parsed BEFORE the first insert (`_sheet_rows` writes nothing), so the
+    usual failure costs no rollback at all; the write block still carries a savepoint for
+    the case where a snag insert itself raises.
     """
     _assert_project(project)
     require_import_access("import a snag list")
 
-    batches = frappe.parse_json(batches) if isinstance(batches, str) else batches
-    if not isinstance(batches, list) or not batches:
+    sheets = frappe.parse_json(sheets) if isinstance(sheets, str) else sheets
+    if not isinstance(sheets, list) or not sheets:
         frappe.throw("No sheets were selected for import.", title="Nothing to import")
 
-    results = []
-    for index, entry in enumerate(batches):
-        sheet_name = (entry or {}).get("sheet_name") or f"sheet #{index + 1}"
-        save_point = f"snag_ingest_{index}"
-        frappe.db.savepoint(save_point)
+    # --- Parse every sheet first. Nothing is written until all of them are in hand. ---
+    parsed_sheets = []
+    for index, entry in enumerate(sheets):
+        entry = entry or {}
+        label = entry.get("sheet_name") or f"sheet #{index + 1}"
         try:
-            results.append(_ingest_one_sheet(project, file_url, entry or {}))
-        except Exception as exc:
-            frappe.db.rollback(save_point=save_point)
+            parsed_sheets.append(_sheet_rows(file_url, entry))
+        except Exception as exc:  # noqa: BLE001 - reported to the user AND to the Error Log
             frappe.log_error(
-                title="Snag ingest failed for one sheet",
+                title="Snag ingest failed",
                 message=(
                     f"project={project!r} file_name={file_name!r} file_url={file_url!r}\n"
-                    f"sheet={sheet_name!r}\n\n{frappe.get_traceback()}"
+                    f"sheet={label!r}\n\n{frappe.get_traceback()}"
                 ),
             )
-            results.append({"sheet_name": sheet_name, "ok": False, "error": str(exc)})
+            frappe.throw(
+                f"Sheet '{label}' could not be imported: {exc}\n\n"
+                f"Nothing was imported. The whole file is one batch, so no sheet is imported "
+                f"unless every ticked sheet can be.",
+                title="Import failed",
+            )
+
+    label = (batch_name or "").strip() or _default_batch_name(file_name)
+    # (sheet_name, row) pairs in sheet order, then row order within each sheet.
+    combined = [(s["sheet_name"], row) for s in parsed_sheets for row in s["rows"]]
+
+    save_point = "snag_ingest"
+    frappe.db.savepoint(save_point)
+    try:
+        batch = frappe.get_doc(
+            {
+                "doctype": "Project Snag Batch",
+                "project": project,
+                "batch_name": label,
+                # EVERY sheet this batch drew from, not just the first.
+                "source_sheet": _joined_sheet_names([s["sheet_name"] for s in parsed_sheets]),
+                "source_file": file_url,
+                "uploaded_by": frappe.session.user,
+                "uploaded_on": now(),
+                "snag_count": len(combined),
+                # KEYED BY SHEET NAME now -- each sheet was mapped separately, so one flat
+                # mapping could only ever describe one of them. A batch imported BEFORE this
+                # change holds the old flat shape; readers must tolerate both (there is no
+                # patch, and none is needed -- every historical batch has exactly one sheet).
+                "column_mapping": json.dumps(
+                    {s["sheet_name"]: s["mapping"] for s in parsed_sheets}
+                ),
+            }
+        )
+        batch.insert(ignore_permissions=True)
+
+        # The serial counter walks the COMBINED list, so an unnumbered row takes its
+        # position within the BATCH -- continuous across sheet boundaries, because the
+        # batch is what the number identifies a row inside of.
+        serials = _serials_for([row for _, row in combined])
+
+        for (sheet_name, row), serial in zip(combined, serials):
+            frappe.get_doc(
+                {
+                    "doctype": "Project Snag",
+                    "project": project,
+                    "batch": batch.name,
+                    # WHICH SHEET this row came from. With one batch spanning several
+                    # sheets, `source_row` alone is ambiguous -- row 8 of which sheet?
+                    "source_sheet": sheet_name,
+                    # The sheet's own S.No, else this row's position in the batch.
+                    "source_serial": serial,
+                    "area": row.get("area") or "",
+                    "category": row.get("category") or "",
+                    # ADR-0019: the mapped text, else the row's first non-empty cell, else
+                    # blank. Never an invented placeholder.
+                    "description": _description_for(row),
+                    # The source file's own Status vocabulary is not ours -- every imported
+                    # snag starts at Pending (plan section 2).
+                    "status": "Pending",
+                    # ONE remark field (ADR-0018). It arrives holding the source author's
+                    # text and is overwritten by whoever next changes this snag's status.
+                    "remark": row.get("remark") or "",
+                    "source_row": row.get("source_row"),
+                }
+            ).insert(ignore_permissions=True)
+    except Exception:
+        frappe.db.rollback(save_point=save_point)
+        frappe.log_error(
+            title="Snag ingest failed while writing the batch",
+            message=(
+                f"project={project!r} file_name={file_name!r} file_url={file_url!r}\n\n"
+                f"{frappe.get_traceback()}"
+            ),
+        )
+        raise
 
     frappe.db.commit()
 
     return {
-        "results": results,
-        "total_imported": sum(r.get("imported") or 0 for r in results if r.get("ok")),
-        "failed_count": sum(1 for r in results if not r.get("ok")),
+        "batch": batch.name,
+        "batch_name": batch.batch_name,
+        "imported": len(combined),
+        # Per-sheet breakdown, so the result screen can still say what each sheet
+        # contributed to the one batch.
+        "sheets": [
+            {"sheet_name": s["sheet_name"], "imported": len(s["rows"])} for s in parsed_sheets
+        ],
     }

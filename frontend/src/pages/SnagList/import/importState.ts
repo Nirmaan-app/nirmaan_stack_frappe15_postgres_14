@@ -31,10 +31,15 @@ export const PREVIEW_DEBOUNCE_MS = 300;
 export const ACCEPTED_EXTS = [".xlsx", ".xlsm"] as const;
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
-/** Per-sheet wizard state. One of these per TICKED sheet, owned by the dialog. */
+/**
+ * Per-sheet wizard state. One of these per TICKED sheet, owned by the dialog.
+ *
+ * ⚠️ NO `batchName` HERE. A batch is the FILE, not the sheet (owner decision
+ * 2026-09-09), so ONE name covers the whole import and the dialog owns it. What
+ * remains in this type is only what is genuinely per sheet — the mapping, the header
+ * row, the preview and the row ticks.
+ */
 export interface TabState {
-  /** Editable, pre-filled `<file name without extension> — <sheet name>`. */
-  batchName: string;
   mapping: SnagColumnMapping;
   /**
    * The header row this tab is parsing with. Seeded from the inspect guess, then editable
@@ -91,9 +96,15 @@ export function fileBaseName(fileName: string): string {
   return cut > 0 ? fileName.slice(0, cut) : fileName;
 }
 
-/** Q23: auto-fill so the lazy path still produces a meaningful batch name. */
-export function defaultBatchName(fileName: string, sheetName: string): string {
-  return `${fileBaseName(fileName)} — ${sheetName.trim()}`;
+/**
+ * The batch's pre-filled name: the FILE, minus its extension.
+ *
+ * It used to be `<file> — <sheet>`, which stopped identifying anything once one batch
+ * spans several sheets. Mirrors `import_wizard._default_batch_name` on the server, which
+ * is what fills in when the user clears the box.
+ */
+export function defaultBatchName(fileName: string): string {
+  return fileBaseName(fileName).trim();
 }
 
 export function fileExtensionOf(fileName: string): string {
@@ -323,9 +334,8 @@ export function tickedSheetNames(
 // Tab state
 // ---------------------------------------------------------------------------
 
-export function createTabState(sheet: WorkbookSheet, fileName: string): TabState {
+export function createTabState(sheet: WorkbookSheet): TabState {
   return {
-    batchName: defaultBatchName(fileName, sheet.name),
     mapping: initialMapping(sheet.mapping_guess),
     headerRow: sheet.header_row,
     columns: sheet.columns,
@@ -349,7 +359,6 @@ export function reconcileTabStates(
   previous: Record<string, TabState>,
   sheets: WorkbookSheet[],
   ticked: string[],
-  fileName: string,
 ): Record<string, TabState> {
   const byName = new Map(sheets.map((s) => [s.name, s]));
   const next: Record<string, TabState> = {};
@@ -360,7 +369,7 @@ export function reconcileTabStates(
       continue;
     }
     const sheet = byName.get(name);
-    if (sheet) next[name] = createTabState(sheet, fileName);
+    if (sheet) next[name] = createTabState(sheet);
   }
   return next;
 }
@@ -435,16 +444,14 @@ export function countTicked(current: ReadonlySet<number>, rows: number[]): numbe
 // Confirm
 // ---------------------------------------------------------------------------
 
-export function buildIngestBatches(
+export function buildIngestSheets(
   ticked: string[],
   states: Record<string, TabState>,
-  fileName: string,
 ): SheetIngestRequest[] {
   return ticked.map((name) => {
     const st = states[name];
     return {
       sheet_name: name,
-      batch_name: st.batchName.trim() || defaultBatchName(fileName, name),
       mapping: st.mapping,
       // The header row the PREVIEW was computed with, not the input's live value: the server
       // re-parses, and a different header row would parse a different region than the one the
