@@ -537,6 +537,20 @@ so **the fix lives in the parser, never in a prompt**: a balanced span whose ele
 skipped and the scan continues; a reply holding ONLY such a list still ends in the loud `ValueError`. Do not
 re-narrow it to "first list", and do not add a prompt sentence asking the model not to explain itself.
 
+**⚠️ A DEF'S `type` IS BOTH THE SCREEN AND THE MODEL'S INSTRUCTION (owner-locked, 2026-09-10, v61).**
+`extraction.build_attribute_defs` projects `{id, label, type, values}` into the prompt, and a `number_choice` -- the
+on-screen dropdown type -- reaches the model as a CLOSED LIST that the prompt tells it to pick from; `_coerce_value_ex`
+then nulls anything off the list. Shown the ten stocked tray widths, the model returned 50 for an "80 x 50mm" tray and
+a live row priced wrong. **`extract_as: "number"` on a def is the split: the panel keeps its dropdown (the frontend
+keys on `type`), the model is asked for a FREE number with no `values`, and the ladder / the SWG map fit it code-side
+afterwards.** It is honoured at ONE chokepoint (the projection; the coercer reads the projected def, so it follows by
+construction) and guarded by `rate_master._KNOWN_DEF_KEYS` -- attribute definitions had no key allowlist, so a
+misspelled key would have shipped the closed-list behaviour silently. Only defs whose document number can
+legitimately be off-list carry it (cabletray `width_mm`, `thickness_mm`); for a catalogue pick or a Yes/No the closed
+list is right. **STORED DATA CANNOT PROVE THIS CLASS** -- 10,002 verdicts showed 0 moved while the defect was live,
+because stored values never pass through the coercer again; only a fresh read (spend, on a live sheet) catches it.
+Where a stated value has no stocked match the field is left BLANK with the `no_match` note (never a snapped value).
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.

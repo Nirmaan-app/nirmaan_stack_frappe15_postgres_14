@@ -38139,3 +38139,237 @@ editor; no figure anywhere. The list did not grow.
 `blockColumnsFor`, the observed width), `frontend/src/pages/boq-wizard/rate-helper/RateHelperPanel.tsx` (three
 optional props, the calculator branches, `renderSection`), `frontend/src/pages/pricing/pricingCalculator.test.ts`
 (+36), this record. Root `CLAUDE.md`: judged -- nothing durable beyond what the plan doc and the pins carry.
+
+
+## Two ways -- a field can show a list and still be read freely; width AND thickness; blank-and-explain (2026-09-10, v61)
+
+### The defect, and the one root cause
+A def's `type` was BOTH what the pricer sees AND what the model is told. `extraction.build_attribute_defs`
+projects `{id, label, type, values}` into the prompt, and a `number_choice` (the on-screen dropdown type)
+reached the model as a closed list; the base prompt says *"choice attributes: the value MUST be one of the
+allowed values"*, and `_coerce_value_ex` nulls a `number_choice` reply outside its numeric domain. So the
+reverted v60 (width as a plain `number_choice`) made the model pick: shown the ten stocked widths it returned
+**50, 50, 25, 50, 25, 50** for six "80 x NNmm" trays (capture, 2026-09-10 00:57), and row 321 of
+`BOQ-26-00174 / "Electrical "` priced **444/100/544 against 540/120/660**. Stored data could not show it --
+**10,002 verdicts, 0 moved** while the defect was live -- because stored values never pass through the
+coercer again. Only a fresh read catches this class.
+
+Owner rulings (verbatim): *"then we just need to do the ladder matching properly code side and not ask the
+extraction engine to pick from the list"*; *"in case there is no corresponding match for a swg or even a mm
+thickness, then it should be left blank in the helper panel for the user to decide rather than silently
+picking up a wrong thickness"*; *"we can have a note explaining"*; *"do all of these together in one slice"*.
+The model needs NO dimension rule (312 of 312 tray widths right under a free-number def); R13 untouched.
+
+### ONE -- the mechanism: `extract_as: "number"` (shape 1, and why)
+The three shapes from the recon: (1) a def-level key honoured at the projection; (2) a frontend-only options
+source with the def kept as `number`; (3) the thickness pattern (a hidden free field + `extract: false` on the
+visible one, four pipeline edits). **Shape 1 was built** because it is the only one that fixes the actual seam
+-- (2) leaves the model constrained wherever the def is a `number_choice`, (3) duplicates a field per fix and
+edits every pipeline -- and because the projection is ONE chokepoint: `_extract_batch` builds `defs_by_id`
+from the projected list, so `_coerce_value_ex` sees `type: number` and applies no domain. **No second edit
+was needed at the coercer** (a premise correction: the brief named two chokepoints; the second is satisfied
+by construction and is pinned on its own, `test_v61_07`).
+
+What crosses now for a def carrying the key: `{"id": "width_mm", "label": "Width (mm)", "type": "number"}` --
+no `values`, and the key itself never crosses. Every other list-typed def (65 across the 12 configs) projects
+byte-identically to v59, pinned per def (`test_v61_06`).
+
+**The guard.** Attribute definitions had NO key allowlist (the validator's own comment said so), so a
+misspelled `extract_as` would have shipped the closed-list behaviour with no signal. `rate_master._KNOWN_DEF_KEYS`
+(the 16 keys in use across the 12 live configs and every asset on disk, plus `extract_as`) now rejects an
+unknown def key BY NAME; `extract_as` must be the literal `"number"` and only on a `number_choice`. Pinned
+positive (the v61 config and all 12 validate) and negative (`extractas`, `extract_as_`, `extract_type`,
+`Extract_as`, `panell` all refuse, naming the key and the def). ⚠️ The loader's own `_validate_one_config` does
+NOT call `_validate_config` -- an asset typo is caught by the editor endpoint and by the suite's "all 12
+configs validate" pin, not by the import itself. Register item.
+
+### TWO -- both fields, asset v61 (minted FROM v59, never v60)
+`cabletray_raceway.width_mm`: `number` -> `number_choice` + `values_from cable_tray.width_mm` + `extract_as`.
+`cabletray_raceway.thickness_mm`: the same `number_choice` + `values_from` it already had, + `extract_as`. The
+ten widths (50..600, identical across all 45 type/material/thickness combinations) and the five thicknesses
+(1, 1.2, 1.4, 1.6, 2) are the on-screen lists; the ladder (`catalog_fit` exact-else-next-higher) and the SWG
+map (`map_attribute`, 27 gauges, a stated millimetre wins) are byte-untouched -- every pipeline equal to v59.
+Textual diff v59 -> v61: **+9 / -3 lines** (the two defs and the notes). sha256 `437a19df…e42f30` (v59
+`921f56a4…c867a`). Mint script (scratchpad, the `_mint_v5*_tmp.py` precedent): asserts the serialiser
+round-trips v59 byte-for-byte, both v59 def shapes, all four ladder + map steps, 450 trays / 45 combos / one
+width set / five thicknesses, refuses if v60 is on disk; then KEY BY KEY every other config, all 1,367 items,
+every golden and top-level key equal, and cabletray differing in exactly the two defs + notes.
+`scripts/mint_completeness_check.py HEAD:v59 v61`: **PASS, no atoms disappeared**. NO third def carries the key
+(S5): the closed list is right for the 65; a candidate to watch is `conduit_piping.size_mm`, whose stored
+values include imperial sizes (19.05, 25.4, 31.75, 38.1 on `BOQ-26-00198`) that no list can carry -- REGISTER,
+not this slice.
+
+### THREE -- blank, with a note saying why (`no_match`)
+Where a stated value has no stocked match the pipeline already priced nothing (it never snaps at pricing
+time: a non-stocked thickness makes `catalog_fit` find no rung, a gauge outside the table makes
+`map_attribute` bail, a width above the top rung makes the ladder bail) and the dropdown, having no option to
+show, already rendered its placeholder -- by the select's no-matching-option fallback, not by design. What
+was missing was the sentence, which lived only in the trace. A NEW note kind was needed: every shipped kind
+says what was priced INSTEAD; this says NOTHING WAS PRICED, and why; `assumed` (WE GUESSED) is the nearest in
+subject and the opposite in meaning. `{ kind: "no_match"; stated; field; stocked }`, worded once in
+`attrNoteText`:
+
+> The row states 2.5 — nothing stocked matches for Thickness (mm) (1, 1.2, 1.4, 1.6, 2); left blank for you to decide.
+> The row states 1500 — nothing stocked matches for Width (mm) (50, 100, 150, 200, 250, 300, 350, 400, 450, 600); left blank for you to decide.
+> The row states 27 SWG — nothing stocked matches for gauge (0-26 SWG); left blank for you to decide.
+> The row states 8 SWG (4.1 mm) — nothing stocked matches for Thickness (mm) (1, 1.2, 1.4, 1.6, 2); left blank for you to decide.
+
+Registered in `ATTR_NOTE_ORDER` after `fit_up` (the two exact-order pins widened with a dated comment). The
+producer `pricingSheetHelper.withNoMatchNotes` runs after `applyDerivedDisplay`, config-driven, naming no
+category: (a) a dropdown whose displayed value is not an option and which no ladder fitted; (b) a
+`map_attribute` target whose stated SOURCE is not a table key (the source is hidden -- `thickness_swg`,
+`panel: false` -- so the selection is threaded in as a new optional last argument of `applyDerivedDisplay`);
+(c) a `catalog_fit` bind whose stated value exceeds the largest rung of its kind. A value BELOW the top that
+was never fitted (the row refuses elsewhere) gets NO note -- it may fit once the row is complete. **CONFINED BY
+KEY PRESENCE**: only a def carrying `extract_as: "number"` gets the note. Measured on the 42 active runs an
+ungated producer added 70 notes on THREE fields outside #57 (`conduit size_mm` 28, `plate_item` "1M & 2M" 32,
+`material` 10 -- pre-existing off-list display gaps; register, not this slice). The `fit_up` note from the
+reverted work is kept: an off-list width that fits shows the fitted value and says what the row stated.
+
+**What the field renders (the first note on a blank field, established):** a stated-but-unstocked value is
+neither derived nor blank-by-omission -- `isAttrBlank` is FALSE (no red border: the value is stated, not
+missing), `isShowingDerived` is FALSE for a stated 2.5 (nothing substituted; TRUE for the gauge-converted 4.1,
+which IS a substitution) -- so the select shows its placeholder with no "(computed)" marker and the amber note
+beneath it. The stated value survives in the data (`value: "2.5"`), so nothing is lost. Pinned.
+
+### THE INVARIANT -- stored data
+Real helper bundled in-container (`esbuild --alias:@=./src`), HEAD helper + live v59 configs vs the edited
+helper + the v61 asset configs, over all **5,001 rows of the 42 active runs**, run category AND live
+category: **10,002 verdicts, 0 moved**, figure-set hash **`482d982ca136`** both sides. Display diffs confined
+to the two fields: `width_mm` gains its options on 1,265 verdicts, the `fit_up` note on 36 (18 rows) and the
+`no_match` note on 60 (the 30 above-600 rows); `thickness_mm` gains `no_match` on 16 (the 8 `BOQ-26-00201`
+rows storing a millimetre in the gauge slot: *"The row states 1.6 SWG — nothing stocked matches for gauge
+(0-26 SWG)"*). **The five approved movers do NOT move on stored data** (a premise correction): their stored
+`thickness_mm` is the snapped 2.0, which is on-list; they move only when a fresh read stores the document's
+2.5 -- which is T2 below.
+
+### Tests
+Canonical command re-verified from root CLAUDE.md (`bench --site localhost run-tests --module ...`, in-container);
+vitest in-container. **Baselines measured in session:** coercion **149 OK**, rate_suggest **71 OK**, hv2 **43 OK**,
+rate_master **337 OK**; full vitest with the `fit_up` work already in the tree **3,072 / 3,073** (one file failed to
+load on the missing v60 import -- the HEAD baseline is the recorded 3,350 / 3,351).
+**After:** `pricingSheetHelper.test.ts` **309 / 309** (280 at HEAD, +18 `fit_up`, +11 `no_match`/v61); the three rate
+files **872 / 872** (841 baseline); full vitest **3,381 passed / 1 failed of 3,382** (the known `writeOffControl`
+timeout; S6 did not fire); rate_master **348 tests, 347 OK before the import** (`test_v61_11` red by design, GREEN
+after the import together with `_05` and `_08` re-run), coercion **149 OK**. tsc: no errors in the touched files.
+**Pins named.** Python `TestV61TwoWays`: 01 exactly two defs carry `extract_as` (POSITIVE both shapes, NEGATIVE no other
+def, v59 none); 02 the ladder and the SWG map byte-equal (27 gauges, 14 -> 2.0, 8 -> 4.1); 03 cabletray differs from
+v59 in exactly the two defs + notes; 04 every other config / 1,367 items / goldens equal; **05 THE PROJECTION** --
+both defs reach the model as `{"type": "number"}` with NO `values` and the key itself never crosses (NEGATIVE: v59's
+thickness projected the five values; the hidden gauge unchanged); **06 the 65** -- every other list-typed def projects
+byte-identically WITH its list (>= 60 asserted per def); **07 THE COERCER** -- 80 and 2.5 survive through the projected
+defs, NEGATIVE the v59 projection nulled 2.5 (`outside_numeric_domain`) and a non-number is still nulled; **08 THE
+GUARD** -- `extractas`, `extract_as_`, `extract_type`, `Extract_as` refused naming the key and the def, all 12 configs
+validate; 09 `extract_as` must be `"number"`, refused on a `choice` and on a plain `number`; 10 the allowlist covers
+every key in use, `panell` refused; 11 live == v61 leaf by leaf and the LIVE read projects both as free numbers. Six
+cumulative cross-asset pins widened with a dated comment (CC standing authority, mechanical). Vitest: the v60
+describes re-pointed at v61 (the width def now carries `extract_as`; "exactly the width def" became "exactly the two
+defs"); the two exact `ATTR_NOTE_ORDER` pins widened (dated); the above-ceiling pin INVERTED (v60 ruled "no note",
+the owner then ruled a note); new TWO WAYS describes: a stated 2.5 -> blank, refusing, the exact sentence, `isAttrBlank`
+false, `isShowingDerived` false (POSITIVE, the five rows); a gauge outside the table (27) -> blank + the gauge
+sentence; 8 SWG -> 4.1 -> blank + "8 SWG (4.1 mm)"; gauge 14 -> 2.0, prices, NO note, derivation byte-equal to the
+v59-shaped def (NEGATIVE, the SWG path); width 1500 -> blank + the ten in the sentence (the 30 rows); 80 keeps `fit_up`
+and gets no `no_match`; 80 on an incomplete row gets NO note; on-list width + stocked thickness plain; **CONFINED BY
+KEY PRESENCE** (a def without `extract_as` never gets the note); the producer unit (existing note kept, disabled /
+read-only / option-less skipped, gauge needs the selection); render order; the LIVE asset (both defs, both option
+lists, only two carriers); the fresh-read shape on a real cabletray row (2.5 -> blank + the live sentence with the
+five stocked values; 2.0 -> 850 supply as today).
+**RED before:** the producer disabled -> 7 red / 302 (the five `no_match` pins, the producer unit, the fresh-read
+shape); the projection change disabled entirely (HEAD behaviour) -> `_05` and `_07` red.
+**VACUITY (A4), three runs:** (1) the projection's VALUES-DROP disabled (type still flips) -> `_05` red, `_07` green
+(the coercer pin tests the type flip, not the values); (2) the projection change disabled entirely -> `_05` AND `_07`
+red -- the defect, pinned; restored -> 4 / 4 OK, 0 probes left; (3) the note producer returning its input -> 7 red /
+302; restored -> 309 / 309, 0 probes left. The coercer has no separate edit to disable (by construction), so run (2)
+is its vacuity.
+
+### Delivery path
+1. Freeze OFF (`frozen: False`). 2. PRE: active Electrical **1,367** on `rmbulk-b4856a6f97aa`, 12 configs, cabletray
+`BRCC-26-22541`, width `{"type": "number"}`, thickness `number_choice + values_from` (no `extract_as`), snapshots 10.
+3-5. Mint (above), `CURRENT_EALL_ASSET` -> v61, completeness gate PASS. 6. Import in-container, explicit v61 path,
+`replace=True`: `status loaded`, batch **`rmbulk-99dd433e65d8`**, items_total 1,367, configs_loaded 12,
+items_deactivated 1,367, configs_deactivated 12, retirements existing 6 / created 0. 7. AFTER: active **1,367** on
+the new batch, 12 configs; live vs v61 LEAF BY LEAF (goldens/discipline excluded): cabletray `BRCC-26-24085`
+**351 / 351, 0 differing** (v59 carried 347: the two `values_from` leaves and the two `extract_as` leaves); wiring 259,
+switches 471, popup 287, point_wiring 1,011, misc 53, lms 39, jbr 32, indsock 247, earthing 85, dbsw 368, conduit
+41 -- **all 0 differing**; `values_from_catalog` width = the ten; snapshots 10 (none created). 8. Restarted by PID:
+serve 13989 -> **17148**, worker 14165 -> **17324**, yarn/vite 13362/13374 -> **17681/17693** (`node_modules/.vite`
+cleared), socketio 13182 -> **17939** (its first kill missed on a pattern mismatch, then killed by PID -- declared).
+`:8000` ping 200 x3, `:8080` 200 x3. BACKEND-derived marker: the live config read through the logged-in session
+carries `extract_as: "number"` on both defs. FRONTEND-derived markers on the plain URLs: `pricingSheetHelper.ts`
+`withNoMatchNotes` x2, `catalogFitSizeUpNote` x2, `freeRead` x2; `rateHelperTypes.ts` `no_match` x2, `fit_up` x2. No
+CSRF break: the session survived the restart (the page reads made no POST before the runs, which were started
+server-side).
+
+### The fresh reads (two scoped runs, the only spend) and the browser cert
+**Spend: exactly two scoped runs (T1, T2), both `claude-opus-4-8`, one batch each, attempt 1, `end_turn`. No whole-sheet
+run; both sheets carried a completed run to carry from, so neither was refused.**
+- **T1 -- width, `BOQ-26-00174 / "Electrical "` rows 321, 362, 368, 374, 382, 409** (job `a30468e9…`, run
+  `BRSR-26-00748`, now ACTIVE). The def SENT: `{"id": "width_mm", "label": "Width (mm)", "type": "number"}` -- no
+  values. The model returned, VERBATIM: **321 -> 80 (0.95); 362 -> 80 (0.95); 368 -> 80 (0.95); 374 -> 80 (0.95);
+  382 -> 80 (0.95); 409 -> 80 (0.95)**; coerced and stored as 80 on all six. Under v60 the same six read 50, 50, 25,
+  50, 25, 50. S3 did not fire.
+- **T2 -- thickness, `BOQ-26-00198 / ELEC` rows 252, 254** (job `085bbde1…`, run `BRSR-26-00749`, now ACTIVE). The
+  defs SENT: `{"id": "thickness_mm", ... "type": "number"}` and the gauge as a free number. The model returned,
+  VERBATIM: **252 -> thickness_mm 2.5 (0.95), thickness_swg null (0.9), width 600 (0.98); 254 -> thickness_mm 2.5
+  (0.95), thickness_swg null (0.9), width 450 (0.98)**; coerced `ok`, stored 2.5. Rows 256/258/260 were outside the
+  two-row scope and carry forward the old 2.0 -- so on this test database TWO of the five approved rows stop pricing
+  now; the other three need their own re-read (the brief scoped T2 to 252 and 254).
+- **T2 panel** (row 252, read through the DOM): Thickness shows **"— select —"** (blank), no "(computed)" mark, no red
+  border; Width 600 from the dropdown of ten; the row refuses ("no match for these attributes"); the note, character
+  for character: **"The row states 2.5 — nothing stocked matches for Thickness (mm) (1, 1.2, 1.4, 1.6, 2); left blank for
+  you to decide."** (The live thickness options render 1, 1.2, 1.4, 1.6, 2 -- the DB's row order for this batch happens
+  to be ascending.)
+- **T3** `BOQ-26-00174 / 319` ("100 x 50mm"): Width **100** selected from the 10-option dropdown, Thickness 2, no
+  note, **Supply 540 / Install 120** -- unchanged.
+- **T4** `BOQ-26-00174 / 321` (fresh read 80): Width **100** marked "(computed)", note **"The row states 80 — using 100,
+  the next size stocked."**, **Supply 540 / Install 120** -- unchanged from before the fresh read.
+- **T5** `BOQ-26-00229 / Electrical BOQ / 385` (1500): Width **"— select —"** (blank, no red border), Thickness 2, the
+  row refuses, note **"The row states 1500 — nothing stocked matches for Width (mm) (50, 100, 150, 200, 250, 300, 350,
+  400, 450, 600); left blank for you to decide."**
+- **T6** the calculator (`/electrical-pricing`, Calculator tab, CableTray & Raceway): Thickness offers `1, 1.2, 1.4,
+  1.6, 2`, Width the ten; Perforated / GI / 2 / 300 / Cover No / Ceiling / No / No prices **Supply 792, Install 220**,
+  no note, nothing saved.
+- **T7** `BOQ-26-00174 / 409` (the fresh read stored gauge 14, no millimetre): Thickness shows **2 "(computed)"** -- the
+  SWG map, unchanged -- with no thickness note; Width 100 with the `fit_up` note; prices Supply 356 / Install 120 (it
+  REFUSED before the fresh read filled its gauge and width; the harness holds every stored gauge-14 row's price
+  byte-identical). `BOQ-26-00217 / ELE-8F / 295` (stored 14, untouched) still prices 2276 / 380 per the harness.
+- **T8** live config == v61 leaf by leaf (the delivery path above; `test_v61_11` green after the import); active
+  Electrical **1,367**.
+Screenshots time out on the tall grids (the recorded trait); every panel was read through the DOM with the tab
+visible. Every pick was on the calculator (never persisted) or a read; no "Use this value", no cell write.
+
+### #57 -- what landed
+1. Cable tray's Width and Thickness are dropdowns of the stocked values on both surfaces; the model is asked
+   for a free number. 2. Where a stated value has no match the field is blank and the panel says why. 3. The
+   five `BOQ-26-00198 / ELEC` rows 252/254/256/258/260 stop pricing once re-read (2.5 stated; 2.0 was never
+   stated). 4. An off-list width that fits shows the fitted value and says what the row stated. The list did
+   not grow.
+
+### Register (record, do not fix)
+- The 18 `BOQ-26-00217 / ELE-8F, ELE-3F, ELE-2F` rows 295-300 price on a stored gauge 14 the document never
+  states (the only gauge in their text is an 8 SWG earth wire); the 7 `BOQ-26-00196 / ELECTRICAL` rows 353-365
+  store gauge 16 where the text says 3 mm / 14 SWG; the 8 `BOQ-26-00201 / Electrical BOQ` rows 167-169, 178-182
+  store a millimetre (1.6) in the gauge slot and refuse (now with the `no_match` note naming "1.6 SWG"); the 18
+  `db_switchgear` rows where the model named an RCCB (`32A RCCB 30mA / 300mA (DP)`) the item list does not
+  carry (capture-log `not_an_allowed_choice`).
+- Pre-existing off-list DISPLAY gaps on closed-list fields (blank select, no note, by the fallback): conduit
+  `size_mm` imperial values (28 verdicts), plate `1M & 2M` (32), material spellings (10).
+- `conduit_piping.size_mm` as a candidate for `extract_as` -- imperial sizes are document numbers; owner call.
+- The loader does not run `_validate_config`; an asset typo is caught by the editor and the suite, not the import.
+- The dropdown's option ORDER follows catalogue row order (thickness shows 2, 1.2, 1.6, 1, 1.4); the note lists
+  ascending. A sort in `attributeOptions` would reorder every dropdown -- owner call.
+- Standing: `popup_boxes.has_modules` dead on the panel; `point_wiring.blank_item`; run `BRSR-26-00722`
+  (owner: test database, leave it); units; "Unclear" owner-parked; the `size_mm` discard; the parked
+  split-pipeline shape; a one-column category's box width; the true-viewport narrow check.
+
+### Files
+`nirmaan_stack/services/boq_rate_master/extraction.py` (the projection, +14), `nirmaan_stack/api/boq/rate_master.py`
+(`_KNOWN_DEF_KEYS` + the `extract_as` guard, +30), `nirmaan_stack/api/boq/test_rate_master.py`
+(`CURRENT_EALL_ASSET` -> v61, six cumulative pins widened, `TestV61TwoWays` 01-11),
+`nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v61.json` (new),
+`frontend/src/pages/boq-wizard/rate-helper/rateHelperTypes.ts` (`fit_up` + `no_match` kinds, order, wording),
+`frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.ts` (`catalogFitSizeUpNote`, `withNoMatchNotes`,
+the `selected` argument), `frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.test.ts`, this record.
+Root `CLAUDE.md`: a durable rule IS earned and added under "BoQ Rate Master (RM-1)": a def's `type` is both the screen
+and the model's instruction; `extract_as: "number"` is the split; a `number_choice` without it reaches the model as a
+closed list and the model picks from it -- stored data cannot show it, only a fresh read can..
