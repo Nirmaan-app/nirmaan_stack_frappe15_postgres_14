@@ -100,6 +100,54 @@ class TestAllocatingInOneGo(AllocationFixture):
         linked_targets = sorted(call.args[1].name for call in linker.call_args_list)
         self.assertEqual(linked_targets, sorted(pays))
 
+    def _po_paid(self) -> float:
+        return float(
+            frappe.db.get_value("Procurement Orders", self._allocation_po(), "amount_paid") or 0
+        )
+
+    def test_the_parent_PO_amount_paid_is_the_SUM_of_all_three_legs(self):
+        """The plain fan-out total: 60 + 30 + 10 on ONE PO leaves `amount_paid` at 100.
+
+        ⚠️ ADR-0020 names `update_parent_amount_paid` SUMMING the Paid payments rather than
+        incrementing as one of the THREE facts that make a fan-out need no new code at all -- a PO
+        paid by three legs lands on the right total for free, and a reversal takes its share back
+        out for free. Nothing on this branch asserted it: every other test here reads the payments
+        or the import row, and the parent was simply assumed to follow.
+
+        ⚠️ THIS ASSERTION ALONE DOES NOT DISCRIMINATE, AND THAT WAS MEASURED, NOT GUESSED (red step,
+        whole-branch review F8). The obvious `+=` regression -- `amount_paid + self.amount`, hook
+        firing once per leg -- reaches 100 by the same route from a clean start: 0, 60, 90, 100. The
+        suite stayed green with the SUM replaced by exactly that. So this case pins the ARITHMETIC
+        and the next one pins the PROPERTY that arithmetic exists for. Keep both.
+        """
+        row = self._staged_row(amount="100")
+        pays = self._three_payments()
+        allocate_row(row=row, targets=self._targets(pays))
+        self.assertEqual(self._po_paid(), 100.0)
+
+    def test_the_parent_total_is_RECOMPUTED_from_source_not_incremented(self):
+        """⚠️ THE ASSERTION THAT ACTUALLY CATCHES A `+=` ON THE PARENT.
+
+        Root `CLAUDE.md`: "a derived field must be RECOMPUTED FROM SOURCE, never incremented by a
+        delta, so that any later ordinary save repairs it exactly and a reconcile pass can always
+        prove it." That REPAIR is the property -- not the arithmetic, which a delta reproduces from
+        a clean start (see the case above). It is also the property ADR-0020 leans on: it is what
+        lets a reversal take its share back out, and a re-allocation put it back, with no code
+        anywhere in this feature doing parent bookkeeping.
+
+        The drift is seeded with a raw `set_value`, which fires no hooks -- root `CLAUDE.md`'s
+        standing trap, and the realistic origin of a wrong `amount_paid` in production (a patch, a
+        backfill, a repair script). A SUM repairs it to 100 on the first leg's save. A delta cannot:
+        it carries the wrong number forward forever, reaching 1,099.
+        """
+        row = self._staged_row(amount="100")
+        pays = self._three_payments()
+        frappe.db.set_value(
+            "Procurement Orders", self._allocation_po(), "amount_paid", 999, update_modified=False
+        )
+        allocate_row(row=row, targets=self._targets(pays))
+        self.assertEqual(self._po_paid(), 100.0)
+
     def test_no_payment_amount_is_rewritten_to_the_transfer(self):
         """⚠️ THE RED EDGE. Without `rewrite_amount_to_bank=False` leg 1 would become Rs 100."""
         row = self._staged_row(amount="100")

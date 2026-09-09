@@ -10,10 +10,17 @@
 // same rule the TDS band mirror already carries: erring toward OFFERING is safe, because the
 // server re-asserts; erring the other way hides a choice the server would have accepted.
 
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { ROW_PARTIALLY_ALLOCATED } from "./outflowImportStatus";
 
 /**
  * Mirrors `amounts.AMOUNT_TOLERANCE`.
+ *
+ * ⚠️ REGISTERED IN `services/outflow_import/amounts.py`'s CALL-SITE LIST, where the rule lives:
+ * "if you add an amount comparison anywhere in this feature, add it to this list -- and say WHICH
+ * window it uses." This mirror, and the three `allocation.py` comparisons it mirrors, were added to
+ * that list at the whole-branch review (F6). Do not add a comparison on this side without going
+ * back to it: the file records the production defect an unlisted fifth site already caused.
  *
  * ⚠️ THE ONLY NUMERIC LITERAL `= 5` ON THIS SIDE (review fix 2) -- do not inline it again, and do
  * not add a second `export const ... = 5` anywhere else in this feature. `outflowTableModel.ts`'s
@@ -100,4 +107,41 @@ export function allocateButtonLabel({
     const noun = ticks === 1 ? "record" : "records";
     const base = `Allocate ${ticks} ${noun}`;
     return complete ? `${base} · completes this transfer` : base;
+}
+
+/**
+ * What the screen says after a leg is successfully reversed.
+ *
+ * ⚠️ IT EXISTS BECAUSE A SUCCESSFUL REVERSE SAID NOTHING AT ALL (whole-branch review, F9). The
+ * dialog closed and the table refetched, which is indistinguishable from a click that did nothing.
+ * This is the ONE action on this screen that moves money BACKWARDS, and therefore the one a
+ * reviewer is most likely to repeat when unsure -- and repeating it is REFUSED ("This allocation
+ * was already reversed"), so the silence trains a second click that then reads as a failure.
+ *
+ * ⚠️ INLINE, NEVER A TOAST -- this screen's standing convention, stated at `exportError`. A
+ * reversal is a fact somebody may need to quote to whoever asks why a payment went back to
+ * Approved, and a toast that has faded cannot be quoted. It is rendered on the PAGE rather than in
+ * the dialog because the dialog closes on success.
+ *
+ * PURE, so the wording of both shapes is testable without a round trip -- the same reason
+ * `allocation.allocation_note` is pure on the server side.
+ */
+export function reversalNotice({
+    targetName,
+    reversedAmount,
+    allocated,
+    remaining,
+}: {
+    targetName: string;
+    reversedAmount: number;
+    allocated: number;
+    remaining: number;
+}): string {
+    const head = `Reversed ${formatToRoundedIndianRupee(reversedAmount)} from ${targetName}. It is back to Approved.`;
+    // ⚠️ THE BALANCE, NEVER A LEG COUNT -- ADR-0020's rule, and the same one `allocation_note`
+    // states server-side. "2 of 3 legs left" invites "three according to whom?", which nothing in
+    // the data answers; the remaining amount is checkable against the statement line by eye.
+    return allocated > 0
+        ? `${head} ${formatToRoundedIndianRupee(remaining)} of this transfer is still unallocated.`
+        : `${head} Nothing is allocated against this transfer now.`;
 }

@@ -177,7 +177,11 @@ def settle_row(row: str, target_doctype: str, target_name: str):
         # ⚠️ INSIDE THE SAVEPOINT. The status is derived from the legs, so it must be recomputed in
         # the same transaction that added one -- otherwise a rolled-back settle leaves a row
         # claiming money that was never written.
-        _refresh_row_allocation(staged.name, actor)
+        #
+        # ⚠️ `result` IS PASSED (review F2) SO THE NOTE CAN STILL DISCLOSE AN AMOUNT CORRECTION.
+        # This is the ONE path that rewrites an approved figure to the bank's (slice X1), and the
+        # note is the only place on this screen that fact survives.
+        _refresh_row_allocation(staged.name, actor, result)
     except Exception:
         # Roll back to the savepoint rather than the whole request: the caller gets the real error
         # and the database is exactly as it was before this row was attempted.
@@ -226,6 +230,12 @@ def allocate_row(row: str, targets):
     """
     actor = require_outflow_access()
     targets = _parse_targets(targets)
+    # ⚠️ THIS TAKES A `FOR UPDATE` ROW LOCK, AND THAT IS WHAT SERIALISES ALLOCATION AGAINST ONE
+    # TRANSFER (review F1). The per-leg `allocation_fits` below cannot: `_live_legs` re-reads under
+    # READ COMMITTED and is blind to another transaction's uncommitted legs, so two reviewers on the
+    # same transfer would each fit against a picture missing the other's -- and the row would then
+    # derive as `Settled` with more written against it than the bank moved, silently. Held to the
+    # commit; see `_load_allocatable_row`'s docstring for the full reasoning and the lock order.
     staged, doc = _load_allocatable_row(row)
     _guard_is_a_debit(doc)
     statement_file_url = _statement_file_url(doc["import_batch"])
@@ -264,6 +274,12 @@ def allocate_row(row: str, targets):
             results.append(result)
             _record_settlement(staged, doc, result, actor)
             legs = _live_legs(staged.name)
+        # ⚠️ A BACKSTOP THAT THE ROW LOCK MAKES UNREACHABLE SINGLE-THREADED, AND IT STAYS (review
+        # F1). With the lock held, every `allocation_fits` above was judged against legs nobody else
+        # could be adding to, so the sum cannot end this loop negative. It is kept because it is the
+        # only assertion here that reads the FINAL sum rather than a per-leg fit -- it is what would
+        # catch a change to `allocation_fits`'s arithmetic, or a lock that later gets weakened or
+        # dropped. Do not delete it as dead code.
         if is_over_allocated(doc["amount"], legs):
             frappe.throw(
                 f"Those records come to {allocated_of(legs)}, more than the "
@@ -311,15 +327,35 @@ def reverse_allocation(match: str, reason: str):
     the status is not what this leg wrote, somebody else has touched the record and this function
     cannot know what they meant. Refusing leaves both halves consistent; guessing does not.
 
-    ⚠️ RULING O -- A REVERSED 1:1 `settle_row` LEG CAN CARRY A REWRITTEN AMOUNT THIS FUNCTION DOES
-    NOT UNDO. `settle_row` (slice X1) rewrites the payment's `amount` to the bank's figure when the
-    two differ; the allocation path (`allocate_row`, `rewrite_amount_to_bank=False`) never does.
-    After the fact the two are indistinguishable from the match record alone -- both read
-    `leg.target_amount == payment.amount`. Rather than a fifth reversal field to carry a pre-settle
-    figure nobody but a rare manual repair would read, this returns `reversed_amount` (the leg's own
-    `target_amount`) so a human can compare it against the payment's `Version` log
-    (`Project Payments` carries `track_changes: 1` and the settle saves with `ignore_version=False`).
-    See `_revert_payment`'s docstring for the full reasoning.
+    ⚠️ RULING O, WIDENED AT THE WHOLE-BRANCH REVIEW (F5) -- THERE ARE THREE WAYS A
+    `Project Payments` LEG CAN CARRY MORE THAN THIS FUNCTION UNDOES, AND ONLY THE FIRST WAS EVER
+    DOCUMENTED. The endpoint's only target guard was `target_doctype != PAYMENT_DOCTYPE`, but the
+    two OTHER settle paths write Project-Payments legs too, and both are materially worse than the
+    rewrite Ruling O was written about. The UI happens not to offer them (the Reverse button renders
+    only inside `AlreadyAllocatedSection`), but this is whitelisted and must refuse them itself:
+
+      1. THE REWRITE (the original Ruling O, ACCEPTED, NOT REFUSED). `settle_row` (slice X1)
+         rewrites the payment's `amount` to the bank's figure when the two differ within the settle
+         window; `allocate_row` never does (`rewrite_amount_to_bank=False`). After the fact the two
+         are indistinguishable from the match record alone -- BOTH read
+         `leg.target_amount == payment.amount` -- so there is nothing here to detect and nothing to
+         put back. Rather than a fifth reversal field carrying a pre-settle figure nobody but a rare
+         manual repair would read, this returns `reversed_amount` (the leg's own `target_amount`) so
+         a human can compare it against the payment's `Version` log (`Project Payments` carries
+         `track_changes: 1` and every settle saves with `ignore_version=False`).
+      2. THE TDS DEDUCTION (`_settle_as_deduction`) -- REFUSED. That path writes `tds` onto the
+         payment and settles it in full; `_revert_payment` clears status / `utr` / `payment_date`
+         and NOTHING ELSE, so reversing it would leave a withheld-tax figure sitting on a payment
+         that is back to `Approved` and awaiting payment again.
+      3. THE PARTIAL SETTLEMENT (`settle_row_partial`) -- REFUSED. That path SPLITS the payment
+         record: the original is trimmed to the settled part and a fresh `Approved` balance payment
+         is minted with `split_from` pointing back at it. Reversing the settled half does not
+         un-split anything, so ONE SANCTION SILENTLY BECOMES TWO Approved payments and the PO's
+         payment terms carry a division nobody asked for.
+
+    Both refusals NAME THE RULE AND THE REPAIR: neither is undoable from this screen, and both are
+    fixed by hand on the payments screen. Refusing is the same discipline as the utr/status guard
+    below -- leaving both halves consistent beats guessing at what a half-undo meant.
     """
     actor = require_outflow_access()
     reason = (reason or "").strip()
@@ -344,6 +380,7 @@ def reverse_allocation(match: str, reason: str):
         frappe.throw(
             f"Only a {PAYMENT_DOCTYPE} allocation can be reversed here.", title="Not a payment"
         )
+    _guard_leg_is_plainly_reversible(leg)
 
     row = frappe.db.get_value(
         ROW_DOCTYPE, leg.import_row, ["name", "bank_reference_no", "import_batch"], as_dict=True
@@ -386,6 +423,72 @@ def reverse_allocation(match: str, reason: str):
     }
 
 
+def _guard_leg_is_plainly_reversible(leg) -> None:
+    """Refuse a Project-Payments leg that `_revert_payment` cannot correctly undo (review F5).
+
+    ⚠️ THE TARGET DOCTYPE WAS THE ONLY GUARD, AND IT IS NOT ENOUGH. Two of the four settle paths
+    write `Project Payments` legs that carry MORE than a status flip, and `_revert_payment` clears
+    status / `utr` / `payment_date` and nothing else. See `reverse_allocation`'s Ruling O block for
+    the three cases; the two refused here are the TDS deduction and the partial settlement.
+
+    ⚠️ EACH REFUSAL NAMES THE RULE THAT STOPPED IT AND WHAT TO DO INSTEAD. Neither case is undoable
+    from the import screen: a withheld-tax figure and a split sanction are both repaired on the
+    payments screen, by hand, by somebody who can see both halves.
+
+    ⚠️ READ WITHOUT A LOCK, DELIBERATELY, AND IT IS NOT THE AUTHORITY -- same disposition as
+    `_approved_payment_amount`. `_revert_payment` re-reads under `FOR UPDATE` and re-asserts status
+    and reference there. What this decides is whether to ATTEMPT the reversal at all, and the three
+    facts it reads (`tds`, `split_from`, `amount`) only ever change through a deliberate hand edit,
+    which the amount check below is itself the guard against.
+    """
+    payment = frappe.db.get_value(
+        PAYMENT_DOCTYPE, leg.target_name, ["amount", "tds", "split_from"], as_dict=True
+    )
+    if not payment:
+        frappe.throw(f"Payment '{leg.target_name}' not found.", title="Not found")
+
+    if normalize_amount(payment.get("tds")):
+        frappe.throw(
+            f"{leg.target_name} was settled as a TDS deduction, so it carries withheld tax that "
+            f"this reversal does not clear -- putting it back to Approved would leave a tax figure "
+            f"on a payment that is waiting to be paid again. Reverse it on the payments screen, "
+            f"where both the status and the TDS can be corrected together.",
+            title="Settled with TDS",
+        )
+
+    # The SETTLED half of a partial settlement is the ORIGINAL, trimmed record; the BALANCE is a
+    # fresh payment carrying `split_from` back to it. So the marker on the settled half is a CHILD,
+    # not a field on itself -- and both directions are refused: a balance half whose sibling is Paid
+    # is just as entangled as the half that was settled.
+    if (payment.get("split_from") or "").strip():
+        frappe.throw(
+            f"{leg.target_name} is the carried-forward balance of a payment that was split, so "
+            f"reversing it here would leave that split half-undone. Correct it on the payments "
+            f"screen, where both halves are visible.",
+            title="Part of a split payment",
+        )
+    balance = frappe.db.get_value(PAYMENT_DOCTYPE, {"split_from": leg.target_name}, "name")
+    if balance:
+        frappe.throw(
+            f"{leg.target_name} was settled by a PARTIAL settlement, which split the record and "
+            f"left {balance} standing as its Approved balance. Reversing only the settled half "
+            f"would turn one sanction into two. Undo the split on the payments screen instead.",
+            title="Split by a partial settlement",
+        )
+
+    # ⚠️ EXACT, NO TOLERANCE WINDOW, AND THE REASONING IS IN `amounts.py`'s registry: both figures
+    # were written by the same settle from the same source, so ANY difference means the record has
+    # been edited since -- which is the same class of fact the utr/status guard in `_revert_payment`
+    # refuses on. A window here would silently permit the reversal over exactly that edit.
+    if normalize_amount(leg.target_amount) != normalize_amount(payment.get("amount")):
+        frappe.throw(
+            f"{leg.target_name} now reads {payment.get('amount')}, but this allocation wrote "
+            f"{leg.target_amount} against it. Somebody has changed the record since, so this "
+            f"reversal cannot know what to put back. Correct the payment by hand.",
+            title="Changed elsewhere",
+        )
+
+
 def _revert_payment(name: str, expected_reference: str, actor: str) -> None:
     """Put the payment back to Approved, under a row lock, only if it still looks like ours.
 
@@ -393,6 +496,14 @@ def _revert_payment(name: str, expected_reference: str, actor: str) -> None:
     the transition `update_parent_amount_paid` watches -- and it SUMS the Paid payments rather than
     incrementing, so the PO's `amount_paid` self-corrects with no code here. A `set_value` would
     fire no hooks and leave the parent claiming money that is no longer paid.
+
+    ⚠️ THIS FUNCTION CLEARS STATUS / `utr` / `payment_date` AND NOTHING ELSE, WHICH IS WHY
+    `_guard_leg_is_plainly_reversible` RUNS FIRST (review F5). Ruling O below covers the one case
+    that is ACCEPTED -- an amount rewritten by `settle_row`. The two it does NOT cover, TDS written
+    onto the payment and a payment SPLIT by a partial settlement, are now REFUSED before this is
+    ever called, because each would leave a durable artefact (a withheld-tax figure, an orphan
+    Approved balance) on a record this puts back to `Approved`. If you add a field to this function,
+    check that guard: the two live and die together.
 
     ⚠️ THE AMOUNT IS NOT RESTORED, AND THIS IS ONLY SAFE FOR AN ALLOCATION LEG (RULING O). The
     allocation path never changed it (`rewrite_amount_to_bank=False`), so there is nothing to put
@@ -471,8 +582,29 @@ def _load_allocatable_row(row: str):
     ⚠️ THAT IS THE ONE DIFFERENCE, AND IT IS WHY THIS IS A SECOND FUNCTION RATHER THAN A FLAG ON
     THE FIRST. `_load_settleable_row` guards the ordinary settle, which must stay unable to reach a
     row that has already written money.
+
+    ⚠️ `for_update=True` -- THIS READ TAKES THE ROW LOCK THAT SERIALISES ALLOCATION AGAINST ONE
+    TRANSFER, AND IT IS THE ONLY THING THAT CAN (whole-branch review, F1). The per-leg
+    `allocation_fits` check cannot do it, and the reason is isolation, not arithmetic: `_live_legs`
+    re-reads under READ COMMITTED, so it CANNOT SEE another transaction's uncommitted legs. Two
+    reviewers ticking DIFFERENT payments on the same transfer therefore each measure the remainder
+    against a picture with the other's legs missing, each fits, each commits -- and the
+    `is_over_allocated` backstop after the loop is per-transaction and equally blind. The row then
+    derives as `Settled`, because `is_fully_allocated` is deliberately ONE-SIDED and there is no
+    fourth status for over-allocation. So the failure is SILENT, which is exactly what ADR-0020's
+    "visible, not silent" argument trades against the weakened per-leg guard: the weakening is only
+    survivable while the leftover balance is guaranteed to still be on screen.
+    Nothing already in place covers it. `settle_payment`'s own `FOR UPDATE` stops the SAME payment
+    being settled twice, and the partial unique index stops the same (transfer, target) pair twice;
+    neither sees two DIFFERENT payments racing onto one transfer.
+    ⚠️ THE LOCK IS TAKEN IN THE SAME READ THAT DECIDES ELIGIBILITY, not before or after it -- a
+    status read outside the lock is a stale status -- and it is held to the request's commit, since
+    `allocate_row` opens only a savepoint after this. LOCK ORDER IS ROW THEN PAYMENT here; if a
+    concurrent `settle_row` (which takes the payment first) ever contends for the same pair,
+    Postgres aborts one with a deadlock error. Loud and rolled back, which is the correct trade
+    against a silent over-allocation.
     """
-    doc = frappe.db.get_value(ROW_DOCTYPE, row, "*", as_dict=True)
+    doc = frappe.db.get_value(ROW_DOCTYPE, row, "*", as_dict=True, for_update=True)
     if not doc:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
     if doc.get("row_status") == ROW_SETTLED:
@@ -595,8 +727,9 @@ def settle_row_partial(row: str, target_name: str, intent: str):
             staged, target_name, actor, statement_file_url=statement_file_url
         )
         _record_settlement(staged, doc, result, actor)
-        # ⚠️ INSIDE THE SAVEPOINT -- see `settle_row`'s call site for why.
-        _refresh_row_allocation(staged.name, actor)
+        # ⚠️ INSIDE THE SAVEPOINT -- see `settle_row`'s call site for why, including why `result`
+        # rides along (review F2: the `Recorded`/`Settled` verb and the X1 amount correction).
+        _refresh_row_allocation(staged.name, actor, result)
     except Exception:
         frappe.db.rollback(save_point=savepoint)
         raise
@@ -647,8 +780,9 @@ def _settle_as_deduction(
             tds=eligibility.tds,
         )
         _record_settlement(staged, doc, result, actor)
-        # ⚠️ INSIDE THE SAVEPOINT -- see `settle_row`'s call site for why.
-        _refresh_row_allocation(staged.name, actor)
+        # ⚠️ INSIDE THE SAVEPOINT -- see `settle_row`'s call site for why, including why `result`
+        # rides along (review F2: the `Recorded`/`Settled` verb and the X1 amount correction).
+        _refresh_row_allocation(staged.name, actor, result)
     except Exception:
         frappe.db.rollback(save_point=savepoint)
         raise
@@ -910,8 +1044,9 @@ def create_expense(
             statement_file_url=statement_file_url,
         )
         _record_settlement(staged, doc, result, actor)
-        # ⚠️ INSIDE THE SAVEPOINT -- see `settle_row`'s call site for why.
-        _refresh_row_allocation(staged.name, actor)
+        # ⚠️ INSIDE THE SAVEPOINT -- see `settle_row`'s call site for why, including why `result`
+        # rides along (review F2: the `Recorded`/`Settled` verb and the X1 amount correction).
+        _refresh_row_allocation(staged.name, actor, result)
     except Exception:
         frappe.db.rollback(save_point=savepoint)
         raise
@@ -1171,8 +1306,20 @@ def _target_snapshot(doctype: str, name: str) -> dict:
     }
 
 
-def _refresh_row_allocation(row_name: str, actor: str) -> str:
+def _refresh_row_allocation(row_name: str, actor: str, result=None) -> str:
     """Recompute a row's allocation from its legs and write the derived status. Returns it.
+
+    ⚠️ `result` IS THE JUST-WRITTEN `SettleResult`, AND IT EXISTS ONLY TO FEED THE NOTE (review F2).
+    It carries the two facts the sentence cannot derive from a leg -- whether the record was
+    CREATED by this import (`Recorded` rather than `Settled`) and whether slice X1's rewrite
+    CORRECTED an approved amount to the bank's. Task 3 deleted `_settled_note` and with it both,
+    so a created expense read `Settled ...` and a 31-paise correction disappeared from the only
+    surface a reviewer actually reads. `allocation_note` stays PURE: it is handed the two unpacked
+    values, never the result object.
+    ⚠️ `None` IS THE HONEST DEFAULT AND MUST STAY. `allocate_row` passes nothing -- it writes N legs
+    and there is no single result, and it cannot produce either fact anyway (payments are never
+    created, and `rewrite_amount_to_bank=False` means nothing is ever corrected). `reverse_allocation`
+    passes nothing for the same reason: it writes no record at all.
 
     ⚠️ THE SUM IS ALWAYS FRESH. Nothing is incremented, so a reversal, a re-allocation and an
     ordinary settle all repair the row exactly, and a reconcile pass can prove the figure at any
@@ -1224,12 +1371,24 @@ def _refresh_row_allocation(row_name: str, actor: str) -> str:
         else None
     )
 
+    # See the docstring: the two facts a leg cannot carry, unpacked here so `allocation_note` stays
+    # pure. `amount_changed` is what X1 already computes; `original_amount` is `None` on a created
+    # record, which had no previous amount to correct.
+    created = bool(getattr(result, "created", False))
+    correction = (
+        (result.original_amount, result.amount)
+        if result is not None and getattr(result, "amount_changed", False)
+        else None
+    )
+
     frappe.db.set_value(
         ROW_DOCTYPE,
         row_name,
         {
             "row_status": new_status,
-            "outcome_note": allocation_note(row.get("amount"), legs, new_status),
+            "outcome_note": allocation_note(
+                row.get("amount"), legs, new_status, created=created, correction=correction
+            ),
             # See the docstring: a fully-reversed row has no decider any more.
             "decided_at": frappe.utils.now_datetime() if something_allocated else None,
             "decided_by": actor if something_allocated else None,
@@ -1255,9 +1414,17 @@ def _summary(row: str, result, batch: str, statuses) -> dict:
             "name": result.name,
             "amount": float(result.amount),
             "created": result.created,
-            # X1: what the record held before, and whether we changed it. The screen shows the
-            # delta on the bulk-confirm surface; `None` on a created expense, which had no
-            # previous amount to correct.
+            # X1: what the record held before, and whether we changed it. `None` on a created
+            # expense, which had no previous amount to correct.
+            #
+            # ⚠️ NOTHING IN `frontend/src/` READS EITHER KEY -- CORRECTED AT THE WHOLE-BRANCH REVIEW
+            # (F2). This comment used to say "the screen shows the delta on the bulk-confirm
+            # surface". It never did: grepping both names finds zero readers. They stay as a
+            # response contract -- a caller MAY read them, and the endpoint should not stop saying
+            # what it did -- but they are NOT the disclosure. The disclosure is the PERSISTED
+            # `outcome_note`, written through `allocation_note`'s `correction` suffix, which is what
+            # a reviewer actually reads on the row. Do not "restore" the delta here and drop it
+            # there: a payload nobody renders is exactly how this fact got lost the first time.
             "original_amount": (
                 None if result.original_amount is None else float(result.original_amount)
             ),

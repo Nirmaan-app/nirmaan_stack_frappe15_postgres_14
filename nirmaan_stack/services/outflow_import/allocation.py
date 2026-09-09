@@ -114,15 +114,19 @@ def allocation_fits(row_amount, legs: Iterable[Mapping], candidate_amount) -> bo
 def is_over_allocated(row_amount, legs: Iterable[Mapping]) -> bool:
     """More has been written than the bank moved.
 
-    ⚠️ NOTHING CALLS THIS AS A GATE YET (Task 3). Today's four settle paths (`settle_row`,
+    ⚠️ ITS ONE GATE IS `allocate_row`'s POST-LOOP BACKSTOP, AND SINCE THE ROW LOCK LANDED
+    (whole-branch review, F1) THAT BACKSTOP IS UNREACHABLE SINGLE-THREADED. `allocate_row` now
+    takes `FOR UPDATE` on the `Outflow Import Row` before its loop, so every leg's `allocation_fits`
+    is judged against legs no other transaction can be adding to; the per-leg check is therefore
+    sufficient on its own and the sum cannot end the loop negative. IT IS KEPT ANYWAY, deliberately:
+    it is the one assertion that reads the FINAL sum rather than a per-leg fit, so it is what would
+    catch an arithmetic change to `allocation_fits`, a future caller that writes legs without
+    consulting it, or a lock that gets weakened or dropped. Do not delete it as dead code -- a
+    backstop being unreachable is what a backstop is for. Today's other settle paths (`settle_row`,
     `settle_row_partial`, the TDS-deduction branch, `create_expense`) each write EXACTLY ONE leg per
     row -- `_load_settleable_row` refuses a second call once `row_status` reads `Settled` -- and
     that one leg is chosen to match the transfer within `settle.py`'s own amount window before it
-    ever reaches `_record_settlement`. So no currently-wired path can leave a row here, but that is
-    an emergent property of THOSE paths' own guards, not of this function being consulted anywhere.
-    `allocate_row` (Task 4) is the first caller expected to actually gate a WRITE on this verdict,
-    refusing a leg that would push `remaining_of` negative -- read this docstring again once that
-    lands, and correct it if the gate turns out to live somewhere else.
+    ever reaches `_record_settlement`, so none of them can leave a row here either.
 
     ⚠️ THE TDS-DEDUCTION LEG WAS THE ONE PATH THAT COULD BREAK THIS, AND IT IS FIXED AT THE CALL
     SITE, NOT HERE. `settle.SettleResult.amount` on that path is the GROSS approved figure -- the
@@ -135,7 +139,14 @@ def is_over_allocated(row_amount, legs: Iterable[Mapping]) -> bool:
     return remaining_of(row_amount, legs) < -AMOUNT_TOLERANCE
 
 
-def allocation_note(row_amount, legs: Iterable[Mapping], new_status: str) -> str:
+def allocation_note(
+    row_amount,
+    legs: Iterable[Mapping],
+    new_status: str,
+    *,
+    created: bool = False,
+    correction: tuple | None = None,
+) -> str:
     """The sentence a reviewer reads. It states the BALANCE, never a leg count.
 
     ⚠️ A COUNT WOULD BE THE ONE NUMBER THAT CANNOT BE CHECKED. "3 of 6 allocated" invites the
@@ -147,13 +158,51 @@ def allocation_note(row_amount, legs: Iterable[Mapping], new_status: str) -> str
     ADR-0020): it is arithmetic-plus-wording over legs, which is this module's job, and living in
     `api/` had put its "Partly allocated" branch outside the bench-free pure suite where nothing
     exercised it.
+
+    ⚠️ `created` AND `correction` RESTORE WHAT THE DELETED `_settled_note` SAID (whole-branch
+    review, F2). Task 3 replaced that function wholesale and dropped both facts from every
+    persisted note:
+
+      * `created` -- "Recorded" (a record this import BROUGHT INTO EXISTENCE, i.e. `create_expense`)
+        versus "Settled" (a record that was already sitting there approved). A created expense read
+        `Settled Project Expenses PE-x.` for the whole of Task 3, which claims something that was
+        never true of it.
+      * `correction` -- `(original_amount, amount)` when slice X1's rewrite edited an APPROVED
+        figure to the bank's, else `None`. THE NOTE IS THE ONLY PLACE THAT FACT SURVIVES ON THE
+        IMPORT'S OWN SCREEN. The `Version` log holds it durably, but nobody opens a Version log to
+        answer "why is this payment 31 paise different from what I approved". The escape hatch that
+        was supposed to carry it instead -- `_summary`'s `amount_changed` -- has never had a single
+        reader in `frontend/src/`.
+
+    Silent by design when nothing changed: a note saying "amount unchanged" on every ordinary row
+    would train people to stop reading it.
+
+    ⚠️ BOTH ARE PASSED IN, NOT REACHED FOR. This module is PURE and must not learn what a
+    `SettleResult` is; the caller unpacks the two facts it needs. They also ride the `ROW_SETTLED`
+    branch ONLY, and that is not an omission: a rewrite is `settle_row`'s alone
+    (`allocate_row` passes `rewrite_amount_to_bank=False`) and `settle_row`'s STRICT whole-transfer
+    guard means such a settlement always leaves the row fully allocated. A creation is the same
+    shape. Neither fact can arise on a row that is still `Partially Allocated`.
     """
-    live = [leg for leg in legs if (leg.get("match_kind") or "") == MATCH_SETTLED]
+    # ⚠️ `.strip()`, MATCHING `_is_live` (F10). A padded `match_kind` would otherwise enter the SUM
+    # -- which strips -- and vanish from the NAMES, so the note would state a balance it did not
+    # account for. `.get` for the same reason `_is_live` uses it: nothing else in this module
+    # indexes a leg mapping hard, and a leg missing a key must not raise inside a sentence builder.
+    live = [leg for leg in legs if _is_live(leg)]
     if not live:
         return "Nothing is allocated against this transfer."
-    names = ", ".join(f"{leg['target_doctype']} {leg['target_name']}" for leg in live)
+    names = ", ".join(
+        f"{leg.get('target_doctype')} {leg.get('target_name')}" for leg in live
+    )
     if new_status == ROW_SETTLED:
-        return f"Fully allocated. Settled {names}."
+        verb = "Recorded" if created else "Settled"
+        note = f"Fully allocated. {verb} {names}."
+        if correction:
+            original, corrected = correction
+            note += (
+                f" Amount corrected from {original} to {corrected} to match the transfer."
+            )
+        return note
     return (
         f"Partly allocated: {allocated_of(legs)} of {to_decimal(row_amount)}, "
         f"{remaining_of(row_amount, legs)} still to allocate. Settled {names}."

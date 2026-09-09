@@ -455,27 +455,58 @@ class TestTheAmountIsCorrectedToTheBank(PaymentSettlementFixture):
 
         self.assertEqual(self._po_amount_paid(), float(row.amount))
 
-    def test_the_row_note_states_the_balance_not_the_amount_correction(self):
-        """INVERTED at the allocation slice (ADR-0020, Task 3). The note used to be
-        `_settled_note`'s job and named the amount correction directly; it is now
-        `_allocation_note`'s job and states the row's BALANCE instead, because the deriver that
-        writes it cannot see a rewrite it never performed. The amount-correction fact did not
-        disappear -- it survives on the settled result (`amount_changed` / `original_amount`,
-        pinned by `test_the_result_reports_what_was_written_not_what_was_found`) and durably on the
-        Version log; this test used to assert the correction was *in the note* and now asserts it
-        is not, on purpose."""
+    def test_the_row_note_states_the_balance_AND_the_amount_correction(self):
+        """INVERTED A SECOND TIME, at the whole-branch review (F2) -- and the flip-flop is the point,
+        so BOTH arguments are recorded here rather than one quietly replacing the other.
+
+        X1 put the correction in the note, because the note is the only place that fact survives on
+        the IMPORT'S OWN SCREEN: the Version log holds it durably, but nobody opens a Version log to
+        answer "why is this payment 31 paise different from what I approved". Task 3 replaced
+        `_settled_note` with `allocation_note`, dropped it, and inverted this test to assert the
+        ABSENCE -- reasoning that the deriver cannot see a rewrite it never performed, and that
+        `_summary`'s `amount_changed` carried the fact instead.
+
+        ⚠️ THAT SECOND CLAUSE WAS FALSE, WHICH IS WHY THIS IS BEING UNDONE RATHER THAN RE-ARGUED:
+        `amount_changed` has never had a single reader in `frontend/src/`, so the fact was not
+        relocated, it was LOST. The deriver is now HANDED the two values it cannot see
+        (`allocation_note(..., created=, correction=)` -- still pure), so the balance sentence and
+        the correction both appear. Retired by INVERSION, never by deletion: the old claim is still
+        stated above, and still false.
+        """
         row, shifted = self._shift_planted("0008", -0.14)
 
         settle_row(row.name, PAYMENT, self.planted["0008"])
+
+        note = frappe.db.get_value(ROW_DOCTYPE, row.name, "outcome_note") or ""
+        # The BALANCE still leads -- ADR-0020's sentence is unchanged; the correction is a SUFFIX.
+        self.assertIn("fully allocated", note.lower())
+        self.assertIn("corrected", note.lower())
+        self.assertIn(str(shifted), note)
+
+    def test_an_ordinary_settle_says_nothing_about_a_correction(self):
+        """⚠️ THE OTHER HALF OF THE SAME RULE, AND IT IS WHAT MAKES THE SUFFIX SAFE. A note reading
+        "amount unchanged" on every ordinary row would train people to stop reading it, so silence
+        when nothing changed is the design -- `_settled_note` said exactly that before it was
+        deleted, and nothing pinned it. Without this case an unconditional "always append the
+        correction sentence" would satisfy the test above."""
+        row = self._import_row("0004")
+
+        settle_row(row.name, PAYMENT, self.planted["0004"])
 
         note = frappe.db.get_value(ROW_DOCTYPE, row.name, "outcome_note") or ""
         self.assertIn("fully allocated", note.lower())
         self.assertNotIn("corrected", note.lower())
 
     def test_the_result_reports_what_was_written_not_what_was_found(self):
-        """`SettleResult.amount` changed meaning at X1. The bulk-confirm surface shows the delta per
-        row, so a result still reporting the pre-settle figure would report the number it just
-        replaced -- on the one screen that most needs the truth."""
+        """`SettleResult.amount` changed meaning at X1: a result still reporting the pre-settle
+        figure would report the number it just replaced.
+
+        ⚠️ THE REASON THIS DOCSTRING USED TO GIVE WAS FALSE, AND IS CORRECTED (review F2). It read
+        "the bulk-confirm surface shows the delta per row". It does not, and never did: neither
+        `amount_changed` nor `original_amount` has a reader in `frontend/src/`. They are a response
+        CONTRACT, which is what this test pins. What a REVIEWER reads is the persisted
+        `outcome_note` -- pinned by
+        `test_the_row_note_states_the_balance_AND_the_amount_correction` above."""
         row, shifted = self._shift_planted("0001", -0.31)
 
         summary = settle_row(row.name, PAYMENT, self.planted["0001"])

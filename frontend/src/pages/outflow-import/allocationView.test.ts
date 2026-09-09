@@ -4,6 +4,7 @@ import {
     allocateButtonLabel,
     allocationBar,
     chooseSettleEndpoint,
+    reversalNotice,
 } from "./allocationView";
 
 const leg = (amount: number) => ({ target_amount: amount, match_kind: "Settled" });
@@ -89,5 +90,46 @@ describe("allocateButtonLabel", () => {
         expect(allocateButtonLabel({ ticks: 2, complete: true })).toBe(
             "Allocate 2 records · completes this transfer",
         );
+    });
+});
+
+describe("reversalNotice -- a successful reverse has to SAY it worked (review F9)", () => {
+    // ⚠️ THE SILENCE WAS THE DEFECT. The dialog closed and the table refetched, which is
+    // indistinguishable from a click that did nothing -- on the one action on this screen that
+    // moves money BACKWARDS, and therefore the one a reviewer repeats when unsure. Repeating it is
+    // REFUSED, so the silence trained a second click that then read as a failure.
+    it("names the record, so the sentence can be quoted later", () => {
+        const note = reversalNotice({
+            targetName: "PAY-00105-034",
+            reversedAmount: 60,
+            allocated: 40,
+            remaining: 60,
+        });
+        expect(note).toContain("PAY-00105-034");
+        expect(note).toContain("back to Approved");
+    });
+
+    it("states the BALANCE while something is still allocated, never a leg count", () => {
+        // ADR-0020's rule, mirrored from `allocation.allocation_note`: "2 of 3 legs" invites
+        // "three according to whom?", which nothing in the data answers.
+        const note = reversalNotice({
+            targetName: "PAY-1",
+            reversedAmount: 60,
+            allocated: 40,
+            remaining: 60,
+        });
+        expect(note).toContain("still unallocated");
+        expect(note).not.toMatch(/\bleg/i);
+    });
+
+    it("says the transfer is back to nothing when the last leg goes", () => {
+        const note = reversalNotice({
+            targetName: "PAY-1",
+            reversedAmount: 100,
+            allocated: 0,
+            remaining: 100,
+        });
+        expect(note).toContain("Nothing is allocated");
+        expect(note).not.toContain("still unallocated");
     });
 });

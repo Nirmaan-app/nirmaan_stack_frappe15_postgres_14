@@ -207,7 +207,10 @@ interface Props {
      * Undo one Settled leg of an allocation (Task 7, ADR-0020 fan-out). A reason is REQUIRED --
      * `reverse_allocation` throws without one, the same standard `skip_row` already holds.
      */
-    onReverseAllocation: (match: string, reason: string) => Promise<void> | void;
+    // ⚠️ `targetName` RIDES ALONG (review F9). The response identifies the MATCH record, not the
+    // payment, and the page's success notice is a sentence about money that is worth nothing
+    // without the record it names. The dialog is the only side that has it.
+    onReverseAllocation: (match: string, reason: string, targetName: string) => Promise<void> | void;
     onSkip: (reason: string) => Promise<void> | void;
     onRerun: () => Promise<void> | void;
     onClose: () => void;
@@ -359,7 +362,7 @@ export const DecisionDialog = ({
             // Same shape as `AmountOutsideWindowDialog`'s `onPartialSettle` below: the parent
             // catches and surfaces its own failure internally (see `handleReverseAllocation` in
             // `OutflowMasterPage`), so this always closes the small confirm afterwards.
-            await onReverseAllocation(reversingLeg.name, reason);
+            await onReverseAllocation(reversingLeg.name, reason, reversingLeg.target_name);
             setReversingLeg(null);
         },
         [reversingLeg, onReverseAllocation]
@@ -1346,6 +1349,30 @@ const RecordPicker = ({
         [pool, linkTargets]
     );
     const hiddenSelectedCount = selectedRecords.filter((r) => !options.includes(r)).length;
+
+    /**
+     * ⚠️ REVIEW F7 -- ONE SOURCE FOR THE TICK SET, ALL THE WAY TO THE PAYLOAD.
+     *
+     * Review fix 3 unified the dialog's `ticks` on `pickedRecords`, but only INSIDE this dialog:
+     * `OutflowMasterPage.settleOne` still builds the actual `targets` from `decision.linkTargets`
+     * and calls `chooseSettleEndpoint` a SECOND time on that count. A record that leaves the
+     * approved pool between tick and confirm therefore made the balance bar and the button label
+     * under-count while the submission still carried it -- and could route the two calls to
+     * DIFFERENT endpoints. It failed loudly at the server, so nothing corrupted; but "one source
+     * for how many are ticked" was broken at exactly the seam where it matters.
+     *
+     * Pruning here rather than teaching the page a second source is what keeps it ONE source:
+     * `linkTargets` becomes, by construction, the keys `selectedRecords` resolved to.
+     *
+     * ⚠️ IT WAITS FOR THE POOL. An unresolved key while the fetch is in flight is NOT an absent
+     * record -- pruning then would silently discard every tick on open. Same distinction
+     * `legsUnknown` draws one level up: absent is not the same as unknown.
+     */
+    useEffect(() => {
+        if (isLoading || !data) return;
+        if (!linkTargets || linkTargets.size === selectedRecords.length) return;
+        onChange({ ...decision, linkTargets: new Set(selectedRecords.map(recordKey)) });
+    }, [isLoading, data, linkTargets, selectedRecords, decision, onChange]);
 
     /**
      * ⚠️ REVIEW FIX 4 -- STATE THE RULE WHERE IT LIVES, BEFORE THE CLICK. `allocate_row` hard-

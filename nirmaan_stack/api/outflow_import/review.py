@@ -443,7 +443,19 @@ def _persist_row_outcome(row: _StagedRow, outcome, result, batch: str) -> None:
     # Still a delete, for a narrower reason: a batch staged under v2 carries legacy suggestion rows,
     # and re-running the match is how they get cleared. It cannot touch a settlement -- `Settled` is
     # in `_FROZEN_ROW_STATUSES`, so a settled row never reaches this function at all.
-    frappe.db.delete(MATCH_DOCTYPE, {"import_row": row.name})
+    #
+    # ⚠️ SCOPED TO `Settled`, SO A REVERSED LEG SURVIVES A RE-MATCH (whole-branch review, F4). The
+    # `Settled`-is-frozen argument above does NOT cover a row whose legs were ALL reversed: that row
+    # is returned to `Matched`/`Mismatched` by `_refresh_row_allocation`, deliberately, so it can be
+    # reconsidered -- and the most natural next action after a reversal is exactly "now re-run the
+    # match", which arrived here and hard-deleted the `Reversed` records. "A wrong leg is
+    # soft-reversed, NEVER deleted" is the entire justification for ADR-0020 D3 and for the partial
+    # unique index; an unscoped delete on this path destroyed that fact by a route the ADR did not
+    # consider.
+    # ⚠️ IT CHANGES RE-MATCH SEMANTICS NOT AT ALL. A `Reversed` leg holds no unique key (the index is
+    # PARTIAL on `match_kind = 'Settled'`) and contributes nothing to `allocated_of`, so leaving it
+    # in place can neither block nor skew anything this function goes on to write.
+    frappe.db.delete(MATCH_DOCTYPE, {"import_row": row.name, "match_kind": MATCH_SETTLED})
 
 
 # --- Option B: the database half of `services/outflow_import/disambiguate.py` ---------------------
@@ -1062,7 +1074,13 @@ def skip_row(row: str, reason: str):
          "decided_at": frappe.utils.now_datetime(), "decided_by": frappe.session.user},
         update_modified=False,
     )
-    frappe.db.delete(MATCH_DOCTYPE, {"import_row": row})
+    # ⚠️ SCOPED TO `Settled`, FOR THE SAME REASON AS `_persist_row_outcome`'s delete (review F4).
+    # The `Partially Allocated` guard above stops a skip while money is still written, but a row
+    # whose legs were ALL reversed is back to `Matched`/`Mismatched` and IS skippable -- and it is
+    # carrying exactly the `Reversed` records that ADR-0020 D3 says must never be deleted. Nothing
+    # else changes: a `Reversed` leg holds no unique key and adds nothing to `allocated_of`, so it
+    # cannot make the skipped row look settled.
+    frappe.db.delete(MATCH_DOCTYPE, {"import_row": row, "match_kind": MATCH_SETTLED})
     statuses = _refresh_batch_rollup(current.import_batch)
     frappe.db.commit()
     return {"row": row, "status": ROW_SKIPPED, "batch_status": derive_batch_status(statuses)}
@@ -1075,14 +1093,21 @@ def get_batch_rows(batch: str):
     _assert_batch(batch)
 
     rows = _load_rows(batch)
+    # ⚠️ `match_kind = 'Settled'` ONLY, MATCHING EVERY OTHER READ IN THIS FEATURE (whole-branch
+    # review, F3). This query predates ADR-0020 and was the one read that never learned about
+    # `Reversed`: it returned every leg, and `rowSettlementLinks` (`outflowTableModel.ts`) maps
+    # each one to a "Payments Done" link -- so after a reversal the payment is back to `Approved`
+    # while the batch screen still shows it as paid by this transfer. Bound, not spelled: the
+    # literal lives in `services/outflow_import/allocation.MATCH_SETTLED`, which this module already
+    # imports (unlike `ledgers.py`, there is no cycle here -- see the import's own note).
     matches = frappe.db.sql(
         """
         SELECT import_row, target_doctype, target_name, target_amount, match_kind, match_basis
         FROM "tabOutflow Row Match"
-        WHERE import_batch = %s
+        WHERE import_batch = %s AND match_kind = %s
         ORDER BY target_name ASC
         """,
-        (batch,),
+        (batch, MATCH_SETTLED),
         as_dict=True,
     )
     by_row: dict[str, list] = {}

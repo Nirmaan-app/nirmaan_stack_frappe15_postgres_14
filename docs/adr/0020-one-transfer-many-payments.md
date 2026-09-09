@@ -124,3 +124,62 @@ since `ACTIVE == OPEN` until the first partial allocation exists.
 **Found, not caused:** `patches.txt` contains **zero** outflow lines, so all four outflow index
 patches are unwired. `ofm_match_import_row_idx` exists on the dev DB but may be absent in
 production. Verify against `pg_indexes` before this ships.
+
+---
+
+## Amendment A — the whole-branch review (2026-09-09)
+
+Every task on `feature/outflow-fanout-allocation` passed its own gate; these are the things only a
+cross-task view could see. The three that changed a DECISION rather than a line of code are recorded
+here — the rest are documented at their call sites.
+
+### A1 — allocation is serialised by a ROW LOCK, and D5's "visible, not silent" depends on it
+
+`allocate_row` took no lock. `_live_legs` re-reads under READ COMMITTED, so it **cannot see another
+transaction's uncommitted legs**: two reviewers ticking DIFFERENT payments on the same transfer each
+measured the remainder against a picture with the other's legs missing, each passed
+`allocation_fits`, and the post-loop `is_over_allocated` backstop is per-transaction and equally
+blind. The row then derived as `Settled`, because `is_fully_allocated` is deliberately ONE-SIDED and
+there is no fourth status for over-allocation.
+
+**That failure is SILENT, which is precisely what this ADR trades against the weakened per-leg
+guard.** The argument for D1's weaker window is that a wrong pick leaves a *visible* leftover
+balance; an over-allocation that reads `Settled` leaves nothing to see. `_load_allocatable_row` now
+reads the row `FOR UPDATE`, in the same read that decides eligibility, held to the commit.
+`settle_payment`'s own `FOR UPDATE` and the partial index each stop a different thing (the same
+payment twice; the same pair twice) and neither covers two different payments racing onto one
+transfer. Lock order is ROW then PAYMENT.
+
+The post-loop `is_over_allocated` check is now unreachable single-threaded. It is KEPT: it is the
+only assertion that reads the final sum rather than a per-leg fit.
+
+### A2 — D3 was being broken by a route this ADR did not consider
+
+"A wrong leg is soft-reversed, never deleted" is the justification for D3 *and* for D4's partial
+index. But once EVERY leg is reversed, `_refresh_row_allocation` returns the row to
+`Matched`/`Mismatched` — deliberately, so it can be reconsidered — and it is then no longer frozen.
+Both `match_batch` (via `_persist_row_outcome`) and `skip_row` ended in an unscoped
+`frappe.db.delete(MATCH_DOCTYPE, {"import_row": ...})`, so **the most natural next action after a
+reversal — "now re-run the match" — hard-deleted exactly the records D3 exists to keep.** Both
+deletes are now scoped to `match_kind = 'Settled'`. Re-match semantics are unchanged: a `Reversed`
+leg holds no unique key and contributes nothing to the sum. `get_batch_rows` gained the same filter
+— it was the one read that never learned about `Reversed`, and the screen linked a reversed leg as
+"Payments Done".
+
+### A3 — Ruling O widened: two of the three reversal cases are now REFUSED
+
+Ruling O documented ONE way a `Project Payments` leg can carry more than `reverse_allocation`
+undoes: an amount rewritten by `settle_row` (slice X1). It is undetectable after the fact and stays
+ACCEPTED. The endpoint's only target guard was the doctype, and the other two settle paths write
+Project-Payments legs too:
+
+| Case | Written by | Why a reversal cannot undo it | Now |
+|---|---|---|---|
+| Amount rewritten to the bank's figure | `settle_row` (X1) | Indistinguishable from an allocation leg — both leave `target_amount == amount` | **Accepted**, `reversed_amount` points at the Version log |
+| `tds` written onto the payment | `_settle_as_deduction` | `_revert_payment` clears status / `utr` / `payment_date` only, so a withheld-tax figure would sit on a re-Approved payment | **Refused** |
+| The payment was SPLIT | `settle_row_partial` | Reversing the settled half does not un-split: one sanction silently becomes two `Approved` payments | **Refused** |
+
+Both refusals name the rule and the repair (the payments screen). A fourth guard refuses a leg whose
+`target_amount` no longer equals the payment's own amount — an EXACT comparison, no window, because
+both figures came from the same settle and any difference means a hand edit. The UI never offered
+either case, but the endpoint is whitelisted and now refuses them itself.

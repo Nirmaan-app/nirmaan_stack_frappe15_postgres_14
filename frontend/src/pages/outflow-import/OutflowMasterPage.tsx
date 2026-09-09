@@ -43,7 +43,7 @@ import {
     OutflowRowsTable,
     TablePagination,
 } from "./components/OutflowRowsTable";
-import { chooseSettleEndpoint } from "./allocationView";
+import { chooseSettleEndpoint, reversalNotice } from "./allocationView";
 import {
     DEFAULT_TAB,
     OUTFLOW_COLUMNS,
@@ -195,6 +195,20 @@ export const OutflowMasterPage = () => {
      * nobody can act on.
      */
     const [exportError, setExportError] = useState<string | null>(null);
+    /**
+     * What a SUCCESSFUL reversal says (review F9).
+     *
+     * ⚠️ THIS SCREEN HAD NOTHING FOR A SUCCESSFUL REVERSE. The dialog closed and the table
+     * refetched, which is indistinguishable from a click that did nothing -- on the one action here
+     * that moves money BACKWARDS, and therefore the one a reviewer is most likely to repeat when
+     * unsure. Repeating it is REFUSED ("This allocation was already reversed"), so the silence was
+     * training a second click that then read as a failure.
+     *
+     * ⚠️ INLINE AND ON THE PAGE, NOT A TOAST and not in the dialog -- the toast rule is stated at
+     * `exportError` above, and the dialog is closed by the time this is set. Cleared when the next
+     * row is opened, so it can never describe a reversal the reviewer has moved on from.
+     */
+    const [reverseNotice, setReverseNotice] = useState<string | null>(null);
     /**
      * The statement a just-finished import staged, waiting for its dialog to close.
      *
@@ -508,12 +522,28 @@ export const OutflowMasterPage = () => {
      * dialog's footer, not vanish.
      */
     const handleReverseAllocation = useCallback(
-        async (match: string, reason: string) => {
+        async (match: string, reason: string, targetName: string) => {
             setBusy(true);
             setConfirmError(null);
+            setReverseNotice(null);
             try {
-                await callReverseAllocation({ match, reason });
+                const response: any = await callReverseAllocation({ match, reason });
                 setOpenRow(null);
+                // ⚠️ REVIEW F9 -- SAY THAT IT WORKED. Built from the RESPONSE, not from what was
+                // clicked: the server's `reversed_amount` / `allocated` / `remaining` are what
+                // actually happened, and the wording lives in the pure `reversalNotice` so both of
+                // its shapes are unit-testable. `targetName` comes from the leg the dialog was
+                // showing -- the response identifies the match record, not the payment, and a
+                // sentence about money is worth nothing without the record it names.
+                const message = response?.message ?? {};
+                setReverseNotice(
+                    reversalNotice({
+                        targetName,
+                        reversedAmount: Number(message.reversed_amount ?? 0),
+                        allocated: Number(message.allocated ?? 0),
+                        remaining: Number(message.remaining ?? 0),
+                    })
+                );
                 await refreshAll();
             } catch (err: any) {
                 setConfirmError(describeFrappeError(err, "The reversal failed."));
@@ -916,6 +946,25 @@ export const OutflowMasterPage = () => {
 
             {showingApproved && <ApprovedRecordsPanel />}
 
+            {/* ⚠️ REVIEW F9 -- THE ONE ACTION HERE THAT MOVES MONEY BACKWARDS NOW SAYS SO. Inline,
+                never a toast: this screen's standing convention (see `exportError`), and a reversal
+                is a fact somebody may have to quote later. The wording is the pure `reversalNotice`;
+                this only renders it. Dismissable, and cleared automatically when the next row is
+                opened. */}
+            {reverseNotice && !showingApproved && (
+                <div className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                    <span className="flex-1">{reverseNotice}</span>
+                    <button
+                        type="button"
+                        aria-label="Dismiss"
+                        className="text-emerald-700"
+                        onClick={() => setReverseNotice(null)}
+                    >
+                        <X className="h-3.5 w-3.5" />
+                    </button>
+                </div>
+            )}
+
             <div className={showingApproved ? "hidden" : "flex flex-wrap items-center gap-2"}>
                 <div className="relative max-w-sm flex-1">
                     <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -1006,7 +1055,14 @@ export const OutflowMasterPage = () => {
                         onFilter={table.setFilter}
                         onToggleRow={toggleRow}
                         onToggleAll={toggleAll}
-                        onOpenDecision={setOpenRow}
+                        // ⚠️ THE NOTICE IS CLEARED HERE, NOT ON A TIMER (review F9). Opening the
+                        // next row is the moment the previous reversal stops being what the
+                        // reviewer is looking at, so a sentence about it must not still be on
+                        // screen above a different transfer.
+                        onOpenDecision={(row) => {
+                            setReverseNotice(null);
+                            setOpenRow(row);
+                        }}
                     />
                     <TablePagination
                         total={table.total}

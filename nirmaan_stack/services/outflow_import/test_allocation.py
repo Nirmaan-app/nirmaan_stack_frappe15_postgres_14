@@ -205,3 +205,83 @@ class TestAllocationNote(unittest.TestCase):
         ]
         note = allocation_note("5000", legs, ROW_SETTLED)
         self.assertNotIn("PAY-OLD", note)
+
+
+class TestTheNoteDisclosesWhatTaskThreeDropped(unittest.TestCase):
+    """⚠️ RESTORED AT THE WHOLE-BRANCH REVIEW (F2). `_settled_note` carried two facts that
+    `allocation_note` did not, and Task 3 deleted the function without moving either: the
+    `Recorded`/`Settled` verb, and slice X1's amount-correction sentence. The escape hatch that was
+    supposed to carry the second (`_summary`'s `amount_changed`) has never had a reader in
+    `frontend/src/`, so the disclosure was lost rather than relocated.
+
+    ⚠️ BOTH ARRIVE AS ARGUMENTS, WHICH IS WHAT KEEPS THIS MODULE PURE -- it must never learn what a
+    `SettleResult` is. That is also why these tests are HERE: living in `api/` is exactly what put
+    the old note outside the bench-free suite where nothing exercised it.
+    """
+
+    _LEG = [
+        {"target_amount": "5000", "match_kind": MATCH_SETTLED,
+         "target_doctype": "Project Expenses", "target_name": "PE-1"},
+    ]
+
+    def test_a_created_record_reads_Recorded_not_Settled(self):
+        note = allocation_note("5000", self._LEG, ROW_SETTLED, created=True)
+        self.assertEqual(note, "Fully allocated. Recorded Project Expenses PE-1.")
+
+    def test_an_existing_record_still_reads_Settled(self):
+        note = allocation_note("5000", self._LEG, ROW_SETTLED, created=False)
+        self.assertEqual(note, "Fully allocated. Settled Project Expenses PE-1.")
+
+    def test_a_correction_is_named_with_both_figures(self):
+        """The whole point: "why is this payment 31 paise different from what I approved" has to be
+        answerable from the row itself."""
+        note = allocation_note(
+            "18679", self._LEG, ROW_SETTLED, correction=("18678.69", "18679.00")
+        )
+        self.assertIn("Amount corrected from 18678.69 to 18679.00 to match the transfer.", note)
+
+    def test_it_is_SILENT_when_nothing_was_corrected(self):
+        """A note saying "amount unchanged" on every ordinary row would train people to stop
+        reading it. Silence is the design, not an omission."""
+        self.assertNotIn("corrected", allocation_note("5000", self._LEG, ROW_SETTLED).lower())
+
+    def test_both_default_to_the_pre_review_sentence(self):
+        """⚠️ THE BACKWARD-COMPATIBILITY PIN. `allocate_row` and `reverse_allocation` pass neither
+        (there is no single result, and nothing they do can create or correct a record), so the
+        defaults must reproduce Task 3's sentence byte for byte."""
+        self.assertEqual(
+            allocation_note("5000", self._LEG, ROW_SETTLED),
+            "Fully allocated. Settled Project Expenses PE-1.",
+        )
+
+    def test_a_correction_never_reaches_the_partly_allocated_branch(self):
+        """A rewrite is `settle_row`'s alone, and its STRICT whole-transfer guard means such a
+        settlement always leaves the row fully allocated -- so the suffix belongs to one branch."""
+        legs = [
+            {"target_amount": "2000", "match_kind": MATCH_SETTLED,
+             "target_doctype": "Project Payments", "target_name": "PAY-1"},
+        ]
+        note = allocation_note(
+            "5000", legs, ROW_PARTIALLY_ALLOCATED, created=True, correction=("1", "2")
+        )
+        self.assertNotIn("corrected", note.lower())
+        self.assertNotIn("Recorded", note)
+
+
+class TestTheNoteReadsLegsExactlyAsTheSumDoes(unittest.TestCase):
+    """⚠️ F10 -- `allocation_note` compared `match_kind` WITHOUT `.strip()` where `_is_live` (the
+    SUM) strips. A padded value therefore entered the balance and vanished from the names, so the
+    sentence stated a figure it did not account for. It also indexed `leg['target_doctype']` hard
+    where everything else in this module uses `.get`."""
+
+    def test_a_padded_match_kind_is_named_because_it_is_also_summed(self):
+        legs = [
+            {"target_amount": "5000", "match_kind": " Settled ",
+             "target_doctype": "Project Payments", "target_name": "PAY-P"},
+        ]
+        self.assertEqual(allocated_of(legs), Decimal("5000"))  # the SUM has always stripped
+        self.assertIn("PAY-P", allocation_note("5000", legs, ROW_SETTLED))
+
+    def test_a_leg_missing_a_key_does_not_raise_inside_a_sentence_builder(self):
+        legs = [{"target_amount": "5000", "match_kind": MATCH_SETTLED, "target_name": "PAY-Q"}]
+        self.assertIn("PAY-Q", allocation_note("5000", legs, ROW_SETTLED))
