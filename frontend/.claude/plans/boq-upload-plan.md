@@ -37921,3 +37921,105 @@ the tab to the front (`visibilityState: "visible"`). Nothing else was written.
   textarea (removed afterwards): the clipboard held **exactly `80`** -- two characters (codes 56, 48), no currency
   symbol, no separator, no trailing newline. The button's tick state was not observed after the click (the probe
   read ran after the tick's timeout) -- the paste is the evidence.
+
+## The none-pick rule -- a hand-picked "None" is honoured where the map's fallback is not None (2026-09-09)
+
+Tip on entry `ea3a890d` (in step with origin). Owner, after reproducing it on screen: *"checked this..it needs to
+be fixed. the none selection is inert now."*; on the narrow shape chat described: *"ok. proceed with build"*.
+**"Unclear" is UNTOUCHED by owner ruling** (*"ok.. letsleave unclear untouched. we will decide later."*) -- see the
+register below.
+
+### THE DEFECT, and how the owner found it
+`map_attribute`'s stated-wins test (`ratePipelineInterpreter.ts` `isStated`, the line just above the rule) excludes
+the "None" sentinel, so a pricer's deliberate None was discarded and the step's `default` substituted. On
+`point_wiring.conduit_type` the default is "PVC": the row priced a conduit the pricer had declined and the field
+rendered "PVC (computed)" over the pick. Found by the 114-row verification (BOQ-26-00126 / ELEC / 475: the panel's
+hidden-fact None priced 1565 / 313, a hand None on the calculator 1775 / 358), reproduced by the owner on the PANEL
+(BOQ-26-00174 / `Electrical ` / 251: None -> "PVC (computed)", 1775 / 358 unchanged). Shared engine: the BoQ editor
+and the calculator alike.
+
+### THE RULE -- narrow by design, both conditions load-bearing, NOT guessable from the config
+A stated "None" on a `map_attribute` step is honoured when BOTH hold: **(i)** `prefer_attr` IS `result_attr` (the
+field reads its own value); **(ii)** the step's `default` is NOT itself the "None" sentinel. Otherwise the step
+behaves exactly as before. One predicate (`noneIsADecision`) beside `isStated`; the stated-wins branch is
+`isStated(stated) || (noneIsADecision && stated === NONE_SENTINEL)`. The comment names both measured consequences
+and the ruling's date, and each condition has its own NEGATIVE pin named for the population it protects.
+- **Dropping (i)** (recon 4, 5,001 rows): **59 live rows move and 25 of them stop pricing** -- `industrial_sockets`'
+  hidden `mcb_curve_stated`, which the model writes as "None" on 107 of 147 live rows, would become the curve
+  instead of falling to C; the `catalog_fit` pin "STATED 'None' STICKS" already records that asymmetry as
+  deliberate and is untouched.
+- **Dropping (ii)**: **14 `wiring_cabling` rows** that NAME a conduit at a non-catalogue size (the model writes
+  `size_mm` "None") would drop their conduit (240/50 -> 180/30); charging the 25 mm rung there is ruling (vi).
+- Nothing else reads the rule: the 22 other sentinel sites (recon 4, Q1) already treat None as positive absence,
+  and the honoured None flows into `circuit_fit.absent_when` and `component_ref.none_skips` exactly as an
+  extraction-derived None does.
+
+### THE INVARIANT -- proven
+Real `makePricingSheetHelper` + `buildExtractionByRow` bundled with the project's esbuild in-container from a full
+copy of `frontend/src` with the interpreter at HEAD (`bcab168f38a2`) vs the working tree (`1c21474bc301`), run over
+all **5,001 rows of the 42 active runs** (re-dumped read-only) against the 12 live configs and 1,367 items, under
+the run category AND the live category: **10,002 verdicts compared, 0 moved**; `values`, every section's finals and
+figures, `finalValues` and the verdict kind identical; figure-set hash `da71b4f4bc6d` before and after. Nothing
+moves unless a pricer picks.
+
+### Tests (in-container vitest)
+`ratePipelineInterpreter.test.ts` +9 pins in one describe ("THE NONE-PICK RULE"): POSITIVE the defect (None honoured,
+conduit line 0, supply = PVC supply minus the conduit line); POSITIVE end to end (the pick reaches the SAME finals
+as the hidden `conduit_included = No` route); POSITIVE the consumers (`circuit_fit` "no conduit (positive absence)",
+`component_ref` "None -> 0", wires and switch still price); POSITIVE the screen (`mapAttributeOutcomes` publishes
+`stated: true, value: "None"`, so `applyDerivedDisplay` publishes no derivedValue and the panel renders the pick
+plain); UNCHANGED (MS stated; unstated -> PVC default; "" -> PVC); **NEGATIVE condition (i)** named for
+industrial_sockets' curve, quoting the 59 / 25 consequence (`CURVE_MAP` with `mcb_curve_stated` None -> C, and ROW98
+still fits); **NEGATIVE condition (ii)** named for the 14 wiring rows (`size_mm` None + MS -> 25 unmarked; the
+default-None type map -> None unmarked); NEGATIVE catalog_fit stated-None byte-identical (9222); NEGATIVE the source
+spells both conditions as config keys and tests no category id. RED before: 5 of 9 fail at HEAD. GREEN: 9 / 9.
+**VACUITY x2**: condition (i) disabled -> its negative + the source pin red (2 fail / 7 pass); condition (ii) disabled
+-> its negative + the source pin red (2 / 7); restored to hash `1c21474bc301` each time. Full file 475 / 475; the
+three rate files 805; full vitest **3,314 passed / 1 failed** (the known `writeOffControl` timeout; 3,315 = 3,306 +
+9). Python: coercion **149 OK**, hv2 (`services.boq_category.tests.test_hv2_voter_harness`) **43 OK**, rate_suggest
+**71 OK**, rate_master **337 OK** (520 s; one logged duplicate-key message inside a passing test, as before).
+`pricingSheetHelper.test.ts`: no pin had to move. tsc: no new errors in the touched files.
+
+### The browser live cert (2026-09-09 22:30-22:50, admins@nirmaan.app, tab VISIBLE, zero AI calls, no writes)
+Web `--noreload` / worker / socketio / vite restarted BY PID (3831 / 3833 / 3835 / 3848 / 3861 -> 7395 / 7399 / 7406
+/ 7428; `kill -9` needed for all five, declared), `node_modules/.vite` cleared, :8000 ping 200 x3, :8080 200 x3,
+FRONTEND marker on the plain module URL: `noneIsADecision` x2, `p.prefer_attr === p.result_attr` x1. The session
+survived the restart (no CSRF break, no login). Anomaly: the FIRST load after the restart served the dev shell with
+its `{{ boot }}` placeholders un-substituted (blank page, console `SyntaxError: Unexpected token '{'` at the inline
+boot script) while :8000 was warming; a reload rendered normally, though the same console exception is logged on
+every load of the dev shell -- pre-existing, not from this change.
+| N | result |
+|---|---|
+| N1 | BOQ-26-00174 / `Electrical ` / 251 on the PANEL: PVC, **1775 / 358** -> pick None -> field shows **"None"** (plain, not "(computed)"), **1565 / 313** (-210 / -45, the conduit leg) -> revert -> 1775 / 358, undo count **0** |
+| N2 | Calculator, the same attributes with Conduit type None -> **1565 / 313**, identical to N1; PVC control 1775 / 358 |
+| N3 | BOQ-26-00126 / ELEC / 475 panel **1565 / 313** (hidden-fact None); the calculator with the same attributes and a hand-picked None -> **1565 / 313**. The defect closed end to end |
+| N4 | condition (i): BOQ-26-00232 / 151 (curve stated None, `32A DP MCB C CURVE (computed)`) **9549 / 3350** and / 155 (`63A FP MCB C CURVE (computed)`) **24918 / 8730** -- identical to the verification's figures |
+| N5 | condition (ii): BOQ-26-00238 / 24 (size None beside a named 19 mm PVC conduit) **162 / 34 / 196 + 70 / 20 / 90**, size still "25 (computed)"; / 26 **222 / 40 / 262** -- identical |
+| N6 | BOQ-26-00232 / 192 earthing **340.75 / 79.75 / 420.5**; / 309 junction box **360 / 80 / 440** -- identical |
+Writes: none beyond the page's own access log (1,595 -> 1,597: the ONE `/electrical-pricing` load for N2/N3; two
+more at 22:30 came from the open tab reloading when vite restarted). Suggestion runs 71, events 1,532,
+`BoQ Cell Pricing` 37,699, sheet locks 295, BCS rows 1,524, workbook lock None throughout. Every panel override
+reverted (undo count 0); calculator picks session-only.
+
+### #57 -- what landed
+1 On a field that reads its own value and whose fallback is not None, a pricer's "None" pick is now honoured
+instead of being silently replaced -- today `point_wiring.conduit_type`: picking None stops the row pricing a
+conduit. Nothing changes on any row where nobody picks None (proven above). The list did not grow.
+
+### Register (record, do not fix)
+- **"Unclear" is a RULING CONFLICT, not a defect -- owner-parked.** It exists for the model (R11 tells it to answer
+  Unclear when a conduit is named but the document does not say who carries its cost); an earlier owner ruling (v),
+  pinned in `ratePipelineInterpreter.test.ts` ("CANNOT JUDGE -> not priced, cable rate intact"), says Unclear prices
+  the cable with no conduit; today's statement wants a blank that refuses. 13 live rows carry it (187 x7, 217 x5,
+  232 x1). Making a blank refuse would stop 1,383 of 1,559 live wiring rows pricing. Untouched here.
+- **The `wiring_cabling.size_mm` discard is deliberately left in place**: a None pick on the size with a known type
+  still prices the 25 mm rung (its map's default IS None, so condition (ii) excludes it) -- the same shape that
+  protects the 14 live rows.
+- The rule is not guessable from the config; the two named negative pins are the only guard.
+- Standing register carried unchanged (units, access-log row per load, the parked split-pipeline shape).
+
+### Files
+`frontend/src/pages/pricing/rate-master/ratePipelineInterpreter.ts` (the predicate + comment),
+`frontend/src/pages/pricing/rate-master/ratePipelineInterpreter.test.ts` (+9 pins), this record. Root `CLAUDE.md`:
+judged -- the rule is pinned and documented here; no durable convention beyond the existing "None is positive
+absence" line was earned, so nothing added.
