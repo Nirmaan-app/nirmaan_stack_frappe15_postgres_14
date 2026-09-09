@@ -637,9 +637,23 @@ def build_attribute_defs(cfg, catalog=None, discipline=None):
         if d.get("extract") is False:
             continue
         entry = {"id": d["id"], "label": d.get("label") or d["id"], "type": d.get("type") or "choice"}
+        # TWO WAYS (owner 2026-09-10, "not ask the extraction engine to pick from the list"): a def's
+        # `type` is BOTH what the pricer sees AND what the model is told, and a `number_choice` reaches
+        # the model as a closed list -- shown the ten stocked widths, the model returned 50 for an
+        # "80 x 50mm" tray and a live row priced wrong. `extract_as: "number"` splits the two: the panel
+        # keeps its dropdown (the frontend keys on `type`), the MODEL is asked for a FREE number with no
+        # `values`, and the ladder / the SWG map fit it code-side afterwards. THIS IS THE ONE CHOKEPOINT:
+        # `_extract_batch` builds `defs_by_id` from THIS list, so `_coerce_value_ex` sees `type: number`
+        # and applies no domain -- 80 and 2.5 survive by construction. The validator
+        # (`rate_master._validate_config`) is what makes a misspelled key LOUD rather than silent.
+        free_number = d.get("extract_as") == "number"
+        if free_number:
+            entry["type"] = "number"
         if identity and d["id"] == identity:
             entry["identity"] = True
             entry["values"] = list(catalog or [])
+        elif free_number:
+            pass  # a free number carries NO values -- the whole point
         elif d.get("values_from"):
             entry["values"] = values_from_catalog(discipline, d["values_from"])
         elif d.get("values"):

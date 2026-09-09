@@ -54,7 +54,7 @@ import type {
   RateCategoryConfig,
   RateMasterItem,
 } from "@/pages/pricing/rate-master/rateMasterTypes";
-import { POLE_WORDS, sortAttrNotes } from "./rateHelperTypes";
+import { POLE_WORDS, attrDisplayValue, sortAttrNotes } from "./rateHelperTypes";
 import type {
   AttrNote,
   ExtractedAttr,
@@ -298,6 +298,13 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
    * hop note is produced and every caller that never passed it is byte-identical.
    */
   items?: RateMasterItem[],
+  /**
+   * TWO WAYS (2026-09-10) -- the row's SELECTION, so the `no_match` producer can name what the
+   * document stated for a field the pipeline left blank (a gauge outside the table lives in the
+   * hidden `thickness_swg`, not on the visible field). OPTIONAL: absent, no `no_match` note is
+   * produced from a hidden source; every caller that never passed it is byte-identical otherwise.
+   */
+  selected?: Record<string, string | number>,
 ): WorkingsAttribute[] {
   // The ONE derived predicate (both mechanisms) -- reused, never re-implemented (#179).
   const derivedIds = rowDerivedIds ?? derivedAttrIds(config);
@@ -311,7 +318,7 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
   const arbitratedQty = blanksQtyAttr(config);
   const blanksItemAttr = blanksBindItemAttr(config);
 
-  return attrs.map((a) => {
+  const displayed = attrs.map((a) => {
     if (!derivedIds.has(a.id)) return a;
 
     // 0. THE ARBITRATED QUANTITY (the blanker count). Checked FIRST, because the superseded branch
@@ -462,12 +469,21 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
         // in the note area, through the ONE producer and the ONE wording the board ladder uses. The
         // trace already carried "20 not carried -> 25 (next higher)"; a pricer may never open it.
         const hop = catalogFitRatingUpNote(cf, items);
+        // WIDTH DROPDOWN (owner 2026-09-10) -- a plain SIZE hop on a dropdown field. The field can
+        // only show a stocked size, so it shows the FITTED one (`derivedValue`, unchanged above) and
+        // the row's own number would otherwise vanish from the screen; this note is where it
+        // survives. Produced ONLY where: the ladder hopped UP, no device-shaped `rating_up` note
+        // already says so, and the def is a dropdown (`a.options`) -- a free number input still
+        // shows "(computed)" beside the fitted value exactly as before, byte-unchanged. A direct pick
+        // hits its rung exactly and carries no note; above the top rung nothing fits and there is no
+        // outcome here at all (owner: blank, refusing, no note).
+        const sizeUp = catalogFitSizeUpNote(cf, !!a.options && !hop);
         return {
           ...a,
           derived: true,
           derivedValue: cf.fitted,
           substituted: cf.substituted || restsOnASubstitutedFact,
-          ...(hop ? { notes: [hop] } : {}),
+          ...(hop ? { notes: [hop] } : sizeUp ? { notes: [sizeUp] } : {}),
         };
       }
       // 5. SLICE 3b FINISH -- a `map_attribute` TARGET (the tray thickness). The FIFTH mechanism
@@ -516,6 +532,101 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
       ...((ladder.upgraded || (ladder.pick && ladder.pick.label !== ladder.label)) && ladder.label ? { substituted: true } : {}),
       ...(ladderNotes(ladder)),
     };
+  });
+  return withNoMatchNotes(displayed, config, items, selected);
+}
+
+/**
+ * TWO WAYS (owner 2026-09-10). PURE. THE PRODUCER OF THE `no_match` NOTE -- the first note on a BLANK
+ * field. Where a stated value has no stocked match the pipeline prices nothing (it never snaps: a
+ * non-stocked thickness makes `catalog_fit` find no rung, a gauge outside the table makes
+ * `map_attribute` bail, a width above the top rung makes the ladder bail) and the dropdown, having
+ * no option to show, renders its placeholder. Both were already true; what was missing was the
+ * sentence saying WHY, which lived only in the trace. This adds it, config-driven, naming no category:
+ *
+ *   (a) a DROPDOWN def whose displayed value is not one of its options and which no ladder fitted
+ *       (no `fit_up` / `rating_up` note) -- a stated 2.5 mm, a gauge-converted 4.1 mm;
+ *   (b) a `map_attribute` TARGET whose SOURCE is stated but is not a key of the step's table -- a gauge
+ *       the conversion table does not carry (the visible field is blank; the source is hidden);
+ *   (c) a `catalog_fit` BIND whose stated value exceeds the largest rung the catalogue carries for
+ *       that kind -- a width above 600. A value BELOW the top that simply has not been fitted yet
+ *       (the row refuses on another attribute) gets NO note: it may fit once the row is complete.
+ *
+ * ⚠️ CONFINED BY KEY PRESENCE, never by a category name (the HV-10 lesson): only a def that carries
+ * `extract_as: "number"` -- read FREELY from the document, so its stored value CAN legitimately be
+ * off-list -- gets this note. A closed-list def never stores an off-list value (the coercer nulls it),
+ * and the pre-existing off-list DISPLAY gaps on other fields (a conduit `size_mm` of 19.05, a plate
+ * label "1M & 2M", a material spelled differently) are REGISTER items, not this note: measured on the
+ * 42 active runs, an ungated producer would have added 70 notes on three fields outside #57.
+ *
+ * Reads config + items + the selection only; never the trace prose. The wording lives in
+ * `attrNoteText` (one place). A field that already carries a note keeps it and gains nothing here.
+ */
+export function withNoMatchNotes(
+  attrs: WorkingsAttribute[],
+  config: RateCategoryConfig,
+  items?: RateMasterItem[],
+  selected?: Record<string, string | number>,
+): WorkingsAttribute[] {
+  const steps = Object.values(config.pipelines ?? {}).flatMap((p) => p.steps ?? []);
+  const mapByTarget = new Map<string, { from_attr?: string; table?: Record<string, string | number> }>();
+  const fitByBind = new Map<string, { kind: string; size_attr?: string }>();
+  for (const st of steps as Array<{ step: string; params?: Record<string, unknown> }>) {
+    const p = (st.params ?? {}) as Record<string, unknown>;
+    if (st.step === "map_attribute" && typeof p.result_attr === "string" && !mapByTarget.has(p.result_attr)) {
+      mapByTarget.set(p.result_attr, {
+        from_attr: typeof p.from_attr === "string" ? p.from_attr : undefined,
+        table: p.table && typeof p.table === "object" ? (p.table as Record<string, string | number>) : undefined,
+      });
+    }
+    if (st.step === "catalog_fit" && typeof p.bind === "string" && typeof p.kind === "string" && !fitByBind.has(p.bind)) {
+      const sf = p.size_from as { attr?: string } | undefined;
+      fitByBind.set(p.bind, { kind: p.kind, size_attr: sf && typeof sf.attr === "string" ? sf.attr : undefined });
+    }
+  }
+  // the stocked list in the sentence reads ASCENDING when every option is a number (the dropdown itself
+  // keeps catalogue order -- a sort there would reorder every other dropdown, not this slice).
+  const stocked = (a: WorkingsAttribute) => {
+    const opts = (a.options ?? []).filter((o) => o !== NONE_SENTINEL);
+    const nums = opts.map(Number);
+    return (nums.every(Number.isFinite) ? [...opts].sort((x, y) => Number(x) - Number(y)) : opts).join(", ");
+  };
+  const isStated = (v: unknown): v is string | number => v !== undefined && v !== null && v !== "" && v !== NONE_SENTINEL;
+  // `extract_as` is a config key the AttributeDefinition type does not declare (types out of scope).
+  const freeRead = new Set(
+    (config.attribute_definitions ?? [])
+      .filter((d) => (d as { extract_as?: string }).extract_as === "number")
+      .map((d) => d.id),
+  );
+  return attrs.map((a) => {
+    if (!freeRead.has(a.id)) return a;
+    if (!a.options || a.disabled || a.readOnly) return a;
+    if (a.notes && a.notes.length) return a;
+    const map = mapByTarget.get(a.id);
+    const src = map?.from_attr && selected ? selected[map.from_attr] : undefined;
+    // (b) the source of a conversion is stated but the table has no such key -> the field is blank
+    if (map?.table && isStated(src) && !Object.prototype.hasOwnProperty.call(map.table, String(src))) {
+      const keys = Object.keys(map.table).map(Number).filter(Number.isFinite);
+      const range = keys.length ? `${Math.min(...keys)}-${Math.max(...keys)} SWG` : "the conversion table";
+      return { ...a, notes: [{ kind: "no_match", stated: `${String(src)} SWG`, field: "gauge", stocked: range }] };
+    }
+    const shown = attrDisplayValue(a);
+    if (shown === "" || a.options.includes(shown)) return a;
+    // (c) a ladder bind: only ABOVE the top rung is a no-match; below it the ladder can still fit
+    const fit = fitByBind.get(a.id);
+    if (fit) {
+      const want = Number(shown);
+      const sizes = (items ?? [])
+        .filter((it) => it.kind === fit.kind)
+        .map((it) => Number(it.attributes?.[fit.size_attr ?? a.id]))
+        .filter(Number.isFinite);
+      if (!sizes.length || !Number.isFinite(want) || want <= Math.max(...sizes)) return a;
+      return { ...a, notes: [{ kind: "no_match", stated: shown, field: a.label, stocked: stocked(a) }] };
+    }
+    // (a) any other dropdown: the displayed value is not stocked. Name a converted gauge as such.
+    const viaTable = map?.table && isStated(src) ? map.table[String(src)] : undefined;
+    const statedText = viaTable !== undefined && String(viaTable) === shown ? `${String(src)} SWG (${shown} mm)` : shown;
+    return { ...a, notes: [{ kind: "no_match", stated: statedText, field: a.label, stocked: stocked(a) }] };
   });
 }
 
@@ -616,6 +727,25 @@ export function catalogFitRatingUpNote(
   const priced = items.find((it) => it.attributes?.item === cf.fitted);
   if (typeof priced?.attributes?.device !== "string") return undefined;
   return ratingUpNote({ to: cf.fitted, amp_moved_up: { from: cf.requested, to: cf.size } }, items);
+}
+
+/**
+ * WIDTH DROPDOWN (owner 2026-09-10). PURE. The producer of the `fit_up` note -- a frontend
+ * `catalog_fit` HOP on a plain catalogue size (the tray width), where the fitted row carries no
+ * device word and `catalogFitRatingUpNote` therefore has nothing to say. The sentence lives in
+ * `attrNoteText`, the one wording source; this only carries the two numbers it needs.
+ *
+ * Undefined when: `enabled` is false (the caller decides the field is not a dropdown, or a
+ * rating_up note already covers the hop), nothing fitted, the fit was exact, or the size did not
+ * move UP (a `direction: "down"` ladder is not "the next size stocked").
+ */
+export function catalogFitSizeUpNote(
+  cf: import("@/pages/pricing/rate-master/rateMasterTypes").CatalogFitOutcome | undefined,
+  enabled: boolean,
+): AttrNote | undefined {
+  if (!enabled || !cf || cf.fitted === null || cf.exact) return undefined;
+  if (typeof cf.requested !== "number" || typeof cf.size !== "number" || !(cf.size > cf.requested)) return undefined;
+  return { kind: "fit_up", stated: cf.requested, using: cf.fitted };
 }
 
 /** Map a pipeline output key -> the sheet rate-kind it fills. EA-4a: the assembly categories name their
@@ -943,7 +1073,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
           // but the derived attributes must still not be flagged as the thing that is missing. The
           // red borders that remain are the GENUINE missing inputs, which is exactly the narrowing
           // this slice is: fewer fields flagged, and every one that still is, really is.
-          attributes: applyDerivedDisplay(workingsAttrs, category, [], fillableDerived),
+          attributes: applyDerivedDisplay(workingsAttrs, category, [], fillableDerived, items, selected),
           matchedRows: [],
           derivation: [
             // Calculator slice 1: WAS "Not in the suggestion run -- fill the attributes to compute a
@@ -1060,7 +1190,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         ? `Rate master: ${categoryLabel(category)} @ ${attrLine}`
         : "no match for these attributes",
       workings: {
-        attributes: applyDerivedDisplay(workingsAttrs, category, pipelineResults, fillableDerived, items),
+        attributes: applyDerivedDisplay(workingsAttrs, category, pipelineResults, fillableDerived, items, selected),
         matchedRows: flatMatched,
         derivation: flatDerivation,
         finalValues: { ...values },
@@ -1221,7 +1351,7 @@ function computeWiring(
         ? `Rate master: ${categoryLabel(config)} @ ${attrLine}`
         : "no match for these attributes",
     workings: {
-      attributes: applyDerivedDisplay(workingsAttrs, config, pipelineResults),
+      attributes: applyDerivedDisplay(workingsAttrs, config, pipelineResults, undefined, items, selected),
       matchedRows,
       derivation,
       finalValues: { ...values },

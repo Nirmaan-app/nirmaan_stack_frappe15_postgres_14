@@ -130,6 +130,25 @@ export type AttrNote =
   //                  read "3M holds 3 modules; contents occupy 3 -- using 6M", which explains
   //                  nothing. A contents-driven raise (no plate) DOES use `upgrade`, verbatim.
   | { kind: "plate_floor"; picked: string; plate: string; using: string }
+  // WIDTH DROPDOWN (owner 2026-09-10, "show the fitted value with a brief note"):
+  //   fit_up -> WE MOVED YOU UP, on a plain catalogue SIZE. A stored number is not one the catalogue
+  //             stocks, so `catalog_fit` priced the next size up (a tray width of 80 -> 100). Neither
+  //             existing hop kind can carry it: `size_up` bakes the module suffix into its sentence
+  //             ("No 80M in the catalogue") and `rating_up` is amp-shaped and needs a device word.
+  //             The field itself shows the FITTED value (the dropdown can only show a stocked size),
+  //             so this note is the one place the row's own number survives on screen. A direct pick
+  //             and an exact hit carry no note -- there is nothing to raise from.
+  | { kind: "fit_up"; stated: number; using: string }
+  // TWO WAYS (owner 2026-09-10, "left blank in the helper panel for the user to decide rather than
+  // silently picking up a wrong thickness ... we can have a note explaining"):
+  //   no_match -> NOTHING WAS PRICED, and here is why. The row states a value that has no stocked
+  //               match -- a width above the top rung, a gauge the conversion table does not carry, a
+  //               millimetre not stocked -- so the field is left BLANK for the pricer. Every other kind
+  //               says what was priced INSTEAD; `assumed` is the nearest in subject and the opposite in
+  //               meaning (WE GUESSED). This is the first note that rides a blank field.
+  //               `stated` is the row's own words ("2.5", "1500", "8 SWG (4.1 mm)"), `field` the def
+  //               label, `stocked` the list the value was checked against.
+  | { kind: "no_match"; stated: string; field: string; stocked: string }
   | { kind: "capped"; stated: number; spare: number }
   | { kind: "uncovered"; stated: number; spare: number; uncovered: number };
 
@@ -173,7 +192,9 @@ export const POLE_WORDS: Readonly<Record<string, string>> = { SP: "single pole",
 // F-25 slice 3 (owner 2026-09-08): `plate_floor` sits directly after `upgrade` -- both are
 // module-shaped corrections of WHICH rung is bought, and a plate-driven raise is the pick's own
 // upgrade. Six -> seven, registered rather than incidental.
-export const ATTR_NOTE_ORDER: readonly AttrNote["kind"][] = ["upgrade", "plate_floor", "rating_up", "assumed", "size_up", "capped", "uncovered"];
+// TWO WAYS (2026-09-10): `no_match` joins after `fit_up` -- a blank field has nothing "priced instead" to
+// precede, so it sits with the substitutions and ahead of the quantity notes.
+export const ATTR_NOTE_ORDER: readonly AttrNote["kind"][] = ["upgrade", "plate_floor", "rating_up", "assumed", "size_up", "fit_up", "no_match", "capped", "uncovered"];
 
 /** PURE. Notes in `ATTR_NOTE_ORDER`. A STABLE sort, so two notes of one kind keep producer order. */
 export function sortAttrNotes(notes: AttrNote[]): AttrNote[] {
@@ -241,6 +262,14 @@ export function attrNoteText(n: AttrNote): string {
       // F-25 slice 3 -- WE OVERRODE YOU, on the box: what was picked, why it could not be used (the
       // face plate is bigger), what was used instead. The one place this sentence lives.
       return `${n.picked} is smaller than the ${n.plate} face plate — using ${n.using}.`;
+    case "fit_up":
+      // Width dropdown -- WE MOVED YOU UP on a catalogue size: what the row stated, what was priced,
+      // why. The owner's own wording ("the row states 80 - using 100, the next size stocked").
+      return `The row states ${n.stated} — using ${n.using}, the next size stocked.`;
+    case "no_match":
+      // TWO WAYS -- NOTHING WAS PRICED: what the row stated, what it was checked against, and that
+      // the decision is the pricer's. The one place this sentence lives.
+      return `The row states ${n.stated} — nothing stocked matches for ${n.field} (${n.stocked}); left blank for you to decide.`;
     case "capped":
       return (
         `${n.spare === 0 ? "No" : n.spare} spare module${n.spare === 1 ? "" : "s"} on this plate; ` +

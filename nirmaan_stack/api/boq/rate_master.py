@@ -1401,6 +1401,17 @@ _KNOWN_STEP_TYPES = {
     # converted thickness ride the same step. PASS-THROUGH for the same reason as map_attribute.
     "catalog_fit",
 }
+# TWO WAYS (2026-09-10): every key an attribute definition may carry. Measured against the 12 live
+# configs and every asset on disk (16 keys in use) plus the frontend `AttributeDefinition` interface;
+# `extract_as` is the seventeenth. A key absent from this set is REJECTED by `_validate_config` -- the
+# guard that stops a misspelled `extract_as` shipping the closed-list behaviour silently.
+_KNOWN_DEF_KEYS = {
+    "id", "label", "type", "values", "values_from", "default", "note", "selector", "panel", "extract",
+    "allow_none", "disables_when_none", "group_label", "conductor_floor", "absent_when_value",
+    "absent_dependents",
+    "extract_as",
+}
+
 _KNOWN_CONFIG_KEYS = {
     "discipline", "category_id", "category_display", "pairing_rule",
     "attribute_definitions", "pipelines", "bcs_surfacing", "normalization_rule", "goldens",
@@ -1540,6 +1551,25 @@ def _validate_config(cfg):
         def_ids.add(did)
         if not isinstance(d.get("label"), str) or not d.get("label"):
             _vthrow(f"attribute definition '{did}' needs a label.")
+        # TWO WAYS (owner 2026-09-10) -- THE DEF-LEVEL KEY ALLOWLIST. Until now attribute definitions had
+        # no allowlist (the config's top level has `_KNOWN_CONFIG_KEYS`; defs had none), so a misspelled
+        # key was silently ignored. That is exactly the failure `extract_as` cannot afford: a typo would
+        # ship the old behaviour -- the model handed a closed list -- with no signal, which is how a live
+        # tender row priced an 80 mm tray as 50. Unknown keys are now rejected BY NAME.
+        unknown_def_keys = set(d.keys()) - _KNOWN_DEF_KEYS
+        if unknown_def_keys:
+            _vthrow(
+                f"attribute definition '{did}' carries unknown key(s): "
+                f"{', '.join(sorted(unknown_def_keys))}. Known: {', '.join(sorted(_KNOWN_DEF_KEYS))}."
+            )
+        # `extract_as: "number"` -- show the list ON SCREEN, ask the MODEL for a free number. Only the
+        # literal "number" is meaningful, and only on a `number_choice` (a `choice` list is a catalogue
+        # pick and must stay closed; a `number` is already free).
+        if "extract_as" in d:
+            if d.get("extract_as") != "number":
+                _vthrow(f"attribute '{did}' extract_as must be the literal \"number\" (got {d.get('extract_as')!r}).")
+            if d.get("type") != "number_choice":
+                _vthrow(f"attribute '{did}' extract_as is only meaningful on a number_choice (type is {d.get('type')!r}).")
         # CP2: `number_choice` is the THIRD type -- a DROPDOWN that produces a NUMBER. It exists
         # because item matching is strict identity, so a dropdown over a numeric catalog column
         # (cable cores, thickness) must not emit the string "3" against a stored 3.

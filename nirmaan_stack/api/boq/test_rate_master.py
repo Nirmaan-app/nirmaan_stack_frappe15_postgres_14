@@ -312,7 +312,9 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # the live corpus and changed ZERO, byte-identical to the prose output. The point axis was already
 # 231-of-237 correct and the other 6 sit ABOVE the floor; moving a working rule for tidiness is
 # exactly the risk that proof exists to retire.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v59.json"
+# TWO WAYS (v61, owner 2026-09-10): cabletray_raceway.width_mm and .thickness_mm are dropdowns on screen and
+# free numbers to the model (`extract_as`); the ONE change over v59, cabletray only. See TestV61TwoWays.
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v61.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -6346,8 +6348,12 @@ class TestSpnPoleVocabulary(FrappeTestCase):
         # definition (`box_item`, the box ladder's bind, display-only). Named here for the same reason
         # the LMS and socket mints were named in the cumulative pins -- a THIRD moving category still
         # fails. Its pipelines/rules/goldens are pinned byte-equal to v56 in TestF25Slice1BackBoxField.
+        # WIDENED AGAIN AT TWO WAYS (v61, owner 2026-09-10): `cabletray_raceway` gained `extract_as` on two defs
+        # (width_mm also becoming a catalogue-backed number_choice); the ladder and the SWG map byte-equal,
+        # pinned in TestV61TwoWays. Named here for the same reason as every prior mint. A further category
+        # still fails.
         for cid in before:
-            if cid not in ("industrial_sockets", "switches_sockets"):
+            if cid not in ("industrial_sockets", "switches_sockets", "cabletray_raceway"):
                 self.assertEqual(now[cid], before[cid], "%s moved" % cid)
         # WIDENED AGAIN AT F-25 SLICE 2 (v58, owner 2026-09-07): the switches_sockets BOX ladder gained
         # `on_zero_from` + `on_zero_modules` on both pipelines (pinned key by key in TestF25Slice2BareBox);
@@ -7557,7 +7563,11 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # WIDENED AGAIN AT F-25 SLICE 1 (v57, owner 2026-09-06): `switches_sockets` gained ONE
         # display-only attribute (`box_item`); no circuit field, no pipeline, no golden moved (pinned
         # in TestF25Slice1BackBoxField). A FIFTH still fails.
-        self.assertEqual(changed, ["industrial_sockets", "lighting_mgmt_system", "point_wiring", "switches_sockets"])
+        # WIDENED AGAIN AT TWO WAYS (v61, owner 2026-09-10): `cabletray_raceway` gained `extract_as` on two defs
+        # (width_mm also becoming a catalogue-backed number_choice); the ladder and the SWG map byte-equal,
+        # pinned in TestV61TwoWays. Named here for the same reason as every prior mint. A further category
+        # still fails.
+        self.assertEqual(changed, ["cabletray_raceway", "industrial_sockets", "lighting_mgmt_system", "point_wiring", "switches_sockets"])
         self.assertEqual(payload["items"], prev["items"], "no rate and no item may move")
         for cid, c in now.items():
             if cid == "point_wiring":
@@ -7799,8 +7809,12 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # WIDENED AGAIN AT F-25 SLICE 1 (v57, owner 2026-09-06): `switches_sockets` gained ONE
         # display-only attribute (`box_item`); its goldens did NOT move (asserted below). A FIFTH
         # still fails.
+        # WIDENED AGAIN AT TWO WAYS (v61, owner 2026-09-10): `cabletray_raceway` gained `extract_as` on two defs
+        # (width_mm also becoming a catalogue-backed number_choice); the ladder and the SWG map byte-equal,
+        # pinned in TestV61TwoWays. Named here for the same reason as every prior mint. A further category
+        # still fails.
         self.assertEqual(sorted(k for k in now if now[k] != was[k]),
-                         ["industrial_sockets", "lighting_mgmt_system", "point_wiring", "switches_sockets"])
+                         ["cabletray_raceway", "industrial_sockets", "lighting_mgmt_system", "point_wiring", "switches_sockets"])
         self.assertEqual(payload["items"], prev["items"])
         # ⚠️ SUPERSEDED AT SLICE B. F4a removed two pipelines, and `_validate_config` refuses
         # a golden naming a pipeline the config no longer declares -- so their `expect` keys
@@ -7987,8 +8001,12 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # WIDENED AGAIN AT F-25 SLICE 1 (v57, owner 2026-09-06): `switches_sockets` gained ONE
         # display-only attribute (`box_item`); its goldens did NOT move (asserted below). A FIFTH
         # still fails.
+        # WIDENED AGAIN AT TWO WAYS (v61, owner 2026-09-10): `cabletray_raceway` gained `extract_as` on two defs
+        # (width_mm also becoming a catalogue-backed number_choice); the ladder and the SWG map byte-equal,
+        # pinned in TestV61TwoWays. Named here for the same reason as every prior mint. A further category
+        # still fails.
         self.assertEqual(sorted(k for k in now if now[k] != was[k]),
-                         ["industrial_sockets", "lighting_mgmt_system", "point_wiring", "switches_sockets"])
+                         ["cabletray_raceway", "industrial_sockets", "lighting_mgmt_system", "point_wiring", "switches_sockets"])
         self.assertEqual(payload["items"], prev["items"], "no item may move")
         # ⚠️ v55 ADDED a `lighting_mgmt_system` goldens block (the LMS slice). Assert the key
         # set moved by exactly that ONE addition -- still "no golden was dropped".
@@ -8512,8 +8530,12 @@ class TestLmsPricingHelper(FrappeTestCase):
         # category appearing still fails, and no item and no golden may move.
         # WIDENED AGAIN AT F-25 SLICE 1 (v57, owner 2026-09-06): `switches_sockets` gained ONE
         # display-only attribute (`box_item`). A FOURTH still fails.
+        # WIDENED AGAIN AT TWO WAYS (v61, owner 2026-09-10): `cabletray_raceway` gained `extract_as` on two defs
+        # (width_mm also becoming a catalogue-backed number_choice); the ladder and the SWG map byte-equal,
+        # pinned in TestV61TwoWays. Named here for the same reason as every prior mint. A further category
+        # still fails.
         self.assertEqual(sorted(k for k in now if now[k] != was[k]),
-                         ["industrial_sockets", "lighting_mgmt_system", "switches_sockets"])
+                         ["cabletray_raceway", "industrial_sockets", "lighting_mgmt_system", "switches_sockets"])
         self.assertEqual(self.payload["items"], prev["items"], "no item may move")
         for cat in was:
             if cat == "lighting_mgmt_system":
@@ -8978,8 +9000,12 @@ class TestF25Slice3PickFrom(FrappeTestCase):
         now = {c["category_id"]: c for c in self.now["category_configs"]}
         was = {c["category_id"]: c for c in self.was["category_configs"]}
         self.assertEqual(set(now), set(was))
+        # WIDENED AGAIN AT TWO WAYS (v61, owner 2026-09-10): `cabletray_raceway` gained `extract_as` on two defs
+        # (width_mm also becoming a catalogue-backed number_choice); the ladder and the SWG map byte-equal,
+        # pinned in TestV61TwoWays. Named here for the same reason as every prior mint. A further category
+        # still fails.
         for cid in was:
-            if cid != "switches_sockets":
+            if cid not in ("switches_sockets", "cabletray_raceway"):
                 self.assertEqual(now[cid], was[cid], "%s moved" % cid)
         self.assertEqual(self.now["items"], self.was["items"])
         self.assertEqual(self.now["goldens"], self.was["goldens"])
@@ -9076,3 +9102,223 @@ class TestF25Slice3PickFrom(FrappeTestCase):
         self.assertEqual(live["rules"], self.ss_now["rules"])
         for pid in ("swsock_boq", "swsock_bcs"):
             self.assertEqual(self._box_ladder(live, pid)["pick_from"], self.PICK_ATTR, pid)
+
+
+class TestV61TwoWays(FrappeTestCase):
+    """TWO WAYS (v61, owner 2026-09-10) -- a field can show a LIST and still be read FREELY.
+
+    A def's `type` was both what the pricer sees AND what the model is told: a `number_choice`
+    reached the prompt as a closed list, and shown the ten stocked widths the model returned 50 for an
+    "80 x 50mm" tray -- a wrong price on a live tender (the reverted v60 test). The split is the
+    def-level key `extract_as: "number"`, honoured at the ONE projection chokepoint
+    (`extraction.build_attribute_defs`): the def reaches the model as `type: number` with NO `values`,
+    and because `_extract_batch` builds `defs_by_id` from that same projected list, `_coerce_value_ex`
+    applies no domain -- 80 and 2.5 survive by construction. The panel keys on `type`, so both fields
+    stay dropdowns of the stocked values. Owner: "then we just need to do the ladder matching properly
+    code side and not ask the extraction engine to pick from the list".
+
+    Applied to EXACTLY two defs (cabletray_raceway.width_mm, now a number_choice + values_from like its
+    sibling, and cabletray_raceway.thickness_mm). The ladder (catalog_fit) and the SWG map
+    (map_attribute, 27 gauges, a stated millimetre wins) are byte-untouched. Every OTHER list-typed def
+    (65 across the 12 configs) still reaches the model WITH its list.
+
+    THE GUARD: attribute definitions had NO key allowlist, so a misspelled `extract_as` would have
+    shipped the closed-list behaviour with no signal. `_KNOWN_DEF_KEYS` now rejects an unknown key BY
+    NAME, and `extract_as` must be the literal "number" on a `number_choice`."""
+
+    _PRIOR_ASSET = "rate_master_electrical_all_v59.json"
+    DISC = "Electrical"
+    TWO = ("width_mm", "thickness_mm")
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            cls.now = json.load(fh)
+        with open(_asset_path(cls._PRIOR_ASSET), "r", encoding="utf-8") as fh:
+            cls.was = json.load(fh)
+        cls.ct_now = [c for c in cls.now["category_configs"] if c["category_id"] == "cabletray_raceway"][0]
+        cls.ct_was = [c for c in cls.was["category_configs"] if c["category_id"] == "cabletray_raceway"][0]
+
+    def _defs(self, cfg):
+        return {d["id"]: d for d in cfg["attribute_definitions"]}
+
+    # -- the asset ------------------------------------------------------------------------------
+    def test_v61_01_exactly_two_defs_carry_extract_as_number(self):
+        """POSITIVE: width_mm and thickness_mm, both number_choice + values_from + extract_as "number".
+        NEGATIVE: no other def in any of the 12 configs carries the key; v59 carried none."""
+        d = self._defs(self.ct_now)
+        self.assertEqual(d["width_mm"], {"id": "width_mm", "label": "Width (mm)", "type": "number_choice",
+                                         "values_from": {"kind": "cable_tray", "attr": "width_mm"},
+                                         "extract_as": "number"})
+        self.assertEqual(d["thickness_mm"], {"id": "thickness_mm", "label": "Thickness (mm)", "type": "number_choice",
+                                             "values_from": {"kind": "cable_tray", "attr": "thickness_mm"},
+                                             "extract_as": "number"})
+        carriers = [(c["category_id"], a["id"]) for c in self.now["category_configs"]
+                    for a in c["attribute_definitions"] if "extract_as" in a]
+        self.assertEqual(sorted(carriers), [("cabletray_raceway", "thickness_mm"), ("cabletray_raceway", "width_mm")])
+        self.assertEqual([a["id"] for c in self.was["category_configs"] for a in c["attribute_definitions"] if "extract_as" in a], [])
+        self.assertEqual(self._defs(self.ct_was)["width_mm"], {"id": "width_mm", "label": "Width (mm)", "type": "number"})
+
+    def test_v61_02_the_ladder_and_the_swg_map_are_byte_equal_to_v59(self):
+        """NEGATIVE: all four pipelines equal v59 -- catalog_fit still binds width_mm up/no_compute, and
+        map_attribute still prefers a stated millimetre and carries all 27 gauges."""
+        self.assertEqual(self.ct_now["pipelines"], self.ct_was["pipelines"])
+        for pid, p in self.ct_now["pipelines"].items():
+            cf = [s for s in p["steps"] if s["step"] == "catalog_fit"]
+            mp = [s for s in p["steps"] if s["step"] == "map_attribute"]
+            self.assertEqual((len(cf), len(mp)), (1, 1), pid)
+            self.assertEqual(cf[0]["params"]["bind"], "width_mm", pid)
+            self.assertEqual(cf[0]["params"]["direction"], "up", pid)
+            self.assertEqual(cf[0]["params"]["on_miss"], "no_compute", pid)
+            self.assertEqual(mp[0]["params"]["prefer_attr"], "thickness_mm", pid)
+            self.assertEqual(mp[0]["params"]["from_attr"], "thickness_swg", pid)
+            self.assertEqual(len(mp[0]["params"]["table"]), 27, pid)
+            self.assertEqual(mp[0]["params"]["table"]["14"], 2.0, pid)
+            self.assertEqual(mp[0]["params"]["table"]["8"], 4.1, pid)
+
+    def test_v61_03_cabletray_differs_from_v59_in_exactly_the_two_defs_and_its_notes(self):
+        """NEGATIVE, key by key: put the two v59 defs and the notes back and the config equals v59."""
+        now = copy.deepcopy(self.ct_now)
+        was_defs = self._defs(self.ct_was)
+        now["attribute_definitions"] = [was_defs[d["id"]] if d["id"] in self.TWO else d for d in now["attribute_definitions"]]
+        now["notes"] = self.ct_was["notes"]
+        self.assertEqual(now, self.ct_was)
+        self.assertTrue(self.ct_now["notes"].startswith(self.ct_was["notes"]))
+        self.assertIn("v61 (owner 2026-09-10, TWO WAYS)", self.ct_now["notes"])
+
+    def test_v61_04_every_other_config_item_and_golden_is_byte_equal_to_v59(self):
+        now = {c["category_id"]: c for c in self.now["category_configs"]}
+        was = {c["category_id"]: c for c in self.was["category_configs"]}
+        self.assertEqual(set(now), set(was))
+        self.assertEqual(len(now), 12)
+        for cid in now:
+            if cid != "cabletray_raceway":
+                self.assertEqual(now[cid], was[cid], "%s moved" % cid)
+        self.assertEqual(self.now["items"], self.was["items"])
+        self.assertEqual(len(self.now["items"]), 1367)
+        self.assertEqual(self.now["goldens"], self.was["goldens"])
+        for key in self.was:
+            if key != "category_configs":
+                self.assertEqual(self.now[key], self.was[key], "top-level %s moved" % key)
+
+    # -- the projection (chokepoint 1) -------------------------------------------------------------
+    def test_v61_05_the_projection_both_defs_reach_the_model_as_a_free_number_with_no_values(self):
+        """POSITIVE: the model is told `type: number` and NO `values` for both. NEGATIVE: under v59
+        thickness_mm reached it as a number_choice WITH the five stocked values."""
+        now = {d["id"]: d for d in extraction.build_attribute_defs(self.ct_now, None, self.DISC)}
+        was = {d["id"]: d for d in extraction.build_attribute_defs(self.ct_was, None, self.DISC)}
+        for aid in self.TWO:
+            self.assertEqual(now[aid]["type"], "number", aid)
+            self.assertNotIn("values", now[aid], aid)
+            self.assertNotIn("extract_as", now[aid], aid)   # the key itself never crosses
+        self.assertEqual(now["width_mm"], {"id": "width_mm", "label": "Width (mm)", "type": "number"})
+        self.assertEqual(now["thickness_mm"], {"id": "thickness_mm", "label": "Thickness (mm)", "type": "number"})
+        self.assertEqual(was["thickness_mm"]["type"], "number_choice")
+        self.assertEqual(sorted(float(v) for v in was["thickness_mm"]["values"]), [1.0, 1.2, 1.4, 1.6, 2.0])
+        # the hidden gauge is still asked, as a free number, unchanged
+        self.assertEqual(now["thickness_swg"], was["thickness_swg"])
+
+    def test_v61_06_every_other_list_typed_def_still_reaches_the_model_with_its_list(self):
+        """NEGATIVE (the 65): across the 12 configs every choice / number_choice def WITHOUT extract_as
+        projects exactly as it did under v59 -- values present and identical."""
+        disc = self.DISC
+        seen = 0
+        for c_now in self.now["category_configs"]:
+            c_was = [c for c in self.was["category_configs"] if c["category_id"] == c_now["category_id"]][0]
+            p_now = {d["id"]: d for d in extraction.build_attribute_defs(c_now, None, disc)}
+            p_was = {d["id"]: d for d in extraction.build_attribute_defs(c_was, None, disc)}
+            for d in c_now["attribute_definitions"]:
+                if d.get("type") not in ("choice", "number_choice") or "extract_as" in d:
+                    continue
+                if d["id"] not in p_now:
+                    continue  # selector:false / extract:false -- never projected, before or after
+                seen += 1
+                self.assertEqual(p_now[d["id"]], p_was[d["id"]], "%s.%s projection moved" % (c_now["category_id"], d["id"]))
+                self.assertIn("values", p_now[d["id"]], "%s.%s lost its list" % (c_now["category_id"], d["id"]))
+        self.assertGreaterEqual(seen, 60)
+
+    # -- the coercer (chokepoint 2, by construction) ----------------------------------------------
+    def test_v61_07_the_coercer_80_and_2_5_survive_where_today_they_would_be_nulled(self):
+        """POSITIVE -- THE DEFECT, PINNED: through the projected defs (the SAME objects `_extract_batch`
+        coerces with), an off-list 80 and 2.5 are kept. NEGATIVE: the v59 projection nulled 2.5
+        (outside_numeric_domain), and a plain non-number is still nulled under v61."""
+        now = {d["id"]: d for d in extraction.build_attribute_defs(self.ct_now, None, self.DISC)}
+        was = {d["id"]: d for d in extraction.build_attribute_defs(self.ct_was, None, self.DISC)}
+        self.assertEqual(extraction._coerce_value_ex(now["width_mm"], 80), (80, extraction.COERCE_OK))
+        self.assertEqual(extraction._coerce_value_ex(now["width_mm"], 80.0), (80, extraction.COERCE_OK))
+        self.assertEqual(extraction._coerce_value_ex(now["thickness_mm"], 2.5), (2.5, extraction.COERCE_OK))
+        self.assertEqual(extraction._coerce_value_ex(now["thickness_mm"], "2.5"), (2.5, extraction.COERCE_OK))
+        self.assertEqual(extraction._coerce_value_ex(was["thickness_mm"], 2.5), (None, extraction.COERCE_OUTSIDE_DOMAIN))
+        self.assertEqual(extraction._coerce_value_ex(now["thickness_mm"], "thick"), (None, extraction.COERCE_NOT_A_NUMBER))
+        self.assertEqual(extraction._coerce_value_ex(now["width_mm"], None), (None, extraction.COERCE_ABSENT))
+
+    # -- the guard ---------------------------------------------------------------------------------
+    def test_v61_08_the_guard_a_misspelled_key_is_rejected_by_name(self):
+        """NEGATIVE: `extract_as` misspelled (`extractas`, `extract_as_`, `extract_type`) is REJECTED at
+        validation, naming the key -- it can no longer ship the closed-list behaviour silently.
+        POSITIVE: the v61 config itself validates; so does every one of the 12."""
+        for cfg in self.now["category_configs"]:
+            rate_master._validate_config(cfg)  # must not raise
+        for typo in ("extractas", "extract_as_", "extract_type", "Extract_as"):
+            cfg = copy.deepcopy(self.ct_now)
+            for d in cfg["attribute_definitions"]:
+                if d["id"] == "width_mm":
+                    d.pop("extract_as")
+                    d[typo] = "number"
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                rate_master._validate_config(cfg)
+            self.assertIn(typo, str(ctx.exception))
+            self.assertIn("width_mm", str(ctx.exception))
+
+    def test_v61_09_the_guard_extract_as_must_be_number_on_a_number_choice(self):
+        """NEGATIVE: a value other than the literal "number" is rejected; the key on a `choice` (a
+        catalogue pick, which must stay closed) or on a plain `number` is rejected."""
+        cfg = copy.deepcopy(self.ct_now)
+        for d in cfg["attribute_definitions"]:
+            if d["id"] == "width_mm":
+                d["extract_as"] = "free"
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            rate_master._validate_config(cfg)
+        self.assertIn("extract_as", str(ctx.exception))
+        cfg = copy.deepcopy(self.ct_now)
+        for d in cfg["attribute_definitions"]:
+            if d["id"] == "tray_type":       # a choice
+                d["extract_as"] = "number"
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            rate_master._validate_config(cfg)
+        self.assertIn("number_choice", str(ctx.exception))
+        cfg = copy.deepcopy(self.ct_now)
+        for d in cfg["attribute_definitions"]:
+            if d["id"] == "thickness_swg":   # a plain number, already free
+                d["extract_as"] = "number"
+        with self.assertRaises(frappe.ValidationError):
+            rate_master._validate_config(cfg)
+
+    def test_v61_10_the_allowlist_covers_every_key_in_use_and_nothing_slips(self):
+        """POSITIVE: every def key across the 12 configs is in `_KNOWN_DEF_KEYS` (so no live config is
+        refused). NEGATIVE: an arbitrary unknown key on ANY def is refused."""
+        in_use = {k for c in self.now["category_configs"] for d in c["attribute_definitions"] for k in d}
+        self.assertTrue(in_use <= rate_master._KNOWN_DEF_KEYS, in_use - rate_master._KNOWN_DEF_KEYS)
+        self.assertIn("extract_as", rate_master._KNOWN_DEF_KEYS)
+        cfg = copy.deepcopy([c for c in self.now["category_configs"] if c["category_id"] == "earthing"][0])
+        cfg["attribute_definitions"][0]["panell"] = False
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            rate_master._validate_config(cfg)
+        self.assertIn("panell", str(ctx.exception))
+
+    # -- the delivery path -------------------------------------------------------------------------
+    def test_v61_11_the_live_config_carries_v61_leaf_by_leaf(self):
+        """THE DELIVERY-PATH PIN. The runtime reads the DATABASE, not the asset. RED until v61 is imported."""
+        live = _obj(frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": "Electrical", "category_id": "cabletray_raceway", "active": 1}, "config",
+        ))
+        self.assertEqual(live["attribute_definitions"], self.ct_now["attribute_definitions"])
+        self.assertEqual(live["pipelines"], self.ct_now["pipelines"])
+        self.assertEqual(live["notes"], self.ct_now["notes"])
+        # and the LIVE read the extractor performs projects both as free numbers
+        live_defs = {d["id"]: d for d in extraction.build_attribute_defs(live, None, self.DISC)}
+        for aid in self.TWO:
+            self.assertEqual(live_defs[aid]["type"], "number", aid)
+            self.assertNotIn("values", live_defs[aid], aid)
