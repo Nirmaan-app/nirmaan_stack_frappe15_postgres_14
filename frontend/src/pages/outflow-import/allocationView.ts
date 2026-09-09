@@ -10,7 +10,19 @@
 // same rule the TDS band mirror already carries: erring toward OFFERING is safe, because the
 // server re-asserts; erring the other way hides a choice the server would have accepted.
 
-/** Mirrors `amounts.AMOUNT_TOLERANCE`. ⚠️ The ONLY copy on this side -- do not inline it again. */
+import { ROW_PARTIALLY_ALLOCATED } from "./outflowImportStatus";
+
+/**
+ * Mirrors `amounts.AMOUNT_TOLERANCE`.
+ *
+ * ⚠️ THE ONLY NUMERIC LITERAL `= 5` ON THIS SIDE (review fix 2) -- do not inline it again, and do
+ * not add a second `export const ... = 5` anywhere else in this feature. `outflowTableModel.ts`'s
+ * `SETTLE_WINDOW` used to be exactly that second copy (both mirror the SAME server constant,
+ * `services/outflow_import/amounts.AMOUNT_TOLERANCE` -- there are not two windows here); it now
+ * imports this one instead of re-declaring it. This is the pure leaf, so it owns the literal and
+ * the 3,000-line table model imports it -- not the other way round, and there is no cycle to check
+ * both ways: this file imports nothing from `outflowTableModel.ts`.
+ */
 export const AMOUNT_TOLERANCE = 5;
 
 export interface AllocationLeg {
@@ -41,6 +53,17 @@ export function allocationBar(
         allocated,
         remaining,
         over: remaining < -AMOUNT_TOLERANCE,
+        // ⚠️ DELIBERATELY TWO-SIDED, UNLIKE THE SERVER'S `is_fully_allocated` (review fix 6,
+        // PINNED by `allocationBar.test`'s "two-sided vs the server's one-sided" case). The
+        // server's own check is ONE-SIDED (`remaining <= AMOUNT_TOLERANCE`), so an OVER-allocated
+        // remaining (a large negative number) still reads `True` there -- it relies on
+        // `is_over_allocated` as a SEPARATE guard to catch that case before a write commits. This
+        // `complete` folds both into one boolean for the button label, so it must not call an
+        // over-tick "complete" -- `Math.abs` is what keeps a large negative `remaining` from
+        // reading as finished. Harmless in practice: `over` (above) already disables Confirm
+        // before an over-allocated tick-set can be submitted, so the two sides never actually
+        // disagree about what gets written -- but nothing else states that this is on purpose,
+        // so a later "fix" to either side would have no test to trip.
         complete: Math.abs(remaining) <= AMOUNT_TOLERANCE,
     };
 }
@@ -62,7 +85,9 @@ export function chooseSettleEndpoint({
 }): "settle_row" | "allocate_row" | null {
     if (ticks <= 0) return null;
     if (ticks > 1) return "allocate_row";
-    return rowStatus === "Partially Allocated" ? "allocate_row" : "settle_row";
+    // ⚠️ BOUND, NOT SPELLED (review fix 5) -- `ROW_PARTIALLY_ALLOCATED` is a pure leaf constant
+    // (`outflowImportStatus.ts`), so importing it here adds no cycle.
+    return rowStatus === ROW_PARTIALLY_ALLOCATED ? "allocate_row" : "settle_row";
 }
 
 export function allocateButtonLabel({

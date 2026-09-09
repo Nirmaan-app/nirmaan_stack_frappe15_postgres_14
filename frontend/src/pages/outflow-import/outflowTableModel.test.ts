@@ -60,6 +60,7 @@ import {
     RECORD_DATE_LABELS,
     recordDateParts,
     recordKey,
+    tickAllowedForFanOut,
     DEFAULT_PAGE_SIZE,
     SCOPE_FOR_TAB,
     countDecided,
@@ -2104,6 +2105,47 @@ describe("links to the record a row settles — the FALLBACK path, with no order
         expect(
             rowSettlementLinks(row({ row_status: "Skipped", matches: [], related_payments: [] }))
         ).toEqual([]);
+    });
+});
+
+// Review fix 4: mirrors `allocate_row`'s "PROJECT PAYMENTS ONLY" refusal, so the picker can
+// disable a checkbox BEFORE the click rather than let the server's sentence be the first the
+// reviewer hears of it.
+describe("tickAllowedForFanOut", () => {
+    it("allows a lone non-payment tick on an untouched row -- settle_row handles any ledger", () => {
+        expect(tickAllowedForFanOut("Project Expenses", [], "Matched")).toBe(true);
+        expect(tickAllowedForFanOut("Non Project Expenses", [], "Mismatched")).toBe(true);
+    });
+
+    it("refuses a second tick that would add a non-payment to an existing tick-set", () => {
+        expect(
+            tickAllowedForFanOut("Project Expenses", ["Project Payments"], "Matched")
+        ).toBe(false);
+    });
+
+    it("refuses a second tick of any kind once a non-payment is already the sole tick", () => {
+        // Adding ANYTHING here makes a 2-element `targets` array containing a non-payment --
+        // `allocate_row` refuses the whole call, not just the offending element.
+        expect(
+            tickAllowedForFanOut("Project Payments", ["Project Expenses"], "Matched")
+        ).toBe(false);
+    });
+
+    it("allows growing an all-payments tick-set", () => {
+        expect(
+            tickAllowedForFanOut("Project Payments", ["Project Payments", "Project Payments"], "Matched")
+        ).toBe(true);
+    });
+
+    it("refuses ANY non-payment tick on an already Partially Allocated row", () => {
+        // Even a single tick there routes to `allocate_row` (`chooseSettleEndpoint`), so a lone
+        // non-payment tick is unsafe here even though the same tick is fine on an untouched row.
+        expect(tickAllowedForFanOut("Project Expenses", [], "Partially Allocated")).toBe(false);
+        expect(tickAllowedForFanOut("Non Project Expenses", [], "Partially Allocated")).toBe(false);
+    });
+
+    it("still allows a payment tick on a Partially Allocated row", () => {
+        expect(tickAllowedForFanOut("Project Payments", [], "Partially Allocated")).toBe(true);
     });
 });
 

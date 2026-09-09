@@ -17,6 +17,10 @@
 import type { DateFilterValue } from "@/components/data-table/dateFilterModel";
 import { resolveDateFilter } from "@/utils/dateFilterRange";
 import { formatDate } from "@/utils/FormatDate";
+// ⚠️ THE ONE IMPORT DIRECTION THAT AVOIDS A CYCLE (review fix 2): `allocationView.ts` is a pure
+// leaf with no imports from this file, so this module -- not that one -- is the dependency. Do
+// NOT flip this to satisfy some other convenience; check for a cycle again before you do.
+import { AMOUNT_TOLERANCE } from "./allocationView";
 import {
     OPEN_ROW_STATUSES,
     ROW_MATCHED,
@@ -2450,7 +2454,7 @@ export interface CandidateLike {
  * ("Service Requests" / "Procurement Orders") and gates TDS -- see `SERVICE_DOCTYPE` below. Two
  * lookalike keys; the wrong one passes silently.
  */
-const PROJECT_PAYMENTS_DOCTYPE = "Project Payments";
+export const PROJECT_PAYMENTS_DOCTYPE = "Project Payments";
 
 /**
  * WHICH of the amount rules this pick falls foul of (slice D1).
@@ -2724,19 +2728,60 @@ export const parseRecordKey = (
     return { target: target as DecisionTarget, name };
 };
 
+// --- fan-out tick eligibility (review fix 4) ----------------------------------------------------
+
+/**
+ * Whether ticking a record of this doctype would still let Confirm succeed, given what is already
+ * ticked and the row's own status.
+ *
+ * ⚠️ MIRRORS `allocate_row`'s "PROJECT PAYMENTS ONLY" REFUSAL, not merely its wording. The server
+ * accepts a fan-out -- 2+ targets in one call, OR even a single tick on a row that is already
+ * `Partially Allocated` (`chooseSettleEndpoint` routes both to `allocate_row`) -- ONLY when every
+ * target in the call is a `Project Payments` record; it throws on the first one that is not.
+ *
+ * ⚠️ A LONE NON-PAYMENT TICK ON AN UNTOUCHED ROW IS STILL FINE, deliberately. `chooseSettleEndpoint`
+ * sends that through `settle_row`, unchanged, which settles any of the three ledgers -- this refuses
+ * only the SECOND tick that would turn a valid single settle into an invalid fan-out, in either
+ * direction: adding a non-payment to an existing tick-set, or adding anything at all once a
+ * non-payment is already the sole tick.
+ *
+ * ⚠️ THIS IS THE "STATE THE RULE WHERE IT LIVES" HALF (review fix 4). The server already refuses the
+ * write with a clear sentence -- see `_parse_targets` -- so nothing was silently wrong before this;
+ * what was missing is a control that says so BEFORE the click, which is this dialog's own standard
+ * for every other refusal it can predict (see `settleBlocker`, `partialOffer`).
+ */
+export function tickAllowedForFanOut(
+    candidateDoctype: string,
+    alreadyTickedDoctypes: readonly string[],
+    rowStatus: string
+): boolean {
+    if (rowStatus === ROW_PARTIALLY_ALLOCATED) {
+        return candidateDoctype === PROJECT_PAYMENTS_DOCTYPE;
+    }
+    if (alreadyTickedDoctypes.length === 0) return true;
+    return [...alreadyTickedDoctypes, candidateDoctype].every(
+        (doctype) => doctype === PROJECT_PAYMENTS_DOCTYPE
+    );
+}
+
 // --- partial settlement (slice PS) --------------------------------------------------------------
 
 /**
  * The settle window, MIRRORED for the client's own eligibility check.
  *
  * ⚠️ THE SERVER OWNS THIS NUMBER (`services/outflow_import/amounts.AMOUNT_TOLERANCE`) AND IS THE
- * AUTHORITY. This copy exists for the same reason `isRateEditableRow` mirrors the pricing gate: the
- * screen has to know whether to OFFER the choice before it posts anything. If the two ever
+ * AUTHORITY. This mirror exists for the same reason `isRateEditableRow` mirrors the pricing gate:
+ * the screen has to know whether to OFFER the choice before it posts anything. If the two ever
  * disagree, the server wins and the reviewer sees its refusal — which is the honest failure, not a
  * silent one. The nearby `AmountMark` deliberately does NOT print this value for exactly the reason
  * that makes a mirror risky.
+ *
+ * ⚠️ NOT A SECOND `= 5` LITERAL (review fix 2, Task 7). This used to declare its own `= 5`, which
+ * was the SAME server constant `allocationView.AMOUNT_TOLERANCE` also mirrors — one number, two
+ * copies, each claiming to be the only one. `allocationView.ts` is the pure leaf, so it owns the
+ * literal; this just re-exports its name for every existing caller in this module.
  */
-export const SETTLE_WINDOW = 5;
+export const SETTLE_WINDOW = AMOUNT_TOLERANCE;
 
 export const INTENT_PART_PAYMENT = "part_payment";
 export const INTENT_DEDUCTION = "deduction";

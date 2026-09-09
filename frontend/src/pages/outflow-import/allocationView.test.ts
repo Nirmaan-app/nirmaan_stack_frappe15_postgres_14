@@ -40,6 +40,19 @@ describe("allocationBar", () => {
         expect(allocationBar(100, [], [95]).complete).toBe(true);
         expect(allocationBar(100, [], [94]).complete).toBe(false);
     });
+
+    // Review fix 6: `complete` is deliberately TWO-SIDED (`Math.abs(remaining) <= tolerance`),
+    // unlike the server's `is_fully_allocated` (ONE-SIDED: `remaining <= tolerance`, which reads
+    // an over-allocated remaining as "fully allocated" too and relies on the separate
+    // `is_over_allocated` guard to catch that case before a write commits). Harmless here because
+    // `over` already disables Confirm before an over-allocated tick-set can be submitted -- this
+    // pins that the divergence is deliberate, so a later "fix" to either side has a test to trip.
+    it("never calls an over-allocated tick-set complete, unlike the server's one-sided check", () => {
+        const bar = allocationBar(100, [], [120]);
+        expect(bar.over).toBe(true);
+        expect(bar.remaining).toBe(-20);
+        expect(bar.complete).toBe(false);
+    });
 });
 
 describe("chooseSettleEndpoint", () => {

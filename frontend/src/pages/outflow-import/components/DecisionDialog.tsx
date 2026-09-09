@@ -39,6 +39,7 @@ import {
     amountVerdict,
     availableDecisionTargets,
     candidateKeySet,
+    describeFrappeError,
     deductionOffer,
     deductionRefusalText,
     isConfirmable,
@@ -52,6 +53,7 @@ import {
     settlementLink,
     settleBlockText,
     settleBlocker,
+    tickAllowedForFanOut,
     type DecisionTarget,
     type DeductionOffer,
     type MatcherCandidate,
@@ -293,7 +295,11 @@ export const DecisionDialog = ({
      * Lead). Fetched only while the row is `Partially Allocated` -- the one status where an
      * incomplete leg set is the reason the row is still open.
      */
-    const { data: legsData } = useFrappeGetDocList<AllocatedLeg>(
+    const {
+        data: legsData,
+        error: legsError,
+        isLoading: legsLoading,
+    } = useFrappeGetDocList<AllocatedLeg>(
         "Outflow Row Match",
         {
             fields: ["name", "target_doctype", "target_name", "target_amount", "match_kind", "matched_at"],
@@ -307,6 +313,17 @@ export const DecisionDialog = ({
         row && isPartiallyAllocated ? `row-legs-${row.name}` : null
     );
     const allocatedLegs = useMemo(() => legsData ?? [], [legsData]);
+    /**
+     * ⚠️ REVIEW FIX 1 -- `[]` IS NOT "NO LEGS" WHILE THIS IS LOADING OR FAILED. On a `Partially
+     * Allocated` row `[]` is the SWR default before the first response lands, and it is also what a
+     * transient network failure leaves behind -- neither means the row has nothing settled against
+     * it. Feeding either straight into `allocationBar` prints a confident `allocated ₹0 · left
+     * ₹<the whole transfer>` on a row that already has money written against it, exactly the
+     * "posts, is refused, shows nothing" shape this dialog's other guards exist to prevent, one
+     * layer up. `legsUnknown` gates the bar and the button on this being resolved rather than
+     * merely absent.
+     */
+    const legsUnknown = isPartiallyAllocated && (legsLoading || Boolean(legsError));
 
     // ⚠️ TICKED AMOUNTS COME FROM `pickedRecords`, NOT FROM `decision.linkTargets`. The picker
     // reports the actual `SettleableRecord`s it resolved its ticks to, which is what carries an
@@ -382,12 +399,19 @@ export const DecisionDialog = ({
 
     if (!row) return null;
 
+    // ⚠️ REVIEW FIX 3 -- ONE SOURCE FOR "HOW MANY ARE TICKED", NOT TWO THAT CAN DISAGREE.
+    // `decision.linkTargets.size` counts every ticked KEY, including one the pool hasn't resolved
+    // yet (still loading) or no longer contains (left the Approved pool since it was ticked) --
+    // `pickedRecords` is what `bar` and the single-tick amount-window detour ALREADY read, so
+    // deriving `ticks` from anything else lets the label say "Allocate 1 record" while the bar
+    // beneath it counts that tick as zero, and lets `handleConfirmClick` skip `settleBlocker`
+    // (gated on `pickedRecords.length`) for a tick the label just claimed was there.
+    const ticks = pickedRecords.length;
     // ⚠️ WHICH ENDPOINT/LABEL, NOT WHETHER THE DECISION IS CONFIRMABLE -- `isConfirmable` already
     // answered that above `bar.over`'s reach on purpose (over-ticking is a COMPLETE decision, it is
     // merely one the button refuses to send). `isLinkDecision` mirrors the same three-way exclusion
     // `isConfirmable` reads: a "create something new" card in progress must keep the ordinary
     // "Confirm → Paid" wording and must never be blocked by a leftover, dimmed tick-set's `bar`.
-    const ticks = decision?.linkTargets?.size ?? 0;
     const isLinkDecision =
         decision?.target !== "new" && decision?.target !== "inflow" && decision?.target !== "receipt";
     const confirmLabel =
@@ -397,7 +421,15 @@ export const DecisionDialog = ({
     // ⚠️ `bar.over` ONLY GATES THE BUTTON, NEVER `isConfirmable` -- see `allocationView.ts` and the
     // picker below. Disabling the ROWS instead would make it a puzzle: the reviewer may want to
     // untick something else first.
-    const confirmDisabled = busy || !isConfirmable(row, decision) || (isLinkDecision && bar.over);
+    //
+    // ⚠️ REVIEW FIX 1 -- ALSO GATED ON `legsUnknown`. `bar` is computed from `allocatedLegs`, which
+    // is a confident-looking `[]` while the legs are still loading or failed to load; posting a
+    // confirm against that wrong balance is exactly the "posts, is refused, shows nothing" defect
+    // this dialog exists to prevent, one layer up.
+    const confirmDisabled =
+        busy ||
+        !isConfirmable(row, decision) ||
+        (isLinkDecision && (bar.over || legsUnknown));
 
     /**
      * ⚠️ WHICH CARDS THIS ROW GETS IS MEMBERSHIP IN THE ONE PARTITION, NEVER A `direction` TEST
@@ -451,6 +483,8 @@ export const DecisionDialog = ({
                     {isPartiallyAllocated && (
                         <AlreadyAllocatedSection
                             legs={allocatedLegs}
+                            loading={legsLoading}
+                            error={legsError ? describeFrappeError(legsError, "couldn't load") : null}
                             onReverse={setReversingLeg}
                             busy={busy}
                         />
@@ -485,23 +519,34 @@ export const DecisionDialog = ({
                         footer, exactly where the design mockup puts it. It sums already-allocated
                         legs PLUS the current ticks, live, client-side (`allocationBar`); the server
                         re-asserts under a row lock. Shown only once there is something to report --
-                        an untouched Matched row with zero ticks has nothing to say here yet. */}
-                    {canLinkPayment && (ticks > 0 || allocatedLegs.length > 0) && (
-                        <div
-                            className={`rounded-md border px-3 py-2 text-sm tabular-nums ${
-                                bar.over
-                                    ? "border-red-300 bg-red-50 text-red-600"
-                                    : "border-muted-foreground/20 bg-muted/30 text-muted-foreground"
-                            }`}
-                        >
-                            allocated {formatToRoundedIndianRupee(bar.allocated)} · left{" "}
-                            {formatToRoundedIndianRupee(bar.remaining)}
-                            {bar.over && (
-                                <span className="ml-2 font-medium">
-                                    — untick something before confirming
-                                </span>
-                            )}
-                        </div>
+                        an untouched Matched row with zero ticks has nothing to say here yet.
+                        ⚠️ REVIEW FIX 1 -- `legsUnknown` ALSO OPENS THIS, deliberately BEFORE the
+                        confident branch, so a Partially Allocated row never renders a `₹0
+                        allocated` figure while its real legs are still loading or failed to load.
+                        A neutral, honest "not yet known" beats a wrong number on a money screen. */}
+                    {canLinkPayment && (legsUnknown || ticks > 0 || allocatedLegs.length > 0) && (
+                        legsUnknown ? (
+                            <div className="rounded-md border border-muted-foreground/20 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+                                Balance not yet known — waiting on what this transfer has already
+                                settled.
+                            </div>
+                        ) : (
+                            <div
+                                className={`rounded-md border px-3 py-2 text-sm tabular-nums ${
+                                    bar.over
+                                        ? "border-red-300 bg-red-50 text-red-600"
+                                        : "border-muted-foreground/20 bg-muted/30 text-muted-foreground"
+                                }`}
+                            >
+                                allocated {formatToRoundedIndianRupee(bar.allocated)} · left{" "}
+                                {formatToRoundedIndianRupee(bar.remaining)}
+                                {bar.over && (
+                                    <span className="ml-2 font-medium">
+                                        — untick something before confirming
+                                    </span>
+                                )}
+                            </div>
+                        )
                     )}
 
                     {/* ⚠️ THE ABSENCE HAS TO SAY WHICH RULE CAUSED IT (the D1 principle, applied to
@@ -955,13 +1000,36 @@ const PartialIntentChoice = ({
  */
 const AlreadyAllocatedSection = ({
     legs,
+    loading,
+    error,
     onReverse,
     busy,
 }: {
     legs: AllocatedLeg[];
+    /** ⚠️ REVIEW FIX 1 -- an explicit loading state, so an empty `legs` array while this is still
+     *  in flight never renders as "nothing to report" (a `Partially Allocated` row always has at
+     *  least one leg). */
+    loading: boolean;
+    /** The fetch's own refusal, already worded via `describeFrappeError`, or `null`. */
+    error: string | null;
     onReverse: (leg: AllocatedLeg) => void;
     busy: boolean;
 }) => {
+    if (loading) {
+        return (
+            <div className="rounded-md border border-muted-foreground/20 bg-muted/20 px-3 py-2.5 text-sm text-muted-foreground">
+                Loading what this transfer has already settled…
+            </div>
+        );
+    }
+    if (error) {
+        return (
+            <div className="rounded-md border border-amber-500/40 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+                Could not load what this transfer has already settled ({error}). The balance below
+                may be wrong until this loads — re-open this row before confirming anything.
+            </div>
+        );
+    }
     if (!legs.length) return null;
     return (
         <div className="rounded-md border border-sky-600/30 bg-sky-50/40">
@@ -1268,6 +1336,29 @@ const RecordPicker = ({
     );
     const hiddenSelectedCount = selectedRecords.filter((r) => !options.includes(r)).length;
 
+    /**
+     * ⚠️ REVIEW FIX 4 -- STATE THE RULE WHERE IT LIVES, BEFORE THE CLICK. `allocate_row` hard-
+     * refuses any fan-out (2+ targets, or a single tick on an already `Partially Allocated` row)
+     * that contains a non-`Project Payments` record; `tickAllowedForFanOut` mirrors that exactly.
+     * Computed over `options` (the VISIBLE rows), not the whole pool -- a hidden row cannot be
+     * disabled on screen anyway.
+     */
+    const alreadyTickedDoctypes = useMemo(
+        () => selectedRecords.map((r) => r.target_doctype),
+        [selectedRecords]
+    );
+    const disabledKeys = useMemo(() => {
+        const disabled = new Set<string>();
+        for (const record of options) {
+            const key = recordKey(record);
+            if (linkTargets?.has(key)) continue; // never disable an already-ticked row
+            if (!tickAllowedForFanOut(record.target_doctype, alreadyTickedDoctypes, row.row_status)) {
+                disabled.add(key);
+            }
+        }
+        return disabled;
+    }, [options, linkTargets, alreadyTickedDoctypes, row.row_status]);
+
     // ⚠️ REPORTED UPWARD BECAUSE THE FOOTER HAS TO KNOW WHAT WAS PICKED. The candidate list, and
     // therefore the server's `suggested` flag, lives only in here -- the page's `RowDecision`
     // carries doctype+name pairs and nothing about a record's amount. Without this the balance bar
@@ -1370,6 +1461,11 @@ const RecordPicker = ({
                     facets={facets}
                     onFiltersChange={setFilters}
                     selected={linkTargets ?? EMPTY_LINK_TARGETS}
+                    // ⚠️ REVIEW FIX 4 -- WITHHELD, NOT OFFERED-AND-REFUSED (same discipline
+                    // `AlreadyAllocatedSection`'s `Reverse` button already holds). A disabled
+                    // checkbox here means ticking it would make `allocate_row` throw.
+                    disabledKeys={disabledKeys}
+                    disabledReason="Ticking this would mix a non-payment record into a multi-record allocation, which the server refuses. Untick the others first, or link this one alone."
                     // ⚠️ TOGGLES ONE ENTRY IN THE SET, NEVER REPLACES IT (ADR-0020 fan-out). The
                     // ledger comes from the RECORD -- each `recordKey` already carries its own
                     // doctype -- and `target` is cleared here so a leftover "create something new"
@@ -1381,6 +1477,9 @@ const RecordPicker = ({
                         if (next.has(value)) {
                             next.delete(value);
                         } else {
+                            // Belt-and-braces (review fix 4): the checkbox is already disabled for
+                            // this case, but a stale render must not let the click through either.
+                            if (disabledKeys.has(value)) return;
                             next.add(value);
                         }
                         onChange({ ...decision, target: undefined, linkTargets: next });

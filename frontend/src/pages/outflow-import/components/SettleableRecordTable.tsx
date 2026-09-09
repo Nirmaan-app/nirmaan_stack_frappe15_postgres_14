@@ -31,6 +31,18 @@ interface Props {
     /** The ticked records' `recordKey`s (ADR-0020 fan-out; empty for none ticked). */
     selected: ReadonlySet<string>;
     onToggle: (key: string) => void;
+    /**
+     * `recordKey`s that would make `allocate_row` refuse the whole call if ticked (review fix 4)
+     * -- a non-payment record joining what would become a multi-record allocation. WITHHELD, not
+     * offered-and-refused: the checkbox renders disabled with `disabledReason` as its title, the
+     * same discipline the dialog's `Reverse` button already holds for a non-payment leg.
+     *
+     * ⚠️ NEVER INCLUDES AN ALREADY-TICKED KEY -- the caller (`RecordPicker`) never disables a row
+     * the reviewer has already chosen, only a fresh addition that would break the call.
+     */
+    disabledKeys?: ReadonlySet<string>;
+    /** The tooltip on a disabled row's checkbox. Ignored when `disabledKeys` is empty. */
+    disabledReason?: string;
     /** The bank row's amount, for the per-row amount verdict. */
     bankAmount: number;
     /**
@@ -82,6 +94,8 @@ export const SettleableRecordTable = ({
     records,
     selected,
     onToggle,
+    disabledKeys,
+    disabledReason,
     bankAmount,
     matcherCandidates,
     sort,
@@ -167,6 +181,8 @@ export const SettleableRecordTable = ({
                         record={record}
                         chosen={selected.has(recordKey(record))}
                         onToggle={onToggle}
+                        disabled={Boolean(disabledKeys?.has(recordKey(record)))}
+                        disabledReason={disabledReason}
                         bankAmount={bankAmount}
                         // Computed here rather than in the row so the rule lives in ONE pure,
                         // unit-tested place — see `reasonCaption` on why it goes silent under a sort.
@@ -230,6 +246,8 @@ const RecordRow = ({
     record,
     chosen,
     onToggle,
+    disabled,
+    disabledReason,
     bankAmount,
     reason,
     matched,
@@ -237,6 +255,10 @@ const RecordRow = ({
     record: SettleableRecord;
     chosen: boolean;
     onToggle: (key: string) => void;
+    /** Review fix 4 -- ticking this would make `allocate_row` refuse the whole call. Never true
+     *  for an already-`chosen` row; see `SettleableRecordTable`'s `disabledKeys`. */
+    disabled: boolean;
+    disabledReason?: string;
     bankAmount: number;
     /** Why this record ranks here, or `""` for nothing to say. See `reasonCaption`. */
     reason: string;
@@ -278,16 +300,24 @@ const RecordRow = ({
         <tr
             // The whole row is the hit target -- a 14px checkbox is not. `cursor-pointer` and the
             // hover tint say so; the checkbox stays as the thing that LOOKS ticked.
-            className={`cursor-pointer border-b last:border-b-0 transition-colors focus-within:bg-primary/10 ${
-                chosen ? "bg-primary/5" : "hover:bg-muted/50"
-            }`}
-            onClick={() => onToggle(key)}
+            //
+            // ⚠️ REVIEW FIX 4 -- A DISABLED ROW IS WITHHELD, NOT MERELY UNCLICKABLE: it dims and
+            // its cursor says so, and its `title` (below) carries the reason, so the row does not
+            // read as broken.
+            className={`border-b last:border-b-0 transition-colors ${
+                disabled
+                    ? "cursor-not-allowed opacity-50"
+                    : "cursor-pointer focus-within:bg-primary/10"
+            } ${chosen ? "bg-primary/5" : disabled ? "" : "hover:bg-muted/50"}`}
+            onClick={() => !disabled && onToggle(key)}
+            title={disabled ? disabledReason : undefined}
         >
             <td className="px-2 py-2 align-top">
                 <input
                     type="checkbox"
-                    className="mt-0.5 h-3.5 w-3.5 cursor-pointer accent-primary"
+                    className="mt-0.5 h-3.5 w-3.5 accent-primary disabled:cursor-not-allowed"
                     checked={chosen}
+                    disabled={disabled}
                     onChange={() => onToggle(key)}
                     // ⚠️ A CHECKBOX'S OWN CLICK MUST NOT ALSO REACH THE ROW'S `onClick` (unlike the
                     // radio this replaced, where a repeated `onSelect(key)` was idempotent). Without
@@ -295,9 +325,12 @@ const RecordRow = ({
                     // it one way, the box's own change toggles it back -- and the box visibly does
                     // nothing.
                     onClick={(e) => e.stopPropagation()}
+                    title={disabled ? disabledReason : undefined}
                     aria-label={`Allocate ${ledgerLabel(record.target_doctype)} ${record.name}${
                         record.vendor_name ? `, ${record.vendor_name}` : ""
-                    }, ${formatToRoundedIndianRupee(record.amount)}`}
+                    }, ${formatToRoundedIndianRupee(record.amount)}${
+                        disabled && disabledReason ? ` -- disabled: ${disabledReason}` : ""
+                    }`}
                 />
             </td>
 
