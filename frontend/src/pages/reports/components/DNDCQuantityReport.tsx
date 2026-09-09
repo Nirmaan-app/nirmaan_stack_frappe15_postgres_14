@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   XCircle,
   Clock,
+  Truck,
   ArrowDown,
   ArrowUp,
   ChevronsUpDown,
@@ -65,6 +66,8 @@ function getReconcileRowClasses(status: ReconcileStatus): string {
       return "bg-red-50 border-l-4 border-l-red-500";
     case "pending_dn":
       return "bg-blue-50 border-l-4 border-l-blue-500";
+    case "partially_delivered":
+      return "bg-orange-50 border-l-4 border-l-orange-500";
   }
 }
 
@@ -78,6 +81,8 @@ function getItemRowClasses(status: ReconcileStatus): string {
       return "bg-red-50/50";
     case "pending_dn":
       return "bg-blue-50/50";
+    case "partially_delivered":
+      return "bg-orange-50/50";
   }
 }
 
@@ -119,6 +124,15 @@ function getStatusBadge(status: ReconcileStatus) {
           Pending DN
         </Badge>
       );
+    case "partially_delivered":
+      return (
+        <Badge
+          className="bg-orange-100 text-orange-700 border-orange-300"
+          variant="outline"
+        >
+          Partially Delivered
+        </Badge>
+      );
   }
 }
 
@@ -132,6 +146,8 @@ function getStatusLabel(status: ReconcileStatus): string {
       return "No DC Update";
     case "pending_dn":
       return "Pending DN";
+    case "partially_delivered":
+      return "Partially Delivered";
   }
 }
 
@@ -410,7 +426,16 @@ function DNDCQuantityReportContent({
       const wanted = fromUrl.split(",").map((v) => v.trim()).filter(Boolean);
       if (wanted.length) return new Set(wanted);
     }
-    return new Set(["mismatch", "no_dc_update", "pending_dn"]);
+    // Default = every status EXCEPT "matched", so the report opens on the rows that
+    // still need someone to act. `partially_delivered` is included to preserve that
+    // invariant — leaving it out would show a non-zero card whose POs the table
+    // refuses to display until the user un-ticks a filter they never set.
+    return new Set([
+      "mismatch",
+      "no_dc_update",
+      "pending_dn",
+      "partially_delivered",
+    ]);
   });
 
   // --- Sort state ---
@@ -619,7 +644,7 @@ function DNDCQuantityReportContent({
     <div className="flex flex-col gap-4">
       {/* Summary cards */}
       {summary && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <Card className="border-green-200 bg-green-50">
             <CardContent className="p-3 flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-green-600" />
@@ -661,6 +686,19 @@ function DNDCQuantityReportContent({
                   {summary.pendingDNPOs}
                 </div>
                 <div className="text-xs text-blue-600">Pending DN</div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-orange-200 bg-orange-50">
+            <CardContent className="p-3 flex items-center gap-2">
+              <Truck className="h-5 w-5 text-orange-600" />
+              <div>
+                <div className="text-lg font-semibold text-orange-700">
+                  {summary.partiallyDeliveredPOs}
+                </div>
+                <div className="text-xs text-orange-600">
+                  Partially Delivered
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -980,10 +1018,12 @@ export default function DNDCQuantityReport({ projectId: propProjectId, projectNa
         <Info className="h-4 w-4 text-blue-600" />
         <AlertDescription className="text-sm text-blue-800">
           Compares Delivery Note (DN) vs Delivery Challan (DC) quantities for
-          POs with dispatch or delivery status. Flags mismatches where DN
-          exceeds DC, items with no DC update, and items ordered but not yet
-          received (Pending DN). A PO can be counted under both Pending DN and
-          No DC Update, so the four cards do not add up to the PO total.
+          POs with dispatch or delivery status. Flags items with no DC update,
+          mismatches where DN exceeds DC, items ordered but not yet received
+          (Pending DN), and deliveries still in progress whose received
+          quantity is fully challaned (Partially Delivered). Every card counts
+          POs. A PO can be counted under both Pending DN and No DC Update, so
+          the cards do not add up to the PO total.
         </AlertDescription>
       </Alert>
 
