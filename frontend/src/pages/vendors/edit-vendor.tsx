@@ -184,6 +184,17 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
         //         message: "Invalid GST format. Example: 22AAAAA0000A1Z5"
         //     }),
         vendor_gst: finalVendorGstSchema,
+        // `coerce` because an <Input type="number"> hands back a string. Without it
+        // every submit fails a zod number check on a field the user never touched.
+        // ⚠️ Blank must not reach `z.coerce.number()` -- `Number("")` is 0, so an
+        // empty box would silently save as "0% TDS". See new-vendor.tsx.
+        tds_deduction_percentage: z.preprocess(
+            (v) => (typeof v === "string" && v.trim() === "" ? NaN : v),
+            z.coerce
+                .number({ invalid_type_error: "Enter a TDS percentage." })
+                .min(0, { message: "TDS % cannot be negative." })
+                .max(100, { message: "TDS % cannot exceed 100." })
+        ),
         account_number: accountNumberSchema,
         confirm_account_number:confirmAccountNumberSchema,
         account_name: z
@@ -283,6 +294,10 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
         vendor_mobile: data?.vendor_mobile,
         vendor_alt_mobile: data?.vendor_alt_mobile,
         vendor_gst: data?.vendor_gst,
+        // `??` (not `||`) so a vendor deliberately on 0% keeps 0 instead of being
+        // silently bumped back to 2 the next time anyone opens this form. The
+        // fallback only covers a vendor the backfill patch has not reached.
+        tds_deduction_percentage: data?.tds_deduction_percentage ?? 2,
         account_number: data?.account_number,
         confirm_account_number: data?.account_number,
         account_name: data?.account_name,
@@ -391,6 +406,7 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
         vendor_contact_person_name: values.vendor_contact_person_name,
         vendor_email: values.vendor_email,
         vendor_gst: values.vendor_gst,
+        tds_deduction_percentage: values.tds_deduction_percentage,
         vendor_mobile: values.vendor_mobile,
         // Vendors doc only — deliberately NOT mirrored into the linked Address
         // doc, which carries a single `phone` that belongs to the primary.
@@ -530,6 +546,36 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
                     onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
                    />
                 </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="tds_deduction_percentage"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>TDS Deduction Percentage<sup className="text-sm text-red-600">*</sup></FormLabel>
+                <FormControl>
+                  <Input
+                    type="number"
+                    // `any`, NOT a fixed step -- see the matching note in
+                    // new-vendor.tsx. `0.01` made the arrows crawl in hundredths.
+                    step="any"
+                    min={0}
+                    max={100}
+                    placeholder="2"
+                    {...field}
+                    // `??` (not `||`) so a deliberate 0% renders as "0".
+                    value={field.value ?? ""}
+                    // ⚠️ ALWAYS the raw string, never `undefined` -- RHF reads a
+                    // field as `get(_formValues, name, get(_defaultValues, name))`
+                    // and `get` substitutes the DEFAULT for a stored `undefined`,
+                    // so clearing the box snapped it back to 2. See new-vendor.tsx.
+                    onChange={(e) => field.onChange(e.target.value)}
+                  />
+                </FormControl>
+                <p className="text-xs text-muted-foreground">Applied to this vendor's payments. Defaults to 2%.</p>
                 <FormMessage />
               </FormItem>
             )}

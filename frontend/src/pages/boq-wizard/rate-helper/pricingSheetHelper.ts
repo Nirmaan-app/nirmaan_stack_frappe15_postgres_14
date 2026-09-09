@@ -48,14 +48,16 @@ import {
 import { derivedQtyValue } from "@/pages/pricing/rate-master/RateMasterDerivation";
 import type {
   AttributeDefinition,
+  ModuleFitLadderOutcome,
   Pipeline,
   PipelineResult,
   RateCategoryConfig,
   RateMasterItem,
 } from "@/pages/pricing/rate-master/rateMasterTypes";
-import { sortAttrNotes } from "./rateHelperTypes";
+import { POLE_WORDS, sortAttrNotes } from "./rateHelperTypes";
 import type {
   AttrNote,
+  ExtractedAttr,
   ExtractionRow,
   HelperResult,
   RateHelper,
@@ -233,6 +235,13 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
    * The narrowing can only ever REMOVE a `map_attribute` target on a row whose source is blank.
    */
   rowDerivedIds?: ReadonlySet<string>,
+  /**
+   * F-30 slice B -- the live catalogue, so a `catalog_fit` HOP can be worded as the same
+   * `rating_up` note the board ladder produces (the pole / device / curve words are read from the
+   * PRICED row, exactly as `ratingUpNote` reads them from `pole_ladder.to`). OPTIONAL: absent, no
+   * hop note is produced and every caller that never passed it is byte-identical.
+   */
+  items?: RateMasterItem[],
 ): WorkingsAttribute[] {
   // The ONE derived predicate (both mechanisms) -- reused, never re-implemented (#179).
   const derivedIds = rowDerivedIds ?? derivedAttrIds(config);
@@ -393,11 +402,16 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
         //     not enough on its own -- `whereRefs` is the join key into the map outcomes.
         const maps = mapAttributeOutcomes(results);
         const restsOnASubstitutedFact = cf.whereRefs.some((id) => maps.get(id)?.stated === false);
+        // F-30 slice B (owner 2026-09-05, "implement same for sockets also"): a HOP is said in words,
+        // in the note area, through the ONE producer and the ONE wording the board ladder uses. The
+        // trace already carried "20 not carried -> 25 (next higher)"; a pricer may never open it.
+        const hop = catalogFitRatingUpNote(cf, items);
         return {
           ...a,
           derived: true,
           derivedValue: cf.fitted,
           substituted: cf.substituted || restsOnASubstitutedFact,
+          ...(hop ? { notes: [hop] } : {}),
         };
       }
       // 5. SLICE 3b FINISH -- a `map_attribute` TARGET (the tray thickness). The FIFTH mechanism
@@ -439,22 +453,113 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
       // the size priced, which is what the "warns rather than being silently overridden" rule asked
       // for. The narrowed contract lives in `attrDisplayValue`: a stated value the pipeline USED is
       // still never overwritten; only a SUBSTITUTED one is.
-      ...(ladder.upgraded && ladder.label ? { substituted: true } : {}),
-      ...(ladder.upgraded && ladder.label
-        ? {
-            notes: [
-              {
-                kind: "upgrade" as const,
-                stated: ladder.upgraded.stated,
-                statedHolds: ladder.upgraded.statedHolds,
-                occupied: ladder.upgraded.occupied,
-                using: ladder.label,
-              },
-            ],
-          }
-        : {}),
+      // F-25 slice 3: a PICK RAISED to the floor is the same kind of substitution -- the pricer
+      // picked 3M, the pipeline buys 6M -- so it shows what was bought, marked, with its note. A pick
+      // that was honoured is NOT marked: the value on screen is the pricer's own.
+      // A pick whose bought rung DIFFERS from the picked label (raised, or moved up) is likewise marked.
+      ...((ladder.upgraded || (ladder.pick && ladder.pick.label !== ladder.label)) && ladder.label ? { substituted: true } : {}),
+      ...(ladderNotes(ladder)),
     };
   });
+}
+
+/**
+ * F-25 slice 2. PURE. Everything a `module_fit` ladder outcome must SAY on its field, as notes:
+ *   - the take-the-larger `upgrade` (slice 2d, unchanged wording, unchanged condition);
+ *   - on the ZERO-MODULE path of a ladder declaring `on_zero_from` (a bare box), `assumed` when
+ *     nothing readable stated the size and the declared default was priced, and `size_up` when the
+ *     fitted count had no exact rung and the next stocked size was priced. Both ride the general
+ *     `notes` list through the ONE wording site (`attrNoteText`); the panel renders them unchanged.
+ * Absent `zeroPath` (every non-zero path, and point_wiring's `on_zero_modules`-only shape) yields
+ * exactly the pre-slice-2 result -- an `upgrade` note or nothing.
+ */
+function ladderNotes(ladder: ModuleFitLadderOutcome): { notes?: AttrNote[] } {
+  const notes: AttrNote[] = [];
+  if (ladder.upgraded && ladder.label) {
+    notes.push({
+      kind: "upgrade",
+      stated: ladder.upgraded.stated,
+      statedHolds: ladder.upgraded.statedHolds,
+      occupied: ladder.upgraded.occupied,
+      using: ladder.label,
+    });
+  }
+  // F-25 slice 3 (owner 2026-09-08): a PICK raised to the ladder's floor says why, in the register
+  // of the existing sentences. TWO reasons, TWO kinds, ONE wording site each:
+  //   plate-driven  -> `plate_floor` ("3M is smaller than the 6M face plate — using 6M."), because
+  //                    the contents-shaped `upgrade` sentence cannot explain a raise the contents
+  //                    did not cause;
+  //   contents-driven -> the EXISTING `upgrade`, verbatim ("1M holds 1 module; contents occupy 3 —
+  //                    using 3M."): the pick is a stated rung too small for the contents, which is
+  //                    exactly what that sentence was written for. No fork, no seventh wording.
+  // A pick that was HONOURED says nothing -- the field shows the pricer's own value, plain.
+  const pk = ladder.pick;
+  if (pk && pk.raised && ladder.label) {
+    if (pk.floorFrom === "plate" && pk.plate) {
+      notes.push({ kind: "plate_floor", picked: pk.label, plate: pk.plate, using: ladder.label });
+    } else {
+      notes.push({ kind: "upgrade", stated: pk.label, statedHolds: pk.holds, occupied: pk.floor, using: ladder.label });
+    }
+  }
+  // A pick the catalog does not stock, moved UP on the floor branch: the existing `size_up` sentence
+  // (the zero branch says the same through `zeroPath.nextHigher` below -- never both).
+  if (pk && !pk.raised && pk.nextHigher && ladder.label && !ladder.zeroPath) {
+    notes.push({ kind: "size_up", asked: pk.holds, using: ladder.label });
+  }
+  const z = ladder.zeroPath;
+  if (z && ladder.label) {
+    if (z.assumed) notes.push({ kind: "assumed", assumed: z.fitted, using: ladder.label });
+    if (z.nextHigher) notes.push({ kind: "size_up", asked: z.fitted, using: ladder.label });
+  }
+  return notes.length ? { notes: sortAttrNotes(notes) } : {};
+}
+
+/**
+ * F-30 slice A. PURE. A `rating_up` note from the server ladder's `pole_ladder` marker, or undefined
+ * when the marker is absent or carries no amp move (a plain swap, a rung-1 hit, a blank). The pole,
+ * device and curve words are read from the PRICED catalogue row (`pole_ladder.to`) so the sentence can
+ * never disagree with what was bought; a row the catalogue no longer carries still gets the numbers,
+ * with neutral words, rather than no note at all.
+ */
+export function ratingUpNote(
+  ladder: ExtractedAttr["pole_ladder"] | undefined,
+  items: RateMasterItem[],
+): AttrNote | undefined {
+  const mv = ladder?.amp_moved_up;
+  if (!mv || typeof mv.from !== "number" || typeof mv.to !== "number" || !(mv.to > mv.from)) return undefined;
+  const priced = typeof ladder?.to === "string" ? items.find((it) => it.attributes?.item === ladder.to) : undefined;
+  const pole = priced?.attributes?.pole;
+  const device = priced?.attributes?.device;
+  const curve = priced?.attributes?.curve;
+  return {
+    kind: "rating_up",
+    askedAmp: mv.from,
+    usedAmp: mv.to,
+    poleWord: typeof pole === "string" ? POLE_WORDS[pole] ?? pole : "matching",
+    device: typeof device === "string" ? device : "breaker",
+    curve: typeof curve === "string" ? curve : "same",
+  };
+}
+
+/**
+ * F-30 slice B. PURE. The SECOND PRODUCER of the `rating_up` note -- a frontend `catalog_fit` HOP
+ * (the socket path), where the server writes no marker because the fit happens here. It builds the
+ * marker shape the board producer consumes and hands it to the SAME `ratingUpNote`, so the two paths
+ * share one note builder and one sentence (`attrNoteText`); a fork would have to change both pins.
+ *
+ * Undefined when: nothing fitted, the fit was exact (no rating raised), the size did not move UP, the
+ * catalogue was not supplied, or the fitted row carries no `device` -- a ladder over trays or
+ * thicknesses is a hop too, but "No matching breaker at 300A" would be a fabricated fact.
+ */
+export function catalogFitRatingUpNote(
+  cf: import("@/pages/pricing/rate-master/rateMasterTypes").CatalogFitOutcome | undefined,
+  items: RateMasterItem[] | undefined,
+): AttrNote | undefined {
+  if (!cf || !items || cf.fitted === null || cf.exact) return undefined;
+  if (typeof cf.requested !== "number" || typeof cf.size !== "number" || !(cf.size > cf.requested)) return undefined;
+  const priced = items.find((it) => it.attributes?.item === cf.fitted);
+  if (typeof priced?.attributes?.device !== "string") return undefined;
+  return ratingUpNote({ to: cf.fitted, amp_moved_up: { from: cf.requested, to: cf.size } }, items);
 }
 
 /** Map a pipeline output key -> the sheet rate-kind it fills. EA-4a: the assembly categories name their
@@ -478,6 +583,68 @@ function kindForOutput(output: string): string | null {
 function readGroupLabel(d: unknown): string | undefined {
   const raw = (d as { group_label?: unknown } | null)?.group_label;
   return typeof raw === "string" && raw.trim() !== "" ? raw : undefined;
+}
+
+/**
+ * NEVER-ASKED DEFAULTS (owner ruling 2026-09-08: "Treat a never-asked field as answered -- this is ok";
+ * condition: ONLY a genuinely optional field, a field with no sensible default stays blank and keeps
+ * refusing).
+ *
+ * THE DISTINCTION THIS WHOLE RULE RESTS ON -- ABSENT vs PRESENT-NULL -- and where it comes from:
+ * the extractor writes a cell for EVERY attribute it asks, whether or not the model answered
+ * (`extraction._extract_batch`: `for aid, defn in defs_by_id.items(): ... row_out[aid] =
+ * {"value": value, "confidence": ...}`, value None when the model returned nothing; the blank-row and
+ * `_row_result` fallbacks write `{d["id"]: {"value": None, ...}}` for every def as well). So on an
+ * IN-RUN row:
+ *   - KEY PRESENT, value null  -> the model WAS asked and came back blank. A real read failure.
+ *                                 UNTOUCHED here; the gate keeps refusing.
+ *   - KEY ABSENT               -> the attribute was not in the config when this row was extracted
+ *                                 (a config gained it later), i.e. the model was NEVER asked.
+ * The only other way a key is absent by design is `extract: false`, which is excluded explicitly.
+ *
+ * WHICH DEFAULT (the two sources the owner saw, nothing wider):
+ *   1. the config's top-level `extraction_defaults[id]` -- a scalar, or `{default, requires_named}`
+ *      (the paired-quantity shape: the default applies only when the named item is FILLED, mirroring
+ *      `extraction.fill_paired_slot_defaults` case (a)). A `{default, text_overrides}` spec is NOT
+ *      defaulted: reproducing the extractor's text rule here would be a second copy of it, so that
+ *      field stays blank and keeps refusing (inert on the live corpus -- measured 2026-09-08).
+ *   2. `allow_none` -> "None": the honest answer for a slot the model was never shown.
+ * Anything else (no default, `panel: false`, a DERIVED attribute the pipeline computes -- a ladder
+ * bind such as `plate_item` must never be seeded, it is the ladder's FLOOR) -> undefined -> untouched.
+ *
+ * ⚠️ THE HAZARD, stated plainly: a row that GENUINELY has a third socket now prices LOW, with nothing
+ * downstream to catch it -- the same class as the LMS silent-wrong-pick limit. The `defaulted` badge
+ * (reused, not a second mark) plus the "(never asked at extraction ...)" derivation line are the only
+ * guard. A pricer's override still wins, exactly as over a model-claimed default.
+ */
+function readExtractionDefaults(config: RateCategoryConfig): Record<string, unknown> {
+  // `extraction_defaults` is carried by the config but is not on the RateCategoryConfig type (out of
+  // this slice's scope) -- read through `unknown`, the `readGroupLabel` precedent.
+  const raw = (config as unknown as { extraction_defaults?: unknown }).extraction_defaults;
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+}
+
+function neverAskedDefault(
+  d: AttributeDefinition,
+  defaults: Record<string, unknown>,
+  valueOf: (id: string) => string | number | null,
+): string | number | undefined {
+  if (d.id in defaults) {
+    const spec = defaults[d.id];
+    if (spec !== null && typeof spec === "object") {
+      const s = spec as { default?: unknown; requires_named?: unknown; text_overrides?: unknown };
+      if (Array.isArray(s.text_overrides) && s.text_overrides.length) return undefined;
+      if (typeof s.requires_named === "string") {
+        const item = valueOf(s.requires_named);
+        if (item === null || item === NONE_SENTINEL) return undefined;
+      }
+      return typeof s.default === "string" || typeof s.default === "number" ? s.default : undefined;
+    }
+    if (typeof spec === "string" || typeof spec === "number") return spec;
+    return undefined;
+  }
+  if (d.allow_none) return NONE_SENTINEL;
+  return undefined;
 }
 
 export function makePricingSheetHelper(deps: Deps): RateHelper {
@@ -508,6 +675,40 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     }
     const category = cfg!;
     const defs = selectableDefs(category);
+    // The attributes THIS config computes rather than accepts -- a blank one is not missing input.
+    // (Hoisted above the never-asked pass, which must not seed a derived attribute.)
+    const derived = derivedAttrIds(category);
+
+    // NEVER-ASKED DEFAULTS (owner ruling 2026-09-08; the rule and its hazard are on
+    // `neverAskedDefault` above). IN-RUN rows only: a manual row has no stored attributes at all and
+    // keeps its "Fill the attributes to price this row" path untouched. A synthesized cell carries the
+    // EXISTING `defaulted` flag, so the badge, the trace line and the override precedence are the
+    // ones a model-claimed default already has. Two passes so a paired quantity (`requires_named`)
+    // can see an item defaulted in the same walk regardless of definition order.
+    const neverAsked = new Map<string, ExtractedAttr>();
+    if (ext) {
+      const defaults = readExtractionDefaults(category);
+      const valueOfId = (id: string): string | number | null => {
+        const dd = defs.find((x) => x.id === id);
+        if (!dd) return null;
+        const ov = overrides?.[id];
+        const raw = ov !== undefined ? ov : (ext.attributes[id] ?? neverAsked.get(id))?.value ?? null;
+        return coerceForMatch(dd, raw as string | number | null);
+      };
+      for (let pass = 0; pass < 2; pass++) {
+        for (const d of defs) {
+          if (neverAsked.has(d.id)) continue;
+          if (Object.prototype.hasOwnProperty.call(ext.attributes, d.id)) continue; // ASKED -- untouched
+          // `extract` is a config key the AttributeDefinition type does not declare (types out of scope).
+          if ((d as { extract?: boolean }).extract === false || d.panel === false || derived.has(d.id)) continue;
+          const v = neverAskedDefault(d, defaults, valueOfId);
+          if (v !== undefined) neverAsked.set(d.id, { value: v, confidence: 0, defaulted: true });
+        }
+      }
+    }
+    /** The stored cell for a def, or the never-asked synthesized one. */
+    const cellOf = (d: AttributeDefinition): ExtractedAttr | undefined =>
+      ext?.attributes[d.id] ?? neverAsked.get(d.id);
 
     // EA-4a-r: which defs are DISABLED because an allow_none controller is set to "None" (positive
     // absence) -- e.g. plate_item="None" disables plate_qty AND back_box. A controller can disable a def
@@ -515,7 +716,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     // pre-pass. A disabled target is greyed + cleared and is NOT treated as an unknown (never blocks).
     const valueOfDef = (d: AttributeDefinition): string | number | null => {
       const ov = overrides?.[d.id];
-      const raw = ov !== undefined ? ov : ext?.attributes[d.id]?.value ?? null;
+      const raw = ov !== undefined ? ov : cellOf(d)?.value ?? null;
       return coerceForMatch(d, raw as string | number | null);
     };
     const disabledByNone = new Set<string>();
@@ -529,8 +730,8 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     const workingsAttrs: WorkingsAttribute[] = [];
     const selected: Record<string, string | number> = {};
     const defaulted: string[] = []; // EA-4a: attrs the extraction filled from a config default
-    // The attributes THIS config computes rather than accepts -- a blank one is not missing input.
-    const derived = derivedAttrIds(category);
+    const neverAskedTrace: string[] = []; // 2026-09-08: the subset of `defaulted` this helper synthesized
+    // (`derived` is hoisted above the never-asked pass.)
     // SLICE 3b (owner ruling R8) -- THE CONDITIONAL EXEMPTION, resolved PER ROW.
     //
     // Four of the five derivation mechanisms can always run, so config membership IS the answer. A
@@ -591,7 +792,8 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         : new Set([...derived].filter((id) => !unfillableDerived.has(id)));
     let missing = false;
     for (const d of defs) {
-      const cell = ext?.attributes[d.id];
+      const cell = cellOf(d);
+      const wasNeverAsked = neverAsked.has(d.id);
       const overridden = overrides?.[d.id];
       const disabled = disabledByNone.has(d.id);
       const rawValue = disabled ? null : overridden !== undefined ? overridden : cell?.value ?? null;
@@ -622,7 +824,19 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         !disabled && overridden === undefined && coerced !== null && cell?.defaulted === true;
       if (isDefaulted) {
         defaulted.push(`${d.label}=${coerced}`);
+        // The badge cannot tell a never-asked default from a model-claimed one; this trace line can.
+        if (wasNeverAsked) neverAskedTrace.push(`${d.label}=${coerced}`);
       }
+      // F-30 slice A (owner ruling 2, 2026-09-05) -- THE RATING-UP NOTE. The server-side ladder
+      // stamps `pole_ladder.amp_moved_up` when it priced the next rating UP because the counted pole
+      // (SPN -> 2 pole, TPN -> 4 pole) is not stocked at the stated amp on that curve. That is a
+      // substitution the pricer must SEE on the form, in words -- the face-plate precedent: the
+      // trace is a surface a pricer may never open. It rides the general `notes` list (the v6.00
+      // generalisation), never a second channel. Same clearing rule as `defaulted`: a pricer's
+      // override makes the field theirs again and the note goes. The words come from the PRICED
+      // row's own catalogue attributes (pole / device / curve), read from `items` -- no second
+      // vocabulary. Per-attribute, on the attribute: nothing whole-sheet is carried.
+      const ratingUp = ratingUpNote(!disabled && overridden === undefined ? cell?.pole_ladder : undefined, items);
       // SLICE 2d -- THE ONE PLACE THE PANEL NARROWS. `selected` and `missing` above are computed from
       // the FULL walk and are deliberately untouched: `catalog_fit` reads `selected[mcb_present]` and
       // `selected[mcb_amp_a]`, and `map_attribute` reads the two stated-pole/curve attributes, so
@@ -636,11 +850,13 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         // the Derivation screen) -- only the coercion above differs, and that is the whole point.
         options: isDropdownAttributeType(d.type) ? attributeOptions(d, items) : undefined,
         value: coerced === null ? "" : String(coerced),
-        confidence: disabled ? undefined : cell?.confidence,
+        // A never-asked default has no model confidence to show -- omit it rather than render 0.
+        confidence: disabled || (wasNeverAsked && overridden === undefined) ? undefined : cell?.confidence,
         corroborated: disabled ? undefined : cell?.corroborated,
         disabled: disabled || undefined,
         allowNone: d.allow_none || undefined,
         defaulted: isDefaulted || undefined,
+        ...(ratingUp ? { notes: [ratingUp] } : {}),
         // F4b: carry the config's group label through untouched. A non-string (or empty) is dropped
         // rather than rendered -- attribute-definition keys carry no backend type guard, so a bad
         // value must degrade to "no group" here instead of drawing a blank header.
@@ -749,6 +965,17 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     if (defaulted.length) {
       flatDerivation.push(`(defaulted -- no positive text identification): ${defaulted.join(", ")}`);
     }
+    // 2026-09-08: a never-asked default is ALSO in the line above (same badge, same mechanism); this
+    // second line is what lets a future reader tell a defaulted third socket from a real one.
+    // ⚠️ The panel renders `sections[i].derivation` and NOT the flat list whenever sections exist (every
+    // module_fit category -- exactly the never-asked population), so the line is ALSO appended to every
+    // section, the way the combined line is added to a single section above. Otherwise the badge would be
+    // the only trace on screen and this sentence would exist only in tests.
+    if (neverAskedTrace.length) {
+      const neverAskedLine = `(never asked at extraction -- config default applied; re-run the sheet to read it): ${neverAskedTrace.join(", ")}`;
+      flatDerivation.push(neverAskedLine);
+      for (const s of sections) s.derivation.push(neverAskedLine);
+    }
 
     return {
       kind: "suggestion",
@@ -758,7 +985,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         ? `Rate master: ${category.category_id} @ ${attrLine}`
         : "no match for these attributes",
       workings: {
-        attributes: applyDerivedDisplay(workingsAttrs, category, pipelineResults, fillableDerived),
+        attributes: applyDerivedDisplay(workingsAttrs, category, pipelineResults, fillableDerived, items),
         matchedRows: flatMatched,
         derivation: flatDerivation,
         finalValues: { ...values },

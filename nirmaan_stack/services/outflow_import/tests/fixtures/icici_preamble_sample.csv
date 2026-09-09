@@ -1,0 +1,31 @@
+"Detailed Statement"
+
+"Name:","TESTCO PRIVATE LIMITED"
+"A/C No:","000000000001"
+"Account Type:","Current"
+"Branch:","TEST BRANCH"
+"Currency:","INR"
+"Transaction Date from:","01/Jan/2026"
+"Transaction Date to:","08/Jan/2026"
+
+"Statement of Transactions in Account Number: 000000000001"
+
+"Nomination Registered"
+
+"Legends: refer end of statement"
+
+"S.N.","Tran. Id","Value Date","Transaction Date","Transaction Posted Date","Cheque. No./Ref. No.","Transaction Remarks","Withdrawal Amt (INR)","Deposit Amt (INR)","Balance (INR)"
+"1","S20000001","01/Jan/2026","01/Jan/2026","01/Jan/2026","","INF/INFT/042800000001/BULD64000001   /WIB Office acco","23,00,552.00","","-3,13,95,169.64"
+"2","S20000002","01/Jan/2026","02/Jan/2026","02/Jan/2026","","Int on FD/RD XXX1083 01-01-2026 to 31-01-2026","","1,234.00","-3,13,93,935.64"
+"3","S20000003","03/Jan/2026","03/Jan/2026","03/Jan/2026","","NEFT-AXISP00111222333-HIDEAWAY INTERIORS PRIVATE-TESTCOPAY0001-AXIS","","44,275.00","-3,13,49,660.64"
+"4","S20000004","04/Jan/2026","","","","MMT/IMPS/600200000001/TESTWALLET/IDFB0020101","5,000.00","","-3,13,54,660.64"
+
+"Page Total"
+"Opening Bal:","-3,13,95,169.64"
+"Withdrawls:","23,05,552.00"
+"Deposits:","45,509.00"
+"Closing Bal:","-4,87,90,566.06"
+
+"Legends Used in Account Statement"
+"1. IMPS - Immediate Payment Service"
+"2. INFT - Internal Fund Transfer"

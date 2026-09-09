@@ -124,7 +124,7 @@
 {%- set snags = frappe.get_all("Project Snag",
         filters=snag_filters,
         fields=["name", "area", "category", "description", "status", "remark",
-                "creation", "source_row"],
+                "creation", "source_row", "source_serial"],
         order_by="category asc, area asc, source_row asc, creation asc",
         limit_page_length=0
 ) -%}
@@ -485,11 +485,19 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {# S.No restarts per category -- each page is self-contained. #}
+                        {# S.No is the CONSULTANT's own number, verbatim from the workbook
+                           (`source_serial`), so a snag can be quoted back in their terms.
+
+                           It is therefore NOT a page index: the sheet numbers rows in sheet
+                           order and this report regroups them by category, so a page can
+                           legitimately read 9, 31, 18. That is the sheet's numbering, not a
+                           fault. The running index is the FALLBACK, reached only by a snag
+                           with no number of its own -- one added by hand, or imported before
+                           the field existed -- so a row is never left blank. #}
                         {% for row in cat.rows %}
                         <tr>
                             <!-- S.No -->
-                            <td style="text-align: center; color: #6B7280;">{{ loop.index }}</td>
+                            <td style="text-align: center; color: #6B7280;">{{ row.source_serial or loop.index }}</td>
 
                             <!-- Area -->
                             <td style="font-weight: 600; color: #111;">

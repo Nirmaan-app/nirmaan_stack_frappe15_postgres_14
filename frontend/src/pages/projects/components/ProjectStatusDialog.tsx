@@ -14,6 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { TailSpin } from "react-loader-spinner";
 import { useEffect } from "react";
+import { CalendarClock } from "lucide-react";
+import { defaultRecheckDate, isValidRecheckDate, todayISO } from "@/utils/ceoHoldRecheck";
 
 
 export interface HaltedOptions {
@@ -25,6 +27,13 @@ export interface HaltedOptions {
   isPMODisabled: boolean;
 
   inventoryDisableDate?: string;
+
+  /**
+   * CEO Hold scheduled recheck. Present ONLY when `requireRecheck` is set — the date
+   * (YYYY-MM-DD) on which the system should run the CEO Hold evaluation again. It travels
+   * in the same options bag so the caller writes the status and the schedule in ONE save.
+   */
+  ceoHoldRecheckDate?: string;
 }
 
 
@@ -39,6 +48,12 @@ interface ProjectStatusDialogProps {
   onConfirm: (options: HaltedOptions) => void;
   onCancel: () => void;
   isLoading: boolean;
+  /**
+   * Turns this into the CEO Hold recheck confirmation: the authorized user is moving a
+   * held project to a non-terminal status, so a recheck date is REQUIRED before the status
+   * can change. Decided by `shouldScheduleCeoHoldRecheck` at the call site.
+   */
+  requireRecheck?: boolean;
 }
 
 export const ProjectStatusDialog: React.FC<ProjectStatusDialogProps> = ({
@@ -51,7 +66,8 @@ export const ProjectStatusDialog: React.FC<ProjectStatusDialogProps> = ({
   designTrackerId,
   onConfirm,
   onCancel,
-  isLoading
+  isLoading,
+  requireRecheck = false
 }) => {
   // --- Halted Status Options State ---
   const [isDPRDisabled, setIsDPRDisabled] = useState(true);
@@ -62,6 +78,16 @@ export const ProjectStatusDialog: React.FC<ProjectStatusDialogProps> = ({
   const [isInventoryDisabled, setIsInventoryDisabled] = useState(true);
   const [inventoryDisableDate, setInventoryDisableDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [isPMODisabled, setIsPMODisabled] = useState(true);
+
+  // --- CEO Hold recheck state ---
+  // Pre-filled with the day after tomorrow (owner ruling): that is the usual window, and
+  // the CEO adjusts it — almost always further out. Still mandatory and still validated;
+  // the default only saves the common case a click. Both dates are recomputed on each
+  // open, so a dialog left mounted overnight never offers a stale "today".
+  const [recheckDate, setRecheckDate] = useState<string>(defaultRecheckDate);
+  const minRecheckDate = todayISO();
+  const isRecheckDateValid = isValidRecheckDate(recheckDate);
+  const canConfirm = !requireRecheck || isRecheckDateValid;
 
   // Handle status-based defaults
   useEffect(() => {
@@ -74,8 +100,19 @@ export const ProjectStatusDialog: React.FC<ProjectStatusDialogProps> = ({
     }
   }, [open,newStatus]);
 
+  // Re-seed on every open. A date the user typed for a previous, abandoned status change
+  // must never be silently attached to the next one, and re-computing here is what keeps
+  // the default correct across a day boundary.
+  useEffect(() => {
+    if (open) setRecheckDate(defaultRecheckDate());
+  }, [open]);
+
 
   const handleConfirm = () => {
+    // Belt and braces: the button is disabled without a valid date, but this is the one
+    // place the schedule leaves the dialog, so it re-checks rather than trusting the UI.
+    if (requireRecheck && !isRecheckDateValid) return;
+
     onConfirm({
       isDPRDisabled,
       dprDisableDate: isDPRDisabled ? dprDisableDate : undefined,
@@ -85,6 +122,7 @@ export const ProjectStatusDialog: React.FC<ProjectStatusDialogProps> = ({
       isPMODisabled,
 
       inventoryDisableDate: isInventoryDisabled ? inventoryDisableDate : undefined,
+      ceoHoldRecheckDate: requireRecheck ? recheckDate : undefined,
     });
   };
 
@@ -92,9 +130,13 @@ export const ProjectStatusDialog: React.FC<ProjectStatusDialogProps> = ({
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {requireRecheck ? "Schedule a CEO Hold recheck" : "Are you sure?"}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            {newStatus === "Handover" ? (
+            {requireRecheck ? (
+              "This project is currently under CEO Hold. You are changing the project status from CEO Hold to another status. Please select the date when the system should check the CEO Hold conditions again."
+            ) : newStatus === "Handover" ? (
               designTrackerId
                 ? "This will change the project status to Handover, generate handover copies of all applicable design tasks with a 7-day deadline, and initialize the project Commission Report if it does not exist."
                 : "This will change the project status to Handover and initialize the project Commission Report. No Design Tracker exists for this project, so no design handover tasks will be generated."
@@ -106,6 +148,47 @@ export const ProjectStatusDialog: React.FC<ProjectStatusDialogProps> = ({
               </>
             )}
           </AlertDialogDescription>
+
+          {/* --- CEO Hold recheck (authorized user releasing a held project) --- */}
+          {requireRecheck && (
+            <div className="mt-4 space-y-3 py-2 border-t pt-4 text-left">
+              <div className="grid grid-cols-[110px_1fr] gap-y-1.5 text-sm">
+                <span className="text-gray-500">Current Status</span>
+                <span className="font-semibold text-amber-700">{currentStatus}</span>
+                <span className="text-gray-500">New Status</span>
+                <span className="font-semibold text-gray-900">
+                  {projectStatuses.find((s) => s.value === newStatus)?.label || newStatus}
+                </span>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="ceo-hold-recheck-date" className="text-sm font-medium flex items-center gap-1.5">
+                  <CalendarClock className="h-4 w-4 text-amber-600" />
+                  CEO Hold Recheck Date <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="ceo-hold-recheck-date"
+                  type="date"
+                  required
+                  min={minRecheckDate}
+                  value={recheckDate}
+                  onChange={(e) => setRecheckDate(e.target.value)}
+                  className="h-9 text-sm w-48"
+                />
+                {recheckDate && !isRecheckDateValid ? (
+                  <p className="text-[11px] text-red-600">
+                    Pick today or a later date — the recheck cannot be scheduled in the past.
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-gray-500">
+                    Until this date the CEO Hold conditions are not re-evaluated. On it, the
+                    system re-runs the same checks and puts the project back on CEO Hold if
+                    they still fail.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* --- Halted/Handover/Completed Status Options --- */}
           {(newStatus === "Halted" || newStatus === "Handover" || newStatus === "Completed") && (
@@ -239,8 +322,8 @@ export const ProjectStatusDialog: React.FC<ProjectStatusDialogProps> = ({
               <AlertDialogCancel onClick={onCancel}>
                 Cancel
               </AlertDialogCancel>
-              <Button onClick={handleConfirm}>
-                Continue
+              <Button onClick={handleConfirm} disabled={!canConfirm}>
+                {requireRecheck ? "Change Status & Schedule Recheck" : "Continue"}
               </Button>
             </>
           )}

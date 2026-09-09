@@ -22,6 +22,8 @@ export interface ProjectPayments{
 	utr?: string
 	/**	Payment Attachment : Attach	*/
 	payment_attachment?: string
+	/**	Voucher Attachment : Attach	*/
+	voucher_attachment?: string
 	/**	Amount : Data	*/
 	amount: number
 	/**	TDS : Data	*/

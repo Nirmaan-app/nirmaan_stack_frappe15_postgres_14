@@ -1,6 +1,6 @@
 // src/pages/outflow-import/components/ImportSummaryPanel.tsx
 
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -33,13 +33,19 @@ import {
     openImports,
     rematchReachLabel,
     rematchWarning,
-    settledLedgerRows,
     sourceSelectorValue,
     summaryTiles,
     type SettledLedgerSplit,
     type SummaryImport,
     type SummaryTile,
 } from "../outflowTableModel";
+import {
+    SETTLED_BLOCK_PAID,
+    SETTLED_BLOCK_RECEIVED,
+    settledBlockLabel,
+    settledBlockSubLine,
+    settledDirectionBlocks,
+} from "../settledDirectionBlocks";
 import { ImportSelect } from "./ImportSelect";
 import { OutflowPeriodFilter } from "./OutflowPeriodFilter";
 
@@ -94,6 +100,23 @@ const ALL_SOURCES = "all";
 const MIXED_SOURCES = "mixed";
 
 /**
+ * How many columns the figure row gets, keyed by how many tiles are in it.
+ *
+ * ⚠️ THE CLASS STRINGS ARE LITERAL SO TAILWIND EMITS THEM ALL. An interpolated `lg:grid-cols-${n}`
+ * is invisible to the scanner and ships as no class at all, which is why the four-vs-five choice
+ * this replaces was already written out longhand.
+ *
+ * ⚠️ COUNTING THE TILES IS A LAYOUT FACT, NOT A FIGURE. Nothing here adds up rows or money — see
+ * the panel docstring on why a panel that totalled its own numbers would be worse than no panel.
+ */
+const TILE_COLUMNS: Record<number, string> = {
+    3: "lg:grid-cols-3",
+    4: "lg:grid-cols-4",
+    5: "lg:grid-cols-5",
+    6: "lg:grid-cols-6",
+};
+
+/**
  * The summary of every transfer in the current PERIOD, above the master table (X2 + X3, P1).
  *
  * ⚠️ THE SCOPE REVERSED AT P1, AND THE OLD SHAPE IS WORTH STATING SO THE CHANGE IS LEGIBLE. This
@@ -142,6 +165,173 @@ export const ImportSummaryPanel = ({
     const reach = rematchReachLabel(imports);
     const pinned = Boolean(selectedImport);
     const sourceValue = sourceSelectorValue(sources);
+    /**
+     * The settled money, as the server split it: one block per direction (slice B8b).
+     *
+     * ⚠️ READ STRAIGHT OFF THE PAYLOAD, NEVER DERIVED HERE. Which side a settled row belongs to is
+     * a fact about the ROW's `direction`, which the client never sees — and it could not be guessed
+     * from the ledger even if it did, because a non-project RECEIPT is stored as a NEGATIVE
+     * `Non Project Expense` and so appears in both blocks.
+     */
+    const settledBlocks = settledDirectionBlocks(summary?.settled_by_direction);
+
+    /**
+     * The statement total, cut by direction — the server's four figures, or NOTHING (slice B8c).
+     *
+     * ⚠️ ALL FOUR KEYS ARE OPTIONAL, AND ABSENT MEANS THE OLD SINGLE TILE, NEVER A CONFIDENT ZERO.
+     * A client running against a server that predates the cut would otherwise render "Total paid
+     * out ₹0" over a statement that moved crores — the same call `settledDirectionBlocks` and
+     * `settled_from_suggestion` already make one level down.
+     *
+     * ⚠️ TESTED FOR `undefined`, NEVER FOR FALSINESS. A real 0 is an answer — a period that
+     * received nothing — and must render as ₹0; an unsent key is not, and must fall back. `!x`
+     * cannot tell the two apart, and the type declaring these says so in as many words.
+     *
+     * ⚠️ IT IS A PASS-THROUGH, NOT A DERIVATION. The four figures are read as sent; the panel never
+     * subtracts one from the total to obtain the other. They partition `total_rows` / `total_value`
+     * exactly, which is the server's guarantee and pinned on its side.
+     */
+    const directionSplit =
+        totals &&
+        totals.paid_rows !== undefined &&
+        totals.paid_value !== undefined &&
+        totals.received_rows !== undefined &&
+        totals.received_value !== undefined
+            ? {
+                  paidRows: totals.paid_rows,
+                  paidValue: totals.paid_value,
+                  receivedRows: totals.received_rows,
+                  receivedValue: totals.received_value,
+              }
+            : undefined;
+
+    /**
+     * ⚠️ RECEIVED RENDERS ONLY WHEN IT HOLDS ROWS, AND IT IS APPENDED SO PAID NEVER MOVES — the
+     * same rule, for the same reason, as the settled blocks below (`derive_settled_direction_blocks`
+     * decides it there; here the count does). Cashfree and Cashbook are single-direction sources, so
+     * a zero-filled Received tile would sit on every gateway import forever claiming receipts were
+     * possible where none can occur.
+     */
+    const showReceived = Boolean(directionSplit && directionSplit.receivedRows > 0);
+
+    /**
+     * How many tiles the figure row holds: the paid (or fallback) tile, the received tile where it
+     * applies, the server's settled blocks, then Still open. Clamped because the block list is the
+     * server's and an unrecognised direction is rendered rather than dropped.
+     *
+     * ⚠️ THE TRAILING TERM IS `+ 1`, NOT `+ 2` — Decided was REMOVED (owner ruling 2026-09-09, for
+     * a cleaner panel) and this count moved with it. A stale `+ 2` would not error; it would ask
+     * for one more column than there are tiles and stretch the row, which is exactly the kind of
+     * drift a literal-arithmetic tile count invites.
+     */
+    const tileColumns =
+        TILE_COLUMNS[Math.min(Math.max(1 + (showReceived ? 1 : 0) + settledBlocks.length + 1, 3), 6)];
+
+    /**
+     * What is STILL OPEN, cut by direction — the third figure each band needs, and the only one the
+     * server did not already send (slice D12).
+     *
+     * ⚠️ FOUR MORE OPTIONAL KEYS, CHECKED FOR `undefined` AND NEVER FOR FALSINESS, exactly as
+     * `directionSplit` above. A real 0 is an answer — that side has nothing left undecided — and
+     * must render as ₹0; an unsent key is not, and falls back to the flat row. `!x` cannot tell the
+     * two apart.
+     *
+     * ⚠️ A PASS-THROUGH, LIKE EVERY OTHER FIGURE HERE. The panel never subtracts one half from
+     * `open_value` to obtain the other; `status.py` guarantees they partition it, and pins that on
+     * every input.
+     */
+    const openSplit =
+        totals &&
+        totals.open_paid_rows !== undefined &&
+        totals.open_paid_value !== undefined &&
+        totals.open_received_rows !== undefined &&
+        totals.open_received_value !== undefined
+            ? {
+                  paidRows: totals.open_paid_rows,
+                  paidValue: totals.open_paid_value,
+                  receivedRows: totals.open_received_rows,
+                  receivedValue: totals.open_received_value,
+              }
+            : undefined;
+
+    /**
+     * ⚠️ THE BANDS APPEAR ONLY WHEN BOTH DIRECTIONS HOLD ROWS. WITH ONE DIRECTION THE PANEL RENDERS
+     * TODAY'S FLAT ROW, UNCHANGED (owner ruling). Every import staged to date is debit-only, so
+     * this is the COMMON case and not an edge case: a `PAID OUT` heading over the only band is
+     * noise, and a heading implies a sibling section the reader then goes looking for.
+     *
+     * ⚠️ IT ALSO FALLS BACK WHEN THE SERVER CANNOT FILL A BAND. Three ways that happens, and each
+     * one would otherwise put a card on screen the payload does not support:
+     *
+     *   * the four `open_*` keys are absent (an older server) — no Still open figure per side;
+     *   * `settled_by_direction` is absent (an older server still) — `settledBlocks` is then `[]`,
+     *     which means "we do not know", NOT "nothing settled", and a band would have to say which;
+     *   * a settled block names a direction this screen does not know. `settledBlockLabel` renders
+     *     such a block VERBATIM in the flat row rather than guessing; a band layout looks blocks up
+     *     BY NAME, so an unknown one would be silently dropped. Falling back keeps it visible.
+     */
+    const bandsApply = Boolean(
+        directionSplit &&
+            openSplit &&
+            directionSplit.paidRows > 0 &&
+            directionSplit.receivedRows > 0 &&
+            settledBlocks.length > 0 &&
+            settledBlocks.every(
+                (block) =>
+                    block.direction === SETTLED_BLOCK_PAID ||
+                    block.direction === SETTLED_BLOCK_RECEIVED
+            )
+    );
+
+    /**
+     * A band's Settled card: the server's block for that direction, rendered exactly as the flat
+     * row renders it — same value, same sub-line, same tone, and the SAME `breakdown` ledger lines.
+     *
+     * ⚠️ IT READS `settled_by_direction` AND NEVER RE-DERIVES THE FIGURE FROM THE TALLIES. That
+     * block is computed by a different query over the same rows and carries the per-ledger lines
+     * this card renders; a second settled-per-direction figure would be two keys totalling the same
+     * money, which is two chances to disagree about it. The band still adds up — checked live,
+     * whole-system and per import: paid `3,798,616.00 + 5,853,190.00 = 9,651,806.00`, received
+     * `0 + 4,268,880.20 = 4,268,880.20`.
+     *
+     * ⚠️ A MISSING BLOCK RENDERS AN ABSENCE, NEVER A CONFIDENT `₹0`. The server suppresses a
+     * direction's block when it holds no rows, so on the one live import with receipts the Received
+     * band has a Total and a Still open and no settled block at all. The panel MUST NOT COUNT, so
+     * it does not manufacture the zero — it says plainly that nothing has been settled on that side,
+     * and Total equalling Still open is the reader's own proof of it.
+     */
+    const settledFigureFor = (direction: string): ReactNode => {
+        const block = settledBlocks.find((entry) => entry.direction === direction);
+        if (!block) return <Figure label="Settled" value="—" sub="nothing settled yet" />;
+        return (
+            <Figure
+                label="Settled"
+                value={formatToRoundedIndianRupee(block.value)}
+                sub={settledBlockSubLine(block, {
+                    fromSuggestion: totals?.settled_from_suggestion,
+                    describesEverySettledRow: settledBlocks.length === 1,
+                })}
+                tone={block.direction === SETTLED_BLOCK_RECEIVED ? "sky" : "emerald"}
+                breakdown={block.ledgers}
+            />
+        );
+    };
+
+    /**
+     * ⚠️ THE `Decided` TILE IS GONE (owner ruling 2026-09-09, for a cleaner panel), and this note
+     * stands in its place so it is not re-added as an obvious omission.
+     *
+     * It rendered `decided_percent` over `decided_rows of total_rows settled` — a ratio across the
+     * WHOLE statement, so it belonged to neither band and was built once and shared by both
+     * layouts. Nothing replaced it: the same fact is legible from the tiles that remain, since
+     * Settled and Still open are the two halves of that ratio and sit side by side.
+     *
+     * ⚠️ `decided_rows` / `decided_percent` ARE STILL DERIVED AND STILL ON THE WIRE, deliberately.
+     * They carry their own load-bearing rule in `status.derive_import_summary` — Skipped rows leave
+     * `total_rows`, so `decided_rows` is SETTLED ONLY or the percentage could exceed 100 — and that
+     * rule is worth keeping proven whether or not a tile shows it. A screen dropping a figure is
+     * not a reason to stop computing it; deleting the keys would take their tests with them.
+     */
 
     /**
      * What the Source trigger is BOUND to, which is not always what is stored.
@@ -328,47 +518,182 @@ export const ImportSummaryPanel = ({
 
                 {summary && totals && (
                     <>
-                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                            {/* The sub-label says "successful" only when some transfer was not,
-                                so the word earns its place instead of being noise on the ~95% of
-                                imports where the bank moved everything. */}
-                            <Figure
-                                label="Total outflow"
-                                value={formatToRoundedIndianRupee(totals.total_value)}
-                                sub={`${totals.total_rows} ${
-                                    totals.failed_rows > 0 ? "successful " : ""
-                                }transfer${totals.total_rows === 1 ? "" : "s"}`}
-                            />
-                            {/* ⚠️ THE SUB-LINE SAYS HOW MANY THE MATCHER FOUND (slice Q1), and
-                                until then nothing on this screen could answer it: every settlement
-                                record was stamped "Manual", so the money record claimed a person
-                                had found all of them when the machine had found 99%.
+                        {/* ⚠️ TWO LABELLED BANDS WHEN BOTH DIRECTIONS HOLD ROWS, AND TODAY'S FLAT
+                            ROW OTHERWISE (owner ruling). Each band holds the same three figures
+                            over ONE direction — Total, Settled, Still open — and they reconcile:
+                            the Total is the whole statement on that side, the Settled card is the
+                            server's own block for it, and Still open is the rest. Three figures per
+                            band and nothing shared beneath them since Decided was removed (owner
+                            ruling 2026-09-09).
 
-                                It reports the AUTO half and lets the reader subtract, rather than
-                                printing both -- two numbers that must sum to `settled_rows` are two
-                                chances to disagree with it. Silent when nothing is settled, and
-                                when the count is absent (an older payload), so the tile degrades to
-                                exactly what it said before rather than reading "0 from a
-                                suggestion" on data that simply predates the field. */}
-                            <Figure
-                                label="Settled"
-                                value={formatToRoundedIndianRupee(totals.settled_value)}
-                                sub={
-                                    totals.settled_rows > 0 &&
-                                    totals.settled_from_suggestion != null
-                                        ? `${totals.settled_rows} recorded · ${totals.settled_from_suggestion} auto-matched`
-                                        : `${totals.settled_rows} recorded`
-                                }
-                                tone="emerald"
-                                /* ⚠️ THE SPLIT IS THE SERVER'S LIST, RENDERED VERBATIM. It arrives
-                                   ordered and zero-filled from the one `GROUP BY`
-                                   (`derive_import_summary`), so nothing here sorts it, totals it,
-                                   or drops a zero — see `settledLedgerRows`, and the panel
-                                   docstring on why a panel that added up its own rows is worse
-                                   than one that shows nothing. An ABSENT key renders NO breakdown
-                                   at all, which is the whole reason that helper exists. */
-                                breakdown={settledLedgerRows(summary.settled_by_ledger)}
-                            />
+                            ⚠️ THE SINGLE-DIRECTION FALLBACK IS THE COMMON CASE, NOT AN EDGE CASE.
+                            Every import staged to date is debit-only, so a `PAID OUT` heading would
+                            sit alone over the only band on almost every statement — noise that
+                            implies a second section the reader then goes hunting for. See
+                            `bandsApply` for the three further ways the payload can fail to support
+                            a band, each of which falls back here too. */}
+                        {bandsApply && directionSplit && openSplit ? (
+                            <>
+                                <DirectionBand heading="Paid out">
+                                    {/* ⚠️ UNTONED, DELIBERATELY, and it is the same call the flat
+                                        row's own "Total paid out" tile makes. Emerald means SETTLED
+                                        on this panel — the card immediately to its right — and this
+                                        one spans every row on this side including every undecided
+                                        one, so a green tile here would claim the money is recorded
+                                        when the card beside it says how much of it is not. */}
+                                    <Figure
+                                        label="Total"
+                                        value={formatToRoundedIndianRupee(directionSplit.paidValue)}
+                                        sub={`${directionSplit.paidRows} ${
+                                            totals.failed_rows > 0 ? "successful " : ""
+                                        }transfer${directionSplit.paidRows === 1 ? "" : "s"}`}
+                                    />
+                                    {settledFigureFor(SETTLED_BLOCK_PAID)}
+                                    <Figure
+                                        label="Still open"
+                                        value={formatToRoundedIndianRupee(openSplit.paidValue)}
+                                        sub={`${openSplit.paidRows} undecided`}
+                                        tone={openSplit.paidRows ? "amber" : undefined}
+                                    />
+                                </DirectionBand>
+                                {/* ⚠️ APPENDED, SO THE PAID BAND NEVER MOVES — the rule the received
+                                    tile and the received settled block already follow, one level up.
+                                    Sky throughout: it is this screen's inbound colour, and "deposits"
+                                    is the word for money arriving. */}
+                                <DirectionBand heading="Received">
+                                    <Figure
+                                        label="Total"
+                                        value={formatToRoundedIndianRupee(
+                                            directionSplit.receivedValue
+                                        )}
+                                        sub={`${directionSplit.receivedRows} ${
+                                            totals.failed_rows > 0 ? "successful " : ""
+                                        }deposit${directionSplit.receivedRows === 1 ? "" : "s"}`}
+                                        tone="sky"
+                                    />
+                                    {settledFigureFor(SETTLED_BLOCK_RECEIVED)}
+                                    <Figure
+                                        label="Still open"
+                                        value={formatToRoundedIndianRupee(openSplit.receivedValue)}
+                                        sub={`${openSplit.receivedRows} undecided`}
+                                        tone={openSplit.receivedRows ? "amber" : undefined}
+                                    />
+                                </DirectionBand>
+                                {/* The shared Decided tile sat here, in its own grid beneath the two
+                                    bands. Removed with the tile (owner ruling 2026-09-09); the
+                                    wrapper went with it rather than being left as an empty row. */}
+                            </>
+                        ) : (
+                        <>
+                        {/* ⚠️ ONE COLUMN PER TILE, AND THE COUNT IS NOW TWO CONDITIONALS DEEP: the
+                            received tile appears only on a period that holds receipts, and the
+                            settled block list is the server's (one direction or two). With no
+                            receipts — every Cashfree and Cashbook import — the grid is the four
+                            columns it has always been, in the same positions, so a gateway
+                            statement renders exactly as it does today. See `TILE_COLUMNS` for why
+                            the class strings are literal. */}
+                        <div className={`grid gap-3 sm:grid-cols-2 ${tileColumns}`}>
+                            {/* ⚠️ THE ONE "TOTAL TRANSFERRED" TILE IS NOW TWO — "Total paid out" and
+                                "Total received" (owner ruling Q14, the same ruling the settled
+                                blocks below already follow). It summed both directions because
+                                `derive_import_summary` had no direction axis; it now has one, and
+                                the four figures it sends PARTITION the total exactly, so the two
+                                tiles add back to the statement without either being derived from
+                                the other. NEITHER IS EVER NETTED AGAINST THE OTHER: money in and
+                                money out are two totals, not one difference.
+
+                                ⚠️ THE FIGURES ARE READ AS SENT. The panel does not obtain paid by
+                                subtracting received from the total, or the reverse — see the panel
+                                docstring. And they are not signed: an amount is stored as the
+                                positive figure the statement printed, on both sides.
+
+                                ⚠️ AN OLDER SERVER FALLS BACK TO THE SINGLE TILE IT ALWAYS SENT,
+                                labelled as before. A tile reading "Total paid out" over a
+                                both-directions sum would be a quiet lie, and a zero-filled pair
+                                would be a loud one; the old label over the old figure is neither.
+
+                                The sub-label says "successful" only when some transfer was not, so
+                                the word earns its place instead of being noise on the ~95% of
+                                imports where the bank moved everything. `failed_rows` carries no
+                                direction of its own, so it QUALIFIES each tile's own rows — those
+                                rows are the ones the bank moved — and the failed count itself is
+                                never printed here; the Skipped chip's hint names it. */}
+                            {directionSplit ? (
+                                <Figure
+                                    label="Total paid out"
+                                    value={formatToRoundedIndianRupee(directionSplit.paidValue)}
+                                    sub={`${directionSplit.paidRows} ${
+                                        totals.failed_rows > 0 ? "successful " : ""
+                                    }transfer${directionSplit.paidRows === 1 ? "" : "s"}`}
+                                />
+                            ) : (
+                                <Figure
+                                    label="Total transferred"
+                                    value={formatToRoundedIndianRupee(totals.total_value)}
+                                    sub={`${totals.total_rows} ${
+                                        totals.failed_rows > 0 ? "successful " : ""
+                                    }transfer${totals.total_rows === 1 ? "" : "s"}`}
+                                />
+                            )}
+                            {/* ⚠️ APPENDED, AND ONLY WHEN IT HOLDS ROWS — see `showReceived`. "Paid
+                                out" therefore never moves off the left of the row.
+
+                                ⚠️ SKY, AND PAID IS LEFT UNTONED. Sky is already this screen's
+                                inbound colour, so it marks the direction. Emerald is NOT its
+                                opposite here: on this panel emerald means SETTLED (the block
+                                below), and these two tiles span the whole statement including
+                                every undecided row — a green "Total paid out" would claim the
+                                money is recorded when the tile beside it says how much still is
+                                not. "Deposits", not "transfers": the word for money arriving. */}
+                            {directionSplit && showReceived && (
+                                <Figure
+                                    label="Total received"
+                                    value={formatToRoundedIndianRupee(directionSplit.receivedValue)}
+                                    sub={`${directionSplit.receivedRows} ${
+                                        totals.failed_rows > 0 ? "successful " : ""
+                                    }deposit${directionSplit.receivedRows === 1 ? "" : "s"}`}
+                                    tone="sky"
+                                />
+                            )}
+                            {/* ⚠️ THE SETTLED TILE IS NOW ONE TILE PER DIRECTION (owner ruling Q14,
+                                option a) — Received and Paid, EACH RECONCILING TO ITS OWN TOTAL,
+                                never netted. A single net figure hides both halves; folding
+                                receipts into the paid total would add money in to money out; and
+                                leaving receipts out would make the money this screen ingested
+                                invisible on the screen that ingested it.
+
+                                ⚠️ THE BLOCKS ARE THE SERVER'S LIST, RENDERED VERBATIM — the split,
+                                the order, the zero-fill, which side a blank direction lands on, and
+                                whether an empty received block exists at all are all decided by the
+                                one `GROUP BY` (`derive_settled_direction_blocks`). Nothing here
+                                sorts, totals, partitions or drops a zero; see the panel docstring
+                                on why a panel that added up its own rows is worse than one that
+                                shows nothing. An ABSENT key renders NO block at all, which is the
+                                whole reason `settledDirectionBlocks` exists.
+
+                                ⚠️ THE SUB-LINE'S AUTO-MATCHED CLAUSE (slice Q1) IS A WHOLE-SETTLED
+                                FIGURE, so it is quoted only where it provably describes the block
+                                it sits on — see `settledBlockSubLine`. Until Q1 nothing on this
+                                screen could answer it at all: every settlement record was stamped
+                                "Manual", so the money record claimed a person had found all of them
+                                when the machine had found 99%. */}
+                            {settledBlocks.map((block) => (
+                                <Figure
+                                    key={block.direction}
+                                    label={settledBlockLabel(block.direction)}
+                                    value={formatToRoundedIndianRupee(block.value)}
+                                    sub={settledBlockSubLine(block, {
+                                        fromSuggestion: totals.settled_from_suggestion,
+                                        describesEverySettledRow: settledBlocks.length === 1,
+                                    })}
+                                    tone={
+                                        block.direction === SETTLED_BLOCK_RECEIVED
+                                            ? "sky"
+                                            : "emerald"
+                                    }
+                                    breakdown={block.ledgers}
+                                />
+                            ))}
                             {/* ⚠️ THE ONE FIGURE THAT SAYS WHETHER THE WORK IS FINISHED. Counts
                                 tell you how much is left to click; this tells you how much money is
                                 still unaccounted for, which is the question being asked. */}
@@ -378,18 +703,12 @@ export const ImportSummaryPanel = ({
                                 sub={`${totals.open_rows} undecided`}
                                 tone={totals.open_rows ? "amber" : undefined}
                             />
-                            {/* ⚠️ "settled" IS THE WORD THAT MAKES THE RATIO READABLE. Skipped rows
-                                leave `total_rows` and `decided_rows` becomes the settled count, so
-                                this tile answers "how much of the workable statement is settled" —
-                                a sub-line reading only "N of M" would leave a reader guessing which
-                                two populations were being compared, and needing a footnote to find
-                                out. */}
-                            <Figure
-                                label="Decided"
-                                value={`${totals.decided_percent}%`}
-                                sub={`${totals.decided_rows} of ${totals.total_rows} settled`}
-                            />
+                            {/* The Decided tile sat here in the flat layout, and beneath the bands in
+                                the other. Removed from both (owner ruling 2026-09-09) — see the note
+                                where it was built for why the payload keys stay. */}
                         </div>
+                        </>
+                        )}
 
                         <div className="flex flex-wrap items-center gap-2">
                             {summaryTiles(totals).map((tile) => (
@@ -468,15 +787,46 @@ export const ImportSummaryPanel = ({
 };
 
 /**
+ * One direction's band: a heading, then the three figures for that side.
+ *
+ * ⚠️ IT STAYS DUMB, EXACTLY AS `Figure` DOES. It renders a heading and whatever it is handed; it
+ * decides nothing about which figures those are, what they say, or how many there are. The rule
+ * about when a band exists at all lives at the call site (`bandsApply`), where the payload is.
+ *
+ * ⚠️ THE HEADING IS A RULE, NOT A CARD LABEL, WHICH IS WHY IT IS A RULED LINE RATHER THAN ANOTHER
+ * TILE. It has to read as a section marker over the three cards beneath it — a boxed heading would
+ * read as a fourth figure with no number in it. The cards below it are then labelled plainly
+ * (`Total` / `Settled` / `Still open`): repeating the direction on each one would say the same
+ * thing four times in one band.
+ *
+ * ⚠️ THE GRID IS A LITERAL CLASS STRING, like `TILE_COLUMNS`. An interpolated `lg:grid-cols-${n}`
+ * is invisible to Tailwind's scanner and ships as no class at all. A band is always exactly three
+ * cards wide, so there is nothing here to compute: an absent settled block renders an ABSENCE card
+ * rather than a gap, which is what keeps the row square.
+ */
+const DirectionBand = ({ heading, children }: { heading: string; children: ReactNode }) => (
+    <div className="space-y-2">
+        <div className="flex items-center gap-2">
+            <span className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {heading}
+            </span>
+            <span className="h-px flex-1 bg-border" />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{children}</div>
+    </div>
+);
+
+/**
  * One figure.
  *
  * ⚠️ IT STAYS DUMB. It renders a label, a value, a sub-line and — where one is handed to it — a
  * breakdown of the figure ABOVE. It decides nothing about any of them: the sub-line's wording is
  * the caller's, and so is the breakdown's order, contents and length.
  *
- * ⚠️ THE FOUR TILES SHARE A ROW OF CSS GRID, SO THEY SHARE A HEIGHT. A breakdown on one of them
- * therefore grows all four, which is accepted — a fixed height, or padding on the other three to
- * compensate, would be three lies to make one truth fit.
+ * ⚠️ THE TILES SHARE A ROW OF CSS GRID, SO THEY SHARE A HEIGHT. A breakdown on one of them
+ * therefore grows them all, which is accepted — a fixed height, or padding on the others to
+ * compensate, would be several lies to make one truth fit. Since B8b/B8c the row holds anywhere
+ * from three tiles to six, depending on whether the period holds any receipts at all.
  */
 const Figure = ({
     label,
@@ -488,7 +838,14 @@ const Figure = ({
     label: string;
     value: string;
     sub: string;
-    tone?: "emerald" | "amber";
+    /**
+     * ⚠️ `sky` IS THE RECEIVED BLOCK'S TONE, AND IT HAD TO BE A NEW ONE. Emerald means "settled,
+     * money out" everywhere else on this screen, so reusing it for receipts would say the two
+     * blocks are the same kind of figure at a glance — which is the one thing a reviewer must not
+     * conclude. Amber is taken (still open), and `sky` is already this app's provenance/inbound
+     * colour (the carried-category verdict in the pricing grid).
+     */
+    tone?: "emerald" | "amber" | "sky";
     /** Rendered VERBATIM, in the order given. An empty list renders nothing at all. */
     breakdown?: readonly SettledLedgerSplit[];
 }) => (
@@ -496,9 +853,11 @@ const Figure = ({
         className={`rounded-md border p-3 ${
             tone === "emerald"
                 ? "border-emerald-200 bg-emerald-50/50"
-                : tone === "amber"
-                  ? "border-amber-200 bg-amber-50/50"
-                  : ""
+                : tone === "sky"
+                  ? "border-sky-200 bg-sky-50/50"
+                  : tone === "amber"
+                    ? "border-amber-200 bg-amber-50/50"
+                    : ""
         }`}
     >
         <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
@@ -512,7 +871,13 @@ const Figure = ({
             ⚠️ ROUNDED RUPEES, NOT THE EXACT FORM. These are plain amounts; the exact
             `formatToIndianRupee` is reserved for DIFFERENCES on this screen. */}
         {breakdown && breakdown.length > 0 && (
-            <div className="mt-2 space-y-0.5 border-l-2 border-emerald-200 pl-2 dark:border-emerald-800">
+            <div
+                className={`mt-2 space-y-0.5 border-l-2 pl-2 ${
+                    tone === "sky"
+                        ? "border-sky-200 dark:border-sky-800"
+                        : "border-emerald-200 dark:border-emerald-800"
+                }`}
+            >
                 {breakdown.map((entry) => (
                     <div
                         key={entry.ledger}

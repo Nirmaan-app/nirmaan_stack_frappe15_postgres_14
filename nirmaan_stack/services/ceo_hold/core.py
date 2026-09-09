@@ -16,12 +16,28 @@ Invariants:
   * `recompute_ceo_hold` is the ONLY writer of status/ceo_hold_by for system holds. It
     takes the Projects row FOR UPDATE, so the cashflow engine and the action-item
     reconcile can never race on the slot.
-  * Every write here uses `frappe.db.set_value(..., update_modified=False)` to bypass the
-    manual-only `Projects.validate()` guard and the `on_update` recursion — exactly the
-    pattern the cashflow engine has always used. NOTHING here commits; the caller (the
-    reconcile pass, or the host save transaction) owns the commit.
+  * Every write here goes through `frappe.db.set_value`, which is what bypasses the
+    manual-only `Projects.validate()` guard, the `on_update` recursion and Version
+    creation — that bypass comes from `set_value` ITSELF and is independent of the
+    `update_modified` flag, which only decides whether `modified` / `modified_by` move.
+    NOTHING here commits; the caller (the reconcile pass, or the host save transaction)
+    owns the commit.
+  * EVERY write here passes `update_modified=False` (owner ruling 2026-09-08, standing).
+    `modified` / `modified_by` stay the record of what a HUMAN last did to the project: a
+    system hold, release or schedule-clear must not restamp the row, or a cron sweep would
+    reshuffle every list sorted on `modified` and make "last edited by" read as the system.
+    The `CEO Hold Reason` rows follow the same rule — their meaningful timestamp is
+    `set_at`, deliberately STABLE across a text refresh ('held since'). Pinned by
+    `test_recheck.TestCeoHoldWritesLeaveModifiedAlone`.
   * The MANUAL hold is NOT stored here (auto-only) — it stays on the single status slot,
     nitesh-only, and is already clobber-safe (it never auto-releases).
+  * SCHEDULED RECHECK (2026-09): the authorized user may release a hold WITHOUT resolving
+    its reasons by naming a future recheck date. While `Projects.ceo_hold_recheck_scheduled`
+    is 1 the project is in scheduled-recheck mode and NOTHING here may evaluate it — the
+    per-source syncs and `recompute_ceo_hold` all bail (`is_recheck_scheduled`), so the
+    reason rows freeze exactly as the release left them. The ONLY way back to normal mode
+    is `tasks.ceo_hold_recheck`, which CLEARS the schedule first and then re-runs these very
+    same functions. See docs/ceo_hold_auto_management.md §13.
 """
 
 import json
@@ -46,11 +62,52 @@ DN_PENDING_HOLD_THRESHOLD = 10
 # prior user-set status (mirrors the cashflow engine's original fallback).
 FALLBACK_REVERT_STATUS = "WIP"
 
+# Scheduled-recheck mode — the two Projects fields that gate every evaluation below.
+RECHECK_SCHEDULED_FIELD = "ceo_hold_recheck_scheduled"
+RECHECK_DATE_FIELD = "ceo_hold_recheck_date"
+
+# Statuses that must NEVER carry a recheck schedule and must never be re-held by one.
+# (Completed/Halted are terminal; CEO Hold means the hold is already back on.)
+RECHECK_EXCLUDED_STATUSES = frozenset({"CEO Hold", "Completed", "Halted"})
+
 # A duplicate dedup_key can surface as EITHER class depending on cache/timing — the
 # in-app pre-check raises UniqueValidationError while the DB unique index raises
 # DuplicateEntryError. The get-or-create savepoint must catch BOTH (same rationale as
 # the action-item reconciler).
 _DUP_ERRORS = (UniqueValidationError, DuplicateEntryError)
+
+
+# --- scheduled-recheck mode (the hook bypass) ------------------------------------ #
+
+
+def is_recheck_scheduled(project):
+    """True while `project` sits in scheduled-recheck mode.
+
+    THE bypass predicate: every CEO Hold evaluation entry point asks this first and
+    returns without touching a reason row or the status mirror when it is True. A blank /
+    unknown project reads False, so a stale docname degrades to normal mode (fail-open —
+    the nightly reconcile and the recheck cron both heal it).
+    """
+    if not project:
+        return False
+    return bool(frappe.db.get_value("Projects", project, RECHECK_SCHEDULED_FIELD))
+
+
+def clear_recheck_schedule(project):
+    """Leave scheduled-recheck mode: flag off, date null. Idempotent. No commit.
+
+    `update_modified=False` like every other write here — the cron ending scheduled-recheck
+    mode is a SYSTEM action and must not restamp the project as freshly edited. `set_value`
+    still bypasses `Projects.validate()` and the `on_update` recursion regardless of the
+    flag. Called by the recheck cron BEFORE it re-runs the evaluation (so the guards above
+    let it through) and by the cron's stale-schedule branch for terminal projects.
+    """
+    frappe.db.set_value(
+        "Projects",
+        project,
+        {RECHECK_SCHEDULED_FIELD: 0, RECHECK_DATE_FIELD: None},
+        update_modified=False,
+    )
 
 
 # --- reason-row CRUD (own-source only; never commits) ---------------------------- #
@@ -163,10 +220,11 @@ def _is_user_owned(owner):
 def _find_previous_status(project):
     """Most recent USER-driven non-'CEO Hold' status from Version history; else WIP.
 
-    System writes use `set_value(update_modified=False)` which bypasses Version creation,
-    so the Version table naturally holds only real-user saves — we still filter on owner
-    for defence in depth. (Relocated here from the cashflow controller so this is the one
-    home for revert-target resolution; the cashflow controller imports it back.)
+    System writes use `frappe.db.set_value`, which never creates a Version row (true
+    regardless of `update_modified`), so the Version table naturally holds only real-user
+    saves — we still filter on owner for defence in depth. (Relocated here from the
+    cashflow controller so this is the one home for revert-target resolution; the cashflow
+    controller imports it back.)
     """
     rows = frappe.db.sql(
         """
@@ -204,14 +262,27 @@ def recompute_ceo_hold(project):
                  clear ceo_hold_by.
     No commit (caller owns it). Re-locking a row this transaction already locked (the
     reconcile case) is a no-op.
+
+    SCHEDULED RECHECK BACKSTOP: a project in scheduled-recheck mode is returned from
+    UNTOUCHED — it is the LAST line of the hook bypass, so even a caller that forgets the
+    per-source guard cannot re-hold a project whose recheck date has not arrived. The
+    recheck cron clears the schedule BEFORE calling back in here, which is exactly why it
+    is the only thing that can evaluate one. The flag is read under the row lock, so a
+    concurrent release/schedule can never be half-seen.
     """
     locked = frappe.db.get_value("Projects", project, "name", for_update=True)
     if locked is None:
         return  # unknown / deleted project — tolerate a stale name
 
     row = frappe.db.get_value(
-        "Projects", project, ["status", "ceo_hold_by"], as_dict=True
+        "Projects",
+        project,
+        ["status", "ceo_hold_by", RECHECK_SCHEDULED_FIELD],
+        as_dict=True,
     )
+    if row.get(RECHECK_SCHEDULED_FIELD):
+        return  # scheduled-recheck mode — only tasks.ceo_hold_recheck may decide.
+
     status = row.status
     ceo_hold_by = row.ceo_hold_by
 
@@ -226,6 +297,9 @@ def recompute_ceo_hold(project):
             updates["status"] = "CEO Hold"
         if ceo_hold_by != target_by:
             updates["ceo_hold_by"] = target_by
+        # `update_modified=False`: a system hold must not restamp the project as freshly
+        # edited (see the module docstring). The `if updates` guard additionally means a
+        # re-evaluation landing on the same state writes nothing at all.
         if updates:
             frappe.db.set_value("Projects", project, updates, update_modified=False)
     elif status == "CEO Hold":
@@ -246,7 +320,16 @@ def sync_delivery_pending(project, dn_count):
     Called from the action-item reconcile (the count comes free from its `desired` set).
     No commit — the reconcile's single trailing commit flushes this with the action-item
     rows.
+
+    In scheduled-recheck mode this returns immediately: the reconcile still does ALL of its
+    normal work (the Project Action Item rows are opened / resolved exactly as ever) — only
+    the CEO Hold DECISION is skipped, leaving the `dn_pending` reason row frozen as the
+    release left it. The recheck cron re-runs the reconcile once the schedule is cleared,
+    which re-derives the count from truth.
     """
+    if is_recheck_scheduled(project):
+        return
+
     if dn_count > DN_PENDING_HOLD_THRESHOLD:
         set_reason(project, SOURCE_DN, dn_reason_text(dn_count))
     else:

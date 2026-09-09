@@ -1,19 +1,61 @@
-# Bulk Import Outflow Transactions
+# Bulk Import Transactions
 
-An accountant uploads a bank statement of transfers that have **already left the bank** and maps
-each one to the record it settles. Three ledgers: `Project Payments`, `Project Expenses`,
-`Non Project Expenses`.
+*(Renamed from **Bulk Import Outflow** at slice B8a, 2026-09-07 — the module now carries money IN as
+well as OUT. **The screen and the route were renamed; nothing else was.** The folder
+`services/outflow_import` + `api/outflow_import`, and all five doctypes — `Outflow Import Batch`,
+`Outflow Import Row`, `Outflow Row Match`, `Outflow Import Expense Rule`, `Outflow Import Project
+Alias` — keep their `outflow_import` names by owner ruling Q1: a doctype rename is a migration with
+dynamic links and a unique index riding on it and buys nothing. A user-facing name and an internal
+module name do not have to match, and this doc is the bridge between them.)*
 
-> **The import PAYS what someone has already approved. It never approves, and it never creates a
-> `Project Payment`.**
+An accountant uploads a statement and maps each line to the record it settles, or to the record it
+should CREATE. Three settle-side ledgers: `Project Payments`, `Project Expenses`,
+`Non Project Expenses`; and, since the bank-statement source, two create-side ones on the money-IN
+side: `Project Inflows` and a **negative** `Non Project Expense`.
 
-All three settle `Approved → Paid` and nothing else. It is an *alternative bulk route chosen per
-batch* (owner ruling Q12) — nothing about how the team works today changes, so a **half-hand-ticked
-statement is the normal case**, not an edge case.
+> ⚠️ **THE PRIME DIRECTIVE IS SCOPED BY SOURCE *AND* DIRECTION — IT IS NOT ABSOLUTE, AND IT USED TO
+> READ AS IF IT WERE.** The line below is still the whole truth for **Cashfree**, and the last clause
+> is still the whole truth for **every** source:
+>
+> > **The import PAYS what someone has already approved. It never approves, and it never creates a
+> > `Project Payment`.**
+>
+> Per source:
+>
+> | Source | Direction | What it does |
+> |---|---|---|
+> | `Cashfree` | out only (no `direction` stated) | **PAYS** what someone approved. Never creates |
+> | `Cashbook` | out only (no `direction` stated) | **CREATES** what a wallet already spent (ADR-0015). Never settles |
+> | `ICICI Bank Statement` | **Debit and Credit**, stated per row | **CREATES**, in both directions. Settles NOTHING — all three matcher tiers are dead on this source, measured (ADR-0016). A debit becomes an expense; a credit becomes a `Project Inflow` or a negative `Non Project Expense` |
+>
+> **Nothing here creates a `Project Payment`, from any source, in either direction.** That would only
+> happen via **Vendor Refund**, which is deliberately deferred — it is a negative `Project Payments`
+> row minted inside a `PO Adjustments` doc plus a negative `RA Vendor` term, so it cannot be created
+> from a bank row without picking a PO. `settle.create_expense_from_row` still hard-guards
+> `is_expense_doctype`, and the inflow path is a **new function beside it, never a widened one**.
+
+The three settle-side ledgers all settle `Approved → Paid` and nothing else. It is an *alternative
+bulk route chosen per batch* (owner ruling Q12) — nothing about how the team works today changes, so a
+**half-hand-ticked statement is the normal case**, not an edge case.
+
+**Route: `/bulk-import-transactions`** (renamed from `/bulk-import-outflow` at B8a). ⚠️ **There is
+DELIBERATELY NO REDIRECT** (owner ruling Q27, option a) — existing bookmarks 404, and that was
+accepted rather than mitigated. Adding one later is a reversal of the ruling, not a tidy-up. ⚠️ And
+the router carries a `basename` (`VITE_BASE_NAME`: `""` dev, `'frontend'` prod), which has already
+produced a production-only 404 in this feature (§ E3) — navigate through the router, never a raw
+`<a href>`.
 
 Spec: `docs/outflow-import/workflow.html` **section 0** (14 owner rulings; sections 1–12 describe the
 superseded v2 design — history, not instructions).
-Live status + slice record: `frontend/.claude/plans/outflow-import-plan.md`.
+ADRs: **[ADR-0015](../../../docs/adr/0015-cashbook-import-creates-expenses.md)** (Cashbook creates —
+the per-SOURCE scoping) and
+**[ADR-0016](../../../docs/adr/0016-bank-statement-import-creates-inflows.md)** (the bank statement
+creates in BOTH directions and settles nothing — the per-DIRECTION widening, the three dead matcher
+tiers with their measurements, the negative-Non-Project-Expense decision, and the source-aware
+duplicate key). ⚠️ `0016` is a duplicate number by the repo's own long-standing convention — cite
+that ADR **by filename**.
+Live status + slice record: `frontend/.claude/plans/outflow-import-plan.md`;
+bank statement: `frontend/.claude/plans/bank-statement-ingestion-plan.md`.
 
 ---
 
@@ -44,7 +86,7 @@ pick one ad-hoc; ask.
 | **May a transfer pay PART of a record, or is the gap a DEDUCTION?** (PS + TD) | `services/outflow_import/partial_settle.py` (`partial_eligibility`, `deduction_eligibility`, `looks_like_tds`, `TDS_BAND_*`, `SERVICE_DOCTYPE`, `INTENT_*`) — pure. `deduction_eligibility` LAYERS on `partial_eligibility`; the shared shape half has one copy | let it reach the MATCHER. `matcher`, `disambiguate`, `status`, `stacks`, `claims` and `candidates` must not import it (pinned by a test). A partial sits OUTSIDE the ±₹5 settle window that gates every other write here; it is safe only because a person opens it on one specific row, and the moment the matcher can reach it that sentence stops being true. The frontend mirror `outflowTableModel.partialOffer` is a CONVENIENCE — the server re-asserts the whole gate under a row lock |
 | **Splitting a Project Payment in two** (PS-1) | `services/payment_split.py` (`split_payment`; `split_and_approve` is a thin wrapper) — SHARED with the CEO partial approval | fork it for the second caller. ONE concept, ONE owner (ADR-0010 B1): two copies of the sum invariant and the PO-term surgery would drift, and the symptom is a PO whose terms stopped adding up, months later, with no way to tell which copy wrote it. **Every parameter defaults to the CEO behaviour**, which is what makes `test_payment_split`'s 26 original tests the proof that generalising it changed nothing |
 | **Did a settlement take the machine's pick?** (Q1) | `services/outflow_import/status.py` (`settlement_origin`, `ORIGIN_*`) — pure | re-derive the accepted/overridden/no-suggestion test. THREE callers share it: the settle path, the summary aggregate, and the backfill patch. ⚠️ It is in `services/` because `api/expenses.py` imports `api/review.py`, so the reverse would be a cycle. ⚠️ NOT `auto_matched`, which means only "a suggestion existed" |
-| **What makes two staged transfers THE SAME transfer** (D3) | `services/outflow_import/duplicates.py` (`row_identity`, `dates_agree`, `RowIdentity`) — pure | key a duplicate check on anything else. THREE readers: the cross-batch lookup (`candidates.find_earlier_batches_for_rows`), the in-file repeat check in `upload._stage_batch`, and the parser's `_duplicate_transfer_ids`. They used to key on `transfer_id` independently; a key that differed between them would let one call two rows duplicates while another called them distinct, on the same file. ⚠️ It is **NOT** the `Outflow Row Match` unique constraint — that stays `(transfer_id, target_doctype, target_name)` and is the money guarantee; this is about WORK, and may be more discriminating |
+| **What makes two staged transfers THE SAME transfer** (D3; widened source-aware at B3) | `services/outflow_import/duplicates.py` (`row_identity`, `row_identity_of`, `WIDE_IDENTITY_SOURCES`, `dates_agree`, `RowIdentity`) — pure | key a duplicate check on anything else. THREE readers: the cross-batch lookup (`candidates.find_earlier_batches_for_rows`), the in-file repeat check in `upload._stage_batch`, and the parser's `_duplicate_transfer_ids`. They used to key on `transfer_id` independently; a key that differed between them would let one call two rows duplicates while another called them distinct, on the same file. ⚠️ It is **NOT** the `Outflow Row Match` unique constraint — that stays `(transfer_id, target_doctype, target_name)` and is the money guarantee; this is about WORK, and may be more discriminating | ⚠️ **THE KEY IS SOURCE-AWARE SINCE B3, and the DEFAULT is the guarantee.** `row_identity(..., source="")` — what every caller passing nothing gets — returns the old `(transfer_id, amount, date)` triple **BYTE-IDENTICALLY**, because Cashfree and Cashbook carry live settled data whose duplicate behaviour is proven in production. A source in `WIDE_IDENTITY_SOURCES` (today: `ICICI Bank Statement`) gets `+ (direction, remarks)`. **Both extra fields are load-bearing and each catches a different failure, measured on the real 1,274-row statement where the triple silently LOSES 5 REAL ROWS:** *remarks* catches four SGST/CGST pairs (same id, date, amount AND direction, differing only in narration), *direction* catches the GL transfer whose two legs carry byte-identical narration. These are bank-narration artefacts that cannot occur in a payout export — which is exactly why the widening is per-source and not global. ⚠️ `row_identity_of(row, source)` is the ADAPTER over the one rule, never a second rule: the widening added two fields that live ON the row, and forgetting `remarks` at a call site degrades ICICI silently back to the four-field key — it still works, it just loses four rows a statement and says nothing. ⚠️ It is a DIFFERENT set from `sources.BANK_STATEMENT_SOURCES` and they must not be merged "because they hold the same string today": this one answers *what makes two lines of this statement the same line?*, that one answers *what can this statement's rows DO?*. Full numbers: ADR-0016 § 4.
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
 | **Where a settled/matched record's link GOES** (E3) | `frontend/.../outflow-import/outflowTableModel.ts` (`settlementLink`, `orderPaymentsHref`) + `review._payment_order_names` / `_with_order_names` server-side | build a payments URL at a render site, or render one through a raw `<a href>`. A payment links to its ORDER (`/project-payments/<id>` with `/` escaped as `&=`) because that is what the app's other twelve call sites do; `paymentHref`'s search-param scheme is the FALLBACK only. ⚠️ The router carries a `basename` (`VITE_BASE_NAME`: `""` dev, `'frontend'` prod), so an anchor resolves to the SERVER ROOT and 404s in production while working in dev |
 | **The record's date, and which date it IS** (E2) | `frontend/.../outflow-import/outflowTableModel.ts` (`recordDateParts`, `RECORD_DATE_LABELS`) | render an approval/updated distinction inline. `recordSortDate` merges the two for ORDERING only -- an ordering claims nothing about meaning; a LABEL does |
@@ -54,7 +96,9 @@ pick one ad-hoc; ask.
 | Which rows the master table shows (X3) | `api/outflow_import/review.get_outflow_rows` (+ `_row_filters`, `_scope_clause`, `get_outflow_facet_values`) | filter, sort or search rows in the browser. ⚠️ `_row_filters` is ONE builder shared by the page query, its count, the tab counts, the facet values **and — since P1 — the summary, the confirmable list and `match_period`** — a count computed under different filters than the page it labels is a lie that looks like a paging bug. ⚠️ Its two date clauses carry `OR r.added_on IS NULL` on purpose: an unparseable bank date would otherwise match no period and vanish from every surface at once |
 | What the screen ASKS for (X3) | `outflowTableModel.serverQuery` | build endpoint params at a call site. It owns the MEANING of a filter; SQL owns the application |
 | The screen's aggregate (X2, widened P1) | `services/outflow_import/status.py` (`derive_import_summary`, `StatusTally`) | count or sum the selected transfers anywhere else. The DB does the `GROUP BY`; this assembles. It is batch-agnostic and always was, which is why scoping it to a PERIOD needed no change here at all — only the WHERE clause moved |
-| **The settled money, split by ledger** (2026-08-21) | `services/outflow_import/status.py` (`derive_settled_ledger_split`, `SettledLedgerEntry`, `SETTLED_LEDGER_OTHER`) | order, total or zero-fill that split anywhere else — in SQL, in an endpoint, or in the client. The order is **fixed** and bound from `ledgers.LEDGER_DOCTYPES`, never sorted by value: a value-sorted list reshuffles between periods and has to be re-read every time. ⚠️ Reordering `LEDGER_DOCTYPES` now reorders a rendered panel. ⚠️ The three figures must reconcile **EXACTLY** to `settled_value`, which is why the endpoint sums the **ROW** amount and not `m.target_amount` (they differ on a partial settle; live partials are currently 0, so the wrong column would have shipped as a latent defect) and why it applies the same failed-transfer exclusion the main query does |
+| **The settled money, split by ledger** (2026-08-21; cut in two at B8b 2026-09-07) | `services/outflow_import/status.py` (`derive_settled_ledger_split`, `SettledLedgerEntry`, `SETTLED_LEDGER_OTHER`) | order, total or zero-fill that split anywhere else — in SQL, in an endpoint, or in the client. The order is **fixed** and bound from `ledgers.LEDGER_DOCTYPES`, never sorted by value: a value-sorted list reshuffles between periods and has to be re-read every time. ⚠️ Reordering `LEDGER_DOCTYPES` now reorders a rendered panel. ⚠️ The three figures must reconcile **EXACTLY** to `settled_value`, which is why the endpoint sums the **ROW** amount and not `m.target_amount` (they differ on a partial settle; live partials are currently 0, so the wrong column would have shipped as a latent defect) and why it applies the same failed-transfer exclusion the main query does. ⚠️ **`ledgers` IS A PARAMETER SINCE B8b** (default `LEDGER_DOCTYPES`, so every pre-B8b caller is byte-identical) — the received block walks a DIFFERENT tuple, and a second copy of this function differing only in which tuple it reads is how one of them would come to be missing a book |
+| **Which way the settled money went** (B8b, 2026-09-07) | `services/outflow_import/status.py` (`derive_settled_direction_blocks`, `is_received_direction`, `ROW_DIRECTION_CREDIT`, `SETTLED_BLOCK_RECEIVED`/`_PAID`) + `ledgers.RECEIVED_LEDGER_DOCTYPES` | decide a block's membership, its order, its zero-fill or its total anywhere else — in SQL, in an endpoint, or in the client. **Owner ruling Q14 (a): TWO blocks, each reconciling to its OWN total, NEVER netted.** A single net figure hides both halves; folding receipts into the paid total adds money in to money out; excluding them makes the money this screen ingested invisible on the screen that ingested it. ⚠️ **EACH BLOCK'S TOTAL IS SUMMED FROM THE LINES IT RENDERS**, so the reconciliation is exact BY CONSTRUCTION, not by two numbers agreeing; the two block totals in turn add back to `settled_value` (pinned at the endpoint against a real batch). ⚠️ **MEMBERSHIP FOLLOWS THE ROW'S `direction`, NEVER THE TARGET DOCTYPE** — a non-project RECEIPT is stored as a NEGATIVE `Non Project Expense` (B7), so `Non Project Expenses` legitimately appears in BOTH blocks and the doctype genuinely cannot answer it. ⚠️ **A BLANK OR UNRECOGNISED DIRECTION IS `Paid`**, and it is a consequence rather than a guess: `settle.create_inflow_from_row` refuses anything that is not `Credit` at the write, so such a row is structurally incapable of having become a receipt. The predicate is a single POSITIVE test precisely so the two blocks PARTITION — the failure mode being a settled row that appears in NEITHER total. ⚠️ **PAID ALWAYS RENDERS, ZERO-FILLED; RECEIVED ONLY WHEN IT HOLDS ROWS, AND IT IS APPENDED SO PAID NEVER MOVES.** Cashfree and Cashbook are single-direction sources, so a zero-filled received block would sit on every gateway import forever claiming receipts were possible where none can occur. ⚠️ `settled_by_ledger` IS GONE from the payload, replaced by `settled_by_direction` — two keys totalling the same money are two chances to disagree about it |
+| **The ledger a bank CREDIT can become** (B8b) | `services/outflow_import/ledgers.py` (`INFLOW_DOCTYPE`, `RECEIVED_LEDGER_DOCTYPES`) | add it to `LEDGER_DOCTYPES`, `EXPENSE_DOCTYPES` or `SETTLEABLE_STATUSES`. It is a **DISPLAY ORDER ONLY**: an inflow is CREATED, never SETTLED — there is no approved inflow waiting to be paid. ⚠️ The string is spelled in BOTH `ledgers.py` and `settle.py` because `ledgers` is a pure leaf `status.py` imports under a transitive purity test and `settle.py` imports `frappe`; the two are pinned against each other by `api/outflow_import/test_review.TestInflowDoctypeSpelling`, on the precedent `settle.DIRECTION_CREDIT` already set |
 | **Which ledger a settled row settled against, in SQL** (2026-08-21) | `services/outflow_import/ledgers.py` (`SETTLED_LEDGER_SQL`) | write a second expression for it, and **never turn it into a `JOIN`**. It is a scalar correlated subquery precisely so it can drop into SELECT / WHERE / GROUP BY with no FROM change — five reads share `review._row_filters` and a JOIN would force a fork of the one shared builder. `LIMIT 1` is exact because a settled row carries at most one `Outflow Row Match` (verified live: 0 orphans, 0 multi-match); a fan-out shape would invalidate that, and the constant's own comment says so |
 | **Exporting the transfers table** (2026-08-21) | `api/outflow_import/review.py` (`export_outflow_rows`, `_MAX_EXPORT`) | page a CSV, or build its filters separately. It reuses `_row_filters` + `_scope_clause` UNCHANGED, so the file and the tab count describe one population. ⚠️ It **REFUSES** over 20,000 naming both numbers — never a silent `LIMIT`, for the `_MAX_CONFIRMABLE` reason: a truncated file outlives the screen that could contradict it, over a set nobody chose. ⚠️ Do NOT raise `_MAX_PAGE_SIZE` (200) to serve an export; that constant guards the SCREEN's paging |
 | **Exporting the approved inbox** (2026-08-21) | `api/outflow_import/approved.py` (`export_approved_records`, `_MAX_EXPORT`) | write a fourth query that knows the three ledgers' asymmetries — it reads through `ledger_read.approved_rows` like the page does. ⚠️ `approved_on` and `updated_on` stay SEPARATE COLUMNS in the CSV (asymmetry #1); a spreadsheet is where presenting a modification timestamp as an approval would be hardest to catch later |
@@ -69,6 +113,8 @@ pick one ad-hoc; ask.
 | The date filter CONTROL and its vocabulary | `components/data-table/dateFilterModel.ts` (pure) + `date-filter-popover.tsx` (the popover) | write a second date filter. `DataTableDateFilter` is now a thin TanStack binding over the same popover, so every screen offers one set of operators. Adding an operator or a timespan means teaching `dateFilterRange.ts` in the SAME change, or a control offers an option that silently filters nothing |
 | Seeding decisions from the match run | `outflowTableModel.ts` (`suggestedDecision`, `seedDecisions`, `decisionOrigin`) | pre-select inside a component; the dialog used to, and it could only fire once a row was already open |
 | Grouping + pairing interchangeable transfers | `services/outflow_import/stacks.py` (`stack_key`, `group_into_stacks`, `pair_stack`, `stack_note`, `stack_surplus_note`) | decide a stack's membership, its pairing, or why it did not pair, anywhere else. `review._resolve_stacks` owns the DATABASE half and nothing more |
+| **What a STATEMENT SOURCE can DO** (B4) | `services/outflow_import/sources.py` (`BANK_STATEMENT_SOURCES`, `source_has_settlement_path`) — a PURE LEAF that imports nothing at all, not even from this package | spell the membership test out at a call site. It exists because the question got a SECOND caller with nowhere to ask it: the set lived as `upload._BANK_STATEMENT_SOURCES` while staging was the only thing that cared, and `review.match_batch` then needed the same answer — but an `api` module may not import another `api` module's private constant, so the alternatives were a second literal frozenset (two definitions of one fact, free to drift the day a source is added) or this. It moved DOWN to the layer both may import; `api` -> `services` is the one legal direction, and `upload` reads it back under its old private name so no call site changed. ⚠️ **CAPABILITIES ARE NAMED QUESTIONS, NOT A MEMBERSHIP TEST.** `source_has_settlement_path(source)` says what the caller wants to know; `source in BANK_STATEMENT_SOURCES` at a match-run call site would work today and say nothing about WHY the run behaves differently, and the next reader could not tell a deliberate capability gate from an incidental one. **FOUR things follow from membership and they are ONE decision, not four:** the statement states a `direction` per row, its non-spending lines are excluded at stage time, what survives lands `Mismatched` rather than `Pending match run` (Q31), and the match run offers it NO settlement candidate (Q31/Q31a). ⚠️ The strings are `parser.SUPPORTED_SOURCES` members VERBATIM and are also the `Outflow Import Batch.source` Select options — a rename moves all three together or every upload of that source fails Frappe's own Select validation with nothing on screen explaining why. ⚠️ **THE GATE IS ON THE AUTOMATIC PATH ONLY** — hand-linking is deliberately kept, so `get_row_candidates` and `search_settleable_records` still offer ranked records when a person opens one row |
+| **Which bank-statement lines are NOT work for a human** (B2) | `services/outflow_import/bank_exclusions.py` (`EXCLUSION_RULES`, `should_skip`, the ten `category_id`s) — pure, no `frappe`, no DB | decide that a narration is noise anywhere else, and it **MUST NOT IMPORT THE MATCHER** (`matcher`, `disambiguate`, `status`, `stacks`, `claims`, `candidates` — pinned by a test, the same fence `partial_settle` and `similarity` sit behind). This module decides only whether a line REACHES them; a widening made here because a narration looked like noise must never be able to change what settles unattended. **THREE DESIGN RULES, all load-bearing:** (a) **FAIL OPEN** — an unmatched row is INGESTED, never dropped, because the two failure modes are not symmetric: a wrongly-ingested row is VISIBLE and un-mapped in seconds, a wrongly-dropped one is INVISIBLE and nobody ever learns it existed. `should_skip` has no default-skip branch and must never grow one. (b) **DIRECTION IS PART OF THE TEST, NOT DECORATION** — `Ac xfr from gl 05051 to 60010` appears twice byte-identically, once as a ₹3.19 Cr Debit and once as a ₹3.19 Cr Credit, and only the populated amount column tells the two categories apart; every rule leads with `wd` or `dp` and none is direction-blind. (c) **THE IFSC BEATS THE TYPED LABEL** — three rows read `Cashbook Balanc` while carrying Cashfree's IFSC and one reads `Cashfree Balanc` carrying Cashbook's, so each `platform_*` rule checks the IFSC FIRST and the free-text label is a fallback. ⚠️ **THE ORDER IS PART OF THE POLICY** (first match wins; the three `platform_*` rules come first so rule (c) can resolve), and the rules are DATA — an ordered `(category_id, predicate)` sequence — so a policy change is diffable without reading mechanism; `should_skip` holds no policy at all. ⚠️ **SKIPPING THE PAYOUT WALLETS COSTS ₹11.59 Cr OF REAL DEBITS, and that is still correct** — what left the bank is a wallet TOP-UP, not a payment to anyone, and the real disbursements happen inside Cashfree / Cashbook / Porter and appear in no bank narration. **The consequence is that NOBODY MAY READ THE INGESTED OUTFLOW TOTAL AS "WHAT THE COMPANY SPENT"** — it is what was spent THROUGH THIS ACCOUNT DIRECTLY, and any total-spend figure has to add the platforms back. ⚠️ Exclusions run at STAGE time (Q16): all 1,274 rows are staged and 405 land `Skipped` carrying the rule's own sentence — **EXCLUSION-FIRST precedence**, ahead of already-imported and duplicate-in-file, so a re-upload still names the ten rules rather than reading "already imported in batch X" |
 | Access | `api/outflow_import/permissions.require_outflow_access` | gate an endpoint any other way |
 | **What a Cashbook statement will CREATE** (Cashbook slice 4) | `services/outflow_import/cashbook.py` (`plan_statement`, `pick_expense_type`, `group_plan`) — pure | decide a ledger, a project or an expense type for a wallet row anywhere else. ⚠️ It must not reach `matcher`, `disambiguate`, `claims`, `stacks` or `settle` — pinned by a test, the same fence `similarity` and `partial_settle` sit behind. It decides what to CREATE; those decide what existing approved record a transfer PAYS, under an amount window this has no equivalent of |
 | Which keyword means which expense type | the `Outflow Import Expense Rule` doctype, read by `candidates.load_expense_rules` | hardcode a keyword map. The rules are per-LEDGER because the two expense vocabularies are nearly disjoint, and they arrive LONGEST KEYWORD FIRST — that order is the rule, not presentation |
@@ -1220,11 +1266,57 @@ returned beside the total because the three are not comparable.
 
 ## Doctypes
 
+⚠️ **THE DOCTYPES KEEP THEIR `Outflow ...` NAMES AFTER THE B8a RENAME (owner ruling Q1).** The screen
+is *Bulk Import Transactions*; these five are not renamed, and must not be. A doctype rename is a
+migration with dynamic links and a unique index (`Outflow Row Match`'s
+`(transfer_id, target_doctype, target_name)`) riding on it, and buys nothing.
+
 | Doctype | Holds |
 |---|---|
-| `Outflow Import Batch` | one uploaded statement: source, period, counters |
-| `Outflow Import Row` | one staged transfer + its derived outcome, resolved vendor, and the match run's `suggested_doctype`/`suggested_name` |
+| `Outflow Import Batch` | one uploaded statement: `source`, period, counters |
+| `Outflow Import Row` | one staged transfer + its derived outcome, resolved vendor, `direction`, denormalised `source`, and the match run's `suggested_doctype`/`suggested_name` |
 | `Outflow Row Match` | **settlements only** — a row here means money was written |
+| `Outflow Import Expense Rule` | keyword → expense type, per ledger (Cashbook; extended with `DTAX` / `GST` / `EPFO` keyword rules for the bank statement, Q23 — **rules, never parser logic**) |
+| `Outflow Import Project Alias` | phrase → project. ⚠️ Deliberately NOT wired into `load_project_index`; 0 active rows today |
+
+### The three sources
+
+| `source` | Shape | `direction` | What a row can become |
+|---|---|---|---|
+| `Cashfree` | payout gateway export, one amount column | **blank** — the export states none | settle an `Approved` `Project Payment` / `Project Expense` / `Non Project Expense` |
+| `Cashbook` | petty-cash wallet export, one amount column | **blank** — see above | CREATE a `Project Expense` or `Non Project Expense` at `Paid` (ADR-0015) |
+| `ICICI Bank Statement` | bank passbook, **two** amount columns (Withdrawal / Deposit) | **`Debit` or `Credit`, stated per row** | **Debit** → create a `Project Expense` / `Non Project Expense`. **Credit** → create a `Project Inflow`, or a **negative** `Non Project Expense`. **Never a settle** — ADR-0016 |
+
+⚠️ **`ICICI Bank Statement` IS ONE STRING IN FIVE PLACES AND THEY ARE PINNED TOGETHER BY TEST:**
+`parser._ADAPTERS` key · the `Outflow Import Batch.source` Select option · `sources.BANK_STATEMENT_SOURCES`
+(read back by `upload._BANK_STATEMENT_SOURCES`) · `duplicates.WIDE_IDENTITY_SOURCES` · the frontend
+`OutflowImportBatch.source` union. `upload._read_and_parse` validates the posted source against
+`SUPPORTED_SOURCES` and `_stage_batch` writes that same string straight into the Select, so a spelling
+that differs between the adapter key and the Select fails Frappe validation on **every** batch insert
+for that source. It shipped briefly as `ICICI` and was renamed before anything was imported. The Select
+picks a **column adapter** — a second bank is a different adapter, and therefore a different source
+string (Q24).
+
+### `Outflow Import Row.direction` — an explicit Select, NEVER a signed amount
+
+Owner ruling Q10. `amounts.amounts_match`, both SQL pool queries, the settle guard and every summary
+sum assume a **positive magnitude**, so a negative amount would pass all of them and settle the wrong
+way round in silence.
+
+- Values: `Debit` / `Credit` / **blank**, copied verbatim from `parser.RawRow.direction`.
+- ⚠️ **BLANK MEANS THE STATEMENT DID NOT SAY, AND MUST NEVER BE READ AS "`Debit` BY DEFAULT."** A
+  gateway export has a single amount column and states no direction at all, so it stages blank. On a
+  bank passbook, blank means **both** money columns were populated — corrupt input the parser refused
+  to guess about, and which the exclusion rules therefore cannot judge either. **A blank direction
+  fails OPEN: the row is ingested.**
+- ⚠️ **The backfill patch `patches/v3_0/backfill_outflow_row_direction.py` is SCOPED to
+  `b.source IN ('Cashfree','Cashbook')`, not a bare `WHERE direction = ''`.** An unscoped re-run
+  against a DB that has since imported a statement would stamp `Debit` on an ICICI row whose blank
+  means *the parser refused to guess* — manufacturing the exact answer it declined to invent,
+  invisibly. Pinned by `test_it_never_stamps_debit_on_a_bank_statement_row`.
+- **Known gap:** direction is inconsistent across gateway sources — pre-B3 Cashfree/Cashbook rows are
+  backfilled `Debit`; post-B3 ones stay BLANK. Closing it means teaching the parser that a
+  single-amount-column source states `Debit`.
 
 ⚠️ **THERE IS NO "CLOSE IMPORT" (owner ruling 2026-08-10), and the reasoning is worth keeping so it
 is not re-added as an obvious gap.** Closing stamped `closed_at` / `closed_by` / `close_reason` on
@@ -2098,8 +2190,9 @@ assertion that fails first if tier 2 ever stops requiring one.
 ## Cashbook — the second source (2026-08-13)
 
 **A Cashfree import PAYS what someone approved. A Cashbook import CREATES what a wallet already
-spent.** Same screen, opposite job. The prime directive at the top of this doc is now
-source-scoped, not absolute — the reasoning, the measurements and the four accepted risks are in
+spent.** Same screen, opposite job. The prime directive at the top of this doc stopped being
+absolute here — it became **source**-scoped, and at the bank statement it became **direction**-scoped
+too (ADR-0016). The reasoning, the measurements and the four accepted risks are in
 **[ADR-0015](../../../docs/adr/0015-cashbook-import-creates-expenses.md)**, which is the document to
 read before changing any of this.
 
@@ -2172,3 +2265,501 @@ space-normalised and padded, so a word start is exactly a preceding space.
 nirmaan_stack.patches.v3_0.seed_cashbook_import_rules
 nirmaan_stack.patches.v3_0.backfill_outflow_row_source
 ```
+
+---
+
+## ICICI Bank Statement — the third source, and the first that carries money IN (2026-09-07)
+
+**Cashfree PAYS what someone approved. Cashbook CREATES what a wallet spent. ICICI CREATES in BOTH
+directions and settles nothing.** Same screen, a third job, and a direction the module never had.
+The reasoning, the measurements and the accepted risks are in
+**[ADR-0016](../../../docs/adr/0016-bank-statement-import-creates-inflows.md)**, which is the
+document to read before changing any of this. Slice-by-slice as-built + the owner-ruling register:
+`frontend/.claude/plans/bank-statement-ingestion-plan.md`.
+
+The prime directive at the top of this doc is now scoped by **source AND direction**, not just by
+source — see the table there. **Nothing here creates a `Project Payment`**; that would only happen
+via Vendor Refund, which is deferred.
+
+### What a row becomes
+
+| Direction | Rows | Value | Offered on the screen |
+|---|---:|---:|---|
+| Debit | 711 | ₹8.28 Cr | create a `Project Expense` / `Non Project Expense` |
+| Credit | 158 | ₹18.00 Cr | create a `Project Inflow` **or** a **negative** `Non Project Expense` |
+
+405 further rows are excluded by rule at stage time and never become work
+(`services/outflow_import/bank_exclusions.py`).
+
+### ⚠️ MATCHING IS DEAD ON THIS SOURCE — all three tiers, for three different reasons
+
+The single most important finding in the feature, measured against the live DB twice. **Do not
+re-derive it, and do not "fix" it.** Full numbers in ADR-0016 § 2.
+
+1. **Tier 1 is STRUCTURALLY UNREACHABLE.** `matcher.account_ifsc_vendors` only sets `ifsc_matches`
+   inside the `index.by_account` loop, and an ICICI narration carries **no beneficiary account
+   number**. 517 debit rows carry an IFSC and not one can reach tier 1. ⚠️ **Tier 1 must not be
+   loosened** — it may auto-suggest precisely because it stands on the strong account+IFSC pair, and
+   Cashfree has live settled data depending on that (Q25).
+2. **Tier 0 CANNOT SETTLE, by construction — and this is NOT ICICI-specific.**
+   `Project Payments.utr` is written only at **fulfilment**, so every UTR belongs to an already-`Paid`
+   payment while `SETTLEABLE_STATUSES` is `Approved`-only. Measured: **7,643 of 7,644 `Paid`** carry a
+   UTR; **0 of 1 `Approved`, 0 of 131 `CEO Pending`, 0 of 24 `Requested`**. `candidates.py` already
+   records the same observation for Cashfree. **It survives as the DUPLICATE GUARD — 41 of 711 real
+   rows (5.8%), every hit an auto-skip — and the owner explicitly KEPT it (Q31a).**
+3. **Tier 2 fires ZERO times, and the 7 rows that WOULD fire are ALL FALSE POSITIVES.**
+   `CLG/MR SAYED ALI/SBI` resolves to a project literally named `SBI` — but in a `CLG/` narration that
+   segment is the cheque **drawee bank code**, which `parser._ICICI_DRAWEE_BANK_CODE` documents as
+   such; the other two match off the payee's company name. ⚠️ **The small Approved pool is NOT the
+   explanation and this was tested:** re-run against all 11,128 records as if every one were Approved,
+   the amount agrees on **497 rows (69.9%)** and the full tier-2 predicate is **still 0**. Amount
+   agreement is abundant; the **project axis is dead**. ⚠️ **Do NOT "fix" this by loosening the project
+   rule — any widening makes wrong settlements MORE likely, not right ones more numerous.** Widening
+   `GENERIC_PROJECT_TOKENS` or adding aliases cannot help: there is no field in an ICICI narration
+   where a project name lands, so there is nothing to alias.
+
+⚠️ **HAND-LINKING IS DELIBERATELY KEPT (owner ruling).** `get_row_candidates` still offers ranked
+browse candidates when a person opens one row, and `search_settleable_records` still returns the whole
+approved pool. **The fence — `sources.source_has_settlement_path` — is on the AUTOMATIC path only.**
+
+### Invariants that break silently
+
+1. **Rows land `Mismatched`, and that choice is load-bearing.** `review._FROZEN_ROW_STATUSES` is
+   `(Skipped, Settled)` and `match_batch` filters on it, so a `Mismatched` row is still examined by a
+   later match run — which is what keeps the Q31a duplicate guard alive. **Landing them `Skipped`
+   would have frozen them and silently deleted that guard.** The landing note says *"no settlement
+   path"* and never *"the matcher never runs"* — there is a NEGATIVE pin
+   (`test_the_landing_note_does_not_claim_the_matcher_never_runs`) so a later reader cannot harden the
+   weaker claim into the stronger one. **No source gate exists anywhere on the match run itself.**
+2. **The duplicate key is source-aware, and its DEFAULT is the guarantee.** See the manifest row. The
+   old triple loses 5 real rows of 1,274; Cashfree and Cashbook keep it byte-identically.
+3. **A non-project inflow is a NEGATIVE `Non Project Expense`, not a new doctype.** The construct
+   already exists: `nonProjectExpensesColumns.tsx` renders a negative amount **green**, and
+   `utils/expenseApproval.ts` states in its own header that a negative amount is **NOT** auto-approved
+   (the `0 < amount <= 10000` band is positive-only, so it takes the full `Requested → Approved → Paid`
+   path). ⚠️ **The honest cost: money coming IN lives in a doctype called *Expenses*.** New
+   `non_project=1` Expense Type fixtures name the income kinds (Q19) so the row at least says what it is.
+4. **`Project Inflows` HAS NO STATUS AND EVERY CONSUMER SUMS IT UNFILTERED.** That sum feeds
+   `cashflow_gap` and therefore **CEO Hold**, so a created inflow is **live the instant it is written**
+   — no draft state, no approval queue, nothing downstream that holds it back. The owner ruled
+   (Q8, option c) that **the bank row IS the review gate**: a credit is not written until a person
+   opens that row and chooses a disposition, and **no status is added to `Project Inflows`** to
+   compensate. Adding one would mean auditing every unfiltered consumer.
+5. **Customer-required is enforced in the IMPORT ENDPOINT, never on the doctype (Q13).** A
+   `Project Inflow` needs a customer, and the obvious home — `Project Inflows.validate` — is exactly
+   wrong: `validate` fires for **every** writer, so putting it there would start rejecting saves from
+   screens nobody asked to change, months later, with the refusal blaming a doctype rather than an
+   import.
+6. **The `Outflow Row Match` unique key CANNOT guard a create.** `(transfer_id, target_doctype,
+   target_name)` never contends when a freshly created record gets a new `target_name` every time.
+   Cashbook needed two extra lookups instead (`_already_imported` + `_already_booked`), and the second
+   caught a real hole: 17 live Non Project Expenses carrying a wallet id nobody had imported. **Every
+   disposition on this source is a create, so all of them need this.**
+7. **The payer is the SECOND-TO-LAST narration segment** — IMPS is 69% of the file and comes in both
+   5-segment and 6-segment shapes. Two rules were measured wrong and must not return: `p[4]` (the
+   original spec) returns the **IFSC** on 122 rows; "last segment that is not an IFSC" returns the
+   **bank name** on the 6-segment shape. ⚠️ The payee field is TRUNCATED per channel and the cap is
+   silent (IMPS at 10 chars, ICICI internal at 15/20, CLG around 25), so **any match against a master
+   list must allow a PREFIX match, never equality**.
+
+### Screen + route
+
+**Renamed at B8a: `/bulk-import-transactions`, heading "Bulk Import Transactions"** (Q1, Q9, Q27) —
+screen and route only, no redirect, no folder/module/doctype rename. See the header of this doc.
+
+---
+
+## Slices D5–D11 (2026-09-08) — the inflow half of the screen catches up with the inflow half of the data
+
+Nine B-slices taught this module to CREATE money-in. The SCREEN was still written as if every row
+were money-out: a deposit rendered under a column headed *Amount Paid*, the summary had no figure
+for receipts at all, and — the one that mattered — **the settle dialog offered a credit row the
+entire debit-side surface and the server accepted it.** These slices close that gap. Owner
+decisions were taken up front and are recorded per slice below; none of them is re-openable
+without a fresh ruling.
+
+### ⚠️ D6 — A CREDIT ROW COULD SETTLE A DEBIT-SIDE APPROVED PAYABLE, AND NOTHING STOPPED IT
+
+The most important thing in this section. **Measured, then proven RED before the fix**, on both
+sides:
+
+- **Client:** `isConfirmable`'s settle branch was `return Boolean(decision.target && decision.linkTo)`
+  and its `new`-expense branch was likewise direction-blind. Three new cases run against the
+  unmodified function returned `true` where `false` was required — a credit row was genuinely
+  confirmable against an approved payable.
+- **Server:** `expenses.settle_row`, `expenses.create_expense` **and `expenses.settle_row_partial`**
+  had no direction guard at all; `_load_settleable_row` checked only `row_status`. With the guard's
+  three call sites disabled, `test_a_credit_can_never_settle_an_approved_expense` **succeeds** — the
+  deposit is booked as a payment out, everything else about the settlement being valid. That single
+  test is the cleanest statement of the bug.
+
+⚠️ **THE THIRD DOOR WAS FOUND DURING THE FIX, NOT PLANNED FOR.** `settle_row_partial` also performs
+surgery on a PO's payment terms via `split_payment`, so an unguarded credit would have left a split
+sanction behind it as well as a wrongly-`Paid` record. **A guard on this path must always be applied
+to all three entry points; guarding two of three is the same defect with a smaller footprint.**
+
+⚠️ **THE GUARD IS THE EXACT NEGATION OF `status.is_received_direction`, NEVER A SECOND RULE.**
+`_guard_is_a_debit` imports that predicate rather than re-spelling `direction == "Credit"`. A second
+copy is free to drift, and **the drift presents as money settled on the debit side and then reported
+under Received** — the two halves of this feature disagreeing about which way the money went.
+Pinned by `test_expenses.TestTheGuardIsOnePredicate`.
+
+⚠️ **A BLANK DIRECTION MUST STILL SETTLE, AND THIS IS THE HALF THAT BREAKS UNDER "TIDYING".**
+Cashfree and Cashbook state no direction at all; a guard refusing anything not explicitly `Debit`
+would refuse every row from both sources — the two the feature was built for. There is deliberately
+**no service-layer twin** on the debit side: `settle_payment` / `settle_existing_expense` /
+`create_expense_from_row` take no `direction` argument, because direction chooses a *sign* only on
+the credit paths. Do not "restore symmetry" by inventing one.
+
+⚠️ **`test_a_blank_direction_still_settles` NOW STATES ITS INPUT INSTEAD OF ASSERTING A FIXTURE
+FACT.** It first asserted that the Cashfree fixture stores no direction. **It stores `"Debit"`** — so
+the test failed while the guard was working perfectly, and, worse, had the fixture happened to agree,
+the blank case would have been covered *by luck* and would have stopped being covered the day the
+fixture changed. It now sets `direction = ""` explicitly, exactly as its `Debit` sibling always did.
+**A fixture's incidental value is not the fact under test.**
+
+### D5 — one named predicate, replacing four hand-written copies
+
+`(row.direction ?? "") !== "Credit"` appeared twice in `outflowTableModel.ts` and
+`row.direction === "Credit"` twice in `DecisionDialog.tsx`. Four copies, none named. Now:
+`outflowTableModel.isCreditRow(row)` (**it TRIMS**, mirroring the server's `is_received_direction`
+exactly) and `availableDecisionTargets(row)` — credit → `["inflow","receipt"]`, debit/blank →
+`["Project Payments","Project Expenses","Non Project Expenses","new"]`, **disjoint, and their union
+is the whole `DecisionTarget` union** (pinned).
+
+⚠️ The refactor closed a live disagreement: `isCreditRow` trims and the inline compares did not, so a
+`" Credit "` row had its inflow cards HIDDEN by the dialog while `isConfirmable` treated it as a
+credit.
+
+### D7 — the dialog hides what the row cannot become, and SAYS SO
+
+`<LinkPaymentSection>` and the create-expense card are now **conditionally MOUNTED** on
+`availableDecisionTargets` membership. ⚠️ **NOT via the existing `dimmed` prop** — `dimmed` only
+lowers opacity and does not prevent selection, which is precisely the failure mode. A credit row
+gets one line in their place, in the D1 refusal register, naming the rule and pointing at the two
+cards that do apply. **A hidden option with no explanation reads as a broken screen**, and
+`isConfirmable` alone would have produced exactly that: a selectable list above a permanently
+disabled Confirm.
+
+### D8 — "Amount Paid" → "Amount", plus a per-row direction marker
+
+`amount` is stored as a **positive magnitude on every row by design**, so a deposit rendered as a
+plain positive number under a header reading *Amount Paid*. The column is now `"Amount"` and each
+cell carries a `Received` / `Paid` marker from `isCreditRow`.
+
+⚠️ **THE MARKER LEADS THE FIGURE, AND THAT IS ARITHMETIC, NOT TASTE.** "Received" is wider than
+"Paid", so a trailing marker shifts each row's digits by a different amount and destroys the
+`tabular-nums` column. ⚠️ `column.get` is **byte-untouched** — it feeds sort, the range funnel,
+`get_outflow_facet_values` and the CSV export, whose header legitimately becomes "Amount".
+⚠️ Blank lands on `Paid` as a **consequence** (the receipt write paths refuse non-`Credit`), never as
+a claim that blank means Debit.
+
+### D9 — `Total transferred` → `Total paid out` + `Total received` (owner ruling Q14 (a))
+
+`derive_import_summary` grew the direction axis it deliberately lacked: `StatusTally.direction`
+(**defaulted**, on the `SettledLedgerEntry` precedent, so every existing positional construction
+still lands on Paid), **one** extra `SELECT` and `GROUP BY` term on the **same** `get_outflow_summary`
+query under the **same** `_row_filters` clause, and four new totals.
+
+⚠️ **THEY PARTITION `total_rows` / `total_value` — NOT `settled_rows` / `settled_value`.** Every row
+the panel counts, whatever its status. Proven live: `246 = 241 + 5`, `13,920,686.20 = 9,651,806.00 +
+4,268,880.20`. They share the *axis* of `settled_by_direction` and **nothing else**; `status.py`
+carries an explicit warning that the two deliberately total DIFFERENT money. **An earlier version of
+the TypeScript comment on these very keys claimed the settled population** — exactly the confusion
+that warning exists to prevent, and it was caught by a reader, not a test.
+
+⚠️ **READ AS SENT, NEVER DERIVED.** Neither figure may be obtained by subtracting the other from
+`total_value`, or a rounding disagreement becomes a number nothing on the server ever computed.
+⚠️ **`Total received` renders only when it holds rows, and is APPENDED so `Total paid out` never
+moves** — the same rule the settled blocks follow, for the same reason: Cashfree and Cashbook are
+single-direction, so a zero-filled Received tile would claim receipts were possible where none can
+occur. ⚠️ All four keys are **optional**, and an older server falls back to the single
+`Total transferred` tile — checked with `!== undefined`, never falsiness, because **a real `0` and an
+unsent key are different facts**.
+
+### D10 — Remarks wrap at 64 instead of clipping
+
+Pure `wrapRemarks` + `REMARKS_WRAP_CHARS = 64` beside `shortReference`, plus the `title` tooltip the
+sibling cells always had and this one did not.
+
+⚠️ **THE WRAP RUNS BEFORE `Highlight`, NEVER AFTER.** `highlightSegments` computes offsets over the
+RAW string; feeding it text with inserted breaks corrupts them. A search hit spanning a wrap boundary
+becomes two `<mark>`s — accepted, and commented as such.
+⚠️ **A CONTENT WIDTH WAS REQUIRED, NOT OPTIONAL.** This table is AUTO-LAYOUT (`OutflowRowsTable`
+states it in full at its own `OUTCOME_CELL_WIDTH`), so `<th style={{width}}>` is only a hint: a
+64-char line is ~380px against a declared 230px and the column would simply have widened, stealing
+space from Reference / Status / Outcome. `REMARKS_CELL_WIDTH = "w-[214px]"` is kept in step with that
+230px minus `px-2` each side.
+
+### D11 — the Record column drops the id; Vendor becomes Vendor / Description
+
+Two **deliberately unshared** surfaces, two edits: `SettleableRecordTable` (the Link-payment picker)
+and `ApprovedRecordsPanel`. Record now reads `Against <PO/WO>` for `Project Payments` and the expense
+type for the two expense ledgers; the ledger badge, the `candidate` chip and the N2 `reasonCaption`
+all stay.
+
+⚠️ **`expense_type` IS A NEW FIRST-CLASS KEY, AND THE OLD OVERLOAD STAYS.** The value was reachable
+only as `document_name`, a field the client types and documents as *"the PO/SR this payment is
+against"*. The overload is **kept** because `recordPickerView.matchesText` has it in its search
+haystack — removing it would silently stop a reviewer finding an expense by typing its type. A test
+pins the two equal on the expense ledgers so they cannot drift apart before a deliberate removal.
+⚠️ **THE MISSING-VALUE FALLBACK IS THE RECORD ID, NOT A DASH.** A dash would leave the row with
+nothing naming it — strictly worse than the id this change replaced. `record.name` also moved to the
+cell `title`, so search-by-id still finds it *and* the reviewer can still see what they searched for.
+⚠️ **IN THE APPROVED PANEL THE NEW LABEL BECOMES THE `<Link>`** (owner decision) — dropping the id
+without rehoming the link would have removed that panel's only navigation affordance. The
+`<Link>`-vs-`<a>` E3 comment is untouched.
+⚠️ **`Non Project Expenses` RENDER THE DESCRIPTION ALONE, WITH NO EM-DASH** (owner decision): that
+ledger has no vendor column at all, and a leading "—" reads as missing data rather than as
+not-applicable. The dash now appears only when the cell would otherwise be entirely empty.
+⚠️ **THE CSV EXPORTS THE RAW DESCRIPTION**, never `vendorDescriptionLabel`'s capped/wrapped form — a
+truncated description in a spreadsheet has nothing beside it to catch it.
+
+`vendorDescriptionLabel` caps the **description alone** at 48 chars (owner decision — the vendor name
+is not part of that budget) then wraps at 16.
+
+### ⚠️ A LIVE-DATA TRAP THIS WORK SURFACED (not caused)
+
+`test_review.TestTheOrderNameForLinking.test_the_master_table_carries_it_too` read
+`get_outflow_rows(scope="all", limit=200)` **unscoped**. `_MAX_PAGE_SIZE` caps that read at 200 while
+this suite runs against the LIVE dev database — which has passed 200 open rows (899 total / 246
+non-skipped, measured) and pushed the fixture off the first page. It failed as `StopIteration`,
+**reporting a broken deriver when nothing was broken**. It is now scoped with the `batch` filter:
+that changes WHICH rows come back, not WHICH FUNCTION returns them, so "both reads or neither" is
+tested exactly as before. **Passing on an empty DB and failing on a full one was never evidence about
+`suggested_order_name`** — this is the same hazard the Tests section warns about, arriving as a
+paging bound rather than a count.
+
+### Test state
+
+| Suite | Result | Baseline |
+|---|---|---|
+| `services/outflow_import` (pure) | **800 OK** | 790 |
+| `api…test_review` | **227 OK / 1 skip** | 216 / 1 |
+| `api…test_expenses` | 45 run, **2 failures — PRE-EXISTING**, both present in `HEAD` | 2 pre-existing |
+| `api…test_approved` | **29 OK** | 26 |
+| `api…test_upload` / `test_inflows` / `test_cashbook_import` / `test_cashbook_rules` | 76 / 44 / 34 / 13 OK | unchanged |
+| frontend `vitest` (whole repo) | **3250 passing / 87 files** | 3221 / 87 |
+| `tsc --noEmit` | **0 errors** under `src/pages/outflow-import/` and on `OutflowImportBatch.ts` | — |
+
+⚠️ **NONE OF THE RENDERING ABOVE IS COVERED BY A TEST.** `vitest.config.ts` is `environment: "node"`
+by deliberate choice, so the direction marker, the wrapped remarks, the hidden dialog cards, the two
+summary tiles and both record tables are verified by **nothing but their code**. Every decision that
+could be phrased as "given this input, what does the screen say" was pushed into the pure model and
+IS covered; the JSX is not. **A live browser pass is owed** — and it is owed on top of the C1–C8 pass
+that was already outstanding.
+
+---
+
+## Slices D12–D14 (2026-09-09) — direction gets its own column, and the summary gets two bands
+
+Three owner rulings, one of which REVERSES a D8 placement decision from the day before.
+
+### D12 — the `Paid`/`Received` marker moves OUT of the Amount cell into a `Direction` column
+
+⚠️ **THIS REVERSES D8's PLACEMENT, NOT ITS SUBSTANCE.** D8 put the marker inside the amount cell and
+had to lead the figure with it, because "Received" is wider than "Paid" and a trailing marker shifts
+each row's digits by a different amount, destroying the `tabular-nums` column. **The owner moved the
+marker to its own column, so that constraint is gone with it** — the Amount cell is a plain figure
+again and `AmountCell` was deleted rather than left as a component whose docstring described
+behaviour it no longer had. **The `amount` column entry is byte-unchanged** (title, `get`,
+`filter: "range"`, `align`, width).
+
+⚠️ **A `filter: "facet"` COLUMN NEEDS *THREE* REGISTRATIONS OR IT FAILS SILENTLY** — the column entry,
+the frontend `SERVER_FACET_COLUMNS`, and the backend `_FACET_COLUMNS`. Miss the second and the funnel
+draws, "Clear filters (1)" appears, and the row set never moves. That is the slice Q1 defect
+("the 'Settled via' column rendered an em dash on all 849 settled rows while the summary beside it
+reported 843") arriving from the other direction. A test caught it here; nothing else would have.
+
+⚠️ **THE FACET IS THE DERIVED TWO-VALUE LABEL, NEVER THE RAW COLUMN.** Registered as an EXPRESSION
+(the map already held a correlated subquery, so this is an established shape):
+`CASE WHEN TRIM(r.direction) = 'Credit' THEN 'Received' ELSE 'Paid' END`.
+The stored field has THREE values — `Debit`, `Credit` and **blank** — while the screen shows TWO
+badges. On the raw column the funnel grows a **third, unlabelled option**, and a `Debit` tick
+**silently drops every blank row whose own badge reads `Paid`**.
+⚠️ **MEASURED 2026-09-09: the live table holds `Debit` 894 / `Credit` 5 / blank 0 — raw and derived
+are INDISTINGUISHABLE on production data today. That is exactly why the raw form would have shipped
+green and broken later.** The tests PLANT the blank row for that reason; a test that passes because
+the failing case is absent proves nothing. One expression serves both the `IN (...)` WHERE and the
+`SELECT DISTINCT` funnel read, so what is offered and what is matched cannot drift.
+
+⚠️ **THE `TRIM()` IS THE MIRROR, NOT TIDINESS — AND IT WAS MISSING WHEN THE SLICE FIRST LANDED.**
+`status.is_received_direction` is `(direction or "").strip() == "Credit"`, and the client's
+`isCreditRow` trims for the same reason (D5 named that rule precisely because four untrimmed copies
+had drifted). Without `TRIM`, a `" Credit "` row renders a **Received** badge and is filed by the
+facet under **Paid** — so ticking `Received` **hides a row whose own badge says Received**, and the
+summary band counts it on the opposite side from the funnel. No production row carries padding, so it
+would have shipped green and stayed green. Caught by a cross-file review of the two spellings, not by
+a suite. Pinned by `test_a_PADDED_credit_is_Received_on_both_sides_of_the_wire` and by
+`test_the_facet_agrees_with_the_python_predicate_on_every_stored_spelling`, which asserts through the
+REAL endpoint rather than re-implementing the `CASE` in Python — a test that re-spells the rule to
+check the rule passes whenever the two spellings match each other, which is not the question. **Both
+were verified RED against the untrimmed expression.**
+⚠️ Widening that fixture broke two sibling pins that hardcoded "exactly one credit row"; they were
+**widened to a set**, via a single `CREDIT_ROWS` accessor, so planting another spelling later carries
+the expectations with it instead of leaving a stale literal.
+
+⚠️ `get` RETURNS THE DERIVED LABEL, and that is **not** a breach of the `shortReference` rule. That
+rule forbids a *display transform* reaching `get` (which feeds sort, the funnel, the facet values and
+the CSV). Here the two-value label IS the column's value, and the CSV must read `Paid`/`Received`,
+never a blank.
+
+### D13 — Vendor / Description widens to 24 / 72
+
+`VENDOR_DESCRIPTION_WRAP_CHARS` 16 → **24**, `VENDOR_DESCRIPTION_MAX_CHARS` 48 → **72**. The 72 still
+measures the **description alone**.
+⚠️ **A WIDTH REBALANCE WAS REQUIRED, NOT OPTIONAL:** 24 chars at `text-sm` is ≈168px against a 164px
+content box. `RECORD_COLUMNS` moves `vendor` 180→**220px** and `record` 210→**190px** (it lost its
+document id at D11, so it had the room to give). Sum **850px** against the unchanged pinned cap of
+876; the test now pins the sum exactly as well as the cap.
+⚠️ **TWO TESTS WOULD HAVE GONE ON PASSING WHILE TESTING NOTHING** — `"Site wiring materials"` (21
+chars) no longer wraps at 24, and the hard-break token `SUPERCALIFRAGILISTIC` (20 chars) now *fits*
+inside 24. Both were inverted, and the token test now pins `token.length > WRAP_CHARS` so it cannot
+silently decay again the next time the width moves.
+
+### D14 — the summary becomes two bands (owner ruling)
+
+`PAID OUT` and `RECEIVED`, each holding **Total · Settled · Still open**, with **Decided shared**
+below. ⚠️ **WHEN ONLY ONE DIRECTION HOLDS ROWS THE BAND HEADERS ARE DROPPED AND TODAY'S FLAT ROW
+RENDERS, UNCHANGED** (owner ruling) — every import staged to date is debit-only, so this is the
+common case, and a `PAID OUT` heading over the only band is noise implying a missing section.
+
+⚠️ **ONLY *STILL OPEN* IS A NEW FIGURE. SETTLED IS NOT RE-DERIVED.** `settled_by_direction` already
+provides it **with the per-ledger breakdown lines the card renders**; a second tally-derived settled
+figure would be two keys totalling the same money — the thing this feature's rules forbid. The four
+new keys are `open_paid_rows` / `open_paid_value` / `open_received_rows` / `open_received_value`,
+from a `by_status_direction` dict filled **in lockstep with the existing `by_status` bucket** and
+**summed over `OPEN_ROW_STATUSES`, never subtracted** (the rule `open_value` already states). They
+reach the wire with **zero change to `review.py`** — `_jsonable_summary` is generic.
+
+⚠️ **THE BAND'S THREE CARDS COME FROM TWO DIFFERENT QUERIES, SO THE RECONCILIATION WAS MEASURED
+BEFORE THE PANEL WAS BUILT, NOT ASSUMED.** `settled_&lt;dir&gt; + open_&lt;dir&gt; == &lt;dir&gt;_total`, verified
+live across the whole system **and all 19 imports**: paid `146 + 95 = 241` rows /
+`3,798,616.00 + 5,853,190.00 = 9,651,806.00`; received `0 + 5 = 5` / `0 + 4,268,880.20 = 4,268,880.20`.
+**A band whose three cards do not add up is worse than no band.**
+
+⚠️ **A DIRECTION WITH ROWS BUT NOTHING SETTLED RENDERS "nothing settled yet", NOT `₹0`** — the server
+SUPPRESSES that `settled_by_direction` block, and manufacturing the zero would be the panel counting,
+which its docstring forbids. This is the live Received case today (5 rows, 0 settled). Total equalling
+Still open is the reader's own proof. Making it a hard `₹0` means the SERVER zero-filling the block in
+a band context, not the client inventing it.
+⚠️ The flat-row fallback also fires when a settled block names an **unknown** direction: the flat row
+renders such a block verbatim, but a band looks blocks up BY NAME and would silently drop it.
+⚠️ `Decided` is built ONCE and used by both layouts, so the two cannot drift.
+
+### Test state
+
+| Suite | Result | Baseline |
+|---|---|---|
+| `services/outflow_import` (pure) | **811 OK** | 800 |
+| `api…test_review` | **237 OK / 1 skip** | 227 / 1 |
+| `api…test_expenses` | 45 run, **2 failures — PRE-EXISTING**, both in `HEAD` | same 2 |
+| `api…test_approved` / `test_upload` / `test_inflows` / `test_cashbook_*` | 29 / 76 / 44 / 34 / 13 OK | unchanged |
+| frontend `vitest` (whole repo) | **3262 passing / 87 files** | 3250 / 87 |
+| `tsc --noEmit` | **0 errors** under `src/pages/outflow-import/` and on `OutflowImportBatch.ts` | — |
+
+Live end-to-end: the funnel offers exactly `['Paid', 'Received']`; ticking Paid returns 241 and
+Received 5; both ticked returns 246, equal to the unfiltered total — a partition.
+
+⚠️ **NONE OF THE RENDERING IS COVERED BY A TEST** (`vitest.config.ts` is `environment: "node"`,
+deliberate). The band/flat fork especially is a render decision inside a component and is
+structurally untestable here. **The live browser pass is owed, and now larger.**
+
+### ⚠️ Found, not fixed — the `direction` doctype description is stale
+
+`Outflow Import Row.direction`'s description says a gateway export "stages blank". `parser
+._CASHFREE_COLUMNS` maps the amount through `_StatesWhenPopulated(..., label=DIRECTION_DEBIT)`, so a
+Cashfree row stages **`Debit`** today — which the 894/5/0 live split confirms. **The RULE is
+unaffected** (blank is still possible, from a Cashbook top-up or a both-columns-filled ICICI row, and
+must still never read as Debit), so nothing in code changed. Correcting the description is the
+root `CLAUDE.md` sanctioned description-only exception and **requires a `bench migrate`** — left for
+the owner rather than done silently.
+
+---
+
+## Slices D15–D17 (2026-09-09) — three small corrections, two of them to sentences rather than code
+
+### D15 — the `Decided` tile is REMOVED (owner ruling, for a cleaner panel)
+
+It rendered `decided_percent` over `decided_rows of total_rows settled`. Nothing replaced it: Settled and
+Still open are the two halves of that ratio and sit side by side, so the fact stays legible.
+
+⚠️ **`decided_rows` / `decided_percent` ARE STILL DERIVED AND STILL ON THE WIRE, deliberately.** They
+carry their own load-bearing rule in `derive_import_summary` — Skipped rows leave `total_rows`, so
+`decided_rows` is SETTLED ONLY or the percentage could exceed 100 — and that rule is worth keeping
+proven whether or not a tile shows it. **A screen dropping a figure is not a reason to stop computing
+it; deleting the keys would take their tests with them.**
+⚠️ The tile-count arithmetic moved in the same edit (`+ 2` → `+ 1`). A stale count would not error —
+it would ask for one more column than there are tiles and stretch the row.
+
+### D16 — "Re-run reaches N open imports" described ONE action while the button did TWO
+
+⚠️ **THE ENGINE WAS ALREADY CORRECT, AND THE FIRST ANSWER TO THIS REQUEST WAS TO CHANGE NOTHING.**
+The ask was to stop the matcher running on ICICI statements. `match_batch` **already forks above
+everything** on `source_has_settlement_path`: such a batch never loads a settlement pool and never
+calls `match_row` — it runs the duplicate guard and returns. There was no matcher work to remove and
+no wasted pass to save. **What was wrong was the caption**, which counted a bank statement
+identically to a gateway one and so named the wider action for every statement in the set — the
+"button 688, table 893" failure this very sentence was written to prevent, arriving from a third
+direction.
+
+⚠️ **THE DUPLICATE GUARD IS KEPT (owner decision, re-affirming Q31a).** Excluding ICICI from Re-run
+outright would have dropped it, and it is not idle: it compares each row's bank reference against
+already-`Paid` payments, a set that grows all day as people tick payments by hand, so a duplicate
+invisible at import time surfaces only on a later re-run.
+
+`_imports_in_scope` now ships **`has_settlement_path`** per batch. ⚠️ **THE DERIVED BOOLEAN, NEVER
+`b.source`** — the rule has an owner and the fork reads the same function, so the caption and the
+fork cannot come to disagree about a source. Handing the client the string would put a second copy of
+"which sources match" in the frontend, free to drift the day a fourth source lands. ⚠️ A legacy batch
+answers `""`, which `source_has_settlement_path` treats as HAVING a path — stated because the default
+decides the caption too: such a batch is a gateway import, and calling it duplicate-checked-only
+would understate the button.
+
+Wording: `Re-run matches 2 open imports; 1 duplicate-checked only.` — and, when every statement is a
+bank one, `Re-run duplicate-checks N open imports; none will be matched.` ⚠️ **That last form is NOT
+silenced at a single import**, unlike the reach sentence: the single-import silence rule is about
+REACH, and this sentence is instead the only thing on screen saying the button will not match at all.
+⚠️ **A FINISHED bank statement counts on NEITHER side** — `match_period` skips it, so calling it
+duplicate-checked would name an action that does not run. ⚠️ **An ABSENT flag means MATCHED**, never
+duplicate-checked: the other default would report every gateway import as doing almost nothing.
+⚠️ The tooltip keeps its **whole list** and qualifies it — a bank statement IS touched, so dropping
+its name would understate the reach, which is the opposite of that sentence's job. Only the VERB was
+wrong. A regression pin asserts the gateway-only wording is byte-identical to before the split.
+
+### D17 — a settled expense linked to a tab it could not be in
+
+The Outcome column's expense link went to the bare list page, landing on each page's **default** tab
+— which is role-based and **never `Paid`**: `Requested` for most users, `Approved` for an Accountant.
+A settled expense is `Paid` by definition, this import having just written it, so the reviewer was
+sent to a tab that provably could not contain it, with nothing on screen explaining the empty table.
+**Exactly the defect the payment branch beside it already records finding live.**
+
+Both lists read a namespaced status param documented in their own files as supporting an external
+deep link — `pe_status` (`ProjectExpensesList`) and `npe_status` (`NonProjectExpensesPage`) — so the
+href now carries it.
+
+⚠️ **THE TAB FOLLOWS `settled`; IT IS NOT HARDCODED TO `Paid`.** A SUGGESTION has settled nothing and
+its expense is still `Approved` (`SETTLEABLE_STATUSES` is Approved-only), so pinning `Paid` would
+reproduce the same defect pointing the other way. Verified RED: hardcoding it fails three tests.
+⚠️ **`exact` STAYS `false`, AND THE TAB DOES NOT CHANGE THAT.** `exact` means "this lands on the
+record". Neither table has the id in its searchable fields (`PE_SEARCHABLE_FIELDS` /
+`NPE_SEARCHABLE_FIELDS` cover description, type, vendor, amount — never `name`) and there is no
+`/expense/:id` route, so the reviewer still arrives at a filtered LIST. **Narrowing the tab must not
+be mistaken for pinpointing the row**; making it exact means adding the id to those two lists, which
+is a visible change to two other pages' search dropdowns and was NOT done here.
+⚠️ The param keys are pinned as literals **because they are a contract with another module** — they
+are namespaced there precisely so they cannot collide with a project page's own `?tab=`. A rename
+there would silently strand this link on the default tab, so it must break a test here.
+
+### Test state
+
+| Suite | Result | Baseline |
+|---|---|---|
+| `services/outflow_import` (pure) | **811 OK** | 811 |
+| `api…test_review` | **239 OK / 1 skip** | 237 / 1 |
+| frontend `vitest` (whole repo) | **3275 passing / 87 files** | 3262 / 87 |
+| `tsc --noEmit` | **0 errors** in `src/pages/outflow-import/` + `OutflowImportBatch.ts` | — |
+
+⚠️ The 22 `tsc` errors under `ProjectExpenses` / `NonProjectExpenses` are **PRE-EXISTING** — those
+files were READ for their param contract and never edited (`git status` shows them unmodified).

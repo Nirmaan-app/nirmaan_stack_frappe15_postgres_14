@@ -5,6 +5,7 @@ import { useFrappeDeleteDoc } from 'frappe-react-sdk';
 import { formatDate } from '@/utils/FormatDate';
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
+import { canViewTargetProgress } from "@/constants/roles";
 import { Card, CardContent } from "@/components/ui/card";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
@@ -67,7 +68,7 @@ export const MilestoneDailySummary: React.FC = () => {
     ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role || "");
 
   // Admin gate for Target Progress column / dialog
-  const isAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile";
+  const canSeeTargetProgress = canViewTargetProgress(role, user_id);
 
   const isToday = useMemo(() => isDateToday(displayDate), [displayDate]);
 
@@ -99,7 +100,7 @@ export const MilestoneDailySummary: React.FC = () => {
 
   // Target progress for Daily view (admin only)
   const { milestoneTarget } = useTargetProgress({
-    projectId: isAdmin ? initialProjectId : null,
+    projectId: canSeeTargetProgress ? initialProjectId : null,
     referenceDate: displayDate,
     workMilestonesList,
   });
@@ -201,7 +202,7 @@ export const MilestoneDailySummary: React.FC = () => {
               workHeaderOrderMap={workHeaderOrderMap}
               headerWeightageMap={headerWeightageMap}
               milestoneTarget={milestoneTarget}
-              showTargetColumn={isAdmin}
+              showTargetColumn={canSeeTargetProgress}
             />
           ) : (
             <Card className="mt-4">
@@ -210,7 +211,7 @@ export const MilestoneDailySummary: React.FC = () => {
                   selectedProject={initialProjectId}
                   projectData={projectData}
                   selectedZone={selectedZone}
-                  isAdmin={isAdmin}
+                  isAdmin={canSeeTargetProgress}
                 />
               </CardContent>
             </Card>

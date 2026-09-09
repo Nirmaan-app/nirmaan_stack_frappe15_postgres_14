@@ -54,7 +54,7 @@ from nirmaan_stack.services.outflow_import.duplicates import (
     RowIdentity,
     find_prior_sighting,
     index_prior_sightings,
-    row_identity,
+    row_identity_of,
 )
 from nirmaan_stack.services.outflow_import.ledgers import (
     NON_PROJECT_EXPENSE_DOCTYPE,
@@ -414,6 +414,7 @@ def find_earlier_batches_for_rows(
     exclude_batch: str | None = None,
     period_from: date | None = None,
     period_to: date | None = None,
+    source: str = "",
 ) -> dict[RowIdentity, str]:
     """Map each row's `RowIdentity` -> the earliest OTHER batch that already staged that transfer.
 
@@ -425,6 +426,22 @@ def find_earlier_batches_for_rows(
     `(transfer_id, amount, date)` -- see `duplicates.row_identity` -- so a caller handing over a
     list of ids can no longer ask this question at all. Leaving the old name and signature in place
     would have let a caller keep passing ids and quietly get the OLD, looser answer.
+
+    ⚠️ `source` SELECTS THE IDENTITY (slice B3) AND OMITTING IT IS NOT A STYLE CHOICE. A bank
+    passbook keys on five fields, a payout export on the proven three. THIS FUNCTION'S RETURNED
+    dict IS KEYED BY THAT IDENTITY and the caller looks results up by computing it again, so the two
+    have to agree exactly: pass the source here and not at the call site (or the reverse) and every
+    lookup misses, which does not fail -- it reports a statement as entirely new and re-stages it in
+    full. `upload._already_imported` is the one caller that threads it. Omit it and you get the
+    triple, which is correct for Cashfree and Cashbook and is why the parameter has a default.
+
+    ⚠️ THE **MATCH** IS STILL SETTLED ON `(transfer_id, amount)` PLUS `dates_agree`, whatever the
+    identity is. `find_prior_sighting` never sees a direction or a narration, and it must not: the
+    stored corpus is the `Outflow Import Row` table, and a row imported before those fields existed
+    carries neither. What the wide identity changes is which PARSED rows are treated as the same
+    line of the same file -- the two SGST/CGST legs now get an entry each instead of sharing one --
+    not which stored row answers for them. Both legs of a genuine re-upload still resolve to the
+    same earlier batch, which is the right answer: both really were imported before.
 
     ⚠️ THE SQL STILL NARROWS ON `transfer_id` ONLY, AND THE TRIPLE IS APPLIED IN PYTHON. That is
     deliberate twice over: `transfer_id` is the indexed column and remains the cheap first cut, and
@@ -465,8 +482,8 @@ def find_earlier_batches_for_rows(
     is precisely the outcome the refusal exists to prevent. Nine tests in `test_upload` caught it;
     they are the reason the negative half of a guard is worth writing.
 
-    ⚠️ WHAT NARROWED IS **ELIGIBILITY**, NOT IDENTITY. `duplicates.row_identity` is untouched and
-    stays `(transfer_id, amount, date)` -- a QUEUED row and its later SUCCESS are the SAME transfer,
+    ⚠️ WHAT NARROWED IS **ELIGIBILITY**, NOT IDENTITY. `duplicates.row_identity` is untouched by
+    THIS clause -- a QUEUED row and its later SUCCESS are the SAME transfer,
     and saying otherwise would be a lie that happened to produce the right outcome. The question
     this clause answers is the other one: is the row we found the FINAL account of that transfer?
 
@@ -494,7 +511,7 @@ def find_earlier_batches_for_rows(
     for row in rows:
         if not row.transfer_id:
             continue
-        identity = row_identity(row.transfer_id, row.amount, row.added_on_date)
+        identity = row_identity_of(row, source)
         if identity in seen:
             continue
         batch = find_prior_sighting(index, row.transfer_id, row.amount, row.added_on_date)

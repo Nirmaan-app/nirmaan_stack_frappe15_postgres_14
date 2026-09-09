@@ -56,7 +56,13 @@ import CreditsPage from "@/pages/credits/CreditsPage";
 //---New Vendors-AQ2 Page
 import VendorsAQ2 from "@/pages/vendors-wp-categories/vendors-aq2";
 import WorkPackages from "@/pages/work-packages";
-import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewProjectRoute, PricingRoute, OutflowImportRoute } from "@/utils/auth/ProtectedRoute";
+import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewProjectRoute, PricingRoute, OutflowImportRoute, RoleRoute } from "@/utils/auth/ProtectedRoute";
+import {
+  BOQ_TEMPLATES_ACCESS,
+  CUSTOMERS_ACCESS,
+  PROJECT_INVOICES_ACCESS,
+  UPLOAD_BOQ_ACCESS,
+} from "@/constants/roles";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
 import InvoiceReconciliationContainer from "@/pages/tasks/invoices/InvoiceReconciliationContainer";
 import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/NewProcurementRequestPage";
@@ -565,9 +571,14 @@ export const appRoutes: RouteObject[] = [
           // --- Project Invoices Section ---
 
           {
-            path: "project-invoices",
+            element: <RoleRoute allowed={PROJECT_INVOICES_ACCESS} what="Project Invoices" />,
             children: [
-              { index: true, element: <AllProjectInvocies /> },
+              {
+                path: "project-invoices",
+                children: [
+                  { index: true, element: <AllProjectInvocies /> },
+                ],
+              },
             ],
           },
           // Legacy path -> redirect into the unified Expense module
@@ -676,16 +687,21 @@ export const appRoutes: RouteObject[] = [
 
           // --- Customers Section ---
           {
-            path: "customers",
+            element: <RoleRoute allowed={CUSTOMERS_ACCESS} what="Customers" />,
             children: [
-              { index: true, element: <Customers /> },
-              { path: "new-customer", element: <NewCustomer /> },
               {
-                path: ":customerId",
+                path: "customers",
                 children: [
-                  { index: true, element: <Customer /> },
-                  { path: ":poId", lazy: () => import("@/components/POSummary") },
-                ]
+                  { index: true, element: <Customers /> },
+                  { path: "new-customer", element: <NewCustomer /> },
+                  {
+                    path: ":customerId",
+                    children: [
+                      { index: true, element: <Customer /> },
+                      { path: ":poId", lazy: () => import("@/components/POSummary") },
+                    ]
+                  },
+                ],
               },
             ],
           },
@@ -767,39 +783,55 @@ export const appRoutes: RouteObject[] = [
           { path: "help-repository", element: <HelpRepositoryPage /> },
           { path: "project-gst", element: <Suspense fallback={null}><ProjectGstPage /></Suspense> },
 
-          // BoQ Upload Wizard entry point (M1.59).
-          // ?project=<id> pre-selects the project in the picker.
-          { path: "upload-boq", lazy: () => import("@/pages/boq-wizard/BoqPickerPage") },
-
           // BoQ Templates admin screen (ADR-0013 A1 / A-T8). Admin + Estimates only
-          // (server also gates). Manages the single master template + seeding.
-          { path: "upload-boq/templates", lazy: () => import("@/pages/boq-wizard/TemplateEditorPage") },
+          // (server also gates). Its OWN guard, narrower than the wizard group below:
+          // both are literal, distinct path strings, so each matches exactly one route
+          // and the two wrappers never compete.
+          {
+            element: <RoleRoute allowed={BOQ_TEMPLATES_ACCESS} what="BoQ Templates" />,
+            children: [
+              { path: "upload-boq/templates", lazy: () => import("@/pages/boq-wizard/TemplateEditorPage") },
+            ],
+          },
 
-          // BoQ Hub (Module 2b) -- sheet mapping screen.
-          // boqId is the BOQs docname; read from URL so the hub survives refresh.
-          { path: "upload-boq/hub/:boqId", lazy: () => import("@/pages/boq-wizard/BoqHubPage") },
+          // The BoQ wizard. A PATHLESS layout route so the guard covers the whole
+          // group without altering a single path string -- these are deep-linked from
+          // the hub, the project BoQ tab and saved links, so the paths are load-bearing.
+          {
+            element: <RoleRoute allowed={UPLOAD_BOQ_ACCESS} what="the BoQ wizard" />,
+            children: [
+              // BoQ Upload Wizard entry point (M1.59).
+              // ?project=<id> pre-selects the project in the picker.
+              { path: "upload-boq", lazy: () => import("@/pages/boq-wizard/BoqPickerPage") },
 
-          // Revised-BoQ sheet-mapping screen (ADR-0014 D3, S3). Always shown for a revision
-          // between upload and hub; the hub redirects an unconfirmed revision here.
-          { path: "upload-boq/revision/:boqId/map", lazy: () => import("@/pages/boq-wizard/RevisionMappingPage") },
 
-          // BoQ per-sheet spoke (Module 3 Slice 3b-ii).
-          // sheetName is encodeURIComponent(sheet_name); React Router v6 auto-decodes
-          // useParams values, so the spoke receives the verbatim original sheet_name.
-          { path: "upload-boq/hub/:boqId/sheet/:sheetName", lazy: () => import("@/pages/boq-wizard/SheetSpokePage") },
+              // BoQ Hub (Module 2b) -- sheet mapping screen.
+              // boqId is the BOQs docname; read from URL so the hub survives refresh.
+              { path: "upload-boq/hub/:boqId", lazy: () => import("@/pages/boq-wizard/BoqHubPage") },
 
-          // BoQ per-sheet review screen (Slice B1).
-          // sheetName is encodeURIComponent(sheet_name); React Router v6 auto-decodes.
-          { path: "upload-boq/hub/:boqId/review/:sheetName", lazy: () => import("@/pages/boq-wizard/SheetReviewPage") },
+              // Revised-BoQ sheet-mapping screen (ADR-0014 D3, S3). Always shown for a revision
+              // between upload and hub; the hub redirects an unconfirmed revision here.
+              { path: "upload-boq/revision/:boqId/map", lazy: () => import("@/pages/boq-wizard/RevisionMappingPage") },
 
-          // BoQ per-sheet pricing screen (Phase 5 Slice 3a) -- read-only committed pricing.
-          // sheetName is encodeURIComponent(sheet_name); React Router v6 auto-decodes.
-          { path: "upload-boq/hub/:boqId/pricing/:sheetName", lazy: () => import("@/pages/boq-wizard/SheetPricingPage") },
+              // BoQ per-sheet spoke (Module 3 Slice 3b-ii).
+              // sheetName is encodeURIComponent(sheet_name); React Router v6 auto-decodes
+              // useParams values, so the spoke receives the verbatim original sheet_name.
+              { path: "upload-boq/hub/:boqId/sheet/:sheetName", lazy: () => import("@/pages/boq-wizard/SheetSpokePage") },
 
-          // BoQ per-sheet READ-ONLY viewer -- the tab strip + the table, no editing
-          // affordances. Landing target of the project BoQ tab's row click; the pencil
-          // in that list still goes to the wizard hub.
-          { path: "upload-boq/hub/:boqId/view/:sheetName", lazy: () => import("@/pages/boq-wizard/SheetViewPage") },
+              // BoQ per-sheet review screen (Slice B1).
+              // sheetName is encodeURIComponent(sheet_name); React Router v6 auto-decodes.
+              { path: "upload-boq/hub/:boqId/review/:sheetName", lazy: () => import("@/pages/boq-wizard/SheetReviewPage") },
+
+              // BoQ per-sheet pricing screen (Phase 5 Slice 3a) -- read-only committed pricing.
+              // sheetName is encodeURIComponent(sheet_name); React Router v6 auto-decodes.
+              { path: "upload-boq/hub/:boqId/pricing/:sheetName", lazy: () => import("@/pages/boq-wizard/SheetPricingPage") },
+
+              // BoQ per-sheet READ-ONLY viewer -- the tab strip + the table, no editing
+              // affordances. Landing target of the project BoQ tab's row click; the pencil
+              // in that list still goes to the wizard hub.
+              { path: "upload-boq/hub/:boqId/view/:sheetName", lazy: () => import("@/pages/boq-wizard/SheetViewPage") },
+            ],
+          },
 
           // Pricing Module (PM-2 -> PW-1) -- one generic page module serving every
           // workbook in the PRICING_WORKBOOKS registry (pages/pricing/pricingWorkbooks.ts);
@@ -843,7 +875,7 @@ export const appRoutes: RouteObject[] = [
             ],
           },
 
-          // Bulk Import Outflow -- ONE screen (slices X3 + X4): a master table of every staged
+          // Bulk Import Transactions -- ONE screen (slices X3 + X4): a master table of every staged
           // transfer, with the summary of a chosen import above it and the upload in a dialog.
           // Guarded to Accountant / Accountant Lead / Admin; the backend gate in
           // api/outflow_import/permissions.py is the real boundary. Single top-level segment, which
@@ -853,8 +885,19 @@ export const appRoutes: RouteObject[] = [
           // link and bookmark written before X3 points at a batch. It now lands on the master table
           // pre-scoped to that import rather than 404ing. The "new" route is GONE -- the upload is
           // a dialog on the master screen, so there is nowhere for it to go.
+          //
+          // ⚠️ RENAMED FROM `bulk-import-outflow` AT B8a, AND THERE IS DELIBERATELY NO REDIRECT
+          // (owner ruling Q27, option a). The module now carries money IN as well as OUT, so the
+          // screen is "Bulk Import Transactions"; existing bookmarks on the old path 404, and that
+          // was accepted rather than mitigated. Do NOT add a redirect route back -- it would be a
+          // reversal of the ruling, not a tidy-up.
+          //
+          // ⚠️ THE FOLDER, THE BACKEND MODULES AND ALL FIVE DOCTYPES KEEP THEIR `outflow_import`
+          // NAMES (owner ruling Q1). A doctype rename is a migration with dynamic links and a
+          // unique index riding on it and buys nothing; a user-facing name and an internal module
+          // name do not have to match.
           {
-            path: "bulk-import-outflow",
+            path: "bulk-import-transactions",
             element: <OutflowImportRoute />,
             children: [
               { index: true, lazy: () => import("@/pages/outflow-import/OutflowMasterPage") },

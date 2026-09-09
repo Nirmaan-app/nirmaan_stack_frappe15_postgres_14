@@ -219,8 +219,15 @@ def plan_statement(
         # (which feeds the preview's warning) and the Cashfree `_stage_batch` marking. All three key
         # on `row_identity`, and the parser's own note says why: two of them disagreeing would call
         # the same pair of rows repeated in one surface and distinct in another. Giving only this
-        # one the missing-date fallback would recreate exactly that. Widening all three is a
-        # separate, smaller slice; the CROSS-CORPUS lookups above are what CB-DUP fixed.
+        # one the missing-date fallback would recreate exactly that.
+        #
+        # ⚠️ SINCE B3 THE KEY IS SOURCE-AWARE, AND "THE EXACT TRIPLE" IS NOW A STATEMENT ABOUT
+        # CASHBOOK, NOT ABOUT EVERY SOURCE. `duplicates.WIDE_IDENTITY_SOURCES` gives a bank
+        # statement a wider key (it adds direction and remarks, because a bank posts both legs of a
+        # GL move with byte-identical narration and splits GST into two same-id legs). Cashbook is
+        # not in that set, so this call is unchanged and stays correct. The invariant that matters
+        # is not "everyone uses the triple" -- it is that every reader asks `row_identity` /
+        # `row_identity_of` with the SAME source and therefore gets the SAME answer.
         seen[row_identity(base["transfer_id"], base["amount"], _row_date(raw))] = base["row_number"]
         planned.append(PlannedRow(action=ACTION_CREATE, **base, **_placement(base["remarks"], index, expense_rules)))
 

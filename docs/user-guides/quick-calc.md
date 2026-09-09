@@ -33,7 +33,8 @@ it, even after you close it or reload the page.
 You can see the page **through** the calculator, so it does not hide the row you
 are checking.
 
-**To put it away**, click the `–` at its top-right corner, or press `Esc` twice.
+**To put it away**, click the `–` at its top-right corner, or keep pressing `Esc`
+until it closes (see [Escape clears one thing at a time](#escape-clears-one-thing-at-a-time)).
 It shrinks back to the small calculator button. It never disappears completely,
 so you can always get it back with one click.
 
@@ -56,6 +57,12 @@ Press `Enter`. The answer appears underneath.
 Every operation has a button — numbers, `+ − × ÷`, `%`, brackets, a decimal
 point, backspace and clear. Use it entirely with the mouse or your finger if you
 prefer. You get exactly the same answers either way.
+
+The clear button changes with what there is to clear. While you have a sum on
+screen it reads **`C`** and clears that sum. Once the sum is gone it turns into a
+red **`AC`**, which clears your recent-calculations list — that one cannot be
+undone, which is why it is marked in red. When there is nothing left to clear it
+greys out.
 
 You can also mix the two: type part of a sum and tap the rest.
 
@@ -118,6 +125,9 @@ The last few sums stay listed above the answer.
 
 The list keeps your last 20 calculations.
 
+**To clear the list**, first clear the sum you are working on, then press the red
+**`AC`** button (or `Esc` again). This cannot be undone.
+
 ---
 
 ## Keyboard — which key is for what
@@ -157,7 +167,8 @@ The number pad on the right of a full keyboard works too — digits, `+`, `-`,
 | Delete the character after the cursor | `fn` + `delete` | `Delete` |
 | Delete a whole word back | `⌥` + `delete` | `Ctrl` + `Backspace` |
 | Delete everything back to the start | `⌘` + `delete` | *(use `Esc`)* |
-| Clear the whole thing and start again | `esc` | `Esc` |
+| Clear the sum you are working on | `esc` | `Esc` |
+| Clear your recent-calculations list | `esc` again | `Esc` again |
 | Undo what you just typed | `⌘` + `Z` | `Ctrl` + `Z` |
 
 ### Taking the answer with you
@@ -186,8 +197,22 @@ Purchase Order pastes in and gives you **22,500**.
 | What you want to do | 🍎 Mac | 🪟 Windows / Linux |
 |---|---|---|
 | Open it, or put it away, from anywhere | `⌥` + `K` | `Alt` + `K` |
-| Put it away when the box is empty | `esc` | `Esc` |
+| Put it away once there is nothing left to clear | `esc` | `Esc` |
 | Leave it and go back to Nirmaan | `tab`, or click anywhere outside | `Tab`, or click outside |
+
+---
+
+### Escape clears one thing at a time
+
+`Esc` never closes work that is still on screen. Each press deals with the
+topmost thing that still has something in it, and only then closes:
+
+1. **First press** — clears the sum you are working on.
+2. **Second press** — clears your recent-calculations list.
+3. **Third press** — puts the calculator away.
+
+It is a check, not a count: if there is no sum and no list, the very first `Esc`
+puts it away.
 
 ---
 
@@ -213,7 +238,7 @@ key goes to Nirmaan as normal — including `+`, `-`, `/`, `Enter` and `Backspac
 Even while you are inside it, it reserves only these:
 
 - **`Enter`** — work out the answer
-- **`Esc`** — clear, or put it away
+- **`Esc`** — clear the sum, then the list, then put it away
 - **`⌘C` / `Ctrl+C`** — and only when you have not selected anything
 - **`⌥K` / `Alt+K`** — the one shortcut that works from anywhere, so you can open
   the calculator without reaching for the mouse

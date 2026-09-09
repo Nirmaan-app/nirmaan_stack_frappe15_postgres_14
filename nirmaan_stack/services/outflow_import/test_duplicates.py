@@ -17,9 +17,11 @@ from nirmaan_stack.services.outflow_import.duplicates import (
     PriorSighting,
     assess_duplicates,
     dates_agree,
+    WIDE_IDENTITY_SOURCES,
     find_prior_sighting,
     index_prior_sightings,
     row_identity,
+    row_identity_of,
 )
 
 
@@ -302,6 +304,192 @@ class TestPriorSightings(unittest.TestCase):
             index[("OBO1", Decimal("250"))],
             (PriorSighting(added_on_date=None, label="Non Project Expenses 7u93vm8hhe"),),
         )
+
+
+class _Row:
+    """A `RawRow`-shaped stand-in. The identity reads by ATTRIBUTE and never by type."""
+
+    def __init__(self, transfer_id, amount, added_on_date, direction="", remarks=""):
+        self.transfer_id = transfer_id
+        self.amount = amount
+        self.added_on_date = added_on_date
+        self.direction = direction
+        self.remarks = remarks
+
+
+class TestSourceAwareIdentity(unittest.TestCase):
+    """The identity WIDENS for a bank passbook and stays the proven triple elsewhere (slice B3).
+
+    Two halves, and the second is the one that matters most: the widening is worth nothing if it
+    also moved Cashfree and Cashbook, which carry live settled data whose duplicate behaviour is
+    proven in production.
+    """
+
+    DATE = date(2026, 3, 18)
+
+    def test_a_gateway_source_keeps_the_triple_byte_for_byte(self):
+        """Cashfree and Cashbook are UNMOVED, even when handed the extra fields.
+
+        Passing `direction` and `remarks` for a source outside `WIDE_IDENTITY_SOURCES` must be
+        INERT, not merely unusual -- a caller that threads them uniformly (as `row_identity_of`
+        does) would otherwise change the key for every source at once.
+        """
+        triple = ("TXN-1", Decimal("1000.00"), self.DATE)
+        for source in ("Cashfree", "Cashbook", ""):
+            with self.subTest(source=source):
+                self.assertEqual(
+                    row_identity("TXN-1", Decimal("1000.00"), self.DATE, source=source),
+                    triple,
+                )
+                self.assertEqual(
+                    row_identity(
+                        "TXN-1", Decimal("1000.00"), self.DATE,
+                        source=source, direction="Debit", remarks="anything at all",
+                    ),
+                    triple,
+                )
+
+    def test_the_default_source_is_the_triple(self):
+        """No source argument at all is the legacy key -- what every pre-B3 caller gets."""
+        self.assertEqual(
+            row_identity("TXN-1", Decimal("1000.00"), self.DATE),
+            ("TXN-1", Decimal("1000.00"), self.DATE),
+        )
+
+    def test_the_wide_key_extends_the_triple_rather_than_reordering_it(self):
+        """The first three positions stay the triple, in order, so the two shapes read side by side.
+
+        Only the SET of fields was measured -- a tuple's distinct count does not depend on member
+        order -- so the extension form is chosen for legibility and costs nothing.
+        """
+        wide = row_identity(
+            "TXN-1", Decimal("1000.00"), self.DATE,
+            source="ICICI Bank Statement", direction="Debit", remarks="SGST Coll",
+        )
+        self.assertEqual(len(wide), 5)
+        self.assertEqual(wide[:3], ("TXN-1", Decimal("1000.00"), self.DATE))
+        self.assertEqual(wide[3:], ("Debit", "SGST Coll"))
+
+    def test_remarks_separate_the_sgst_and_cgst_legs(self):
+        """THE MEASURED `remarks` FAILURE: four pairs, Rs 18,630 each, on the real statement.
+
+        Same id, same date, same amount, same direction -- differing only in narration. Both legs
+        are an INGEST category, so on the triple the second is swallowed as an in-file repeat and
+        the money it represents never reaches a reviewer.
+        """
+        sgst = ("S742905000271", Decimal("18630.00"), self.DATE, "Debit", "742905000271:SGST Coll")
+        cgst = ("S742905000271", Decimal("18630.00"), self.DATE, "Debit", "742905000271:CGST Coll")
+        self.assertNotEqual(
+            row_identity(*sgst[:3], source="ICICI Bank Statement", direction=sgst[3], remarks=sgst[4]),
+            row_identity(*cgst[:3], source="ICICI Bank Statement", direction=cgst[3], remarks=cgst[4]),
+        )
+        # And on the triple they collapse -- which is the failure, stated as a fact.
+        self.assertEqual(
+            row_identity(*sgst[:3], source="Cashfree", direction=sgst[3], remarks=sgst[4]),
+            row_identity(*cgst[:3], source="Cashfree", direction=cgst[3], remarks=cgst[4]),
+        )
+
+    def test_direction_separates_the_two_legs_of_a_general_ledger_transfer(self):
+        """THE MEASURED `direction` FAILURE: Rs 3.19 Cr out and Rs 3.19 Cr back, same narration.
+
+        `Ac xfr from gl 05051 to 60010` is BYTE-IDENTICAL on both legs, so remarks cannot separate
+        them. Only which money column the bank filled in can. This is why neither extra field is
+        padding for the other.
+        """
+        narration = "Ac xfr from gl 05051 to 60010"
+        self.assertNotEqual(
+            row_identity(
+                "S63876527", Decimal("31900000.00"), self.DATE,
+                source="ICICI Bank Statement", direction="Debit", remarks=narration,
+            ),
+            row_identity(
+                "S63876527", Decimal("31900000.00"), self.DATE,
+                source="ICICI Bank Statement", direction="Credit", remarks=narration,
+            ),
+        )
+
+    def test_row_identity_of_reads_the_row_and_delegates(self):
+        row = _Row("TXN-1", Decimal("5.00"), self.DATE, direction="Credit", remarks="narration")
+        self.assertEqual(
+            row_identity_of(row, "ICICI Bank Statement"),
+            row_identity(
+                "TXN-1", Decimal("5.00"), self.DATE,
+                source="ICICI Bank Statement", direction="Credit", remarks="narration",
+            ),
+        )
+        self.assertEqual(row_identity_of(row, "Cashfree"), ("TXN-1", Decimal("5.00"), self.DATE))
+
+    def test_row_identity_of_tolerates_a_row_that_predates_direction(self):
+        """Every caller that builds a `RawRow`-shaped object by hand predates the field."""
+
+        class Legacy:
+            transfer_id = "TXN-1"
+            amount = Decimal("5.00")
+            added_on_date = None
+            remarks = ""
+
+        self.assertEqual(
+            row_identity_of(Legacy(), "ICICI Bank Statement"),
+            ("TXN-1", Decimal("5.00"), None, "", ""),
+        )
+
+    def test_a_none_direction_or_remark_reads_as_blank_rather_than_none(self):
+        """`None` and `""` must not be two different identities for the same absent fact."""
+        row = _Row("TXN-1", Decimal("5.00"), self.DATE, direction=None, remarks=None)
+        self.assertEqual(row_identity_of(row, "ICICI Bank Statement"), ("TXN-1", Decimal("5.00"), self.DATE, "", ""))
+
+
+class TestSourceVocabulary(unittest.TestCase):
+    """`WIDE_IDENTITY_SOURCES` holds `parser.SUPPORTED_SOURCES` members, spelled the parser's way.
+
+    ⚠️ THIS PIN IS THE WHOLE SAFETY OF THE CONSTANT. `duplicates` cannot import `parser` -- the
+    arrow runs the other way -- so the source name is a bare string here, and a rename that reaches
+    only one file would silently revert that source to the narrow triple: no error, no failing
+    import, just five rows a statement quietly lost again. The test can import both, so it does.
+    """
+
+    def test_every_wide_source_is_a_source_the_parser_knows(self):
+        from nirmaan_stack.services.outflow_import.parser import SUPPORTED_SOURCES
+
+        self.assertTrue(WIDE_IDENTITY_SOURCES)
+        for source in WIDE_IDENTITY_SOURCES:
+            with self.subTest(source=source):
+                self.assertIn(source, SUPPORTED_SOURCES)
+
+    def test_the_gateway_sources_are_deliberately_absent(self):
+        """Their duplicate behaviour is proven on live settled data; this slice must not move it."""
+        self.assertNotIn("Cashfree", WIDE_IDENTITY_SOURCES)
+        self.assertNotIn("Cashbook", WIDE_IDENTITY_SOURCES)
+
+
+class TestIdentityAgainstTheRealStatementShape(unittest.TestCase):
+    """The measurement, re-run over the ICICI fixture: the triple loses rows, the wide key does not.
+
+    The fixture reproduces both collision shapes from the real 1,274-row statement -- an SGST/CGST
+    pair and both legs of a general-ledger transfer -- so this is the end-to-end form of the table
+    in `row_identity`'s docstring rather than a restatement of it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import os
+
+        from nirmaan_stack.services.outflow_import.parser import parse_statement
+
+        fixture = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "tests", "fixtures", "icici_sample.csv"
+        )
+        with open(fixture, "rb") as handle:
+            cls.parsed = parse_statement(handle.read(), source="ICICI Bank Statement")
+
+    def test_the_wide_key_keeps_every_row_distinct(self):
+        identities = {row_identity_of(row, "ICICI Bank Statement") for row in self.parsed.rows}
+        self.assertEqual(len(identities), len(self.parsed.rows))
+
+    def test_the_triple_would_lose_two_of_this_fixture_s_rows(self):
+        """Stated as a LOSS, not as a count. Each collision is a real line a reviewer never sees."""
+        identities = {row_identity_of(row, "Cashfree") for row in self.parsed.rows}
+        self.assertEqual(len(self.parsed.rows) - len(identities), 2)
 
 
 class TestPurity(unittest.TestCase):

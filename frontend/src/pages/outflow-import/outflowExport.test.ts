@@ -82,6 +82,11 @@ describe("toExportColumns", () => {
         const byId = new Map(toExportColumns(OUTFLOW_COLUMNS).map((c) => [c.id, c]));
         expect(byId.get("added_on")!.meta.exportHeaderName).toBe("Payment Date");
         expect(byId.get("bank_reference_no")!.meta.exportHeaderName).toBe("Reference");
+        // ⚠️ "Amount", NOT "Amount Paid". The file carries CREDITS as well as debits -- `amount` is
+        // the positive magnitude on every source -- so the archived heading must not claim a
+        // direction the figure beneath it cannot state. `direction` is its own column and says so.
+        expect(byId.get("amount")!.meta.exportHeaderName).toBe("Amount");
+        expect(byId.get("amount")!.header).toBe("Amount");
     });
 
     it("pulls each cell through the column's own `get`", () => {
@@ -92,6 +97,28 @@ describe("toExportColumns", () => {
         expect(byId.get("amount")!.meta.exportValue(sample)).toBe(125000);
         expect(byId.get("row_status")!.meta.exportValue(sample)).toBe("Matched");
         expect(byId.get("time")!.meta.exportValue(sample)).toBe("14:32");
+    });
+
+    it("carries a Direction column, headed as the screen heads it", () => {
+        const byId = new Map(toExportColumns(OUTFLOW_COLUMNS).map((c) => [c.id, c]));
+        expect(byId.get("direction")!.header).toBe("Direction");
+        expect(byId.get("direction")!.meta.exportHeaderName).toBe("Direction");
+    });
+
+    it("⚠️ writes Paid or Received on EVERY row, never a blank direction cell", () => {
+        // The column's `get` returns the derived LABEL, which is what makes this true. That is not
+        // the `shortReference` rule being broken: that rule forbids a display TRANSFORM reaching
+        // `get`, because a shortened value there is a value nothing can search for. Here the label
+        // IS the value -- there is no longer, truer string behind it -- and a raw `direction` in
+        // this file would leave an empty cell on the day a source states no direction.
+        const byId = new Map(toExportColumns(OUTFLOW_COLUMNS).map((c) => [c.id, c]));
+        const exported = byId.get("direction")!.meta.exportValue;
+        expect(exported(row({ direction: "Credit" }))).toBe("Received");
+        expect(exported(row({ direction: "Debit" }))).toBe("Paid");
+        expect(exported(row({ direction: "" }))).toBe("Paid");
+        expect(exported(row({ direction: undefined }))).toBe("Paid");
+        expect(exported(row({ direction: " Credit " }))).toBe("Received");
+        expect(exported(row())).not.toBe("");
     });
 
     it("EXPORTS THE WHOLE REFERENCE, never the 12-character tail the table shows", () => {

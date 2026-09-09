@@ -201,6 +201,14 @@ export function NewSidebar() {
     requestNotificationPermission();
   }, [user_id, data]);
 
+  // Customers is Admin-only by owner ruling -- PMO Executive is deliberately NOT
+  // included. Packages Settings and Project GST were briefly gated the same way
+  // and were reverted; PMO sees both.
+  //
+  // Kept as an inline spread rather than a second grouped block so the Admin
+  // Options items stay in their existing visual order.
+  const isAdminOnly = user_id == "Administrator" || role == "Nirmaan Admin Profile";
+
   const items = useMemo(() => [
     { key: "/", icon: LayoutGrid, label: "Dashboard" },
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role as string)
@@ -254,7 +262,7 @@ export function NewSidebar() {
                 { key: "/products", label: "Products" },
                 { key: "/asset-management", label: "Assets" },
                 { key: "/vendors", label: "Vendors" },
-                { key: "/customers", label: "Customers" },
+                ...(isAdminOnly ? [{ key: "/customers", label: "Customers" }] : []),
                 { key: "/packages-settings", label: "Packages Settings" },
                 { key: "/tds-repository", label: "TDS Repository" },
                 { key: "/project-gst", label: "Project GST" },
@@ -423,7 +431,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", ...PROCUREMENT_PROFILES, "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile"].includes(role as string)
       ? [
         {
           key: '/upload-boq',
@@ -526,16 +534,17 @@ export function NewSidebar() {
     //       },
     //     ]
     //   : []),
-    // Bulk Import Outflow (S3). Owner ruling: Accountant / Accountant Lead / Admin.
+    // Bulk Import Transactions (S3; renamed from Bulk Import Outflow at B8a -- the module now
+    // carries money IN as well as OUT). Owner ruling: Accountant / Accountant Lead / Admin.
     // The `user_id == "Administrator"` disjunct is NOT redundant -- this component skips the
     // Nirmaan Users fetch for Administrator, so `role` is null there (unlike useUserData(),
     // which fakes it to "Nirmaan Admin Profile"). Every entry in this file carries it.
     ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile"].includes(role as string)
       ? [
         {
-          key: '/bulk-import-outflow',
+          key: '/bulk-import-transactions',
           icon: Landmark,
-          label: 'Bulk Import Outflow',
+          label: 'Bulk Import Transactions',
         },
       ]
       : []),
@@ -570,7 +579,7 @@ export function NewSidebar() {
       ]
       : []),
 
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile"].includes(role as string)
       ? [
         {
           key: '/in-flow-payments',
@@ -588,7 +597,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile"].includes(role as string)
       ? [
         {
           key: '/project-invoices',
@@ -727,7 +736,7 @@ export function NewSidebar() {
 
 
 
-  ], [user_id, role]);
+  ], [user_id, role, isAdminOnly]);
 
   const allKeys = useMemo(() => new Set([
     "projects",
@@ -790,8 +799,8 @@ export function NewSidebar() {
     ...PRICING_WORKBOOKS.map((w) => w.path.slice(1)),
     // Rate Master (RM-2).
     "rate-master",
-    // Bulk Import Outflow (S3).
-    "bulk-import-outflow",
+    // Bulk Import Transactions (S3).
+    "bulk-import-transactions",
     "upload-boq/templates",
   ]), [])
 
@@ -846,10 +855,10 @@ export function NewSidebar() {
     ),
     // Rate Master (RM-2): single-segment key drives the active-item highlight.
     "/rate-master": ["rate-master"],
-    // Bulk Import Outflow: the deep-link route /bulk-import-outflow/:id falls back to the first
+    // Bulk Import Transactions: the deep-link route /bulk-import-transactions/:id falls back to the first
     // segment, so the item stays highlighted when a link scopes the table to one import. (The
     // /new child route went away at X4 -- uploading is a dialog on the same screen now.)
-    "/bulk-import-outflow": ["bulk-import-outflow"],
+    "/bulk-import-transactions": ["bulk-import-transactions"],
   }), []);
 
   const openKey = useMemo(() => {
@@ -973,9 +982,11 @@ export function NewSidebar() {
                     ...PRICING_WORKBOOKS.map((w) => w.label),
                     // Rate Master (RM-2): flat nav button.
                     "Rate Master",
-                    // Bulk Import Outflow (S3): flat nav button. OMITTING THIS LABEL would drop
-                    // the item into the collapsible-group branch below and render it wrong.
-                    "Bulk Import Outflow"]).has(item?.label) ? (
+                    // Bulk Import Transactions (S3): flat nav button. OMITTING THIS LABEL would
+                    // drop the item into the collapsible-group branch below and render it wrong.
+                    // ⚠️ IT IS MATCHED BY LABEL, so the B8a rename had to move BOTH this string and
+                    // the menu entry's `label` in one edit -- either alone renders the item wrong.
+                    "Bulk Import Transactions"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

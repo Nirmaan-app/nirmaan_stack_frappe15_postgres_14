@@ -3,7 +3,7 @@ import { OverviewSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Customers } from "@/types/NirmaanStack/Customers";
 import { useFrappeDocumentEventListener, useFrappeGetDoc } from "frappe-react-sdk";
-import { FilePenLine, LayoutDashboard } from "lucide-react";
+import { BookOpen, FilePenLine, LayoutDashboard } from "lucide-react";
 // Financials tab temporarily disabled: import { Receipt } from "lucide-react";
 import React, { Suspense, useCallback, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -14,6 +14,7 @@ import { toast } from "@/components/ui/use-toast";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 const CustomerOverview = React.lazy(() => import("./CustomerOverview"));
+const CustomerLedger = React.lazy(() => import("./components/CustomerLedger"));
 // Financials tab temporarily disabled
 // const CustomerFinancials = React.lazy(() => import("./CustomerFinancials"));
 
@@ -24,8 +25,10 @@ export const Customer : React.FC = () => {
   // const [searchParams] = useSearchParams(); 
 
   const [mainTab, setMainTab] = useStateSyncedWithParams<string>("main", "overview") // Default to overview if not specified
-  // Financials tab temporarily disabled - force any stale ?main=financials links back to overview
-  const activeMainTab = mainTab === "financials" ? "overview" : mainTab;
+  // Financials tab temporarily disabled - any stale ?main=financials link (and any
+  // other unknown value) falls back to overview.
+  const MAIN_TABS = ["overview", "ledger"];
+  const activeMainTab = MAIN_TABS.includes(mainTab) ? mainTab : "overview";
   // const [mainTab, setMainTab] = useState<string>(searchParams.get("main") || "overview")
 
   // Financials tab temporarily disabled - overview is the only main tab, so sub-tabs are always the overview ones
@@ -120,10 +123,14 @@ export const Customer : React.FC = () => {
       </div>
 
       <Tabs value={activeMainTab} onValueChange={handleMainTabChange} className="w-full">
-        <TabsList className="grid w-full max-w-md grid-cols-1">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
           <TabsTrigger value="overview" className="gap-2">
             <LayoutDashboard className="h-4 w-4" />
             <span>Overview</span>
+          </TabsTrigger>
+          <TabsTrigger value="ledger" className="gap-2">
+            <BookOpen className="h-4 w-4" />
+            <span>Ledger</span>
           </TabsTrigger>
           {/* Financials tab temporarily disabled
           <TabsTrigger value="financials" className="gap-2">
@@ -145,6 +152,13 @@ export const Customer : React.FC = () => {
                 onClick={handleSubTabChange}
               />
             )}
+          </TabsContent>
+
+          <TabsContent value="ledger">
+            <CustomerLedger
+              customerId={customerId}
+              customerName={data?.company_name || data?.customer_nickname}
+            />
           </TabsContent>
 
           {/* Financials tab temporarily disabled

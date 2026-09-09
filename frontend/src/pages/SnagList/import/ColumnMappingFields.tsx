@@ -1,5 +1,5 @@
 /**
- * Snag import wizard -- the four column-mapping selects for ONE sheet.
+ * Snag import wizard -- the five column-mapping selects for ONE sheet.
  *
  * These are shadcn `Select` (Radix), NOT native `<select>`, so the controlled-select
  * placeholder trap in frontend/CLAUDE.md does not apply: Radix does not fall back to the
@@ -52,6 +52,9 @@ interface RoleSpec {
 }
 
 const ROLES: RoleSpec[] = [
+  // Sheet order: S.No first, as it sits in the workbook. Optional -- a sheet with no
+  // S.No column imports fine, and the import numbers those rows itself.
+  { key: "serial", label: "S.No", required: false },
   { key: "area", label: "Area / Location", required: false },
   { key: "category", label: "Category", required: false },
   { key: "description", label: "Snag Description", required: true },
@@ -65,7 +68,7 @@ export function ColumnMappingFields({
   onChange,
 }: ColumnMappingFieldsProps) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
       {ROLES.map((role) => {
         const current = mapping[role.key];
         const letter = current ? String(current) : null;

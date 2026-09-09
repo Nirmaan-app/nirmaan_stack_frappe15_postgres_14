@@ -12,6 +12,7 @@ is invisible -- the money already moved, so the books simply become quietly wron
 the guards more load-bearing than the happy path.
 """
 
+import inspect
 import unittest
 from dataclasses import replace
 from decimal import Decimal
@@ -20,15 +21,21 @@ from unittest.mock import patch
 import frappe
 
 from nirmaan_stack.api.outflow_import.expenses import (
+    _guard_is_a_debit,
     create_expense,
     get_expense_types,
     settle_expense,
+    settle_row,
+    settle_row_partial,
 )
 from nirmaan_stack.api.outflow_import.review import MATCH_DOCTYPE, ROW_DOCTYPE
+from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE
+from nirmaan_stack.services.outflow_import.partial_settle import INTENT_PART_PAYMENT
 from nirmaan_stack.services.outflow_import.status import (
     ORIGIN_ACCEPTED,
     ORIGIN_NO_SUGGESTION,
     ORIGIN_OVERRIDDEN,
+    is_received_direction,
 )
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
 from nirmaan_stack.services.outflow_import.parser import parse_statement
@@ -37,8 +44,11 @@ from nirmaan_stack.services.outflow_import.settle import (
     PROJECT_EXPENSE,
     AlreadyPaidError,
     AmountMismatchError,
+    ExpenseSettlementError,
     ExpenseTypeScopeError,
     WrongStatusError,
+    create_expense_from_row,
+    create_non_project_receipt_from_row,
     format_amount_for,
 )
 
@@ -383,6 +393,171 @@ class TestRefusals(SettlementFixture):
         self.assertNotEqual(frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), "Settled")
 
 
+class TestTheDirectionGuard(SettlementFixture):
+    """A bank CREDIT can never spend money -- `expenses._guard_is_a_debit`.
+
+    ⚠️ THE BUG THIS CLASS EXISTS FOR IS INVISIBLE ONCE IT HAPPENS. `_load_settleable_row` checked
+    only `row_status`, so a Credit row -- money the bank put INTO the account -- could settle an
+    approved `Project Payment` or mint a Paid expense. The record goes Paid, the transfer goes
+    Settled, and the two figures agree; only the DIRECTION is wrong and no screen states it. There
+    is no error to notice and nothing to reconcile against, which is why every refusal here is
+    pinned with the write ALSO asserted to have not happened.
+
+    ⚠️ THE FIXTURE IS A CASHFREE EXPORT, WHOSE ROWS CARRY NO DIRECTION AT ALL. That is the whole
+    reason the guard is a POSITIVE test: a blank means "the statement did not say", never "this is a
+    receipt", and refusing blanks would refuse every gateway row the feature was built for. The
+    credit cases below therefore set the column deliberately, and restore it, so the refused row
+    goes back into the pool the sibling tests draw from.
+    """
+
+    def _as_credit(self, row_name):
+        """Make one staged row a bank credit, and put it back as it was afterwards.
+
+        ⚠️ RESTORED IN A CLEANUP BECAUSE A REFUSED ROW IS NOT CONSUMED. It stays at the head of
+        `_next_settleable_row`'s queue, so leaving it `Credit` would silently refuse the next test
+        in this class as well -- and that test would then pass for the wrong reason.
+        """
+        previous = frappe.db.get_value(ROW_DOCTYPE, row_name, "direction") or ""
+
+        def _restore():
+            frappe.db.set_value(
+                ROW_DOCTYPE, row_name, "direction", previous, update_modified=False
+            )
+            frappe.db.commit()
+
+        self.addCleanup(_restore)
+        frappe.db.set_value(ROW_DOCTYPE, row_name, "direction", "Credit", update_modified=False)
+        frappe.db.commit()
+
+    # --- the three money-out doors -------------------------------------------------------------
+
+    def test_a_credit_can_never_settle_an_approved_expense(self):
+        """⚠️ THE SHARPEST OF THE THREE: everything else about this settlement is valid. The expense
+        is Approved, the amount matches to the paise, the row is settleable. Without the guard this
+        call SUCCEEDS and books a deposit as a payment out."""
+        row = self._next_settleable_row()
+        expense = self._make_expense(PROJECT_EXPENSE, row["amount"])
+        self._as_credit(row["name"])
+
+        with self.assertRaises(ExpenseSettlementError) as caught:
+            settle_row(row["name"], PROJECT_EXPENSE, expense)
+
+        # ⚠️ THE REFUSAL NAMES THE RULE IT BROKE (the D1 register). A bare "invalid" would leave the
+        # reviewer with a row they cannot dispose of and no idea the two credit routes exist.
+        message = str(caught.exception).lower()
+        self.assertIn("debit", message)
+        self.assertIn("credit", message)
+        # Nothing moved: not the expense, not the row, not a match record claiming a settlement.
+        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, expense, "status"), "Approved")
+        self.assertNotEqual(
+            frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), "Settled"
+        )
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)
+
+    def test_a_credit_can_never_settle_a_payment(self):
+        """⚠️ THE TARGET DELIBERATELY DOES NOT EXIST, and that is the assertion. The guard runs
+        before the payment is ever read, so a credit is refused for BEING a credit rather than for
+        anything about what it was aimed at. Unguarded, this call reaches `frappe.get_doc` and
+        raises a not-found instead -- a different type, which is what makes this test red."""
+        row = self._next_settleable_row()
+        self._as_credit(row["name"])
+
+        with self.assertRaises(ExpenseSettlementError) as caught:
+            settle_row(row["name"], PAYMENT_DOCTYPE, "PAY-no-such-payment")
+        self.assertIn("credit", str(caught.exception).lower())
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)
+
+    def test_a_credit_can_never_create_a_new_expense(self):
+        """The create path matters at least as much as the settle. A settle at least has a record
+        somebody approved in front of it; this one mints a `Paid` expense from the bank row alone,
+        so an unguarded credit invents a brand-new payment-out document for money that arrived."""
+        row = self._next_settleable_row()
+        self._as_credit(row["name"])
+
+        # ⚠️ NOT `assertRaises`, BECAUSE THE FAILING CASE HERE WRITES TO THE LIVE DATABASE. Against
+        # unguarded code this call SUCCEEDS and mints a real `Project Expenses` document; a bare
+        # `assertRaises` would fail and leave it behind, unowned by `tearDownClass`. Catching the
+        # success explicitly lets the test register the row for purging and then fail honestly.
+        try:
+            created = create_expense(
+                row["name"], PROJECT_EXPENSE, self.project_type, project=self.project
+            )
+        except ExpenseSettlementError:
+            pass
+        else:
+            self.project_expenses.append(created["settled"]["name"])
+            self.fail("a credit was allowed to create a Paid expense")
+
+        self.assertNotEqual(
+            frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), "Settled"
+        )
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)
+
+    def test_a_credit_can_never_be_partially_settled_either(self):
+        """The third door, and the one that also performs surgery on a PO's terms -- an unguarded
+        credit would leave a split sanction behind it as well as a wrongly-Paid record.
+
+        ⚠️ THE MESSAGE IS ASSERTED, NOT JUST THE TYPE. Unguarded, this call reaches
+        `_assert_partially_settleable` and is refused there for a DIFFERENT reason (the payment does
+        not exist) -- a refusal that would satisfy a type-only assertion on the base ValidationError
+        and quietly turn this into a test of nothing."""
+        row = self._next_settleable_row()
+        self._as_credit(row["name"])
+
+        with self.assertRaises(ExpenseSettlementError) as caught:
+            settle_row_partial(row["name"], "PAY-no-such-payment", INTENT_PART_PAYMENT)
+        self.assertIn("credit", str(caught.exception).lower())
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)
+
+    # --- what must still get through -----------------------------------------------------------
+
+    def test_a_blank_direction_still_settles(self):
+        """⚠️ THE HALF OF THE RULE THAT IS EASIEST TO BREAK BY "TIDYING" IT. Cashfree and Cashbook
+        state no direction at all; a guard that refused anything not explicitly `Debit` would refuse
+        every row from both sources -- the two the feature was built for."""
+        row = self._next_settleable_row()
+        # ⚠️ THE BLANK IS STATED, NOT INHERITED FROM THE FIXTURE. This test first ASSERTED that the
+        # Cashfree fixture stores no direction; it stores "Debit". So the assertion failed while the
+        # guard was working perfectly -- and, worse, had the fixture happened to agree, the blank
+        # case this test exists for would have been covered only by luck, and would silently stop
+        # being covered the day the fixture changed. A fixture's incidental value is not the fact
+        # under test: state the input, exactly as `test_a_stated_debit_settles` below does.
+        frappe.db.set_value(ROW_DOCTYPE, row["name"], "direction", "", update_modified=False)
+        frappe.db.commit()
+        expense = self._make_expense(PROJECT_EXPENSE, row["amount"])
+        settle_row(row["name"], PROJECT_EXPENSE, expense)
+        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, expense, "status"), "Paid")
+
+    def test_a_stated_debit_settles(self):
+        row = self._next_settleable_row()
+        frappe.db.set_value(ROW_DOCTYPE, row["name"], "direction", "Debit", update_modified=False)
+        frappe.db.commit()
+        expense = self._make_expense(PROJECT_EXPENSE, row["amount"])
+        settle_row(row["name"], PROJECT_EXPENSE, expense)
+        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, expense, "status"), "Paid")
+
+
+class TestTheGuardIsOnePredicate(unittest.TestCase):
+    """⚠️ THE GUARD IS THE EXACT NEGATION OF `status.is_received_direction`, NOT A SECOND RULE.
+
+    That predicate is the single POSITIVE test partitioning every settled row into `Received` and
+    `Paid`. Re-spelling `direction == "Credit"` in the endpoint would be a second copy free to
+    drift, and the drift presents as money settled on the debit side and then reported under
+    Received -- two halves of one feature disagreeing about which way the money went. Pinning them
+    against each other is what makes that impossible rather than merely unlikely.
+    """
+
+    def test_it_refuses_exactly_what_the_predicate_calls_received(self):
+        for direction in ("", "   ", None, "Debit", "Credit", " Credit "):
+            with self.subTest(direction=direction):
+                refused = False
+                try:
+                    _guard_is_a_debit({"direction": direction})
+                except frappe.ValidationError:
+                    refused = True
+                self.assertEqual(refused, is_received_direction(direction))
+
+
 class TestTheAmountIsCorrectedToTheBank(SettlementFixture):
     """Slice X1 on the EXPENSE ledgers -- and on the `set_value` -> `doc.save()` switch it forced.
 
@@ -577,6 +752,65 @@ class TestCreateExpense(SettlementFixture):
         row = self._next_settleable_row()
         with self.assertRaises(WrongStatusError):
             create_expense(row["name"], PROJECT_EXPENSE, self.project_type)
+
+
+class TestTheDebitPathIsStillCLOSEDToASignedAmount(SettlementFixture):
+    """⚠️ SLICE B7 OPENED A SIGNED WRITE IN `settle.py`. THESE PIN THAT IT DID NOT REACH HERE.
+
+    B7 records a bank CREDIT that belongs to no project as a NEGATIVE `Non Project Expense`
+    (`create_non_project_receipt_from_row`). `create_expense_from_row` -- the DEBIT path, and a live
+    one -- keeps its `amount <= 0` guard exactly as it was, because for a debit that guard is
+    correct: a transfer OUT of zero or less is not a spend.
+
+    The safety here is structural rather than promised, and each half is pinned below:
+      * the two functions are SEPARATE, so there is no mode flag whose wrong branch is one boolean
+        away from turning every debit signed;
+      * the signed one takes NO `doctype` argument, so a credit can never be written as a negative
+        `Project Expense` -- whose `amount` is a **Data** column and whose project / vendor /
+        payment_by fields mean nothing on a receipt.
+    """
+
+    def _row_at(self, amount):
+        row = self._next_settleable_row()
+        frappe.db.set_value(ROW_DOCTYPE, row["name"], "amount", amount, update_modified=False)
+        frappe.db.commit()
+        return row
+
+    def test_a_zero_amount_row_is_still_refused(self):
+        row = self._row_at(0)
+        with self.assertRaises(AmountMismatchError):
+            create_expense(row["name"], PROJECT_EXPENSE, self.project_type, project=self.project)
+
+    def test_a_NEGATIVE_amount_row_is_still_refused(self):
+        """The case B7 makes worth asserting rather than assuming.
+
+        A staged row's `amount` is the positive MAGNITUDE on every source by design (ADR-0016
+        rejected a signed amount column outright), so this shape should not occur -- which is
+        exactly why the guard has to stay: if one ever did, this path must refuse it rather than
+        create an expense that quietly reads as income.
+        """
+        row = self._row_at(-2500)
+        with self.assertRaises(AmountMismatchError):
+            create_expense(row["name"], PROJECT_EXPENSE, self.project_type, project=self.project)
+        self.assertFalse(frappe.db.exists(MATCH_DOCTYPE, {"import_row": row["name"]}))
+
+    def test_a_negative_amount_is_refused_on_the_NON_PROJECT_ledger_too(self):
+        """The ledger B7 writes signed. Reaching it through the DEBIT endpoint must still refuse."""
+        row = self._row_at(-2500)
+        with self.assertRaises(AmountMismatchError):
+            create_expense(row["name"], NON_PROJECT_EXPENSE, self.non_project_type)
+
+    def test_the_signed_writer_is_a_separate_function_that_cannot_be_told_a_doctype(self):
+        """A signature pin, because this is where "a credit never becomes a negative Project
+        Expense" actually lives. Not a comment: an argument nobody can pass is a guarantee, and a
+        `doctype` parameter added here would silently demote it to a convention."""
+        params = inspect.signature(create_non_project_receipt_from_row).parameters
+        self.assertNotIn("doctype", params)
+        # And `direction` is REQUIRED on it -- the sibling `create_inflow_from_row` tolerates
+        # `None`, which would be an open door where the direction chooses a SIGN.
+        self.assertIs(params["direction"].default, inspect.Parameter.empty)
+        # The debit writer still takes one, and still guards the amount. Two writers, two rules.
+        self.assertIn("doctype", inspect.signature(create_expense_from_row).parameters)
 
 
 class TestExpenseTypeScoping(SettlementFixture):

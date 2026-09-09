@@ -138,7 +138,10 @@ const TenderingProjectView = ({ data, onRefresh }: TenderingProjectViewProps) =>
 
       {/* Active tab content */}
       {activePage === TENDERING_TABS.BOQ ? (
-        <BoqProjectTab projectId={data.name} />
+        /* "pre-won" is what makes a row click open the wizard HUB here rather than the
+           read-only preview it opens on the Won page (owner ruling). This shell only ever
+           renders for tendering_status !== "Won", so the value is a fact about the caller. */
+        <BoqProjectTab projectId={data.name} surface="pre-won" />
       ) : (
         <TenderingOverviewTab data={data} onRefresh={onRefresh} />
       )}

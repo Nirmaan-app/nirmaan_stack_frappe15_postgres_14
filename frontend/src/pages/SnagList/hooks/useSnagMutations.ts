@@ -4,7 +4,7 @@ import { useFrappePostCall } from "frappe-react-sdk";
 import { toast } from "@/components/ui/use-toast";
 import { getFrappeError } from "@/utils/frappeErrors";
 
-import { DeleteBatchPreview, SnagStatus, UpdateSnagDetailsPayload } from "../types";
+import { SnagStatus, UpdateSnagDetailsPayload } from "../types";
 import { SNAG_ENDPOINTS } from "../config/snagTable.config";
 
 /**
@@ -31,7 +31,6 @@ export interface UseSnagMutationsResult {
   isBulkSaving: boolean;
   isAdding: boolean;
   isSavingDetails: boolean;
-  isDeletingBatch: boolean;
 
   /**
    * ONE row's status, and the remark that rides it (ADR-0018).
@@ -70,8 +69,6 @@ export interface UseSnagMutationsResult {
    * required check would refuse what the server accepts.
    */
   updateSnagDetails: (payload: UpdateSnagDetailsPayload) => Promise<boolean>;
-  getBatchDeletePreview: (batch: string) => Promise<DeleteBatchPreview | null>;
-  deleteBatch: (batch: string) => Promise<boolean>;
 }
 
 /**
@@ -91,16 +88,11 @@ export function useSnagMutations(
   const { call: callUpdateDetails } = useFrappePostCall(
     SNAG_ENDPOINTS.updateSnagDetails
   );
-  const { call: callDeletePreview } = useFrappePostCall<{
-    message: DeleteBatchPreview;
-  }>(SNAG_ENDPOINTS.batchDeletePreview);
-  const { call: callDeleteBatch } = useFrappePostCall(SNAG_ENDPOINTS.deleteBatch);
 
   const [savingStatusFor, setSavingStatusFor] = useState<string | null>(null);
   const [isBulkSaving, setIsBulkSaving] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [isSavingDetails, setIsSavingDetails] = useState(false);
-  const [isDeletingBatch, setIsDeletingBatch] = useState(false);
 
   const updateStatus = useCallback(
     async (snag: string, status: SnagStatus, remark?: string) => {
@@ -192,16 +184,23 @@ export function useSnagMutations(
   );
 
   const updateSnagDetails = useCallback(
-    async ({ snag, area, category, description, remark }: UpdateSnagDetailsPayload) => {
+    async ({
+      snag,
+      area,
+      category,
+      description,
+      remark,
+      source_serial,
+    }: UpdateSnagDetailsPayload) => {
       setIsSavingDetails(true);
       try {
-        // `remark` is OMITTED when the caller passed nothing, so the server's "leave
-        // it alone" branch is reached — the same three-state contract `updateStatus`
-        // builds explicitly above, for the same reason.
-        const base = { snag, area, category, description };
-        await callUpdateDetails(
-          remark === undefined ? base : { ...base, remark }
-        );
+        // `remark` and `source_serial` are OMITTED when the caller passed nothing, so the
+        // server's "leave it alone" branch is reached for each — the same three-state
+        // contract `updateStatus` builds explicitly above, for the same reason.
+        const base: Record<string, string> = { snag, area, category, description };
+        if (remark !== undefined) base.remark = remark;
+        if (source_serial !== undefined) base.source_serial = source_serial;
+        await callUpdateDetails(base);
         toast({
           title: "Snag updated",
           description: "The snag's details were saved.",
@@ -223,60 +222,14 @@ export function useSnagMutations(
     [callUpdateDetails, onChanged]
   );
 
-  const getBatchDeletePreview = useCallback(
-    async (batch: string): Promise<DeleteBatchPreview | null> => {
-      try {
-        const res = await callDeletePreview({ batch });
-        return res?.message ?? null;
-      } catch (e: any) {
-        toast({
-          title: "Could not read the batch",
-          description: errText(e, "The delete preview could not be loaded."),
-          variant: "destructive",
-        });
-        return null;
-      }
-    },
-    [callDeletePreview]
-  );
-
-  const deleteBatch = useCallback(
-    async (batch: string) => {
-      setIsDeletingBatch(true);
-      try {
-        await callDeleteBatch({ batch });
-        toast({
-          title: "Batch deleted",
-          description: "The batch and its snags were removed.",
-          variant: "success",
-        });
-        onChanged?.();
-        return true;
-      } catch (e: any) {
-        toast({
-          title: "Could not delete the batch",
-          description: errText(e, "Nothing was deleted."),
-          variant: "destructive",
-        });
-        return false;
-      } finally {
-        setIsDeletingBatch(false);
-      }
-    },
-    [callDeleteBatch, onChanged]
-  );
-
   return {
     savingStatusFor,
     isBulkSaving,
     isAdding,
     isSavingDetails,
-    isDeletingBatch,
     updateStatus,
     bulkUpdateStatus,
     addManualSnag,
     updateSnagDetails,
-    getBatchDeletePreview,
-    deleteBatch,
   };
 }

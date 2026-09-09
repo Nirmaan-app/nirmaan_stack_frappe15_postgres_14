@@ -100,6 +100,9 @@ export const isBillingProfile = (role?: string | null): boolean =>
   !!role && BILLING_PROFILES.includes(role);
 
 export const ADMIN_PROFILE = "Nirmaan Admin Profile";
+export const PMO_EXECUTIVE_PROFILE = "Nirmaan PMO Executive Profile";
+export const PROJECT_LEAD_PROFILE = "Nirmaan Project Lead Profile";
+export const PROJECT_MANAGER_PROFILE = "Nirmaan Project Manager Profile";
 
 /**
  * May delete a DC / MIR off a PO — admin, procurement (they file them) and
@@ -132,7 +135,7 @@ export const canDeleteDeliveryDocument = (
  */
 const INVOICE_APPROVAL_PROFILES: readonly string[] = [
   ADMIN_PROFILE,
-  "Nirmaan PMO Executive Profile",
+  PMO_EXECUTIVE_PROFILE,
   "Nirmaan Accountant Profile",
   "Nirmaan Accountant Lead Profile",
 ];
@@ -144,3 +147,122 @@ export const canActionInvoiceApprovals = (
 ): boolean =>
   userId === "Administrator" ||
   (!!role && INVOICE_APPROVAL_PROFILES.includes(role));
+
+/**
+ * May see Target Progress in the Work Report: the Target column beside Actual,
+ * and the "With / Without Target Progress" choice in the DPR download dialog.
+ *
+ * Admin + PMO Executive + Project Lead. It was Admin-only; PMO was added first,
+ * then Project Lead.
+ *
+ * PROJECT MANAGER IS DELIBERATELY OUT (owner ruling, corrected after it was
+ * briefly included). A PM records the work actually done on site; the target
+ * they are measured against is the Lead's view, not theirs. Do not add
+ * `PROJECT_MANAGER_PROFILE` here on the assumption it was an oversight.
+ *
+ * The rule lived as THREE identical `isAdmin` copies -- one each in
+ * `MilestonesSummary`, `MilestoneDailySummary` and `PDFDownloadButtons` -- which
+ * had to change together or the Work Report would offer a Target column the
+ * download dialog would not honour. One home now; do not re-inline it.
+ *
+ * SCOPE: Target Progress and nothing else. Every other permission on those
+ * screens keeps its own gate (`canDeleteReport`, for one, already included PMO
+ * and is untouched). Do not widen this predicate to stand for "is privileged".
+ */
+export const TARGET_PROGRESS_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  PROJECT_LEAD_PROFILE,
+];
+
+/** True when `role` (a role PROFILE) may see Target Progress in the Work Report. */
+export const canViewTargetProgress = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" ||
+  (!!role && TARGET_PROGRESS_PROFILES.includes(role));
+
+// ---------------------------------------------------------------------------
+// Route-level access lists (RG-1)
+//
+// These routes had NO guard: plain `element:` entries under ProtectedRoute, so
+// "logged in" was the entire check. Hiding a nav item hid the door, not the
+// room -- a bookmark or a pasted URL still opened the page. `RoleRoute` in
+// `utils/auth/ProtectedRoute` now gates each with the list below.
+//
+// Each list is the UNION across every sidebar entry that links to that route.
+// Several are reachable from more than one entry with different role sets
+// (Customers sits in Admin Options AND on the Accountant sidebar; Project
+// Invoices sits in the Accountant block AND the Sales block). A route list is
+// therefore WIDER than any single sidebar array by design -- narrowing it to
+// one of them would lock out a role whose nav item still points here.
+//
+// The hardcoded "Administrator" user always passes and is never listed.
+// UI gate only; no server-side role check backs these.
+// ---------------------------------------------------------------------------
+
+const ACCOUNTANT_PROFILE = "Nirmaan Accountant Profile";
+const ACCOUNTANT_LEAD_PROFILE = "Nirmaan Accountant Lead Profile";
+const ESTIMATES_EXECUTIVE_PROFILE = "Nirmaan Estimates Executive Profile";
+const SALES_EXECUTIVE_PROFILE = "Nirmaan Sales Executive Profile";
+const SALES_LEAD_PROFILE = "Nirmaan Sales Lead Profile";
+
+/** `/customers` -- Admin Options entry plus the Accountant sidebar entry. */
+export const CUSTOMERS_ACCESS: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+
+/**
+ * `/upload-boq` and its hub / revision / sheet children.
+ *
+ * PMO Executive and Billing Executive are both INCLUDED (owner request). This line used to read
+ * "PMO excluded", and billing had no BoQ access at all.
+ *
+ * ⚠️ IT MUST STAY A SUPERSET OF `boq-wizard/boqAccess.BOQ_WIZARD_PROFILES` -- that set decides
+ * who sees the pencil INTO these routes, so a profile with the pencil and no route entry lands
+ * on Access Denied. The two are edited together.
+ *
+ * ⚠️ THIS NO LONGER MATCHES THE BACKEND WIZARD GATE, AND THE ONE PROFILE OF DIFFERENCE IS
+ * BILLING. Adding PMO made the two agree exactly; adding Billing made this list a strict
+ * SUPERSET of `create_from_template._WIZARD_ROLE_PROFILES`, which carries no billing entry. So
+ * a Billing user reaches these screens and is refused by `create_from_template` specifically
+ * ("You are not permitted to create a BoQ from a template"). Every other wizard path is open to
+ * them. Widen the backend set if billing should author from a template.
+ *
+ * ⚠️ BILLING ALSO NEEDS A SERVER-SIDE GRANT THAT THIS LIST CANNOT PROVIDE. Their role profile
+ * carries exactly one role, `Nirmaan Billing Executive`, which has NO permission row on the
+ * `BOQs` doctype -- so the BoQ list 403s at the REST layer no matter what this guard says. READ
+ * on `BOQs` is the whole requirement: every wizard WRITE goes through a whitelisted endpoint
+ * using set_value / ignore_permissions, so no write permission is involved.
+ */
+export const UPLOAD_BOQ_ACCESS: readonly string[] = [
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  ...PROCUREMENT_PROFILES,
+  ESTIMATES_EXECUTIVE_PROFILE,
+  BILLING_EXECUTIVE_PROFILE,
+  PROJECT_LEAD_PROFILE,
+];
+
+/**
+ * `/upload-boq/templates`. NARROWER than UPLOAD_BOQ_ACCESS -- the templates
+ * editor is Admin + Estimates only. It gets its own guard because it shares the
+ * `upload-boq` path prefix: folding it into the wizard's wrapper would WIDEN it
+ * to procurement and Project Lead, who have never had it.
+ */
+export const BOQ_TEMPLATES_ACCESS: readonly string[] = [
+  ADMIN_PROFILE,
+  ESTIMATES_EXECUTIVE_PROFILE,
+];
+
+/** `/project-invoices` -- Accountant block plus the Sales block. PMO excluded. */
+export const PROJECT_INVOICES_ACCESS: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+  SALES_EXECUTIVE_PROFILE,
+  SALES_LEAD_PROFILE,
+];

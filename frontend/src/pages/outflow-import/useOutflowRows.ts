@@ -174,7 +174,7 @@ export function useOutflowRows({
 
     /**
      * ⚠️ A PINNED BATCH SUPPRESSES THE PERIOD ENTIRELY, and this is a correctness rule rather than a
-     * convenience. On `/bulk-import-outflow/:id` the screen is scoped to ONE import and the period
+     * convenience. On `/bulk-import-transactions/:id` the screen is scoped to ONE import and the period
      * control is HIDDEN — so a period left in the store by an earlier visit would keep narrowing the
      * view with nothing on screen to reveal or clear it. Live-observed before the fix: a deep link to
      * a 1,043-row statement reported 274 transfers, under a panel headed "Showing OFI-26-00289".

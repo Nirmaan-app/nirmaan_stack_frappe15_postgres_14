@@ -36221,3 +36221,1396 @@ UI — state a criterion precisely enough that it cannot quietly measure somethi
 - The `halt_reason` over-wide `try` — narrowing it to the API call alone. Deferred at
   `extraction.py:2179-2182`, out of scope here, unchanged.
 - Fix B (retiring superseded partials in the data) — needs a doctype `status` option + migrate.
+
+
+---
+
+## F-30 slice A -- the poles-plus-neutral ladder on db_switchgear (2026-09-05)
+
+**Owner rulings, verbatim, that this slice serves:** *"so the shape is that for any ploe + Neutral,
+should be matched withnext higher pole: SPN with DP, TPN with 4p"* / *"we need to first match with
+SPN in catalog, if that is not there then we match with DP"* (same ordering for TPN: *"yes"*) /
+*"still build it so that of we later add SPN in catlog it gets matched first"* / for a rating the
+catalogue does not carry: *"next rating"*. SUPERSEDED, recorded so the reversal is visible: the
+2026-08-23 *"let it be for now.. we will check if usaer highlights this"* on SPN, and the same day's
+"SWAP, NEVER BLANK" design of the TPN corrector.
+
+### The ladder as ruled -- three rungs, both families
+
+For a breaker whose OWN row text names it as poles-plus-neutral (SPN family: `SP+NL`, `SP+N`,
+`SP&N`, `SPN`, `1P+N`; TPN family: the prompt's nine `-> FP` tokens), in order:
+
+- **RUNG 1** -- a catalogue row whose STRUCTURED `pole` is literally `SPN` / `TPN`, same device,
+  EXACT amp, same curve. Never the item NAME: 54 live rows are named SPN/TPN/VTPN and every one is
+  a DB shell with no `pole` key (27 `db_shell` + 27 `db_switchgear_item` family `DB`).
+- **RUNG 2** -- count the neutral (SPN -> DP, TPN -> FP), same device, same curve, exact amp else
+  the next amp UP. Never down. The curve is never changed.
+- **RUNG 3** -- nothing at or above the amp on that curve: BLANK (`None`), so the row does not
+  price and a human decides.
+
+`extraction.py`: `_SPN_FAMILY_TOKENS` + `spn_family_tokens()`, `pole_plus_neutral_families()`
+(TPN walked first), `_same_device_and_curve`, `_rung1_rows`, `_ladder_target`,
+`_family_token_amps`, and `apply_pole_plus_neutral_ladder` (the body of the old corrector;
+`correct_four_pole_mcb_picks = apply_pole_plus_neutral_ladder` keeps the call-site and test name --
+one implementation). Records: plain rung-2 swap `{attr, from, to}` (BYTE-IDENTICAL to the TPN
+record); rung 1 adds `rung: 1`; a moved rating adds `amp_moved_up: {from, to}`; a blank is
+`{to: None, reason: "no_rating_at_or_above", rung: 3}`; a tie is `ambiguous_*` and the pick is left
+alone. `stamp_pole_ladder(row_out, records)` stamps `row_out[attr]["pole_ladder"]` -- the RESULT
+cell the run stores and the panel reads -- ONLY when the record carries more than a plain same-amp
+swap, so a plain TPN swap's stored result is byte-identical to before; the call site mirrors the
+value into `row_map` for the capture log (see "The row_map-versus-row_out finding" below -- the
+first build stamped ONLY the capture map and shipped no marker at all).
+
+### Engineering calls (owner-visible, veto was available)
+
+1. **Rung 1 matches the structured `pole` FIELD, never the item NAME** (the 54 shells above).
+2. **The prompt is untouched** (zero-line diff on `boq_composite_decomposition_prompt.md`). The
+   model reads SP for "SPN MCB" -- a FACT READ correctly; counting the neutral is a CALCULATION and
+   lives in code (the CLAUDE.md gate). The SPN vocabulary is a code constant (the
+   `_BOARD_WORDS_AFTER_DEVICE` precedent) because the prompt has no SPN clause to read from; the
+   anti-drift pin is INVERTED -- `test_the_prompt_carries_no_spn_breaker_clause` asserts the prompt
+   carries no `"SPN" ->` clause, so the day one is added the two lists collide loudly.
+
+### Three defects found by measurement, each pinned before it was fixed
+
+- **The residual-current silence (live proof, 549 stored selections):** a first version entered the
+  ladder from any FP/DP pick; 46 stored rows read `'40A FP 30mA, RCBO'` / `'25A, 4P RCCB'` beside
+  an already-FP pick and would have gained an `ambiguous` marker (three mA variants at rung 2).
+  ENTRY is now: from the family's STATED pole the full ladder; from the COUNTED pole only when a
+  rung-1 row exists; from the NAMED pole never. Pin:
+  `test_a_four_pole_residual_current_pick_beside_4p_text_stays_silent`.
+- **The row-wide over-fire (live cert, C2 first pass):** `BOQ-26-00193` r135 names `'6 Nos of 16
+  amp SP MCB's ... controlled by 1 No. 40 amp SPN MCB'`; the adjacency test is row-wide, so the
+  genuinely single-pole outgoings became `25A DP D` with an amp-moved-up note. THE AMP ANCHOR:
+  `_family_token_amps` reads the amps stated within the window BEFORE a qualifying token
+  (`'40 amp SPN MCB'` -> {40}; `'10/16A SPN MCB'` -> {10, 16}); only candidates carrying a named
+  amp are laddered. Pins: `test_only_the_pick_whose_amp_the_spn_token_names_is_laddered`,
+  `test_a_range_beside_the_token_anchors_every_amp_in_it`.
+- **The fallback by another door (live cert, C4):** with the SPN fixture present the model picked
+  the SPN row ITSELF for the incomer and returned the outgoings as `32A SP`; 32 was not the named
+  amp, so the row-wide FALLBACK laddered them. The anchor is now judged over EVERY breaker pick in
+  the family's poles: when any pick carries a named amp, only named candidates move (possibly none);
+  the fallback survives only when NO pick carries a named amp (`'45A TPN MCB'` fitted to 63 A -- the
+  one TP pick still ladders, as today). Pins:
+  `test_the_fallback_does_not_fire_when_the_named_breaker_is_already_accounted_for`,
+  `test_no_amp_beside_the_token_falls_back_to_the_row_wide_rule`,
+  `test_a_named_amp_that_matches_no_pick_falls_back_too`.
+
+### TPN is a no-op, proven not asserted
+
+`head_vs_new.py` loads HEAD's corrector from `git show` and runs it beside the working tree's ladder,
+in memory, over every stored db_switchgear selection with a breaker pick -- 32 active runs + all used
+events, **573 selections, 297 carrying TPN-family or 4P/FP text** -- against the live catalogue:
+**0 differences** in picked values or records after every code change (the one residual replay
+difference is an SPN row whose stored C4 pick points at the deactivated fixture). Rung 3 is
+unreachable for TPN on the live catalogue: TP MCB rows exist at 25/32/40/63 A x C/D and FP rows at
+all eight. Regression pin: `test_tpn_outcomes_are_byte_identical_on_the_existing_fixtures`.
+
+### The two 2026-09-05 rulings mid-slice
+
+1. **S3 --** `test_no_fp_sibling_leaves_the_pick_alone_and_records_why` pinned "swap, never blank".
+   Ruling: *"the ladder supersedes 'swap, never blank'. Invert the pin - no rating at or above, on
+   that curve, blanks. Rename the test to describe what it now asserts, and leave one inline comment
+   naming this ruling and its date."* -> `test_no_rating_at_or_above_on_that_curve_blanks_the_pick`.
+2. **Scope --** #57 item 2 ("where a rating is moved up, the panel says so in words, visibly")
+   needed the rate-helper frontend. Ruling: *extend*, and use the v6.00 notes-list mechanism rather
+   than a second channel. Built: `AttrNote` kind `rating_up` (+ `POLE_WORDS`, `ATTR_NOTE_ORDER`
+   now `["upgrade", "rating_up", "capped", "uncovered"]`, `attrNoteText` ->
+   `No 2 pole MCB at 16A on the D curve — using 25A.`, `ExtractedAttr.pole_ladder`) in
+   `rateHelperTypes.ts`; `ratingUpNote()` producer in `pricingSheetHelper.ts` at the one place an
+   extraction cell becomes a `WorkingsAttribute` (cleared by an override, like `defaulted`; words
+   read from the PRICED row's catalogue attributes); `RateHelperPanel.tsx` NOT needed (renders any
+   note kind). A further owner ruling extended the enumerating pin `ORDERING is declared, not
+   incidental` to the four kinds: *"a note kind whose position is incidental is precisely what that
+   pin exists to forbid"*. Five vitest pins, red before / green after; render is carried by the cert.
+
+### The live cert (2026-09-05, session `admins@nirmaan.app`, :8080 via vite, de-staled per runbook)
+
+Frontend bundle markers on the PLAIN url: `ratingUpNote` x2 in `pricingSheetHelper.ts`, `POLE_WORDS`
+and `"rating_up", "capped"` in `rateHelperTypes.ts`. Backend restarted (kill by PID, `--noreload`,
+ping 200 x3 with the Host header) after every backend edit; :8080 chain 200/200/200 x3; socketio
+restarted on :9000 under explicit owner authority.
+
+| step | row | result on the RENDERED PANEL |
+|---|---|---|
+| C1 | 00193 r135/136/138 | Items, "DB and Switchgear", rate 0, no suggestion (no run existed); 00015 r311 exists as recorded |
+| C2 | 00193 r135 | MCB 2 `40A DP MCB D CURVE` = 2,049 (rung 2 from `40A SP` 923), MCB 1 `16A SP MCB D CURVE` untouched; supply 7,210 / install 1,450 / combined **8,660** (before-value by the panel's own arithmetic: 6,650 / 1,330 / 7,980) |
+| C2 | 00193 r136 | MCB 2 `40A DP MCB D CURVE` 2,049; 6,200 / 1,240 / **7,440** |
+| C2 | 00193 r138 | MCB 2 `40A DP MCB D CURVE` 2,049; 8,520 / 1,710 / **10,230** |
+| C3 | 00015 r311 | not producible there: the row is a qty-less Preamble (qty 0) outside the suggestion population, and its sheet declares no amount formulas (Suggest disabled) |
+| C3 | 00193 r135, borrow-and-return | **OBSERVED ON SCREEN.** With `40A DP MCB D CURVE` (`BRMI-26-10695`) temporarily deactivated, the scoped run `BRSR-26-00282` stored `mcb2_item 63A DP MCB D CURVE` with `pole_ladder {amp_moved_up {40 -> 63}, to: 63A DP MCB D CURVE}` and the panel rendered, character for character, `No 2 pole MCB at 40A on the D curve — using 63A.` as an amber `<p class="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">` directly under the MCB 2 select -- the panel's note area, not the derivation trace. Figures unchanged (7,210 / 1,450 / **8,660**) because 63A DP D costs the same 2,049 as 40A DP D: the item name and the sentence are the whole evidence. Full method + timings below |
+| C4 | 00193 r135 | MCB 2 `40A SPN MCB D CURVE` = **2,999** (the SPN fixture, by pole, distinct price); 7,440 / 1,490 / 8,930 |
+| C4 | 00198 r77 | MCB 1 `40A TPN MCB C CURVE` = **4,444** (the TPN fixture); 21,920 / 4,390 |
+| C5 | 00198 r77 | back to `40A FP MCB C CURVE` 4,012; **21,710 / 4,350** -- exactly C6 |
+| C5 | 00193 r135 | MCB 2 back to `40A DP MCB D CURVE` **2,049** (exactly C2); total 8,370 because the model returned the outgoings as `32A SP` on this call (16A in C2) -- a component the ladder never touched |
+| C6 | 00198 r77 / r88 | re-extracted: `40A FP MCB C CURVE`, **21,710 / 4,350** and **23,450 / 4,690** -- identical to the sheet's priced rates and the 2026-08-23 cert figures; 00200 r77 re-extracts to `32A FP MCB C CURVE` (same record as today; its scoped run saved `partial` -- prior run does not cover 4 newer rows); 00193 r121/r122 show the FP picks (`40A FP` / `63A FP` = 4,012) |
+| C7 | catalogue | active Electrical 1,367 -> 1,369 (fixtures) -> 1,367; residual: three rows, all `active = 0` (`BRMI-26-710067` SPN-C, `-710068` TPN-C, `-710069` SPN-D); no export, snapshot, mint or loader run |
+
+**Fixture note:** every live SPN pick is D-curve (the "SERVER DB - D cruve" header; r138 says "D
+Curve"), so the owner-specified SPN-C fixture could never be selected by rung 1 (exact curve); it
+was deactivated and an SPN 40 A **D** row added at the same distinct price (counterpart `40A DP D`
+= 2,049). With a named-pole row in the slot catalogue the MODEL picks it directly (the ladder is then
+idempotent) -- rung 1 as a correction is exercised by the unit pins, the live path shows the same
+outcome by a shorter route. A whole-sheet run on `BOQ-26-00193 / Sheet1` (153 rows) had to precede
+the scoped runs: `_guard_only_rows` needs a prior run to carry forward.
+
+### C3 on screen -- the borrow-and-return method (2026-09-05, owner-approved, reusable)
+
+The live catalogue carries DP D-curve MCBs at 25/32/40/63 A, so no real row can reach rung 2's
+"next amp UP" branch. The method: **deactivate the exact-amp row for a few minutes, run the ONE
+scoped row, read the panel, give the row back, and re-run once.** Rules held throughout: no export,
+no snapshot, no asset mint, no loader run while the row is off; return the row FIRST if anything
+goes wrong; report the borrow window in minutes and the active count at every step.
+
+- **Reversibility proven FIRST on a throwaway row** (`BRMI-26-710069`, my own fixture): the app
+  exposes only `deactivate_rate_master_item`; reactivation is the Frappe DOCUMENT LAYER (`PUT
+  /api/resource/BoQ Rate Master Item/<name> {"active": 1}` from the logged-in session, or
+  `doc.active = 1; doc.save(ignore_permissions=True)` -- `track_changes` writes a `Version` row
+  `[["active", 0, 1]]` either way; never a raw table write). Deactivate -> `[["active", 1, 0]]`.
+- **Cycle 1 (18:00:37 -> 18:03:37, 3 min; active 1,367 -> 1,366 -> 1,367):** run `BRSR-26-00256`
+  stored the 63 A pick but NO `pole_ladder` on the cell -> S-R3, row returned first, then the
+  row_map-versus-row_out defect below was found, fixed and pinned. The sentence was NOT observed.
+- **Cycle 2 (18:20:59 -> 18:24:07, 3 min; active 1,367 -> 1,366 -> 1,367):** run `BRSR-26-00282`
+  (`ai_status ran`) -> the C3 row in the table above. Every recorded field of `BRMI-26-10695`
+  identical after the return (attributes, rates, item_uid, source, batch); snapshots 10 before and
+  after; the three fixture rows stayed `active = 0`.
+- **The return run `BRSR-26-00283` (row present again) returned a DEGENERATE model reply:** every
+  breaker slot `null` at confidence 0 and one non-catalogue name (`40A DP RCCB 300mA (FP)`) that
+  the mapper dropped; the ladder had nothing to touch. The stored cell carries no `pole_ladder` and
+  the panel shows "Complete the missing attributes to price" with NO amber note -- so "no sentence
+  when nothing moved" holds, but the "back to `40A DP MCB D CURVE` at 2,049" half rests on C5
+  (same code path: a plain swap stamps nothing, pinned by
+  `test_a_plain_same_amp_swap_stamps_nothing`), not on this run. The run budget ("two scoped runs,
+  no more") was spent, so row 135's ACTIVE suggestion is currently that degenerate run; the next
+  whole-sheet or scoped run on `BOQ-26-00193 / Sheet1` replaces it. The row is unpriced (rate 0),
+  so no priced figure is affected. Model non-determinism on a single-row batch is a known shape;
+  nothing in this slice caused it.
+
+### The row_map-versus-row_out finding (its own entry, 2026-09-05)
+
+`_extract_batch` keeps TWO maps per row: `row_out` is the RESULT cell the run stores in
+`BoQ Rate Suggestion Run.results` (what the panel reads); `row_map` is the CAPTURE-LOG map
+(`cap_map[rid] = row_map`, observation only, written to `logs/boq_rate_extraction_capture.jsonl`).
+The first build stamped `pole_ladder` on `row_map`. **A marker written to the capture log is not
+written to the result** -- the ladder ran, the pick moved, the capture log recorded the move, the
+stored cell carried nothing, and the frontend had nothing to word. **Both sides' tests passed while
+the join was broken:** the backend pins asserted the RECORD the ladder returned, the frontend pins
+asserted the note built FROM a cell that already carried `pole_ladder`. Only the rendered screen
+(cycle 1, S-R3) tested the join. Fix: `stamp_pole_ladder(row_out, records)` on the result cell,
+mirrored into `row_map`; pinned by `TestPoleLadderStamp` (4 tests, red-first, vacuity-proven:
+stamp line -> `pass` -> 2 errors). Rule recorded in root `CLAUDE.md` (Testing Conventions): a test on
+each side of a boundary is not a test of the boundary.
+
+### Register (recorded, not fixed): no UI reactivation path for a Rate Master item
+
+The app can DEACTIVATE a `BoQ Rate Master Item` (`deactivate_rate_master_item`, doc.save
+`active = 0`) but offers no way back from the UI: there is no reactivate endpoint and no control on
+the Rate Master page. Reactivation today is the document layer (Desk form / REST PUT / bench
+script), which is audited but admin-only and invisible to the estimation users who use the page.
+Do not fix in this slice; owner to schedule.
+
+### Still owed
+- **Slice B:** `industrial_sockets` (`BOQ-26-00126` r398, "32A SP+N MCB") -- its own
+  `mcb_pole_stated` table and `catalog_fit`, untouched here.
+- **Row 135's active suggestion** on `BOQ-26-00193 / Sheet1` is the degenerate `BRSR-26-00283`
+  (see above); one ordinary re-run restores it.
+
+
+---
+
+## F-30 slice B -- industrial_sockets: the SPN family, the refusal, the amber note (2026-09-06)
+
+**Owner rulings served (verbatim, not extended):** *"so the shape is that for any ploe + Neutral,
+should be matched withnext higher pole: SPN with DP, TPN with 4p"* / *"we need to first match with
+SPN in catalog, if that is not there then we match with DP"* (same for TPN: *"yes"*) / *"next
+rating"* / on refusing rather than pricing the socket alone: *"this is the correct outcome"* / on
+preference at a moved rating: *"no. DP vs SPN should be decided based on which is closer in rating"*
+/ on the amber note: *"implement same for sockets also"* / *"i prefer ride along unless you
+disagree"* / the four visible changes: *"proceed"*. **F-30 is now closed on both engines.**
+
+### Where the socket path resolves a pole (the slice-B recon, corrected premise)
+
+industrial_sockets is NOT "a config table instead of the board code path" -- it is a config table
+FEEDING a second, frontend, catalogue-dependent ladder. The model reads four `panel: false` facts
+under R12 (`mcb_present`, `mcb_amp_a`, `mcb_pole_stated` VERBATIM from an allowed list,
+`mcb_curve_stated`); a `map_attribute` table normalises the stated pole (`mcb_pole_norm`), the socket's
+pin count is the fallback, and `catalog_fit` (ratePipelineInterpreter.ts) fits the stated amp at that
+pole and curve -- exact else next UP. The board ladder in `extraction.py` is structurally unreachable
+here (`pole_catalog` is None for every non-composite config) and was not touched.
+
+### The three changes -- all CONFIG + FRONTEND, no interpreter change, no backend code change
+
+1. **The SPN vocabulary (asset v56).** `mcb_pole_stated.values` 11 -> 16 with `SPN, SP+N, SP+NL,
+   SP&N, 1P+N`, and the normalisation table gains the same five keys -> `DP` in BOTH pipelines; the
+   step `explain` names them. **Why that list:** it is the board ladder's own vocabulary
+   (`extraction._SPN_FAMILY_TOKENS`), the "other input" the owner named; the socket corpus sweep
+   (616 texts, 2026-09-05) uses exactly ONE of them on a breaker, `SP+N`
+   (`BOQ-26-00126/ELEC/r398`). Nothing is padded beyond what one of the two paths uses.
+   **The R12 answer: R12 is NOT touched.** It already says *"recorded VERBATIM as one of the allowed
+   values ... the conversion to the catalogue's pole is computed downstream"*, so widening `values`
+   is sufficient; R12 lives in the SHARED rules block (a phrase in one rule is visible to every other
+   question, measured twice in two days), and `test_r12_and_every_other_config_are_byte_identical_
+   to_the_prior_asset` pins it byte-equal to v55. `notes` is untouched too; this entry is the record.
+2. **Refuse instead of pricing the socket alone (asset v56).** The paired-MCB `catalog_fit` flips
+   `on_miss` `"none"` -> `"no_compute"` in BOTH pipelines. VERIFIED mechanism: the interpreter's
+   `no_compute` branch returns `bail(...)` -- `status: "no_match"`, no finals, no zero, no crash
+   (pinned inline at `ratePipelineInterpreter.test.ts` "THE SHIPPED SHAPE"). `on_missing_fact: none`
+   and `absent_when` are UNCHANGED: a row naming no amp, or no breaker at all, still prices the
+   socket alone -- only "asked for more than we carry" refuses.
+   **What the pricer sees, verbatim:** header `no match for these attributes`; body
+   `No indsock_boq rate row matches Item = ..., Enclosure = ..., Rating = ..., Pole/Phase = ...` (one
+   line per pipeline). ⚠️ **That is JARGON** (`indsock_boq` is a pipeline id; the interpreter's own
+   reason -- `125 exceeds the largest 'paired_mcb' the catalog carries (80 FP MCB) -- no value
+   computed` -- never reaches the panel, only the derivation trace). It is the pre-existing no-match
+   wording every category already shows; this slice ADDS rows to that population and does NOT
+   reword it, because the rewording is a judgement on wording that would change every category's
+   refusal line (an unapproved visible change, #57). RECORDED AS A REGISTER ITEM for the owner.
+3. **The amber note on socket rows (frontend).** ONE WORDING SOURCE, TWO PRODUCERS: the board note
+   comes from the server's `pole_ladder` marker; the socket hop is computed in the frontend
+   `catalog_fit`, which writes no marker. `pricingSheetHelper.catalogFitRatingUpNote(cf, items)` builds
+   the marker shape from the `CatalogFitOutcome` (`requested` -> `size`, `fitted`) and hands it to the
+   SAME `ratingUpNote`, so both paths share one note builder and one sentence (`attrNoteText`);
+   `applyDerivedDisplay` gains an optional `items` param and attaches the note in its FITTED branch.
+   Gated on the fitted row carrying a `device` -- a tray/thickness ladder is a hop too, but "No
+   matching breaker at 300A" would be a fabricated fact. `rateHelperTypes.ts` and `RateHelperPanel.tsx`
+   untouched; `ratePipelineInterpreter.ts` untouched.
+
+**Rung 1 on the socket path is NOT built** (not one of the three changes). The interpreter's
+list-valued `where` (`pole: ["@named", "@counted"]`, earlier member wins a same-size tie, size decides
+first) would deliver exactly *"closer in rating, SPN at ties"* when a literal-SPN/TPN row exists; today
+none does (the only ones are the three inactive slice-A fixtures). On the register with the board
+ladder's owed correction.
+
+### Delivery path -- real figures
+
+Freeze OFF. Pre-import: active Electrical **1,367** on batch `rmbulk-79a607128a2e`, 12 active configs,
+industrial_sockets values 11 / table 11 keys / `on_miss none, none`. Mint `_mint_v56_tmp.py` (scratch,
+not committed -- the `_mint_v5*_tmp.py` precedent): asserts every v55 precondition, changes ONE
+category, asserts every other config / all 1,367 items / all 12 goldens byte-equal (deep equality,
+never a count), prints **21 differing leaves v55 -> v56** (5 values, 2x5 table keys, 2 step explains,
+2 fit explains, 2 `on_miss`), sha256 `1db7ec9e18ada8501f1e95bdbdd9e1ec557617b4e8f4f241d4a7dd4d517706a3`,
+784,125 bytes, LF. `CURRENT_EALL_ASSET` -> v56. `scripts/mint_completeness_check.py HEAD:v55 v56`:
+**PASS, no atoms disappeared** (uninspectable window v15/v16/v16a/v16b/v42/v48/v49 as always).
+Import in-container, explicit path, `replace=True`: loader `status loaded`, batch
+**`rmbulk-2e0909b55e60`**, items_total 1,367, configs_loaded 12, items_deactivated 1,367,
+configs_deactivated 12. Post-import: active **1,367** on the new batch, 12 configs; live
+industrial_sockets (`BRCC-26-07907`) vs the v56 asset: **291 leaves, 0 differing**; every other
+config **12/12 leaf-equal**. Only then the backend restart (kill by PID 11812/11821, `--noreload`,
+ping 200 x3), vite cache cleared, chain 200/200/200 x3, bundle marker `catalogFitRatingUpNote` x2 on
+the plain url.
+
+### Pins (red first, then green; vacuity proven)
+
+- `test_rate_master.TestSpnPoleVocabulary` (7, new): SPN spellings -> DP (POS); offerable values
+  (POS); plain SP/DP/TP/FP pass through -- THE SOCKET-TOKEN NEGATIVE, table half (NEG); four-pole
+  family byte-identical to v55 and the widening is EXACTLY the five keys (NEG, TPN unchanged); SPN
+  spellings named in the explain (POS); paired-MCB fit `no_compute` in both pipelines with
+  `on_missing_fact`/`absent_when`/`direction`/`prefer_attr` unchanged (POS+NEG); R12 + every other
+  config byte-equal to v55, industrial_sockets differs only in the three named places (NEG). RED
+  against v55: 5 of 7 (the two "nothing moved" negatives are green by construction). GREEN against
+  v56: 7/7; `TestTpnPoleVocabulary` 17/17 (its values pin updated to sixteen, ruling dated inline).
+- `pricingSheetHelper.test.ts` "F-30 slice B" (7, new): 20 A -> 25 A hop yields ONE `rating_up` note
+  worded `No 4 pole MCB at 20A on the C curve — using 25A.` (POS); socket note deep-equals the board
+  note built from a server marker with the same numbers (ONE WORDING SOURCE); exact fit says nothing;
+  stated paired MCB says nothing; concluded absence says nothing; a hop on a device-less ladder gets
+  no breaker sentence (NEG); Change 2 through the helper: no `supply_rate`, header + body lines
+  verbatim shape, no note. RED 2/7 before the producer, GREEN 7/7 after.
+- `ratePipelineInterpreter.test.ts`: the `on_miss` sentinel pin RENAMED (mechanism, no longer the
+  shipped socket rule) and the `no_compute` pin promoted to "THE SHIPPED SHAPE", ruling dated inline;
+  interpreter source untouched.
+- VACUITY: producer line replaced by `undefined` -> the two positives red (2 failed / 211 passed) ->
+  restored byte-identical (sha `e472b78cde47`) -> 213/213. Config pins' vacuity IS the v55 red run.
+- Counts in-session: BEFORE coercion 113 / suggest 71 / rate_master 300 / vitest 3,149 of 3,150;
+  AFTER coercion 113 / suggest 71 / rate_master 307 / vitest 3,156 of 3,157 (only the known
+  `writeOffControl` timeout, both times).
+
+### The briefing measurement (read-only) -- rows that REFUSE under Change 2
+
+Recon claimed ELEVEN; the repo says **FOURTEEN** on current committed versions -- the eleven plus
+three RCCB rows the recon's TPN-only vocabulary missed (`4P RCCB` at 100/125 A: R12 counts RCCB as a
+breaker word, `device: MCB` then finds nothing at 100/125 A at FP, so the row refuses):
+
+| row | breaker named | rate today | source of that rate |
+|---|---|---|---|
+| BOQ-26-00143/BOQ r760, r762 | 100A / 125A TPN MCB | supply 22,000 / 2,200; install 3,000 / 3,000 | hand-typed (vanshika, 29-30 Jul; sheet has NO suggestion run) |
+| BOQ-26-00143/BOQ r764, r766, r768 | 200 / 250 / 400A TPN MCB | none | -- |
+| BOQ-26-00153/BOQ r767, r769 | 100A / 125A TPN MCB | supply 104,960 / 104,960; install 36,740 / 36,740 | hand-typed (vanshika, 31 Jul; no run) |
+| BOQ-26-00153/BOQ r771, r773, r775 | 200 / 250 / 400A TPN MCB | none | -- |
+| BOQ-26-00174/Electrical r236 | 125A TPN MCCB | none | (has a pre-R12 run; refuses on re-run) |
+| BOQ-26-00173/Electrical r58 | 100A 4P RCCB | none | -- |
+| BOQ-26-00173/Electrical r217 | 100A 4P RCCB | install 2,500 | hand-typed (sushmitha, 10 Aug; no run) |
+| BOQ-26-00140/Electrical r658 | 125A 4P 30mA RCCB | supply 66,715; install 23,360 | hand-typed (sushmitha, 3 Aug; no run) |
+
+No `BoQ Rate Suggestion Event` exists on any of them -- every rate above was typed, none was a used
+suggestion, and a refusal never touches a typed rate. Search space: every current `BoQ Row Category`
+row set resolving to industrial_sockets on its sheet's current committed version (519), predicted from
+the stored extraction where one exists (stated amp above the top rung at the resolved pole/curve) and
+from the row text otherwise (a breaker word beside an amp above 80).
+
+### The live cert (2026-09-06, admins@nirmaan.app, :8080 via vite)
+
+De-stale as written: web 11812 + worker 11821 + the vite tree killed BY PID, `bench serve --port 8000
+--noreload` + `bench worker` detached (new PIDs 14350 / 14354), :8000 ping **200 x3** with the Host header,
+`node_modules/.vite` cleared, vite detached (14377), :8080 chain **200/200/200 x3** (with the Host header --
+without it the proxied `/api/method/ping` is a 404 for site resolution, a curl artefact not an app one),
+service worker unregistered (1), site storage cleared, tab closed, new tab, bare root first, then the deep
+route. FRONTEND bundle marker on the PLAIN url: `catalogFitRatingUpNote` **x2** in
+`pricingSheetHelper.ts`. ⚠️ **No CSRF break occurred this time** -- the session cookie survived the
+backend restart and the first `start_suggest` POST was accepted (HTTP 200 at 06:29:16); nothing to wait
+for. Every run SCOPED except the one the guard refused (below). AI calls: **four runs** --
+`BRSR-26-00334` (00190/Sheet1, rows 49+179, 1 batch), `BRSR-26-00335` (00174/Electrical, 6 rows, 1 batch),
+the refused scoped start on 00126/ELEC (HTTP 417, no run document, no AI call), and `BRSR-26-00336`
+(00126/ELEC whole sheet, 205 eligible rows, 17 batches).
+
+| step | row | RENDERED PANEL |
+|---|---|---|
+| D1 | 00126/ELEC r398 | exists (`BOQN-26-59799`, Line Item, current v1, `human_category_id = industrial_sockets` since 2026-07-25). Scoped run REFUSED by the guard: server HTTP 417 `Nothing to carry forward -- There is no completed suggestion run for this sheet to carry the untouched rows`; the UI showed only the generic `Suggestion run failed ... check the AI settings/key` modal (pre-existing wording, noted below). Whole-sheet run `BRSR-26-00336`: model `mcb_pole_stated = SP+N` (recorded VERBATIM -- Change 1 at extraction), `mcb_amp_a 32`, curve unstated -> C. Paired MCB **`32A DP MCB C CURVE`** = 729 -- a TWO-POLE 32 A device, not single-pole; supply **11,068** / install **3,880**; no amber note (exact fit). ⚠️ The recon predicted 9,442 / 3,310 on a 3-pin socket; the model read the socket as `5 Pin / 3P+N+E` (the text says `SPN+E Metal Clad Socket`), so the SOCKET line is 10,339 (32A 5-pin IP44/54, 10,550 x 0.98) rather than 8,713 -- a model reading of the socket's pin count, outside this slice's mechanism; the breaker half of the prediction (SP 194 -> DP 729) holds exactly. The row's typed rates (supply 3,400 / install 1,200, 24 Jul) were NOT touched. Screenshot `screenshot-1788679504336-22.png` |
+| D2 | 00190/Sheet1 r49 | model `mcb_pole_stated = SP` (the socket's own SPN NOT reported); Paired MCB **`20A SP MCB C CURVE`** = 223, socket 7,909; supply **8,132** / install **2,850** / combined 10,982; NO amber note. SP stays SP |
+| D2 | 00190/Sheet1 r179 | model `mcb_pole_stated = DP`; Paired MCB **`25A DP MCB C CURVE`** = 729 (20 A DP not carried -> 25 A); supply **8,638** / install **3,030** / combined 11,668. DP stays DP. Before the run both rows read `Complete the missing attributes to price` (their stored extraction predated the four MCB facts) |
+| D3 | 00190/Sheet1 r179 | amber, in the note area directly under **Paired MCB**, class `pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400`: `No 2 pole MCB at 20A on the C curve — using 25A.` (screenshot `screenshot-1788676450697-11.png`) |
+| D3 | 00174/Electrical r220, r222 | `No 4 pole MCB at 16A on the C curve — using 25A.` and `No 4 pole MCB at 20A on the C curve — using 25A.` under Paired MCB; `25A FP MCB C CURVE` = 1,396; 10,618 / 3,720 (= golden i4). Before the run both priced the socket ALONE (9,222 / 3,230) -- an old-run under-pricing the re-extraction corrected |
+| D4 | 00174/Electrical r236 (125A TPN MCCB) | REFUSES: header `no match for these attributes`, headline `—`, Paired MCB `— select —`, body `No indsock_boq rate row matches Item = Industrial Socket with MCB, Enclosure = IP67 - Water Proof, Rating = 125A, Pole/Phase = 5 Pin / 3P+N+E.` + the `indsock_install` twin; no total anywhere. Before the run it priced 73,111 / 25,590 off a model-STATED `125A FP MCCB` (pre-R12 extraction). Screenshot `screenshot-1788676704488-13.png` |
+| D5 | 00174/Electrical r226, r228 | `32A FP MCB C CURVE` = 1,396; **12,372 / 4,340** before AND after the re-run -- unchanged to the rupee |
+| D5 | 00174/Electrical r234 | `63A FP MCB C CURVE` = 1,986; **24,918 / 8,730** before AND after -- unchanged to the rupee |
+| D6 | catalogue + config | after the cert: freeze OFF; active Electrical **1,367** on `rmbulk-2e0909b55e60`; snapshots 10 (no export/snapshot/mint/loader during the cert); every one of the 12 live configs **leaf-equal to v56** (industrial_sockets `BRCC-26-07907` 291/291, 0 differing); the three fixture rows from slice A still `active = 0` |
+
+No `Use this value` was clicked anywhere; no rate cell, remark or colour was written; the only writes are
+the suggestion-run documents the runs themselves create. One accidental client-side VIEW toggle
+(`Show unpriced`, from a mis-aimed click on the 00126 tab) was cleared in the same minute; it is page
+state, not data. `Fast render` was switched OFF on the 00126 tab (page-session A/B toggle) so row 398
+could be reached in the DOM; not persisted.
+
+### Register (recorded, not fixed)
+- The board ladder owes the "closer in rating" correction (rung 1 exact-only vs the socket
+  interpreter's size-first + preference); inert today on both paths (no literal SPN/TPN catalogue row).
+- Rung 1 (named pole first) on the socket path is expressible as a two-member `where.pole` list;
+  not built, inert today.
+- The pricer-facing refusal line is jargon (`No indsock_boq rate row matches ...`) and the interpreter's
+  real reason never reaches the panel; a rewording changes every category's no-match line -- owner call.
+- No UI path to reactivate a Rate Master item (from slice A).
+- `63A DP MCB D CURVE` and `40A DP MCB D CURVE` are both priced 2,049.
+- Slice A's degenerate return run left row 135's active suggestion empty on `BOQ-26-00193 / Sheet1`.
+
+
+## F-25 slice 1 -- SHOW the back box: one display attribute on switches_sockets, config only (2026-09-06/07)
+
+**Date:** 2026-09-06 (build) / 2026-09-07 (cert, commits) · **Branch:** `feature/boq-pricing-helper`, off `70d0af55` · **Asset:** `rate_master_electrical_all_v57.json`, sha256 `ef8044e1a9fe9061585e4189e47f312112edf8958903d4bedc2b14d567fe7f19`, 784,378 bytes, LF · **Live batch after import:** `rmbulk-e4a8c133da89`, 1,367 items, 12 configs · **Frontend source changed:** NONE.
+
+### What F-25 is, and where this slice sits
+
+F-25 is the bare-box defect: a switches_sockets row describing a box with no switch and no socket prices a
+confident 0/0/0 (the zero-module branch of `module_fit` binds the None sentinel to `box_item` because the
+switches_sockets ladders carry no `on_zero_modules`; `none_skips` zeroes the `back_box` component). The
+2026-09-06 recons measured **188** rate-editable bare-box rows on 56 sheets, **0 of them sitting on a
+zero** (91 hand-typed non-zero, 97 blank, no used-suggestion event on any), and established the derivation
+of the box on every priced row: `box = fit_on_back_box_ladder( max(stated plate capacity, occupants'
+weighted module sum) )` -- the box size is never an independent fact. Owner rulings (2026-09-06, verbatim):
+*"give th eboix it sown fiedl - but make sure that it functions correctly in all situations ... this new
+field shoudld display the final value from the back box ladder which is used for calculation"*; *"use same
+mechanism of compute labeleing which we have currently"*; a 9M plate driving a 12M box: *"that's ok"* (no
+note); panel overrides surviving a re-run: *"let it be for the time being"* (PARKED); and, after the S5 stop
+on read-only: *"why do we want it. this is just ytransient behavior. once we buil dthe full fix it will not
+matter as chaging would impact price."* -- **READ-ONLY DROPPED.**
+
+Three slices: **slice 1 (this)** shows the box; **slice 2** owes the zero path -- read a stated size (the
+text, incl. parent history: *"the enitre parent history is part of the payload"*), default 3M when no
+module count is readable anywhere, the higher count of a range (`9/8M` -> 9, computed in CODE, never in
+the prompt), the three mm-only rows also 3M (*"this is ok"*), data/voice outlets also 3M; **slice 3** owes
+making a pick EFFECTIVE -- the two-source floor (plate as a MINIMUM) and the ruling that a smaller pick is
+raised to the plate's size with the reason on the panel. ⚠️ **SLICE 3 IS NOW LOAD-BEARING: until it
+ships, the new dropdown is editable and INERT** (see the accepted transient below).
+
+### The one change
+
+`switches_sockets.attribute_definitions` gains, at index 16 (directly after `back_box`, before the hidden
+`modules`):
+```json
+{"id":"box_item","label":"Back box size","type":"choice",
+ "values_from":{"kind":"switch_socket_item","attr":"item","where":{"family":"Back Box"}},
+ "extract":false}
+```
+- **The id IS the box ladder's existing bind.** That is the whole mechanism: `derivedAttrIds` already lists
+  every `module_fit` ladder bind (gate-exempt -- a blank is never "missing input"); `applyDerivedDisplay`
+  already publishes the box ladder's outcome under that bind (`derivedValue` = the fitted rung, marked
+  "(computed)" through the plate's own mechanism); `attributeOptions` already resolves `values_from`.
+  Nothing in `pricingSheetHelper.ts`, `RateHelperPanel.tsx`, `rateHelperTypes.ts`,
+  `rateMasterStructure.ts` or `ratePipelineInterpreter.ts` changed.
+- **`extract: false`** -- the model is never asked. Proven by reading what `build_attribute_defs` emits
+  for the v57 config: 15 ids, `box_item` absent, byte-identical to v56 (`test_f25s1_02`).
+- **No `allow_none`** -- `back_box: Yes/No` is the one "is there a box" fact; a None-able box would be a
+  second source for it.
+- **Label "Back box size"**, not "Back box": the Yes/No field is already labelled "Back box" and sits
+  directly above. Whether vs which. On the panel they read, top to bottom: `Back box` (Yes/No, amber
+  `default` badge when defaulted) then `Back box size` (the rung, italic muted, `(computed)`).
+- **Value list, live catalogue in API order** (`kind asc, source_row asc`): `1M, 2M` (tie on source row
+  53), `3M, 4M, 6M, 8M, 12M, 18M` -- eight rungs, no plate rung (9M/16M are plate-only), no "None"; the
+  panel prepends its `— select —`.
+
+### The invariant -- NO PRICE MOVES -- proven by replay
+
+`switches_sockets.pipelines` are byte-identical to v56 (`test_f25s1_06`), so the interpreter's inputs are
+unchanged and the new attribute is consumed by no step. The dynamic proof: the stored attributes of
+**every switches_sockets row in every active suggestion run -- 372 rows across 40 runs** -- were replayed
+through the real `runPipeline` (esbuild bundle, in-container, offline) on v56 and on v57, both pipelines
+each: **744 comparisons, 0 differing** (148 rows price on `swsock_boq`, of which 54 price exactly 0 -- the
+bare boxes and their kin, still 0 in this slice; 224 refuse on a raw-interpreter miss identically on both).
+Goldens `s1` 120/30/80 and `ss1` 820/170/570 exact; ss1's trace `plate_item 8M (stated 8M), box_item 8M
+(stated 8M); 1 blank` -- the box still follows the plate.
+
+### Delivery path -- real figures
+
+Freeze OFF. Pre-state: active Electrical **1,367** on `rmbulk-2e0909b55e60`, 12 configs, switches_sockets
+`BRCC-26-07913` with **17** attributes. Mint `_mint_v57_tmp.py` (scratch, not committed -- the
+`_mint_v5*_tmp.py` precedent, run from the scratchpad): asserts every v56 precondition (17 ids in order,
+no `box_item`, both box ladders `floor_from: plate_item` / `on_none: computed` / no `on_zero_modules`,
+the eight back-box items), inserts the one attribute, asserts every other config / all 1,367 items /
+every golden / every other top-level key deep-equal (key by key), writes LF like v56. Textual diff v56 ->
+v57 = exactly the 13 inserted lines. `CURRENT_EALL_ASSET` -> v57. `scripts/mint_completeness_check.py
+HEAD:v56 v57`: **PASS, no atoms disappeared**. Import in-container, explicit path, `replace=True`:
+`status loaded`, batch **`rmbulk-e4a8c133da89`**, items_total 1,367, configs_loaded 12,
+items_deactivated 1,367, configs_deactivated 12, retirements existing 6 / created 0. Post-import: active
+**1,367** on the new batch, 12 configs; live switches_sockets `BRCC-26-11013` vs the v57 asset **500 leaves,
+0 differing**; every other config leaf-equal (wiring 310, popup 309, pw 1,154, misc 66, lms 55, jbr 37,
+indsock 291, earthing 101, dbsw 422, conduit 48, tray 385 -- all 0 differing). Only then the services.
+
+### Tests
+
+BEFORE (in-session): coercion **113 OK**, rate_suggest **71 OK**, rate_master **307 OK** (527 s), vitest
+**3,156 of 3,157** (the known `writeOffControl` timeout). AFTER: coercion **113 OK**, rate_suggest **71 OK**,
+rate_master **316 OK** (513 s; 307 + 9 new), vitest **3,164 of 3,165** (+8, same one failure).
+
+New pins, all RED-before / GREEN-after by vacuity (below):
+- `test_rate_master.TestF25Slice1BackBoxField` (9): `_01` the attribute exists with exactly the agreed
+  shape and its id IS the ladder bind (negative: v56 has none); `_02 NEGATIVE` the prompt payload gains no
+  question -- `build_attribute_defs` v57 == v56; `_03 NEGATIVE` not None-able (no `allow_none`, no "None"
+  in the resolved values); `_04` the value list is the Back Box family only (8 rungs, no 9M/16M);
+  `_05` the box ladder's floor is STILL `plate_item` on both pipelines, byte-equal to v56, no
+  `on_zero_modules` -- the pin that stops slice 3 leaking in; `_06` switches_sockets PIPELINES byte-equal
+  to v56 and no step names `box_item` as an input -- the no-price-moves proof, static half; `_07` every
+  other config, item and golden byte-equal to v56, and the ONE difference is exactly one definition;
+  `_08` goldens s1/ss1 to the rupee (ss1 carries the 8M plate); `_09` THE DELIVERY-PATH PIN -- the live
+  active config carries the v57 definitions and pipelines (RED until the import; the runtime is the DB).
+- `test_38_switches_sockets_attribute_shape`: 17 -> 18 plus the box field's shape and its position after
+  `back_box` (mechanical consequence, standing authority; inline comment names the ruling and date).
+- The five cumulative cross-asset pins widened to name `switches_sockets`, each with the dated comment:
+  `TestSpnPoleVocabulary.test_r12_and_every_config_but_the_named_mints_is_byte_identical_to_the_prior_asset`
+  (RENAMED -- its old name "every other config" became untrue; it also now asserts the switches_sockets
+  pipelines equal v55's), `test_pw_cs_14`, `test_pw_cs_23`, `test_pw_cs_31`, `test_lms_12`.
+- `pricingSheetHelper.test.ts` "F-25 slice 1 -- the back box field SHOWS the rung the row is priced on,
+  computed" (8, on an inline probe config mirroring the live shape): blank plate over 3 modules -> `3M`
+  computed, not red, supply 178 (the box alone); stated 6M plate -> `6M` (plate-driven, not contents');
+  9M plate -> `12M` with NO note (owner: "that's ok"); None plate -> `3M` (on_none computed); **NEGATIVE
+  (slice 2 owed): a bare box -> EMPTY field, not red, supply 0**; dropdown = Back Box family only, no
+  "None"; derived => never gates; **KNOWN ACCEPTED TRANSIENT (#57 item 2): a pick of 18M shows `18M`
+  plain and the price stays 178** -- pinned so the transient is a recorded fact, not a rediscovered bug.
+
+**Vacuity (A4):** `box_item` removed from v57 on disk -> `test_38`, `_01` FAIL, `_03`/`_04` ERROR, `_07`
+FAIL (5 red; `_02/_05/_06/_08` trivially green, `_09` vacuously green pre-import); restored by re-running
+the mint -> identical sha; pre-import run: only `_09` red; post-import: all green. Vitest twin: the probe
+fixture's attribute removed -> 7 of 8 red (the derived-set pin stays green by construction); restored -> 8
+green.
+
+### The live cert (2026-09-07 ~00:20-00:45 IST, admins@nirmaan.app, :8080 via vite)
+
+⚠️ The container came back from the owner's 23:14 Docker restart with ONLY `sleep infinity` running -- no
+backend, no worker, no vite -- so there was nothing to kill by PID; declared. Started detached: `bench serve
+--port 8000 --noreload` (PID 1301), `bench worker` (PID 1311), `node_modules/.vite` cleared, `yarn dev`
+(PIDs 1338/1339). :8000 ping **200 x3** with the Host header; :8080 chain **200/200 x3** (`/` and
+`/api/method/ping`). Service worker unregistered (1), caches/localStorage/sessionStorage/IndexedDB
+cleared (3 firebase DBs), session cookie survived; tab closed; new tab; bare root first (dashboard rendered,
+logged in), then the deep routes. **No CSRF break** -- no write was attempted. **No AI call**: every step
+read an existing stored run. **Config-derived bundle marker**: from the page, `get_rate_category_config
+(Electrical, switches_sockets)` returned 18 definitions ending `back_box, box_item, modules`, `box_item` =
+the v57 shape, `import_batch rmbulk-e4a8c133da89`, the box ladder still `floor_from: plate_item`.
+
+| step | row | RENDERED PANEL |
+|---|---|---|
+| F1 | 00242 / LT Electrical works / **50** (qty 66; grid supply **430** / install **90**, unchanged) | ⚠️ AS STORED the panel REFUSES: `Pricing sheet — Complete the missing attributes to price`, **`Plate qty` red and empty** -- the active run (`37a93412`, 2026-09-04 15:19) holds `plate_qty = null` at confidence 0.3 for rows 46-51. Proven PRE-EXISTING and not this slice's: the identical stored attributes on v56 give the identical refusal offline, and the pricer's used event of 2026-09-04 carries `plate_qty: "1"` -- they typed it before "Use". With Plate qty typed `1` (a session override, no write): header **430**; `Frame/Face plate` **3M** italic + `(computed)` (title *"Computed from the assembly -- state a value to set a floor"*); `Blank plate qty` `0 (computed)`; `Colour` White `default`; **`Back box` `Yes` amber `default`**; **`Back box size` `3M` italic muted, marker `(computed)`, title *"Computed from the assembly -- state a value to set a floor"***; `<select>` options `— select —, 1M, 2M, 3M, 4M, 6M, 8M, 12M, 18M`; body `plate: Grid and Face Plates 3M White = 229`, **`back_box: Back Box 3M = 178`**, `supply = 430`, `install = 90`, `combined_rate = supply + install = 520`. Session edits reverted afterwards (Revert). Screenshots `screenshot-1788721436325-24.jpg`, `screenshot-1788721561852-25.png` |
+| F2 | 00217 / ELE-8F / **58** (*"3 Nos 6A Indian sockets ... controlled by 1 no 16A switch in 9 or 10 module plate without back box"*; in the active run, unpriced) | `Switch 16A 1 WAY SWITCH` x1, `Socket 1 6A 3-Pin Socket` x3 = 7 modules; `Frame/Face plate` **9M** plain (stated); `Blank plate qty` `2 (computed)`; `Back box` **No**; **`Back box size` `12M (computed)`** -- the PLATE-driven rung (9 -> next higher 12M on the box ladder), NOT the contents' 8M; NO note (owner: "that's ok"); body `plate: Grid and Face Plates 9M White = 508`, `back_box: Back Box 12M = 0` (Back box is No -> qty 0: the field shows the ladder's rung, the line prices nothing -- RULING 1's "does not re-gate on back_box"), supply **680** / install **140**. No PRICED live row of a shape that distinguishes plate-driven from contents-driven exists: the two priced candidates (`00181/Electrical/39`, `00183/Electrical Works/12`) carry a `1M & 2M` plate over 1 module, where both paths give 1M; the golden `ss1` (8M over 7 -> both 8M) is covered by `test_f25s1_08`. Screenshot `screenshot-1788721804027-27.jpg` |
+| F3 | 00224 / ELECTRICAL / **428** (*"3 Module GI Boxes"*; grid 60 / 20 hand-typed, unchanged) | `Switch None`, `Socket 1..4 None`, `Blank plate None`, `Frame/Face plate` **3M** plain (the model's STATED value, see the investigation below), `Plate qty 1` amber `default`, `Back box Yes`, **`Back box size` EMPTY (`— select —`, no marker, not red)**; body `supply = 0`, `install = 0`, `combined_rate = supply + install = 0`. The zero path is untouched -- slice 2 is still owed. Screenshot `screenshot-1788721699851-26.jpg` |
+| F4 | the two labels together (on F1) | `Back box` [amber `default` badge] `Yes` directly above `Back box size` [`(computed)`] `3M` -- zoom `screenshot-1788721561852-25.png`. They read as two different things: whether, then which. |
+| F5 | grid figures | 00242 r49 **500/100**, r50 **430/90**, r51 **470/100**; 00224 r427-436 **50/10 · 60/20 · 70/20 · 90/20 · 120/30** (GI and PVC blocks) -- every one identical to the `BoQ Cell Pricing` values read on 2026-09-06 |
+| F6 | catalogue + config, after the cert | freeze OFF; active Electrical **1,367** on `rmbulk-e4a8c133da89`; snapshots 10 (none created); live switches_sockets `BRCC-26-11013` **500/500 leaves, 0 differing** vs v57; all 12 configs 0 differing |
+
+No `Use this value` was clicked; no rate cell, remark or colour was written. One mis-aimed click on the
+F1 panel landed on the new `Back box size` dropdown and selected `1M` (a session override -- it showed
+`1M` plain while the price stayed 430/90, i.e. the accepted transient observed live); it was cleared with
+Revert in the same minute, before the F1 reading above. Panel state only, never data.
+
+### Owner questions raised during the cert -- investigated, recorded, NOT fixed
+
+**(a) "plate should not have been blank ... it should have been calculated based on the switch and socket
+selected"** (row 50). The plate ITEM was not blank on screen -- it computed `3M` from the switch and socket
+exactly as ruled. What was blank was the plate QUANTITY, and it is what refused the row. Stored cells, run
+`37a93412` (2026-09-04 15:19), rows 46-51: `plate_item {value: null, confidence 0.3}`, `plate_qty {value:
+null, confidence 0.3}`, no `defaulted` flag. The config's `extraction_defaults.plate_qty = {default: 1,
+requires_named: plate_item}` and the SLOT-PAIRED DEFAULTS prompt sentence say the quantity IS wanted when
+the item is BLANK (only "None" withholds it) -- the model returned null anyway, and nothing server-side
+fills a `requires_named` default (`scrub_unpaired_slot_defaults` only REMOVES). `plate_qty` is a genuine
+input (read via `qty.from_attr`), so a blank gates the row; the pricer typed `1` on each of rows 46-51
+before "Use" (the events' `corrected_attributes` carry `plate_qty: "1"`). **Frequency across the 372
+current-run switches_sockets rows:** plate BLANK & qty present **209** (compliant), plate BLANK & qty
+null **72** (non-compliant; 54 of them have occupants and 30 of those were priced by typing the qty),
+plate NAMED & qty null **0**, plate None **20**, plate NAMED & qty present **71**. The capture-log record
+shape was not parsed this slice, so "the model returned null" vs "a value was coerced away" is inferred
+from the stored cell (null at 0.3, no default flag), not from the raw reply. Candidate fixes, NOT built and
+NOT recommended here: a deterministic corrector filling a `requires_named` default when the named item is
+blank-not-None and the qty is null (code, the CLAUDE.md gate's home for a substitution); or treating the
+plate qty as derived while the plate is derived (helper). Owner's call.
+
+**(b) "for row 428 also check why faceplate was 3m and quantity 1."** Stored cells, run `3258470f`
+(2026-09-02 15:29): row 427 `2 Module GI Boxes` -> `plate_item 2M @0.55`; row 428 `3 Module GI Boxes` ->
+`plate_item 3M @0.55`, `plate_qty 1 defaulted:true`, `back_box Yes @0.6`; row 429 `4 Module GI Boxes` ->
+`plate_item None @0.85`, `plate_qty null`. The model read the BOX's module count into `Frame/Face plate`
+-- the "wrong destination" the 2026-09-06 recon measured on 29 of 49 extracted bare-box rows -- and
+because the plate is then NAMED, the slot-paired default fires and `plate_qty = 1` rides on it
+(`defaulted: true`, hence the amber badge). The same run, same template, gives `None` two rows later, so
+the carrier is inconsistent within one run. Neither value prices anything: the zero path never reaches
+`floor_from`, so the 3M plate is not bought and the box is not fitted -- which is exactly why `Back box
+size` is EMPTY on that row. Slice 2's text-read size must NOT be taken from `plate_item` for this reason
+(the plan doc's own `:32959-32963` warning stands): on a bare box the model's `plate_item` is a mislabelled
+box size 29 times in 49, and a stated `None` or blank 16 times in 45 stated-size rows.
+
+### Register (recorded, not fixed)
+- Panel attribute overrides survive a re-run in the EMBEDDED panel (the component is outside the grid's
+  keyed subtree; `runSuggestRates` clears the selection but not `attrOverrideState`, so re-selecting the
+  same Excel row re-applies old edits on the new extraction). Owner PARKED 2026-09-06.
+- **163 of 372** switches_sockets rows in active runs have `socket3_item` blank/absent (runs predating
+  the slice-5 attributes, plus some fresh rows) and are predicted to refuse with "Complete the missing
+  attributes to price"; screen-checkable example `BOQ-26-00189 / electrical work / 94`.
+- The 72-row blank `plate_qty` defect above (a) -- 30 priced rows had the qty typed by hand.
+- `BOQ-26-00126 / ELEC / 398`: socket misread as three-phase (from the F-30 cert).
+- The board ladder owes the "closer in rating" correction (F-30 slice A register).
+- No UI path to reactivate a Rate Master item.
+- `63A DP MCB D CURVE` and `40A DP MCB D CURVE` both priced 2,049.
+- The pricer-facing refusal line names an internal pipeline id (`No swsock_boq rate row matches ...`);
+  the interpreter's real bail reason (e.g. "20 modules exceeds the largest 'plate_item' the catalog
+  carries (18M)") never reaches the panel.
+- Slice 1's field shows the box ladder's rung even when `back_box = No` (F2: `12M (computed)` beside
+  `Back box No`, line priced 0). Consistent with RULING 1 ("does not re-gate on back_box"); whether the
+  field should blank on No is an owner call for slice 3.
+
+### Files
+`nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v57.json` (new),
+`nirmaan_stack/api/boq/test_rate_master.py` (constant, test_38, five widened pins, one renamed, new class),
+`frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.test.ts` (new describe block), this record.
+`CLAUDE.md`: judged, nothing durable earned -- the slice adds no rule the reference docs do not already
+carry.
+
+## Paired-quantity fill -- a blank quantity beside a present item is filled with its declared default, GENERAL across configs, code only (2026-09-07)
+
+**Date:** 2026-09-07 · **Branch:** `feature/boq-pricing-helper`, off `a0d910a6` · **Asset:** UNCHANGED (`v57`, live batch `rmbulk-e4a8c133da89`, 1,367 items, 12 configs -- G6 re-verified leaf by leaf on switches_sockets 500 / point_wiring 1,154 / popup_boxes 309 leaves, 0 differing) · **Frontend source changed:** NONE · **Schema changed:** NONE (the run doc, the events, the capture log all keep their shape; one new key inside the batch record's `drops` dict).
+
+### What it is, and the ruling that shaped it
+
+The 2026-09-07 recon on the two plate defects found the model returning `plate_qty` NULL on 72 of 281
+blank-plate switches_sockets rows in the 40 active runs -- despite the SLOT-PAIRED DEFAULTS prompt
+sentence saying exactly when to default it. A blank required quantity gates the whole row on the panel
+("Complete the missing attributes to price"), so on 30 of those rows a pricer typed the 1 by hand before a
+suggestion could be used. Owner rulings, verbatim: *"it fills 1 only when it is blank"*; *"yes all paired
+quantities. if the item is filled but qty is blank then it should be populated default 1. when item is none
+or blank it, the default qty rule sshould not be applied"*; the blank-plate-but-computed case: *"this
+should be included"*; stored rows: *"exisiting rows stay broken. it ok"*; and, after a scope stop on the
+fact that a config-derived rule reaches every config carrying the same shape: *"lets make a general
+build"*.
+
+**THE RULE, exactly** (`extraction.fill_paired_slot_defaults`, the mirror of `scrub_unpaired_slot_defaults`):
+- **(a)** for EVERY `requires_named` pair declared in a config's `extraction_defaults`: quantity BLANK
+  (null, empty, or the key omitted) and item FILLED (a real value, not `"None"`, not blank) -> fill the
+  declared default, `defaulted: true`, confidence `_PAIRED_FILL_CONFIDENCE = 0.5`.
+- **(b)** ONLY for a pair whose item is a `module_fit` ladder `bind` (the plate -- `paired_fill_plan(cfg)`
+  derives it from the pipelines): quantity BLANK, item BLANK, and the row OCCUPIED -> fill. "Occupied"
+  mirrors `module_fit`'s own sum: some occupancy term (the ladder's `terms`) whose item is FILLED carries a
+  quantity above zero, evaluated AFTER case (a). A `"None"` plate is never filled.
+- NEVER over a quantity the model READ -- a read 0 is a value, not a blank, and is left alone.
+
+Case (b) is why this is CODE and not a prompt or config change: it needs two facts the one-pair config
+shape cannot carry -- which item is COMPUTED rather than read (derivable only from a different config
+section, the pipelines), and whether the row will BUY it (a cross-slot fact about OTHER pairs, on the row
+after case (a)). The prompt sentence stays as guidance; this is the enforcement -- the same doctrine as
+`apply_conductor_floor` and `force_absent_dependents`.
+
+**Config-DERIVED, never config-DECLARED, and NO category or attribute name in code** (the HV-10 lesson).
+That derivation is exactly what pulls the two other live categories in: point_wiring and popup_boxes both
+declare `requires_named` pairs AND a `module_fit` plate ladder. Nine of the twelve live configs declare no
+`requires_named` default at all -- the plan is `None` and the fill returns nothing for them (pinned).
+
+### Siting and ordering (load-bearing)
+
+Called in `_extract_batch` directly AFTER the scrub loop and BEFORE `force_absent_dependents`. The scrub
+first settles every `"None"` slot to "no quantity", so the occupancy test never counts a quantity the scrub
+is about to remove. The two are COMMUTATIVE on every single slot (None vs filled/blank are disjoint) --
+pinned by `test_scrub_then_fill_equals_fill_then_scrub_on_a_mixed_row` -- and the order makes the
+dependency direction explicit. Each fill is recorded in the batch capture exactly as the scrub is: a
+`drops["paired_slot_defaults_filled"]` map `{excel_row: [qty_attr, ...]}` and a `row_map` entry with
+`reason: "paired default filled (code)"`, `defaulted_claimed: False`, `defaulted_kept: True`. The plan is
+resolved ONCE per (discipline, category) in `run_extraction`'s group context and passed positionally to
+`_extract_batch` right after `conductor_groups`.
+
+### The measured population (all 40 active runs, before building) -- and a correction
+
+| category | rows | case (a) gains | case (b) gains | total |
+|---|---|---|---|---|
+| switches_sockets | 372 | **0** on all six pairs | **54** (plate) | 54 |
+| point_wiring | 263 | 0 | 0 | 0 |
+| popup_boxes | 40 | 1 (`socket2_qty`) | 0 | 1 |
+
+Total 55. **Case (a) is currently INERT on this corpus** -- the model never left a quantity blank beside an
+item it named, on any of the six switches_sockets pairs; the rule's whole live effect today is case (b).
+Of the 54: all refuse on the panel; 32 carry a hand-typed rate; 30 were priced from a used suggestion
+after the pricer typed the 1; 37 sit on exported sheets, 15 of those with no rate. **Correction to the
+recon's "72":** it was 54 + 18 blank-plate rows with NO occupant (bare boxes and kin), which gain nothing
+by construction; the 20 `"None"` plates gain nothing either. The 137 blank `socket3`/`socket4` rows are a
+different defect (runs predating those attributes) and this rule does not touch them. point_wiring's 132
+blank-plate occupied rows already carry `plate_qty`; its `on_zero_modules: 3` sits on the BOX ladder only,
+so a zero-module row buys no plate and case (b) correctly does not fire there.
+
+**Stored rows stay blank** (owner ruling). The fill runs at extraction only; no backfill, no re-run of
+prior runs. A row gains its quantity the next time its sheet (or the row, scoped) is re-extracted.
+
+### Tests
+
+`nirmaan_stack/services/boq_rate_master/test_extraction_coercion.py`: **113 -> 135** (measured in-session
+both times, bench runner). Two classes:
+- `TestFillPairedSlotDefaults` (18): case (a) on every pair / on an omitted key / needs no plan; never
+  beside a `"None"` item; never beside a blank occupant; bare box (blank plate, no occupants) untouched;
+  case (b) positive; case (b) counts an occupant case (a) just filled; case (b) needs positive occupancy,
+  not merely a named item; ignores an occupant whose item is blank; inert without a plan; never
+  overwrites a read quantity including 0; the scrub still removes a `"None"` quantity; the scrub's
+  blank-item contract extended, not broken; scrub/fill commutative; no-defaults no-op; the plan from the
+  LIVE configs (switches_sockets computed `["plate_item"]`, terms = the five occupant quantities); the
+  call site and ordering pinned via `inspect.getsource` (after the scrub loop, before
+  `force_absent_dependents`, recorded like the scrub).
+- `TestFillPairedSlotDefaultsAcrossCategories` (4, the general-build pins): point_wiring blank plate with
+  a present quantity untouched (NEGATIVE); point_wiring zero-module row buys a box but no plate so nothing
+  is filled (NEGATIVE, asserts `on_zero_modules` sits on the box ladder only); popup_boxes case (a)
+  positive (the one live row); a category with no `module_fit` plate ladder untouched entirely (NEGATIVE,
+  all nine other live configs + a synthetic pairs-without-ladder config).
+- Two pre-existing fixture expectations changed from `[qty]` to `[qty, "plate_qty"]`: their probe rows are
+  plate-less and occupied, so case (b) legitimately fills the plate quantity -- the change is the rule
+  working, verified by hand.
+
+**Vacuity:** with the fill body returning `[]`, 7 positives RED, 15 negatives GREEN; restored -> 135 OK.
+Suites unchanged: `test_rate_suggest` 71 OK, `test_rate_master` 316 OK (524.9 s), vitest 3,164 of 3,165
+(the known `writeOffControl` failure, pre-existing, unrelated).
+
+### The live cert (2026-09-07 ~01:45-02:10 IST, admins@nirmaan.app, :8080 via vite) -- 3 AI calls, all named
+
+Web (PID 3379) and worker (PID 3388) restarted after the file write; the backend bundle marker confirmed
+the bench interpreter resolves a module defining and calling `fill_paired_slot_defaults`; site data
+cleared, SW unregistered, re-login. Every batch record below carries the NEW `paired_slot_defaults_filled`
+key -- proof the new code path ran in the worker.
+
+| # | run | rows | tokens in/out | model returned | code filled | run |
+|---|---|---|---|---|---|---|
+| 1 | `BRSR-26-00462` | `BOQ-26-00242 / LT Electrical works` 47, 50 | 4,059 / 864 | `plate_qty 1.0 defaulted:true` on both | nothing | **partial, inactive** |
+| 2 | `BRSR-26-00463` | `BOQ-26-00224 / ELECTRICAL` 428, 429 | 3,881 / 811 | `plate_item 3M / 4M`, `plate_qty 1.0 defaulted:true`, every occupant null | nothing | complete, active (200/200) |
+| 3 | `BRSR-26-00464` | `BOQ-26-00126 / ELEC` 464 | 7,794 / 907 | `switch_qty 1`, `plate_qty 1`, `socket_item None` | nothing | complete, active (205/205) |
+
+- **G3 (bare box, 428) HOLDS:** rendered panel -- every occupant `-- select --`, Frame/Face plate `3M`
+  (50%, the model parking the box count in the plate slot again), Plate qty `1` with the amber `default`
+  badge, `Back box size` EMPTY, rate refused ("Some attributes are missing"); grid 60/20 unchanged.
+- **G2 (429) -- the premise did NOT reproduce:** the brief expected a `"None"` plate row (the OLD stored
+  run's state). The re-extraction returned `plate_item 4M`, not None, so the row rendered exactly like
+  428 (Plate qty `1` default, Back box size empty, refused); grid 70/20 unchanged. The `"None"` branch is
+  therefore proven by unit pin only (`test_never_fills_beside_a_None_item`), not on a live extraction.
+- **G5 (point_wiring, 464) HOLDS:** panel byte-identical before and after -- `Pricing sheet 2809`,
+  Switch qty 1, Socket None, Blank plate None, Plate qty 1; grid 2180/440 unchanged.
+- **G1/G4 (00242 rows 50/47) NOT VISIBLE ON SCREEN:** run 1 stored `partial` and did NOT activate --
+  the sheet's population is 129 (two `lighting_mgmt_system` rows 16/17 became eligible when LMS shipped)
+  while the carried attempted set is 127, so the panel still reads the old active run `37a93412`.
+  Making it visible means resuming the two pending rows -- AI spend outside the named cert rows -- so it
+  was NOT done (brief: "Any spend beyond the named cert rows -> STOP and ASK first"). Grid 700/140 and
+  430/90 unchanged. The batch evidence for the two rows is complete and recorded above.
+- **G6 HOLDS** (config identical to v57, one batch, 1,367 items).
+- **#57 as written -- "plate quantity shows 1 with amber default badge on newly extracted rows" -- is
+  what the screen shows on 428 and 429, but the badge is the MODEL's default, not the code's: on all
+  five cert rows the model supplied the quantity itself and the fill had nothing to do
+  (`paired_slot_defaults_filled: {}` in all three batches).** The positive path (a blank quantity beside a
+  present item, or beside a computed plate on an occupied row) is proven by the 8 positive unit pins and
+  the vacuity run, NOT by a live extraction: no named cert row exhibited the defect on re-run, and finding
+  one that does would cost AI calls outside the approved set. Prices: NOTHING moved on any cert row
+  (`BoQ Cell Pricing` read before and after); events 1,532 before and after; runs 61 -> 64 (the three
+  above), active 40 -> 40 (the new 00224/00126 runs superseded their predecessors; 00242's partial is
+  inactive).
+- Error Log during the window: ONE entry, 01:54:26 `BoQ suggest run halted (partial saved)` -- run 1's
+  own partial save, expected. Unrelated halted runs at 01:47 on `BOQ-26-00244 / Wiring` ("usage limit
+  reached", JSON truncation) predate the cert and are not mine.
+
+### Register (recorded, not fixed)
+- **The population gap on `BOQ-26-00242 / LT Electrical works`** (129 vs 127): any scoped run there
+  stores `partial` and never activates until rows 16/17 are extracted once. Same class as the SR-1
+  resume design; not a defect of this slice, but it makes scoped runs on that sheet invisible.
+- The model parks the BOX count in `plate_item` on bare boxes (428 `3M`, 429 `4M`, and the recon's 29 of
+  49) -- slice 2's text-read size must NOT come from `plate_item` (F-25 slice 1 record).
+- Case (a) is inert on today's corpus; if it stays inert at production volume the (a) branch is a
+  guard, not a fix -- keep it (owner: "all paired quantities").
+- Panel attribute overrides survive a re-run in the embedded panel (PARKED 2026-09-06).
+- 163 of 372 switches_sockets rows in active runs have `socket3_item` blank/absent (older runs).
+- `BOQ-26-00126 / ELEC / 398`: socket misread as three-phase.
+- No UI path to reactivate a Rate Master item; `63A`/`40A DP MCB D CURVE` both priced 2,049.
+
+### Files
+`nirmaan_stack/services/boq_rate_master/extraction.py` (+148/-1: `_PAIRED_FILL_CONFIDENCE`,
+`paired_fill_plan`, `fill_paired_slot_defaults`, the drops key, the call site, `_extract_batch` gains
+`paired_fill` positionally after `conductor_groups`, `run_extraction` resolves the plan per group),
+`nirmaan_stack/services/boq_rate_master/test_extraction_coercion.py` (+349, two new classes, two
+fixture expectations), this record. `CLAUDE.md`: judged, nothing durable earned -- the rule lives in the
+function's docstring and this record; the one principle it rests on (config-derived, no category name
+in code) is already the HV-10 lesson the file carries.
+
+## F-25 slice 2 -- a bare box prices as its back box: the stated size, the 3M default, the assumed note (2026-09-07/08)
+
+**Date:** 2026-09-07 · **Branch:** `feature/boq-pricing-helper`, off `6b5f631e` · **Asset:** `rate_master_electrical_all_v58.json`, sha256 `ed862ff7063277ca061c01e15d03e068f0803c00862486e9fe4175de3919eea0`, 785,527 bytes, LF · **Live batch after import:** `rmbulk-4e9350326e14`, 1,367 items, 12 configs · **Stopped under S10/S6 on 2026-09-07 for two owner decisions; both given 2026-09-08 (recorded below), then certified and committed.**
+
+### What was built (three parts, as briefed)
+
+**Part 1 -- the model reads the size.** `switches_sockets` gains ONE attribute the model is asked for:
+`{"id":"box_modules_stated","label":"Back box module count","type":"number","panel":false}` at index 17
+(directly after slice 1's `box_item`, before the hidden `modules`). `panel: false` is load-bearing: the
+pricer sees the RESULT on `box_item` (slice 1's field), never a second size field, and a hidden attribute
+is exempt from the missing-input gate, so an unreadable count can never refuse the row. **The channel is
+the shared `ESTIMATOR_RULES` block and it is the only one there is** -- re-verified: `build_attribute_defs`
+projects `{id, label, type, values, default, allow_none, identity}` and drops everything else (`panel`
+included), the other prompt sections (`SYNONYMS`, `DEFAULTS`, `SLOT-PAIRED DEFAULTS`, `OPTIONAL
+COMPONENTS` with its optional custom string, `ROW_CONTEXT_SHAPE`) are vocabulary/None/shape sections with
+no per-attribute instruction slot, and the attribute LABEL reaches the model but is a name, not a channel
+(used as a plain name here). Rule **S4** (id, label, `applies_to: box_modules_stated`, guidance) is appended
+to the three existing rules. Its guidance states its test, quotes no corpus text, contains no arithmetic,
+says the count may sit anywhere in the payload incl. every `ancestor_chain` entry (nearest first), says
+write it exactly as the text writes it and every count when more than one is written, says null when no
+module count appears (a millimetre-only size is not a count; a count of ports, nodes or outlets is not one
+either), and ends with "This attribute describes only the box; it changes nothing about how any other
+attribute is read." `test_f25s2_03` pins every one of those constraints mechanically (incl. a banned-word
+list: no `higher`/`larger`/`max`/`next`/`+`, no `16A`/`6A`/`WAY`/`plate`/`socket`/`switch`/`1M..3M`).
+
+**Part 2 -- the pricing consults it.** Both box ladders gain `"on_zero_from": "box_modules_stated"` +
+`"on_zero_modules": 3`; the plate ladders gain nothing; `floor_from` stays `plate_item` (slice 3). In the
+interpreter's zero-module branch (`ratePipelineInterpreter.ts`, `module_fit`) the count fitted is the
+STATED one when `on_zero_from` names an attribute holding a positive finite number, else `on_zero_modules`;
+the existing `buildModuleLadder`/`fitModuleLadder` do the rest: exact if stocked, else NEXT HIGHER, never
+down, an honest `no_match` above the top rung. It is read ONLY on the zero path (a row with occupants never
+consults it) and NEVER from `plate_item`. **The higher-of-a-range pick is CODE at the EXTRACTION layer**
+(`extraction.module_count_from_text`, run in `_extract_batch` BEFORE `_coerce_value_ex` for the
+config-derived set `zero_path_stated_attrs(cfg)` = the attributes any `module_fit` ladder names as
+`on_zero_from`): the attribute is `number`-typed (the api validator refuses a value-less `choice`, and a
+number is what the interpreter reads), so a token like "9/8M" would be dropped by number coercion -- the
+raw token exists in exactly one place, the model's reply before coercion. The parse strikes out
+millimetre-unit numbers and dimension chains (`72 mm x 90 mm x 50 mm` -> nothing), then takes the highest
+remaining integer; the capture log records `{attr, raw, parsed}` under `drops.module_count_parsed` and
+keeps the model's token as `row_map.raw`. **point_wiring's zero-module rows: NOTHING changes**, proven
+three ways -- its config is byte-equal to v57 (`on_zero_modules: 3`, no `on_zero_from`;
+`zero_path_stated_attrs(point_wiring) == []`, so the parse is inert), the RULING 1 verbatim trace pins stay
+green, and a new pin runs `PW_ROW198` with a stray `box_modules_stated: 8` and gets the identical
+`supply 2359` and the identical trace (the key is not declared there, so nothing reads it).
+
+**Part 3 -- the panel says when it guessed.** The ladder outcome gains an optional `zeroPath {stated,
+fitted, assumed, nextHigher}` (published ONLY when `on_zero_from` is declared, so point_wiring's outcome is
+byte-identical), and `pricingSheetHelper.applyDerivedDisplay` turns it into notes through the EXISTING
+`notes` mechanism (`ladderNotes`, one producer beside the slice-2d `upgrade`): **`assumed`** -> *"No module
+size readable in the row or its headings — assumed 3M. Check it."* and **`size_up`** -> *"No 9M in the
+catalogue — using 12M, the next size up."* Neither existing wording could carry them: `upgrade` is
+capacity-vs-contents shaped ("holds N; contents occupy M") and reads as nonsense for a 9 -> 12M hop,
+`rating_up` is amp-shaped, and the amber `default` badge reads the EXTRACTION flag (`isAttrDefaulted`), which
+a pipeline value never carries -- so two kinds were added to `AttrNote` in `rateHelperTypes.ts`, worded in
+`attrNoteText`, and registered in `ATTR_NOTE_ORDER` as `["upgrade","rating_up","assumed","size_up","capped",
+"uncovered"]` (the two order pins widened with dated comments). The field itself shows the rung
+"(computed)" through slice 1's mechanism.
+
+### Scope corrections (S12) -- two files outside the declared list were touched, additively
+
+- `frontend/src/pages/pricing/rate-master/rateMasterTypes.ts` (+29): `ModuleLadderSpec.on_zero_from?` and
+  `ModuleFitLadderOutcome.zeroPath?`. The brief scoped "ratePipelineInterpreter.ts and its test"; the types
+  the interpreter reads live in this sibling file (the config key cannot be read, nor the outcome published,
+  without them). Precedent for the alternative -- reading through `unknown` casts -- exists (`group_label`)
+  and was rejected as worse engineering for structured outcome data. Owner ruling 2026-09-04 ("scope a slice
+  by what it changes") applied.
+- `frontend/src/pages/boq-wizard/rate-helper/rateHelperTypes.ts` (+25): allowed by the brief's own
+  condition (the existing wordings cannot express the assumed case -- shown above).
+
+### Delivery path -- real figures
+
+Freeze OFF (`get_freeze_state` -> `frozen: False`). Pre-state: active Electrical **1,367** on
+`rmbulk-e4a8c133da89`, 12 configs, switches_sockets `BRCC-26-11013` with **18** attributes and rules
+`S3, S1, S2`. Mint `_mint_v58_tmp.py` (scratch, not committed; run from the scratchpad): asserts the writer
+round-trips v57 byte-for-byte, every v57 precondition (18 ids in order, `box_item` at 16, rules S3/S1/S2,
+both box ladders exactly `{kind, where, bind, floor_from: plate_item, on_none: computed}`, no zero keys on
+any plate ladder, the eight back-box items, point_wiring's `on_zero_modules: 3` + no `on_zero_from`), applies
+the three changes, then asserts KEY BY KEY that every other config, all 1,367 items, every golden and every
+other top-level key are deep-equal and that switches_sockets differs in exactly the attribute insertion, the
+rule append and the two ladder keys (appended last, in that order). sha256
+`ed862ff7…eea0`, 785,527 bytes vs v57's 784,378, no CRLF. Textual diff v57 -> v58: 18 insertions, 2
+modifications (the `on_none` lines gain a trailing comma), nothing else. `CURRENT_EALL_ASSET` -> v58.
+`scripts/mint_completeness_check.py HEAD:<v57 path> <v58 path>`: **PASS, no atoms disappeared**. Import
+in-container, explicit path, `replace=True`: `status loaded`, batch **`rmbulk-4e9350326e14`**, items_total
+1,367, configs_loaded 12, items_deactivated 1,367, configs_deactivated 12, retirements existing 6 / created
+0. Post-import: active **1,367** on the new batch, 12 configs on the new batch; live vs asset LEAF BY LEAF
+(goldens/discipline excluded from the walk): switches_sockets `BRCC-26-14089` **469/469, 0 differing**;
+cabletray 347, conduit 41, dbsw 368, earthing 85, indsock 247, jbr 32, lms 39, misc 53, point_wiring 1,011,
+popup 287, wiring 259 -- **all 0 differing**. Only then the web process (PID 3379 -> **6873**,
+`serve --port 8000 --noreload`) and the worker (3388 -> **6877**) were restarted BY PID (the plain kill left
+both alive after 3 s; `kill -9` finished them -- declared), `:8000` ping **200 x3**.
+
+### The Part 1 axis proof -- 4 calls, every attribute, config-switched, twice each (S10 TRIGGERED)
+
+Seven rows through the real `_extract_batch` with the real model (`claude-opus-4-8`), OLD config (v57)
+twice and NEW config (v58) twice, one batch per call, `capture_ctx boq = F25S2-AXIS-{old1,old2,new1,new2}`:
+H1 `00224/ELECTRICAL/428`, H2 `00015/Electrical works/462`, H3 `00232/Internal  office/169`, H4
+`00196/ELECTRICAL/259`, H5 `00106/ELECTRICAL BOQ/115`, the ordinary switch-and-socket row
+`00242/LT Electrical works/50`, the plated row `00217/ELE-8F/58`. Usage: old 5,736 in / 2,858 + 2,848 out;
+new 6,021 in / 3,014 + 2,997 out (+285 input tokens = S4 + the attribute); all four `end_turn`, no halt.
+S4 present in both new prompts, absent in both old (`declared_attributes` 15 -> 16).
+
+| row | attribute | old1 | old2 | new1 | new2 | reading |
+|---|---|---|---|---|---|---|
+| 428 (H1) | `box_modules_stated` | — | — | **3** | **3** | read, stable |
+| 428 | `plate_item` / `plate_qty` | 3M / 1 | 3M / 1 | **None / null** | **None / null** | **MOVED -- the phantom plate** |
+| 462 (H2) | `box_modules_stated` | — | — | **null** | **1** | UNSTABLE; never "1/2" -> 2 |
+| 462 | `plate_item` / `plate_qty` | 1M / 1 | 1M / 1 | null / 1 | None / null | MOVED (phantom) |
+| 169 (H3) | `box_modules_stated` | — | — | **9** | **9** | the model returned the NUMBER 9, not "9/8M" |
+| 169 | `plate_item` / `plate_qty` | 9M / 1 | 9M / 1 | **None / null** | **None / null** | MOVED (phantom) |
+| 259 (H4) | everything | = | = | = | = | `box_modules_stated` null/null -> assumed 3M |
+| 115 (H5) | everything | = | = | = | = | null/null -> assumed 3M (the millimetres left alone) |
+| 50 (ordinary) | everything but plate | = | = | = | = | `plate_item` 2M/null/null/null = old-side run-to-run noise (the paired fill supplies `plate_qty 1` on all four) |
+| 58 (plated) | **everything** | = | = | = | = | **byte-identical across all four calls** |
+
+Every other attribute on every row (`back_box`, `blank_item`, `colour`, the four socket slots and their
+quantities, `switch_item`, `switch_qty`) is identical across all four calls.
+
+**Two findings, both for the owner:**
+
+1. **S10 (and S6): the sentence moved `plate_item` on the three bare-box rows** -- from the phantom plate
+   (3M / 9M / 1M, the "wrong destination" on the register since slice 1) to `"None"`, and `plate_qty`
+   from the defaulted 1 to blank, in both new runs. No plated row and no ordinary row moved. Nothing PRICED
+   changes on those rows either way (on the zero path the plate ladder binds the sentinel whatever
+   `plate_item` says, so the phantom never bought a plate), but the panel's `Frame/Face plate` on a bare box
+   now reads `None` where it read `3M`/`9M`, and `Plate qty` reads blank where it read `1 default` -- a
+   fourth #57 line if it stands. Given a proper home for the box's count the model stops misfiling it, i.e.
+   the register's phantom plate cures itself -- but the brief's S10 says ANY other attribute moving is a
+   stop, and the #57 list would grow, so this stops here for the owner's call: accept (and add the #57 line),
+   or reword S4 (which would mean keeping the phantom).
+2. **The model does not record the token "as written" into a `number` attribute -- it converts.** For
+   "9/8M" it returned the number 9 (the higher count, the right answer, but ITS pick, not code's); for the
+   parent-only "1/2 module GI box" it returned null once and **1** once (the lower, and unstable). The
+   `type: number` projection is a stronger instruction than the shared block's "write it exactly as the text
+   writes it". Consequence: H3 prices correctly by luck of the model's pick; H2 would price a **1M** box
+   (from the 1) or the assumed 3M (from the null), never the ruled 2. The parent-history ruling is therefore
+   only PARTLY delivered on this evidence: the parent text is read (both new calls looked at it -- old calls
+   read the same text into `plate_item 1M`), but the range in it is not carried to code. Options for the
+   owner: (a) let the model pick the higher count (its literal ruling: "extraction should provide the higher
+   count"), which means saying so in S4 -- arithmetic in the prompt, which the brief forbids; (b) make the
+   attribute free text so "as written" is possible -- needs the api validator (`rate_master.py`, out of
+   scope) to admit a value-less `choice` for a `panel: false` attribute, or a fourth attribute type; (c)
+   accept number + code parse as built, knowing a written range is picked by the model.
+
+### Owner rulings on the two stop items (2026-09-08) -- the slice RESUMED
+
+**RULING 1 -- the phantom plate curing itself: ACCEPTED. #57 grows to FOUR lines:**
+1. 188 bare-box rows show a price where they showed zero. 91 already carry a hand-typed rate -- untouched --
+   but the suggestion beside them now differs, usually lower.
+2. Where a size was rounded up to the next stocked box, the panel says so.
+3. Where no size was readable and 3M was assumed, the panel says so.
+4. **On bare-box rows the Frame/Face plate now reads None instead of a phantom module size, and Plate qty
+   goes blank. No price moves; the phantom was never bought.**
+
+**The register's phantom-plate defect is CLOSED BY SIDE EFFECT.** Evidence, the axis proof above: with the
+v57 config the model wrote the BOX's count into `plate_item` on every bare-box row (428 -> `3M`, 169 -> `9M`,
+462 -> `1M`, twice each); with v58 -- the count now having a home in `box_modules_stated` -- the same rows
+came back `plate_item "None"` (428 twice, 169 twice, 462 once with a null the other time) and `plate_qty`
+blank. No plated row (58) and no ordinary row (50, beyond its own old-side noise) moved. Nothing priced
+changes: the zero-module branch binds the plate ladder to the sentinel whatever `plate_item` holds, so the
+phantom never bought a plate; what changes is the panel's `Frame/Face plate` and `Plate qty` fields on bare
+rows. S4 is NOT reworded.
+
+**RULING 2 -- the higher-count rule on ranges: ACCEPT AS BUILT.** S4 is not reworded, the attribute type is
+not changed, the api validator is not touched. ⚠️ **RECORDED PLAINLY: THE OWNER'S RULING "extraction should
+provide the higher count" IS NOT DELIVERED ON RANGES.** `box_modules_stated` is `number`-typed (the only
+type the api validator admits for a value-less attribute), and the projected `type` is an instruction the
+model obeys over the shared block's "write it exactly as the text writes it": the model CONVERTS as it
+reads, so what reaches `module_count_from_text` is already the model's pick and the code parse has nothing
+left to decide. Measured, two identical calls each on the v58 config: own-text `"9/8M"` -> **9, 9**
+(correct, by the model's choice); the parent's `"1/2 module GI box"` -> **1, then null** (the ruling says 2;
+1 is the LOWER count, null is "nothing readable" -> assumed 3M). The exposure is therefore: a range written
+in the row text is picked by the model and has been picked high in the two cases seen; a range in the
+PARENT is picked unstably. **The thing that moves money here is the run-to-run instability, not the range
+rule** -- the same row on two identical calls prices a 1M box (₹121 list) or an assumed 3M box (₹178 list)
+-- and that instability is the run-to-run variance item already on the register. **H2 (the parent-history
+ruling) therefore remains UNPROVEN ON THE PANEL** (see the cert below); the honest status of the
+parent-history ruling is "the parent text is read; the count in it arrives unstably and never as written".
+A future reader must not take this slice as having delivered the range rule.
+
+### Tests (AFTER measured in-session; BEFORE = the last measured baseline, re-measured this session)
+
+BEFORE: coercion **135 OK**, rate_suggest **71 OK**, rate_master **316 OK** (766 s), vitest **3,164 of
+3,165** (the known `writeOffControl` timeout). AFTER: coercion **146 OK** (+11), rate_suggest **71 OK**,
+rate_master **326 OK** (772.7 s; 316 + 10); vitest on the
+two touched files **675 of 675** and the full run **3,184 of 3,185** (+20, the known `writeOffControl` failure
+only). Pre-import, exactly two pins were red and both are the delivery-path pins (`test_f25s1_09`,
+`test_f25s2_10`) by design.
+
+New pins, positive AND negative:
+- `test_rate_master.TestF25Slice2BareBox` (10): `_01` attribute shape + position (v57 has none; not
+  None-able, not extract:false); `_02` the model IS asked exactly one new question, number-typed, `panel`
+  dropped by the projection; `_03` S4's constraints mechanically (must-contain list, banned arithmetic
+  words, banned corpus strings, banned switch/socket/plate pick words); `_04` both box ladders carry the two
+  keys, `on_zero_from` names a DECLARED attribute (the api validator does not reference-guard it, so this
+  pin is the guard), the plate ladders carry neither and equal v57; `_05` every other config / item /
+  golden / top-level key byte-equal to v57, point_wiring's box ladder still `on_zero_modules: 3` with no
+  `on_zero_from`; `_06` switches_sockets differs in exactly the three places, and no step reads the new
+  attribute as `from_attr`/`floor_from`/`none_when`/`prefer_attr`; `_07` goldens s1/ss1 to the rupee; `_08`
+  the minted config passes `_validate_config`; `_09` the backend parse set derives from the minted ladders
+  (v58 -> `[box_modules_stated]`, v57 -> `[]`, point_wiring -> `[]`); `_10` THE DELIVERY-PATH PIN (live ==
+  v58, live parse set == the attribute).
+- `test_38`: 18 -> 19 + the new field's shape and position (standing authority, dated comment).
+- `TestF25Slice1BackBoxField` FROZEN to v57 explicitly (`_NOW_ASSET`) -- it pins slice 1's delta over v56
+  and would have gone false the moment the box ladder gained its zero path; `_09` re-pointed at
+  `CURRENT_EALL_ASSET` (the live config must carry the CURRENT asset). `test_r12_and_every_config_but…`
+  widened: switches_sockets pipelines equal v55 with the two zero keys stripped.
+- `test_extraction_coercion` (+11): `TestModuleCountFromText` (numbers as themselves; the three owner range
+  shapes + H1/H2 text -> 9/2/3/2/3; millimetres -> None incl. beside a count; nothing readable -> None for
+  ten shapes; NEGATIVE: "4 port" parses to 4 -- the port guard is the RULE TEXT, not a heuristic here),
+  `TestZeroPathStatedAttrs` (v58 switches_sockets -> the one attribute; every other config -> []; shape
+  tolerance), `TestModuleCountAtTheBatchSite` (end to end through the shared `_FakeClient`: "9/8M" string ->
+  stored 9, millimetres -> None, 3 -> 3; NEGATIVE: without the set the string is dropped by number coercion
+  exactly as before; the call site pinned by source: drops key, `row_map.raw` keeps the MODEL's token, parse
+  before `_coerce_value_ex`, `run_extraction` threads the config-derived set).
+- `ratePipelineInterpreter.test.ts` "F-25 slice 2" (11, real 7-rung box ladder): stated 3 -> 3M with the
+  trace + `zeroPath`; 9 -> 12M next higher; 10 -> 12M, 16 -> 18M, 12/18 exact, 2 -> "1M & 2M" exact; 19 ->
+  honest no_match naming 18M; null/undefined/""/"abc"/0 -> ASSUMED 3 with the trace; assumed absent when
+  read; the size never from `plate_item` (phantom 9M + blank -> assumed 3M; phantom 9M + stated 4 -> 4M);
+  `back_box: No` -> 0 with the rung still shown; **THE INVARIANT** (a row with occupants + a stray stated 4:
+  finals and trace identical with and without the keys, `box_item 12M (stated 9M) (next higher)`, no
+  `zeroPath`; STATE B likewise); **THE CROSS-CATEGORY NEGATIVE** (PW_ROW198 on `on_zero_modules` only:
+  `supply 2359`, RULING 1 trace verbatim, no `zeroPath`, a stray stated 8 changes nothing); additivity
+  (`on_zero_from` without `on_zero_modules` + blank -> the sentinel as before; stated 6 still prices).
+- `pricingSheetHelper.test.ts` "F-25 slice 2" (9): H1 3 -> `3M` computed, 178, no note; H3 9 -> `12M` + the
+  `size_up` sentence verbatim; H4/H5 null/"" -> `3M` + the `assumed` sentence verbatim, never gated; assumed
+  absent when read, size_up absent on an exact rung (2 -> the live `2M` row); not from `plate_item`; the
+  stated attribute hidden and never gating; **THE INVARIANT** (plated row: values, display and every
+  attribute identical with and without the keys); the slice-1 bare-box pin INVERTED to an additivity pin
+  (retitled, assertions unchanged); the two-note order.
+
+**Vacuity (A4), each mechanism, both runs:** (1) `raw = parsed_count` replaced by `pass` -> the batch-site
+POSITIVE red, the two NEGATIVEs green; restored, sha256 `31ff4036…` identical, 3 OK. (2) the attribute
+removed from v58 on disk -> `_01` ERROR, `_02`/`_04`/`_10` FAIL (4 red; `_06` stays green -- it pins the
+"nothing else moved" half, `_08` stays green -- the validator gap, see the register); re-minted -> identical
+sha `ed862ff7…`. (3) interpreter `statedZero = n` -> `null` -> **11** red (8 interpreter + 3 helper);
+restored. (4) helper `const z = ladder.zeroPath` -> `undefined` -> **3** red (size_up, assumed, not-from-
+plate); restored; both files hash-identical; 675 of 675 after.
+
+### The browser live cert (2026-09-08 ~11:00-11:50 IST, admins@nirmaan.app, :8080 via vite) -- 21 AI calls, every one named
+
+**Environment.** The owner's Docker restart brought the container back with ONLY `sleep infinity` (the
+slice-1 pattern); started `bench serve --port 8000 --noreload` (PID 25), `bench worker` (PID 29),
+`node_modules/.vite` cleared + `yarn dev` (PIDs 46/47); `:8000` ping **200 x3**, `:8080` root + ping
+**200 x3**. ⚠️ The Procfile's `socketio` process was NOT among them: the first two scoped runs completed
+server-side while the page's modal sat on "Starting… extracting row attributes." until a reload; `node
+apps/frappe/socketio.js` was started (PID 222, `:9000` polling 200) and from the fourth run on the
+"Suggestions ready" modal fired normally. Recorded on the register: a bare container restart needs FOUR
+processes, not three. **Frontend-derived bundle marker:** the vite-served source at
+`/src/pages/boq-wizard/rate-helper/rateHelperTypes.ts` carries the literal `No module size readable in the
+row or its headings — assumed ${n.assumed}M. Check it.` and `/src/pages/pricing/rate-master/
+ratePipelineInterpreter.ts` carries `on_zero_from` 4 times -- identifiers, not comments. De-stale: service
+worker unregistered (1), caches 0, localStorage/sessionStorage cleared, 3 firebase IndexedDBs deleted,
+session cookie survived (dashboard rendered as admins@nirmaan.app, no login prompt). **No CSRF break** on
+any of the eight write actions (scoped runs, whole-sheet run, resume). No `Use this value` clicked; no rate,
+remark or colour written; session overrides on H6 and H5 reverted in the same minute. **Events 1,532 before
+and after; runs 65 -> 70, active 40 -> 41** (five new complete runs superseded their predecessors; 00232's
+prior partial became the resumed complete run; 00106 gained its first run).
+
+**Spend authorisation (owner, mid-cert, verbatim):** *"if scoped run fails...do the full sheet run"* --
+applied to H5 (whole sheet, 222 rows) and to H3 (the UI's own one-row Resume of the gapped run). H2 could
+NOT be run at all (below).
+
+| step | row | AI calls | RENDERED PANEL (DOM/accessibility read; screenshots time out on the tall grids) |
+|---|---|---|---|
+| **H1** stated size | `00224 / ELECTRICAL / 428` "3 Module GI Boxes" | 1 scoped (`92f3a2c4`, complete, active; stored `box_modules_stated 3 @0.95`, `plate_item None`, `plate_qty null`) | BEFORE the run (old active run, no attribute): `Back box size 3M (computed)` + the ASSUMED sentence, `Frame/Face plate 3M` (the phantom), `Plate qty 1 default`, body `back_box: Back Box 3M = 178`, **supply 70 / install 20 / combined 90** -- where slice 1's F3 read `supply = 0`. AFTER: `Back box size 3M (computed)`, **NO note** (read, not assumed), `Frame/Face plate None`, `Plate qty` blank (#57 line 4 on screen), same body and figures. Grid **60 / 20** hand-typed, untouched. |
+| **H2** size in the parent only | `00015 / Electrical works / 462` | **0 -- NOT CERTIFIED ON SCREEN** | The sheet (committed v2) has NO amount formulas declared: the pricing editor shows *"Declare amount formulas to enable rate entry."* and **`Suggest rates` is DISABLED** -- the button deliberately reuses the rate-write gate (`!locked && formulasComplete && categoryGateOpen`), and with the formula gate shut no rate cell is editable, so no badge and no sparkle opener exists to open a panel on any row. Making H2 visible needs the owner (or the pricer) to DECLARE the sheet's amount formulas -- a persistent change to the tender document, outside this slice -- then a whole-sheet run (187 rows, ~10 calls). Its evidence stays the axis proof (`box_modules_stated` **null, then 1**, never 2; `plate_item 1M` -> null/None) and the unit pins (`"1/2 module GI box"` -> 2 in `module_count_from_text`; 2 -> the live `2M` rung in the helper). **The owner's parent-history ruling remains UNPROVEN ON THE PANEL**, and on the axis evidence would price a 1M or an assumed 3M box, never the ruled 2. |
+| **H3** range | `00232 / Internal  office / 169` "9/8M MS GI Coated Box" | 1 scoped (`bd5f9135` stored **partial, inactive** -- the sheet's population gap 248 vs 247) + 1 **Resume** (the one missing row; the run flipped complete + active, 248/248) | BEFORE (old run, `plate_item 9M` phantom, no attribute): `Frame/Face plate 9M` yet `Back box size 3M (computed)` + the ASSUMED sentence, `Back Box 3M = 178` -- the "never from `plate_item`" rule, live. AFTER the resume: **`Back box size 12M (computed)`**, the note **`No 9M in the catalogue — using 12M, the next size up.`**, body `back_box: Back Box 12M = 465`, **supply 170 / install 40 / combined 210**, `Frame/Face plate None`, `Plate qty` blank. Grid unpriced, untouched. |
+| **H4** nothing readable -- THE ONE THAT MATTERS | `00196 / ELECTRICAL / 259` "SITC of MS/GI back box for data outlets…" | 1 scoped (`8ec40d98`, complete, active; stored `box_modules_stated None @0.9`, every slot None, plate None) | BEFORE: the 2026-08-19 run predates socket3/socket4 -> *"Complete the missing attributes to price"* (the register's 163-row item). AFTER: `Back box size (computed) 3M` and, character for character, **`No module size readable in the row or its headings — assumed 3M. Check it.`** beneath it (amber, `ref_2151`), body `back_box: Back Box 3M = 178`, **supply 70 / install 20 / combined 90**; `Frame/Face plate None`, `Plate qty` blank, `Colour White default`, `Back box Yes`. Grid **60 / 20** untouched. Zoomed screenshot `screenshot-1788846549687-28.png`. |
+| **H5** millimetres only | `00106 / ELECTRICAL BOQ / 115` "72 mm x 90 mm x 50 mm MS telephone and computer outlet boxes" | **16 calls, whole sheet** (`f8b4757a`, 222/222, complete, active; batches of 13/16/20/20/12/20/1/20/20/20/4/20/6/20/8/2 rows, 147,722 input / 53,631 output tokens) | ⚠️ AS EXTRACTED THE PANEL REFUSES: the model returned `socket1_item` **blank @30%** with `socket1_qty 1` (in the axis proof's 7-row batch the same row came back `None`), and a blank read input gates the row -- *"Complete the missing attributes to price"*, `Back box size` empty. `box_modules_stated` null @0.9 as expected (the millimetres left alone). With ONE session correction -- `Socket 1` set to `None`, the pricer's ordinary "no socket here", reverted afterwards -- the panel shows **`Back box size (computed) 3M`**, the ASSUMED sentence verbatim, `back_box: Back Box 3M = 178`, **supply 70 / install 20 / combined 90**. So: the mm-only -> 3M rule is on the panel, behind a refusal the slice did not cause (run-to-run variance on an unrelated slot, on the register). Grid: combined 60 untouched. |
+| **H6** THE INVARIANT | `00242 / LT Electrical works / 50` (plated: 16A switch + 6A/16A socket, plate computed 3M) | **0 by design** -- a re-extraction would change the INPUTS (row 50's `plate_item` already varied 2M/null between two OLD-config calls in the axis proof), and the sheet's population gap (129 vs 127) means a scoped run stores partial and never reaches the panel anyway. The invariant is a statement about the same attributes under the two configs, so it is read from the STORED active run (`37a93412`, 2026-09-04). | AS STORED it refuses on the blank `plate_qty` exactly as slice 1's F1 did. With `Plate qty` typed `1` (session override, reverted): headline **430**; `Switch 16A 1 WAY SWITCH = 290`, `Socket1 6A/16A 3-Pin Socket = 464`, `plate: Grid and Face Plates 3M White = 229`, `back_box: Back Box 3M = 178`, **supply 430 / install 90 / combined 520**; `Frame/Face plate 3M (computed)`, `Blank plate qty 0 (computed)`, `Colour White default`, `Back box Yes default`, `Back box size 3M (computed)`, **NO note**. Every figure identical to slice 1's F1 reading (2026-09-07). Grid **430 / 90** untouched. |
+| **H7** point_wiring zero-module row | `00184 / Electrical Est / 16` "First point controlled by existing MCB in D.B." | 1 scoped (`3205ccfa`, complete, active; the "Suggestions ready -- 1 row re-extracted. 64 rows carried forward unchanged." modal fired, socketio now up) | BEFORE: the old run predates the circuit-wire attributes -> refuses. AFTER: attributes `wire1 1c x 2 runs 2.5`, `wire2 1c x 1 run 2.5`, `points 1`, `conduit MS`, `circuit wiring No`, switch/socket/blank/plate all `None`, `back_box Yes` -- a true zero-module row; body `wire1 = 1650`, `wire2 = 825`, `conduit: MS 25 = 480`, **`back_box: Back Box 3M = 65`**, `supply = 3020`; install `300 / 300 / 96 / back_box 13`, `install = 709`; **combined 3729**. **No note anywhere in the panel (`notes: []`), no `Back box size` field** (point_wiring declares none) -- the RULING 1 `on_zero_modules: 3` shape, byte-for-byte the pre-slice behaviour. Grid **4981** hand-typed, untouched. |
+| **H8** | live config vs v58 | 0 | After the cert: freeze OFF; active Electrical **1,367** on `rmbulk-4e9350326e14`; all 12 configs **0 leaves differing** (switches_sockets `BRCC-26-14089` 469/469, point_wiring 1,011/1,011, …); `TestF25Slice2BareBox` **10 OK** and `TestF25Slice1BackBoxField` **9 OK** with the delivery-path pins now green. |
+
+**AI-call ledger for the whole slice:** 4 (axis proof, 2026-09-07) + 4 scoped (H1, H4, H3, H7) + 1 resume
+(H3) + 16 whole-sheet batches (H5) = **25 calls**, all `claude-opus-4-8`, all `end_turn`, no halt on the
+parser defect.
+
+**What the cert did NOT show, plainly:** H2 on any panel (formula gate + spend); H5 without a pricer's
+correction (variance on `socket1_item`); the whole-sheet re-extraction of `00106` OVERWROTE that sheet's
+attributes on all 222 rows (the dialog says so; the owner authorised it) -- 240 of 240 rates on that sheet
+are hand-typed and none moved.
+
+### Register (recorded, not fixed)
+- **The api validator does not reference-guard `on_zero_from`** (`_validate_config` checks named ladder keys
+  only; an unknown key passes silently and a typo would read as "nothing stated -> assumed 3M" with no
+  error). `test_f25s2_04` is the guard for the shipped asset; a validator `_ref` is owed in `rate_master.py`.
+- **A `number` attribute cannot be asked for "as written"** -- the type projection converts; see finding 2.
+- The `_extract_json_array` parser defect (a reply opening with prose containing a bracketed list halts a
+  run; the parser is SHARED with the category classifier) -- owner: build it or bundle it into a later slice.
+- Run-to-run variance is unmeasured beyond this proof's seven rows; one earlier observation moved roughly a
+  third of a sheet's rows; here `50/plate_item` moved between two OLD runs and `462/box_modules_stated`
+  between two NEW runs.
+- The 16 rows on `BOQ-26-00241` still refusing; the phantom plate (now moving, finding 1); the 163 rows on
+  blank socket3/socket4; row 398's three-phase misread; panel overrides surviving a re-run (PARKED); the
+  board ladder's closer-in-rating correction; no reactivation UI; the two 2,049 DP D rows; the jargon
+  refusal line; 47 of 61 runs with no capture log on this bench.
+- **Slice 3 remains and is LOAD-BEARING**: the `box_item` dropdown is still editable and INERT (a pick shows
+  and prices nothing); the two-source floor and the raise-to-plate rule are still owed.
+- Environment: `docker exec` wedged twice this session (~10 min each) while background suites ran; `docker
+  cp` and the services stayed alive throughout; both AFTER runs landed once exec recovered.
+- **A bare container restart needs FOUR processes** (`bench serve --noreload`, `bench worker`, `yarn dev`,
+  AND `node apps/frappe/socketio.js`); without socketio the suggest modal never leaves "Starting…" although
+  the worker finishes the job. The progress poll did not rescue it on this bench (owner-env fact, contrary to
+  the CL-4 note for the classify modal).
+- **H2's sheet (`00015 / Electrical works`, committed v2) cannot run a suggestion at all** until its amount
+  formulas are declared: `Suggest rates` reuses the rate-write gate. The parent-history ruling stays unproven
+  on the panel; proving it costs the formula declaration + a 187-row whole-sheet run (~10 calls).
+- **Run-to-run variance moved an UNRELATED slot on the H5 row**: `socket1_item` `None` (axis proof, 7-row
+  batch) vs blank @30% (whole-sheet run, 20-row batch) -- the blank refuses the whole row on the panel.
+- Chrome's renderer times out on `Page.captureScreenshot` on the tallest pricing grids (00232, 00106); DOM
+  reads through the accessibility tree keep working. Read the panel through the tree, not the screenshot.
+- The whole-sheet re-extraction of `00106 / ELECTRICAL BOQ` (owner-authorised) overwrote that sheet's stored
+  attributes on all 222 rows; its 240 hand-typed rates did not move.
+
+### Files
+`nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v58.json` (new),
+`nirmaan_stack/services/boq_rate_master/extraction.py` (`_MM_UNIT_RE`, `_DIMENSION_CHAIN_RE`,
+`module_count_from_text`, `zero_path_stated_attrs`, the `_extract_batch` positional `module_count_attrs`
+after `paired_fill`, the parse before coercion + `drops.module_count_parsed` + `row_map.raw` = the model's
+token, `run_extraction` group ctx + call), `nirmaan_stack/services/boq_rate_master/test_extraction_coercion.py`
+(+3 classes), `nirmaan_stack/api/boq/test_rate_master.py` (constant, test_38, TestF25Slice1 frozen,
+test_r12 widened, TestF25Slice2BareBox), `frontend/src/pages/pricing/rate-master/rateMasterTypes.ts`
+(S12), `frontend/src/pages/pricing/rate-master/ratePipelineInterpreter.ts` (+ test),
+`frontend/src/pages/boq-wizard/rate-helper/rateHelperTypes.ts`,
+`frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.ts` (+ test), this record. `CLAUDE.md`
+root: ONE durable rule earned and added (a `number`-typed attribute cannot be asked for a token "as written"
+-- the type projection is a stronger instruction than the shared block).
+
+## F-25 slice 3 -- the box field becomes EFFECTIVE: a pick prices, the plate is a minimum, the assumed note goes (2026-09-08)
+
+**Date:** 2026-09-08 · **Branch:** `feature/boq-pricing-helper`, off `ec7cef05` · **Asset:** `rate_master_electrical_all_v59.json`, sha256 `921f56a4f01a7b3ed59dc6dfd696b701716b89ae060dadc91f17e7ccc11c867a`, 785,597 bytes (v58 785,527), LF · **Live batch after import:** `rmbulk-0bd36d23eaca`, 1,367 items, 12 configs · **Schema changed:** NONE · **F-25 is COMPLETE across its three slices**; the slice-1 accepted transient (#57 item 2, "a pick shows and the price does not follow") is **CLOSED**.
+
+### The rule, on both branches (owner rulings 2026-09-06/08, verbatim in the brief)
+
+`box_item` -- slice 1's `Back box size` dropdown -- is now an effective control. The recon of 2026-09-08 established that a pick was inert at **TWO separate read sites** of `module_fit`, and the build wires both:
+
+- **The FLOOR branch** (`ratePipelineInterpreter.ts` `module_fit`, rows with a plate or contents): the floor already settled by `floor_from` -- the PLATE's size when a stated plate holds the contents, else the contents' count (blank plate, `None` plate, or a plate itself upgraded to the contents) -- is a **MINIMUM**. A pick at or above it is honoured and is what gets bought; a pick below it is **RAISED to the floor** (owner: raise to the PLATE's size, not the contents' -- *"agree"*, 2026-09-08). With a pick, the box ladder's `upgraded` is not published: the pick has replaced the plate as the ladder's stated source, and the raise note is the one that explains the rung. A pick the catalogue does not stock resolves like any count (exact, else next higher, honest no-compute above the top).
+- **The ZERO branch** (a bare box): a pick **WINS OUTRIGHT** over the stated count and over the declared 3M default, and the size is no longer "assumed" (`zeroPath.assumed = false`). Chat's proposal, put to the owner and not corrected -- **flagged so it can still be reversed**.
+- **NO PICK = BYTE-IDENTICAL to v58 on both branches. This is the invariant** (proof below).
+
+### The shape -- candidate (b), a DECLARED key, and why not (a) or (c)
+
+Both box ladders (`swsock_boq`, `swsock_bcs`) gain **`"pick_from": "box_item"`** -- a config key naming the attribute the pricer may pick for that ladder; `on_zero_from` is the precedent for a ladder key naming an attribute. Not (a) `floor_from: box_item`: it severs the plate from the box (a 6M plate over 3 modules would box 3M) and the zero branch never reads `floor_from`, so bare boxes would stay dead. Not (c) an implicit own-bind rule: any ladder whose bind happened to be a declared attribute would become editable with nothing in the config saying so -- the implicit-coupling class this project keeps paying for. **Confinement is by KEY PRESENCE, never by a category name in code** (the HV-10 lesson): point_wiring and popup_boxes carry the same ladder shape and no `pick_from`, proven byte-identical (below). ONE reader, `readPick(L, selected)`, serves both branches so the two sites cannot disagree about what a pick is (null on no key / blank / the `None` sentinel; `"bad"` on a size-less token -> honest no-compute; else label + covered sizes + capacity).
+
+**The reference-guard gap is CLOSED in the same edit** (`api/boq/rate_master.py` `_validate_config`, the `_ref` guards ONLY): `on_zero_from` (the register's gap -- a typo read silently as "assumed 3M") and `pick_from` (a typo would read as "nothing picked" and leave the dropdown inert with no error) are both `_ref`-guarded and shape-checked, positive and negative.
+
+### The outcome and the wording
+
+`ModuleFitLadderOutcome` gains `pick?: {label, holds, raised, nextHigher, floor, floorFrom: "plate"|"contents"|"none", plate?}`; `ModuleLadderSpec` gains `pick_from?`. `pricingSheetHelper.ladderNotes` words a raise through TWO kinds, ONE wording site each, no fork:
+- plate-driven -> the NEW **`plate_floor`** kind: **"3M is smaller than the 6M face plate — using 6M."** The existing `upgrade` sentence is contents-shaped ("holds N; contents occupy M") and would read "3M holds 3 modules; contents occupy 3 — using 6M", which explains nothing.
+- contents-driven (no plate) -> the EXISTING `upgrade`, verbatim: "1M holds 1 module; contents occupy 3 — using 3M." (S13 applied where it could be: the existing sentence carries the case it was written for).
+- a pick moved UP to the next stocked rung -> the EXISTING `size_up` (zero branch via `zeroPath.nextHigher`; floor branch via `pick.nextHigher`, never both).
+`ATTR_NOTE_ORDER` = `["upgrade", "plate_floor", "rating_up", "assumed", "size_up", "capped", "uncovered"]` (six -> seven; the two order pins widened with dated comments). Display: an honoured pick shows PLAIN (the pricer's own value); a raised or moved-up pick shows what was BOUGHT, "(computed)", with its note (`substituted` when `pick.label !== ladder.label`). `RateHelperPanel.tsx` UNCHANGED (S7 never triggered): the capture path and the generic note renderer already did the work.
+
+### Delivery path -- real figures, in order
+
+1. Freeze OFF (`get_freeze_state` -> `frozen: False`). 2. Pre-state: active Electrical **1,367** on `rmbulk-4e9350326e14`, 12 configs, switches_sockets `BRCC-26-14089` with 19 attributes, both box ladders the v58 seven-key shape. 3. Mint `_mint_v59_tmp.py` (scratchpad, not committed; the `_mint_v5*_tmp.py` precedent): asserts the writer round-trips v58 byte-for-byte (sha `ed862ff7…eea0`), every v58 precondition (19 ids, `box_item` shape, rules S3/S1/S2/S4, both box ladders exactly `{kind, where, bind, floor_from: plate_item, on_none: computed, on_zero_from, on_zero_modules: 3}` with `on_zero_modules` last, the eight back-box items, point_wiring's box ladder `on_zero_modules` only, popup's plate ladder only), applies the two keys (appended LAST), then asserts KEY BY KEY that every other config, all 1,367 items, every golden and every top-level key are deep-equal and switches_sockets differs in exactly the two ladder keys. Textual diff v58 -> v59: **+4 / -2 lines** (the two `on_zero_modules` lines gain a trailing comma). 4. `CURRENT_EALL_ASSET` -> v59. 5. `scripts/mint_completeness_check.py HEAD:<v58> <v59>`: **PASS, every removal declared**. 6. Import in-container, explicit path, `replace=True`: `status loaded`, batch **`rmbulk-0bd36d23eaca`**, items_total 1,367, configs_loaded 12, items_deactivated 1,367, configs_deactivated 12, retirements existing 6 / created 0. 7. AFTER: active **1,367** on the new batch, 12 configs; live vs v59 LEAF BY LEAF (goldens/discipline excluded): switches_sockets `BRCC-26-15633` **471/471, 0 differing**; cabletray 347, conduit 41, dbsw 368, earthing 85, indsock 247, jbr 32, lms 39, misc 53, point_wiring 1,011, popup 287, wiring 259 -- **all 0 differing**; both live box ladders carry `pick_from: box_item`; snapshots 10 (none created). 8. Only then web (PID 25 -> **3126**) and worker (29 -> **3128**) restarted by PID (`kill -9` needed after the plain kill left both defunct -- declared); `:8000` ping 200 x3, `:8080` 200 x3; socketio (PID 222) was already up. Vite was ALSO restarted by PID (46/47 -> **3579/3580**) with `node_modules/.vite` cleared, because the first bundle-marker read on the plain URL returned 0 markers (the standing Vite stale-module recipe); the re-read returned `pick_from` x7, `readPick` x3, the `plate_floor` sentence present.
+
+### Tests (BEFORE = measured in-session on the stashed tree; AFTER = measured in-session)
+
+BEFORE: coercion **146 OK**, rate_suggest **71 OK**, rate_master **326 OK** (531 s), vitest **3,184 of 3,185** (the known `writeOffControl` "mirrors the sibling admin predicates" timeout). AFTER: coercion **146 OK**, rate_suggest **71 OK**, rate_master **337 OK** (545 s; 326 + 11), vitest **3,220 of 3,221** (+36; the SAME one known failure, same test name, verified against the baseline log); tsc on the touched files clean (the two remaining tsc errors in `ratePipelineInterpreter.ts:1336` / `.test.ts:4951` pre-exist at HEAD, outside this slice). **Pre-import, exactly the three delivery-path pins were red** (`test_f25s1_09`, `test_f25s2_10`, `test_f25s3_11`), the asset and guard pins green -- verified by a targeted 6-test run before the import.
+
+New pins, positive AND negative, on BOTH branches:
+- `ratePipelineInterpreter.test.ts` "F-25 slice 3" (5 blocks, 19): `readPick` (null/bad/label); FLOOR: pick above the plate honoured (6M/3, pick 8M -> 362, `pick.raised false`, no `upgraded`); pick BELOW raised to the PLATE's size (pick 3M under 6M -> 279, trace `(picked 3M holds 3, below the 6M plate -- RAISED)`); equal to the plate honoured; NO plate floors on the contents (1M & 2M under 3 -> 3M, `floorFrom: contents`); a None plate likewise; an UPGRADED plate floors the pick on the contents and the pick REPLACES the box ladder's `upgraded` while the plate's own stays; a size-less pick is an honest no-compute; back_box No with a pick still prices 0. ZERO: pick beats the stated count (stated 8, pick 3M -> 178, `assumed false`); pick beats the ASSUMED default (null/""/"abc" + 6M -> 279, no ASSUMED in the trace); an unstocked pick hops up (5M -> 6M, `nextHigher true`); above the top rung an honest no-compute; never a plate or blanks. **THE INVARIANT** (with-key vs without-key, same row, `finals`, `mfTrace` and the whole `moduleFit` outcome `toEqual`): floor branch over 6M/3, 1M & 2M/3, blank plate, None plate, 9M (still `box_item 12M (stated 9M) (next higher)`); zero branch over stated 3, stated 9, null, "" (still `ASSUMED 3`), back_box No; a BLANK pick and a `None` pick are "no pick". **CROSS-CATEGORY NEGATIVE**: PW_ROW198 on point_wiring's ladder with a stray `box_item: "18M"` -> `supply 2359`, the RULING 1 trace verbatim, no `pick`, no `zeroPath`; a v58-shaped ladder on the floor branch ignores a stray pick (the slice-1 transient as the additivity pin); a popup-shaped module_fit (plate ladder only) byte-identical with a stray pick; `readPick.toString()` names no category.
+- `pricingSheetHelper.test.ts` "F-25 slice 3" (4 blocks, 15): the floor branch on the panel (honoured pick PLAIN, no note, 362; raised pick shows 6M "(computed)" with **"3M is smaller than the 6M face plate — using 6M."** verbatim, 279; equal honoured; no-plate raise carries the EXISTING `upgrade` sentence verbatim; the plate field untouched; never `readOnly`); the zero branch (pick 6M -> plain, NO assumed note, 279; pick beats a stated 8; unstocked 5M -> 6M "(computed)" + the existing `size_up` sentence; REVERT brings the assumed 3M and its sentence back); THE INVARIANT on the panel (every slice-1 shape and every slice-2 zero shape renders identically with and without `pick_from`, values AND attributes); the box field still derived/gate-exempt; the `plate_floor` wording + order. **The accepted-transient pin is INVERTED, never deleted**: retitled "THE TRANSIENT ENDS (F-25 slice 3, 2026-09-08 -- INVERTED from 'the price does NOT follow')", same assertions, the one that recorded the defect now asserts 178 -> **552**, plus the v58-ladder negative (still 178). Fixtures: `boxFieldConfig(withPick = true)` carries `pick_from` (the live shape); `boxCompute(over, overrides, withPick)` / `bareBoxCompute(stated, over, withKeys, overrides, withPick)`.
+- `test_rate_master.TestF25Slice3PickFrom` (11): `_01` both box ladders carry `pick_from` = the box field's id = the ladder's bind, appended LAST, the seven v58 keys unchanged, v58 carried none, the plate ladders carry none and equal v58; `_02` the box field byte-identical to slice 1, 19 attributes, rules and goldens untouched, `build_attribute_defs` unchanged (the model is still not asked); `_03` strip `pick_from` and the config equals v58; `_04` every other config / item / golden / top-level key byte-equal to v58, point_wiring and popup_boxes carry no `pick_from`, point_wiring's box ladder still `on_zero_modules: 3` with no `on_zero_from`; `_05` the minted config passes `_validate_config`; `_06` POSITIVE both guards accept declared ids and absence stays valid; `_07` NEGATIVE `pick_from` typo rejected BY NAME; `_08` NEGATIVE `on_zero_from` typo rejected BY NAME (the register's gap); `_09` NEGATIVE blank / non-string values for both keys; `_10` goldens s1/ss1 to the rupee and neither names a pick; `_11` THE DELIVERY-PATH PIN (live == v59 pipelines, both live box ladders carry the key).
+- `TestF25Slice2BareBox` FROZEN to v58 (`_NOW_ASSET`, the slice-1 precedent) and `_10` re-pointed at CURRENT for the pipelines (definitions/rules still asserted against the v58-frozen copy, both keys still asserted on the live box ladders). `test_r12_and_every_config_but_the_named_mints…` strip list widened to three keys (dated comment; a FOURTH key still fails). `test_38` unchanged (no attribute added). `TestF25Slice1BackBoxField` untouched (frozen to v57).
+
+**Vacuity (A4), each mechanism, both runs, restored and hash-verified:** (1) the FLOOR-branch read (`const picked = readPick(L, selected)` -> `null`): **12 red** (8 interpreter + 4 helper, incl. the inverted transient pin), 699 green; restored, sha identical. (2) the ZERO-branch read (`const pickZero = readPick(...)` -> `null`): **8 red** (4 interpreter + 4 helper), 703 green; restored. (3) the raise NOTE (`if (pk && pk.raised && ladder.label && false)`): **2 red** (the plate_floor sentence, the contents-driven upgrade sentence), 709 green; restored. After all three: 711 of 711 on the two files.
+
+### The browser live cert (2026-09-08 ~14:35-15:05 IST, admins@nirmaan.app, :8080 via vite) -- ZERO AI calls, ZERO writes
+
+De-stale: SW unregistered (1), caches 0, localStorage/sessionStorage cleared, 3 firebase IndexedDBs deleted, session cookie survived (dashboard rendered as admins@nirmaan.app, no login prompt, **no CSRF break** -- no write was attempted). Frontend-derived bundle marker on the plain URL (identifiers, not comments): `ratePipelineInterpreter.ts` `pick_from` x7 / `readPick` x3, `rateHelperTypes.ts` `plate_floor` x2 + the literal sentence, `pricingSheetHelper.ts` `ladder.pick` x3 -- AFTER the Vite restart (the first read returned 0 markers, the standing stale-module recipe applied). Panels were read through the DOM (`Page.captureScreenshot` times out on the tall grids, as recorded at slice 2); the virtualized grid was walked with real wheel scrolls (search-jump does not re-window, the V2 trait). Every pick below is a SESSION OVERRIDE, reverted in the same minute; **"Use this value" was never clicked**; `BoQ Cell Pricing` read before and after: 00242/50 **430 / 90**, 00196/259 **60 / 20**, unchanged; events **1,532** before and after; suggestion runs 71 (active 42) before and after -- none created.
+
+| step | row | RENDERED PANEL |
+|---|---|---|
+| **J1 THE TRANSIENT ENDS** | `00242 / LT Electrical works / 50` (as stored REFUSES on the blank `plate_qty`, exactly as slice 1's F1 and slice 2's H6; `Plate qty` typed `1` as the session state both certs read) | BEFORE: `Frame/Face plate 3M (computed)`, `Blank plate qty 0 (computed)`, `Back box Yes default`, **`Back box size 3M (computed)`**, body `switch 290 / socket1 464 / plate 3M 229 / back_box: Back Box 3M = 178`, **supply 430 / install 90 / combined 520** -- identical to H6. Pick **18M**: `Back box size 18M` PLAIN (no marker, no note), **`back_box: Back Box 18M = 552`, supply 560 / install 120 / combined 680** -- the price MOVED. Undo the field: 3M (computed), 178, **430 / 90 / 520 back**. Revert: the stored refusal returns, Revert disabled. Grid 28380 / 5940 amounts (= 430 / 90 x 66) untouched. |
+| **J2 THE PLATE FLOOR** | `00217 / ELE-8F / 58` ("3 Nos 6A Indian sockets … 9 or 10 module plate without back box": 9M plate over 7, `Back box No`). The brief's first candidates `00235 / Sheet1 / 181, 182, 187` render under the LIVE category **Point Wiring** (no `Back box size` field at all, refuse on the wiring attributes) -- the recon's population keyed on the RUN's category, not the live verdict; S14 correction, recorded. | BEFORE: `Frame/Face plate 9M`, `Blank plate qty 2 (computed)`, `Back box No`, **`Back box size 12M (computed)`**, `back_box: Back Box 12M = 0`, **supply 680 / install 140 / combined 820** -- identical to slice 1's F2. Session override `Back box = Yes` (so the line prices): `Back Box 12M = 465`, supply 850 / install 170 / combined 1020. Pick **3M**: **`Back box size 12M (computed)`** with the sentence, character for character: **"3M is smaller than the 9M face plate — using 12M."**; `Back Box 12M = 465`, supply 850 (raised to the PLATE's floor, which the box ladder resolves to 12M -- not the contents' 8M). Pick **8M** (below the 9M plate): raised likewise, **"8M is smaller than the 9M face plate — using 12M."** |
+| **J3 ABOVE THE PLATE** | same row, Back box Yes | Pick **18M**: `Back box size 18M` PLAIN, no note, **`Back Box 18M = 552`, supply 880 / install 180 / combined 1060** -- honoured. Pick **12M** (equal to the floor's rung): `12M` plain, no note, 465, 850. Revert: `Back box No`, `12M (computed)`, `= 0`, **680 / 140 / 820 back**, Revert disabled. |
+| **J4 THE BARE BOX** | `00196 / ELECTRICAL / 259` ("SITC of MS/GI back box for data outlets…", every slot None, `box_modules_stated` null) | BEFORE: **`Back box size 3M (computed)`** + **"No module size readable in the row or its headings — assumed 3M. Check it."**, `back_box: Back Box 3M = 178`, **supply 70 / install 20 / combined 90** -- identical to H4. Pick **6M**: `Back box size 6M` PLAIN, **the assumed sentence GONE**, `Back Box 6M = 279`, **supply 110 / install 30 / combined 140** -- the price followed. Undo: `3M (computed)`, the sentence BACK, 178, 70 / 20 / 90; Revert disabled. Grid 60 / 20 untouched. |
+| **J5 THE INVARIANT** | J1, J2, J4 before any pick | every figure identical to what slice 1 (F1, F2) and slice 2 (H6, H4) certified -- read above. No pick, no change. |
+| **J6 POINT_WIRING** | `00184 / Electrical Est / 16` ("First point controlled by existing MCB in D.B.") | 27 attributes, **NO `Back box size` field**, `notes: []` everywhere, `wire1 1650 / wire2 825 / conduit MS 25 480 / back_box: Back Box 3M = 65`, supply 3020; install `300 / 300 / 96 / 13` = 709; **combined 3729** -- byte-identical to H7. Grid 4981 untouched. |
+| **J7** | live config vs v59 | all 12 configs **0 leaves differing** (switches_sockets 471/471, point_wiring 1,011/1,011, …); active Electrical **1,367** on `rmbulk-0bd36d23eaca`; 12 configs; snapshots 10; freeze OFF. |
+
+### #57 UI change control -- approved 2026-09-08, delivered as approved (the list did not grow)
+1. The `Back box size` dropdown is effective: a pick changes the price (J1, J3, J4). This ENDS the slice-1 transient.
+2. A pick smaller than the face plate is raised to the plate's size and the panel says so in the new sentence (J2).
+3. On a bare box a pick replaces the assumed 3M and the "assumed" sentence disappears (J4).
+
+### Register (recorded, not fixed)
+- **Panel attribute overrides survive a re-run and cross sheets by row number** (owner PARKED 2026-09-06). Slice 3 raises the cost on one more attribute: a stale box pick now moves the banked rate where it previously moved only the dropdown. Not fixed, by ruling.
+- **The candidate rows on `BOQ-26-00235 / Sheet1` (181, 182, 187) carry a LIVE category of Point Wiring** while their active run classified them switches_sockets; the panel is category-scoped to the live verdict, so they refuse. A category/run disagreement class, not this slice's.
+- 167 of 407 switches_sockets rows in active runs cannot price on a blank occupant quantity; `BOQ-26-00235 / 179, 185` carry 21 modules above the plate ladder top; the higher-count rule is not delivered on ranges; the `_extract_json_array` parser defect; the 16 rows on `BOQ-26-00241`; row 398's three-phase misread; the board ladder's closer-in-rating correction; no reactivation UI; the two 2,049 DP D rows; the jargon refusal line.
+- `scripts/residence_check.py` reports F2 223 vs baseline 207 and F5 119 vs 116 -- IDENTICAL with this slice's files stashed (measured), i.e. pre-existing drift on the branch, not this slice's; on Windows the script also needs `PYTHONIOENCODING=utf-8` (a check-mark glyph crashes cp1252 output).
+- A run count of 71 (was 70 at the slice-2 cert) -- one run was created between the two certs by someone else; not this session's.
+- Vite served stale modules after the source edits (0 markers on the plain URL) until restarted by PID with `.vite` cleared -- the standing recipe, declared.
+- The plain `kill` on web/worker left both defunct and `kill -9` was needed (the slice-2 pattern); `docker exec` did not wedge this session.
+
+### Files
+`nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v59.json` (new), `nirmaan_stack/api/boq/rate_master.py` (the two `_ref` guards, +12), `nirmaan_stack/api/boq/test_rate_master.py` (constant -> v59, TestF25Slice2BareBox frozen + `_10` re-pointed, test_r12 widened, TestF25Slice3PickFrom), `frontend/src/pages/pricing/rate-master/rateMasterTypes.ts` (`pick_from`, `pick` outcome), `frontend/src/pages/pricing/rate-master/ratePipelineInterpreter.ts` (`readPick`, both branches) + test, `frontend/src/pages/boq-wizard/rate-helper/rateHelperTypes.ts` (`plate_floor` + order + sentence), `frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.ts` (`ladderNotes`, `substituted`) + test, this record. `CLAUDE.md` root: ONE durable rule earned and added -- a `module_fit` ladder feature has TWO read sites, and a key wired on one alone ships half.
+
+## Never-asked defaults -- a config attribute added after a run no longer refuses the older rows (2026-09-08, frontend only)
+
+### The owner's ruling (verbatim, not extended)
+Presented with three candidates from the 167-row recon, the owner ruled on candidate 4: *"Treat a never-asked
+field as answered -- this is ok"*, with the attached condition that it defaults ONLY a genuinely optional field
+-- a field with no sensible default stays blank and keeps refusing. Then: *"lets do it now"*.
+
+### The defect this answers -- RECORDED AS A RECURRING DEFECT, NOT A ONE-OFF
+The panel's missing-attribute gate (`pricingSheetHelper.compute`) walks the CURRENT config's attribute list
+against a stored run row that carries only the keys asked at ITS extraction. **Every panel-visible, non-derived
+attribute added to a config after a run reads as blank on every older row of that category and refuses it.**
+Nothing records which config a row was extracted under. Measured 2026-09-08 over the 42 active runs (5,001
+rows) with the REAL helper: 408 rows across four categories, 347 with no other blocker --
+switches_sockets 158 (138 pure; `socket3/4_item/qty`, added 2026-08-21 v45), point_wiring 200 (170 pure; the
+seven `circuit_wire_*` fields, added 2026-09-03 v51), junction_box_raceway 34 (`face_mm`, 2026-08-15),
+popup_boxes 16 (5 pure; the composite, 2026-08-21). v58's `box_modules_stated` escaped only because it is
+`panel: false`. **This slice makes the READ side tolerant; it does not stop the cause.** The next visible
+attribute added to any config will break every older row of that category again unless it carries a default or
+`allow_none`.
+
+### The rule, and the distinction it rests on
+**KEY ABSENT vs PRESENT-NULL -- the whole slice.** The extractor writes a cell for EVERY attribute it asks,
+whether or not the model answered: `extraction._extract_batch` iterates `for aid, defn in defs_by_id.items()`
+and writes `row_out[aid] = {"value": value, "confidence": ...}` (value None when the model returned nothing);
+the fallback paths `_blank_row` / `_row_result` write `{d["id"]: {"value": None, ...}}` for every def. So on an
+IN-RUN row:
+- **KEY PRESENT, value null** -> the model WAS asked and came back blank. A real read failure. UNTOUCHED; the
+  gate keeps refusing (53 of the switches_sockets rows are exactly this).
+- **KEY ABSENT** -> the attribute was not in the config at extraction time; the model was NEVER asked. It takes
+  its config default. The only other way a key is absent by design is `extract: false`, excluded explicitly.
+
+**Which default (the two sources the owner saw, nothing wider):** (1) the config's top-level
+`extraction_defaults[id]` -- a scalar, or `{default, requires_named}` (applied only when the named item is
+FILLED, mirroring `fill_paired_slot_defaults` case (a)); a `{default, text_overrides}` spec is NOT reproduced at
+read time (that would be a second copy of the extractor's text rule) so that field stays blank and refuses --
+inert on the live corpus; (2) `allow_none` -> `"None"`, the honest answer for a slot the model was never shown.
+Anything else (no default, `panel: false`, a DERIVED attribute -- a ladder bind such as `plate_item` is the
+ladder's FLOOR and must never be seeded) is untouched. IN-RUN rows only: a manual row keeps "Fill the
+attributes to price this row". The per-definition `default` key is deliberately NOT a source.
+
+**Where:** `pricingSheetHelper.ts` only -- `readExtractionDefaults` + `neverAskedDefault` beside
+`readGroupLabel`, a two-pass synthesis of `ExtractedAttr` cells (`{value, confidence: 0, defaulted: true}`)
+inside `compute` before the `disabledByNone` pre-pass, and a `cellOf(d)` reader that both `valueOfDef` and the
+main walk use. `extraction_defaults` and `extract` are read through `unknown` (the types file is out of scope).
+No interpreter change, no extraction change, no config, no asset, no stored run touched.
+
+### The qualifying attribute list (Step One, measured before building)
+| category | attribute | default | source | rows in active runs gaining it |
+|---|---|---|---|---|
+| switches_sockets | `socket3_item`, `socket4_item` | `None` | allow_none | 158 each |
+| point_wiring | `circuit_wire_included` | `No` | extraction_defaults | 200 |
+| point_wiring | `circuit_wire1_core`, `circuit_wire1_runs`, `circuit_wire2_core`, `circuit_wire2_runs` | `1` | extraction_defaults | 200 each |
+| point_wiring | `circuit_wire1_thickness_sqmm`, `circuit_wire2_thickness_sqmm` | `None` | allow_none | 200 each |
+| popup_boxes | `switch_item`, `socket1..4_item` | `None` | allow_none | 16 each |
+| popup_boxes | `colour` | `White` | extraction_defaults | 16 |
+
+**DOES NOT qualify (no sensible default; keeps refusing):** junction_box_raceway `face_mm` (34 rows);
+popup_boxes `has_modules` / `module_count` / `plate_qty` / the five `*_qty` (16 rows -- so NO popup row is
+unblocked, its sockets merely render as defaulted None while it still refuses); switches_sockets
+`socket3_qty` / `socket4_qty` are `requires_named` on an item that defaults to None, so they take no default and
+are DISABLED by the existing `disables_when_none` -- never a phantom 1.
+
+**Unblocked: 308 rows** (138 switches_sockets + 170 point_wiring) -- the #57 figure. 66 more rows (20
+switches_sockets, 30 point_wiring, 16 popup_boxes) gain defaulted fields but keep refusing on a present-null
+blocker; their VERDICT is unchanged (#57 item 2 holds on the verdict axis; disclosed here on the field axis).
+
+### THE INVARIANT -- proven, not asserted
+The real `makePricingSheetHelper` + `buildExtractionByRow` bundled with the project's esbuild in-container
+(`--alias:@=./src`, no DB, no network) and run over all 5,001 rows of the 42 active runs against the 12 live
+configs and 1,367 live items, under BOTH the run category and the live category, before and after (and again
+with the final helper): **10,002 verdicts compared; 0 rows that priced before changed a verdict, a value or a
+final.** Run category: 308 verdicts changed (304 now price; 4 -- `BOQ-26-00206/207/208/209 BOQ -ELEC` rows
+265/263/263/269 -- pass the gate and refuse honestly at the plate ladder top, 10 sockets = 21 modules above 18M,
+the register's known class). Live category: 301 changed. A unit pin also holds the invariant (a row with every
+key present is byte-identical).
+
+### The honesty -- the badge is the guard, and what it can and cannot say
+Every never-asked value carries the EXISTING `defaulted` flag: the same amber `default` badge, the same
+override precedence (a pricer's pick clears it), the same "(defaulted -- ...)" trace line. **The badge cannot
+tell a never-asked default from a model-claimed one.** Two things can: the field shows NO confidence percentage
+(a model-claimed default shows its own, e.g. `default 85%` on `00224/294`), and a second derivation line
+`(never asked at extraction -- config default applied; re-run the sheet to read it): ...` names exactly the
+never-asked fields. ⚠️ The panel renders `sections[i].derivation`, NOT the flat list, whenever sections exist --
+every module_fit category, i.e. exactly the never-asked population -- so the line is appended to every section
+too (the combined-line precedent); without that it existed only in tests. Found on the live screen, not by a test.
+
+⚠️ **THE HAZARD (owner-accepted): a row that GENUINELY has a third socket now prices LOW, with nothing
+downstream to catch it.** Same class as the LMS silent-wrong-pick limit. The badge, the missing percentage and
+the trace line are the only guard; a pricer who does not open the workings sees a plausible figure.
+
+### Tests (in-container vitest)
+Baseline full suite 3,220 passed / 1 failed (the known `writeOffControl` timeout); after 3,233 / 1 (+13 pins, same
+failure). Helper file 245 -> 258. BEFORE (helper stashed, pins present): the 5 positives red, 253 green.
+VACUITY (A4, `neverAskedDefault` forced to `undefined`): the same 5 red; restored: 258 green. Pins: absent
+allow_none -> None/badged/gate passes (positive); PRESENT-NULL same slot -> still refuses (the over-reach pin);
+no-default attribute absent -> refuses; `{default, text_overrides}` -> refuses; every key present -> byte-identical;
+never-asked == model-claimed in pricing; override wins and clears the badge; `requires_named` defaults only on a
+FILLED item, never a phantom 1; a derived bind is never seeded; manual row untouched; a full-key category
+untouched; point_wiring circuit block positive + present-null negative; the section-level trace line.
+tsc: 0 errors in the touched file (2 pre-existing in `useDocCountStore.ts`). Residence check F2 223 / F5 119,
+identical with this slice's files stashed (pre-existing drift; a comment containing the literal `JSON.parse`
+briefly counted as F2 224 and was removed).
+
+### The browser live cert (2026-09-08 ~16:40-17:30 IST, admins@nirmaan.app, :8080 via vite) -- ZERO AI calls, ZERO writes
+All four processes restarted by PID (`kill -9` needed, declared), `.vite` cleared, `:8000/:8080/:9000` 200 x3;
+FRONTEND-derived bundle marker on the plain URL: `neverAskedDefault` x2, `s.derivation.push(neverAskedLine)` x1.
+⚠️ The first page load showed a stale module (plain-URL fetch 0 markers while `?t=` fetch had them) -- the
+standing Vite stale-module recipe applied (vite killed by PID, `.vite` cleared, restart) and the plain URL then
+carried the marker. A Docker Desktop outage mid-cert (API 500 then the pipe gone) was ridden out; the container
+came back bare (`sleep infinity`) and all four were started again from `sites/`.
+| step | row | result |
+|---|---|---|
+| **K1 (SUBSTITUTED, S12)** | `BOQ-26-00171 / Electrical / 107` "mounting box fixed flush with the wall." (10A switch + 6A socket, run predates socket3/4) | **PRICES 320 / 70 / 390** (offline 320/70/390). Socket 3 = `None`, Socket 4 = `None`, each with the amber `default` badge and NO percentage; Socket 3 qty / Socket 4 qty disabled; both section blocks carry the `(never asked at extraction ...)` line. Grid hand rates 290/60 untouched. The brief's `BOQ-26-00181 / 39` could not be opened: that sheet has 55 blank categories, the category gate hides every opener, and lifting it is an admin override WRITE (out of scope). Offline it prices 170/40/210 with the same badges. |
+| **K2** | `BOQ-26-00171 / Electrical / 141` "Three Light Controlled by one MCB / SENSOR" (point_wiring, run predates the circuit block) | **PRICES 4736 / 630** (offline 4736/630/5366). `Circuit wiring included = No` badged default, both circuit thicknesses `None` badged, cores/runs disabled; the never-asked line under BOTH Pw Boq Supply and Pw Boq Install. Grid 7560/1380 untouched. |
+| **K3 (negative)** | `BOQ-26-00229 / Electrical BOQ / 340` "TV CO - AXIAL SOCKET" (`socket1_qty 1`, `socket1_item` PRESENT-NULL) | **STILL REFUSES** -- "Complete the missing attributes to price", Socket 1 blank and red, no value, no never-asked line. |
+| **K4 (no default)** | `BOQ-26-00171 / Electrical / 268` "100x100x50MM" (junction box, `face_mm` absent) | **STILL REFUSES** -- Face size (mm) blank and red, "Some attributes are missing -- fill them to compute a rate." |
+| **K5 invariant** | `BOQ-26-00229 / 322` (switches_sockets, badge "Suggested value used") and `BOQ-26-00224 / 294` (point_wiring, "Suggested value used") | **630 / 130 / 760** and **5111 / 880**, to the rupee as before; no never-asked line; 294's model-claimed `default 85%` still shows its percentage. |
+| **K6** | before / after | runs 71 (42 active), events 1,532, items 1,367 on `rmbulk-0bd36d23eaca`, 12 configs, max `modified` on runs/events/configs unchanged. No pricer pick made, nothing to revert. |
+
+Screenshots: `claude-chrome-screenshots-vr4U8B/screenshot-1788867667568-31.jpg` (K1 panel),
+`...-1788867702835-32.png` (K1 zoom incl. the trace line), `...-1788867753344-33.png` (K2 both sections),
+`...-1788867797914-34.png` (K4 refusal).
+
+### #57 UI change control -- delivered as approved
+1. 308 rows that read "Complete the missing attributes to price" now price; the never-asked fields show their
+default with the defaulted badge (and no confidence percentage). 2. Present-null and no-default rows keep
+refusing, unchanged in verdict; 66 of them now show defaulted never-asked fields beside the real blocker.
+
+### Register (recorded, not fixed)
+- **The plan record documents a re-run across 22 sheets / 251 rows remedying the point_wiring stale rows, citing
+  `BRSR-26-00469..472` -- those runs DO NOT EXIST in the live database and no run of that date exists on any
+  affected sheet.** Either they were wiped by a refresh or the record is wrong about something it claims happened.
+- The 20 non-assembly rows (removals, dummy plates) that no pick prices correctly; the 33 genuine read failures
+  (present-null items); the 3 (now 7 incl. the four `BOQ -ELEC` rows above) rows above the plate ladder top; the
+  `_extract_json_array` parser defect; run-to-run variance; the jargon refusal line; panel overrides surviving a
+  re-run; the standing register.
+- The recurring cause above: the extractor/config side still has no provenance stamp; a future visible attribute
+  without a default or `allow_none` refuses every older row again.
+- A Docker Desktop outage during the cert; the container returns bare and needs all four processes.
+
+### Files
+`frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.ts`, `.../pricingSheetHelper.test.ts`, this record,
+root `CLAUDE.md` (one invariant paragraph: absent vs present-null and the recurring defect).
+
+## F-31 verified, the shared parser's scalar-list defect fixed, the owed Python suites run (2026-09-08)
+
+Owner rulings, verbatim: on the parser, *"keep it logged. we will build this. or bundle it into som ebuild
+slice if work is small"*; on sequence, *"lets do first 3. then we start native price calculator. run to run
+vairance and ghost re run we are not chasing now"*. Run-to-run variance and the missing `BRSR-26-00469..472`
+run records were NOT chased and stay on the register. **The owner's sequence now reaches the NATIVE PRICE
+CALCULATOR.**
+
+### Part A -- F-31, verified, not built: verdict CURED (with one named residual)
+F-31 was a test going red on fixture residue the suites leave in the LIVE site DB. The test is
+`test_rate_suggest.test_27_live_configs_all_validate` (:891): it reads EVERY `active=1` `BoQ Rate Category
+Config` across ALL disciplines and runs `rate_master._validate_config` on each. The plan records two distinct
+past causes: (1) 2026-08 -- a duplicate-insert probe without a savepoint cascaded into a failing
+`tearDownClass`, which orphaned 56 `TEST_RM_*` disciplines (45,432 items / 234 configs / 42 retirements) and
+`test_27` then validated that debris; (2) later, a live Electrical config carrying an unknown top-level key --
+config/asset drift, not residue.
+
+Evidence, in session:
+- `test_27` is **green now**: `test_rate_suggest` ran 71 OK (5.8 s). Nothing in the test changed; it is green
+  because (a) there is no `TEST_RM_*` residue and (b) all 12 live Electrical configs validate.
+- **Residue counts (`TEST_RM_%` on Item / Config / Retirement / Snapshot, plus their Version rows):
+  BEFORE any suite 0 / 0 / 0 / 0 / 0 -> AFTER a full `test_rate_master` (337 OK, 801 s) 0 / 0 / 0 / 0 / 0 ->
+  AFTER `test_rate_suggest` 0 / 0 / 0 / 0 / 0.** Active configs stayed `Electrical: 12`, active items
+  `Electrical: 1,367` throughout.
+- Why it does not rebuild: `test_rate_master.tearDownClass` (:360-378) purges Snapshot, then the Version rows of
+  every Config/Item/Retirement row, then the rows, per discipline the class created, and commits; the
+  second class (:5371) does the same. A completed run therefore leaves nothing -- measured, not intended.
+
+**Ruling: CURED.** The residue is cleaned up by the suite on every completed run and the 2026-08 accumulation
+came from a since-fixed cascade (the probe now sits in a savepoint). **The named residual, NOT built (owner
+decision):** an ABORTED run -- a kill, a crash, a Docker outage mid-class such as today's -- never reaches
+`tearDownClass` and leaves that class's `TEST_RM_*` rows behind with no self-heal, and `test_27` would fire on
+them again. A fix would be small: a `setUpClass` pre-purge of any stray `TEST_RM_%` discipline (the same
+discipline-scoped delete the teardown already performs), or `test_27` excluding the `TEST_RM_` prefix so it
+validates only real disciplines. Either is a test-file change only; neither was made.
+
+### Part B -- the parser defect (verified against the repo; two corrections)
+On 2026-09-07 02:54:13-31 IST the whole-sheet run on `BOQ-26-00224 / ELECTRICAL` (model `claude-opus-4-8`)
+failed three attempts on the junction_box_raceway batch rows `[359, 361, 363, 365, 367]` -- the capture log
+`logs/boq_rate_extraction_capture.jsonl` records 373-375 hold all three, each `error = TypeError("'int' object
+is not subscriptable")`, `transient: True` -- then `ExtractionHalted`. Attempt 1 verbatim opens *"Looking at
+each row, the face sizes are non-standard and must map to the allowed values [350, 250, 200, 150, 100, 300]."*,
+lists each row with arrow glyphs, and closes with the valid five-row array. `_extract_json_array` returned the
+first balanced span that parsed as a list -- `[350, 250, 200, 150, 100, 300]` -- and the call site did
+`int(el["id"])` on an int. **Corrections (S9):** the call site is `extraction.py:2352-2353`, not 2278-2279;
+and the 02:55:19 re-run (record 377) parsed only because that time the model wrote the values WITHOUT
+brackets -- luck, not a fix. The model was not misbehaving; the fix is in the parser, never the prompt.
+
+**Every caller of the shared function, by identity:** `services/boq_category/ai_voter.py:177` (`_ai_batch`,
+the classifier voter); `services/boq_category/harness/electrical_classification_harness.py:117` (imported at
+:28); `services/boq_rate_master/extraction.py:2352` (imported at :46); tests `boq_category/tests/
+test_hv2_voter_harness.py` and (now) `boq_rate_master/test_extraction_coercion.py`. NOT callers:
+`services/boq_ai_assist.py:433` defines a same-named but separate string-returning parser for the review-tree
+assist; the untracked `_classification_review/rerun_harness*.py` carry their own local copies.
+
+**The fix (`ai_voter._extract_json_array`, 2 lines + comment):** a balanced span that parses as a list is
+returned only when every element is a dict (the empty list still returns, as before); otherwise the scan
+continues to the next `[`. A reply holding ONLY a scalar list falls through to the existing bare-object path
+and then the existing loud `ValueError("no parseable JSON array in AI response")`. Truncation and garbage
+raise exactly as before. `extraction.py` is untouched.
+
+**What the run sees now:** the captured attempt-1 reply yields the five rows through the REAL
+`_extract_batch` (values null, confidence 0.9, exactly what the model wrote); a scalar-list-only reply ends
+in `ExtractionHalted("The batch failed on all 3 attempts ... Last error: ValueError: no parseable JSON
+array in AI response")` -- a clean, named halt, never a TypeError.
+
+### Tests (canonical `bench --site localhost run-tests --module ...`, in-container)
+- `boq_category/tests/test_hv2_voter_harness.py` -- new `TestScalarListSkip`, 14 pins: the REAL 2026-09-07
+  reply (verbatim, arrow glyphs included) parses to the five-row array; non-vacuity that the first balanced
+  span really is the scalar list; scalars-only raises the clean `ValueError`, not a TypeError; a skipped list
+  does not block the HV-2 bare-object path; a bare row array is byte-identical (`== json.loads(text)`); `[]`
+  still returns `[]`; a bracketed list of STRINGS and a MIXED list in prose are skipped; nested lists inside
+  the row array are kept; prose nested scalar lists then the array; truncation after a skipped list still
+  raises; the voter `_ai_batch` unchanged on a plain reply AND now surviving a prefaced one; the harness still
+  shares the function by identity. **29 -> 43.**
+- `boq_rate_master/test_extraction_coercion.py` -- new `TestPrefacedReplyAtTheRateCallSite`, 3 pins through
+  the real `_extract_batch` with the shared fake client: the captured prefaced reply yields the rows; the bare
+  array reply equals the prefaced one (invariant); a scalar list alone halts as `ExtractionHalted` whose
+  `detail` names `ValueError` and not `TypeError`. **146 -> 149.**
+- **BEFORE** (parser stashed): hv2 8 red of 43 (5 errors, 3 failures); coercion 3 red of 149, the two errors
+  carrying the production text verbatim -- *"Last error: TypeError: 'int' object is not subscriptable"*.
+  **AFTER:** 43 OK, 149 OK. **VACUITY (A4, the `all(isinstance(el, dict))` test forced to `True`):** the same
+  8 + 3 red; restored: green.
+- **The owed suites (Part C):** `test_extraction_coercion` **149 OK** (was 146), `test_rate_suggest` **71 OK**,
+  `test_rate_master` **337 OK** (801 s), vitest **3,233 passed / 1 failed** (the known `writeOffControl`
+  timeout) -- S6 not triggered. Residue 0 before and 0 after, as above.
+
+### The cert -- a REPLAY, no AI call
+The captured attempt-1 reply was fed to the real `extraction._extract_batch` (the real parser, the real
+`int(el["id"])` site, the real coercion) through the shared fake client, with the batch's own five excel rows.
+Before the fix it reproduced the halt with the production error text; after it, the five rows come back. No
+browser step: a parser, not a panel; #57 NONE -- a pricer sees no change, a run that would have halted now
+completes.
+
+### Register
+- **F-31: CLOSED (cured).** Residual recorded above: an aborted run leaves residue with no self-heal; a
+  pre-purge or a prefix exclusion would close that, not built.
+- Run-to-run variance and the missing `BRSR-26-00469..472` run records -- **explicitly NOT chased, owner
+  ruling**; carried unchanged.
+- Carried unchanged: the 20 non-assembly rows; the 33 genuine read failures; the 7 rows above the plate
+  ladder top; the jargon refusal line; panel overrides surviving a re-run; the never-asked recurring cause
+  (no provenance stamp on run rows); a bare container after a Docker restart needs all four processes.
+- Docker Desktop crashed twice during this slice (API 500, then the pipe gone); the owner restarted it; no
+  suite was running at either crash (the residue counts prove it: 0 throughout).
+
+### Files
+`nirmaan_stack/services/boq_category/ai_voter.py`, `nirmaan_stack/services/boq_category/tests/test_hv2_voter_harness.py`,
+`nirmaan_stack/services/boq_rate_master/test_extraction_coercion.py`, this record, root `CLAUDE.md` (one
+paragraph: the shared parser's list-of-dicts rule, its three callers, and never-in-the-prompt).

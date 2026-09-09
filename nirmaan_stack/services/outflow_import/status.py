@@ -108,7 +108,10 @@ from nirmaan_stack.services.outflow_import.amounts import amounts_match
 # SECOND TIME. A private list here would be free to drift from the one `candidates.py` offers from
 # and `settle.py` writes to -- and the symptom would be a settled-by-ledger panel that silently
 # omits a book the import had just settled into.
-from nirmaan_stack.services.outflow_import.ledgers import LEDGER_DOCTYPES
+from nirmaan_stack.services.outflow_import.ledgers import (
+    LEDGER_DOCTYPES,
+    RECEIVED_LEDGER_DOCTYPES,
+)
 
 __all__ = [
     "ROW_PENDING_MATCH",
@@ -136,6 +139,7 @@ __all__ = [
     "settlement_origin",
     "derive_staged_row_outcome",
     "derive_row_outcome",
+    "derive_duplicate_guard_outcome",
     "sole_suggestion",
     "derive_batch_status",
     "derive_batch_counters",
@@ -144,10 +148,17 @@ __all__ = [
     "SettledLedgerEntry",
     "derive_settled_ledger_split",
     "SETTLED_LEDGER_OTHER",
+    "ROW_DIRECTION_CREDIT",
+    "SETTLED_BLOCK_RECEIVED",
+    "SETTLED_BLOCK_PAID",
+    "is_received_direction",
+    "derive_settled_direction_blocks",
     "SKIP_REASON_NOT_SUCCESSFUL",
     "SKIP_REASON_ALREADY_IMPORTED",
     "SKIP_REASON_DUPLICATE_IN_FILE",
     "SKIP_REASON_ALREADY_PAID",
+    "SKIP_REASON_EXCLUDED_AT_INGEST",
+    "STAGED_NOTE_NO_SETTLEMENT_PATH",
 ]
 
 ROW_PENDING_MATCH = "Pending match run"
@@ -224,6 +235,35 @@ SKIP_REASON_ALREADY_IMPORTED = "Already imported in batch {batch}."
 SKIP_REASON_DUPLICATE_IN_FILE = "This transfer appears earlier in the same statement."
 SKIP_REASON_ALREADY_PAID = "Already recorded as Paid on {records}."
 
+# The bank-statement exclusion (slice B3). `{category}` is a `bank_exclusions.SKIP_CATEGORY_IDS`
+# member, verbatim.
+#
+# ⚠️ THE CATEGORY ID IS IN THE SENTENCE ON PURPOSE, AND IT IS THE RAW ID RATHER THAN A PRETTY LABEL.
+# `bank_exclusions` fits ten narration patterns to eight months of ONE account and says in as many
+# words that the per-category counts are what makes a new narration form noticeable. A reviewer who
+# can see `platform_porter` on the row can find the rule that fired it, count how often it fires and
+# argue with it; "Skipped -- not a spend" is unauditable, and a mis-fitted rule under it would go on
+# quietly dropping real payments. A second, prettier vocabulary here would also be a second thing to
+# keep in step with the ruleset, which is exactly what naming the id avoids.
+SKIP_REASON_EXCLUDED_AT_INGEST = (
+    "Not spending -- this line is money moving inside the bank or between our own accounts. "
+    "Excluded by bank-statement rule '{category}'."
+)
+
+# The landing note for a source that stages straight to `Mismatched` (slice B3, owner ruling Q31).
+#
+# ⚠️ IT SAYS "NO SETTLEMENT PATH", NOT "THE MATCHER NEVER RUNS", AND THE DIFFERENCE IS DELIBERATE.
+# A bank statement suggests no record to settle -- measured: tier 1 is structurally unreachable,
+# tier 0's Approved-only pool is empty for every row of every statement, and tier 2 fires zero times
+# with all seven near-misses false positives. But the already-recorded-as-Paid DUPLICATE guard is
+# kept (owner ruling Q31a; it catches 41 of 711 real debits), and that guard lives in the match run.
+# A reader who took the stronger claim as a rule would have no reason to let this source reach the
+# run at all, and would silently delete the guard.
+STAGED_NOTE_NO_SETTLEMENT_PATH = (
+    "This statement creates records rather than settling approved ones. "
+    "Resolve it by creating a new record or linking an existing one."
+)
+
 
 @dataclass(frozen=True)
 class RowOutcome:
@@ -257,6 +297,8 @@ def derive_staged_row_outcome(
     row,
     already_imported_in: str | None = None,
     duplicate_in_file: bool = False,
+    excluded_category: str = "",
+    no_settlement_path: bool = False,
 ) -> RowOutcome:
     """The outcome a row gets AT UPLOAD, before any matching has run.
 
@@ -274,7 +316,42 @@ def derive_staged_row_outcome(
 
     Skip reasons are shared verbatim with `derive_row_outcome`, so a row skipped at upload and a
     row skipped after matching read identically to a reviewer.
+
+    THE TWO SLICE-B3 PARAMETERS, and why they are parameters rather than logic:
+
+    `excluded_category` is a `bank_exclusions` category id, or `""` for a row no rule matched. THE
+    VERDICT IS COMPUTED BY THE CALLER AND HANDED IN -- this module does not import
+    `bank_exclusions`. Not squeamishness about a cycle (there is none; both are pure leaves): this
+    deriver's stated property is that it imports exactly ONE thing from its own package, so that it
+    stays callable from a plain unittest with no bench and no fixtures. It is also the shape the two
+    parameters above already use -- `already_imported_in` is a database answer computed elsewhere
+    and passed in, for the same reason. The deriver still owns the STATUS; the caller owns the
+    lookup.
+
+    `no_settlement_path` is a fact about the SOURCE, not about the row: a bank passbook suggests no
+    approved record to settle, so `Pending match run` would promise the reviewer a run that will
+    never produce a settlement, and they would press it once per statement forever. Landing straight
+    on `Mismatched` states the truth -- this row needs a person -- on the day it is staged.
+    ⚠️ IT DOES **NOT** MEAN "THE MATCH RUN MUST NOT TOUCH THIS ROW", and nothing here freezes it:
+    `Mismatched` is in `OPEN_ROW_STATUSES` and is absent from `review._FROZEN_ROW_STATUSES`, so a
+    later run still examines the row -- which is exactly what the retained already-recorded-as-Paid
+    duplicate guard needs (owner ruling Q31a). Landing it `Skipped` instead would have frozen it and
+    silently deleted that guard.
+
+    ⚠️ THE EXCLUSION IS TESTED **FIRST**, AHEAD OF BOTH DUPLICATE CHECKS, AND THE ORDER IS A
+    DECISION. Every branch here ends at `Skipped`, so the precedence changes no status anywhere --
+    it decides only which SENTENCE the reviewer reads, which is the whole value of the field. An
+    exclusion is a property of the LINE ITSELF ("this was never spending") and is true whatever the
+    corpus holds; "already imported in batch X" is a property of history, and it sends a reader off
+    to a batch where the row was, correctly, skipped as an exclusion too -- a wild goose chase. The
+    decisive case is a re-upload: with already-imported first, 405 of 1,274 rows would read "already
+    imported" instead of naming the ten rules, destroying the per-category counts that
+    `bank_exclusions` says are what makes a new narration form noticeable.
     """
+    if excluded_category:
+        return RowOutcome(
+            ROW_SKIPPED, SKIP_REASON_EXCLUDED_AT_INGEST.format(category=excluded_category)
+        )
     if already_imported_in:
         return RowOutcome(
             ROW_SKIPPED, SKIP_REASON_ALREADY_IMPORTED.format(batch=already_imported_in)
@@ -284,6 +361,8 @@ def derive_staged_row_outcome(
     if not getattr(row, "is_success", False):
         status_raw = (getattr(row, "status_raw", "") or "unknown").strip() or "unknown"
         return RowOutcome(ROW_SKIPPED, SKIP_REASON_NOT_SUCCESSFUL.format(status=status_raw))
+    if no_settlement_path:
+        return RowOutcome(ROW_MISMATCHED, STAGED_NOTE_NO_SETTLEMENT_PATH)
     return RowOutcome(ROW_PENDING_MATCH, "")
 
 
@@ -312,17 +391,49 @@ def derive_row_outcome(
             ROW_SKIPPED, SKIP_REASON_ALREADY_IMPORTED.format(batch=already_imported_in)
         )
 
+    # 2 and 3. Money that never moved, then money already recorded as Paid by hand. Both are shared
+    # verbatim with `derive_duplicate_guard_outcome` -- see `_failed_or_already_paid`.
+    decided = _failed_or_already_paid(row, paid_duplicate)
+    if decided is not None:
+        return decided
+
+    candidates = _settleable_candidates(match)
+    if not candidates:
+        # ⚠️ SAME STATUS AS THE AMOUNT DISAGREEMENT ABOVE, DIFFERENT NOTE (owner ruling 2026-08-10).
+        # This used to be its own `Unmatched`. The two are one status now because they are one job
+        # -- a transfer that did not line up, needing a person to create or link something -- and
+        # the note is where the cause belongs.
+        return RowOutcome(ROW_MISMATCHED, _nothing_found_note())
+
+    # 4. At least one APPROVED record at this amount. One candidate is a confident suggestion the
+    #    screen pre-selects; several is an ambiguity the screen presents without guessing between
+    #    them (owner: the screen never guesses between two real records). Both are `Matched` --
+    #    something settleable was found, and a person confirms which. The vocabulary is fixed at
+    #    seven statuses and deliberately has no "Ambiguous"; the distinction is a screen concern,
+    #    carried in the note rather than in the status.
+    return RowOutcome(ROW_MATCHED, _matched_note(candidates, getattr(match, "tier", "")))
+
+
+def _failed_or_already_paid(row, paid_duplicate) -> RowOutcome | None:
+    """Rules 2 and 3, or `None` when neither fires. Shared by BOTH match-time derivers.
+
+    ⚠️ FACTORED OUT AT SLICE B4 RATHER THAN COPIED, AND THE COPY WOULD HAVE BEEN THE DEFECT.
+    `derive_duplicate_guard_outcome` needs these two branches and nothing else, and the branches
+    carry two things that must never exist twice: the ROUNDING WINDOW (`amounts_match`, not `!=` --
+    see the note below) and the SENTENCES a reviewer reads. Two copies would let a bank statement's
+    already-Paid row read differently from a gateway's, or drift back to an exact comparison on one
+    path only. Nobody would notice; both would still pass their own tests.
+    """
     # 2. Money that never moved. A FAILED transfer still carries a bank reference and would match
     #    perfectly well, so this must come before any matching is considered.
     if not getattr(row, "is_success", False):
         status_raw = (getattr(row, "status_raw", "") or "unknown").strip() or "unknown"
         return RowOutcome(ROW_SKIPPED, SKIP_REASON_NOT_SUCCESSFUL.format(status=status_raw))
 
-    bank_amount = _amount_of(row)
-
     # 3. Already recorded as Paid by hand (rule 2). Safe to test before the candidate pool because
     #    an already-Paid record is not IN the candidate pool (rule 1) -- the two cannot contend.
     if paid_duplicate is not None and getattr(paid_duplicate, "targets", ()):
+        bank_amount = _amount_of(row)
         total = _total_of(paid_duplicate)
         if not amounts_match(total, bank_amount):
             # The AMOUNT route to `Mismatched` -- narrow and honest: the bank amount disagrees with
@@ -343,21 +454,45 @@ def derive_row_outcome(
             SKIP_REASON_ALREADY_PAID.format(records=_name_list(paid_duplicate)),
         )
 
-    candidates = _settleable_candidates(match)
-    if not candidates:
-        # ⚠️ SAME STATUS AS THE AMOUNT DISAGREEMENT ABOVE, DIFFERENT NOTE (owner ruling 2026-08-10).
-        # This used to be its own `Unmatched`. The two are one status now because they are one job
-        # -- a transfer that did not line up, needing a person to create or link something -- and
-        # the note is where the cause belongs.
-        return RowOutcome(ROW_MISMATCHED, _nothing_found_note())
+    return None
 
-    # 4. At least one APPROVED record at this amount. One candidate is a confident suggestion the
-    #    screen pre-selects; several is an ambiguity the screen presents without guessing between
-    #    them (owner: the screen never guesses between two real records). Both are `Matched` --
-    #    something settleable was found, and a person confirms which. The vocabulary is fixed at
-    #    seven statuses and deliberately has no "Ambiguous"; the distinction is a screen concern,
-    #    carried in the note rather than in the status.
-    return RowOutcome(ROW_MATCHED, _matched_note(candidates, getattr(match, "tier", "")))
+
+def derive_duplicate_guard_outcome(row, paid_duplicate=None) -> RowOutcome:
+    """The match-run outcome for a row whose SOURCE HAS NO SETTLEMENT PATH (slice B4).
+
+    A third entry point beside `derive_staged_row_outcome` and `derive_row_outcome`, for the same
+    reason the second one exists: it answers a genuinely different question. `derive_row_outcome`
+    asks "what did this transfer MATCH?" -- and for a bank passbook that question has no honest
+    answer, because there is nothing for it to match (`sources.source_has_settlement_path` carries
+    the measurement: tier 1 unreachable, tier 0's pool empty by construction, tier 2 zero hits and
+    all seven near-misses false positives). This asks the only question the run may ask of such a
+    row: "is this transfer ALREADY RECORDED as Paid, or is it work?"
+
+    ⚠️ IT TAKES NO `match` ARGUMENT, AND THAT ABSENCE IS THE POINT. A parameter would be a place for
+    a caller to pass candidates in, and the whole slice is that no settlement candidate is ever
+    produced for this source. The signature makes it structurally impossible to suggest a record
+    from here -- there is nothing to suggest one FROM. `review.match_batch` matches the shape on its
+    side: it never loads a settlement pool and never calls `match_row` for such a batch.
+
+    ⚠️ THE ALREADY-PAID GUARD IS KEPT, AND KEEPING IT IS WHY THIS FUNCTION EXISTS AT ALL (owner
+    ruling Q31a). It catches 41 of 711 real ICICI debits. Without it those 41 arrive as ordinary
+    work and the obvious next click books the same money a second time.
+
+    ⚠️ EVERYTHING ELSE GETS THE **STAGING** SENTENCE BACK, NOT `_nothing_found_note`. Both are
+    `Mismatched`, so the status is identical either way; the note is the whole difference, and
+    "No approved payment or expense matches this transfer" would be a finding about a search that
+    never ran -- it would send a reviewer hunting for a record that does not exist. Re-writing the
+    sentence the row was staged with also keeps a re-run byte-idempotent on the note, which is the
+    same reasoning `review._sweep_unresolved_to_mismatched` applies with its `keep_notes` set.
+
+    `already_imported_in` is deliberately NOT a parameter here: the cross-batch duplicate check is
+    settled at UPLOAD for every source (`derive_staged_row_outcome`), and `review.match_batch` has
+    never passed it either.
+    """
+    decided = _failed_or_already_paid(row, paid_duplicate)
+    if decided is not None:
+        return decided
+    return RowOutcome(ROW_MISMATCHED, STAGED_NOTE_NO_SETTLEMENT_PATH)
 
 
 def _settleable_candidates(match) -> tuple:
@@ -700,6 +835,19 @@ class StatusTally:
     # UNCHANGED, and is only ever non-zero on `Settled`. A row moves from one to the other by being
     # confirmed, so summing them would double-count the same transfer at two moments of its life.
     from_suggestion: int = 0
+    #: The raw `Outflow Import Row.direction` -- `Debit`, `Credit`, or BLANK.
+    #
+    # ⚠️ IT DEFAULTS TO `""` SO EVERY PRE-SPLIT CALLER -- and every existing test -- keeps
+    # constructing this tally positionally and lands, correctly, on the PAID side. That is the
+    # same disposition `SettledLedgerEntry.direction` already took, for the same reason: a blank
+    # direction is structurally incapable of having become a receipt, because
+    # `settle.create_inflow_from_row` refuses anything that is not `Credit` at the write.
+    #
+    # ⚠️ THE GROUPED QUERY THEREFORE CUTS ON `(row_status, failed, direction)`. It is a plain
+    # column on the row table, so nothing about `review._row_filters` changes to select it --
+    # ONE query gains ONE group key, and the split can never be computed under a different WHERE
+    # clause than the tab counts beside it.
+    direction: str = ""
 
 
 def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
@@ -753,6 +901,28 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
     duplicates than settlements -- a percentage of a denominator its own numerator is not drawn
     from. Settled and open now partition the total, so the percentage is a real fraction again.
 
+    ⚠️ THE TOTAL IS ALSO CUT BY DIRECTION, AND THE CUT PARTITIONS IT EXACTLY:
+
+        paid_rows + received_rows == total_rows
+        paid_value + received_value == total_value
+
+    The panel showed ONE "Total transferred" tile summing both directions; the owner split it into
+    "Total paid out" + "Total received". The two halves are accumulated inside the SAME branch that
+    decides `total_*`, so both exclusions -- failed transfers and `SUMMARY_EXCLUDED_STATUSES` --
+    apply to them identically and the tiles describe the population they replaced. Membership is
+    `is_received_direction`, the ONE definition of the axis; a blank direction is Paid.
+
+    ⚠️ AND SO IS **STILL OPEN**, ON THE SAME AXIS AND WITH THE SAME GUARANTEE:
+
+        open_paid_rows + open_received_rows == open_rows
+        open_paid_value + open_received_value == open_value
+
+    This is the one figure the panel's two direction BANDS needed that nothing already sent. Each
+    band reads Total (`paid_*` / `received_*`), Settled (its `derive_settled_direction_blocks`
+    block) and Still open (these) -- three populations of ONE direction, which is what lets a band's
+    three cards reconcile. `by_status` alone could not answer it: it is keyed by status, so both
+    directions were already folded together by the time `open_rows` was summed from it.
+
     ⚠️ `TERMINAL_ROW_STATUSES` ITSELF IS UNTOUCHED, and must stay that way. `derive_batch_status`,
     `batch_is_open` and `review._FROZEN_ROW_STATUSES` all read it, and narrowing it to make this
     exclusion fall out for free would change which statements the "Re-run match" button touches.
@@ -760,6 +930,15 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
     by_status: dict[str, dict] = {
         status: {"count": 0, "value": Decimal("0")} for status in ROW_STATUSES
     }
+    # ⚠️ THE SAME BUCKETS, CUT AGAIN BY DIRECTION -- and it exists because `by_status` CANNOT answer
+    # the question. That dict is keyed by STATUS ALONE, so "how much of what is still open is money
+    # out?" is unanswerable from it: `open_rows` is a sum over the open statuses, and every one of
+    # those buckets has already folded both directions together.
+    #
+    # ⚠️ IT IS NOT ZERO-FILLED, AND IT DOES NOT NEED TO BE. Nothing renders this dict; the four
+    # figures read off it are zero-filled by being SUMS, which are 0 over an empty selection. The
+    # zero-fill on `by_status` exists so the CHIPS render a status that is absent -- a different job.
+    by_status_direction: dict[tuple[str, bool], dict] = {}
     confirmable_rows = 0
     confirmable_value = Decimal("0")
 
@@ -769,6 +948,11 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
     failed_rows = 0
     failed_value = Decimal("0")
     settled_from_suggestion = 0
+
+    paid_rows = 0
+    paid_value = Decimal("0")
+    received_rows = 0
+    received_value = Decimal("0")
 
     for tally in tallies:
         if tally.failed:
@@ -780,6 +964,22 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
         )
         bucket["count"] += tally.count
         bucket["value"] += tally.value
+        # ⚠️ FILLED IN LOCKSTEP WITH THE BUCKET ABOVE, ON THE SAME SIDE OF THE `failed` `continue`
+        # AND ABOVE THE SAME `SUMMARY_EXCLUDED_STATUSES` TEST. That is what makes the two agree: for
+        # every status, the two direction buckets here sum EXACTLY to the one bucket above, so the
+        # figures derived from them partition the figures derived from it. Moving this line -- past
+        # the exclusion, or above the `continue` -- would ship halves that do not add up to the whole
+        # they sit beside, which is the one number nobody thinks to doubt.
+        #
+        # Membership is `is_received_direction`, the ONE definition of the axis. A blank or
+        # unrecognised direction is PAID, and it is a consequence rather than a guess -- see that
+        # predicate.
+        split_bucket = by_status_direction.setdefault(
+            (tally.status, is_received_direction(tally.direction)),
+            {"count": 0, "value": Decimal("0")},
+        )
+        split_bucket["count"] += tally.count
+        split_bucket["value"] += tally.value
         # ⚠️ THE BUCKET IS FILLED FIRST, THEN THE TOTAL IS DECIDED. A `Skipped` tally still lands in
         # `by_status` -- the chip reads it -- and only the statement TOTALS skip it. Reordering
         # these two so the exclusion `continue`s past the bucket would blank the Skipped chip, which
@@ -787,6 +987,17 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
         if tally.status not in SUMMARY_EXCLUDED_STATUSES:
             total_rows += tally.count
             total_value += tally.value
+            # ⚠️ THE SPLIT SITS INSIDE THIS EXACT BRANCH, AND THAT IS WHAT MAKES IT A PARTITION.
+            # Both exclusions above it -- the `failed` `continue` and `SUMMARY_EXCLUDED_STATUSES`
+            # -- therefore apply to the two halves identically, so the tiles are drawn from the
+            # same population as the one figure they replace. Moving either line out of this
+            # branch would ship two tiles that sum to something other than the total beside them.
+            if is_received_direction(tally.direction):
+                received_rows += tally.count
+                received_value += tally.value
+            else:
+                paid_rows += tally.count
+                paid_value += tally.value
         if tally.status == ROW_MATCHED:
             confirmable_rows += tally.with_suggestion
             confirmable_value += tally.suggested_value
@@ -801,6 +1012,34 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
 
     open_rows = sum(rows(s) for s in OPEN_ROW_STATUSES)
     open_value = sum((value(s) for s in OPEN_ROW_STATUSES), Decimal("0"))
+
+    def open_side(received: bool) -> tuple[int, Decimal]:
+        """One direction's share of what is still open.
+
+        ⚠️ SUMMED FROM THE OPEN STATUSES, NEVER SUBTRACTED FROM ANYTHING -- the same rule
+        `open_value` above states in full, applied to the halves. Subtracting the received half from
+        `open_value` would be arithmetically identical while the two partition, and would go
+        silently NEGATIVE the day they did not. Summing what is actually open on this side cannot
+        lie, and an unrecognised status falls out of both halves exactly as it falls out of
+        `open_rows`.
+
+        ⚠️ IT WALKS THE SAME `OPEN_ROW_STATUSES` SET, so the halves inherit every exclusion the
+        whole already has: a failed transfer never reached the dict, and `Skipped` is terminal and
+        so is absent from the set. `SUMMARY_EXCLUDED_STATUSES` therefore needs no second mention
+        here -- stating it again would be a second rule to keep in step with the first.
+        """
+        selected = [
+            bucket
+            for (status, is_received), bucket in by_status_direction.items()
+            if status in OPEN_ROW_STATUSES and is_received == received
+        ]
+        return (
+            sum(bucket["count"] for bucket in selected),
+            sum((bucket["value"] for bucket in selected), Decimal("0")),
+        )
+
+    open_paid_rows, open_paid_value = open_side(False)
+    open_received_rows, open_received_value = open_side(True)
     # ⚠️ SETTLED ONLY -- NOT `TERMINAL_ROW_STATUSES`, which also holds `Skipped`. Skipped rows are no
     # longer in `total_rows`, so counting them here would divide by a denominator they are absent
     # from and let `decided_percent` run past 100. `settled_rows + open_rows == total_rows` exactly.
@@ -809,11 +1048,62 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
     return {
         "total_rows": total_rows,
         "total_value": total_value,
+        # The statement total CUT BY DIRECTION -- the two tiles that replaced one "Total
+        # transferred" (owner ruling). Money out and money in are different facts, and a single
+        # figure summing both is "money out plus money in added together", which means nothing.
+        #
+        # ⚠️ THEY PARTITION THE TOTAL, EXACTLY:
+        #
+        #     paid_rows + received_rows == total_rows
+        #     paid_value + received_value == total_value
+        #
+        # on EVERY input, and that is the whole reason the split is safe to render beside figures
+        # derived from the total. It follows from `is_received_direction` being a single POSITIVE
+        # test -- every row is `Credit` or it is not, there is no third answer -- and from the two
+        # accumulations sitting inside the one branch that decides the total.
+        #
+        # ⚠️ A BLANK OR UNRECOGNISED DIRECTION IS PAID, and it is a consequence rather than a
+        # guess: `settle.create_inflow_from_row` refuses anything that is not `Credit` at the
+        # write, so such a row is structurally incapable of being a receipt.
+        #
+        # ⚠️ THIS IS NOT `derive_settled_direction_blocks`, WHICH CUTS THE SAME AXIS OVER A
+        # DIFFERENT POPULATION -- SETTLED rows only, broken down by ledger. These two are the
+        # WHOLE statement. Two keys totalling the same money would be two chances to disagree;
+        # these deliberately total DIFFERENT money, and the naming has to keep saying so.
+        "paid_rows": paid_rows,
+        "paid_value": paid_value,
+        "received_rows": received_rows,
+        "received_value": received_value,
         "by_status": by_status,
         "open_rows": open_rows,
         # The number a reviewer is actually asking for: how much of this statement is still
         # unaccounted for. It is the one figure that says whether the import is finished.
         "open_value": open_value,
+        # STILL OPEN, CUT BY DIRECTION -- the third figure each of the panel's two direction bands
+        # needs, and the ONLY genuinely new number the band layout required.
+        #
+        # ⚠️ THEY PARTITION `open_rows` / `open_value`, EXACTLY:
+        #
+        #     open_paid_rows + open_received_rows == open_rows
+        #     open_paid_value + open_received_value == open_value
+        #
+        # on EVERY input, for the same two reasons the paid/received totals partition the statement
+        # total: `is_received_direction` is a single POSITIVE test with no third answer, and the two
+        # direction buckets are filled in the same branch as the status bucket they are cut from.
+        #
+        # ⚠️ THEY ARE A CUT OF **OPEN**, NOT OF THE STATEMENT. `paid_value` is every row the panel
+        # counts whatever its status; this is only what somebody still owes a decision on. A band on
+        # the panel reads `Total` = `paid_value`, `Settled` = the `settled_by_direction` block, and
+        # `Still open` = these -- three figures over three different populations of the same
+        # direction, which is exactly why the band adds up.
+        #
+        # ⚠️ AND THE SETTLED HALF IS DELIBERATELY ABSENT FROM HERE. `derive_settled_direction_blocks`
+        # already computes it, WITH the per-ledger lines the panel renders, and two keys totalling
+        # the same money are two chances to disagree about it.
+        "open_paid_rows": open_paid_rows,
+        "open_paid_value": open_paid_value,
+        "open_received_rows": open_received_rows,
+        "open_received_value": open_received_value,
         "decided_rows": decided_rows,
         "decided_percent": (
             0.0 if total_rows == 0 else round(decided_rows / total_rows * 100, 1)
@@ -871,17 +1161,33 @@ class SettledLedgerEntry:
     `ledger` is the raw `target_doctype` off `ledgers.SETTLED_LEDGER_SQL` -- unnormalised, and
     possibly blank or unrecognised on a row whose match record is missing or points somewhere
     unexpected. Deciding what to do with that is this module's job, not the query's.
+
+    `direction` is the raw `Outflow Import Row.direction` -- `Debit`, `Credit`, or BLANK. It is the
+    axis the two settled blocks are cut on (slice B8b), and it comes off the ROW rather than being
+    guessed from `ledger`, because the ledger genuinely cannot answer it: a non-project RECEIPT is
+    stored as a NEGATIVE `Non Project Expense` (B7), so that one doctype appears on BOTH sides.
+    It defaults to `""` so every pre-B8b caller -- and every existing test -- keeps constructing
+    this entry positionally with three arguments and lands, correctly, on the paid side.
     """
 
     ledger: str
     count: int
     value: Decimal = Decimal("0")
+    direction: str = ""
 
 
 def derive_settled_ledger_split(
     entries: Iterable[SettledLedgerEntry],
+    ledgers: Sequence[str] = LEDGER_DOCTYPES,
 ) -> list[dict]:
     """The settled rows broken down by the ledger the money actually landed in.
+
+    ⚠️ `ledgers` IS A PARAMETER SO THAT THE TWO BLOCKS OF THE B8b PANEL SHARE **ONE** IMPLEMENTATION
+    of ordering, zero-filling and the `Other` slot. The received block holds different books from
+    the paid one (`ledgers.RECEIVED_LEDGER_DOCTYPES` vs `LEDGER_DOCTYPES` -- a credit can never be
+    a `Project Payment`), and the alternative was a second copy of this function differing only in
+    which tuple it walks. The DEFAULT is `LEDGER_DOCTYPES`, so every pre-B8b caller is
+    byte-identical and the fixed-order rule below still governs them both.
 
     ⚠️ THE ORDER IS FIXED AND IS NEVER SORTED BY VALUE. It is `ledgers.LEDGER_DOCTYPES` order --
     Project Payments, Project Expenses, Non Project Expenses -- which is the order a reviewer meets
@@ -908,9 +1214,9 @@ def derive_settled_ledger_split(
     Everything is summed as `Decimal`, never float: these are money figures and the summary they sit
     beside is `Decimal` throughout.
     """
+    order = tuple(ledgers)
     buckets: dict[str, dict] = {
-        ledger: {"ledger": ledger, "rows": 0, "value": Decimal("0")}
-        for ledger in LEDGER_DOCTYPES
+        ledger: {"ledger": ledger, "rows": 0, "value": Decimal("0")} for ledger in order
     }
     other = {"ledger": SETTLED_LEDGER_OTHER, "rows": 0, "value": Decimal("0")}
 
@@ -919,10 +1225,121 @@ def derive_settled_ledger_split(
         bucket["rows"] += entry.count
         bucket["value"] += entry.value
 
-    split = [buckets[ledger] for ledger in LEDGER_DOCTYPES]
+    split = [buckets[ledger] for ledger in order]
     if other["rows"]:
         split.append(other)
     return split
+
+
+# --- which way did the money go? (slice B8b) ------------------------------------------------------
+
+# The one `Outflow Import Row.direction` value that means money ARRIVED. The doctype's Select offers
+# exactly `"" | Debit | Credit`.
+#
+# ⚠️ SPELLED HERE RATHER THAN IMPORTED FROM `parser` OR `settle`, on the precedent
+# `settle.DIRECTION_CREDIT` already set for the identical reason: `settle.py` imports `frappe`, and
+# this module's stated property is that it stays callable from a plain unittest with no bench and no
+# fixtures. `test_status` pins this against `parser.DIRECTION_CREDIT` (also bench-free), so a rename
+# cannot reach only one of them.
+ROW_DIRECTION_CREDIT = "Credit"
+
+# The two blocks, as a reviewer reads them. LABELS, and the panel renders them verbatim -- exactly
+# as it renders `ledger` verbatim -- so the wording of the split has ONE owner and the client cannot
+# invent a third name for a side.
+SETTLED_BLOCK_RECEIVED = "Received"
+SETTLED_BLOCK_PAID = "Paid"
+
+
+def is_received_direction(direction: str | None) -> bool:
+    """Did this transfer bring money IN? THE one definition of the axis (slice B8b).
+
+    ⚠️ IT IS A SINGLE **POSITIVE** TEST, AND THAT IS WHAT MAKES THE TWO BLOCKS A PARTITION. Every
+    settled row is `Credit` or it is not; there is no third answer, so no row can land in neither
+    block. The failure mode this shape rules out is a figure that appears in NEITHER total -- money
+    that is settled, visible in `settled_value`, and missing from both breakdowns beside it.
+
+    ⚠️ A BLANK DIRECTION IS **PAID**, AND IT IS A CONSEQUENCE RATHER THAN A GUESS. The receipt paths
+    refuse anything that is not `Credit` at the WRITE -- `settle.create_inflow_from_row` throws
+    `InflowNotRecordableError` naming "a transfer with no stated direction" -- so a blank-direction
+    row is structurally incapable of having become a receipt. Calling it received would put a row in
+    a block it could not have reached; calling it paid states what it is, which on live data is all
+    809 staged rows (every one `Debit`, 0 blank, 0 credit as of 2026-09-07). Blanks are real
+    nonetheless: `parser` leaves direction blank on a bank line with BOTH money columns populated
+    (it refuses to guess), and on a Cashbook top-up whose `Debit` cell is empty.
+
+    ⚠️ AN UNRECOGNISED VALUE IS PAID TOO, for the same reason and by the same branch. There is no
+    `Other` slot on this axis -- the owner ruled TWO blocks -- so falling to the side that cannot
+    lie about a receipt is the only disposition that keeps both totals complete.
+    """
+    return (direction or "").strip() == ROW_DIRECTION_CREDIT
+
+
+def derive_settled_direction_blocks(
+    entries: Iterable[SettledLedgerEntry],
+) -> list[dict]:
+    """The settled money as TWO blocks -- Paid and Received -- each with its OWN total (B8b).
+
+    ⚠️ NEVER NETTED (owner ruling Q14, option a). A single figure would hide both halves; folding
+    receipts into the paid total would make one number "money out plus money in added together",
+    which means nothing; and dropping receipts would make the money this screen ingested invisible
+    on the screen that ingested it.
+
+    ⚠️ EACH BLOCK'S TOTAL IS THE SUM OF THE LINES IT RENDERS, so the reconciliation is EXACT BY
+    CONSTRUCTION rather than by two numbers agreeing. It is computed from the split this function
+    just built -- including its `Other` slot -- so there is no arrangement of input entries under
+    which a block's lines can fail to add up to the figure above them. That is strictly stronger
+    than the pre-B8b guarantee, which was one query's sum reconciling to a DIFFERENT query's
+    `settled_value`. That cross-check survives as `received.value + paid.value == settled_value`,
+    which the endpoint's tests assert against a real batch.
+
+    ⚠️ THE PAID BLOCK IS ALWAYS PRESENT, ZERO-FILLED; THE RECEIVED BLOCK ONLY WHEN IT HOLDS ROWS.
+    The asymmetry is deliberate and the two halves have different reasons:
+
+      * Paid is the successor of the single `Settled` tile, whose zero-fill is load-bearing -- "0
+        settled" is exactly the fact a reviewer needs when nothing has been settled yet, and
+        suppressing it would take the settled figure off the panel entirely.
+      * Received is suppressed when empty on the `SETTLED_LEDGER_OTHER` reasoning, only stronger.
+        Cashfree and Cashbook are SINGLE-DIRECTION sources: they cannot produce a credit, ever. A
+        zero-filled received block on those imports would be a permanent empty heading over two
+        zero ledger lines, on every panel, for something that cannot occur -- and it would change
+        how every existing import renders. Suppressed, a gateway import looks exactly as it does
+        today.
+
+    ⚠️ RECEIVED IS **APPENDED**, NOT PREPENDED, so the paid block never moves. This is the fixed-
+    order rule of `derive_settled_ledger_split` applied one level up: a block whose position depends
+    on whether some other block exists has to be re-found every time the period changes. It is also
+    what `SETTLED_LEDGER_OTHER` already does with the one conditional bucket it owns. The owner's
+    ruling names the blocks "Received and Paid"; that is what they ARE, not the order they sit in.
+
+    ⚠️ NOTHING HERE ORDERS, ZERO-FILLS OR TOTALS A LEDGER LIST -- `derive_settled_ledger_split` does
+    all three, called once per block with that block's own `ledgers` order. A second copy differing
+    only in which tuple it walks is how one of them would come to be missing a book.
+    """
+    received_entries: list[SettledLedgerEntry] = []
+    paid_entries: list[SettledLedgerEntry] = []
+    for entry in entries:
+        target = received_entries if is_received_direction(entry.direction) else paid_entries
+        target.append(entry)
+
+    paid = _settled_block(SETTLED_BLOCK_PAID, paid_entries, LEDGER_DOCTYPES)
+    received = _settled_block(SETTLED_BLOCK_RECEIVED, received_entries, RECEIVED_LEDGER_DOCTYPES)
+    return [paid, received] if received["rows"] else [paid]
+
+
+def _settled_block(direction: str, entries: Sequence[SettledLedgerEntry], ledgers) -> dict:
+    """One block: its ledger lines, and the total THOSE LINES add up to.
+
+    The total is summed from `split`, never from `entries`, and the difference is the whole point:
+    summing the input would produce a figure the rendered lines could disagree with the day an entry
+    stopped reaching a bucket. Summing the output cannot.
+    """
+    split = derive_settled_ledger_split(entries, ledgers)
+    return {
+        "direction": direction,
+        "rows": sum(bucket["rows"] for bucket in split),
+        "value": sum((bucket["value"] for bucket in split), Decimal("0")),
+        "ledgers": split,
+    }
 
 
 def derive_batch_counters(row_statuses: Sequence[str]) -> dict:

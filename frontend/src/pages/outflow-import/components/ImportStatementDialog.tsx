@@ -54,6 +54,7 @@ import {
 } from "../importWizard";
 import { CashbookReviewTree } from "./CashbookReviewTree";
 import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
+import { SheetHeaderPicker } from "./SheetHeaderPicker";
 
 const PREVIEW_URL =
     "/api/method/nirmaan_stack.api.outflow_import.upload.preview_outflow_statement";
@@ -99,14 +100,83 @@ const ALLOWED_EXTENSIONS = [".csv", ".xlsx"];
 const SOURCE_REPORT: Record<string, string> = {
     Cashfree: "Transfers export",
     Cashbook: "Consolidated Account Statement",
+    // ⚠️ NOT a Cashfree report, and the map's own note above says such an entry is optional. It is
+    // filled anyway because the SAME mistake exists here in a different form: a bank offers several
+    // exports and only the detailed statement carries the narration this parser reads.
+    "ICICI Bank Statement": "Detailed account statement",
 };
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
-/** Only sources the backend parser actually has an adapter for may be selected. */
+/**
+ * Only sources the backend parser actually has an adapter for may be selected.
+ *
+ * ⚠️ THESE `value` STRINGS ARE THE PARSER'S ADAPTER KEYS AND THE DOCTYPE SELECT OPTIONS, and all
+ * three spellings are pinned together by test. `upload._read_and_parse` validates the posted source
+ * against `SUPPORTED_SOURCES` and `_stage_batch` writes that same string straight into the Select,
+ * so a value that differs from either fails Frappe's validation on EVERY batch insert for that
+ * source. Widen this list in the same change as the parser and the doctype, never on its own.
+ *
+ * ⚠️ `ICICI Bank Statement` names the BANK, not "a bank statement", deliberately: the source picks a
+ * COLUMN ADAPTER, and a second bank has different columns and a different narration grammar. Adding
+ * HDFC later is one more entry here, not a re-fit of this one.
+ */
 const SOURCES = [
     { value: "Cashfree", label: "Cashfree", available: true },
     { value: "Cashbook", label: "Cashbook (petty cash)", available: true },
+    { value: "ICICI Bank Statement", label: "ICICI bank statement", available: true },
 ];
+
+/**
+ * What KIND of thing this source is importing — the dialog's heading, its opening sentence, and how
+ * wide it has to be to show its own body.
+ *
+ * ⚠️ A LOOKUP, NOT A THIRD `isCashbook ? a : b` (slice C6). Those forks were never really asking
+ * "is this Cashbook"; they were asking "what shape is this source", and a two-way answer to a
+ * three-way question puts a bank statement under Cashfree's heading — "Nothing is settled by
+ * importing" is true of both, but "Transfers that have already left the bank" describes a payout
+ * file that carries a transfer id, which a bank narration does not. A fourth source is one entry
+ * here rather than a fourth arm on three separate ternaries that can drift apart.
+ *
+ * ⚠️ `wide` KEYS OFF THE SOURCE ALONE, so the width is settled before any body renders and never
+ * resizes mid-flow. The bank source takes the wide form because its Check step carries the sheet
+ * grid — up to twelve columns of raw cells — and at Cashfree's `max-w-3xl` those columns are
+ * unreadable, which defeats the point of showing somebody the sheet so they can spot the header row.
+ */
+interface SourceShape {
+    title: string;
+    description: string;
+    wide: boolean;
+}
+
+const DEFAULT_SOURCE_SHAPE: SourceShape = {
+    title: "Import a bank statement",
+    description:
+        "Transfers that have already left the bank. Nothing is settled by importing — every row is confirmed by a person afterwards.",
+    wide: false,
+};
+
+const SOURCE_SHAPE: Record<string, SourceShape> = {
+    Cashbook: {
+        title: "Import a petty cash statement",
+        description:
+            "Wallet spends that have already left the account. Each one becomes an expense record.",
+        wide: true,
+    },
+    "ICICI Bank Statement": {
+        title: "Import an ICICI account statement",
+        // ⚠️ IT PROMISES NO MATCHING, BECAUSE THERE IS NONE TO PROMISE. A bank narration carries no
+        // transfer id anybody approved against, so every row lands on the Not-Matched worklist and
+        // is resolved by a person. Cashfree's wording ("Nothing is settled by importing") is true
+        // here too but sets up a Confirm step this flow does not have; saying where the rows GO is
+        // what stops the three-step wizard reading as one that stopped early.
+        description:
+            "Everything that moved through the account. Nothing is matched or settled by importing — the rows land in the Not-Matched list, where each one is resolved by a person.",
+        wide: true,
+    },
+};
+
+const sourceShape = (source: string): SourceShape =>
+    SOURCE_SHAPE[source] ?? DEFAULT_SOURCE_SHAPE;
 
 interface Props {
     open: boolean;
@@ -162,6 +232,21 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
     const [staged, setStaged] = useState<OutflowUploadResult | null>(null);
     const [isDragging, setIsDragging] = useState(false);
 
+    /**
+     * The header row a person picked in the Check step, 1-based, or null for "let the server find it".
+     *
+     * ⚠️ IT IS A ROW NUMBER IN ONE PARTICULAR SHEET, so it is meaningless the moment the sheet
+     * changes — and a stale one is worse than none: row 17 of the next export may be a transaction,
+     * and the import would then silently read the table from the wrong place and drop everything
+     * above it. It is cleared whenever the FILE or the SOURCE changes, which are the only two ways
+     * to arrive at a different sheet.
+     *
+     * ⚠️ IT RIDES THE IMPORT POST, NOT ONLY THE PREVIEW. The two requests parse the file
+     * independently (see `post`), so a header row sent to one and not the other means the screen
+     * shows one table and the database receives another.
+     */
+    const [headerRow, setHeaderRow] = useState<number | null>(null);
+
     // Cashbook's own three states. Kept separate from the Cashfree ones rather than widened into
     // them: the two flows share a file picker and nothing else, and a union of both shapes would
     // make every render below ask which source it is looking at.
@@ -215,6 +300,7 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
         setCashbookPreview(null);
         setCashbookBatch(null);
         setCashbookStatus(null);
+        setHeaderRow(null);
     }, [open]);
 
     // Switching source mid-dialog must drop whatever the other one produced, or the tree from a
@@ -227,12 +313,20 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
         setCashbookBatch(null);
         setCashbookStatus(null);
         setError(null);
+        // ⚠️ A ROW NUMBER FROM ANOTHER SOURCE'S SHEET IS NOT A SMALLER TRUTH, IT IS A WRONG ONE.
+        // Each source has its own export layout, so 17 means the header on one and a transaction
+        // on the next — carrying it across would read the table from the wrong place with no
+        // error anywhere.
+        setHeaderRow(null);
     }, [source]);
 
     const acceptFile = useCallback((candidate: File | undefined | null) => {
         setError(null);
         setPreview(null);
         setStaged(null);
+        // A different file is a different sheet; see the note on `headerRow`. Cleared BEFORE the
+        // extension and size checks, so even a rejected file leaves no stale row behind.
+        setHeaderRow(null);
         if (!candidate) return;
 
         const lower = candidate.name.toLowerCase();
@@ -258,12 +352,22 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
      * server holding a parse between the two requests would mean session state, an expiry, and a
      * way for confirm to act on a file that is no longer the one on screen. A statement is a few
      * kilobytes; sending it again is cheaper than any of that.
+     *
+     * ⚠️ AND BECAUSE THE FILE IS SENT TWICE, EVERY PARSE INSTRUCTION MUST BE SENT TWICE TOO. The
+     * two requests parse independently, so `headerRow` is a REQUIRED argument here rather than an
+     * optional extra read from state: a caller that forgets it gets a compile error, instead of a
+     * screen showing the table from row 17 while the database receives whatever auto-detect found.
+     * Absent (`null`) means "detect it" — the server's own default, and the only meaning `""` could
+     * carry, which is why an empty field is never sent.
      */
     const post = useCallback(
-        async (url: string) => {
+        async (url: string, headerRowForThisPost: number | null) => {
             const body = new FormData();
             body.append("file", file!, file!.name);
             body.append("source", source);
+            if (headerRowForThisPost != null) {
+                body.append("header_row", String(headerRowForThisPost));
+            }
 
             // Raw multipart fetch, not the SDK -- the file rides the same POST as the text field.
             // Do NOT set Content-Type: the browser must add the multipart boundary itself.
@@ -283,40 +387,76 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
         [file, source]
     );
 
-    const handlePreview = useCallback(async () => {
-        if (!file || isBusy) return;
-        setIsBusy("preview");
-        setError(null);
-        if (isCashbook) {
+    /**
+     * Read the statement without writing anything, at a given header row.
+     *
+     * ⚠️ THE ROW IS AN ARGUMENT, NOT A READ OF `headerRow` STATE. The Check step's picker sets the
+     * row and re-reads in one act, and a `setState` is not visible until the next render — so a
+     * body built from state here would ask the server for the row that is ALREADY on screen, and
+     * the pick would appear to do nothing at all.
+     */
+    const readStatement = useCallback(
+        async (row: number | null) => {
+            if (!file || isBusy) return;
+            setIsBusy("preview");
+            setError(null);
+            if (isCashbook) {
+                try {
+                    // Cashbook's export has no preamble, so it never has a row to send. Passing
+                    // `null` explicitly says that, rather than leaving it to a default.
+                    const message = (await post(CASHBOOK_PREVIEW_URL, null)) as
+                        | CashbookPreviewResult
+                        | undefined;
+                    if (!message?.preview) {
+                        setError("The server read the file but returned no preview.");
+                        return;
+                    }
+                    setCashbookPreview(message);
+                } catch (err: any) {
+                    setError(describeFrappeError(err, "Could not read this statement."));
+                } finally {
+                    setIsBusy(null);
+                }
+                return;
+            }
             try {
-                const message = (await post(CASHBOOK_PREVIEW_URL)) as
-                    | CashbookPreviewResult
-                    | undefined;
+                const message = (await post(PREVIEW_URL, row)) as OutflowPreviewResult | undefined;
                 if (!message?.preview) {
                     setError("The server read the file but returned no preview.");
                     return;
                 }
-                setCashbookPreview(message);
+                setPreview(message);
             } catch (err: any) {
                 setError(describeFrappeError(err, "Could not read this statement."));
             } finally {
                 setIsBusy(null);
             }
-            return;
-        }
-        try {
-            const message = (await post(PREVIEW_URL)) as OutflowPreviewResult | undefined;
-            if (!message?.preview) {
-                setError("The server read the file but returned no preview.");
-                return;
-            }
-            setPreview(message);
-        } catch (err: any) {
-            setError(describeFrappeError(err, "Could not read this statement."));
-        } finally {
-            setIsBusy(null);
-        }
-    }, [file, isBusy, isCashbook, post]);
+        },
+        [file, isBusy, isCashbook, post]
+    );
+
+    const handlePreview = useCallback(() => {
+        void readStatement(headerRow);
+    }, [readStatement, headerRow]);
+
+    /**
+     * The Check step's header pick: remember the row AND re-read the file with it.
+     *
+     * ⚠️ ITS IDENTITY IS FROZEN (`[]` deps) THROUGH A REF, WHICH THE PICKER'S CONTRACT REQUIRES.
+     * `readStatement` changes identity every time `isBusy` flips — which is on every single read,
+     * twice — so handing it down directly would re-arm anything the picker keys on this callback
+     * mid-flight. The ref is written in an effect rather than during render so a concurrent render
+     * that is thrown away cannot leave the wrong function behind.
+     */
+    const readStatementRef = useRef(readStatement);
+    useEffect(() => {
+        readStatementRef.current = readStatement;
+    }, [readStatement]);
+
+    const handlePickHeaderRow = useCallback((row: number) => {
+        setHeaderRow(row);
+        void readStatementRef.current(row);
+    }, []);
 
     /**
      * Start a Cashbook import and watch it finish.
@@ -332,7 +472,9 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
         setIsBusy("upload");
         setError(null);
         try {
-            const message = (await post(CASHBOOK_CONFIRM_URL)) as CashbookConfirmResult | undefined;
+            const message = (await post(CASHBOOK_CONFIRM_URL, null)) as
+                | CashbookConfirmResult
+                | undefined;
             if (!message?.batch) {
                 setError("The server accepted the file but returned no batch.");
                 setIsBusy(null);
@@ -405,7 +547,10 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
         let batch: string;
         let period: { from?: string | null; to?: string | null } | undefined;
         try {
-            const message = (await post(UPLOAD_URL)) as OutflowUploadResult | undefined;
+            // ⚠️ THE HEADER ROW RIDES THIS POST TOO. The upload re-parses the file from scratch, so
+            // without it the rows written would be the ones auto-detect found — not the ones the
+            // reviewer just looked at and approved on the Check step.
+            const message = (await post(UPLOAD_URL, headerRow)) as OutflowUploadResult | undefined;
             if (!message?.batch) {
                 setError("The server accepted the file but returned no batch.");
                 setIsBusy(null);
@@ -448,7 +593,7 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
         // close -- after confirming, or straight away -- the screen behind is already current and the
         // statement they just imported is in view rather than outside the default period.
         onImported(batch, period, source);
-    }, [file, isBusy, post, runMatch, onImported, source]);
+    }, [file, isBusy, post, headerRow, runMatch, onImported, source]);
 
     /**
      * Step 4's re-run, and step 3's retry after a failed match.
@@ -498,7 +643,16 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
     };
     const steps = importSteps(source);
     const stepIndex = currentStepIndex(source, flow);
-    const onConfirmStep = !isCashbook && stepIndex === 3;
+    /**
+     * ⚠️ DERIVED FROM THE STEP'S KEY, NEVER FROM `stepIndex === 3` (slice C6). The magic 3 was only
+     * ever true because Cashfree's list happened to put Confirm fourth; once a source has three
+     * steps, an index test either has to be re-guarded per source or it starts asserting things
+     * about a step that does not exist. The key is what the step IS, so a list that has no
+     * `confirm` entry can never be on the confirm step — which is exactly the guarantee the bank
+     * source needs, since a confirm panel there would be structurally empty every time.
+     */
+    const onConfirmStep = steps[stepIndex]?.key === "confirm";
+    const shape = sourceShape(source);
 
     /**
      * Drop the preview and go back to the file picker.
@@ -537,31 +691,31 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
 
                 Width keys off the SOURCE, so it is settled before any body renders and never resizes
                 mid-flow. Cashfree keeps its own width for the reason above; Cashbook takes the wider
-                one because its tree carries a label, a count and an amount on every line. */}
+                one because its tree carries a label, a count and an amount on every line, and the
+                bank source because its Check step shows the raw sheet. See `SOURCE_SHAPE`. */}
             <DialogContent
                 className={`grid max-h-[85vh] grid-rows-[auto_1fr_auto] gap-0 overflow-hidden p-0 ${
                     // ⚠️ THE CONFIRM STEP TAKES THE WIDE FORM TOO (slice CF/S7). It renders the same
                     // vendor tree the standalone confirm dialog does at `max-w-5xl`; at the Cashfree
-                    // width its columns collapse.
-                    isCashbook || onConfirmStep ? "w-[min(92vw,1024px)] sm:max-w-none" : "max-w-3xl"
+                    // width its columns collapse. This is the ONE width that is not settled by the
+                    // source, and it is a widening on the last step of a flow that never narrows
+                    // again — never a resize back and forth mid-flow.
+                    shape.wide || onConfirmStep
+                        ? "w-[min(92vw,1024px)] sm:max-w-none"
+                        : "max-w-3xl"
                 }`}
             >
                 <DialogHeader className="space-y-4 px-6 pb-2 pt-6">
                     <div className="space-y-1.5">
-                        <DialogTitle>
-                            {isCashbook
-                                ? "Import a petty cash statement"
-                                : "Import a bank statement"}
-                        </DialogTitle>
-                        <DialogDescription>
-                            {isCashbook
-                                ? "Wallet spends that have already left the account. Each one becomes an expense record."
-                                : "Transfers that have already left the bank. Nothing is settled by importing — every row is confirmed by a person afterwards."}
-                        </DialogDescription>
+                        <DialogTitle>{shape.title}</DialogTitle>
+                        <DialogDescription>{shape.description}</DialogDescription>
                     </div>
-                    {/* ⚠️ THE STEP COUNT IS FIXED PER SOURCE AND NEVER RENUMBERS MID-FLOW. Step 4
-                        renders even when nothing matched, because a wizard whose last step vanishes
-                        when it has nothing to report reads as a crash.
+                    {/* ⚠️ THE STEP COUNT IS FIXED PER SOURCE AND NEVER RENUMBERS MID-FLOW.
+                        Cashfree's step 4 renders even when nothing matched, because a wizard whose
+                        last step vanishes when it has nothing to report reads as a crash. The bank
+                        source does not HAVE that step — not because it is empty on a given file,
+                        but because it could never be anything else — which is why the answer there
+                        was a shorter list rather than a conditional step. See `BANK_STEPS`.
 
                         ⚠️ CLICKING A CIRCLE ONLY WORKS BEFORE ANYTHING IS WRITTEN. `clickableStepIndex`
                         allows a completed step, and only while `canStepBack` -- from step 2 on the
@@ -686,13 +840,42 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
                             cashbookPreview && <CashbookReviewTree preview={cashbookPreview} />
                         ) : (
                             preview && (
-                                <StatementPreview
-                                    preview={preview}
-                                    busy={working}
-                                    phase={isBusy}
-                                    onConfirm={handleConfirm}
-                                    onChooseAnother={() => inputRef.current?.click()}
-                                />
+                                <>
+                                    {/* ⚠️ ABOVE THE COUNTS, NOT BELOW THEM, AND INSIDE THIS STEP
+                                        RATHER THAN AS A FOURTH ONE (owner ruling C6). The counts
+                                        underneath are only trustworthy if the table was read from
+                                        the right row — "1395 transfers" over a mis-detected header
+                                        is a confident wrong number — so the row has to be settled
+                                        before the eye reaches them.
+
+                                        ⚠️ RENDERED ONLY WHEN THE SERVER SENT `sheet`, which it does
+                                        only for a source whose export wraps its table in a preamble.
+                                        Cashfree and Cashbook get no key and therefore no picker, and
+                                        their Check step stays byte-identical to before C6. */}
+                                    {preview.sheet && (
+                                        <SheetHeaderPicker
+                                            sheet={preview.sheet}
+                                            onPickHeaderRow={handlePickHeaderRow}
+                                            busy={isBusy === "preview"}
+                                        />
+                                    )}
+                                    {/* ⚠️ A RE-READ COUNTS AS BUSY HERE, WHICH `working` DOES NOT
+                                        COVER (it means upload-or-match). While the picker's re-read
+                                        is in flight the figures below it belong to the PREVIOUS
+                                        header row, and the Import button beside them would post the
+                                        NEW one — importing a different number of rows from the one
+                                        on screen, with nothing anywhere saying so. Disabling for
+                                        the second it takes is the whole fix. Cashfree and Cashbook
+                                        never reach this state: their only "preview" read happens on
+                                        step 1, where no preview is rendered yet. */}
+                                    <StatementPreview
+                                        preview={preview}
+                                        busy={working || isBusy === "preview"}
+                                        phase={isBusy}
+                                        onConfirm={handleConfirm}
+                                        onChooseAnother={() => inputRef.current?.click()}
+                                    />
+                                </>
                             )
                         ))}
 

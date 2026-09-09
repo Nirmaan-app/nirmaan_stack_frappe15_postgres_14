@@ -57,6 +57,9 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
 
   const { role, user_id } = useUserData();
   const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
+  // PMO Executive does not see Customer PO Details or Project Drive on Overview
+  // (owner ruling). Scoped to PMO only -- every other role keeps both cards.
+  const isPMO = role === "Nirmaan PMO Executive Profile";
   const navigate = useNavigate();
   const {
     createUserPermission,
@@ -533,11 +536,13 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
           </CardDescription>
         </CardContent>
       </Card>
-      <Card>
-        <CustomerPODetailsCard projectId={projectData.name} />
-      </Card>
-      {/* Sales users (Executive / Lead) don't see Project Drive Links or Planning. */}
-      {!isSales && (
+      {!isPMO && (
+        <Card>
+          <CustomerPODetailsCard projectId={projectData.name} />
+        </Card>
+      )}
+      {/* Sales users (Executive / Lead) don't see Project Drive Links or Planning; PMO doesn't see the Drive. */}
+      {!isSales && !isPMO && (
         <Card>
           <ProjectDriveLink projectId={projectData.name} role={role} />
         </Card>

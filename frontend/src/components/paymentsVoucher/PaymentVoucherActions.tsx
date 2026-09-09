@@ -23,13 +23,15 @@ interface ExtendedProjectPayments extends ProjectPayments {
 
 interface PaymentVoucherActionsProps {
     payment: ExtendedProjectPayments;
-    srName: string; // The name of the parent Service Request (for filename)
+    orderName: string; // Parent order id (WO or PO) — used to build the download filename
     onVoucherUpdate: () => void; // Function to re-fetch payments data
     hideActions?: boolean;
+    /** PO payments: generate/download only — no upload, view or delete surface. */
+    downloadOnly?: boolean;
 }
 
 // --- Upload Logic Component ---
-const VoucherUploadAction = ({ payment, onVoucherUpdate, isLoading, srName }: Omit<PaymentVoucherActionsProps, 'payment'> & { payment: ExtendedProjectPayments, isLoading: boolean, srName: string }) => {
+const VoucherUploadAction = ({ payment, onVoucherUpdate, isLoading }: Omit<PaymentVoucherActionsProps, 'payment'> & { payment: ExtendedProjectPayments, isLoading: boolean }) => {
     const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
@@ -113,7 +115,7 @@ const VoucherUploadAction = ({ payment, onVoucherUpdate, isLoading, srName }: Om
 }
 
 // --- Main Action Component ---
-export const PaymentVoucherActions = ({ payment, srName, onVoucherUpdate, hideActions = false }: PaymentVoucherActionsProps) => {
+export const PaymentVoucherActions = ({ payment, orderName, onVoucherUpdate, hideActions = false, downloadOnly = false }: PaymentVoucherActionsProps) => {
     const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
@@ -132,9 +134,9 @@ export const PaymentVoucherActions = ({ payment, srName, onVoucherUpdate, hideAc
         const timePart = format(creationDate, 'HHmmss');
         const utrPart = payment.utr ? `_${payment.utr.replace(/[^a-zA-Z0-9]/g, '')}` : ''; // Sanitize UTR
         
-        // Final filename format: SRID_PAYMENTNAME_DATE_TIME_UTR.pdf
-        return `${srName}_${payment.name}_${paymentDatePart}_${utrPart}.pdf`;
-    }, [payment, srName]);
+        // Final filename format: ORDERID_PAYMENTNAME_DATE_UTR.pdf
+        return `${orderName}_${payment.name}_${paymentDatePart}_${utrPart}.pdf`;
+    }, [payment, orderName]);
 
     // Frappe PDF download URL (forces a download with the correct filename)
     const downloadUrl = useMemo(() => {
@@ -225,6 +227,74 @@ export const PaymentVoucherActions = ({ payment, srName, onVoucherUpdate, hideAc
 
     // --- Component Render ---
 
+    // Generate / Preview / Download — shared by the full (WO) and download-only (PO) surfaces.
+    const generateVoucherDialog = (
+        <Dialog open={isDownloadDialogOpen} onOpenChange={setIsDownloadDialogOpen}>
+            <DialogTrigger asChild>
+                <Button 
+                    variant="outline" 
+                    size={"sm"} 
+                    className="h-7 w-auto text-xs flex items-center gap-1 border border-primary px-2"
+                    title="Generate Voucher"
+                >
+                    <CirclePlus className="w-4 h-4" />
+                    Gen
+                </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Payment Voucher for {payment.name}</DialogTitle>
+                </DialogHeader>
+                <div className="flex flex-col space-y-4">
+                    <div className="space-y-2">
+                        <p className="text-sm font-semibold">Actions</p>
+                        
+                        {/* Preview Button */}
+                        <Button 
+                            onClick={handlePreviewPdf} 
+                            className="w-full flex items-center gap-2"
+                            variant="outline"
+                        >
+                            <FileText className="w-4 h-4" />
+                            Preview PDF
+                        </Button>
+                        
+                        {/* Download Button */}
+                        <Button 
+                            onClick={handleDownloadPdf} 
+                            disabled={isGeneratingPdf}
+                            className="w-full flex items-center gap-2"
+                        >
+                            {isGeneratingPdf ? <TailSpin width={20} height={20} color="white" /> : <Download className="w-4 h-4" />}
+                            {isGeneratingPdf ? "Generating..." : "Download PDF (Voucher)"}
+                        </Button>
+                    </div>
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
+
+    // PO payments: download-only — a single icon that downloads straight away.
+    // No Gen button, no dialog, no upload/view/delete.
+    if (downloadOnly) {
+        return hideActions ? null : (
+            <div className="flex items-center justify-center">
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleDownloadPdf}
+                    disabled={isGeneratingPdf}
+                    className="h-6 w-6 p-0 text-blue-600 hover:bg-blue-50 hover:text-blue-800"
+                    title="Download Voucher"
+                >
+                    {isGeneratingPdf
+                        ? <TailSpin width={16} height={16} color="#2563eb" />
+                        : <Download className="h-4 w-4" />}
+                </Button>
+            </div>
+        );
+    }
+
     if (voucherAttachment) {
         // VOUCHER ALREADY UPLOADED: Show View and Delete
         return (
@@ -267,62 +337,18 @@ export const PaymentVoucherActions = ({ payment, srName, onVoucherUpdate, hideAc
 
     // VOUCHER NOT UPLOADED: Show Generate Dialog and separate Upload action
     if (!hideActions) {
-    return (
-        <div className="flex items-center justify-center gap-2">
-            {/* 1. Generate/Download/Preview Dialog Trigger */}
-            <Dialog open={isDownloadDialogOpen} onOpenChange={setIsDownloadDialogOpen}>
-                <DialogTrigger asChild>
-                    <Button 
-                        variant="outline" 
-                        size={"sm"} 
-                        className="h-7 w-auto text-xs flex items-center gap-1 border border-primary px-2"
-                        title="Generate Voucher"
-                    >
-                        <CirclePlus className="w-4 h-4" />
-                        Gen
-                    </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>Payment Voucher for {payment.name}</DialogTitle>
-                    </DialogHeader>
-                    <div className="flex flex-col space-y-4">
-                        <div className="space-y-2">
-                            <p className="text-sm font-semibold">Actions</p>
-                            
-                            {/* Preview Button */}
-                            <Button 
-                                onClick={handlePreviewPdf} 
-                                className="w-full flex items-center gap-2"
-                                variant="outline"
-                            >
-                                <FileText className="w-4 h-4" />
-                                Preview PDF
-                            </Button>
-                            
-                            {/* Download Button */}
-                            <Button 
-                                onClick={handleDownloadPdf} 
-                                disabled={isGeneratingPdf}
-                                className="w-full flex items-center gap-2"
-                            >
-                                {isGeneratingPdf ? <TailSpin width={20} height={20} color="white" /> : <Download className="w-4 h-4" />}
-                                {isGeneratingPdf ? "Generating..." : "Download PDF (Voucher)"}
-                            </Button>
-                        </div>
-                    </div>
-                </DialogContent>
-            </Dialog>
-            
-            {/* 2. Separate Upload Action */}
-            <VoucherUploadAction 
-                payment={payment} 
-                srName={srName}
-                onVoucherUpdate={onVoucherUpdate} 
-                isLoading={isLoading} 
-            />
-        </div>
-    );
+        return (
+            <div className="flex items-center justify-center gap-2">
+                {generateVoucherDialog}
+
+                <VoucherUploadAction
+                    payment={payment}
+                    orderName={orderName}
+                    onVoucherUpdate={onVoucherUpdate}
+                    isLoading={isLoading}
+                />
+            </div>
+        );
     }
     return null;
 };

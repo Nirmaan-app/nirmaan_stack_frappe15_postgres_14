@@ -300,3 +300,118 @@ class TestTolerantParse(unittest.TestCase):
         from nirmaan_stack.services.boq_category.harness import electrical_classification_harness as H
 
         self.assertIs(H._extract_json_array, ai_voter._extract_json_array)
+
+
+# ── 2026-09-08: a bracketed list of SCALARS inside prose is not the row array ──────────────────
+#
+# The real reply that halted the 2026-09-07 whole-sheet run (BOQ-26-00224, junction_box_raceway
+# batch, 15 rows stranded), taken from the capture log `boq_rate_extraction_capture.jsonl`: the
+# model prefaced its answer with prose quoting the allowed values (attempt 1 of 3, verbatim incl. the
+# arrow glyphs it wrote), and `_extract_json_array`
+# returned `[350, 250, 200, 150, 100, 300]` as the payload; `extraction._extract_batch` then did
+# `int(el["id"])` on an int -> TypeError x3 -> ExtractionHalted. The model was not misbehaving.
+_HALTED_REPLY_2026_09_07 = (
+    "Looking at each row, the face sizes are non-standard and must map to the allowed values [350, 250, 200, 150, 100, 300].\n"
+    "\n"
+    "Row 359: 175x175 \u2192 face 175, not an allowed value \u2192 null\n"
+    "Row 361: 275x275 \u2192 275, not allowed \u2192 null\n"
+    "Row 363: 375x375 \u2192 375, not allowed \u2192 null\n"
+    "Row 365: 475x475 \u2192 475, not allowed \u2192 null\n"
+    "Row 367: 125x1255 \u2192 125/1255 (larger 1255), not allowed \u2192 null\n"
+    "\n"
+    "None match the allowed values, so all return null.\n"
+    "\n"
+    "[{\"id\": 359, \"attributes\": {\"face_mm\": {\"value\": null, \"confidence\": 0.9}}}, {\"id\": 361, \"attributes\": {\"face_mm\": {\"value\": null, \"confidence\": 0.9}}}, {\"id\": 363, \"attributes\": {\"face_mm\": {\"value\": null, \"confidence\": 0.9}}}, {\"id\": 365, \"attributes\": {\"face_mm\": {\"value\": null, \"confidence\": 0.9}}}, {\"id\": 367, \"attributes\": {\"face_mm\": {\"value\": null, \"confidence\": 0.9}}}]"
+)
+
+
+class TestScalarListSkip(unittest.TestCase):
+    """The parser takes the first balanced span that parses as a LIST OF DICTS (or the empty list);
+    a balanced span that parses as a list of anything else -- the model quoting its allowed
+    values, a range, a list of labels -- is skipped and the scan continues. Both users of the
+    parser (the classifier voter / harness and the rate extractor) inherit this by identity."""
+
+    # ── THE PIN THAT PROVES THE DEFECT FIXED: the real 2026-09-07 reply parses to the ROW ARRAY ──
+    def test_real_halted_reply_parses_to_the_row_array(self):
+        parsed = ai_voter._extract_json_array(_HALTED_REPLY_2026_09_07)
+        self.assertEqual([el["id"] for el in parsed], [359, 361, 363, 365, 367])
+        self.assertTrue(all(el["attributes"]["face_mm"]["value"] is None for el in parsed))
+        self.assertEqual(parsed[0]["attributes"]["face_mm"]["confidence"], 0.9)
+
+    def test_old_form_really_returned_the_scalar_list(self):
+        """Non-vacuity: the first balanced span IS the scalar list, and it parses as JSON."""
+        t = _HALTED_REPLY_2026_09_07
+        i = t.find("[")
+        end = ai_voter._balanced_span(t, i, "[", "]")
+        self.assertEqual(json.loads(t[i:end]), [350, 250, 200, 150, 100, 300])
+
+    # ── a list of scalars ALONE -> an honest failure, never a crash ──
+    def test_scalars_only_reply_raises_cleanly(self):
+        text = "The allowed values are [350, 250, 200, 150, 100, 300] and none of the rows fit."
+        with self.assertRaises(ValueError) as cm:
+            ai_voter._extract_json_array(text)
+        self.assertIn("no parseable JSON array", str(cm.exception))
+        self.assertNotIsInstance(cm.exception, TypeError)
+
+    def test_scalars_only_then_bare_object_still_takes_the_object_path(self):
+        """The bare-object fallback (HV-2) is reached only when NO usable array was found -- a
+        skipped scalar list does not block it."""
+        text = "Allowed: [1, 2, 3]\n" + _ROW_OBJECT
+        parsed = ai_voter._extract_json_array(text)
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]["id"], 42)
+
+    # ── THE INVARIANT: a reply that is only a valid row array is byte-identical ──
+    def test_plain_row_array_byte_identical(self):
+        text = '[{"id": 1, "category_id": "wiring_cabling", "confidence": 0.8},' \
+               ' {"id": 2, "category_id": "db_switchgear", "confidence": 0.7}]'
+        self.assertEqual(ai_voter._extract_json_array(text), json.loads(text))
+
+    def test_empty_array_still_returns_empty(self):
+        """`[]` has no non-dict element, so it is still the (empty) payload -- unchanged."""
+        self.assertEqual(ai_voter._extract_json_array("[]"), [])
+
+    # ── a bracketed list of STRINGS in prose -> the same skip ──
+    def test_prose_string_list_is_skipped(self):
+        text = ('Allowed conduit types are ["PVC", "MS", "GI"]; row 7 says HDPE, so null.\n'
+                '[{"id": 7, "category_id": "conduit_piping", "confidence": 0.4}]')
+        self.assertEqual([el["id"] for el in ai_voter._extract_json_array(text)], [7])
+
+    def test_prose_mixed_list_is_skipped(self):
+        text = 'Values [1, "2M", null] do not apply.\n[{"id": 9, "category_id": "earthing", "confidence": 0.6}]'
+        self.assertEqual(ai_voter._extract_json_array(text)[0]["id"], 9)
+
+    # ── nested lists INSIDE the row array are not mistaken for the array ──
+    def test_nested_list_inside_row_array_is_kept(self):
+        text = '[{"id": 5, "category_id": "cabletray_raceway", "sizes": [100, 150], "confidence": 0.9}]'
+        parsed = ai_voter._extract_json_array(text)
+        self.assertEqual(parsed[0]["sizes"], [100, 150])
+        self.assertEqual(len(parsed), 1)
+
+    def test_prose_nested_scalar_lists_then_row_array(self):
+        text = 'Ranges [[100, 150], [200, 300]] considered.\n[{"id": 6, "category_id": "earthing", "confidence": 0.5}]'
+        self.assertEqual(ai_voter._extract_json_array(text)[0]["id"], 6)
+
+    # ── the existing NEGATIVES hold: truncation and garbage still raise ──
+    def test_truncated_after_a_skipped_list_still_raises(self):
+        text = 'Allowed [1, 2].\n[{"id": 1, "category_id": "wiring_cabling"}, {"id": 2, "cat'
+        with self.assertRaises(ValueError):
+            ai_voter._extract_json_array(text)
+
+    # ── THE CLASSIFIER'S OWN BEHAVIOUR: the voter batch and the harness are unchanged ──
+    def test_voter_batch_unchanged_on_a_plain_reply(self):
+        text = '[{"id": 42, "category_id": "point_wiring", "confidence": 0.9, "brief_reason": "pts"}]'
+        out = ai_voter._ai_batch(_FakeClient(text), "m", "prompt", [], _VALID_IDS)
+        self.assertEqual(out, {42: ("point_wiring", 0.9, "pts")})
+
+    def test_voter_batch_now_survives_a_prefaced_reply(self):
+        """The same wire on the classifier: a voter reply that reasons out loud with a bracketed
+        list no longer feeds an int to `int(el["id"])`."""
+        text = ('Candidates were [1, 2, 3].\n'
+                '[{"id": 42, "category_id": "point_wiring", "confidence": 0.9, "brief_reason": "pts"}]')
+        out = ai_voter._ai_batch(_FakeClient(text), "m", "prompt", [], _VALID_IDS)
+        self.assertEqual(out, {42: ("point_wiring", 0.9, "pts")})
+
+    def test_harness_shares_the_function_still(self):
+        from nirmaan_stack.services.boq_category.harness import electrical_classification_harness as H
+        self.assertIs(H._extract_json_array, ai_voter._extract_json_array)

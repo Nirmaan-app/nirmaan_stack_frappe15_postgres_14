@@ -12,7 +12,7 @@ its own `LedgerSource` -- its joins, its amount expression, its date expression,
 columns -- written out in full. What is shared is the SHAPE every row comes back in, so a caller can
 put all three in one table without asking which ledger it is holding.
 
-THE THREE ASYMMETRIES, EACH OF WHICH HAS ALREADY CAUSED A DEFECT:
+THE ASYMMETRIES, EACH OF THE FIRST THREE OF WHICH HAS ALREADY CAUSED A DEFECT:
 
 1. ⚠️ ONLY `Project Payments` HAS AN APPROVAL DATE. Not a field, not an approver, nothing on either
    expense doctype. So `approved_on` and `updated_on` are SEPARATE KEYS and a row fills exactly one:
@@ -30,6 +30,14 @@ THE THREE ASYMMETRIES, EACH OF WHICH HAS ALREADY CAUSED A DEFECT:
    SQL error, not a blank -- which is why the literal NULLs below are spelled out rather than the
    columns being omitted. Two of the six columns are structurally empty for that ledger; that is a
    rendering decision for the caller, not a gap to fill in.
+
+4. ⚠️ `Project Payments` HAS NO DESCRIPTION COLUMN, where BOTH expense ledgers do -- the exact
+   inverse of asymmetry 1, and it lands on the same rule. `description` is therefore `NULL` on the
+   payment branch and a real column on the other two, and it is a key on EVERY row: a key present on
+   two ledgers and absent on the third is precisely the accidental asymmetry this module exists to
+   turn into a stated one. It is already a SEARCH column on both expense ledgers, which is what made
+   its absence from the payload visible -- a reviewer could find a record by a word the screen then
+   would not show them.
 """
 
 from __future__ import annotations
@@ -91,7 +99,14 @@ LEDGER_SOURCES: dict[str, LedgerSource] = {
             p.document_type AS order_doctype, p.document_name AS order_name,
             NULL AS expense_type,
             COALESCE(p.ceo_approval_date, p.approval_date) AS approved_on,
-            NULL::timestamp AS updated_on
+            NULL::timestamp AS updated_on,
+            -- ⚠️ ASYMMETRY 4: `Project Payments` HAS NO DESCRIPTION COLUMN AT ALL, so it is spelled
+            -- as a literal NULL in the same style as this ledger's absent `expense_type` and the
+            -- non-project ledger's absent vendor and project. Selecting a column a doctype does not
+            -- have is a hard SQL error that takes the whole page down, not a blank in one cell. The
+            -- KEY is still present in the shape, because a caller reading all three ledgers in one
+            -- table must never have to ask which one it is holding before it can read a key.
+            NULL AS description
         """,
         # LEFT joins, never inner: a payment whose vendor or project link is broken must still be
         # listed. Dropping it would hide an approved record for a reason invisible on the screen.
@@ -118,7 +133,10 @@ LEDGER_SOURCES: dict[str, LedgerSource] = {
             NULL AS order_doctype, NULL AS order_name,
             e.type AS expense_type,
             NULL::timestamp AS approved_on,
-            e.modified AS updated_on
+            e.modified AS updated_on,
+            -- The real column, and the one this ledger already searches on. UNION ALL matches by
+            -- POSITION, so the three selects must carry it in the same slot as each other.
+            e.description
         """,
         frm='''"tabProject Expenses" e
                LEFT JOIN "tabVendors" v ON v.name = e.vendor
@@ -144,7 +162,11 @@ LEDGER_SOURCES: dict[str, LedgerSource] = {
             NULL AS order_doctype, NULL AS order_name,
             n.type AS expense_type,
             NULL::timestamp AS approved_on,
-            n.modified AS updated_on
+            n.modified AS updated_on,
+            -- The real column, as on `Project Expenses`. ⚠️ ALL THREE LEDGERS MOVED TOGETHER: a key
+            -- present on two and absent on the third is exactly the accidental asymmetry this
+            -- module exists to make explicit.
+            n.description
         """,
         frm='"tabNon Project Expenses" n',
         search_columns=("n.name", "n.description", "n.type"),
@@ -320,6 +342,9 @@ def _shape(row: dict) -> dict:
         "order_doctype": row.get("order_doctype") or "",
         "order_name": row.get("order_name") or "",
         "expense_type": row.get("expense_type") or "",
+        # ⚠️ ALWAYS BLANK ON `Project Payments` -- that doctype has no such column (asymmetry 4).
+        # Blank, never absent: the shared shape is what lets one table render all three ledgers.
+        "description": row.get("description") or "",
         # ⚠️ SEPARATE KEYS. Exactly one is ever filled. See asymmetry 1.
         "approved_on": str(row["approved_on"]) if row.get("approved_on") else "",
         "updated_on": str(row["updated_on"]) if row.get("updated_on") else "",
