@@ -137,15 +137,26 @@ interface RateHelperPanelProps {
   ctx?: RateHelperRowContext;
   /** The page-built helper list (real pricing-sheet helper prepended); default = the static two. */
   helpers?: RateHelper[];
-  /** Apply a value to the (excelRow, col) rate cell through the real save path + record telemetry. */
-  onUse: (col: string, value: number, meta: UseMeta) => void;
-  onClose: () => void;
-  /** Two-mode mount. `push` (RM-3c, full-screen) = an IN-FLOW resizable panel that occupies real layout
+  /** Apply a value to the (excelRow, col) rate cell through the real save path + record telemetry.
+   * OPTIONAL since calculator slice 2: the `calculator` variant has no row to write to and renders no
+   * "Use this value" -- absent here means the write affordance does not exist on that surface. */
+  onUse?: (col: string, value: number, meta: UseMeta) => void;
+  onClose?: () => void;
+  /** Three-mode mount. `push` (RM-3c, full-screen) = an IN-FLOW resizable panel that occupies real layout
    * width at the right of the full-screen flex row, narrowing the grid (supersedes the RM-3a fixed
    * overlay drawer); it keeps a close X and has a left-edge drag handle. `embedded` (default) = the
    * RM-3b ALWAYS-MOUNTED sticky in-flow panel-as-default -- no close X, an empty-state card until a row
-   * is selected. */
-  variant?: "embedded" | "push";
+   * is selected.
+   *
+   * `calculator` (calculator slice 2, owner 2026-09-08: "calculator lays out its own screen.
+   * functionally it should be excatly same with the helper") = the SAME component, the same cards,
+   * the same attributes, sections, figures, notes and refusal sentences, mounted on a screen with no
+   * BoQ row: it drops only the panel SHELL (the "Rate suggestions" banner, the "Row N · kind" scope
+   * line, the final-value field and "Use this value" -- there is no cell to write to), opens its card
+   * by default and takes the full width it is given. Everything a pricer reads is rendered by the
+   * lines below that the other two variants render -- THIS IS DELIBERATELY A VARIANT, NOT A FORK, so a
+   * figure can never be drawn twice. */
+  variant?: "embedded" | "push" | "calculator";
 }
 
 /**
@@ -219,7 +230,10 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
   // `excelRow` changes but before the effect runs would still compute with the old row's edits, and
   // a click in that window would bank it. Carrying the row makes a mismatch impossible to observe.
   const [attrOverrideState, setAttrOverrideState] = useState<RowScoped<Record<string, Record<string, string>>>>(EMPTY_ATTR_STATE);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  // Calculator slice 2: the calculator has ONE card and no header to click through, so it opens
+  // expanded; the two BoQ variants keep their collapsed default.
+  const isCalculator = variant === "calculator";
+  const [expanded, setExpanded] = useState<string | null>(isCalculator ? (helpers?.[0]?.id ?? null) : null);
   const [finalOverrideState, setFinalOverrideState] = useState<RowScoped<Record<string, string>>>(EMPTY_FINAL_STATE);
   // What the CURRENT row may see. A different row (or none) sees nothing -- never the previous row's.
   const attrOverrides = overridesForRow(attrOverrideState, excelRow, EMPTY_ATTR_MAP);
@@ -350,12 +364,16 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
             // real width and the grid narrows by exactly this width. `relative` anchors the left-edge
             // drag handle; `min-h-0` lets the body scroll within the flex row's height.
             "relative shrink-0 min-h-0 border-l"
-          : // Embedded: an in-flow sticky panel that rides the viewport, fixed w-80, bounded so its
-            // body scrolls internally rather than growing the page.
-            "w-80 sticky top-4 max-h-[calc(100vh-2rem)] shrink-0 self-start rounded-md border shadow-lg",
+          : isCalculator
+            ? // Calculator slice 2: the calculator screen owns the layout -- the panel takes the width it
+              // is given and scrolls its own body within it. No sticky, no fixed width, no shadow.
+              "w-full min-h-0 flex-1"
+            : // Embedded: an in-flow sticky panel that rides the viewport, fixed w-80, bounded so its
+              // body scrolls internally rather than growing the page.
+              "w-80 sticky top-4 max-h-[calc(100vh-2rem)] shrink-0 self-start rounded-md border shadow-lg",
       )}
       style={isPush ? { width: `${panelWidth}px` } : undefined}
-      aria-label="Rate suggestions"
+      aria-label={isCalculator ? "Pricing calculator" : "Rate suggestions"}
     >
       {isPush && (
         // RM-3c: left-edge DRAG HANDLE -- drag resizes live (clamp 280..50%), double-click resets to
@@ -373,6 +391,10 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
           className="absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none select-none bg-border/40 hover:bg-primary/40 focus:bg-primary/50 focus:outline-none"
         />
       )}
+      {/* Calculator slice 2: the banner and the scope line are panel SHELL -- BoQ-editor copy the
+          calculator screen does not mount (it has its own heading and no row). Everything below the
+          shell is shared. */}
+      {!isCalculator && (
       <header className="flex items-center justify-between border-b px-3 py-2">
         <div className="flex items-center gap-1.5 text-sm font-medium">
           <Sparkles className="h-4 w-4 text-primary" />
@@ -391,7 +413,8 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
           </button>
         )}
       </header>
-      {hasSelection && (
+      )}
+      {hasSelection && !isCalculator && (
         <div className="border-b px-3 py-1.5 text-xs text-muted-foreground">
           Row {excelRow} &middot; {kindLabel(kind!)} rate
         </div>
@@ -772,6 +795,12 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                   )}
 
                   <div className="flex items-center gap-2 pt-1">
+                    {/* Calculator slice 2: the final-value field and "Use this value" are the WRITE
+                        affordance -- they exist only where there is a cell to write to. The calculator
+                        variant renders neither (owner: nothing is saved; there is no row). Revert stays:
+                        it is a session reset, not a write. */}
+                    {!isCalculator && onUse && (
+                    <>
                     <Input
                       className="h-8 w-28 text-sm"
                       inputMode="decimal"
@@ -804,6 +833,8 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                     >
                       Use this value
                     </Button>
+                    </>
+                    )}
                     {/* SLICE 2c -- REVERT TO SUGGESTION. Two resets, and nothing else.
                         This works because the SUGGESTION IS NEVER MUTATED: `ctx` is the source and
                         the overrides are a separate map layered on read, so discarding them re-derives
