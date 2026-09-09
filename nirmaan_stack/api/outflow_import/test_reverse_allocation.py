@@ -19,12 +19,6 @@ ROW_DOCTYPE = "Outflow Import Row"
 
 
 class TestReversingALeg(AllocationFixture):
-    def _allocated(self, amount="100"):
-        row = self._staged_row(amount=amount)
-        pays = self._three_payments()
-        allocate_row(row=row, targets=self._targets(pays))
-        return row, pays
-
     def test_the_payment_returns_to_approved_with_no_utr(self):
         row, (a, _, _) = self._allocated()
         leg = frappe.db.get_value(MATCH_DOCTYPE, {"import_row": row, "target_name": a}, "name")
@@ -79,12 +73,6 @@ class TestReversingALeg(AllocationFixture):
 
 
 class TestRefusals(AllocationFixture):
-    def _allocated(self, amount="100"):
-        row = self._staged_row(amount=amount)
-        pays = self._three_payments()
-        allocate_row(row=row, targets=self._targets(pays))
-        return row, pays
-
     def test_a_reason_is_required(self):
         row, (a, _, _) = self._allocated()
         leg = frappe.db.get_value(MATCH_DOCTYPE, {"import_row": row, "target_name": a}, "name")

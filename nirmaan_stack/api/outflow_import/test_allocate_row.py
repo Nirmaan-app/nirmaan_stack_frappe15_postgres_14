@@ -36,6 +36,18 @@ class AllocationFixture(PaymentSettlementFixture):
             [{"target_doctype": "Project Payments", "target_name": p} for p in payments]
         )
 
+    def _allocated(self, amount="100"):
+        """Stage a row, fully allocate it across the three payments, and hand both back.
+
+        Shared fixture WORKFLOW (not a bare attribute), lifted here from two byte-identical copies
+        in `test_reverse_allocation.py` (review, Task 5) so a future change to the default amount
+        or the payment split can't silently leave one caller testing a different fixture shape.
+        """
+        row = self._staged_row(amount=amount)
+        pays = self._three_payments()
+        allocate_row(row=row, targets=self._targets(pays))
+        return row, pays
+
 
 class TestAllocatingInOneGo(AllocationFixture):
     def test_three_payments_in_one_call_settle_the_row(self):
