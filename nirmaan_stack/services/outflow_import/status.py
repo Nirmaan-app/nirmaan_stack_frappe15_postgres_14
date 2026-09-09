@@ -1201,6 +1201,17 @@ class SettledLedgerEntry:
     possibly blank or unrecognised on a row whose match record is missing or points somewhere
     unexpected. Deciding what to do with that is this module's job, not the query's.
 
+    ⚠️ SINCE ADR-0020 (Task 6 review fix D) `ledger` MAY ALSO BE A PIPE-JOINED COMPOSITE (e.g.
+    `"Project Expenses|Project Payments"`) if a row's legs settled into more than one ledger --
+    `SETTLED_LEDGER_SQL` is a `string_agg`, not a single column, since a fan-out permits it. Such a
+    string matches nothing in `LEDGER_DOCTYPES`, so it lands in `Other` below, same as any other
+    unrecognised value -- deliberately: it is honestly anomalous, not silently misattributed to one
+    of its ledgers. Splitting it per-ledger would need `SUM(m.target_amount)` instead of
+    `SUM(r.amount)`, which would break this deriver's reconciliation invariant (the block totals
+    summing to `settled_value`). `expenses._load_settleable_row`'s FIX A currently makes a
+    composite unreachable through any endpoint (a row can acquire legs in only one ledger), but
+    this deriver does not assume that -- it stays correct for whatever the query hands it.
+
     `direction` is the raw `Outflow Import Row.direction` -- `Debit`, `Credit`, or BLANK. It is the
     axis the two settled blocks are cut on (slice B8b), and it comes off the ROW rather than being
     guessed from `ledger`, because the ledger genuinely cannot answer it: a non-project RECEIPT is

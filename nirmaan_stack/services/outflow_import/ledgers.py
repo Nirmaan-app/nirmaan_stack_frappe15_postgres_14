@@ -44,6 +44,7 @@ __all__ = [
     "PAID",
     "APPROVED",
     "DECIDED_ON_SQL",
+    "SETTLED_LEDGER_SEPARATOR",
     "SETTLED_LEDGER_SQL",
     "settleable_statuses",
     "decided_on_sql",
@@ -222,8 +223,35 @@ def decided_on_sql(doctype: str) -> str:
 # ⚠️ `ofm_match_import_row_idx` (patched onto already-deployed databases by
 # `patches/v3_0/add_outflow_match_import_row_index.py`) is what keeps this affordable; without it
 # the subquery is a sequential probe per settled row.
+#
+# ⚠️ `'Settled'` IS SPELLED HERE RATHER THAN IMPORTED, on the EXACT precedent `INFLOW_DOCTYPE` sets
+# a few lines up (Task 6 review fix E). `allocation.py` OWNS this value as `MATCH_SETTLED` -- but
+# `allocation.py` imports `status.py`, and `status.py` imports THIS module (`ledgers.py`), so
+# `ledgers.py -> allocation.py -> status.py -> ledgers.py` is a REAL circular import, not a
+# theoretical one: verified with `frappe.init()`, it raises `ImportError: cannot import name
+# 'LEDGER_DOCTYPES' from partially initialized module 'ledgers'` regardless of which of the three
+# is imported first (both `status.py`'s and `allocation.py`'s own imports of the names they need sit
+# AFTER the circular import line in each file, so neither import order survives). A local constant,
+# pinned against `allocation.MATCH_SETTLED` under bench by
+# `test_review.TestSettledMatchKindSpelling` (the same shape as `TestInflowDoctypeSpelling`), keeps
+# the two spellings from drifting the way `INFLOW_DOCTYPE` already guards against for the inflow
+# doctype name.
+_SETTLED_MATCH_KIND = "Settled"
+
+# ⚠️ THE ONE PLACE THIS SEPARATOR IS SPELLED (Task 6 review fix F). `SETTLED_LEDGER_SQL` writes it
+# and `review.py`'s row-shaping loop (`get_outflow_rows` AND `export_outflow_rows`, both) reads it
+# back with `.split(SETTLED_LEDGER_SEPARATOR)` -- imported from here, never re-spelled, so the two
+# sides cannot drift the way five independent copies of `'|'` could. It is deliberately BARE (no
+# surrounding spaces): this value is PARSED back into a list, and a padded separator would leave
+# whitespace on every ledger name after the split. Contrast `review._SETTLED_EXPORT_SEPARATOR`
+# (`' | '`, WITH spaces) -- that one is a display string a reconciler reads directly in a
+# spreadsheet cell and NOTHING ever parses back, so it is free to be human-readable. The two must
+# stay two constants, not one: unifying them would either put whitespace into every parsed ledger
+# name, or make the CSV's name/amount columns visually cramped.
+SETTLED_LEDGER_SEPARATOR = "|"
 SETTLED_LEDGER_SQL = (
-    "(SELECT string_agg(DISTINCT m.target_doctype, '|' ORDER BY m.target_doctype) "
+    f"(SELECT string_agg(DISTINCT m.target_doctype, '{SETTLED_LEDGER_SEPARATOR}' "
+    "ORDER BY m.target_doctype) "
     'FROM "tabOutflow Row Match" m '
-    "WHERE m.import_row = r.name AND m.match_kind = 'Settled')"
+    f"WHERE m.import_row = r.name AND m.match_kind = '{_SETTLED_MATCH_KIND}')"
 )

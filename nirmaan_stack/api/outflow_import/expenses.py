@@ -1009,12 +1009,38 @@ def _link_statement_file_to_target(statement_file_url: str | None, result) -> No
 
 
 def _load_settleable_row(row: str):
+    """The guard shared by every WHOLE-TRANSFER write (`settle_row`, `settle_row_partial`,
+    `create_expense`).
+
+    ⚠️ REFUSES `ROW_PARTIALLY_ALLOCATED` (Task 6 review fix A, ADR-0020). None of the three
+    whole-transfer paths above consults `_live_legs` or `is_over_allocated` -- `settle_row`'s own
+    guard is that the record settled equals the WHOLE transfer, which is already false the moment
+    anything has been allocated against it. Left open, a row carrying a Rs 60 allocation against a
+    Rs 100 transfer could still take a Rs 100 `settle_row` on top of it -- Rs 160 against a Rs 100
+    transfer, through the UI, with no guard anywhere. Once a transfer is partly allocated the only
+    correct entry is `allocate_row`, whose guard bounds a leg against the REMAINDER
+    (`allocation.allocation_fits`) -- so the refusal names that route.
+
+    ⚠️ THE SECOND EFFECT: with this in place, a row can acquire legs in only ONE ledger --
+    `allocate_row` is Project-Payments-only, and once a leg lands there this guard blocks every
+    other ledger's whole-transfer entry for the rest of that row's life. So the composite
+    `'Project Payments|Project Expenses'`-shaped string `ledgers.SETTLED_LEDGER_SQL` can produce is
+    UNREACHABLE through any endpoint today -- `SETTLED_LEDGER_SQL` is still correct for whatever
+    the table actually holds (a future ledger fanning across books, or data written outside this
+    guard), but nothing currently in this module can create the case it guards against.
+    """
     doc = frappe.db.get_value(ROW_DOCTYPE, row, "*", as_dict=True)
     if not doc:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
     if doc.get("row_status") == ROW_SETTLED:
         frappe.throw(
             "This row has already settled an expense.", title="Already settled"
+        )
+    if doc.get("row_status") == ROW_PARTIALLY_ALLOCATED:
+        frappe.throw(
+            "This transfer is already partly allocated. Use Allocate to add another payment "
+            "against the remainder -- this action would settle the whole transfer again.",
+            title="Partly allocated",
         )
     if doc.get("row_status") == ROW_SKIPPED:
         frappe.throw(

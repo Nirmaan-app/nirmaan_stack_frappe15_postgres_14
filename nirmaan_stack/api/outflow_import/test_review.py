@@ -55,6 +55,7 @@ from nirmaan_stack.api.outflow_import.expenses import allocate_row, settle_row
 from nirmaan_stack.api.outflow_import.test_allocate_row import AllocationFixture
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
 from nirmaan_stack.services.outflow_import import candidates as C
+from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.amounts import AMOUNT_TOLERANCE
 from nirmaan_stack.services.outflow_import.normalize import normalize_account
 from nirmaan_stack.services.outflow_import.parser import parse_statement
@@ -4465,6 +4466,38 @@ class TestInflowDoctypeSpelling(unittest.TestCase):
         self.assertEqual(settleable_statuses(INFLOW_DOCTYPE), ())
 
 
+class TestSettledMatchKindSpelling(unittest.TestCase):
+    """The one string `ledgers.py` and `allocation.py` both spell, pinned (Task 6 review fix E).
+
+    ⚠️ `ledgers.py` IS A PURE LEAF AND CANNOT IMPORT `allocation.py`: `allocation.py` imports
+    `status.py`, which imports `ledgers.py` -- so `ledgers.py -> allocation.py -> status.py ->
+    ledgers.py` is a REAL circular import (verified with `frappe.init()`: `ImportError: cannot
+    import name 'LEDGER_DOCTYPES' from partially initialized module`, regardless of import order).
+    Exactly the precedent `TestInflowDoctypeSpelling` already pins for `INFLOW_DOCTYPE` -- the name
+    is spelled twice, and this suite is what keeps a rename from reaching only one of them.
+
+    A drift here would make `SETTLED_LEDGER_SQL` silently stop excluding reversed legs (or start
+    excluding every leg), which is exactly the kind of wrong-number-on-a-screen this task exists to
+    prevent, and no other test would catch it -- both spellings would still be internally
+    consistent, just not with each other.
+    """
+
+    def test_the_two_modules_spell_the_settled_match_kind_identically(self):
+        from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
+        from nirmaan_stack.services.outflow_import.ledgers import _SETTLED_MATCH_KIND
+
+        self.assertEqual(_SETTLED_MATCH_KIND, MATCH_SETTLED)
+
+    def test_it_names_a_real_match_kind_option(self):
+        """Not just equal to each other, but equal to a value the doctype's own `Select` field
+        actually offers -- a rename that moved both spellings to the same WRONG string would pass
+        the identity check above and still be silently wrong."""
+        from nirmaan_stack.services.outflow_import.ledgers import _SETTLED_MATCH_KIND
+
+        options = frappe.get_meta(MATCH_DOCTYPE).get_field("match_kind").options.splitlines()
+        self.assertIn(_SETTLED_MATCH_KIND, [o.strip() for o in options])
+
+
 class TestTheSettledReadsSurviveAFanOut(AllocationFixture):
     """⚠️ EVERY FAILURE IN THIS AREA IS SILENT -- a wrong number on a screen, never an exception.
     These tests are the only thing that can see it.
@@ -4566,3 +4599,109 @@ class TestTheSettledReadsSurviveAFanOut(AllocationFixture):
         self.assertEqual(
             summary["total_rows"], summary["settled_rows"] + summary["open_rows"]
         )
+
+    def test_settle_row_refuses_a_partly_allocated_row(self):
+        """FIX A (Task 6 review, ADR-0020): `settle_row` is the WHOLE-TRANSFER path, and its own
+        guard is that the record settled equals the whole transfer -- already false the moment
+        anything has been allocated. Before this fix, allocating Rs 60 of a Rs 100 transfer and
+        then calling `settle_row` with a Rs 100 record on the SAME row wrote a SECOND leg with no
+        guard anywhere: Rs 160 allocated against a Rs 100 transfer, reachable through the UI.
+
+        Asserts BOTH that the call is refused AND that nothing was written -- a refusal that still
+        left a match record would be worse than no guard, because it would look safe.
+        """
+        row = self._staged_row(amount="100")
+        a, _, _ = self._three_payments()
+        allocate_row(row=row, targets=self._targets([a]))
+
+        status_before = frappe.db.get_value(ROW_DOCTYPE, row, "row_status")
+        matches_before = frappe.db.count(MATCH_DOCTYPE, {"import_row": row})
+
+        other = self._approved_payment("100")
+        with self.assertRaises(frappe.ValidationError):
+            settle_row(row, "Project Payments", other)
+
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row, "row_status"), status_before)
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row}), matches_before)
+
+
+class TestTheLedgerAggregateOnAGenuineMultiLedgerRow(AllocationFixture):
+    """FIX B / FIX C (Task 6 review): the discriminating case this task exists for -- a row
+    settled into TWO DIFFERENT ledgers -- was never producible through `allocate_row` /
+    `settle_row` even before FIX A (that combination needed two DIFFERENT target doctypes in one
+    call, and `allocate_row` is Project-Payments-only), and FIX A now additionally closes the
+    `settle_row`-on-top-of-an-allocation route. So this fixture inserts the second `Outflow Row
+    Match` leg DIRECTLY, as data -- the read-side SQL must be correct for whatever the table
+    holds, whoever or whatever wrote it. This is also what makes
+    `test_the_ledger_facet_never_hides_a_row_matching_its_own_label` (above) non-discriminating on
+    its own: with every leg in ONE ledger, `CAST(aggregate AS text) IN ('Project Payments')` and
+    `EXISTS (... target_doctype IN ('Project Payments'))` agree by coincidence. Only a genuinely
+    two-ledger row tells them apart.
+    """
+
+    def _insert_settled_leg(self, *, row, batch, transfer_id, target_doctype, target_name, amount):
+        """Raw INSERT, bypassing the document lifecycle and the Dynamic Link validation `target_name`
+        would otherwise need a real record for -- this suite only ever reads the row back with SQL,
+        exactly the reasoning `OutflowReviewFixture._insert_expense_row` already gives for the same
+        pattern."""
+        name = f"TEST-OFM-{frappe.generate_hash(length=10)}"
+        frappe.db.sql(
+            """
+            INSERT INTO "tabOutflow Row Match"
+                (name, creation, modified, modified_by, owner, docstatus, idx,
+                 import_row, import_batch, transfer_id, target_doctype, target_name,
+                 target_amount, match_kind, match_basis, matched_at)
+            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+            """,
+            (
+                name, "Administrator", "Administrator",
+                row, batch, transfer_id, target_doctype, target_name,
+                str(amount), MATCH_SETTLED, "Manual",
+            ),
+        )
+        return name
+
+    def _two_ledger_row(self):
+        row = self._staged_row(amount="100")
+        batch = self._batch_of(row)
+        transfer_id = frappe.db.get_value(ROW_DOCTYPE, row, "transfer_id")
+        self._insert_settled_leg(
+            row=row, batch=batch, transfer_id=transfer_id,
+            target_doctype="Project Payments", target_name="TEST-OFI-FAKE-PAY-A", amount="60",
+        )
+        self._insert_settled_leg(
+            row=row, batch=batch, transfer_id=transfer_id,
+            target_doctype="Project Expenses", target_name="TEST-OFI-FAKE-EXP-B", amount="40",
+        )
+        frappe.db.commit()
+        return row, batch
+
+    def _batch_of(self, row):
+        return frappe.db.get_value(ROW_DOCTYPE, row, "import_batch")
+
+    def test_settled_ledgers_lists_both_labels_separately_never_a_composite_string(self):
+        row, batch = self._two_ledger_row()
+        page = get_outflow_rows(scope="all", batch=batch)
+        payload = next(r for r in page["rows"] if r["name"] == row)
+        self.assertEqual(
+            sorted(payload["settled_ledgers"]), ["Project Expenses", "Project Payments"]
+        )
+        self.assertNotIn("Project Expenses|Project Payments", payload["settled_ledgers"])
+        self.assertNotIn("Project Payments|Project Expenses", payload["settled_ledgers"])
+
+    def test_ticking_EITHER_ledger_label_returns_the_row(self):
+        row, batch = self._two_ledger_row()
+        for label in ("Project Payments", "Project Expenses"):
+            page = get_outflow_rows(
+                scope="all", batch=batch, facets=json.dumps({"settled_ledger": [label]})
+            )
+            self.assertIn(
+                row, [r["name"] for r in page["rows"]],
+                f"ticking '{label}' hid a row that settled into it -- the worst shape available",
+            )
+
+    def test_the_facet_values_list_the_two_labels_separately_never_a_composite_string(self):
+        _, batch = self._two_ledger_row()
+        values = get_outflow_facet_values(column="settled_ledger", batch=batch)
+        self.assertEqual(sorted(values["values"]), ["Project Expenses", "Project Payments"])
+        self.assertNotIn("Project Expenses|Project Payments", values["values"])

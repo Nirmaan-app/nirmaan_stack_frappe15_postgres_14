@@ -61,9 +61,17 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     LEDGER_DOCTYPES,
     NON_PROJECT_EXPENSE_DOCTYPE as NON_PROJECT_EXPENSE,
     PROJECT_EXPENSE_DOCTYPE as PROJECT_EXPENSE,
+    SETTLED_LEDGER_SEPARATOR,
     SETTLED_LEDGER_SQL,
     settleable_statuses,
 )
+# ⚠️ `MATCH_SETTLED` IS BOUND, NOT SPELLED (Task 6 review fix E) -- the same doctrine
+# `BANK_SUCCESS_STATUS` already carries here: two spellings of the match-kind vocabulary is how one
+# of them learns about a value the other has not. Safe to import here (unlike in `ledgers.py`,
+# which cannot: `allocation.py` imports `status.py`, which imports `ledgers.py`, so `ledgers.py`
+# importing `allocation.py` back would be a real circular import -- verified, see
+# `ledgers._SETTLED_MATCH_KIND`). `review.py` sits above all three, so no cycle here.
+from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.parser import BANK_SUCCESS_STATUS
 # ⚠️ THE BROWSE LIST'S RANKING, AND NOTHING ELSE IN THIS MODULE MAY USE IT. `similarity` orders the
@@ -1945,15 +1953,30 @@ _MAX_EXPORT = 20000
 # ⚠️ THE `ORDER BY` IS NOT COSMETIC. These two are INDEPENDENT subqueries, so without a shared,
 # total ordering the names and the amounts on one CSV line could come from different legs -- which
 # is worse than picking one leg consistently. `matched_at, name` is total because `name` is unique.
+#
+# ⚠️ `_SETTLED_EXPORT_SEPARATOR` (Task 6 review fix F) IS ITS OWN CONSTANT, DELIBERATELY NOT
+# `ledgers.SETTLED_LEDGER_SEPARATOR`. The two separators serve genuinely different jobs and must
+# stay two named constants, not one: `SETTLED_LEDGER_SEPARATOR` ('|', bare) is PARSED back by
+# `.split(...)` into a list, so it cannot carry padding -- a spaced separator would leave whitespace
+# on every ledger name. This one is a DISPLAY string a reconciler reads directly in a spreadsheet
+# cell that NOTHING ever parses back, so it is free to be human-readable (`' | '`, with spaces).
+# Defined ONCE here and used by BOTH subqueries below, which used to spell `' | '` independently.
+_SETTLED_EXPORT_SEPARATOR = " | "
 _SETTLED_NAME_SQL = (
-    "(SELECT string_agg(m.target_name, ' | ' ORDER BY m.matched_at, m.name) "
+    f"(SELECT string_agg(m.target_name, '{_SETTLED_EXPORT_SEPARATOR}' "
+    "ORDER BY m.matched_at, m.name) "
     'FROM "tabOutflow Row Match" m '
-    "WHERE m.import_row = r.name AND m.match_kind = 'Settled')"
+    f"WHERE m.import_row = r.name AND m.match_kind = '{MATCH_SETTLED}')"
 )
+# ⚠️ `ROUND(..., 2)` (Task 6 review fix G) -- `target_amount` is a Currency column, and a bare
+# `::text` cast on Postgres numeric prints the FULL stored precision (`27504.310000000`), not the
+# two-decimal figure the pre-Task-6 export wrote as a float. Cosmetic in a spreadsheet, but
+# user-visible in the raw CSV cell.
 _SETTLED_TARGET_AMOUNT_SQL = (
-    "(SELECT string_agg(m.target_amount::text, ' | ' ORDER BY m.matched_at, m.name) "
+    f"(SELECT string_agg(ROUND(m.target_amount, 2)::text, '{_SETTLED_EXPORT_SEPARATOR}' "
+    "ORDER BY m.matched_at, m.name) "
     'FROM "tabOutflow Row Match" m '
-    "WHERE m.import_row = r.name AND m.match_kind = 'Settled')"
+    f"WHERE m.import_row = r.name AND m.match_kind = '{MATCH_SETTLED}')"
 )
 
 
@@ -2103,9 +2126,13 @@ def get_outflow_rows(
                 "service_tax": float(row.get("service_tax") or 0),
                 # ⚠️ SPLIT INTO A LIST HERE, not on the client. The pipe is a transport detail of
                 # `string_agg`; a client that splits it would be a second place that has to know
-                # the separator, and the two would drift the day it changes.
+                # the separator, and the two would drift the day it changes. `SETTLED_LEDGER_SEPARATOR`
+                # is IMPORTED from `ledgers.py` (Task 6 review fix F) -- the one place that writes
+                # it and the two places that read it back now share a single spelling.
                 "settled_ledgers": [
-                    part for part in (row.get("settled_ledgers") or "").split("|") if part
+                    part
+                    for part in (row.get("settled_ledgers") or "").split(SETTLED_LEDGER_SEPARATOR)
+                    if part
                 ],
                 # Kept for shape-compatibility with `get_batch_rows`, which the decision dialog and
                 # the settlement-link helpers already read. A master-table page never carries match
@@ -2217,7 +2244,7 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
             # none of the nine statements built from this function grows a JOIN.
             where.append(
                 f'EXISTS (SELECT 1 FROM "tabOutflow Row Match" m '
-                f"WHERE m.import_row = r.name AND m.match_kind = 'Settled' "
+                f"WHERE m.import_row = r.name AND m.match_kind = '{MATCH_SETTLED}' "
                 f"AND m.target_doctype IN ({', '.join(['%s'] * len(chosen))}))"
             )
             params.extend([str(v) for v in chosen])
@@ -2305,7 +2332,7 @@ def get_outflow_facet_values(
             FROM "tabOutflow Row Match" m
             JOIN "tabOutflow Import Row" r ON r.name = m.import_row
             {clause}
-            {"AND" if clause else "WHERE"} m.match_kind = 'Settled'
+            {"AND" if clause else "WHERE"} m.match_kind = '{MATCH_SETTLED}'
             ORDER BY value ASC
             LIMIT %s
             """,
@@ -2513,9 +2540,11 @@ def export_outflow_rows(
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
                 # Same split as `get_outflow_rows` -- see the comment there. Server-side, once,
-                # never on the client.
+                # never on the client. Same `SETTLED_LEDGER_SEPARATOR` import (Task 6 review fix F).
                 "settled_ledgers": [
-                    part for part in (row.get("settled_ledgers") or "").split("|") if part
+                    part
+                    for part in (row.get("settled_ledgers") or "").split(SETTLED_LEDGER_SEPARATOR)
+                    if part
                 ],
                 # ⚠️ `settled_target_names` / `settled_target_amounts` pass through UNCHANGED via
                 # `**row` above -- STILL a pipe-joined STRING, not a list, and STILL `None` (never
@@ -3146,6 +3175,13 @@ def get_outflow_summary(
 def _settled_by_direction(where, params) -> list[dict]:
     """The settled transfers as TWO blocks -- Paid and Received -- each broken down by ledger.
 
+    ⚠️ "BROKEN DOWN BY LEDGER" ASSUMES ONE LEDGER PER ROW, WHICH ADR-0020 NO LONGER GUARANTEES AT
+    THE QUERY LEVEL (Task 6 review fix D) -- see the `COALESCE({SETTLED_LEDGER_SQL}, '')` call site
+    below and `status.SettledLedgerEntry`'s docstring for what happens to a row settled into more
+    than one ledger. Today `expenses._load_settleable_row`'s FIX A makes that case unreachable
+    through any endpoint, so this comment is a guard against reintroducing it silently, not a
+    report of it happening.
+
     ⚠️ THE SPLIT KEYS ON `r.direction`, THE ROW'S OWN STATED DIRECTION, AND NOT ON THE LEDGER. The
     ledger genuinely cannot answer which way the money went: a non-project RECEIPT is stored as a
     NEGATIVE `Non Project Expense` (B7), so that doctype legitimately appears in BOTH blocks. It is
@@ -3191,6 +3227,14 @@ def _settled_by_direction(where, params) -> list[dict]:
 
     grouped = frappe.db.sql(
         f"""
+        -- ⚠️ `ledger` MAY BE A PIPE-JOINED COMPOSITE (Task 6 review fix D): `SETTLED_LEDGER_SQL`
+        -- is a `string_agg`, so a row settled into more than one ledger groups here under a key
+        -- like "Project Expenses|Project Payments" that matches nothing in `LEDGER_DOCTYPES` --
+        -- `derive_settled_direction_blocks` folds it into that block's `Other` slot, which is
+        -- deliberate (an honest anomaly, never misattributed to one ledger). The block totals
+        -- still reconcile because this SUMs `r.amount` (the row), never `m.target_amount` (the
+        -- legs) -- see the docstring above. `expenses._load_settleable_row`'s FIX A currently
+        -- makes the composite case unreachable through any endpoint.
         SELECT COALESCE({SETTLED_LEDGER_SQL}, '') AS ledger,
                COALESCE(r.direction, '')          AS direction,
                COUNT(*)                           AS count,
