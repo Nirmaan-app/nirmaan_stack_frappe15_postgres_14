@@ -68,6 +68,7 @@ import frappe
 
 from nirmaan_stack.services.action_items.predicates import (
     LIVE_STATUSES,
+    _to_float,
     is_dc_pending,
     is_dn_pending,
 )
@@ -83,7 +84,8 @@ _Q_POS = '''
 '''
 
 _Q_ITEMS = '''
-    SELECT i.parent, i.category, i.is_dispatched, i.quantity, i.received_quantity
+    SELECT i.parent, i.item_id, i.category, i.is_dispatched, i.quantity,
+           i.received_quantity, i.billing_status
     FROM "tabPurchase Order Item" i
     JOIN "tabProcurement Orders" po ON po.name = i.parent
     WHERE po.status IN %(s)s
@@ -92,9 +94,13 @@ _Q_ITEMS = '''
 # `is_stub = 0` is MANDATORY and mirrors reconcile._compute_desired. A stub row is a
 # placeholder with no items; treating it as a filed challan is what made Air India
 # Training Centre report 0 missing challans against 35 real ones.
+# PER-LINE challaned quantity, not document existence — see predicates.is_dc_pending.
+# A PO with one filed challan still owes one for every other received line, so the
+# join reaches through to DC Item rather than stopping at the PDD.
 _Q_DC = '''
-    SELECT DISTINCT d.parent_docname
-    FROM "tabPO Delivery Documents" d
+    SELECT d.parent_docname AS po, di.item_id, di.category, di.quantity
+    FROM "tabDC Item" di
+    JOIN "tabPO Delivery Documents" d ON d.name = di.parent
     JOIN "tabProcurement Orders" po ON po.name = d.parent_docname
     WHERE d.parent_doctype = 'Procurement Orders'
       AND d.type = 'Delivery Challan'
@@ -125,7 +131,10 @@ def pending_counts_by_project():
     for row in item_rows:
         items_by_po.setdefault(row["parent"], []).append(row)
 
-    has_dc = {row[0] for row in frappe.db.sql(_Q_DC, {"s": _LIVE})}
+    dc_qty = {}
+    for row in frappe.db.sql(_Q_DC, {"s": _LIVE}, as_dict=True):
+        key = (row["po"], row.get("category") or "", row["item_id"])
+        dc_qty[key] = dc_qty.get(key, 0.0) + _to_float(row.get("quantity"))
 
     counts = {}
     for po in pos:
@@ -140,7 +149,14 @@ def pending_counts_by_project():
         billing = po.get("billing_status")
         items = items_by_po.get(name, [])
 
-        if is_dc_pending(status, billing, items, name in has_dc):
+        if is_dc_pending(
+            status,
+            billing,
+            items,
+            lambda category, item_id, _po=name: dc_qty.get(
+                (_po, category or "", item_id), 0.0
+            ),
+        ):
             bucket["dc_pending"] += 1
         # No document lookup: is_dn_pending compares each dispatched item's ordered
         # quantity against what has been received, on the PO's own item rows.
