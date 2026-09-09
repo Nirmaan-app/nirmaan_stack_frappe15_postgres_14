@@ -38373,3 +38373,168 @@ the `selected` argument), `frontend/src/pages/boq-wizard/rate-helper/pricingShee
 Root `CLAUDE.md`: a durable rule IS earned and added under "BoQ Rate Master (RM-1)": a def's `type` is both the screen
 and the model's instruction; `extract_as: "number"` is the split; a `number_choice` without it reaches the model as a
 closed list and the model picks from it -- stored data cannot show it, only a fresh read can..
+
+
+## The includes-modules gate -- the popup "Includes modules" switch prices the bare box when No (2026-09-10, v62)
+
+### The defect, and how it was found
+`popup_boxes.has_modules` ("Includes modules", a Yes/No choice def) was an EXTRACTION instruction -- rule P1 tells
+the model how to READ it -- and nothing at pricing time read it. Measured on `BOQ-26-00241 / "BOQ | Electircal" /
+123` (Module count 3, switch 16A 1 WAY SWITCH x1, socket 6A/16A 3-Pin x1, plate 3M): **3060 / 380 / 3440 with the
+switch at Yes AND at No.** A pricer who set it to No expecting the bare box was still charged the modules. The recon
+(2026-09-10, the prior session) tested FOUR existing config mechanisms and all four fail: `if_attr` on a component's
+qty loses the stated quantity AND leaves `module_fit` itself ungated (the plate ladder and the blank count still run);
+`conditions` is DEAD on the assembly-shape component (validated, `_ref`-guarded, never executed); `absent_when` does
+not exist on `module_fit` or `component_ref`; `map_attribute` cannot override a stated value. So the gate is code.
+
+### The rule -- all four owner rulings (verbatim, 2026-09-10)
+*"if the user edits it to no, they should get the bare box price. if they set it to yes they should get price of box
+oplus components as [per the selction"* -- No prices the box alone; Yes the box plus whatever is picked, as today.
+On slots already filled when the switch goes to No: *"they stay and just dont get included in the price."* -- the
+picks stay on screen, uncharged; flipping back restores the full price with no re-pick. *"switch win both sides"* --
+the switch beats the slots in both directions. *"blank refuses"* -- a blank or absent switch is an honest no-compute.
+Yes with every slot empty: *"no change required"* -- the same number either way, a plain figure, no note, no refusal.
+
+### The gate key -- `module_fit.params.include_when: {attr, equals}`, confined by KEY PRESENCE
+ONE reader, `ratePipelineInterpreter.moduleFitGateVerdict(gate, selected)` (pure, exported; names no category):
+`included` when `selected[attr] === equals` -> the step runs exactly as without the key, trace included (byte-identical,
+pinned); `blank` (undefined / null / "") -> `bail` naming the attribute (`'has_modules' is blank -- whether the modules
+are included is not stated, no value computed`); `excluded` (any other value) -> every term's `none_when` item, every
+ladder `bind` (and a truthful 0 on `bind_modules`) and the blanks `bind_item` take the None sentinel in `fitLabels` --
+the existing shadow-the-selection channel -- so the seven `none_skips` components zero their lines through the SAME
+"None -> 0" short-circuit a None slot takes, and the box prices alone. `selected` is never written (the picks stay),
+the step publishes `moduleFit: {occupied: 0, ladders: [every ladder absent], excluded: {attr, value}}` and the trace
+reads `has_modules is No -> modules not included: socket1_item, socket2_item, socket3_item, socket4_item, switch_item,
+plate_item, blank_fit_item -> None (the slot picks stay; none is priced)`. `module_fit` is shared by switches_sockets
+(2 steps), point_wiring (3) and popup_boxes (1); a step without the key never enters the block -- pinned per category
+(the HV-10 lesson). Types: `ModuleFitStep.params.include_when?`, `ModuleFitOutcome.excluded?` (additive).
+
+### The validator entry (`rate_master._validate_config`, module_fit branch) -- three guards, each closing a SILENT failure
+`include_when` must be `{attr: non-empty str, equals: non-empty str}`; `attr` is `_ref`-guarded like `floor_from` /
+`pick_from` (an unguarded typo reads every row as blank and refuses the whole category with no error anywhere);
+`equals` must be one of the attribute's declared `values` when it carries a list (an `equals: "yes"` typo would EXCLUDE
+every Yes row -- a wrong price that looks finished); every term must carry `none_when` (the gate excludes a term
+THROUGH its item bind, so a term without one would price under No). **The loader does NOT run `_validate_config`, so
+an asset typo passes at import** -- only the api write path and the suite's asset pin catch it (register, standing).
+
+### The mint and the import (real figures)
+Mint `mint_v62.py` (scratchpad, the `_mint_v5*_tmp.py` precedent) FROM v61: asserts the writer round-trips v61 byte-for-
+byte, the popup shape (one pipeline, one module_fit, five terms all with `none_when`, the plate ladder, `blank_fit_item`,
+`has_modules` = the Yes/No choice def, the seven `none_skips` refs, golden p1 = switch No / all None / 10800-1200), adds
+the ONE key + an explain clause + a notes sentence, then asserts KEY BY KEY that every other category, all 1,367 items,
+every golden and every top-level key are equal and popup differs in exactly that. v61 `437a19df…` 786,610 bytes ->
+v62 **`22376da5…`** 787,540 bytes; textual diff **+6 / -2 lines**. `CURRENT_EALL_ASSET` -> v62.
+`scripts/mint_completeness_check.py v61 v62`: **PASS, no atoms disappeared**. Freeze OFF. PRE: active Electrical
+**1,367** on `rmbulk-99dd433e65d8`, 12 configs, popup `BRCC-26-24094` params `[blanks, ladders, terms]`, live == v61
+leaf by leaf (0 differing). Import in-container, explicit v62 path, `replace=True`: `status loaded`, batch
+**`rmbulk-b1985c53a6d9`**, items_total 1,367, configs_loaded 12, items_deactivated 1,367, configs_deactivated 12,
+retirements existing 6 / created 0. AFTER: active **1,367** on the new batch, 12 configs, popup `BRCC-26-25638` params
+`[blanks, include_when, ladders, terms]` = `{has_modules, Yes}`; live vs v62 LEAF BY LEAF (goldens/discipline excluded):
+cabletray 351, conduit 41, dbsw 368, earthing 85, indsock 247, jbr 32, lms 39, misc 53, point_wiring 1,011, **popup 289**
+(287 + the two gate leaves), switches 471, wiring 259 -- **all 0 differing**; `get_rate_master_items` 1,367; snapshots 10
+(none created). Restarted by PID: serve 17148 -> **21301**, worker 17324 -> **21303**, socketio 17939 -> **21305**,
+yarn/vite 17681/17692/17693 -> **21314/21331** (`kill -9` needed for all six -- the plain kill left every one alive;
+declared), `node_modules/.vite` cleared; `:8000` ping 000 (first, still booting) then 200 x2, `:8080` 200 x3.
+
+### THE INVARIANT -- stored data, all categories
+Real helper bundled in-container (`esbuild --alias:@=<src>`, the calc1 runner shape): HEAD `src` copy + the live v61
+configs vs the working tree + the v62 asset configs, AND vs the re-dumped live configs after the import, over all
+**5,001 rows of the 42 active runs**, run category AND live category: **10,002 verdicts, 0 moved** (values, every
+section's finals and figures, finalValues), figure-set hash **`3a091e8a96ff`** on all three sides; ZERO display diffs
+(attrs / derivation). A fourth run (HEAD interpreter + v62 configs) isolates the asset change: also 0 moved. Popup:
+84 verdicts, 7 rows priced before and after with identical figures (see U2). Premise corrections: the popup census is
+**12** never-asked rows (not 16), **2** rows at No (not one -- `BOQ-26-00235 / Sheet1 / 136` and `BOQ-26-00196 /
+ELECTRICAL / 263`, both every slot None and a blank module count, both refusing) and **7** priced rows (not five -- the
+brief omitted `BOQ-26-00174 / Electrical / 188` 15630/1850 and `/190` 7170/960). A first harness run priced nothing
+on the BEFORE side (the runner read the corpus file as the config map); fixed and re-run -- declared.
+
+### Tests
+Canonical command re-verified from root `CLAUDE.md` (`bench --site localhost run-tests --module ...`, in-container);
+vitest in-container. **Baselines measured in session (HEAD):** rate_master **348 OK** (507 s), rate_suggest **71 OK**,
+coercion **149 OK**, hv2 **43 OK**; full vitest **3,381 / 3,382** (the known `writeOffControl` timeout); tsc **3,228**
+errors at HEAD (worktree), the two lines in the touched files (`ratePipelineInterpreter.ts` 1361 -> 1381, the test at
+4951 -> 4955) both pre-existing.
+**New vitest pins (16, `ratePipelineInterpreter.test.ts`, three describes):** POSITIVE switch No + slots filled -> the
+four lines "None -> 0", finals 0, the caller's selection byte-untouched with the picks present; POSITIVE No -> Yes on
+the same row restores 1168 without re-picking; NEGATIVE Yes + slots filled == the no-key run (finals AND every step
+deep-equal); NEGATIVE Yes + every slot empty == the no-key run, no `excluded`, no note; NEGATIVE blank -> `no_match`
+naming the attribute; NEGATIVE absent -> the same (and the no-key run of that row prices 1168 -- the panel's field
+gate is what refused before); the ONE reader's six verdicts; THE CROSS-CATEGORY NEGATIVE named per category --
+switches_sockets floor branch (549) and zero branch, point_wiring (RULING 1 trace verbatim, 2359) and the full
+`PW_MF_SUPPLY`, the popup-shaped step WITHOUT the key with a stray No / blank -- every step deep-equal; the reader names
+no category; THE LIVE ASSET (v62 + v61 imported as modules): the key on popup's one module_fit and on NO other
+(switches 2 / point_wiring 3 carry none), v62 vs v61 differs in exactly the key + explain + notes with items and
+goldens equal, golden p1 unchanged at 10800 / 1200 and now priced BY THE SWITCH (the v61 run of the same golden
+carries no `has_modules` in its trace), and THE U1 ROW from its stored attrs: v62 Yes 3060 / 380 (== v61), v62 No
+**2700 / 300**, v61 No **3060 / 380** (the defect), back to Yes 3060 / 380.
+**New Python pins (7, `TestIncludesModulesGate`):** accept (Yes, No, absent); NEGATIVE attr `_ref` by name; NEGATIVE
+`equals` off the list (message names `'yes'` and `Yes, No`; a value-less number def is not list-checked); NEGATIVE a
+term without `none_when` (and the same terms WITHOUT the gate stay valid); NEGATIVE six malformed shapes; the v62 asset
+(every config validates, popup carries the gate, switches `[None, None]`, point_wiring `[None, None, None]`); v62 vs
+v61 mint completeness incl. p1. **RED before:** the four validator negatives fail on the HEAD validator (4 of 7; the
+positives pass -- the asset pin is a pin on data). Seven CUMULATIVE byte-equal pins widened by naming `popup_boxes`
+(`test_f25s3_04`, `test_lms_12`, `test_pw_cs_14/23/31`, `test_r12…`, `test_v61_04`) -- the same mechanical widening
+v61 did, each with its dated note; a further category still fails.
+**GREEN:** interpreter file **491 / 491**; the three rate files + helper **913** before the pins, full vitest
+**3,397 / 3,398** (16 new; the known timeout only); rate_master **355 OK** (348 + 7), rate_suggest 71, coercion 149,
+hv2 43 (re-run after the import, see the report); tsc **3,228** before and after -- no new error.
+**VACUITY (A4):** `moduleFitGateVerdict` forced to `"included"` -> **7 red / 484 green** (both No-case positives, blank,
+absent, the reader, golden-p1-by-the-switch, the U1 row); interpreter restored byte-identical (cmp) -> **491 / 491**.
+
+### The browser live cert (2026-09-10 ~04:10-04:40, admins@nirmaan.app, tab VISIBLE, zero AI calls, no writes)
+De-stale: SW unregistered (1), caches 0, storage cleared, 3 firebase IndexedDBs deleted; session survived (dashboard as
+admins@nirmaan.app, **no CSRF break**; the inline `{{ boot }}` SyntaxError at `index.html:32` is the raw dev template,
+pre-existing). FRONTEND-derived marker on the plain URL: `ratePipelineInterpreter.ts` `include_when` x3,
+`moduleFitGateVerdict` x2 (`rateMasterTypes.ts` serves as an empty module -- types only -- so 0 there by construction).
+Every panel read through the DOM (`Page.captureScreenshot` times out on the tall grids, the recorded trait; the grid
+re-windows on wheel scrolls, and the Category column filter isolates a category's rows); every pick a SESSION
+OVERRIDE reverted with the panel's Revert; "Use this value" never clicked; Undo disabled throughout (0).
+- **U1 THE DEFECT, CLOSED** -- `00241 / "BOQ | Electircal" / 123`: at Yes **Supply 3060 / Install 380 / Combined 3440**
+  (body `switch 290 / socket1 464 / plate 3M 229`). Switch -> No: **2700 / 300 / 3000**, body empty, and the Switch
+  `16A 1 WAY SWITCH`, Socket 1 `6A/16A 3-Pin Socket`, Plate `3M` selects STILL SHOW their picks (blank-plate qty shows
+  empty, its "(computed)" marker gone -- nothing counted). Switch -> Yes: **3060 / 380 / 3440** back with no re-pick.
+  Revert: Revert disabled, Undo disabled.
+- **U2** unchanged at Yes: `00216 / 2. ELECTRICAL / 154` **10020 / 1210 / 11230**; `00139 / RFQ / 732` **7800 / 920 /
+  8720**; `00230 / ELECTRICAL / 230` **4570 / 600 / 5170**; `00224 / ELECTRICAL / 230` **4570 / 600 / 5170** (the other
+  two priced rows, `00174 / 188` 15630/1850 and `/190` 7170/960, by the harness).
+- **U3 YES WITH NOTHING PICKED** -- row 123 with Switch, Socket 1 and Plate set to None, switch Yes: **2700 / 300 /
+  3000**, a plain figure, NO note, no refusal. Reverted.
+- **U4 BLANK REFUSES** -- `00171 / Electrical / 231` (has_modules never asked, module count 8): "Complete the missing
+  attributes to price", Includes modules `— select —`, exactly as today.
+- **U5 THE OTHER CATEGORIES** -- `00241 / 101` Switches and Sockets **840 / 170 / 1010**; `00241 / 143` Point Wiring
+  **Supply 3101 / Install 535** -- both to the rupee against the harness BEFORE values.
+- **U6** live config == v62 leaf by leaf (12 x 0 differing); active Electrical **1,367**; `test_img_06` green after import.
+
+### #57 -- what landed
+1. On a popup box row, setting "Includes modules" to No now prices the bare box. The slot picks stay on screen and are
+   not charged; setting it back to Yes restores the full price. No live row changed (10,002 / 0). The list did not grow.
+
+### Register (record, do not fix)
+- The dead `conditions` key on an assembly-shape `component_ref`: validated, `_ref`-guarded, never executed -- a future
+  author reads it as live.
+- The loader does not run `_validate_config`; an asset typo passes at import (the v62 gate key included).
+- `absent_when` (catalog_fit / circuit_fit) is validated nowhere; `qty.if_attr` keys are shape-checked but never
+  `_ref`'d -- a typo silently never fires.
+- Popup rows with a BLANK `module_count` refuse on it: 18 of the 28 Yes rows and both No rows in this census (the brief
+  said 11 -- a count correction); the 12 never-asked rows (owner: the pricer handles them).
+- The 70 blank fields on face plates (`1M & 2M`, 32), materials (10) and conduit sizes (28) -- the pre-existing
+  off-list display gaps.
+- Residence check: F2 (207 -> 224) and F5 (116 -> 119) fail IDENTICALLY at HEAD and in this tree -- pre-existing drift,
+  not this slice.
+- Standing: `point_wiring.blank_item`; run `BRSR-26-00722`; units; "Unclear" owner-parked; the `size_mm` discard; the
+  parked split-pipeline shape; a one-column category's box width; the true-viewport narrow check; the dropdown option
+  order; `conduit_piping.size_mm` as an `extract_as` candidate.
+
+### Files
+`frontend/src/pages/pricing/rate-master/ratePipelineInterpreter.ts` (`moduleFitGateVerdict` + the gate block, +81),
+`frontend/src/pages/pricing/rate-master/rateMasterTypes.ts` (`include_when`, `excluded`, +33),
+`frontend/src/pages/pricing/rate-master/ratePipelineInterpreter.test.ts` (+227: two asset imports, 16 pins),
+`nirmaan_stack/api/boq/rate_master.py` (the validator entry, +39), `nirmaan_stack/api/boq/test_rate_master.py`
+(`CURRENT_EALL_ASSET` -> v62, seven cumulative pins widened, `TestIncludesModulesGate` 01-07),
+`nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v62.json` (new), this record. Out of scope and
+untouched: `pricingSheetHelper.ts`, `PricingCalculator.tsx`, `extraction.py` / rule P1, `patches.txt`; the modified
+`.claude/settings.local.json` and the root untracked files are declared noise, not staged.
+Root `CLAUDE.md`: a durable rule IS earned and added under "BoQ Rate Master (RM-1)": an attribute the model is asked for
+is not thereby read at pricing time -- a Yes/No switch that must change the price needs a declared step key that ONE
+reader interprets, confined by key presence; the four config mechanisms that cannot do it are named so they are not
+re-tried.

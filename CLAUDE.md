@@ -551,6 +551,20 @@ list is right. **STORED DATA CANNOT PROVE THIS CLASS** -- 10,002 verdicts showed
 because stored values never pass through the coercer again; only a fresh read (spend, on a live sheet) catches it.
 Where a stated value has no stocked match the field is left BLANK with the `no_match` note (never a snapped value).
 
+**⚠️ AN ATTRIBUTE THE MODEL IS ASKED FOR IS NOT THEREBY READ AT PRICING TIME (owner rulings 2026-09-10, v62).**
+`popup_boxes.has_modules` ("Includes modules") was an extraction instruction (rule P1) that no pricing step read, so a
+row priced 3060 / 380 with the switch at Yes AND at No. **A Yes/No switch that must change the price needs a DECLARED
+STEP KEY that ONE reader interprets** -- here `module_fit.params.include_when: {attr, equals}` and
+`ratePipelineInterpreter.moduleFitGateVerdict` (equal -> today's path byte-identical; blank -> refuse; anything else ->
+every term item, ladder bind and blank bind takes the None sentinel in `fitLabels`, so the existing `none_skips` lines
+zero and the selection is never written -- the picks stay on screen, uncharged). **Confined by KEY PRESENCE, never by a
+category name**: `module_fit` is shared, and a step without the key is pinned byte-identical per category. Four config
+mechanisms were measured unable to do this and must not be re-tried for it: `if_attr` on a qty (loses the stated
+quantity, leaves `module_fit` ungated), `conditions` (dead on the assembly shape), `absent_when` (absent from
+`module_fit` / `component_ref`), `map_attribute` (cannot override a stated value). The validator `_ref`-guards `attr`,
+checks `equals` against the def's `values` (a typo would exclude every Yes row) and requires `none_when` on every term;
+**the loader does not run the validator, so an asset typo passes at import.**
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
