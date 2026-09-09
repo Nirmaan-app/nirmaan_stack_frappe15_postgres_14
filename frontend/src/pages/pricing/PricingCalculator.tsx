@@ -26,17 +26,30 @@
  * install halves are one thing) -- is recorded in the plan doc for the day both surfaces move together.
  *
  * ⚠️ Units are NOT ruled. Wiring's two `pipeline_labels` are the only units that exist; nothing is added.
+ *
+ * CALCULATOR LAYOUT SLICE (owner 2026-09-09) -- LAYOUT ONLY, no engine change. Owner, verbatim:
+ *   "the grid has expanded too much and its difficult to assciate the field labels with the boxes."
+ *   "pricing show n in top is better. but we need to keep a separate block for it. we just put these
+ *    bl;ocks at the top and maybe side by side and not one below the other. we can show in 1*2 grid
+ *    per row which then gets repeated as required if therie are more than 2 blocks."
+ *   "empty blocks at the top" / "split as per order" /
+ *   "can we make the column layout dynamic so that it renders 1/2/3 column as required."
+ * This screen decides TWO numbers and hands them to the shared panel's `calculator` variant: the
+ * block labels the category WILL produce (known from its config before anything prices) and the
+ * column count for its fields (content sets the maximum, width may only reduce it). The panel
+ * arranges; nothing here reads a figure.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RATE_MASTER_DISCIPLINES } from "./rate-master/rateMasterRegistry";
+import type { RateCategoryConfig } from "./rate-master/rateMasterTypes";
 import {
   RATE_MASTER_CONFIG_TARGETS,
   RateConfigFetcher,
   useConfigsByCategory,
   useRateMasterItems,
 } from "@/pages/boq-wizard/rate-helper/rateHelperPlumbing";
-import { categoryLabel, makePricingSheetHelper } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
+import { categoryLabel, makePricingSheetHelper, nonBcsPipelines, pipelineLabel } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
 import { RateHelperPanel } from "@/pages/boq-wizard/rate-helper/RateHelperPanel";
 import { DISPLAY_RATE_KINDS, type RateHelper, type RateHelperRowContext } from "@/pages/boq-wizard/rate-helper/rateHelperTypes";
 
@@ -93,6 +106,107 @@ export function calculatorCtx(discipline: string, categoryId: string): RateHelpe
   };
 }
 
+// ── CALCULATOR LAYOUT SLICE: the two numbers this screen decides ────────────────────────────────
+
+/**
+ * PURE. THE PRICE BLOCKS A CATEGORY WILL PRODUCE, known BEFORE anything prices: one per non-BCS
+ * pipeline, in config declaration order, labelled exactly as the helper labels the priced section
+ * (`pipelineLabel` -- config `pipeline_labels` first, else the category label with a Supply/Install
+ * suffix on a split category). The helper's generic path emits ONE section per `nonBcsPipelines`
+ * entry and the wiring path one per its two pipelines, so this list IS the block count once priced --
+ * pinned per golden in the test. That is what lets the blocks stand on screen with em dashes from the
+ * first render instead of appearing when the first price lands.
+ */
+export function calculatorBlockLabels(config: RateCategoryConfig): string[] {
+  return nonBcsPipelines(config).map(([id]) => pipelineLabel(config, id));
+}
+
+/**
+ * PURE. THE FIELDS THE PANEL RENDERS, in the ORDER it renders them: the config's attribute
+ * definitions minus `selector: false` and minus `panel: false` (the two exclusions
+ * `pricingSheetHelper.compute` applies -- `selectableDefs` then the `d.panel === false` skip). The
+ * columns are filled by splitting THIS order -- "split as per order" (owner); no grouping is
+ * invented, and a config's own group heading renders where it falls.
+ */
+export function visibleFieldIds(config: RateCategoryConfig): string[] {
+  return (config.attribute_definitions ?? [])
+    .filter((d) => d.selector !== false && d.panel !== false)
+    .map((d) => d.id);
+}
+
+/**
+ * CONTENT SETS THE MAXIMUM COLUMN COUNT. Measured over the 12 live Electrical configs on 2026-09-09
+ * (panel-visible fields): junction_box_raceway 1, miscellaneous 1, conduit_piping 2,
+ * lighting_mgmt_system 2, earthing 3 | industrial_sockets 5, cabletray_raceway 8, wiring_cabling 8 |
+ * db_switchgear 14, popup_boxes 17, switches_sockets 17, point_wiring 27. The two band edges (4/5 and
+ * 12/13) fall in the EMPTY gaps of that distribution (3 -> 5 and 8 -> 14), so no live category sits
+ * on a boundary. Three columns for two fields would leave a lonely box in the corner of an empty
+ * screen -- the thing this slice exists to remove -- which is why content, not width, sets the cap.
+ */
+export const COLUMN_BANDS: ReadonlyArray<{ readonly maxFields: number; readonly columns: 1 | 2 | 3 }> = [
+  { maxFields: 4, columns: 1 },
+  { maxFields: 12, columns: 2 },
+  { maxFields: Number.POSITIVE_INFINITY, columns: 3 },
+];
+
+/** PURE. The most columns a category's field count justifies. */
+export function maxColumnsForFields(fieldCount: number): 1 | 2 | 3 {
+  const n = Number.isFinite(fieldCount) ? Math.max(0, Math.floor(fieldCount)) : 0;
+  return (COLUMN_BANDS.find((b) => n <= b.maxFields) ?? COLUMN_BANDS[COLUMN_BANDS.length - 1]).columns;
+}
+
+/**
+ * WIDTH MAY ONLY REDUCE THE COUNT, NEVER RAISE IT. The calculator's own container width (a
+ * ResizeObserver, not the window) caps the columns: below 640 px one column, below 1024 px two, else
+ * three -- Tailwind's `sm` / `lg` edges. The price blocks read the SAME width through
+ * `blockColumnsFor`, so they fold to one per row at exactly the width the fields fold to one column.
+ */
+export const WIDTH_COLUMN_CAPS: ReadonlyArray<{ readonly minWidth: number; readonly columns: 1 | 2 | 3 }> = [
+  { minWidth: 1024, columns: 3 },
+  { minWidth: 640, columns: 2 },
+  { minWidth: 0, columns: 1 },
+];
+
+/** PURE. The most columns a width allows. */
+export function maxColumnsForWidth(widthPx: number): 1 | 2 | 3 {
+  const w = Number.isNaN(widthPx) ? 0 : widthPx; // an unbounded width is still a width
+  return (WIDTH_COLUMN_CAPS.find((c) => w >= c.minWidth) ?? WIDTH_COLUMN_CAPS[WIDTH_COLUMN_CAPS.length - 1]).columns;
+}
+
+/**
+ * PURE. THE COLUMN COUNT: the content maximum, reduced by the width cap. `min` is the whole rule --
+ * a narrow window takes a three-column category to two, then one; a wide window never takes a
+ * one-field category above one.
+ */
+export function columnsFor(fieldCount: number, widthPx: number): 1 | 2 | 3 {
+  return Math.min(maxColumnsForFields(fieldCount), maxColumnsForWidth(widthPx)) as 1 | 2 | 3;
+}
+
+/**
+ * PURE. PRICE BLOCKS PER ROW: two ("1*2 grid per row which then gets repeated as required" -- owner),
+ * folding to one on a calculator narrower than the one-column width. Never more than two.
+ */
+export function blockColumnsFor(widthPx: number): 1 | 2 {
+  return maxColumnsForWidth(widthPx) >= 2 ? 2 : 1;
+}
+
+/** The calculator's OWN width, observed -- the panel's columns follow the space it actually has. */
+function useObservedWidth<T extends HTMLElement>(ref: React.RefObject<T>): number {
+  const [width, setWidth] = useState<number>(() => (typeof window === "undefined" ? 0 : window.innerWidth));
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (typeof w === "number") setWidth(w);
+    });
+    ro.observe(el);
+    setWidth(el.getBoundingClientRect().width);
+    return () => ro.disconnect();
+  }, [ref]);
+  return width;
+}
+
 export function PricingCalculator({ discipline }: { discipline: string }) {
   const entry = useMemo(() => RATE_MASTER_DISCIPLINES.find((d) => d.discipline === discipline), [discipline]);
   const targets = useMemo(() => RATE_MASTER_CONFIG_TARGETS.filter((t) => t.discipline === discipline), [discipline]);
@@ -115,10 +229,18 @@ export function PricingCalculator({ discipline }: { discipline: string }) {
   // stub cards -- owner).
   const helpers = useMemo<RateHelper[]>(() => (helper ? [helper] : []), [helper]);
   const ctx = useMemo(() => (categoryId ? calculatorCtx(discipline, categoryId) : null), [discipline, categoryId]);
-  const ready = !!ctx && !!helper && configsByCategory.has(categoryId) && items.length > 0;
+  const config = categoryId ? configsByCategory.get(categoryId) ?? null : null;
+  const ready = !!ctx && !!helper && !!config && items.length > 0;
+
+  // CALCULATOR LAYOUT SLICE: the two numbers the panel's calculator variant needs.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const width = useObservedWidth(rootRef);
+  const blockLabels = useMemo(() => (config ? calculatorBlockLabels(config) : []), [config]);
+  const fieldColumns = useMemo(() => (config ? columnsFor(visibleFieldIds(config).length, width) : 1), [config, width]);
+  const blockColumns = useMemo(() => blockColumnsFor(width), [width]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 p-3" data-testid="pricing-calculator">
+    <div ref={rootRef} className="flex min-h-0 flex-1 flex-col gap-3 p-3" data-testid="pricing-calculator">
       {/* the same hook-safe N-fetch children the BoQ page renders; one hook per instance */}
       {targets.map((t) => (
         <RateConfigFetcher
@@ -166,7 +288,8 @@ export function PricingCalculator({ discipline }: { discipline: string }) {
         // truncates instead of pushing the header figures past the viewport edge (seen in the cert).
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto rounded-md border">
           {/* THE SHARED PANEL, calculator variant: the same fields, the same figures, the same notes
-              and refusal sentences as the BoQ editor -- rendered by the same component. */}
+              and refusal sentences as the BoQ editor -- rendered by the same component. The layout
+              slice adds only the block labels (known before pricing) and the column count. */}
           <RateHelperPanel
             variant="calculator"
             excelRow={ctx!.excelRow}
@@ -174,6 +297,9 @@ export function PricingCalculator({ discipline }: { discipline: string }) {
             kind={CALCULATOR_KIND}
             ctx={ctx!}
             helpers={helpers}
+            calculatorBlocks={blockLabels}
+            fieldColumns={fieldColumns}
+            blockColumns={blockColumns}
           />
         </div>
       )}

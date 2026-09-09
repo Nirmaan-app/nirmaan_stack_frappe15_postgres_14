@@ -23,6 +23,14 @@ import {
   calculatorCtx,
   calculatorDisciplineForPath,
   calculatorRowFor,
+  COLUMN_BANDS,
+  WIDTH_COLUMN_CAPS,
+  blockColumnsFor,
+  calculatorBlockLabels,
+  columnsFor,
+  maxColumnsForFields,
+  maxColumnsForWidth,
+  visibleFieldIds,
 } from "./PricingCalculator";
 
 // ── the live asset, as the frontend sees it ─────────────────────────────────────────────────────
@@ -282,5 +290,144 @@ describe("Calculator slice 2 / the tab", () => {
     expect(src).toContain("releaseBeacon();");
     expect(src).toContain("destroySheet();");
     expect((src.match(/\.release`/g) ?? []).length).toBe(2);         // the SDK hook + the beacon, as before -- no third
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// CALCULATOR LAYOUT SLICE (owner 2026-09-09) -- LAYOUT ONLY. The render cannot be tested here (no DOM);
+// these pins hold the DATA the layout consumes: the block count known before pricing, the field order
+// handed to the columns, the column bands, and the BoQ panel's untouched path.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+describe("Calculator layout / the price blocks are known BEFORE any field is answered", () => {
+  for (const c of ASSET.category_configs) {
+    it(`${c.category_id}: the block labels from the config equal the priced section labels, golden by golden`, () => {
+      const before = calculatorBlockLabels(c);
+      expect(before.length).toBeGreaterThan(0);
+      for (const g of c.goldens ?? []) {
+        const A = inRunHelper(g.attrs ?? {}).compute(rowCtx(c.category_id));
+        const V = picksShownBy(A);
+        const R = calculatorHelper().compute(calculatorCtx(DISCIPLINE, c.category_id), V);
+        if (!isSuggestion(R) || !R.workings.sections) continue; // a golden that refuses has no sections
+        expect(R.workings.sections.map((s) => s.label)).toEqual(before);
+      }
+    });
+  }
+  it("one priced line renders ONE block; wiring renders TWO; the split categories two -- and the count is the non-BCS pipeline count", () => {
+    const counts = Object.fromEntries(ASSET.category_configs.map((c) => [c.category_id, calculatorBlockLabels(c).length]));
+    expect(counts).toEqual({
+      cabletray_raceway: 2, conduit_piping: 1, db_switchgear: 2, earthing: 1, industrial_sockets: 2, junction_box_raceway: 1,
+      lighting_mgmt_system: 1, miscellaneous: 1, point_wiring: 2, popup_boxes: 1, switches_sockets: 1, wiring_cabling: 2,
+    });
+    expect(calculatorBlockLabels(CONFIGS.get("wiring_cabling")!)).toEqual(["Cable — per Mtr", "Termination — per Set"]);
+    // NEGATIVE: no live category has more than two blocks, so the wrap row cannot be shown on live data
+    expect(Math.max(...Object.values(counts))).toBe(2);
+  });
+  it("⚠️ NEGATIVE: with NO picks the helper publishes NO sections -- the empty blocks come from the config, never from a computed result", () => {
+    const r = calculatorHelper().compute(calculatorCtx(DISCIPLINE, "point_wiring"), {});
+    if (!isSuggestion(r)) throw new Error("expected suggestion shape");
+    expect(r.workings.sections).toBeUndefined();
+    expect(calculatorBlockLabels(CONFIGS.get("point_wiring")!)).toEqual(["Point Wiring — Supply", "Point Wiring — Install"]);
+  });
+});
+
+describe("Calculator layout / the field ORDER handed to the columns is the panel's own render order", () => {
+  for (const c of ASSET.category_configs) {
+    it(`${c.category_id}: visibleFieldIds == the ids the helper renders, in order (\"split as per order\")`, () => {
+      const r = calculatorHelper().compute(calculatorCtx(DISCIPLINE, c.category_id), {});
+      if (!isSuggestion(r)) throw new Error("expected suggestion shape");
+      expect(visibleFieldIds(c)).toEqual(r.workings.attributes.map((a) => a.id));
+    });
+  }
+  it("the measured visible field count per category (2026-09-09), the distribution the bands were chosen from", () => {
+    const counts = Object.fromEntries(ASSET.category_configs.map((c) => [c.category_id, visibleFieldIds(c).length]));
+    expect(counts).toEqual({
+      cabletray_raceway: 8, conduit_piping: 2, db_switchgear: 14, earthing: 3, industrial_sockets: 5, junction_box_raceway: 1,
+      lighting_mgmt_system: 2, miscellaneous: 1, point_wiring: 27, popup_boxes: 17, switches_sockets: 17, wiring_cabling: 8,
+    });
+    // NEGATIVE: hidden facts are NOT fields -- industrial_sockets carries 9 defs, 4 of them panel:false
+    expect((CONFIGS.get("industrial_sockets")!.attribute_definitions ?? []).length).toBe(9);
+  });
+});
+
+describe("Calculator layout / the column rule -- content sets the maximum, width may only reduce it", () => {
+  it("the bands as a table, one case per band plus every boundary", () => {
+    const wide = 1600;
+    const table: Array<[number, 1 | 2 | 3]> = [
+      [0, 1], [1, 1], [2, 1], [3, 1], [4, 1],      // <= 4 fields: one column
+      [5, 2], [8, 2], [12, 2],                     // 5..12: two
+      [13, 3], [14, 3], [17, 3], [27, 3], [99, 3], // >= 13: three
+    ];
+    for (const [n, cols] of table) expect(columnsFor(n, wide), `${n} fields`).toBe(cols);
+    expect(COLUMN_BANDS.map((b) => [b.maxFields, b.columns])).toEqual([[4, 1], [12, 2], [Number.POSITIVE_INFINITY, 3]]);
+  });
+  it("the twelve live categories land in these bands: five at one column, three at two, four at three", () => {
+    const at = (cols: number) => ASSET.category_configs.filter((c) => columnsFor(visibleFieldIds(c).length, 1600) === cols).map((c) => c.category_id).sort();
+    expect(at(1)).toEqual(["conduit_piping", "earthing", "junction_box_raceway", "lighting_mgmt_system", "miscellaneous"]);
+    expect(at(2)).toEqual(["cabletray_raceway", "industrial_sockets", "wiring_cabling"]);
+    expect(at(3)).toEqual(["db_switchgear", "point_wiring", "popup_boxes", "switches_sockets"]);
+  });
+  it("⚠️ NEGATIVE: width can only REDUCE the column count, never raise it", () => {
+    // a three-column category folds 3 -> 2 -> 1 as the width shrinks
+    expect(columnsFor(27, 1600)).toBe(3);
+    expect(columnsFor(27, 1024)).toBe(3);
+    expect(columnsFor(27, 1023)).toBe(2);
+    expect(columnsFor(27, 640)).toBe(2);
+    expect(columnsFor(27, 639)).toBe(1);
+    // a two-column category never becomes three, however wide
+    for (const w of [640, 1024, 1600, 4000, Number.POSITIVE_INFINITY]) expect(columnsFor(8, w)).toBeLessThanOrEqual(2);
+    for (const w of [0, 320, 639, 640, 1023, 1024, 1600, 4000]) expect(columnsFor(8, w)).toBe(Math.min(2, maxColumnsForWidth(w)));
+    // the rule IS min(content, width)
+    for (const n of [1, 5, 13]) for (const w of [0, 700, 1200]) expect(columnsFor(n, w)).toBe(Math.min(maxColumnsForFields(n), maxColumnsForWidth(w)));
+  });
+  it("⚠️ NEGATIVE: a one-field category gets one column at ANY width", () => {
+    for (const w of [0, 320, 640, 1024, 1600, 4000, Number.POSITIVE_INFINITY]) expect(columnsFor(1, w)).toBe(1);
+    expect(columnsFor(visibleFieldIds(CONFIGS.get("junction_box_raceway")!).length, 4000)).toBe(1);
+  });
+  it("the width caps are Tailwind's sm / lg edges, and the two-per-row blocks fold to one at the SAME width the fields fold to one column", () => {
+    expect(WIDTH_COLUMN_CAPS.map((c) => [c.minWidth, c.columns])).toEqual([[1024, 3], [640, 2], [0, 1]]);
+    for (const w of [640, 1024, 1600, 4000]) expect(blockColumnsFor(w)).toBe(2);
+    for (const w of [0, 320, 639]) expect(blockColumnsFor(w)).toBe(1);
+    // NEGATIVE: never more than two blocks per row, however wide (owner: "1*2 grid per row")
+    expect(blockColumnsFor(Number.POSITIVE_INFINITY)).toBe(2);
+    expect(strip(PANEL_SRC)).toContain("repeat(${Math.max(1, blockColumns ?? 2)}, minmax(0, 1fr))");
+  });
+});
+
+describe("Calculator layout / the BoQ panel is UNCHANGED -- the layout lives behind the calculator variant", () => {
+  const panel = strip(PANEL_SRC);
+  it("the two new props are read only under isCalculator, and the BoQ page passes neither", () => {
+    expect(panel).toContain("calculatorBlocks?: string[];");
+    expect(panel).toContain("fieldColumns?: number;");
+    expect(panel).toContain("blockColumns?: number;");
+    expect(panel).toContain("if (isCalculator && calculatorBlocks && calculatorBlocks.length > 0) {");
+    expect(panel).toContain("style={isCalculator ? { gridTemplateColumns:");
+    expect(strip(BOQ_PAGE_SRC)).not.toMatch(/calculatorBlocks|fieldColumns|blockColumns/);
+  });
+  it("⚠️ NEGATIVE: every BoQ class string the layout touched is still present verbatim as the non-calculator branch", () => {
+    for (const cls of [
+      '"space-y-2 border-t px-3 py-2"',                        // the card body
+      '"space-y-1.5"',                                          // the attributes list and the sections list
+      '"flex items-center justify-between gap-2 text-xs"',      // label-left / box-right
+      '"h-7 w-28 text-xs disabled:opacity-50"',                 // the number input
+      '"flex items-center gap-1"',                              // the number span
+      '"flex items-center gap-2 pt-1"',                         // the Use / Revert row
+    ]) expect(panel, cls).toContain(cls);
+    // and each calculator branch is a ternary on isCalculator, never an unconditional replacement
+    expect((panel.match(/isCalculator \?/g) ?? []).length).toBeGreaterThanOrEqual(7);
+  });
+  it("⚠️ NEGATIVE: ONE section renderer -- placeholder blocks reuse it; no second figure render anywhere", () => {
+    expect(panel).toContain("const renderSection = (g: WorkingsGroup, gi: number) =>");
+    expect((panel.match(/DISPLAY_RATE_KINDS\.map/g) ?? []).length).toBe(1);
+    expect((panel.match(/<CopyFigureButton /g) ?? []).length).toBe(1);
+    expect(panel).toContain("renderSection({ label, derivation: [], finals: {}, figures: {} }, gi)");
+    expect(strip(CALC_SRC)).not.toMatch(/DISPLAY_RATE_KINDS\.map|CopyFigureButton|kindLabel\(/);
+  });
+  it("the helper output is untouched by the layout: the same picks give the same values (the engine did not move)", () => {
+    const c = ASSET.category_configs.find((x) => x.category_id === "switches_sockets")!;
+    const A = inRunHelper((c.goldens ?? [])[0].attrs ?? {}).compute(rowCtx("switches_sockets"));
+    const B = calculatorHelper().compute(calculatorCtx(DISCIPLINE, "switches_sockets"), picksShownBy(A));
+    if (!isSuggestion(A) || !isSuggestion(B)) throw new Error("expected suggestions");
+    expect(B.values).toEqual(A.values);
+    expect(figuresOf(B)).toEqual(figuresOf(A));
   });
 });

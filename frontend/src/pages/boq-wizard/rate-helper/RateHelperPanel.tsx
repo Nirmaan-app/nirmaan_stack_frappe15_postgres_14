@@ -24,6 +24,7 @@ import {
   startsAttributeGroup,
   type RateHelper,
   type RateHelperRowContext,
+  type WorkingsGroup,
 } from "./rateHelperTypes";
 
 // RM-3c item B: the FULL-SCREEN panel is a resizable PUSH panel (occupies real layout width, narrows
@@ -157,6 +158,26 @@ interface RateHelperPanelProps {
    * lines below that the other two variants render -- THIS IS DELIBERATELY A VARIANT, NOT A FORK, so a
    * figure can never be drawn twice. */
   variant?: "embedded" | "push" | "calculator";
+  /**
+   * Calculator layout slice (owner 2026-09-09, "empty blocks at the top"): the labels of the price
+   * blocks the category WILL produce, known from its config before anything prices, so the blocks
+   * are on screen with em dashes from the first render and the layout never jumps. Read ONLY by
+   * `variant="calculator"`; the two BoQ variants ignore it. Rendered through the SAME section
+   * renderer as a priced block (a placeholder group with empty `figures`), never a second one.
+   */
+  calculatorBlocks?: string[];
+  /**
+   * Calculator layout slice: how many columns the attribute fields flow into (1..3), decided by the
+   * calculator screen from the category's visible field count and the available width. Read ONLY
+   * by `variant="calculator"`; absent or on a BoQ variant the fields stay in the single column.
+   */
+  fieldColumns?: number;
+  /**
+   * Calculator layout slice: how many price blocks sit side by side per row (2 on a wide calculator,
+   * 1 on a narrow one), from the same observed width as `fieldColumns`. Read ONLY by
+   * `variant="calculator"`; the BoQ variants stack their sections as before.
+   */
+  blockColumns?: number;
 }
 
 /**
@@ -209,7 +230,7 @@ export function hasSessionEdits(
   return anyAttr || Object.keys(finals).length > 0;
 }
 
-export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onClose, variant = "embedded" }: RateHelperPanelProps) {
+export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onClose, variant = "embedded", calculatorBlocks, fieldColumns, blockColumns }: RateHelperPanelProps) {
   // RM-3b: a row is loaded iff we have its context. Absent => the empty-state placeholder.
   const hasSelection = ctx != null && excelRow != null && col != null && kind != null;
   // Panel-session state ONLY (never persisted): per-helper attribute edits, which card is expanded,
@@ -499,9 +520,21 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
               </button>
 
               {isOpen && (
-                <div className="space-y-2 border-t px-3 py-2">
+                // Calculator layout slice (owner 2026-09-09): on the CALCULATOR the body is a flex
+                // column and its three children carry `order-*` -- price blocks FIRST (order-1), the
+                // attribute fields BELOW them (order-2), the Revert row last (order-3). The JSX order
+                // below is unchanged, so the two BoQ variants render byte-identically; only the
+                // calculator's CSS order and containers differ. No element is rendered twice.
+                <div className={isCalculator ? "flex flex-col gap-3 border-t px-3 py-2" : "space-y-2 border-t px-3 py-2"}>
                   {result.workings.attributes.length > 0 && (
-                    <div className="space-y-1.5">
+                    <div
+                      className={isCalculator ? "order-2 grid gap-x-6 gap-y-2" : "space-y-1.5"}
+                      // Calculator layout slice: the fields flow into N equal columns, N decided by the
+                      // calculator screen (content sets the maximum, width may only reduce it). The
+                      // ORDER is the panel's own render order, split across the columns -- "split as
+                      // per order" (owner); no grouping is invented here.
+                      style={isCalculator ? { gridTemplateColumns: `repeat(${Math.max(1, fieldColumns ?? 1)}, minmax(0, 1fr))` } : undefined}
+                    >
                       {result.workings.attributes.map((a, ai, attrs) => {
                         // F4b -- THE LABELLED GROUP HEADER. General: emitted whenever `groupLabel`
                         // CHANGES between consecutive rendered attributes, so a config declaring
@@ -544,13 +577,21 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                         {startsGroup && (
                           <div
                             data-testid="attr-group-header"
-                            className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                            // Calculator layout slice: a group heading spans every column, so it still
+                            // renders where it falls in the order and never sits inside one column.
+                            className={cn(
+                              "pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground",
+                              isCalculator && "col-span-full",
+                            )}
                           >
                             {a.groupLabel}
                           </div>
                         )}
                         <div className="group/attr space-y-0.5">
-                        <label className="flex items-center justify-between gap-2 text-xs">
+                        {/* Calculator layout slice: the label sits ABOVE its box (a column, boxes
+                            full-width and equal within a column); the BoQ variants keep label-left /
+                            box-right on one line, byte-unchanged. */}
+                        <label className={isCalculator ? "flex flex-col items-stretch gap-1 text-xs" : "flex items-center justify-between gap-2 text-xs"}>
                           <span className="flex items-center gap-1 text-muted-foreground">
                             {a.label}
                             {showingDerived && (
@@ -601,6 +642,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                               // EA-4a-r: disabled = greyed (an allow_none controller is set to "None").
                               className={cn(
                                 "h-7 rounded border bg-background px-1 text-xs disabled:opacity-50",
+                                isCalculator && "w-full",
                                 fieldTone,
                               )}
                               value={shown}
@@ -650,7 +692,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                               ))}
                             </select>
                           ) : (
-                            <span className="flex items-center gap-1">
+                            <span className={isCalculator ? "flex w-full items-center gap-1" : "flex items-center gap-1"}>
                               {/* EA-4a-r: a NUMBER allow_none def offers "None" (positive absence) as a
                                   checkbox -- the input-appropriate analogue of a choice def's top-of-list
                                   "None". Checked -> the sentinel + the numeric field greys/clears. */}
@@ -665,7 +707,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                                 </label>
                               )}
                               <Input
-                                className={cn("h-7 w-28 text-xs disabled:opacity-50", fieldTone)}
+                                className={cn(isCalculator ? "h-7 w-full text-xs disabled:opacity-50" : "h-7 w-28 text-xs disabled:opacity-50", fieldTone)}
                                 value={shown === "None" ? "" : shown}
                                 // READ-ONLY, not disabled: the value is real and worth reading (and
                                 // copying) -- greying it out would read as "positively absent", which
@@ -722,14 +764,12 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                     </div>
                   )}
 
-                  {result.workings.sections && result.workings.sections.length > 0 ? (
-                    // RM-3a: LABELLED groups -- each rendered as its OWN separated block (header +
-                    // card/divider + own derivation lines + own final values), so a cable row's
-                    // Cable and Termination workings read as visually distinct sections. The shared
-                    // EXTRACTED attributes already render ONCE above (they belong to the row, not a
-                    // group). ABSENT `sections` => the flat rendering below, byte-identical to before.
-                    <div className="space-y-1.5">
-                      {result.workings.sections.map((g, gi) => (
+                  {/* Calculator layout slice: the ONE section renderer. A priced block and a placeholder
+                      block (a group with empty `figures`, so the three kinds render as em dashes and
+                      no copy button) go through the same JSX -- there is deliberately no second
+                      renderer of a figure anywhere. */}
+                  {(() => {
+                    const renderSection = (g: WorkingsGroup, gi: number) => (
                         <div key={gi} className="rounded-md border bg-muted/30 px-2 py-1.5">
                           <div className="text-xs font-semibold text-foreground">{g.label}</div>
                           {g.matchedRows && g.matchedRows.length > 0 && (
@@ -773,9 +813,46 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                             </div>
                           )}
                         </div>
-                      ))}
-                    </div>
-                  ) : (
+                    );
+                    // Calculator layout slice (owner: "1*2 grid per row which then gets repeated as
+                    // required"): two blocks per row, wrapping; a grid's items stretch to the row, so
+                    // blocks in a row are equal height however many derivation lines each carries.
+                    // The blocks-per-row count comes from the calculator's OWN width (`blockColumns`,
+                    // the same observed width that folds the fields), so a narrow container folds the
+                    // blocks to one per row at the same moment the fields fold to one column.
+                    const sectionsClass = isCalculator ? "order-1 grid gap-2" : "space-y-1.5";
+                    const sectionsStyle = isCalculator
+                      ? { gridTemplateColumns: `repeat(${Math.max(1, blockColumns ?? 2)}, minmax(0, 1fr))` }
+                      : undefined;
+                    if (result.workings.sections && result.workings.sections.length > 0) {
+                      // RM-3a: LABELLED groups -- each rendered as its OWN separated block (header +
+                      // card/divider + own derivation lines + own final values), so a cable row's
+                      // Cable and Termination workings read as visually distinct sections. The shared
+                      // EXTRACTED attributes already render ONCE above (they belong to the row, not a
+                      // group). ABSENT `sections` => the flat rendering below, byte-identical to before.
+                      return <div className={sectionsClass} style={sectionsStyle}>{result.workings.sections.map(renderSection)}</div>;
+                    }
+                    if (isCalculator && calculatorBlocks && calculatorBlocks.length > 0) {
+                      // EMPTY BLOCKS FROM THE START (owner-ruled): before the category prices, the
+                      // blocks it will produce are already on screen with dashes -- placeholder groups
+                      // rendered by the same `renderSection`; the flat lines (the "fill them" sentence)
+                      // follow underneath. The layout cannot jump when the first field is answered.
+                      return (
+                        <div className="order-1 space-y-2">
+                          <div className={sectionsClass} style={sectionsStyle}>
+                            {calculatorBlocks.map((label, gi) => renderSection({ label, derivation: [], finals: {}, figures: {} }, gi))}
+                          </div>
+                          {result.workings.derivation.length > 0 && (
+                            <ul className="space-y-0.5 text-xs text-muted-foreground">
+                              {result.workings.derivation.map((line, i) => (
+                                <li key={i}>{line}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      );
+                    }
+                    return (
                     <>
                       {result.workings.matchedRows.length > 0 && (
                         <ul className="space-y-0.5 text-xs text-muted-foreground">
@@ -792,9 +869,10 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                         </ul>
                       )}
                     </>
-                  )}
+                    );
+                  })()}
 
-                  <div className="flex items-center gap-2 pt-1">
+                  <div className={isCalculator ? "order-3 flex items-center gap-2 pt-1" : "flex items-center gap-2 pt-1"}>
                     {/* Calculator slice 2: the final-value field and "Use this value" are the WRITE
                         affordance -- they exist only where there is a cell to write to. The calculator
                         variant renders neither (owner: nothing is saved; there is no row). Revert stays:
