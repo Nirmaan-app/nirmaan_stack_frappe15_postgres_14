@@ -414,9 +414,20 @@ export const DecisionDialog = ({
     // "Confirm → Paid" wording and must never be blocked by a leftover, dimmed tick-set's `bar`.
     const isLinkDecision =
         decision?.target !== "new" && decision?.target !== "inflow" && decision?.target !== "receipt";
+    // ⚠️ REVIEW FIX 1, ROUND 2 -- THE LABEL MUST NOT CLAIM COMPLETION IT HAS NOT VERIFIED. `bar` is
+    // computed from `allocatedLegs`, which reads as a confident `[]` while `legsUnknown` is true
+    // (still loading, or the fetch failed and persists until the row is re-opened). `confirmDisabled`
+    // already refuses the CLICK in that state, but the button's TEXT was still able to say
+    // "· completes this transfer" off a balance nobody has read yet -- the same false-confidence
+    // defect FIX 1 fixed for the bar, one component further down. Short-circuiting HERE, at the
+    // call site, rather than passing `complete: bar.complete && !legsUnknown`, is deliberate: the
+    // intent ("never claim completion on an unknown balance") is legible without having to also
+    // read what `bar.complete` means.
     const confirmLabel =
         isLinkDecision && ticks > 0
-            ? allocateButtonLabel({ ticks, complete: bar.complete })
+            ? legsUnknown
+                ? allocateButtonLabel({ ticks, complete: false })
+                : allocateButtonLabel({ ticks, complete: bar.complete })
             : "Confirm → Paid";
     // ⚠️ `bar.over` ONLY GATES THE BUTTON, NEVER `isConfirmable` -- see `allocationView.ts` and the
     // picker below. Disabling the ROWS instead would make it a puzzle: the reviewer may want to
