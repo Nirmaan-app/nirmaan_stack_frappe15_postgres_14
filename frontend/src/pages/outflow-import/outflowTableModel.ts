@@ -21,6 +21,7 @@ import {
     OPEN_ROW_STATUSES,
     ROW_MATCHED,
     ROW_MISMATCHED,
+    ROW_PARTIALLY_ALLOCATED,
     ROW_PENDING_MATCH,
     ROW_SETTLED,
     rowStatusLabel,
@@ -240,8 +241,19 @@ export interface RowDecision {
      * transfer. An entry with no target is a row someone has opened, or deliberately cleared.
      */
     target?: DecisionTarget;
-    /** The record to settle. Required, with `target`, for everything except `new`. */
-    linkTo?: string | null;
+    /**
+     * The record(s) to settle, as `recordKey`s (ADR-0020 fan-out). Required for everything except
+     * `new` / `inflow` / `receipt`.
+     *
+     * ⚠️ REPLACES `linkTo: string | null` (Task 7). One bank transfer may now settle several
+     * approved Project Payments, so a single string can no longer name the pick. `recordKey` /
+     * `parseRecordKey` (below) are the one identity function this reuses rather than re-minting.
+     *
+     * ⚠️ AN EMPTY SET MEANS "NOTHING PICKED"; ABSENT MEANS "NEVER TOUCHED". `seedDecisions` relies
+     * on that distinction to avoid overwriting a deliberately-cleared decision -- the same contract
+     * `linkTo: null` used to carry.
+     */
+    linkTargets?: ReadonlySet<string>;
     /** Only for `target: "new"`. */
     newExpense?: {
         doctype: "Project Expenses" | "Non Project Expenses";
@@ -2010,12 +2022,19 @@ export const previewCounts = (preview: {
  * ⚠️ A ROW THE MATCH HAS NOT RUN ON IS NEVER CONFIRMABLE, whatever decision is attached to it.
  * `Pending match run` means nothing has been looked up, so any decision on it was made against no
  * evidence at all.
+ *
+ * ⚠️ `Partially Allocated` IS CONFIRMABLE (Task 7, ADR-0020), AND IT IS NOT IN `OPEN_ROW_STATUSES`
+ * -- see that set's own docstring for why the obvious placements are both wrong. Money is already
+ * written and a balance remains, so a person still owes this row a decision: the next tick-set
+ * calls `allocate_row` again, never `settle_row`, which `chooseSettleEndpoint` enforces.
  */
 export const isConfirmable = (
     row: OutflowImportRow,
     decision: RowDecision | undefined
 ): boolean => {
-    if (!OPEN_ROW_STATUSES.has(row.row_status)) return false;
+    if (!OPEN_ROW_STATUSES.has(row.row_status) && row.row_status !== ROW_PARTIALLY_ALLOCATED) {
+        return false;
+    }
     if (row.row_status === "Pending match run") return false;
     if (!decision) return false;
     /**
@@ -2070,12 +2089,14 @@ export const isConfirmable = (
      * `receipt` branches have refused a debit since B6/B7 -- this is the mirror they were always
      * half of, and it is what makes `availableDecisionTargets` a partition rather than a hint.
      *
-     * ⚠️ BOTH, not just the link. The ledger now arrives with the chosen record rather than from a
-     * card clicked beforehand, so a link with no target is a half-written decision -- and
-     * `settle_row` would be called with an undefined doctype.
+     * ⚠️ `linkTargets` ALONE, NOT `target && linkTargets` (Task 7). Each entry is a `recordKey`
+     * carrying its own doctype, so a non-empty set is a complete decision by itself -- unlike the
+     * single-record shape this replaced, `target` is no longer load-bearing for this branch and is
+     * left whatever a "create something new" card may have set it to (the picker clears it on every
+     * tick, see `RecordPicker`).
      */
     if (isCreditRow(row)) return false;
-    return Boolean(decision.target && decision.linkTo);
+    return Boolean(decision.linkTargets && decision.linkTargets.size > 0);
 };
 
 /**
@@ -2309,16 +2330,23 @@ export const suggestedDecision = (row: OutflowImportRow): RowDecision | null => 
     if (!SETTLEABLE_TARGETS.includes(target)) return null;
     if (!OPEN_ROW_STATUSES.has(row.row_status)) return null;
     if (row.row_status === ROW_PENDING_MATCH) return null;
-    return { target: target as DecisionTarget, linkTo };
+    // ⚠️ A ONE-ELEMENT SET (Task 7) -- the match run only ever proposes a single record, so this
+    // is `linkTargets`' singleton case. `recordKey` is the SAME identity function the picker and
+    // `parseRecordKey` share; a second way to spell `"<doctype>|<name>"` here would be exactly the
+    // drift `recordKey` exists to rule out.
+    return {
+        target: target as DecisionTarget,
+        linkTargets: new Set([recordKey({ target_doctype: target, name: linkTo })]),
+    };
 };
 
 /**
  * Fold every row's stored suggestion into the decisions the reviewer is holding.
  *
  * ⚠️ IT NEVER OVERWRITES AN EXISTING ENTRY, and that is the whole contract. A row the reviewer has
- * touched -- including one they deliberately CLEARED, which leaves an entry with a null link -- is
- * theirs. Re-seeding it on the next refetch would silently undo the clear and put the machine's
- * pick back under a person who had just rejected it.
+ * touched -- including one they deliberately CLEARED, which leaves an entry with an EMPTY
+ * `linkTargets` set -- is theirs. Re-seeding it on the next refetch would silently undo the clear
+ * and put the machine's pick back under a person who had just rejected it.
  *
  * ⚠️ IT RETURNS THE SAME MAP WHEN NOTHING WAS ADDED. The page holds this in state and re-runs it on
  * every fetch; handing back a fresh Map each time would change the reference, re-render the table
@@ -2356,14 +2384,21 @@ export const decisionOrigin = (
 ): DecisionOrigin => {
     if (!decision) return "none";
     const suggestion = suggestedDecision(row);
-    if (
-        suggestion &&
-        suggestion.target === decision.target &&
-        suggestion.linkTo === decision.linkTo
-    ) {
+    if (suggestion && sameLinkTargets(suggestion.linkTargets, decision.linkTargets)) {
         return "suggested";
     }
     return "chosen";
+};
+
+/** Set equality for two `linkTargets`. Undefined is never equal to anything, including itself. */
+const sameLinkTargets = (
+    a: ReadonlySet<string> | undefined,
+    b: ReadonlySet<string> | undefined
+): boolean => {
+    if (!a || !b) return false;
+    if (a.size !== b.size) return false;
+    for (const key of a) if (!b.has(key)) return false;
+    return true;
 };
 
 // --- candidate ordering ------------------------------------------------------------------------

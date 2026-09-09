@@ -103,6 +103,14 @@ import {
  * that found five real defects in the prototype that a green suite could never have seen.
  */
 
+/**
+ * Test-only shorthand: the `linkTargets` set the picker would build from one or more ticks
+ * (Task 7, ADR-0020 fan-out). Replaces the old bare `linkTo: "PAY-1"` string pins.
+ */
+const linkTargets = (
+    ...picks: Array<{ target_doctype: string; name: string }>
+): Set<string> => new Set(picks.map((p) => recordKey(p)));
+
 const row = (over: Partial<OutflowImportRow> = {}): OutflowImportRow =>
     ({
         name: "OFR-1",
@@ -1238,7 +1246,10 @@ describe("activeFilterCount", () => {
 });
 
 describe("isConfirmable", () => {
-    const link: RowDecision = { target: "Project Payments", linkTo: "PAY-1" };
+    const link: RowDecision = {
+        target: "Project Payments",
+        linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+    };
 
     it("accepts a matched row with a linked record", () => {
         expect(isConfirmable(row({ row_status: "Matched" }), link)).toBe(true);
@@ -1260,22 +1271,38 @@ describe("isConfirmable", () => {
         expect(isConfirmable(row({ row_status: "Skipped" }), link)).toBe(false);
     });
 
+    // ⚠️ Task 7 (ADR-0020): `Partially Allocated` is NOT in `OPEN_ROW_STATUSES` -- see that set's
+    // own docstring -- so the status gate above needs its own clause to admit it. Money is already
+    // written and a balance remains; a person still owes this row a decision.
+    it("accepts a Partially Allocated row -- money is written and a balance remains", () => {
+        expect(isConfirmable(row({ row_status: "Partially Allocated" }), link)).toBe(true);
+    });
+
     it("refuses a row with no decision at all", () => {
         expect(isConfirmable(row({ row_status: "Mismatched" }), undefined)).toBe(false);
     });
 
-    it("refuses a linked record with no ledger behind it", () => {
-        // ⚠️ The ledger now arrives WITH the chosen record instead of from a card clicked first
-        // (slice R2), so a decision can hold one half and not the other. Without both,
-        // `settle_row` would be posted with an undefined doctype.
-        expect(isConfirmable(row(), { linkTo: "PAY-1" })).toBe(false);
+    it("refuses a decision with nothing linked and nothing else set", () => {
         expect(isConfirmable(row(), {})).toBe(false);
+    });
+
+    // ⚠️ INVERTED at Task 7 (ADR-0020 fan-out), not deleted. Before `linkTargets`, `target` had to
+    // arrive WITH the record because a bare `linkTo` string carried no doctype (slice R2). Each
+    // `recordKey` in `linkTargets` now carries its OWN doctype, so `target` is no longer
+    // load-bearing for this branch -- a `linkTargets`-only decision is a complete one.
+    it("no longer needs `target` alongside `linkTargets` -- each recordKey carries its own ledger", () => {
+        expect(
+            isConfirmable(row(), {
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+            })
+        ).toBe(true);
     });
 
     it("refuses a link decision with nothing linked", () => {
         expect(
-            isConfirmable(row(), { target: "Project Payments", linkTo: null })
+            isConfirmable(row(), { target: "Project Payments", linkTargets: new Set() })
         ).toBe(false);
+        expect(isConfirmable(row(), { target: "Project Payments" })).toBe(false);
     });
 
     it("requires a type on a new expense, and a project on the project side", () => {
@@ -1345,14 +1372,14 @@ describe("isConfirmable", () => {
         ).toBe(false);
     });
 
-    it("ignores a leftover `linkTo` on a `new` decision", () => {
+    it("ignores a leftover `linkTargets` on a `new` decision", () => {
         // Picking a record and THEN choosing the create card leaves the old link in the object --
         // `settleOne` reads only `newExpense` when the target is `new`, so it must not tip the
         // verdict either way. Here the form is complete, so the answer is yes despite the link.
         expect(
             isConfirmable(row({ row_status: "Matched" }), {
                 target: "new",
-                linkTo: "PAY-1",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
                 newExpense: { doctype: "Non Project Expenses", expenseType: "Rent" },
             })
         ).toBe(true);
@@ -1453,13 +1480,13 @@ describe("isConfirmable", () => {
         ).toBe(true);
     });
 
-    it("ignores a leftover `linkTo` on an `inflow` decision", () => {
+    it("ignores a leftover `linkTargets` on an `inflow` decision", () => {
         // Picking a record and THEN choosing the inflow card leaves the old link in the object;
         // `settleOne` reads only `newInflow` when the target is `inflow`.
         expect(
             isConfirmable(row({ row_status: "Matched", direction: "Credit" } as any), {
                 target: "inflow",
-                linkTo: "PAY-1",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
                 newInflow: { project: "P-1", customer: "CUST-1" },
             })
         ).toBe(true);
@@ -1557,13 +1584,13 @@ describe("isConfirmable", () => {
         ).toBe(true);
     });
 
-    it("ignores a leftover `linkTo` or `newInflow` on a `receipt` decision", () => {
+    it("ignores a leftover `linkTargets` or `newInflow` on a `receipt` decision", () => {
         // Picking a record, then the inflow card, then this one leaves both behind in the object;
         // `settleOne` reads only `newReceipt` when the target is `receipt`.
         expect(
             isConfirmable(row({ row_status: "Matched", direction: "Credit" } as any), {
                 target: "receipt",
-                linkTo: "PAY-1",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
                 newInflow: { project: "P-1", customer: "CUST-1" },
                 newReceipt: { expenseType: "Interest Received" },
             })
@@ -1608,7 +1635,7 @@ describe("isConfirmable", () => {
             expect(
                 isConfirmable(row({ row_status: "Mismatched", direction: "Credit" } as any), {
                     target,
-                    linkTo: "EXP-1",
+                    linkTargets: linkTargets({ target_doctype: target, name: "EXP-1" }),
                 })
             ).toBe(false);
         }
@@ -1708,7 +1735,10 @@ describe("the machine never proposes CREATING an expense (slice B5)", () => {
                     suggested_name: "PAY-1",
                 } as any)
             )
-        ).toEqual({ target: "Project Payments", linkTo: "PAY-1" });
+        ).toEqual({
+            target: "Project Payments",
+            linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+        });
     });
 });
 
@@ -1719,8 +1749,20 @@ describe("the bulk bar counts DECIDED rows, not selected ones", () => {
         row({ name: "c", row_status: "Mismatched" }),
     ];
     const decisions = new Map<string, RowDecision>([
-        ["a", { target: "Project Payments", linkTo: "PAY-1" }],
-        ["b", { target: "Project Payments", linkTo: "PAY-2" }],
+        [
+            "a",
+            {
+                target: "Project Payments",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+            },
+        ],
+        [
+            "b",
+            {
+                target: "Project Payments",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-2" }),
+            },
+        ],
     ]);
 
     it("reports 2 when 3 are ticked but one is unresolved", () => {
@@ -2083,7 +2125,10 @@ describe("the match run's suggestion becomes a decision", () => {
     it("reads the stored pair as a ready decision", () => {
         expect(suggestedDecision(suggested())).toEqual({
             target: "Project Payments",
-            linkTo: "PAY-00105-038",
+            linkTargets: linkTargets({
+                target_doctype: "Project Payments",
+                name: "PAY-00105-038",
+            }),
         });
     });
 
@@ -2093,7 +2138,10 @@ describe("the match run's suggestion becomes a decision", () => {
             suggestedDecision(
                 suggested({ suggested_doctype: "Non Project Expenses", suggested_name: "NPE-4" })
             )
-        ).toEqual({ target: "Non Project Expenses", linkTo: "NPE-4" });
+        ).toEqual({
+            target: "Non Project Expenses",
+            linkTargets: linkTargets({ target_doctype: "Non Project Expenses", name: "NPE-4" }),
+        });
     });
 
     it("reads a blank or half-written pair as nothing", () => {
@@ -2122,28 +2170,42 @@ describe("the match run's suggestion becomes a decision", () => {
         ];
         const seeded = seedDecisions(rows, new Map());
         expect(seeded.size).toBe(2);
-        expect(seeded.get("A")?.linkTo).toBe("PAY-00105-038");
-        expect(seeded.get("B")?.linkTo).toBe("PAY-2");
+        expect([...(seeded.get("A")?.linkTargets ?? [])]).toEqual([
+            recordKey({ target_doctype: "Project Payments", name: "PAY-00105-038" }),
+        ]);
+        expect([...(seeded.get("B")?.linkTargets ?? [])]).toEqual([
+            recordKey({ target_doctype: "Project Payments", name: "PAY-2" }),
+        ]);
         expect(seeded.has("C")).toBe(false);
     });
 
     it("never overwrites a decision the reviewer already made", () => {
         const existing = new Map<string, RowDecision>([
-            ["A", { target: "Project Expenses", linkTo: "PE-9" }],
+            [
+                "A",
+                {
+                    target: "Project Expenses",
+                    linkTargets: linkTargets({ target_doctype: "Project Expenses", name: "PE-9" }),
+                },
+            ],
         ]);
         const seeded = seedDecisions([suggested({ name: "A" })], existing);
-        expect(seeded.get("A")).toEqual({ target: "Project Expenses", linkTo: "PE-9" });
+        expect(seeded.get("A")).toEqual({
+            target: "Project Expenses",
+            linkTargets: linkTargets({ target_doctype: "Project Expenses", name: "PE-9" }),
+        });
     });
 
     it("never re-seeds a selection the reviewer deliberately CLEARED", () => {
-        // Clearing leaves an entry with a null link, not an absent entry -- which is what makes it
-        // distinguishable from "never touched". Re-seeding here would put the machine's pick back
-        // under someone who had just rejected it, on the next refetch, silently.
+        // ⚠️ Clearing leaves an entry with an EMPTY `linkTargets` set (Task 7; it used to be a null
+        // `linkTo`), not an absent entry -- which is what makes it distinguishable from "never
+        // touched". Re-seeding here would put the machine's pick back under someone who had just
+        // rejected it, on the next refetch, silently.
         const cleared = new Map<string, RowDecision>([
-            ["A", { target: "Project Payments", linkTo: null }],
+            ["A", { target: "Project Payments", linkTargets: new Set() }],
         ]);
         const seeded = seedDecisions([suggested({ name: "A" })], cleared);
-        expect(seeded.get("A")?.linkTo).toBeNull();
+        expect(seeded.get("A")?.linkTargets?.size).toBe(0);
     });
 
     it("returns the SAME map when there is nothing to add", () => {
@@ -2161,19 +2223,50 @@ describe("the match run's suggestion becomes a decision", () => {
     it("tells the table whether the machine or a person put the decision there", () => {
         const r = suggested();
         expect(decisionOrigin(r, undefined)).toBe("none");
-        expect(decisionOrigin(r, { target: "Project Payments", linkTo: "PAY-00105-038" })).toBe(
-            "suggested"
-        );
-        expect(decisionOrigin(r, { target: "Project Payments", linkTo: "PAY-OTHER" })).toBe(
-            "chosen"
-        );
-        expect(decisionOrigin(r, { target: "Project Expenses", linkTo: "PAY-00105-038" })).toBe(
-            "chosen"
-        );
+        expect(
+            decisionOrigin(r, {
+                target: "Project Payments",
+                linkTargets: linkTargets({
+                    target_doctype: "Project Payments",
+                    name: "PAY-00105-038",
+                }),
+            })
+        ).toBe("suggested");
+        expect(
+            decisionOrigin(r, {
+                target: "Project Payments",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-OTHER" }),
+            })
+        ).toBe("chosen");
+        // ⚠️ Same bare NAME as the suggestion, different LEDGER -- `recordKey` folds doctype into
+        // the identity, so this is a different `linkTargets` set even though `linkTo` used to read
+        // identically. Still "chosen", which is the behaviour this pins.
+        expect(
+            decisionOrigin(r, {
+                target: "Project Expenses",
+                linkTargets: linkTargets({
+                    target_doctype: "Project Expenses",
+                    name: "PAY-00105-038",
+                }),
+            })
+        ).toBe("chosen");
+        // A picker with TWO targets can never equal a suggestion, which is always a singleton.
+        expect(
+            decisionOrigin(r, {
+                target: "Project Payments",
+                linkTargets: linkTargets(
+                    { target_doctype: "Project Payments", name: "PAY-00105-038" },
+                    { target_doctype: "Project Payments", name: "PAY-OTHER" }
+                ),
+            })
+        ).toBe("chosen");
         // A row with no suggestion at all: anything on it was chosen by a person.
-        expect(decisionOrigin(row(), { target: "Project Payments", linkTo: "PAY-1" })).toBe(
-            "chosen"
-        );
+        expect(
+            decisionOrigin(row(), {
+                target: "Project Payments",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+            })
+        ).toBe("chosen");
     });
 });
 

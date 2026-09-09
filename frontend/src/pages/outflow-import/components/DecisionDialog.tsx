@@ -30,6 +30,8 @@ import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
+import { allocateButtonLabel, allocationBar, type AllocationBar } from "../allocationView";
+import { ROW_PARTIALLY_ALLOCATED } from "../outflowImportStatus";
 import {
     AMOUNT_GAP_HINT,
     INTENT_DEDUCTION,
@@ -41,6 +43,7 @@ import {
     deductionRefusalText,
     isConfirmable,
     isCreditRow,
+    ledgerLabel,
     matcherCandidateLine,
     parseRecordKey,
     partialOffer,
@@ -69,6 +72,23 @@ import {
     type RecordSortColumn,
 } from "../recordPickerView";
 import { SettleableRecordTable } from "./SettleableRecordTable";
+
+/**
+ * One SETTLED leg already on this transfer (Task 7, ADR-0020 fan-out). Read straight off the
+ * `Outflow Row Match` doctype -- no new backend endpoint exists for this, so the dialog reads the
+ * same doctype `get_batch_rows`/`allocate_row`/`reverse_allocation` already read and write. Doc
+ * permissions already admit the outflow-access roles (System Manager / Nirmaan Accountant /
+ * Nirmaan Accountant Lead), so this is an ordinary `useFrappeGetDocList` list read, not a new
+ * enforcement boundary.
+ */
+interface AllocatedLeg {
+    name: string;
+    target_doctype: string;
+    target_name: string;
+    target_amount: number;
+    match_kind: string;
+    matched_at?: string | null;
+}
 
 const PROJECT_EXPENSE = "Project Expenses";
 const NON_PROJECT_EXPENSE = "Non Project Expenses";
@@ -181,6 +201,11 @@ interface Props {
      * so the reviewer's answer has to travel with the call — see `PartialIntentChoice`.
      */
     onPartialSettle: (record: SettleableRecord, intent: PartialIntent) => Promise<void> | void;
+    /**
+     * Undo one Settled leg of an allocation (Task 7, ADR-0020 fan-out). A reason is REQUIRED --
+     * `reverse_allocation` throws without one, the same standard `skip_row` already holds.
+     */
+    onReverseAllocation: (match: string, reason: string) => Promise<void> | void;
     onSkip: (reason: string) => Promise<void> | void;
     onRerun: () => Promise<void> | void;
     onClose: () => void;
@@ -217,6 +242,7 @@ export const DecisionDialog = ({
     onChange,
     onConfirm,
     onPartialSettle,
+    onReverseAllocation,
     onSkip,
     onRerun,
     onClose,
@@ -226,8 +252,14 @@ export const DecisionDialog = ({
 }: Props) => {
     const [skipReason, setSkipReason] = useState("");
     const [skipping, setSkipping] = useState(false);
-    const [picked, setPicked] = useState<SettleableRecord | null>(null);
+    // ⚠️ PLURAL SINCE TASK 7 (ADR-0020 fan-out) -- the picker is now a checkbox group. `picked`
+    // below is the SINGLE-record derivation the pre-existing amount-window / partial-settle detour
+    // needs; that detour is about ONE record against the whole transfer and does not generalise to
+    // a tick-set, which the balance bar governs instead.
+    const [pickedRecords, setPickedRecords] = useState<SettleableRecord[]>([]);
+    const picked = pickedRecords.length === 1 ? pickedRecords[0] : null;
     const [blocked, setBlocked] = useState<SettleBlock | null>(null);
+    const [reversingLeg, setReversingLeg] = useState<AllocatedLeg | null>(null);
 
     // ⚠️ FETCHED HERE, AT THE TOP, AND NOT INSIDE THE PICKER (slice N3). It used to have two
     // consumers -- the picker's row markers and the "Why the system suggests this" block, which
@@ -248,23 +280,72 @@ export const DecisionDialog = ({
         [candidateData]
     );
 
+    const isPartiallyAllocated = row?.row_status === ROW_PARTIALLY_ALLOCATED;
+
+    /**
+     * The legs this transfer has ALREADY settled (Task 7, ADR-0020 fan-out).
+     *
+     * ⚠️ NO DEDICATED ENDPOINT EXISTS FOR "one row's current allocation" -- `get_row_allocation`
+     * was never built, and the `legs` a write returns only cover THAT write. This reads the
+     * `Outflow Row Match` doctype directly instead: an ordinary `useFrappeGetDocList`, the same
+     * doc-permission-gated pattern every other Frappe list read in this app uses, and it already
+     * admits the outflow-access roles (System Manager / Nirmaan Accountant / Nirmaan Accountant
+     * Lead). Fetched only while the row is `Partially Allocated` -- the one status where an
+     * incomplete leg set is the reason the row is still open.
+     */
+    const { data: legsData } = useFrappeGetDocList<AllocatedLeg>(
+        "Outflow Row Match",
+        {
+            fields: ["name", "target_doctype", "target_name", "target_amount", "match_kind", "matched_at"],
+            filters: [
+                ["import_row", "=", row?.name ?? ""],
+                ["match_kind", "=", "Settled"],
+            ],
+            orderBy: { field: "matched_at", order: "asc" },
+            limit: 0,
+        },
+        row && isPartiallyAllocated ? `row-legs-${row.name}` : null
+    );
+    const allocatedLegs = useMemo(() => legsData ?? [], [legsData]);
+
+    // ⚠️ TICKED AMOUNTS COME FROM `pickedRecords`, NOT FROM `decision.linkTargets`. The picker
+    // reports the actual `SettleableRecord`s it resolved its ticks to, which is what carries an
+    // AMOUNT -- `linkTargets` is only ids. See `RecordPicker`.
+    const bar: AllocationBar = useMemo(
+        () => allocationBar(row?.amount ?? 0, allocatedLegs, pickedRecords.map((r) => r.amount)),
+        [row?.amount, allocatedLegs, pickedRecords]
+    );
+
     useEffect(() => {
         setSkipReason("");
-        setPicked(null);
+        setPickedRecords([]);
         setBlocked(null);
+        setReversingLeg(null);
     }, [row?.name]);
 
-    // Reference-stable, or the effect in `LinkPaymentSection` that reports the selection would
-    // re-fire on every render of this dialog.
+    // Reference-stable, or the effect in `RecordPicker` that reports the selection would re-fire
+    // on every render of this dialog.
     //
     // Changing the pick CLEARS the last refusal: that message names a record, so leaving it up
     // beside a different one would be describing a choice the reviewer has already abandoned.
-    const handleSelectedRecordChange = useCallback(
-        (record: SettleableRecord | null) => {
-            setPicked(record);
+    const handleSelectedRecordsChange = useCallback(
+        (records: SettleableRecord[]) => {
+            setPickedRecords(records);
             onDismissError?.();
         },
         [onDismissError]
+    );
+
+    const handleReverseConfirm = useCallback(
+        async (reason: string) => {
+            if (!reversingLeg) return;
+            // Same shape as `AmountOutsideWindowDialog`'s `onPartialSettle` below: the parent
+            // catches and surfaces its own failure internally (see `handleReverseAllocation` in
+            // `OutflowMasterPage`), so this always closes the small confirm afterwards.
+            await onReverseAllocation(reversingLeg.name, reason);
+            setReversingLeg(null);
+        },
+        [reversingLeg, onReverseAllocation]
     );
 
     /**
@@ -286,15 +367,37 @@ export const DecisionDialog = ({
     const partialShape = SHOW_PARTIAL_SETTLE ? partialOffer(picked, row?.amount ?? 0) : null;
 
     const handleConfirmClick = useCallback(() => {
-        const block = settleBlocker(picked, row?.amount ?? 0);
-        if (block) {
-            setBlocked(block);
-            return;
+        // ⚠️ THE SINGLE-RECORD AMOUNT-WINDOW DETOUR ONLY APPLIES TO A SINGLE TICK (Task 7). It is
+        // about ONE record's amount against the whole transfer; a fan-out tick-set is governed by
+        // the balance bar instead (`bar.over` already disables Confirm at the button, below).
+        if (pickedRecords.length === 1) {
+            const block = settleBlocker(picked, row?.amount ?? 0);
+            if (block) {
+                setBlocked(block);
+                return;
+            }
         }
         onConfirm();
-    }, [picked, row?.amount, onConfirm]);
+    }, [picked, pickedRecords.length, row?.amount, onConfirm]);
 
     if (!row) return null;
+
+    // ⚠️ WHICH ENDPOINT/LABEL, NOT WHETHER THE DECISION IS CONFIRMABLE -- `isConfirmable` already
+    // answered that above `bar.over`'s reach on purpose (over-ticking is a COMPLETE decision, it is
+    // merely one the button refuses to send). `isLinkDecision` mirrors the same three-way exclusion
+    // `isConfirmable` reads: a "create something new" card in progress must keep the ordinary
+    // "Confirm → Paid" wording and must never be blocked by a leftover, dimmed tick-set's `bar`.
+    const ticks = decision?.linkTargets?.size ?? 0;
+    const isLinkDecision =
+        decision?.target !== "new" && decision?.target !== "inflow" && decision?.target !== "receipt";
+    const confirmLabel =
+        isLinkDecision && ticks > 0
+            ? allocateButtonLabel({ ticks, complete: bar.complete })
+            : "Confirm → Paid";
+    // ⚠️ `bar.over` ONLY GATES THE BUTTON, NEVER `isConfirmable` -- see `allocationView.ts` and the
+    // picker below. Disabling the ROWS instead would make it a puzzle: the reviewer may want to
+    // untick something else first.
+    const confirmDisabled = busy || !isConfirmable(row, decision) || (isLinkDecision && bar.over);
 
     /**
      * ⚠️ WHICH CARDS THIS ROW GETS IS MEMBERSHIP IN THE ONE PARTITION, NEVER A `direction` TEST
@@ -341,6 +444,18 @@ export const DecisionDialog = ({
                 </header>
 
                 <div className="min-h-0 space-y-4 overflow-y-auto px-6 py-4">
+                    {/* ⚠️ ABOVE `LinkPaymentSection`, ON PURPOSE (Task 7, ADR-0020 fan-out). A
+                        `Partially Allocated` row already has money written against it; the reviewer
+                        needs to see what is already settled BEFORE the picker offers what is left,
+                        never the other way round. */}
+                    {isPartiallyAllocated && (
+                        <AlreadyAllocatedSection
+                            legs={allocatedLegs}
+                            onReverse={setReversingLeg}
+                            busy={busy}
+                        />
+                    )}
+
                     {/* ⚠️ ONE SECTION, ALWAYS OPEN. It replaced three cards -- one per ledger --
                         that made the reviewer say WHICH KIND of record this was before they were
                         shown any. That is a question the bank statement does not answer: a transfer
@@ -361,9 +476,32 @@ export const DecisionDialog = ({
                                 decision?.target === "inflow" ||
                                 decision?.target === "receipt"
                             }
-                            onSelectedRecordChange={handleSelectedRecordChange}
+                            onSelectedRecordsChange={handleSelectedRecordsChange}
                             matcherCandidates={matcherCandidates}
                         />
+                    )}
+
+                    {/* ⚠️ THE BALANCE BAR (Task 7, ADR-0020 fan-out) -- BELOW the picker, ABOVE the
+                        footer, exactly where the design mockup puts it. It sums already-allocated
+                        legs PLUS the current ticks, live, client-side (`allocationBar`); the server
+                        re-asserts under a row lock. Shown only once there is something to report --
+                        an untouched Matched row with zero ticks has nothing to say here yet. */}
+                    {canLinkPayment && (ticks > 0 || allocatedLegs.length > 0) && (
+                        <div
+                            className={`rounded-md border px-3 py-2 text-sm tabular-nums ${
+                                bar.over
+                                    ? "border-red-300 bg-red-50 text-red-600"
+                                    : "border-muted-foreground/20 bg-muted/30 text-muted-foreground"
+                            }`}
+                        >
+                            allocated {formatToRoundedIndianRupee(bar.allocated)} · left{" "}
+                            {formatToRoundedIndianRupee(bar.remaining)}
+                            {bar.over && (
+                                <span className="ml-2 font-medium">
+                                    — untick something before confirming
+                                </span>
+                            )}
+                        </div>
                     )}
 
                     {/* ⚠️ THE ABSENCE HAS TO SAY WHICH RULE CAUSED IT (the D1 principle, applied to
@@ -499,13 +637,9 @@ export const DecisionDialog = ({
                                 record rather than from a card clicked first, so a cleared selection
                                 leaves no target at all -- and this button would have posted a
                                 settle with an undefined doctype. */}
-                            <Button
-                                size="sm"
-                                onClick={handleConfirmClick}
-                                disabled={busy || !isConfirmable(row, decision)}
-                            >
+                            <Button size="sm" onClick={handleConfirmClick} disabled={confirmDisabled}>
                                 {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Confirm → Paid
+                                {confirmLabel}
                             </Button>
                         </>
                     )}
@@ -526,6 +660,13 @@ export const DecisionDialog = ({
                     await onPartialSettle(picked, intent);
                     setBlocked(null);
                 }}
+            />
+
+            <ReverseAllocationDialog
+                leg={reversingLeg}
+                busy={busy}
+                onClose={() => setReversingLeg(null)}
+                onConfirm={handleReverseConfirm}
             />
         </Dialog>
     );
@@ -804,6 +945,133 @@ const PartialIntentChoice = ({
  */
 
 /**
+ * Settled legs already on this transfer (Task 7, ADR-0020 fan-out) -- rendered above
+ * `LinkPaymentSection`, so the reviewer sees what is already settled before the picker offers what
+ * is left.
+ *
+ * ⚠️ ONLY A `Project Payments` LEG OFFERS `Reverse`. `reverse_allocation` throws on any other
+ * doctype ("Only a Project Payments allocation can be reversed here") -- the button is WITHHELD
+ * rather than offered and refused, the same discipline `allocate_row`'s payments-only scope holds.
+ */
+const AlreadyAllocatedSection = ({
+    legs,
+    onReverse,
+    busy,
+}: {
+    legs: AllocatedLeg[];
+    onReverse: (leg: AllocatedLeg) => void;
+    busy: boolean;
+}) => {
+    if (!legs.length) return null;
+    return (
+        <div className="rounded-md border border-sky-600/30 bg-sky-50/40">
+            <div className="px-3 py-2.5">
+                <p className="text-sm font-medium text-sky-900">Already allocated</p>
+                <p className="text-xs text-muted-foreground">
+                    money this transfer has already settled, in an earlier sitting
+                </p>
+            </div>
+            <div className="divide-y border-t">
+                {legs.map((leg) => (
+                    <div
+                        key={leg.name}
+                        className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
+                    >
+                        <div className="min-w-0">
+                            <span className="inline-block rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-foreground/70">
+                                {ledgerLabel(leg.target_doctype)}
+                            </span>
+                            <span className="ml-1.5 font-mono">{leg.target_name}</span>
+                            <span className="ml-1.5 tabular-nums text-muted-foreground">
+                                {formatToRoundedIndianRupee(leg.target_amount)}
+                            </span>
+                            {leg.matched_at && (
+                                <span className="ml-1.5 text-xs text-muted-foreground">
+                                    {formatDate(leg.matched_at.split(/[ T]/)[0])}
+                                </span>
+                            )}
+                        </div>
+                        {leg.target_doctype === "Project Payments" && (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                disabled={busy}
+                                onClick={() => onReverse(leg)}
+                            >
+                                Reverse
+                            </Button>
+                        )}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+/**
+ * The small confirm behind `Reverse` -- a REQUIRED typed reason, the same standard `skip_row`
+ * already holds: a decision that moves money has to say why.
+ */
+const ReverseAllocationDialog = ({
+    leg,
+    busy,
+    onClose,
+    onConfirm,
+}: {
+    leg: AllocatedLeg | null;
+    busy: boolean;
+    onClose: () => void;
+    onConfirm: (reason: string) => void;
+}) => {
+    const [reason, setReason] = useState("");
+
+    // A different leg is a different question -- carrying a reason across would attach one
+    // reversal's explanation to another.
+    useEffect(() => setReason(""), [leg?.name]);
+
+    return (
+        <AlertDialog open={Boolean(leg)} onOpenChange={(open) => !open && onClose()}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Reverse this allocation?</AlertDialogTitle>
+                    <AlertDialogDescription asChild>
+                        <div className="space-y-3 text-sm">
+                            <p>
+                                <span className="font-mono">{leg?.target_name}</span> (
+                                {formatToIndianRupee(leg?.target_amount ?? 0)}) goes back to
+                                Approved. This transfer's balance rises by the same amount, and the
+                                record can be allocated again -- here or on a different transfer.
+                            </p>
+                            <div className="space-y-1.5">
+                                <Label className="text-xs">Reason (required)</Label>
+                                <Input
+                                    autoFocus
+                                    value={reason}
+                                    placeholder="Why is this allocation being reversed?"
+                                    onChange={(e) => setReason(e.target.value)}
+                                />
+                            </div>
+                        </div>
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={onClose}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                        disabled={!reason.trim() || busy}
+                        onClick={() => onConfirm(reason.trim())}
+                    >
+                        {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Reverse
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+    );
+};
+
+/**
  * The FIRST way to resolve a row: find the approved record this transfer paid, in any ledger.
  * ("The one way" until slice B5 put "Create a new expense" back beneath it.)
  *
@@ -821,7 +1089,7 @@ const LinkPaymentSection = ({
     decision,
     onChange,
     dimmed,
-    onSelectedRecordChange,
+    onSelectedRecordsChange,
     matcherCandidates,
 }: {
     row: OutflowImportRow;
@@ -830,7 +1098,7 @@ const LinkPaymentSection = ({
     dimmed: boolean;
     // Passed straight through to `RecordPicker`, which is where the candidate list -- and so the
     // server's `suggested` flag -- actually lives.
-    onSelectedRecordChange: (record: SettleableRecord | null) => void;
+    onSelectedRecordsChange: (records: SettleableRecord[]) => void;
     /** `recordKey`s the match run found for this transfer (slice N3). */
     matcherCandidates: ReadonlySet<string>;
 }) => (
@@ -838,7 +1106,9 @@ const LinkPaymentSection = ({
         <div className="px-3 py-2.5">
             <p className="text-sm font-medium">Link payment</p>
             <p className="text-xs text-muted-foreground">
-                the approved record this transfer paid — payment or expense
+                {/* ⚠️ "one or more", not "the" (Task 7, ADR-0020 fan-out) -- one bank transfer may
+                    now settle several approved Project Payments. */}
+                the approved record(s) this transfer paid — payment or expense
             </p>
         </div>
         <div className="border-t px-3 py-3">
@@ -846,7 +1116,7 @@ const LinkPaymentSection = ({
                 row={row}
                 decision={decision ?? {}}
                 onChange={onChange}
-                onSelectedRecordChange={onSelectedRecordChange}
+                onSelectedRecordsChange={onSelectedRecordsChange}
                 matcherCandidates={matcherCandidates}
             />
         </div>
@@ -940,13 +1210,13 @@ const RecordPicker = ({
     row,
     decision,
     onChange,
-    onSelectedRecordChange,
+    onSelectedRecordsChange,
     matcherCandidates,
 }: {
     row: OutflowImportRow;
     decision: RowDecision;
     onChange: (decision: RowDecision) => void;
-    onSelectedRecordChange: (record: SettleableRecord | null) => void;
+    onSelectedRecordsChange: (records: SettleableRecord[]) => void;
     matcherCandidates: ReadonlySet<string>;
 }) => {
     const [filters, setFilters] = useState<RecordFilters>(EMPTY_FILTERS);
@@ -985,24 +1255,27 @@ const RecordPicker = ({
         []
     );
 
-    // ⚠️ LOOKED UP IN THE WHOLE POOL, NOT THE FILTERED VIEW. A reviewer who picks a record and then
-    // narrows the list would otherwise watch their own choice become invisible AND unconfirmable --
-    // the footer reads the selection from here, so a filtered-out pick would disable Confirm with
-    // nothing on screen explaining why. Matched on BOTH halves: a bare name is not unique across
-    // three ledgers.
-    const selected = pool.find(
-        (o) => o.name === decision.linkTo && o.target_doctype === decision.target
+    // ⚠️ LOOKED UP IN THE WHOLE POOL, NOT THE FILTERED VIEW (ADR-0020 fan-out: now every TICKED
+    // record, not just one). A reviewer who ticks a record and then narrows the list would
+    // otherwise watch their own choice become invisible AND unconfirmable -- the footer reads the
+    // selection from here, so a filtered-out pick would disable Confirm with nothing on screen
+    // explaining why. `recordKey` folds doctype into the identity, so this is a plain Set lookup
+    // rather than a bare-name match, which is not unique across three ledgers.
+    const linkTargets = decision.linkTargets;
+    const selectedRecords = useMemo(
+        () => (linkTargets ? pool.filter((o) => linkTargets.has(recordKey(o))) : []),
+        [pool, linkTargets]
     );
-    const selectedHidden = Boolean(selected) && !options.some((o) => o === selected);
+    const hiddenSelectedCount = selectedRecords.filter((r) => !options.includes(r)).length;
 
     // ⚠️ REPORTED UPWARD BECAUSE THE FOOTER HAS TO KNOW WHAT WAS PICKED. The candidate list, and
     // therefore the server's `suggested` flag, lives only in here -- the page's `RowDecision`
-    // carries a doctype and a NAME and nothing about the record's amount. Without this the Confirm
-    // button cannot tell a settleable pick from one the server will refuse, which is exactly how it
-    // came to post, be refused, and show nothing.
+    // carries doctype+name pairs and nothing about a record's amount. Without this the balance bar
+    // and the amount-window detour cannot tell a settleable pick from one the server will refuse,
+    // which is exactly how it came to post, be refused, and show nothing.
     useEffect(() => {
-        onSelectedRecordChange(selected ?? null);
-    }, [selected, onSelectedRecordChange]);
+        onSelectedRecordsChange(selectedRecords);
+    }, [selectedRecords, onSelectedRecordsChange]);
 
     const candidateLine = matcherCandidateLine(matcherCandidates.size);
 
@@ -1096,49 +1369,49 @@ const RecordPicker = ({
                     filters={filters}
                     facets={facets}
                     onFiltersChange={setFilters}
-                    selected={
-                        decision.target && decision.linkTo
-                            ? recordKey({
-                                  target_doctype: decision.target,
-                                  name: decision.linkTo,
-                              })
-                            : ""
-                    }
-                    // ⚠️ THE LEDGER COMES FROM THE RECORD. It used to come from the card clicked
-                    // beforehand; with one list there is no such card, so picking a record is what
-                    // decides which table gets written.
-                    onSelect={(value) => {
-                        const picked = parseRecordKey(value);
-                        if (!picked) return;
-                        onChange({ ...decision, target: picked.target, linkTo: picked.name });
+                    selected={linkTargets ?? EMPTY_LINK_TARGETS}
+                    // ⚠️ TOGGLES ONE ENTRY IN THE SET, NEVER REPLACES IT (ADR-0020 fan-out). The
+                    // ledger comes from the RECORD -- each `recordKey` already carries its own
+                    // doctype -- and `target` is cleared here so a leftover "create something new"
+                    // choice can never survive a tick (see `isConfirmable`'s comment on why `target`
+                    // is no longer load-bearing for this branch).
+                    onToggle={(value) => {
+                        if (!parseRecordKey(value)) return;
+                        const next = new Set(decision.linkTargets ?? []);
+                        if (next.has(value)) {
+                            next.delete(value);
+                        } else {
+                            next.add(value);
+                        }
+                        onChange({ ...decision, target: undefined, linkTargets: next });
                     }}
                 />
             )}
 
-            {/* The chosen record is still chosen and still confirmable -- but it is no longer on
-                screen, so say so rather than let the verdict line below describe a row the reviewer
+            {/* A ticked record is still ticked and still confirmable -- but it is no longer on
+                screen, so say so rather than let the verdict lines below describe rows the reviewer
                 cannot see. */}
-            {selectedHidden && (
+            {hiddenSelectedCount > 0 && (
                 <p className="text-xs text-amber-700">
-                    Your chosen record is hidden by the current filters.
+                    {hiddenSelectedCount === 1
+                        ? "One of your ticked records is hidden by the current filters."
+                        : `${hiddenSelectedCount} of your ticked records are hidden by the current filters.`}
                 </p>
             )}
 
-            {selected && <RecordVerdict record={selected} bankAmount={row.amount} />}
+            {selectedRecords.map((record) => (
+                <RecordVerdict key={recordKey(record)} record={record} bankAmount={row.amount} />
+            ))}
 
-            {/* ⚠️ CLEARING IS A SEPARATE ACT FROM CHOOSING. A Radix Select cannot return to "no
-                value" through the dropdown -- every item sets one -- so without this a reviewer who
-                picked the wrong record could never get back to undecided, only to a different
-                wrong record.
-                ⚠️ IT NOW CLEARS THE LEDGER TOO. It used to keep it, because the ledger was a
-                separate earlier choice worth preserving; with one list the ledger is part of the
-                record, and leaving it behind would strand a target with no record under it. */}
-            {decision.linkTo && (
+            {/* ⚠️ CLEARS EVERY TICK, NOT JUST ONE (ADR-0020 fan-out) -- a reviewer who ticked the
+                wrong set needs one way back to undecided rather than unticking each box in turn.
+                Individual boxes stay reachable in the table above for a partial correction. */}
+            {linkTargets && linkTargets.size > 0 && (
                 <Button
                     variant="ghost"
                     size="sm"
                     className="h-7 px-2 text-xs"
-                    onClick={() => onChange({ ...decision, target: undefined, linkTo: null })}
+                    onClick={() => onChange({ ...decision, target: undefined, linkTargets: new Set() })}
                 >
                     <X className="mr-1 h-3 w-3" />
                     Clear selection
@@ -1147,6 +1420,10 @@ const RecordPicker = ({
         </div>
     );
 };
+
+/** A stable empty set -- passed when a decision has no `linkTargets` yet, so the table's own
+ *  `selected` prop never mints a fresh identity per render. */
+const EMPTY_LINK_TARGETS: ReadonlySet<string> = new Set();
 
 /**
  * What choosing THIS record means, in one line under the table.

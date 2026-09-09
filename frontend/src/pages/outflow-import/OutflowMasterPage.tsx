@@ -43,6 +43,7 @@ import {
     OutflowRowsTable,
     TablePagination,
 } from "./components/OutflowRowsTable";
+import { chooseSettleEndpoint } from "./allocationView";
 import {
     DEFAULT_TAB,
     OUTFLOW_COLUMNS,
@@ -50,6 +51,7 @@ import {
     decidedRows,
     decisionOrigin,
     isConfirmable,
+    parseRecordKey,
     seedDecisions,
     SCOPE_FOR_TAB,
     type DecisionOrigin,
@@ -314,6 +316,16 @@ export const OutflowMasterPage = () => {
     const { call: callSettlePartial } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.expenses.settle_row_partial"
     );
+    // ⚠️ ADR-0020 (Task 7): the fan-out sibling of `settle_row`. `settleOne` below routes to this
+    // one, NEVER inline, via `chooseSettleEndpoint` -- the ONE home for the routing rule, so a
+    // single tick on an untouched row always takes `settle_row`'s identical, stricter path.
+    const { call: callAllocate } = useFrappePostCall(
+        "nirmaan_stack.api.outflow_import.expenses.allocate_row"
+    );
+    // ⚠️ A REASON IS REQUIRED -- the endpoint throws without one, same standard `skip_row` holds.
+    const { call: callReverseAllocation } = useFrappePostCall(
+        "nirmaan_stack.api.outflow_import.expenses.reverse_allocation"
+    );
 
     /**
      * The whole current view, unpaged, for a spreadsheet.
@@ -448,14 +460,68 @@ export const OutflowMasterPage = () => {
                     description: form.description || undefined,
                 });
             } else {
-                await callSettle({
-                    row: row.name,
-                    target_doctype: decision.target,
-                    target_name: decision.linkTo,
+                // ⚠️ THE ROUTING RULE HAS ONE HOME: `chooseSettleEndpoint` (ADR-0020, Task 7).
+                // NEVER an inline `linkTargets.size > 1` condition here -- that is exactly the
+                // duplication that would let a later edit send a single tick down the weaker
+                // `allocate_row` path by accident. A single tick on an untouched row keeps calling
+                // `settle_row`, byte-unchanged, with its stricter whole-transfer amount guard.
+                const targets = [...(decision.linkTargets ?? [])]
+                    .map(parseRecordKey)
+                    .filter((t): t is NonNullable<typeof t> => t !== null);
+                const endpoint = chooseSettleEndpoint({
+                    ticks: targets.length,
+                    rowStatus: row.row_status,
                 });
+                if (endpoint === "settle_row") {
+                    const [only] = targets;
+                    await callSettle({
+                        row: row.name,
+                        target_doctype: only.target,
+                        target_name: only.name,
+                    });
+                } else if (endpoint === "allocate_row") {
+                    await callAllocate({
+                        row: row.name,
+                        // ⚠️ STRINGIFIED, matching this screen's own convention for a nested-JSON
+                        // postcall field (see `facets: JSON.stringify(...)` elsewhere in this
+                        // file). `allocate_row`'s `_parse_targets` accepts either a JSON string or
+                        // an already-parsed list, so this is a belt-and-braces choice, not a
+                        // requirement.
+                        targets: JSON.stringify(
+                            targets.map((t) => ({
+                                target_doctype: t.target,
+                                target_name: t.name,
+                            }))
+                        ),
+                    });
+                }
+                // `endpoint === null` means nothing was ticked, which `isConfirmable` already
+                // refuses before `settleOne` is ever called -- see `handleConfirmOne`.
             }
         },
-        [callCreate, callCreateInflow, callCreateReceipt, callSettle]
+        [callAllocate, callCreate, callCreateInflow, callCreateReceipt, callSettle]
+    );
+
+    /**
+     * Undo one Settled leg of an allocation (Task 7, ADR-0020 fan-out). Shares `handleConfirmOne`'s
+     * error-handling shape: a refused reversal must surface the server's own sentence in the
+     * dialog's footer, not vanish.
+     */
+    const handleReverseAllocation = useCallback(
+        async (match: string, reason: string) => {
+            setBusy(true);
+            setConfirmError(null);
+            try {
+                await callReverseAllocation({ match, reason });
+                setOpenRow(null);
+                await refreshAll();
+            } catch (err: any) {
+                setConfirmError(describeFrappeError(err, "The reversal failed."));
+            } finally {
+                setBusy(false);
+            }
+        },
+        [callReverseAllocation, refreshAll]
     );
 
     const handleConfirmOne = useCallback(async () => {
@@ -1035,6 +1101,7 @@ export const OutflowMasterPage = () => {
                 onChange={(decision) => openRow && setDecision(openRow.name, decision)}
                 onConfirm={handleConfirmOne}
                 onPartialSettle={handlePartialSettle}
+                onReverseAllocation={handleReverseAllocation}
                 onSkip={async (reason) => {
                     if (openRow) await handleSkip(openRow, reason);
                 }}

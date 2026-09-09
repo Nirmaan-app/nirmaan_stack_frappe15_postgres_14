@@ -28,9 +28,9 @@ import { RecordColumnHeader } from "./RecordColumnHeader";
 
 interface Props {
     records: SettleableRecord[];
-    /** The chosen record's `recordKey`, or `""` for none chosen. */
-    selected: string;
-    onSelect: (key: string) => void;
+    /** The ticked records' `recordKey`s (ADR-0020 fan-out; empty for none ticked). */
+    selected: ReadonlySet<string>;
+    onToggle: (key: string) => void;
     /** The bank row's amount, for the per-row amount verdict. */
     bankAmount: number;
     /**
@@ -55,7 +55,7 @@ interface Props {
 }
 
 /**
- * The approved records this transfer could have paid, as a table with a radio per row.
+ * The approved records this transfer could have paid, as a table with a checkbox per row.
  *
  * ⚠️ IT REPLACED A DROPDOWN, AND THE SHAPE IS THE POINT (owner, 2026-08-07). Each option used to
  * carry type, id, vendor, project, document, date, amount and a tolerance mark on two wrapped
@@ -72,14 +72,16 @@ interface Props {
  * payment needs to SEE the one that differs by 2,000 in order to learn that it cannot be settled
  * here; filtering it out looks like the record does not exist.
  *
- * ⚠️ IT IS A REAL `<input type="radio">` IN A REAL RADIOGROUP. Arrow-key navigation between options,
- * the roving tab stop and the announced group name all come free from the platform and are
- * fiddly to rebuild on divs -- and this is the control that decides where money is written.
+ * ⚠️ RADIO -> CHECKBOX AT TASK 7 (ADR-0020 fan-out). One bank transfer may now settle several
+ * approved Project Payments, so the picker had to become a multi-select. Each `<input
+ * type="checkbox">` is independently toggled through `onToggle`; there is no shared `name` because
+ * checkboxes, unlike radios, do not form a browser-native group. The row stays the whole hit target
+ * and the checkbox stays the thing that LOOKS ticked, exactly as the radio did.
  */
 export const SettleableRecordTable = ({
     records,
     selected,
-    onSelect,
+    onToggle,
     bankAmount,
     matcherCandidates,
     sort,
@@ -113,8 +115,8 @@ export const SettleableRecordTable = ({
     <div className="max-h-[min(420px,38vh)] overflow-y-auto rounded-md border">
         <table className="w-full table-fixed border-collapse text-sm">
             <colgroup>
-                {/* The radio column, then one per model column -- so the header cells and the body
-                    cells cannot drift apart. */}
+                {/* The checkbox column, then one per model column -- so the header cells and the
+                    body cells cannot drift apart. */}
                 <col style={{ width: "40px" }} />
                 {RECORD_COLUMNS.map((column) => (
                     <col key={column.id} style={{ width: column.width }} />
@@ -158,13 +160,13 @@ export const SettleableRecordTable = ({
                     ))}
                 </tr>
             </thead>
-            <tbody role="radiogroup" aria-label="Approved records this transfer could have paid">
+            <tbody role="group" aria-label="Approved records to allocate">
                 {records.map((record) => (
                     <RecordRow
                         key={recordKey(record)}
                         record={record}
-                        chosen={recordKey(record) === selected}
-                        onSelect={onSelect}
+                        chosen={selected.has(recordKey(record))}
+                        onToggle={onToggle}
                         bankAmount={bankAmount}
                         // Computed here rather than in the row so the rule lives in ONE pure,
                         // unit-tested place — see `reasonCaption` on why it goes silent under a sort.
@@ -227,14 +229,14 @@ const filterSpecFor = (
 const RecordRow = ({
     record,
     chosen,
-    onSelect,
+    onToggle,
     bankAmount,
     reason,
     matched,
 }: {
     record: SettleableRecord;
     chosen: boolean;
-    onSelect: (key: string) => void;
+    onToggle: (key: string) => void;
     bankAmount: number;
     /** Why this record ranks here, or `""` for nothing to say. See `reasonCaption`. */
     reason: string;
@@ -249,7 +251,7 @@ const RecordRow = ({
     // sequence number: it names nothing a reviewer holding a bank statement recognises. The order
     // the payment is against, and the type an expense was booked under, are what the statement line
     // can actually be compared to. The id has NOT been thrown away -- it is the cell's `title` and
-    // the radio's `aria-label`, and `matchesText` still searches it, so typing an id still finds
+    // the checkbox's `aria-label`, and `matchesText` still searches it, so typing an id still finds
     // its row; it is one hover from view rather than in view.
     const isPayment = record.target_doctype === "Project Payments";
     const against = (record.document_name ?? "").trim();
@@ -274,24 +276,26 @@ const RecordRow = ({
 
     return (
         <tr
-            // The whole row is the hit target -- a 14px radio is not. `cursor-pointer` and the hover
-            // tint say so; the radio stays as the thing that LOOKS chosen.
+            // The whole row is the hit target -- a 14px checkbox is not. `cursor-pointer` and the
+            // hover tint say so; the checkbox stays as the thing that LOOKS ticked.
             className={`cursor-pointer border-b last:border-b-0 transition-colors focus-within:bg-primary/10 ${
                 chosen ? "bg-primary/5" : "hover:bg-muted/50"
             }`}
-            onClick={() => onSelect(key)}
+            onClick={() => onToggle(key)}
         >
             <td className="px-2 py-2 align-top">
                 <input
-                    type="radio"
-                    // One group per dialog. Without a shared name the browser treats each input as
-                    // its own group and arrow keys stop moving between them.
-                    name="settleable-record"
+                    type="checkbox"
                     className="mt-0.5 h-3.5 w-3.5 cursor-pointer accent-primary"
-                    value={key}
                     checked={chosen}
-                    onChange={() => onSelect(key)}
-                    aria-label={`${ledgerLabel(record.target_doctype)} ${record.name}${
+                    onChange={() => onToggle(key)}
+                    // ⚠️ A CHECKBOX'S OWN CLICK MUST NOT ALSO REACH THE ROW'S `onClick` (unlike the
+                    // radio this replaced, where a repeated `onSelect(key)` was idempotent). Without
+                    // this a direct click on the box fires both handlers -- the row's click toggles
+                    // it one way, the box's own change toggles it back -- and the box visibly does
+                    // nothing.
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label={`Allocate ${ledgerLabel(record.target_doctype)} ${record.name}${
                         record.vendor_name ? `, ${record.vendor_name}` : ""
                     }, ${formatToRoundedIndianRupee(record.amount)}`}
                 />
