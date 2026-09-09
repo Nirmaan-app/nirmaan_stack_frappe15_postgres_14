@@ -4,11 +4,13 @@
 """One transfer, many payments, allocated over several calls (ADR-0020)."""
 
 import json
+from unittest.mock import patch
 
 import frappe
 
 from nirmaan_stack.api.outflow_import.expenses import allocate_row
 from nirmaan_stack.api.outflow_import.test_settle_payment import PaymentSettlementFixture
+from nirmaan_stack.services.outflow_import.settle import ExpenseSettlementError
 from nirmaan_stack.services.outflow_import.status import (
     ROW_MATCHED,
     ROW_PARTIALLY_ALLOCATED,
@@ -61,6 +63,30 @@ class TestAllocatingInOneGo(AllocationFixture):
         allocate_row(row=row, targets=self._targets(pays))
         for p in pays:
             self.assertEqual(frappe.db.get_value("Project Payments", p, "utr"), reference)
+
+    def test_statement_file_is_linked_to_every_leg_not_just_the_last(self):
+        """⚠️ FIX 1 (review, Task 4). `settle_payment` calls `apply_statement_attachment` on EVERY
+        leg, so all three payments end up POINTING at the private statement file -- but only a
+        `File` row per target actually lets that link OPEN for someone who cannot read the import
+        batch (`_link_statement_file_to_target`'s own docstring). Before the fix, that function was
+        called ONCE, off the loop's post-loop `result` variable, which held only the LAST leg --
+        the first two of three payments never got a `File` row and their attachment 403s.
+
+        Patches the linker itself rather than asserting on a real `File` row: the row is minted by
+        `frappe_gcp_attachment`'s `after_insert` hook, which shells out to read the file off local
+        disk and upload it to a real GCS bucket -- neither available nor appropriate inside a unit
+        test, and orthogonal to the defect here, which is about HOW MANY TIMES and WITH WHICH
+        RESULTS the linker is called, not what it does once called.
+        """
+        row = self._staged_row(amount="100")
+        pays = self._three_payments()
+        with patch(
+            "nirmaan_stack.api.outflow_import.expenses._link_statement_file_to_target"
+        ) as linker:
+            allocate_row(row=row, targets=self._targets(pays))
+        self.assertEqual(linker.call_count, 3)
+        linked_targets = sorted(call.args[1].name for call in linker.call_args_list)
+        self.assertEqual(linked_targets, sorted(pays))
 
     def test_no_payment_amount_is_rewritten_to_the_transfer(self):
         """⚠️ THE RED EDGE. Without `rewrite_amount_to_bank=False` leg 1 would become Rs 100."""
@@ -137,9 +163,13 @@ class TestRefusals(AllocationFixture):
         self.assertEqual(frappe.db.get_value("Project Payments", a, "status"), "Approved")
 
     def test_a_credit_row_is_refused(self):
+        """⚠️ FIX 3 (review, Task 4). `assertRaises(Exception)` passes on a fixture failure, an
+        import error, or any unrelated throw -- it can go green while `_guard_is_a_debit` is gone
+        entirely. Assert the actual guard's error type."""
         row = self._staged_row(amount="100", direction="Credit")
-        with self.assertRaises(Exception):
-            allocate_row(row=row, targets=self._targets(self._three_payments()[:1]))
+        payment = self._approved_payment("60")
+        with self.assertRaises(ExpenseSettlementError):
+            allocate_row(row=row, targets=self._targets([payment]))
 
     def test_the_same_payment_twice_in_one_call_is_refused(self):
         row = self._staged_row(amount="100")

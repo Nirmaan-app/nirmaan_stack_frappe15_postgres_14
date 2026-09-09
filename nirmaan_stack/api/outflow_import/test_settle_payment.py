@@ -150,17 +150,28 @@ class PaymentSettlementFixture(unittest.TestCase):
         """A dedicated `Won` project for the allocation helpers below (Ruling C, Task 4 /
         ADR-0020), created once per test and cleaned up in `tearDown`.
 
-        ⚠️ NEVER `self.project`. The base fixture picks that one up with
-        `frappe.db.get_value("Projects", {}, "name")` -- whatever happens to be first in the live
-        database, verified 2026-09-09 to be `Tendering` on 114 of 218 real projects. `allocate_row`
-        goes through the ordinary document lifecycle (`settle_payment` -> `doc.save()`), unlike this
-        fixture's raw-SQL payments and POs, so a payment settled against a non-`Won` project is not
-        merely bad hygiene here. And the fixture must never flip an EXISTING project's
-        `tendering_status` to make one settle -- it creates its own instead.
+        ⚠️ CORRECTED AT REVIEW: NOT because of `validate_won`. This project's `tendering_status`
+        never actually gates anything here -- `controllers/project_payments.validate` only calls
+        `validate_won` when `doc.is_new()`, and every settle in this suite calls `doc.save()` on an
+        *existing* payment, so that guard is structurally unreachable from this path (and will stay
+        unreachable on Task 5's `Paid -> Approved` reversal, for the same reason).
+
+        ⚠️ THE REAL REASON: `hooks.py` wires `project_cashflow_hold_update.on_project_payment` to
+        `Project Payments.on_update`, and that handler writes CEO Hold Reason rows and calls
+        `recompute_ceo_hold(project_id)` -- a REAL, committed side effect on whatever project the
+        settled payment belongs to. `_outflow_import_write` (`settle.py`) suppresses that hook's
+        `frappe.db.commit()`, NOT its writes, and `allocate_row` commits at the end of its own
+        savepoint -- so those writes land for real. Settling against the base fixture's arbitrary
+        live project (`self.project`, whatever `frappe.db.get_value("Projects", {}, "name")` picks
+        up -- verified 2026-09-09 to be `Tendering` on 114 of 218 real projects) would mutate a real
+        project's CEO-Hold state and leave the residue there after the test ends. This throwaway
+        project, deleted in `tearDown`, is what keeps that residue inside the fixture instead.
 
         Follows the documented Projects-row fixture pattern (root `CLAUDE.md`): `generate_pwm`'s
         `after_insert` hook needs second-precision start/end dates and a `project_scopes` dict
-        carrying a `scopes` key.
+        carrying a `scopes` key. It is still never appropriate to flip an EXISTING project's
+        `tendering_status` to make one settle -- this fixture creates its own instead, for that
+        reason too.
         """
         if getattr(self, "_alloc_project_name", None):
             return self._alloc_project_name
@@ -184,6 +195,8 @@ class PaymentSettlementFixture(unittest.TestCase):
         self._alloc_po_name = self._insert_po(project=self._allocation_project())
         return self._alloc_po_name
 
+    ALLOC_STATEMENT = "/private/files/test-ofi-alloc-statement.csv"
+
     def _staged_row(self, *, amount, direction="Debit"):
         """A minimal `Outflow Import Batch` + `Outflow Import Row`, staged directly rather than
         through the CSV parser -- `allocate_row` only reads `amount`, `direction`,
@@ -193,9 +206,15 @@ class PaymentSettlementFixture(unittest.TestCase):
         Starts at `Matched` -- as though a real match run had already looked and found nothing to
         settle it outright -- which is the stable, checkable starting point the refusal tests need:
         a failed `allocate_row` call must leave it exactly here.
+
+        `source_file` IS SET so `statement_file_url` is realistically non-empty, mirroring a real
+        staged batch -- `TestTheStatementIsAttachedToWhatItSettled`'s fixture note explains why a
+        blank one would be the wrong shape to test against.
         """
         batch = frappe.new_doc(BATCH_DOCTYPE)
-        batch.update({"source": "Cashfree", "status": "In Review"})
+        batch.update(
+            {"source": "Cashfree", "status": "In Review", "source_file": self.ALLOC_STATEMENT}
+        )
         batch.insert(ignore_permissions=True)
         self.batches.append(batch.name)
 
@@ -240,6 +259,11 @@ class PaymentSettlementFixture(unittest.TestCase):
             # audit residue is purged with the payments it describes.
             frappe.db.delete(
                 "Version", {"ref_doctype": PAYMENT, "docname": ["in", self.payments]}
+            )
+            # `_link_statement_file_to_target` mints a `File` row per settled leg (Task 4's own
+            # regression test exercises this on purpose -- see `test_allocate_row.py`).
+            frappe.db.delete(
+                "File", {"attached_to_doctype": PAYMENT, "attached_to_name": ["in", self.payments]}
             )
         for name in self.payments:
             frappe.db.delete(PAYMENT, {"name": name})

@@ -24,6 +24,18 @@ guard would be switched off rather than narrowed.
 matcher key. 226 stored values are whitespace-padded and so already invisible to it; widening the
 comparison here would change a guard the owner chose to leave alone, in the same edit as relaxing
 it, and the two effects would be impossible to tell apart afterwards.
+
+⚠️ EVERY HOLDER OF THE REFERENCE MUST BE ACCOUNTED FOR, NOT JUST ONE (fixed at review, Task 4).
+`frappe.db.get_value(..., "name")` with no `ORDER BY` returns ONE ARBITRARY row when several
+payments already carry this reference. Before the relaxation that was harmless: any holder other
+than `target_name` blocked, so every possible answer agreed. Once a sibling can excuse a holder, the
+arbitrary pick starts DECIDING the verdict -- land on a sibling and the call is allowed even though
+a genuine third-party collision on the same raw UTR sits unexamined in the same table; land on the
+non-sibling and it is refused even though every OTHER holder is a sibling. Same data, two verdicts,
+by physical row order. This is the class root `CLAUDE.md` names under "a guard must order by a
+total key" -- and it is reachable today: 39 groups / 92 payments already share a bank-shaped UTR by
+hand on the live ledger. The fix is to read every holder and require ALL of them to be excusable
+(`target_name` itself, or a sibling) before allowing the write.
 """
 
 import frappe
@@ -34,11 +46,17 @@ PAYMENT_DOCTYPE = "Project Payments"
 MATCH_DOCTYPE = "Outflow Row Match"
 
 
-def reference_is_blocked(*, existing: str | None, target_name: str, siblings) -> bool:
-    """PURE. `existing` is the payment already holding the reference, or None."""
-    if not existing or existing == target_name:
+def reference_is_blocked(*, existing, target_name: str, siblings) -> bool:
+    """PURE. `existing` is EVERY payment currently holding this reference (a set/iterable of
+    names, possibly empty, possibly including `target_name` itself).
+
+    Blocked iff at least one OTHER holder is not excusable as a sibling settled from this same
+    transfer. A single arbitrary holder is not enough -- see the module docstring.
+    """
+    others = set(existing or ()) - {target_name}
+    if not others:
         return False
-    return existing not in set(siblings or ())
+    return not others.issubset(set(siblings or ()))
 
 
 def sibling_payments_of(reference: str, transfer_id: str | None) -> set:
@@ -61,22 +79,46 @@ def sibling_payments_of(reference: str, transfer_id: str | None) -> set:
     return set(rows)
 
 
+def _blocking_payment(existing, target_name: str, siblings) -> str | None:
+    """The holder that actually explains the refusal, for a legible message.
+
+    Deterministic (sorted) rather than "whichever the DB handed back" -- the same failure class
+    this whole fix exists to close, kept out of the message too.
+    """
+    others = sorted(set(existing or ()) - {target_name})
+    non_sibling = [name for name in others if name not in set(siblings or ())]
+    if non_sibling:
+        return non_sibling[0]
+    return others[0] if others else None
+
+
 def assert_reference_is_free(
-    reference: str, target_name: str, *, transfer_id: str | None = None, error_class=None
+    reference: str,
+    target_name: str,
+    *,
+    transfer_id: str | None = None,
+    error_class=None,
+    tail: str | None = None,
 ) -> None:
     """Throw unless this reference may be written onto this payment.
 
     `transfer_id=None` reproduces the pre-ADR-0020 strict rule exactly, which is what the manual
     fulfil passes: it has no transfer to check against.
+
+    `tail` -- a caller-supplied closing sentence, appended after the neutral "already recorded on
+    payment Y." (fixed at review, Task 4). An accountant fulfilling by hand has no transfer in
+    front of them, so a message naming one is not guidance, it is noise; the import DOES have a
+    transfer, so it says so. Each call site owns its own tail rather than one sentence trying to
+    serve both audiences.
     """
-    existing = frappe.db.get_value(PAYMENT_DOCTYPE, {"utr": reference}, "name")
+    existing = frappe.db.get_all(PAYMENT_DOCTYPE, filters={"utr": reference}, pluck="name")
     siblings = sibling_payments_of(reference, transfer_id)
     if not reference_is_blocked(existing=existing, target_name=target_name, siblings=siblings):
         return
-    message = (
-        f"Bank reference {reference} is already recorded on payment {existing}, which was not "
-        f"settled from this transfer."
-    )
+    blocking = _blocking_payment(existing, target_name, siblings)
+    message = f"Bank reference {reference} is already recorded on payment {blocking}."
+    if tail:
+        message = f"{message} {tail}"
     if error_class:
         frappe.throw(message, error_class, title="Reference already used")
     frappe.throw(message, title="Reference already used")

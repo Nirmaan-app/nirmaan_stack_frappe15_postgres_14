@@ -805,9 +805,17 @@ def _assert_reference_is_free(
     ADR-0020 reverses -- the import can do it now. The guard is not removed, it is NARROWED: a
     payment already carrying this reference is still refused unless it is a sibling settled from
     THIS SAME TRANSFER.
+
+    ⚠️ THE TAIL SENTENCE IS THIS CALLER'S OWN (fixed at review, Task 4). The import HAS a transfer
+    in front of it, so it says so; the manual fulfil (`project_payments._fulfil_payment`) has none
+    and supplies its own guidance instead -- see that call site.
     """
     assert_reference_is_free(
-        reference, target_name, transfer_id=transfer_id, error_class=DuplicateReferenceError
+        reference,
+        target_name,
+        transfer_id=transfer_id,
+        error_class=DuplicateReferenceError,
+        tail="It was not settled from this transfer.",
     )
 
 

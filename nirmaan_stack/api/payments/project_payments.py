@@ -369,7 +369,13 @@ def _fulfil_payment(pay, args):
     # the strict rule this block used to spell inline. It must stay in step with the import's call:
     # if only one site learns about siblings, an accountant fulfilling by hand is refused on a UTR
     # the import wrote seconds earlier.
-    assert_reference_is_free(utr, pay.name)
+    #
+    # ⚠️ OWN TAIL SENTENCE (fixed at review, Task 4): this screen has no transfer in view, so a
+    # message naming one is not guidance, it is noise. Point at the fix that is actually available
+    # here instead.
+    assert_reference_is_free(
+        utr, pay.name, tail="Use a different UTR, or correct the existing payment first."
+    )
 
     pay.status        = "Paid"
     pay.utr           = utr

@@ -231,6 +231,13 @@ def allocate_row(row: str, targets):
 
     savepoint = f"ofi_alloc_{frappe.generate_hash(length=10)}"
     frappe.db.savepoint(savepoint)
+    # ⚠️ EVERY LEG'S RESULT, NOT JUST THE LAST ONE (fixed at review, Task 4). `settle_payment`
+    # calls `apply_statement_attachment` on EVERY leg, so all N payments end up POINTING at the
+    # private statement file -- but only a `File` row per target actually lets that link OPEN for
+    # someone who cannot read the import batch (see `_link_statement_file_to_target`'s own
+    # docstring). Linking off a single post-loop `result` gave N-1 of N allocated payments a link
+    # that 403s: visibly attached, refuses to open.
+    results = []
     try:
         legs = _live_legs(staged.name)
         for target in targets:
@@ -253,6 +260,7 @@ def allocate_row(row: str, targets):
                 rewrite_amount_to_bank=False,
                 expected_amount=amount,
             )
+            results.append(result)
             _record_settlement(staged, doc, result, actor)
             legs = _live_legs(staged.name)
         if is_over_allocated(doc["amount"], legs):
@@ -269,7 +277,10 @@ def allocate_row(row: str, targets):
 
     statuses = _refresh_batch_rollup(doc["import_batch"])
     frappe.db.commit()
-    _link_statement_file_to_target(statement_file_url, result)
+    # After the commit and outside the savepoint, same reasoning as every other call site of this
+    # function: it never raises, so looping over every leg's result is safe.
+    for result in results:
+        _link_statement_file_to_target(statement_file_url, result)
     legs = _live_legs(staged.name)
     return {
         "row": row,
