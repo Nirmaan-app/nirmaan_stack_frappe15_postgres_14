@@ -91,6 +91,7 @@ from nirmaan_stack.services.outflow_import.settle import (
     NON_PROJECT_EXPENSE,
     PROJECT_EXPENSE,
     ExpenseSettlementError,
+    _outflow_import_write,
     create_expense_from_row,
     settle_existing_expense,
     settle_payment,
@@ -290,6 +291,148 @@ def allocate_row(row: str, targets):
         "legs": legs,
         "batch_status": derive_batch_status(statuses),
     }
+
+
+@frappe.whitelist(methods=["POST"])
+def reverse_allocation(match: str, reason: str):
+    """Undo one leg of an allocation. The match record is KEPT and stamped.
+
+    URL: /api/method/nirmaan_stack.api.outflow_import.expenses.reverse_allocation
+
+    ⚠️ SOFT, NOT A DELETE (ADR-0020 D3). A deleted record loses the fact that this was tried and
+    undone, and that fact is the point of a table whose rows mean money was written. The reversed
+    leg stops contributing to `allocated_of` and stops holding the partial unique key, so the same
+    payment can be allocated again -- which is the ONLY reason the index had to become partial.
+
+    ⚠️ A REASON IS REQUIRED. Same standard `skip_row` already holds: a decision that moves money
+    has to say why. There is no system-generated case here, so unlike a skip there is no exemption.
+
+    ⚠️ IT REFUSES A PAYMENT THAT CHANGED UNDERNEATH IT rather than forcing it back. If the utr or
+    the status is not what this leg wrote, somebody else has touched the record and this function
+    cannot know what they meant. Refusing leaves both halves consistent; guessing does not.
+
+    ⚠️ RULING O -- A REVERSED 1:1 `settle_row` LEG CAN CARRY A REWRITTEN AMOUNT THIS FUNCTION DOES
+    NOT UNDO. `settle_row` (slice X1) rewrites the payment's `amount` to the bank's figure when the
+    two differ; the allocation path (`allocate_row`, `rewrite_amount_to_bank=False`) never does.
+    After the fact the two are indistinguishable from the match record alone -- both read
+    `leg.target_amount == payment.amount`. Rather than a fifth reversal field to carry a pre-settle
+    figure nobody but a rare manual repair would read, this returns `reversed_amount` (the leg's own
+    `target_amount`) so a human can compare it against the payment's `Version` log
+    (`Project Payments` carries `track_changes: 1` and the settle saves with `ignore_version=False`).
+    See `_revert_payment`'s docstring for the full reasoning.
+    """
+    actor = require_outflow_access()
+    reason = (reason or "").strip()
+    if not reason:
+        frappe.throw("A reason is required to reverse an allocation.", title="Missing reason")
+
+    leg = frappe.db.get_value(
+        MATCH_DOCTYPE,
+        match,
+        ["name", "import_row", "import_batch", "transfer_id", "target_doctype",
+         "target_name", "target_amount", "match_kind"],
+        as_dict=True,
+    )
+    if not leg:
+        frappe.throw(f"Match record '{match}' not found.", title="Not found")
+    if leg.match_kind != MATCH_SETTLED:
+        frappe.throw(
+            "This allocation was already reversed. A correction supersedes rather than un-happens.",
+            title="Already reversed",
+        )
+    if leg.target_doctype != PAYMENT_DOCTYPE:
+        frappe.throw(
+            f"Only a {PAYMENT_DOCTYPE} allocation can be reversed here.", title="Not a payment"
+        )
+
+    row = frappe.db.get_value(
+        ROW_DOCTYPE, leg.import_row, ["name", "bank_reference_no", "import_batch"], as_dict=True
+    )
+
+    savepoint = f"ofi_rev_{frappe.generate_hash(length=10)}"
+    frappe.db.savepoint(savepoint)
+    try:
+        _revert_payment(leg.target_name, row.bank_reference_no, actor)
+        doc = frappe.get_doc(MATCH_DOCTYPE, leg.name)
+        doc.match_kind = MATCH_REVERSED
+        doc.reversed_at = frappe.utils.now_datetime()
+        doc.reversed_by = actor
+        doc.reversal_reason = reason
+        doc.save(ignore_permissions=True)
+        new_status = _refresh_row_allocation(leg.import_row, actor)
+    except Exception:
+        # Roll back to the savepoint rather than the whole request -- same reasoning as every other
+        # call site in this module: the caller gets the real error and the database is exactly as
+        # it was before this reversal was attempted.
+        frappe.db.rollback(save_point=savepoint)
+        raise
+    frappe.db.release_savepoint(savepoint)
+
+    _refresh_batch_rollup(leg.import_batch)
+    frappe.db.commit()
+
+    legs = _live_legs(leg.import_row)
+    amount = frappe.db.get_value(ROW_DOCTYPE, leg.import_row, "amount")
+    return {
+        "match": leg.name,
+        "row": leg.import_row,
+        "row_status": new_status,
+        "allocated": float(allocated_of(legs)),
+        "remaining": float(remaining_of(amount, legs)),
+        # Ruling O: the leg's own figure, so a human can compare it against the payment's Version
+        # log for the (rare) case this leg was originally written by `settle_row`, which -- unlike
+        # `allocate_row` -- may have rewritten the payment's amount to the bank's figure.
+        "reversed_amount": float(leg.target_amount),
+    }
+
+
+def _revert_payment(name: str, expected_reference: str, actor: str) -> None:
+    """Put the payment back to Approved, under a row lock, only if it still looks like ours.
+
+    ⚠️ `doc.save()`, NOT `db.set_value`. The status is going `Paid -> Approved`, which is exactly
+    the transition `update_parent_amount_paid` watches -- and it SUMS the Paid payments rather than
+    incrementing, so the PO's `amount_paid` self-corrects with no code here. A `set_value` would
+    fire no hooks and leave the parent claiming money that is no longer paid.
+
+    ⚠️ THE AMOUNT IS NOT RESTORED, AND THIS IS ONLY SAFE FOR AN ALLOCATION LEG (RULING O). The
+    allocation path never changed it (`rewrite_amount_to_bank=False`), so there is nothing to put
+    back. But `reverse_allocation` accepts ANY `Outflow Row Match` record, including one written by
+    the ordinary 1:1 `settle_row`, which DOES rewrite the payment's `amount` to the bank's figure
+    (slice X1) when the two differ within the settle window. The two are indistinguishable after the
+    fact -- both leave `leg.target_amount == payment.amount` -- so reversing a `settle_row` leg with
+    a corrected amount leaves the CORRECTED figure in place; it is not put back to whatever the
+    payment held before that settle. Deliberately not fixed by adding a fifth reversal field to carry
+    a pre-settle amount: Task 2's schema is shipped and migrated, and a second migration to serve a
+    rare manual repair is not worth it. The pre-settle figure survives only in the payment's own
+    `Version` log (`track_changes: 1`, `ignore_version=False` on every settle save) -- see
+    `reverse_allocation`'s `reversed_amount` in its response, which is the pointer a human needs to
+    go compare there.
+    """
+    current = frappe.db.get_value(
+        PAYMENT_DOCTYPE, name, ["status", "utr"], as_dict=True, for_update=True
+    )
+    if not current:
+        frappe.throw(f"Payment '{name}' not found.", title="Not found")
+    if (current.get("status") or "").strip() != "Paid":
+        frappe.throw(
+            f"{name} is '{current.get('status')}', not Paid. Somebody has already changed it.",
+            title="Changed elsewhere",
+        )
+    stored = (current.get("utr") or "").strip()
+    if stored and stored != (expected_reference or "").strip():
+        frappe.throw(
+            f"{name} carries reference '{stored}', not this transfer's. Somebody has re-pointed "
+            f"it, so this allocation cannot be safely reversed.",
+            title="Changed elsewhere",
+        )
+
+    doc = frappe.get_doc(PAYMENT_DOCTYPE, name)
+    doc.status = "Approved"
+    doc.utr = None
+    doc.payment_date = None
+    doc.flags.from_outflow_import = True
+    with _outflow_import_write():
+        doc.save(ignore_permissions=True, ignore_version=False)
 
 
 def _parse_targets(targets) -> list:
