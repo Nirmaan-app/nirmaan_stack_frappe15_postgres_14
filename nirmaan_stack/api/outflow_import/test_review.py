@@ -51,7 +51,8 @@ from nirmaan_stack.api.outflow_import.review import (
     search_settleable_records,
     skip_row,
 )
-from nirmaan_stack.api.outflow_import.expenses import settle_row
+from nirmaan_stack.api.outflow_import.expenses import allocate_row, settle_row
+from nirmaan_stack.api.outflow_import.test_allocate_row import AllocationFixture
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
 from nirmaan_stack.services.outflow_import import candidates as C
 from nirmaan_stack.services.outflow_import.amounts import AMOUNT_TOLERANCE
@@ -3724,8 +3725,10 @@ class TestTheSettledLedgerSplit(OutflowReviewFixture):
         """
         rows = get_outflow_rows(scope="all", batch=self.batch.name, limit=200)["rows"]
         by_name = {r["name"]: r for r in rows}
-        self.assertIn("settled_ledger", by_name[self.settled_row])
-        self.assertEqual(by_name[self.settled_row]["settled_ledger"], self.settled_ledger)
+        # ⚠️ RENAMED TO A LIST AT TASK 6 (ADR-0020 fan-out): `settled_ledger` (scalar) is GONE
+        # rather than kept beside `settled_ledgers` -- see `TestTheSettledReadsSurviveAFanOut`.
+        self.assertIn("settled_ledgers", by_name[self.settled_row])
+        self.assertEqual(by_name[self.settled_row]["settled_ledgers"], [self.settled_ledger])
 
     def test_an_UNSETTLED_row_carries_a_BLANK_ledger_not_a_guess(self):
         """An open transfer has not landed anywhere yet, and blank is the honest value. Every row
@@ -3734,8 +3737,8 @@ class TestTheSettledLedgerSplit(OutflowReviewFixture):
         open_rows = [r for r in rows if r["row_status"] in OPEN_ROW_STATUSES]
         self.assertTrue(open_rows, "fixture precondition: an unsettled row")
         for row in open_rows:
-            self.assertIn("settled_ledger", row)
-            self.assertFalse((row["settled_ledger"] or "").strip())
+            self.assertIn("settled_ledgers", row)
+            self.assertEqual(row["settled_ledgers"], [])
 
     def test_the_funnel_offers_the_ledgers_that_were_actually_settled_into(self):
         values = get_outflow_facet_values(column="settled_ledger", batch=self.batch.name)
@@ -3850,11 +3853,17 @@ class TestTheOutflowExport(OutflowReviewFixture):
         self.assertEqual({r["row_status"] for r in skipped["rows"]}, {"Skipped"})
 
     def test_it_carries_the_three_settlement_columns_a_RECONCILER_needs(self):
-        """A book name alone cannot be joined to a ledger export. `settled_target_name` says WHICH
-        record and `settled_target_amount` says for how much -- and on a partial settle that figure
-        differs from the transfer's own, which is a large part of why somebody exports at all."""
+        """A book name alone cannot be joined to a ledger export. `settled_target_names` says WHICH
+        record(s) and `settled_target_amounts` says for how much each -- and on a partial settle
+        those figures differ from the transfer's own, which is a large part of why somebody exports
+        at all.
+
+        ⚠️ RENAMED AT TASK 6 (ADR-0020 fan-out): `settled_target_name` / `settled_target_amount`
+        (scalar, `LIMIT 1` with no `ORDER BY`) are GONE, replaced by the plural, pipe-joined keys --
+        see `TestTheSettledReadsSurviveAFanOut`.
+        """
         for row in export_outflow_rows(scope="all", batch=self.batch.name)["rows"]:
-            for key in ("settled_ledger", "settled_target_name", "settled_target_amount"):
+            for key in ("settled_ledgers", "settled_target_names", "settled_target_amounts"):
                 self.assertIn(key, row, f"the export dropped `{key}`")
 
     def test_an_unsettled_row_has_a_BLANK_target_amount_and_NOT_a_zero(self):
@@ -3864,8 +3873,8 @@ class TestTheOutflowExport(OutflowReviewFixture):
         rows = export_outflow_rows(scope="not_matched", batch=self.batch.name)["rows"]
         self.assertTrue(rows, "fixture precondition: an unsettled row")
         for row in rows:
-            self.assertIsNone(row["settled_target_amount"])
-            self.assertFalse((row["settled_ledger"] or "").strip())
+            self.assertIsNone(row["settled_target_amounts"])
+            self.assertEqual(row["settled_ledgers"], [])
             self.assertIsInstance(row["amount"], float)
 
     def test_it_omits_the_three_keys_that_only_a_DIALOG_could_use(self):
@@ -4454,3 +4463,106 @@ class TestInflowDoctypeSpelling(unittest.TestCase):
         self.assertNotIn(INFLOW_DOCTYPE, EXPENSE_DOCTYPES)
         self.assertFalse(is_expense_doctype(INFLOW_DOCTYPE))
         self.assertEqual(settleable_statuses(INFLOW_DOCTYPE), ())
+
+
+class TestTheSettledReadsSurviveAFanOut(AllocationFixture):
+    """⚠️ EVERY FAILURE IN THIS AREA IS SILENT -- a wrong number on a screen, never an exception.
+    These tests are the only thing that can see it.
+
+    ⚠️ CORRECTED AT REVIEW, TWICE, AGAINST THE BRIEF'S OWN SNIPPETS -- both corrections are about
+    the FIXTURE, never about the query under test:
+
+    (1) `search=row` (the brief's literal text) searches `_SEARCHABLE_COLUMNS` -- beneficiary_name,
+    remarks, bank_reference_no, transfer_id, bank_account -- and NONE of those is `r.name`, which is
+    what `_staged_row` returns. Verified empirically: the brief's own snippet raises `StopIteration`
+    before this task changed a single line. Every test here scopes by `batch` instead -- each
+    `_staged_row` call mints a fresh batch holding exactly the one row, so `batch=` finds it exactly
+    as precisely as a (broken) search by name was meant to.
+
+    (2) `_staged_row` never sets `status_raw`, so `UPPER(TRIM(COALESCE(status_raw,''))) <>
+    'SUCCESS'` reads it as a BANK FAILURE and `derive_import_summary` excludes it from `total_rows`
+    / `open_rows` / `settled_rows` entirely (verified: the brief's summary snippet reports
+    `open_rows == 0` for a row that plainly needs settling). The summary test stamps `status_raw`
+    to a real success value first, matching what a genuinely staged row would carry.
+    """
+
+    def _batch_of(self, row):
+        return frappe.db.get_value(ROW_DOCTYPE, row, "import_batch")
+
+    def test_a_fan_out_row_reports_every_ledger_it_settled_into(self):
+        row = self._staged_row(amount="100")
+        allocate_row(row=row, targets=self._targets(self._three_payments()))
+        page = get_outflow_rows(scope="all", batch=self._batch_of(row))
+        payload = next(r for r in page["rows"] if r["name"] == row)
+        self.assertEqual(payload["settled_ledgers"], ["Project Payments"])
+
+    def test_the_scalar_settled_ledger_key_is_GONE(self):
+        """Replaced, not widened. A stale reader must get `undefined` and render nothing rather
+        than one arbitrarily-picked leg -- the disposition `settled_by_ledger` established."""
+        row = self._staged_row(amount="100")
+        allocate_row(row=row, targets=self._targets(self._three_payments()))
+        page = get_outflow_rows(scope="all", batch=self._batch_of(row))
+        payload = next(r for r in page["rows"] if r["name"] == row)
+        self.assertNotIn("settled_ledger", payload)
+
+    def test_the_ledger_facet_never_hides_a_row_matching_its_own_label(self):
+        """⚠️ THE WORST SHAPE AVAILABLE, in review.py's own words: a filter that hides rows
+        matching the label it was ticked from looks like it worked."""
+        row = self._staged_row(amount="100")
+        allocate_row(row=row, targets=self._targets(self._three_payments()))
+        page = get_outflow_rows(
+            scope="all",
+            batch=self._batch_of(row),
+            facets=json.dumps({"settled_ledger": ["Project Payments"]}),
+        )
+        self.assertIn(row, [r["name"] for r in page["rows"]])
+
+    def test_the_export_lists_every_leg_rather_than_one(self):
+        row = self._staged_row(amount="100")
+        pays = self._three_payments()
+        allocate_row(row=row, targets=self._targets(pays))
+        rows = export_outflow_rows(scope="all", batch=self._batch_of(row))["rows"]
+        payload = next(r for r in rows if r["name"] == row)
+        for p in pays:
+            self.assertIn(p, payload["settled_target_names"])
+        self.assertNotIn("settled_target_name", payload)
+
+    def test_the_export_and_the_screen_agree_on_how_many_transfers_there_are(self):
+        """A JOIN here would multiply the row out. The subquery shape is what prevents it."""
+        row = self._staged_row(amount="100")
+        allocate_row(row=row, targets=self._targets(self._three_payments()))
+        batch = self._batch_of(row)
+        screen = get_outflow_rows(scope="all", batch=batch)["total"]
+        exported = len(export_outflow_rows(scope="all", batch=batch)["rows"])
+        self.assertEqual(screen, exported)
+
+    def test_a_partly_allocated_transfer_is_reported_as_open_not_as_settled(self):
+        """⚠️ THE RECONCILIATION IS PRESERVED BY DOING NOTHING HERE. `_settled_by_direction` sums
+        ROW amounts and filters `row_status = 'Settled'`, so a partly-allocated transfer is in
+        neither block -- and Task 1 put it inside `open_value`, so `Total = Settled + Still open`
+        still adds up. Its own docstring predicted this exact slice ("green everywhere, until the
+        first partial settlement quietly makes a breakdown stop adding up"); this is the test that
+        answers it.
+
+        THE COST, STATED: the money already written against a partly-allocated transfer is reported
+        as open. That is the honest reading -- the TRANSFER is not settled -- but it means the
+        settled figure understates what has been paid. Reporting it per-leg would need
+        `SUM(m.target_amount)`, which breaks the reconciliation. Deferred deliberately.
+        """
+        row = self._staged_row(amount="100")
+        # See the class docstring, correction (2): a bank-success status is what makes this row
+        # count at all in the summary, which is the fact under test here, not a workaround for it.
+        frappe.db.set_value(ROW_DOCTYPE, row, "status_raw", "SUCCESS", update_modified=False)
+        frappe.db.commit()
+        a, _, _ = self._three_payments()
+        allocate_row(row=row, targets=self._targets([a]))
+        payload = get_outflow_summary(batch=self._batch_of(row))
+        # ⚠️ `get_outflow_summary` NESTS THESE UNDER `totals`, NOT AT THE TOP LEVEL -- see
+        # `_jsonable_summary`. The brief's own snippet reads them off the payload directly; this is
+        # the correction, not a change of what is being asserted.
+        summary = payload["totals"]
+        self.assertEqual(summary["settled_rows"], 0)
+        self.assertEqual(summary["open_rows"], 1)
+        self.assertEqual(
+            summary["total_rows"], summary["settled_rows"] + summary["open_rows"]
+        )

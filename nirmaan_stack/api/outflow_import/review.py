@@ -1874,6 +1874,14 @@ _FACET_COLUMNS = {
     # ⚠️ AND IT IS ON THE ROW PAYLOAD TOO -- see the comment in `get_outflow_rows`' SELECT list. This
     # map governs FILTERING ONLY; shipping the value to the screen is a second, separate edit, and
     # slice Q1 made exactly that mistake with `settlement_origin`.
+    #
+    # ⚠️ SINCE ADR-0020 (FAN-OUT) THIS ENTRY IS PRESENT ONLY SO `_parsed_facets` KEEPS ALLOWING THE
+    # COLUMN NAME -- the aggregate expression here is no longer what filters or lists values for it.
+    # `_row_filters` gives `settled_ledger` its OWN `EXISTS` branch (below): comparing a two-ledger
+    # row's `string_agg` result against one ticked label would never equal it, so ticking a label a
+    # row settled into would HIDE that row -- the worst shape available, because it looks like it
+    # worked. `get_outflow_facet_values` likewise queries the match table directly for this column
+    # rather than running `DISTINCT` over the aggregate string.
     "settled_ledger": SETTLED_LEDGER_SQL,
     # ⚠️ `added_on` WAS REMOVED AT P1 AND MUST NOT COME BACK. The payment date is a DATE FILTER now
     # (`date_from` / `date_to`, applied in `_row_filters`), which is the one shape a facet cannot
@@ -1928,16 +1936,24 @@ _MAX_EXPORT = 20000
 # Same scalar-correlated-subquery shape, for the same structural reason -- a JOIN would change the
 # FROM clause, and a fan-out settlement (one transfer covering several payments, which the unique
 # key deliberately permits) would then multiply the row out and make this export disagree with
-# `get_outflow_rows` about how many transfers there are. `LIMIT 1` carries the same caveat recorded
-# on `SETTLED_LEDGER_SQL`: exact today, and the thing to re-decide if fan-out ever writes several
-# match rows per import row.
+# `get_outflow_rows` about how many transfers there are.
+#
+# ⚠️ AGGREGATES NOW, EXACTLY LIKE `SETTLED_LEDGER_SQL` (ADR-0020) -- `LIMIT 1` with no `ORDER BY`
+# used to pick one leg arbitrarily per subquery. `REVERSED` LEGS ARE EXCLUDED for the same reason
+# as `SETTLED_LEDGER_SQL`.
+#
+# ⚠️ THE `ORDER BY` IS NOT COSMETIC. These two are INDEPENDENT subqueries, so without a shared,
+# total ordering the names and the amounts on one CSV line could come from different legs -- which
+# is worse than picking one leg consistently. `matched_at, name` is total because `name` is unique.
 _SETTLED_NAME_SQL = (
-    '(SELECT m.target_name FROM "tabOutflow Row Match" m '
-    "WHERE m.import_row = r.name LIMIT 1)"
+    "(SELECT string_agg(m.target_name, ' | ' ORDER BY m.matched_at, m.name) "
+    'FROM "tabOutflow Row Match" m '
+    "WHERE m.import_row = r.name AND m.match_kind = 'Settled')"
 )
 _SETTLED_TARGET_AMOUNT_SQL = (
-    '(SELECT m.target_amount FROM "tabOutflow Row Match" m '
-    "WHERE m.import_row = r.name LIMIT 1)"
+    "(SELECT string_agg(m.target_amount::text, ' | ' ORDER BY m.matched_at, m.name) "
+    'FROM "tabOutflow Row Match" m '
+    "WHERE m.import_row = r.name AND m.match_kind = 'Settled')"
 )
 
 
@@ -2035,11 +2051,14 @@ def get_outflow_rows(
                -- reasoning and the measurement live on the `_FACET_COLUMNS["direction"]` entry;
                -- read it before changing either side.
                r.direction,
-               -- WHICH BOOK THE MONEY LANDED IN, on the row that landed it. Registered in
-               -- `_FACET_COLUMNS` in the SAME change as this line, for the reason four lines up.
-               -- Blank on every unsettled row, which is honest: an open transfer has not landed
-               -- anywhere yet.
-               {SETTLED_LEDGER_SQL} AS settled_ledger,
+               -- EVERY BOOK THE MONEY LANDED IN, on the row that landed it (plural since
+               -- ADR-0020's fan-out: one transfer may settle several payments in different
+               -- ledgers). Registered in `_FACET_COLUMNS` in the SAME change as this line, for the
+               -- reason four lines up. Blank on every unsettled row, which is honest: an open
+               -- transfer has not landed anywhere yet. Split into a list below, in the row-shaping
+               -- loop -- never on the client, which would be a second place that has to know the
+               -- pipe is a `string_agg` transport detail.
+               {SETTLED_LEDGER_SQL} AS settled_ledgers,
                b.original_filename AS import_filename,
                b.period_from       AS import_period_from,
                b.period_to         AS import_period_to
@@ -2082,6 +2101,12 @@ def get_outflow_rows(
                 "amount": float(row.get("amount") or 0),
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
+                # ⚠️ SPLIT INTO A LIST HERE, not on the client. The pipe is a transport detail of
+                # `string_agg`; a client that splits it would be a second place that has to know
+                # the separator, and the two would drift the day it changes.
+                "settled_ledgers": [
+                    part for part in (row.get("settled_ledgers") or "").split("|") if part
+                ],
                 # Kept for shape-compatibility with `get_batch_rows`, which the decision dialog and
                 # the settlement-link helpers already read. A master-table page never carries match
                 # records: they mean "settled", and the Settled tab reads them per row on demand.
@@ -2183,6 +2208,20 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
         # instead of clearing the filter, which reads as a bug every single time.
         if not chosen:
             continue
+        if column == "settled_ledger":
+            # ⚠️ `EXISTS`, NOT A COMPARISON AGAINST THE AGGREGATE (ADR-0020 fan-out). A row settling
+            # into two ledgers would never equal either label under `CAST(SETTLED_LEDGER_SQL AS
+            # text) IN (...)`, so ticking one would HIDE it -- a filter that hides rows matching the
+            # label it was ticked from is the worst shape available, because it looks like it
+            # worked. `EXISTS` also keeps `_row_filters` single-table: it is a WHERE fragment, so
+            # none of the nine statements built from this function grows a JOIN.
+            where.append(
+                f'EXISTS (SELECT 1 FROM "tabOutflow Row Match" m '
+                f"WHERE m.import_row = r.name AND m.match_kind = 'Settled' "
+                f"AND m.target_doctype IN ({', '.join(['%s'] * len(chosen))}))"
+            )
+            params.extend([str(v) for v in chosen])
+            continue
         expression = _FACET_COLUMNS[column]
         placeholders = ", ".join(["%s"] * len(chosen))
         where.append(f"CAST({expression} AS text) IN ({placeholders})")
@@ -2252,6 +2291,31 @@ def get_outflow_facet_values(
     scoped_where, scoped_params = _scope_clause(scope) if scope else ([], [])
     where, params = where + scoped_where, params + scoped_params
     clause = (" WHERE " + " AND ".join(where)) if where else ""
+
+    # ⚠️ `settled_ledger` GETS ITS OWN DISTINCT, OVER THE MATCH TABLE, NOT OVER THE AGGREGATE
+    # (ADR-0020 fan-out). `DISTINCT CAST(SETTLED_LEDGER_SQL AS text)` would return
+    # "Project Payments|Project Expenses" as ONE bogus option for a row settled into both, rather
+    # than offering the two real labels. This is its OWN standalone statement -- not one of the
+    # nine `_row_filters` statements that must stay single-table -- so a JOIN here is free: it never
+    # touches the shared builder's FROM clause.
+    if column == "settled_ledger":
+        rows = frappe.db.sql(
+            f"""
+            SELECT DISTINCT m.target_doctype AS value
+            FROM "tabOutflow Row Match" m
+            JOIN "tabOutflow Import Row" r ON r.name = m.import_row
+            {clause}
+            {"AND" if clause else "WHERE"} m.match_kind = 'Settled'
+            ORDER BY value ASC
+            LIMIT %s
+            """,
+            tuple(params) + (max(1, min(int(limit or 500), 2000)),),
+            as_dict=True,
+        )
+        return {
+            "column": column,
+            "values": [r["value"] for r in rows if (r["value"] or "").strip()],
+        }
 
     expression = _FACET_COLUMNS[column]
     rows = frappe.db.sql(
@@ -2370,10 +2434,12 @@ def export_outflow_rows(
     twenty thousand rows on every keystroke.
 
     WHAT IT CARRIES, AND WHAT IT DELIBERATELY DOES NOT. Every column `get_outflow_rows` returns, plus
-    three settlement facts a reconciler needs: `settled_ledger` (which book), `settled_target_name`
-    (which record) and `settled_target_amount` (for how much -- which may differ from the transfer's
-    own amount on a partial settle, and that difference is exactly what somebody exports a
-    spreadsheet to look at).
+    two EXPORT-ONLY settlement facts a reconciler needs: `settled_target_names` (which record(s),
+    pipe-joined in leg order) and `settled_target_amounts` (for how much each -- which may differ
+    from the transfer's own amount on a partial settle, and that difference is exactly what somebody
+    exports a spreadsheet to look at). `settled_ledgers` rides the same `SETTLED_LEDGER_SQL`
+    aggregate `get_outflow_rows` uses, as a list, for the same reason (ADR-0020: one transfer may now
+    settle into several ledgers).
 
     It OMITS `matches`, `related_payments` and `suggested_order_name`. Those three exist for the
     decision dialog's LINKS -- they are how a row's settlement and its related payments become
@@ -2424,9 +2490,9 @@ def export_outflow_rows(
                r.suggested_doctype, r.suggested_name, r.suggestion_rule, r.match_basis,
                r.auto_matched, r.row_status, r.skip_reason, r.outcome_note,
                r.settlement_origin, r.source,
-               {SETTLED_LEDGER_SQL}          AS settled_ledger,
-               {_SETTLED_NAME_SQL}           AS settled_target_name,
-               {_SETTLED_TARGET_AMOUNT_SQL}  AS settled_target_amount,
+               {SETTLED_LEDGER_SQL}          AS settled_ledgers,
+               {_SETTLED_NAME_SQL}           AS settled_target_names,
+               {_SETTLED_TARGET_AMOUNT_SQL}  AS settled_target_amounts,
                b.original_filename AS import_filename,
                b.period_from       AS import_period_from,
                b.period_to         AS import_period_to
@@ -2446,15 +2512,19 @@ def export_outflow_rows(
                 "amount": float(row.get("amount") or 0),
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
-                # ⚠️ `None` SURVIVES AS `None`, and is NOT coerced to 0.0 the way the three above
-                # are. An unsettled transfer has no target amount, and a `0` in that cell is a
-                # CLAIM -- "settled for nothing" -- where a blank is the truth. The three above are
-                # different: every transfer has an amount and a charge, blank or not.
-                "settled_target_amount": (
-                    None
-                    if row.get("settled_target_amount") is None
-                    else float(row["settled_target_amount"])
-                ),
+                # Same split as `get_outflow_rows` -- see the comment there. Server-side, once,
+                # never on the client.
+                "settled_ledgers": [
+                    part for part in (row.get("settled_ledgers") or "").split("|") if part
+                ],
+                # ⚠️ `settled_target_names` / `settled_target_amounts` pass through UNCHANGED via
+                # `**row` above -- STILL a pipe-joined STRING, not a list, and STILL `None` (never
+                # `""`, never coerced to a number) on an unsettled row. These two are EXPORT-ONLY (a
+                # spreadsheet cell, not a JSON array a screen renders), so `string_agg`'s own
+                # separator is the right shape to hand a reconciler directly. A `0`-like empty value
+                # here would be a CLAIM -- "settled for nothing" -- where a blank is the truth: every
+                # transfer has an amount and a charge (coerced above); settlement facts are
+                # different.
             }
             for row in rows
         ],

@@ -62,7 +62,7 @@ export interface OutflowExportColumn {
  * The two settlement facts the CSV carries that the SCREEN does not have.
  *
  * ⚠️ THEY ARE NOT IN `OUTFLOW_COLUMNS`, AND THEY MUST NOT BE. `get_outflow_rows` does not select
- * `settled_target_name` / `settled_target_amount`; only `export_outflow_rows` does. A column
+ * `settled_target_names` / `settled_target_amounts`; only `export_outflow_rows` does. A column
  * declared on the screen for a field its own query never returns renders an em dash on every row
  * forever -- the mirror image of the `settlement_origin` defect, where a facet was registered
  * without adding the field to the SELECT and 849 settled rows read blank.
@@ -71,27 +71,36 @@ export interface OutflowExportColumn {
  * screen's order, so somebody comparing a download against the table reads the same sequence; the
  * facts the screen cannot show sit after them, where supplementary data belongs.
  *
- * `Settled amount` is the RECORD's amount, which is not the transfer's `Amount Paid` -- on a
- * partial settle the two differ, and that difference is a reason somebody exports a spreadsheet in
- * the first place. It stays BLANK rather than 0 on an unsettled row: 0 is a claim that nothing was
- * owed, absence is the truth (the same blank-is-not-a-zero rule the BCS cost layer states).
+ * ⚠️ RENAMED FROM SINGULAR SCALARS AT TASK 6 (ADR-0020 fan-out) -- `settled_target_name` /
+ * `settled_target_amount` came off three independent `LIMIT 1` subqueries with no `ORDER BY`,
+ * which could each pick a DIFFERENT leg on a fan-out: one CSV line could carry one payment's name
+ * beside a different payment's amount. The plural keys are `string_agg`'d server-side under one
+ * shared `matched_at, name` ordering, so a cell here still reads as ONE pipe-joined string -- there
+ * is no list to `.join()` on the client, and doing so would be a second place that has to know the
+ * separator.
+ *
+ * `Settled amounts` are the RECORD(S)' own amount(s), which is not the transfer's `Amount Paid` --
+ * on a partial settle the two differ, and that difference is a reason somebody exports a
+ * spreadsheet in the first place. It stays BLANK rather than 0 on an unsettled row: 0 is a claim
+ * that nothing was owed, absence is the truth (the same blank-is-not-a-zero rule the BCS cost layer
+ * states).
  */
 export const EXPORT_ONLY_COLUMNS: readonly OutflowExportColumn[] = [
     {
-        id: "settled_target_name",
-        header: "Settled record",
+        id: "settled_target_names",
+        header: "Settled record(s)",
         meta: {
-            exportHeaderName: "Settled record",
-            exportValue: (row: OutflowImportRow) => row.settled_target_name ?? "",
+            exportHeaderName: "Settled record(s)",
+            exportValue: (row: OutflowImportRow) => row.settled_target_names ?? "",
         },
     },
     {
-        id: "settled_target_amount",
-        header: "Settled amount",
+        id: "settled_target_amounts",
+        header: "Settled amount(s)",
         meta: {
-            exportHeaderName: "Settled amount",
+            exportHeaderName: "Settled amount(s)",
             // ⚠️ `?? ""`, never `?? 0`. See the block comment above.
-            exportValue: (row: OutflowImportRow) => row.settled_target_amount ?? "",
+            exportValue: (row: OutflowImportRow) => row.settled_target_amounts ?? "",
         },
     },
 ];

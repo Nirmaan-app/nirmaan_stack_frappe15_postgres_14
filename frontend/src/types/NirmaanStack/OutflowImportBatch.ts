@@ -171,22 +171,30 @@ export interface OutflowImportRow {
      */
     settlement_origin?: string;
     /**
-     * Which ledger this row settled against: "Project Payments" / "Project Expenses" /
-     * "Non Project Expenses". Blank until the row is settled.
+     * Every ledger this row settled into: "Project Payments" / "Project Expenses" /
+     * "Non Project Expenses" -- possibly more than one, since one transfer may now settle several
+     * payments across different books (ADR-0020's fan-out). Empty on an unsettled row.
      *
-     * ⚠️ DERIVED AT READ TIME from the row's `Outflow Row Match`, not stored on the row -- unlike
-     * `settlement_origin` beside it, which is denormalised onto the row. Same shape all the same:
-     * blank on an unsettled row is CORRECT, because an open transfer has no settlement yet and so
-     * has no ledger. The facet's own "(blank)" entry is what selects them.
+     * ⚠️ RENAMED FROM A SCALAR `settled_ledger` AT TASK 6, RATHER THAN WIDENED IN PLACE -- following
+     * the `settled_by_ledger` precedent (`review.py`): three independent `LIMIT 1` subqueries with
+     * no `ORDER BY` could each pick a different leg on a fan-out, so the old scalar key is GONE. A
+     * stale reader now gets `undefined` and renders nothing, which is the intended loud failure
+     * rather than one arbitrarily-picked ledger.
      *
-     * ⚠️ FILTERABLE BUT NOT SORTABLE. `review._FACET_COLUMNS` carries it; `_SORTABLE_COLUMNS`
-     * deliberately does not -- ordering the whole filtered table by a per-row correlated subquery
-     * that is blank on most rows buys nothing. It is absent from `SERVER_SORT_COLUMNS` for the
-     * same reason, which is also what withholds the header's sort affordance.
+     * ⚠️ DERIVED AT READ TIME from the row's `Outflow Row Match` rows, not stored on the row --
+     * unlike `settlement_origin` beside it, which is denormalised onto the row. Same shape all the
+     * same: empty on an unsettled row is CORRECT, because an open transfer has no settlement yet and
+     * so has no ledger. The facet's own "(blank)" entry is what selects them.
+     *
+     * ⚠️ FILTERABLE BUT NOT SORTABLE. `review._FACET_COLUMNS` carries the (still singular)
+     * `settled_ledger` FILTER column; `_SORTABLE_COLUMNS` deliberately does not -- ordering the
+     * whole filtered table by a per-row correlated subquery that is blank on most rows buys nothing.
+     * It is absent from `SERVER_SORT_COLUMNS` for the same reason, which is also what withholds the
+     * header's sort affordance.
      */
-    settled_ledger?: string;
+    settled_ledgers?: string[];
     /**
-     * The settled record's own name and amount.
+     * The settled record's own name(s) and amount(s), one entry per settled leg.
      *
      * ⚠️ EXPORT-ONLY. `get_outflow_rows` does NOT return these two -- only
      * `export_outflow_rows` does -- so they are declared here for the CSV path and must NEVER be
@@ -194,13 +202,20 @@ export interface OutflowImportRow {
      * select renders an em dash on every row forever, which is the `settlement_origin` defect
      * (a facet registered without its SELECT) wearing the other face.
      *
-     * They exist because a reconciler opening the file asks "which record, and for how much" --
-     * and on a partial settle `settled_target_amount` differs from the transfer's own `amount`,
-     * which is the whole reason to look. `settled_target_amount` stays null on an unsettled row
-     * rather than 0: an open transfer did not settle nothing, it settled nothing YET.
+     * They exist because a reconciler opening the file asks "which record(s), and for how much
+     * each" -- and on a partial settle a `settled_target_amounts` entry differs from the transfer's
+     * own `amount`, which is the whole reason to look. `settled_target_amounts` stays null on an
+     * unsettled row rather than 0: an open transfer did not settle nothing, it settled nothing YET.
+     *
+     * ⚠️ RENAMED FROM SCALARS (`settled_target_name` / `settled_target_amount`) AT TASK 6, for the
+     * same fan-out reason `settled_ledgers` was. Each stays a PIPE-JOINED STRING in leg order
+     * (`matched_at, name` -- a total order, since `name` is unique), NOT a list: these two are
+     * export-only, a spreadsheet cell rather than a JSON array a screen renders, and the two
+     * subqueries share that one ordering so a CSV line's name and amount always come from the same
+     * leg.
      */
-    settled_target_name?: string;
-    settled_target_amount?: number | null;
+    settled_target_names?: string;
+    settled_target_amounts?: string;
     /** Denormalised from the batch, so the table can filter by source without a join. */
     source?: string;
     /**

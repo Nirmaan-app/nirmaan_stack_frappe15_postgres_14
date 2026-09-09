@@ -413,7 +413,12 @@ export const OUTFLOW_COLUMNS: OutflowColumn[] = [
     // `_SORTABLE_COLUMNS`, which refuses it -- a per-row correlated subquery over the whole
     // filtered table, blank on most rows). That absence is the whole mechanism: the header only
     // draws a sort button for a column `SERVER_SORT_COLUMNS` contains.
-    { id: "settled_ledger", title: "Ledger", get: (r) => r.settled_ledger ?? "", filter: "facet", width: "150px" },
+    // ⚠️ READS THE LIST AND JOINS IT (Task 6, ADR-0020 fan-out) -- `r.settled_ledgers` REPLACED the
+    // scalar `r.settled_ledger` this column used to read; a stale reader of the old field now gets
+    // `undefined` and an empty cell rather than one arbitrarily-picked ledger. The `id` stays
+    // `settled_ledger` (singular) on purpose: it is the FACET COLUMN NAME the server still filters
+    // on (`_FACET_COLUMNS["settled_ledger"]`), not the payload field this cell reads.
+    { id: "settled_ledger", title: "Ledger", get: (r) => (r.settled_ledgers ?? []).join(", "), filter: "facet", width: "150px" },
     // The Outcome cell is a BUTTON, not text, so it neither sorts nor filters -- there is nothing
     // meaningful to order "open this dialog" by.
     // ⚠️ NARROWED FROM 320px (owner, 2026-08-10) once the outcome NOTE moved out of the button and

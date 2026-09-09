@@ -302,16 +302,23 @@ describe("columns", () => {
         expect(DEFAULT_HIDDEN_COLUMNS).not.toContain("settled_ledger");
     });
 
-    it("reads the ledger off the row, and blank when nothing has settled", () => {
-        // Blank is CORRECT, not missing data: an open transfer has no settlement, so it has no
-        // ledger. `get` must never return undefined -- it feeds the sort, the funnel and the CSV.
+    it("reads the ledger LIST off the row and joins it, blank when nothing has settled", () => {
+        // ⚠️ RENAMED AT TASK 6 (ADR-0020 fan-out): `r.settled_ledgers` (a list, possibly more than
+        // one entry since a single transfer may now settle into several books) REPLACED the scalar
+        // `r.settled_ledger` this column used to read. Blank is CORRECT, not missing data: an open
+        // transfer has no settlement, so it has no ledger. `get` must never return undefined -- it
+        // feeds the sort, the funnel and the CSV.
         const col = OUTFLOW_COLUMNS.find((c) => c.id === "settled_ledger")!;
-        expect(col.get(row({ settled_ledger: "Project Payments" }))).toBe("Project Payments");
-        expect(col.get(row({ settled_ledger: "Non Project Expenses" }))).toBe(
+        expect(col.get(row({ settled_ledgers: ["Project Payments"] }))).toBe("Project Payments");
+        expect(col.get(row({ settled_ledgers: ["Non Project Expenses"] }))).toBe(
             "Non Project Expenses"
         );
+        expect(
+            col.get(row({ settled_ledgers: ["Project Payments", "Project Expenses"] }))
+        ).toBe("Project Payments, Project Expenses");
         expect(col.get(row())).toBe("");
-        expect(col.get(row({ settled_ledger: undefined }))).toBe("");
+        expect(col.get(row({ settled_ledgers: [] }))).toBe("");
+        expect(col.get(row({ settled_ledgers: undefined }))).toBe("");
     });
 
     it("faceted on the server and NEVER sorted there", () => {

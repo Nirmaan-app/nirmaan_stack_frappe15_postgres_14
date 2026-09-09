@@ -207,21 +207,23 @@ def decided_on_sql(doctype: str) -> str:
 # no interest in the match table at all. A scalar subquery is confined to the SELECT list of the one
 # query that wants it and leaves the other four byte-identical.
 #
-# ⚠️ `LIMIT 1` IS EXACT HERE, NOT A GUESS. A settled row carries at most one `Outflow Row Match`
-# (verified on live data 2026-08-20: 0 rows with a blank `import_row`, 0 `import_row` values holding
-# more than one match). The shape that could change that is a FAN-OUT -- one transfer covering
-# several payments, which the unique key `(transfer_id, target_doctype, target_name)` deliberately
-# permits -- so if fan-out settlements ever start writing several match rows per import row, this
-# constant is what needs re-deciding: `LIMIT 1` would then pick one of them arbitrarily. It is a
-# reporting figure, so an arbitrary pick would be quietly wrong rather than loudly broken; re-check
-# the multi-match count before assuming it still holds.
+# ⚠️ AN AGGREGATE, NOT `LIMIT 1` (changed at ADR-0020). One transfer may settle several payments,
+# so `LIMIT 1` -- which had no `ORDER BY` -- would pick one leg arbitrarily and quietly mis-report
+# the row. The previous note here asked the next reader to re-check the multi-match count before
+# relying on it; that count is no longer zero, and this is the re-decision it asked for.
 #
-# ⚠️ `import_row` IS NOT INDEXED as of 2026-08-20 -- `Outflow Row Match.on_doctype_update` declares
-# `import_batch`, `transfer_id` and the target unique constraint, and nothing on this column. The
-# subquery is therefore a sequential probe per settled row. Measure before adding one; the
-# established pattern is a controller hook plus a patch that CALLS it
-# (`patches/v3_0/add_outflow_master_index.py`).
+# STILL A SCALAR CORRELATED SUBQUERY, for the reason the rest of this comment gives: five reads
+# share `_row_filters` (nine statements across six callers, in fact) and a JOIN would change the
+# FROM clause of every one of them. `string_agg` keeps the result one value per row.
+#
+# REVERSED LEGS ARE EXCLUDED, matching `allocation.allocated_of`. A reversed settlement no longer
+# landed anywhere, and reporting its ledger would claim money that is no longer there.
+#
+# ⚠️ `ofm_match_import_row_idx` (patched onto already-deployed databases by
+# `patches/v3_0/add_outflow_match_import_row_index.py`) is what keeps this affordable; without it
+# the subquery is a sequential probe per settled row.
 SETTLED_LEDGER_SQL = (
-    '(SELECT m.target_doctype FROM "tabOutflow Row Match" m '
-    "WHERE m.import_row = r.name LIMIT 1)"
+    "(SELECT string_agg(DISTINCT m.target_doctype, '|' ORDER BY m.target_doctype) "
+    'FROM "tabOutflow Row Match" m '
+    "WHERE m.import_row = r.name AND m.match_kind = 'Settled')"
 )
