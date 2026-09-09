@@ -37614,3 +37614,166 @@ completes.
 `nirmaan_stack/services/boq_category/ai_voter.py`, `nirmaan_stack/services/boq_category/tests/test_hv2_voter_harness.py`,
 `nirmaan_stack/services/boq_rate_master/test_extraction_coercion.py`, this record, root `CLAUDE.md` (one
 paragraph: the shared parser's list-of-dicts rule, its three callers, and never-in-the-prompt).
+
+## Calculator slice 1 -- the SHARED panel: three figures per line with a copy icon, combined on every line, the rewording (2026-09-09)
+
+**Why slice 1 of two.** The Calculator is a full-screen tab on `/electrical-pricing` that calls the SAME helper as the
+Rate suggestions panel and must "show the same value for the same attributes at all times" (owner 2026-09-08). Six
+things are owed; FOUR are changes to the shared panel and were built and certified on the BoQ editor that exists today
+(this slice); TWO are the new screen (slice 2, owed below). No page, no tab, no plumbing export was built here.
+
+Tip on entry 8f744e50 (in step with origin); live asset v59, batch `rmbulk-0bd36d23eaca`, 1,367 active items, 12
+configs (re-measured by the harness dump). Owner rulings, verbatim: "for such catgeories which price 2 or more things at
+once, supply install and combined (spply + install) should be mentioned for each"; single-line categories "show the same
+three figures -- yes"; "place small copy icon besude each umber"; the copy puts the "bare number"; Termination having no
+combined today: "ok"; the two blanks: "ok"; the row-assuming messages: "ok. reword"; "calculator lays out its own screen.
+functionally it should be excatly same with the helper."
+
+### Premises corrected by the repo (S12)
+- **THREE ("the two blanks look alike") did not survive contact with the code and was NOT built.** Row 397's blank
+  "Frame/Face plate" select is `plate_item`, the `module_fit` ladder BIND on `popup_boxes` (live config: ladders
+  `[(plate_item, floor_from plate_item)]`), so `derivedAttrIds` marks it DERIVED and `isAttrBlank`
+  (`rateHelperTypes.ts`) deliberately exempts it from red -- the pipeline computes it; it is not missing input. "Module
+  count" is a genuine missing input, hence red. A genuinely blank SELECT is already red: one `fieldTone` reaches both the
+  `<select>` and the `<Input>` in `RateHelperPanel.tsx`. Confirmed on screen in the cert (BOQ-26-00242 row 16: both LMS
+  selects blank AND red). Making the two alike would mark a computed field as unanswered -- the defect the exemption
+  exists to prevent. #57 item 4 therefore does NOT land; the correction is pinned by four tests.
+- The brief's invariant expectation "`headlines` GAIN a combined key where a line lacked one" was half wrong: wiring's
+  headlines already carried `combined_rate` for both blocks (`headlineValuesFor`). What lacked a combined was the
+  SECTION finals row the panel rendered. The gain therefore lands in the new per-section `figures` (measured below).
+- S2 established before building: a termination-primary row ALREADY had `values.combined_rate` (`computeWiring`'s
+  combined line), so extending combined to every line moves nothing a "Use this value" writes. Pinned.
+
+### The four changes (files: `pricingSheetHelper.ts`, `rateHelperTypes.ts`, `RateHelperPanel.tsx`, new
+`frontend/src/lib/clipboard.ts`, the helper test)
+1. **Combined on EVERY priced line -- `groupFigures(finals)`** (exported, PURE): each rate kind from the first output
+   that fills it, `combined_rate` = THIS group's supply + THIS group's install when both exist. It is the ONE producer:
+   every generic section, wiring's primary and secondary groups, AND wiring's `headlines` (the private
+   `headlineValuesFor` was byte-for-byte this logic and is replaced by it). New optional `WorkingsGroup.figures?:
+   Partial<Record<RateKind, number>>`. **THE NEVER-SUMMED INVARIANT LIVES IN THE SIGNATURE**: one map in, no second
+   operand, so no code path can add two groups -- pinned by a source test that every call site passes one map with no
+   `+` and no `sections[` index. `finals` is BYTE-UNCHANGED (the raw output map stays the by-name contract); `values`
+   untouched; a stored `combined_*` output (cable's `combined_per_mtr`) maps to no kind and is re-derived, never trusted.
+2. **Three figures with a copy icon each -- IN THE SECTION BLOCK, not the header.** Recon measured the panel at 320 px
+   embedded / 300 px push with the Revert button already clipped by 35 px and a 262-px select overrunning the edge: three
+   figures do not fit the header (six lines for wiring) and three inputs do not fit the final-value row. The section
+   block is a wrapping `flex flex-wrap gap-x-3` row, the one place with room; the raw `finals` row there (output ids,
+   "supply_per_mtr 1490") is replaced by `Supply <n> [copy]  Install <n> [copy]  Combined <n> [copy]` over
+   `DISPLAY_RATE_KINDS`, an em dash where a kind is absent (never hidden, never 0). `CopyFigureButton` puts
+   `bareNumberText(v)` (= `String(v)`, no symbol, separator or unit) on the clipboard through the NEW shared
+   `lib/clipboard.ts` (`copyTextToClipboard`: async clipboard + hidden-textarea fallback, `COPY_CONFIRM_MS` 1400) and
+   shows a tick for 1.4 s. **New file, not an extraction**: `QuickCalc.tsx` (the only prior implementation, inline) is
+   out of scope and was not rewired; a later cleanup may point it here. Header block and final-value row untouched.
+3. **Not built** (correction above); behaviour pinned: the blank predicate is type-blind; a derived blank is not blank;
+   one `fieldTone` reaches both controls; the `<option value="">` placeholder stays SELECTABLE (owner-locked).
+4. **The rewording -- ONE source per sentence, each true with a row and without.** 14 strings (the recon named "roughly
+   fifteen"; the amber `default` tooltip and the corroborated tick are unreachable without an extraction and were
+   left): (1) basis "Fill the attributes to price this row" -> "Fill the attributes to price"; (2) derivation "Not in
+   the suggestion run -- fill the attributes to compute a rate." -> "No extracted attributes -- fill them to compute a
+   rate."; (3) Revert "Discard your edits on this row and show the suggested calculation again" -> "Discard your edits
+   and show the original values again"; (4) Revert "No edits to discard on this row" -> "No edits to discard"; (5) undo
+   "Undo my edit to this field -- restores what the row supplied" -> "... restores the original value"; (6) `assumed`
+   note "No module size readable in the row or its headings -- assumed 3M. Check it." -> "No module size stated --
+   assumed 3M. Check it."; (7) section-title fallback: a prettified pipeline id ("Swsock Boq") -> the CATEGORY label
+   (`categoryLabel` = `category_display`, else prettified category id), suffixed " -- Supply" / " -- Install" only when
+   the category surfaces more than one pipeline ("Point Wiring -- Supply"; config `pipeline_labels` still win, wiring's
+   two untouched); (8) derivation "supply_per_mtr = 1490" / "install = 70" -> "Supply = 1490" / "Install = 70"
+   (`outputWord`; an output filling no kind keeps its name); (9) "combined_rate = supply + install = N" -> "Combined =
+   supply + install = N"; (10) basis "Rate master: switches_sockets @ ..." -> "Rate master: Switches and Sockets @ ...";
+   (11) "No swsock_boq rate row matches ..." -> "No Switches and Sockets rate row matches ..."; (12) "Matched swsock_boq
+   for ..." -> "Matched Switches and Sockets for ..."; (13) "Pipeline 'x' has an unsupported step." -> "<label> uses an
+   unsupported step."; (14) wiring declined reason "No cable_boq pipeline in the config" -> "No cable pipeline in the
+   config". NOT changed (panel-shell copy the calculator will not mount): the title "Rate suggestions", the empty-state
+   sentence, the two stub cards, the scope line.
+
+**Design note, recorded not chosen:** the three split-pipeline categories (`point_wiring`, `cabletray_raceway`,
+`industrial_sockets`) produce ONE kind per section, so the literal per-line rule renders "Supply 1869  Install --
+Combined --" on the supply block and "Supply --  Install 735  Combined --" on the install block; the category's combined
+(2604) stays where it was, the header when the combined column is clicked. Measured: **4,953 sections across the 42
+active runs carry exactly one figure and two dashes.** Register item for the owner.
+
+### THE INVARIANT -- proven, not asserted
+The real `makePricingSheetHelper` + `buildExtractionByRow` bundled with the project's esbuild in-container
+(`--alias:@=./src`, `--alias:HELPER_MOD=` HEAD copies vs the working tree; no DB, no network) and run over all **5,001
+rows of the 42 active runs** against the 12 live configs and 1,367 live items (read through `get_rate_master_items`, so
+brand is projected as the frontend sees it), under BOTH the run category and the live category (`get_sheet_categories_
+resolved`), before and after. **10,002 verdicts compared: `values` differing 0, `finalValues` differing 0, headline
+values differing 0, `finals` differing 0, kind changes 0, throws 0** (9,984 suggestions, 18 declines). 12,717 sections
+gained `figures`; 7,259 carry a combined figure, of which **4,738 had supply + install in `finals` and NO combined before
+(the Termination class and every single-pipeline generic section)**; 7,311 section labels and 7,257 basis lines reworded.
+
+### Tests (in-container vitest; the helper file is the only test file in scope)
+Full suite BEFORE (three source files stashed, new pins present): **19 failed / 3,235 passed of 3,254** = the known
+`writeOffControl` timeout + 18 red; AFTER: **1 failed / 3,253 passed** (the same known failure; total 3,254 = 3,234 + 20
+new pins). Helper file 258 -> **278**. The 18 red-before = 4 pins moved mechanically (`pipelineLabel` fallback "Db
+Install" -> "Db Switchgear"; `/^No probe_boq rate row matches /` -> `/^No Cf Probe .../` + not-contains; the assumed-note
+string; the manual-row basis) + 14 of the 20 new; the 6 new pins green before are the four THREE correction pins
+(existing behaviour, by design), the never-summed negative and the price-cannot-move pin (invariants that already held).
+New pins: ONE -- both wiring sections' own three figures (termination combined 100), the cross-line negative (200/40/240
+appear nowhere), the source negative on `groupFigures` call sites, purity (no combined without both halves; stored
+`combined_*` ignored; BCS output fills nothing), a single-line category's one section (320/70/390, label "Switches and
+Sockets"), **`lighting_mgmt_system` from the LIVE v59 asset** (Lutron 24,500 -> `{supply_rate: 31850}` only, `[31850,
+undefined, undefined]`, `values` = supply only), the price-cannot-move pin (cable AND termination-primary `values`
+byte-equal to the goldens; `values` never assigned from `figures`); TWO -- `bareNumberText` exact strings, kind order,
+source: the panel hands `bareNumberText(value)` to the clipboard helper, no `toLocaleString`/`Intl.NumberFormat`/rupee,
+figures inside the section block, em dash for absence, header unchanged; THREE -- the four correction pins; FOUR -- no
+forbidden phrase in the shipped strings of the three files (comments stripped), the manual-row sentences identical on a
+real row outside the run and on a no-row ctx, basis/titles/derivation identical in-run vs no-row-with-overrides with
+`values` equal, `outputWord`/`categoryLabel`/`pipelineLabel` incl. the split suffix, the assumed note exact, the panel's
+titles. VACUITY (A4), each disabled then restored to the identical diff hash: combined line in `groupFigures` -> 4 red
+(both-sections, cross-line negative, purity, single-line); `bareNumberText` formatting -> 1 red; `fieldTone` off the
+select -> 1 red; one rewording reverted -> 3 red. Python suites (read-only baselines): coercion **149 OK**, hv2 **43
+OK**, rate_suggest **71 OK**, rate_master **337 OK** (529 s). tsc: 0 errors in the five touched/new files (3,231
+pre-existing repo-wide). Residence check F2 223 / F5 119 = the recorded pre-existing drift (a `JSON.parse` in the new
+LMS pin briefly counted F2 224; replaced by a JSON import, the `bcsColumns.test.ts` precedent).
+
+### The browser live cert (2026-09-09, admins@nirmaan.app, :8080 via vite) -- ZERO AI calls, ZERO writes
+Docker Desktop's engine was down for ~40 min at the start of the slice (every API call 500; the owner restarted it) and
+the container came back bare: `bench serve --port 8000 --noreload` (PID 971), `bench worker` (973), `node
+apps/frappe/socketio.js` (975) and `yarn dev` (2102, after `node_modules/.vite` cleared) were started fresh -- nothing to
+kill by PID. `:8000` ping 200 x3, `:8080` 200 x3; FRONTEND-derived markers on the plain URLs: `CopyFigureButton` x5,
+`groupFigures(` x5, `copyTextToClipboard` x1. De-stale: 1 service worker unregistered, storage cleared, tab closed and
+reopened. No CSRF break (the cert makes no POST); the session survived. `/electrical-pricing` never opened.
+| step | row | result |
+|---|---|---|
+| L1 | BOQ-26-00015 / Electrical works / 10 (wiring) | Cable -- per Mtr: Supply **1490** Install **130** Combined **1620**; Termination -- per Set: Supply **2610** Install **660** Combined **3270** (where it showed none); six copy buttons (16 px); header still 1490 / 2610; no figure is 4100 / 790 / 4890 |
+| L2 | row 370 (switches) | section "Switches and Sockets" (was "Swsock Boq"): Supply **320** Install **70** Combined **390**; derivation "Supply = 320 / Install = 70 / Combined = supply + install = 390"; header 320. Also row 394: 640 / 130 / 770 |
+| L3 | row 10, termination Combined | clipboard held exactly `3270` (pasted into the search box, length 4, then cleared) -- page-JS `readText` froze the renderer and was abandoned |
+| L4 | row 397 (popup) | Module count: blank number, RED; Frame/Face plate: blank select, no red -- correct, it is the derived ladder bind; "Some attributes are missing -- fill them to compute a rate."; Use and Revert disabled |
+| L5 | rows 10 / 370 / 397, and BOQ-26-00242 / LT Electrical works / 16 (a real row outside its partial run) | on screen: "Rate master: Wiring, Cabling & Termination @ ...", "Rate master: Switches and Sockets @ ...", "Supply = ...", "Combined = supply + install = ...", "No edits to discard", after a session pick on Material (undone at once) "Discard your edits and show the original values again" and the undo tooltip "Undo my edit to this field -- restores the original value"; on row 16 "Fill the attributes to price" and "No extracted attributes -- fill them to compute a rate." with both genuinely-blank selects RED. The assumed note was not observed (needs a bare-box row) -- pinned only |
+| L6 | rows 10 and 370 | every figure identical to the 2026-09-08 recon reads (1490/130/1620, 2610/660; 320/70); final-value prefills 1490 / 320 unchanged |
+Session picks: Material ALUMINIUM -> COPPER on row 10 (undone via the field's own undo; "No edits to discard" confirmed);
+the Category view filter (Switches / Pop up Boxes) left applied on BOQ-26-00015, session-only. Tool anomaly: two
+ref-clicks on row 16's sparkle silently did nothing; a DOM `click()` opened it.
+
+### #57 -- what landed on the live BoQ editor
+1 every priced line shows Supply / Install / Combined where the section showed the raw finals; 2 a copy icon beside each;
+3 the Termination line gains its combined; **4 did NOT land (premise corrected)**; 5 the 14 rewordings. The list did not
+grow.
+
+### WHAT SLICE 2 OWES
+Export `RateConfigFetcher`, `RATE_MASTER_CONFIG_TARGETS` and the items fetch (discipline hardcoded "Electrical") out of
+`SheetPricingPage.tsx` into `rate-helper/` -- ONE definition; the tab on `/electrical-pricing` which UNMOUNTS the sheet
+and releases its checkout lock on switch with NO warning (owner: no work is lost); the calculator's own full-screen
+layout, mounting `makePricingSheetHelper({configsByCategory, items, extractionByRow: new Map()})` and the shared
+`RateHelperPanel` with a sentinel `excelRow` / `col` / `kind` and a category-dropdown `ctx`, functionally identical to the
+panel; and a PARITY TEST asserting both surfaces produce identical `values`, `headlines` and `figures` for the same inputs.
+
+### Register (record, do not fix)
+- Units are not data anywhere (no `unit` key in any config or pipeline; only wiring's two `pipeline_labels` carry "per
+  Mtr" / "per Set"); the owner has not ruled on a unit key.
+- 4,953 split-pipeline sections render one figure and two dashes under the literal per-line rule; the category-level
+  combined for point_wiring / cabletray / industrial_sockets is visible only in the header on the combined column.
+- The panel is reachable by six profiles; `/electrical-pricing` by two (Admin, Estimates Executive) -- accepted.
+- An app-wide floating calculator named `QuickCalc` already exists; its inline clipboard block is now duplicated by
+  `lib/clipboard.ts` until rewired.
+- A 262-px select ("Switch", LMS "Item") still overruns the 320-px panel; the Revert button is still clipped by 35 px.
+- Docker Desktop engine outage (API 500 for ~40 min); a bare container needs the four processes again.
+- Carried unchanged: the standing register (run-to-run variance, the missing BRSR run records, the 20 non-assembly rows,
+  the plate-ladder-top refusals, the never-asked recurring cause, the derivation tab rework).
+
+### Files
+`frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.ts`, `.../rateHelperTypes.ts`, `.../RateHelperPanel.tsx`,
+`.../pricingSheetHelper.test.ts`, `frontend/src/lib/clipboard.ts` (new), this record. Root `CLAUDE.md`: judged, nothing
+earned -- the never-summed rule and the derived-blank exemption are already recorded invariants; the per-line `figures`
+contract is a panel detail that belongs here and in the frontend domain doc.
