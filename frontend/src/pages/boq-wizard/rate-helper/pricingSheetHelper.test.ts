@@ -1,12 +1,17 @@
 // RM-3 real helper tests: compute over a fixed extraction fixture -> the standing goldens' values
 // where the combo matches, a null-attribute partial, a low-confidence render, and version keying.
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import LIVE_ASSET_V59 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v59.json";
 import type { Pipeline, RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
 import type { ExtractionRow, RateHelperRowContext } from "./rateHelperTypes";
 import {
   ATTR_NOTE_ORDER,
+  DISPLAY_RATE_KINDS,
   attrDisplayValue,
   attrNoteText,
+  bareNumberText,
   isAttrBlank,
   isAttrDefaulted,
   isShowingDerived,
@@ -29,9 +34,12 @@ import {
   applyDerivedDisplay,
   attributeOptions,
   buildExtractionByRow,
+  categoryLabel,
+  groupFigures,
   isRunForVersion,
   makePricingSheetHelper,
   nonBcsPipelines,
+  outputWord,
   pipelineLabel,
   prettifyPipelineId,
   ratingUpNote,
@@ -600,9 +608,12 @@ describe("EA-2 N-category compute gate + BCS exclusion + labels", () => {
     expect(r.kind).toBe("none");
   });
 
-  it("pipeline labels: config data wins, else a prettified id; BCS ids are excluded from the surfaced set", () => {
+  it("pipeline labels: config data wins, else the CATEGORY label; BCS ids are excluded from the surfaced set", () => {
     expect(pipelineLabel(DB_CONFIG, "db_boq")).toBe("DB — per No");
-    expect(pipelineLabel(DB_CONFIG, "db_install")).toBe("Db Install"); // prettified fallback
+    // Calculator slice 1 (owner "ok. reword"): WAS the prettified pipeline id "Db Install" -- an
+    // internal name on the screen. The fallback is now the category's label (this fixture carries no
+    // category_display, so the prettified CATEGORY id); a single surfaced pipeline takes no suffix.
+    expect(pipelineLabel(DB_CONFIG, "db_install")).toBe("Db Switchgear");
     expect(prettifyPipelineId("conduit_boq")).toBe("Conduit Boq");
     expect(nonBcsPipelines(DB_CONFIG).map(([id]) => id)).toEqual(["db_boq"]); // db_bcs excluded
   });
@@ -3327,7 +3338,9 @@ describe("F-30 slice B -- a catalog_fit hop reaches the panel as the SAME rating
     if (!isSuggestion(r)) throw new Error("expected a suggestion shape");
     expect(r.values.supply_rate).toBeUndefined();            // no total -- not a zero, not the socket alone
     expect(r.basis).toBe("no match for these attributes");    // the header line the pricer sees
-    expect(r.workings.derivation.join("\n")).toMatch(/^No probe_boq rate row matches /m); // the body line, verbatim shape
+    // Calculator slice 1: the body line names the CATEGORY label, never the pipeline id.
+    expect(r.workings.derivation.join("\n")).toMatch(/^No Cf Probe rate row matches /m); // the body line, verbatim shape
+    expect(r.workings.derivation.join("\n")).not.toContain("probe_boq");
     expect(r.workings.attributes.find((a) => a.id === "paired_mcb")!.notes).toBeUndefined();
   });
 });
@@ -3577,7 +3590,9 @@ describe("F-25 slice 2 -- a bare box prices as its back box, and the panel says 
       expect(attrDisplayValue(box)).toBe("3M");
       expect(isShowingDerived(box)).toBe(true);
       expect(box.notes?.map((n) => n.kind)).toEqual(["assumed"]);
-      expect(attrNoteText(box.notes![0])).toBe("No module size readable in the row or its headings — assumed 3M. Check it.");
+      // Calculator slice 1 (owner "ok. reword"): WAS "...readable in the row or its headings" -- the
+      // same sentence now serves a no-row surface; "stated" is true on both.
+      expect(attrNoteText(box.notes![0])).toBe("No module size stated — assumed 3M. Check it.");
       expect(r.values.supply_rate).toBe(178);
       expect(r.basis).not.toBe("Complete the missing attributes to price"); // the hidden attribute never gates
     }
@@ -3961,12 +3976,13 @@ describe("never-asked defaults -- an ABSENT key takes its config default; a PRES
     expect(attrOf(a, "plate_item")?.defaulted).toBeUndefined();
   });
 
-  it("NEGATIVE: a MANUAL row (not in the run) is untouched -- still Fill the attributes to price this row", () => {
+  it("NEGATIVE: a MANUAL row (not in the run) is untouched -- still Fill the attributes to price", () => {
     const h = makePricingSheetHelper({ configsByCategory: new Map([["na_probe", neverAskedConfig()]]), items: ITEMS_NA, extractionByRow: new Map() });
     const r = h.compute(ctxNA(7));
     expect(isSuggestion(r)).toBe(true);
     if (!isSuggestion(r)) return;
-    expect(r.basis).toBe("Fill the attributes to price this row");
+    // Calculator slice 1 (owner "ok. reword"): WAS "...to price this row".
+    expect(r.basis).toBe("Fill the attributes to price");
     expect(attrOf(r, "socket3_item")?.value).toBe("");
     expect(neverAskedLine(r)).toBeUndefined();
   });
@@ -4016,5 +4032,256 @@ describe("never-asked defaults -- an ABSENT key takes its config default; a PRES
     if (!isSuggestion(r)) return;
     expect(r.basis).toMatch(/Complete the missing attributes/);
     expect(attrOf(r, "circuit_wire_included")?.value).toBe("");
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// CALCULATOR SLICE 1 (2026-09-09) -- the SHARED panel's four changes, pinned on the data contract.
+// The coming calculator tab mounts this same helper and this same panel; these pins are what make
+// "functionally exactly the same as the helper" a property rather than a hope. Component RENDER is
+// not unit-testable here (node env, no DOM -- frontend/CLAUDE.md); the rendered half is the cert's.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+
+const CALC1_SRC = {
+  helper: readFileSync(join(__dirname, "pricingSheetHelper.ts"), "utf8"),
+  types: readFileSync(join(__dirname, "rateHelperTypes.ts"), "utf8"),
+  panel: readFileSync(join(__dirname, "RateHelperPanel.tsx"), "utf8"),
+};
+/** Source with block and line comments removed, so a pin on the SHIPPED strings cannot trip on a
+ *  comment that quotes the old wording to explain the change. */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+}
+/** A no-row context: what the calculator will hand the SAME helper -- a sentinel row, no text. */
+function noRowCtx(category: string): RateHelperRowContext {
+  return { excelRow: 0, description: "", nodeType: "", category, discipline: null, rateKinds: [...DISPLAY_RATE_KINDS] };
+}
+
+describe("Calculator slice 1 / ONE -- combined on EVERY priced line, never a total across lines", () => {
+  const wiringRow = () => {
+    const map = buildExtractionByRow([
+      { excel_row: 51, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) },
+    ]);
+    const r = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map }).compute(ctx(51, "XLPE cable 1C x 6 sqmm"));
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    return r;
+  };
+
+  it("POSITIVE: both wiring sections carry their OWN three figures -- the Termination block GAINS the combined it never showed", () => {
+    const r = wiringRow();
+    const [cable, term] = r.workings.sections!;
+    expect(cable.figures).toEqual({ supply_rate: 120, install_rate: 20, combined_rate: 140 }); // per Mtr + per Mtr
+    expect(term.figures).toEqual({ supply_rate: 80, install_rate: 20, combined_rate: 100 });   // per Set + per Set
+    // `finals` is BYTE-UNCHANGED by the slice: the raw output map stays what it was (the termination
+    // block still carries no combined KEY there -- the combined lives in `figures`).
+    expect(Object.keys(term.finals).sort()).toEqual(["install_per_set", "supply_per_set"]);
+    expect(cable.finals.combined_per_mtr).toBe(140);
+  });
+
+  it("⚠️ NEGATIVE: NO figure anywhere is a total across the two lines (per Mtr + per Set)", () => {
+    const r = wiringRow();
+    const crossSupply = 120 + 80, crossInstall = 20 + 20, crossCombined = 140 + 100; // 200 / 40 / 240
+    const everyFigure: (number | undefined)[] = [];
+    for (const s of r.workings.sections!) everyFigure.push(...Object.values(s.figures ?? {}));
+    for (const h of r.headlines!) everyFigure.push(...Object.values(h.values));
+    everyFigure.push(...Object.values(r.values));
+    expect(everyFigure.length).toBeGreaterThanOrEqual(9); // 3 + 3 (sections) + 3 + 3 (headlines) + 3 (values) minus nothing absent here
+    for (const v of everyFigure) expect([crossSupply, crossInstall, crossCombined]).not.toContain(v);
+  });
+
+  it("⚠️ NEGATIVE (source): `groupFigures` only ever sees ONE group's finals -- no call site adds two groups", () => {
+    const src = stripComments(CALC1_SRC.helper);
+    const calls = src.match(/groupFigures\(([^)]*)\)/g) ?? [];
+    expect(calls.length).toBeGreaterThanOrEqual(4); // generic sections, wiring primary, wiring secondary, headlines
+    for (const c of calls) {
+      expect(c).not.toMatch(/\+/);          // never an addition inside the argument
+      expect(c).not.toMatch(/sections\[/);  // never indexed across sections
+    }
+    expect(src).toContain("groupFigures(g.finals)"); // headlines: per group, from that group
+    // the function itself takes ONE map and has no second parameter to add from
+    expect(src).toMatch(/export function groupFigures\(finals: Record<string, number>\)/);
+  });
+
+  it("groupFigures is PURE over one map: no combined without both halves; a stored combined_* output is ignored and re-derived", () => {
+    expect(groupFigures({ supply_per_set: 80 })).toEqual({ supply_rate: 80 });
+    expect(groupFigures({ install: 70 })).toEqual({ install_rate: 70 });
+    expect(groupFigures({ supply: 320, install: 70 })).toEqual({ supply_rate: 320, install_rate: 70, combined_rate: 390 });
+    expect(groupFigures({ supply_per_mtr: 120, install_per_mtr: 20, combined_per_mtr: 999 })).toEqual({ supply_rate: 120, install_rate: 20, combined_rate: 140 });
+    expect(groupFigures({ bcs_supply: 87 })).toEqual({}); // a BCS output fills no kind
+    expect(groupFigures({})).toEqual({});
+  });
+
+  it("POSITIVE: a SINGLE-LINE category carries the same three on its one section (owner: 'show the same three figures -- yes')", () => {
+    const ONE_LINE: RateCategoryConfig = {
+      discipline: "Electrical", category_id: "switches_sockets", category_display: "Switches and Sockets",
+      attribute_definitions: [{ id: "item", label: "Item", type: "choice", values: ["Probe"] }],
+      pipelines: { swsock_boq: { output: ["supply", "install"], steps: [
+        { step: "match_master_row", params: { kind: "sw_probe" } },
+        { step: "scale", target: "supply_base", result: "supply", params: { m: 1 }, formula: "base*m" },
+        { step: "scale", target: "install_base", result: "install", params: { m: 1 }, formula: "base*m" },
+      ] } },
+    };
+    const items: RateMasterItem[] = [{ discipline: "Electrical", kind: "sw_probe", attributes: { item: "Probe" }, rates: { supply_base: 320, install_base: 70 } }];
+    const r = makePricingSheetHelper({ configsByCategory: new Map([["switches_sockets", ONE_LINE]]), items, extractionByRow: new Map() })
+      .compute(noRowCtx("switches_sockets"), { item: "Probe" });
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.workings.sections).toHaveLength(1);
+    expect(r.workings.sections![0].label).toBe("Switches and Sockets");   // category label, not "Swsock Boq"
+    expect(r.workings.sections![0].figures).toEqual({ supply_rate: 320, install_rate: 70, combined_rate: 390 });
+    expect(r.values).toEqual({ supply_rate: 320, install_rate: 70, combined_rate: 390 });
+  });
+
+  it("lighting_mgmt_system from the LIVE asset (v59): supply only -- install and combined ABSENT, rendered as em dashes", () => {
+    // The live asset, imported as a module (the bcsColumns.test.ts precedent) -- the 12 live configs
+    // were proven byte-identical to it on 2026-09-08 and again by this slice's harness dump.
+    const asset = LIVE_ASSET_V59 as unknown as {
+      category_configs: RateCategoryConfig[]; items: Array<RateMasterItem & { brand?: string }>;
+    };
+    const lms = asset.category_configs.find((c) => c.category_id === "lighting_mgmt_system")!;
+    // the endpoint projects `brand` into attributes at read time (extraction.PROJECTED_ITEM_COLUMNS); the raw asset does not
+    const items: RateMasterItem[] = asset.items
+      .filter((i) => i.kind === "lms_item")
+      .map((i) => ({ ...i, attributes: { ...i.attributes, ...(i.brand ? { brand: i.brand } : {}) } }));
+    const lutron = items.find((i) => i.brand === "Lutron" && i.rates.rate === 24500)!;
+    expect(lutron).toBeDefined(); // the worked example: Lutron 24,500 -> BoQ 31,850
+    const r = makePricingSheetHelper({ configsByCategory: new Map([["lighting_mgmt_system", lms]]), items, extractionByRow: new Map() })
+      .compute(noRowCtx("lighting_mgmt_system"), { description: String(lutron.attributes.description), brand: "Lutron" });
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    const fig = r.workings.sections![0].figures!;
+    expect(fig).toEqual({ supply_rate: 31850 });
+    expect(DISPLAY_RATE_KINDS.map((k) => fig[k])).toEqual([31850, undefined, undefined]); // the shape reads the same: two dashes
+    expect(r.values).toEqual({ supply_rate: 31850 }); // and no combined was invented
+  });
+
+  it("⚠️ THE PRICE-CANNOT-MOVE PIN: `values` is byte-identical to the pre-slice goldens with `figures` present -- on a cable row AND a termination-primary row", () => {
+    const r = wiringRow();
+    expect(r.values).toEqual({ supply_rate: 120, install_rate: 20, combined_rate: 140 });
+    const map = buildExtractionByRow([
+      { excel_row: 52, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) },
+    ]);
+    const t = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map }).compute(ctx(52, "Cable end termination gland + lug 1C x 6"));
+    if (!isSuggestion(t)) throw new Error("expected suggestion");
+    // the termination-primary row ALREADY had its combined in `values` before this slice (the
+    // combined line at computeWiring); nothing about it moved -- this is what S2 asked to establish.
+    expect(t.values).toEqual({ supply_rate: 80, install_rate: 20, combined_rate: 100 });
+    // and `figures` is not the source of `values` anywhere (the headlines scope guard, one level down)
+    expect(stripComments(CALC1_SRC.helper)).not.toMatch(/values\s*=\s*[^;]*figures/);
+  });
+});
+
+describe("Calculator slice 1 / TWO -- the copy value is the BARE number", () => {
+  it("bareNumberText: the exact strings -- no symbol, no separator, no unit", () => {
+    expect(bareNumberText(1490)).toBe("1490");
+    expect(bareNumberText(31850)).toBe("31850");
+    expect(bareNumberText(187.2)).toBe("187.2");
+    expect(bareNumberText(0)).toBe("0");
+    for (const s of [bareNumberText(31850), bareNumberText(1490), bareNumberText(2610)]) expect(s).not.toMatch(/[₹,\s]|Mtr|Set/);
+  });
+  it("DISPLAY_RATE_KINDS is supply, install, combined -- that order, only those", () => {
+    expect([...DISPLAY_RATE_KINDS]).toEqual(["supply_rate", "install_rate", "combined_rate"]);
+  });
+  it("⚠️ (source) the panel's copy control hands bareNumberText to the shared clipboard helper and formats NOTHING", () => {
+    const src = stripComments(CALC1_SRC.panel);
+    expect(src).toContain("copyTextToClipboard(bareNumberText(value))");
+    expect(src).not.toMatch(/toLocaleString|Intl\.NumberFormat|₹/);
+    // the three figures render from DISPLAY_RATE_KINDS inside the SECTION block, each with the control
+    expect(src).toContain("DISPLAY_RATE_KINDS.map(");
+    expect(src).toContain("<CopyFigureButton value={v}");
+    expect(src).toMatch(/typeof v === "number" \? v : "—"/); // an absent kind is the em dash, never 0
+    // the header block is UNCHANGED: it still renders the single `computed` figure / the stacked headlines
+    expect(src).toContain("const computed = result.values[kind!]");
+    expect(src).toContain("h.values[kind!]");
+  });
+});
+
+describe("Calculator slice 1 / THREE -- the two blanks (premise CORRECTED by the repo; behaviour pinned)", () => {
+  // Recon 2 read row 397's blank "Frame/Face plate" select as "a blank select with no red" and the
+  // blank "Module count" number as red. The repo disagrees: that select is `plate_item`, a module_fit
+  // LADDER BIND -- a DERIVED attribute the pipeline computes -- and derived blanks are deliberately
+  // exempt from red (isAttrBlank). A genuinely missing select IS red: the panel applies one
+  // `fieldTone` to both controls. So the two blanks look different because they ARE different, and
+  // nothing changes here; these pins record the correction and freeze the behaviour.
+  it("the blank predicate has NO type input -- a blank choice and a blank number are equally BLANK", () => {
+    expect(isAttrBlank({ value: "", disabled: false, derived: false })).toBe(true);
+    expect(isAttrBlank({ value: "", disabled: false })).toBe(true);
+  });
+  it("NEGATIVE: a blank DERIVED attribute (row 397's Frame/Face plate, a ladder bind) is NOT blank -- it is computed, not missing", () => {
+    expect(isAttrBlank({ value: "", disabled: false, derived: true })).toBe(false);
+  });
+  it("(source) ONE `fieldTone` reaches the <select> AND the <Input>, so a genuinely blank select is red like a blank number", () => {
+    const src = CALC1_SRC.panel;
+    expect(src).toMatch(/<select[\s\S]*?fieldTone,[\s\S]*?<\/select>/);
+    expect(src).toMatch(/<Input[\s\S]*?fieldTone\)/);
+  });
+  it("⚠️ NEGATIVE: <select> BEHAVIOUR is byte-identical -- the placeholder stays SELECTABLE and blank matches it (owner-locked, cost 12 rows)", () => {
+    const src = CALC1_SRC.panel;
+    expect(src).toMatch(/<option value="">\s*— select —\s*<\/option>/);
+    expect(src).not.toMatch(/<option value=""\s+disabled/);
+  });
+});
+
+describe("Calculator slice 1 / FOUR -- the rewording reads correctly WITH a row and with NO row", () => {
+  const FORBIDDEN = ["this row", "the row supplied", "readable in the row", "suggestion run", "Pipeline '"];
+  it("⚠️ NEGATIVE (source): none of the row-assuming phrases survive in the shipped strings of the three shared files", () => {
+    for (const [name, raw] of Object.entries(CALC1_SRC)) {
+      const src = stripComments(raw);
+      for (const phrase of FORBIDDEN) expect(src, `${name} still says "${phrase}"`).not.toContain(phrase);
+    }
+  });
+  it("POSITIVE, both readings: the manual-row sentences are the SAME strings on a BoQ row outside the run and on a no-row context", () => {
+    const h = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: new Map() });
+    const onRow = h.compute(ctx(60, "XLPE cable 1C x 6 sqmm"));       // a real row, not in the run
+    const noRow = h.compute(noRowCtx("wiring_cabling"));               // the calculator's shape
+    for (const r of [onRow, noRow]) {
+      if (!isSuggestion(r)) throw new Error("expected suggestion");
+      expect(r.basis).toBe("Fill the attributes to price");
+      expect(r.workings.derivation).toEqual(["No extracted attributes -- fill them to compute a rate."]);
+    }
+  });
+  it("POSITIVE, both readings: the priced row's basis, section titles and derivation lines use the pricer's words, identically with and without a row", () => {
+    const attrs = { material: "COPPER", insulation: "UNARMOURED", core: "1", thickness_sqmm: "6" };
+    const inRun = makePricingSheetHelper({
+      config: CONFIG, items: ITEMS,
+      extractionByRow: buildExtractionByRow([{ excel_row: 61, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) }]),
+    }).compute(ctx(61, "XLPE cable 1C x 6 sqmm"));
+    const noRow = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: new Map() }).compute(noRowCtx("wiring_cabling"), attrs);
+    for (const r of [inRun, noRow]) {
+      if (!isSuggestion(r)) throw new Error("expected suggestion");
+      expect(r.basis).toBe("Rate master: Wiring Cabling @ Material = COPPER, Insulation = UNARMOURED, Core = 1, Thickness (sqmm) = 6");
+      expect(r.workings.sections!.map((s) => s.label)).toEqual(["Cable — per Mtr", "Termination — per Set"]);
+      expect(r.workings.sections![0].derivation).toEqual(["Supply = 120", "Install = 20", "Combined = supply + install = 140"]);
+      expect(r.workings.sections![1].derivation).toEqual(["Supply = 80", "Install = 20"]);
+      expect(r.values).toEqual({ supply_rate: 120, install_rate: 20, combined_rate: 140 });
+    }
+  });
+  it("outputWord / categoryLabel / pipelineLabel: the words the screen shows, and the split-pipeline suffix", () => {
+    expect(outputWord("supply_per_mtr")).toBe("Supply");
+    expect(outputWord("supply_per_set")).toBe("Supply");
+    expect(outputWord("install")).toBe("Install");
+    expect(outputWord("bcs_supply")).toBe("bcs_supply"); // fills no kind -> its own name
+    expect(categoryLabel({ ...CONFIG, category_display: "Wiring, Cabling & Termination" })).toBe("Wiring, Cabling & Termination");
+    expect(categoryLabel(CONFIG)).toBe("Wiring Cabling"); // no display in the fixture -> prettified category id
+    const split: RateCategoryConfig = {
+      discipline: "Electrical", category_id: "point_wiring", category_display: "Point Wiring",
+      attribute_definitions: [],
+      pipelines: {
+        pw_boq_supply: { output: ["supply"], steps: [] },
+        pw_boq_install: { output: ["install"], steps: [] },
+        pw_bcs: { output: ["bcs_supply"], steps: [] },
+      },
+    };
+    expect(pipelineLabel(split, "pw_boq_supply")).toBe("Point Wiring — Supply");
+    expect(pipelineLabel(split, "pw_boq_install")).toBe("Point Wiring — Install");
+    // config data still wins over every fallback
+    expect(pipelineLabel(CONFIG, "cable_boq")).toBe("Cable — per Mtr");
+  });
+  it("the assumed note: the reworded sentence, exact, and its meaning unchanged (still a guess to check)", () => {
+    expect(attrNoteText({ kind: "assumed", assumed: 3, using: "3M" })).toBe("No module size stated — assumed 3M. Check it.");
+  });
+  it("(source) the panel's two Revert titles and the undo tooltip carry no row", () => {
+    const src = stripComments(CALC1_SRC.panel);
+    expect(src).toContain('"Discard your edits and show the original values again"');
+    expect(src).toContain('"No edits to discard"');
+    expect(src).toContain('title="Undo my edit to this field -- restores the original value"');
   });
 });

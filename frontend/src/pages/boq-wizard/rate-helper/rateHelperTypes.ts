@@ -227,9 +227,13 @@ export function attrNoteText(n: AttrNote): string {
       // face-plate shape ("... holds 2 modules; contents occupy 3 — using 3M."), amp-shaped.
       return `No ${n.poleWord} ${n.device} at ${n.askedAmp}A on the ${n.curve} curve — using ${n.usedAmp}A.`;
     case "assumed":
-      // F-25 slice 2 -- WE GUESSED, and the pricer must be told to look. Names where we looked (the
-      // row and its headings, i.e. the whole payload incl. the parent history) and what was priced.
-      return `No module size readable in the row or its headings — assumed ${n.assumed}M. Check it.`;
+      // F-25 slice 2 -- WE GUESSED, and the pricer must be told to look. Names what was priced and
+      // that nothing stated the size.
+      // Calculator slice 1 (owner 2026-09-08, "ok. reword"): the sentence used to name WHERE we looked
+      // ("in the row or its headings"). The same panel now serves a surface with no row, so it says
+      // only what is true on both: no size was STATED. On a BoQ row that is still exactly the case --
+      // the extractor read the row and its headings and found none.
+      return `No module size stated — assumed ${n.assumed}M. Check it.`;
     case "size_up":
       // F-25 slice 2 -- the rating_up shape, module-sized: what was asked, why, what was used.
       return `No ${n.asked}M in the catalogue — using ${n.using}, the next size up.`;
@@ -381,6 +385,22 @@ export interface WorkingsGroup {
   derivation: string[];
   /** This group's OWN final values (display-only), keyed by the helper's output/label name. */
   finals: Record<string, number>;
+  /**
+   * Calculator slice 1 (owner 2026-09-08, verbatim: "for such catgeories which price 2 or more things
+   * at once, supply install and combined (spply + install) should be mentioned for each"; and for a
+   * single-line category, "show the same three figures -- yes"). THIS GROUP'S OWN three figures,
+   * keyed by rate kind: `supply_rate` / `install_rate` / `combined_rate`, where combined is THIS
+   * LINE's supply + THIS LINE's install and nothing else. A kind the line did not produce is ABSENT
+   * (the panel renders its em dash) -- never 0, never borrowed from another group.
+   *
+   * ⚠️ NEVER A TOTAL ACROSS LINES. Cable is per Mtr and termination per Set; every entry is computed
+   * by `groupFigures` over ONE group's `finals`, so no code path can add two groups. DISPLAY-ONLY:
+   * `values` (what "Use this value" applies) is untouched by this field -- the `headlines` scope
+   * guard, applied one level down.
+   *
+   * ABSENT (an older producer, or a group that priced nothing) => the panel renders three em dashes.
+   */
+  figures?: Partial<Record<RateKind, number>>;
   /** Optional group-scoped matched-row line(s). */
   matchedRows?: string[];
   /** Optional group-scoped attributes (unused this slice; SHARED attrs live on WorkingsSection). */
@@ -402,6 +422,22 @@ export interface WorkingsSection {
    * groups. ABSENT => flat rendering, byte-identical to pre-RM-3a -- so single-group suggestions stay
    * backward-shaped (the pricing-sheet helper omits `sections` on termination rows). */
   sections?: WorkingsGroup[];
+}
+
+/**
+ * The three rate kinds a priced line shows, in RENDER ORDER (owner: supply, install, combined -- the
+ * same three on every line, a missing one as an em dash rather than hidden). Declared once so the
+ * panel and any later surface (the calculator) iterate the same list in the same order.
+ */
+export const DISPLAY_RATE_KINDS: readonly RateKind[] = ["supply_rate", "install_rate", "combined_rate"];
+
+/**
+ * PURE. The text a copy control puts on the clipboard for a figure: THE BARE NUMBER (owner 2026-09-08,
+ * verbatim: "bare number"). No currency symbol, no thousands separator, no unit -- `String(v)`, so
+ * 1490 -> "1490" and 187.2 -> "187.2", exactly what the figure reads. The one place this rule lives.
+ */
+export function bareNumberText(v: number): string {
+  return String(v);
 }
 
 /** A helper produced a suggestion. */

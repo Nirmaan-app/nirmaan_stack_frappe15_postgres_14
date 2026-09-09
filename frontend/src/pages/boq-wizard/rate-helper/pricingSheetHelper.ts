@@ -108,13 +108,69 @@ export function isBcsPipelineId(id: string): boolean {
   return id.toLowerCase().includes("bcs");
 }
 
-/** Group label for a pipeline: the config's `pipeline_labels` when present (config data), else a
- * prettified id. PURE. */
+/** Prettify a snake_case id ("conduit_boq" -> "Conduit Boq"). PURE. The LAST fallback only. */
 export function prettifyPipelineId(id: string): string {
   return id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+/** The category's human label: the config's `category_display` (config data), else a prettified
+ * category id. PURE. The ONE place a category is named to the pricer in this helper. */
+export function categoryLabel(config: RateCategoryConfig): string {
+  const d = config.category_display;
+  return typeof d === "string" && d.trim() !== "" ? d : prettifyPipelineId(config.category_id);
+}
+
+/** The pricer's word for a pipeline output: "Supply" / "Install" for an output that fills a rate
+ * kind, else the output name itself. PURE. */
+export function outputWord(output: string): string {
+  const k = kindForOutput(output);
+  return k === "supply_rate" ? "Supply" : k === "install_rate" ? "Install" : output;
+}
+
+/**
+ * Group label for a pipeline: the config's `pipeline_labels` when present (config data), else the
+ * CATEGORY's label, suffixed with the rate kind(s) the pipeline produces when the category surfaces
+ * more than one pipeline. PURE.
+ *
+ * Calculator slice 1 (owner 2026-09-08, "ok. reword"): the fallback used to be a prettified
+ * pipeline id ("Swsock Boq", "Pw Boq Supply") -- an internal name on the screen. It is now
+ * "Switches and Sockets", "Point Wiring — Supply" / "Point Wiring — Install", which reads the same
+ * on a BoQ row and on a no-row calculator. Config data still wins (wiring's two labels are untouched).
+ */
 export function pipelineLabel(config: RateCategoryConfig, id: string): string {
-  return config.pipeline_labels?.[id] ?? prettifyPipelineId(id);
+  const fromConfig = config.pipeline_labels?.[id];
+  if (fromConfig) return fromConfig;
+  const base = categoryLabel(config);
+  const surfaced = nonBcsPipelines(config);
+  if (surfaced.length <= 1) return base;
+  const outputs = (config.pipelines?.[id] as Pipeline | undefined)?.output ?? [];
+  const kinds = Array.from(new Set(outputs.map((o) => kindForOutput(o)).filter((k): k is string => k !== null)));
+  const words = kinds.map((k) => (k === "supply_rate" ? "Supply" : "Install"));
+  // Both kinds (or none) => the pipeline IS the category's rate; no suffix says anything.
+  return words.length === 1 ? `${base} — ${words[0]}` : base;
+}
+
+/**
+ * PURE. ONE group's three figures from ITS OWN `finals`: each rate kind from the first output that
+ * fills it, and `combined_rate` = THIS group's supply + THIS group's install when both exist.
+ *
+ * ⚠️ THE NEVER-SUMMED INVARIANT LIVES IN THE SIGNATURE: the function sees ONE `finals` map, so it
+ * cannot add two groups. Cable (per Mtr) and Termination (per Set) each get their own combined; no
+ * code path folds them, and none may be added. Both wiring `headlines` entries and every section's
+ * `figures` are produced here -- one definition, so a headline and its section can never disagree.
+ * A `combined_*` output already present in `finals` (cable's `combined_per_mtr`) maps to no kind
+ * and is ignored; combined is always re-derived from the two halves.
+ */
+export function groupFigures(finals: Record<string, number>): Partial<Record<RateKind, number>> {
+  const out: Partial<Record<RateKind, number>> = {};
+  for (const [o, v] of Object.entries(finals)) {
+    const k = kindForOutput(o) as RateKind | null;
+    if (k && out[k] === undefined) out[k] = v;
+  }
+  if (typeof out.supply_rate === "number" && typeof out.install_rate === "number") {
+    out.combined_rate = out.supply_rate + out.install_rate;
+  }
+  return out;
 }
 
 /** The non-BCS pipelines of a config, in declaration order. PURE. */
@@ -876,9 +932,12 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         kind: "suggestion",
         values: {},
         ...(inRun ? { producibleKinds: PRODUCIBLE_KINDS } : {}),
+        // Calculator slice 1 (owner 2026-09-08, "ok. reword"): the manual-row basis used to end "this
+        // row". The same sentence now serves a surface with no row; "Fill the attributes to price" is
+        // true on both -- a BoQ row outside the run still has every attribute to fill.
         basis: inRun
           ? "Complete the missing attributes to price"
-          : "Fill the attributes to price this row",
+          : "Fill the attributes to price",
         workings: {
           // DERIVED DISPLAY: no pipeline runs on this path, so there is no computed value to show --
           // but the derived attributes must still not be flagged as the thing that is missing. The
@@ -887,9 +946,12 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
           attributes: applyDerivedDisplay(workingsAttrs, category, [], fillableDerived),
           matchedRows: [],
           derivation: [
+            // Calculator slice 1: WAS "Not in the suggestion run -- fill the attributes to compute a
+            // rate." -- there is no run on the calculator. "No extracted attributes" is what a manual
+            // BoQ row and a calculator entry have in common, and it is true of both.
             inRun
               ? "Some attributes are missing -- fill them to compute a rate."
-              : "Not in the suggestion run -- fill the attributes to compute a rate.",
+              : "No extracted attributes -- fill them to compute a rate.",
           ],
           finalValues: {},
         },
@@ -927,10 +989,13 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       const finals: Record<string, number> = {};
       const derivation: string[] = [];
       const matchedRows: string[] = [];
+      const label = pipelineLabel(category, pid);
       if (res.status === "ok") {
         for (const o of res.outputs) {
           finals[o] = res.finals[o];
-          derivation.push(`${o} = ${res.finals[o]}`);
+          // Calculator slice 1: the pricer's word ("Supply = 320"), not the output id ("supply = 320",
+          // "supply_per_mtr = 1490"); an output that fills no kind keeps its own name.
+          derivation.push(`${outputWord(o)} = ${res.finals[o]}`);
           // EA-4a: a category may split supply + install across SEPARATE pipelines (point_wiring's
           // pw_boq_supply / pw_boq_install, cabletray). Take each rate-kind from the FIRST pipeline
           // that produces it -- a single combined pipeline (conduit) still fills both from its one pass.
@@ -942,21 +1007,30 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         for (const st of res.steps) {
           if (st.produced && st.refItem) matchedRows.push(`${st.produced.key}: ${st.refItem} = ${st.produced.value}`);
         }
-        flatMatched.push(`Matched ${pid} for ${attrLine}.`);
+        flatMatched.push(`Matched ${label} for ${attrLine}.`);
       } else if (res.status === "no_match") {
-        derivation.push(`No ${pid} rate row matches ${attrLine}.`);
+        derivation.push(`No ${label} rate row matches ${attrLine}.`);
       } else {
-        derivation.push(`Pipeline '${pid}' has an unsupported step.`);
+        derivation.push(`${label} uses an unsupported step.`);
       }
       if (idx === 0) flatDerivation.push(...derivation);
-      sections.push({ label: pipelineLabel(category, pid), derivation, finals, ...(matchedRows.length ? { matchedRows } : {}) });
+      // Calculator slice 1: EVERY section carries its own three figures (`groupFigures` over THIS
+      // section's finals -- never another's). `finals` itself is unchanged: the raw output map stays
+      // the contract for tests and for anything that reads outputs by name.
+      sections.push({
+        label,
+        derivation,
+        finals,
+        figures: groupFigures(finals),
+        ...(matchedRows.length ? { matchedRows } : {}),
+      });
     });
     // Combine AFTER scanning every pipeline -- supply + install may come from different pipelines
     // (point_wiring / cabletray). A single combined pipeline (conduit) also lands here; the combined
     // line is added to its one group so its in-group display is unchanged.
     if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") {
       values.combined_rate = values.supply_rate + values.install_rate;
-      const combinedLine = `combined_rate = supply + install = ${values.combined_rate}`;
+      const combinedLine = `Combined = supply + install = ${values.combined_rate}`;
       flatDerivation.push(combinedLine);
       if (sections.length === 1) sections[0].derivation.push(combinedLine);
     }
@@ -981,8 +1055,9 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       kind: "suggestion",
       values,
       producibleKinds: PRODUCIBLE_KINDS,
+      // Calculator slice 1: the category's LABEL ("Switches and Sockets"), not its id ("switches_sockets").
       basis: Object.keys(values).length
-        ? `Rate master: ${category.category_id} @ ${attrLine}`
+        ? `Rate master: ${categoryLabel(category)} @ ${attrLine}`
         : "no match for these attributes",
       workings: {
         attributes: applyDerivedDisplay(workingsAttrs, category, pipelineResults, fillableDerived, items),
@@ -1013,7 +1088,7 @@ function computeWiring(
   const primaryId = termination ? "termination_boq" : "cable_boq";
   const primary = pipelines[primaryId] as Pipeline | undefined;
   if (!primary) {
-    return { kind: "none", reason: `No ${primaryId} pipeline in the config` };
+    return { kind: "none", reason: `No ${termination ? "termination" : "cable"} pipeline in the config` };
   }
   const result = runPipeline(primaryId, primary, items, selected);
   // DERIVED DISPLAY: wiring declares no derived attribute today (no module_fit, no {from_fit} qty),
@@ -1029,17 +1104,17 @@ function computeWiring(
     for (const o of result.outputs) {
       const kind = kindForOutput(o);
       if (kind) values[kind] = result.finals[o];
-      derivation.push(`${o} = ${result.finals[o]}`);
+      derivation.push(`${outputWord(o)} = ${result.finals[o]}`);
     }
     if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") {
       values.combined_rate = values.supply_rate + values.install_rate;
-      derivation.push(`combined_rate = supply + install = ${values.combined_rate}`);
+      derivation.push(`Combined = supply + install = ${values.combined_rate}`);
     }
     matchedRows.push(`Matched ${termination ? "termination" : "cable"} rate row for ${attrLine}.`);
   } else if (result.status === "no_match") {
     derivation.push(`No ${termination ? "termination" : "cable"} rate row matches ${attrLine}.`);
   } else {
-    derivation.push(`Pipeline '${primaryId}' has an unsupported step.`);
+    derivation.push(`${pipelineLabel(config, primaryId)} uses an unsupported step.`);
   }
 
   // BOTH BLOCKS, ON EVERY WIRING ROW (owner ruling 2026-08-22, verbatim: "we side step all this
@@ -1075,6 +1150,8 @@ function computeWiring(
     label: pipelineLabel(config, primaryId),
     derivation: [...derivation],
     finals: primaryFinals,
+    // Calculator slice 1: this group's OWN three figures, from ITS finals alone.
+    figures: groupFigures(primaryFinals),
     matchedRows: [...matchedRows],
   };
 
@@ -1094,7 +1171,7 @@ function computeWiring(
     if (sr.status === "ok") {
       for (const o of sr.outputs) {
         secondaryGroup.finals[o] = sr.finals[o];
-        secondaryGroup.derivation.push(`${o} = ${sr.finals[o]}`);
+        secondaryGroup.derivation.push(`${outputWord(o)} = ${sr.finals[o]}`);
       }
     } else {
       secondaryGroup.derivation.push(
@@ -1127,18 +1204,12 @@ function computeWiring(
   // pipeline's figure exactly as before (owner Ruling B). A kind a block did not produce is simply
   // ABSENT here, which the panel renders as its existing em dash -- never a zero, never the other
   // block's number.
-  const headlineValuesFor = (finals: Record<string, number>) => {
-    const out: Partial<Record<RateKind, number>> = {};
-    for (const [o, v] of Object.entries(finals)) {
-      const k = kindForOutput(o) as RateKind | null;
-      if (k && out[k] === undefined) out[k] = v;
-    }
-    if (typeof out.supply_rate === "number" && typeof out.install_rate === "number") {
-      out.combined_rate = out.supply_rate + out.install_rate;
-    }
-    return out;
-  };
-  const headlines = sections.map((g) => ({ label: g.label, values: headlineValuesFor(g.finals) }));
+  // Calculator slice 1: the per-block figures used to be computed here for the headlines ONLY; the
+  // same function (`groupFigures`, one definition) now also fills each section's `figures`, so the
+  // Termination block's combined -- which the header always carried but the section never showed --
+  // appears in the section too. The secondary group's figures are filled here, after its finals are.
+  secondaryGroup.figures = groupFigures(secondaryGroup.finals);
+  const headlines = sections.map((g) => ({ label: g.label, values: groupFigures(g.finals) }));
 
   return {
     kind: "suggestion",
@@ -1147,7 +1218,7 @@ function computeWiring(
     headlines,
     basis:
       result.status === "ok"
-        ? `Rate master: ${config.category_id} @ ${attrLine}`
+        ? `Rate master: ${categoryLabel(config)} @ ${attrLine}`
         : "no match for these attributes",
     workings: {
       attributes: applyDerivedDisplay(workingsAttrs, config, pipelineResults),

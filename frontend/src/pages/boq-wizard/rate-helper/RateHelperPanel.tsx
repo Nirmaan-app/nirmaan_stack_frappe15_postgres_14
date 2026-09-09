@@ -6,14 +6,17 @@
  * so a new helper needs no panel change. Nothing persists (guardrail G2).
  */
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { X, ChevronRight, ChevronDown, RotateCcw, Sparkles, CheckCircle2 } from "lucide-react";
+import { X, ChevronRight, ChevronDown, RotateCcw, Sparkles, CheckCircle2, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { copyTextToClipboard, COPY_CONFIRM_MS } from "@/lib/clipboard";
 import { resolveRateHelpers } from "./rateHelperRegistry";
 import {
   attrDisplayValue,
   attrNoteText,
+  bareNumberText,
+  DISPLAY_RATE_KINDS,
   isAttrBlank,
   isAttrDefaulted,
   isShowingDerived,
@@ -87,6 +90,40 @@ const KIND_LABELS: Record<string, string> = {
 
 export function kindLabel(kind: string): string {
   return KIND_LABELS[kind] ?? kind;
+}
+
+/**
+ * Calculator slice 1 (owner 2026-09-08, "place small copy icon besude each umber" / "bare number").
+ * ONE figure's copy control: a 12-px icon that puts `bareNumberText(value)` on the clipboard -- the
+ * number exactly as the figure reads, no symbol, no separator -- and shows a tick for
+ * `COPY_CONFIRM_MS`. It sits INSIDE the section block's wrapping finals row, the one place on the
+ * 320-px panel with room for it (the header and the final-value row have none -- recon 2026-09-08).
+ * The copy is the ONLY thing it does: no state outside this button, nothing persisted, nothing
+ * written to a cell.
+ */
+function CopyFigureButton({ value, label }: { value: number; label: string }) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<number | null>(null);
+  useEffect(() => () => { if (timerRef.current !== null) window.clearTimeout(timerRef.current); }, []);
+  const onCopy = async (e: ReactMouseEvent) => {
+    e.stopPropagation();
+    const ok = await copyTextToClipboard(bareNumberText(value));
+    if (!ok) return;
+    setCopied(true);
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => setCopied(false), COPY_CONFIRM_MS);
+  };
+  return (
+    <button
+      type="button"
+      onClick={(e) => void onCopy(e)}
+      title={copied ? "Copied" : `Copy the ${label.toLowerCase()} figure (bare number)`}
+      aria-label={`Copy ${label.toLowerCase()} figure`}
+      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    >
+      {copied ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+    </button>
+  );
 }
 
 interface RateHelperPanelProps {
@@ -517,7 +554,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                               <button
                                 type="button"
                                 onClick={() => resetAttr(helper.id, a.id)}
-                                title="Undo my edit to this field -- restores what the row supplied"
+                                title="Undo my edit to this field -- restores the original value"
                                 aria-label={`Undo my edit to ${a.label}`}
                                 className="opacity-0 transition-opacity group-hover/attr:opacity-100 focus:opacity-100 focus-visible:opacity-100"
                               >
@@ -686,14 +723,30 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                               ))}
                             </ul>
                           )}
-                          {Object.keys(g.finals).length > 0 && (
+                          {/* Calculator slice 1 (owner 2026-09-08): EVERY priced line shows the SAME
+                              three labelled figures -- Supply, Install, Combined -- each with a copy
+                              icon, in this section block (the one place on the panel with room). A
+                              kind the line did not produce is the em dash, never hidden and never 0.
+                              Combined is THIS line's own supply + install (`groupFigures` over this
+                              group's finals alone); there is deliberately no total across lines and
+                              no code path that adds two groups. The raw `finals` map is no longer
+                              rendered: its output ids ("supply_per_mtr") were the internal vocabulary
+                              this slice takes off the screen. An older producer with no `figures`
+                              renders three dashes rather than a blank. */}
+                          {(g.figures !== undefined || Object.keys(g.finals).length > 0) && (
                             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
-                              {Object.entries(g.finals).map(([k, v]) => (
-                                <span key={k} className="tabular-nums">
-                                  <span className="text-muted-foreground">{k}</span>{" "}
-                                  <span className="font-semibold text-foreground">{v}</span>
-                                </span>
-                              ))}
+                              {DISPLAY_RATE_KINDS.map((k) => {
+                                const v = g.figures?.[k];
+                                return (
+                                  <span key={k} className="inline-flex items-center gap-1 tabular-nums">
+                                    <span className="text-muted-foreground">{kindLabel(k)}</span>
+                                    <span className="font-semibold text-foreground">
+                                      {typeof v === "number" ? v : "—"}
+                                    </span>
+                                    {typeof v === "number" && <CopyFigureButton value={v} label={kindLabel(k)} />}
+                                  </span>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -765,10 +818,14 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                       variant="ghost"
                       className="h-8"
                       disabled={!sessionEdited}
+                      // Calculator slice 1 (owner 2026-09-08, "ok. reword"): the two titles used to say
+                      // "on this row". The same panel now serves a surface with no row, and the
+                      // sentences are true without the phrase on both -- the state IS per row, which
+                      // is what makes dropping the words safe rather than merely shorter.
                       title={
                         sessionEdited
-                          ? "Discard your edits on this row and show the suggested calculation again"
-                          : "No edits to discard on this row"
+                          ? "Discard your edits and show the original values again"
+                          : "No edits to discard"
                       }
                       onClick={() => {
                         setAttrOverrideState(EMPTY_ATTR_STATE);
