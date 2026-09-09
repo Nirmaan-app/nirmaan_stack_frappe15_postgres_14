@@ -37907,3 +37907,17 @@ move is behaviour-identical, pinned). The list did not grow.
 swap), `.../rate-helper/RateHelperPanel.tsx` (the `calculator` variant), `frontend/src/pages/pricing/
 PricingWorkbookPage.tsx` (the tab), `frontend/src/pages/pricing/PricingCalculator.tsx` (new),
 `frontend/src/pages/pricing/pricingCalculator.test.ts` (new), this record. Root `CLAUDE.md`: judged, nothing earned.
+
+#### Slice 2 cert addendum (2026-09-09 19:00, owner-held lock, tab in front) -- the two owed items CLOSED
+The owner clicked Edit on `Electrical Pricing` (checkout 18:59:21, one approved checkout/release pair) and brought
+the tab to the front (`visibilityState: "visible"`). Nothing else was written.
+- **M2, lock HELD:** `checked_out_by` = `admins@nirmaan.app` BEFORE the switch (Save / Release buttons on screen,
+  1 engine container) -> switch to Calculator (DOM tab click) -> **IMMEDIATELY AFTER: `None`**, with a `release`
+  access-log row at 19:00:30 (the sheet's own unmount cleanup, no new code path) -> switch back -> **still `None`**,
+  the sheet remounted read-only (Edit / Sandbox buttons, 1 container) and wrote its two `open` rows (19:02:00 /
+  19:02:01, dev StrictMode). Access log 1,584 -> 1,587 for the exercise (1 release + 2 opens).
+- **M5, copy:** Switches and Sockets with 10A 1 WAY SWITCH x1, every socket/switch-2/blanker None, White, No, 2M ->
+  Supply 60 · Install 20 · Combined 80; a real click on "Copy combined figure", then Ctrl+V into a throwaway
+  textarea (removed afterwards): the clipboard held **exactly `80`** -- two characters (codes 56, 48), no currency
+  symbol, no separator, no trailing newline. The button's tick state was not observed after the click (the probe
+  read ran after the tick's timeout) -- the paste is the evidence.
