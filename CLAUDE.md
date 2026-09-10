@@ -578,6 +578,23 @@ whose defs carry no table. ⚠️ A `catalog_fit` `bind` is a LABEL SLOT and a `
 `map_attribute` TARGET (industrial_sockets): the validator reference-guards neither as a plain definition, and
 re-tightening that refuses a shipped config.
 
+**⚠️ A CONFIG KEY THAT VALIDATES BUT NEVER EXECUTES IS WORSE THAN ONE THAT DOES NEITHER (owner-locked, 2026-09-10).**
+It reads as live to the next author, and it is how a wrong price hides: `conditions` on an assembly-shape
+`component_ref` passed the validator and was never read; `qty.if_attr` naming a non-existent attribute passed and
+priced the row WITHOUT the component, silently. Three rules follow. **(1) The validator REFUSES a key the interpreter
+cannot run on that shape, by name -- it does not implement it** (the legacy semantics bind `cond.params` into a
+`formula`; assembly has neither, so there is no meaning to execute). **(2) Every name a step READS is checked in the
+NAMESPACE it reads from:** an attribute id through `_ref_or_map` (a `map_attribute` target needs no definition);
+`qty.from_fit` reads the RUN SCOPE, so it is checked against the ctx binds DECLARED BY AN EARLIER STEP of the same
+pipeline -- a plain `_ref` there refuses all nine shipped uses (six read a module_fit `blanks.bind`, not a circuit_fit
+bind). **(3) The ONE predicate runs at BOTH writers:** it lives in `services/boq_rate_master/config_validation.py`
+(moved DOWN so the loader can import it without a service reaching into `api/`; `api/boq/rate_master.py` re-imports
+every name) and the loader runs it over the config AS STORED (`_loaded_config`: discipline stamped, goldens merged)
+BEFORE the first write. Before switching such a gate on, sweep every asset on disk plus the live rows -- 570
+configs, 569 pass; the one refusal (v12 `point_wiring.switch_item`, a `choice` with no values) is a real defect in a
+retired asset. **A test that loads a historical asset through the loader is in the gate's blast radius**
+(six did, on v12) -- repair the fixture in memory and pin the untouched file as REFUSED; never add a `validate=False`.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.

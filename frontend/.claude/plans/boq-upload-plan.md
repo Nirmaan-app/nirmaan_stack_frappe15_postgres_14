@@ -38746,3 +38746,160 @@ rate_master_electrical_all_v63.json` (new), `frontend/src/pages/boq-wizard/rate-
 scope and untouched: `ratePipelineInterpreter.ts`, `pricingSheetHelper.ts`, `PricingCalculator.tsx`, the prompt and
 R-rules, `wiring_cabling` / `point_wiring` configs, `patches.txt`; the modified `.claude/settings.local.json` and the
 root untracked files are declared noise, not staged.
+
+
+## THE VALIDATION GAPS -- reject what cannot run, guard what is read, validate at import (2026-09-10) -- SHIPPED
+
+Owner ruling (verbatim, 2026-09-10): *"lets do the validation fixes now. then we will update the docs, deploy into
+production and the start workin gopn HVAC helpers"*; on the three items as scoped plus the component-conditions gap:
+*"proceed"*. NO config, NO asset, NO mint, NO extraction change, NO interpreter change. Live stays asset **v63**; the
+W2 re-import moved the live batch from `rmbulk-bce10321eae6` to **`rmbulk-b2147c6e15b1`** (same 1,367 items, same
+12 configs, leaf-equal -- see W2).
+
+### ONE DEFECT, FOUR PLACES
+Every item is the same failure: **the system accepted a config key and quietly did not do it.** Each is how a wrong
+price hides -- not a refusal, not a warning, a total that looks finished.
+1. **Reject what cannot run.** The interpreter's `component_ref` branch splits on SHAPE: the assembly shape
+   (`rate_stages` / `qty`) prices `stageRate x qty` and `continue`s BEFORE the legacy code that reads `conditions`,
+   `params` and `formula`; the legacy shape never reads `none_skips`. The validator accepted all four -- its
+   `conditions` block landed `7b557b94` (2026-07-30, EA-2c legacy) ONE DAY before the assembly shape (`f5b21cbc`)
+   and was never re-scoped. Now refused BY NAME, with the reason. **Not implemented:** the legacy semantics bind
+   `cond.params` into a `formula`; assembly has neither, so there is no meaning to execute -- that would be a new
+   feature wearing a repair's name (S5 honoured; no such design was started).
+2. **Guard what is read.** `qty.from_attr`, `qty.if_attr` keys and `circuit_fit.absent_when.attr` are now
+   reference-checked through `_ref_or_map` -- the map-target carve-out `catalog_fit` settled on at v63, hoisted ONCE
+   above the pipelines loop and shared. **`if_attr` is the one that matters most:** unresolved, the interpreter reads
+   `selected[k] === val` as FALSE and takes `else` (0 in every shipped use) -- the row prices WITHOUT the component,
+   silently. `if_attr` also now requires finite `then` / `else`. **The `from_fit` trap:** it reads the RUN SCOPE
+   (`ctx[key]`), never the selection, so a plain `_ref` would have refused all nine shipped uses; it is checked
+   against the ctx binds DECLARED BY AN EARLIER STEP of the same pipeline (`circuit_fit.binds`, module_fit
+   `blanks.bind` / `bind_modules`, and the `result` of scale / apply / sum / install), the way
+   `blanks.from_ladder` is checked against its own ladders. **Premise correction:** the brief said `from_fit` names
+   a `circuit_fit` bind; only 3 of the 9 do (`conduit_qty`), 6 read `blank_count` -- a module_fit `blanks.bind`. A
+   check against circuit_fit binds alone would have refused six shipped uses.
+3. **The component's own conditions.** A `component` step's `conditions` is EXECUTED by the interpreter and was
+   validated NOWHERE (no `_ref` on `when` keys, no exact-value check, no `_validate_params` on `cond.params`);
+   cabletray_raceway runs eight of them live. Validated the way component_ref's block already is.
+4. **Validate at import.** The loader checked only category id + non-empty attribute list + pipelines object
+   (`_validate_one_config`, still run first). v56 through v63 all arrived by import, so no guard had run on what
+   was loaded until `test_92` ran after the fact. Now `_validate_loaded_config` runs the FULL validator on every
+   config BEFORE the first write, over the SAME object it stores (`_loaded_config`: discipline stamped, goldens
+   merged -- the one helper both the gate and the insert loop use, so the validated object IS the written one).
+
+### THE RELOCATION
+`_validate_config` lived in `api/boq/rate_master.py`; the loader lives in `services/`. A service importing `api/`
+breaks the import-direction law (`services/boq_rate_master/` is clean of `api` imports bar one lazy `ai_settings`
+import inside `extraction.py`). So the predicate moved DOWN, whole -- `_validate_config`, `_validate_params`,
+`_KNOWN_STEP_TYPES` / `_KNOWN_DEF_KEYS` / `_KNOWN_CONFIG_KEYS`, `_BAND_WHEN_RE`, `_is_finite_number`, `_vthrow`,
+the three suffix constants, 820 lines -- into the NEW `services/boq_rate_master/config_validation.py`, and
+`api/boq/rate_master.py` RE-IMPORTS every name (`from ...config_validation import (...)`, the
+`services/boq_bcs/readiness.py` precedent). `rate_master._validate_config` etc. still resolve; the 82 test references
+are untouched; `test_vg_14` pins the re-import BY IDENTITY (`assertIs`), pins the service module free of any
+`nirmaan_stack.api` import, pins no second copy in `api/`, and pins the loader validating before it deactivates.
+`rate_master.py` 2,517 -> 1,697 lines; `re` stays imported (two slug sites still use it).
+
+### THE SWEEP (570 configs) -- before and after
+`_validate_config` over every config in every asset on disk (47 files: E-ALL v12..v63 as present + wiring v3 =
+558) plus the 12 live rows, each in its LOADED form. **BEFORE: 570 validated, 569 pass. AFTER (all four guards
+on): 570 validated, 569 pass, the SAME one failure** -- `rate_master_electrical_all_v12.json / point_wiring`:
+*choice attribute 'switch_item' needs a non-empty values list (or values_from)* -- a bare `choice` with no values
+(v12 predates `values_from`; v13 carries it). A real defect, in a retired asset F-20 already forbids re-importing.
+No new rule refuses anything else (S3 clean). Live counts verified both times: 1,367 active Electrical items, 12
+configs. (One run of the sweep mid-session read 1,278 "live" rows because the AFTER suite was creating TEST_RM_*
+fixtures concurrently and the live query had no discipline filter -- fixed to `discipline = Electrical`, re-run
+clean; declared.)
+
+### WHAT THE GATE NEWLY REJECTS -- the v12 test fixture (premise correction, owner to note)
+The recon said the suite loads only passing assets. Wrong: `TestRateMaster` loads the **v12** E-ALL asset through
+`loader.load_rate_master` in six loader-behaviour tests (`test_22`, `23`, `24`, `24d`, `25`, `29`), and v12 AS
+SHIPPED now fails the gate on `point_wiring` (four empty-choice defs; the validator names `switch_item`). Handled
+WITHOUT a bypass: `_eall_payload` repairs those FOUR defs in memory (v13's exact shapes) so the count / goldens-merge / scoped-replace / retirement pins keep pinning
+what they pinned, and `test_vg_12` pins the untouched file being REFUSED by name. A `validate=False` switch on the
+loader was rejected as exactly the opt-out the gate exists to remove. The v12 file on disk is untouched.
+
+### TESTS
+Canonical command re-verified from root `CLAUDE.md` (`bench --site localhost run-tests --module ...`, in-container;
+`--test <name>` for the pins). **Baselines measured in session (HEAD):** rate_master 364 ran, 361 OK + **3 ERRORs in
+`test_rmf_14`** -- an artefact of this session: the suite was already running when `rate_master.py` was rewritten on
+disk (820 lines removed) and `inspect.getsource` on three endpoints read the wrong lines; re-run alone on the
+finished tree: **1 OK**; coercion **160 OK**; rate_suggest **71 OK**; hv2 **43 OK** (module is
+`services.boq_category.tests.test_hv2_voter_harness`). Coercion / rate_suggest / hv2 baselines ran after the
+relocation existed on disk (sequential in one chain) -- declared; none touches the validator.
+**14 new pins, `TestValidationGaps` (`test_vg_01`..`_14`), 14 OK in 5.7 s:** vg_01 assembly + conditions / params /
+formula REFUSED; vg_02 legacy + none_skips REFUSED; vg_03 NEGATIVE earthing's two legacy steps keep their
+conditions and validate; vg_04 NEGATIVE all 79 live assembly steps validate, none carries a dead key; vg_05
+from_attr / if_attr naming nothing, missing then/else, range predicate REFUSED; vg_06 NEGATIVE a map_attribute
+target is an accepted qty source (and refused without the mapper; wiring_cabling's `conduit_included` is both);
+vg_07 NEGATIVE all NINE live from_fit uses validate, an undeclared bind and a LATER-declared bind REFUSED; vg_08
+circuit_fit absent_when naming nothing / malformed REFUSED, point_wiring's three live ones validate; vg_09
+component.conditions bad key / range / string param / non-list REFUSED, cabletray's eight validate; vg_10 THE
+LOADER refuses a typo'd copy of the current asset naming category + key + location, 0 items / 0 configs written;
+vg_11 the loader accepts the current asset whole (12 configs, every item); vg_12 v12 as shipped REFUSED naming
+`switch_item`; vg_13 every live config (12, from the DB) and every asset config (through `_loaded_config`)
+validates; vg_14 the relocation by identity + import-direction + validate-before-deactivate + no second copy.
+**A4 VACUITY, four runs, each restored sha-equal (cv `1843a79e68ac`, loader `68dfae9bac1a` before and after):**
+G1 (dead-key refusals off) -> vg_01, vg_02 red, 12 green; G2 (the four reference guards off) -> vg_05, vg_06,
+vg_07, vg_08, vg_10 red, 9 green; G3 (component.conditions off) -> vg_09 red, 13 green; G4 (loader gate off) ->
+vg_10, vg_12 red + vg_14 error (the ordering pin cannot find the call), 11 green. Nothing else moved.
+**AFTER:** rate_master **378 OK** (545 s; 364 + 14); coercion **160 OK**; rate_suggest **71 OK**; vitest **3,409 / 3,410** (the known
+`writeOffControl` timeout; frontend zero-line diff). A first AFTER run of rate_master showed **6 ERRORs**, all the
+v12 loader tests -- v12's `point_wiring` carries FOUR empty-choice defs (`switch_item`, `socket_item`, `plate_item`,
+`colour`), not one (the validator names only the first, so the sweep reported one); the fixture repair was widened to
+all four (v13's exact shapes) -- plus **`test_24i`**, which pinned that an unknown top-level config key SURVIVES A
+RE-IMPORT: exactly what `_KNOWN_CONFIG_KEYS` now refuses at import. INVERTED, not deleted -- the export half
+(verbatim blob leaves the DB) is unchanged; the re-import half now asserts the refusal by name and 0 rows written.
+The eight affected tests pass; the full re-run is the AFTER figure above.
+
+### THE INVARIANT -- 5,001 rows, both category modes, real helper (esbuild in-container)
+Harness rebuilt from the v63 slice's artefacts in `/tmp/valgaps`: the working-tree helper bundled ONCE (bundle sha
+`16e83753...`, interpreter `7463b06e...`, helper `676a68e7...` -- neither file changed), the corpus dumped BEFORE
+any edit and AGAIN after the W2 re-import (42 runs, 5,001 rows, 12 configs, 1,367 items both times). **10,002
+verdicts, 0 moved; figure-set hash `18dc605b27e3` on both sides;** 9,984 suggestions + 18 none, identical. Nothing
+here touches pricing, and the re-import's fresh item names do not reach a figure.
+
+### THE CERT (no user-visible change; proven where it lives)
+- **W1** the sweep, post-change: 570 validated, 569 pass, v12 the only failure, same reason (above).
+- **W2** the CURRENT asset re-imported in-container (`load_rate_master(path=<v63>, replace=True)`, freeze OFF):
+  batch `rmbulk-b2147c6e15b1`, 1,367 items deactivated + 1,367 inserted, 12 configs deactivated + 12 inserted,
+  retirements re-recorded as existing (0 created); **12 of 12 configs equal leaf-by-leaf** to `_loaded_config` of
+  the asset, **1,367 of 1,367 items leaf-equal** (kind / brand / unit / item_uid / attributes / rates / source; names
+  and batch differ by design). The only write in the slice; it re-imported what was already live.
+- **W3** a scratch copy of v63 with ONE typo (`switches_sockets / swsock_boq / switch` `qty.from_attr`
+  `switch_qty` -> `switch_qtyx`), imported with `replace=True`: **REFUSED**, active items / configs / total
+  Electrical rows identical before and after (`UNCHANGED: True`), scratch deleted and confirmed gone. The message a
+  pricer sees, verbatim: *Rate master import refused -- category_configs[10] (category 'switches_sockets') is not a
+  valid config: These attributes are referenced by a pipeline but not defined: 'switch_qtyx' (referenced by pipeline
+  'swsock_boq' step 1 (qty.from_attr)). Add the definition, or remove the references first. Nothing was written. Fix
+  the asset and re-run the import.*
+- **W4** the panel: `BOQ-26-00181 / Electrical / row 39` ("One no. 6 amps one way switch with modular face plate",
+  switches_sockets) opened on `:8080` after W2 -- Rate suggestions **Supply 170**, **Install 40** (harness after:
+  170 / 40 / 210), the pricer's own typed cells 160 / 40 untouched. One row; the harness carries the rest.
+
+### REGISTER (record, do not fix)
+- The 134 assembly `"@"` refs (112 selection / 19 fitLabels / 3 fitted_size live) are NOT `_ref`'d -- the biggest
+  single unguarded surface; a typo is loud at runtime ("'x' not provided -- not computed"). `resolveAtRef` reads
+  `fitted_size` from ctx, else fitLabels, else the selection -- so `"@circuits"` would NOT resolve (none live).
+- `*_from_attr` params (`_validate_params` string-checks, never `_ref`s; loud at runtime) and `*_from_ctx` params
+  (never checked against ctx keys); `module_fit terms[].weight_from.from_attr`; `map_attribute` from_attr /
+  prefer_attr / result_attr (pass-through); `lookup_or_ratio` (pass-through, not live since v31).
+- Def-level names never resolved: `disables_when_none`, `absent_dependents`, `conductor_floor.core_attr` /
+  `runs_attr`, `extraction_defaults` keys + `requires_named`, `synonyms` keys; `blanks.display_attr` (frontend-only
+  read). Catalogue-namespace names (`size_from.attr`, `label_attr`, ladder `kind` / `where`) need the catalogue.
+- `scale.conditions` -- accepted, never executed, already pinned as a known degrade in the interpreter tests.
+- `module_fit` ladder `where` with an `"@attr"` value -- accepted as an exact value; `buildModuleLadder` does not
+  resolve `"@"` (only `catalog_fit` does). Latent; none live.
+- Client/server guard drift: the editor's `referencedAttrIds` collects `conditions.when` keys for
+  `apply_effective_multiplier` only; the server `_ref`s them for component_ref and (now) component too.
+- Standing: the `TestRateMaster` fixture's in-memory repair of v12 and the INVERSION of `test_24i` (unknown keys no
+  longer survive a re-import -- inherent in validate-at-import) are the two judgements the owner may reverse; the
+  alternative for the first is moving six count pins to the current asset. `test_rmf_14`'s three baseline ERRORs
+  were the mid-run rewrite, not a defect.
+
+### FILES
+`nirmaan_stack/services/boq_rate_master/config_validation.py` (NEW, the relocated predicate + the four guards),
+`nirmaan_stack/api/boq/rate_master.py` (the block removed, the names re-imported), `nirmaan_stack/services/
+boq_rate_master/loader.py` (`_loaded_config`, `_validate_loaded_config`, both loader paths gated before any write),
+`nirmaan_stack/api/boq/test_rate_master.py` (`_eall_payload` fixture repair + `TestValidationGaps`, 14 pins), this
+record, root `CLAUDE.md` (one durable rule). Out of scope and untouched: every config and asset, `patches.txt`,
+`ratePipelineInterpreter.ts` and every frontend file, `extraction.py` and the prompt; the modified
+`.claude/settings.local.json` and the root untracked files are declared noise, not staged.
