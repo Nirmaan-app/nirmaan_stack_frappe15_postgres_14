@@ -896,6 +896,29 @@ class TestRateMaster(FrappeTestCase):
     def _eall_payload(self, discipline):
         p = copy.deepcopy(type(self).eall)
         p["discipline"] = discipline  # loader stamps every item + config from this
+        # VALIDATE-AT-IMPORT (2026-09-10): the loader now runs the full structural validator, and the
+        # v12 asset AS SHIPPED fails it in ONE config -- point_wiring carries FOUR bare `choice` defs
+        # with `values: []` and no values_from (switch_item, socket_item, plate_item, colour; v12
+        # predates values_from, and the validator names only the first, switch_item). That refusal is
+        # CORRECT and is pinned as such by TestValidationGaps.test_vg_12 on the untouched `cls.eall`.
+        # The six loader-behaviour tests that build on this helper pin COUNTS, GOLDENS MERGE, SCOPED
+        # REPLACE and RETIREMENT against the historical v12 file, none of which touches those
+        # definitions, so the fixture repairs the four defs IN MEMORY (v13's exact shapes) rather than
+        # bypassing the gate -- a `validate=False` switch on the loader was rejected as exactly the
+        # opt-out the gate exists to remove. Fixture-only; v12 on disk is untouched.
+        v13_shapes = {
+            "switch_item": {"values_from": {"kind": "switch_socket_item", "attr": "item", "where": {"family": "Switch"}}},
+            "socket_item": {"values_from": {"kind": "switch_socket_item", "attr": "item", "where": {"family": "Socket"}}},
+            "plate_item": {"values_from": {"kind": "switch_socket_item", "attr": "item", "where": {"family": "Grid and Face Plates"}}},
+            "colour": {"values": ["White", "Grey"]},
+        }
+        for c in p["category_configs"]:
+            if c.get("category_id") != "point_wiring":
+                continue
+            for d in c.get("attribute_definitions") or []:
+                if d.get("id") in v13_shapes and not d.get("values") and not d.get("values_from"):
+                    d.pop("values", None)
+                    d.update(copy.deepcopy(v13_shapes[d["id"]]))
         return p
 
     def test_23_eall_multi_config_load_counts_and_goldens_merge(self):
@@ -1861,15 +1884,19 @@ class TestRateMaster(FrappeTestCase):
         self.assertIn("a_key_nothing_knows_about", exported)
         self.assertEqual(exported["a_key_nothing_knows_about"],
                          {"nested": [1, 2, {"deep": True}], "why": "verbatim"})
-        # and it survives a re-import, which is the half that actually matters
+        # INVERTED 2026-09-10 (validate-at-import). This half used to assert the unknown key SURVIVED A
+        # RE-IMPORT. The loader now runs the full validator before it writes, and an unknown top-level
+        # key is exactly what `_KNOWN_CONFIG_KEYS` refuses -- a key nothing in the codebase knows about
+        # cannot be silently loaded as live config any more; it is refused BY NAME, and nothing is
+        # written. The EXPORT half above is unchanged: the blob still leaves the database verbatim, so
+        # the file shows the author precisely which key to register. Retired by inversion, not deletion.
         dst = self._new_disc()
         payload["discipline"] = dst
-        loader.load_rate_master(payload=payload)
-        stored = _obj(frappe.db.get_value(
-            "BoQ Rate Category Config",
-            {"discipline": dst, "category_id": "earthing", "active": 1}, "config"))
-        self.assertEqual(stored["a_key_nothing_knows_about"],
-                         {"nested": [1, 2, {"deep": True}], "why": "verbatim"})
+        with self.assertRaises(frappe.ValidationError) as cm:
+            loader.load_rate_master(payload=payload)
+        self.assertIn("a_key_nothing_knows_about", str(cm.exception))
+        self.assertIn("category 'earthing'", str(cm.exception))
+        self.assertEqual(frappe.db.count("BoQ Rate Category Config", {"discipline": dst}), 0)
 
     def test_24j_retirement_lists_come_from_the_table_not_a_file_header(self):
         """SLICE 4 -- retirement is read through slice 3's table, never carried forward from the
@@ -9671,3 +9698,355 @@ class TestV63ConduitTradeSizeLadder(FrappeTestCase):
         live_defs = {d["id"]: d for d in extraction.build_attribute_defs(live, None, "Electrical")}
         self.assertEqual(live_defs["size_mm"]["type"], "number"); self.assertNotIn("values", live_defs["size_mm"])
         self.assertEqual(extraction.inch_trade_tables(live), {"size_mm": self.TRADE})
+
+
+class TestValidationGaps(FrappeTestCase):
+    """THE VALIDATION GAPS (owner 2026-09-10): reject what cannot run, guard what is read, validate at
+    import. Four repairs, one defect: the system ACCEPTED a config key and quietly did not do it.
+      ONE   an assembly-shape component_ref (rate_stages / qty) carrying `conditions` / `params` /
+            `formula`, and a legacy (formula-priced) one carrying `none_skips` -- the interpreter never
+            reads them on that shape -- are REFUSED by name, not implemented (there is no meaning to
+            implement: the legacy semantics bind cond.params into a formula the assembly shape lacks).
+      TWO   `qty.from_attr`, `qty.if_attr` keys and `circuit_fit.absent_when.attr` are reference-guarded
+            (`_ref_or_map`, the map-target carve-out); `qty.from_fit` names a COMPUTED bind, never an
+            attribute, and is checked against the binds declared by an earlier step of the same
+            pipeline -- a plain `_ref` would refuse all nine shipped uses.
+      THREE a `component` step's own `conditions` (executed by the interpreter, validated nowhere) is
+            validated the way component_ref's block already is.
+      FOUR  the loader runs the full validator on every config it would write, BEFORE the first write,
+            over the SAME object it stores (discipline stamped, goldens merged); the predicate moved
+            DOWN to `services/boq_rate_master/config_validation.py` so no service imports `api/`, and
+            `api/boq/rate_master.py` re-imports every name.
+    Every negative here protects a SHIPPED config: earthing's two legacy conditions, the 79 assembly
+    steps, the nine from_fit uses, cabletray's component conditions, the 12 live configs, the current
+    asset through the loader. The invariant: no price moves and no shipped asset is refused."""
+
+    DEFS = [
+        {"id": "item", "label": "Item", "type": "choice", "values": ["A"]},
+        {"id": "n", "label": "N", "type": "number"},
+        {"id": "sw", "label": "Switch", "type": "choice", "values": ["Yes", "No"]},
+    ]
+    ASSEMBLY = {"step": "component_ref", "name": "c", "target": "supply_rate",
+                "ref": {"kind": "k", "item": "@item"}, "qty": {"from_attr": "n"}, "rate_stages": [{"mult": 1.0}]}
+    LEGACY = {"step": "component_ref", "name": "c", "target": "supply_rate",
+              "ref": {"kind": "k", "attributes": {"type": "Bus bar"}}, "formula": "base * m", "params": {"m": 1.0}}
+    CIRCUIT_FIT = {"step": "circuit_fit", "binds": ["fitted_size", "circuits", "conduit_qty"],
+                   "params": {"sizes": [20, 25], "usable": {"PVC": [0.4, 0.4]}, "wire_specs": [["n", "n"]],
+                              "length_attr": "n", "conduit_type_attr": "item"}}
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            cls.now = json.load(fh)
+        with open(_asset_path("rate_master_electrical_all_v12.json"), "r", encoding="utf-8") as fh:
+            cls.v12 = json.load(fh)
+        cls._disciplines = set()
+
+    @classmethod
+    def tearDownClass(cls):
+        for disc in cls._disciplines:
+            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement"):
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
+            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _new_disc(self):
+        disc = "TEST_RM_" + frappe.generate_hash(length=8)
+        type(self)._disciplines.add(disc)
+        return disc
+
+    # -- helpers ----------------------------------------------------------------------------------
+    def _loaded(self, cfg):
+        """The object the loader stores AND test_92 validates: discipline stamped, goldens merged."""
+        cc = copy.deepcopy(cfg)
+        cc["discipline"] = "Electrical"
+        g = (self.now.get("goldens") or {}).get(cc["category_id"])
+        if g is not None and "goldens" not in cc:
+            cc["goldens"] = g
+        return cc
+
+    def _validate(self, cfg):
+        rate_master._validate_config(self._loaded(cfg))
+
+    def _cfg(self, category_id):
+        return copy.deepcopy(next(c for c in self.now["category_configs"] if c["category_id"] == category_id))
+
+    def _minimal(self, steps, defs=None):
+        return {"category_id": "t_gaps", "attribute_definitions": copy.deepcopy(defs or self.DEFS),
+                "pipelines": {"p": {"output": ["x"], "steps": copy.deepcopy(steps)}}}
+
+    @staticmethod
+    def _component_refs(cfg):
+        return [(pid, si, s) for pid, pl in cfg["pipelines"].items() for si, s in enumerate(pl["steps"])
+                if s.get("step") == "component_ref"]
+
+    @staticmethod
+    def _is_assembly(s):
+        return s.get("rate_stages") is not None or s.get("qty") is not None
+
+    # -- ONE: reject what cannot run --------------------------------------------------------------
+    def test_vg_01_an_assembly_component_ref_carrying_conditions_params_or_formula_is_refused(self):
+        """POSITIVE x3: each dead key, refused BY NAME, with the reason (never read on this shape).
+        The bare assembly step validates (the control)."""
+        self._validate(self._minimal([self.ASSEMBLY]))
+        for dead, val in (("conditions", [{"when": {"sw": "Yes"}, "params": {"m": 1.0}}]),
+                          ("params", {"m": 1.0}), ("formula", "base * m")):
+            step = dict(self.ASSEMBLY, **{dead: val})
+            with self.assertRaises(frappe.ValidationError) as cm:
+                self._validate(self._minimal([step]))
+            self.assertIn("'%s'" % dead, str(cm.exception))
+            self.assertIn("never reads on this shape", str(cm.exception))
+            self.assertIn("assembly-shape component_ref", str(cm.exception))
+
+    def test_vg_02_a_legacy_component_ref_carrying_none_skips_is_refused(self):
+        """POSITIVE: none_skips is read only on the assembly branch. The bare legacy step validates."""
+        self._validate(self._minimal([self.LEGACY]))
+        with self.assertRaises(frappe.ValidationError) as cm:
+            self._validate(self._minimal([dict(self.LEGACY, none_skips=True)]))
+        self.assertIn("'none_skips'", str(cm.exception))
+        self.assertIn("reads only on the assembly shape", str(cm.exception))
+
+    def test_vg_03_NEGATIVE_earthing_bus_bar_adder_keeps_its_conditions_and_still_validates(self):
+        """What the refusal must NOT touch: the only two legacy component_refs in the catalogue
+        (earthing_boq[2] / earthing_bcs[2], the qualified bus-bar adder) carry `conditions` that the
+        interpreter EXECUTES on this shape. They validate exactly as before."""
+        earthing = self._cfg("earthing")
+        refs = self._component_refs(earthing)
+        self.assertEqual(sorted((pid, si) for pid, si, _ in refs), [("earthing_bcs", 2), ("earthing_boq", 2)])
+        for _, _, s in refs:
+            self.assertFalse(self._is_assembly(s))
+            self.assertTrue(isinstance(s.get("conditions"), list) and s["conditions"])
+            self.assertNotIn("none_skips", s)
+        self._validate(earthing)
+
+    def test_vg_04_NEGATIVE_all_79_live_assembly_steps_still_validate_and_none_carries_a_dead_key(self):
+        """The measured fact behind the refusal: 79 assembly steps in the current asset, not one with
+        `conditions` / `params` / `formula`; every config validates under the new rule."""
+        assembly = [(c["category_id"], pid, si, s) for c in self.now["category_configs"]
+                    for pid, si, s in self._component_refs(c) if self._is_assembly(s)]
+        self.assertEqual(len(assembly), 79)
+        self.assertEqual(sorted({cid for cid, _, _, _ in assembly}),
+                         ["db_switchgear", "industrial_sockets", "point_wiring", "popup_boxes",
+                          "switches_sockets", "wiring_cabling"])
+        for cid, pid, si, s in assembly:
+            for dead in ("conditions", "params", "formula"):
+                self.assertNotIn(dead, s, "%s %s[%d]" % (cid, pid, si))
+        for c in self.now["category_configs"]:
+            self._validate(c)
+
+    # -- TWO: guard what is read ----------------------------------------------------------------
+    def test_vg_05_qty_from_attr_and_if_attr_naming_nothing_are_refused(self):
+        """POSITIVE: an unresolved `from_attr`, an unresolved `if_attr` key, an `if_attr` without a
+        finite then/else, and a range predicate -- each refused at save. `if_attr` is the one that
+        matters most: unresolved, the interpreter reads `selected[k] === val` as FALSE and takes the
+        `else` branch (0 in every shipped use) -- the row prices WITHOUT the component, silently."""
+        with self.assertRaises(frappe.ValidationError) as cm:
+            self._validate(self._minimal([dict(self.ASSEMBLY, qty={"from_attr": "nope"})]))
+        self.assertIn("'nope'", str(cm.exception)); self.assertIn("qty.from_attr", str(cm.exception))
+        with self.assertRaises(frappe.ValidationError) as cm:
+            self._validate(self._minimal([dict(self.ASSEMBLY, qty={"if_attr": {"nope": "Yes"}, "then": 1, "else": 0})]))
+        self.assertIn("'nope'", str(cm.exception)); self.assertIn("qty.if_attr", str(cm.exception))
+        with self.assertRaises(frappe.ValidationError) as cm:
+            self._validate(self._minimal([dict(self.ASSEMBLY, qty={"if_attr": {"sw": "Yes"}, "then": 1})]))
+        self.assertIn("'else'", str(cm.exception))
+        with self.assertRaises(frappe.ValidationError) as cm:
+            self._validate(self._minimal([dict(self.ASSEMBLY, qty={"if_attr": {"sw": ["Yes", "No"]}, "then": 1, "else": 0})]))
+        self.assertIn("not executable", str(cm.exception))
+        # the control: the resolving shapes validate
+        self._validate(self._minimal([dict(self.ASSEMBLY, qty={"if_attr": {"sw": "Yes"}, "then": 1, "else": 0})]))
+
+    def test_vg_06_NEGATIVE_a_name_a_map_attribute_step_creates_is_an_accepted_qty_source(self):
+        """The map-target carve-out: `map_attribute` writes `result_attr` into the selection, so a
+        qty may read it without a definition. wiring_cabling's live `conduit_included` is BOTH a def
+        and a map target -- it validates either way."""
+        mapper = {"step": "map_attribute", "params": {"result_attr": "mapped", "from_attr": "sw",
+                                                       "table": {"Yes": "Y", "No": "N"}}}
+        self._validate(self._minimal([mapper, dict(self.ASSEMBLY, qty={"from_attr": "mapped"})]))
+        self._validate(self._minimal([mapper, dict(self.ASSEMBLY, qty={"if_attr": {"mapped": "Y"}, "then": 1, "else": 0})]))
+        # and WITHOUT the mapper the same name is refused -- the carve-out is the map step, not a free pass
+        with self.assertRaises(frappe.ValidationError):
+            self._validate(self._minimal([dict(self.ASSEMBLY, qty={"from_attr": "mapped"})]))
+        wc = self._cfg("wiring_cabling")
+        maps = {s["params"]["result_attr"] for pl in wc["pipelines"].values() for s in pl["steps"] if s["step"] == "map_attribute"}
+        if_keys = {k for _, _, s in self._component_refs(wc) if isinstance(s.get("qty"), dict)
+                   for k in (s["qty"].get("if_attr") or {})}
+        self.assertEqual(if_keys, {"conduit_included"})
+        self.assertIn("conduit_included", maps)
+        self._validate(wc)
+
+    def test_vg_07_NEGATIVE_all_nine_live_from_fit_uses_validate_and_an_undeclared_bind_is_refused(self):
+        """THE TRAP. `from_fit` reads the run scope (`ctx[key]`), never the selection: three shipped
+        uses read `conduit_qty` (a circuit_fit bind) and six read `blank_count` (a module_fit
+        blanks.bind). A plain `_ref` would refuse all nine; the check is against the binds DECLARED
+        EARLIER in the same pipeline. POSITIVE: an undeclared bind, and a bind declared by a LATER
+        step, are refused by name."""
+        uses = [(c["category_id"], pid, si, s["qty"]["from_fit"]) for c in self.now["category_configs"]
+                for pid, si, s in self._component_refs(c)
+                if isinstance(s.get("qty"), dict) and "from_fit" in s["qty"]]
+        self.assertEqual(len(uses), 9)
+        self.assertEqual(sorted({u[3] for u in uses}), ["blank_count", "conduit_qty"])
+        self.assertEqual(sorted({u[0] for u in uses}), ["point_wiring", "popup_boxes", "switches_sockets"])
+        for cid in ("point_wiring", "popup_boxes", "switches_sockets"):
+            self._validate(self._cfg(cid))
+        # declared EARLIER -> accepted
+        self._validate(self._minimal([self.CIRCUIT_FIT, dict(self.ASSEMBLY, qty={"from_fit": "conduit_qty"})]))
+        # never declared -> refused, naming the key and what WAS declared
+        with self.assertRaises(frappe.ValidationError) as cm:
+            self._validate(self._minimal([self.CIRCUIT_FIT, dict(self.ASSEMBLY, qty={"from_fit": "nothing"})]))
+        self.assertIn("'nothing'", str(cm.exception)); self.assertIn("conduit_qty", str(cm.exception))
+        # declared by a LATER step -> refused (the interpreter reads ctx in step order)
+        with self.assertRaises(frappe.ValidationError) as cm:
+            self._validate(self._minimal([dict(self.ASSEMBLY, qty={"from_fit": "conduit_qty"}), self.CIRCUIT_FIT]))
+        self.assertIn("'conduit_qty'", str(cm.exception)); self.assertIn("declared so far: none", str(cm.exception))
+
+    def test_vg_08_circuit_fit_absent_when_naming_nothing_is_refused_and_the_live_one_validates(self):
+        """POSITIVE: the SAME shape catalog_fit guarded at v63, now guarded on circuit_fit. Unguarded,
+        a typo'd attr made the positive absence never fire and a conduit-less row bought a conduit.
+        NEGATIVE: point_wiring's live absent_when (conduit_type = None) validates."""
+        pw = self._cfg("point_wiring")
+        fits = [s for pl in pw["pipelines"].values() for s in pl["steps"] if s["step"] == "circuit_fit"]
+        self.assertEqual(len(fits), 3)
+        for s in fits:
+            self.assertEqual(s["params"]["absent_when"], {"attr": "conduit_type", "equals": "None"})
+        self._validate(pw)
+        bad = self._cfg("point_wiring")
+        for pl in bad["pipelines"].values():
+            for s in pl["steps"]:
+                if s["step"] == "circuit_fit":
+                    s["params"]["absent_when"]["attr"] = "conduit_typo"
+        with self.assertRaises(frappe.ValidationError) as cm:
+            self._validate(bad)
+        self.assertIn("'conduit_typo'", str(cm.exception)); self.assertIn("absent_when.attr", str(cm.exception))
+        worse = self._cfg("point_wiring")
+        worse["pipelines"]["pw_bcs"]["steps"][10]["params"]["absent_when"] = {"attr": "conduit_type"}
+        with self.assertRaises(frappe.ValidationError) as cm:
+            self._validate(worse)
+        self.assertIn("absent_when must be {attr, equals}", str(cm.exception))
+
+    # -- THREE: the component's own conditions ----------------------------------------------------
+    def test_vg_09_component_conditions_are_validated_like_component_refs_and_cabletray_still_validates(self):
+        """POSITIVE: an unresolved `when` key, a range predicate and a non-numeric cond.param are each
+        refused. NEGATIVE: cabletray_raceway's eight live component conditions validate untouched."""
+        ct = self._cfg("cabletray_raceway")
+        conds = [(pid, si, s) for pid, pl in ct["pipelines"].items() for si, s in enumerate(pl["steps"])
+                 if s.get("step") == "component" and s.get("conditions")]
+        self.assertEqual(len(conds), 8)
+        self.assertEqual(sorted({k for _, _, s in conds for c in s["conditions"] for k in c["when"]}),
+                         ["cover", "floor_cutting", "floor_refilling", "installation_type"])
+        self._validate(ct)
+        bad = self._cfg("cabletray_raceway")
+        bad["pipelines"]["tray_boq_supply"]["steps"][4]["conditions"][0]["when"] = {"covr": "Yes"}
+        with self.assertRaises(frappe.ValidationError) as cm:
+            self._validate(bad)
+        self.assertIn("'covr'", str(cm.exception)); self.assertIn("condition 0", str(cm.exception))
+        bad = self._cfg("cabletray_raceway")
+        bad["pipelines"]["tray_boq_supply"]["steps"][4]["conditions"][0]["when"] = {"cover": {"in": ["Yes"]}}
+        with self.assertRaises(frappe.ValidationError) as cm:
+            self._validate(bad)
+        self.assertIn("not executable", str(cm.exception))
+        bad = self._cfg("cabletray_raceway")
+        bad["pipelines"]["tray_boq_supply"]["steps"][4]["conditions"][0]["params"] = {"factor": "1.0"}
+        with self.assertRaises(frappe.ValidationError) as cm:
+            self._validate(bad)
+        self.assertIn("'factor' must be a finite number", str(cm.exception))
+        bad = self._cfg("cabletray_raceway")
+        bad["pipelines"]["tray_boq_supply"]["steps"][4]["conditions"] = {"when": {"cover": "Yes"}}
+        with self.assertRaises(frappe.ValidationError) as cm:
+            self._validate(bad)
+        self.assertIn("component conditions must be a list", str(cm.exception))
+
+    # -- FOUR: validate at import -------------------------------------------------------------------
+    def test_vg_10_the_loader_refuses_a_typoed_asset_naming_the_category_and_the_key_and_writes_nothing(self):
+        """THE SLICE. One typo in a copy of the CURRENT asset -> the import is refused BEFORE the first
+        write, the message names the config, the key and the location, and the catalog for that
+        discipline is untouched (0 items, 0 configs)."""
+        disc = self._new_disc()
+        p = copy.deepcopy(self.now)
+        p["discipline"] = disc
+        sw = next(c for c in p["category_configs"] if c["category_id"] == "switches_sockets")
+        step = next(s for s in sw["pipelines"]["swsock_boq"]["steps"]
+                    if s.get("step") == "component_ref" and isinstance(s.get("qty"), dict) and "from_attr" in s["qty"])
+        step["qty"]["from_attr"] = step["qty"]["from_attr"] + "x"
+        typo = step["qty"]["from_attr"]
+        with self.assertRaises(frappe.ValidationError) as cm:
+            loader.load_rate_master(payload=p)
+        msg = str(cm.exception)
+        self.assertIn("Rate master import refused", msg)
+        self.assertIn("category 'switches_sockets'", msg)
+        self.assertIn("'%s'" % typo, msg)
+        self.assertIn("qty.from_attr", msg)
+        self.assertIn("Nothing was written", msg)
+        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": disc}), 0)
+        self.assertEqual(frappe.db.count("BoQ Rate Category Config", {"discipline": disc}), 0)
+
+    def test_vg_11_the_loader_accepts_the_current_asset_whole(self):
+        """NEGATIVE for the gate: the CURRENT asset loads through the gated path -- 12 configs, every
+        item -- exactly as it did before the gate existed."""
+        disc = self._new_disc()
+        p = copy.deepcopy(self.now)
+        p["discipline"] = disc
+        r = loader.load_rate_master(payload=p)
+        self.assertEqual(r["status"], "loaded")
+        self.assertEqual(r["configs_loaded"], 12)
+        self.assertEqual(r["items_total"], len(self.now["items"]))
+        self.assertEqual(frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "active": 1}), 12)
+
+    def test_vg_12_the_loader_refuses_v12_as_shipped_on_its_one_real_defect(self):
+        """The 569-of-570 sweep's one failure, pinned on the real file: v12's point_wiring.switch_item
+        is a bare `choice` with no values -- a genuine defect in a retired asset F-20 already forbids
+        re-importing. The gate refuses it BY NAME and writes nothing. (TestRateMaster._eall_payload
+        repairs this one def in memory for the count/goldens/retirement pins; this test uses the
+        file untouched.)"""
+        disc = self._new_disc()
+        p = copy.deepcopy(self.v12)
+        p["discipline"] = disc
+        with self.assertRaises(frappe.ValidationError) as cm:
+            loader.load_rate_master(payload=p)
+        msg = str(cm.exception)
+        self.assertIn("category 'point_wiring'", msg)
+        self.assertIn("'switch_item'", msg)
+        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": disc}), 0)
+
+    def test_vg_13_every_live_config_and_every_config_in_the_current_asset_validates(self):
+        """NEGATIVE, both tiers: the 12 rows the site actually serves (read from the DB, the loaded
+        form) and the 12 configs in the asset on disk (through the loader's own `_loaded_config`)."""
+        rows = frappe.get_all("BoQ Rate Category Config", filters={"active": 1, "discipline": "Electrical"},
+                              fields=["category_id", "config"])
+        self.assertEqual(sorted(r.category_id for r in rows),
+                         sorted(c["category_id"] for c in self.now["category_configs"]))
+        for r in rows:
+            rate_master._validate_config(_obj(r.config))
+        g = self.now.get("goldens") or {}
+        for i, c in enumerate(self.now["category_configs"]):
+            loader._validate_loaded_config(loader._loaded_config(c, "Electrical", g), "category_configs[%d]" % i)
+
+    def test_vg_14_the_validator_lives_in_the_service_layer_and_the_api_re_imports_it_by_identity(self):
+        """The relocation: ONE predicate, in `services/`, re-imported by `api/` -- not copied. The
+        service module imports nothing from `nirmaan_stack.api` (the import-direction law), and the
+        loader validates BEFORE it deactivates anything."""
+        from nirmaan_stack.services.boq_rate_master import config_validation as cv
+        self.assertIs(rate_master._validate_config, cv._validate_config)
+        self.assertIs(rate_master._validate_params, cv._validate_params)
+        self.assertIs(rate_master._KNOWN_DEF_KEYS, cv._KNOWN_DEF_KEYS)
+        self.assertIs(rate_master._KNOWN_STEP_TYPES, cv._KNOWN_STEP_TYPES)
+        self.assertIs(rate_master._KNOWN_CONFIG_KEYS, cv._KNOWN_CONFIG_KEYS)
+        self.assertEqual(rate_master._STEP_DIVISOR_SUFFIX, cv._STEP_DIVISOR_SUFFIX)
+        with open(cv.__file__, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        for line in src.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(("import ", "from ")):
+                self.assertNotIn("nirmaan_stack.api", stripped, "a service must not import api")
+        with open(loader.__file__, "r", encoding="utf-8") as fh:
+            lsrc = fh.read()
+        body = lsrc[lsrc.index("def _load_multi("):]
+        self.assertLess(body.index("_validate_loaded_config("), body.index("_deactivate_scope("),
+                        "the loader must validate before it deactivates")
+        api_src = open(rate_master.__file__, "r", encoding="utf-8").read()
+        self.assertNotIn("\ndef _validate_config(", api_src, "no second copy of the predicate in api/")
