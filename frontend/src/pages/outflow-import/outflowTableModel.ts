@@ -2058,6 +2058,47 @@ export const decisionLinkKeys = (decision: RowDecision): ReadonlySet<string> => 
 const EMPTY_LINK_KEYS: ReadonlySet<string> = new Set();
 
 /**
+ * The same decision with NO record picked, whichever field held it.
+ *
+ * ⚠️ IT CLEARS BOTH FIELDS, AND THAT IS THE WRITER CONTRACT, NOT TIDINESS (issue #1241). The two
+ * settle modes store the pick in different fields -- Normal in `linkTo`, Split in `linkTargets` --
+ * and `decisionLinkKeys` lets a non-empty `linkTargets` WIN. A `linkTo` left behind is therefore
+ * INVISIBLE while ticks exist and speaks again the moment the last one comes off, which reads to
+ * every downstream reader as a row decided against a record nobody can see on screen.
+ *
+ * ⚠️ `linkTo: null` IS PRESENT AND NULL, NEVER DROPPED. Absent means "never picked" and null means
+ * "deliberately cleared"; `seedDecisions` reads that distinction to avoid re-seeding a decision the
+ * reviewer has emptied on purpose.
+ *
+ * ⚠️ IT LIVES HERE, NOT INLINE IN THE PAGE. It is a domain rule about this module's own two-field
+ * shape, and ADR-0010 F4 keeps those out of components -- an inline spread in `OutflowMasterPage`
+ * would be untestable where it sat, in a repo with no DOM environment by deliberate choice. Every
+ * caller that "empties the pick" must come through here rather than spelling the three fields again.
+ */
+export const clearedPick = (decision: RowDecision): RowDecision => ({
+    ...decision,
+    target: undefined,
+    linkTo: null,
+    linkTargets: new Set(),
+});
+
+/**
+ * Whether a pick is one a SINGLE-SELECT picker could faithfully display.
+ *
+ * ⚠️ IT GUARDS A REACHABLE DIVERGENCE BETWEEN WHAT IS SHOWN AND WHAT IS SUBMITTED (issue #1241,
+ * found in review). Decisions OUTLIVE the dialog -- they live in the page's `decisions` map, while
+ * the settle mode resets to Normal on every open. So: tick two payments in Split, close WITHOUT
+ * confirming, reopen. Normal's radio table can show only ONE of the two, while `settleOne` still
+ * reads both through `decisionLinkKeys` and posts them. The screen would show one record and settle
+ * two.
+ *
+ * ⚠️ THE CALLER CLEARS, IT NEVER TRUNCATES. Taking the first key would silently settle one of two
+ * records the reviewer deliberately chose -- a wrong write is worse than a lost selection.
+ */
+export const pickFitsSingleSelect = (decision: RowDecision): boolean =>
+    decisionLinkKeys(decision).size <= 1;
+
+/**
  * Whether a row carries a decision that could be confirmed right now.
  *
  * ⚠️ A ROW THE MATCH HAS NOT RUN ON IS NEVER CONFIRMABLE, whatever decision is attached to it.

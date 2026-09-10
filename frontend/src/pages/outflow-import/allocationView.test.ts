@@ -8,6 +8,7 @@ import {
     effectiveSettleMode,
     reversalNotice,
     settleModeLocked,
+    settlePickerFor,
 } from "./allocationView";
 
 const leg = (amount: number) => ({ target_amount: amount, match_kind: "Settled" });
@@ -77,6 +78,36 @@ describe("effectiveSettleMode / settleModeLocked -- a partly-allocated row has n
 
     it("treats an absent mode as Normal -- the bulk path has no dialog and therefore no radio", () => {
         expect(effectiveSettleMode(undefined, "Matched")).toBe("normal");
+    });
+});
+
+/**
+ * ⚠️ THE AC10 PIN. Issue #1241 offers two ways to close the ledger-withholding gap and demands that
+ * one be chosen deliberately and RECORDED: withhold non-payment rows in the radio picker too, or
+ * prove the radio picker can never be shown a `Partially Allocated` row. **ANSWER 2 IS TAKEN**, and
+ * the ticket's own warning is why this block exists at all: *"Do not answer 'it can't happen'
+ * without pinning it."*
+ *
+ * `tickAllowedForFanOut` + `disabledKeys` are wired ONLY to `FanOutRecordTable`; the restored
+ * `SettleableRecordTable` has no equivalent. So what has to hold is the COMPOSITION the dialog
+ * runs -- status -> effective mode -> picker -- not either half on its own. That is the exact join
+ * both halves being green cannot see, which is this repo's standing rule about boundaries.
+ */
+describe("settlePickerFor -- a Partially Allocated row can NEVER reach the radio picker (AC10)", () => {
+    it("forces the checkbox picker on a Partially Allocated row, whatever the reviewer chose", () => {
+        for (const chosen of ["normal", "split", undefined] as const) {
+            expect(
+                settlePickerFor(effectiveSettleMode(chosen, "Partially Allocated")),
+            ).toBe("checkbox");
+        }
+    });
+
+    it("still gives an ordinary row the radio picker on Normal and the checkbox one on Split", () => {
+        // The negative half: without it the pin above would pass on a function that returned
+        // "checkbox" for everything, which would prove nothing about the gap.
+        expect(settlePickerFor(effectiveSettleMode("normal", "Matched"))).toBe("radio");
+        expect(settlePickerFor(effectiveSettleMode(undefined, "Mismatched"))).toBe("radio");
+        expect(settlePickerFor(effectiveSettleMode("split", "Matched"))).toBe("checkbox");
     });
 });
 

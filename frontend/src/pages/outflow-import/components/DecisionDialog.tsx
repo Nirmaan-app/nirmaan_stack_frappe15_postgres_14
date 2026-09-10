@@ -38,6 +38,7 @@ import {
     confirmGate,
     effectiveSettleMode,
     settleModeLocked,
+    settlePickerFor,
     type AllocationBar,
     type SettleMode,
 } from "../allocationView";
@@ -327,6 +328,13 @@ export const DecisionDialog = ({
      * the picker. `effectiveSettleMode` is the SAME function `chooseSettleEndpoint` applies on the
      * page's side of the confirm, so the control that collects the pick and the rule that routes it
      * cannot disagree about which endpoint that pick is heading for.
+     *
+     * ⚠️ `modeLocked` GOES THROUGH THE HELPER EVEN THOUGH `isPartiallyAllocated` ABOVE IS THE SAME
+     * COMPARISON TODAY. They are two different questions -- "does this transfer already have legs?"
+     * (which gates the legs fetch and the already-allocated section) and "does the reviewer get a
+     * choice of mode?" -- that happen to share one answer. The mode question must read the function
+     * `chooseSettleEndpoint` also reads, or a change to the locking rule would move the routing and
+     * leave the radio behind. Do not collapse one into the other.
      */
     const modeLocked = settleModeLocked(row?.row_status ?? "");
     const effectiveMode = effectiveSettleMode(settleMode, row?.row_status ?? "");
@@ -1746,11 +1754,20 @@ const RecordPicker = ({
                         Clear filters
                     </Button>
                 </div>
-            ) : mode === "normal" ? (
+            ) : settlePickerFor(mode) === "radio" ? (
                 /* ⚠️ THE **NORMAL** PICKER: ONE RECORD, ONE `settle_row`, ALL THREE LEDGERS (issue
                    #1241, restoring what Task 7 had converted away). It is a genuinely separate
                    component from `FanOutRecordTable` by owner ruling -- see either file's header
-                   for why merging them behind a `multiple` flag is the wrong shape. */
+                   for why merging them behind a `multiple` flag is the wrong shape.
+
+                   ⚠️ THE FORK GOES THROUGH `settlePickerFor`, NOT AN INLINE `mode === "normal"`,
+                   AND THAT IS AC10's ANSWER (issue #1241). This picker carries no
+                   `tickAllowedForFanOut` withholding, so it must never be shown a
+                   `Partially Allocated` row -- and the ticket forbids answering "it can't happen"
+                   without pinning it. Naming the fork is what lets `allocationView.test` pin the
+                   COMPOSITION `settlePickerFor(effectiveSettleMode(chosen, status))`, which is the
+                   join a ternary in this JSX would put beyond every test in a repo with no DOM
+                   environment. Do not inline it back. */
                 <SettleableRecordTable
                     records={options}
                     bankAmount={row.amount}
@@ -1760,10 +1777,14 @@ const RecordPicker = ({
                     filters={filters}
                     facets={facets}
                     onFiltersChange={setFilters}
-                    // A single-select table shows at most one key. `linkKeys` can only hold more
-                    // than one if a Split tick-set survived a mode switch, which
-                    // `onSettleModeChange` makes impossible -- taking the first is a defensive
-                    // read, not a supported shape.
+                    // ⚠️ A SINGLE-SELECT TABLE SHOWS AT MOST ONE KEY, AND THE MULTI-KEY CASE IS
+                    // PREVENTED UPSTREAM RATHER THAN TRUNCATED HERE. Decisions OUTLIVE this dialog
+                    // -- they live in the page's `decisions` map while the mode resets to Normal on
+                    // every open -- so a Split tick-set can arrive at a Normal picker without any
+                    // mode switch at all (tick two, close without confirming, reopen).
+                    // `openDecisionRow` clears such a pick via `pickFitsSingleSelect`; taking the
+                    // first key would have shown one record and settled two. This `[0]` is the
+                    // defensive read left over from that guard, never the guard itself.
                     selected={[...linkKeys][0] ?? ""}
                     // ⚠️ WRITES `linkTo` AND CLEARS `linkTargets` -- THE OTHER HALF OF THE WRITER
                     // CONTRACT `onToggle` states below (issue #1240). `decisionLinkKeys` lets a

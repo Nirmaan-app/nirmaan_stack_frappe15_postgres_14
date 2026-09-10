@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import {
     DEFAULT_HIDDEN_COLUMNS,
+    clearedPick,
+    pickFitsSingleSelect,
     UPLOADER_DISPLAY_MAX,
     isCreditRow,
     availableDecisionTargets,
@@ -1257,6 +1259,73 @@ describe("activeFilterCount", () => {
  * reader cannot accidentally accept one shape and reject the other. That naive revert -- checking
  * `decision.target && decision.linkTo` -- would reject every fan-out decision on the branch.
  */
+/**
+ * ⚠️ THE TWO RULES THE SETTLE MODE NEEDS, BOTH ABOUT THE TWO-FIELD PICK SHAPE (issue #1241).
+ * They live beside `decisionLinkKeys` because that is the module that owns the shape, and they are
+ * pinned here because the alternative -- an inline object spread in `OutflowMasterPage` -- is a
+ * domain rule inside a page component, which ADR-0010 F4 forbids and this repo has no way to test.
+ */
+describe("clearedPick / pickFitsSingleSelect -- the mode's half of the pick contract", () => {
+    it("clears BOTH pick fields, not just the outgoing one", () => {
+        // ⚠️ `decisionLinkKeys` lets a non-empty `linkTargets` WIN, so a `linkTo` left behind is
+        // INVISIBLE while ticks exist and speaks again the moment the last one comes off. Clearing
+        // one field would leave the row counted as decided against a record nobody can see.
+        const cleared = clearedPick({
+            target: "Project Payments",
+            linkTo: "PAY-1",
+            linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-2" }),
+        });
+        expect(decisionLinkKeys(cleared).size).toBe(0);
+        expect(cleared.linkTo).toBeNull();
+        expect(cleared.linkTargets?.size).toBe(0);
+        expect(cleared.target).toBeUndefined();
+    });
+
+    it("keeps everything else on the decision untouched", () => {
+        // A half-filled "create a new expense" form must survive a mode switch: the reviewer has
+        // not abandoned it, they have changed how the SETTLE half of the dialog behaves.
+        const cleared = clearedPick({
+            target: "new",
+            newExpense: { doctype: "Project Expenses", description: "kept" },
+        });
+        expect(cleared.newExpense).toEqual({ doctype: "Project Expenses", description: "kept" });
+    });
+
+    it("`linkTo: null` is a DELIBERATE CLEAR, never an absence", () => {
+        // `seedDecisions` relies on that distinction to avoid overwriting a cleared decision, so
+        // the cleared shape must carry the null rather than dropping the key.
+        expect("linkTo" in clearedPick({})).toBe(true);
+        expect(clearedPick({}).linkTo).toBeNull();
+    });
+
+    it("says whether a pick can be shown by a SINGLE-SELECT picker", () => {
+        expect(pickFitsSingleSelect({})).toBe(true);
+        expect(pickFitsSingleSelect({ target: "Project Payments", linkTo: "PAY-1" })).toBe(true);
+        expect(
+            pickFitsSingleSelect({
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+            })
+        ).toBe(true);
+    });
+
+    it("REFUSES a multi-pick, which is the defect it exists for", () => {
+        // ⚠️ THE REACHABLE BUG. Decisions outlive the dialog: tick two payments in Split, close
+        // WITHOUT confirming, reopen. The mode resets to Normal, whose radio table can show only
+        // ONE of the two -- while `settleOne` still reads both through `decisionLinkKeys` and, by
+        // the capacity rule, posts them to `allocate_row`. The screen would show one record and
+        // submit two. `openDecisionRow` clears such a pick instead of truncating it: taking the
+        // first would silently settle one of two records the reviewer deliberately chose.
+        expect(
+            pickFitsSingleSelect({
+                linkTargets: linkTargets(
+                    { target_doctype: "Project Payments", name: "PAY-1" },
+                    { target_doctype: "Project Payments", name: "PAY-2" }
+                ),
+            })
+        ).toBe(false);
+    });
+});
+
 describe("decisionLinkKeys", () => {
     const keys = (d: RowDecision) => [...decisionLinkKeys(d)];
 

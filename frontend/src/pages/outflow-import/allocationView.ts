@@ -133,6 +133,36 @@ export function effectiveSettleMode(
 }
 
 /**
+ * Which picker the settle dialog shows: the single-select radio table, or the fan-out checkbox one.
+ *
+ * ⚠️ THIS EXISTS TO BE PINNED, AND THAT IS ITS WHOLE JOB (issue #1241, AC10). The ticket offers two
+ * ways to close the ledger-withholding gap -- withhold non-payment rows in the radio picker too, or
+ * **prove the radio picker can never be shown a `Partially Allocated` row** -- and warns: *"Do not
+ * answer 'it can't happen' without pinning it."* **ANSWER 2 IS THE ONE TAKEN, DELIBERATELY.**
+ *
+ * The gap: `tickAllowedForFanOut` + `disabledKeys` withhold a non-payment tick, and they are wired
+ * ONLY to `FanOutRecordTable`. The restored `SettleableRecordTable` has no equivalent, so if it
+ * could ever render on a `Partially Allocated` row a reviewer could pick an expense, press Confirm,
+ * and be refused by the server for a reason nothing on screen hinted at.
+ *
+ * It cannot, because `effectiveSettleMode` forces `"split"` on that status and this function is the
+ * ONLY thing that turns a mode into a picker. Composing the two is therefore the real guard, and
+ * `allocationView.test` pins exactly that composition for every chosen mode -- which is why the
+ * fork is a named function rather than a ternary inside the JSX: this repo has no DOM environment,
+ * by deliberate choice, so a ternary in the render is untestable where it sits and the "it can't
+ * happen" answer would be an assertion about code nothing checks. Same reason `PricingGrid` keeps
+ * its own `selectRenderPath` outside the JSX.
+ *
+ * ⚠️ THE CALLER MUST PASS THE **EFFECTIVE** MODE. Handing it the reviewer's CHOSEN mode would put a
+ * `Partially Allocated` row in front of the radio picker and reopen the gap in one word.
+ */
+export type SettlePicker = "radio" | "checkbox";
+
+export function settlePickerFor(mode: SettleMode): SettlePicker {
+    return mode === "normal" ? "radio" : "checkbox";
+}
+
+/**
  * Which endpoint a confirm should call.
  *
  * ⚠️ ROUTING READS INTENT, NOT TICK COUNT (issue #1241, ADR-0020 B3 -- REPLACING the original rule).

@@ -3499,3 +3499,94 @@ evidence for why the mode is locked.
   the mode switch clearing a tick, the Normal radio table, and the first-leg-then-second-leg walk
   itself — is a React semantic in a repo with no DOM environment, by deliberate choice. **Issue
   #1245 is the browser walk and is where those criteria are actually discharged.**
+
+### The two-axis review wave (same day) — AC10 answered, and one reachable defect found
+
+The Standards axis and the Spec axis were run as separate agents against `d13aecdc`. Between them
+they produced one real defect, one documented-standard breach and the acceptance criterion the first
+pass had missed. All three are fixed in the follow-up commit; the rest were judgement calls, recorded
+below with the reason they were not taken.
+
+#### AC10 — the ledger-withholding gap: **ANSWER 2 IS TAKEN, and this is the record of it**
+
+The ticket offers two ways to close it and demands one be chosen deliberately:
+
+> either the radio picker withholds non-payment rows with a reason, or a test pins that a
+> `Partially Allocated` row can never reach the radio picker
+
+**Answer 2** — proved unreachable. `tickAllowedForFanOut` + `disabledKeys` are wired ONLY to
+`FanOutRecordTable`; the restored `SettleableRecordTable` has no equivalent, so if it could render on
+a `Partially Allocated` row a reviewer could pick an expense, press Confirm, and be refused by the
+server for a reason nothing on screen hinted at.
+
+⚠️ **The ticket forbids answering "it can't happen" without pinning it**, and the pin has to be of
+the JOIN, not of either half: `effectiveSettleMode` forcing `"split"` and the render fork consuming
+it are two facts that can both be true while the wire between them is cut. So the fork was extracted
+out of the JSX into `allocationView.settlePickerFor(mode): "radio" | "checkbox"`, and
+`allocationView.test` pins the composition the screen actually runs —
+`settlePickerFor(effectiveSettleMode(chosen, "Partially Allocated")) === "checkbox"` for **every**
+chosen mode, plus the negative half so the pin cannot pass on a function that returns `"checkbox"`
+for everything. Same reason `PricingGrid` keeps `selectRenderPath` outside its JSX: this repo has no
+DOM environment, so a ternary in a render is beyond every test it has. **Do not inline it back.**
+
+Answer 1 was rejected: it would add a `disabledKeys` prop to a component restored byte-identical one
+commit earlier, to withhold rows that can never be shown — dead code standing in for a proof.
+
+#### ⚠️ A REACHABLE DEFECT: a decision OUTLIVES the dialog, but the mode does not
+
+**Tick two payments in Split, close the dialog WITHOUT confirming, reopen.** The mode resets to
+Normal on every open; the decision does not reset at all — it lives in the page's `decisions` map. So
+the radio table renders showing ONE of the two, while `settleOne` still reads both through
+`decisionLinkKeys` and, by the capacity rule, posts them to `allocate_row`. **The screen would show
+one record and settle two.** No mode switch is involved, so `handleSettleModeChange`'s clearing never
+fires; reversing every leg of a `Partially Allocated` row reaches the same shape by a second route.
+
+Fixed at the open: `openDecisionRow` drops a pick the opening mode cannot represent, via the pure
+`outflowTableModel.pickFitsSingleSelect`. ⚠️ **It CLEARS, it never truncates** — taking the first key
+would silently settle one of two records the reviewer deliberately chose, and a wrong write is worse
+than a lost selection, which the reviewer can at least see.
+
+#### ADR-0010 F4 — the clearing rule moved out of the page
+
+`handleSettleModeChange` spelled the clearing inline as `{...current, target: undefined, linkTo: null,
+linkTargets: new Set()}` — a domain rule about `outflowTableModel`'s own two-field shape, living in a
+page component where this repo cannot test it, while every neighbouring rule in the same commit
+(`effectiveSettleMode`, `settleModeLocked`, `splitCandidates`) had been extracted and pinned. It is
+now `outflowTableModel.clearedPick`, pinned in `outflowTableModel.test` — including that `linkTo` is
+present-and-`null` (a deliberate clear) rather than dropped (never picked), which `seedDecisions`
+reads.
+
+#### Judgement calls NOT taken, and why
+
+- **`isPartiallyAllocated` and `settleModeLocked` are the same comparison three lines apart.** Kept
+  as two, with a note. They are two different questions — "does this transfer already have legs?"
+  (gating the legs fetch and the already-allocated section) and "does the reviewer get a choice of
+  mode?" — that happen to share one answer today. The mode question must read the function
+  `chooseSettleEndpoint` also reads, or a change to the locking rule would move the routing and leave
+  the radio behind.
+- **The mode copy lives in `allocationView` while the split notes live in `recordPickerView`.** Each
+  constant sits with the concept it describes — the mode vocabulary, and the pool view. The
+  "partial"-ban test spans both deliberately, because the ban is about the DIALOG, not either module.
+- **Effect deps carry a `Set` and an array** (`linkKeys`, `selectedRecords`). Both are `useMemo`'d,
+  so identity is stable; the standing rule is about inline objects/arrays minting a new identity per
+  render.
+- **Three `setOpenRow(null)` closes** (reverse / partial-settle / skip) do not call
+  `closeDecisionRow`. Harmless because the reset rides the OPEN and every route back in goes through
+  `openDecisionRow` — which is also where the multi-pick guard now sits, so those paths inherit it.
+
+#### Two further scope items the Spec axis flagged, both deliberate
+
+- The `decisionLinkKeys` / `linkKeys` rewrite of `selectedRecords`, the prune effect and
+  `disabledKeys` is **required**, not incidental: the Normal table takes a SCALAR `selected`, and
+  `seedDecisions` writes its suggestion into `linkTargets` on a row that opens in Normal mode — so
+  reading `decision.linkTargets` alone would have left every seeded suggestion invisible in the
+  Normal table while the footer still counted the row as decided.
+- The `LinkPaymentSection` subtitle follows the mode because the old line ("the approved record(s)
+  this transfer paid — payment or expense") is false in both halves under Split, and it sits directly
+  above the control it describes.
+
+**Verification after the wave:** `vitest run` — 3471 of 3472 green; the one failure is
+`POAdjustment/writeOffControl.test.ts` timing out at 5s under full-suite parallelism in the
+container, **which passes 19/19 in isolation and is present in the pre-slice baseline** — unrelated.
+`src/pages/outflow-import` alone: **10 files, 607 tests, all green** (600 before the wave).
+`tsc --noEmit`: zero errors under `src/pages/outflow-import/`.

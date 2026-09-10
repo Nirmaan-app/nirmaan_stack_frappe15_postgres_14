@@ -54,7 +54,9 @@ import {
     OUTFLOW_COLUMNS,
     OUTFLOW_TABS,
     decidedRows,
+    clearedPick,
     decisionLinkKeys,
+    pickFitsSingleSelect,
     decisionOrigin,
     isConfirmable,
     parseRecordKey,
@@ -468,10 +470,25 @@ export const OutflowMasterPage = () => {
      * is what stops the two coming apart -- an effect can be re-ordered, gated or dropped while
      * both of its halves still look present.
      */
-    const openDecisionRow = useCallback((row: OutflowImportRow) => {
-        setOpenRow(row);
-        setSettleMode(DEFAULT_SETTLE_MODE);
-    }, []);
+    const openDecisionRow = useCallback(
+        (row: OutflowImportRow) => {
+            setOpenRow(row);
+            setSettleMode(DEFAULT_SETTLE_MODE);
+            // ⚠️ A PICK THE OPENING MODE CANNOT SHOW IS DROPPED, NOT TRUNCATED (issue #1241, found
+            // in review). Decisions OUTLIVE the dialog -- they live in `decisions` while the mode
+            // resets here on every open -- so a Split tick-set reaches a Normal picker with no mode
+            // switch at all: tick two payments, close WITHOUT confirming, reopen. The radio table
+            // can show only one of them while `settleOne` still reads both through
+            // `decisionLinkKeys` and posts them, so the screen would show one record and settle
+            // two. Clearing rather than keeping the first is deliberate: a wrong write is worse
+            // than a lost selection, and the reviewer can see that nothing is picked.
+            const current = decisions.get(row.name);
+            if (current && !pickFitsSingleSelect(current)) {
+                setDecision(row.name, clearedPick(current));
+            }
+        },
+        [decisions, setDecision]
+    );
 
     const closeDecisionRow = useCallback(() => {
         setOpenRow(null);
@@ -487,10 +504,12 @@ export const OutflowMasterPage = () => {
      * record as an answer to a different question, and `decisionLinkKeys` would keep counting the
      * row as decided while the picker beside it showed nothing ticked.
      *
-     * ⚠️ BOTH FIELDS ARE CLEARED, NOT JUST THE OUTGOING ONE. `decisionLinkKeys` lets a non-empty
-     * `linkTargets` win, so a `linkTo` left behind is INVISIBLE while ticks exist and speaks again
-     * the moment the last one comes off -- the same writer contract every other writer of these
-     * fields holds.
+     * ⚠️ THE CLEARING ITSELF LIVES IN `clearedPick`, NOT SPELLED OUT HERE (ADR-0010 F4). It is a
+     * domain rule about `outflowTableModel`'s own two-field shape -- both fields go, because
+     * `decisionLinkKeys` lets a non-empty `linkTargets` win and a `linkTo` left behind is invisible
+     * while ticks exist and speaks again the moment the last one comes off. Spelled inline it would
+     * be a rule inside a page component, untestable where it sat in a repo with no DOM environment;
+     * `outflowTableModel.test` pins it instead.
      */
     const handleSettleModeChange = useCallback(
         (next: SettleMode) => {
@@ -499,12 +518,7 @@ export const OutflowMasterPage = () => {
             if (!openRow) return;
             const current = decisions.get(openRow.name);
             if (!current) return;
-            setDecision(openRow.name, {
-                ...current,
-                target: undefined,
-                linkTo: null,
-                linkTargets: new Set(),
-            });
+            setDecision(openRow.name, clearedPick(current));
         },
         [openRow, decisions, setDecision]
     );
