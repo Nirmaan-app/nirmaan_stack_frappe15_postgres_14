@@ -4,6 +4,7 @@ import {
     allocateButtonLabel,
     allocationBar,
     chooseSettleEndpoint,
+    confirmGate,
     reversalNotice,
 } from "./allocationView";
 
@@ -131,5 +132,138 @@ describe("reversalNotice -- a successful reverse has to SAY it worked (review F9
         });
         expect(note).toContain("Nothing is allocated");
         expect(note).not.toContain("still unallocated");
+    });
+});
+
+describe("confirmGate", () => {
+    // The state a reviewer is in almost all of the time: a live decision, legs known, ticks fit.
+    const open = {
+        busy: false,
+        decisionConfirmable: true,
+        balanceGoverns: true,
+        legsUnknown: false,
+        over: false,
+    };
+
+    // ⚠️ A WHOLE-OBJECT ASSERT ON PURPOSE: it fails if a `disabled: boolean` is ever added back
+    // beside `reason`. That projection is exactly what lets a caller take the boolean and never
+    // consult the reason -- the "bare boolean" shape #1239 removed.
+    it("is available, with nothing to say, when nothing blocks", () => {
+        expect(confirmGate(open)).toEqual({
+            reason: null,
+            balanceReason: null,
+            balanceMessage: null,
+        });
+    });
+
+    it("reports a request in flight", () => {
+        expect(confirmGate({ ...open, busy: true }).reason).toBe("busy");
+    });
+
+    it("reports a decision that is not yet a decision", () => {
+        expect(confirmGate({ ...open, decisionConfirmable: false }).reason).toBe(
+            "decision-incomplete"
+        );
+    });
+
+    it("refuses a confirm against a balance nobody has read yet", () => {
+        // Review fix 1, now pinned: `[]` legs on a Partially Allocated row is the SWR default and
+        // is also what a failed fetch leaves behind. Neither means "nothing is settled".
+        const gate = confirmGate({ ...open, legsUnknown: true });
+        expect(gate.reason).toBe("balance-unknown");
+        expect(gate.balanceMessage).toBe(
+            "Balance not yet known — waiting on what this transfer has already settled."
+        );
+    });
+
+    it("refuses an over-tick and says what to do about it", () => {
+        const gate = confirmGate({ ...open, over: true });
+        expect(gate.reason).toBe("over-allocated");
+        expect(gate.balanceMessage).toBe("— untick something before confirming");
+    });
+
+    it("puts an unknown balance ahead of an over-tick measured against it", () => {
+        // The bar short-circuits the same way. An over-tick computed from legs nobody has read is
+        // not a fact worth reporting -- the honest answer is that the balance is unknown.
+        const gate = confirmGate({ ...open, legsUnknown: true, over: true });
+        expect(gate.reason).toBe("balance-unknown");
+        expect(gate.balanceReason).toBe("balance-unknown");
+    });
+
+    // ⚠️ THE CASE THAT MADE THIS ONE VALUE INSTEAD OF TWO. The gate and the sentence are derived
+    // together, so a future change cannot leave a disabled button explained by the wrong message.
+    it("explains the disabled button with the same reason the balance is showing", () => {
+        for (const balance of [{ legsUnknown: true }, { over: true }]) {
+            const gate = confirmGate({ ...open, ...balance });
+            expect(gate.reason).toBe(gate.balanceReason);
+            expect(gate.balanceMessage).not.toBeNull();
+        }
+    });
+
+    // ⚠️ ALSO LOAD-BEARING, AND THE OPPOSITE DIRECTION. On a "create a new expense" card the
+    // allocation arithmetic does not govern the confirm -- but the row's legs are still unread, and
+    // the bar must keep saying so rather than printing a confident zero.
+    it("still reports the balance when the balance does not govern the confirm", () => {
+        const gate = confirmGate({ ...open, balanceGoverns: false, legsUnknown: true });
+        expect(gate.reason).toBeNull();
+        expect(gate.balanceReason).toBe("balance-unknown");
+        expect(gate.balanceMessage).toContain("Balance not yet known");
+    });
+
+    it("lets an over-tick through when the balance does not govern the confirm", () => {
+        const gate = confirmGate({ ...open, balanceGoverns: false, over: true });
+        expect(gate.reason).toBeNull();
+        expect(gate.balanceReason).toBe("over-allocated");
+    });
+
+    it("names the outermost blocker when several apply at once", () => {
+        const gate = confirmGate({
+            busy: true,
+            decisionConfirmable: false,
+            balanceGoverns: true,
+            legsUnknown: true,
+            over: true,
+        });
+        expect(gate.reason).toBe("busy");
+        // The balance still reports itself -- the bar is not silenced by a request being in flight.
+        expect(gate.balanceReason).toBe("balance-unknown");
+    });
+
+    // ⚠️ THE THIRD READER. `DecisionDialog`'s button LABEL must not claim "· completes this
+    // transfer" off a balance nobody has read, and it used to answer that from raw `legsUnknown`.
+    // It now asks the gate, so this pins the equivalence the swap relied on: `balanceReason ===
+    // "balance-unknown"` tracks `legsUnknown` exactly, on BOTH sides of `balanceGoverns`.
+    it("reports an unknown balance whether or not the balance governs the confirm", () => {
+        for (const balanceGoverns of [false, true])
+            for (const legsUnknown of [false, true])
+                expect(
+                    confirmGate({ ...open, balanceGoverns, legsUnknown }).balanceReason ===
+                        "balance-unknown"
+                ).toBe(legsUnknown);
+    });
+
+    // A behaviour pin against the expression this replaced:
+    //   busy || !isConfirmable(row, decision) || (isLinkDecision && (bar.over || legsUnknown))
+    it("matches the inline expression it replaced, over every input combination", () => {
+        const bools = [false, true];
+        for (const busy of bools)
+            for (const decisionConfirmable of bools)
+                for (const balanceGoverns of bools)
+                    for (const legsUnknown of bools)
+                        for (const over of bools) {
+                            const expected =
+                                busy ||
+                                !decisionConfirmable ||
+                                (balanceGoverns && (over || legsUnknown));
+                            expect(
+                                confirmGate({
+                                    busy,
+                                    decisionConfirmable,
+                                    balanceGoverns,
+                                    legsUnknown,
+                                    over,
+                                }).reason !== null
+                            ).toBe(expected);
+                        }
     });
 });

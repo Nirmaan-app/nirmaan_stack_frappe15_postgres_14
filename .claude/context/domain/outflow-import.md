@@ -3058,3 +3058,117 @@ cannot be reversed from the screen** (ADR-0020 D1/A3) — irreversible even on f
 evidence standing in its place: the "1 decided" count the bar shows comes from the SAME
 `decisionLinkKeys` call `settleOne` builds its `targets` from, and the swap it replaced
 (`decision.linkTargets ?? []`) returns the identical Set for every shape the app can produce today.
+
+---
+
+## The Confirm gate is a pure predicate returning a REASON (#1239, prefactor — 2026-09-10)
+
+**No user-visible change.** The rule deciding whether Confirm is available moved out of
+`DecisionDialog` and into `allocationView.confirmGate`, the module that already owns the allocation
+view's pure logic. It was an inline OR-expression in the footer:
+
+```ts
+busy || !isConfirmable(row, decision) || (isLinkDecision && (bar.over || legsUnknown))
+```
+
+which this repo has **no way to test where it sat** — there is no DOM environment, by deliberate
+choice (`frontend/CLAUDE.md`) — and that is how it survived four review passes while making the
+part-payment and TDS-deduction detours unreachable from the product (#1236 defect 1). The narrowing
+that fixes that is a later ticket; this one only moves the rule somewhere a test can see it.
+
+### It returns a reason, not a boolean, and the reason is ONE value with the message
+
+`ConfirmGate` = `{ reason, balanceReason, balanceMessage }`. The gate and the sentence beside it
+used to be derived at two different places — the gate in the footer, the wording as two separate
+JSX conditions in the balance bar — with nothing tying them together, so a change to one could
+silently stop describing the other. One call now answers every part, and a test asserts
+`reason === balanceReason` whenever the balance is what disables. **Do NOT re-derive any of them
+from `bar.over` / `legsUnknown` at a render site.** THREE readers take it: the button's `disabled`,
+the bar's branch + text, and the button's LABEL (whose completion claim used to read raw
+`legsUnknown`).
+
+⚠️ **THERE IS DELIBERATELY NO `disabled: boolean` ON `ConfirmGate` — the button reads
+`gate.reason !== null`.** A convenience projection is exactly what lets a caller take the boolean
+and never consult the reason, which is the "bare boolean" shape this ticket exists to remove; the
+requirement is that the dialog render the disabled state FROM the reason. **Do not add one back** —
+the "nothing blocks" test is a WHOLE-OBJECT `toEqual`, so it goes red if anyone does.
+
+⚠️ **`reason` IS TOTAL, which is why `busy` and `decision-incomplete` are members** even though
+nothing on screen says either out loud today (neither had a message before this change, and this is
+a prefactor with no user-visible change). Without them `reason` would read `null` — "Confirm is
+available" — on a row where the button is plainly dead, and the narrowing ticket needs to know WHICH
+blocker won in order to narrow the right one. Branch ORDER is precedence and nothing else: every
+branch yields the same `reason !== null`, because the expression this replaced was a plain OR.
+
+⚠️ **`balanceMessage` IS NOT ONE SHAPE, and the caller still asks WHICH reason before rendering it.**
+`balance-unknown` is a standalone sentence filling the whole bar (with no balance to print, there is
+nothing for a figure to sit beside); `over-allocated` is a trailing fragment that follows the
+figures, em dash included. Both are the pre-change strings, byte-for-byte.
+
+`ConfirmGateReason` is `busy | decision-incomplete | balance-unknown | over-allocated`, in that
+precedence. `balance-unknown` outranks `over-allocated`, matching the bar's own short-circuit — an
+over-tick measured against a balance nobody has read is not a fact worth reporting.
+
+### ⚠️ `balanceReason` is DELIBERATELY NOT GATED ON `balanceGoverns`, and that asymmetry is the design
+
+`disabled` respects which path is being confirmed (`balanceGoverns`, today `isLinkDecision`);
+`balanceReason` does not. A `Partially Allocated` row whose reviewer has opened the "create a new
+expense" card still has legs nobody has read yet, and the bar must keep saying so — collapsing the
+two would print a confident `allocated ₹0 · left ₹<the whole transfer>` there, which is the exact
+false-confidence defect **review fix 1** removed. Both still come out of ONE call, which is what
+stops the gate and the message disagreeing.
+
+`balanceGoverns` is an INPUT, not a constant: the narrowing ticket will pass "the allocation endpoint
+is the one being called" (reusing `chooseSettleEndpoint`) with no change to this module.
+
+⚠️ **THE ONE THING STILL ALLOWED TO READ `legsUnknown` RAW IS THE BAR'S VISIBILITY**
+(`canLinkPayment && (legsUnknown || ticks > 0 || allocatedLegs.length > 0)`). That is LAYOUT —
+whether the bar is on screen at all — and it is deliberately WIDER than the gate, for the same
+reason `balanceReason` is: it must render on a linkable row whose reviewer has opened a
+"create something new" card. Reasons and visibility are different questions; only reasons come from
+`gate`.
+
+### Pinned by
+
+`allocationView.test.ts` — 12 new cases: a **combinatorial pin** walking all 32 input combinations
+and asserting `reason !== null` equals the inline expression this replaced; a pin that
+`balanceReason === "balance-unknown"` tracks `legsUnknown` on BOTH sides of `balanceGoverns` (the
+equivalence the label's swap relied on); and the whole-object `toEqual` guarding against a
+re-added `disabled`.
+
+Full suite after the change: **3454 passed / 90 files**. ⚠️ `writeOffControl.test.ts` FLAKES in a
+worktree on a cold vite cache — its dynamic import of `SheetPricingPage` takes ~4.8 s against a 5 s
+`testTimeout`; it passes on a warm cache and in the main checkout. Not this change.
+⚠️ **`tsc --noEmit` is NOT clean on this repo and never was** — 3770 pre-existing errors, of which
+**0 are in `outflow-import`**, and every importer of `allocationView` lives in that folder.
+`residence_check.py` is unchanged from the branch baseline (its two ✗ lines pre-date this work —
+identical counts on the untouched checkout).
+
+### The browser walk — run 2026-09-10, Administrator, worktree on :8081
+
+Four states walked on `ZTEST Fanout Traders` ₹1,00,000 (legs ₹40,000 + ₹25,000, ₹35,000 remaining),
+**without clicking Confirm** — same discipline as the walk above:
+
+| State | What was observed |
+|---|---|
+| no tick (`decision-incomplete`) | `Confirm → Paid` greyed; bar neutral **`allocated ₹65,000 · left ₹35,000`** |
+| tick that fits (available) | button armed, reading **`Allocate 1 record · completes this transfer`**; bar **`allocated ₹1,00,000 · left ₹0`**, neutral |
+| over-tick (`over-allocated`) | button greyed, label drops the completion claim; bar RED reading **`allocated ₹1,30,100 · left ₹-30,100 — untick something before confirming`** |
+| the `balanceGoverns: false` corner | selecting **Create a new expense** clears the ticks, dims the picker, and returns the footer to `Confirm → Paid` disabled **by the form** — the balance no longer governs while the bar still reports |
+
+Console: the pre-existing `{{ boot }}` jinja placeholder exception, plus the pre-existing Radix
+`DialogContent requires a DialogTitle` a11y warning already recorded above as a standalone fix. No
+new errors. ⚠️ **The `balance-unknown` neutral box was NOT reproduced in the browser** — it needs the
+legs fetch in flight or failed, which the fixture world does not hold still for; it is covered by
+the unit test and by the branch condition being mechanically equivalent to the one it replaced.
+
+The fitting-tick and over-tick states were **re-walked after the two-axis review's fixes** (the
+button reading `gate.reason !== null`, the label reading `gate.balanceReason`) and rendered
+identically, which is the point of re-walking: those fixes touched render code the first walk had
+already signed off.
+
+⚠️ **A `--port 8081` vite started through `docker exec` SURVIVES stopping the exec client** — the
+process keeps running in the container and a restart then fails with `Port 8081 is already in use`.
+It also keeps WATCHING, so it serves current code; verify with
+`curl -s localhost:8081/src/<path> | grep <a token only the new version has>` rather than assuming
+either way. Kill it with `docker exec <container> pkill -f "port 8081"`.

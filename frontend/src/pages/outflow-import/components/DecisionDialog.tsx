@@ -30,7 +30,12 @@ import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
-import { allocateButtonLabel, allocationBar, type AllocationBar } from "../allocationView";
+import {
+    allocateButtonLabel,
+    allocationBar,
+    confirmGate,
+    type AllocationBar,
+} from "../allocationView";
 import { ROW_PARTIALLY_ALLOCATED } from "../outflowImportStatus";
 import {
     AMOUNT_GAP_HINT,
@@ -418,21 +423,6 @@ export const DecisionDialog = ({
     // "Confirm → Paid" wording and must never be blocked by a leftover, dimmed tick-set's `bar`.
     const isLinkDecision =
         decision?.target !== "new" && decision?.target !== "inflow" && decision?.target !== "receipt";
-    // ⚠️ REVIEW FIX 1, ROUND 2 -- THE LABEL MUST NOT CLAIM COMPLETION IT HAS NOT VERIFIED. `bar` is
-    // computed from `allocatedLegs`, which reads as a confident `[]` while `legsUnknown` is true
-    // (still loading, or the fetch failed and persists until the row is re-opened). `confirmDisabled`
-    // already refuses the CLICK in that state, but the button's TEXT was still able to say
-    // "· completes this transfer" off a balance nobody has read yet -- the same false-confidence
-    // defect FIX 1 fixed for the bar, one component further down. Short-circuiting HERE, at the
-    // call site, rather than passing `complete: bar.complete && !legsUnknown`, is deliberate: the
-    // intent ("never claim completion on an unknown balance") is legible without having to also
-    // read what `bar.complete` means.
-    const confirmLabel =
-        isLinkDecision && ticks > 0
-            ? legsUnknown
-                ? allocateButtonLabel({ ticks, complete: false })
-                : allocateButtonLabel({ ticks, complete: bar.complete })
-            : "Confirm → Paid";
     // ⚠️ `bar.over` ONLY GATES THE BUTTON, NEVER `isConfirmable` -- see `allocationView.ts` and the
     // picker below. Disabling the ROWS instead would make it a puzzle: the reviewer may want to
     // untick something else first.
@@ -441,10 +431,45 @@ export const DecisionDialog = ({
     // is a confident-looking `[]` while the legs are still loading or failed to load; posting a
     // confirm against that wrong balance is exactly the "posts, is refused, shows nothing" defect
     // this dialog exists to prevent, one layer up.
-    const confirmDisabled =
-        busy ||
-        !isConfirmable(row, decision) ||
-        (isLinkDecision && (bar.over || legsUnknown));
+    //
+    // ⚠️ #1239 -- THE RULE ITSELF LIVES IN `allocationView.confirmGate`, NOT HERE. It used to be an
+    // inline OR-expression, which this repo has no way to test (no DOM environment, by deliberate
+    // choice), and the sentences explaining it were derived separately further down the render. ONE
+    // call now answers every part: `gate.reason` for the button's `disabled`, `gate.balanceReason` /
+    // `gate.balanceMessage` for the bar, `gate.balanceReason` again for the label's completion
+    // claim. **Do NOT re-derive any of them from `bar.over` / `legsUnknown` at a render site.**
+    //
+    // ⚠️ THE ONE THING THAT IS STILL ALLOWED TO READ `legsUnknown` RAW IS THE BAR'S VISIBILITY
+    // (`canLinkPayment && (legsUnknown || ...)`, below). That is LAYOUT -- whether the bar is on the
+    // screen at all -- and it is deliberately WIDER than the gate: the bar renders on any linkable
+    // row, including one whose reviewer has opened a "create something new" card, where the balance
+    // no longer governs the confirm. Reasons and visibility are different questions; only reasons
+    // come from `gate`.
+    const gate = confirmGate({
+        busy,
+        decisionConfirmable: isConfirmable(row, decision),
+        balanceGoverns: isLinkDecision,
+        legsUnknown,
+        over: bar.over,
+    });
+    // Named once so the bar's two over-allocated tells -- the red skin and the instruction that
+    // follows the figures -- can never be given different conditions.
+    const overAllocated = gate.balanceReason === "over-allocated";
+    // ⚠️ REVIEW FIX 1, ROUND 2 -- THE LABEL MUST NOT CLAIM COMPLETION IT HAS NOT VERIFIED. `bar` is
+    // computed from `allocatedLegs`, which reads as a confident `[]` while the balance is unknown
+    // (still loading, or the fetch failed and persists until the row is re-opened). The gate already
+    // refuses the CLICK in that state, but the button's TEXT was still able to say
+    // "· completes this transfer" off a balance nobody has read yet -- the same false-confidence
+    // defect FIX 1 fixed for the bar, one component further down. Short-circuiting HERE, at the
+    // call site, rather than passing `complete: bar.complete && ...`, is deliberate: the intent
+    // ("never claim completion on an unknown balance") is legible without having to also read what
+    // `bar.complete` means.
+    const confirmLabel =
+        isLinkDecision && ticks > 0
+            ? gate.balanceReason === "balance-unknown"
+                ? allocateButtonLabel({ ticks, complete: false })
+                : allocateButtonLabel({ ticks, complete: bar.complete })
+            : "Confirm → Paid";
 
     /**
      * ⚠️ WHICH CARDS THIS ROW GETS IS MEMBERSHIP IN THE ONE PARTITION, NEVER A `direction` TEST
@@ -540,24 +565,28 @@ export const DecisionDialog = ({
                         allocated` figure while its real legs are still loading or failed to load.
                         A neutral, honest "not yet known" beats a wrong number on a money screen. */}
                     {canLinkPayment && (legsUnknown || ticks > 0 || allocatedLegs.length > 0) && (
-                        legsUnknown ? (
+                        gate.balanceReason === "balance-unknown" ? (
+                            // A WHOLE-BOX message: with no balance to print there is nothing for a
+                            // figure to sit beside, so the sentence is the entire bar.
                             <div className="rounded-md border border-muted-foreground/20 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-                                Balance not yet known — waiting on what this transfer has already
-                                settled.
+                                {gate.balanceMessage}
                             </div>
                         ) : (
+                            // A TRAILING FRAGMENT: the figures are the point and the instruction
+                            // follows them, so `balanceMessage` reads as a suffix here. The two
+                            // shapes are why the caller still asks WHICH reason before rendering.
                             <div
                                 className={`rounded-md border px-3 py-2 text-sm tabular-nums ${
-                                    bar.over
+                                    overAllocated
                                         ? "border-red-300 bg-red-50 text-red-600"
                                         : "border-muted-foreground/20 bg-muted/30 text-muted-foreground"
                                 }`}
                             >
                                 allocated {formatToRoundedIndianRupee(bar.allocated)} · left{" "}
                                 {formatToRoundedIndianRupee(bar.remaining)}
-                                {bar.over && (
+                                {overAllocated && (
                                     <span className="ml-2 font-medium">
-                                        — untick something before confirming
+                                        {gate.balanceMessage}
                                     </span>
                                 )}
                             </div>
@@ -697,7 +726,14 @@ export const DecisionDialog = ({
                                 record rather than from a card clicked first, so a cleared selection
                                 leaves no target at all -- and this button would have posted a
                                 settle with an undefined doctype. */}
-                            <Button size="sm" onClick={handleConfirmClick} disabled={confirmDisabled}>
+                            {/* ⚠️ #1239 -- `disabled` IS THE REASON, read as one. `confirmGate`
+                                deliberately exposes no `disabled` boolean: taking a boolean and
+                                never consulting the reason is the shape this ticket removed. */}
+                            <Button
+                                size="sm"
+                                onClick={handleConfirmClick}
+                                disabled={gate.reason !== null}
+                            >
                                 {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                 {confirmLabel}
                             </Button>

@@ -145,3 +145,120 @@ export function reversalNotice({
         ? `${head} ${formatToRoundedIndianRupee(remaining)} of this transfer is still unallocated.`
         : `${head} Nothing is allocated against this transfer now.`;
 }
+
+/**
+ * Why Confirm is unavailable.
+ *
+ * ⚠️ A REASON, NOT A BOOLEAN, AND THAT IS THE POINT OF EXTRACTING THIS (#1239). The button's
+ * `disabled` and the sentence the reviewer reads beside it used to be derived at two different
+ * places inside `DecisionDialog` -- the gate as one OR-expression in the footer, the wording as two
+ * separate JSX conditions in the balance bar. Nothing tied them together, so a change to one could
+ * silently stop describing the other: a dead control with the wrong explanation, or with none.
+ */
+export type ConfirmGateReason =
+    | "busy"
+    | "decision-incomplete"
+    | "balance-unknown"
+    | "over-allocated";
+
+/** The subset of reasons the allocation arithmetic produces -- the two the balance bar speaks. */
+export type BalanceGateReason = Extract<
+    ConfirmGateReason,
+    "balance-unknown" | "over-allocated"
+>;
+
+export interface ConfirmGate {
+    /**
+     * Why Confirm is unavailable, or `null` when it is available -- so the button's `disabled` IS
+     * `reason !== null`, read that way at the call site.
+     *
+     * ⚠️ THERE IS DELIBERATELY NO `disabled: boolean` BESIDE THIS. A convenience projection is
+     * exactly what lets a caller take the boolean and never consult the reason, which is the
+     * "bare boolean" shape #1239 exists to remove -- the ticket's requirement is that the dialog
+     * render the disabled state FROM the reason, and a second field would quietly excuse it from
+     * doing so. Do not add one back.
+     *
+     * ⚠️ IT IS TOTAL, WHICH IS WHY `busy` AND `decision-incomplete` ARE MEMBERS even though nothing
+     * on screen says either out loud today (neither had a message before this change, and #1239 is
+     * a prefactor with no user-visible change). Without them `reason` would read `null` -- "Confirm
+     * is available" -- on a row where the button is plainly dead, and the narrowing ticket needs to
+     * know WHICH blocker won in order to narrow the right one.
+     */
+    reason: ConfirmGateReason | null;
+    /**
+     * What the balance itself has to say, whichever decision card is chosen.
+     *
+     * ⚠️ DELIBERATELY NOT GATED ON `balanceGoverns`. A `Partially Allocated` row whose reviewer has
+     * opened the "create a new expense" card still has legs nobody has read yet, and the bar must
+     * keep saying so -- printing a confident `allocated ₹0 · left ₹<the whole transfer>` there is
+     * the false-confidence defect review fix 1 removed. So `disabled` respects which path is being
+     * confirmed and this does not; both still come out of ONE call, which is what stops the gate
+     * and the message disagreeing.
+     */
+    balanceReason: BalanceGateReason | null;
+    /** The sentence for `balanceReason`, ready to render. `null` when the balance is fine. */
+    balanceMessage: string | null;
+}
+
+/**
+ * ⚠️ THE EXACT STRINGS THE DIALOG USED TO CARRY INLINE. Moved here so the message and the gate are
+ * one value; the wording is unchanged.
+ */
+const BALANCE_MESSAGES: Record<BalanceGateReason, string> = {
+    "balance-unknown":
+        "Balance not yet known — waiting on what this transfer has already settled.",
+    "over-allocated": "— untick something before confirming",
+};
+
+/**
+ * Whether Confirm is available, and why not.
+ *
+ * ⚠️ PURE, AND THAT IS THE REASON IT EXISTS. This repo has no DOM test environment, by deliberate
+ * choice (`frontend/CLAUDE.md`), so an expression living inside the dialog component is untestable
+ * where it sits -- which is how this gate survived four review passes while making the part-payment
+ * and TDS-deduction detours unreachable from the product. The narrowing that fixes that is a
+ * separate ticket; this one only moves the rule somewhere a test can see it.
+ *
+ * ⚠️ `balanceGoverns` IS AN INPUT, NOT A CONSTANT. Today the dialog passes "this is a link
+ * decision"; the narrowing ticket will pass "the allocation endpoint is the one being called",
+ * reusing `chooseSettleEndpoint`. Behaviour is byte-identical either way at this ticket.
+ *
+ * ⚠️ `balance-unknown` OUTRANKS `over-allocated`, matching the bar's own short-circuit -- an
+ * over-tick measured against a balance nobody has read is not a fact worth reporting.
+ */
+export function confirmGate({
+    busy,
+    decisionConfirmable,
+    balanceGoverns,
+    legsUnknown,
+    over,
+}: {
+    busy: boolean;
+    decisionConfirmable: boolean;
+    balanceGoverns: boolean;
+    legsUnknown: boolean;
+    over: boolean;
+}): ConfirmGate {
+    const balanceReason: BalanceGateReason | null = legsUnknown
+        ? "balance-unknown"
+        : over
+          ? "over-allocated"
+          : null;
+
+    // ⚠️ ORDER IS PRECEDENCE, AND ONLY THE REPORTED REASON DEPENDS ON IT -- every branch produces
+    // the same `reason !== null`, because the expression this replaced was a plain OR. So a
+    // re-ordering can never change whether Confirm is available, only which blocker gets named.
+    const reason: ConfirmGateReason | null = busy
+        ? "busy"
+        : !decisionConfirmable
+          ? "decision-incomplete"
+          : balanceGoverns
+            ? balanceReason
+            : null;
+
+    return {
+        reason,
+        balanceReason,
+        balanceMessage: balanceReason ? BALANCE_MESSAGES[balanceReason] : null,
+    };
+}
