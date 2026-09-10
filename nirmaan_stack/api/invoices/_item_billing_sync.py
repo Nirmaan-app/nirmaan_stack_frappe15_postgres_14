@@ -226,8 +226,8 @@ def recompute_document_amount_invoiced(document_type: str, document_name: str) -
 # ("Amount Due = Total WO Value - Amt Paid"); switching them to invoiced-minus-paid
 # would move 761 of 862 rows (measured 2026-08-19). Do NOT "harmonise" the two.
 _AMOUNT_DUE_OPERANDS = {
-    "Procurement Orders": ("amount_invoiced", "amount_paid"),
-    "Service Requests": ("total_amount", "amount_paid"),
+    "Procurement Orders": ("amount_invoiced", ("amount_paid",)),
+    "Service Requests": ("total_amount", ("amount_paid", "total_tds")),
 }
 
 
@@ -255,18 +255,30 @@ def recompute_document_amount_due(document_type: str, document_name: str) -> Non
     operands = _AMOUNT_DUE_OPERANDS.get(document_type)
     if not operands or not document_name:
         return
-    minuend, subtrahend = operands
+    minuend, subtrahends = operands
 
     # Column and table names come from the constant above, never from a caller.
+    projected = ", ".join(
+        'COALESCE("{0}", 0) AS s{1}'.format(col, i) for i, col in enumerate(subtrahends)
+    )
     row = frappe.db.sql(
-        'SELECT COALESCE("{0}", 0) AS a, COALESCE("{1}", 0) AS b '
-        'FROM "tab{2}" WHERE name = %(n)s'.format(minuend, subtrahend, document_type),
+        'SELECT COALESCE("{0}", 0) AS a, {1} '
+        'FROM "tab{2}" WHERE name = %(n)s'.format(minuend, projected, document_type),
         {"n": document_name}, as_dict=True,
     )
     if not row:
         return
 
+    # ⚠️ A LIST OF SUBTRAHENDS RATHER THAN ONE, BECAUSE A SERVICE REQUEST NOW HAS TWO.
+    # `Project Payments.amount` on an SR is stored NET of tax withheld (services/payment_tds.py),
+    # so `total_amount - amount_paid` alone would report the withheld tax as still owed on every
+    # settled SR. Subtracting `total_tds` as well is the other half of that change and is not
+    # optional -- see the module docstring in `services/payment_tds.py`.
+    #
+    # It is arithmetically inert on historical data: no Service Request has a `Payment TDS
+    # Deduction` row yet, so `total_tds` is 0 and this subtracts nothing. Procurement Orders keep
+    # a single subtrahend and have no `total_tds` column to read.
     frappe.db.set_value(
         document_type, document_name, "amount_due",
-        flt(row[0].a) - flt(row[0].b),
+        flt(row[0].a) - sum(flt(row[0]["s{0}".format(i)]) for i in range(len(subtrahends))),
     )
