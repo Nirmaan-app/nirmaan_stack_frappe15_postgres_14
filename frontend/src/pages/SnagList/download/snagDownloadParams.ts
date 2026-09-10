@@ -6,6 +6,7 @@
 import { ColumnFiltersState } from "@tanstack/react-table";
 
 import {
+  DOWNLOAD_ALL_ENDPOINT,
   DOWNLOAD_PDF_ENDPOINT,
   SNAG_PRINT_DOCTYPE,
   SNAG_PRINT_FORMAT_NAME,
@@ -29,6 +30,15 @@ export interface SnagDownloadState {
   columnFilters: ColumnFiltersState;
   searchTerm?: string;
   selectedSearchField?: string;
+  /**
+   * The selected batch tab, when it is one the PDF can express — `undefined` on
+   * "All" (absent means every batch on the Jinja side, which is the default) and on
+   * the manual tab (see `printableBatch`, which is what decides this).
+   *
+   * It rides the SAME `batches` param the retired Batch funnel used, so no Jinja
+   * change was needed: the format already filters `["batch", "in", [...]]`.
+   */
+  batch?: string;
 }
 
 /**
@@ -42,6 +52,7 @@ export function buildSnagDownloadUrl({
   columnFilters,
   searchTerm,
   selectedSearchField,
+  batch,
 }: SnagDownloadState): string {
   const params = new URLSearchParams({
     doctype: SNAG_PRINT_DOCTYPE,
@@ -60,14 +71,61 @@ export function buildSnagDownloadUrl({
     params.append(param, JSON.stringify(values));
   }
 
+  // The batch TAB, if the caller passed one it can express. Appended after the loop
+  // above rather than inside it because a tab is NOT a column filter — it never
+  // appears in `columnFilters` (see `config/snagBatchTabs.ts` on why that separation
+  // is load-bearing), so nothing in that loop could ever see it.
+  if (batch) {
+    params.append(SNAG_PRINT_PARAM.batches, JSON.stringify([batch]));
+  }
+
+  appendSearch(params, searchTerm, selectedSearchField);
+
+  return `${DOWNLOAD_PDF_ENDPOINT}?${params.toString()}`;
+}
+
+/** Shared by both builders — the search box narrows the merged report identically. */
+function appendSearch(
+  params: URLSearchParams,
+  searchTerm?: string,
+  selectedSearchField?: string
+): void {
   const search = (searchTerm || "").trim();
   const field = selectedSearchField || "description";
   if (search && PRINTABLE_SEARCH_FIELDS.includes(field)) {
     params.append(SNAG_PRINT_PARAM.search, search);
     params.append(SNAG_PRINT_PARAM.searchField, field);
   }
+}
 
-  return `${DOWNLOAD_PDF_ENDPOINT}?${params.toString()}`;
+/**
+ * "Download All" — every batch's report in one file.
+ *
+ * Carries the SAME facet and search params as the single download, so each batch's
+ * section is narrowed exactly like the screen. The one axis it does NOT send is
+ * `batches`: doing every batch is the whole point, so the server owns that param and
+ * the selected tab is deliberately overridden.
+ */
+export function buildSnagDownloadAllUrl({
+  projectId,
+  columnFilters,
+  searchTerm,
+  selectedSearchField,
+}: SnagDownloadState): string {
+  const params = new URLSearchParams({ project: projectId });
+
+  for (const filter of columnFilters) {
+    const param = FILTER_PARAM_BY_COLUMN[filter.id];
+    // `batches` is the server's to set, one per rendered section.
+    if (!param || param === SNAG_PRINT_PARAM.batches) continue;
+    const values = Array.isArray(filter.value) ? filter.value.map(String) : [];
+    if (values.length === 0) continue;
+    params.append(param, JSON.stringify(values));
+  }
+
+  appendSearch(params, searchTerm, selectedSearchField);
+
+  return `${DOWNLOAD_ALL_ENDPOINT}?${params.toString()}`;
 }
 
 /** Strip anything a filesystem would rather not see. */

@@ -37,11 +37,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import type {
   GetSheetColumnsResponse,
-  IngestBatchesResponse,
+  IngestBatchResponse,
   InspectWorkbookResponse,
   ParsePreviewResponse,
   SnagColumnMapping,
@@ -54,7 +56,8 @@ import { UploadStep } from "./UploadStep";
 import { useSnagTemplateDownload } from "./templateDownload";
 import {
   PREVIEW_DEBOUNCE_MS,
-  buildIngestBatches,
+  buildIngestSheets,
+  defaultBatchName,
   errorText,
   evaluateConfirmGate,
   headerRowSignature,
@@ -72,7 +75,7 @@ import {
 
 const SHEET_COLUMNS_METHOD = "nirmaan_stack.api.snags.import_wizard.get_sheet_columns";
 const PARSE_PREVIEW_METHOD = "nirmaan_stack.api.snags.import_wizard.parse_preview";
-const INGEST_METHOD = "nirmaan_stack.api.snags.import_wizard.ingest_batches";
+const INGEST_METHOD = "nirmaan_stack.api.snags.import_wizard.ingest_batch";
 
 type Step = "upload" | "sheets" | "tabs" | "result";
 
@@ -81,7 +84,7 @@ export interface SnagImportDialogProps {
   onOpenChange: (open: boolean) => void;
   projectId: string;
   /** Called after a successful ingest so the caller can refetch. Receives the result. */
-  onImported: (result: IngestBatchesResponse) => void;
+  onImported: (result: IngestBatchResponse) => void;
 }
 
 export function SnagImportDialog({
@@ -95,12 +98,20 @@ export function SnagImportDialog({
   const [selection, setSelection] = useState<Record<string, boolean>>({});
   const [tabStates, setTabStates] = useState<Record<string, TabState>>({});
   const [activeTab, setActiveTab] = useState<string>("");
+  /**
+   * The name for the ONE batch this import creates. Dialog-level, not per tab: a batch
+   * is the FILE now, so the name covers every ticked sheet. Seeded from the file name
+   * when the workbook is inspected; blank falls back to the same default server-side.
+   */
+  const [batchName, setBatchName] = useState("");
+
   const [ingesting, setIngesting] = useState(false);
   const [ingestError, setIngestError] = useState<string | null>(null);
-  const [result, setResult] = useState<IngestBatchesResponse | null>(null);
+  const [result, setResult] = useState<IngestBatchResponse | null>(null);
 
+  // The project labels the template -- its title block and its file name.
   const { isDownloading: templateDownloading, download: downloadTemplate } =
-    useSnagTemplateDownload();
+    useSnagTemplateDownload(projectId);
 
   const { call: columnsCall } = useFrappePostCall<{ message: GetSheetColumnsResponse }>(
     SHEET_COLUMNS_METHOD,
@@ -108,7 +119,7 @@ export function SnagImportDialog({
   const { call: previewCall } = useFrappePostCall<{ message: ParsePreviewResponse }>(
     PARSE_PREVIEW_METHOD,
   );
-  const { call: ingestCall } = useFrappePostCall<{ message: IngestBatchesResponse }>(
+  const { call: ingestCall } = useFrappePostCall<{ message: IngestBatchResponse }>(
     INGEST_METHOD,
   );
 
@@ -176,6 +187,7 @@ export function SnagImportDialog({
     columnsSigRef.current = {};
     setStep("upload");
     setInspect(null);
+    setBatchName("");
     setSelection({});
     setTabStates({});
     setActiveTab("");
@@ -466,6 +478,9 @@ export function SnagImportDialog({
       columnsInFlightRef.current = {};
       columnsSigRef.current = {};
       setInspect(response);
+      // Seed the ONE batch name from the file. A re-inspect REPLACES it rather than
+      // keeping a name typed for the previous workbook.
+      setBatchName(defaultBatchName(response.file_name));
       setSelection(initialSheetSelection(response.sheets));
       setTabStates({});
       setActiveTab("");
@@ -481,7 +496,6 @@ export function SnagImportDialog({
       tabStatesRef.current,
       inspect.sheets,
       ticked,
-      inspect.file_name,
     );
     setTabStates(next);
     // SEED the columns signature for every tab that now exists. `inspect_workbook` already
@@ -496,12 +510,6 @@ export function SnagImportDialog({
     setActiveTab((prev) => (prev && ticked.includes(prev) ? prev : ticked[0]));
     setStep("tabs");
   }, [inspect, ticked]);
-
-  const handleBatchNameChange = useCallback(
-    (sheetName: string, value: string) =>
-      patchTab(sheetName, (prev) => ({ ...prev, batchName: value })),
-    [patchTab],
-  );
 
   const handleMappingChange = useCallback(
     (sheetName: string, mapping: SnagColumnMapping) =>
@@ -574,7 +582,8 @@ export function SnagImportDialog({
         project: projectId,
         file_url: inspect.file_url,
         file_name: inspect.file_name,
-        batches: buildIngestBatches(ticked, tabStates, inspect.file_name),
+        batch_name: batchName,
+        sheets: buildIngestSheets(ticked, tabStates),
       });
       const payload = res?.message;
       if (!payload) {
@@ -589,7 +598,7 @@ export function SnagImportDialog({
     } finally {
       setIngesting(false);
     }
-  }, [gate.ok, ingestCall, inspect, onImported, projectId, tabStates, ticked]);
+  }, [batchName, gate.ok, ingestCall, inspect, onImported, projectId, tabStates, ticked]);
 
   // -- render --------------------------------------------------------------------------
   const sheetsByName = useMemo(() => {
@@ -628,6 +637,26 @@ export function SnagImportDialog({
 
           {step === "tabs" && inspect && (
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+              {/* ONE name for the whole import. It sits ABOVE the sheet tabs, not inside
+                  one, because a batch is the FILE — every ticked sheet below lands in
+                  this one batch, and a name inside a tab would claim otherwise. */}
+              <div className="mb-4 space-y-1.5">
+                <Label htmlFor="snag-batch-name" className="text-xs">
+                  Batch name
+                </Label>
+                <Input
+                  id="snag-batch-name"
+                  value={batchName}
+                  maxLength={140}
+                  placeholder="Name this import"
+                  onChange={(e) => setBatchName(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  One batch for this file. Every sheet you tick below is imported into it,
+                  and it appears as one tab on the snag list. Editable now and later.
+                </p>
+              </div>
+
               {/* R2 change 3: the strip had no label of any kind. */}
               <div className="mb-1.5 text-xs font-medium text-muted-foreground" id="snag-current-sheet-label">
                 Current Sheet
@@ -669,7 +698,6 @@ export function SnagImportDialog({
                     <SheetTabPanel
                       sheet={sheet}
                       state={st}
-                      onBatchNameChange={handleBatchNameChange}
                       onHeaderRowChange={handleHeaderRowChange}
                       onMappingChange={handleMappingChange}
                       onToggleRow={handleToggleRow}

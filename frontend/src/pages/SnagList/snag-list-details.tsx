@@ -77,7 +77,10 @@ export const SnagListProjectDetail: React.FC = () => {
             </div>
           </div>
 
-          {/* The rest of the project lives one click away — this page is only its snags. */}
+          {/* The ONLY action in this header. Add snag / Import / Download / the
+              import-history popover deliberately are NOT here: they live on the tab
+              row inside `SnagListTab`, which is where the Project page tab carries
+              them too, so the two screens read identically. */}
           <Button
             variant="outline"
             size="sm"

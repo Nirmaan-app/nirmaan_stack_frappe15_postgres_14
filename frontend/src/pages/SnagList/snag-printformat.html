@@ -53,9 +53,20 @@
 {%- set sel_categories = json.loads(categories_param) if categories_param else none -%}
 {%- set sel_batches    = json.loads(batches_param)    if batches_param    else none -%}
 
-{# Default: a snag set to "Not Applicable" is a disposal, not work -- it stays  #}
-{# out of the printed list unless the caller asks for it explicitly.            #}
-{%- set statuses = sel_statuses if sel_statuses is not none else ["Pending", "WIP", "Completed"] -%}
+{# Default: EVERY status, "Not Applicable" included (owner decision 2026-09-09,
+   REVERSING "a snag set to Not Applicable is a disposal, not work -- it stays out of
+   the printed list unless the caller asks for it explicitly").
+
+   THAT DEFAULT WAS WHY THE NOT-APPLICABLE COUNT COULD NEVER APPEAR. It is a FETCH
+   filter, not a display one, so those rows never reached the tally -- the count read 0
+   on a project that had them, and the tile (gated on > 0) then hid itself. Two layers
+   agreeing on zero looked like "there are none".
+
+   It also put the PDF at odds with the screen it is printed from: the app's list shows
+   Not Applicable rows, and this feature's rule is that the PDF cannot disagree with the
+   table above it. An explicit `statuses` param still narrows as before, so the status
+   facet keeps working exactly as it did. #}
+{%- set statuses = sel_statuses if sel_statuses is not none else ["Pending", "WIP", "Completed", "Not Applicable"] -%}
 
 
 <!-- ========================================== -->
@@ -124,10 +135,31 @@
 {%- set snags = frappe.get_all("Project Snag",
         filters=snag_filters,
         fields=["name", "area", "category", "description", "status", "remark",
-                "creation", "source_row", "source_serial"],
+                "creation", "source_row", "source_serial", "batch"],
         order_by="category asc, area asc, source_row asc, creation asc",
         limit_page_length=0
 ) -%}
+
+{# --- THE SOURCE FILES BEHIND THE PRINTED ROWS ---
+   Derived from the snags ACTUALLY ON THE PAGE, never from the project's batch list:
+   a status or area filter can exclude every row of a batch, and naming a file that
+   contributed nothing to this PDF would be a claim the pages do not support.
+
+   A manually added snag has no batch and so contributes no file -- correctly, there
+   is no file behind it. A PDF of only manual snags therefore lists none, and the
+   block below renders nothing at all. #}
+{%- set printed_batch_names = [] -%}
+{%- for s in snags -%}
+    {%- if s.batch and s.batch not in printed_batch_names -%}
+        {%- set _ = printed_batch_names.append(s.batch) -%}
+    {%- endif -%}
+{%- endfor -%}
+{%- set source_files = frappe.get_all("Project Snag Batch",
+        filters=[["name", "in", printed_batch_names]],
+        fields=["name", "batch_name", "uploaded_on"],
+        order_by="uploaded_on asc",
+        limit_page_length=0
+) if printed_batch_names else [] -%}
 
 {# --- COUNTS FOR THE STATS STRIP (over the PRINTED set) --- #}
 {%- set tally = {"Pending": 0, "WIP": 0, "Completed": 0, "Not Applicable": 0} -%}
@@ -171,8 +203,11 @@
     }) -%}
 {%- endfor -%}
 
-{# The Not Applicable column/tile only earns its space when something carries it. #}
-{%- set show_na = tally["Not Applicable"] > 0 -%}
+{# The Not Applicable column/tile ALWAYS renders, mirroring the app's stats strip,
+   which shows all five tiles and prints a plain 0. A tile that hides at zero cannot be
+   told apart from a tile that is missing -- which is exactly how the count above went
+   unnoticed. A zero here is information: it says nothing was written off. #}
+{%- set show_na = true -%}
 
 
 {# --- FILTER LABELS ---
@@ -250,6 +285,13 @@
     .banner-label { font-size: 10px; font-weight: 800; color: #6b7280; text-transform: uppercase; letter-spacing: 1.2px; }
     .banner-value { font-size: 18px; font-weight: 900; color: #111827; line-height: 1.15; margin-top: 4px; }
     .banner-value-right { font-size: 14px; font-weight: 900; color: #1e3a8a; line-height: 1.15; margin-top: 4px; text-transform: uppercase; }
+
+    /* --- SOURCE FILES (between the project banner and the summary) --- */
+    .files-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+    .files-head td { font-size: 10px; font-weight: 800; color: #6b7280; text-transform: uppercase; letter-spacing: 1.2px; padding: 0 0 4px 0; }
+    .files-name { font-size: 12px; font-weight: 700; color: #111827; padding: 5px 0; border-top: 1px solid #e5e7eb; }
+    .files-date { font-size: 11px; font-weight: 600; color: #374151; padding: 5px 0; border-top: 1px solid #e5e7eb; white-space: nowrap; }
+    .files-right { text-align: right; }
 
     /* --- ONE CATEGORY = ONE PAGE --- */
     /* Every category starts a new page, the first one included: page 1 carries the
@@ -341,12 +383,12 @@
                 <div class="stat-value">{{ t["Completed"] }}</div>
                 <div class="stat-label">Completed</div>
             </td>
-            {% if t["Not Applicable"] > 0 %}
+            {# ALWAYS rendered -- see `show_na`. This was a SECOND, independent gate on
+               the same number, so removing only one of them would have changed nothing. #}
             <td class="stat-na">
                 <div class="stat-value">{{ t["Not Applicable"] }}</div>
                 <div class="stat-label">Not Applicable</div>
             </td>
-            {% endif %}
         </tr>
     </table>
 {%- endmacro -%}
@@ -387,6 +429,27 @@
             </tr>
         </table>
     </div>
+
+    <!-- 4.3b SOURCE FILES -- file name left, the date it was added right.
+         One row per imported file behind the rows on these pages. A batch is the
+         FILE (not the sheet), so this is one line per upload however many sheets it
+         combined. Renders nothing when the printed rows came from no file at all. -->
+    {%- if source_files -%}
+    <table class="files-table">
+        <tr class="files-head">
+            <td>File</td>
+            <td class="files-right">File Added</td>
+        </tr>
+        {%- for f in source_files -%}
+        <tr>
+            <td class="files-name">{{ f.batch_name or f.name }}</td>
+            <td class="files-date files-right">
+                {{ frappe.utils.formatdate(f.uploaded_on, "dd-MMM-yyyy") if f.uploaded_on else "--" }}
+            </td>
+        </tr>
+        {%- endfor -%}
+    </table>
+    {%- endif -%}
 
     <!-- 4.4 OVERALL STATUS SUMMARY -->
     {{ stats_card(snags | length, tally) }}

@@ -20,6 +20,21 @@
  *    in the Edit dialog, read-only. Do not reinstate half of that removal.
  *  - Two row-level gates, NOT one: `canEditStatus` (includes the Project Manager)
  *    and `canEditRow` (excludes them). See `config/snagPermissions.ts`.
+ *  - The controls are split across TWO rows by WHAT THEY ACT ON, and each group is
+ *    built ONCE. `headerActions` (import history + Download All + Import) rides the
+ *    TAB ROW at both mount points, because every one of those acts on BATCHES and a
+ *    tab IS a batch — Download All prints one report per batch and merges them.
+ *    `statsRowActions` (Add snag + Download) sits with the tally, because those act on
+ *    the list in front of you. Do not merge them back for tidiness — and note that
+ *    `Add snag` creates a snag with NO batch, which is exactly why it does not belong
+ *    beside Import — the Project
+ *    page tab and `/snag-list/:id` render the identical strip. Do not answer a
+ *    "put the buttons somewhere else" request by rebuilding them at the other
+ *    site: the import dialog's state, the download hook and the permission gates
+ *    all live here, and a second copy is how the two mount points start
+ *    disagreeing about who may press what. (An earlier revision portaled this
+ *    group into the detail page's own header; that was reversed so the two
+ *    screens read identically, and the portal seam was removed with it.)
  */
 
 import * as React from "react";
@@ -35,10 +50,11 @@ import { cn } from "@/lib/utils";
 
 import { SnagImportDialog } from "@/pages/SnagList/import/SnagImportDialog";
 
-import { useSnagDownload } from "./download";
+import { useSnagDownload, useSnagDownloadAll } from "./download";
 
 import { AddSnagDialog } from "./components/AddSnagDialog";
 import { BulkStatusDialog } from "./components/BulkStatusDialog";
+import { SnagBatchTabs } from "./components/SnagBatchTabs";
 import { SnagBatchesPanel } from "./components/SnagBatchesPanel";
 import { SnagEmptyState } from "./components/SnagEmptyState";
 import { SnagEditDialog } from "./components/SnagEditDialog";
@@ -47,6 +63,16 @@ import {
   SNAG_INITIAL_COLUMN_VISIBILITY,
   getSnagColumns,
 } from "./config/snagColumns";
+import {
+  ALL_BATCHES,
+  MANUAL_BATCH,
+  SnagBatchTabValue,
+  buildSnagBatchTabs,
+  isUnprintableTab,
+  printableBatch,
+  snagBatchFilter,
+  statsForTab,
+} from "./config/snagBatchTabs";
 import { resolveSnagPermissions } from "./config/snagPermissions";
 import {
   SNAG_DEFAULT_SORT,
@@ -60,7 +86,7 @@ import { useSnagBatches } from "./hooks/useSnagBatches";
 import { useSnagFieldValues } from "./hooks/useSnagFieldValues";
 import { useSnagMutations } from "./hooks/useSnagMutations";
 import { useSnagStats } from "./hooks/useSnagStats";
-import { IngestBatchesResponse, SnagStatus } from "./types";
+import { IngestBatchResponse, SnagStatus } from "./types";
 
 export interface SnagListTabProps {
   projectId: string;
@@ -73,7 +99,10 @@ export interface SnagListTabProps {
   projectName?: string;
 }
 
-export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.Element {
+export function SnagListTab({
+  projectId,
+  projectName,
+}: SnagListTabProps): JSX.Element {
   const { role, user_id } = useUserData();
   const perms = React.useMemo(
     () => resolveSnagPermissions({ role, userId: user_id }),
@@ -95,6 +124,12 @@ export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.E
     sanitizePersistedSnagTableState(urlSyncKey);
     return null;
   });
+
+  // WHICH IMPORT IS ON SCREEN. `ALL_BATCHES` (the default) narrows nothing.
+  // Session-scoped on purpose: it is NOT in `urlSyncKey`'s persisted table state,
+  // because that state is `columnFilters` + search, and a batch tab is deliberately
+  // neither (`config/snagBatchTabs.ts`). A bookmark therefore always opens on "All".
+  const [activeBatch, setActiveBatch] = React.useState<SnagBatchTabValue>(ALL_BATCHES);
 
   const [importOpen, setImportOpen] = React.useState(false);
   const [addOpen, setAddOpen] = React.useState(false);
@@ -183,10 +218,21 @@ export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.E
     [batches]
   );
 
-  const projectFilters = React.useMemo(
-    () => [["project", "=", projectId]],
-    [projectId]
-  );
+  // The table's base filters — project, plus the selected batch tab.
+  //
+  // The tab rides HERE, in `additionalFilters`, and never in `columnFilters`: the
+  // Batch funnel was removed in Revision 3 along with its host column and its entry
+  // in the persisted-state sanitizer, and routing a tab through that channel would
+  // walk straight back into the bookmark defect that removal was for.
+  //
+  // `facetOverrides` below reads the same array, so the Area / Category / Status
+  // funnels list the values present IN THE SELECTED BATCH — which is what a facet
+  // over a narrowed table must show.
+  const projectFilters = React.useMemo(() => {
+    const base: unknown[][] = [["project", "=", projectId]];
+    const batchClause = snagBatchFilter(activeBatch);
+    return batchClause ? [...base, batchClause] : base;
+  }, [projectId, activeBatch]);
 
   // Render-scope context per column id. One entry per column that DECLARES a facet
   // — no more. The `batch` entry went with the Batch funnel in Revision 3: with no
@@ -213,6 +259,7 @@ export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.E
     setSelectedSearchField,
     columnFilters,
     pagination,
+    setPagination,
     exportAllRows,
     isExporting,
   } = useServerDataTable<SnagListRow>({
@@ -229,6 +276,33 @@ export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.E
 
   refetchTableRef.current = refetch;
 
+  // --- Batch tabs ---
+  // Counts come from the `by_batch` split of the ONE stats call this screen already
+  // makes; there is no per-batch fetch and there must not be one.
+  const batchTabs = React.useMemo(
+    () => buildSnagBatchTabs(batches, stats.by_batch, stats.total),
+    [batches, stats.by_batch, stats.total]
+  );
+
+  // Switching tabs MUST reset the page. `useServerDataTable` does not reset
+  // `pageIndex` when `additionalFilters` change (its own reset is commented out),
+  // so moving from page 3 of a 124-row batch to a 4-row one would land on an empty
+  // page with no indication that the rows exist on page 1.
+  const handleBatchChange = React.useCallback(
+    (next: SnagBatchTabValue) => {
+      setActiveBatch(next);
+      setPagination((prev) => ({ ...prev, pageIndex: 0 }));
+    },
+    [setPagination]
+  );
+
+  // What the stats strip shows: the whole project on "All", otherwise the selected
+  // batch's own slice — the strip has to agree with the table under it.
+  const scopedStats = React.useMemo(
+    () => statsForTab(stats, activeBatch),
+    [stats, activeBatch]
+  );
+
   // --- Download (PDF) ---
   // Prints the "Project Snag" format off the PROJECT doc, narrowed by whatever is
   // on screen right now: the facets, the Batch funnel and the search box all ride
@@ -240,7 +314,45 @@ export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.E
     columnFilters,
     searchTerm,
     selectedSearchField,
+    // `undefined` on "All" (absent = every batch, the Jinja's own default) and on
+    // the manual tab, which the format cannot express — hence the guard below.
+    batch: printableBatch(activeBatch),
   });
+
+  /**
+   * "Download All" — every batch's report merged into one PDF.
+   *
+   * Shown only with MORE THAN ONE batch: with one it would produce byte-for-byte what
+   * Download already gives, and two buttons doing the same thing is how a user learns
+   * to distrust both.
+   */
+  const { isDownloading: isDownloadingAll, download: downloadAll } = useSnagDownloadAll({
+    projectId,
+    projectLabel: projectName,
+    columnFilters,
+    searchTerm,
+    selectedSearchField,
+  });
+
+  const batchCount = batches.length;
+  const canDownloadAll = batchCount > 1;
+
+  /**
+   * How many snags "Download All" will NOT contain.
+   *
+   * It renders one section PER BATCH, and a manually added snag has no batch — so it
+   * lands in no section. The print format cannot express "has no batch" either (its
+   * filter is `["batch", "in", [...]]`), which is the same limitation that disables
+   * Download on the "Added manually" tab. Surfaced in the tooltip rather than left to
+   * be discovered: rows quietly missing from a file called "All" is the bad outcome.
+   */
+  const unbatchedCount = stats.by_batch?.[""]?.total ?? 0;
+
+  // The ONE view the PDF cannot reproduce: `batches` becomes `["batch", "in", [...]]`
+  // on the Jinja side, which has no way to say "has no batch". Downloading anyway
+  // would print every batch while the screen shows none of them, so the button is
+  // withheld and says why rather than quietly printing something else.
+  const downloadUnavailable = isUnprintableTab(activeBatch);
 
   // --- Bulk selection ---
   // Row ids are ARRAY INDICES (the shared hook does not set `getRowId`), so a
@@ -248,7 +360,7 @@ export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.E
   // re-pointing at different rows. Clear it whenever the visible set moves.
   const tableRef = React.useRef(table);
   tableRef.current = table;
-  const viewKey = `${pagination.pageIndex}|${pagination.pageSize}|${searchTerm}|${selectedSearchField}|${JSON.stringify(columnFilters)}`;
+  const viewKey = `${activeBatch}|${pagination.pageIndex}|${pagination.pageSize}|${searchTerm}|${selectedSearchField}|${JSON.stringify(columnFilters)}`;
   React.useEffect(() => {
     tableRef.current.resetRowSelection();
   }, [viewKey]);
@@ -269,23 +381,176 @@ export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.E
     [bulkUpdateStatus]
   );
 
-  const handleImported = React.useCallback(
-    (_result?: IngestBatchesResponse) => {
-      handleChanged();
+  /**
+   * Add a snag INTO THE TAB THE USER IS ON.
+   *
+   * `activeBatch` is a real batch name on a batch tab, so the new snag joins that
+   * import and appears immediately in the list on screen. On the "Added manually" tab
+   * it is the sentinel, which maps to `null` — no batch, which is what that tab means.
+   *
+   * ⚠️ THE JUMP TO "All" THAT USED TO LIVE HERE IS GONE, and its reason with it: a
+   * hand-added snag was invisible on whatever batch tab was open, so the screen had to
+   * move to show it. It is no longer invisible — it lands in the open tab — and the
+   * jump would now be actively wrong, because `Add snag` is hidden on "All" and the
+   * user would be thrown somewhere they cannot add a second one.
+   */
+  const handleAddManual = React.useCallback(
+    async (input: Parameters<typeof addManualSnag>[0]) => {
+      const target =
+        activeBatch === ALL_BATCHES || activeBatch === MANUAL_BATCH ? null : activeBatch;
+      return addManualSnag({ ...input, batch: target });
     },
-    [handleChanged]
+    [addManualSnag, activeBatch]
+  );
+
+  const handleImported = React.useCallback(
+    (result?: IngestBatchResponse) => {
+      handleChanged();
+
+      // Land on the batch that was just created, so the import's own rows are what the
+      // user sees next. An import now yields exactly ONE batch however many sheets it
+      // combined (owner decision 2026-09-09), so there is no longer an ambiguous case to
+      // guard against — the earlier "only when exactly one succeeded" rule existed
+      // because a multi-sheet import used to create one batch PER SHEET.
+      if (result?.batch) handleBatchChange(result.batch);
+    },
+    [handleChanged, handleBatchChange]
+  );
+
+  /**
+   * The STATS-ROW group: `Add snag` and `Download`.
+   *
+   * NOT RENDERED ON THE "All" TAB — see the render site. The group exists to act on one
+   * import; on "All" the download it offers is the whole project, which `Download All`
+   * already covers from the tab row in a more useful shape.
+   *
+   * The split from the tab row is by WHAT A CONTROL ACTS ON, not by read-vs-write.
+   * Import, the history popover and Download All act on BATCHES — a tab is a batch, so
+   * they sit on the tab row. These two act on the LIST IN FRONT OF YOU: `Add snag` puts
+   * one row into it (with no batch at all, which is why it does not belong beside
+   * Import), and `Download` prints exactly what it is showing — the selected tab, the
+   * facets and the search box all ride into the PDF. Both therefore sit with the tally
+   * that describes that same list.
+   *
+   * ⚠️ `Download` and `Download All` are one row apart on purpose. They produce
+   * DIFFERENT documents: this one is the current view as a single report; the other is
+   * one report per batch, merged. Putting them side by side made them read as a pair of
+   * scopes on one action, which is what the row split now says they are not.
+   *
+   * `Download` is UNGATED, unlike its neighbour — printing a list is not a write.
+   *
+   * Its RED-BORDERED OUTLINE is kept from when it sat next to Import: it stays
+   * secondary to the solid-red Import even now that they are on different rows. Tokens,
+   * not literal reds (`border-primary/…`, not `border-red-300`), so it tracks the
+   * theme's primary the way the rest of the app's tinted controls do.
+   */
+  const statsRowActions = (
+    <div className="flex flex-wrap items-center gap-2">
+      {perms.canAddManual && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9"
+          onClick={() => setAddOpen(true)}
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          Add snag
+        </Button>
+      )}
+
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-9 border-primary/50 text-primary hover:bg-primary/5 hover:text-primary"
+        disabled={isDownloading || totalCount === 0 || downloadUnavailable}
+        title={
+          downloadUnavailable
+            ? "The snag PDF cannot be narrowed to manually added snags yet — switch to All or a batch tab"
+            : totalCount === 0
+              ? "Nothing to print in this view"
+              : "Download this view as a PDF"
+        }
+        onClick={download}
+      >
+        {isDownloading ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Preparing...
+          </>
+        ) : (
+          <>
+            <Download className="mr-2 h-4 w-4" />
+            Download
+          </>
+        )}
+      </Button>
+    </div>
   );
 
   // --- Empty state gate ---
   // Only a genuinely empty project qualifies. A table emptied by a search or a
   // facet must NOT read as "no snags yet" — that would hide the filter that did it.
-  const hasActiveNarrowing = !!searchTerm || columnFilters.length > 0;
+  const hasActiveNarrowing =
+    !!searchTerm || columnFilters.length > 0 || activeBatch !== ALL_BATCHES;
   const showEmptyState =
     !isLoading &&
     !batchesLoading &&
     totalCount === 0 &&
     batches.length === 0 &&
     !hasActiveNarrowing;
+
+  /**
+   * The TAB-ROW group: the controls that act on BATCHES.
+   *
+   * Import creates one, the history popover lists them, and Download All prints every
+   * one of them (a report each, merged) — all three belong beside the tabs, because a
+   * tab IS a batch. `Add snag` and `Download` deliberately are NOT here; see
+   * `statsRowActions`.
+   *
+   * Gated to Admin / Project Lead / PMO. `useSnagBatches` deliberately keeps fetching
+   * for everyone: its `batches.length` feeds the empty-state gate below.
+   */
+  const headerActions = (
+    <div className="flex flex-wrap items-center gap-2">
+      {perms.canViewBatches && (
+        <SnagBatchesPanel batches={batches} isLoading={batchesLoading} />
+      )}
+
+      {canDownloadAll && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-9 border-primary/50 text-primary hover:bg-primary/5 hover:text-primary"
+          disabled={isDownloadingAll}
+          title={
+            unbatchedCount > 0
+              ? `One PDF holding all ${batchCount} imports, one report each. Does NOT include the ${unbatchedCount} manually added snag${unbatchedCount === 1 ? "" : "s"} — they belong to no import.`
+              : `One PDF holding all ${batchCount} imports, one report each`
+          }
+          onClick={downloadAll}
+        >
+          {isDownloadingAll ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Merging...
+            </>
+          ) : (
+            <>
+              <Download className="mr-2 h-4 w-4" />
+              Download All
+            </>
+          )}
+        </Button>
+      )}
+
+      {perms.canImport && (
+        <Button size="sm" className="h-9" onClick={() => setImportOpen(true)}>
+          <FileUp className="mr-2 h-4 w-4" />
+          Import
+        </Button>
+      )}
+    </div>
+  );
 
   if (error) return <AlertDestructive error={error} />;
 
@@ -296,84 +561,54 @@ export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.E
         totalCount > 10 ? "h-[calc(100vh-180px)]" : "h-auto"
       )}
     >
-      {/* ── Header: stats + actions ───────────────────────────────── */}
+      {/* ── Batch tabs ────────────────────────────────────────────
+          ABOVE the stats strip, deliberately: the strip is SCOPED to whichever tab
+          is selected, so the tab has to be chosen first for the numbers under it to
+          mean anything. Reading counts and only then finding the control that moves
+          them is the wrong order.
+
+          Renders itself away when there is nothing to choose between (a project with
+          no batch and no manual snag), so no gate is needed here. */}
+      <SnagBatchTabs
+        tabs={batchTabs}
+        value={activeBatch}
+        onChange={handleBatchChange}
+        isLoading={statsLoading || batchesLoading}
+        // The action group rides the TAB ROW when it renders here, so it never
+        // shares a row with the stats. `undefined` when a mount point offers its own
+        // header — the portal below puts them there instead.
+        trailing={headerActions}
+      />
+
+      {/* ── The selected tab's tally ───────────────────────────────
+          A FULL-WIDTH row of its own, with no controls in it. Both mount points
+          agree on this: actions → tabs → these numbers → toolbar → table. The row
+          says one thing (what is in the tab you picked) and it says it alone.
+
+          `get_snag_stats` is permission-guarded server-side. A refusal must not take
+          the tab down with it, and it must not be dressed up as zeros either — the
+          strip simply does not render, and the list below (which is what the tab is
+          for) is unaffected. */}
+      {/* The selected tab's tally, with Download opposite it — both describe THIS view.
+          `sm:items-center` also stops the strip stretching: as a bare child of the
+          page's `flex-col` its border would run the full width with the five tiles
+          bunched at the left. Full width on mobile (the tiles are `flex-1` and fill
+          it), hugging its content from `sm` up. */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        {/* `get_snag_stats` is permission-guarded server-side. A refusal must not
-            take the tab down with it, and it must not be dressed up as zeros
-            either — the strip simply does not render, and the list below (which
-            is what the tab is for) is unaffected. */}
         {statsError ? (
           <p className="text-xs text-muted-foreground">
             Snag totals are unavailable for your role.
           </p>
         ) : (
-          <SnagStatsStrip stats={stats} isLoading={statsLoading} />
+          <SnagStatsStrip stats={scopedStats} isLoading={statsLoading} />
         )}
 
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Gated to Admin / Project Lead / PMO — `Add snag` and `Import` already
-              were, so this was the one ungated control in the group.
-              `useSnagBatches` deliberately keeps fetching for everyone: its
-              `batches.length` feeds the empty-state gate below. */}
-          {perms.canViewBatches && (
-            <SnagBatchesPanel batches={batches} isLoading={batchesLoading} />
-          )}
-
-          {perms.canAddManual && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9"
-              onClick={() => setAddOpen(true)}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Add snag
-            </Button>
-          )}
-
-          {perms.canImport && (
-            <Button size="sm" className="h-9" onClick={() => setImportOpen(true)}>
-              <FileUp className="mr-2 h-4 w-4" />
-              Import
-            </Button>
-          )}
-
-          {/* Ungated, unlike its neighbours — printing the list is not a write.
-              It lives up here rather than in the table toolbar, but it still prints
-              WHAT IS ON SCREEN: the facets, the Batch funnel and the search box all
-              ride along, so the PDF cannot disagree with the table below it.
-
-              RED-BORDERED OUTLINE, deliberately — it sits beside Import and the two
-              must not read as the same weight. Import is the one action that CHANGES
-              the project's data, so it keeps the SOLID red; taking a copy out is
-              secondary, so it carries the red only on its border. Tokens, not literal
-              reds (`border-primary/…`, not `border-red-300`), so it tracks the theme's
-              primary the way the rest of the app's tinted controls do. */}
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-9 border-primary/50 text-primary hover:bg-primary/5 hover:text-primary"
-            disabled={isDownloading || totalCount === 0}
-            title={
-              totalCount === 0
-                ? "Nothing to print in this view"
-                : "Download this view as a PDF"
-            }
-            onClick={download}
-          >
-            {isDownloading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Preparing...
-              </>
-            ) : (
-              <>
-                <Download className="mr-2 h-4 w-4" />
-                Download
-              </>
-            )}
-          </Button>
-        </div>
+        {/* HIDDEN ON "All" (owner decision 2026-09-09). Both controls answer a
+            question about ONE import: `Download` prints the view, and on "All" that
+            is the whole project — which is what `Download All` covers from the tab
+            row, one report per batch. Rather than leave two overlapping downloads
+            side by side, the pair only appears once a specific tab is chosen. */}
+        {activeBatch !== ALL_BATCHES && statsRowActions}
       </div>
 
       {perms.isReadOnly && (
@@ -445,14 +680,26 @@ export function SnagListTab({ projectId, projectName }: SnagListTabProps): JSX.E
         onImported={handleImported}
       />
 
-      {perms.canAddManual && (
+      {/* Rendered ONLY while open, exactly like the Edit dialog below: the dialog seeds
+          its three drafts in `useState` initialisers, so the MOUNT is what clears them.
+          Held permanently mounted it kept the previous snag's text — its own reset sat
+          in an `onOpenChange(true)` branch that Radix never fires for a prop-driven
+          open. Do not "simplify" this back to an always-mounted dialog. */}
+      {perms.canAddManual && addOpen && (
         <AddSnagDialog
           open={addOpen}
           onOpenChange={setAddOpen}
           isSaving={isAdding}
           areaSuggestions={areaSuggestions}
           categorySuggestions={categorySuggestions}
-          onSubmit={addManualSnag}
+          // Which import the snag joins — resolved to its human name against the batch
+          // list this page already loads. `null` on "Added manually".
+          batchName={
+            activeBatch === ALL_BATCHES || activeBatch === MANUAL_BATCH
+              ? null
+              : batchNameByName.get(activeBatch) ?? activeBatch
+          }
+          onSubmit={handleAddManual}
         />
       )}
 

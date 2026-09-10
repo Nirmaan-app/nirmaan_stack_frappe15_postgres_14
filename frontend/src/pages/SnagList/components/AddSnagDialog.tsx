@@ -23,11 +23,24 @@ export interface AddSnagDialogProps {
   areaSuggestions?: string[];
   categorySuggestions?: string[];
   onSubmit: (input: AddManualSnagInput) => Promise<boolean>;
+  /**
+   * The batch the snag will be filed into — the tab the user is on. `null` on the
+   * "Added manually" tab, where a snag genuinely belongs to no import.
+   *
+   * DISPLAY ONLY: there is no picker. The tab already answered the question, and a
+   * second control that could disagree with it would just be a way to file a snag
+   * somewhere other than the list on screen.
+   */
+  batchName?: string | null;
 }
 
 /**
- * Manual snag entry: area, category, description. No batch, no status picker —
- * a new snag always starts at `Pending`, exactly like an imported one.
+ * Manual snag entry: area, category, description. No status picker — a new snag always
+ * starts at `Pending`, exactly like an imported one. It joins the batch the user is
+ * looking at (`batchName`), or none on the "Added manually" tab.
+ *
+ * ⚠️ MOUNTED PER OPEN by the caller, like its sibling `SnagEditDialog`. See the drafts
+ * below for why holding it permanently mounted is a bug, not a style choice.
  *
  * Area and Category are FREE TEXT by decision of record (ADR-0016). Since the
  * amendment of 2026-08-21 they ALSO offer the values already present in this
@@ -44,21 +57,21 @@ export const AddSnagDialog: React.FC<AddSnagDialogProps> = ({
   areaSuggestions = [],
   categorySuggestions = [],
   onSubmit,
+  batchName = null,
 }) => {
+  // ⚠️ MOUNT IS THE RESET. These three start empty on every mount, and the caller
+  // renders this component ONLY while it is open — so a fresh dialog is a fresh mount
+  // and the drafts cannot survive a close. Do NOT make the caller keep it mounted and
+  // hand it an `open` boolean instead: that was the original shape and it left the last
+  // snag's text sitting in the boxes on every subsequent open.
+  //
+  // It looked correct because the reset lived in an `onOpenChange(next === true)`
+  // branch — but Radix calls `onOpenChange` only for changes the USER drives (Esc, the
+  // overlay, the ✕). There is no `DialogTrigger` here; the parent opens this by setting
+  // a prop, which Radix does not report. That branch never ran, once.
   const [area, setArea] = React.useState("");
   const [category, setCategory] = React.useState("");
   const [description, setDescription] = React.useState("");
-
-  // Reset on OPEN (a user action), never in an effect keyed on `open` alone —
-  // this keeps the fields from being wiped under a save in flight.
-  const handleOpenChange = (next: boolean) => {
-    if (next) {
-      setArea("");
-      setCategory("");
-      setDescription("");
-    }
-    onOpenChange(next);
-  };
 
   const canSubmit = description.trim().length > 0 && !isSaving;
 
@@ -74,13 +87,23 @@ export const AddSnagDialog: React.FC<AddSnagDialogProps> = ({
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Add a snag</DialogTitle>
           <DialogDescription>
-            A manually added snag belongs to no batch and starts at{" "}
-            <span className="font-medium">Pending</span>.
+            {batchName ? (
+              <>
+                This snag will be added to{" "}
+                <span className="font-medium">{batchName}</span> and starts at{" "}
+                <span className="font-medium">Pending</span>.
+              </>
+            ) : (
+              <>
+                A manually added snag belongs to no batch and starts at{" "}
+                <span className="font-medium">Pending</span>.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 

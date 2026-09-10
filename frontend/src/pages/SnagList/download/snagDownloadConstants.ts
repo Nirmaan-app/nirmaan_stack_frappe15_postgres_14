@@ -18,6 +18,16 @@ export const DOWNLOAD_PDF_ENDPOINT =
   "/api/method/frappe.utils.print_format.download_pdf";
 
 /**
+ * "Download All" — one report PER BATCH, merged server-side into a single PDF.
+ *
+ * A separate endpoint rather than a flag on the one above, because the work is
+ * different in kind: that one renders ONE print format, this one renders N and merges
+ * them with `pypdf`. It takes the same filter params (minus `batches`, which it owns).
+ */
+export const DOWNLOAD_ALL_ENDPOINT =
+  "/api/method/nirmaan_stack.api.snags.bulk_download.download_all_batches";
+
+/**
  * Query params the print format reads off `frappe.form_dict`.
  *
  * The four filter params carry JSON arrays (the Jinja does `json.loads`) and are
@@ -35,8 +45,15 @@ export const SNAG_PRINT_PARAM = {
 } as const;
 
 /**
- * What the Jinja prints when the caller sends no `statuses`. Mirrored here so the
+ * What the Jinja prints when the caller sends no `statuses` — ALL FOUR since
+ * 2026-09-09. `Not Applicable` used to be excluded, which meant those rows were never
+ * fetched and their count could never appear on the summary. Mirrored here so the
  * button can say so, and so a status filter that happens to equal this default
  * still round-trips unchanged. Keep in step with the Jinja's own default.
  */
-export const DEFAULT_PRINTED_STATUSES = ["Pending", "WIP", "Completed"] as const;
+export const DEFAULT_PRINTED_STATUSES = [
+  "Pending",
+  "WIP",
+  "Completed",
+  "Not Applicable",
+] as const;

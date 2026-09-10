@@ -1,10 +1,15 @@
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
-import { SnagStatsSummary } from "../types";
+import { SnagBatchStats } from "../types";
 
 export interface SnagStatsStripProps {
-  stats: SnagStatsSummary;
+  /**
+   * `SnagBatchStats`, not `SnagStatsSummary` — the strip needs `total` + `by_status`
+   * and nothing else, and typing it to the SLICE is what lets the caller hand over
+   * either the whole project or ONE batch's tally when a batch tab is selected.
+   */
+  stats: SnagBatchStats;
   isLoading?: boolean;
 }
 

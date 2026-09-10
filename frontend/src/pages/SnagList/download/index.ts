@@ -1,7 +1,11 @@
 // Barrel — the tab imports from here and nothing else.
-export { useSnagDownload } from "./useSnagDownload";
+export { useSnagDownload, useSnagDownloadAll } from "./useSnagDownload";
 export type { UseSnagDownloadResult } from "./useSnagDownload";
-export { buildSnagDownloadUrl, buildSnagPdfFilename } from "./snagDownloadParams";
+export {
+  buildSnagDownloadAllUrl,
+  buildSnagDownloadUrl,
+  buildSnagPdfFilename,
+} from "./snagDownloadParams";
 export type { SnagDownloadState } from "./snagDownloadParams";
 export {
   SNAG_PRINT_FORMAT_NAME,

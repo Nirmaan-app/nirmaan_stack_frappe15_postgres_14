@@ -229,7 +229,12 @@ export interface ParsePreviewResponse {
 
 export interface SheetIngestRequest {
   sheet_name: string;
-  batch_name: string;
+  /**
+   * ⚠️ NO `batch_name` HERE. A batch is the FILE, not the sheet (owner decision
+   * 2026-09-09), so the name is sent ONCE for the whole import — see
+   * `ingest_batch`'s top-level `batch_name`. What stays per sheet is only what is
+   * genuinely per sheet: the mapping, the header row and the ticked rows.
+   */
   mapping: SnagColumnMapping;
   /** The header row the user settled on. MUST match what the preview was computed with. */
   header_row: number | null;
@@ -237,28 +242,27 @@ export interface SheetIngestRequest {
   accepted_rows: number[];
 }
 
-export interface SheetIngestResult {
+/** What ONE sheet contributed to the single batch. */
+export interface SheetIngestOutcome {
   sheet_name: string;
-  ok: boolean;
-  /** Set when ok. */
-  batch?: string;
-  batch_name?: string;
-  imported?: number;
-  /**
-   * ⚠️ ADR-0019: STRUCTURALLY DEAD — nothing is refused any more, so this is always 0.
-   * RETAINED deliberately rather than deleted: it is the counter that proved Revision 2's
-   * silent-drop bug fixed, and a payload that can still SAY "nothing was refused" is worth more
-   * than one that cannot express the question.
-   */
-  refused_no_description?: number;
-  /** Set when !ok — shown loudly, never swallowed. */
-  error?: string;
+  imported: number;
 }
 
-export interface IngestBatchesResponse {
-  results: SheetIngestResult[];
-  total_imported: number;
-  failed_count: number;
+/**
+ * `ingest_batch` — the ONE batch an upload creates.
+ *
+ * There is no `results` / `failed_count` any more: the import is ATOMIC, so either one
+ * batch exists and this is it, or the call threw and nothing was created. A partial
+ * success is no longer representable, because it is no longer possible — a batch that
+ * claimed to be the file while missing a sheet's rows would be worse than the failure.
+ */
+export interface IngestBatchResponse {
+  batch: string;
+  batch_name: string;
+  /** Total rows across every sheet. */
+  imported: number;
+  /** Per-sheet breakdown of that total, in the order the sheets were sent. */
+  sheets: SheetIngestOutcome[];
 }
 
 // ---------------------------------------------------------------------------
@@ -318,9 +322,30 @@ export interface SnagFieldValuesResponse {
   categories: string[];
 }
 
+/**
+ * One slice of the tally — the whole project, or ONE batch.
+ *
+ * `SnagStatsSummary` is this shape plus the per-batch split, so the strip can read a
+ * slice and the tab strip can read every slice's `total` without a second call.
+ */
+export interface SnagBatchStats {
+  total: number;
+  by_status: Record<SnagStatus, number>;
+}
+
 export interface SnagStatsSummary {
   total: number;
   by_status: Record<SnagStatus, number>;
+  /**
+   * The SAME tally split PER BATCH, keyed by `Project Snag Batch.name` — with
+   * manually added snags (which have no batch) under the EMPTY-STRING key
+   * (`MANUAL_BATCH_KEY` in `tracking.py`, `config/snagBatchTabs.ts` on this side).
+   *
+   * It is what lets a project with N batches render its tab strip, its per-tab
+   * counts AND its per-tab stats strip from ONE stats call: the server groups by
+   * `batch, status` once and this side slices it. Never fetch per batch.
+   */
+  by_batch: Record<string, SnagBatchStats>;
 }
 
 // ---------------------------------------------------------------------------
