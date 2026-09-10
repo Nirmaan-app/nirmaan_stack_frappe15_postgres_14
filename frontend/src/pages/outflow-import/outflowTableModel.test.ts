@@ -1395,10 +1395,23 @@ describe("isConfirmable", () => {
                 linkTo: "PAY-1",
             })
         ).toBe(true);
+        // Any of the three ledgers, exactly as the `linkTargets` shape above -- `isConfirmable` has
+        // never been the place the ledger is narrowed.
         expect(
-            isConfirmable(row({ row_status: "Partially Allocated" }), {
+            isConfirmable(row({ row_status: "Mismatched" }), {
                 target: "Project Expenses",
                 linkTo: "PE-9",
+            })
+        ).toBe(true);
+        // ⚠️ DELIBERATELY A PAYMENT ON A `Partially Allocated` ROW. A single tick on that status
+        // routes to `allocate_row` (`chooseSettleEndpoint`), which refuses every non-payment target,
+        // so pinning a non-payment ledger as confirmable HERE would bank a shape the server rejects
+        // -- the offered-and-refused failure `tickAllowedForFanOut` exists to prevent. The Normal
+        // picker owes that same withholding when it lands; this pin must not read as permission.
+        expect(
+            isConfirmable(row({ row_status: "Partially Allocated" }), {
+                target: "Project Payments",
+                linkTo: "PAY-9",
             })
         ).toBe(true);
     });

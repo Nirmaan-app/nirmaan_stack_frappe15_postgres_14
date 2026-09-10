@@ -2994,3 +2994,35 @@ this repo — they are verified by a live walk, and that walk needs a signed-in 
 established here is that the fan-out table is byte-identical to its pre-move self, that the dialog's
 only behavioural diff is two `linkTo: null` writes on a field nothing reads yet, and that every
 decision shape the app can currently produce normalises to exactly what the old field reads returned.
+
+### The review of this prefactor — three taken, one refused
+
+⚠️ **Every finding was about the CONTRACT this slice leaves behind, not about the code it ships.**
+The reviewer independently confirmed the move is verbatim and the normalisation byte-equivalent for
+every decision shape the app can currently produce. That is the shape a good prefactor review takes:
+the risk is not in what runs today, it is in what the next slice inherits.
+
+1. **`Clear selection` was gated on `linkTargets.size > 0`** — byte-equivalent today, but once the
+   Normal picker lands its pick leaves `linkTargets` empty, the control stops rendering, and **a
+   `<input type="radio">` cannot be un-ticked by clicking it**: no way back to undecided, while the
+   bulk bar still counts the row as ready against a record the reviewer rejected. Now gated on
+   `decisionLinkKeys(decision).size > 0`.
+2. **The prune effect is a THIRD writer of `linkTargets`, and it is not a picker** — it rewrites the
+   set when a ticked record leaves the approved pool, and never touched `linkTo`. If it prunes to
+   empty, a leftover `linkTo` becomes the effective pick with nothing on screen showing it. It now
+   writes `linkTo: null` too. **The writer contract has to hold for every writer, not just the two
+   that look like pickers.**
+3. **A new pin was banking a shape the server refuses** — `isConfirmable` on a `Partially Allocated`
+   row with a `Project Expenses` `linkTo`. A single tick on that status routes to `allocate_row`,
+   which refuses every non-payment target; the fan-out picker withholds those rows via
+   `tickAllowedForFanOut`, but a single-select picker has no equivalent. The pin now uses a payment
+   and says in its own comment that **the Normal picker owes that withholding when it lands**.
+
+⚠️ **REFUSED, DELIBERATELY: `<tbody role="radiogroup">` in `SettleableRecordTable`.** It overrides
+the implicit `rowgroup` role and drops table semantics for assistive tech, and the native
+`name="settleable-record"` grouping already supplies the group — a real defect. But it is
+**pre-existing on `develop`**, and the whole value of this slice rests on the restored file being
+provably its pre-branch self: the diff against `develop` is comments only, which is the evidence that
+no post-Task-7 fix was silently reverted with it. Trading that for an a11y correction is the wrong
+exchange **in this slice**. It is a standalone fix, and the checkbox twin carries the same defect as
+`role="group"` — fix both together or neither.

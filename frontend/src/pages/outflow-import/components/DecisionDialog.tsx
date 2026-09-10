@@ -42,6 +42,7 @@ import {
     describeFrappeError,
     deductionOffer,
     deductionRefusalText,
+    decisionLinkKeys,
     isConfirmable,
     isCreditRow,
     ledgerLabel,
@@ -1371,7 +1372,17 @@ const RecordPicker = ({
     useEffect(() => {
         if (isLoading || !data) return;
         if (!linkTargets || linkTargets.size === selectedRecords.length) return;
-        onChange({ ...decision, linkTargets: new Set(selectedRecords.map(recordKey)) });
+        // ⚠️ `linkTo: null` HERE TOO, FOR THE SAME REASON `onToggle` CLEARS IT (issue #1240) -- and
+        // this is the writer that is easy to forget, because it is not a picker. `decisionLinkKeys`
+        // lets a non-empty `linkTargets` win, so a `linkTo` left behind is invisible WHILE ticks
+        // exist; if this prune empties the set it would become the effective pick, with nothing on
+        // screen showing it. The contract has to hold for every writer of the field, not just the
+        // two the reviewer can see.
+        onChange({
+            ...decision,
+            linkTo: null,
+            linkTargets: new Set(selectedRecords.map(recordKey)),
+        });
     }, [isLoading, data, linkTargets, selectedRecords, decision, onChange]);
 
     /**
@@ -1549,7 +1560,13 @@ const RecordPicker = ({
             {/* ⚠️ CLEARS EVERY TICK, NOT JUST ONE (ADR-0020 fan-out) -- a reviewer who ticked the
                 wrong set needs one way back to undecided rather than unticking each box in turn.
                 Individual boxes stay reachable in the table above for a partial correction. */}
-            {linkTargets && linkTargets.size > 0 && (
+            {/* ⚠️ GATED ON `decisionLinkKeys`, NOT ON `linkTargets` (issue #1240). Byte-equivalent
+                today -- nothing writes a non-null `linkTo` yet -- but once the Normal picker lands
+                a pick of its own would leave `linkTargets` empty, this control would stop rendering,
+                and a `<input type="radio">` cannot be un-ticked by clicking it: the reviewer would
+                have NO way back to undecided, while the bulk bar still counted the row as ready
+                against a record they had rejected. */}
+            {decisionLinkKeys(decision).size > 0 && (
                 <Button
                     variant="ghost"
                     size="sm"
