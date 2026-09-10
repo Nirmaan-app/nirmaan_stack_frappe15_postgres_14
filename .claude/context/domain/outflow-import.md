@@ -2763,3 +2763,159 @@ there would silently strand this link on the default tab, so it must break a tes
 
 ⚠️ The 22 `tsc` errors under `ProjectExpenses` / `NonProjectExpenses` are **PRE-EXISTING** — those
 files were READ for their param contract and never edited (`git status` shows them unmodified).
+
+---
+
+## The selector split and the fan-out seams (2026-09-10) — DECIDED, NOT YET BUILT
+
+⚠️ **NOTHING IN THIS SECTION IS SHIPPED.** It records decisions and measurements from a
+`grill-with-docs` session on `HANDOFF-outflow-fanout-selector-split.md`, so the evidence is not
+re-derived later. The authority for WHAT is built and in what order is
+**`docs/adr/0020-one-transfer-many-payments.md` § Amendment B** — read it, not this summary.
+As-built detail replaces this section slice by slice.
+
+### The one-line version
+
+The fan-out arithmetic (ADR-0020) is sound. Every defect found was at a **seam** where it met a
+pre-existing flow, and every one of them was invisible to the branch's own suites — which is the
+standing rule in root `CLAUDE.md` doing exactly what it says: *"A test on each side of a boundary is
+not a test of the boundary."*
+
+### Measured facts — expensive to re-derive, cheap to record
+
+All measured against the live `localhost` DB on 2026-09-10.
+
+| Fact | Value | Why it mattered |
+|---|---|---|
+| `Partially Allocated` rows in existence | **1** of 2,511 | killed the batch-exemption decision outright (Amendment B6) |
+| Batches: total / open | 79 / 16 | |
+| Batches where every remaining active row is partly allocated | **0** | the "true no-op" case is unreachable |
+| Batches reading `Partially Settled` with NO partly-allocated row | **15 of 16** | the status is driven by SKIPPED rows, with no threshold |
+| Settled bank rows settling against an EXPENSE | **236 of 574 (41%)** | the Split control is inapplicable on a large share of rows |
+| Rows whose candidate pool mixes ledgers | **44 of 44** | the pool is never ledger-scoped |
+| Open rows giving NO amount signal in any ledger | **26 of 44** | so the control cannot be hidden by inference |
+| Multi-leg rows in production | **2**, both created 2026-09-10 | fan-out has no production history yet — it is all test data |
+| Cashfree rows with a blank `bank_reference_no` | **61** (not 17) — **all `Skipped`** | the blank-`utr` defect has ZERO live instances |
+| Blank-`utr` payments among 344 settled legs | **0** | |
+| Distinct `reference_id` values across 2,237 Cashfree rows | **523** | `reference_id` is NOT unique |
+| Settled Cashbook expenses carrying the wallet `transfer_id` | **222 of 222** | Cashbook is already remedied, differently |
+
+### Load-bearing things a future reader will otherwise get wrong
+
+- **Routing must read INTENT, not tick count.** A single tick on a fresh row went to `settle_row`
+  and its whole-transfer guard, so a first-leg-then-second-leg workflow had no path. The mode radio
+  is the fix, and Split ALWAYS routes via `allocate_row` — even a full-amount tick, because
+  `reverse_allocation` acts on legs and `settle_row` writes none.
+- **`bar.over` and the part-payment detour fire on the SAME band.** `SETTLE_WINDOW` and
+  `AMOUNT_TOLERANCE` are literally the same constant, so a Confirm gate on `bar.over` made the
+  TDS / part-payment detour unreachable from the product. Narrow the gate to the allocate path; do
+  not delete it. `legsUnknown` is a separate, innocent concern.
+- **The refusal on a partly-allocated row must stay on THREE callers** — `settle_row`,
+  `settle_row_partial` and `create_expense` — because all three write the whole transfer amount and
+  nothing downstream is leg-aware. It is unpinned by any test. On the two INFLOW callers it is dead
+  code (credit rows can never become partly allocated) and stays, with a comment.
+- **`search_settleable_records` derives its comparison amount at ONE line**, and every consumer
+  below takes it as a parameter. The "ten sites" framing over-states the work by an order of
+  magnitude.
+- **`get_row_candidates` re-runs the matcher LIVE with no frozen guard**, on every dialog open. It
+  is the one matcher-shaped surface a partly-allocated row can reach. Suppress its marker
+  client-side; do NOT make it remainder-aware (the ranker is test-pinned out of the matcher).
+- **A full reversal returns the row to `Matched`/`Mismatched` and every gate unlocks for free** —
+  verified in code, in an existing test, and on live row `OFR-26-002185`. The status is RE-DERIVED,
+  never restored. There is no stuck-row trap.
+- ⚠️ **`inflows.py` was BROKEN by the Task 3 status-derivation commit** — 44 tests, 3 failures,
+  4 errors — and `create_non_project_receipt` lost its only duplicate guard as a result. Live blast
+  radius zero (no credit rows exist). Fixed first. See Amendment B7.
+- ⚠️ **The blank-reference field must be WRITE-ONLY, and FIVE surfaces must never read it** —
+  `normalize_reference`, `candidates._payments_by_reference`, `matcher.match_by_reference`, the
+  parser's stored `normalized_reference` column, and `reference_guard.assert_reference_is_free`.
+  The last is the one earlier notes missed, and given `reference_id`'s non-uniqueness it is where a
+  mis-wire bites first.
+
+### Verification shape
+
+⚠️ **Most of the frontend half is STRUCTURALLY untestable here** — nothing pins `confirmDisabled`,
+and this repo has no DOM environment (`frontend/CLAUDE.md`, deliberate). A green suite proves
+nothing about the mode radio, the narrowed gate or the error copy. The honest verification is a live
+browser A/B: revert, reproduce, restore, re-verify. The manual walk lands at the end of the mode-split
+slice, **except** the two-browser concurrency check, which exercises the Amendment A1 server lock and
+is pulled forward.
+
+⚠️ **A baseline is only as good as its coverage.** The branch's gate was *"no NEW failures vs BASE"*
+and the recorded baseline named `test_expenses` and `test_settle_payment` as though complete.
+`test_inflows` was never run, and that is how B7 shipped unnoticed.
+
+---
+
+## Slice 0 (2026-09-10) — the inflow row-status regression, repaired; and the branch baseline, measured
+
+**AS-BUILT.** Issue #1238, ADR-0020 § B7 + B7a. The first slice of the selector-split spec above.
+
+### What was wrong, and what it took to fix
+
+`inflows.py` never referenced `_refresh_row_allocation`, because the commit that moved the `Settled`
+flip out of `_record_settlement` predates nothing in that module — it simply missed it. Both credit
+endpoints wrote their leg and then wrote no status at all, so a recorded credit stayed `Mismatched`.
+
+**Two changes, and the second is the one a reader will not predict:**
+
+1. `create_inflow` and `create_non_project_receipt` each call
+   `_refresh_row_allocation(staged.name, actor, result)` immediately after `_record_settlement`,
+   **inside the savepoint** — the same shape as all five outflow call sites. `result` is passed so
+   `allocation_note` renders **"Recorded"** rather than "Settled": both credit paths CREATE their
+   record.
+2. `allocation.allocated_of` now sums **`abs(target_amount)`**. See ADR-0020 § B7a for the full
+   reasoning. The short version: a non-project receipt's leg is legitimately NEGATIVE (it writes a
+   negative `Non Project Expense`) while a row's amount is a MAGNITUDE by ADR-0016's explicit
+   decision, so a signed sum made `remaining_of` read `2X` and pinned every recorded receipt at
+   `Partially Allocated` for ever — taking the duplicate protection down with it, since that
+   protection IS the status flip. `abs()` is a no-op on every outflow path (all legs are positive by
+   construction), so it is a units fix, not a loosening.
+
+The duplicate protection returns as a **consequence**: `_load_settleable_row` refuses a row already
+reading `Settled`, so `create_non_project_receipt` — which by design has no duplicate lookup of its
+own — is once again callable exactly once per staged row. The module header's claim is true again.
+
+### ⚠️ The honest baseline — every suite in the area, measured both sides
+
+Run per module, `bench --site localhost run-tests --module <mod>`, against the live `localhost` site
+on 2026-09-10. **29 modules, 1,556 tests.** This replaces the recorded baseline that named two
+suites as though the list were complete.
+
+| | Before slice 0 | After slice 0 |
+|---|---|---|
+| Modules failing | **2** | **1** |
+| `api.outflow_import.test_inflows` | 44 tests — **3 failures, 4 errors** | **44 OK** (2 skipped) |
+| `api.outflow_import.test_expenses` | 45 tests — **2 failures** | 45 tests — **2 failures** (unchanged) |
+| Every other module (27) | OK | OK |
+| `services.outflow_import.test_allocation` | 35 OK | **38 OK** (+3 new sign pins) |
+
+**No new failures. Seven fixed.**
+
+⚠️ **The two surviving `test_expenses` failures are PRE-EXISTING and unrelated to this branch, and
+the spec mis-stated their cause.** They are NOT "a hardcoded project fixture whose tendering status
+refuses payment creation" — they are `test_a_requested_project_expense_is_refused` and
+`test_a_requested_non_project_expense_is_now_refused_too`, both failing with `WrongStatusError not
+raised`. Cause: `_make_expense(..., status="Requested")` plants an expense at the open row's own
+amount, and the expense doctype's create-time ladder **auto-approves anything at or below
+`AUTO_APPROVE_LIMIT`** — so the planted expense is `Approved` by the time the settle runs, and the
+settle is correctly allowed. It is **data-dependent** on which row the fixture picks. Fixing it is
+not this slice's business; naming it correctly is.
+
+⚠️ **Four of the seven `test_inflows` failures were CASCADES, not independent defects**, and the
+cascade is worth knowing because it will recur. `_next_credit_row` filters on
+`row_status not in ("Settled", "Skipped")`. A row that never flips is never consumed, so every test
+in the class recorded against the SAME row — and the second one hit the duplicate guard, reporting
+"already recorded" rather than the missing flip. **A fixture that consumes rows by status turns one
+status defect into a suite-wide failure that names the wrong cause.**
+
+### Tests
+
+- `services.outflow_import.test_allocation` — three new pins on the pure side: a negative leg counts
+  as the money it moved; a recorded receipt leaves `remaining_of` at zero, `is_fully_allocated`
+  true and `status_for_allocation` at `Settled`.
+- `api.outflow_import.test_inflows` — **not modified except for one stale comment.** Its
+  `test_the_row_flips_to_settled_and_gets_a_match_record` (both classes) and
+  `test_a_settled_row_cannot_be_recorded_twice` already crossed the boundary and were already red;
+  green is the gate, exactly as the spec asked. The corrected comment used to claim the leg amount
+  "is NOT summed anywhere" — true when written, stale the day status became derived.

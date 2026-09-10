@@ -21,6 +21,11 @@ exactly and a reconcile pass can always prove it."
 ⚠️ A REVERSED LEG CONTRIBUTES NOTHING, and an UNRECOGNISED kind contributes nothing either. Failing
 closed matters here: a kind this module has never heard of counting as money would let a row read
 `Settled` with nothing behind it.
+
+⚠️ EVERY FIGURE IN HERE IS A MAGNITUDE, ON BOTH SIDES OF EVERY SUBTRACTION. A row's amount is
+unsigned by explicit decision (ADR-0016 rejected a signed amount column), and one write path -- a
+bank credit recorded as a NEGATIVE `Non Project Expense` -- produces a leg that is not. `allocated_of`
+is where the two are reconciled; see its docstring, and ADR-0020 B7a for what a signed sum did.
 """
 
 from decimal import Decimal
@@ -58,9 +63,30 @@ def _is_live(leg: Mapping) -> bool:
 
 
 def allocated_of(legs: Iterable[Mapping]) -> Decimal:
-    """How much of the transfer has actually been written, right now."""
+    """How much of the transfer has actually been written, right now. ALWAYS A MAGNITUDE.
+
+    ⚠️ `abs()`, AND IT IS A UNITS FIX RATHER THAN A LOOSENING. This sum is subtracted from the
+    ROW's amount, and a row amount is a MAGNITUDE by explicit decision -- ADR-0016 rejected a signed
+    amount column, so every source stores the positive figure and the direction lives in its own
+    column. A leg's `target_amount`, by contrast, is "the target's own amount at match time" (the
+    field's own description), and on ONE path that figure is legitimately BELOW ZERO: a bank CREDIT
+    recorded through `inflows.create_non_project_receipt` writes a NEGATIVE `Non Project Expense`,
+    because this app has no non-project inflow doctype (owner ruling Q3, ADR-0016 decision 3). Both
+    operands have to mean the same thing before they can be subtracted, and the thing they must both
+    mean is "how much money this transfer moved".
+
+    ⚠️ WITHOUT IT, RECORDING A RECEIPT LEAVES ITS ROW `Partially Allocated` FOREVER: allocated
+    reads -X against a row of +X, so `remaining_of` reads 2X and the row can never reach `Settled`
+    -- and the receipt endpoint, which has no duplicate guard of its own and leans entirely on that
+    status flip, becomes callable over and over, minting a fresh negative expense each time.
+
+    ⚠️ IT IS NOT A BACK DOOR FOR A WRONG SIGN ON THE DEBIT SIDE. Every outflow path writes a
+    positive leg by construction -- `create_expense_from_row` refuses `amount <= 0`, and the settle
+    paths carry an approved record's own figure -- so `abs()` is a no-op on all of them, which is
+    what makes it safe to state once here instead of at each caller.
+    """
     return sum(
-        (to_decimal(leg.get("target_amount")) for leg in legs if _is_live(leg)),
+        (abs(to_decimal(leg.get("target_amount"))) for leg in legs if _is_live(leg)),
         Decimal("0"),
     )
 

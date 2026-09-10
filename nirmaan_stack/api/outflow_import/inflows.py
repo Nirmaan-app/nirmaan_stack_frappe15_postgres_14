@@ -75,6 +75,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
     _link_statement_file_to_target,
     _load_settleable_row,
     _record_settlement,
+    _refresh_row_allocation,
     _statement_file_url,
     _summary,
 )
@@ -138,6 +139,16 @@ def create_inflow(row: str, project: str, customer: str = None, invoice: str = N
             direction=doc.get("direction"),
         )
         _record_settlement(staged, doc, result, actor)
+        # ⚠️ INSIDE THE SAVEPOINT, AND IT IS WHAT MARKS THE ROW DONE. `_record_settlement` writes
+        # the leg; the row's own status is DERIVED from its legs (ADR-0020) and written here. This
+        # call is the port that was missed when the flip moved out of `_record_settlement` -- this
+        # module never referenced either name, so a recorded credit sat at `Mismatched` and the
+        # per-row guard both endpoints lean on never engaged.
+        #
+        # ⚠️ `result` IS PASSED SO THE NOTE READS "Recorded", NOT "Settled". Both credit paths
+        # CREATE their record, and `allocation_note` distinguishes a record this import brought into
+        # existence from one that was already sitting there approved.
+        _refresh_row_allocation(staged.name, actor, result)
     except Exception:
         # Roll back to the savepoint rather than the whole request, for the reason `settle_row`
         # gives: the caller gets the real error and the database is exactly as it was.
@@ -211,6 +222,16 @@ def create_non_project_receipt(row: str, expense_type: str, description: str = N
             statement_file_url=statement_file_url,
         )
         _record_settlement(staged, doc, result, actor)
+        # ⚠️ INSIDE THE SAVEPOINT, AND IT IS WHAT MARKS THE ROW DONE. `_record_settlement` writes
+        # the leg; the row's own status is DERIVED from its legs (ADR-0020) and written here. This
+        # call is the port that was missed when the flip moved out of `_record_settlement` -- this
+        # module never referenced either name, so a recorded credit sat at `Mismatched` and the
+        # per-row guard both endpoints lean on never engaged.
+        #
+        # ⚠️ `result` IS PASSED SO THE NOTE READS "Recorded", NOT "Settled". Both credit paths
+        # CREATE their record, and `allocation_note` distinguishes a record this import brought into
+        # existence from one that was already sitting there approved.
+        _refresh_row_allocation(staged.name, actor, result)
     except Exception:
         # Roll back to the savepoint rather than the whole request, for the reason `settle_row`
         # gives: the caller gets the real error and the database is exactly as it was.
