@@ -138,6 +138,12 @@ here — the rest are documented at their call sites.
 
 ### A1 — allocation is serialised by a ROW LOCK, and D5's "visible, not silent" depends on it
 
+> ⚠️ **CORRECTED BY AMENDMENT B (2026-09-10).** The paragraph below names the wrong isolation
+> level, and the conclusion it draws from it — that an unlocked `allocate_row` over-allocates
+> silently — does not hold on this deployment. It is left standing rather than rewritten, because
+> the fix it argues for is the right fix and the reasoning that produced it is worth reading beside
+> the measurement that corrected it. Read Amendment B before acting on anything here.
+
 `allocate_row` took no lock. `_live_legs` re-reads under READ COMMITTED, so it **cannot see another
 transaction's uncommitted legs**: two reviewers ticking DIFFERENT payments on the same transfer each
 measured the remainder against a picture with the other's legs missing, each passed
@@ -543,3 +549,98 @@ Independently, and before slice 0 ships: the whole-branch fix-wave review that w
 run. The manual browser walk lands at the end of slice 1, since slice 1 rebuilds the screens it
 covers — **except** the two-browser concurrency check, which exercises the A1 server lock and is
 pulled forward.
+
+---
+
+## Amendment B — the fix-wave review, and the concurrency check it was gated on (2026-09-10)
+
+Amendment A's ten fixes were committed and never reviewed. This is the review. Nine of the ten stand
+as written; the tenth (A1, the row lock) is CORRECT CODE resting on a WRONG PREMISE, and the premise
+is what this amendment replaces. Every claim below was measured, not reasoned.
+
+### B1 — the isolation level is REPEATABLE READ, and reading the server setting gets it wrong
+
+`SHOW transaction_isolation` from a bench connection returns **`repeatable read`**. Frappe sets it
+per SESSION; the server's `default_transaction_isolation` is `read committed`, so anyone who checks
+the *server* — or assumes Postgres's documented default — reads the opposite of the truth. That is
+how A1 came to state READ COMMITTED four times over as the mechanism its whole argument rests on.
+
+The BLINDNESS A1 describes is real under either level: `_live_legs` reads its own transaction's
+snapshot and cannot see another transaction's legs. What changes is what happens next.
+
+### B2 — the two-browser check: no over-allocation, with or without the lock
+
+Two processes, each its own connection, one Rs 100 transfer, a different Rs 60 approved payment
+ticked in each, confirmed together. The winner was made to hold its transaction open for five
+seconds after the row read, so the loser was GUARANTEED to contend rather than merely arrive late —
+a race left to chance proves nothing when the failure it is looking for is a silent one.
+
+| | winner | loser | row afterwards |
+|---|---|---|---|
+| **with `FOR UPDATE`** | 60 of 100 written, `Partially Allocated` | blocks ~6 s at the row read, then `SerializationFailure: could not serialize access due to concurrent update` | **60 of 100. No over-allocation.** |
+| **`for_update` removed** | 60 of 100 written, `Partially Allocated` | runs its work, then `InFailedSqlTransaction: current transaction is aborted` | **60 of 100. No over-allocation.** |
+
+So **snapshot isolation, not the lock, is what prevents the silent over-allocation on this
+deployment.** Postgres refuses the loser's UPDATE of a row the winner has already updated, and the
+loser's whole transaction — including the payment it had flipped to `Paid` — goes back.
+
+### B3 — the lock is KEPT, and the reason is the shape of the failure, not the fact of it
+
+A1's fix is retained, and this amendment is not a licence to remove it:
+
+* **It fails EARLY.** With the lock, the loser stops at the one read that decides eligibility,
+  before a single payment is touched. Without it, the loser settles a payment, writes a match
+  record, and only then discovers its transaction has been dead for some time.
+* **It names the ordering.** Row then payment, stated once, at the read.
+* **It is the only guard that survives a move to READ COMMITTED**, where A1's silent
+  over-allocation genuinely would be reachable. A future Frappe upgrade, or a site that sets its
+  own isolation level, would make A1 true again — and would find the lock already there.
+
+### B4 — OPEN: neither failure is fit for a reviewer's screen
+
+`SerializationFailure: could not serialize access due to concurrent update` is what the second
+reviewer sees. It is a raw psycopg2 error. D5's "visible, not silent" is technically satisfied —
+nothing is written, the reviewer is stopped — but a sentence that reads as a database crash does not
+tell a person that a colleague is allocating the same transfer and they should reopen it.
+
+**Parked, deliberately, and not fixed in this review.** The fix is a translation at `allocate_row`'s
+boundary, and its wording is a product decision rather than a correctness one; folding it into a
+review of somebody else's ten fixes would smuggle a new behaviour in under a verdict. It wants its
+own ticket. Recorded here so the next reader does not rediscover it as a bug.
+
+### B5 — two defects found on the way, both PRE-EXISTING, both fixed
+
+* **`_resolve_stacks` returned a bare `0` on both abstain paths** while its only caller unpacks a
+  2-tuple — `TypeError: cannot unpack non-iterable int object`, uncaught, killing the whole match.
+  Reachable on ordinary data: `stack_key` yields `None` for a row with a blank
+  `normalized_account`, so a statement carrying no counterparty account empties `keys`. Introduced
+  2026-08-11 (`a5ff7bdc`, already on `develop`), and found only because Amendment A's own
+  `test_a_re_match_keeps_them` had to swallow the `TypeError` to assert anything at all. Fixed;
+  that test no longer catches it, so it now pins the fix as well as the delete scoping.
+* **`test_expenses`' two `Requested` refusal tests had been dead.** Both expense controllers
+  auto-approve on create (`0 < amount <= Rs 10,000`), a feature added independently of this module,
+  and the fixture plants from a statement row's own amount — so the "Requested" record it planted
+  was `Approved` before the guard ever saw it. They failed for a reason unrelated to what they
+  pin. The fixture now re-asserts the status after insert; both tests are red again when the
+  status guard is removed. Amendment A's report attributed these two to the `validate_won` fixture
+  problem — that attribution was wrong, though its conclusion (pre-existing, not the wave) was right.
+
+### B6 — two red gates that are NOT this branch's, parked with their causes named
+
+Amendment A's report listed both as pre-existing. Both claims were re-checked here and both hold —
+but neither had a stated cause, and an unexplained red gate is one nobody can clear.
+
+* **`scripts/residence_check.py` is red on F5 (116 → 119) and F2 (207 → 223).** Measured cause: the
+  branch adds **zero** lines matching either rule's pattern — `git diff be9b592a..HEAD -- frontend/`
+  yields no `JSON.parse`, `useFrappeUpdateDoc` or `updateDoc(` addition at all, and neither does the
+  fix wave on its own. The gap is inherited from a `develop` merge whose baseline was never
+  reconciled; `scripts/residence_baseline.json`'s own history is a run of exactly such reconcile
+  chores. **Not re-baselined here, deliberately:** re-ratcheting inside a review would absorb this
+  drift and hide whatever arrives next behind the same number. It is a maintainer chore commit, on
+  that file's own precedent.
+* **`frontend/src/pages/POAdjustment/writeOffControl.test.ts` fails in the full run and passes
+  alone.** Not random: it is a deterministic TIMEOUT. Its one slow case `await import()`s
+  `SheetPricingPage`, which costs ~2.5 s on its own against vitest's 5 s default and ~5.1 s once the
+  suite is running in parallel. Introduced on `develop` (`944441f2`), unrelated to this feature.
+  **Parked, not fixed:** the repair is an explicit per-test timeout on a POAdjustment test, and a
+  review of an outflow branch is the wrong commit to retune another module's gate in.

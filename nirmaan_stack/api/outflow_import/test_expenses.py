@@ -163,6 +163,18 @@ class SettlementFixture(unittest.TestCase):
         return rows[0]
 
     def _make_expense(self, doctype, amount, status="Approved", description="planted by test"):
+        """Plant an expense in EXACTLY the requested status.
+
+        ⚠️ THE STATUS IS RE-ASSERTED AFTER THE INSERT, AND WITHOUT THAT THE `Requested` FIXTURES
+        SILENTLY PLANT AN `Approved` RECORD. Both expense controllers auto-approve on create --
+        `validate` flips a `Requested` row to `Approved` when `0 < amount <= AUTO_APPROVE_LIMIT`
+        (Rs 10,000), a feature added independently of this module -- and these fixtures are built
+        from a statement row's own amount, which is usually well under it. The two refusal tests
+        then planted an approvable record, `settle_expense` correctly settled it, and
+        `assertRaises(WrongStatusError)` failed for a reason that had nothing to do with the guard
+        it was pinning. The write is a raw `set_value` on purpose: going back through the document
+        layer would re-run the very `validate` being stepped around.
+        """
         doc = frappe.new_doc(doctype)
         doc.update({"type": self.project_type if doctype == PROJECT_EXPENSE else self.non_project_type,
                     "status": status,
@@ -171,6 +183,8 @@ class SettlementFixture(unittest.TestCase):
         if doctype == PROJECT_EXPENSE:
             doc.projects = self.project
         doc.insert(ignore_permissions=True)
+        if doc.status != status:
+            frappe.db.set_value(doctype, doc.name, "status", status, update_modified=False)
         bucket = (
             self.project_expenses if doctype == PROJECT_EXPENSE else self.non_project_expenses
         )

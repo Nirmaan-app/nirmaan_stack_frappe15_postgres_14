@@ -225,26 +225,20 @@ class TestAReversedLegIsNeverHardDeleted(AllocationFixture):
         so it is MATCHABLE again and `_persist_row_outcome`'s delete reaches it -- unlike the
         `Partially Allocated` row `test_allocate_row` pins, which is frozen out of the run entirely.
 
-        ⚠️ THE `try` IS NOT LENIENCE, AND IT IS NOT HIDING A FAILURE OF THIS WAVE. `match_batch` on
-        a single-row batch trips a PRE-EXISTING defect that is byte-identical at `54d42602` and
-        outside this wave: `_resolve_stacks` is annotated `-> int` and returns a bare `0` on its two
-        abstain paths, while the caller unpacks a 2-tuple. It is raised in the report rather than
-        fixed here.
-
-        The assertion is still exact and still about F4, because of WHERE that crash happens:
-        `_persist_row_outcome` runs in the per-row loop, which completes BEFORE `_resolve_stacks` is
-        called. So by the time the unrelated `TypeError` is raised, the delete has already either
-        taken the `Reversed` legs or spared them -- which is precisely the question. `TypeError` is
-        caught NARROWLY: a `ValidationError` from the code under test would still fail the run.
+        ⚠️ THIS RAN UNDER A `try: ... except TypeError` UNTIL THE REVIEW, AND IT NO LONGER DOES.
+        `match_batch` on a single-row batch reaches `_resolve_stacks`'s abstain path (`stack_key`
+        is `None` for a row with no `normalized_account`), which returned a bare `0` against a
+        caller unpacking a 2-tuple. That defect is PRE-EXISTING -- 2026-08-11, `a5ff7bdc`, already
+        on `develop` -- and was found only because this test had to swallow its `TypeError` to
+        assert anything. It is fixed at `_resolve_stacks`, so the endpoint now runs to completion
+        here, and this case pins BOTH facts at once: the whole match completes, and it leaves the
+        `Reversed` legs alone.
         """
         from nirmaan_stack.api.outflow_import.review import match_batch
 
         row = self._reverse_everything()
         batch = frappe.db.get_value(ROW_DOCTYPE, row, "import_batch")
-        try:
-            match_batch(batch=batch)
-        except TypeError:
-            pass
+        match_batch(batch=batch)
         self.assertEqual(
             frappe.db.count(MATCH_DOCTYPE, {"import_row": row, "match_kind": "Reversed"}), 3
         )

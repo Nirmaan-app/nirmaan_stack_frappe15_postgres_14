@@ -719,8 +719,10 @@ def _enforce_single_claim(matchable) -> int:
 # --- stacks: several interchangeable transfers against several interchangeable records (E2) ------
 
 
-def _resolve_stacks(matchable, pools) -> int:
-    """Auto-pair BALANCED stacks and write their suggestions. Returns how many rows were paired.
+def _resolve_stacks(matchable, pools) -> tuple[int, set[str]]:
+    """Auto-pair BALANCED stacks and write their suggestions.
+
+    Returns `(rows paired, transfer names whose surplus note must survive the sweep)`.
 
     THE CASE. A vendor with six approved payments of Rs 9,000 and six transfers of Rs 9,000. Every
     transfer matches every payment equally well, so `sole_suggestion` correctly refuses to pick one
@@ -746,14 +748,25 @@ def _resolve_stacks(matchable, pools) -> int:
     row. Without it, a payment could be suggested to two different transfers and the second confirm
     would fail with `AlreadyPaidError` -- which is exactly the failure the whole candidate-collapse
     fix was written to stop producing.
+
+    ⚠️ BOTH ABSTAIN PATHS RETURN THE FULL PAIR, AND THEY DID NOT UNTIL THE FIX-WAVE REVIEW
+    (ADR-0020 Amendment B). This was annotated `-> int` and returned a bare `0` on each of them,
+    while its ONE caller does `paired, noted_surplus = _resolve_stacks(...)` -- so any `match_batch`
+    run reaching an abstain died with `TypeError: cannot unpack non-iterable int object`, with
+    nothing catching it. The reachable case is ordinary rather than exotic: `stack_key` yields
+    `None` for a row with a blank `normalized_account`, so a statement whose rows carry no
+    counterparty account empties `keys` and kills the whole match. Introduced 2026-08-11
+    (`a5ff7bdc`, already on `develop`) and unrelated to the fan-out work; found only because
+    `test_a_re_match_keeps_them` had to swallow the `TypeError` to assert anything at all. That
+    test no longer swallows it, so it now pins this too.
     """
     keys = {k for k in (stack_key(row) for row in matchable) if k is not None}
     if not keys:
-        return 0
+        return 0, set()
 
     rows = _load_open_rows_for_keys(keys)
     if not rows:
-        return 0
+        return 0, set()
 
     # Everything the per-row matcher already spoke for, anywhere in the table. Read BEFORE any
     # pairing so the pass cannot hand out a record a 1:1 row is holding.

@@ -230,12 +230,13 @@ def allocate_row(row: str, targets):
     """
     actor = require_outflow_access()
     targets = _parse_targets(targets)
-    # ⚠️ THIS TAKES A `FOR UPDATE` ROW LOCK, AND THAT IS WHAT SERIALISES ALLOCATION AGAINST ONE
-    # TRANSFER (review F1). The per-leg `allocation_fits` below cannot: `_live_legs` re-reads under
-    # READ COMMITTED and is blind to another transaction's uncommitted legs, so two reviewers on the
-    # same transfer would each fit against a picture missing the other's -- and the row would then
-    # derive as `Settled` with more written against it than the bank moved, silently. Held to the
-    # commit; see `_load_allocatable_row`'s docstring for the full reasoning and the lock order.
+    # ⚠️ THIS TAKES A `FOR UPDATE` ROW LOCK, AND IT SERIALISES ALLOCATION AGAINST ONE TRANSFER
+    # (review F1). The per-leg `allocation_fits` below cannot: `_live_legs` reads this
+    # transaction's SNAPSHOT and is blind to another transaction's legs, so two reviewers on the
+    # same transfer each fit against a picture missing the other's. Held to the commit; see
+    # `_load_allocatable_row`'s docstring for the isolation level this actually runs at (MEASURED,
+    # and not the one the first draft of this note named), the lock order, and what the lock does
+    # and does not buy.
     staged, doc = _load_allocatable_row(row)
     _guard_is_a_debit(doc)
     statement_file_url = _statement_file_url(doc["import_batch"])
@@ -584,25 +585,45 @@ def _load_allocatable_row(row: str):
     row that has already written money.
 
     ⚠️ `for_update=True` -- THIS READ TAKES THE ROW LOCK THAT SERIALISES ALLOCATION AGAINST ONE
-    TRANSFER, AND IT IS THE ONLY THING THAT CAN (whole-branch review, F1). The per-leg
-    `allocation_fits` check cannot do it, and the reason is isolation, not arithmetic: `_live_legs`
-    re-reads under READ COMMITTED, so it CANNOT SEE another transaction's uncommitted legs. Two
-    reviewers ticking DIFFERENT payments on the same transfer therefore each measure the remainder
-    against a picture with the other's legs missing, each fits, each commits -- and the
-    `is_over_allocated` backstop after the loop is per-transaction and equally blind. The row then
-    derives as `Settled`, because `is_fully_allocated` is deliberately ONE-SIDED and there is no
-    fourth status for over-allocation. So the failure is SILENT, which is exactly what ADR-0020's
-    "visible, not silent" argument trades against the weakened per-leg guard: the weakening is only
-    survivable while the leftover balance is guaranteed to still be on screen.
-    Nothing already in place covers it. `settle_payment`'s own `FOR UPDATE` stops the SAME payment
-    being settled twice, and the partial unique index stops the same (transfer, target) pair twice;
+    TRANSFER (whole-branch review, F1). The per-leg `allocation_fits` check cannot do it, and the
+    reason is isolation, not arithmetic: `_live_legs` re-reads this transaction's SNAPSHOT and
+    cannot see another transaction's legs. Two reviewers ticking DIFFERENT payments on the same
+    transfer therefore each measure the remainder against a picture with the other's legs missing,
+    and the `is_over_allocated` backstop after the loop is per-transaction and equally blind.
+    Nothing else in place covers that: `settle_payment`'s own `FOR UPDATE` stops the SAME payment
+    being settled twice and the partial unique index stops the same (transfer, target) pair twice;
     neither sees two DIFFERENT payments racing onto one transfer.
+
+    ⚠️ THE ISOLATION LEVEL IS **REPEATABLE READ**, NOT READ COMMITTED, AND THIS NOTE SAID
+    OTHERWISE UNTIL IT WAS MEASURED (ADR-0020 Amendment B, 2026-09-10). Frappe sets it on the
+    SESSION: `SHOW transaction_isolation` returns `repeatable read` from a bench connection while
+    the server's `default_transaction_isolation` is `read committed`, so reading the server
+    setting -- or assuming Postgres's default -- gets it wrong. The blindness above is real either
+    way; the CONSEQUENCE is not.
+
+    ⚠️ SO THE LOCK IS NOT WHAT STANDS BETWEEN THIS FEATURE AND A SILENT OVER-ALLOCATION HERE --
+    SNAPSHOT ISOLATION IS -- AND THE LOCK IS KEPT ANYWAY. Measured with two processes racing one
+    Rs 100 transfer, a different Rs 60 payment in each, the first holding its transaction open
+    (Amendment B): with the lock, the second BLOCKS at this read and then fails
+    `SerializationFailure`, and the row is left at 60 of 100. With `for_update` REMOVED, the second
+    still writes nothing -- Postgres refuses its UPDATE of a row the winner has already updated --
+    but it discovers this LATE, after doing its work, and surfaces as `InFailedSqlTransaction:
+    current transaction is aborted`, which names nothing a reader could act on. What the lock buys
+    is the SHAPE of the loss: early, at the one read that decides eligibility, before any payment
+    is touched. It is also the only guard that would survive a move to READ COMMITTED, where the
+    original silent over-allocation WOULD be reachable. Do not remove it on the grounds that the
+    database already refuses.
+
+    ⚠️ NEITHER FAILURE IS FIT FOR A REVIEWER'S SCREEN, and that is an OPEN finding, not a fixed one
+    (Amendment B, parked). Both are raw psycopg2 errors. ADR-0020 D5's "visible, not silent" is
+    satisfied -- nothing is written and the reviewer is stopped -- but "visible" is doing a lot of
+    work for a sentence that reads as a database crash.
+
     ⚠️ THE LOCK IS TAKEN IN THE SAME READ THAT DECIDES ELIGIBILITY, not before or after it -- a
     status read outside the lock is a stale status -- and it is held to the request's commit, since
     `allocate_row` opens only a savepoint after this. LOCK ORDER IS ROW THEN PAYMENT here; if a
     concurrent `settle_row` (which takes the payment first) ever contends for the same pair,
-    Postgres aborts one with a deadlock error. Loud and rolled back, which is the correct trade
-    against a silent over-allocation.
+    Postgres aborts one, loudly and rolled back.
     """
     doc = frappe.db.get_value(ROW_DOCTYPE, row, "*", as_dict=True, for_update=True)
     if not doc:
