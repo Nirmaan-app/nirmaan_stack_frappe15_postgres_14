@@ -24,17 +24,22 @@ unique `(transfer_id, target_doctype, target_name)` sees two different targets.
 
 ⚠️ THIS DECIDES ELIGIBILITY. IT DOES NOT DECIDE WHAT HAPPENED. Whether the shortfall is a part
 payment or a deduction such as TDS is a question about the world that no data in this system can
-answer -- see `looks_like_tds`. This module says only whether the SHAPE permits each answer; a person
-says which one is true, and `settle_row_partial` requires them to say so.
+answer -- see `looks_like_tds`. This module says only whether the SHAPE permits a split; a person
+says that the balance is still owed, and `settle_row_partial` requires them to say so.
 
-TWO ANSWERS, ONE SHARED SHAPE (slice TD)
-----------------------------------------
-    partial_eligibility    -> may we SPLIT this record and carry a balance forward?
-    deduction_eligibility  -> may we record the shortfall as TDS and settle in full?
+ONE ANSWER, AND IT USED TO BE TWO (slice TD, REMOVED)
+----------------------------------------------------
+    partial_eligibility  -> may we SPLIT this record and carry a balance forward?
 
-The second LAYERS ON the first: the shape conditions are the same for both, and only the two extra
-conditions (a Service Request parent, a 0.95-2.05% rate) belong to the deduction. Keeping one copy
-of the shared half is what stops the two branches disagreeing about the same row.
+⚠️ THERE WAS A SECOND ANSWER HERE AND IT IS GONE ON PURPOSE -- do not reinstate it. Slice TD let a
+reviewer record a shortfall as TDS on a `Service Requests` payment, deriving `amount - bank` and
+writing it to the legacy `Project Payments.tds` while leaving `amount` GROSS. SR tax withheld is now
+recorded once, at APPROVAL, by `services/payment_tds.py`: it writes a `Payment TDS Deduction` row and
+rewrites `Project Payments.amount` to the NET figure, so a transfer against an approved SR payment
+matches `amount` outright and never reaches this module at all. Keeping both would have meant two
+mechanisms with OPPOSITE conventions (net-stored here, gross-stored there) offering to withhold twice
+on the same row, against an `amount_due` that already subtracts the first. **This import records no
+tax.** Deduction settlements ever performed before the removal: zero.
 
 ⚠️ IT IS NEVER CONSULTED BY THE MATCHER, AND MUST NOT BECOME SO (owner ruling R3). The entire write
 safety of this feature rests on "the +-Rs 5 settle window gates the write"; a partial is by
@@ -66,16 +71,10 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 
 __all__ = [
     "INTENT_PART_PAYMENT",
-    "INTENT_DEDUCTION",
     "VALID_INTENTS",
     "TDS_RATE_HINTS",
-    "TDS_BAND_MIN_PCT",
-    "TDS_BAND_MAX_PCT",
-    "SERVICE_DOCTYPE",
     "Eligibility",
-    "DeductionEligibility",
     "partial_eligibility",
-    "deduction_eligibility",
     "looks_like_tds",
 ]
 
@@ -84,10 +83,11 @@ __all__ = [
 # The reviewer's declaration
 # ---------------------------------------------------------------------------------------------
 
-# ⚠️ THE TWO CASES ARE INDISTINGUISHABLE IN THE DATA, WHICH IS WHY THIS VOCABULARY EXISTS.
-# A Rs 5,00,000 payment against a Rs 4,50,000 transfer is EITHER a part payment (Rs 50,000 is still
-# owed) OR a deduction such as TDS (nothing more is owed, Rs 50,000 was withheld). Nothing stored on
-# the payment separates them, so a person declares which it is.
+# ⚠️ THE TWO CASES ARE INDISTINGUISHABLE IN THE DATA, WHICH IS WHY THIS VOCABULARY SURVIVES THE
+# REMOVAL OF THE SECOND ANSWER. A Rs 5,00,000 payment against a Rs 4,50,000 transfer is EITHER a part
+# payment (Rs 50,000 is still owed) OR a deduction such as TDS (nothing more is owed, Rs 50,000 was
+# withheld). Nothing stored on the payment separates them -- so the reviewer still DECLARES that the
+# balance is owed, even though a split is now the only thing this import can do about it.
 #
 # ⚠️ `Project Payments.tds` IS EMPTY ON AN APPROVED PAYMENT. That is an INVARIANT -- the owner's
 # rule, 2026-08-12 -- and NOT a description of the table. Measured that day: 39 approved rows carry
@@ -95,23 +95,32 @@ __all__ = [
 # the document lifecycle (33 have a `Version` row reading `Approved -> Paid` and no row for the way
 # back; all 39 had their `utr` and `payment_date` cleared and their `tds` missed).
 #
-# THE CONSEQUENCE IS A RULE ABOUT THIS MODULE: **nothing here reads `tds`.** It is an OUTPUT of the
-# deduction path and never an input. A signature that accepted a stored value would be designing for
-# a state the business says cannot exist, and would enshrine those 39 rows as if they were records.
+# THE CONSEQUENCE IS A RULE ABOUT THIS MODULE: **nothing here reads OR WRITES `tds`.** Once slice TD
+# was removed the import stopped touching that column entirely; a signature that accepted a stored
+# value would be designing for a state the business says cannot exist.
 #
 # Get the intent wrong in the PART PAYMENT direction and this feature creates an approved payment
 # that will never be paid, inflating what the PO thinks it still owes, forever. That is worse than
 # the dead end it replaces, which is why the intent is REQUIRED, never defaulted, and never inferred.
+#
+# ⚠️ ONE LEGAL VALUE IS NOT A REASON TO DROP THE PARAMETER. `VALID_INTENTS` is the allowlist that
+# makes a missing or garbage intent THROW on a money-out endpoint; removing it would leave a door
+# that accepts a bare "split this" with nothing to reject, and would strip the declaration that
+# `_record_partial_provenance` writes onto both halves.
 INTENT_PART_PAYMENT = "part_payment"
-INTENT_DEDUCTION = "deduction"
-VALID_INTENTS = frozenset({INTENT_PART_PAYMENT, INTENT_DEDUCTION})
+VALID_INTENTS = frozenset({INTENT_PART_PAYMENT})
 
 # Statutory TDS rates common on this ledger, as PERCENTAGES of the record. Used ONLY to raise a
-# warning beside the reviewer's choice.
+# warning beside the split the reviewer is about to take.
 #
 # ⚠️ A HINT, NEVER A RULE. A part payment can land on 2.00% by coincidence and a TDS deduction can
 # land anywhere once more than one rate applies. This list exists so a reviewer about to create a
 # phantom balance is asked to look twice -- it must never gate, default or pre-select anything.
+#
+# ⚠️ IT MATTERS MORE SINCE SLICE TD WAS REMOVED, NOT LESS. While a deduction was recordable here, a
+# reviewer meeting a real withholding had somewhere to put it; now the only thing this import can do
+# with a shortfall is SPLIT, and on a genuine deduction that mints an approved balance nobody owes.
+# The warning is the whole guard, which is why it must stay loud -- and still must not gate.
 TDS_RATE_HINTS = (Decimal("1"), Decimal("2"), Decimal("5"), Decimal("10"))
 
 # How near a hint counts as near, in PERCENTAGE POINTS.
@@ -216,106 +225,21 @@ def partial_eligibility(
     )
 
 
-# ---------------------------------------------------------------------------------------------
-# The deduction path -- writing the TDS instead of routing it away (slice TD)
-# ---------------------------------------------------------------------------------------------
-
-# The ledger a deduction may be recorded on. Owner ruling T-R2, 2026-08-12.
-#
-# ⚠️ THIS IS THE PAYMENT'S PARENT (`Project Payments.document_type`), NOT THE LEDGER IT LIVES IN.
-# `target_doctype` is "Project Payments"; THIS is "Service Requests" or "Procurement Orders". Two
-# similarly-named things one argument apart -- gate on the wrong one and every ledger passes.
-SERVICE_DOCTYPE = "Service Requests"
-
-# The rate band a shortfall must fall in to be recordable as TDS here. Owner ruling T-R1.
-#
-# MEASURED ON THE LIVE LEDGER, 2026-08-12: of 671 Paid payments carrying a TDS figure, **505 sit at
-# exactly 1.00% and 60 at exactly 2.00%**; this band captures 584 of them. Widening it to 0.5-2.5%
-# admits TWO more rows, which is why it is tight -- and tightness keeps out a separate cluster of
-# ~81 rows near 0.1% whose nature is unexplained and which must never be auto-written as tax.
-#
-# ⚠️ TDS IS COMPUTED ON `amount` DIRECTLY, NOT ON A PRE-GST BASE. I checked, because the opposite
-# would have mattered enormously: dividing by 1.18 turns those clean 1.00 / 2.00 figures into
-# 1.18 / 2.36, and a band built on that assumption would have missed almost every real deduction
-# while every test stayed green.
-TDS_BAND_MIN_PCT = Decimal("0.95")
-TDS_BAND_MAX_PCT = Decimal("2.05")
-
-REFUSAL_NOT_SERVICE = "not_service"
-REFUSAL_RATE_OUT_OF_BAND = "rate_out_of_band"
-
-
-@dataclass(frozen=True)
-class DeductionEligibility:
-    """Whether this shortfall may be recorded as TDS here, and what the figure would be."""
-
-    eligible: bool
-    refusal: str = ""
-
-    tds: Decimal = Decimal("0")
-    """The deduction to write. ALWAYS `record - bank`; never read from the payment."""
-
-    implied_pct: Decimal = Decimal("0")
-
-
-def deduction_eligibility(
-    record_amount,
-    bank_amount,
-    target_doctype: str,
-    record_status: str,
-    document_type: str,
-) -> DeductionEligibility:
-    """Whether this transfer's shortfall may be written onto the payment as TDS.
-
-    ⚠️ IT LAYERS ON `partial_eligibility` RATHER THAN REPEATING IT. The SHAPE conditions are
-    identical for both answers to the dialog's question -- a Project Payment, `Approved`, the record
-    strictly larger, the gap beyond the settle window, both amounts positive -- and a second copy is
-    exactly how the two branches come to disagree about the same row. This adds TWO conditions to
-    that shared answer and nothing else.
-
-    ⚠️ THERE IS NO `stored_tds` PARAMETER AND THERE MUST NEVER BE ONE. `Project Payments.tds` is
-    empty on an approved payment by rule; the rows that carry one are residue from an un-fulfil that
-    bypassed the document lifecycle (see the note above `INTENT_PART_PAYMENT`). Accepting the stored
-    value would design for a state the business says cannot exist, and refusing on it would block
-    16% of the approved population for a reason invisible on the screen where the decision is made.
-    **The figure is derived from the transfer, every time.** `Project Payments` carries
-    `track_changes: 1`, so replacing residue is audited with its user and timestamp -- more of a
-    trail than the hand write that created it ever left.
-
-    ⚠️ IT IS NARROWER THAN `looks_like_tds`, ON PURPOSE. That predicate asks "does this LOOK like a
-    deduction?" (1 / 2 / 5 / 10%) and warns a reviewer before they choose a part payment. This one
-    asks "may we RECORD that deduction here?". A 5% gap therefore still warns and still cannot be
-    written, and the screen says so -- which is more useful than either silence or a live button
-    that refuses.
-    """
-    shape = partial_eligibility(record_amount, bank_amount, target_doctype, record_status)
-    if not shape.eligible:
-        return DeductionEligibility(False, shape.refusal)
-
-    if (document_type or "").strip() != SERVICE_DOCTYPE:
-        return DeductionEligibility(False, REFUSAL_NOT_SERVICE)
-
-    if not (TDS_BAND_MIN_PCT <= shape.implied_pct <= TDS_BAND_MAX_PCT):
-        return DeductionEligibility(False, REFUSAL_RATE_OUT_OF_BAND)
-
-    # `shape.remainder` IS the gap, which IS the deduction. Taken from the shared computation rather
-    # than recomputed, so the two branches can never differ about the same subtraction.
-    return DeductionEligibility(
-        eligible=True, tds=shape.remainder, implied_pct=shape.implied_pct
-    )
-
-
 def looks_like_tds(implied_pct) -> bool:
     """Whether the shortfall sits on a common statutory TDS rate.
 
     ⚠️ IT WARNS. IT NEVER DECIDES, AND NOTHING MAY MAKE IT DECIDE. The two cases this distinguishes
     are genuinely indistinguishable in the data (see `INTENT_PART_PAYMENT`), so this is a prompt to
-    look twice, shown BESIDE the reviewer's choice. Wiring it to a default, a pre-selection or a
-    refusal would convert a hint into a guess about money -- and the wrong guess is the one that
-    creates a payment nobody will ever pay.
+    look twice, shown BESIDE the split on offer. Wiring it to a default, a pre-selection or a refusal
+    would convert a hint into a guess about money -- and the wrong guess is the one that creates a
+    payment nobody will ever pay.
 
     A FALSE here means only "not on a common rate". It is not evidence that this IS a part payment,
-    which is why the screen asks the question either way.
+    which is why the screen offers the split either way and leaves the judgement with the reviewer.
+
+    ⚠️ SINCE SLICE TD WAS REMOVED THIS IS THE ONLY THING WARNING A REVIEWER OFF A REAL DEDUCTION, so
+    the surface reading it must say what to do instead -- record it in the payments screen -- rather
+    than merely noting the coincidence. It stays advisory; the instruction lives in the wording.
     """
     pct = to_decimal(implied_pct)
     return any(abs(pct - hint) <= TDS_HINT_NEARNESS_PCT for hint in TDS_RATE_HINTS)

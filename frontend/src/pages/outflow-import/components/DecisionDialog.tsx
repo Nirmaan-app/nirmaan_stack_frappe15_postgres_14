@@ -32,13 +32,10 @@ import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatP
 
 import {
     AMOUNT_GAP_HINT,
-    INTENT_DEDUCTION,
     INTENT_PART_PAYMENT,
     amountVerdict,
     availableDecisionTargets,
     candidateKeySet,
-    deductionOffer,
-    deductionRefusalText,
     isConfirmable,
     isCreditRow,
     matcherCandidateLine,
@@ -50,7 +47,6 @@ import {
     settleBlockText,
     settleBlocker,
     type DecisionTarget,
-    type DeductionOffer,
     type MatcherCandidate,
     type PartialIntent,
     type PartialOffer,
@@ -178,7 +174,9 @@ interface Props {
      * Settle PART of the picked record, carrying the balance forward (slice PS).
      *
      * ⚠️ THE INTENT IS PASSED UP RATHER THAN ASSUMED. The endpoint requires it and has no default,
-     * so the reviewer's answer has to travel with the call — see `PartialIntentChoice`.
+     * so the declaration travels with the call. It has ONE legal value since slice TD was removed —
+     * the reviewer no longer chooses between two readings — but the endpoint still rejects a missing
+     * or unrecognised intent, which is what the parameter is for.
      */
     onPartialSettle: (record: SettleableRecord, intent: PartialIntent) => Promise<void> | void;
     onSkip: (reason: string) => Promise<void> | void;
@@ -280,9 +278,10 @@ export const DecisionDialog = ({
      * control with no explanation. A click that opens a dialog SAYING why is the honest shape --
      * the reviewer gets an answer at the moment they ask the question.
      */
-    // The SHAPE both answers share, computed once. `deductionOffer` layers its two extra rules on
-    // top of it, exactly as `deduction_eligibility` layers on `partial_eligibility` server-side —
-    // one copy of the shared half on each side of the wire.
+    // ⚠️ ONE ANSWER SINCE SLICE TD WAS REMOVED. This used to be the SHAPE two answers shared, with
+    // `deductionOffer` layering a service check and a rate band on top; the deduction is now
+    // withheld at approval by `services/payment_tds.py`, so a split is the only thing this dialog
+    // can offer. Mirrors `partial_settle.partial_eligibility`; the server is still the authority.
     const partialShape = SHOW_PARTIAL_SETTLE ? partialOffer(picked, row?.amount ?? 0) : null;
 
     const handleConfirmClick = useCallback(() => {
@@ -515,10 +514,9 @@ export const DecisionDialog = ({
             <AmountOutsideWindowDialog
                 block={blocked}
                 // ⚠️ COMPUTED FROM THE PICKED RECORD, NOT FROM THE BLOCK. `SettleBlock` carries
-                // amounts but not the LEDGER or the parent order, and both gates need those —
-                // reading them off the block would offer to split an expense and to deduct on a PO.
+                // amounts but not the LEDGER, and the gate needs it — reading it off the block
+                // would offer to split an expense, which has nowhere for a balance to go.
                 offer={partialShape}
-                deduction={deductionOffer(picked, partialShape)}
                 busy={busy}
                 onClose={() => setBlocked(null)}
                 onPartialSettle={async (intent) => {
@@ -550,7 +548,6 @@ export const DecisionDialog = ({
 const AmountOutsideWindowDialog = ({
     block,
     offer,
-    deduction,
     onClose,
     onPartialSettle,
     busy,
@@ -558,28 +555,20 @@ const AmountOutsideWindowDialog = ({
     block: SettleBlock | null;
     /** Non-null when this pick may be settled in parts. See `partialOffer`. */
     offer: PartialOffer | null;
-    /** Whether the shortfall may be recorded as TDS, and if not, why. See `deductionOffer`. */
-    deduction: DeductionOffer;
     onClose: () => void;
     onPartialSettle: (intent: PartialIntent) => void;
     busy: boolean;
 }) => {
     /**
-     * ⚠️ NEITHER ANSWER IS PRE-SELECTED, AND NOTHING MAY EVER DEFAULT IT.
+     * ⚠️ THERE IS NO LONGER A CHOICE TO HOLD, AND THE RISK THE CHOICE MANAGED IS STILL REAL.
      *
      * A shortfall is either a part payment (the balance is still owed) or a deduction such as TDS
-     * (nothing more is owed). NOTHING IN THIS SYSTEM CAN TELL THEM APART — `Project Payments.tds`
-     * is blank until a human writes it at fulfilment. A default is the screen guessing, and the
-     * wrong guess in the part-payment direction creates an approved payment that will never be
-     * paid, inflating what the PO thinks it still owes, forever. That is worse than the dead end
-     * this replaces, which is why the primary button stays disabled until a person answers.
+     * (nothing more is owed), and NOTHING IN THIS SYSTEM CAN TELL THEM APART. Slice TD let the
+     * reviewer declare a deduction here; that is gone — SR tax is withheld at approval — so a split
+     * is the only action, and taking it on a genuine withholding creates an approved payment that
+     * will never be paid. `offer.tdsLike` is the whole guard against that now, which is why its
+     * banner instructs rather than merely observes. It must stay a WARNING and never gate.
      */
-    const [intent, setIntent] = useState<PartialIntent | null>(null);
-
-    // A different pick is a different question. Carrying an answer across would let a click meant
-    // for one record settle another.
-    useEffect(() => setIntent(null), [block?.recordName]);
-
     const canOffer = SHOW_PARTIAL_SETTLE && Boolean(block) && Boolean(offer);
 
     return (
@@ -611,43 +600,33 @@ const AmountOutsideWindowDialog = ({
 
                             {canOffer && offer ? (
                                 <>
-                                    <p>Which of these happened?</p>
-                                    <PartialIntentChoice
-                                        offer={offer}
-                                        deduction={deduction}
-                                        intent={intent}
-                                        onChange={setIntent}
-                                    />
-                                    {/* ⚠️ A WARNING BESIDE THE CHOICE, NEVER A CHANGE TO IT. A part
-                                        payment can land on 2% by coincidence, so this must not
-                                        gate, default or pre-select anything -- it exists so
-                                        somebody about to create a phantom balance looks twice. */}
+                                    <p>This transfer pays PART of this payment.</p>
+                                    {/* ⚠️ IT WARNS AND NOW ALSO INSTRUCTS, AND IT STILL MUST NOT
+                                        GATE. While a deduction was recordable here (slice TD) a
+                                        reviewer meeting a real withholding had somewhere to put
+                                        it, so noting the coincidence was enough. Now a split is
+                                        the only action on this screen, and taking it on a genuine
+                                        withholding creates an approved payment nobody owes — so
+                                        the banner has to say where the answer moved to. A part
+                                        payment can still land on 2% by coincidence, which is why
+                                        this may never default, pre-select or disable anything. */}
                                     {offer.tdsLike && (
                                         <p className="rounded-md border border-amber-500/40 bg-amber-50 px-3 py-2 text-amber-900">
                                             {formatToIndianRupee(offer.remainder)} is{" "}
                                             {offer.impliedPct.toFixed(2)}% of the payment — a common
-                                            TDS rate. Check before choosing a part payment.
+                                            TDS rate. If tax was withheld rather than part of the
+                                            money being unpaid, do not split this: record it in the
+                                            payments screen. Splitting would create an approved
+                                            balance nobody owes.
                                         </p>
                                     )}
-                                    {intent === INTENT_PART_PAYMENT && (
-                                        // The confirmation names what will be CREATED, because
-                                        // there is no undo from inside the import (ruling Q9).
-                                        <p className="font-medium text-foreground">
-                                            This settles{" "}
-                                            {formatToIndianRupee(offer.keep)} and creates a new
-                                            approved payment of{" "}
-                                            {formatToIndianRupee(offer.remainder)} for the balance.
-                                        </p>
-                                    )}
-                                    {intent === INTENT_DEDUCTION && (
-                                        <p className="font-medium text-foreground">
-                                            This records{" "}
-                                            {formatToIndianRupee(deduction.tds)} as TDS on{" "}
-                                            <span className="font-mono">{block?.recordName}</span>{" "}
-                                            and marks it Paid. The payment amount stays{" "}
-                                            {formatToIndianRupee(block?.recordAmount ?? 0)}.
-                                        </p>
-                                    )}
+                                    {/* The confirmation names what will be CREATED, because there
+                                        is no undo from inside the import (ruling Q9). */}
+                                    <p className="font-medium text-foreground">
+                                        This settles {formatToIndianRupee(offer.keep)} and creates a
+                                        new approved payment of{" "}
+                                        {formatToIndianRupee(offer.remainder)} for the balance.
+                                    </p>
                                 </>
                             ) : (
                                 <>
@@ -674,20 +653,19 @@ const AmountOutsideWindowDialog = ({
                         {canOffer ? "Cancel" : "Choose another record"}
                     </AlertDialogCancel>
                     {canOffer && (
-                        // One button, whose LABEL and payload follow the answer. Two buttons would
-                        // let a stray click take the other branch — and the two branches write
-                        // opposite things: one carries a balance forward, the other declares that
-                        // nothing more is owed.
+                        // ⚠️ THE INTENT IS STILL SENT, THOUGH THERE IS ONLY ONE. The endpoint
+                        // rejects a missing or unrecognised intent — that allowlist is the guard on
+                        // a money-out door — and the value is what `_record_partial_provenance`
+                        // writes onto both halves as the reviewer's declaration that the balance is
+                        // owed. Clicking this button IS that declaration.
                         <AlertDialogAction
-                            disabled={intent === null || busy}
-                            onClick={() => intent && onPartialSettle(intent)}
+                            disabled={busy}
+                            onClick={() => onPartialSettle(INTENT_PART_PAYMENT)}
                         >
                             {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            {intent === INTENT_DEDUCTION
-                                ? `Record ${formatToRoundedIndianRupee(deduction.tds)} TDS and settle`
-                                : `Settle ${formatToRoundedIndianRupee(
-                                      offer?.keep ?? 0
-                                  )} and carry the rest`}
+                            {`Settle ${formatToRoundedIndianRupee(
+                                offer?.keep ?? 0
+                            )} and carry the rest`}
                         </AlertDialogAction>
                     )}
                 </AlertDialogFooter>
@@ -696,92 +674,23 @@ const AmountOutsideWindowDialog = ({
     );
 };
 
-/**
- * The two readings of one shortfall, as a radio group.
+/*
+ * ⚠️ `PartialIntentChoice` WAS DELETED HERE (slice TD removal), and this note is what stops it
+ * being rebuilt by someone reading `onPartialSettle`'s intent argument and wondering where the
+ * second option went.
  *
- * ⚠️ A REAL `<input type="radio">` IN A REAL RADIOGROUP, for the reason `SettleableRecordTable`
- * gives about the record picker: arrow-key navigation, the roving tab stop and the announced group
- * name all come free from the platform, and this is a control that decides where money goes.
+ * It was a two-option radio group -- "A part payment" / "A deduction (TDS or similar)" -- with
+ * the second greyed and reasoned when the payment's parent was not a Service Request or the gap
+ * fell outside 0.95-2.05%. It existed because a reviewer offered only "part payment" on a real
+ * withholding will take it, and that mints an approved balance nobody owes.
+ *
+ * THAT RISK DID NOT GO AWAY; ITS ANSWER MOVED. SR tax is now withheld at approval by
+ * `services/payment_tds.py`, which nets `Project Payments.amount`, so an approved SR payment
+ * matches its transfer outright and never reaches this dialog. What remains exposed is a real
+ * withholding on a PO, which this module has never covered -- and the `offer.tdsLike` banner is
+ * now the whole guard for it, which is why that banner tells the reviewer NOT to split and where
+ * to go instead. Do not rebuild the radio; strengthen the banner.
  */
-const PartialIntentChoice = ({
-    offer,
-    deduction,
-    intent,
-    onChange,
-}: {
-    offer: PartialOffer;
-    deduction: DeductionOffer;
-    intent: PartialIntent | null;
-    onChange: (next: PartialIntent) => void;
-}) => {
-    const options = [
-        {
-            id: INTENT_PART_PAYMENT as PartialIntent,
-            title: "A part payment",
-            body: `${formatToIndianRupee(offer.keep)} left the bank. ${formatToIndianRupee(
-                offer.remainder
-            )} is still owed and stays approved.`,
-            disabled: false,
-            reason: "",
-        },
-        {
-            id: INTENT_DEDUCTION as PartialIntent,
-            title: "A deduction (TDS or similar)",
-            body: `The payment was settled in full and ${formatToIndianRupee(
-                offer.remainder
-            )} was withheld. Nothing more is owed.`,
-            // ⚠️ DISABLED, NEVER HIDDEN, AND THIS IS THE SAFETY ARGUMENT OF THE WHOLE SLICE.
-            // A reviewer looking at a real 2% TDS on a materials PO, offered only "part payment",
-            // will take it — and that creates an approved balance for money nobody owes, which is
-            // precisely the phantom the partial-settlement slice was built to prevent. Removing the
-            // option is what would cause that; showing it greyed with its reason is what stops it.
-            disabled: !deduction.eligible,
-            reason: deductionRefusalText(deduction),
-        },
-    ];
-
-    return (
-        <div
-            role="radiogroup"
-            aria-label="What happened to the rest of this payment?"
-            className="space-y-2"
-        >
-            {options.map((option) => (
-                <label
-                    key={option.id}
-                    className={`flex items-start gap-2 rounded-md border px-3 py-2 transition-colors ${
-                        option.disabled
-                            ? "cursor-not-allowed border-muted-foreground/20 opacity-60"
-                            : intent === option.id
-                              ? "cursor-pointer border-primary bg-primary/5"
-                              : "cursor-pointer border-muted-foreground/20 hover:bg-muted/50"
-                    }`}
-                >
-                    <input
-                        type="radio"
-                        name="partial-intent"
-                        className="mt-1 h-3.5 w-3.5 accent-primary disabled:cursor-not-allowed"
-                        checked={intent === option.id}
-                        disabled={option.disabled}
-                        onChange={() => onChange(option.id)}
-                    />
-                    <span>
-                        <span className="block font-medium text-foreground">{option.title}</span>
-                        <span className="block text-xs text-muted-foreground">{option.body}</span>
-                        {/* The reason travels WITH the disabled option. A greyed control with no
-                            explanation is the dead-button complaint this dialog already exists to
-                            answer once. */}
-                        {option.disabled && option.reason && (
-                            <span className="mt-0.5 block text-xs font-medium text-amber-700">
-                                {option.reason}
-                            </span>
-                        )}
-                    </span>
-                </label>
-            ))}
-        </div>
-    );
-};
 
 /*
  * ⚠️ `WhyThisSuggestion` WAS DELETED HERE (slice D2, owner 2026-08-12), and this note is what

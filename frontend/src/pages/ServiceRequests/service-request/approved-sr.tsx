@@ -126,11 +126,21 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         setNewPaymentDialog((prevState) => !prevState);
     }, []);
 
+    // ⚠️ NO `tds` FIELD, AND THAT IS DELIBERATE. SR tax withheld is recorded ONCE, at approval, by
+    // `services/payment_tds.py` -- it writes a `Payment TDS Deduction` row and nets
+    // `Project Payments.amount`. This dialog creates a payment straight as `Paid`, so it never
+    // reaches that hook; a figure typed here landed in the legacy `Project Payments.tds` column and
+    // rendered as "--" in the payments table below, which reads the new doctype.
+    //
+    // Removing it is ARITHMETICALLY NEUTRAL: `update_parent_amount_paid` sums `amount`, never
+    // `amount - tds`, so these payments have always contributed their GROSS figure to `amount_paid`,
+    // and with `total_tds` at 0 for them `amount_due = total_amount - amount_paid - total_tds` was
+    // and stays correct. What is lost is only the CAPTURE of the withheld figure here -- intended,
+    // because the sanctioned route is approve -> net -> export payout -> settle from the statement.
     const [newPayment, setNewPayment] = useState({
         amount: "",
         payment_date: "",
         utr: "",
-        tds: ""
     });
 
     const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
@@ -365,7 +375,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 vendor: orderData?.vendor,
                 utr: newPayment?.utr,
                 amount: parseNumber(newPayment?.amount),
-                tds: parseNumber(newPayment?.tds),
                 payment_date: newPayment?.payment_date,
                 status: "Paid"
             })
@@ -402,7 +411,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 amount: "",
                 payment_date: "",
                 utr: "",
-                tds: ""
             })
 
             setPaymentScreenshot(null)
@@ -643,21 +651,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                     </div>
                                                 </div>
                                                 <div className="flex gap-4 w-full">
-                                                    <Label className="w-[40%]">TDS Amount</Label>
-                                                    <div className="w-full">
-                                                        <Input
-                                                            type="number"
-                                                            placeholder="Enter TDS Amount"
-                                                            value={newPayment.tds}
-                                                            onChange={(e) => {
-                                                                const tdsValue = e.target.value;
-                                                                setNewPayment({ ...newPayment, tds: tdsValue })
-                                                            }}
-                                                        />
-                                                        {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToRoundedIndianRupee(parseNumber(newPayment?.amount) - parseNumber(newPayment?.tds))}</span>}
-                                                    </div>
-                                                </div>
-                                                <div className="flex gap-4 w-full">
                                                     <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
                                                     <Input
                                                         type="text"
@@ -748,7 +741,14 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                 )}
 
 
-                                                <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
+                                                {/* ⚠️ PAYMENT DATE ONLY — NEVER FALL BACK TO `creation`. This column used to read
+                                                    `payment_date || creation`, so an unpaid payment showed the day the REQUEST was
+                                                    raised in a column headed "Date" beside a UTR and a status — indistinguishable
+                                                    from the day money actually moved. A blank payment date is a fact worth showing
+                                                    as blank. Same shape as the PO card's TransactionDetailsCard. */}
+                                                <TableCell className="font-semibold">
+                                                    {payment?.payment_date ? formatDate(payment.payment_date) : "--"}
+                                                </TableCell>
                                                 <TableCell className="font-semibold">{payment?.status}</TableCell>
                                                 {/* 2. RENDER THE PaymentVoucherActions COMPONENT */}
                                                 <TableCell className="text-center w-[10%]">
