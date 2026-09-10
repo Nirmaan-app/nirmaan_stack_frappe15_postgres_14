@@ -2404,8 +2404,8 @@ export interface CandidateLike {
  * or offer a split the endpoint would reject.
  *
  * ⚠️ IT IS `target_doctype`, NOT `document_type`. The other one is the payment's PARENT
- * ("Service Requests" / "Procurement Orders") and gates TDS -- see `SERVICE_DOCTYPE` below. Two
- * lookalike keys; the wrong one passes silently.
+ * ("Service Requests" / "Procurement Orders"), which used to gate the TDS deduction offer before
+ * slice TD was removed. Two lookalike keys; the wrong one passes silently.
  */
 const PROJECT_PAYMENTS_DOCTYPE = "Project Payments";
 
@@ -2695,9 +2695,18 @@ export const parseRecordKey = (
  */
 export const SETTLE_WINDOW = 5;
 
+/**
+ * What the reviewer declares about a shortfall before the endpoint will act on it.
+ *
+ * ⚠️ ONE MEMBER, AND THAT IS NOT A REASON TO DROP IT. There used to be a second — `"deduction"`,
+ * slice TD — which let a shortfall be recorded as TDS from a statement. SR tax withheld is now
+ * deducted once, at approval, by `services/payment_tds.py` (it writes a `Payment TDS Deduction` row
+ * and nets `Project Payments.amount`), so an approved SR payment matches its transfer outright. The
+ * type mirrors `partial_settle.VALID_INTENTS`, which is the allowlist making a missing or garbage
+ * intent throw on a money-out endpoint — see the note there before removing either.
+ */
 export const INTENT_PART_PAYMENT = "part_payment";
-export const INTENT_DEDUCTION = "deduction";
-export type PartialIntent = typeof INTENT_PART_PAYMENT | typeof INTENT_DEDUCTION;
+export type PartialIntent = typeof INTENT_PART_PAYMENT;
 
 /** Common statutory TDS rates, as percentages. Mirrors `partial_settle.TDS_RATE_HINTS`. */
 const TDS_RATE_HINTS = [1, 2, 5, 10];
@@ -2756,104 +2765,6 @@ export const partialOffer = (
             (hint) => Math.abs(impliedPct - hint) <= TDS_HINT_NEARNESS_PCT
         ),
     };
-};
-
-// --- recording the shortfall as TDS (slice TD) ---------------------------------------------------
-
-/**
- * The ledger a deduction may be recorded on — the payment's PARENT, not the ledger it lives in.
- *
- * ⚠️ `document_type` IS NOT `target_doctype`. The second is always "Project Payments" here; this is
- * "Service Requests" or "Procurement Orders". Gate on the wrong one and every payment passes the
- * service check silently. Mirrors `partial_settle.SERVICE_DOCTYPE`.
- */
-export const SERVICE_DOCTYPE = "Service Requests";
-
-/**
- * The rate band a shortfall must land in to be recordable as TDS. Mirrors `partial_settle`.
- *
- * MEASURED on the live ledger 2026-08-12: of 671 Paid payments carrying a TDS figure, 505 sit at
- * exactly 1.00% and 60 at exactly 2.00%; this band captures 584. The server is the authority — this
- * copy decides only whether to OFFER the choice.
- */
-export const TDS_BAND_MIN_PCT = 0.95;
-export const TDS_BAND_MAX_PCT = 2.05;
-
-/**
- * Slack on the band edges, because THIS SIDE IS FLOAT AND THE SERVER IS NOT.
- *
- * ⚠️ A REAL DIVERGENCE, FOUND BY THE EDGE TEST AND NOT BY READING. The server computes the rate in
- * `Decimal`, so a ₹2,050 shortfall on ₹1,00,000 is exactly `2.05` and sits inside the band. In
- * IEEE-754 the same arithmetic gives `2.0500000000000003`, which is OUTSIDE it — so without this
- * the screen would grey out an option the server would happily accept, on the exact boundary the
- * band is defined by.
- *
- * ⚠️ THE DIRECTION IS THE POINT: the mirror must never be STRICTER than the server. Erring a
- * hair's breadth toward OFFERING is safe — the server re-asserts under a row lock and refuses with
- * a message. Erring the other way hides the choice, and a hidden choice pushes the reviewer to
- * "part payment", which writes a balance nobody owes.
- */
-const BAND_EDGE_EPSILON = 1e-9;
-
-export type DeductionRefusal = "not_service" | "rate_out_of_band" | "shape";
-
-export interface DeductionOffer {
-    /** Whether the option may be taken. When false, `refusal` says which rule stopped it. */
-    eligible: boolean;
-    refusal?: DeductionRefusal;
-    /** The deduction that would be written: the gap, always derived. */
-    tds: number;
-    impliedPct: number;
-}
-
-/**
- * Whether this shortfall may be recorded as TDS — and when not, WHY.
- *
- * ⚠️ IT RETURNS A VERDICT, NEVER `null`, AND THAT IS THE POINT. The option must stay VISIBLE and
- * disabled with its reason, never hidden. A reviewer looking at a genuine 2% TDS on a materials PO,
- * offered only "part payment", will take it — and that creates an approved balance for money nobody
- * owes, which is the exact phantom the partial-settlement slice exists to prevent. Hiding the option
- * is what would cause it; showing it greyed with "TDS is recorded here only on service payments" is
- * what stops it.
- *
- * ⚠️ IT READS NOTHING FROM THE PAYMENT'S OWN `tds`. That field is empty on an approved payment by
- * rule, and the rows carrying one are residue from an un-fulfil that bypassed the document
- * lifecycle. The figure is the gap, derived every time — same rule as the server.
- *
- * Caller passes the `partialOffer` result so the shared SHAPE conditions are computed once. A `null`
- * shape means the row is not in the "record is larger than the transfer" situation at all, and the
- * whole dialog is the pre-TD one.
- */
-export const deductionOffer = (
-    record: { document_type?: string } | null | undefined,
-    shape: PartialOffer | null
-): DeductionOffer => {
-    if (!shape) return { eligible: false, refusal: "shape", tds: 0, impliedPct: 0 };
-
-    const base = { tds: shape.remainder, impliedPct: shape.impliedPct };
-    if ((record?.document_type ?? "").trim() !== SERVICE_DOCTYPE) {
-        return { eligible: false, refusal: "not_service", ...base };
-    }
-    if (
-        shape.impliedPct < TDS_BAND_MIN_PCT - BAND_EDGE_EPSILON ||
-        shape.impliedPct > TDS_BAND_MAX_PCT + BAND_EDGE_EPSILON
-    ) {
-        return { eligible: false, refusal: "rate_out_of_band", ...base };
-    }
-    return { eligible: true, ...base };
-};
-
-/** Why the deduction option is greyed, in the reviewer's words. `""` when it is available. */
-export const deductionRefusalText = (offer: DeductionOffer): string => {
-    if (offer.eligible) return "";
-    switch (offer.refusal) {
-        case "not_service":
-            return "TDS is recorded here only on service payments — use the payments screen.";
-        case "rate_out_of_band":
-            return "Only a shortfall of about 1–2% can be recorded as TDS here — use the payments screen.";
-        default:
-            return "This shortfall cannot be recorded as TDS here.";
-    }
 };
 
 // --- the candidates the match run could not separate (slice N3) ---------------------------------

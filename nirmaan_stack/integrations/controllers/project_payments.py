@@ -6,6 +6,7 @@ from frappe.utils import nowdate
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.api.projects._tendering_guard import validate_won
+from nirmaan_stack.services import payment_tds
 
 # Imports for notification system
 from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_accountants, get_allowed_manager_users, get_allowed_procurement_users
@@ -168,6 +169,11 @@ def after_insert(doc, method):
     if doc.flags.get("split_child"):
         return
 
+    # SR tax withheld — a payment BORN in "Approved" (auto-approve below the threshold) never
+    # undergoes a status transition, so `on_update` can never see it. This is the only hook that
+    # can, and it MUST sit above the branch below, which returns.
+    payment_tds.record_deduction_if_eligible(doc)
+
     # Auto-approved small payment: it was inserted already in "Approved", so the
     # CEO Pending → Approved transition that normally alerts accountants never
     # fires. Emit that note here + an admin record note, and skip the misleading
@@ -244,7 +250,32 @@ def on_update(doc, method):
 
     # Call the search-based helper function to sync the status.
     _find_and_update_po_term(doc, doc.status)
-    
+
+    # SR tax withheld, on the transition INTO "Approved" — from the single CEO approve and from
+    # the approved half of a partial approval. NOT from the bulk endpoint; see below.
+    #
+    # ⚠️ IT SITS ABOVE THE NOTIFICATION BRANCHES BECAUSE SEVERAL OF THEM RETURN. `split_approval`
+    # bails out of the CEO Pending → Approved branch below, so a deduction written after it would
+    # be recorded for a single approval and silently skipped for a split one — the failure would be
+    # invisible until someone reconciled a month of TDS.
+    if old_doc.status != "Approved" and doc.status == "Approved":
+        # ⚠️ THE BULK ENDPOINT DEDUCTS AFTER ITS OWN COMMIT, NOT HERE, AND THAT IS THE WHOLE
+        # POINT OF THE FLAG. Bulk approve saves every payment in ONE transaction and commits once
+        # at the end, so a deduction written from inside this hook shared that transaction with
+        # every other approval in the run. A database-level failure on one of them (a deadlock on
+        # the `PTD-` naming series, a unique violation) aborts the transaction on Postgres, and
+        # `record_deduction_if_eligible` swallows the Python exception without clearing that state
+        # — so the endpoint's final `frappe.db.commit()` ran as a ROLLBACK while still reporting
+        # every payment as succeeded. Measured: forcing one such failure on payment 3 of 8 lost
+        # all 8 approvals and still returned HTTP 200.
+        #
+        # `api/payments/bulk_actions._record_bulk_deductions` runs the same deduction once the
+        # approvals are committed and cannot be undone by it. Every other route — single CEO
+        # approve, auto-approve at insert (`after_insert`), the split's approved half — is one
+        # payment in one request and keeps this hook unchanged.
+        if not doc.flags.get("bulk_approval"):
+            payment_tds.record_deduction_if_eligible(doc)
+
     # --- Notification logic for specific status transitions ---
     if old_doc.status == 'Requested' and doc.status == "CEO Pending":
         # Project Lead has approved → notify the CEO that a payment is awaiting their gate.
@@ -367,6 +398,16 @@ def on_trash(doc, method):
     """
     # Always revert to "Created" - frontend will determine eligibility based on due_date
     _find_and_update_po_term(doc, "Created", clear_link=True)
+
+    # A tax deduction belongs to its payment and does not outlive it — there is no reversal
+    # workflow, so deleting the payment deletes the row (owner ruling 2026-09-10).
+    #
+    # ⚠️ IT MUST HAPPEN IN `on_trash`, AND THE REASON IS FRAPPE'S ORDERING RATHER THAN TIDINESS.
+    # `Payment TDS Deduction.project_payment` is a Link to this doctype, and Frappe runs the
+    # link-existence check AFTER `on_trash`. Left standing, that Link would refuse the delete
+    # outright — the payment would simply become undeletable, with the error naming a doctype
+    # most people have never opened.
+    frappe.db.delete("Payment TDS Deduction", {"project_payment": doc.name})
 
     # Vendor credit recalculation on payment deletion
     if doc.document_type == "Procurement Orders":

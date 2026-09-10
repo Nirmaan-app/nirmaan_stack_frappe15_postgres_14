@@ -266,3 +266,22 @@ export const PROJECT_INVOICES_ACCESS: readonly string[] = [
   SALES_EXECUTIVE_PROFILE,
   SALES_LEAD_PROFILE,
 ];
+
+/**
+ * `/payment-tds-deductions` — the Tax Deducted at Source ledger.
+ *
+ * ⚠️ NARROWER THAN `/project-payments` ON PURPOSE, AND NOT A UX CHOICE. The
+ * `Payment TDS Deduction` doctype grants read to `System Manager`,
+ * `Nirmaan Accountant` and `Nirmaan Accountant Lead` only. PMO, Project Lead and
+ * the procurement profiles can see Project Payments but hold none of those roles,
+ * so a nav item for them would land on a PermissionError. Admin Profile is in
+ * because its role profile carries BOTH `System Manager` and `Nirmaan Accountant`.
+ *
+ * Widening this list without also widening the doctype's permissions produces a
+ * visible link that cannot load.
+ */
+export const PAYMENT_TDS_ACCESS: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];

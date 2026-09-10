@@ -35,7 +35,6 @@ from nirmaan_stack.api.outflow_import.expenses import (
     settle_row_partial,
 )
 from nirmaan_stack.services.outflow_import.partial_settle import (
-    INTENT_DEDUCTION,
     INTENT_PART_PAYMENT,
 )
 from nirmaan_stack.api.outflow_import.review import MATCH_DOCTYPE, match_batch
@@ -814,12 +813,21 @@ class TestPartialSettlementRefusals(PartialSettlementFixture):
                     settle_row_partial(self.partial_row.name, self.big_payment, bad)
         self._assert_nothing_happened()
 
-    def test_a_declared_deduction_is_routed_away_rather_than_split(self):
-        """The record was paid in full and something was withheld. Splitting it would invent a
-        balance that is not owed -- the exact phantom this slice must not create."""
+    def test_a_declared_deduction_is_now_refused_outright(self):
+        """⚠️ THE REGRESSION FENCE FOR SLICE TD'S REMOVAL, AND IT PINS THE WIRE VALUE.
+
+        `"deduction"` was a legal intent: it recorded the shortfall as TDS on the payment and left
+        `amount` gross. SR tax is now withheld ONCE, at approval, by `services/payment_tds.py`,
+        which nets `Project Payments.amount` -- so accepting it here would withhold twice against an
+        `amount_due` that already subtracts the first, with the opposite storage convention.
+
+        The literal string is used deliberately rather than a constant: the constant is gone, and
+        what must stay refused is the value a stale client would actually post.
+        """
         with self.assertRaises(frappe.ValidationError) as caught:
-            settle_row_partial(self.partial_row.name, self.big_payment, INTENT_DEDUCTION)
-        self.assertIn("payments screen", str(caught.exception))
+            settle_row_partial(self.partial_row.name, self.big_payment, "deduction")
+        # The message must tell a stale caller the answer MOVED, not that it typed nonsense.
+        self.assertIn("approved", str(caught.exception).lower())
         self._assert_nothing_happened()
 
     def test_a_gap_inside_the_settle_window_is_refused_as_an_ordinary_settle(self):
@@ -901,193 +909,15 @@ class TestPartialSettlementIsAllOrNothing(PartialSettlementFixture):
         self.assertEqual(len(self._terms()), 1)
 
 
-class DeductionFixture(PartialSettlementFixture):
-    """A SERVICE payment whose transfer is exactly 1% short — the shape the live ledger shows.
+class TestTheImportWritesNoTaxAtAll(PaymentSettlementFixture):
+    """⚠️ INVERTED FROM `TestTheOrdinarySettleIsUntouchedByTheTdsParameter`, NOT DELETED.
 
-    Measured 2026-08-12 over 671 Paid payments carrying a TDS figure: 505 sit at exactly 1.00% and
-    60 at exactly 2.00%. The fixture is those numbers, not invented ones.
-    """
+    That class asserted an optional `tds` parameter had not changed the DEFAULT behaviour. There is
+    no parameter now and no branch behind it, so the same two assertions became the stronger claim:
+    this import never writes `Project Payments.tds`, and `rewrite_amount` always runs.
 
-    RECORD = 100000.0
-    BANK = 99000.0     # 1% short
-    TDS = 1000.0
-
-    def setUp(self):
-        super().setUp()
-        # The base fixture links the big payment to a PO. A deduction is service-only, so point it
-        # at a Service Request instead -- and SRs carry no payment terms, which is why nothing here
-        # touches the term machinery.
-        self.sr = self._insert_service_request(self.RECORD)
-        frappe.db.set_value(
-            PAYMENT, self.big_payment,
-            {"document_type": "Service Requests", "document_name": self.sr,
-             "amount": self.RECORD},
-            update_modified=False,
-        )
-        frappe.db.set_value(
-            ROW_DOCTYPE, self.partial_row.name, "amount", self.BANK, update_modified=False
-        )
-        frappe.db.commit()
-
-    def tearDown(self):
-        frappe.db.delete("Service Requests", {"name": self.sr})
-        super().tearDown()
-
-    def _insert_service_request(self, total):
-        name = f"TEST-OFI-SR-{frappe.generate_hash(length=10)}"
-        frappe.db.sql(
-            """INSERT INTO "tabService Requests"
-                   (name, creation, modified, modified_by, owner, docstatus, idx,
-                    project, total_amount, amount_paid, status, gst)
-               VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 0, 'Approved', 'false')""",
-            (name, "Administrator", "Administrator", self.project, float(total)),
-        )
-        return name
-
-    def _pay(self):
-        return frappe.db.get_value(
-            PAYMENT, self.big_payment, ["amount", "status", "tds", "utr"], as_dict=True
-        )
-
-
-class TestTheDeductionSettles(DeductionFixture):
-    def test_the_tds_is_written_and_the_payment_goes_paid(self):
-        settle_row_partial(self.partial_row.name, self.big_payment, INTENT_DEDUCTION)
-        after = self._pay()
-        self.assertEqual(after.status, "Paid")
-        self.assertEqual(float(after.tds), self.TDS)
-
-    def test_the_amount_is_NOT_rewritten_to_the_bank_figure(self):
-        """⚠️ THE LOAD-BEARING ASSERTION OF THIS SLICE. X1 makes an ordinary settle take the bank's
-        number; a deduction settle must not, or the invoiced figure the tax was computed from is
-        destroyed and `tds` ends up describing a gap that no longer exists."""
-        settle_row_partial(self.partial_row.name, self.big_payment, INTENT_DEDUCTION)
-        self.assertEqual(float(self._pay().amount), self.RECORD)
-
-    def test_amount_minus_tds_reconciles_the_transfer_exactly(self):
-        settle_row_partial(self.partial_row.name, self.big_payment, INTENT_DEDUCTION)
-        after = self._pay()
-        self.assertAlmostEqual(float(after.amount) - float(after.tds), self.BANK, places=2)
-
-    def test_no_balance_payment_is_created(self):
-        """A deduction means the payment was settled IN FULL and something was withheld. Creating a
-        balance would be the phantom the partial-settlement slice exists to avoid, pointed the
-        other way."""
-        settle_row_partial(self.partial_row.name, self.big_payment, INTENT_DEDUCTION)
-        self.assertEqual(self._balance_of(self.big_payment), [])
-
-    def test_the_stored_tds_matches_the_manual_fulfil_path_shape(self):
-        """⚠️ THE COLUMN IS `Data`, SO NOTHING DEFENDS ITS FORMAT. `_fulfil_payment` writes
-        `flt(...)`, which Frappe stores as '1000.0'. A third shape ('1,000', '1000.00') would make
-        the column unreadable by the numeric CAST the reports rely on."""
-        settle_row_partial(self.partial_row.name, self.big_payment, INTENT_DEDUCTION)
-        self.assertEqual(frappe.db.get_value(PAYMENT, self.big_payment, "tds"), "1000.0")
-
-    def test_the_row_settles_and_the_response_reports_the_deduction(self):
-        summary = settle_row_partial(self.partial_row.name, self.big_payment, INTENT_DEDUCTION)
-        self.assertEqual(
-            frappe.db.get_value(ROW_DOCTYPE, self.partial_row.name, "row_status"), "Settled"
-        )
-        self.assertAlmostEqual(summary["deduction"]["tds"], self.TDS, places=2)
-        self.assertAlmostEqual(summary["deduction"]["implied_pct"], 1.0, places=4)
-
-    def test_a_two_percent_deduction_also_settles(self):
-        frappe.db.set_value(
-            ROW_DOCTYPE, self.partial_row.name, "amount", 98000.0, update_modified=False
-        )
-        frappe.db.commit()
-        settle_row_partial(self.partial_row.name, self.big_payment, INTENT_DEDUCTION)
-        self.assertEqual(float(self._pay().tds), 2000.0)
-
-    def test_the_payment_says_what_the_reviewer_declared_and_at_what_rate(self):
-        settle_row_partial(self.partial_row.name, self.big_payment, INTENT_DEDUCTION)
-        comments = " ".join(frappe.get_all(
-            "Comment",
-            filters={"reference_doctype": PAYMENT, "reference_name": self.big_payment,
-                     "comment_type": "Comment"},
-            pluck="content",
-        )).lower()
-        self.assertIn("deduction", comments)
-        self.assertIn("1.00%", comments)
-
-    def test_residue_on_an_approved_payment_is_replaced_not_reconciled(self):
-        """⚠️ THE OWNER'S INVARIANT, EXERCISED. `tds` is empty on an approved payment by rule; the 39
-        live rows that carry one are residue from an un-fulfil that bypassed the document lifecycle.
-        The gate never reads the field, so a stale figure is simply overwritten by the one this
-        transfer implies -- and `track_changes` records the replacement."""
-        frappe.db.set_value(PAYMENT, self.big_payment, "tds", "77777.0", update_modified=False)
-        frappe.db.commit()
-        settle_row_partial(self.partial_row.name, self.big_payment, INTENT_DEDUCTION)
-        self.assertEqual(float(self._pay().tds), self.TDS)
-
-
-class TestTheDeductionRefusals(DeductionFixture):
-    def _assert_nothing_happened(self):
-        frappe.db.commit()
-        after = self._pay()
-        self.assertEqual(after.status, "Approved")
-        self.assertEqual(float(after.amount), self.RECORD)
-        self.assertFalse((after.tds or "").strip() not in ("", "0", "0.0"),
-                         "a refusal must write no TDS")
-
-    def test_a_procurement_order_payment_is_refused_and_says_where_to_go(self):
-        """⚠️ THE SERVER READS THE PARENT DOCTYPE ITSELF. The screen mirrors this rule for UX, but a
-        payload field is not evidence -- this is the only thing standing between the path and a
-        materials PO."""
-        frappe.db.set_value(
-            PAYMENT, self.big_payment,
-            {"document_type": "Procurement Orders", "document_name": self.split_po},
-            update_modified=False,
-        )
-        frappe.db.commit()
-        with self.assertRaises(frappe.ValidationError) as caught:
-            settle_row_partial(self.partial_row.name, self.big_payment, INTENT_DEDUCTION)
-        self.assertIn("service payments", str(caught.exception))
-        self._assert_nothing_happened()
-
-    def test_a_rate_outside_the_band_is_refused(self):
-        for bank, label in ((60000.0, "40%"), (95000.0, "5%"), (99900.0, "0.1%")):
-            with self.subTest(rate=label):
-                frappe.db.set_value(
-                    ROW_DOCTYPE, self.partial_row.name, "amount", bank, update_modified=False
-                )
-                frappe.db.commit()
-                with self.assertRaises(frappe.ValidationError) as caught:
-                    settle_row_partial(
-                        self.partial_row.name, self.big_payment, INTENT_DEDUCTION
-                    )
-                self.assertIn("1-2%", str(caught.exception))
-        self._assert_nothing_happened()
-
-    def test_an_expense_cannot_carry_a_deduction(self):
-        expense = self._insert_project_expense_row(self.RECORD)
-        with self.assertRaises(frappe.ValidationError):
-            settle_row_partial(self.partial_row.name, expense, INTENT_DEDUCTION)
-
-    def _insert_project_expense_row(self, amount):
-        name = f"TEST-OFI-EXP-{frappe.generate_hash(length=10)}"
-        frappe.db.sql(
-            """INSERT INTO "tabProject Expenses"
-                   (name, creation, modified, modified_by, owner, docstatus, idx,
-                    projects, status, amount, description)
-               VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, 'Approved', %s, 'test')""",
-            (name, "Administrator", "Administrator", self.project, str(amount)),
-        )
-        self.addCleanup(lambda: frappe.db.delete("Project Expenses", {"name": name}))
-        return name
-
-    def test_the_ordinary_settle_still_refuses_this_payment(self):
-        """Proof the settle window was pointed at a different number, not widened."""
-        with self.assertRaises(AmountMismatchError):
-            settle_row(self.partial_row.name, PAYMENT, self.big_payment)
-        self._assert_nothing_happened()
-
-
-class TestTheOrdinarySettleIsUntouchedByTheTdsParameter(PaymentSettlementFixture):
-    """`settle_payment(tds=None)` must be BYTE-IDENTICAL to before slice TD.
-
-    The 39 tests around this one already cover the ordinary path; these two assert the thing those
-    cannot see — that adding an optional parameter did not quietly change the default behaviour.
+    Both are worth keeping precisely because the surrounding tests cannot see them -- they assert an
+    ABSENCE, which is what a re-added deduction path would quietly break.
     """
 
     def test_an_ordinary_settle_writes_no_tds(self):
@@ -1097,9 +927,9 @@ class TestTheOrdinarySettleIsUntouchedByTheTdsParameter(PaymentSettlementFixture
             (frappe.db.get_value(PAYMENT, self.planted["0001"], "tds") or "").strip()
         )
 
-    def test_an_ordinary_settle_still_rewrites_the_amount_to_the_bank_figure(self):
-        """X1's rule, which the deduction path deliberately skips. If this ever stops firing, the
-        `tds is None` branch has been mis-wired."""
+    def test_a_settle_always_rewrites_the_amount_to_the_bank_figure(self):
+        """X1's rule, which the removed deduction path deliberately skipped. It now runs
+        unconditionally; if this ever stops firing, a second branch has been reintroduced here."""
         # ⚠️ NUDGE THE FIXTURE'S OWN PAYMENT RATHER THAN PLANTING A SECOND ONE. The fixture plants
         # each row's payment carrying that row's bank reference, so a rival payment trips the
         # fan-out UTR guard before the amount rule is ever reached -- and the failure reads as a

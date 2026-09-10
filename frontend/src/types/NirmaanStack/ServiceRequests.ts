@@ -61,8 +61,13 @@ export interface ServiceRequests {
 	total_amount?: string
 	/** Amount Invoiced (Approved) : Currency — derived, sum of this SR's Approved Vendor Invoices */
 	amount_invoiced?: number
+	/** Amount Paid : Currency — derived, sum of this SR's Paid payments. NET of tax withheld,
+	 * because Project Payments.amount on an SR is stored net (services/payment_tds.py). */
 	amount_paid?: string
-	/** Amount Due : Currency — derived, total_amount - amount_paid (NOT amount_invoiced) */
+	/** Total TDS : Currency — derived, tax withheld from this SR's PAID payments. Same population
+	 * as amount_paid, recomputed in the same pass. Gross paid = amount_paid + total_tds. */
+	total_tds?: number
+	/** Amount Due : Currency — derived, total_amount - amount_paid - total_tds (NOT amount_invoiced) */
 	amount_due?: number
 	/** Is Finalized : Check */
 	is_finalized?: 0 | 1

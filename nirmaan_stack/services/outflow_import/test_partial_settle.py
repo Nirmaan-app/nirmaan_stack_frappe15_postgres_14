@@ -18,18 +18,15 @@ import unittest
 from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.amounts import AMOUNT_TOLERANCE
+from nirmaan_stack.services.outflow_import import partial_settle
 from nirmaan_stack.services.outflow_import.partial_settle import (
-    INTENT_DEDUCTION,
     INTENT_PART_PAYMENT,
     REFUSAL_NOT_APPROVED,
     REFUSAL_NOT_A_PAYMENT,
     REFUSAL_NOT_POSITIVE,
-    REFUSAL_NOT_SERVICE,
     REFUSAL_NOT_SHORT,
-    REFUSAL_RATE_OUT_OF_BAND,
     REFUSAL_WITHIN_WINDOW,
     VALID_INTENTS,
-    deduction_eligibility,
     looks_like_tds,
     partial_eligibility,
 )
@@ -187,141 +184,38 @@ class TestTheTdsHint(unittest.TestCase):
 
 
 class TestTheIntentVocabulary(unittest.TestCase):
-    def test_there_are_exactly_two_intents_and_neither_is_a_default(self):
-        """⚠️ THE ABSENCE OF A DEFAULT IS THE PRODUCT. The two cases are indistinguishable in the
-        data, so a default is the system guessing -- and the wrong guess creates an approved
-        payment that will never be paid, inflating the PO's pending allocation forever."""
-        self.assertEqual(VALID_INTENTS, {INTENT_PART_PAYMENT, INTENT_DEDUCTION})
+    def test_there_is_exactly_one_intent_and_it_is_not_a_default(self):
+        """⚠️ THE ABSENCE OF A DEFAULT IS STILL THE PRODUCT. There is one legal value now, and the
+        allowlist survives because it is what makes a missing or garbage intent THROW on a
+        money-out endpoint -- not because there is a choice left to police."""
+        self.assertEqual(VALID_INTENTS, {INTENT_PART_PAYMENT})
         self.assertNotIn("", VALID_INTENTS)
         self.assertNotIn(None, VALID_INTENTS)
 
+    def test_the_deduction_answer_is_gone_and_this_pin_keeps_it_gone(self):
+        """⚠️ INVERTED FROM THE OLD TWO-INTENT ASSERTION, NOT DELETED -- a deleted pin checks
+        nothing. Slice TD let a reviewer record a shortfall as TDS from a statement; SR tax is now
+        withheld ONCE, at approval, by `services/payment_tds.py`, which nets
+        `Project Payments.amount`. A second mechanism here would withhold twice against an
+        `amount_due` that already subtracts the first, with the OPPOSITE storage convention.
 
-class TestTheDeductionGate(unittest.TestCase):
-    """`deduction_eligibility` -- may this shortfall be recorded as TDS instead of split?
-
-    The amounts are the shape the live ledger actually shows: a Service Request payment with a
-    shortfall of exactly 1% or 2% of the record. Measured 2026-08-12 over 671 Paid payments carrying
-    a TDS figure: 505 at exactly 1.00%, 60 at exactly 2.00%.
-    """
-
-    def _d(self, record="100000", bank="99000", doctype=PAYMENT, status="Approved",
-           parent="Service Requests"):
-        return deduction_eligibility(record, bank, doctype, status, parent)
-
-    def test_a_one_percent_shortfall_on_a_service_payment_is_recordable(self):
-        verdict = self._d()
-        self.assertTrue(verdict.eligible)
-        self.assertEqual(verdict.tds, Decimal("1000"))
-        self.assertEqual(verdict.implied_pct, Decimal("1"))
-
-    def test_a_two_percent_shortfall_is_recordable(self):
-        verdict = self._d(record="200000", bank="196000")
-        self.assertTrue(verdict.eligible)
-        self.assertEqual(verdict.tds, Decimal("4000"))
-
-    def test_the_tds_is_the_gap_and_the_two_reconcile_exactly(self):
-        """⚠️ THE ARITHMETIC IS FORCED, WHICH IS WHY NO AMOUNT IS EVER TYPED. `bank = amount - tds`
-        is the relation the whole ledger reads; deriving the figure is what keeps it true."""
-        for record, bank in (("100000", "99000"), ("715757", "701441.86"), ("41050", "40639.5")):
-            with self.subTest(record=record):
-                verdict = self._d(record=record, bank=bank)
-                self.assertTrue(verdict.eligible, f"{record}/{bank} should be in band")
-                self.assertEqual(Decimal(record) - verdict.tds, Decimal(bank))
-
-    def test_a_procurement_order_payment_is_refused(self):
-        """Owner ruling T-R2. Measured cost: 5 of 584 in-band historical rows."""
-        verdict = self._d(parent="Procurement Orders")
-        self.assertFalse(verdict.eligible)
-        self.assertEqual(verdict.refusal, REFUSAL_NOT_SERVICE)
-
-    def test_a_missing_parent_doctype_is_refused_rather_than_assumed(self):
-        for parent in ("", "   ", None):
-            with self.subTest(parent=parent):
-                verdict = self._d(parent=parent)
-                self.assertFalse(verdict.eligible)
-                self.assertEqual(verdict.refusal, REFUSAL_NOT_SERVICE)
-
-    def test_a_rate_outside_the_band_is_refused(self):
-        # 40% -- an ordinary part payment.
-        self.assertEqual(self._d(record="100000", bank="60000").refusal, REFUSAL_RATE_OUT_OF_BAND)
-        # 5% and 10% -- real TDS rates, but not recordable HERE (they go to the payments screen).
-        self.assertEqual(self._d(record="100000", bank="95000").refusal, REFUSAL_RATE_OUT_OF_BAND)
-        self.assertEqual(self._d(record="100000", bank="90000").refusal, REFUSAL_RATE_OUT_OF_BAND)
-        # 0.1% -- the unexplained cluster of ~81 rows. It must never be auto-written as tax.
-        self.assertEqual(self._d(record="100000", bank="99900").refusal, REFUSAL_RATE_OUT_OF_BAND)
-
-    def test_the_band_edges_are_inclusive(self):
-        self.assertTrue(self._d(record="100000", bank="99050").eligible)   # 0.95%
-        self.assertTrue(self._d(record="100000", bank="97950").eligible)   # 2.05%
-        self.assertFalse(self._d(record="100000", bank="99060").eligible)  # 0.94%
-        self.assertFalse(self._d(record="100000", bank="97940").eligible)  # 2.06%
-
-    def test_it_inherits_every_shape_refusal_rather_than_restating_them(self):
-        """⚠️ ONE COPY OF THE SHARED HALF. If these ever start disagreeing with
-        `partial_eligibility`, the dialog can offer one answer on a row the other refuses."""
-        cases = (
-            (dict(doctype="Project Expenses"), REFUSAL_NOT_A_PAYMENT),
-            (dict(status="Paid"), REFUSAL_NOT_APPROVED),
-            (dict(record="99000", bank="100000"), REFUSAL_NOT_SHORT),
-            (dict(record="100002", bank="100000"), REFUSAL_WITHIN_WINDOW),
-            (dict(record="-100000", bank="99000"), REFUSAL_NOT_POSITIVE),
-        )
-        for kwargs, expected in cases:
-            with self.subTest(**kwargs):
-                self.assertEqual(self._d(**kwargs).refusal, expected)
-
-    def test_the_shape_is_checked_before_the_service_rule(self):
-        """A Paid PO payment must report that it is Paid, not that it is a PO -- the reviewer can
-        act on one of those and not the other."""
-        verdict = self._d(status="Paid", parent="Procurement Orders")
-        self.assertEqual(verdict.refusal, REFUSAL_NOT_APPROVED)
-
-    def test_a_refusal_carries_no_figure(self):
-        """So a caller that ignores `eligible` cannot write a zero TDS."""
-        verdict = self._d(parent="Procurement Orders")
-        self.assertEqual(verdict.tds, Decimal("0"))
-
-    def test_it_reads_nothing_from_the_payment_itself(self):
-        """⚠️ THE INVARIANT, ENFORCED AT THE SIGNATURE. `Project Payments.tds` is empty on an
-        approved payment by rule, and the 39 rows that carry one are residue from an un-fulfil that
-        bypassed the document lifecycle. A `stored_tds` parameter would design for a state the
-        business says cannot exist -- so the function must not have one to accept.
+        This fails the moment any of that surface comes back.
         """
-        import inspect
-
-        params = set(inspect.signature(deduction_eligibility).parameters)
-        self.assertEqual(
-            params,
-            {"record_amount", "bank_amount", "target_doctype", "record_status", "document_type"},
-        )
-
-
-class TestTheTwoTdsPredicatesAreDifferentQuestions(unittest.TestCase):
-    """⚠️ `looks_like_tds` AND THE BAND MUST NOT BE MERGED.
-
-    One asks "does this LOOK like a deduction?" and warns before a part payment is chosen. The other
-    asks "may we RECORD it here?" and gates a button. They deliberately disagree at 5% and 10%,
-    which are real TDS rates that this path does not write.
-    """
-
-    def test_five_and_ten_percent_warn_but_are_not_recordable(self):
-        for bank, pct in (("95000", "5"), ("90000", "10")):
-            with self.subTest(pct=pct):
-                verdict = deduction_eligibility(
-                    "100000", bank, PAYMENT, "Approved", "Service Requests"
-                )
-                self.assertTrue(looks_like_tds(pct), "it still LOOKS like a deduction")
-                self.assertFalse(verdict.eligible, "but it is not written here")
-                self.assertEqual(verdict.refusal, REFUSAL_RATE_OUT_OF_BAND)
-
-    def test_one_and_two_percent_both_warn_and_are_recordable(self):
-        for bank, pct in (("99000", "1"), ("98000", "2")):
-            with self.subTest(pct=pct):
-                self.assertTrue(looks_like_tds(pct))
-                self.assertTrue(
-                    deduction_eligibility(
-                        "100000", bank, PAYMENT, "Approved", "Service Requests"
-                    ).eligible
+        self.assertNotIn("deduction", VALID_INTENTS)
+        for name in (
+            "INTENT_DEDUCTION",
+            "deduction_eligibility",
+            "DeductionEligibility",
+            "SERVICE_DOCTYPE",
+            "TDS_BAND_MIN_PCT",
+            "TDS_BAND_MAX_PCT",
+            "REFUSAL_NOT_SERVICE",
+            "REFUSAL_RATE_OUT_OF_BAND",
+        ):
+            with self.subTest(name=name):
+                self.assertFalse(
+                    hasattr(partial_settle, name),
+                    f"{name} is back; the import must not record tax",
                 )
 
 
