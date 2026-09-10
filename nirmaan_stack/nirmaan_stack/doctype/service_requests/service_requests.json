@@ -24,6 +24,7 @@
   "total_amount",
   "amount_invoiced",
   "amount_paid",
+  "total_tds",
   "amount_due",
   "finalization_section",
   "is_finalized",
@@ -124,6 +125,15 @@
    "fieldname": "amount_paid",
    "fieldtype": "Currency",
    "label": "Amount Paid"
+  },
+  {
+   "default": "0",
+   "description": "Tax Deducted at Source withheld from this order's PAID payments. Summed from `Payment TDS Deduction` rows in the SAME recompute pass as Amount Paid, so the two always describe the same population - do not edit. NOTE: \"TDS\" here is Tax Deducted at Source, NOT the Technical Data Sheet doctypes (`TDS Items`, `TDS Repository`). Payment amounts stay GROSS, so this figure is already included in Amount Paid rather than being outstanding.",
+   "fieldname": "total_tds",
+   "fieldtype": "Currency",
+   "label": "Total TDS",
+   "no_copy": 1,
+   "read_only": 1
   },
   {
    "fieldname": "finalization_section",
