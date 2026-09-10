@@ -27,6 +27,7 @@
   "derived_section",
   "normalized_account",
   "normalized_reference",
+  "settlement_reference",
   "resolved_vendor",
   "resolved_project",
   "suggested_doctype",
@@ -171,6 +172,13 @@
    "label": "Normalized Reference"
   },
   {
+   "description": "WRITE-ONLY. The reference a SETTLEMENT writes onto the record it settles -- resolved ONCE here at ingest by services/outflow_import/settlement_reference.resolve_settlement_reference, so that all five write sites in settle.py read one field and no path can diverge from another (ADR-0020 B9). The ladder: bank_reference_no if present, else reference_id (the gateway's own reference, extracted since the first slice and until now unused), else -- for a source whose transfer id is its only reference, today Cashbook alone -- transfer_id. Blank only when the row genuinely has nothing to offer. THE THIRD RUNG IS PER-SOURCE AND LIVES IN THE RESOLUTION, NOT AT A WRITE SITE; that is the whole point of resolving once. NOT A BANK REFERENCE, AND THE NAME SAYS SO ON PURPOSE: it may hold a gateway id or a wallet txn id, so MATCHING MUST NEVER READ IT. Five surfaces stay pointed at bank_reference_no / utr and must stay that way -- normalize_reference, candidates._payments_by_reference, matcher.match_by_reference, the normalized_reference column above, and reference_guard.assert_reference_is_free. The guard is where a mis-wire would bite first: reference_id is NOT unique (2,237 Cashfree rows carry 523 distinct values), so guarding on a resolved value would refuse an unrelated second transfer outright. settle_payment therefore GUARDS on bank_reference_no and WRITES this. Accepted cost (owner): a gateway id in Project Payments.utr is invisible to reference matching and to the duplicate guard -- invisible-but-present loses nothing against the blank it replaces and gives an accountant something to reconcile with. Rows staged before this field existed were backfilled by patches/v3_0/backfill_outflow_settlement_reference.py.",
+   "fieldname": "settlement_reference",
+   "fieldtype": "Data",
+   "label": "Settlement Reference",
+   "read_only": 1
+  },
+  {
    "description": "The vendor this row resolved to, once a human confirmed it. A bank account is NOT a unique vendor key -- one account maps to three legally distinct D.S. Ductofab companies with different GSTs -- so resolution always proposes and a person always picks.",
    "fieldname": "resolved_vendor",
    "fieldtype": "Link",
@@ -298,7 +306,7 @@
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-08-06 00:00:00.000000",
+ "modified": "2026-09-11 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Import Row",

@@ -46,6 +46,9 @@ from nirmaan_stack.services.outflow_import.parser import (
     is_terminal_status,
     parse_statement,
 )
+from nirmaan_stack.services.outflow_import.settlement_reference import (
+    resolve_settlement_reference,
+)
 from nirmaan_stack.services.outflow_import.sources import (
     BANK_STATEMENT_SOURCES,
     source_has_settlement_path,
@@ -542,6 +545,21 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str):
                 "added_by_raw": row.added_by_raw,
                 "normalized_account": row.normalized_account,
                 "normalized_reference": row.normalized_reference,
+                # ⚠️ THE ONE RESOLUTION (ADR-0020 B9). Every settlement write site reads THIS field
+                # and nothing else, so no path can diverge from another -- including the per-source
+                # rung, which lives inside `resolve_settlement_reference` rather than at a write
+                # site. It sits BESIDE `normalized_reference`, never instead of it: that one is the
+                # matcher's identity form of the BANK's reference and this one may hold a gateway
+                # id, so pointing matching here would compare a non-bank string against a column
+                # that already holds hundreds of them. `or None` so a row with nothing to offer
+                # stores NULL rather than '', matching how the other derived columns land.
+                "settlement_reference": resolve_settlement_reference(
+                    bank_reference_no=row.bank_reference_no,
+                    reference_id=row.reference_id,
+                    transfer_id=row.transfer_id,
+                    source=parsed.source,
+                )
+                or None,
                 "row_status": outcome.status,
                 # ONE note on the outcome, TWO fields to land it in, and the split is the doctype's:
                 # `skip_reason` says why nothing will be done, `outcome_note` says what was found.

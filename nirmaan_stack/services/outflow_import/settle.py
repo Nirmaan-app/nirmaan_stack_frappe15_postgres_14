@@ -294,6 +294,25 @@ class SettleResult:
         return self.original_amount is not None and self.original_amount != self.amount
 
 
+def _settlement_reference_of(row) -> str:
+    """The reference THIS settlement writes -- resolved once at ingest (ADR-0020 B9).
+
+    ⚠️ THE ONE READ, SO THAT "ALL FIVE WRITE SITES READ ONE FIELD" IS TRUE IN CODE AND NOT ONLY IN A
+    COMMENT. Five separate `getattr(row, "settlement_reference", ...)` expressions would be five
+    places for the next reader to change one of, which is the shape B9 exists to remove -- the wallet
+    source's old per-site remedy was exactly that, and it is why the payment path stayed broken for
+    that source.
+
+    ⚠️ IT IS NOT THE BANK'S REFERENCE AND MUST NEVER BE HANDED TO A GUARD OR A MATCHER. The value may
+    be a payment gateway's own `reference_id`, which is not unique (2,237 rows, 523 distinct values),
+    or a wallet transaction id. `settle_payment` GUARDS on `bank_reference_no` and WRITES this.
+
+    Returns `""` when the row has nothing to offer; every call site turns that into an explicit
+    `None`, which is what the four non-payment sites have always written.
+    """
+    return (getattr(row, "settlement_reference", "") or "").strip()
+
+
 @contextmanager
 def _outflow_import_write():
     """Mark the request as an outflow-import settlement for the duration of one `doc.save()`.
@@ -522,10 +541,14 @@ def settle_existing_expense(
        both `_outflow_import_write` and the guard at the hook site.
 
     ⚠️ `payment_date` AND `payment_ref` ARE STILL ASSIGNED UNCONDITIONALLY, INCLUDING AS `None`,
-    which is exactly what the `set_value` dict did. It looks careless beside `settle_payment`'s
-    guarded writes and is kept deliberately: changing it here would be an unrelated behaviour change
-    riding a slice about amounts. In practice the field is always blank -- the record is `Approved`,
-    and both are written at settlement.
+    which is exactly what the `set_value` dict did. In practice the field is always blank -- the
+    record is `Approved`, and both are written at settlement.
+
+    This used to read as careless beside `settle_payment`'s guarded write, and was kept anyway. At
+    ADR-0020 B9 it turned out to be the RIGHT shape and `settle_payment` was brought into line with
+    it: that guard was the silent skip -- a row with no reference settled with a blank and said
+    nothing. All five write sites now assign the one resolved `settlement_reference`, explicitly
+    `None` when there is none.
     """
     if not is_expense_doctype(target_doctype):
         frappe.throw(
@@ -540,7 +563,7 @@ def settle_existing_expense(
     doc = frappe.get_doc(target_doctype, target_name)
     doc.status = _PAID
     doc.payment_date = getattr(row, "added_on_date", None)
-    doc.payment_ref = (getattr(row, "bank_reference_no", "") or "") or None
+    doc.payment_ref = _settlement_reference_of(row) or None
     # payment_by exists ONLY on Project Expenses, and it is the finalising user -- deliberately NOT
     # the statement's "Added by", which the gateway truncates to 15 characters (owner ruling).
     if target_doctype == PROJECT_EXPENSE:
@@ -651,7 +674,15 @@ def settle_payment(
     in this function commits.
     """
     bank_amount = normalize_amount(getattr(row, "amount", 0))
-    reference = (getattr(row, "bank_reference_no", "") or "").strip()
+    # ⚠️ TWO REFERENCES, TWO JOBS, AND COLLAPSING THEM BACK INTO ONE VARIABLE IS THE MISTAKE THIS
+    # COMMENT EXISTS TO STOP (ADR-0020 B9). The GUARD compares the BANK's real reference against
+    # `Project Payments.utr`; the WRITE lands the resolved settlement reference, which may be a
+    # gateway id or a wallet txn id. Guarding on the resolved value would refuse an unrelated
+    # second transfer outright -- `reference_id` is NOT unique, 2,237 Cashfree rows carry 523
+    # distinct values -- so the collision guard is where a mis-wire bites first, and it is the one
+    # the earlier record of this defect missed.
+    bank_reference = (getattr(row, "bank_reference_no", "") or "").strip()
+    settlement_reference = _settlement_reference_of(row)
     # ⚠️ `expected_amount` REPLACES THE BANK'S FIGURE IN THE WINDOW CHECK, FOR AN ALLOCATION LEG
     # ONLY. `settle_row` passes nothing and the assertion is byte-identical to before: the record
     # must equal the whole transfer. An allocation leg passes the payment's own amount, because a
@@ -660,16 +691,23 @@ def settle_payment(
     current = _lock_and_assert_payment_settleable(
         target_name, expected_amount if expected_amount is not None else bank_amount, tds=tds
     )
-    if reference:
-        _assert_reference_is_free(reference, target_name, transfer_id=transfer_id)
+    if bank_reference:
+        _assert_reference_is_free(bank_reference, target_name, transfer_id=transfer_id)
 
     doc = frappe.get_doc(PAYMENT_DOCTYPE, target_name)
     doc.status = _PAID
     # Q5b: the reference is only ever WRITTEN INTO A BLANK, never compared. Every non-Paid payment
     # in the database has an empty `utr` -- it is written at fulfilment -- so this always lands in
     # an empty field. Guarded anyway rather than trusting that to stay true.
-    if reference and not (doc.utr or "").strip():
-        doc.utr = reference
+    #
+    # ⚠️ THE SILENT SKIP IS GONE (ADR-0020 B9). This used to read `if reference and not ...`, so a
+    # row with no bank reference settled its payment with a blank `utr` and said nothing -- and
+    # with no group id by deliberate design, that shared reference is the ONLY thing linking the
+    # several payments of one transfer on the Payments screen. The resolution at ingest is what
+    # makes a blank rare; writing an EXPLICIT `None` when it is still blank is what makes this site
+    # behave like the other four, which have always written one.
+    if not (doc.utr or "").strip():
+        doc.utr = settlement_reference or None
     payment_date = getattr(row, "added_on_date", None)
     if payment_date:
         doc.payment_date = payment_date
@@ -864,13 +902,20 @@ def create_expense_from_row(
     comment: str | None = None,
     statement_file_url: str | None = None,
     payment_by: str | None = None,
-    payment_ref: str | None = None,
 ) -> SettleResult:
     """Create a new expense, already `Paid`, from a bank row that matched nothing.
 
     This is the productive path for the ~13 of 43 rows in a real statement that are site rent,
     accommodation, utilities and sundries -- spend that never had a PO and so has no payment to
     reconcile against.
+
+    ⚠️ THE `payment_ref` OVERRIDE IS GONE, AND ITS REMOVAL IS THE POINT (ADR-0020 B9). It existed so
+    the wallet path could pass its own transaction id, because the wallet issues no UTR -- a remedy
+    applied at ONE write site, which is why the payment write site stayed broken for that source
+    for as long as it did. The per-source rung now lives in
+    `settlement_reference.resolve_settlement_reference`, at ingest, so `row.settlement_reference`
+    already IS the wallet transaction id by the time it reaches here. Re-adding a per-caller
+    override would put a second answer back in the codebase, free to drift from the first.
     """
     # "Create a new entry" can only ever be an expense. A `Project Payment` is born from a PO or SR
     # request and the import must NEVER mint one -- that is half the v3 spine.
@@ -898,11 +943,13 @@ def create_expense_from_row(
             "amount": format_amount_for(doctype, amount),
             "payment_date": getattr(row, "added_on_date", None),
             # ⚠️ WHAT IDENTIFIES THIS PAYMENT AT THE OTHER END, WHICH IS NOT THE SAME FIELD ON
-            # EVERY SOURCE. A bank transfer is identified by its UTR and that stays the default. A
-            # petty-cash wallet issues no UTR at all -- its own transaction id is the only thing
-            # that will find the spend in the wallet's records -- so the caller names it. Leaving
-            # this blank on 115 rows would make every one of them unverifiable against the wallet.
-            "payment_ref": payment_ref or getattr(row, "bank_reference_no", "") or None,
+            # EVERY SOURCE -- WHICH IS EXACTLY WHY THE CHOICE IS NO LONGER MADE HERE. A bank
+            # transfer is identified by its UTR; a petty-cash wallet issues none at all and its own
+            # transaction id is the only thing that will find the spend in the wallet's records.
+            # Both are already settled by `resolve_settlement_reference` at ingest, so this site
+            # reads the one field, like the other four. Leaving this blank on 115 wallet rows would
+            # make every one of them unverifiable against the wallet.
+            "payment_ref": _settlement_reference_of(row) or None,
             "description": description or _default_description(doctype, beneficiary, remarks),
             "comment": comment or None,
         }
@@ -953,7 +1000,6 @@ def create_inflow_from_row(
     project: str,
     customer: str | None = None,
     invoice: str | None = None,
-    utr: str | None = None,
     payment_date=None,
     statement_file_url: str | None = None,
     direction: str | None = None,
@@ -1068,10 +1114,16 @@ def create_inflow_from_row(
             "project": project,
             "customer": on_record,
             "invoice": linked_invoice,
-            # WHAT FINDS THIS RECEIPT AT THE OTHER END, and the axis the duplicate guard keys on.
-            # Defaulted from the row's own bank reference; the caller may name a different field for
-            # a source whose reference lives elsewhere, exactly as `create_expense_from_row` allows.
-            "utr": (utr or "").strip() or (getattr(row, "bank_reference_no", "") or "") or None,
+            # WHAT FINDS THIS RECEIPT AT THE OTHER END. Read from the ONE field resolved at ingest,
+            # like the other four write sites (ADR-0020 B9); the per-caller `utr` override is gone
+            # for the same reason `create_expense_from_row`'s `payment_ref` is -- a source whose
+            # reference lives elsewhere is answered once, at the resolution, not per call site.
+            #
+            # ⚠️ THE INFLOW DUPLICATE GUARD DOES NOT KEY ON THIS. `inflows._guard_not_already_
+            # recorded` reads `bank_reference_no` and must keep doing so: this value may be a
+            # gateway id or a wallet txn id, and `reference_id` is not unique, so keying a guard on
+            # it would refuse an unrelated second transfer.
+            "utr": _settlement_reference_of(row) or None,
             # `Project Inflows.amount` is a Data column -- see `format_amount_for`.
             "amount": format_amount_for(INFLOW_DOCTYPE, amount),
             "payment_date": payment_date or getattr(row, "added_on_date", None),
@@ -1206,8 +1258,9 @@ def create_non_project_receipt_from_row(
             "payment_date": getattr(row, "added_on_date", None),
             # WHAT FINDS THIS RECEIPT AT THE OTHER END. The same field the debit path writes, from
             # the same place on the row -- a receipt is reconciled against the statement exactly as
-            # a payment is.
-            "payment_ref": getattr(row, "bank_reference_no", "") or None,
+            # a payment is, and since ADR-0020 B9 "the same place" is the ONE reference resolved at
+            # ingest rather than the bank column each site used to reach for separately.
+            "payment_ref": _settlement_reference_of(row) or None,
             # ⚠️ THE PAYER LANDS IN THE DESCRIPTION, and on this ledger there is nowhere else for
             # them to go: `Non Project Expenses` has NO vendor column. `_default_description` is
             # shared with the debit path for that same reason.

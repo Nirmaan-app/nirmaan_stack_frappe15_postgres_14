@@ -325,11 +325,19 @@ def _guard_not_already_recorded(staged, doc) -> None:
     look at, then a record booked outside this feature, which names only the record.
 
     ⚠️ THE TWO LOOKUPS KEY ON DIFFERENT COLUMNS, AND THAT IS NOT AN INCONSISTENCY. An
-    `Outflow Row Match` carries the `transfer_id`; a `Project Inflow` carries the bank REFERENCE, in
-    `utr`, because that is what `create_inflow_from_row` writes there. Cashbook's pair happens to
-    use one value for both only because a wallet's transfer id IS its payment reference. Keying the
-    second lookup on `transfer_id` here would compare a bank tran-id against a NEFT/RTGS reference
-    and match nothing, silently -- a guard that always passes.
+    `Outflow Row Match` carries the `transfer_id`; a `Project Inflow` carries a REFERENCE, in `utr`,
+    because that is what `create_inflow_from_row` writes there. Cashbook's pair happens to use one
+    value for both only because a wallet's transfer id IS its payment reference. Keying the second
+    lookup on `transfer_id` here would compare a bank tran-id against a NEFT/RTGS reference and
+    match nothing, silently -- a guard that always passes.
+
+    ⚠️ THIS GUARD STILL KEYS ON `bank_reference_no`, WHILE THE WRITE IS NOW `settlement_reference`
+    (ADR-0020 B9) -- and the mismatch is DELIBERATE, not an oversight left behind by that slice.
+    The resolved value may be a gateway id, and `reference_id` is not unique (2,237 rows carry 523
+    distinct values), so keying a duplicate guard on it would refuse an unrelated second receipt.
+    The cost is unchanged from before B9: a credit whose bank gave no reference is unseeable to
+    this second lookup either way -- it used to write a blank `utr`, it now writes a value this
+    guard does not compare. The FIRST lookup, on `transfer_id`, is what actually covers a re-import.
     """
     prior = find_prior_sighting(
         _already_created_by_import(staged),

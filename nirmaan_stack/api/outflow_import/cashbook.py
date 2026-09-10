@@ -78,6 +78,9 @@ from nirmaan_stack.services.outflow_import.parser import (
 )
 from nirmaan_stack.services.outflow_import.project_match import build_project_index
 from nirmaan_stack.services.outflow_import.settle import create_expense_from_row
+from nirmaan_stack.services.outflow_import.settlement_reference import (
+    resolve_settlement_reference,
+)
 from nirmaan_stack.services.outflow_import.status import (
     ROW_ERROR,
     ROW_PENDING_MATCH,
@@ -269,9 +272,11 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
         statement_file_url=statement_file_url,
         # ⚠️ WHO SPENT IT, from the statement's own `From` column -- not the accountant importing it.
         payment_by=(doc.get("added_by_raw") or "").strip() or None,
-        # ⚠️ THE WALLET'S TRANSACTION ID, because there is no UTR. It is the only value that will
-        # find this spend again in the wallet's own records.
-        payment_ref=(doc.get("transfer_id") or "").strip() or None,
+        # ⚠️ NO `payment_ref` OVERRIDE ANY MORE, AND THAT IS THE SLICE (ADR-0020 B9). It used to
+        # pass the wallet's transaction id here, because there is no UTR -- a per-path remedy that
+        # fixed THIS write site and left the payment one blank for this source. `_stage` now
+        # resolves the same value into `settlement_reference` at ingest, so `staged` carries it and
+        # every write site reads the one field.
     )
 
     match = frappe.new_doc(MATCH_DOCTYPE)
@@ -512,6 +517,20 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
                 "beneficiary_name": raw.beneficiary_name,
                 "remarks": raw.remarks,
                 "added_by_raw": raw.added_by_raw,
+                # ⚠️ THE SAME ONE RESOLUTION THE GATEWAY PATH USES (ADR-0020 B9), called here rather
+                # than assumed away. A wallet row carries neither reference field -- `_CASHBOOK_COLUMNS`
+                # maps neither, deliberately and permanently -- so the ladder always lands on the
+                # third rung and this is always `transfer_id`. Writing `raw.transfer_id` directly
+                # would produce the identical string today and would be the SECOND definition of
+                # the ladder: the per-path divergence this slice exists to remove, reintroduced at
+                # the very source that made it necessary.
+                "settlement_reference": resolve_settlement_reference(
+                    bank_reference_no=raw.bank_reference_no,
+                    reference_id=raw.reference_id,
+                    transfer_id=raw.transfer_id,
+                    source=SOURCE,
+                )
+                or None,
                 "row_status": ROW_PENDING_MATCH if creating else ROW_SKIPPED,
                 "skip_reason": None if creating else planned.reason,
                 "suggested_doctype": planned.ledger if creating else None,

@@ -74,6 +74,9 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.parser import BANK_SUCCESS_STATUS
+from nirmaan_stack.services.outflow_import.settlement_reference import (
+    settlement_reference_of_row,
+)
 # ⚠️ THE BROWSE LIST'S RANKING, AND NOTHING ELSE IN THIS MODULE MAY USE IT. `similarity` orders the
 # records a person chooses from in the Resolve dialog; it must never reach `match_batch` or anything
 # it calls. See the rule at the top of `similarity.py` -- its weights exist to be tuned against
@@ -143,7 +146,7 @@ class _StagedRow:
     __slots__ = (
         "name", "transfer_id", "amount", "beneficiary_name", "bank_account", "ifsc",
         "bank_reference_no", "normalized_account", "normalized_reference", "added_on",
-        "status_raw", "remarks", "row_status",
+        "status_raw", "remarks", "row_status", "settlement_reference",
     )
 
     def __init__(self, doc: dict):
@@ -156,6 +159,22 @@ class _StagedRow:
         self.bank_reference_no = doc.get("bank_reference_no") or ""
         self.normalized_account = doc.get("normalized_account") or ""
         self.normalized_reference = doc.get("normalized_reference") or ""
+        # ⚠️ CARRIED FOR THE FIVE SETTLEMENT WRITE SITES, AND FOR NOTHING ELSE (ADR-0020 B9). The
+        # matcher reads this object too, and it must never read THIS attribute: the value may be a
+        # gateway id or a wallet txn id, and comparing one against `Project Payments.utr` -- a
+        # column already holding hundreds of non-bank strings -- would match something unrelated.
+        # The three fields above are the matcher's; this one is the writer's.
+        #
+        # ⚠️ `settlement_reference_of_row` TAKES THE STORED COLUMN, AND RECOMPUTES THE LADDER ONLY
+        # WHEN IT IS BLANK. That recompute is a DEPLOY-WINDOW FLOOR: the backfill's `patches.txt`
+        # wiring is added by the maintainer, by this repo's own convention, so the code can be live
+        # while the column is still NULL on every existing row -- and reading the column alone would
+        # then settle every one of them with a BLANK, strictly worse than the defect being fixed.
+        # It goes through the ONE resolver rather than a shorter ladder here, so the WALLET rung
+        # survives the window too. Its removal condition is on that function.
+        # Pinned by `test_allocate_row.test_every_leg_carries_the_RAW_bank_reference`, whose fixture
+        # builds a row the pre-B9 way.
+        self.settlement_reference = settlement_reference_of_row(doc)
         self.added_on = doc.get("added_on")
         self.status_raw = doc.get("status_raw") or ""
         self.remarks = doc.get("remarks") or ""
@@ -3022,7 +3041,12 @@ def _load_rows(batch: str) -> list:
                beneficiary_id, bank_account, ifsc, remarks, bank_reference_no, service_charge,
                service_tax, added_by_raw, normalized_account, normalized_reference,
                resolved_vendor, resolved_project, suggested_doctype, suggested_name,
-               row_status, skip_reason, outcome_note, settlement_origin
+               row_status, skip_reason, outcome_note, settlement_origin,
+               -- B9: `settlement_reference` plus the two columns its deploy-window recompute needs
+               -- that were not already here. The matcher must never READ the resolved value, but
+               -- `_StagedRow` builds it for every row it adapts, and a projection that omitted
+               -- these would silently hand the wallet rung a blank.
+               settlement_reference, source
         FROM "tabOutflow Import Row"
         WHERE import_batch = %s
         ORDER BY added_on ASC, name ASC

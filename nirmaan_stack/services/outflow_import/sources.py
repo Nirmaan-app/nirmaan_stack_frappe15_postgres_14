@@ -29,8 +29,10 @@ need the wide identity without being a passbook, or the reverse.
 
 __all__ = [
     "BANK_STATEMENT_SOURCES",
+    "TRANSFER_ID_REFERENCE_SOURCES",
     "source_has_settlement_path",
     "source_has_preamble",
+    "source_transfer_id_is_its_reference",
 ]
 
 #: Sources that are a BANK PASSBOOK rather than a payout gateway.
@@ -48,6 +50,20 @@ __all__ = [
 #: source fails Frappe's own Select validation with nothing on screen explaining why. `test_upload`
 #: pins this set against both, and `test_review` pins the match run's reading of it.
 BANK_STATEMENT_SOURCES = frozenset({"ICICI Bank Statement"})
+
+#: Sources whose OWN transfer id is the only reference they will ever have.
+#:
+#: A petty-cash wallet issues no UTR and no gateway reference: `parser._CASHBOOK_COLUMNS` maps
+#: neither `bank_reference_no` nor `reference_id`, deliberately and permanently. Its `Txn Id` is
+#: therefore the only thing on the row an accountant can reconcile a settled record against, and
+#: `settlement_reference.resolve_settlement_reference` reads this set to say so.
+#:
+#: ⚠️ THIS IS THE THIRD RUNG OF THE LADDER AND IT IS PER-SOURCE ON PURPOSE (ADR-0020 B9). A gateway
+#: HAS a `transfer_id` too, and it is not a settlement reference -- widening the fallback to every
+#: source would stamp one onto 2,237 Cashfree rows nobody asked for. Keeping the rung here, at the
+#: ONE resolution, is also what stops it being re-derived at a write site: the whole point of
+#: resolving once is that every write site reads one field and no path can diverge from another.
+TRANSFER_ID_REFERENCE_SOURCES = frozenset({"Cashbook"})
 
 
 def source_has_settlement_path(source: str) -> bool:
@@ -94,6 +110,29 @@ def source_has_settlement_path(source: str) -> bool:
     a second passbook lands, adding its string here is the whole change.
     """
     return (source or "").strip() not in BANK_STATEMENT_SOURCES
+
+
+def source_transfer_id_is_its_reference(source: str) -> bool:
+    """Is this source's own transfer id the only reference it will ever have?
+
+    `True` for the petty-cash wallet (Cashbook). It issues no UTR and the export carries no gateway
+    reference column, so its `Txn Id` is the last rung of the settlement-reference ladder rather
+    than a fourth identifier nobody reconciles against. All 222 of its settled expenses already
+    carry it -- the expense path had been passing it by hand, which is exactly the per-path remedy
+    ADR-0020 B9 replaces with one resolution at ingest.
+
+    `False` for a payout gateway and for a bank passbook. Both have a real reference of their own,
+    and a gateway `transfer_id` written into `Project Payments.utr` would be a fourth kind of
+    non-bank string in a column that already holds hundreds.
+
+    ⚠️ AN UNKNOWN OR BLANK SOURCE ANSWERS `False`, AND THE DIRECTION OF THAT DEFAULT IS THE
+    OPPOSITE OF `source_has_settlement_path`'S -- deliberately, because the two defaults protect
+    different things. That one keeps an unrecognised source on the path it has always been on.
+    This one declines to WRITE a value into the ledger on a source nobody has thought about yet:
+    such a row lands exactly where it lands today, blank and visibly so, instead of carrying an
+    identifier whose meaning nobody has established.
+    """
+    return (source or "").strip() in TRANSFER_ID_REFERENCE_SOURCES
 
 
 def source_has_preamble(source: str) -> bool:

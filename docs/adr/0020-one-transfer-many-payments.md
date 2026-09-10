@@ -536,6 +536,44 @@ Accepted cost, unchanged: a gateway id written into `utr` is invisible to tier 0
 duplicate guard. Invisible-but-present loses nothing against today's blank and gives an accountant
 something to reconcile with.
 
+#### B9 as built (#1244, 2026-09-11) — the name, and one decision this section did not anticipate
+
+The field is **`Outflow Import Row.settlement_reference`**. It names what the value is FOR — what a
+settlement writes — rather than where it came from, so a reader looking for the bank's reference does
+not land on it. The ladder lives in the pure leaf `services/outflow_import/settlement_reference`, and
+its third rung asks `sources.source_transfer_id_is_its_reference` (set
+`TRANSFER_ID_REFERENCE_SOURCES = {"Cashbook"}`), following that module's own "capabilities are named
+questions" convention. Both per-caller reference overrides — `create_expense_from_row(payment_ref=…)`
+and `create_inflow_from_row(utr=…)` — were DELETED, since a per-caller override is the divergence
+this decision removes.
+
+⚠️ **IT IS FIVE WRITERS AND ONE READER — this section's "five write sites" undercounts.**
+`expenses.reverse_allocation` reads back what the payment site wrote: `_revert_payment` refuses to
+unwind a payment whose `utr` is not this transfer's, and it compared `bank_reference_no`. After B9 a
+blank-bank-reference row settles with its GATEWAY reference, so that guard sees `GW-…` against an
+expected `""` and refuses — **the exact 61 rows this decision is about would settle and then be
+permanently UN-REVERSIBLE**, blaming a third party for re-pointing the payment. It now reads the
+resolved value. Found by review; no suite settled such a row and then reversed it.
+
+⚠️ **A DEPLOY-WINDOW FLOOR HAD TO BE ADDED, AND WITHOUT IT THIS SLICE IS A REGRESSION.** This section
+assumed the backfill and the code land together. They do not: by this repo's convention a patch's
+`patches.txt` wiring is added separately by the maintainer, so there is a window in which the code is
+live and the column is still NULL on every existing row — and a reader taking the new field ALONE
+would settle every one of them with a BLANK. Strictly worse than the defect, and silent.
+
+The floor is `settlement_reference_of_row(doc)`: the stored column, else the ladder **recomputed
+through `resolve_settlement_reference`** — one function, called by both api readers. ⚠️ A first draft
+floored on `bank_reference_no` alone; it looked harmless and silently dropped the WALLET rung, so a
+pre-backfill wallet row would have written a blank where the deleted per-site override wrote its
+transaction id. **Removal condition:** delete the recompute once the backfill is wired into
+`patches.txt` and has run everywhere. Pinned by an existing test
+(`test_allocate_row.test_every_leg_carries_the_RAW_bank_reference`) whose fixture predates B9 — it was
+that test, not reasoning, that surfaced the window in the first place.
+
+Backfill measured on the live dev database: 2,511 rows, blanks 2,511 → 0, idempotent on re-run, and
+all 61 of the blank-bank-reference rows resolved on rung 2 — none needed rung 3. Full as-built:
+`.claude/context/domain/outflow-import.md`.
+
 ### Order of work
 
 | # | Slice | Rationale |

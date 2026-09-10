@@ -2144,8 +2144,9 @@ wrong conclusion from the same reasoning.
 
 | Suite | How |
 |---|---|
-| pure services (13 modules, **457** tests) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed (441 before D3, 409 before PS) |
-| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` — `test_expenses` **34** (31 before Q1), `test_upload` **31** (25 before D3), `test_review` **148** (143 before E3, 137 before N3), `test_expenses` **31**, `test_settle_payment` **54** (39 after PS, 25 before), `test_approved` **16** |
+| pure services (**878** tests, measured 2026-09-11) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed (862 before #1244, 441 before D3, 409 before PS) |
+| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` — measured 2026-09-11: `test_upload` **83** (76 before #1244), `test_review` **251**, `test_expenses` **45**, `test_settle_payment` **63** (56 before #1244), `test_approved` **29**, `test_cashbook_import` **35** (34 before #1244), `test_cashbook_rules` **13**, `test_inflows` **44**, `test_allocate_row` **17**, `test_reverse_allocation` **17**, `test_match_record` **12** |
+| ⚠️ a suite against a WORKTREE | `bench` resolves `nirmaan_stack` through the MAIN checkout, so worktree backend code is invisible to it. Set `PYTHONPATH=<worktree root>` — it wins, and the doctype JSON follows (Frappe locates it from the module's `__file__`). The binary is `/home/frappe/.local/bin/bench`, NOT under `env/bin`. |
 | the SHARED split (CEO + partial settlement) | `… --module nirmaan_stack.api.payments.test_payment_split` — **31** (26 before PS-1; those 26 are the proof the CEO path is unchanged) |
 | frontend | `yarn test` (vitest, `node` environment — pure helpers only). **317** across this feature (316 before Q1, 305 before E1-E3, 287 before D1/D2, 267 before N2); **2,503** repo-wide. ⚠️ `POAdjustment/writeOffControl.test.ts` has a PRE-EXISTING flake unrelated to this feature -- one case `await import`s the very large `SheetPricingPage` and trips vitest's 5s default on a loaded machine; it passes at `--testTimeout=60000`. |
 
@@ -3172,3 +3173,161 @@ process keeps running in the container and a restart then fails with `Port 8081 
 It also keeps WATCHING, so it serves current code; verify with
 `curl -s localhost:8081/src/<path> | grep <a token only the new version has>` rather than assuming
 either way. Kill it with `docker exec <container> pkill -f "port 8081"`.
+
+---
+
+## The settlement reference, resolved once at ingest (#1244 / ADR-0020 B9 — 2026-09-11)
+
+The last slice of the fan-out arc, sequenced last because it had **zero live instances**: 61 Cashfree
+rows carry a blank `bank_reference_no`, all 61 are `Skipped`, and blank-`utr` payments in the database
+were 0 of 344 settled legs. Latent, not bleeding.
+
+### What was wrong
+
+`settle_payment` read ONE field, `row.bank_reference_no`, and wrote it `if reference:` — **a blank
+reference was a silent skip, not an error.** The row also carried `reference_id`, the gateway's own
+reference, extracted since the first slice and never used. With no group id by deliberate design, a
+shared reference is the only thing linking the several payments of one transfer on the Payments
+screen, so the blank cost an accountant the only handle they had. It was **five write sites**, not
+one — the other four already wrote an explicit `None`.
+
+### The shape
+
+A new **`Outflow Import Row.settlement_reference`** (Data, read-only), resolved ONCE at ingest by the
+new pure leaf `services/outflow_import/settlement_reference.resolve_settlement_reference`:
+
+| rung | value | scope |
+|---|---|---|
+| 1 | `bank_reference_no` | every source |
+| 2 | `reference_id` | every source |
+| 3 | `transfer_id` | **`sources.TRANSFER_ID_REFERENCE_SOURCES` only — today `{"Cashbook"}`** |
+
+⚠️ **THE PER-SOURCE RUNG LIVES IN THE RESOLUTION, NEVER AT A WRITE SITE.** That is the whole point of
+resolving once. The wallet's old remedy — `cashbook.py` passing `payment_ref=transfer_id` into the
+EXPENSE path by hand — is exactly the per-path divergence this replaces, and it is why the PAYMENT
+path stayed broken for that source: a remedy at one write site fixes one write site. Both the
+`payment_ref` parameter on `create_expense_from_row` and the `utr` parameter on
+`create_inflow_from_row` were **deleted** in the same change; re-adding either puts a second answer
+back in the codebase, free to drift.
+
+The third rung asks a NAMED capability question (`sources.source_transfer_id_is_its_reference`),
+following that module's own stated convention. ⚠️ Its default for an unknown source is **`False`** —
+the OPPOSITE of `source_has_settlement_path`'s, deliberately: that one keeps an unrecognised source on
+the path it has always been on; this one declines to WRITE a value into the ledger on a source nobody
+has thought about yet.
+
+### Two ingest sites, one resolver
+
+`upload._stage_batch` (gateway + passbook) and `cashbook._stage` (the wallet's own staging path) both
+call it. The wallet path always lands on rung 3, so writing `raw.transfer_id` there directly would
+produce the identical string today and be the **second definition of the ladder** — at the very source
+that made the ladder necessary.
+
+### ⚠️ THE LOAD-BEARING CONSTRAINT — THE MATCHER NEVER READS IT
+
+`reference_id` is **NOT unique**: 2,237 Cashfree rows carry 523 distinct values, and one value
+(`2386126381`) was measured on three separate rows. Five surfaces are **byte-unchanged** and none may
+ever be pointed at the new field — `normalize_reference`, `candidates._payments_by_reference`,
+`matcher.match_by_reference`, the parser's stored `normalized_reference` column, and
+`reference_guard.assert_reference_is_free`. No file among `normalize.py` / `candidates.py` /
+`matcher.py` / `reference_guard.py` / `parser.py` appears in this slice's diff.
+
+**`settle_payment` therefore GUARDS on `bank_reference_no` and WRITES `settlement_reference`** — two
+values, two jobs. Collapsing them back into one variable is the mis-wire, and the COLLISION GUARD is
+where it bites first: a gateway id fed to it would refuse the second of two unrelated transfers
+outright, with a message about a duplicate that is not one.
+
+Accepted cost (owner, unchanged): a gateway id in `Project Payments.utr` is invisible to tier 0 and to
+the re-import duplicate guard. Invisible-but-present loses nothing against the blank it replaces.
+
+### ⚠️ IT IS FIVE WRITERS AND ONE READER — the sixth site the spec did not count
+
+`expenses.reverse_allocation` READS BACK what the payment write site wrote: `_revert_payment` refuses
+to unwind a payment whose `utr` is not this transfer's. It compared `bank_reference_no`. After B9 a
+blank-bank-reference row settles with its GATEWAY reference, so that guard would see a stored `GW-…`
+against an expected `""` and refuse — **the exact 61 rows this slice exists for would settle and then
+be PERMANENTLY UN-REVERSIBLE**, with a message blaming a third party for re-pointing the payment.
+
+It now reads the same resolved value. **Found by the spec review, not by a test** — no suite settled
+such a row and then reversed it. `test_reverse_allocation.TestReversingALegSettledWithAResolvedReference`
+now does, with the re-pointed guard as its positive control, and was confirmed RED against the old line.
+
+### ⚠️ THE DEPLOY-WINDOW FLOOR — one function, both readers, and it keeps every rung
+
+`settlement_reference_of_row(doc)` takes the stored column and recomputes the ladder **only when it is
+blank**. Both api readers (`review._StagedRow`, `expenses.reverse_allocation`) call it. **Without it
+this slice is a REGRESSION**: the backfill's `patches.txt` wiring is added by the maintainer, by this
+repo's own convention, so the code can be live while the column is still NULL on every existing row,
+and reading the column alone would settle every one of them with a BLANK.
+
+⚠️ **The recompute goes through `resolve_settlement_reference`, never a shorter ladder.** A first draft
+floored on `bank_reference_no` alone; it looked harmless and silently dropped the WALLET rung, so a
+pre-backfill wallet row would have written a blank where the deleted per-site override wrote its
+transaction id — the very source B9 exists to reach. Caught by the spec review.
+
+⚠️ **REMOVAL CONDITION** (on the function): delete the recompute once the backfill is wired into
+`patches.txt` and has run everywhere. Pinned by
+`test_allocate_row.test_every_leg_carries_the_RAW_bank_reference`, whose fixture builds a row the
+pre-B9 way — `_staged_row`'s default shape is deliberately NOT modernised for that reason.
+
+`review._load_rows` gained `settlement_reference` and `source`: `_StagedRow` builds the value for every
+row it adapts, and a projection omitting them would silently hand the wallet rung a blank.
+
+### The backfill
+
+`patches/v3_0/backfill_outflow_settlement_reference.py`: one `UPDATE … FROM`, `has_column` guard,
+idempotent, source names spelled literally rather than imported (a patch is append-only history).
+**Run against the live dev database 2026-09-11: 2,511 rows, 2,237 Cashfree + 274 Cashbook, blanks
+2,511 → 0, and a second run changed nothing.** All 61 of the blank-bank-reference rows resolved on
+**rung 2** (`reference_id`); none needed rung 3. A post-run audit found **0** non-wallet rows stamped
+with their own transfer id.
+
+⚠️ **The `patches.txt` wiring is NOT part of the patch**, per the convention its two siblings state.
+
+### Tests — and every new one was proven to go RED
+
+| suite | before → after |
+|---|---|
+| pure services | 862 → **883** |
+| `test_upload` | 76 → **84** (the ingest ladder, per rung + per source; the backfill patch, incl. its scope negative and a resolver-vs-SQL parity pin) |
+| `test_settle_payment` | 56 → **63** (the five write sites; the collision negative + its positive control; the deploy-window floor) |
+| `test_reverse_allocation` | 17 → **19** (the sixth site — settle with a resolved reference, then reverse; plus the re-pointed guard as control) |
+| `test_cashbook_import` | 34 → **35** (the wallet's own ingest site) |
+| unchanged and green | `test_review` 251, `test_expenses` 45, `test_inflows` 44, `test_approved` 29, `test_allocate_row` 17, `test_match_record` 12, `test_cashbook_rules` 13, `payments/test_payment_split` 31 |
+
+⚠️ **THE SQL RESTATEMENT IS PINNED AGAINST THE RESOLVER.** The patch restates the ladder rather than
+importing it (deliberate — a patch is append-only history), and the two never meet at runtime: the
+resolver runs at ingest, the SQL once at migrate. Each side's own tests would stay green through a
+divergence. Verified against **all 2,511 live rows — 0 mismatches** — and pinned per rung and per
+source by `test_the_sql_restatement_agrees_with_the_resolver_on_every_rung`.
+
+⚠️ **THE MOST IMPORTANT TEST IS THE NEGATIVE ONE, AND IT WAS PROVEN.** Three deliberate breaks were
+run and each produced the expected red:
+
+| break | went red |
+|---|---|
+| guard re-pointed at `settlement_reference` | `test_a_colliding_gateway_reference_does_not_block_the_settle` |
+| payment write reverted to `bank_reference` | that one, plus `…_settles_with_the_gateway_reference` and `…_carries_its_wallet_reference` |
+| backfill's `b.source = 'Cashbook'` unscoped to `1 = 1` | `test_it_never_gives_a_gateway_row_its_own_transfer_id` |
+| the sixth site reverted to `row.bank_reference_no` | `test_a_leg_settled_with_the_gateway_reference_reverses`, with the live refusal text |
+
+Proving the write works is the easy half; proving the read stayed put is the half that protects
+matching. The collision test ships with a **positive control** — the same colliding value in
+`bank_reference_no` must still raise `DuplicateReferenceError` — so it cannot pass because the guard
+was switched off or the planted holder never found.
+
+⚠️ **`dataclasses.replace` does NOT re-derive.** Clearing `bank_reference_no` on a parsed `RawRow`
+leaves `normalized_reference` holding the old value — a row no parser could produce. The ingest test
+that pins the matcher's column blanks both, and said so; an earlier draft asserted against a fixture
+that lied.
+
+### Running a suite against a worktree
+
+`bench` resolves `nirmaan_stack` through the main checkout, so a worktree's backend code is invisible
+to it by default. **`PYTHONPATH=<worktree root>` wins** — verified by printing `nirmaan_stack.__file__`
+— and the doctype JSON follows, since Frappe locates it from the module's own `__file__`. The bench
+binary is at `/home/frappe/.local/bin/bench`, not under `env/bin`. A single doctype can be synced with
+`frappe.reload_doctype(...)` instead of a full migrate.
+
+`residence_check.py`: B1/B2/B3 hold at baseline. Its two ✗ lines are **F2 and F5, both frontend
+rules**, and this slice's diff contains **zero frontend files** — pre-existing branch drift.

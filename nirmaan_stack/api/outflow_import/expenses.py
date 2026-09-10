@@ -68,6 +68,9 @@ from nirmaan_stack.api.outflow_import.review import (
 from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE, TARGET_SNAPSHOT_FIELDS
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.amounts import to_decimal
+from nirmaan_stack.services.outflow_import.settlement_reference import (
+    settlement_reference_of_row,
+)
 # ⚠️ THE SPLIT LIVES IN `services/payment_split.py`, THE SAME MODULE THE CEO PARTIAL APPROVAL USES,
 # and this import is the whole reason it was generalised rather than copied (ADR-0010 B1, slice
 # PS-1). Two implementations of the sum invariant and the PO-term surgery, one on either side of
@@ -383,14 +386,25 @@ def reverse_allocation(match: str, reason: str):
         )
     _guard_leg_is_plainly_reversible(leg)
 
+    # ⚠️ THE SIXTH SITE, AND IT IS A READER OF WHAT THE FIVE WRITE (ADR-0020 B9). `_revert_payment`
+    # refuses to unwind a payment whose `utr` is not this transfer's -- so it must compare against
+    # what the settlement ACTUALLY WROTE, which since B9 is the resolved `settlement_reference` and
+    # not `bank_reference_no`. Left reading the bank column, a row with no bank reference would
+    # settle with its gateway reference and then be permanently UN-REVERSIBLE, refused with a
+    # message blaming a third party for re-pointing it. That is exactly the 61 rows this slice
+    # exists for. Found by review, not by a test -- no suite settled such a row and then reversed it.
     row = frappe.db.get_value(
-        ROW_DOCTYPE, leg.import_row, ["name", "bank_reference_no", "import_batch"], as_dict=True
+        ROW_DOCTYPE,
+        leg.import_row,
+        ["name", "bank_reference_no", "reference_id", "transfer_id", "source",
+         "settlement_reference", "import_batch"],
+        as_dict=True,
     )
 
     savepoint = f"ofi_rev_{frappe.generate_hash(length=10)}"
     frappe.db.savepoint(savepoint)
     try:
-        _revert_payment(leg.target_name, row.bank_reference_no, actor)
+        _revert_payment(leg.target_name, settlement_reference_of_row(row), actor)
         doc = frappe.get_doc(MATCH_DOCTYPE, leg.name)
         doc.match_kind = MATCH_REVERSED
         doc.reversed_at = frappe.utils.now_datetime()

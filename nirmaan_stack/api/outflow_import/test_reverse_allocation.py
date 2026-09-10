@@ -264,3 +264,71 @@ class TestAReversedLegIsNeverHardDeleted(AllocationFixture):
         mine = [r for r in rows["rows"] if r["name"] == row]
         self.assertTrue(mine, "the staged row is missing from the batch read")
         self.assertEqual(mine[0].get("matches") or [], [])
+
+
+class TestReversingALegSettledWithAResolvedReference(AllocationFixture):
+    """⚠️ THE SIXTH SITE (ADR-0020 B9). `reverse_allocation` READS BACK what the payment write site
+    wrote, and `_revert_payment` refuses to unwind a payment whose `utr` is not this transfer's.
+
+    Since B9 the settle writes the resolved `settlement_reference`, which on a row with no bank
+    reference is the GATEWAY's own. Left comparing `bank_reference_no`, that guard would see a
+    stored `GW-...` against an expected `""` and refuse -- so exactly the 61 rows this slice exists
+    for would settle and then be PERMANENTLY UN-REVERSIBLE, with a message blaming a third party
+    for re-pointing the payment.
+
+    B9 was specified as five WRITE sites. It is five writers and one reader of what they wrote, and
+    no suite covered the pair until this one: settling such a row and then reversing it.
+    """
+
+    GATEWAY_REF = "GW-REV-7788"
+
+    def _row_with_no_bank_reference(self, amount="100"):
+        return self._staged_row(
+            amount=amount,
+            references={
+                "bank_reference_no": "",
+                "reference_id": self.GATEWAY_REF,
+                "settlement_reference": self.GATEWAY_REF,
+            },
+        )
+
+    def test_a_leg_settled_with_the_gateway_reference_reverses(self):
+        row = self._row_with_no_bank_reference()
+        pays = self._three_payments()
+        allocate_row(row=row, targets=self._targets(pays))
+        # Precondition: the settle really did write the resolved value, not a blank.
+        self.assertEqual(
+            frappe.db.get_value("Project Payments", pays[0], "utr"), self.GATEWAY_REF
+        )
+
+        leg = frappe.db.get_value(
+            MATCH_DOCTYPE, {"import_row": row, "target_name": pays[0]}, "name"
+        )
+        reverse_allocation(match=leg, reason="wrong PO")
+
+        self.assertEqual(
+            frappe.db.get_value("Project Payments", pays[0], "status"), "Approved"
+        )
+        self.assertFalse(
+            (frappe.db.get_value("Project Payments", pays[0], "utr") or "").strip()
+        )
+        self.assertEqual(
+            frappe.db.get_value(ROW_DOCTYPE, row, "row_status"), ROW_PARTIALLY_ALLOCATED
+        )
+
+    def test_the_re_pointed_guard_still_fires(self):
+        """The positive control. The guard must still refuse a payment somebody else re-pointed --
+        widening what it compares against must not have switched it off."""
+        row = self._row_with_no_bank_reference()
+        pays = self._three_payments()
+        allocate_row(row=row, targets=self._targets(pays))
+        frappe.db.set_value(
+            "Project Payments", pays[0], "utr", "SOMEBODY-ELSE", update_modified=False
+        )
+        frappe.db.commit()
+
+        leg = frappe.db.get_value(
+            MATCH_DOCTYPE, {"import_row": row, "target_name": pays[0]}, "name"
+        )
+        with self.assertRaises(frappe.ValidationError):
+            reverse_allocation(match=leg, reason="wrong PO")
