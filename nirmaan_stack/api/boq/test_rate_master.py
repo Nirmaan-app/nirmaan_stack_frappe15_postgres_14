@@ -314,7 +314,7 @@ PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 # exactly the risk that proof exists to retire.
 # TWO WAYS (v61, owner 2026-09-10): cabletray_raceway.width_mm and .thickness_mm are dropdowns on screen and
 # free numbers to the model (`extract_as`); the ONE change over v59, cabletray only. See TestV61TwoWays.
-CURRENT_EALL_ASSET = "rate_master_electrical_all_v62.json"
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v63.json"
 
 # The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
 # read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
@@ -6356,7 +6356,7 @@ class TestSpnPoleVocabulary(FrappeTestCase):
         # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
         # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
         for cid in before:
-            if cid not in ("industrial_sockets", "switches_sockets", "cabletray_raceway", "popup_boxes"):
+            if cid not in ("industrial_sockets", "switches_sockets", "cabletray_raceway", "popup_boxes", "conduit_piping"):  # + conduit_piping at v63
                 self.assertEqual(now[cid], before[cid], "%s moved" % cid)
         # WIDENED AGAIN AT F-25 SLICE 2 (v58, owner 2026-09-07): the switches_sockets BOX ladder gained
         # `on_zero_from` + `on_zero_modules` on both pipelines (pinned key by key in TestF25Slice2BareBox);
@@ -7573,7 +7573,9 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # WIDENED AGAIN AT THE INCLUDES-MODULES GATE (v62, owner 2026-09-10): `popup_boxes`' one module_fit
         # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
         # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
-        self.assertEqual(changed, ["cabletray_raceway", "industrial_sockets", "lighting_mgmt_system", "point_wiring", "popup_boxes", "switches_sockets"])
+        # WIDENED AT THE CONDUIT TRADE SIZE (v63, owner 2026-09-10): conduit_piping gained extract_as + inch_trade_mm and
+        # a catalog_fit at the head of both pipelines -- pinned key by key in TestV63ConduitTradeSizeLadder.
+        self.assertEqual(changed, ["cabletray_raceway", "conduit_piping", "industrial_sockets", "lighting_mgmt_system", "point_wiring", "popup_boxes", "switches_sockets"])
         self.assertEqual(payload["items"], prev["items"], "no rate and no item may move")
         for cid, c in now.items():
             if cid == "point_wiring":
@@ -7823,7 +7825,7 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
         # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
         self.assertEqual(sorted(k for k in now if now[k] != was[k]),
-                         ["cabletray_raceway", "industrial_sockets", "lighting_mgmt_system", "point_wiring", "popup_boxes", "switches_sockets"])
+                         ["cabletray_raceway", "conduit_piping", "industrial_sockets", "lighting_mgmt_system", "point_wiring", "popup_boxes", "switches_sockets"])  # + conduit_piping at v63
         self.assertEqual(payload["items"], prev["items"])
         # ⚠️ SUPERSEDED AT SLICE B. F4a removed two pipelines, and `_validate_config` refuses
         # a golden naming a pipeline the config no longer declares -- so their `expect` keys
@@ -8018,7 +8020,7 @@ class TestPointWiringCircuitStretch(FrappeTestCase):
         # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
         # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
         self.assertEqual(sorted(k for k in now if now[k] != was[k]),
-                         ["cabletray_raceway", "industrial_sockets", "lighting_mgmt_system", "point_wiring", "popup_boxes", "switches_sockets"])
+                         ["cabletray_raceway", "conduit_piping", "industrial_sockets", "lighting_mgmt_system", "point_wiring", "popup_boxes", "switches_sockets"])  # + conduit_piping at v63
         self.assertEqual(payload["items"], prev["items"], "no item may move")
         # ⚠️ v55 ADDED a `lighting_mgmt_system` goldens block (the LMS slice). Assert the key
         # set moved by exactly that ONE addition -- still "no golden was dropped".
@@ -8550,7 +8552,7 @@ class TestLmsPricingHelper(FrappeTestCase):
         # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
         # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
         self.assertEqual(sorted(k for k in now if now[k] != was[k]),
-                         ["cabletray_raceway", "industrial_sockets", "lighting_mgmt_system", "popup_boxes", "switches_sockets"])
+                         ["cabletray_raceway", "conduit_piping", "industrial_sockets", "lighting_mgmt_system", "popup_boxes", "switches_sockets"])  # + conduit_piping at v63
         self.assertEqual(self.payload["items"], prev["items"], "no item may move")
         for cat in was:
             if cat == "lighting_mgmt_system":
@@ -9023,7 +9025,7 @@ class TestF25Slice3PickFrom(FrappeTestCase):
         # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
         # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
         for cid in was:
-            if cid not in ("switches_sockets", "cabletray_raceway", "popup_boxes"):
+            if cid not in ("switches_sockets", "cabletray_raceway", "popup_boxes", "conduit_piping"):  # + conduit_piping at v63
                 self.assertEqual(now[cid], was[cid], "%s moved" % cid)
         self.assertEqual(self.now["items"], self.was["items"])
         self.assertEqual(self.now["goldens"], self.was["goldens"])
@@ -9174,7 +9176,10 @@ class TestV61TwoWays(FrappeTestCase):
                                              "extract_as": "number"})
         carriers = [(c["category_id"], a["id"]) for c in self.now["category_configs"]
                     for a in c["attribute_definitions"] if "extract_as" in a]
-        self.assertEqual(sorted(carriers), [("cabletray_raceway", "thickness_mm"), ("cabletray_raceway", "width_mm")])
+        # WIDENED AT THE CONDUIT TRADE SIZE (v63, owner 2026-09-10): conduit_piping.size_mm is the THIRD carrier
+        # (a free number the corrector converts to the trade size, then the ladder fits). Pinned in TestV63.
+        self.assertEqual(sorted(carriers), [("cabletray_raceway", "thickness_mm"), ("cabletray_raceway", "width_mm"),
+                                            ("conduit_piping", "size_mm")])
         self.assertEqual([a["id"] for c in self.was["category_configs"] for a in c["attribute_definitions"] if "extract_as" in a], [])
         self.assertEqual(self._defs(self.ct_was)["width_mm"], {"id": "width_mm", "label": "Width (mm)", "type": "number"})
 
@@ -9213,8 +9218,11 @@ class TestV61TwoWays(FrappeTestCase):
         # WIDENED AGAIN AT THE INCLUDES-MODULES GATE (v62, owner 2026-09-10): `popup_boxes`' one module_fit
         # gained `include_when {has_modules, Yes}` (+ its explain and the notes); every other key, every item and
         # every golden byte-equal, pinned key by key in TestIncludesModulesGate. A further category still fails.
+        # WIDENED AGAIN AT THE CONDUIT TRADE SIZE (v63, owner 2026-09-10): `conduit_piping` gained `extract_as` +
+        # `inch_trade_mm` on size_mm and a catalog_fit step at the head of both pipelines; pinned key by key in
+        # TestV63ConduitTradeSizeLadder. A further category still fails.
         for cid in now:
-            if cid not in ("cabletray_raceway", "popup_boxes"):
+            if cid not in ("cabletray_raceway", "popup_boxes", "conduit_piping"):
                 self.assertEqual(now[cid], was[cid], "%s moved" % cid)
         self.assertEqual(self.now["items"], self.was["items"])
         self.assertEqual(len(self.now["items"]), 1367)
@@ -9433,7 +9441,8 @@ class TestIncludesModulesGate(FrappeTestCase):
         from nirmaan_stack.api.boq import rate_master as rm
         with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
             asset = json.load(fh)
-        self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v62.json")
+        # v63 (CONDUIT TRADE SIZE) supersedes v62 as the current asset; the gate itself is unchanged.
+        self.assertEqual(CURRENT_EALL_ASSET, "rate_master_electrical_all_v63.json")
         fits = {}
         goldens = asset.get("goldens") or {}
         for c in asset["category_configs"]:
@@ -9465,6 +9474,8 @@ class TestIncludesModulesGate(FrappeTestCase):
                 self.assertEqual(now[k], was[k], k)
         for c in was["category_configs"]:
             n = [x for x in now["category_configs"] if x["category_id"] == c["category_id"]][0]
+            if c["category_id"] == "conduit_piping":
+                continue  # v63 (CONDUIT TRADE SIZE): pinned key by key in TestV63ConduitTradeSizeLadder
             if c["category_id"] != "popup_boxes":
                 self.assertEqual(n, c, c["category_id"])
                 continue
@@ -9483,3 +9494,180 @@ class TestIncludesModulesGate(FrappeTestCase):
         p1 = [g for g in now["goldens"]["popup_boxes"] if g["id"] == "p1"][0]
         self.assertEqual(p1["attrs"]["has_modules"], "No")
         self.assertEqual(p1["expect"], {"popup_boq": {"supply": 10800.0, "install": 1200.0}})
+
+
+class TestV63ConduitTradeSizeLadder(FrappeTestCase):
+    """CONDUIT TRADE SIZE + NEXT-HIGHER LADDER (v63, owner 2026-09-10): the asset, the validator, the delivery path.
+
+    conduit_piping selected its catalogue row by EXACT match on conduit_type + size_mm, so a size the catalogue does
+    not stock refused with nothing on screen saying why. v63: size_mm carries `extract_as: "number"` (the closed list
+    nulled every off-list size on a fresh read) and `inch_trade_mm` (the five-entry inch -> TRADE size table the
+    extraction corrector applies in code -- never x 25.4), and both conduit pipelines open with a tray-shaped
+    catalog_fit on size_mm within conduit_type (exact else next higher; nothing computed above the top rung).
+    Interpreter and helper are UNTOUCHED: the ladder, the derived-display and both notes already key on a
+    catalog_fit bind. Every other config, item and golden byte-equal to v62; conduit's golden c1 (PVC 25) unchanged
+    -- an exact hit is an exact rung."""
+
+    TRADE = {"3/4": 20, "1": 25, "1 1/4": 32, "1 1/2": 40, "2": 50}
+    FIT_PARAMS = {"bind": "size_mm", "fit_into": "size_mm", "kind": "conduit", "where": {"conduit_type": "@conduit_type"},
+                  "label_attr": "size_mm", "size_from": {"attr": "size_mm"}, "fit_from": {"attr": "size_mm"},
+                  "direction": "up", "on_miss": "no_compute"}
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            cls.now = json.load(fh)
+        with open(_asset_path("rate_master_electrical_all_v62.json"), "r", encoding="utf-8") as fh:
+            cls.was = json.load(fh)
+        cls.cp_now = [c for c in cls.now["category_configs"] if c["category_id"] == "conduit_piping"][0]
+        cls.cp_was = [c for c in cls.was["category_configs"] if c["category_id"] == "conduit_piping"][0]
+
+    def _validated(self, cfg):
+        from nirmaan_stack.api.boq import rate_master as rm
+        cc = copy.deepcopy(cfg)
+        cc["discipline"] = "Electrical"
+        cc.setdefault("goldens", (self.now.get("goldens") or {}).get(cc["category_id"], []))
+        rm._validate_config(cc)
+
+    # -- the asset ------------------------------------------------------------------------------
+    def test_v63_01_size_mm_carries_extract_as_number_and_the_five_entry_trade_table(self):
+        """POSITIVE: the def, exactly. NEGATIVE: no other def in any config carries inch_trade_mm; v62 carried none."""
+        d = {x["id"]: x for x in self.cp_now["attribute_definitions"]}
+        self.assertEqual(d["size_mm"], {"id": "size_mm", "label": "Size (mm)", "type": "number_choice",
+                                        "values_from": {"kind": "conduit", "attr": "size_mm"},
+                                        "extract_as": "number", "inch_trade_mm": self.TRADE})
+        self.assertEqual(d["conduit_type"], {"id": "conduit_type", "label": "Conduit Type", "type": "choice", "values": ["PVC", "MS"]})
+        carriers = [(c["category_id"], a["id"]) for c in self.now["category_configs"] for a in c["attribute_definitions"] if "inch_trade_mm" in a]
+        self.assertEqual(carriers, [("conduit_piping", "size_mm")])
+        self.assertEqual([a["id"] for c in self.was["category_configs"] for a in c["attribute_definitions"] if "inch_trade_mm" in a], [])
+        # the table is TRADE sizes, never arithmetic: 1 -> 25 (not 25.4), 2 -> 50 (not 50.8), 1 1/2 -> 40 (unstocked, by design)
+        self.assertEqual(self.TRADE["1"], 25); self.assertEqual(self.TRADE["2"], 50); self.assertEqual(self.TRADE["1 1/2"], 40)
+        stocked = sorted({float(i["attributes"]["size_mm"]) for i in self.now["items"] if i["kind"] == "conduit"})
+        self.assertEqual(stocked, [20.0, 25.0, 32.0, 50.0])
+        self.assertNotIn(40.0, stocked)
+
+    def test_v63_02_both_conduit_pipelines_open_with_the_tray_shaped_ladder_and_are_otherwise_v62(self):
+        """POSITIVE: catalog_fit at index 0 of conduit_boq AND conduit_bcs, tray-shaped, within conduit_type.
+        NEGATIVE: every later step byte-equal to v62; no other category gained a catalog_fit step."""
+        for pid in ("conduit_boq", "conduit_bcs"):
+            n_steps = self.cp_now["pipelines"][pid]["steps"]; o_steps = self.cp_was["pipelines"][pid]["steps"]
+            self.assertEqual(n_steps[0]["step"], "catalog_fit", pid)
+            self.assertEqual(n_steps[0]["params"], self.FIT_PARAMS, pid)
+            self.assertEqual(n_steps[1:], o_steps, pid)
+            self.assertEqual(n_steps[1], {"step": "match_master_row", "params": {"kind": "conduit"}}, pid)
+        fits = {c["category_id"] for c in self.now["category_configs"] for p in c["pipelines"].values()
+                for s in p["steps"] if s["step"] == "catalog_fit"}
+        was_fits = {c["category_id"] for c in self.was["category_configs"] for p in c["pipelines"].values()
+                    for s in p["steps"] if s["step"] == "catalog_fit"}
+        self.assertEqual(fits - was_fits, {"conduit_piping"})
+        self.assertNotIn("wiring_cabling", fits); self.assertNotIn("point_wiring", fits)
+
+    def test_v63_03_every_other_config_item_and_golden_is_byte_equal_to_v62(self):
+        """NEGATIVE, named for what it protects: wiring_cabling and point_wiring reach the conduit catalogue through
+        their OWN component_ref, not these pipelines -- byte-identical; and so is every other category."""
+        now = {c["category_id"]: c for c in self.now["category_configs"]}; was = {c["category_id"]: c for c in self.was["category_configs"]}
+        self.assertEqual(set(now), set(was)); self.assertEqual(len(now), 12)
+        for cid in ("wiring_cabling", "point_wiring"):
+            self.assertEqual(now[cid], was[cid], "%s moved" % cid)
+        for cid in now:
+            if cid != "conduit_piping":
+                self.assertEqual(now[cid], was[cid], "%s moved" % cid)
+        self.assertEqual(self.now["items"], self.was["items"]); self.assertEqual(len(self.now["items"]), 1367)
+        self.assertEqual(self.now["goldens"], self.was["goldens"])
+        for key in self.was:
+            if key != "category_configs":
+                self.assertEqual(self.now[key], self.was[key], key)
+        # conduit differs in EXACTLY the def, the two ladder steps and its notes
+        for k in set(self.cp_now) | set(self.cp_was):
+            if k not in ("attribute_definitions", "pipelines", "notes"):
+                self.assertEqual(self.cp_now[k], self.cp_was[k], k)
+        self.assertEqual(self.cp_now["goldens"], self.cp_was["goldens"])
+        self.assertTrue(self.cp_now["notes"].startswith(self.cp_was["notes"])); self.assertIn("v63", self.cp_now["notes"])
+
+    # -- the projection and the coercer ------------------------------------------------------------
+    def test_v63_04_size_mm_reaches_the_model_as_a_free_number_and_the_table_never_crosses(self):
+        """POSITIVE: type number, no values. NEGATIVE: `inch_trade_mm` is not projected (the model never sees the
+        table); conduit_type still projects its closed list; 19.05 and 40 survive the coercer where v62 nulled them."""
+        p = {d["id"]: d for d in extraction.build_attribute_defs(self.cp_now, None, "Electrical")}
+        self.assertEqual(p["size_mm"], {"id": "size_mm", "label": "Size (mm)", "type": "number"})
+        self.assertNotIn("inch_trade_mm", json.dumps(p))
+        self.assertEqual(p["conduit_type"]["values"], ["PVC", "MS"])
+        for raw in (19.05, 40, 25.4):
+            self.assertEqual(extraction._coerce_value_ex(p["size_mm"], raw)[1], extraction.COERCE_OK, raw)
+        p_was = {d["id"]: d for d in extraction.build_attribute_defs(self.cp_was, None, "Electrical")}
+        self.assertEqual(p_was["size_mm"]["type"], "number_choice")
+        self.assertEqual(extraction._coerce_value_ex(p_was["size_mm"], 19.05)[1], extraction.COERCE_OUTSIDE_DOMAIN)
+
+    # -- the validator ---------------------------------------------------------------------------------
+    def test_v63_05_the_shipped_asset_validates_every_config(self):
+        for c in self.now["category_configs"]:
+            self._validated(c)
+
+    def test_v63_06_the_guard_inch_trade_mm_shape_and_its_extract_as_partner(self):
+        """NEGATIVE: an empty table, a non-fraction key, a non-positive value, a table without extract_as -- each refused
+        by name; a misspelled key is refused by the allowlist."""
+        from nirmaan_stack.api.boq import rate_master as rm
+        self.assertIn("inch_trade_mm", rm._KNOWN_DEF_KEYS)
+        base = copy.deepcopy(self.cp_now)
+        def size_def(cfg): return [d for d in cfg["attribute_definitions"] if d["id"] == "size_mm"][0]
+        for mutate, needle in (
+            (lambda d: d.__setitem__("inch_trade_mm", {}), "non-empty"),
+            (lambda d: d.__setitem__("inch_trade_mm", {"one": 25}), "inch fraction"),
+            (lambda d: d.__setitem__("inch_trade_mm", {"1": 0}), "positive number"),
+            (lambda d: d.__setitem__("inch_trade_mm", {"1": "25"}), "positive number"),
+            (lambda d: d.pop("extract_as"), "requires extract_as"),
+            (lambda d: d.__setitem__("inch_trade_mmm", self.TRADE), "inch_trade_mmm"),
+        ):
+            cfg = copy.deepcopy(base); mutate(size_def(cfg))
+            with self.assertRaises(frappe.ValidationError, msg=needle) as ctx:
+                self._validated(cfg)
+            self.assertIn(needle, str(ctx.exception))
+
+    def test_v63_07_the_guard_catalog_fit_names_are_reference_checked(self):
+        """NEGATIVE: a typo in fit_into / fit_from.attr / a where "@" reference is refused BY NAME (it used to pass
+        silently -- the step was pass-through); a bad direction and a missing fit_from are refused. `bind` is a LABEL
+        SLOT (industrial_sockets binds `paired_mcb`, not a def) and a "@" reference may name a map_attribute TARGET
+        (industrial_sockets' `@mcb_pole`), so those are shape-checked, not reference-guarded. POSITIVE: the shipped
+        conduit step, the tray's three-ref step and industrial_sockets' map-target refs all validate."""
+        base = copy.deepcopy(self.cp_now)
+        def fit(cfg): return cfg["pipelines"]["conduit_boq"]["steps"][0]["params"]
+        for mutate, needle in (
+            (lambda p: p.__setitem__("bind", ""), "bind"),
+            (lambda p: p.__setitem__("fit_into", "size_m"), "size_m"),
+            (lambda p: p.__setitem__("fit_from", {"attr": "sizee"}), "sizee"),
+            (lambda p: p.__setitem__("where", {"conduit_type": "@conduit_typ"}), "conduit_typ"),
+            (lambda p: p.__setitem__("direction", "sideways"), "direction"),
+            (lambda p: p.pop("fit_from"), "fit_from"),
+        ):
+            cfg = copy.deepcopy(base); mutate(fit(cfg))
+            with self.assertRaises(frappe.ValidationError, msg=needle) as ctx:
+                self._validated(cfg)
+            self.assertIn(needle, str(ctx.exception))
+        self._validated(base)
+        # the tray's own catalog_fit (three "@" refs) and industrial_sockets' (a non-def bind, map-target refs)
+        # still validate under the new branch
+        for cid in ("cabletray_raceway", "industrial_sockets"):
+            self._validated([c for c in self.now["category_configs"] if c["category_id"] == cid][0])
+
+    # -- the corrector, wired ----------------------------------------------------------------------------
+    def test_v63_08_the_batch_hook_reads_the_table_from_the_shipped_config_and_from_no_other(self):
+        self.assertEqual(extraction.inch_trade_tables(self.cp_now), {"size_mm": self.TRADE})
+        for c in self.now["category_configs"]:
+            if c["category_id"] != "conduit_piping":
+                self.assertEqual(extraction.inch_trade_tables(c), {}, c["category_id"])
+        self.assertEqual(extraction.inch_trade_tables(self.cp_was), {})
+
+    # -- the delivery path --------------------------------------------------------------------------------
+    def test_v63_09_the_live_config_carries_v63_leaf_by_leaf(self):
+        """THE DELIVERY-PATH PIN. The runtime reads the DATABASE, not the asset. RED until v63 is imported."""
+        live = _obj(frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": "Electrical", "category_id": "conduit_piping", "active": 1}, "config",
+        ))
+        self.assertEqual(live["attribute_definitions"], self.cp_now["attribute_definitions"])
+        self.assertEqual(live["pipelines"], self.cp_now["pipelines"])
+        self.assertEqual(live["notes"], self.cp_now["notes"])
+        live_defs = {d["id"]: d for d in extraction.build_attribute_defs(live, None, "Electrical")}
+        self.assertEqual(live_defs["size_mm"]["type"], "number"); self.assertNotIn("values", live_defs["size_mm"])
+        self.assertEqual(extraction.inch_trade_tables(live), {"size_mm": self.TRADE})

@@ -1777,3 +1777,130 @@ class TestPrefacedReplyAtTheRateCallSite(FrappeTestCase):
         detail = getattr(cm.exception, "detail", "") or ""
         self.assertIn("ValueError", detail)
         self.assertNotIn("TypeError", detail)
+
+
+class TestInchTradeSize(FrappeTestCase):
+    """CONDUIT TRADE SIZE (v63, owner 2026-09-10) -- the inch -> TRADE-size conversion, IN CODE.
+
+    The model read the same token `1"` as 25.4 on BOQ-26-00198 and as 25 on BOQ-26-00242 (same prompt).
+    The arithmetic reading buys the wrong rung: 25.4 overshoots the 25 rung by 0.4 mm so a next-higher
+    ladder buys 32, and 50.8 sits above the top rung (50) so a stocked 2" conduit refuses. So the
+    corrector writes the catalogue's TRADE size from a five-entry table on the def (`inch_trade_mm`) --
+    never `x 25.4` -- and fires ONLY for a def carrying the table (key presence, never a category name),
+    ONLY on an inch token in the row's own description. Every text below is verbatim from the live corpus."""
+
+    TABLE = {"3/4": 20, "1": 25, "1 1/4": 32, "1 1/2": 40, "2": 50}
+
+    def _cfg(self, table=TABLE):
+        d = {"id": "size_mm", "label": "Size (mm)", "type": "number_choice",
+             "values_from": {"kind": "conduit", "attr": "size_mm"}, "extract_as": "number"}
+        if table is not None:
+            d["inch_trade_mm"] = table
+        return {"attribute_definitions": [
+            {"id": "conduit_type", "label": "Conduit Type", "type": "choice", "values": ["PVC", "MS"]}, d]}
+
+    def _apply(self, description, model_value, table=TABLE):
+        row_out = {"size_mm": {"value": model_value, "confidence": 0.9}}
+        recs = extraction.apply_inch_trade_size(row_out, _row(description), extraction.inch_trade_tables(self._cfg(table)))
+        return row_out["size_mm"]["value"], recs
+
+    # -- the table (positive) ------------------------------------------------------------------
+    def test_it_01_each_of_the_five_forms_converts_to_its_trade_size(self):
+        cases = [('3/4" Dia PVC Pipe', 19.05, 20), ('1" Dia PVC Pipe', 25.4, 25), ('1 1/4" Dia PVC Pipe', 31.75, 32),
+                 ('1 1/2" PVC Pipe', 38.1, 40), ('2" PVC Pipe', 50.8, 50),
+                 ('Supply and Fixing of 1 1/4" PVC Conduits', 32, 32), ('Supply and Fixing of 1" GI hose', 25, 25)]
+        for text, model, want in cases:
+            got, recs = self._apply(text, model)
+            self.assertEqual(got, want, text)
+            self.assertEqual(recs[0]["action"], "trade", text)
+            self.assertEqual((recs[0]["from"], recs[0]["to"]), (model, want), text)
+
+    def test_it_02_one_inch_gives_25_not_25_4_the_overshoot_that_buys_32(self):
+        """`1"` -> 25, the rung the catalogue stocks. 25.4 (what the model wrote on BOQ-26-00198 rows 214 and 278,
+        400 m) overshoots the 25 rung by 0.4 mm, so a next-higher ladder buys 32 -- 70/20 per metre instead of
+        42/10. The trade table is what stops that."""
+        got, _ = self._apply('1" Dia PVC Pipe', 25.4)
+        self.assertEqual(got, 25)
+        self.assertNotEqual(got, 25.4)
+        self.assertNotEqual(round(1 * 25.4, 2), got)
+
+    def test_it_03_two_inch_gives_50_not_50_8_which_refuses_a_stocked_size(self):
+        """`2"` -> 50, the top rung. 50.8 (BOQ-26-00198 rows 220 and 284) sits ABOVE the top rung, so the ladder
+        computes nothing and a stocked 2" conduit refuses. The trade table lands it on the rung."""
+        got, _ = self._apply('2" Dia PVC Pipe', 50.8)
+        self.assertEqual(got, 50)
+        self.assertNotEqual(got, 50.8)
+
+    def test_it_04_one_and_a_half_inch_maps_to_40_which_is_unstocked_by_design(self):
+        """1 1/2" -> 40 (the trade size), NOT 50: the table speaks trade sizes; the LADDER takes 40 to 50."""
+        got, _ = self._apply('1 1/2" Dia PVC Pipe', 38.1)
+        self.assertEqual(got, 40)
+
+    def test_it_05_a_blank_model_answer_is_filled_from_the_text_with_full_confidence(self):
+        row_out = {"size_mm": {"value": None, "confidence": 0.0}}
+        recs = extraction.apply_inch_trade_size(row_out, _row('1" Dia PVC Pipe'), extraction.inch_trade_tables(self._cfg()))
+        self.assertEqual(row_out["size_mm"]["value"], 25)
+        self.assertEqual(recs[0]["from"], None)
+        # a cell the model never produced at all (no confidence to keep) is written at full confidence
+        row_out = {"conduit_type": {"value": "PVC", "confidence": 0.9}}
+        recs = extraction.apply_inch_trade_size(row_out, _row('1" Dia PVC Pipe'), extraction.inch_trade_tables(self._cfg()))
+        self.assertEqual(row_out["size_mm"], {"value": 25, "confidence": 1.0})
+        # an EMPTY row dict is left alone -- the corrector never manufactures a row
+        self.assertEqual(extraction.apply_inch_trade_size({}, _row('1" Dia PVC Pipe'), extraction.inch_trade_tables(self._cfg())), [])
+
+    # -- confinement (negative) ------------------------------------------------------------------
+    def test_it_06_negative_the_corrector_fires_only_for_a_def_carrying_the_table(self):
+        """KEY PRESENCE: the SAME text on a config whose defs carry no `inch_trade_mm` is untouched -- which is
+        how the corpus's 88 non-conduit inch tokens stay out (they sit on rows of other categories)."""
+        self.assertEqual(extraction.inch_trade_tables(self._cfg(table=None)), {})
+        got, recs = self._apply('1" Dia PVC Pipe', 25.4, table=None)
+        self.assertEqual(got, 25.4)
+        self.assertEqual(recs, [])
+        self.assertEqual(extraction.inch_trade_tables({}), {})
+        self.assertEqual(extraction.inch_trade_tables(None), {})
+
+    def test_it_07_negative_three_of_the_88_non_conduit_inch_tokens_carry_no_trade_size(self):
+        """Verbatim corpus text: an HVAC copper-pipe fraction (BOQ-26-00231 / 128), brick thickness in an earth-pit
+        note (BOQ-26-00232 / 180), a GI strip length (BOQ-26-00184 / 101). None sits on a conduit row, so the
+        corrector never reads them; and even handed to it, none is a fraction the table carries -- the model's
+        value is LEFT ALONE and the record says `unmapped`."""
+        for text in ("3/8 inch dia.-21SWG",
+                     '2\' dia/ 450 x 450mm 9" thick brick masonry, GI funnel, salt and charcoal',
+                     "3 mm thick, 4 inches long ,15 mm wide which will be nut bolted"):
+            got, recs = self._apply(text, 7.5)
+            self.assertEqual(got, 7.5, text)
+            self.assertNotIn("trade", [r["action"] for r in recs], text)
+        # and the word forms never even match: `in`, `inch`, `inches` are not the mark
+        for text in ("connecting testing and commissioning of TV Coaxial cable RG 6 in existing conduit",
+                     "4x4 Inch-PVC Junction Box with 25A Terminal Block", "1 inch dia.- 19SWG"):
+            self.assertEqual(extraction.inch_trade_size_from_text(text, self.TABLE), (None, None), text)
+
+    def test_it_08_negative_a_metric_size_is_untouched_row_444_shape(self):
+        """`40 mm` carries no inch mark: the corrector never fires, 40 stays 40 -- for the four genuine 40 mm
+        conduits AND for BOQ-26-00174 / 444 (`40 mm width chipping...`), whose misread is a category call the
+        table cannot touch."""
+        for text, model in (("40mm dia medium gauge", 40), ("40 mm dia conduit (2.0 mm thick)", 40),
+                            ("40 mm width chipping and refilling to lay the conduit in floor", 40)):
+            got, recs = self._apply(text, model)
+            self.assertEqual(got, 40, text)
+            self.assertEqual(recs, [], text)
+
+    def test_it_09_negative_an_inch_fraction_outside_the_table_leaves_the_model_value(self):
+        """`3/8"` is an inch mark the table does not carry: recorded as `unmapped`, the value untouched. The
+        corrector never invents a size."""
+        got, recs = self._apply('3/8" dia', 9.5)
+        self.assertEqual(got, 9.5)
+        self.assertEqual(recs[0]["action"], "unmapped")
+
+    def test_it_10_the_surface_is_one_form_the_straight_double_quote_after_a_number_or_mixed_fraction(self):
+        """Measured across every row of the 42 active sheets: the ONLY conduit form is N" / N/N" / N N/N". The
+        typographic quotes are tolerated as the same mark; nothing else is a size."""
+        for text, tok in (('3/4"', '3/4"'), ('1"', '1"'), ('1 1/4"', '1 1/4"'), ('1 1/2"', '1 1/2"'), ('2"', '2"'),
+                          ("1” Dia", "1”"), ("2″ pipe", "2″")):
+            self.assertEqual(extraction.inch_trade_size_from_text(text, self.TABLE)[0], tok, text)
+
+    def test_it_11_wired_the_batch_hook_reads_the_table_from_the_config_and_only_there(self):
+        """`inch_trade_tables` normalises whitespace in the keys and keeps definition order; a def without the key
+        contributes nothing."""
+        cfg = self._cfg({" 1  1/2 ": 40, "1": 25})
+        self.assertEqual(extraction.inch_trade_tables(cfg), {"size_mm": {"1 1/2": 40, "1": 25}})

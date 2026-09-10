@@ -1410,6 +1410,8 @@ _KNOWN_DEF_KEYS = {
     "allow_none", "disables_when_none", "group_label", "conductor_floor", "absent_when_value",
     "absent_dependents",
     "extract_as",
+    # CONDUIT TRADE SIZE (v63): the inch -> trade-size table the extraction corrector applies in code.
+    "inch_trade_mm",
 }
 
 _KNOWN_CONFIG_KEYS = {
@@ -1570,6 +1572,22 @@ def _validate_config(cfg):
                 _vthrow(f"attribute '{did}' extract_as must be the literal \"number\" (got {d.get('extract_as')!r}).")
             if d.get("type") != "number_choice":
                 _vthrow(f"attribute '{did}' extract_as is only meaningful on a number_choice (type is {d.get('type')!r}).")
+        # CONDUIT TRADE SIZE (v63): `inch_trade_mm` is the inch -> TRADE-size table the extraction corrector
+        # applies IN CODE (never `x 25.4`). Its shape is guarded because a typo here is silent: a malformed
+        # key would leave every inch-stated size at the model's arithmetic and the ladder would buy the
+        # wrong rung. It rides only on a def the model reads as a free number (`extract_as: "number"`) --
+        # on a closed list the coercer would null the free value before the corrector ever saw it.
+        if "inch_trade_mm" in d:
+            table = d.get("inch_trade_mm")
+            if not isinstance(table, dict) or not table:
+                _vthrow(f"attribute '{did}' inch_trade_mm must be a non-empty object of inch text -> millimetres.")
+            if d.get("extract_as") != "number":
+                _vthrow(f"attribute '{did}' inch_trade_mm requires extract_as \"number\" on the same definition.")
+            for k, v in table.items():
+                if not isinstance(k, str) or not re.fullmatch(r"\d+(?: \d+/\d+)?|\d+/\d+", k.strip()):
+                    _vthrow(f"attribute '{did}' inch_trade_mm key {k!r} must be an inch fraction such as \"3/4\", \"1\" or \"1 1/2\".")
+                if not _is_finite_number(v) or v <= 0:
+                    _vthrow(f"attribute '{did}' inch_trade_mm[{k!r}] must be a positive number of millimetres.")
         # CP2: `number_choice` is the THIRD type -- a DROPDOWN that produces a NUMBER. It exists
         # because item matching is strict identity, so a dropdown over a numeric catalog column
         # (cable cores, thickness) must not emit the string "3" against a stored 3.
@@ -2014,6 +2032,65 @@ def _validate_config(cfg):
                                 f"{where}: module_fit include_when needs every term to carry none_when -- "
                                 f"terms[{ti}] ('{t.get('attr')}') has none, so the gate could not exclude it."
                             )
+            elif st == "catalog_fit":
+                # CONDUIT TRADE SIZE (v63): the step was PASS-THROUGH until a second category adopted it.
+                # Every attribute id it names is now _ref-guarded: `bind` / `fit_into` / `fit_from.attr` /
+                # `prefer_attr` / `absent_when.attr` and every "@" reference in `where`. An unguarded typo in
+                # any of them reads silently as "nothing stated" and the ladder fits nothing -- the whole
+                # category refuses with no signal. `size_from.attr` and `label_attr` name CATALOGUE columns,
+                # not attributes, and are shape-checked only.
+                p = s.get("params")
+                if not isinstance(p, dict):
+                    _vthrow(f"{where}: catalog_fit needs a params object.")
+                for key in ("bind", "kind"):
+                    if not isinstance(p.get(key), str) or not p.get(key):
+                        _vthrow(f"{where}: catalog_fit needs a non-empty string '{key}'.")
+                # `bind` is a LABEL SLOT (fitLabels), read back through "@bind" by a component_ref -- it need
+                # not be an attribute (industrial_sockets binds `paired_mcb`), so it is shape-checked only.
+                # A "@" reference may ALSO resolve to a `map_attribute` TARGET written into the selection
+                # earlier in the pipeline (industrial_sockets' `@mcb_pole` / `@mcb_curve`), so a name that is
+                # a map target in THIS config is legal without a definition; everything else must be one.
+                map_targets = {
+                    (mst.get("params") or {}).get("result_attr")
+                    for mpl in pipelines.values() if isinstance(mpl, dict)
+                    for mst in (mpl.get("steps") or []) if isinstance(mst, dict) and mst.get("step") == "map_attribute"
+                }
+                def _ref_or_map(attr, loc):
+                    if attr not in map_targets:
+                        _ref(attr, loc)
+                ff = p.get("fit_from")
+                if not isinstance(ff, dict) or not isinstance(ff.get("attr"), str) or not ff.get("attr"):
+                    _vthrow(f"{where}: catalog_fit needs fit_from {{attr}} naming the attribute whose stated value is fitted.")
+                _ref_or_map(ff["attr"], f"{where} (fit_from.attr)")
+                for key in ("fit_into", "prefer_attr"):
+                    if p.get(key) is not None:
+                        if not isinstance(p.get(key), str) or not p.get(key):
+                            _vthrow(f"{where}: catalog_fit {key}, when present, must be an attribute id.")
+                        _ref_or_map(p[key], f"{where} ({key})")
+                sf = p.get("size_from")
+                if sf is not None and (not isinstance(sf, dict) or not isinstance(sf.get("attr"), str) or not sf.get("attr")):
+                    _vthrow(f"{where}: catalog_fit size_from, when present, must be {{attr}} naming a catalogue column.")
+                if p.get("label_attr") is not None and (not isinstance(p.get("label_attr"), str) or not p.get("label_attr")):
+                    _vthrow(f"{where}: catalog_fit label_attr, when present, must be a non-empty string.")
+                aw = p.get("absent_when")
+                if aw is not None:
+                    if not isinstance(aw, dict) or not isinstance(aw.get("attr"), str) or not aw.get("attr") or "equals" not in aw:
+                        _vthrow(f"{where}: catalog_fit absent_when must be {{attr, equals}}.")
+                    _ref_or_map(aw["attr"], f"{where} (absent_when.attr)")
+                cw = p.get("where")
+                if cw is not None:
+                    if not isinstance(cw, dict):
+                        _vthrow(f"{where}: catalog_fit where must be an object of catalogue column = value or \"@attribute\".")
+                    for wk, wv in cw.items():
+                        for member in (wv if isinstance(wv, list) else [wv]):
+                            if isinstance(member, str) and member.startswith("@"):
+                                if len(member) < 2:
+                                    _vthrow(f"{where}: catalog_fit where['{wk}'] carries an empty \"@\" reference.")
+                                _ref_or_map(member[1:], f"{where} (where['{wk}'])")
+                if p.get("direction") is not None and p.get("direction") not in ("up", "down"):
+                    _vthrow(f"{where}: catalog_fit direction must be 'up' or 'down'.")
+                if p.get("on_miss") is not None and (not isinstance(p.get("on_miss"), str) or not p.get("on_miss")):
+                    _vthrow(f"{where}: catalog_fit on_miss, when present, must be a non-empty string.")
             elif st == "derive_attribute":
                 # CIRCUIT LENGTH part 1. params.terms binds formula identifiers to ATTRIBUTE ids and
                 # params.constants holds the rule's fixed numbers -- so the formula, its inputs AND its

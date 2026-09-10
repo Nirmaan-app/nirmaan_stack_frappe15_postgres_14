@@ -7,6 +7,9 @@ import LIVE_ASSET_V61 from "../../../../../nirmaan_stack/services/boq_rate_maste
 // TWO WAYS (v61): the PRIOR asset, read ONLY by the cross-asset pins (every other category byte-equal;
 // the ladder byte-identical across the def change). Never price against it.
 import PRIOR_ASSET_V59 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v59.json";
+// CONDUIT TRADE SIZE + LADDER (v63, 2026-09-10): the current asset and its predecessor, for the conduit pins at the end.
+import LIVE_ASSET_V63 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v63.json";
+import PRIOR_ASSET_V62 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v62.json";
 import type { Pipeline, RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
 import type { ExtractionRow, RateHelperRowContext, WorkingsAttribute } from "./rateHelperTypes";
 import {
@@ -4666,5 +4669,158 @@ describe("TWO WAYS (v61) -- the LIVE asset: both defs, the other 65 lists, and t
     if (!isSuggestion(priced)) throw new Error("expected suggestion");
     expect(priced.values.supply_rate).toBe(850);
     expect(attrOf(priced, "thickness_mm")!.notes).toBeUndefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// CONDUIT TRADE SIZE + NEXT-HIGHER LADDER (v63, owner 2026-09-10) -- pins ONLY. No interpreter change, no helper
+// change, no new note kind: `derivedAttrIds`, `catalogFitOutcomes`, `catalogFitSizeUpNote` and `withNoMatchNotes`
+// already key on a `catalog_fit` bind. The conduit config is the LIVE v63 one and the items are its eight conduits.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+const V63_CONDUIT_CONFIG = (LIVE_ASSET_V63 as unknown as { category_configs: Array<{ category_id: string }> })
+  .category_configs.find((c) => c.category_id === "conduit_piping") as unknown as RateCategoryConfig;
+const V62_CONDUIT_CONFIG = (PRIOR_ASSET_V62 as unknown as { category_configs: Array<{ category_id: string }> })
+  .category_configs.find((c) => c.category_id === "conduit_piping") as unknown as RateCategoryConfig;
+const V63_CONDUIT_ITEMS = (LIVE_ASSET_V63 as unknown as { items: Array<{ kind: string }> }).items
+  .filter((i) => i.kind === "conduit") as unknown as RateMasterItem[];
+const conduitCtx = (excelRow: number, description = "conduit"): RateHelperRowContext => ({
+  excelRow, description, nodeType: "Line Item", category: "conduit_piping", discipline: "Electrical",
+  rateKinds: ["supply_rate", "install_rate"],
+});
+const conduit63 = (attrs: Record<string, string | number | null>, overrides?: Record<string, string>, config = V63_CONDUIT_CONFIG, description = "conduit") =>
+  makePricingSheetHelper({
+    config, items: V63_CONDUIT_ITEMS,
+    extractionByRow: buildExtractionByRow([{ excel_row: 9, description, attributes: ext(attrs) }]),
+  }).compute(conduitCtx(9, description), overrides);
+const sizeOf = (r: ReturnType<ReturnType<typeof makePricingSheetHelper>["compute"]>) => attrOf(r, "size_mm")!;
+
+describe("CONDUIT LADDER (v63) -- the ladder fits exact-else-next-higher, never down", () => {
+  it("POSITIVE: the eight stocked conduits and the four sizes, flat across both types", () => {
+    expect(V63_CONDUIT_ITEMS).toHaveLength(8);
+    // the dropdown keeps catalogue row order (the registered v61 trait); the SET is the four sizes
+    expect([...(sizeOf(conduit63({ conduit_type: "PVC", size_mm: 25 })).options ?? [])].sort((a, b) => Number(a) - Number(b))).toEqual(["20", "25", "32", "50"]);
+  });
+  it("POSITIVE (V3, BOQ-26-00194 / 276): stored 40 MS -> buys 50, prices 168 / 40, the field shows 50 (computed), the fit_up note names 40", () => {
+    const r = conduit63({ conduit_type: "MS", size_mm: 40 });
+    const s = sizeOf(r);
+    expect(attrDisplayValue(s)).toBe("50");
+    expect(s.value).toBe("40");
+    expect(isShowingDerived(s)).toBe(true);
+    expect(s.notes?.map((n) => n.kind)).toEqual(["fit_up"]);
+    expect(s.notes!.map(attrNoteText)).toEqual(["The row states 40 — using 50, the next size stocked."]);
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.values).toEqual({ supply_rate: 168, install_rate: 40, combined_rate: 208 });
+  });
+  it("POSITIVE: every stored off-list size in the corpus buys the next rung UP -- 19.05 -> 20, 25.4 -> 32, 31.75 -> 32, 38.1 -> 50, 40 -> 50 (PVC 35/10, 70/20, 70/20, 140/30, 140/30)", () => {
+    const cases: Array<[number, string, { supply_rate: number; install_rate: number; combined_rate: number }]> = [
+      [19.05, "20", { supply_rate: 35, install_rate: 10, combined_rate: 45 }], [25.4, "32", { supply_rate: 70, install_rate: 20, combined_rate: 90 }],
+      [31.75, "32", { supply_rate: 70, install_rate: 20, combined_rate: 90 }], [38.1, "50", { supply_rate: 140, install_rate: 30, combined_rate: 170 }],
+      [40, "50", { supply_rate: 140, install_rate: 30, combined_rate: 170 }],
+    ];
+    for (const [stated, rung, values] of cases) {
+      const r = conduit63({ conduit_type: "PVC", size_mm: stated });
+      expect(attrDisplayValue(sizeOf(r)), String(stated)).toBe(rung);
+      if (!isSuggestion(r)) throw new Error("expected suggestion");
+      expect(r.values, String(stated)).toEqual(values);
+      expect(sizeOf(r).notes?.map((n) => n.kind), String(stated)).toEqual(["fit_up"]);
+    }
+  });
+  it("NEGATIVE: never DOWN -- 25.4 buys 32, not 25 (which is why the trade table exists on the extraction side)", () => {
+    const r = conduit63({ conduit_type: "PVC", size_mm: 25.4 });
+    expect(attrDisplayValue(sizeOf(r))).toBe("32");
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.values).not.toEqual({ supply_rate: 42, install_rate: 10 });
+  });
+  it("NEGATIVE (V4, BOQ-26-00198 / 220): 50.8 is above the top rung -> no fit, the no_match note, the row keeps refusing", () => {
+    const r = conduit63({ conduit_type: "PVC", size_mm: 50.8 });
+    const s = sizeOf(r);
+    expect(s.options).not.toContain(attrDisplayValue(s));
+    expect(s.derivedValue).toBeUndefined();
+    expect(s.notes?.map((n) => n.kind)).toEqual(["no_match"]);
+    expect(s.notes!.map(attrNoteText)).toEqual(["The row states 50.8 — nothing stocked matches for Size (mm) (20, 25, 32, 50); left blank for you to decide."]);
+    expect(isAttrBlank(s)).toBe(false);
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.values).toEqual({});
+    expect(r.basis).toBe("no match for these attributes");
+  });
+  it("NEGATIVE (the 227): an on-list stored size is an exact rung -- 25 PVC still prices 42 / 10, shows 25 plain, no note; v62 figures identical", () => {
+    for (const [type, size, values] of [["PVC", 25, { supply_rate: 42, install_rate: 10, combined_rate: 52 }], ["MS", 50, { supply_rate: 168, install_rate: 40, combined_rate: 208 }], ["PVC", 20, { supply_rate: 35, install_rate: 10, combined_rate: 45 }]] as const) {
+      const now = conduit63({ conduit_type: type, size_mm: size });
+      const before = conduit63({ conduit_type: type, size_mm: size }, undefined, V62_CONDUIT_CONFIG);
+      const s = sizeOf(now);
+      expect(attrDisplayValue(s)).toBe(String(size));
+      expect(isShowingDerived(s)).toBe(false);
+      expect(s.notes).toBeUndefined();
+      if (!isSuggestion(now) || !isSuggestion(before)) throw new Error("expected suggestions");
+      expect(now.values).toEqual(values);
+      expect(now.values).toEqual(before.values);
+    }
+  });
+  it("NEGATIVE: a direct PICK of a stocked size carries no note and prices exactly (the calculator's only path -- owner: 'this is ok')", () => {
+    const picked = conduit63({ conduit_type: "PVC", size_mm: 40 }, { size_mm: "32" });
+    expect(attrDisplayValue(sizeOf(picked))).toBe("32");
+    expect(sizeOf(picked).notes).toBeUndefined();
+    if (!isSuggestion(picked)) throw new Error("expected suggestion");
+    expect(picked.values).toEqual({ supply_rate: 70, install_rate: 20, combined_rate: 90 });
+  });
+  it("(V5, the 11 blank-size rows): a stated type and a BLANK size refuses as a no-match with NO red border -- the bind is derived; under v62 it was a red 'Complete the missing attributes'", () => {
+    const now = conduit63({ conduit_type: "PVC", size_mm: null });
+    const before = conduit63({ conduit_type: "PVC", size_mm: null }, undefined, V62_CONDUIT_CONFIG);
+    if (!isSuggestion(now) || !isSuggestion(before)) throw new Error("expected suggestions");
+    expect(now.values).toEqual({}); expect(before.values).toEqual({});
+    expect(now.basis).toBe("no match for these attributes");
+    expect(before.basis).toBe("Complete the missing attributes to price");
+    expect(isAttrBlank(sizeOf(now))).toBe(false);
+    expect(isAttrBlank(sizeOf(before))).toBe(true);
+    expect(sizeOf(now).notes).toBeUndefined();
+  });
+  it("NEGATIVE (row 444's shape): a stated size with NO type refuses at the missing gate exactly as before -- the ladder needs its where-fact", () => {
+    const now = conduit63({ conduit_type: null, size_mm: 40 });
+    const before = conduit63({ conduit_type: null, size_mm: 40 }, undefined, V62_CONDUIT_CONFIG);
+    if (!isSuggestion(now) || !isSuggestion(before)) throw new Error("expected suggestions");
+    expect(now.basis).toBe("Complete the missing attributes to price");
+    expect(now.basis).toBe(before.basis);
+    expect(sizeOf(now).notes).toBeUndefined();
+  });
+});
+
+describe("CONDUIT LADDER (v63) -- the asset: the ladder lives in conduit_piping ONLY, and every other category is byte-equal to v62", () => {
+  const cats63 = (LIVE_ASSET_V63 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }> }).category_configs;
+  const cats62 = (PRIOR_ASSET_V62 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }> }).category_configs;
+  it("the ladder step: tray-shaped, at the head of BOTH conduit pipelines, within conduit_type, up / no_compute", () => {
+    const pipes = V63_CONDUIT_CONFIG.pipelines as Record<string, Pipeline>;
+    expect(Object.keys(pipes)).toEqual(["conduit_boq", "conduit_bcs"]);
+    for (const pid of Object.keys(pipes)) {
+      const s = pipes[pid].steps[0] as { step: string; params: Record<string, unknown> };
+      expect(s.step).toBe("catalog_fit");
+      expect(s.params).toEqual({ bind: "size_mm", fit_into: "size_mm", kind: "conduit", where: { conduit_type: "@conduit_type" },
+        label_attr: "size_mm", size_from: { attr: "size_mm" }, fit_from: { attr: "size_mm" }, direction: "up", on_miss: "no_compute" });
+      expect((pipes[pid].steps[1] as { step: string }).step).toBe("match_master_row");
+      expect(pipes[pid].steps.slice(1)).toEqual((V62_CONDUIT_CONFIG.pipelines as Record<string, Pipeline>)[pid].steps);
+    }
+    const size = (V63_CONDUIT_CONFIG.attribute_definitions ?? []).find((d) => d.id === "size_mm") as unknown as Record<string, unknown>;
+    expect(size.extract_as).toBe("number");
+    expect(size.inch_trade_mm).toEqual({ "3/4": 20, "1": 25, "1 1/4": 32, "1 1/2": 40, "2": 50 });
+  });
+  it("NEGATIVE, named for what it protects: wiring_cabling and point_wiring are byte-identical to v62 -- they reach the conduit catalogue through their OWN component_ref, not these pipelines", () => {
+    for (const cid of ["wiring_cabling", "point_wiring"]) {
+      expect(cats63.find((c) => c.category_id === cid), cid).toEqual(cats62.find((c) => c.category_id === cid));
+    }
+    for (const cid of ["wiring_cabling", "point_wiring"]) {
+      const c = cats63.find((x) => x.category_id === cid) as { pipelines: Record<string, Pipeline> };
+      const fits = Object.values(c.pipelines).flatMap((p) => p.steps).filter((s) => (s as { step: string }).step === "catalog_fit");
+      expect(fits, cid).toHaveLength(0);
+    }
+  });
+  it("NEGATIVE: every other category's config is byte-equal to v62; conduit's golden c1 (PVC 25) unchanged", () => {
+    expect(cats63.map((c) => c.category_id)).toEqual(cats62.map((c) => c.category_id));
+    for (const c of cats62) {
+      if (c.category_id === "conduit_piping") continue;
+      expect(cats63.find((x) => x.category_id === c.category_id), c.category_id).toEqual(c);
+    }
+    expect((V63_CONDUIT_CONFIG as unknown as { goldens: unknown }).goldens).toEqual((V62_CONDUIT_CONFIG as unknown as { goldens: unknown }).goldens);
+    const c1 = conduit63({ conduit_type: "PVC", size_mm: 25 });
+    if (!isSuggestion(c1)) throw new Error("expected suggestion");
+    expect(c1.values).toEqual({ supply_rate: 42, install_rate: 10, combined_rate: 52 });
   });
 });
