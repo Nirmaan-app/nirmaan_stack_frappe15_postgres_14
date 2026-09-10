@@ -3026,3 +3026,35 @@ provably its pre-branch self: the diff against `develop` is comments only, which
 no post-Task-7 fix was silently reverted with it. Trading that for an a11y correction is the wrong
 exchange **in this slice**. It is a standalone fix, and the checkbox twin carries the same defect as
 `role="group"` — fix both together or neither.
+
+### The browser walk — run 2026-09-10, signed in as Administrator, against the worktree on :8081
+
+⚠️ **A SECOND VITE ON :8081 IS THE WAY TO WALK A WORKTREE WITHOUT DISTURBING THE OWNER'S :8080.**
+The devcontainer publishes 8000-8005, 8080, 8081, 9000, 9001, so a worktree can serve itself:
+`docker exec -w <worktree>/frontend -e NODE_OPTIONS=--max-http-header-size=8192 <container>
+./node_modules/.bin/vite --host 0.0.0.0 --port 8081 --strictPort`, after symlinking the worktree's
+`frontend/node_modules` at the main checkout's (the host copy is linux-arm64 and cannot run vite).
+Cookies ignore port, so the session is shared with :8080. ⚠️ **`/login` renders BLANK on a cold
+load; `/` redirects to it and renders** — do not read the blank page as a broken build.
+
+**Verified on the seeded `ZTEST` fixture world, WITHOUT confirming anything:**
+
+| Reader changed | What was observed |
+|---|---|
+| `isConfirmable` (`linkTargets`, open row) | ticking one record on `ZTEST Bank Match Co` ₹44,393 armed the footer button |
+| `isConfirmable` (`Partially Allocated`) | `ZTEST Fanout Traders` ₹1,00,000 with ₹40,000 + ₹25,000 legs: ticking the ₹35,000 record armed **"Allocate 1 record · completes this transfer"** — the remaining-balance arithmetic intact |
+| `decisionOrigin` | the row's Outcome cell flipped to the **Decided / Review** badge on tick, and back on untick |
+| `decidedRows` (**the bulk path, which has no dialog**) | selecting the decided row raised the bar reading **"1 selected · 1 decided"** with **"Confirm 1 decided"** enabled |
+| the moved `FanOutRecordTable` | checkbox table, 52 records, `off by ₹X` marks, the verdict line, and `disabledKeys` still **dimming the `Project Expense` rows** on the partly-allocated row |
+| review fix 1 (`Clear selection` on `decisionLinkKeys`) | rendered on the first tick and cleared every tick, the badge and the button |
+
+Console across the whole walk: **one** exception, the pre-existing `index.html` jinja placeholder
+(`frappe.boot = {{ boot }}`, line 32) that any vite dev server raises because it serves the RAW
+template — it fires identically on :8080. No React errors.
+
+⚠️ **WHAT THE WALK DELIBERATELY DID NOT DO: click Confirm.** `settleOne`'s target-building is the one
+changed reader a click would exercise, and **a whole-transfer `settle_row` writes no legs, so it
+cannot be reversed from the screen** (ADR-0020 D1/A3) — irreversible even on fixture data. The
+evidence standing in its place: the "1 decided" count the bar shows comes from the SAME
+`decisionLinkKeys` call `settleOne` builds its `targets` from, and the swap it replaced
+(`decision.linkTargets ?? []`) returns the identical Set for every shape the app can produce today.
