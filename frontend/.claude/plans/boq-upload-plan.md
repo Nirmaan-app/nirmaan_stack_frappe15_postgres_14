@@ -38538,3 +38538,211 @@ Root `CLAUDE.md`: a durable rule IS earned and added under "BoQ Rate Master (RM-
 is not thereby read at pricing time -- a Yes/No switch that must change the price needs a declared step key that ONE
 reader interprets, confined by key presence; the four config mechanisms that cannot do it are named so they are not
 re-tried.
+
+## CONDUIT SIZE -- the trade-size conversion in code and the next-higher ladder (asset v63, 2026-09-10) -- SHIPPED
+
+Owner rulings (verbatim, 2026-09-10): *"9+ 4 we need to fix by implementing a match with next higher ladder in the
+catalog and giving the correct note as we did for cabletray width. we should idelly do the unit conversion also code
+side."* · *"my lean is towards seprating the arithmentic to the code side. but if it creates problem then we leave it
+with the model as it is currently."* · on the calculator never reaching the ladder: *"this is ok."* · *"ship both
+together"*. Feat `69bbe9bd` on `b470e2e1`; asset v63 from v62; live batch `rmbulk-bce10321eae6`.
+
+### THE DEFECT
+14 `conduit_piping` rows stored a size the catalogue does not stock (20 / 25 / 32 / 50, flat across PVC and MS) and
+refused with NOTHING on screen saying why -- no red border, no note, only the trace. Nine were faithful arithmetic
+conversions of inch sizes on `BOQ-26-00198 / ELEC` (`3/4"` 19.05, `1"` 25.4, `1 1/4"` 31.75, `1 1/2"` 38.1, `2"`
+50.8); four a genuine 40 mm (`BOQ-26-00194 / ELE` 276, 282, 335; `BOQ-26-00184 / Electrical Est` 63); one a
+chase-width misread (`BOQ-26-00174 / "Electrical " / 444`, "40 mm width chipping and refilling"). Conduit selected its
+row by EXACT match (`match_master_row` on `conduit_type` + `size_mm`; brand ignored) -- no ladder existed. And a fresh
+read could never even store an off-list size: the def was a closed `number_choice` and `_coerce_value_ex` nulled it
+(`outside_numeric_domain`); the 14 were v43-era survivors carried forward by scoped runs.
+
+### WHY A TRADE TABLE AND NOT ARITHMETIC (the lean, TESTED)
+The recon measured the same model reading the same token `1"` as **25.4** on `BOQ-26-00198` and as **25** on
+`BOQ-26-00242` (rows 227-232, `1 1/4"` 32, `2"` 50). Under a next-higher ladder the arithmetic reading buys the WRONG
+RUNG: 25.4 overshoots the 25 rung by 0.4 mm so the ladder buys 32 (70/20 per metre instead of 42/10, on 400 m), and
+50.8 sits ABOVE the top rung so a stocked 2" conduit refuses. `x 25.4` in code would make that answer deterministic --
+worse than today. So the conversion is the VOCABULARY THE CATALOGUE SPEAKS, a five-entry table: 3/4 -> 20, 1 -> 25,
+1 1/4 -> 32, 1 1/2 -> 40, 2 -> 50. **1 1/2 maps to 40, which is NOT stocked, by design: the ladder then buys 50.**
+⚠️ The fresh reads then showed WHY the two sheets had disagreed: under the closed list the model SNAPPED `1"` to the
+listed 25 on `00242`; asked for a free number (v63) it converts arithmetically on BOTH sheets (25.4 / 31.75 / 50.8 on
+`00242` too). The model is consistent; the list was the variable. The table is therefore not a tidy-up of an
+inconsistent model but the ONLY thing that lands a free number on the rung -- the lean was right for a stronger reason
+than the recon gave.
+
+### ONE -- the corrector (`extraction.py`, code)
+`inch_trade_tables(cfg)` reads `{attr_id: {inch_text: mm}}` from every def carrying `inch_trade_mm` (`{}` for a config
+declaring none); `_gc["inch_trade"]` carries it into `_extract_batch(..., inch_trade=None)`; `apply_inch_trade_size(
+row_out, row_src, tables)` runs directly after the four-pole correction, BEFORE the result is stored, on the
+`apply_conductor_floor` / `correct_four_pole_mcb_picks` precedent -- the prompt is guidance, this is enforcement. It
+reads the ROW'S OWN DESCRIPTION only, the first token matching `_INCH_TOKEN_RE` (a number or mixed fraction followed by
+a straight `"`, `”` or `″`), and writes the table's millimetres over whatever the model returned (the model's
+confidence kept; 1.0 when it returned nothing). A fraction the table does not carry (`3/8"`, `9"`) is recorded
+`unmapped` and the value LEFT ALONE; a metric size (`40 mm`) carries no inch mark and is never touched (row 444's
+shape). Capture: drops `inch_trade_applied` + `row_map[attr].inch_trade` `{token, from, to, action}`.
+**SCOPE = KEY PRESENCE, never a category name.** Only `conduit_piping.size_mm` carries `inch_trade_mm`, so the corpus's
+**88 non-conduit inch tokens** (HVAC copper-pipe fractions `3/8 inch … 1 5/8 inch` on `BOQ-26-00231`, `9"` / `10"`
+brick thickness in earth-pit notes, `4 inches long` GI strip, `2 inches` trench depth, `15"` gloves, `RG 6 in`, `4x4
+Inch-PVC Junction Box`, `1 IN 5 Out`) sit on rows of categories whose defs carry no table and are never read -- pinned
+by `test_it_06` (a table-less config is inert) and `test_it_07` (three of the 88, verbatim, untouched; the word forms
+never even match). **THE SURFACE, verified across all 7,770 payload items of the 42 active sheets: ONE form on conduit
+lines** -- `3/4"` ×1, `1"` ×5, `1 1/4"` ×3, `1 1/2"` ×2, `2"` ×4; no `in` / `inch` / decimal / hyphenated (`1-1/2"`)
+form on any conduit line (S4 clear; a hyphenated form would read as `1/2"` and be left alone -- register).
+
+### TWO -- the ladder (asset v63, config)
+`conduit_piping.size_mm` gains `extract_as: "number"` + `inch_trade_mm`; both pipelines (`conduit_boq`, `conduit_bcs`)
+open with the tray-shaped `catalog_fit` -- `bind`/`fit_into`/`size_from`/`fit_from` = `size_mm`, `kind: conduit`,
+`where: {conduit_type: "@conduit_type"}`, `label_attr: size_mm`, `direction: up`, `on_miss: no_compute` -- BEFORE
+`match_master_row`, which then hits exactly because `fit_into` wrote the fitted rung into the selection. One ladder key
+inside one exact key: the same topology as tray width. **NO interpreter change, NO helper change, NO new note kind** --
+`derivedAttrIds`, `catalogFitOutcomes`, `catalogFitSizeUpNote` and `withNoMatchNotes` already key on a `catalog_fit`
+bind. Mint `mint_v63.py` (scratchpad, the `_mint_v5*_tmp.py` precedent): asserts every precondition, changes ONE
+category, every other config / all 1,367 items / every golden byte-equal, conduit's own golden c1 (PVC 25 -> 42 / 10 /
+30) unchanged; v62 sha256 `22376da5…742d89` -> v63 `25f23eb3…965c5`, +51 / -1 lines; `mint_completeness_check.py
+HEAD:v62 v63`: **PASS, no atoms disappeared**. `CURRENT_EALL_ASSET` -> v63.
+
+### THREE -- the validator (`api/boq/rate_master.py`)
+`_KNOWN_DEF_KEYS` gains `inch_trade_mm`; its shape is guarded (non-empty object; keys an inch fraction `N`, `N/N` or
+`N N/N`; positive millimetres; REQUIRES `extract_as: "number"` on the same def -- on a closed list the coercer would null
+the free value before the corrector saw it). `catalog_fit` was PASS-THROUGH; it now has a branch: `bind` / `kind`
+non-empty strings, `fit_from {attr}` required, `direction` in up/down, `on_miss` a string, and `fit_into` /
+`prefer_attr` / `fit_from.attr` / `absent_when.attr` / every `where` "@" reference `_ref`-guarded -- **except that a
+name which is a `map_attribute` TARGET in the same config is legal without a definition** (industrial_sockets fits on
+`@mcb_pole` / `@mcb_curve`, written by its own map steps), and **`bind` is a LABEL SLOT, not reference-guarded**
+(industrial_sockets binds `paired_mcb`). Measured the hard way: the first cut `_ref`-guarded all of them and refused the
+shipped industrial_sockets config (`test_92`, `test_img_06`, rate_suggest `test_27`); the map-target carve-out is the
+fix, pinned positive in `test_v63_07`. ⚠️ REGISTER: the loader does NOT run `_validate_config`; an asset typo passes
+at import (unchanged).
+
+### THE INVARIANT -- 5,001 rows, both category modes, real helper (esbuild in-container), live v62 configs vs v63
+**10,002 verdicts, 44 moved (22 rows), and every one is in an approved group:**
+- **11 rows START pricing** (22 verdicts; all `conduit_piping`, all `no match` today): 00198/212 -> 35/10/45, 214 ->
+  70/20/90, 278 -> 70/20/90, 216 -> 70/20/90, 280 -> 70/20/90, 218 -> 140/30/170, 282 -> 140/30/170; 00194/276 ->
+  168/40/208, 282 -> 140/30/170, 335 -> 168/40/208; 00184/63 -> 140/30/170. (Stored values, before the fresh read:
+  214 / 278 buy 32 from the stored 25.4 -- the overshoot the table now prevents on every future read.)
+- **11 rows with a blank size change face, not outcome** (22 verdicts): `Complete the missing attributes to price` with a
+  red `size_mm` -> `no match for these attributes` with no red border, because a `catalog_fit` bind is DERIVED --
+  00015/453; 00106/87, 616, 617; 00126/415, 419; and five more, all `conduit_piping` with a type and no size.
+- **2 rows gain a note and keep refusing**: 00198/220 and 284 (stored 50.8, above the top rung) -- display, not a mover.
+- **0 of the 454 priced conduit verdicts moved** (an exact hit is an exact rung; 454 -> 476 priced after). Their `attrs`
+  gain a `derivedValue` equal to the stated size, INVISIBLE on screen (`attrDisplayValue` shows the stated value,
+  `substituted` false, no marker) -- 458 display-only diffs, 0 rupees.
+- **0 verdicts in `wiring_cabling` or `point_wiring`** (they reach the conduit catalogue through their own
+  `component_ref`); pinned per category in python and vitest.
+Figure-set hash `05bf382f8c5b` -> `88d91e028ae1`; every mover named above.
+
+### TESTS
+Canonical command re-verified from root CLAUDE.md (`bench --site localhost run-tests --module …`, in-container); vitest
+in-container. **Baselines measured in session:** coercion **149 OK**, rate_suggest **71 OK**, hv2 **43 OK** (the chain
+first named the wrong module path; re-run by its real name `services.boq_category.tests.test_hv2_voter_harness`);
+rate_master **355 ran with 1 error** -- `test_rmf_14`'s `inspect.getsource` tokenised `rate_master.py` MID-EDIT (the
+patch landed while that process ran; it passes in every later run) -- and the vitest "baseline" chain started AFTER the
+edits were in the tree, so its 7 failures were the known `writeOffControl` + 6 of these pins before their figure
+shape was corrected (a `values` object also carries `combined_rate`); it is NOT a HEAD measurement -- disclosed.
+**After:** rate_master **364 OK** (355 + `TestV63ConduitTradeSizeLadder` 01-09), coercion **160 OK** (149 +
+`TestInchTradeSize` it_01-11), rate_suggest **71 OK**, hv2 **43 OK**; helper vitest file **321 / 321** (309 + 12);
+full vitest **3,409 passed / 1 failed of 3,410** (the known `writeOffControl` timeout; S6 did not fire).
+**Pins, positive AND negative:** the five forms (it_01); `1"` -> 25 NOT 25.4 naming the 32-mm overshoot (it_02); `2"` ->
+50 NOT 50.8 naming the refused stocked size (it_03); `1 1/2"` -> 40 unstocked by design (it_04); a blank model answer
+filled from the text (it_05); fires ONLY for a def carrying the table (it_06); three of the 88 untouched + the word forms
+never match (it_07); `40 mm` untouched, row 444's shape (it_08); an unmapped fraction leaves the value (it_09); the one
+form (it_10); the hook normalises keys (it_11). Asset: the def + no other carrier (v63_01); the ladder at the head of
+both pipelines, otherwise v62, no other category gained one (v63_02); wiring_cabling and point_wiring byte-identical,
+named for what they protect, every other category equal (v63_03); the projection is a free number and the table never
+crosses; 19.05 / 40 / 25.4 survive the coercer where v62 nulled them (v63_04); the whole asset validates (v63_05); the
+`inch_trade_mm` guard, six refusals by name (v63_06); the `catalog_fit` guard, five refusals + tray + industrial_sockets
+positive (v63_07); the hook reads the shipped config and no other (v63_08); the live config leaf by leaf -- RED before
+import, green after (v63_09). Vitest: exact-else-next-higher on every corpus value with figures; never down; above the
+top rung -> `no_match`, refuses; the 227 on-list rows unchanged vs v62; a direct pick carries no note; the 11 blank-size
+rows' new face; row 444's shape unchanged; the asset pins. **Six cumulative pins widened mechanically** (`v61_01`
+carriers, `v61_04`, `img_06`/`img_07`, `f25s3_04`, `lms_12`, `pw_cs_14/23/31`, `r12` -- conduit_piping added to each
+exclusion list with a dated comment).
+**VACUITY (A4), both runs, restored and re-verified green:** A -- `apply_inch_trade_size` made to return before it
+reads anything: it_01-05 RED (5 of 7 in the subset; it_06 and it_08 are negatives and stay green as they should);
+restored, sha `19122a964a87` before == after. B -- both `catalog_fit` steps removed from the v63 asset: 6 ladder pins
+RED (315 / 321); restored from backup, sha256 `25f23eb3d28b770c` before == after; then coercion subset **7 OK** and
+helper file **321 / 321**.
+
+### THE DELIVERY PATH (evidence)
+1. Freeze OFF. 2. Pre-state: **1,367** active on `rmbulk-b1985c53a6d9`, 12 configs, conduit def `[conduit_type,
+size_mm(number_choice, values_from)]`, pipelines `[match_master_row, scale, scale, roundup]` / `[match_master_row,
+scale]`, 8 conduit items. 3. Mint v63 (above). 4. `CURRENT_EALL_ASSET` -> v63. 5. Completeness PASS. 6. Import
+in-container, explicit v63 path, `replace=True`: `status loaded`, batch **`rmbulk-bce10321eae6`**, items_total 1,367,
+configs_loaded 12, deactivated 1,367 / 12, retirements existing 6 / created 0. 7. AFTER: **1,367** active on the new
+batch, 12 configs; live vs v63 LEAF BY LEAF: conduit `BRCC-26-27940` **69 / 69, 0 differing**; all 12 categories **0
+differing**; `get_rate_master_items` 1,367; snapshots 10 (none created); `test_v63_09` green. 8. ⚠️ The container had
+RESTARTED about an hour before this slice (no bench process existed -- declared), so this was a START, not a restart:
+web (`bench serve`, PID 2711 + reloader 2762), worker (2712), socketio (2713), vite (2738, `node_modules/.vite`
+cleared) -- `:8000` ping 200 ×3 after one warm-up 000, `:8080` 200 ×3; BACKEND marker: the served process started after
+the edit and the module exposes `apply_inch_trade_size` / `inch_trade_tables`; FRONTEND marker on the plain url:
+`withNoMatchNotes` ×2, `catalog_fit` ×2. No CSRF break: the debug profile's session held.
+
+### THE CERT -- BOTH FRESH READS (spend: exactly two scoped runs, `start_suggest(only_rows)`)
+- **V1 `BOQ-26-00198 / ELEC` rows 212, 214, 216, 218, 220** (run `BRSR-26-00877`, job `2554649e…`, complete, active).
+  Capture verbatim -- def sent `{"id": "size_mm", "label": "Size (mm)", "type": "number"}`; MODEL returned `size_mm`
+  **19.05 / 25.4 / 31.75 / 38.1 / 50.8** (0.90 each, `conduit_type` PVC 0.98); corrector `inch_trade` `{token: "3/4\"",
+  from 19.05, to 20}`, `{"1\"", 25.4 -> 25}`, `{"1 1/4\"", 31.75 -> 32}`, `{"1 1/2\"", 38.1 -> 40}`, `{"2\"", 50.8 ->
+  50}`, all `action: trade`; STORED **20 / 25 / 32 / 40 / 50** (0.90). Before: 19.05 / 25.4 / 31.75 / 38.1 / 50.8.
+- **V2 `BOQ-26-00242 / LT Electrical works` rows 227, 228, 229** (run `BRSR-26-00878`, job `eef529ed…`, `Job OK`).
+  MODEL returned **25.4 / 31.75 / 50.8** -- the arithmetic, on the sheet that had stored trade sizes under the closed
+  list; corrector -> **25 / 32 / 50**; STORED 25 / 32 / 50, exactly what they stored before. ⚠️ The run row is
+  `status partial, active 0, run_at None`: a scoped run on this sheet CARRIES the prior run's 127-of-129 attempted set
+  and stays `partial`, so it never supersedes the active run (`BRSR-26-00046`, 09-04) -- the product's documented
+  "never supersede a prior COMPLETE run until this one completes" rule, and the same shape as the earlier scoped run
+  `BRSR-26-00462` (09-07). Pre-existing behaviour, not this slice; the panel on `00242` therefore reads `00046`'s
+  stored 25 / 32 / 50, which are the same numbers. Register.
+- **SIDE BY SIDE -- the point of the slice:** `1"` PVC prices **42 / 10 / 52 on both BoQs** -- `00198 / 214` (active run
+  `00877`, stored 25 from the corrector) and `00242 / 227` (stored 25) -- read off the rendered panels. Before v63:
+  `00198 / 214` refused; under a ladder alone it would have bought 32 (70 / 20).
+- **V3** `BOQ-26-00194 / ELE / 276` (stored 40 MS, untouched by any read): panel `Rate master: Electrical Conduit @
+  Conduit Type = MS, Size (mm) = 40` -> **Supply 168 / Install 40 / Combined 208**; Size (mm) select shows **50** with
+  the italic `(computed)` tone; note character for character: **"The row states 40 — using 50, the next size
+  stocked."**
+- **V4** `BOQ-26-00198 / ELEC / 284` (stored 50.8, OUTSIDE the V1 scope so carried, not re-read -- V4 was certified on
+  it because V1 had already converted 220): Size select **blank** (`""`, options 20/25/32/50), basis `no match for
+  these attributes`, note verbatim **"The row states 50.8 — nothing stocked matches for Size (mm) (20, 25, 32, 50);
+  left blank for you to decide."**
+- **V5** `BOQ-26-00015 / Electrical works / 453` (`c) 40 mm dia`, type PVC, size blank): Size select blank with **no red
+  tone**, basis `no match for these attributes`, no note -- same refusal, different face; not a regression (the
+  harness names all 11 and shows both faces). ⚠️ Its text SAYS 40 mm; the stored size is blank (a model miss on the
+  stored run) -- a fresh read would now store 40 and the ladder buy 50. Register.
+- **V6** `BOQ-26-00194 / ELE / 81` (wiring_cabling, `4Core 300sq. mm.A2XFY`): **2190 / 140 / 2330**; `/ 185`
+  (point_wiring, `Primary light points…`): **2256 / 689.2** -- both to the rupee against the harness before AND after.
+- **V7** Electrical Pricing -> Calculator -> Electrical Conduit: Size is a dropdown of **20 / 25 / 32 / 50**; PVC + 25
+  -> **42 / 10 / 52**, no note, no `(computed)`. Nothing saved (the calculator never persists).
+- **V8** live == v63 leaf by leaf (12 × 0 differing); active Electrical **1,367**.
+Screenshots time out on the tall grids (the recorded trait); every panel was read through the DOM with the tab
+visible, the Category filter narrowed to Electrical Conduit and `scrollIntoView`; every pick was on the calculator
+(never persisted) or a read; no "Use this value", no cell write.
+
+### #57 -- what landed
+1. Eleven rows that refused START PRICING (three carry quantity: ₹31,500 supply / ₹9,000 install across `00198` 214,
+   278, 280 -- and after a fresh read of 214 / 278 the 1"-as-32 overshoot inside that figure comes back off: 42 / 10).
+2. Two rows gain a note explaining why they refuse. 3. Eleven blank-size rows lose their red border, same refusal.
+4. A conduit written in inches now prices at its trade size on every sheet -- proven by two fresh reads.
+
+### Register (record, do not fix)
+- The loader does not run `_validate_config`; an asset typo passes at import (the v63 keys included).
+- Row 444 (`40 mm width chipping…`) is a category/attribute misread the ladder cannot touch; refuses on `conduit_type`.
+- `1 1/2"` maps to 40, unstocked, so the ladder always buys 50 for it (2 rows today, qty 0).
+- The parity test compares figures, never notes; note parity across panel / calculator is untested by design.
+- The dead `conditions` key on an assembly-shape `component_ref`; `absent_when` and `qty.if_attr` unvalidated (standing).
+- A scoped run on a sheet whose prior run was `partial` stays `partial` and inactive (`BRSR-26-00878`, `00462`).
+- `BOQ-26-00015 / 453` says `40 mm dia` but stores a blank size -- a stored-run miss a fresh read would fill.
+- A hyphenated inch form (`1-1/2"`) would read as `1/2"` -> unmapped -> left alone; not in the corpus.
+- The `test_rmf_14` baseline error was a mid-edit `inspect.getsource` artefact; the vitest baseline was not a HEAD run.
+- Standing: `point_wiring.blank_item`; run `BRSR-26-00722`; units; "Unclear" owner-parked; the dropdown option order;
+  the parked split-pipeline shape; a one-column category's box width; the true-viewport narrow check.
+
+### Files
+`nirmaan_stack/services/boq_rate_master/extraction.py` (`_INCH_TOKEN_RE`, `inch_trade_tables`,
+`inch_trade_size_from_text`, `apply_inch_trade_size`, the `inch_trade` kwarg / `_gc` key / drops key / call, +106 -2),
+`nirmaan_stack/services/boq_rate_master/test_extraction_coercion.py` (`TestInchTradeSize` it_01-11, +127),
+`nirmaan_stack/api/boq/rate_master.py` (`inch_trade_mm` in `_KNOWN_DEF_KEYS` + its guard; the `catalog_fit` branch,
++77), `nirmaan_stack/api/boq/test_rate_master.py` (`CURRENT_EALL_ASSET` -> v63, six cumulative pins widened,
+`TestV63ConduitTradeSizeLadder` 01-09, +198 -10), `nirmaan_stack/services/boq_rate_master/data/
+rate_master_electrical_all_v63.json` (new), `frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.test.ts`
+(two asset imports, the conduit fixtures, 12 pins, +156), this record, root `CLAUDE.md` (one durable rule). Out of
+scope and untouched: `ratePipelineInterpreter.ts`, `pricingSheetHelper.ts`, `PricingCalculator.tsx`, the prompt and
+R-rules, `wiring_cabling` / `point_wiring` configs, `patches.txt`; the modified `.claude/settings.local.json` and the
+root untracked files are declared noise, not staged.

@@ -565,6 +565,19 @@ quantity, leaves `module_fit` ungated), `conditions` (dead on the assembly shape
 checks `equals` against the def's `values` (a typo would exclude every Yes row) and requires `none_when` on every term;
 **the loader does not run the validator, so an asset typo passes at import.**
 
+**⚠️ A UNIT CONVERSION BELONGS IN CODE, BUT AS THE VOCABULARY THE CATALOGUE SPEAKS, NEVER AS ARITHMETIC (owner-locked).**
+A conduit written in inches converts through a TRADE-SIZE table (`inch_trade_mm` on the def: three-quarter inch is
+20, one inch is 25, one-and-a-quarter is 32, one-and-a-half is 40, two inch is 50), applied by the extraction corrector
+`apply_inch_trade_size` on the `apply_conductor_floor` precedent. **Multiplying by 25.4 is wrong in a way that survives
+review**: 25.4 overshoots the 25 rung so a next-higher ladder buys 32, and 50.8 sits above the top rung so a stocked
+two-inch conduit refuses -- and the model, asked for a free number, converts arithmetically on EVERY sheet (measured on
+fresh reads of both sheets), so the table is the only thing that lands the value on a rung. The table may name an
+UNSTOCKED trade size (one-and-a-half is 40): that is correct, the `catalog_fit` ladder then buys 50. Confine such a
+corrector by KEY PRESENCE on the def, never by a category name -- the corpus's many non-conduit inch tokens sit on rows
+whose defs carry no table. ⚠️ A `catalog_fit` `bind` is a LABEL SLOT and a `where` "@" reference may name a
+`map_attribute` TARGET (industrial_sockets): the validator reference-guards neither as a plain definition, and
+re-tightening that refuses a shipped config.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
