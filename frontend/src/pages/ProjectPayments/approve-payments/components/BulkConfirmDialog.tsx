@@ -14,6 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { useVendorTdsRate } from "../../hooks/useVendorTdsRates";
+import { forecastTdsTotals } from "../../tdsForecast";
 import { parseNumber } from "@/utils/parseNumber";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 
@@ -98,6 +100,20 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
     return { totalAmount: total, docCount: distinctDocs.size, buckets: arr };
   }, [payments, projectLabelFor]);
 
+  /**
+   * Tax the whole selection will withhold.
+   *
+   * ⚠️ ONLY THE DEDUCTIBLE ROWS CONTRIBUTE — a Procurement Order payment adds nothing, not even
+   * to `gross`, so the three figures always describe the same subset and read as one sentence.
+   * Renders nothing at all when the selection has no SR payments, which is the common case on the
+   * Approve Payments tab.
+   */
+  const rateFor = useVendorTdsRate();
+  const tdsTotals = useMemo(
+    () => forecastTdsTotals(payments, (p) => rateFor(p.vendor)),
+    [payments, rateFor]
+  );
+
   const count = payments.length;
   const isReject = action === "reject";
   const trimmedReason = reason.trim();
@@ -135,6 +151,24 @@ export const BulkConfirmDialog: React.FC<BulkConfirmDialogProps> = ({
               {buckets.length} project{buckets.length !== 1 ? "s" : ""} · {docCount} PO/SR
             </span>
           </div>
+          {!isReject && tdsTotals.count > 0 && (
+            <div className="mt-1.5 rounded border bg-muted/40 px-2 py-1.5 text-[11px] leading-snug">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-muted-foreground">
+                  TDS on {tdsTotals.count} work order payment{tdsTotals.count !== 1 ? "s" : ""}
+                </span>
+                <span className="tabular-nums font-medium text-rose-600 dark:text-rose-400">
+                  − {formatToRoundedIndianRupee(tdsTotals.tds)}
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="font-semibold">Vendors receive</span>
+                <span className="tabular-nums font-semibold text-green-700 dark:text-green-400">
+                  {formatToRoundedIndianRupee(tdsTotals.net)}
+                </span>
+              </div>
+            </div>
+          )}
           {!isReject && (
             <p className="text-[11px] leading-snug text-amber-700 mt-1.5">
               Approving as-requested · amounts can't be edited in bulk.

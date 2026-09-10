@@ -11,6 +11,17 @@ export const AmountPaidHoverCard: React.FC<{ paymentInfo: ProjectPayments }> = R
   const tdsAmount = useMemo(() => parseNumber(paymentInfo.tds), [paymentInfo]);
   const TotalAmount = useMemo(() => parseNumber(paymentInfo.amount), [paymentInfo]);
 
+  // A Service Request payment has nothing to distribute. Its tax is held in `Payment TDS
+  // Deduction`, not in the legacy `tds` column, and its `amount` is ALREADY the net figure — so
+  // this card would label the net as "Total Amount" and then subtract a TDS of zero from it.
+  if ((paymentInfo.document_type || "").trim() === "Service Requests") {
+    return (
+      <p className="text-xs text-gray-600 font-semibold">
+        {formatToRoundedIndianRupee(TotalAmount)}
+      </p>
+    );
+  }
+
   return (
       <HoverCard>
         <HoverCardTrigger>
