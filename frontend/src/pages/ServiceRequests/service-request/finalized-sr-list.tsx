@@ -171,6 +171,7 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
         "service_category_list",
         "total_amount",
         "amount_paid",
+        "total_tds",
         "gst",
         "amount_invoiced",
         "amount_due",
@@ -392,6 +393,26 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
         meta: {
           exportHeaderName: "Amt. Paid",
           exportValue: (row: ServiceRequests) => parseNumber(row.amount_paid) || 0,
+        },
+      },
+      {
+        // Tax withheld from this order's PAID payments. Sits beside Amt. Paid because the two
+        // are recomputed together server-side and always describe the same set of payments;
+        // an SR payment's own amount is stored NET, so this is the rest of that figure.
+        accessorKey: "total_tds",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Total TDS" />
+        ),
+        cell: ({ row }) => (
+          <div className="font-medium pr-2">
+            {formatToRoundedIndianRupee(parseNumber(row.original.total_tds) || 0)}
+          </div>
+        ),
+        enableSorting: true,
+        size: 120,
+        meta: {
+          exportHeaderName: "Total TDS",
+          exportValue: (row: ServiceRequests) => parseNumber(row.total_tds) || 0,
         },
       },
       {
