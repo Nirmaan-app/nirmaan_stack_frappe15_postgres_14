@@ -73,7 +73,7 @@ import {
     type RecordSort,
     type RecordSortColumn,
 } from "../recordPickerView";
-import { SettleableRecordTable } from "./SettleableRecordTable";
+import { FanOutRecordTable } from "./FanOutRecordTable";
 
 /**
  * One SETTLED leg already on this transfer (Task 7, ADR-0020 fan-out). Read straight off the
@@ -1489,7 +1489,7 @@ const RecordPicker = ({
                     </Button>
                 </div>
             ) : (
-                <SettleableRecordTable
+                <FanOutRecordTable
                     records={options}
                     bankAmount={row.amount}
                     matcherCandidates={matcherCandidates}
@@ -1509,6 +1509,12 @@ const RecordPicker = ({
                     // doctype -- and `target` is cleared here so a leftover "create something new"
                     // choice can never survive a tick (see `isConfirmable`'s comment on why `target`
                     // is no longer load-bearing for this branch).
+                    //
+                    // ⚠️ `linkTo` IS CLEARED TOO, AND THAT IS THE WRITER CONTRACT, NOT TIDINESS
+                    // (issue #1240). `RowDecision` now carries BOTH pick fields so that the mode-less
+                    // bulk confirm path can read either; `decisionLinkKeys` lets a non-empty
+                    // `linkTargets` win, so a `linkTo` left behind by the Normal picker would be
+                    // invisible here but would speak again the moment the last tick came off.
                     onToggle={(value) => {
                         if (!parseRecordKey(value)) return;
                         const next = new Set(decision.linkTargets ?? []);
@@ -1520,7 +1526,7 @@ const RecordPicker = ({
                             if (disabledKeys.has(value)) return;
                             next.add(value);
                         }
-                        onChange({ ...decision, target: undefined, linkTargets: next });
+                        onChange({ ...decision, target: undefined, linkTo: null, linkTargets: next });
                     }}
                 />
             )}
@@ -1548,7 +1554,15 @@ const RecordPicker = ({
                     variant="ghost"
                     size="sm"
                     className="h-7 px-2 text-xs"
-                    onClick={() => onChange({ ...decision, target: undefined, linkTargets: new Set() })}
+                    onClick={() =>
+                        onChange({
+                            ...decision,
+                            target: undefined,
+                            // Both pick fields, for the reason `onToggle` above states.
+                            linkTo: null,
+                            linkTargets: new Set(),
+                        })
+                    }
                 >
                     <X className="mr-1 h-3 w-3" />
                     Clear selection

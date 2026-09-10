@@ -49,6 +49,7 @@ import {
     OUTFLOW_COLUMNS,
     OUTFLOW_TABS,
     decidedRows,
+    decisionLinkKeys,
     decisionOrigin,
     isConfirmable,
     parseRecordKey,
@@ -479,7 +480,13 @@ export const OutflowMasterPage = () => {
                 // duplication that would let a later edit send a single tick down the weaker
                 // `allocate_row` path by accident. A single tick on an untouched row keeps calling
                 // `settle_row`, byte-unchanged, with its stricter whole-transfer amount guard.
-                const targets = [...(decision.linkTargets ?? [])]
+                //
+                // ⚠️ AND THE PICK IS READ THROUGH `decisionLinkKeys` (issue #1240), never off one
+                // field. A decision reaching here may name its record in `linkTo` (the Normal
+                // picker) or in `linkTargets` (the Split one), and THIS PATH SERVES THE BULK
+                // "confirm all matched" BUTTON TOO, which has no dialog and therefore no mode --
+                // so a field read here would silently submit nothing for one of the two shapes.
+                const targets = [...decisionLinkKeys(decision)]
                     .map(parseRecordKey)
                     .filter((t): t is NonNullable<typeof t> => t !== null);
                 const endpoint = chooseSettleEndpoint({

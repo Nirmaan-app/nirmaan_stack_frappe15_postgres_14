@@ -2919,3 +2919,78 @@ status defect into a suite-wide failure that names the wrong cause.**
   `test_a_settled_row_cannot_be_recorded_twice` already crossed the boundary and were already red;
   green is the gate, exactly as the spec asked. The corrected comment used to claim the leg amount
   "is NOT summed anywhere" — true when written, stale the day status became derived.
+
+---
+
+## Slice 1 prefactor (2026-09-10) — the single-select picker is restored, the fan-out moves out, and the decision model keeps BOTH pick fields
+
+**Issue #1240** (parent #1236, ADR-0020 Amendment B § B3). **No user-visible change**, deliberately:
+this is the "make the next change easy" half of slice 1, landed before the mode radio so the risky
+part can be reviewed on its own.
+
+### What moved, and the proof that nothing else did
+
+| File | Change |
+|---|---|
+| `components/SettleableRecordTable.tsx` | **restored to `develop`** — the single-select `<input type="radio">` picker, byte-identical apart from one added docstring paragraph naming its twin |
+| `components/FanOutRecordTable.tsx` | **NEW** — the multi-select checkbox table Task 7 had converted `SettleableRecordTable` into, moved out verbatim. Diff against the pre-change file: the header path comment, the exported name, one `@see` word, and one added docstring paragraph. Nothing else. |
+| `components/DecisionDialog.tsx` | one import site + one JSX site repointed; `RecordPicker` is otherwise untouched and still renders the fan-out table, which is what makes this invisible on screen |
+| `outflowTableModel.ts` | `RowDecision.linkTo` restored beside `linkTargets`; new `decisionLinkKeys`; `isConfirmable` + `decisionOrigin` read through it |
+| `OutflowMasterPage.tsx` | `settleOne` builds its `targets` through `decisionLinkKeys` instead of reading `linkTargets` |
+
+⚠️ **THE DUPLICATION IS SANCTIONED AND MUST NOT BE CONSOLIDATED** (owner ruling, the same one
+`GridColumnFilter` carries against `RateMasterDataViewer`'s `ColumnFilter`). Task 7 converted the
+single-select table **in place**, which is why the dialog ended up with no way to offer the ordinary
+one-record settle at all. Merging the two behind a `multiple` flag would put the control that decides
+where money is written behind a boolean, and would re-couple two things that are free to diverge: the
+fan-out side is payments-only, ranks against a REMAINDER rather than the transfer, and withholds rows
+its endpoint would refuse. None of that belongs in the ordinary settle.
+
+### ⚠️ `decisionLinkKeys` — the one reader, and why a field read is the trap
+
+`RowDecision` now carries **both** pick fields, optional: `linkTo` (Normal, a bare name under
+`target`'s ledger) and `linkTargets` (Split, whole `recordKey`s). **The readers of those fields serve
+the BULK "confirm all matched" path, which has no dialog and therefore no mode** — so neither field
+can be read directly:
+
+- reverting a reader to `decision.target && decision.linkTo` **rejects every fan-out decision**
+  (`decisionOrigin` stopped comparing `target` at Task 7, and the fan-out picker clears `target` on
+  every tick);
+- leaving it at `linkTargets` alone **rejects every Normal decision** once the mode radio lands.
+
+All three readers — `isConfirmable`, `decisionOrigin`, `settleOne` — now normalise through
+`decisionLinkKeys` first. `decisionOrigin` compares normalised **key sets**, never field against
+field, so a person picking the suggested record in Normal mode (`linkTo`) still reads as
+`suggested` against a suggestion banked as a `linkTargets` singleton.
+
+⚠️ **PRECEDENCE + THE WRITER CONTRACT, which are one rule in two halves.** A non-empty `linkTargets`
+wins; `linkTo` speaks only when nothing is ticked. That is safe **only** because each picker owns one
+field and clears the other. The fan-out picker now clears `linkTo` on every tick and on Clear
+selection (added here). **The Normal picker must clear `linkTargets` on every pick** — a seeded
+decision arrives carrying `linkTargets`, so a Normal picker that forgets would settle the machine's
+old record instead of the person's new one, silently and with the right record named on screen.
+
+`suggestedDecision` is deliberately **unchanged** — it still emits the `linkTargets` singleton, and
+its two `toEqual` pins stay byte-green. Making it emit both fields would have been the other way to
+fix `decisionOrigin`; normalising at the reader keeps one shape being produced and two being accepted.
+
+### Tests
+
+`outflowTableModel.test.ts` +10 (380 → 390). A new `decisionLinkKeys` block (both shapes, the
+half-written and non-settleable-`target` cases, the emptied Split selection, and both precedence
+directions), plus the Normal shape added to the `isConfirmable`, `decisionOrigin` and `seedDecisions`
+blocks — the last of which pins that a `linkTo: null` clear is not re-seeded, the mirror of the
+already-pinned empty-`linkTargets` clear.
+
+**Measured both sides.** `src/pages/outflow-import/`: 567 → **577**, all green. Whole frontend suite:
+baseline **3431 passed / 1 failed**, after **3441 passed / 1 failed** — the same failure both sides,
+`POAdjustment/writeOffControl.test.ts > mirrors the sibling admin predicates`, a **5 s timeout on a
+test that takes ~2.1 s alone**: a load flake under 90-file parallelism, not a regression. `tsc` over
+`src/pages/outflow-import/`: **0 errors** (the repo carries many pre-existing errors elsewhere).
+
+⚠️ **The two browser acceptance criteria are NOT met by this record.** Bulk "confirm all matched" on
+an ordinary row, and the existing fan-out flow, are React semantics with no DOM test environment in
+this repo — they are verified by a live walk, and that walk needs a signed-in session. What IS
+established here is that the fan-out table is byte-identical to its pre-move self, that the dialog's
+only behavioural diff is two `linkTo: null` writes on a field nothing reads yet, and that every
+decision shape the app can currently produce normalises to exactly what the old field reads returned.

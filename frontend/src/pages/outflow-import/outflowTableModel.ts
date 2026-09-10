@@ -246,16 +246,21 @@ export interface RowDecision {
      */
     target?: DecisionTarget;
     /**
-     * The record(s) to settle, as `recordKey`s (ADR-0020 fan-out). Required for everything except
-     * `new` / `inflow` / `receipt`.
+     * The ONE record to settle, by bare name, under `target`'s ledger. The **Normal** picker's
+     * field (ADR-0020 B3, restored at issue #1240 after Task 7 had replaced it outright).
      *
-     * ⚠️ REPLACES `linkTo: string | null` (Task 7). One bank transfer may now settle several
-     * approved Project Payments, so a single string can no longer name the pick. `recordKey` /
-     * `parseRecordKey` (below) are the one identity function this reuses rather than re-minting.
+     * ⚠️ IT NEEDS `target` ALONGSIDE IT, because a bare name is not unique across the three
+     * ledgers -- which is exactly why the fan-out shape below stores whole `recordKey`s instead.
+     * `null` means "deliberately cleared"; absent means "never picked".
+     */
+    linkTo?: string | null;
+    /**
+     * The record(s) to settle, as `recordKey`s. The **Split** picker's field (ADR-0020 fan-out).
      *
      * ⚠️ AN EMPTY SET MEANS "NOTHING PICKED"; ABSENT MEANS "NEVER TOUCHED". `seedDecisions` relies
      * on that distinction to avoid overwriting a deliberately-cleared decision -- the same contract
-     * `linkTo: null` used to carry.
+     * `linkTo: null` carries on the Normal side. `recordKey` / `parseRecordKey` (below) are the one
+     * identity function this reuses rather than re-minting.
      */
     linkTargets?: ReadonlySet<string>;
     /** Only for `target: "new"`. */
@@ -2021,6 +2026,38 @@ export const previewCounts = (preview: {
 // --- what counts as decided --------------------------------------------------------------------
 
 /**
+ * WHICH records a decision picked, as `recordKey`s -- whichever of the two fields it used.
+ *
+ * ⚠️ THE ONE READER OF THE TWO-FIELD SHAPE, AND THE REASON IT EXISTS (issue #1240, ADR-0020 B3).
+ * `RowDecision` carries BOTH `linkTo` (the Normal single-select picker) and `linkTargets` (the
+ * Split fan-out picker), optional, because the readers below are used by the BULK "confirm all
+ * matched" path -- which has no dialog and therefore no mode to tell the two apart. Reverting a
+ * reader to `decision.target && decision.linkTo` would reject EVERY fan-out decision; leaving it at
+ * `linkTargets` alone rejects every Normal one. Both go through here instead, so a new reader
+ * cannot accept one shape and silently refuse the other.
+ *
+ * ⚠️ PRECEDENCE: A NON-EMPTY `linkTargets` WINS; `linkTo` speaks only when nothing is ticked. That
+ * ordering is safe ONLY because of the WRITER CONTRACT: **each picker owns one field and clears the
+ * other**. The Split picker clears `linkTo` on every tick; the Normal picker must clear
+ * `linkTargets` on every pick -- a seeded decision arrives carrying `linkTargets`, so a Normal
+ * picker that forgets would settle the machine's old record instead of the person's new one.
+ *
+ * ⚠️ A `linkTo` UNDER A NON-SETTLEABLE `target` IS NOT A PICK. `new` / `inflow` / `receipt` are
+ * dispositions that write something rather than link to something, so a leftover link under one of
+ * them must never fold into a key that looks like a settle target.
+ */
+export const decisionLinkKeys = (decision: RowDecision): ReadonlySet<string> => {
+    if (decision.linkTargets && decision.linkTargets.size > 0) return decision.linkTargets;
+    const name = (decision.linkTo ?? "").trim();
+    const target = decision.target ?? "";
+    if (!name || !SETTLEABLE_TARGETS.includes(target)) return EMPTY_LINK_KEYS;
+    return new Set([recordKey({ target_doctype: target, name })]);
+};
+
+/** A shared empty result, so "nothing picked" never mints a fresh identity per call. */
+const EMPTY_LINK_KEYS: ReadonlySet<string> = new Set();
+
+/**
  * Whether a row carries a decision that could be confirmed right now.
  *
  * ⚠️ A ROW THE MATCH HAS NOT RUN ON IS NEVER CONFIRMABLE, whatever decision is attached to it.
@@ -2093,14 +2130,15 @@ export const isConfirmable = (
      * `receipt` branches have refused a debit since B6/B7 -- this is the mirror they were always
      * half of, and it is what makes `availableDecisionTargets` a partition rather than a hint.
      *
-     * ⚠️ `linkTargets` ALONE, NOT `target && linkTargets` (Task 7). Each entry is a `recordKey`
-     * carrying its own doctype, so a non-empty set is a complete decision by itself -- unlike the
-     * single-record shape this replaced, `target` is no longer load-bearing for this branch and is
-     * left whatever a "create something new" card may have set it to (the picker clears it on every
-     * tick, see `RecordPicker`).
+     * ⚠️ EITHER SHAPE, THROUGH `decisionLinkKeys` (issue #1240) -- the Normal picker's
+     * `target` + `linkTo`, or the Split picker's `linkTargets`. See that function for why this
+     * reader must not be narrowed to one of them: it runs on the BULK confirm path too, which has
+     * no dialog and therefore no mode. On the `linkTargets` side each entry is a `recordKey`
+     * carrying its own doctype, so `target` is not load-bearing there and is left whatever a
+     * "create something new" card may have set it to (the fan-out picker clears it on every tick).
      */
     if (isCreditRow(row)) return false;
-    return Boolean(decision.linkTargets && decision.linkTargets.size > 0);
+    return decisionLinkKeys(decision).size > 0;
 };
 
 /**
@@ -2388,18 +2426,20 @@ export const decisionOrigin = (
 ): DecisionOrigin => {
     if (!decision) return "none";
     const suggestion = suggestedDecision(row);
-    if (suggestion && sameLinkTargets(suggestion.linkTargets, decision.linkTargets)) {
+    // ⚠️ COMPARED AS NORMALISED KEY SETS (issue #1240), never field-against-field. The suggestion is
+    // always banked in `linkTargets`, but a person picking that same record in Normal mode writes
+    // `linkTo` -- and a field-against-field compare would then read a word-for-word agreement as
+    // "chosen". `decisionLinkKeys` folds both shapes onto the same `recordKey`s first.
+    if (suggestion && sameLinkKeys(decisionLinkKeys(suggestion), decisionLinkKeys(decision))) {
         return "suggested";
     }
     return "chosen";
 };
 
-/** Set equality for two `linkTargets`. Undefined is never equal to anything, including itself. */
-const sameLinkTargets = (
-    a: ReadonlySet<string> | undefined,
-    b: ReadonlySet<string> | undefined
-): boolean => {
-    if (!a || !b) return false;
+/** Set equality for two normalised key sets. An empty set is never equal to anything, including
+ *  another empty one -- "nobody picked" is not agreement, and the suggestion is never empty. */
+const sameLinkKeys = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean => {
+    if (a.size === 0 || b.size === 0) return false;
     if (a.size !== b.size) return false;
     for (const key of a) if (!b.has(key)) return false;
     return true;

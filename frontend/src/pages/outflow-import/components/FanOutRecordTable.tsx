@@ -1,4 +1,4 @@
-// src/pages/outflow-import/components/SettleableRecordTable.tsx
+// src/pages/outflow-import/components/FanOutRecordTable.tsx
 
 import { AlertTriangle, Check } from "lucide-react";
 
@@ -28,9 +28,21 @@ import { RecordColumnHeader } from "./RecordColumnHeader";
 
 interface Props {
     records: SettleableRecord[];
-    /** The chosen record's `recordKey`, or `""` for none chosen. */
-    selected: string;
-    onSelect: (key: string) => void;
+    /** The ticked records' `recordKey`s (ADR-0020 fan-out; empty for none ticked). */
+    selected: ReadonlySet<string>;
+    onToggle: (key: string) => void;
+    /**
+     * `recordKey`s that would make `allocate_row` refuse the whole call if ticked (review fix 4)
+     * -- a non-payment record joining what would become a multi-record allocation. WITHHELD, not
+     * offered-and-refused: the checkbox renders disabled with `disabledReason` as its title, the
+     * same discipline the dialog's `Reverse` button already holds for a non-payment leg.
+     *
+     * ⚠️ NEVER INCLUDES AN ALREADY-TICKED KEY -- the caller (`RecordPicker`) never disables a row
+     * the reviewer has already chosen, only a fresh addition that would break the call.
+     */
+    disabledKeys?: ReadonlySet<string>;
+    /** The tooltip on a disabled row's checkbox. Ignored when `disabledKeys` is empty. */
+    disabledReason?: string;
     /** The bank row's amount, for the per-row amount verdict. */
     bankAmount: number;
     /**
@@ -55,7 +67,7 @@ interface Props {
 }
 
 /**
- * The approved records this transfer could have paid, as a table with a radio per row.
+ * The approved records this transfer could have paid, as a table with a checkbox per row.
  *
  * ⚠️ IT REPLACED A DROPDOWN, AND THE SHAPE IS THE POINT (owner, 2026-08-07). Each option used to
  * carry type, id, vendor, project, document, date, amount and a tolerance mark on two wrapped
@@ -72,21 +84,29 @@ interface Props {
  * payment needs to SEE the one that differs by 2,000 in order to learn that it cannot be settled
  * here; filtering it out looks like the record does not exist.
  *
- * ⚠️ IT IS A REAL `<input type="radio">` IN A REAL RADIOGROUP. Arrow-key navigation between options,
- * the roving tab stop and the announced group name all come free from the platform and are
- * fiddly to rebuild on divs -- and this is the control that decides where money is written.
+ * ⚠️ RADIO -> CHECKBOX AT TASK 7 (ADR-0020 fan-out). One bank transfer may now settle several
+ * approved Project Payments, so the picker had to become a multi-select. Each `<input
+ * type="checkbox">` is independently toggled through `onToggle`; there is no shared `name` because
+ * checkboxes, unlike radios, do not form a browser-native group. The row stays the whole hit target
+ * and the checkbox stays the thing that LOOKS ticked, exactly as the radio did.
  *
- * ⚠️ ITS MULTI-SELECT TWIN IS `FanOutRecordTable`, AND THE DUPLICATION IS SANCTIONED -- DO NOT
- * CONSOLIDATE THEM (owner ruling, ADR-0020 B3 / issue #1240). Task 7 converted THIS table to
- * checkboxes in place, which left the settle dialog unable to offer the ordinary one-record settle
- * at all; the conversion was moved to its own file and this one restored. This is the picker for the
- * dialog's **Normal** mode -- one record, one settle, all three ledgers. See `FanOutRecordTable`'s
- * own note for why merging them behind a `multiple` flag is the wrong shape.
+ * ⚠️ IT DELIBERATELY DUPLICATES `SettleableRecordTable` -- DO NOT CONSOLIDATE THEM (owner ruling,
+ * ADR-0020 B3 / issue #1240; the same ruling `GridColumnFilter` carries against
+ * `RateMasterDataViewer`'s `ColumnFilter`). Task 7 had CONVERTED the single-select table in place,
+ * which left the settle dialog with no way to offer the ordinary one-record settle at all. The two
+ * are now separate components for the two MODES the dialog is gaining -- Normal picks one record
+ * with a radio, Split ticks several with checkboxes -- and they are one radio-vs-checkbox change
+ * apart on purpose. Merging them behind a `multiple` flag would put a control that decides where
+ * money is written behind a boolean, and would re-couple two things that are free to diverge: the
+ * fan-out side is payments-only, ranks against a REMAINDER rather than the transfer, and withholds
+ * rows its endpoint would refuse. None of that belongs in the ordinary settle.
  */
-export const SettleableRecordTable = ({
+export const FanOutRecordTable = ({
     records,
     selected,
-    onSelect,
+    onToggle,
+    disabledKeys,
+    disabledReason,
     bankAmount,
     matcherCandidates,
     sort,
@@ -120,8 +140,8 @@ export const SettleableRecordTable = ({
     <div className="max-h-[min(420px,38vh)] overflow-y-auto rounded-md border">
         <table className="w-full table-fixed border-collapse text-sm">
             <colgroup>
-                {/* The radio column, then one per model column -- so the header cells and the body
-                    cells cannot drift apart. */}
+                {/* The checkbox column, then one per model column -- so the header cells and the
+                    body cells cannot drift apart. */}
                 <col style={{ width: "40px" }} />
                 {RECORD_COLUMNS.map((column) => (
                     <col key={column.id} style={{ width: column.width }} />
@@ -165,13 +185,15 @@ export const SettleableRecordTable = ({
                     ))}
                 </tr>
             </thead>
-            <tbody role="radiogroup" aria-label="Approved records this transfer could have paid">
+            <tbody role="group" aria-label="Approved records to allocate">
                 {records.map((record) => (
                     <RecordRow
                         key={recordKey(record)}
                         record={record}
-                        chosen={recordKey(record) === selected}
-                        onSelect={onSelect}
+                        chosen={selected.has(recordKey(record))}
+                        onToggle={onToggle}
+                        disabled={Boolean(disabledKeys?.has(recordKey(record)))}
+                        disabledReason={disabledReason}
                         bankAmount={bankAmount}
                         // Computed here rather than in the row so the rule lives in ONE pure,
                         // unit-tested place — see `reasonCaption` on why it goes silent under a sort.
@@ -234,14 +256,20 @@ const filterSpecFor = (
 const RecordRow = ({
     record,
     chosen,
-    onSelect,
+    onToggle,
+    disabled,
+    disabledReason,
     bankAmount,
     reason,
     matched,
 }: {
     record: SettleableRecord;
     chosen: boolean;
-    onSelect: (key: string) => void;
+    onToggle: (key: string) => void;
+    /** Review fix 4 -- ticking this would make `allocate_row` refuse the whole call. Never true
+     *  for an already-`chosen` row; see `FanOutRecordTable`'s `disabledKeys`. */
+    disabled: boolean;
+    disabledReason?: string;
     bankAmount: number;
     /** Why this record ranks here, or `""` for nothing to say. See `reasonCaption`. */
     reason: string;
@@ -256,7 +284,7 @@ const RecordRow = ({
     // sequence number: it names nothing a reviewer holding a bank statement recognises. The order
     // the payment is against, and the type an expense was booked under, are what the statement line
     // can actually be compared to. The id has NOT been thrown away -- it is the cell's `title` and
-    // the radio's `aria-label`, and `matchesText` still searches it, so typing an id still finds
+    // the checkbox's `aria-label`, and `matchesText` still searches it, so typing an id still finds
     // its row; it is one hover from view rather than in view.
     const isPayment = record.target_doctype === "Project Payments";
     const against = (record.document_name ?? "").trim();
@@ -281,26 +309,39 @@ const RecordRow = ({
 
     return (
         <tr
-            // The whole row is the hit target -- a 14px radio is not. `cursor-pointer` and the hover
-            // tint say so; the radio stays as the thing that LOOKS chosen.
-            className={`cursor-pointer border-b last:border-b-0 transition-colors focus-within:bg-primary/10 ${
-                chosen ? "bg-primary/5" : "hover:bg-muted/50"
-            }`}
-            onClick={() => onSelect(key)}
+            // The whole row is the hit target -- a 14px checkbox is not. `cursor-pointer` and the
+            // hover tint say so; the checkbox stays as the thing that LOOKS ticked.
+            //
+            // ⚠️ REVIEW FIX 4 -- A DISABLED ROW IS WITHHELD, NOT MERELY UNCLICKABLE: it dims and
+            // its cursor says so, and its `title` (below) carries the reason, so the row does not
+            // read as broken.
+            className={`border-b last:border-b-0 transition-colors ${
+                disabled
+                    ? "cursor-not-allowed opacity-50"
+                    : "cursor-pointer focus-within:bg-primary/10"
+            } ${chosen ? "bg-primary/5" : disabled ? "" : "hover:bg-muted/50"}`}
+            onClick={() => !disabled && onToggle(key)}
+            title={disabled ? disabledReason : undefined}
         >
             <td className="px-2 py-2 align-top">
                 <input
-                    type="radio"
-                    // One group per dialog. Without a shared name the browser treats each input as
-                    // its own group and arrow keys stop moving between them.
-                    name="settleable-record"
-                    className="mt-0.5 h-3.5 w-3.5 cursor-pointer accent-primary"
-                    value={key}
+                    type="checkbox"
+                    className="mt-0.5 h-3.5 w-3.5 accent-primary disabled:cursor-not-allowed"
                     checked={chosen}
-                    onChange={() => onSelect(key)}
-                    aria-label={`${ledgerLabel(record.target_doctype)} ${record.name}${
+                    disabled={disabled}
+                    onChange={() => onToggle(key)}
+                    // ⚠️ A CHECKBOX'S OWN CLICK MUST NOT ALSO REACH THE ROW'S `onClick` (unlike the
+                    // radio this replaced, where a repeated `onSelect(key)` was idempotent). Without
+                    // this a direct click on the box fires both handlers -- the row's click toggles
+                    // it one way, the box's own change toggles it back -- and the box visibly does
+                    // nothing.
+                    onClick={(e) => e.stopPropagation()}
+                    title={disabled ? disabledReason : undefined}
+                    aria-label={`Allocate ${ledgerLabel(record.target_doctype)} ${record.name}${
                         record.vendor_name ? `, ${record.vendor_name}` : ""
-                    }, ${formatToRoundedIndianRupee(record.amount)}`}
+                    }, ${formatToRoundedIndianRupee(record.amount)}${
+                        disabled && disabledReason ? ` -- disabled: ${disabledReason}` : ""
+                    }`}
                 />
             </td>
 
