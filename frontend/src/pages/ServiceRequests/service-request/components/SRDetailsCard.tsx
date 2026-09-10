@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Separator } from "@/components/ui/separator";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -16,6 +17,7 @@ interface SRDetailsCardProps {
   vendor: Vendors | undefined;
   gstEnabled: boolean;
   getTotal: number;
+  /** Sum of this order's Paid payments. NET of tax withheld on an SR — see `tdsPaid`. */
   amountPaid: number;
   hideActions?: boolean;
   hideAmounts?: boolean;
@@ -102,11 +104,26 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
     }
   };
 
-  // Calculate amount pending (total - paid)
+  // What actually left the order: paid to the vendor PLUS tax withheld on their behalf.
+  // On an SR the payment amount is stored net, so `amountPaid` alone understates what has been
+  // settled against the order by exactly the tax.
+  //
+  // `total_tds` is read straight off the order rather than recomputed here: the server writes it
+  // in the SAME pass as `amount_paid`, so the two always describe the same set of payments. A
+  // Procurement Order has no such field and reads 0, leaving that screen untouched.
+  const tdsPaid = Number(orderData?.total_tds) || 0;
+  const grossPaid = useMemo(() => amountPaid + tdsPaid, [amountPaid, tdsPaid]);
+
+  // Calculate amount pending (total - gross paid)
+  //
+  // ⚠️ IT SUBTRACTS THE TAX TOO, mirroring the server's `amount_due`
+  // (`total_amount - amount_paid - total_tds`). Subtracting only `amountPaid` would report the
+  // withheld tax as still payable to the vendor, on every settled order, forever - and nothing
+  // could ever pay it off, because the vendor is not owed it.
   const calculatedAmountPending = useMemo(() => {
     const totalWithGst = gstEnabled ? getTotal * 1.18 : getTotal;
-    return Math.max(0, Math.floor(totalWithGst) - amountPaid);
-  }, [getTotal, gstEnabled, amountPaid]);
+    return Math.max(0, Math.floor(totalWithGst) - grossPaid);
+  }, [getTotal, gstEnabled, grossPaid]);
 
   return (
     <Card className="rounded-sm shadow-md overflow-x-auto">
@@ -202,12 +219,40 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
                 </p>
               </div>
 
-              {/* Amount Paid */}
+              {/* Amount Paid — gross: what left the order, tax included */}
               <div className="space-y-0.5">
                 <p className="text-xs text-gray-500">Amount Paid</p>
-                <p className="text-sm font-medium text-green-600">
-                  {formatToIndianRupee(amountPaid || 0)}
-                </p>
+                <HoverCard openDelay={100}>
+                  <HoverCardTrigger asChild>
+                    <p className="text-sm font-medium text-green-600 underline decoration-dotted underline-offset-4 cursor-help">
+                      {formatToIndianRupee(grossPaid)}
+                    </p>
+                  </HoverCardTrigger>
+                  <HoverCardContent className="w-64" align="start">
+                    <p className="text-xs font-semibold mb-2">Amount Paid</p>
+                    <div className="space-y-1 text-xs">
+                      <div className="flex justify-between gap-4">
+                        <span className="text-gray-500">Paid to vendor</span>
+                        <span className="font-medium tabular-nums">
+                          {formatToIndianRupee(amountPaid || 0)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-gray-500">TDS withheld</span>
+                        <span className="font-medium tabular-nums">
+                          {formatToIndianRupee(tdsPaid)}
+                        </span>
+                      </div>
+                      <Separator className="my-1" />
+                      <div className="flex justify-between gap-4">
+                        <span className="font-semibold">Total</span>
+                        <span className="font-semibold tabular-nums text-green-600">
+                          {formatToIndianRupee(grossPaid)}
+                        </span>
+                      </div>
+                    </div>
+                  </HoverCardContent>
+                </HoverCard>
               </div>
 
               {/* Amount Payable */}

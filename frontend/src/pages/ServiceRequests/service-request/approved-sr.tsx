@@ -31,6 +31,7 @@ import { toast } from "@/components/ui/use-toast";
 import SITEURL from "@/constants/siteURL";
 import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog";
+import { PaymentTDSDeduction } from "@/types/NirmaanStack/PaymentTDSDeduction";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -213,7 +214,22 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         limit: 1000,
     }, id ? `VendorInvoices-SR-${id}` : null)
 
+    // Tax withheld from this order's payments. Keyed by payment so a row can show its own
+    // deduction and the summary can restrict itself to the PAID ones.
+    const { data: tdsDeductions } = useFrappeGetDocList<PaymentTDSDeduction>("Payment TDS Deduction", {
+        fields: ["name", "project_payment", "gross_amount", "tds_percentage", "tds_amount", "deducted_on"],
+        filters: [["document_name", "=", id]],
+        limit: 100,
+    }, id ? `PaymentTDSDeduction-SR-${id}` : null)
+
+    const tdsByPayment = useMemo(() => {
+        const map: Record<string, PaymentTDSDeduction> = {};
+        (tdsDeductions || []).forEach((d) => { map[d.project_payment] = d; });
+        return map;
+    }, [tdsDeductions]);
+
     const getAmountPaid = useMemo(() => getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid") || []), [projectPayments]);
+
 
     const amountPending = useMemo(() => getTotalAmountPaid((projectPayments || []).filter(i => ["Requested", "CEO Pending", "Approved"].includes(i?.status))), [projectPayments]);
 
@@ -699,9 +715,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                             <TableHeader>
                                 <TableRow>
                                     <TableHead className="text-black font-bold">Amount</TableHead>
-                                    {/* {service_request?.gst === "true" && (
-                                    <TableHead className="text-black font-bold">TDS Amt</TableHead>
-                                )} */}
+                                    <TableHead className="text-black font-bold">TDS</TableHead>
                                     <TableHead className="text-black font-bold">UTR No.</TableHead>
                                     <TableHead className="text-black font-bold">Date</TableHead>
                                     <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
@@ -714,12 +728,13 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                             <TableBody>
                                 {(projectPayments || []).length > 0 ? (
                                     projectPayments?.map((payment) => {
+                                        const tds = tdsByPayment[payment?.name];
                                         return (
                                             <TableRow key={payment?.name}>
                                                 <TableCell className="font-semibold">{formatToRoundedIndianRupee(payment?.amount)}</TableCell>
-                                                {/* {service_request?.gst === "true" && (
-                                                     <TableCell className="font-semibold">{formatToIndianRupee(payment?.tds)}</TableCell>
-                                                 )} */}
+                                                <TableCell className="font-semibold">
+                                                    {tds ? formatToRoundedIndianRupee(tds.tds_amount) : "--"}
+                                                </TableCell>
                                                 {(payment?.utr && payment?.payment_attachment) ? (
                                                     <TableCell className="font-semibold text-blue-500 underline">
                                                         <a href={`${SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
@@ -763,6 +778,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                     <DeletePaymentDialog isOpen={!!deleteFlagged} onOpenChange={() => setDeleteFlagged(null)} paymentToDelete={deleteFlagged} onDeleteSuccess={() => projectPaymentsMutate()} />
                                                 </TableCell>
                                             </TableRow>
+
                                         )
                                     })
                                 ) : (
