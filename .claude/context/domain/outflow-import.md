@@ -3334,3 +3334,168 @@ binary is at `/home/frappe/.local/bin/bench`, not under `env/bin`. A single doct
 
 `residence_check.py`: B1/B2/B3 hold at baseline. Its two ✗ lines are **F2 and F5, both frontend
 rules**, and this slice's diff contains **zero frontend files** — pre-existing branch drift.
+
+---
+
+## Slice 1 (2026-09-11) — the mode radio: routing reads INTENT, not tick count
+
+**Issue #1241** (parent #1236, ADR-0020 Amendment B § B3). This is the owner's actual blocker: a
+reviewer could not tick one approved payment worth less than the bank transfer, confirm it as the
+first leg, and come back in a later sitting for the next. The dialog chose its endpoint from the
+NUMBER of ticked records, so a single tick on an untouched row always went down `settle_row`, whose
+guard demands the record equal the WHOLE transfer.
+
+### The routing rule now takes a mode, and the old pins were INVERTED, not deleted
+
+`allocationView.chooseSettleEndpoint` keeps its single home and gains `mode?: SettleMode`:
+
+```ts
+if (ticks <= 0) return null;
+if (effectiveSettleMode(mode, rowStatus) === "split") return "allocate_row";
+if (ticks > 1) return "allocate_row";   // a CAPACITY rule now, see below
+return "settle_row";
+```
+
+- **Split always routes through `allocate_row`, including a single tick that equals the whole
+  transfer.** The function cannot see an amount at all, which is what makes an amount-based shortcut
+  impossible rather than merely discouraged. Reversal operates on LEGS and `settle_row` writes none,
+  so a shortcut would make two identical-looking actions behave differently on undo with nothing on
+  screen saying which one you got.
+- ⚠️ **The `ticks > 1` clause is NOT the old tick-count rule surviving.** It is a CAPACITY rule:
+  `settle_row` takes ONE target, so routing a multi-pick there would settle the first record and
+  silently DROP the rest. Normal's picker is single-select by construction, so the shape is
+  unreachable from the product; the clause exists so that a writer which ever produced it lands on
+  the endpoint that can EXPRESS it and is refused loudly, rather than half-written in silence.
+- ⚠️ **An ABSENT mode means Normal, and that default is load-bearing.** The BULK "confirm all
+  matched" path has no dialog and therefore no radio; it calls `settleOne(row, decision)` with no
+  mode and keeps taking `settle_row`'s stricter path. **Permanently** — do not give the bulk caller
+  a mode to pass.
+- ⚠️ **The old `describe("chooseSettleEndpoint")` block asserted the rule this replaces. It was
+  RETIRED BY INVERSION** (`allocationView.test.ts`), per the repo's standing rule: each case now
+  states the NEW truth about the very inputs the old rule got wrong, so a revert to counting ticks
+  fails loudly instead of passing on a suite that no longer mentions the question. Two cases carry an
+  `INVERTED:` prefix and the retired clause carries its own explanatory case. **A deleted pin checks
+  nothing.**
+
+### The status clause survives as a CONSEQUENCE, not a rule of its own
+
+`settleModeLocked(rowStatus)` is `rowStatus === ROW_PARTIALLY_ALLOCATED`; `effectiveSettleMode`
+forces `"split"` there. So the old "a single tick on a `Partially Allocated` row goes to
+`allocate_row`" behaviour is byte-identical — including on the bulk path, which passes no mode —
+but it now falls out of the mode rule rather than sitting beside it.
+
+**On such a row the radio is LOCKED, not hidden**, with the reason beside it ("This transfer already
+has money allocated against it… Reverse every allocation above to get the choice back"). Only the
+OTHER option is disabled: greying the chosen one too would grey out the answer the reviewer needs to
+read. The lock **unlocks for free after a full reversal** — every gate keys off `row_status`, and
+`_refresh_row_allocation` re-derives it back to `Matched`/`Mismatched`. Verified in code, in
+`test_reversing_every_leg_returns_the_row_to_an_open_status`, and on live row `OFR-26-002185`.
+
+### Where the mode lives, and why
+
+**On the PAGE (`OutflowMasterPage.settleMode`), not in the dialog.** `settleOne` is on the page, so
+the mode must be readable at confirm time; a copy in the dialog would have to be shipped up on every
+change and trusted to agree at the one moment it decides where money is written.
+
+- **Reset rides the OPEN** (`openDecisionRow`), not an effect on `openRow`: "opening a row" and "the
+  mode it opens on" are then one action and cannot come apart. `closeDecisionRow` resets too, but
+  that is belt-and-braces — every route back in goes through the open. **Mode is never remembered
+  between rows**; a sticky mode is how a transfer gets split by accident.
+- **Switching mode CLEARS the pick** (`handleSettleModeChange`), and clears **BOTH** fields. The two
+  modes store the pick in different fields and mean different things by it — one record that settles
+  the whole transfer, versus one leg of several. `decisionLinkKeys` lets a non-empty `linkTargets`
+  win, so a `linkTo` left behind is invisible while ticks exist and speaks again the moment the last
+  one comes off. Same writer contract every other writer of these fields holds.
+- The dialog receives the CHOSEN mode and derives `effectiveMode` / `modeLocked` **once**, handing
+  `effectiveMode` down to `LinkPaymentSection` → `RecordPicker`. The picker must never re-derive it,
+  or the control collecting the pick and the rule routing it could disagree about the endpoint.
+
+### The picker forks on the mode — two components, still not consolidated
+
+`RecordPicker` renders `SettleableRecordTable` (Normal: one `<input type="radio">`, all three
+ledgers) or `FanOutRecordTable` (Split: checkboxes). The duplication stays sanctioned by owner
+ruling — see either file's header.
+
+- **Normal's `onSelect` writes `linkTo` + `target` and CLEARS `linkTargets`.** A seeded decision
+  arrives carrying `linkTargets` (`seedDecisions` writes a singleton set), which
+  `decisionLinkKeys` lets WIN — so a Normal pick that forgot to clear it would settle the machine's
+  old record instead of the person's new one, silently, with the person's choice on screen.
+- **`selectedRecords` now resolves through `decisionLinkKeys`, not `decision.linkTargets`.** Same
+  reason: a seeded suggestion would otherwise be invisible in the Normal table while the footer still
+  counted the row as decided. The prune effect, `disabledKeys` and both tables' `selected` prop all
+  read that one memoised `linkKeys`, so the ticked boxes and the balance bar can never count
+  different things. **`EMPTY_LINK_TARGETS` was deleted** — `decisionLinkKeys` already returns a
+  module-level empty set, so the identity stability is inherited from the one function that had to
+  have it. Do not add a second.
+
+### Split lists payments only — a narrowing, with two sentences
+
+`recordPickerView.splitCandidates(pool)` keeps only `Project Payments`, applied **before** any
+filter, facet or sort runs, so the count line, the facets and the "Showing N of M" arithmetic all
+describe the list the reviewer can act on.
+
+- It **adds no rule** — `allocate_row` throws on the first non-payment target and
+  `tickAllowedForFanOut` already withheld the checkbox. It stops OFFERING what would be refused.
+- **No fallback to the whole pool when it comes back empty.** That would offer the very records the
+  endpoint refuses, on the screen whose job is to stop that.
+- `SPLIT_PAYMENTS_ONLY_NOTE` renders **always in Split**, not only when something was dropped: a
+  reviewer hunting an expense they can SEE in Normal needs the reason at the moment they look for it.
+- `SPLIT_NO_CANDIDATES_NOTE` replaces the Normal empty sentence when the narrowed pool is empty — a
+  silent empty list, or "there are no approved payments or expenses to link to" over a pool that
+  still holds expenses, both read as a broken screen. It NAMES the way out (switch back to Normal).
+- ⚠️ **`disabledKeys` / `tickAllowedForFanOut` are now belt-and-braces and are KEPT ON PURPOSE.**
+  Nothing can fire them while the pool is narrowed. They stay because they mirror a SERVER refusal,
+  not because they decorate the narrowing: if the pool is ever widened again the withholding has to
+  already be in place rather than be remembered.
+- **Filters and sort reset on a mode change**, as they already did on a row change. Split narrows
+  before the facets are computed, so a vendor filter set in Normal can survive into a Split facet
+  list that no longer offers it — an active filter with no chip on screen, exactly the shape that
+  reset exists to prevent.
+
+### ⚠️ Two changes NOT in the ticket that the slice could not ship without
+
+1. **The amount-window detour is gated on Normal mode.** `handleConfirmClick` ran `settleBlocker`
+   whenever exactly one record was ticked. `suggested` is false for any record outside the settle
+   window of the FULL transfer, so **a deliberate first leg would have opened "this record is
+   ₹2,19,000 away from the transfer" instead of being allocated** — acceptance criterion 1
+   unreachable. Task 7 had already exempted a multi-tick fan-out ("governed by the balance bar
+   instead"); Split is that same fan-out at ONE tick, so the exemption follows the MODE, not the
+   count.
+2. **The Confirm label says "Allocate" only when it is going to allocate.** It keyed on `ticks > 0`
+   alone, so a single pick routed to `settle_row` still read `Allocate 1 record`. Survivable while
+   the routing was invisible; with a mode radio directly above it, "Allocate" one line under a chosen
+   "Normal" is a straight contradiction. Normal keeps `Confirm → Paid`, which is also what the
+   endpoint actually does.
+
+### The label must not say "partial", and the ban is MECHANICAL
+
+The same dialog renders `PartialIntentChoice`'s radio labelled **"A part payment"**, belonging to the
+INVERSE feature (one approved payment split across several TRANSFERS). Two radio groups in one dialog
+with near-identical labels and opposite meanings is the worst available outcome. The visible copy
+lives in `allocationView.SETTLE_MODE_LABEL` / `SETTLE_MODE_HINT` and a test in
+`recordPickerView.test.ts` asserts that neither those nor either split note contains
+`part payment` or `partial`. **Do not move the copy inline** — the ban would become a note somebody
+has to remember.
+
+### The radio's placement
+
+Directly ABOVE the picker it governs, BELOW `AlreadyAllocatedSection`, and **gated on
+`canLinkPayment`**. That is "the top of the settle dialog" in the only sense that is true: a CREDIT
+row has no settle picker at all (it is recorded as an inflow or a receipt), so the question there
+would be offering a choice about a control that is not on the screen. It sits below the legs for the
+same reason those sit above the picker — the money already written against the transfer is the
+evidence for why the mode is locked.
+
+### Verification
+
+- `vitest run` — **90 files, 3465 tests, all green** (baseline before the slice: 3454 with one
+  container-timing flake in `POAdjustment/writeOffControl.test.ts`, which passes on a re-run). Eleven
+  new tests: the inverted routing block, `effectiveSettleMode` / `settleModeLocked`, `splitCandidates`
+  and the copy ban.
+- `tsc --noEmit` — **zero errors under `src/pages/outflow-import/`** (the repo carries a large
+  pre-existing backlog elsewhere).
+- ⚠️ **NOT verified in a browser by this slice.** Everything the mode touches that a unit test can
+  see is pinned; everything it touches that a unit test CANNOT see — the radio rendering, the lock,
+  the mode switch clearing a tick, the Normal radio table, and the first-leg-then-second-leg walk
+  itself — is a React semantic in a repo with no DOM environment, by deliberate choice. **Issue
+  #1245 is the browser walk and is where those criteria are actually discharged.**

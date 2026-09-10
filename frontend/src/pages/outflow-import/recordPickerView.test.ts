@@ -2,11 +2,15 @@
 
 import { describe, expect, it } from "vitest";
 
+import { SETTLE_MODE_HINT, SETTLE_MODE_LABEL } from "./allocationView";
 import type { SettleableRecord } from "./outflowTableModel";
 import {
     BLANK_FACET_ID,
     EMPTY_FILTERS,
+    SPLIT_NO_CANDIDATES_NOTE,
+    SPLIT_PAYMENTS_ONLY_NOTE,
     applyRecordFilters,
+    splitCandidates,
     facetValues,
     hasActiveFilters,
     matchesText,
@@ -352,5 +356,67 @@ describe("visibleRecords composes filter then sort", () => {
             dir: "asc",
         });
         expect(shown.map((r) => r.name)).toEqual(["C", "A"]);
+    });
+});
+
+describe("splitCandidates -- Split mode lists approved payments only (ADR-0020 B2/B3)", () => {
+    const pool = [
+        record({ target_doctype: "Project Payments", name: "PAY-1" }),
+        record({ target_doctype: "Project Expenses", name: "PE-1" }),
+        record({ target_doctype: "Project Payments", name: "PAY-2" }),
+        record({ target_doctype: "Non Project Expenses", name: "NPE-1" }),
+    ];
+
+    it("keeps every Project Payment and drops both expense ledgers", () => {
+        // ⚠️ THE RESTRICTION ALREADY EXISTS on `allocate_row` and on `tickAllowedForFanOut`; this
+        // stops OFFERING what would be refused, rather than adding a rule.
+        expect(splitCandidates(pool).map((r) => r.name)).toEqual(["PAY-1", "PAY-2"]);
+    });
+
+    it("keeps the server's ranking order untouched", () => {
+        // The pool arrives ranked by similarity server-side; narrowing must not re-sort it.
+        const ranked = [
+            record({ target_doctype: "Project Payments", name: "B" }),
+            record({ target_doctype: "Project Expenses", name: "X" }),
+            record({ target_doctype: "Project Payments", name: "A" }),
+        ];
+        expect(splitCandidates(ranked).map((r) => r.name)).toEqual(["B", "A"]);
+    });
+
+    it("returns an empty list rather than falling back to the whole pool", () => {
+        // ⚠️ A FALLBACK WOULD BE THE WORST SHAPE: it would offer expense records the endpoint
+        // refuses, on the one screen whose whole job is to stop that. The caller renders
+        // `SPLIT_NO_CANDIDATES_NOTE` instead -- a silent empty list reads as a broken screen.
+        const expensesOnly = [
+            record({ target_doctype: "Project Expenses", name: "PE-1" }),
+            record({ target_doctype: "Non Project Expenses", name: "NPE-1" }),
+        ];
+        expect(splitCandidates(expensesOnly)).toEqual([]);
+        expect(splitCandidates([])).toEqual([]);
+    });
+
+    it("says why the list is narrowed, and what to do when it is empty", () => {
+        // The sentences are pinned because both are the ONLY thing on screen explaining an absence.
+        expect(SPLIT_PAYMENTS_ONLY_NOTE).toMatch(/approved project payments/i);
+        expect(SPLIT_NO_CANDIDATES_NOTE).toMatch(/no approved project payment/i);
+        // ⚠️ THE EMPTY STATE MUST NAME THE WAY OUT, not merely report the absence.
+        expect(SPLIT_NO_CANDIDATES_NOTE).toMatch(/normal/i);
+    });
+
+    it("NEVER calls either mode a 'partial' anything -- the inverse feature owns that word", () => {
+        // ⚠️ THE SAME DIALOG RENDERS A RADIO LABELLED "A part payment", belonging to the INVERSE
+        // feature (one approved payment split across several TRANSFERS). Two radio groups in one
+        // dialog with near-identical labels and opposite meanings is the worst available outcome,
+        // so the ban is mechanical rather than a note somebody has to remember.
+        for (const copy of [
+            SPLIT_PAYMENTS_ONLY_NOTE,
+            SPLIT_NO_CANDIDATES_NOTE,
+            SETTLE_MODE_LABEL.normal,
+            SETTLE_MODE_LABEL.split,
+            SETTLE_MODE_HINT.normal,
+            SETTLE_MODE_HINT.split,
+        ]) {
+            expect(copy.toLowerCase()).not.toMatch(/part payment|partial/);
+        }
     });
 });

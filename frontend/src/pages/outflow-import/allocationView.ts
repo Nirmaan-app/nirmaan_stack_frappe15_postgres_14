@@ -76,25 +76,102 @@ export function allocationBar(
 }
 
 /**
+ * How the reviewer intends to settle this transfer (ADR-0020 B3, issue #1241).
+ *
+ * ⚠️ THE LABELS THE SCREEN USES ARE NOT THESE IDS, AND THE WORD "PARTIAL" IS BANNED FROM THEM. The
+ * same dialog already renders a radio labelled *"A part payment"*, belonging to the INVERSE feature
+ * (one approved payment split across several TRANSFERS). Two radio groups in one dialog with
+ * near-identical labels and opposite meanings is the worst available outcome, so the visible copy
+ * lives in `SETTLE_MODE_LABEL` below and says "Split across several payments".
+ */
+export type SettleMode = "normal" | "split";
+
+/** What a row opens on. ⚠️ Mode is NOT remembered between rows -- a sticky one splits by accident. */
+export const DEFAULT_SETTLE_MODE: SettleMode = "normal";
+
+/**
+ * The visible copy, in one place so the ban above is checkable and the radio and any sentence that
+ * names a mode can never drift apart.
+ */
+export const SETTLE_MODE_LABEL: Record<SettleMode, string> = {
+    normal: "Normal",
+    split: "Split across several payments",
+};
+
+export const SETTLE_MODE_HINT: Record<SettleMode, string> = {
+    normal: "One approved record settles this whole transfer.",
+    split: "Allocate this transfer across several approved payments, over as many sittings as you need.",
+};
+
+/**
+ * Whether the reviewer gets a choice of mode at all.
+ *
+ * ⚠️ A `Partially Allocated` ROW HAS NO CHOICE, AND OFFERING ONE WOULD BE A LIE. `settle_row`'s
+ * `_load_settleable_row` does not admit that status, so the Normal path is refused server-side
+ * before it can write anything.
+ */
+export function settleModeLocked(rowStatus: string): boolean {
+    // ⚠️ BOUND, NOT SPELLED (review fix 5) -- `ROW_PARTIALLY_ALLOCATED` is a pure leaf constant
+    // (`outflowImportStatus.ts`), so importing it here adds no cycle.
+    return rowStatus === ROW_PARTIALLY_ALLOCATED;
+}
+
+/**
+ * The mode that actually governs, after the row's own status has had its say.
+ *
+ * ⚠️ AN ABSENT MODE IS NORMAL, AND THAT IS LOAD-BEARING, NOT A CONVENIENCE DEFAULT. The BULK
+ * "confirm all matched" path has no dialog and therefore no radio; it calls the router with no mode
+ * at all and must keep taking `settle_row`'s stricter, byte-unchanged path. Splitting a transfer is
+ * a judgement call and does not belong in a fifty-row action (ADR-0020 B3, permanently).
+ */
+export function effectiveSettleMode(
+    chosen: SettleMode | undefined,
+    rowStatus: string,
+): SettleMode {
+    if (settleModeLocked(rowStatus)) return "split";
+    return chosen ?? DEFAULT_SETTLE_MODE;
+}
+
+/**
  * Which endpoint a confirm should call.
  *
- * ⚠️ THE SAFETY RULE OF THE WHOLE SLICE. A single tick on an untouched row keeps going to
- * `settle_row`, which is byte-unchanged and carries the STRICTER guard (the record must equal the
- * whole transfer). So every settle that worked before ADR-0020 takes the identical code path, and
- * the weaker remainder-bounded guard is reachable only on the new shape.
+ * ⚠️ ROUTING READS INTENT, NOT TICK COUNT (issue #1241, ADR-0020 B3 -- REPLACING the original rule).
+ * It used to send a single tick on an untouched row to `settle_row` whatever the reviewer meant,
+ * and `settle_row`'s guard demands the record equal the WHOLE transfer -- so the remainder-bounded
+ * guard was reachable only with two ticks or on an already-allocated row, and there was no way at
+ * all to place a first leg smaller than the transfer and come back for the second. That was the
+ * owner's actual blocker. The MODE now decides.
+ *
+ * ⚠️ SPLIT ALWAYS ROUTES THROUGH `allocate_row`, INCLUDING A SINGLE TICK THAT HAPPENS TO EQUAL THE
+ * WHOLE TRANSFER -- and this function cannot see an amount, which is what makes an amount-based
+ * shortcut impossible rather than merely discouraged. Reversal operates on LEGS and `settle_row`
+ * writes none, so a shortcut would make two identical-looking actions behave differently on undo,
+ * with nothing on screen saying which one you got.
+ *
+ * ⚠️ THE SAFETY RULE SURVIVES INTACT ON THE NORMAL SIDE: a single Normal pick keeps taking
+ * `settle_row`, byte-unchanged, with its stricter whole-transfer guard. Every settle that worked
+ * before ADR-0020 -- including every bulk one, which passes no mode -- takes the identical path.
  */
 export function chooseSettleEndpoint({
     ticks,
     rowStatus,
+    mode,
 }: {
     ticks: number;
     rowStatus: string;
+    /** Absent means Normal. See `effectiveSettleMode` for why that default is load-bearing. */
+    mode?: SettleMode;
 }): "settle_row" | "allocate_row" | null {
     if (ticks <= 0) return null;
+    if (effectiveSettleMode(mode, rowStatus) === "split") return "allocate_row";
+    // ⚠️ THIS IS A CAPACITY RULE, NOT THE OLD TICK-COUNT RULE SURVIVING. `settle_row` takes ONE
+    // target, so routing a multi-pick there would settle the first record and silently DROP the
+    // rest -- a money bug. Normal mode's picker is single-select by construction, so this branch is
+    // unreachable from the product; it exists so that a writer that ever produced the shape lands
+    // on the endpoint that can EXPRESS it and is refused loudly, rather than half-written in
+    // silence. Do not fold it back into an intent rule.
     if (ticks > 1) return "allocate_row";
-    // ⚠️ BOUND, NOT SPELLED (review fix 5) -- `ROW_PARTIALLY_ALLOCATED` is a pure leaf constant
-    // (`outflowImportStatus.ts`), so importing it here adds no cycle.
-    return rowStatus === ROW_PARTIALLY_ALLOCATED ? "allocate_row" : "settle_row";
+    return "settle_row";
 }
 
 export function allocateButtonLabel({

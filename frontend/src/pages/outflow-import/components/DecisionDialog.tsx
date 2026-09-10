@@ -31,10 +31,15 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
+    SETTLE_MODE_HINT,
+    SETTLE_MODE_LABEL,
     allocateButtonLabel,
     allocationBar,
     confirmGate,
+    effectiveSettleMode,
+    settleModeLocked,
     type AllocationBar,
+    type SettleMode,
 } from "../allocationView";
 import { ROW_PARTIALLY_ALLOCATED } from "../outflowImportStatus";
 import {
@@ -71,15 +76,19 @@ import {
 } from "../outflowTableModel";
 import {
     EMPTY_FILTERS,
+    SPLIT_NO_CANDIDATES_NOTE,
+    SPLIT_PAYMENTS_ONLY_NOTE,
     facetValues,
     hasActiveFilters,
     nextSortState,
+    splitCandidates,
     visibleRecords,
     type RecordFilters,
     type RecordSort,
     type RecordSortColumn,
 } from "../recordPickerView";
 import { FanOutRecordTable } from "./FanOutRecordTable";
+import { SettleableRecordTable } from "./SettleableRecordTable";
 
 /**
  * One SETTLED leg already on this transfer (Task 7, ADR-0020 fan-out). Read straight off the
@@ -201,6 +210,22 @@ interface Props {
     row: OutflowImportRow | null;
     decision: RowDecision | undefined;
     onChange: (decision: RowDecision) => void;
+    /**
+     * The mode the reviewer has CHOSEN, before the row's own status has had its say (issue #1241).
+     *
+     * ⚠️ IT LIVES ON THE PAGE, NOT IN HERE, AND THAT IS DELIBERATE. The page is what actually calls
+     * `settleOne`, so the mode has to be readable at confirm time; holding it in the dialog would
+     * mean shipping it back up on every change and hoping the two copies agreed at the moment it
+     * mattered. The page also owns "mode is not remembered between rows" -- it resets on the row
+     * that is open, which is state only the page has.
+     */
+    settleMode: SettleMode;
+    /**
+     * ⚠️ IT MUST CLEAR THE TICKS (ADR-0020 B3). The two modes store the pick in DIFFERENT fields
+     * (`linkTo` vs `linkTargets`) and mean different things by it, so carrying one across is how a
+     * transfer gets split by accident. The page does the clearing, because it owns the decision.
+     */
+    onSettleModeChange: (next: SettleMode) => void;
     onConfirm: () => Promise<void> | void;
     /**
      * Settle PART of the picked record, carrying the balance forward (slice PS).
@@ -251,6 +276,8 @@ export const DecisionDialog = ({
     row,
     decision,
     onChange,
+    settleMode,
+    onSettleModeChange,
     onConfirm,
     onPartialSettle,
     onReverseAllocation,
@@ -292,6 +319,17 @@ export const DecisionDialog = ({
     );
 
     const isPartiallyAllocated = row?.row_status === ROW_PARTIALLY_ALLOCATED;
+
+    /**
+     * The mode that actually governs (issue #1241).
+     *
+     * ⚠️ DERIVED ONCE, HERE, AND HANDED DOWN -- never re-derived at a render site and never inside
+     * the picker. `effectiveSettleMode` is the SAME function `chooseSettleEndpoint` applies on the
+     * page's side of the confirm, so the control that collects the pick and the rule that routes it
+     * cannot disagree about which endpoint that pick is heading for.
+     */
+    const modeLocked = settleModeLocked(row?.row_status ?? "");
+    const effectiveMode = effectiveSettleMode(settleMode, row?.row_status ?? "");
 
     /**
      * The legs this transfer has ALREADY settled (Task 7, ADR-0020 fan-out).
@@ -393,10 +431,18 @@ export const DecisionDialog = ({
     const partialShape = SHOW_PARTIAL_SETTLE ? partialOffer(picked, row?.amount ?? 0) : null;
 
     const handleConfirmClick = useCallback(() => {
-        // ⚠️ THE SINGLE-RECORD AMOUNT-WINDOW DETOUR ONLY APPLIES TO A SINGLE TICK (Task 7). It is
-        // about ONE record's amount against the whole transfer; a fan-out tick-set is governed by
-        // the balance bar instead (`bar.over` already disables Confirm at the button, below).
-        if (pickedRecords.length === 1) {
+        // ⚠️ THE AMOUNT-WINDOW DETOUR IS A **NORMAL-MODE** QUESTION, AND GATING IT ON THE MODE IS
+        // WHAT MAKES THE WHOLE SLICE WORK (issue #1241). It asks "does this ONE record equal the
+        // WHOLE transfer, and if not, was the shortfall a part payment or a deduction?" -- which is
+        // exactly the question `settle_row` enforces. Task 7 already exempted a multi-tick fan-out
+        // from it, "governed by the balance bar instead"; Split mode is that same fan-out at ONE
+        // tick, so the exemption has to follow the mode rather than the count.
+        //
+        // ⚠️ WITHOUT THIS GATE THE FEATURE'S FIRST ACCEPTANCE CRITERION IS UNREACHABLE. `suggested`
+        // is false for any record outside the settle window of the FULL transfer, so a deliberate
+        // first leg -- the smaller-than-the-transfer tick this slice exists to allow -- would open
+        // "this record is 2,19,000 away from the transfer" instead of being allocated.
+        if (effectiveMode === "normal" && pickedRecords.length === 1) {
             const block = settleBlocker(picked, row?.amount ?? 0);
             if (block) {
                 setBlocked(block);
@@ -404,7 +450,7 @@ export const DecisionDialog = ({
             }
         }
         onConfirm();
-    }, [picked, pickedRecords.length, row?.amount, onConfirm]);
+    }, [effectiveMode, picked, pickedRecords.length, row?.amount, onConfirm]);
 
     if (!row) return null;
 
@@ -464,8 +510,15 @@ export const DecisionDialog = ({
     // call site, rather than passing `complete: bar.complete && ...`, is deliberate: the intent
     // ("never claim completion on an unknown balance") is legible without having to also read what
     // `bar.complete` means.
+    //
+    // ⚠️ AND IT SAYS "Allocate" ONLY WHEN IT IS GOING TO ALLOCATE (issue #1241). The label used to
+    // key on `ticks > 0` alone, so a single pick that `chooseSettleEndpoint` sends to `settle_row`
+    // still read "Allocate 1 record". That was survivable while the routing was invisible; with an
+    // explicit mode radio directly above it, a button reading "Allocate" one line under a chosen
+    // "Normal" is a straight contradiction. Normal keeps the pre-fan-out wording, which is also the
+    // wording that matches what the endpoint actually does.
     const confirmLabel =
-        isLinkDecision && ticks > 0
+        isLinkDecision && effectiveMode === "split" && ticks > 0
             ? gate.balanceReason === "balance-unknown"
                 ? allocateButtonLabel({ ticks, complete: false })
                 : allocateButtonLabel({ ticks, complete: bar.complete })
@@ -536,10 +589,27 @@ export const DecisionDialog = ({
                         to a vendor may have been raised as a Project Payment or booked as a Project
                         Expense, and the only way to find out was to open each card in turn. With
                         one list there is nothing to choose first, so there is no card to click. */}
+                    {/* ⚠️ THE MODE RADIO SITS DIRECTLY ABOVE THE PICKER IT GOVERNS, AND IS GATED
+                        ON `canLinkPayment` (issue #1241). It is "the top of the settle dialog" in
+                        the only sense that is true: on a CREDIT row there is no settle picker at
+                        all -- the row is recorded as an inflow or a receipt -- so a "how is this
+                        being settled?" question there would be offering a choice about a control
+                        that is not on the screen. It sits BELOW `AlreadyAllocatedSection` for the
+                        same reason that section sits above the picker: the money already written
+                        against this transfer is the evidence for why the mode is locked. */}
+                    {canLinkPayment && (
+                        <SettleModeChoice
+                            mode={effectiveMode}
+                            locked={modeLocked}
+                            onChange={onSettleModeChange}
+                        />
+                    )}
+
                     {canLinkPayment && (
                         <LinkPaymentSection
                             row={row}
                             decision={decision}
+                            mode={effectiveMode}
                             onChange={onChange}
                             // ⚠️ DIMMED BY ANY "create something new" CHOICE, not just the expense
                             // one (B6, widened again at B7). The records stay legible so the
@@ -1020,6 +1090,87 @@ const PartialIntentChoice = ({
     );
 };
 
+/**
+ * How this transfer is going to be settled: one record, or several payments over several sittings.
+ *
+ * ⚠️ THE LABELS MUST NOT SAY "PARTIAL" OR "PART PAYMENT" (ADR-0020 B3, issue #1241). `PartialIntentChoice`
+ * directly above renders a radio labelled *"A part payment"* belonging to the INVERSE feature -- one
+ * approved payment split across several TRANSFERS, the exact opposite of this. Two radio groups in one
+ * dialog with near-identical labels and opposite meanings is the worst available outcome, so the copy
+ * lives in `allocationView.SETTLE_MODE_LABEL` where a test can ban the word mechanically.
+ *
+ * ⚠️ A REAL `<input type="radio">` IN A REAL RADIOGROUP, for the reason both record tables give:
+ * arrow-key navigation, the roving tab stop and the announced group name come free from the platform,
+ * and this control decides which ENDPOINT writes the money.
+ *
+ * ⚠️ LOCKED, NOT HIDDEN, ON A `Partially Allocated` ROW -- the same discipline `PartialIntentChoice`
+ * holds for its disabled option. The reviewer has to be able to see WHY there is no choice; removing
+ * the group would leave a split picker on screen with nothing saying how it got there.
+ */
+const SettleModeChoice = ({
+    mode,
+    locked,
+    onChange,
+}: {
+    mode: SettleMode;
+    locked: boolean;
+    onChange: (next: SettleMode) => void;
+}) => (
+    <div className="rounded-md border border-muted-foreground/20">
+        <div className="px-3 py-2.5">
+            <p className="text-sm font-medium">How is this transfer being settled?</p>
+            {locked && (
+                <p className="mt-0.5 text-xs font-medium text-amber-700">
+                    {/* The reason travels WITH the lock, never separately: a frozen control with no
+                        explanation is the dead-button complaint this dialog exists to answer. */}
+                    This transfer already has money allocated against it, so it can only be settled
+                    by splitting. Reverse every allocation above to get the choice back.
+                </p>
+            )}
+        </div>
+        <div
+            role="radiogroup"
+            aria-label="How is this transfer being settled?"
+            className="space-y-2 border-t px-3 py-3"
+        >
+            {(["normal", "split"] as const).map((option) => {
+                // ⚠️ ONLY THE *OTHER* OPTION IS DISABLED WHILE LOCKED. Disabling the chosen one too
+                // would grey out the very answer the reviewer needs to read.
+                const disabled = locked && option !== mode;
+                return (
+                    <label
+                        key={option}
+                        className={`flex items-start gap-2 rounded-md border px-3 py-2 transition-colors ${
+                            disabled
+                                ? "cursor-not-allowed border-muted-foreground/20 opacity-60"
+                                : mode === option
+                                  ? "cursor-pointer border-primary bg-primary/5"
+                                  : "cursor-pointer border-muted-foreground/20 hover:bg-muted/50"
+                        }`}
+                    >
+                        <input
+                            type="radio"
+                            name="settle-mode"
+                            className="mt-1 h-3.5 w-3.5 accent-primary disabled:cursor-not-allowed"
+                            checked={mode === option}
+                            disabled={disabled}
+                            onChange={() => onChange(option)}
+                        />
+                        <span>
+                            <span className="block text-sm font-medium text-foreground">
+                                {SETTLE_MODE_LABEL[option]}
+                            </span>
+                            <span className="block text-xs text-muted-foreground">
+                                {SETTLE_MODE_HINT[option]}
+                            </span>
+                        </span>
+                    </label>
+                );
+            })}
+        </div>
+    </div>
+);
+
 /*
  * ⚠️ `WhyThisSuggestion` WAS DELETED HERE (slice D2, owner 2026-08-12), and this note is what
  * stops it being rebuilt by someone reading the fetch above and wondering where the second
@@ -1206,6 +1357,7 @@ const ReverseAllocationDialog = ({
 const LinkPaymentSection = ({
     row,
     decision,
+    mode,
     onChange,
     dimmed,
     onSelectedRecordsChange,
@@ -1213,6 +1365,8 @@ const LinkPaymentSection = ({
 }: {
     row: OutflowImportRow;
     decision: RowDecision | undefined;
+    /** The EFFECTIVE settle mode, already resolved by the caller. See `RecordPicker`. */
+    mode: SettleMode;
     onChange: (decision: RowDecision) => void;
     dimmed: boolean;
     // Passed straight through to `RecordPicker`, which is where the candidate list -- and so the
@@ -1225,15 +1379,19 @@ const LinkPaymentSection = ({
         <div className="px-3 py-2.5">
             <p className="text-sm font-medium">Link payment</p>
             <p className="text-xs text-muted-foreground">
-                {/* ⚠️ "one or more", not "the" (Task 7, ADR-0020 fan-out) -- one bank transfer may
-                    now settle several approved Project Payments. */}
-                the approved record(s) this transfer paid — payment or expense
+                {/* ⚠️ THE SUBTITLE FOLLOWS THE MODE (issue #1241). "one or more … payment or
+                    expense" is true of Split and false of Normal in both halves at once, and the
+                    line sits directly above the control whose shape it is describing. */}
+                {mode === "split"
+                    ? "the approved payments this transfer is being split across"
+                    : "the one approved record this transfer paid — payment or expense"}
             </p>
         </div>
         <div className="border-t px-3 py-3">
             <RecordPicker
                 row={row}
                 decision={decision ?? {}}
+                mode={mode}
                 onChange={onChange}
                 onSelectedRecordsChange={onSelectedRecordsChange}
                 matcherCandidates={matcherCandidates}
@@ -1328,12 +1486,20 @@ const TargetOption = ({
 const RecordPicker = ({
     row,
     decision,
+    mode,
     onChange,
     onSelectedRecordsChange,
     matcherCandidates,
 }: {
     row: OutflowImportRow;
     decision: RowDecision;
+    /**
+     * ⚠️ THE EFFECTIVE MODE, ALREADY RESOLVED (issue #1241). The caller applies
+     * `effectiveSettleMode` so a `Partially Allocated` row arrives here as `"split"` -- this
+     * component must never re-derive it, or the picker and the router could disagree about which
+     * endpoint the tick it is collecting is going to reach.
+     */
+    mode: SettleMode;
     onChange: (decision: RowDecision) => void;
     onSelectedRecordsChange: (records: SettleableRecord[]) => void;
     matcherCandidates: ReadonlySet<string>;
@@ -1343,10 +1509,16 @@ const RecordPicker = ({
 
     // A different transfer is a different question -- carrying one row's filters onto the next
     // would hide records for a reason that is no longer on screen.
+    //
+    // ⚠️ AND A DIFFERENT MODE IS A DIFFERENT QUESTION FOR THE SAME REASON (issue #1241). Split
+    // narrows the pool to payments BEFORE the facets are computed, so a vendor filter set in Normal
+    // can survive into a Split facet list that no longer offers it: an active filter with no chip
+    // on screen, which is exactly the "hidden for a reason that is no longer on screen" shape this
+    // reset already exists to prevent.
     useEffect(() => {
         setFilters(EMPTY_FILTERS);
         setSort(null);
-    }, [row.name]);
+    }, [row.name, mode]);
 
     // ⚠️ NO `target_doctype`, WHICH IS WHAT MAKES THIS ONE LIST. A blank one means all three
     // ledgers, merged and RANKED server-side by how much each record looks like this transfer --
@@ -1365,7 +1537,17 @@ const RecordPicker = ({
     // ⚠️ THE SERVER'S ORDER IS THE RANKING, SO IT IS NOT RE-SORTED HERE. This used to call
     // `orderBySuggestion`, which re-sorted by amount and would now silently undo the similarity
     // ranking it arrives in.
-    const pool = useMemo(() => data?.message ?? [], [data]);
+    //
+    // ⚠️ SPLIT MODE NARROWS THE POOL TO PROJECT PAYMENTS **BEFORE** ANY FILTER, FACET OR SORT RUNS
+    // (issue #1241). `allocate_row` -- the only endpoint Split ever calls -- throws on the first
+    // non-payment target, so listing the expense half would be offered-and-refused. Narrowing here
+    // rather than at the table is what keeps the count line, the facets and the "Showing N of M"
+    // arithmetic all describing the list the reviewer can actually act on.
+    const wholePool = useMemo(() => data?.message ?? [], [data]);
+    const pool = useMemo(
+        () => (mode === "split" ? splitCandidates(wholePool) : wholePool),
+        [mode, wholePool]
+    );
     const facets = useMemo(() => facetValues(pool), [pool]);
     const options = useMemo(() => visibleRecords(pool, filters, sort), [pool, filters, sort]);
 
@@ -1380,10 +1562,16 @@ const RecordPicker = ({
     // selection from here, so a filtered-out pick would disable Confirm with nothing on screen
     // explaining why. `recordKey` folds doctype into the identity, so this is a plain Set lookup
     // rather than a bare-name match, which is not unique across three ledgers.
-    const linkTargets = decision.linkTargets;
+    //
+    // ⚠️ READ THROUGH `decisionLinkKeys`, NEVER OFF ONE FIELD (issue #1240/#1241). A decision
+    // arriving here may name its record in `linkTo` (the Normal picker, and nothing else writes it)
+    // or in `linkTargets` (the Split picker AND `seedDecisions`, which seeds a singleton set on a
+    // row that then opens in NORMAL mode). Reading one field would leave a seeded suggestion
+    // invisible in the Normal table while the footer still counted it as decided.
+    const linkKeys = useMemo(() => decisionLinkKeys(decision), [decision]);
     const selectedRecords = useMemo(
-        () => (linkTargets ? pool.filter((o) => linkTargets.has(recordKey(o))) : []),
-        [pool, linkTargets]
+        () => pool.filter((o) => linkKeys.has(recordKey(o))),
+        [pool, linkKeys]
     );
     const hiddenSelectedCount = selectedRecords.filter((r) => !options.includes(r)).length;
 
@@ -1407,7 +1595,7 @@ const RecordPicker = ({
      */
     useEffect(() => {
         if (isLoading || !data) return;
-        if (!linkTargets || linkTargets.size === selectedRecords.length) return;
+        if (linkKeys.size === selectedRecords.length) return;
         // ⚠️ `linkTo: null` HERE TOO, FOR THE SAME REASON `onToggle` CLEARS IT (issue #1240) -- and
         // this is the writer that is easy to forget, because it is not a picker. `decisionLinkKeys`
         // lets a non-empty `linkTargets` win, so a `linkTo` left behind is invisible WHILE ticks
@@ -1419,14 +1607,19 @@ const RecordPicker = ({
             linkTo: null,
             linkTargets: new Set(selectedRecords.map(recordKey)),
         });
-    }, [isLoading, data, linkTargets, selectedRecords, decision, onChange]);
+    }, [isLoading, data, linkKeys, selectedRecords, decision, onChange]);
 
     /**
      * ⚠️ REVIEW FIX 4 -- STATE THE RULE WHERE IT LIVES, BEFORE THE CLICK. `allocate_row` hard-
-     * refuses any fan-out (2+ targets, or a single tick on an already `Partially Allocated` row)
-     * that contains a non-`Project Payments` record; `tickAllowedForFanOut` mirrors that exactly.
-     * Computed over `options` (the VISIBLE rows), not the whole pool -- a hidden row cannot be
-     * disabled on screen anyway.
+     * refuses any fan-out that contains a non-`Project Payments` record; `tickAllowedForFanOut`
+     * mirrors that exactly. Computed over `options` (the VISIBLE rows), not the whole pool -- a
+     * hidden row cannot be disabled on screen anyway.
+     *
+     * ⚠️ SINCE #1241 THIS IS BELT-AND-BRACES, AND IT IS KEPT ON PURPOSE. Split mode is the only
+     * mode that reaches `allocate_row`, and its pool is already narrowed to payments by
+     * `splitCandidates`, so nothing here can fire today. It stays because it is a mirror of a
+     * SERVER refusal, not a decoration on the narrowing: if the pool is ever widened again, the
+     * withholding has to already be in place rather than be remembered.
      */
     const alreadyTickedDoctypes = useMemo(
         () => selectedRecords.map((r) => r.target_doctype),
@@ -1436,13 +1629,13 @@ const RecordPicker = ({
         const disabled = new Set<string>();
         for (const record of options) {
             const key = recordKey(record);
-            if (linkTargets?.has(key)) continue; // never disable an already-ticked row
+            if (linkKeys.has(key)) continue; // never disable an already-ticked row
             if (!tickAllowedForFanOut(record.target_doctype, alreadyTickedDoctypes, row.row_status)) {
                 disabled.add(key);
             }
         }
         return disabled;
-    }, [options, linkTargets, alreadyTickedDoctypes, row.row_status]);
+    }, [options, linkKeys, alreadyTickedDoctypes, row.row_status]);
 
     // ⚠️ REPORTED UPWARD BECAUSE THE FOOTER HAS TO KNOW WHAT WAS PICKED. The candidate list, and
     // therefore the server's `suggested` flag, lives only in here -- the page's `RowDecision`
@@ -1467,6 +1660,18 @@ const RecordPicker = ({
             {candidateLine && (
                 <p className="rounded-md border border-muted-foreground/20 bg-muted/30 px-3 py-2 text-xs">
                     {candidateLine}
+                </p>
+            )}
+
+            {/* ⚠️ ALWAYS ON IN SPLIT MODE, NOT ONLY WHEN SOMETHING WAS DROPPED (issue #1241). A
+                reviewer hunting an expense they can SEE in Normal mode needs the reason for its
+                absence at the moment they look for it -- and on a pool that happens to be all
+                payments the sentence still says what this mode can and cannot do, before they
+                switch away from a row it would have handled. It sits ABOVE the search box because
+                it governs what the search can possibly find. */}
+            {mode === "split" && (
+                <p className="rounded-md border border-muted-foreground/20 bg-muted/30 px-3 py-2 text-xs">
+                    {SPLIT_PAYMENTS_ONLY_NOTE}
                 </p>
             )}
 
@@ -1513,8 +1718,14 @@ const RecordPicker = ({
             {isLoading ? (
                 <p className="text-sm text-muted-foreground">Loading records…</p>
             ) : !pool.length ? (
+                // ⚠️ TWO DIFFERENT ABSENCES, AND CONFLATING THEM IS THE DEFECT (issue #1241). In
+                // Split mode an empty pool usually does NOT mean there is nothing to link to -- it
+                // means the payments-only narrowing emptied a pool that still holds expenses. A
+                // silent empty list, or the Normal sentence, would both read as a broken screen.
                 <p className="text-sm text-muted-foreground">
-                    There are no approved payments or expenses to link to.
+                    {mode === "split"
+                        ? SPLIT_NO_CANDIDATES_NOTE
+                        : "There are no approved payments or expenses to link to."}
                 </p>
             ) : !options.length ? (
                 // ⚠️ "NOTHING MATCHES" IS A DIFFERENT SENTENCE FROM "THERE IS NOTHING", and the
@@ -1535,6 +1746,42 @@ const RecordPicker = ({
                         Clear filters
                     </Button>
                 </div>
+            ) : mode === "normal" ? (
+                /* ⚠️ THE **NORMAL** PICKER: ONE RECORD, ONE `settle_row`, ALL THREE LEDGERS (issue
+                   #1241, restoring what Task 7 had converted away). It is a genuinely separate
+                   component from `FanOutRecordTable` by owner ruling -- see either file's header
+                   for why merging them behind a `multiple` flag is the wrong shape. */
+                <SettleableRecordTable
+                    records={options}
+                    bankAmount={row.amount}
+                    matcherCandidates={matcherCandidates}
+                    sort={sort}
+                    onSort={handleSort}
+                    filters={filters}
+                    facets={facets}
+                    onFiltersChange={setFilters}
+                    // A single-select table shows at most one key. `linkKeys` can only hold more
+                    // than one if a Split tick-set survived a mode switch, which
+                    // `onSettleModeChange` makes impossible -- taking the first is a defensive
+                    // read, not a supported shape.
+                    selected={[...linkKeys][0] ?? ""}
+                    // ⚠️ WRITES `linkTo` AND CLEARS `linkTargets` -- THE OTHER HALF OF THE WRITER
+                    // CONTRACT `onToggle` states below (issue #1240). `decisionLinkKeys` lets a
+                    // non-empty `linkTargets` WIN, and a seeded decision arrives carrying exactly
+                    // that, so a Normal pick that forgot to clear it would settle the machine's old
+                    // record instead of the person's new one -- silently, and with the person's
+                    // choice showing on screen.
+                    onSelect={(value) => {
+                        const parsed = parseRecordKey(value);
+                        if (!parsed) return;
+                        onChange({
+                            ...decision,
+                            target: parsed.target,
+                            linkTo: parsed.name,
+                            linkTargets: new Set(),
+                        });
+                    }}
+                />
             ) : (
                 <FanOutRecordTable
                     records={options}
@@ -1545,7 +1792,10 @@ const RecordPicker = ({
                     filters={filters}
                     facets={facets}
                     onFiltersChange={setFilters}
-                    selected={linkTargets ?? EMPTY_LINK_TARGETS}
+                    // ⚠️ `linkKeys`, NOT `decision.linkTargets` -- one source with what
+                    // `selectedRecords` resolved, so the ticked boxes and the balance bar can never
+                    // count different things.
+                    selected={linkKeys}
                     // ⚠️ REVIEW FIX 4 -- WITHHELD, NOT OFFERED-AND-REFUSED (same discipline
                     // `AlreadyAllocatedSection`'s `Reverse` button already holds). A disabled
                     // checkbox here means ticking it would make `allocate_row` throw.
@@ -1625,9 +1875,14 @@ const RecordPicker = ({
     );
 };
 
-/** A stable empty set -- passed when a decision has no `linkTargets` yet, so the table's own
- *  `selected` prop never mints a fresh identity per render. */
-const EMPTY_LINK_TARGETS: ReadonlySet<string> = new Set();
+/*
+ * ⚠️ `EMPTY_LINK_TARGETS` WAS DELETED HERE (issue #1241), and this note is what stops it being
+ * reintroduced by someone reaching for a `?? new Set()` fallback. It existed so the fan-out table's
+ * `selected` prop never minted a fresh identity per render on a decision with no `linkTargets`.
+ * That prop now reads `linkKeys` -- the memoised `decisionLinkKeys(decision)` -- which returns the
+ * module-level empty set in `outflowTableModel` for a decision with no pick at all, so the same
+ * stability is inherited from the one function that already had to have it. Do not add a second.
+ */
 
 /**
  * What choosing THIS record means, in one line under the table.

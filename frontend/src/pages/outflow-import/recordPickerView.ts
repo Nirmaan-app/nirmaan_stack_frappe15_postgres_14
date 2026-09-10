@@ -22,7 +22,7 @@
  * filter in this codebase follows. Composition is AND across axes, OR within an axis.
  */
 
-import type { SettleableRecord } from "./outflowTableModel";
+import { PROJECT_PAYMENTS_DOCTYPE, type SettleableRecord } from "./outflowTableModel";
 
 /**
  * The sentinel for "this record has no vendor / no project".
@@ -282,6 +282,51 @@ const compareOn = (a: SettleableRecord, b: SettleableRecord, column: RecordSortC
             return 0;
     }
 };
+
+/**
+ * The pool the **Split** picker may offer: approved `Project Payments`, and nothing else.
+ *
+ * ⚠️ IT NARROWS THE POOL BEFORE ANY FILTER OR SORT RUNS, so the count line, the facets and the
+ * "Showing N of M" arithmetic all describe the list the reviewer can actually act on. Narrowing
+ * afterwards would print a total that includes records the mode can never offer.
+ *
+ * ⚠️ IT ADDS NO RULE -- IT STOPS OFFERING ONE THAT ALREADY EXISTS (ADR-0020 B2/B3, issue #1241).
+ * `allocate_row` throws on the first non-payment target in a fan-out, and `tickAllowedForFanOut`
+ * already withholds the checkbox for exactly that case. Split routes EVERY confirm through
+ * `allocate_row`, so on this side the whole expense half of the pool is unusable and listing it
+ * would be offered-and-refused -- the failure shape this dialog exists to prevent.
+ *
+ * ⚠️ NO FALLBACK TO THE WHOLE POOL WHEN IT COMES BACK EMPTY. That would offer the very records the
+ * endpoint refuses, on the one screen whose job is to stop that. The caller renders
+ * `SPLIT_NO_CANDIDATES_NOTE` instead.
+ *
+ * ⚠️ THE SERVER'S ORDER IS THE RANKING (see this file's header), so this filters and never re-sorts.
+ */
+export const splitCandidates = (
+    records: readonly SettleableRecord[]
+): SettleableRecord[] =>
+    records.filter((record) => record.target_doctype === PROJECT_PAYMENTS_DOCTYPE);
+
+/**
+ * Why the Split list is shorter than the Normal one.
+ *
+ * ⚠️ IT IS ALWAYS ON SCREEN IN SPLIT MODE, NOT ONLY WHEN SOMETHING WAS DROPPED. A reviewer hunting
+ * an expense they can SEE in Normal mode needs the reason for its absence at the moment they look
+ * for it -- and on a pool that happens to be all payments, the sentence still tells them what this
+ * mode can do before they switch away from a row it would have handled.
+ */
+export const SPLIT_PAYMENTS_ONLY_NOTE =
+    "Splitting a transfer works on approved Project Payments only, so expenses are not listed here. To settle an expense, switch back to Normal.";
+
+/**
+ * The empty state.
+ *
+ * ⚠️ A SILENT EMPTY LIST READS AS A BROKEN SCREEN (ADR-0020 B3). It has to say WHICH rule emptied
+ * it and NAME the way out, because the control that caused the absence is a radio the reviewer has
+ * already stopped looking at.
+ */
+export const SPLIT_NO_CANDIDATES_NOTE =
+    "There are no approved Project Payments to split this transfer across. If this transfer paid an expense, or one record settles it in full, switch back to Normal.";
 
 /** Filter, then sort. The one composition, so no caller can do the two in the wrong order. */
 export const visibleRecords = (

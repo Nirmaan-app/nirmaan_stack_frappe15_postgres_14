@@ -43,7 +43,12 @@ import {
     OutflowRowsTable,
     TablePagination,
 } from "./components/OutflowRowsTable";
-import { chooseSettleEndpoint, reversalNotice } from "./allocationView";
+import {
+    DEFAULT_SETTLE_MODE,
+    chooseSettleEndpoint,
+    reversalNotice,
+    type SettleMode,
+} from "./allocationView";
 import {
     DEFAULT_TAB,
     OUTFLOW_COLUMNS,
@@ -178,6 +183,26 @@ export const OutflowMasterPage = () => {
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [decisions, setDecisions] = useState<ReadonlyMap<string, RowDecision>>(new Map());
     const [openRow, setOpenRow] = useState<OutflowImportRow | null>(null);
+    /**
+     * How the OPEN row is being settled (issue #1241, ADR-0020 B3).
+     *
+     * ⚠️ IT LIVES HERE RATHER THAN IN THE DIALOG BECAUSE `settleOne` IS HERE. The mode has to be
+     * readable at confirm time, and a copy in the dialog would have to be shipped up on every
+     * change and trusted to agree at the one moment it decides where money is written.
+     *
+     * ⚠️ IT IS NOT REMEMBERED BETWEEN ROWS -- a sticky mode is how a transfer gets split by
+     * accident. The reset rides the OPEN, through `openDecisionRow`, rather than an effect on
+     * `openRow`: "opening a row" and "the mode it opens on" are then one action and cannot come
+     * apart, where an effect can be re-ordered, gated or dropped while both halves still look
+     * present. `closeDecisionRow` resets too, but that is belt-and-braces -- every route back into
+     * the dialog goes through the open.
+     *
+     * ⚠️ AND IT IS THE *CHOSEN* MODE, NOT THE EFFECTIVE ONE. `effectiveSettleMode` -- which forces
+     * Split on a `Partially Allocated` row -- is applied inside `chooseSettleEndpoint` and again by
+     * the dialog for its own rendering, so this never needs to hold a value the reviewer did not
+     * pick.
+     */
+    const [settleMode, setSettleMode] = useState<SettleMode>(DEFAULT_SETTLE_MODE);
     const [busy, setBusy] = useState(false);
     // The server's refusal for a SINGLE-row confirm. Rendered inside the decision dialog, where
     // the click happened -- a toast would be gone before the reviewer looked up from the record
@@ -435,9 +460,65 @@ export const OutflowMasterPage = () => {
         setDecisions((prev) => new Map(prev).set(name, decision));
     }, []);
 
-    /** Settle ONE row. The endpoint is per-row and atomic; a failure here leaves the rest alone. */
+    /**
+     * Open / close the decision dialog, resetting the settle mode with it (issue #1241).
+     *
+     * ⚠️ THE RESET IS PART OF THE OPEN, NOT AN EFFECT WATCHING `openRow`. "Mode is not remembered
+     * between rows" is a rule about an ACTION, and expressing it as one assignment beside the other
+     * is what stops the two coming apart -- an effect can be re-ordered, gated or dropped while
+     * both of its halves still look present.
+     */
+    const openDecisionRow = useCallback((row: OutflowImportRow) => {
+        setOpenRow(row);
+        setSettleMode(DEFAULT_SETTLE_MODE);
+    }, []);
+
+    const closeDecisionRow = useCallback(() => {
+        setOpenRow(null);
+        setSettleMode(DEFAULT_SETTLE_MODE);
+    }, []);
+
+    /**
+     * Switch the settle mode, and CLEAR THE PICK (ADR-0020 B3).
+     *
+     * ⚠️ CLEARING IS NOT TIDINESS. The two modes store the pick in DIFFERENT fields -- Normal in
+     * `linkTo`, Split in `linkTargets` -- and mean different things by it: one record that settles
+     * the whole transfer, versus one leg of several. Carrying a pick across would present the same
+     * record as an answer to a different question, and `decisionLinkKeys` would keep counting the
+     * row as decided while the picker beside it showed nothing ticked.
+     *
+     * ⚠️ BOTH FIELDS ARE CLEARED, NOT JUST THE OUTGOING ONE. `decisionLinkKeys` lets a non-empty
+     * `linkTargets` win, so a `linkTo` left behind is INVISIBLE while ticks exist and speaks again
+     * the moment the last one comes off -- the same writer contract every other writer of these
+     * fields holds.
+     */
+    const handleSettleModeChange = useCallback(
+        (next: SettleMode) => {
+            setSettleMode(next);
+            setConfirmError(null);
+            if (!openRow) return;
+            const current = decisions.get(openRow.name);
+            if (!current) return;
+            setDecision(openRow.name, {
+                ...current,
+                target: undefined,
+                linkTo: null,
+                linkTargets: new Set(),
+            });
+        },
+        [openRow, decisions, setDecision]
+    );
+
+    /**
+     * Settle ONE row. The endpoint is per-row and atomic; a failure here leaves the rest alone.
+     *
+     * ⚠️ `mode` IS OPTIONAL AND ITS ABSENCE MEANS NORMAL -- PERMANENTLY (issue #1241, ADR-0020 B3).
+     * The BULK "confirm all matched" path calls this in a loop with no mode, because it has no
+     * dialog and therefore no radio, and splitting a transfer is a judgement call that does not
+     * belong in a fifty-row action. Do not give the bulk caller a mode to pass.
+     */
     const settleOne = useCallback(
-        async (row: OutflowImportRow, decision: RowDecision) => {
+        async (row: OutflowImportRow, decision: RowDecision, mode?: SettleMode) => {
             if (decision.target === "new") {
                 const form = decision.newExpense!;
                 await callCreate({
@@ -475,11 +556,13 @@ export const OutflowMasterPage = () => {
                     description: form.description || undefined,
                 });
             } else {
-                // ⚠️ THE ROUTING RULE HAS ONE HOME: `chooseSettleEndpoint` (ADR-0020, Task 7).
-                // NEVER an inline `linkTargets.size > 1` condition here -- that is exactly the
-                // duplication that would let a later edit send a single tick down the weaker
-                // `allocate_row` path by accident. A single tick on an untouched row keeps calling
-                // `settle_row`, byte-unchanged, with its stricter whole-transfer amount guard.
+                // ⚠️ THE ROUTING RULE HAS ONE HOME: `chooseSettleEndpoint` (ADR-0020, Task 7;
+                // it reads the MODE since issue #1241). NEVER an inline `mode === "split"` or
+                // `linkTargets.size > 1` condition here -- that is exactly the duplication that
+                // would let a later edit send a pick down the wrong path by accident. A single
+                // NORMAL pick keeps calling `settle_row`, byte-unchanged, with its stricter
+                // whole-transfer amount guard; Split always reaches `allocate_row`, whatever the
+                // amount, so that reversal has legs to act on.
                 //
                 // ⚠️ AND THE PICK IS READ THROUGH `decisionLinkKeys` (issue #1240), never off one
                 // field. A decision reaching here may name its record in `linkTo` (the Normal
@@ -492,6 +575,7 @@ export const OutflowMasterPage = () => {
                 const endpoint = chooseSettleEndpoint({
                     ticks: targets.length,
                     rowStatus: row.row_status,
+                    mode,
                 });
                 if (endpoint === "settle_row") {
                     const [only] = targets;
@@ -571,8 +655,10 @@ export const OutflowMasterPage = () => {
         setBusy(true);
         setConfirmError(null);
         try {
-            await settleOne(openRow, decision);
-            setOpenRow(null);
+            // ⚠️ THE DIALOG'S OWN MODE RIDES THE CONFIRM (issue #1241). This is the ONE call site
+            // that has one; the bulk loop below deliberately passes none.
+            await settleOne(openRow, decision, settleMode);
+            closeDecisionRow();
             await refreshAll();
         } catch (err: any) {
             // ⚠️ THIS `catch` IS THE DEFECT THE OWNER REPORTED, AND ITS ABSENCE WAS THE WHOLE BUG.
@@ -584,7 +670,7 @@ export const OutflowMasterPage = () => {
         } finally {
             setBusy(false);
         }
-    }, [openRow, decisions, settleOne, refreshAll]);
+    }, [openRow, decisions, settleMode, settleOne, closeDecisionRow, refreshAll]);
 
     /**
      * Settle part of an approved payment and carry the balance forward (slice PS).
@@ -629,6 +715,10 @@ export const OutflowMasterPage = () => {
         try {
             for (const row of readyToConfirm) {
                 try {
+                    // ⚠️ NO MODE, PERMANENTLY (issue #1241, ADR-0020 B3). This path has no dialog
+                    // and therefore no radio, so every row here takes `settle_row`'s stricter
+                    // whole-transfer guard -- exactly as it did before the mode existed. Splitting
+                    // a transfer is a judgement call and does not belong in a fifty-row action.
                     await settleOne(row, decisions.get(row.name)!);
                     setSelected((prev) => {
                         const next = new Set(prev);
@@ -1068,7 +1158,8 @@ export const OutflowMasterPage = () => {
                         // screen above a different transfer.
                         onOpenDecision={(row) => {
                             setReverseNotice(null);
-                            setOpenRow(row);
+                            // ⚠️ THE ONE WAY IN, AND IT RESETS THE SETTLE MODE (issue #1241).
+                            openDecisionRow(row);
                         }}
                     />
                     <TablePagination
@@ -1162,6 +1253,8 @@ export const OutflowMasterPage = () => {
                 row={openRow}
                 decision={openRow ? decisions.get(openRow.name) : undefined}
                 onChange={(decision) => openRow && setDecision(openRow.name, decision)}
+                settleMode={settleMode}
+                onSettleModeChange={handleSettleModeChange}
                 onConfirm={handleConfirmOne}
                 onPartialSettle={handlePartialSettle}
                 onReverseAllocation={handleReverseAllocation}
@@ -1170,7 +1263,7 @@ export const OutflowMasterPage = () => {
                 }}
                 onRerun={handleMatch}
                 onClose={() => {
-                    setOpenRow(null);
+                    closeDecisionRow();
                     setConfirmError(null);
                 }}
                 busy={busy}

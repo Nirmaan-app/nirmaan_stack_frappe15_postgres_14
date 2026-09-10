@@ -5,7 +5,9 @@ import {
     allocationBar,
     chooseSettleEndpoint,
     confirmGate,
+    effectiveSettleMode,
     reversalNotice,
+    settleModeLocked,
 } from "./allocationView";
 
 const leg = (amount: number) => ({ target_amount: amount, match_kind: "Settled" });
@@ -57,27 +59,111 @@ describe("allocationBar", () => {
     });
 });
 
-describe("chooseSettleEndpoint", () => {
-    it("uses settle_row for a single tick on an untouched row", () => {
-        // ⚠️ THE SAFETY RULE. Every settle that worked before ADR-0020 keeps the identical path,
-        // including its STRICTER amount guard.
+describe("effectiveSettleMode / settleModeLocked -- a partly-allocated row has no choice", () => {
+    it("leaves an ordinary row on whichever mode the reviewer chose", () => {
+        expect(effectiveSettleMode("normal", "Matched")).toBe("normal");
+        expect(effectiveSettleMode("split", "Matched")).toBe("split");
+        expect(effectiveSettleMode("normal", "Mismatched")).toBe("normal");
+        expect(settleModeLocked("Matched")).toBe(false);
+        expect(settleModeLocked("Mismatched")).toBe(false);
+    });
+
+    it("forces Split on a Partially Allocated row, whatever was chosen", () => {
+        // `settle_row` does not admit that status at all, so offering Normal there is a lie.
+        expect(effectiveSettleMode("normal", "Partially Allocated")).toBe("split");
+        expect(effectiveSettleMode("split", "Partially Allocated")).toBe("split");
+        expect(settleModeLocked("Partially Allocated")).toBe(true);
+    });
+
+    it("treats an absent mode as Normal -- the bulk path has no dialog and therefore no radio", () => {
+        expect(effectiveSettleMode(undefined, "Matched")).toBe("normal");
+    });
+});
+
+/**
+ * ⚠️ THIS BLOCK IS THE INVERSION OF THE TICK-COUNT RULE, NOT A DELETION OF IT (issue #1241,
+ * ADR-0020 B3). It used to assert that ONE tick on an untouched row always meant `settle_row` and
+ * that TWO ticks always meant `allocate_row` -- routing read the tick COUNT, so a reviewer could
+ * not place a first leg smaller than the transfer and come back later for the second. Per this
+ * repo's standing rule the old pins are retired BY INVERSION rather than removed: each case below
+ * states the NEW truth about the very inputs the old rule got wrong, so a revert to counting ticks
+ * fails here loudly instead of passing on a suite that no longer mentions the question.
+ */
+describe("chooseSettleEndpoint -- routing reads the MODE, not the tick count", () => {
+    it("INVERTED: a single tick on an untouched row is allocate_row in Split mode", () => {
+        // The old rule made this `settle_row`, whose guard demands the record equal the WHOLE
+        // transfer -- which is precisely why the first-leg-then-second-leg workflow had no path.
+        expect(
+            chooseSettleEndpoint({ ticks: 1, rowStatus: "Matched", mode: "split" }),
+        ).toBe("allocate_row");
+        expect(
+            chooseSettleEndpoint({ ticks: 1, rowStatus: "Mismatched", mode: "split" }),
+        ).toBe("allocate_row");
+    });
+
+    it("INVERTED: Split routes a full-transfer single tick through allocate_row too", () => {
+        // ⚠️ NO AMOUNT SHORTCUT, DELIBERATELY -- and the rule cannot see an amount at all, which
+        // is what makes that impossible rather than merely unlikely. Reversal operates on LEGS and
+        // `settle_row` writes none, so a shortcut would make two identical-looking actions behave
+        // differently on undo, with nothing on screen saying which one you got.
+        expect(
+            chooseSettleEndpoint({ ticks: 1, rowStatus: "Matched", mode: "split" }),
+        ).toBe("allocate_row");
+    });
+
+    it("keeps Normal on settle_row for a single pick -- every pre-ADR-0020 settle is unchanged", () => {
+        expect(
+            chooseSettleEndpoint({ ticks: 1, rowStatus: "Matched", mode: "normal" }),
+        ).toBe("settle_row");
+        expect(
+            chooseSettleEndpoint({ ticks: 1, rowStatus: "Mismatched", mode: "normal" }),
+        ).toBe("settle_row");
+    });
+
+    it("treats an absent mode as Normal, which is what keeps the BULK path unchanged", () => {
+        // ⚠️ "Confirm all matched" has no dialog and therefore no mode, permanently (ADR-0020 B3).
+        // It calls this with no `mode` at all and must keep taking `settle_row`'s stricter path.
         expect(chooseSettleEndpoint({ ticks: 1, rowStatus: "Matched" })).toBe("settle_row");
         expect(chooseSettleEndpoint({ ticks: 1, rowStatus: "Mismatched" })).toBe("settle_row");
     });
 
-    it("uses allocate_row for two or more ticks", () => {
-        expect(chooseSettleEndpoint({ ticks: 2, rowStatus: "Matched" })).toBe("allocate_row");
-    });
-
-    it("uses allocate_row for a single tick on an already-allocated row", () => {
-        // settle_row would refuse it: _load_settleable_row does not admit this status.
+    it("uses allocate_row for a single tick on an already-allocated row, in EITHER mode", () => {
+        // The mode is FORCED to Split there (`effectiveSettleMode`), so the old status clause
+        // survives as a CONSEQUENCE of the mode rule rather than as a rule of its own --
+        // `settle_row` would refuse it: `_load_settleable_row` does not admit this status.
+        expect(
+            chooseSettleEndpoint({ ticks: 1, rowStatus: "Partially Allocated", mode: "normal" }),
+        ).toBe("allocate_row");
+        expect(
+            chooseSettleEndpoint({ ticks: 1, rowStatus: "Partially Allocated", mode: "split" }),
+        ).toBe("allocate_row");
+        // And the bulk path's no-mode call reaches the same place, for the same reason.
         expect(
             chooseSettleEndpoint({ ticks: 1, rowStatus: "Partially Allocated" }),
         ).toBe("allocate_row");
     });
 
-    it("chooses nothing when nothing is ticked", () => {
-        expect(chooseSettleEndpoint({ ticks: 0, rowStatus: "Matched" })).toBeNull();
+    it("RETIRED AS AN INTENT RULE, KEPT AS A CAPACITY ONE: >1 pick can never be settle_row", () => {
+        // ⚠️ DO NOT READ THIS AS THE OLD TICK-COUNT RULE SURVIVING. `settle_row` takes ONE target,
+        // so routing a multi-pick there would settle the first record and silently DROP the rest --
+        // a money bug. Normal mode is single-select by construction, so this shape is unreachable
+        // from the product; it is pinned so that if some future writer ever produces it, the call
+        // lands on the endpoint that can EXPRESS it and is refused loudly by the server, rather
+        // than being half-written in silence.
+        expect(
+            chooseSettleEndpoint({ ticks: 2, rowStatus: "Matched", mode: "normal" }),
+        ).toBe("allocate_row");
+        expect(
+            chooseSettleEndpoint({ ticks: 2, rowStatus: "Matched", mode: "split" }),
+        ).toBe("allocate_row");
+    });
+
+    it("chooses nothing when nothing is ticked, in either mode", () => {
+        expect(chooseSettleEndpoint({ ticks: 0, rowStatus: "Matched", mode: "normal" })).toBeNull();
+        expect(chooseSettleEndpoint({ ticks: 0, rowStatus: "Matched", mode: "split" })).toBeNull();
+        expect(
+            chooseSettleEndpoint({ ticks: 0, rowStatus: "Partially Allocated", mode: "split" }),
+        ).toBeNull();
     });
 });
 
