@@ -501,20 +501,29 @@ export const DecisionDialog = ({
     // no longer governs the confirm. Reasons and visibility are different questions; only reasons
     // come from `gate`.
     //
-    // ⚠️ #1242 -- THE OVER-TICK GATE IS NARROWED BY THE `endpoint`, AND THE ROUTING RULE IS THE
-    // PREDICATE. `bar.over` on a fresh row is algebraically the condition that opens
-    // `AmountOutsideWindowDialog`, whose only trigger is `handleConfirmClick` -- so disabling the
-    // button here made the part-payment and TDS-deduction detours unreachable from the product.
-    // Passing `chooseSettleEndpoint`'s own answer means there is no second copy of "does allocation
-    // govern here?" to drift: this is the SAME call `OutflowMasterPage` routes the confirm with,
-    // built from the SAME chosen `settleMode` (the helper applies `effectiveSettleMode` itself), so
-    // the gate and the endpoint can never disagree about one pick. Do NOT replace it with an inline
-    // boolean -- that is the untestable shape #1239 removed.
+    // ⚠️ #1242 -- THE OVER-TICK GATE IS NARROWED BY THE `endpoint`. The rule is PASSED, never
+    // re-derived here: `chooseSettleEndpoint` is the one routing home, and `confirmGate` owns the
+    // reasoning for why an inline boolean would be the untestable shape #1239 removed.
+    //
+    // ⚠️ AND IT IS FED THE READER `OutflowMasterPage` ROUTES WITH -- `decisionLinkKeys`, NOT the
+    // `ticks` a few lines up. Those two counts diverge BY DESIGN (see REVIEW FIX 3 above): `ticks`
+    // comes from `pickedRecords`, which drops a ticked key the pool has not resolved yet or no
+    // longer holds, and it must keep doing so, or the button LABEL stops agreeing with the bar
+    // beneath it. But a gate PREDICTING the endpoint has to read what the confirm will actually
+    // read, or an unresolved key leaves it believing "nothing is picked" on a row the page is
+    // about to send to `allocate_row` -- and the over-tick guard would then be skipped on exactly
+    // the row that has already banked more than the transfer. It is also the SAME reader
+    // `isConfirmable` uses, so a `null` endpoint can never outlive a confirmable decision.
+    const routedTicks = decision ? decisionLinkKeys(decision).size : 0;
     const gate = confirmGate({
         busy,
         decisionConfirmable: isConfirmable(row, decision),
         balanceGoverns: isLinkDecision,
-        endpoint: chooseSettleEndpoint({ ticks, rowStatus: row.row_status, mode: settleMode }),
+        endpoint: chooseSettleEndpoint({
+            ticks: routedTicks,
+            rowStatus: row.row_status,
+            mode: settleMode,
+        }),
         legsUnknown,
         over: bar.over,
     });

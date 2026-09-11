@@ -83,6 +83,7 @@ pick one ad-hoc; ask.
 | How a suggestion was chosen | the `suggestion_rule` field + `disambiguate.RULE_LABELS` | invent a label. BLANK means "no suggestion", never "no rule" |
 | Reading approved-and-unpaid across the three ledgers | `services/outflow_import/ledger_read.py` (`LEDGER_SOURCES`, `approved_rows`, `approved_count`, `approved_projects`) | write a fourth query that knows the three ledgers' asymmetries. `review._search_one_ledger` is the OTHER caller and stays separate deliberately |
 | The settlement write | `services/outflow_import/settle.py` + the one orchestrator `api/outflow_import/expenses.settle_row` | write to a ledger from anywhere else in this feature |
+| **Which endpoint a confirm calls** (B3 + B4) | `frontend/.../outflow-import/allocationView.ts` (`chooseSettleEndpoint`, `SettleEndpoint`, `effectiveSettleMode`, `settleModeLocked`) | answer *"is this a whole-transfer settle or an allocation?"* anywhere else. TWO readers since #1242: `OutflowMasterPage` ROUTES the confirm with it, and `confirmGate` PREDICTS that routing to decide whether the balance arithmetic governs the button. Which is why the gate is handed the endpoint itself rather than a boolean derived at the call site -- a second copy would be free to disagree with the router about the very pick it is gating, and the symptom is a live button whose refusal arrives from the server instead. ⚠️ **Both readers must also feed it the SAME TICK COUNT** (`decisionLinkKeys`), not the picker's resolved-record count -- see the #1242 slice below |
 | **May a transfer pay PART of a record, or is the gap a DEDUCTION?** (PS + TD) | `services/outflow_import/partial_settle.py` (`partial_eligibility`, `deduction_eligibility`, `looks_like_tds`, `TDS_BAND_*`, `SERVICE_DOCTYPE`, `INTENT_*`) — pure. `deduction_eligibility` LAYERS on `partial_eligibility`; the shared shape half has one copy | let it reach the MATCHER. `matcher`, `disambiguate`, `status`, `stacks`, `claims` and `candidates` must not import it (pinned by a test). A partial sits OUTSIDE the ±₹5 settle window that gates every other write here; it is safe only because a person opens it on one specific row, and the moment the matcher can reach it that sentence stops being true. The frontend mirror `outflowTableModel.partialOffer` is a CONVENIENCE — the server re-asserts the whole gate under a row lock |
 | **Splitting a Project Payment in two** (PS-1) | `services/payment_split.py` (`split_payment`; `split_and_approve` is a thin wrapper) — SHARED with the CEO partial approval | fork it for the second caller. ONE concept, ONE owner (ADR-0010 B1): two copies of the sum invariant and the PO-term surgery would drift, and the symptom is a PO whose terms stopped adding up, months later, with no way to tell which copy wrote it. **Every parameter defaults to the CEO behaviour**, which is what makes `test_payment_split`'s 26 original tests the proof that generalising it changed nothing |
 | **Did a settlement take the machine's pick?** (Q1) | `services/outflow_import/status.py` (`settlement_origin`, `ORIGIN_*`) — pure | re-derive the accepted/overridden/no-suggestion test. THREE callers share it: the settle path, the summary aggregate, and the backfill patch. ⚠️ It is in `services/` because `api/expenses.py` imports `api/review.py`, so the reverse would be a cycle. ⚠️ NOT `auto_matched`, which means only "a suggestion existed" |
@@ -3672,11 +3673,53 @@ which Split mode allocates and this whole-transfer path is right to refuse. A re
 answered on the screen itself by `AmountOutsideWindowDialog`, which opens when the record is LARGER
 than the transfer. It now reads:
 
-> To settle it as one part of this transfer, choose 'Split across several payments' on the row.
+⚠️ **THE REMEDY IS DIRECTION-AWARE, and it has to be — the throw fires on BOTH directions.** An
+unconditional *"choose Split"* would be a newly-wrong sentence for half its arrivals: Split allocates
+several records against one transfer, so a record LARGER than the transfer would be over-allocated by
+following it. `settleBlockText` already splits the two cases client-side (`bank_paid_more` vs
+`record_larger`); this now matches:
 
-⚠️ **The quoted label MIRRORS `allocationView.SETTLE_MODE_LABEL.split`.** Naming a control the
-reviewer cannot find is the same defect as naming the wrong screen — reword both in one change. The
-EXPENSE mismatch throw (`settle_existing_expense`'s) never cited TDS and is untouched.
+| Direction | What it says |
+|---|---|
+| record **smaller** than the transfer (`amount < bank_amount`) | *To settle it as one part of this transfer, choose 'Split across several payments' on the row.* |
+| record **larger** | *This record is larger than the transfer. Open the row and confirm the pick to see the options for the difference.* |
+
+⚠️ **That second row is NOT redundant with the dialog.** The BULK *"confirm all matched"* button
+reaches this function with no dialog in front of it to intercept the pick, so the sentence has to
+carry the answer itself.
+
+⚠️ **The quoted label MIRRORS `allocationView.SETTLE_MODE_LABEL.split`, AND IS NOW PINNED** —
+`settleModeLabelParity.test.ts` reads `settle.py` as text and asserts the TypeScript label appears in
+it, that the retired TDS sentence does not, and that the record-larger branch still answers. Naming a
+control the reviewer cannot find is the same defect as naming the wrong screen, and a comment saying
+*"reword both together"* is prose where this repo mandates a test (root `CLAUDE.md`'s
+`INFLOW_DOCTYPE` precedent; ADR-0010 F1). Two properties of that pin are load-bearing: its FIRST case
+asserts the file was actually found and is non-trivial (every other case is a substring check, so a
+rotted path would make them all vacuously pass), and the absence check scans the file **with `#`
+comment lines stripped** — `settle.py` deliberately quotes the retired sentence in the comment
+explaining why it went, and the naive check went red on the very change it protects.
+
+⚠️ **HONEST LIMIT: `vitest` is a LOCAL gate, not run by CI** (`frontend/CLAUDE.md`), which runs the
+Python suite only. A bench-side twin would run in CI but would have to read the TypeScript file as
+text in the other direction; one pin, not two, is the rule, and this is the side that could be run
+and proven at the moment it was written.
+
+The EXPENSE mismatch throw (`settle_existing_expense`'s) never cited TDS and is untouched.
+
+### ⚠️ The gate predicts with the reader the PAGE routes with, not the picker's count
+
+`DecisionDialog` holds TWO tick counts and they diverge **by design** (REVIEW FIX 3): `ticks` comes
+from `pickedRecords` — the records the pool actually resolved — and drives the button LABEL and the
+bar, which must agree with each other. `OutflowMasterPage` routes the confirm from
+`decisionLinkKeys(decision)` instead, which counts every ticked KEY including one the pool has not
+resolved yet or no longer holds.
+
+A gate that PREDICTS the endpoint has to read what the confirm will read, so it is fed
+`decisionLinkKeys(decision).size`. Feeding it `ticks` left a real hole: an unresolved key reads as
+`endpoint === null`, the over-tick guard is skipped, and the row it is skipped on is one whose
+ALREADY-BANKED legs exceed the transfer — precisely the row that must not be confirmed. It is also
+the same reader `isConfirmable` uses, so a `null` endpoint can never outlive a confirmable decision,
+and the test suite pins that composition rather than only the bare input.
 
 ### Parked with a ruling (do not rediscover as new)
 
@@ -3693,11 +3736,19 @@ old algebra still holds on `allocate_row` AND that the same formula **with `over
 truth on `settle_row`. **Mutation-checked:** reverting `allocationGoverns` to plain `balanceGoverns`
 fails 5 of the new cases.
 
-`vitest run` (in-container): **90 files, 3481 tests, all green.** `src/pages/outflow-import` alone:
-10 files, 616 tests. `tsc --noEmit`: zero errors in `allocationView` / `DecisionDialog`.
+`vitest run` (in-container): **91 files, 3487 tests, all green.** `src/pages/outflow-import` alone:
+11 files, 622 tests. `tsc --noEmit`: zero errors anywhere under `src/pages/outflow-import/`.
+
+The label parity pin is **mutation-checked too**: rewording `SETTLE_MODE_LABEL.split` to *"Split
+across many payments"* turns it red. It also went red once for a REAL reason during the change — on
+`settle.py`'s own comment quoting the retired TDS sentence — which is the best evidence available
+that it is reading the file it claims to read.
 
 ⚠️ **HONEST LIMIT, stated rather than worked around.** The dialog itself is STRUCTURALLY untestable
 here (no DOM environment, deliberate), so *"Confirm is clickable on a single oversized tick and the
-amount-window dialog opens"* is pinned only at the predicate. The `settle.py` message is
-syntax-checked but not exercised: the installed app is the main checkout, not this worktree, and no
-suite pins that string (grepped). **Both want a live browser walk before this is called done.**
+amount-window dialog opens"* is pinned only at the predicate — the runtime path was traced by hand
+(gate → `disabled` → `handleConfirmClick` → `settleBlocker` → `setBlocked`, with
+`SHOW_PARTIAL_SETTLE = true` and `partialOffer` firing on the same over-tick shape), not observed.
+The `settle.py` change is syntax-checked and its COPY is pinned by the parity test, but the throw is
+not EXERCISED: the installed app is the main checkout, not this worktree, so no bench suite could be
+run against it here. **Both want a live browser walk before this is called done.**

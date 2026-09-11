@@ -162,6 +162,9 @@ export function settlePickerFor(mode: SettleMode): SettlePicker {
     return mode === "normal" ? "radio" : "checkbox";
 }
 
+/** The two endpoints a confirm can reach. `null` beside it always means "no record picked". */
+export type SettleEndpoint = "settle_row" | "allocate_row";
+
 /**
  * Which endpoint a confirm should call.
  *
@@ -182,8 +185,6 @@ export function settlePickerFor(mode: SettleMode): SettlePicker {
  * `settle_row`, byte-unchanged, with its stricter whole-transfer guard. Every settle that worked
  * before ADR-0020 -- including every bulk one, which passes no mode -- takes the identical path.
  */
-export type SettleEndpoint = "settle_row" | "allocate_row";
-
 export function chooseSettleEndpoint({
     ticks,
     rowStatus,
@@ -376,13 +377,9 @@ export function confirmGate({
     balanceGoverns: boolean;
     /**
      * The endpoint this confirm would call -- `chooseSettleEndpoint`'s own return value, passed
-     * straight through.
-     *
-     * ⚠️ THE ROUTING RULE IS THE PREDICATE, NOT A SECOND COPY OF IT (ADR-0020 B4: *"the predicate
-     * already exists and is already single-homed"*). Handing the gate the endpoint rather than a
-     * boolean derived at the call site is what stops a drifting second answer to "does allocation
-     * govern here?" appearing inside the dialog -- and it is what makes the narrowing testable,
-     * which is the whole reason #1239 ran first. `null` (nothing ticked) is not an allocation.
+     * straight through rather than reduced to a boolean at the call site (ADR-0020 B4: *"the
+     * predicate already exists and is already single-homed"*). See the narrowing note on this
+     * function for why. `null` -- no record picked -- is not an allocation.
      */
     endpoint: SettleEndpoint | null;
     legsUnknown: boolean;

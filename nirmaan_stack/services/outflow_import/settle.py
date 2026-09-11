@@ -826,11 +826,23 @@ def _lock_and_assert_payment_settleable(
             # ⚠️ THE QUOTED LABEL MIRRORS `allocationView.SETTLE_MODE_LABEL.split`. Naming a
             # control the reviewer cannot find is the same defect as naming the wrong screen, so if
             # that label is ever reworded, reword it here in the same change.
+            # ⚠️ THE REMEDY IS DIRECTION-AWARE, because the two directions have DIFFERENT
+            # answers and this throw fires on both. `settleBlockText` already splits them
+            # client-side (`bank_paid_more` vs `record_larger`); an unconditional "choose Split"
+            # would send a reviewer holding a record LARGER than the transfer down a path that
+            # over-allocates it. That arrival is real, not theoretical: the BULK "confirm all
+            # matched" button reaches this function with no dialog in front of it to intercept the
+            # pick, which is exactly why the sentence has to carry the answer itself.
+            remedy = (
+                "To settle it as one part of this transfer, choose "
+                "'Split across several payments' on the row."
+                if amount < bank_amount
+                else "This record is larger than the transfer. Open the row and confirm the "
+                "pick to see the options for the difference."
+            )
             frappe.throw(
                 f"{name} is for {amount} but {bank_amount} left the bank, a difference of "
-                f"{abs(amount - bank_amount)}. "
-                f"To settle it as one part of this transfer, choose "
-                f"'Split across several payments' on the row.",
+                f"{abs(amount - bank_amount)}. {remedy}",
                 AmountMismatchError,
                 title="Amounts differ",
             )

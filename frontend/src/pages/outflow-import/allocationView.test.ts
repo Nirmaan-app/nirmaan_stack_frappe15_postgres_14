@@ -452,10 +452,19 @@ describe("confirmGate -- the narrowing (#1242): the gate follows the ENDPOINT, n
         expect(confirmGate({ ...over, endpoint: "allocate_row" }).reason).toBe("over-allocated");
     });
 
-    // ⚠️ NOTHING TICKED IS NOT AN ALLOCATION. `chooseSettleEndpoint` returns `null` there, and an
-    // over-allocation measured against no pick is not a fact about anything.
-    it("cannot report an over-tick when nothing is ticked", () => {
+    // ⚠️ `null` IS "NO RECORD PICKED", AND IT CANNOT REACH THE BUTTON ON ITS OWN.
+    // `chooseSettleEndpoint` returns it when nothing is picked, and an over-allocation measured
+    // against no pick is not a fact about anything. The bare input is still asserted, because a
+    // predicate must be TOTAL -- but the case below is the only shape the screen can produce, since
+    // the dialog feeds the endpoint the SAME `decisionLinkKeys` reader `isConfirmable` uses.
+    it("cannot report an over-tick when no record is picked", () => {
         expect(confirmGate({ ...over, endpoint: null }).reason).toBeNull();
+    });
+
+    it("★ a null endpoint reaches the screen only beside an incomplete decision, which blocks first", () => {
+        expect(confirmGate({ ...over, endpoint: null, decisionConfirmable: false }).reason).toBe(
+            "decision-incomplete"
+        );
     });
 
     // ⚠️ THE RED BAR SURVIVES THE NARROWING (ADR-0020 B4, and #1242's own acceptance criterion).
