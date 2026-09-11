@@ -17,7 +17,10 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt
 
-from nirmaan_stack.api.projects.project_aggregates import get_projects_financial_rollup
+from nirmaan_stack.api.projects.project_aggregates import (
+    get_project_sr_summary_aggregates,
+    get_projects_financial_rollup,
+)
 from nirmaan_stack.api.invoices.get_vendor_invoice_totals import (
     get_invoice_totals_by_document,
 )
@@ -121,6 +124,50 @@ class TestProjectFinancialRollup(FrappeTestCase):
         frappe.db.delete("PO Payment Terms", {"parent": cls.PO})
         frappe.db.delete("Vendor Invoices", {"document_name": cls.PO})
         frappe.db.delete("Procurement Orders", {"project": cls.P})
+        frappe.db.delete("Projects", {"name": cls.P})
+        frappe.db.commit()
+        super().tearDownClass()
+
+
+class TestProjectNotionalGst(FrappeTestCase):
+    """notional_gst = 18% of Approved WOs raised with GST off, on its own project so the
+    existing rollup fixture's numbers stay untouched. `gst` is set explicitly on every row —
+    `new_doc` would otherwise apply the field default ("true")."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.P = "TEST-NGST-" + frappe.generate_hash(length=8)
+        _raw("Projects", name=cls.P, project_name=cls.P)
+        # Counted: Approved + GST off -> (1000 + 500) × 0.18 = 270
+        _raw("Service Requests", project=cls.P, total_amount=1000, gst="false", status="Approved")
+        _raw("Service Requests", project=cls.P, total_amount=500, gst="false", status="Approved")
+        # Excluded: GST on (its total already includes GST)
+        _raw("Service Requests", project=cls.P, total_amount=2000, gst="true", status="Approved")
+        # Excluded: GST off but not Approved
+        _raw("Service Requests", project=cls.P, total_amount=9999, gst="false", status="Vendor Selected")
+        _raw("Service Requests", project=cls.P, total_amount=4000, gst="false", status="Amendment")
+        frappe.db.commit()
+
+    def test_notional_gst_is_18pct_of_approved_gst_off_wos(self):
+        r = get_projects_financial_rollup().get(self.P)
+        self.assertIsNotNone(r, "project missing from rollup")
+        self.assertAlmostEqual(flt(r["notional_gst"]), 270)
+
+    def test_wo_summary_card_notional_gst(self):
+        # The project's WO Summary card total uses the same rule over the same Approved set.
+        r = get_project_sr_summary_aggregates(self.P)
+        self.assertAlmostEqual(flt(r["total_notional_gst"]), 270)
+        self.assertAlmostEqual(flt(r["total_sr_value_inc_gst"]), 3500)
+
+    def test_po_wo_amount_unchanged_by_notional_gst(self):
+        # po_wo_amount still counts every Approved WO, GST on or off: 1000 + 500 + 2000
+        r = get_projects_financial_rollup().get(self.P)
+        self.assertAlmostEqual(flt(r["po_wo_amount"]), 3500)
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("Service Requests", {"project": cls.P})
         frappe.db.delete("Projects", {"name": cls.P})
         frappe.db.commit()
         super().tearDownClass()

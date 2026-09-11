@@ -35,6 +35,8 @@ interface ProjectReportParams { // <--- NEW INTERFACE
 // Define the structure for the calculated fields
 export interface ProjectCalculatedFields {
     totalInvoiced: number;
+    // 18% of the in-range Approved WOs raised with GST off — the GST never charged on them.
+    notionalGst: number;
     totalPoSrInvoiced: number; // This is the combined invoiced amount for POs and SRs
     totalProjectInvoiced: number;
     totalInflow: number;
@@ -369,11 +371,17 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
             // respective doctype hooks and already include GST when applicable.
             // No client-side GST math required.
             let totalInvoiced = 0;
+            let notionalGst = 0;
             relatedPOs.forEach(po => {
                 totalInvoiced += parseNumber(po?.total_amount);
             });
             relatedSRs.forEach(sr => {
                 totalInvoiced += parseNumber(sr?.total_amount);
+                // Notional GST: a GST-off WO's total excludes GST, so 18% of it is the GST
+                // it never charged. Same date-filtered WO set as the PO+SR value above.
+                if (sr?.gst !== "true") {
+                    notionalGst += parseNumber(sr?.total_amount) * 0.18;
+                }
             });
 
             const totalInflow = totalInflowByProject.get(projectId) || 0;
@@ -401,6 +409,7 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
 
             return {
                 totalInvoiced: parseNumber(totalInvoiced),
+                notionalGst: notionalGst,
                 totalPoSrInvoiced: parseNumber(totalPoSrInvoiced), // Add the new value here
                 totalProjectInvoiced: parseNumber(totalProjectInvoiced),
                 totalInflow: parseNumber(totalInflow),

@@ -92,6 +92,15 @@ export const SR_SUMMARY_GST_OPTIONS_MAP = [
   { label: "Yes", value: "true" },
   { label: "No", value: "false" },
 ];
+
+// Notional GST: 18% of a GST-off WO's total — the GST it never charged. A GST-on WO's
+// total already includes GST, so it has none (null -> rendered "--").
+const notionalGstFor = (sr: ServiceRequests): number | null =>
+  sr.gst === "true" ? null : parseNumber(sr.total_amount) * 0.18;
+const formatNotionalGst = (sr: ServiceRequests): string => {
+  const value = notionalGstFor(sr);
+  return value === null ? "--" : formatToRoundedIndianRupee(value);
+};
 // --- Constants ---
 const DOCTYPE = "Service Requests"; // Main Doctype for the list
 
@@ -315,6 +324,23 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
             },
           } as ColumnDef<ServiceRequests>,
           {
+            // Computed, not a stored field — sorting stays off because the server table
+            // sends the column id as `order_by`, and `notional_gst` is not a column.
+            id: "notional_gst",
+            header: ({ column }) => (
+              <DataTableColumnHeader column={column} title="Notional GST" />
+            ),
+            cell: ({ row }) => (
+              <div className="font-medium pr-2">{formatNotionalGst(row.original)}</div>
+            ),
+            enableSorting: false,
+            size: 120,
+            meta: {
+              exportHeaderName: "Notional GST",
+              exportValue: (row: ServiceRequests) => formatNotionalGst(row),
+            },
+          } as ColumnDef<ServiceRequests>,
+          {
             accessorKey: "amount_paid",
             header: ({ column }) => (
               <DataTableColumnHeader column={column} title="Amt. Paid" />
@@ -441,6 +467,16 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
                       )}
                     </span>
                   </p>
+                  {/* Same audience as the Notional GST column: shown only where the
+                      financial columns are. */}
+                  {!hideFinancialColumns && (
+                    <p className="text-gray-700">
+                      <span className="font-medium">Notional GST:</span>{" "}
+                      <span className="text-purple-600 font-semibold">
+                        {formatToRoundedIndianRupee(srAggregates.total_notional_gst)}
+                      </span>
+                    </p>
+                  )}
                 </div>
               )}
             </CardDescription>
