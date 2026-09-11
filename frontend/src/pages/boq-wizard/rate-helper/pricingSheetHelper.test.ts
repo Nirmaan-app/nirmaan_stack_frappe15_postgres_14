@@ -1,12 +1,23 @@
 // RM-3 real helper tests: compute over a fixed extraction fixture -> the standing goldens' values
 // where the combo matches, a null-attribute partial, a low-confidence render, and version keying.
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import LIVE_ASSET_V61 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v61.json";
+// TWO WAYS (v61): the PRIOR asset, read ONLY by the cross-asset pins (every other category byte-equal;
+// the ladder byte-identical across the def change). Never price against it.
+import PRIOR_ASSET_V59 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v59.json";
+// CONDUIT TRADE SIZE + LADDER (v63, 2026-09-10): the current asset and its predecessor, for the conduit pins at the end.
+import LIVE_ASSET_V63 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v63.json";
+import PRIOR_ASSET_V62 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v62.json";
 import type { Pipeline, RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
-import type { ExtractionRow, RateHelperRowContext } from "./rateHelperTypes";
+import type { ExtractionRow, RateHelperRowContext, WorkingsAttribute } from "./rateHelperTypes";
 import {
   ATTR_NOTE_ORDER,
+  DISPLAY_RATE_KINDS,
   attrDisplayValue,
   attrNoteText,
+  bareNumberText,
   isAttrBlank,
   isAttrDefaulted,
   isShowingDerived,
@@ -29,9 +40,12 @@ import {
   applyDerivedDisplay,
   attributeOptions,
   buildExtractionByRow,
+  categoryLabel,
+  groupFigures,
   isRunForVersion,
   makePricingSheetHelper,
   nonBcsPipelines,
+  outputWord,
   pipelineLabel,
   prettifyPipelineId,
   ratingUpNote,
@@ -600,9 +614,12 @@ describe("EA-2 N-category compute gate + BCS exclusion + labels", () => {
     expect(r.kind).toBe("none");
   });
 
-  it("pipeline labels: config data wins, else a prettified id; BCS ids are excluded from the surfaced set", () => {
+  it("pipeline labels: config data wins, else the CATEGORY label; BCS ids are excluded from the surfaced set", () => {
     expect(pipelineLabel(DB_CONFIG, "db_boq")).toBe("DB — per No");
-    expect(pipelineLabel(DB_CONFIG, "db_install")).toBe("Db Install"); // prettified fallback
+    // Calculator slice 1 (owner "ok. reword"): WAS the prettified pipeline id "Db Install" -- an
+    // internal name on the screen. The fallback is now the category's label (this fixture carries no
+    // category_display, so the prettified CATEGORY id); a single surfaced pipeline takes no suffix.
+    expect(pipelineLabel(DB_CONFIG, "db_install")).toBe("Db Switchgear");
     expect(prettifyPipelineId("conduit_boq")).toBe("Conduit Boq");
     expect(nonBcsPipelines(DB_CONFIG).map(([id]) => id)).toEqual(["db_boq"]); // db_bcs excluded
   });
@@ -1278,7 +1295,9 @@ describe("DERIVED DISPLAY -- R2: a too-small entry WARNS, it is never silently l
     // quantity notes -- both settle WHICH rung is priced. Four -> six, again not silenced.
     // F-25 slice 3 (owner 2026-09-08): `plate_floor` REGISTERED directly after `upgrade` -- a
     // plate-driven raise of the pricer's box pick is the pick's own upgrade. Six -> seven, not silenced.
-    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "plate_floor", "rating_up", "assumed", "size_up", "capped", "uncovered"]);
+    // WIDTH DROPDOWN (v60): `fit_up` joins after `size_up`; TWO WAYS (v61, 2026-09-10): `no_match` joins after
+    // `fit_up` -- mechanical moves of this pin, the order is otherwise unchanged.
+    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "plate_floor", "rating_up", "assumed", "size_up", "fit_up", "no_match", "capped", "uncovered"]);
   });
 
   it("the two quantity notes are worded so neither can be mistaken for the other", () => {
@@ -3246,7 +3265,9 @@ describe("F-30 slice A -- the rating-up note reaches the panel's data contract",
     // quantity notes; rating_up's own position (after upgrade, before capped) is unchanged.
     // F-25 slice 3 (owner 2026-09-08): `plate_floor` REGISTERED directly after `upgrade` -- a
     // plate-driven raise of the pricer's box pick is the pick's own upgrade. Six -> seven, not silenced.
-    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "plate_floor", "rating_up", "assumed", "size_up", "capped", "uncovered"]);
+    // WIDTH DROPDOWN (v60): `fit_up` joins after `size_up`; TWO WAYS (v61, 2026-09-10): `no_match` joins after
+    // `fit_up` -- mechanical moves of this pin, the order is otherwise unchanged.
+    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "plate_floor", "rating_up", "assumed", "size_up", "fit_up", "no_match", "capped", "uncovered"]);
   });
 });
 
@@ -3312,7 +3333,12 @@ describe("F-30 slice B -- a catalog_fit hop reaches the panel as the SAME rating
     if (!isSuggestion(r)) throw new Error("expected a suggestion");
     const tray = r.workings.attributes.find((a) => a.id === "tray_item")!;
     expect(tray.derivedValue).toBe("Tray 450"); // the hop happened
-    expect(tray.notes).toBeUndefined();         // and said nothing
+    // WIDTH DROPDOWN (v60) -- INVERTED, not deleted: this pin used to assert the hop "said nothing".
+    // A device-less hop on a DROPDOWN bind now carries the plain size note (`fit_up`) -- never the
+    // breaker sentence, which stays gated on the fitted row's `device`.
+    expect(tray.notes?.map((n) => n.kind)).toEqual(["fit_up"]);
+    expect(tray.notes!.map(attrNoteText)).toEqual(["The row states 400 — using Tray 450, the next size stocked."]);
+    expect(tray.notes!.map(attrNoteText).join(" ")).not.toMatch(/breaker|MCB|curve|pole/i);
   });
 
   it("CHANGE 2, what the pricer sees: nothing at or above the named rating REFUSES -- no figure, a no-match line", () => {
@@ -3327,7 +3353,9 @@ describe("F-30 slice B -- a catalog_fit hop reaches the panel as the SAME rating
     if (!isSuggestion(r)) throw new Error("expected a suggestion shape");
     expect(r.values.supply_rate).toBeUndefined();            // no total -- not a zero, not the socket alone
     expect(r.basis).toBe("no match for these attributes");    // the header line the pricer sees
-    expect(r.workings.derivation.join("\n")).toMatch(/^No probe_boq rate row matches /m); // the body line, verbatim shape
+    // Calculator slice 1: the body line names the CATEGORY label, never the pipeline id.
+    expect(r.workings.derivation.join("\n")).toMatch(/^No Cf Probe rate row matches /m); // the body line, verbatim shape
+    expect(r.workings.derivation.join("\n")).not.toContain("probe_boq");
     expect(r.workings.attributes.find((a) => a.id === "paired_mcb")!.notes).toBeUndefined();
   });
 });
@@ -3577,7 +3605,9 @@ describe("F-25 slice 2 -- a bare box prices as its back box, and the panel says 
       expect(attrDisplayValue(box)).toBe("3M");
       expect(isShowingDerived(box)).toBe(true);
       expect(box.notes?.map((n) => n.kind)).toEqual(["assumed"]);
-      expect(attrNoteText(box.notes![0])).toBe("No module size readable in the row or its headings — assumed 3M. Check it.");
+      // Calculator slice 1 (owner "ok. reword"): WAS "...readable in the row or its headings" -- the
+      // same sentence now serves a no-row surface; "stated" is true on both.
+      expect(attrNoteText(box.notes![0])).toBe("No module size stated — assumed 3M. Check it.");
       expect(r.values.supply_rate).toBe(178);
       expect(r.basis).not.toBe("Complete the missing attributes to price"); // the hidden attribute never gates
     }
@@ -3961,12 +3991,13 @@ describe("never-asked defaults -- an ABSENT key takes its config default; a PRES
     expect(attrOf(a, "plate_item")?.defaulted).toBeUndefined();
   });
 
-  it("NEGATIVE: a MANUAL row (not in the run) is untouched -- still Fill the attributes to price this row", () => {
+  it("NEGATIVE: a MANUAL row (not in the run) is untouched -- still Fill the attributes to price", () => {
     const h = makePricingSheetHelper({ configsByCategory: new Map([["na_probe", neverAskedConfig()]]), items: ITEMS_NA, extractionByRow: new Map() });
     const r = h.compute(ctxNA(7));
     expect(isSuggestion(r)).toBe(true);
     if (!isSuggestion(r)) return;
-    expect(r.basis).toBe("Fill the attributes to price this row");
+    // Calculator slice 1 (owner "ok. reword"): WAS "...to price this row".
+    expect(r.basis).toBe("Fill the attributes to price");
     expect(attrOf(r, "socket3_item")?.value).toBe("");
     expect(neverAskedLine(r)).toBeUndefined();
   });
@@ -4016,5 +4047,780 @@ describe("never-asked defaults -- an ABSENT key takes its config default; a PRES
     if (!isSuggestion(r)) return;
     expect(r.basis).toMatch(/Complete the missing attributes/);
     expect(attrOf(r, "circuit_wire_included")?.value).toBe("");
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// CALCULATOR SLICE 1 (2026-09-09) -- the SHARED panel's four changes, pinned on the data contract.
+// The coming calculator tab mounts this same helper and this same panel; these pins are what make
+// "functionally exactly the same as the helper" a property rather than a hope. Component RENDER is
+// not unit-testable here (node env, no DOM -- frontend/CLAUDE.md); the rendered half is the cert's.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+
+const CALC1_SRC = {
+  helper: readFileSync(join(__dirname, "pricingSheetHelper.ts"), "utf8"),
+  types: readFileSync(join(__dirname, "rateHelperTypes.ts"), "utf8"),
+  panel: readFileSync(join(__dirname, "RateHelperPanel.tsx"), "utf8"),
+};
+/** Source with block and line comments removed, so a pin on the SHIPPED strings cannot trip on a
+ *  comment that quotes the old wording to explain the change. */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+}
+/** A no-row context: what the calculator will hand the SAME helper -- a sentinel row, no text. */
+function noRowCtx(category: string): RateHelperRowContext {
+  return { excelRow: 0, description: "", nodeType: "", category, discipline: null, rateKinds: [...DISPLAY_RATE_KINDS] };
+}
+
+describe("Calculator slice 1 / ONE -- combined on EVERY priced line, never a total across lines", () => {
+  const wiringRow = () => {
+    const map = buildExtractionByRow([
+      { excel_row: 51, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) },
+    ]);
+    const r = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map }).compute(ctx(51, "XLPE cable 1C x 6 sqmm"));
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    return r;
+  };
+
+  it("POSITIVE: both wiring sections carry their OWN three figures -- the Termination block GAINS the combined it never showed", () => {
+    const r = wiringRow();
+    const [cable, term] = r.workings.sections!;
+    expect(cable.figures).toEqual({ supply_rate: 120, install_rate: 20, combined_rate: 140 }); // per Mtr + per Mtr
+    expect(term.figures).toEqual({ supply_rate: 80, install_rate: 20, combined_rate: 100 });   // per Set + per Set
+    // `finals` is BYTE-UNCHANGED by the slice: the raw output map stays what it was (the termination
+    // block still carries no combined KEY there -- the combined lives in `figures`).
+    expect(Object.keys(term.finals).sort()).toEqual(["install_per_set", "supply_per_set"]);
+    expect(cable.finals.combined_per_mtr).toBe(140);
+  });
+
+  it("⚠️ NEGATIVE: NO figure anywhere is a total across the two lines (per Mtr + per Set)", () => {
+    const r = wiringRow();
+    const crossSupply = 120 + 80, crossInstall = 20 + 20, crossCombined = 140 + 100; // 200 / 40 / 240
+    const everyFigure: (number | undefined)[] = [];
+    for (const s of r.workings.sections!) everyFigure.push(...Object.values(s.figures ?? {}));
+    for (const h of r.headlines!) everyFigure.push(...Object.values(h.values));
+    everyFigure.push(...Object.values(r.values));
+    expect(everyFigure.length).toBeGreaterThanOrEqual(9); // 3 + 3 (sections) + 3 + 3 (headlines) + 3 (values) minus nothing absent here
+    for (const v of everyFigure) expect([crossSupply, crossInstall, crossCombined]).not.toContain(v);
+  });
+
+  it("⚠️ NEGATIVE (source): `groupFigures` only ever sees ONE group's finals -- no call site adds two groups", () => {
+    const src = stripComments(CALC1_SRC.helper);
+    const calls = src.match(/groupFigures\(([^)]*)\)/g) ?? [];
+    expect(calls.length).toBeGreaterThanOrEqual(4); // generic sections, wiring primary, wiring secondary, headlines
+    for (const c of calls) {
+      expect(c).not.toMatch(/\+/);          // never an addition inside the argument
+      expect(c).not.toMatch(/sections\[/);  // never indexed across sections
+    }
+    expect(src).toContain("groupFigures(g.finals)"); // headlines: per group, from that group
+    // the function itself takes ONE map and has no second parameter to add from
+    expect(src).toMatch(/export function groupFigures\(finals: Record<string, number>\)/);
+  });
+
+  it("groupFigures is PURE over one map: no combined without both halves; a stored combined_* output is ignored and re-derived", () => {
+    expect(groupFigures({ supply_per_set: 80 })).toEqual({ supply_rate: 80 });
+    expect(groupFigures({ install: 70 })).toEqual({ install_rate: 70 });
+    expect(groupFigures({ supply: 320, install: 70 })).toEqual({ supply_rate: 320, install_rate: 70, combined_rate: 390 });
+    expect(groupFigures({ supply_per_mtr: 120, install_per_mtr: 20, combined_per_mtr: 999 })).toEqual({ supply_rate: 120, install_rate: 20, combined_rate: 140 });
+    expect(groupFigures({ bcs_supply: 87 })).toEqual({}); // a BCS output fills no kind
+    expect(groupFigures({})).toEqual({});
+  });
+
+  it("POSITIVE: a SINGLE-LINE category carries the same three on its one section (owner: 'show the same three figures -- yes')", () => {
+    const ONE_LINE: RateCategoryConfig = {
+      discipline: "Electrical", category_id: "switches_sockets", category_display: "Switches and Sockets",
+      attribute_definitions: [{ id: "item", label: "Item", type: "choice", values: ["Probe"] }],
+      pipelines: { swsock_boq: { output: ["supply", "install"], steps: [
+        { step: "match_master_row", params: { kind: "sw_probe" } },
+        { step: "scale", target: "supply_base", result: "supply", params: { m: 1 }, formula: "base*m" },
+        { step: "scale", target: "install_base", result: "install", params: { m: 1 }, formula: "base*m" },
+      ] } },
+    };
+    const items: RateMasterItem[] = [{ discipline: "Electrical", kind: "sw_probe", attributes: { item: "Probe" }, rates: { supply_base: 320, install_base: 70 } }];
+    const r = makePricingSheetHelper({ configsByCategory: new Map([["switches_sockets", ONE_LINE]]), items, extractionByRow: new Map() })
+      .compute(noRowCtx("switches_sockets"), { item: "Probe" });
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.workings.sections).toHaveLength(1);
+    expect(r.workings.sections![0].label).toBe("Switches and Sockets");   // category label, not "Swsock Boq"
+    expect(r.workings.sections![0].figures).toEqual({ supply_rate: 320, install_rate: 70, combined_rate: 390 });
+    expect(r.values).toEqual({ supply_rate: 320, install_rate: 70, combined_rate: 390 });
+  });
+
+  it("lighting_mgmt_system from the LIVE asset (v61; lms byte-equal since v55): supply only -- install and combined ABSENT, rendered as em dashes", () => {
+    // The live asset, imported as a module (the bcsColumns.test.ts precedent) -- the 12 live configs
+    // were proven byte-identical to it on 2026-09-08 and again by this slice's harness dump.
+    const asset = LIVE_ASSET_V61 as unknown as {
+      category_configs: RateCategoryConfig[]; items: Array<RateMasterItem & { brand?: string }>;
+    };
+    const lms = asset.category_configs.find((c) => c.category_id === "lighting_mgmt_system")!;
+    // the endpoint projects `brand` into attributes at read time (extraction.PROJECTED_ITEM_COLUMNS); the raw asset does not
+    const items: RateMasterItem[] = asset.items
+      .filter((i) => i.kind === "lms_item")
+      .map((i) => ({ ...i, attributes: { ...i.attributes, ...(i.brand ? { brand: i.brand } : {}) } }));
+    const lutron = items.find((i) => i.brand === "Lutron" && i.rates.rate === 24500)!;
+    expect(lutron).toBeDefined(); // the worked example: Lutron 24,500 -> BoQ 31,850
+    const r = makePricingSheetHelper({ configsByCategory: new Map([["lighting_mgmt_system", lms]]), items, extractionByRow: new Map() })
+      .compute(noRowCtx("lighting_mgmt_system"), { description: String(lutron.attributes.description), brand: "Lutron" });
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    const fig = r.workings.sections![0].figures!;
+    expect(fig).toEqual({ supply_rate: 31850 });
+    expect(DISPLAY_RATE_KINDS.map((k) => fig[k])).toEqual([31850, undefined, undefined]); // the shape reads the same: two dashes
+    expect(r.values).toEqual({ supply_rate: 31850 }); // and no combined was invented
+  });
+
+  it("⚠️ THE PRICE-CANNOT-MOVE PIN: `values` is byte-identical to the pre-slice goldens with `figures` present -- on a cable row AND a termination-primary row", () => {
+    const r = wiringRow();
+    expect(r.values).toEqual({ supply_rate: 120, install_rate: 20, combined_rate: 140 });
+    const map = buildExtractionByRow([
+      { excel_row: 52, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) },
+    ]);
+    const t = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map }).compute(ctx(52, "Cable end termination gland + lug 1C x 6"));
+    if (!isSuggestion(t)) throw new Error("expected suggestion");
+    // the termination-primary row ALREADY had its combined in `values` before this slice (the
+    // combined line at computeWiring); nothing about it moved -- this is what S2 asked to establish.
+    expect(t.values).toEqual({ supply_rate: 80, install_rate: 20, combined_rate: 100 });
+    // and `figures` is not the source of `values` anywhere (the headlines scope guard, one level down)
+    expect(stripComments(CALC1_SRC.helper)).not.toMatch(/values\s*=\s*[^;]*figures/);
+  });
+});
+
+describe("Calculator slice 1 / TWO -- the copy value is the BARE number", () => {
+  it("bareNumberText: the exact strings -- no symbol, no separator, no unit", () => {
+    expect(bareNumberText(1490)).toBe("1490");
+    expect(bareNumberText(31850)).toBe("31850");
+    expect(bareNumberText(187.2)).toBe("187.2");
+    expect(bareNumberText(0)).toBe("0");
+    for (const s of [bareNumberText(31850), bareNumberText(1490), bareNumberText(2610)]) expect(s).not.toMatch(/[₹,\s]|Mtr|Set/);
+  });
+  it("DISPLAY_RATE_KINDS is supply, install, combined -- that order, only those", () => {
+    expect([...DISPLAY_RATE_KINDS]).toEqual(["supply_rate", "install_rate", "combined_rate"]);
+  });
+  it("⚠️ (source) the panel's copy control hands bareNumberText to the shared clipboard helper and formats NOTHING", () => {
+    const src = stripComments(CALC1_SRC.panel);
+    expect(src).toContain("copyTextToClipboard(bareNumberText(value))");
+    expect(src).not.toMatch(/toLocaleString|Intl\.NumberFormat|₹/);
+    // the three figures render from DISPLAY_RATE_KINDS inside the SECTION block, each with the control
+    expect(src).toContain("DISPLAY_RATE_KINDS.map(");
+    expect(src).toContain("<CopyFigureButton value={v}");
+    expect(src).toMatch(/typeof v === "number" \? v : "—"/); // an absent kind is the em dash, never 0
+    // the header block is UNCHANGED: it still renders the single `computed` figure / the stacked headlines
+    expect(src).toContain("const computed = result.values[kind!]");
+    expect(src).toContain("h.values[kind!]");
+  });
+});
+
+describe("Calculator slice 1 / THREE -- the two blanks (premise CORRECTED by the repo; behaviour pinned)", () => {
+  // Recon 2 read row 397's blank "Frame/Face plate" select as "a blank select with no red" and the
+  // blank "Module count" number as red. The repo disagrees: that select is `plate_item`, a module_fit
+  // LADDER BIND -- a DERIVED attribute the pipeline computes -- and derived blanks are deliberately
+  // exempt from red (isAttrBlank). A genuinely missing select IS red: the panel applies one
+  // `fieldTone` to both controls. So the two blanks look different because they ARE different, and
+  // nothing changes here; these pins record the correction and freeze the behaviour.
+  it("the blank predicate has NO type input -- a blank choice and a blank number are equally BLANK", () => {
+    expect(isAttrBlank({ value: "", disabled: false, derived: false })).toBe(true);
+    expect(isAttrBlank({ value: "", disabled: false })).toBe(true);
+  });
+  it("NEGATIVE: a blank DERIVED attribute (row 397's Frame/Face plate, a ladder bind) is NOT blank -- it is computed, not missing", () => {
+    expect(isAttrBlank({ value: "", disabled: false, derived: true })).toBe(false);
+  });
+  it("(source) ONE `fieldTone` reaches the <select> AND the <Input>, so a genuinely blank select is red like a blank number", () => {
+    const src = CALC1_SRC.panel;
+    expect(src).toMatch(/<select[\s\S]*?fieldTone,[\s\S]*?<\/select>/);
+    expect(src).toMatch(/<Input[\s\S]*?fieldTone\)/);
+  });
+  it("⚠️ NEGATIVE: <select> BEHAVIOUR is byte-identical -- the placeholder stays SELECTABLE and blank matches it (owner-locked, cost 12 rows)", () => {
+    const src = CALC1_SRC.panel;
+    expect(src).toMatch(/<option value="">\s*— select —\s*<\/option>/);
+    expect(src).not.toMatch(/<option value=""\s+disabled/);
+  });
+});
+
+describe("Calculator slice 1 / FOUR -- the rewording reads correctly WITH a row and with NO row", () => {
+  const FORBIDDEN = ["this row", "the row supplied", "readable in the row", "suggestion run", "Pipeline '"];
+  it("⚠️ NEGATIVE (source): none of the row-assuming phrases survive in the shipped strings of the three shared files", () => {
+    for (const [name, raw] of Object.entries(CALC1_SRC)) {
+      const src = stripComments(raw);
+      for (const phrase of FORBIDDEN) expect(src, `${name} still says "${phrase}"`).not.toContain(phrase);
+    }
+  });
+  it("POSITIVE, both readings: the manual-row sentences are the SAME strings on a BoQ row outside the run and on a no-row context", () => {
+    const h = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: new Map() });
+    const onRow = h.compute(ctx(60, "XLPE cable 1C x 6 sqmm"));       // a real row, not in the run
+    const noRow = h.compute(noRowCtx("wiring_cabling"));               // the calculator's shape
+    for (const r of [onRow, noRow]) {
+      if (!isSuggestion(r)) throw new Error("expected suggestion");
+      expect(r.basis).toBe("Fill the attributes to price");
+      expect(r.workings.derivation).toEqual(["No extracted attributes -- fill them to compute a rate."]);
+    }
+  });
+  it("POSITIVE, both readings: the priced row's basis, section titles and derivation lines use the pricer's words, identically with and without a row", () => {
+    const attrs = { material: "COPPER", insulation: "UNARMOURED", core: "1", thickness_sqmm: "6" };
+    const inRun = makePricingSheetHelper({
+      config: CONFIG, items: ITEMS,
+      extractionByRow: buildExtractionByRow([{ excel_row: 61, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) }]),
+    }).compute(ctx(61, "XLPE cable 1C x 6 sqmm"));
+    const noRow = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: new Map() }).compute(noRowCtx("wiring_cabling"), attrs);
+    for (const r of [inRun, noRow]) {
+      if (!isSuggestion(r)) throw new Error("expected suggestion");
+      expect(r.basis).toBe("Rate master: Wiring Cabling @ Material = COPPER, Insulation = UNARMOURED, Core = 1, Thickness (sqmm) = 6");
+      expect(r.workings.sections!.map((s) => s.label)).toEqual(["Cable — per Mtr", "Termination — per Set"]);
+      expect(r.workings.sections![0].derivation).toEqual(["Supply = 120", "Install = 20", "Combined = supply + install = 140"]);
+      expect(r.workings.sections![1].derivation).toEqual(["Supply = 80", "Install = 20"]);
+      expect(r.values).toEqual({ supply_rate: 120, install_rate: 20, combined_rate: 140 });
+    }
+  });
+  it("outputWord / categoryLabel / pipelineLabel: the words the screen shows, and the split-pipeline suffix", () => {
+    expect(outputWord("supply_per_mtr")).toBe("Supply");
+    expect(outputWord("supply_per_set")).toBe("Supply");
+    expect(outputWord("install")).toBe("Install");
+    expect(outputWord("bcs_supply")).toBe("bcs_supply"); // fills no kind -> its own name
+    expect(categoryLabel({ ...CONFIG, category_display: "Wiring, Cabling & Termination" })).toBe("Wiring, Cabling & Termination");
+    expect(categoryLabel(CONFIG)).toBe("Wiring Cabling"); // no display in the fixture -> prettified category id
+    const split: RateCategoryConfig = {
+      discipline: "Electrical", category_id: "point_wiring", category_display: "Point Wiring",
+      attribute_definitions: [],
+      pipelines: {
+        pw_boq_supply: { output: ["supply"], steps: [] },
+        pw_boq_install: { output: ["install"], steps: [] },
+        pw_bcs: { output: ["bcs_supply"], steps: [] },
+      },
+    };
+    expect(pipelineLabel(split, "pw_boq_supply")).toBe("Point Wiring — Supply");
+    expect(pipelineLabel(split, "pw_boq_install")).toBe("Point Wiring — Install");
+    // config data still wins over every fallback
+    expect(pipelineLabel(CONFIG, "cable_boq")).toBe("Cable — per Mtr");
+  });
+  it("the assumed note: the reworded sentence, exact, and its meaning unchanged (still a guess to check)", () => {
+    expect(attrNoteText({ kind: "assumed", assumed: 3, using: "3M" })).toBe("No module size stated — assumed 3M. Check it.");
+  });
+  it("(source) the panel's two Revert titles and the undo tooltip carry no row", () => {
+    const src = stripComments(CALC1_SRC.panel);
+    expect(src).toContain('"Discard your edits and show the original values again"');
+    expect(src).toContain('"No edits to discard"');
+    expect(src).toContain('title="Undo my edit to this field -- restores the original value"');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// WIDTH DROPDOWN (v60 -> shipped as v61, owner 2026-09-10) -- the tray width is ENTERED from the ten stocked sizes;
+// the ladder is UNTOUCHED; an off-list STORED width shows the FITTED size with a note naming what
+// the row stated; above the top rung the field is blank, the row refuses, no note.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+import { catalogFitSizeUpNote } from "./pricingSheetHelper";
+
+const TEN_WIDTHS = [50, 100, 150, 200, 250, 300, 350, 400, 450, 600];
+// two type/material/thickness combinations, each carrying the SAME ten widths (the live catalogue's
+// shape: one flat list across every combination), plus a foreign-kind row that must never be offered.
+const TRAYW_ITEMS: RateMasterItem[] = [
+  ...TEN_WIDTHS.map((w) => ({ discipline: "Electrical", kind: "cable_tray",
+    attributes: { tray_type: "Solid", material: "GI", thickness_mm: 2, width_mm: w },
+    rates: { without_cover_list: w * 4, cover_only_list: 0, install_rate: 30 } })),
+  ...TEN_WIDTHS.map((w) => ({ discipline: "Electrical", kind: "cable_tray",
+    attributes: { tray_type: "Solid", material: "GI", thickness_mm: 1.6, width_mm: w },
+    rates: { without_cover_list: w * 2, cover_only_list: 0, install_rate: 30 } })),
+  { discipline: "Electrical", kind: "junction_box", attributes: { width_mm: 75 }, rates: { list_price: 1 } },
+];
+// v61: the on-screen list AND a free read for the model (`extract_as`) -- see TWO WAYS below.
+const WIDTH_DEF_V61 = { id: "width_mm", label: "Width (mm)", type: "number_choice",
+  values_from: { kind: "cable_tray", attr: "width_mm" }, extract_as: "number" };
+const WIDTH_DEF_V59 = { id: "width_mm", label: "Width (mm)", type: "number" };
+const trayWConfig = (widthDef: unknown): RateCategoryConfig => ({
+  ...(TRAY3B_CONFIG as unknown as { attribute_definitions: unknown[] }),
+  attribute_definitions: (TRAY3B_CONFIG.attribute_definitions ?? []).map((d) => (d.id === "width_mm" ? widthDef : d)),
+} as unknown as RateCategoryConfig);
+const TRAYW_CONFIG = trayWConfig(WIDTH_DEF_V61);
+const TRAYW_CONFIG_AS_NUMBER = trayWConfig(WIDTH_DEF_V59);
+const trayW = (attrs: Record<string, string | number | null>, overrides?: Record<string, string>, config = TRAYW_CONFIG) =>
+  makePricingSheetHelper({
+    config, items: TRAYW_ITEMS,
+    extractionByRow: buildExtractionByRow([{ excel_row: 7, description: "cable tray", attributes: ext(attrs) }]),
+  }).compute(trayCtx(7), overrides);
+const widthOf = (r: ReturnType<ReturnType<typeof makePricingSheetHelper>["compute"]>) => attrOf(r, "width_mm")!;
+const BASE = { tray_type: "Solid", material: "GI", thickness_mm: 2 };
+
+describe("WIDTH DROPDOWN (v61) -- ONE: the field offers the ten catalogue widths, and only those", () => {
+  it("POSITIVE: attributeOptions on the v60 def = the ten stocked widths, deduplicated across combinations", () => {
+    expect(attributeOptions(WIDTH_DEF_V61 as never, TRAYW_ITEMS)).toEqual(TEN_WIDTHS.map(String));
+  });
+  it("NEGATIVE: a width on another kind (junction_box 75) is not offered; no 'None' (the def is not allow_none)", () => {
+    const opts = attributeOptions(WIDTH_DEF_V61 as never, TRAYW_ITEMS);
+    expect(opts).not.toContain("75");
+    expect(opts).not.toContain(NONE_SENTINEL);
+    expect(opts).toHaveLength(10);
+  });
+  it("the rendered field carries the ten as its options (a dropdown), where the v59 def carried none (a number input)", () => {
+    expect(widthOf(trayW({ ...BASE, width_mm: 150 })).options).toEqual(TEN_WIDTHS.map(String));
+    expect(widthOf(trayW({ ...BASE, width_mm: 150 }, undefined, TRAYW_CONFIG_AS_NUMBER)).options).toBeUndefined();
+  });
+  it("THE LIVE ASSET (v61): the ten widths, identical across all 45 type/material/thickness combinations, and only those", () => {
+    const asset = LIVE_ASSET_V61 as unknown as { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+    const ct = asset.category_configs.find((c) => c.category_id === "cabletray_raceway")!;
+    const def = ct.attribute_definitions!.find((d) => d.id === "width_mm")!;
+    expect(def).toEqual(WIDTH_DEF_V61);
+    // AS A SET: the raw asset lists items in source-row order (450 first); the endpoint the frontend
+    // reads orders `kind asc, source_row asc`, and the ten happen to come out ascending there.
+    // `attributeOptions` does not sort (a sort would reorder every other dropdown -- not this slice).
+    expect([...attributeOptions(def, asset.items)].map(Number).sort((x, y) => x - y)).toEqual(TEN_WIDTHS);
+    expect(attributeOptions(def, asset.items)).toHaveLength(10);
+    const combos = new Map<string, Set<number>>();
+    for (const it of asset.items.filter((i) => i.kind === "cable_tray")) {
+      const a = it.attributes as Record<string, string | number>;
+      const k = `${a.tray_type}|${a.material}|${a.thickness_mm}`;
+      if (!combos.has(k)) combos.set(k, new Set());
+      combos.get(k)!.add(Number(a.width_mm));
+    }
+    expect(combos.size).toBe(45);
+    for (const [k, ws] of combos) expect([...ws].sort((x, y) => x - y), k).toEqual(TEN_WIDTHS);
+  });
+});
+
+describe("WIDTH DROPDOWN (v61) -- TWO: an off-list stored width shows the FITTED value, with a note", () => {
+  it("POSITIVE (the 18 rows): stored 80 -> the field shows 100 (computed), the note names 80, the price is the stored-100 price", () => {
+    const r = trayW({ ...BASE, width_mm: 80 });
+    const w = widthOf(r);
+    expect(attrDisplayValue(w)).toBe("100");
+    expect(w.value).toBe("80"); // `value` still means what the row supplied
+    expect(isShowingDerived(w)).toBe(true);
+    expect(w.notes?.map((n) => n.kind)).toEqual(["fit_up"]);
+    expect(w.notes!.map(attrNoteText)).toEqual(["The row states 80 — using 100, the next size stocked."]);
+    // the price is byte-identical to a row that STATES 100 -- the ladder priced 100 before and after
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    const stated100 = trayW({ ...BASE, width_mm: 100 });
+    if (!isSuggestion(stated100)) throw new Error("expected suggestion");
+    expect(r.values).toEqual(stated100.values);
+    expect(r.values).toEqual({ supply_rate: 400 });
+  });
+  it("POSITIVE: the price is UNCHANGED from the v59 shape -- the same row under the `number` def prices identically", () => {
+    const now = trayW({ ...BASE, width_mm: 80 });
+    const before = trayW({ ...BASE, width_mm: 80 }, undefined, TRAYW_CONFIG_AS_NUMBER);
+    if (!isSuggestion(now) || !isSuggestion(before)) throw new Error("expected suggestions");
+    expect(now.values).toEqual(before.values);
+    expect(now.workings.finalValues).toEqual(before.workings.finalValues);
+    expect(now.workings.derivation).toEqual(before.workings.derivation);
+  });
+  it("POSITIVE (the 30 rows): stored 1500, above the top rung -> the field's value is NOT an option (blank on screen), the row refuses, WITH the no_match note", () => {
+    // TWO WAYS (v61) INVERTED this pin: the reverted v60 ruled "blank, NO note"; the owner then ruled
+    // "we can have a note explaining", so the above-ceiling width now carries `no_match`.
+    const r = trayW({ ...BASE, width_mm: 1500 });
+    const w = widthOf(r);
+    expect(w.options).not.toContain(attrDisplayValue(w)); // a controlled <select> with no matching option shows its placeholder
+    expect(w.derivedValue).toBeUndefined();
+    expect(w.notes?.map((n) => n.kind)).toEqual(["no_match"]);
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.values).toEqual({});
+    expect(r.basis).toBe("no match for these attributes");
+  });
+  it("NEGATIVE: a direct pick carries NO note -- picking 150 over a stored 80 shows 150, plain", () => {
+    const w = widthOf(trayW({ ...BASE, width_mm: 80 }, { width_mm: "150" }));
+    expect(attrDisplayValue(w)).toBe("150");
+    expect(w.notes).toBeUndefined();
+    expect(isShowingDerived(w)).toBe(false);
+  });
+  it("NEGATIVE: a direct pick of 100 prices exactly as a typed 100 does today", () => {
+    const picked = trayW({ ...BASE, width_mm: 80 }, { width_mm: "100" });
+    const typed = trayW({ ...BASE, width_mm: 100 }, undefined, TRAYW_CONFIG_AS_NUMBER);
+    if (!isSuggestion(picked) || !isSuggestion(typed)) throw new Error("expected suggestions");
+    expect(picked.values).toEqual(typed.values);
+    expect(widthOf(picked).notes).toBeUndefined();
+  });
+  it("NEGATIVE: an on-list stored width renders exactly as before -- 150 shows 150, plain, no note, same price", () => {
+    const now = trayW({ ...BASE, width_mm: 150 });
+    const before = trayW({ ...BASE, width_mm: 150 }, undefined, TRAYW_CONFIG_AS_NUMBER);
+    const w = widthOf(now);
+    expect(attrDisplayValue(w)).toBe("150");
+    expect(w.notes).toBeUndefined();
+    expect(isShowingDerived(w)).toBe(false);
+    if (!isSuggestion(now) || !isSuggestion(before)) throw new Error("expected suggestions");
+    expect(now.values).toEqual(before.values);
+    const strip = (a: WorkingsAttribute) => ({ ...a, options: undefined });
+    expect(strip(w)).toEqual(strip(widthOf(before)));
+  });
+  it("NEGATIVE: a free NUMBER input (the v59 def) is byte-unchanged -- the fitted value shows '(computed)' with NO note", () => {
+    const w = widthOf(trayW({ ...BASE, width_mm: 80 }, undefined, TRAYW_CONFIG_AS_NUMBER));
+    expect(attrDisplayValue(w)).toBe("100");
+    expect(isShowingDerived(w)).toBe(true);
+    expect(w.notes).toBeUndefined();
+  });
+  it("NEGATIVE: a row that refuses BEFORE the ladder runs (a missing where-fact) fits nothing -> no derived value, no note (the 10 rows)", () => {
+    const r = trayW({ tray_type: "Solid", material: "GI", width_mm: 80 }); // no thickness at all
+    const w = widthOf(r);
+    expect(w.derivedValue).toBeUndefined();
+    expect(w.notes).toBeUndefined();
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.basis).toBe("Complete the missing attributes to price");
+  });
+  it("the producer, unit: undefined when disabled, when nothing fitted, when exact, when the size moved DOWN", () => {
+    const hop = { bind: "width_mm", fitted: "100", size: 100, requested: 80, exact: false, absent: false, substituted: true, whereRefs: [] };
+    expect(catalogFitSizeUpNote(hop, true)).toEqual({ kind: "fit_up", stated: 80, using: "100" });
+    expect(catalogFitSizeUpNote(hop, false)).toBeUndefined();
+    expect(catalogFitSizeUpNote(undefined, true)).toBeUndefined();
+    expect(catalogFitSizeUpNote({ ...hop, fitted: null, size: null }, true)).toBeUndefined();
+    expect(catalogFitSizeUpNote({ ...hop, exact: true, requested: 100 }, true)).toBeUndefined();
+    expect(catalogFitSizeUpNote({ ...hop, size: 50, fitted: "50" }, true)).toBeUndefined();
+  });
+  it("the kind is in the render order (after size_up, before the quantity notes) and sorts there", () => {
+    expect(ATTR_NOTE_ORDER.indexOf("fit_up")).toBe(ATTR_NOTE_ORDER.indexOf("size_up") + 1);
+    expect(ATTR_NOTE_ORDER.indexOf("fit_up")).toBeLessThan(ATTR_NOTE_ORDER.indexOf("capped"));
+    expect(sortAttrNotes([{ kind: "capped", stated: 1, spare: 0 }, { kind: "fit_up", stated: 80, using: "100" }]).map((n) => n.kind))
+      .toEqual(["fit_up", "capped"]);
+  });
+});
+
+describe("WIDTH DROPDOWN (v61) -- THE LADDER IS UNTOUCHED and every other category is byte-equal to v59", () => {
+  type Asset = { category_configs: RateCategoryConfig[]; items: RateMasterItem[]; goldens: unknown };
+  const now = LIVE_ASSET_V61 as unknown as Asset;
+  const was = PRIOR_ASSET_V59 as unknown as Asset;
+  const ctNow = now.category_configs.find((c) => c.category_id === "cabletray_raceway")!;
+  const ctWas = was.category_configs.find((c) => c.category_id === "cabletray_raceway")!;
+  it("NEGATIVE: exact-else-next-higher is byte-identical -- the same fit outcome and finals on 80, 100 and 1500 under v59 and v61", () => {
+    const selected = { tray_type: "Perforated", material: "MS POWDER COATED", thickness_mm: 1.6, cover: "No",
+      installation_type: "Ceiling", floor_cutting: "No", floor_refilling: "No" };
+    for (const width of [80, 100, 1500]) {
+      for (const pid of Object.keys(ctNow.pipelines ?? {})) {
+        const a = runPipeline(pid, ctNow.pipelines![pid], now.items, { ...selected, width_mm: width });
+        const b = runPipeline(pid, ctWas.pipelines![pid], was.items, { ...selected, width_mm: width });
+        expect({ status: a.status, finals: a.finals, fit: a.steps.find((s) => s.catalogFit)?.catalogFit ?? null }, `${pid}@${width}`)
+          .toEqual({ status: b.status, finals: b.finals, fit: b.steps.find((s) => s.catalogFit)?.catalogFit ?? null });
+      }
+    }
+    // and the shape of the three outcomes is the one the slice describes
+    const fit = (w: number) => runPipeline("tray_boq_supply", ctNow.pipelines!.tray_boq_supply, now.items, { ...selected, width_mm: w });
+    expect(fit(80).steps.find((s) => s.catalogFit)!.catalogFit).toMatchObject({ requested: 80, size: 100, fitted: "100", exact: false });
+    expect(fit(100).steps.find((s) => s.catalogFit)!.catalogFit).toMatchObject({ requested: 100, size: 100, exact: true });
+    expect(fit(1500).status).toBe("no_match");
+    expect(fit(1500).steps.some((s) => s.catalogFit)).toBe(false);
+  });
+  it("NEGATIVE: the four cabletray pipelines are byte-equal to v59 (the ladder step included)", () => {
+    expect(ctNow.pipelines).toEqual(ctWas.pipelines);
+  });
+  it("NEGATIVE: cabletray differs from v59 in exactly the two defs (width, thickness) and its notes; every other def is byte-equal", () => {
+    const strip = (c: RateCategoryConfig) => ({ ...c, notes: undefined,
+      attribute_definitions: c.attribute_definitions!.filter((d) => d.id !== "width_mm" && d.id !== "thickness_mm") });
+    expect(strip(ctNow)).toEqual(strip(ctWas));
+    expect(ctWas.attribute_definitions!.find((d) => d.id === "width_mm")).toEqual(WIDTH_DEF_V59);
+    expect(ctNow.attribute_definitions!.map((d) => d.id)).toEqual(ctWas.attribute_definitions!.map((d) => d.id));
+  });
+  it("NEGATIVE: every OTHER category's config, all 1,367 items and every golden are byte-equal to v59", () => {
+    expect(now.category_configs.map((c) => c.category_id)).toEqual(was.category_configs.map((c) => c.category_id));
+    for (const c of now.category_configs) {
+      if (c.category_id === "cabletray_raceway") continue;
+      expect(c, c.category_id).toEqual(was.category_configs.find((x) => x.category_id === c.category_id));
+    }
+    expect(now.items).toEqual(was.items);
+    expect(now.items).toHaveLength(1367);
+    expect(now.goldens).toEqual(was.goldens);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// TWO WAYS (v61, owner 2026-09-10) -- THREE: where a stated value has no stocked match the field is
+// BLANK and the panel says why (`no_match`). The first note on a blank field.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+import { withNoMatchNotes } from "./pricingSheetHelper";
+
+const THICK_DEF_V61 = { id: "thickness_mm", label: "Thickness (mm)", type: "number_choice",
+  values_from: { kind: "cable_tray", attr: "thickness_mm" }, extract_as: "number" };
+// the v61 shape of the tray fixture: BOTH defs free-read, the SWG table gaining "8" -> 4.1 (a gauge the
+// table carries whose millimetre is NOT stocked) beside the two stocked conversions.
+const TRAY61_CONFIG: RateCategoryConfig = (() => {
+  const c = JSON.parse(JSON.stringify(TRAYW_CONFIG)) as RateCategoryConfig;
+  c.attribute_definitions = c.attribute_definitions!.map((d) => (d.id === "thickness_mm" ? (THICK_DEF_V61 as never) : d));
+  const map = (c.pipelines!.tray_boq_supply.steps[0] as { params: { table: Record<string, number> } }).params;
+  map.table = { "14": 2.0, "16": 1.6, "8": 4.1 };
+  return c;
+})();
+const tray61 = (attrs: Record<string, string | number | null>, overrides?: Record<string, string>, config = TRAY61_CONFIG) =>
+  makePricingSheetHelper({
+    config, items: TRAYW_ITEMS,
+    extractionByRow: buildExtractionByRow([{ excel_row: 7, description: "cable tray", attributes: ext(attrs) }]),
+  }).compute(trayCtx(7), overrides);
+const thickOf = (r: ReturnType<ReturnType<typeof makePricingSheetHelper>["compute"]>) => attrOf(r, "thickness_mm")!;
+const TEN_TEXT = "50, 100, 150, 200, 250, 300, 350, 400, 450, 600";
+
+describe("TWO WAYS (v61) -- THREE: blank, with a note saying why", () => {
+  it("POSITIVE (the five 00198 rows): a stated 2.5 mm is not stocked -> the field is BLANK, the row refuses, the note names 2.5", () => {
+    const r = tray61({ tray_type: "Solid", material: "GI", thickness_mm: 2.5, width_mm: 100 });
+    const t = thickOf(r);
+    expect(t.options).toEqual(["2", "1.6"]);
+    expect(t.options).not.toContain(attrDisplayValue(t)); // a controlled <select> with no matching option shows its placeholder
+    expect(attrDisplayValue(t)).toBe("2.5");                 // the stated value survives in the data
+    expect(t.notes?.map((n) => n.kind)).toEqual(["no_match"]);
+    expect(t.notes!.map(attrNoteText)).toEqual(["The row states 2.5 — nothing stocked matches for Thickness (mm) (1.6, 2); left blank for you to decide."]);
+    // WHAT THE FIELD RENDERS: not red (the value is stated, not missing), not "(computed)" (nothing was
+    // substituted) -- a blank select with an amber note beneath it.
+    expect(isAttrBlank(t)).toBe(false);
+    expect(isShowingDerived(t)).toBe(false);
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.values).toEqual({});
+    expect(r.basis).toBe("no match for these attributes");
+  });
+  it("POSITIVE: a gauge the conversion table does not carry -> the visible field is blank with the note naming the gauge", () => {
+    const r = tray61({ tray_type: "Solid", material: "GI", thickness_swg: 27, width_mm: 100 });
+    const t = thickOf(r);
+    expect(attrDisplayValue(t)).toBe("");
+    expect(t.notes!.map(attrNoteText)).toEqual(["The row states 27 SWG — nothing stocked matches for gauge (8-16 SWG); left blank for you to decide."]);
+    expect(isAttrBlank(t)).toBe(false); // derived by config (a map target with a stated source): no red border
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.values).toEqual({});
+  });
+  it("POSITIVE: a gauge the table carries whose millimetre is not stocked (8 SWG -> 4.1) -> blank, the note names both", () => {
+    const r = tray61({ tray_type: "Solid", material: "GI", thickness_swg: 8, width_mm: 100 });
+    const t = thickOf(r);
+    expect(t.derivedValue).toBe("4.1");
+    expect(t.options).not.toContain(attrDisplayValue(t));
+    expect(t.notes!.map(attrNoteText)).toEqual(["The row states 8 SWG (4.1 mm) — nothing stocked matches for Thickness (mm) (1.6, 2); left blank for you to decide."]);
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.values).toEqual({});
+  });
+  it("NEGATIVE: the SWG conversion is byte-identical -- a stated 14 still gives 2.0, prices, and carries NO note", () => {
+    const now = tray61({ tray_type: "Solid", material: "GI", thickness_swg: 14, width_mm: 100 });
+    const before = tray61({ tray_type: "Solid", material: "GI", thickness_swg: 14, width_mm: 100 }, undefined, TRAYW_CONFIG_AS_NUMBER);
+    const t = thickOf(now);
+    expect(attrDisplayValue(t)).toBe("2");
+    expect(isShowingDerived(t)).toBe(true);
+    expect(t.notes).toBeUndefined();
+    if (!isSuggestion(now) || !isSuggestion(before)) throw new Error("expected suggestions");
+    expect(now.values).toEqual(before.values);
+    expect(now.values).toEqual({ supply_rate: 400 });
+    expect(now.workings.derivation).toEqual(before.workings.derivation);
+  });
+  it("POSITIVE (the 30 rows): a width above the top rung -> blank, refusing, the note names it", () => {
+    const r = tray61({ tray_type: "Solid", material: "GI", thickness_mm: 2, width_mm: 1500 });
+    const w = widthOf(r);
+    expect(w.options).not.toContain(attrDisplayValue(w));
+    expect(w.notes!.map(attrNoteText)).toEqual([`The row states 1500 — nothing stocked matches for Width (mm) (${TEN_TEXT}); left blank for you to decide.`]);
+    expect(isAttrBlank(w)).toBe(false);
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.values).toEqual({});
+  });
+  it("NEGATIVE: an off-list width that FITS keeps the `fit_up` note and gets no `no_match`", () => {
+    const w = widthOf(tray61({ tray_type: "Solid", material: "GI", thickness_mm: 2, width_mm: 80 }));
+    expect(attrDisplayValue(w)).toBe("100");
+    expect(w.notes?.map((n) => n.kind)).toEqual(["fit_up"]);
+  });
+  it("NEGATIVE: an off-list width BELOW the top on a row that refuses elsewhere (no thickness) gets NO note -- it may fit once complete", () => {
+    const w = widthOf(tray61({ tray_type: "Solid", material: "GI", width_mm: 80 }));
+    expect(w.notes).toBeUndefined();
+  });
+  it("NEGATIVE: an on-list width and a stocked thickness render plain -- no note anywhere", () => {
+    const r = tray61({ tray_type: "Solid", material: "GI", thickness_mm: 1.6, width_mm: 150 });
+    expect(widthOf(r).notes).toBeUndefined();
+    expect(thickOf(r).notes).toBeUndefined();
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.values).toEqual({ supply_rate: 300 }); // 150 wide on the 1.6 combo: 150 x 2
+  });
+  it("NEGATIVE -- CONFINED BY KEY PRESENCE: a def WITHOUT extract_as never gets the note, even with an off-list value", () => {
+    // TRAYW_CONFIG carries extract_as on neither def; the same 2.5 renders blank with NO sentence.
+    const t = thickOf(tray61({ tray_type: "Solid", material: "GI", thickness_mm: 2.5, width_mm: 100 }, undefined, TRAYW_CONFIG));
+    expect(attrDisplayValue(t)).toBe("2.5");
+    expect(t.notes).toBeUndefined();
+  });
+  it("the producer, unit: keeps an existing note, skips disabled / read-only / option-less fields, needs the selection for the gauge case", () => {
+    const base: WorkingsAttribute = { id: "thickness_mm", label: "Thickness (mm)", value: "2.5", options: ["2", "1.6"] } as WorkingsAttribute;
+    const out = withNoMatchNotes([base], TRAY61_CONFIG, TRAYW_ITEMS, {});
+    expect(out[0].notes?.map((n) => n.kind)).toEqual(["no_match"]);
+    expect(withNoMatchNotes([{ ...base, notes: [{ kind: "assumed", assumed: 3, using: "3M" }] }], TRAY61_CONFIG, TRAYW_ITEMS, {})[0].notes!.map((n) => n.kind)).toEqual(["assumed"]);
+    expect(withNoMatchNotes([{ ...base, disabled: true }], TRAY61_CONFIG, TRAYW_ITEMS, {})[0].notes).toBeUndefined();
+    expect(withNoMatchNotes([{ ...base, options: undefined }], TRAY61_CONFIG, TRAYW_ITEMS, {})[0].notes).toBeUndefined();
+    // gauge case: the source lives in the selection; without it, no gauge note
+    const blank: WorkingsAttribute = { id: "thickness_mm", label: "Thickness (mm)", value: "", options: ["2", "1.6"] } as WorkingsAttribute;
+    expect(withNoMatchNotes([blank], TRAY61_CONFIG, TRAYW_ITEMS, { thickness_swg: 27 })[0].notes!.map(attrNoteText)).toEqual(["The row states 27 SWG — nothing stocked matches for gauge (8-16 SWG); left blank for you to decide."]);
+    expect(withNoMatchNotes([blank], TRAY61_CONFIG, TRAYW_ITEMS, undefined)[0].notes).toBeUndefined();
+  });
+  it("the kind is in the render order after `fit_up` and before the quantity notes, and sorts there", () => {
+    expect(ATTR_NOTE_ORDER.indexOf("no_match")).toBe(ATTR_NOTE_ORDER.indexOf("fit_up") + 1);
+    expect(ATTR_NOTE_ORDER.indexOf("no_match")).toBeLessThan(ATTR_NOTE_ORDER.indexOf("capped"));
+    expect(sortAttrNotes([{ kind: "capped", stated: 1, spare: 0 }, { kind: "no_match", stated: "2.5", field: "Thickness (mm)", stocked: "2, 1.6" }]).map((n) => n.kind))
+      .toEqual(["no_match", "capped"]);
+  });
+});
+
+describe("TWO WAYS (v61) -- the LIVE asset: both defs, the other 65 lists, and the fresh-read shape", () => {
+  type Asset = { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const now = LIVE_ASSET_V61 as unknown as Asset;
+  const ct = now.category_configs.find((c) => c.category_id === "cabletray_raceway")!;
+  const items = now.items.map((i) => ({ ...i, attributes: { ...i.attributes, ...((i as { brand?: string }).brand ? { brand: (i as { brand?: string }).brand } : {}) } }));
+  it("both defs carry extract_as \"number\" and render as dropdowns of the stocked values; no other def in the 12 configs carries the key", () => {
+    const defs = Object.fromEntries(ct.attribute_definitions!.map((d) => [d.id, d]));
+    expect(defs.width_mm).toEqual({ ...WIDTH_DEF_V61 });
+    expect(defs.thickness_mm).toEqual(THICK_DEF_V61);
+    expect([...attributeOptions(defs.width_mm, items)].map(Number).sort((x, y) => x - y)).toEqual(TEN_WIDTHS);
+    expect([...attributeOptions(defs.thickness_mm, items)].map(Number).sort((x, y) => x - y)).toEqual([1, 1.2, 1.4, 1.6, 2]);
+    const carriers = now.category_configs.flatMap((c) => c.attribute_definitions!.filter((d) => (d as { extract_as?: string }).extract_as !== undefined).map((d) => `${c.category_id}.${d.id}`));
+    expect(carriers.sort()).toEqual(["cabletray_raceway.thickness_mm", "cabletray_raceway.width_mm"]);
+  });
+  it("the fresh-read shape: a stored 2.5 (what the free read will store) on a real cabletray row -> blank with the note, refusing", () => {
+    const helper = makePricingSheetHelper({
+      configsByCategory: new Map([["cabletray_raceway", ct]]), items,
+      extractionByRow: buildExtractionByRow([{ excel_row: 252, description: "600mm width Ladder Tray 75mm Height",
+        attributes: ext({ tray_type: "Ladder", material: "HOT DIPPED", thickness_mm: 2.5, width_mm: 600, cover: "No", installation_type: "Ceiling", floor_cutting: "No", floor_refilling: "No" }) }]),
+    });
+    const r = helper.compute({ ...trayCtx(252), rateKinds: ["supply_rate", "install_rate", "combined_rate"] });
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.values).toEqual({});
+    const t = attrOf(r, "thickness_mm")!;
+    expect(t.options).not.toContain(attrDisplayValue(t));
+    expect(t.notes!.map(attrNoteText)).toEqual(["The row states 2.5 — nothing stocked matches for Thickness (mm) (1, 1.2, 1.4, 1.6, 2); left blank for you to decide."]);
+    // and the same row with the stocked 2.0 the old run stored prices exactly as today (850 supply)
+    const priced = makePricingSheetHelper({
+      configsByCategory: new Map([["cabletray_raceway", ct]]), items,
+      extractionByRow: buildExtractionByRow([{ excel_row: 252, attributes: ext({ tray_type: "Ladder", material: "HOT DIPPED", thickness_mm: 2, width_mm: 600, cover: "No", installation_type: "Ceiling", floor_cutting: "No", floor_refilling: "No" }) }]),
+    }).compute({ ...trayCtx(252), rateKinds: ["supply_rate", "install_rate", "combined_rate"] });
+    if (!isSuggestion(priced)) throw new Error("expected suggestion");
+    expect(priced.values.supply_rate).toBe(850);
+    expect(attrOf(priced, "thickness_mm")!.notes).toBeUndefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// CONDUIT TRADE SIZE + NEXT-HIGHER LADDER (v63, owner 2026-09-10) -- pins ONLY. No interpreter change, no helper
+// change, no new note kind: `derivedAttrIds`, `catalogFitOutcomes`, `catalogFitSizeUpNote` and `withNoMatchNotes`
+// already key on a `catalog_fit` bind. The conduit config is the LIVE v63 one and the items are its eight conduits.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+const V63_CONDUIT_CONFIG = (LIVE_ASSET_V63 as unknown as { category_configs: Array<{ category_id: string }> })
+  .category_configs.find((c) => c.category_id === "conduit_piping") as unknown as RateCategoryConfig;
+const V62_CONDUIT_CONFIG = (PRIOR_ASSET_V62 as unknown as { category_configs: Array<{ category_id: string }> })
+  .category_configs.find((c) => c.category_id === "conduit_piping") as unknown as RateCategoryConfig;
+const V63_CONDUIT_ITEMS = (LIVE_ASSET_V63 as unknown as { items: Array<{ kind: string }> }).items
+  .filter((i) => i.kind === "conduit") as unknown as RateMasterItem[];
+const conduitCtx = (excelRow: number, description = "conduit"): RateHelperRowContext => ({
+  excelRow, description, nodeType: "Line Item", category: "conduit_piping", discipline: "Electrical",
+  rateKinds: ["supply_rate", "install_rate"],
+});
+const conduit63 = (attrs: Record<string, string | number | null>, overrides?: Record<string, string>, config = V63_CONDUIT_CONFIG, description = "conduit") =>
+  makePricingSheetHelper({
+    config, items: V63_CONDUIT_ITEMS,
+    extractionByRow: buildExtractionByRow([{ excel_row: 9, description, attributes: ext(attrs) }]),
+  }).compute(conduitCtx(9, description), overrides);
+const sizeOf = (r: ReturnType<ReturnType<typeof makePricingSheetHelper>["compute"]>) => attrOf(r, "size_mm")!;
+
+describe("CONDUIT LADDER (v63) -- the ladder fits exact-else-next-higher, never down", () => {
+  it("POSITIVE: the eight stocked conduits and the four sizes, flat across both types", () => {
+    expect(V63_CONDUIT_ITEMS).toHaveLength(8);
+    // the dropdown keeps catalogue row order (the registered v61 trait); the SET is the four sizes
+    expect([...(sizeOf(conduit63({ conduit_type: "PVC", size_mm: 25 })).options ?? [])].sort((a, b) => Number(a) - Number(b))).toEqual(["20", "25", "32", "50"]);
+  });
+  it("POSITIVE (V3, BOQ-26-00194 / 276): stored 40 MS -> buys 50, prices 168 / 40, the field shows 50 (computed), the fit_up note names 40", () => {
+    const r = conduit63({ conduit_type: "MS", size_mm: 40 });
+    const s = sizeOf(r);
+    expect(attrDisplayValue(s)).toBe("50");
+    expect(s.value).toBe("40");
+    expect(isShowingDerived(s)).toBe(true);
+    expect(s.notes?.map((n) => n.kind)).toEqual(["fit_up"]);
+    expect(s.notes!.map(attrNoteText)).toEqual(["The row states 40 — using 50, the next size stocked."]);
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.values).toEqual({ supply_rate: 168, install_rate: 40, combined_rate: 208 });
+  });
+  it("POSITIVE: every stored off-list size in the corpus buys the next rung UP -- 19.05 -> 20, 25.4 -> 32, 31.75 -> 32, 38.1 -> 50, 40 -> 50 (PVC 35/10, 70/20, 70/20, 140/30, 140/30)", () => {
+    const cases: Array<[number, string, { supply_rate: number; install_rate: number; combined_rate: number }]> = [
+      [19.05, "20", { supply_rate: 35, install_rate: 10, combined_rate: 45 }], [25.4, "32", { supply_rate: 70, install_rate: 20, combined_rate: 90 }],
+      [31.75, "32", { supply_rate: 70, install_rate: 20, combined_rate: 90 }], [38.1, "50", { supply_rate: 140, install_rate: 30, combined_rate: 170 }],
+      [40, "50", { supply_rate: 140, install_rate: 30, combined_rate: 170 }],
+    ];
+    for (const [stated, rung, values] of cases) {
+      const r = conduit63({ conduit_type: "PVC", size_mm: stated });
+      expect(attrDisplayValue(sizeOf(r)), String(stated)).toBe(rung);
+      if (!isSuggestion(r)) throw new Error("expected suggestion");
+      expect(r.values, String(stated)).toEqual(values);
+      expect(sizeOf(r).notes?.map((n) => n.kind), String(stated)).toEqual(["fit_up"]);
+    }
+  });
+  it("NEGATIVE: never DOWN -- 25.4 buys 32, not 25 (which is why the trade table exists on the extraction side)", () => {
+    const r = conduit63({ conduit_type: "PVC", size_mm: 25.4 });
+    expect(attrDisplayValue(sizeOf(r))).toBe("32");
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.values).not.toEqual({ supply_rate: 42, install_rate: 10 });
+  });
+  it("NEGATIVE (V4, BOQ-26-00198 / 220): 50.8 is above the top rung -> no fit, the no_match note, the row keeps refusing", () => {
+    const r = conduit63({ conduit_type: "PVC", size_mm: 50.8 });
+    const s = sizeOf(r);
+    expect(s.options).not.toContain(attrDisplayValue(s));
+    expect(s.derivedValue).toBeUndefined();
+    expect(s.notes?.map((n) => n.kind)).toEqual(["no_match"]);
+    expect(s.notes!.map(attrNoteText)).toEqual(["The row states 50.8 — nothing stocked matches for Size (mm) (20, 25, 32, 50); left blank for you to decide."]);
+    expect(isAttrBlank(s)).toBe(false);
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.values).toEqual({});
+    expect(r.basis).toBe("no match for these attributes");
+  });
+  it("NEGATIVE (the 227): an on-list stored size is an exact rung -- 25 PVC still prices 42 / 10, shows 25 plain, no note; v62 figures identical", () => {
+    for (const [type, size, values] of [["PVC", 25, { supply_rate: 42, install_rate: 10, combined_rate: 52 }], ["MS", 50, { supply_rate: 168, install_rate: 40, combined_rate: 208 }], ["PVC", 20, { supply_rate: 35, install_rate: 10, combined_rate: 45 }]] as const) {
+      const now = conduit63({ conduit_type: type, size_mm: size });
+      const before = conduit63({ conduit_type: type, size_mm: size }, undefined, V62_CONDUIT_CONFIG);
+      const s = sizeOf(now);
+      expect(attrDisplayValue(s)).toBe(String(size));
+      expect(isShowingDerived(s)).toBe(false);
+      expect(s.notes).toBeUndefined();
+      if (!isSuggestion(now) || !isSuggestion(before)) throw new Error("expected suggestions");
+      expect(now.values).toEqual(values);
+      expect(now.values).toEqual(before.values);
+    }
+  });
+  it("NEGATIVE: a direct PICK of a stocked size carries no note and prices exactly (the calculator's only path -- owner: 'this is ok')", () => {
+    const picked = conduit63({ conduit_type: "PVC", size_mm: 40 }, { size_mm: "32" });
+    expect(attrDisplayValue(sizeOf(picked))).toBe("32");
+    expect(sizeOf(picked).notes).toBeUndefined();
+    if (!isSuggestion(picked)) throw new Error("expected suggestion");
+    expect(picked.values).toEqual({ supply_rate: 70, install_rate: 20, combined_rate: 90 });
+  });
+  it("(V5, the 11 blank-size rows): a stated type and a BLANK size refuses as a no-match with NO red border -- the bind is derived; under v62 it was a red 'Complete the missing attributes'", () => {
+    const now = conduit63({ conduit_type: "PVC", size_mm: null });
+    const before = conduit63({ conduit_type: "PVC", size_mm: null }, undefined, V62_CONDUIT_CONFIG);
+    if (!isSuggestion(now) || !isSuggestion(before)) throw new Error("expected suggestions");
+    expect(now.values).toEqual({}); expect(before.values).toEqual({});
+    expect(now.basis).toBe("no match for these attributes");
+    expect(before.basis).toBe("Complete the missing attributes to price");
+    expect(isAttrBlank(sizeOf(now))).toBe(false);
+    expect(isAttrBlank(sizeOf(before))).toBe(true);
+    expect(sizeOf(now).notes).toBeUndefined();
+  });
+  it("NEGATIVE (row 444's shape): a stated size with NO type refuses at the missing gate exactly as before -- the ladder needs its where-fact", () => {
+    const now = conduit63({ conduit_type: null, size_mm: 40 });
+    const before = conduit63({ conduit_type: null, size_mm: 40 }, undefined, V62_CONDUIT_CONFIG);
+    if (!isSuggestion(now) || !isSuggestion(before)) throw new Error("expected suggestions");
+    expect(now.basis).toBe("Complete the missing attributes to price");
+    expect(now.basis).toBe(before.basis);
+    expect(sizeOf(now).notes).toBeUndefined();
+  });
+});
+
+describe("CONDUIT LADDER (v63) -- the asset: the ladder lives in conduit_piping ONLY, and every other category is byte-equal to v62", () => {
+  const cats63 = (LIVE_ASSET_V63 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }> }).category_configs;
+  const cats62 = (PRIOR_ASSET_V62 as unknown as { category_configs: Array<Record<string, unknown> & { category_id: string }> }).category_configs;
+  it("the ladder step: tray-shaped, at the head of BOTH conduit pipelines, within conduit_type, up / no_compute", () => {
+    const pipes = V63_CONDUIT_CONFIG.pipelines as Record<string, Pipeline>;
+    expect(Object.keys(pipes)).toEqual(["conduit_boq", "conduit_bcs"]);
+    for (const pid of Object.keys(pipes)) {
+      const s = pipes[pid].steps[0] as { step: string; params: Record<string, unknown> };
+      expect(s.step).toBe("catalog_fit");
+      expect(s.params).toEqual({ bind: "size_mm", fit_into: "size_mm", kind: "conduit", where: { conduit_type: "@conduit_type" },
+        label_attr: "size_mm", size_from: { attr: "size_mm" }, fit_from: { attr: "size_mm" }, direction: "up", on_miss: "no_compute" });
+      expect((pipes[pid].steps[1] as { step: string }).step).toBe("match_master_row");
+      expect(pipes[pid].steps.slice(1)).toEqual((V62_CONDUIT_CONFIG.pipelines as Record<string, Pipeline>)[pid].steps);
+    }
+    const size = (V63_CONDUIT_CONFIG.attribute_definitions ?? []).find((d) => d.id === "size_mm") as unknown as Record<string, unknown>;
+    expect(size.extract_as).toBe("number");
+    expect(size.inch_trade_mm).toEqual({ "3/4": 20, "1": 25, "1 1/4": 32, "1 1/2": 40, "2": 50 });
+  });
+  it("NEGATIVE, named for what it protects: wiring_cabling and point_wiring are byte-identical to v62 -- they reach the conduit catalogue through their OWN component_ref, not these pipelines", () => {
+    for (const cid of ["wiring_cabling", "point_wiring"]) {
+      expect(cats63.find((c) => c.category_id === cid), cid).toEqual(cats62.find((c) => c.category_id === cid));
+    }
+    for (const cid of ["wiring_cabling", "point_wiring"]) {
+      const c = cats63.find((x) => x.category_id === cid) as { pipelines: Record<string, Pipeline> };
+      const fits = Object.values(c.pipelines).flatMap((p) => p.steps).filter((s) => (s as { step: string }).step === "catalog_fit");
+      expect(fits, cid).toHaveLength(0);
+    }
+  });
+  it("NEGATIVE: every other category's config is byte-equal to v62; conduit's golden c1 (PVC 25) unchanged", () => {
+    expect(cats63.map((c) => c.category_id)).toEqual(cats62.map((c) => c.category_id));
+    for (const c of cats62) {
+      if (c.category_id === "conduit_piping") continue;
+      expect(cats63.find((x) => x.category_id === c.category_id), c.category_id).toEqual(c);
+    }
+    expect((V63_CONDUIT_CONFIG as unknown as { goldens: unknown }).goldens).toEqual((V62_CONDUIT_CONFIG as unknown as { goldens: unknown }).goldens);
+    const c1 = conduit63({ conduit_type: "PVC", size_mm: 25 });
+    if (!isSuggestion(c1)) throw new Error("expected suggestion");
+    expect(c1.values).toEqual({ supply_rate: 42, install_rate: 10, combined_rate: 52 });
   });
 });

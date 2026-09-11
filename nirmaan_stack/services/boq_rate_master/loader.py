@@ -30,7 +30,7 @@ import json
 
 import frappe
 
-from nirmaan_stack.services.boq_rate_master import retirement
+from nirmaan_stack.services.boq_rate_master import config_validation, retirement
 
 ITEM_DOCTYPE = "BoQ Rate Master Item"
 CONFIG_DOCTYPE = "BoQ Rate Category Config"
@@ -121,6 +121,44 @@ def _validate_one_config(cfg, label):
             frappe.throw("%s pipeline '%s' has no 'steps'." % (label, pname))
 
 
+def _loaded_config(c, discipline, goldens_by_cat):
+    """The config AS THE LOADER STORES IT: a copy with `discipline` stamped and the payload's
+    per-category goldens merged in (the RM-4b goldens-as-config-data convention). Built by ONE helper
+    so the object that is VALIDATED is byte-for-byte the object that is WRITTEN -- validating a
+    different shape would make the 569-of-570 asset sweep that justified the gate not transfer."""
+    cfg = dict(c)
+    cfg["discipline"] = discipline  # stamp (configs carry no discipline of their own)
+    merged = goldens_by_cat.get(cfg["category_id"].strip())
+    if merged is not None:
+        cfg["goldens"] = merged  # RM-4b goldens-as-config-data
+    return cfg
+
+
+def _validate_loaded_config(cfg, label):
+    """VALIDATE AT IMPORT (2026-09-10). Runs the FULL structural validator -- the same predicate the
+    RM-4b editor runs before `doc.save` -- on the config the loader is about to write, BEFORE any row
+    is deactivated or inserted. Until now the loader checked only that a category id, a non-empty
+    attribute list and a pipelines object existed (`_validate_one_config`, still run first), so every
+    config change that arrived by import (v56 through v63, every one of them) landed without the
+    def-key allowlist, the reference guards or the shape checks ever seeing it; a typo imported
+    cleanly and read as the old behaviour. Proven safe before switching on: 570 configs across every
+    asset on disk plus the 12 live rows, 569 pass; the one refusal is v12's `point_wiring.switch_item`
+    (a bare `choice` with no values -- a real defect, in a retired asset F-20 already forbids
+    re-importing). The predicate lives in `config_validation` (service layer) precisely so this
+    module can import it without a service reaching into `api/`.
+
+    A refusal names the category AND the key, and writes nothing -- it fires before the first UPDATE."""
+    try:
+        config_validation._validate_config(cfg)
+    except frappe.ValidationError as e:
+        frappe.throw(
+            "Rate master import refused -- %s (category '%s') is not a valid config: %s "
+            "Nothing was written. Fix the asset and re-run the import."
+            % (label, (cfg.get("category_id") or "").strip(), str(e)),
+            title="Rate master: invalid config in asset",
+        )
+
+
 def _validate_payload(payload):
     """Light shape validation -- raise on anything structurally wrong. Does NOT assert
     data-specific counts (those are the caller's / test's concern)."""
@@ -144,6 +182,9 @@ def _validate_payload(payload):
     for pname, pl in pipelines.items():
         if not isinstance(pl, dict) or not isinstance(pl.get("steps"), list) or not pl["steps"]:
             frappe.throw("pipeline '%s' has no 'steps'." % pname)
+    # The single-config shape already carries its discipline and merges no goldens, so the stored
+    # object IS the payload's config -- validate exactly that.
+    _validate_loaded_config(cfg, "category_config")
     return payload
 
 
@@ -363,12 +404,17 @@ def _load_multi(payload, replace):
     if not configs:
         frappe.throw("E-ALL payload has an empty 'category_configs' list.")
     _validate_items(payload.get("items"))
-    for idx, c in enumerate(configs):
-        _validate_one_config(c, "category_configs[%d]" % idx)
-
     goldens_by_cat = payload.get("goldens") or {}
     if not isinstance(goldens_by_cat, dict):
         frappe.throw("E-ALL 'goldens' must be an object keyed by category_id.")
+    for idx, c in enumerate(configs):
+        label = "category_configs[%d]" % idx
+        _validate_one_config(c, label)
+        # THE IMPORT GATE: the full structural validator over the config AS IT WILL BE STORED
+        # (discipline stamped, goldens merged -- `_loaded_config`, the same helper the insert loop
+        # below uses). Every config is validated BEFORE the first write; a refusal names the
+        # category and the key and leaves the catalog untouched.
+        _validate_loaded_config(_loaded_config(c, discipline, goldens_by_cat), label)
 
     # EA-1b: retired scope -- kinds / category_ids dropped from THIS payload that must be superseded on
     # a replace (else they stay orphan-active from a prior batch, e.g. ups after the Floor BOX fix).
@@ -446,12 +492,8 @@ def _load_multi(payload, replace):
         # The WHOLE config blob is stored (json.dumps below), so pass-through keys ride through with no
         # loader change -- item_kinds, pipeline_labels, matching_mode/identity_attribute_id/notes, and
         # (EA-DIFF) `synonyms` {attr_id: {variant: canonical}} consumed by extraction.
-        cfg = dict(c)
-        cfg["discipline"] = discipline  # stamp (configs carry no discipline of their own)
+        cfg = _loaded_config(c, discipline, goldens_by_cat)  # the validated object, byte-for-byte
         cat_id = cfg["category_id"].strip()
-        merged = goldens_by_cat.get(cat_id)
-        if merged is not None:
-            cfg["goldens"] = merged  # RM-4b goldens-as-config-data
         frappe.get_doc(
             {
                 "doctype": CONFIG_DOCTYPE,

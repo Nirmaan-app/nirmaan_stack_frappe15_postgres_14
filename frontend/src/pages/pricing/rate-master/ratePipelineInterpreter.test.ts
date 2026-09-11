@@ -5,6 +5,9 @@
 import { describe, it, expect } from "vitest";
 import type { Pipeline, RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
 import { startsAttributeGroup } from "@/pages/boq-wizard/rate-helper/rateHelperTypes";
+// INCLUDES-MODULES GATE (2026-09-10): the live asset and its predecessor, imported as modules (the pricingSheetHelper.test.ts precedent)
+import LIVE_ASSET_V62 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v62.json";
+import PRIOR_ASSET_V61 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v61.json";
 
 import {
   NONE_SENTINEL,
@@ -21,6 +24,7 @@ import {
   roundUp,
   runAllPipelines,
   runPipeline,
+  moduleFitGateVerdict,
   stepFactor,
 } from "./ratePipelineInterpreter";
 import { STEP_VOCABULARY, blankStep, coerceForMatch } from "./rateMasterStructure";
@@ -6205,5 +6209,366 @@ describe("F-25 slice 3 -- THE CROSS-CATEGORY NEGATIVE: confined by KEY PRESENCE,
   it("NEGATIVE: the interpreter source names no category", () => {
     // the confinement lives in the config key, so nothing here may special-case a category id
     expect(readPick.toString()).not.toMatch(/switches_sockets|point_wiring|popup_boxes/);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// THE NONE-PICK RULE (owner 2026-09-09) -- a hand-picked "None" is honoured by a `map_attribute`
+// ONLY when the step prefers ITS OWN attribute (i) AND its default is not itself "None" (ii).
+//
+// Both conditions were MEASURED on the 5,001 rows of the 42 active runs (recon 4, 2026-09-09):
+//   dropping (i)  -> 59 live rows move, 25 of them stop pricing (industrial_sockets' hidden curve);
+//   dropping (ii) -> 14 wiring_cabling rows drop a conduit the text names at a non-catalogue size.
+// With both: 0 of 10,002 verdicts move. Each condition has its own NEGATIVE pin below, named for the
+// population it protects, so removing either goes red with a test name that says why.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe("THE NONE-PICK RULE -- a self-preferring map with a non-None default honours a stated None", () => {
+  // point_wiring's live shape (v59 pw_boq_supply steps 5, 6 and 10): the default-PVC map, the hidden
+  // drop, then circuit_fit with `absent_when conduit_type == None`, then the assembly with a
+  // `none_skips` conduit component.
+  const PVC_DEFAULT_MAP = {
+    step: "map_attribute" as const,
+    params: { result_attr: "conduit_type", prefer_attr: "conduit_type", default: "PVC" },
+  };
+  const HIDDEN_DROP = {
+    step: "map_attribute" as const,
+    params: { result_attr: "conduit_type", from_attr: "conduit_included", table: { No: NONE_SENTINEL }, on_miss: "skip" },
+  };
+  const CF_ABSENT = {
+    ...PW_CIRCUIT_FIT,
+    params: { ...PW_CIRCUIT_FIT.params, absent_when: { attr: "conduit_type", equals: NONE_SENTINEL } },
+  };
+  const livePipe = (): Pipeline => ({
+    output: ["supply"],
+    steps: [
+      PVC_DEFAULT_MAP,
+      HIDDEN_DROP,
+      CF_ABSENT,
+      ...(PW_PIPELINES.pw_boq_supply.steps.slice(1) as Array<Record<string, unknown>>).map((st) =>
+        st.name === "conduit" ? { ...st, none_skips: true } : st,
+      ),
+    ] as Pipeline["steps"],
+  });
+  const run = (sel: Record<string, string | number>) => runPipeline("pw_boq_supply", livePipe(), PW_ITEMS, sel);
+  const mapOut = (r: ReturnType<typeof runPipeline>) => mapAttributeOutcomes([r]).get("conduit_type");
+  const line = (r: ReturnType<typeof runPipeline>, name: string) => r.steps.find((s) => s.produced?.key === name)?.produced?.value;
+  const { conduit_type: _pvc, ...PW1_NO_TYPE } = PW1;
+
+  it("POSITIVE (the defect): a stated None on point_wiring's conduit_type is HONOURED -- no conduit is priced", () => {
+    const withPvc = run({ ...PW1_NO_TYPE, conduit_type: "PVC" });
+    const picked = run({ ...PW1_NO_TYPE, conduit_type: NONE_SENTINEL });
+    expect(picked.status).toBe("ok");
+    expect(mapOut(picked)).toEqual({ result_attr: "conduit_type", stated: true, value: NONE_SENTINEL });
+    expect(picked.steps[0].matchedCondition).toContain("conduit_type stated as None -- kept (a stated value wins)");
+    expect(line(withPvc, "conduit")).toBeGreaterThan(0);
+    expect(line(picked, "conduit")).toBe(0);
+    expect(picked.finals.supply).toBe(withPvc.finals.supply - (line(withPvc, "conduit") as number));
+  });
+
+  it("POSITIVE (end to end): the hand-picked None reaches the SAME price the hidden facts reach", () => {
+    // extraction's route: conduit_included = No -> the drop writes None. The pricer's route: None picked.
+    const viaHiddenFacts = run({ ...PW1_NO_TYPE, conduit_included: "No" });
+    const viaPick = run({ ...PW1_NO_TYPE, conduit_type: NONE_SENTINEL });
+    expect(viaHiddenFacts.status).toBe("ok");
+    expect(viaPick.finals).toEqual(viaHiddenFacts.finals);
+  });
+
+  it("POSITIVE (the consumers): the honoured None fires circuit_fit's absent_when and component_ref's none_skips", () => {
+    const picked = run({ ...PW1_NO_TYPE, conduit_type: NONE_SENTINEL });
+    const cf = picked.steps.find((s) => s.step === "circuit_fit");
+    expect(cf?.matchedCondition).toContain("no conduit (positive absence)");
+    const conduit = picked.steps.find((s) => s.produced?.key === "conduit");
+    expect(conduit?.matchedCondition).toBe("None -> 0");
+    // and every other component of the point still prices -- the wires never read the fit
+    expect(line(picked, "wire1")).toBeGreaterThan(0);
+    expect(line(picked, "switch")).toBeGreaterThan(0);
+  });
+
+  it("POSITIVE (the screen): an honoured None is published as STATED, so the panel renders the pick plain, never '(computed)'", () => {
+    // `applyDerivedDisplay`'s map branch publishes NO derivedValue for a stated outcome, so
+    // `attrDisplayValue` shows the row's own value ("None") and `isShowingDerived` is false.
+    const picked = run({ ...PW1_NO_TYPE, conduit_type: NONE_SENTINEL });
+    expect(mapOut(picked)?.stated).toBe(true);
+    expect(mapOut(picked)?.value).toBe(NONE_SENTINEL);
+  });
+
+  it("UNCHANGED: a non-None stated value still wins, and an UNSTATED field still takes the PVC default", () => {
+    const ms = run({ ...PW1_NO_TYPE, conduit_type: "MS" });
+    expect(mapOut(ms)).toEqual({ result_attr: "conduit_type", stated: true, value: "MS" });
+    const silent = run({ ...PW1_NO_TYPE });
+    expect(mapOut(silent)).toEqual({ result_attr: "conduit_type", stated: false, value: "PVC" });
+    expect(silent.finals).toEqual(run({ ...PW1_NO_TYPE, conduit_type: "PVC" }).finals);
+    const blank = run({ ...PW1_NO_TYPE, conduit_type: "" });
+    expect(mapOut(blank)).toEqual({ result_attr: "conduit_type", stated: false, value: "PVC" });
+  });
+
+  it("NEGATIVE, condition (i): industrial_sockets' hidden curve -- a None on a map that prefers ANOTHER attribute is STILL discarded (dropping (i) moves 59 live rows and 25 stop pricing)", () => {
+    // `mcb_curve` prefers `mcb_curve_stated`, which the model writes as "None" on 107 of 147 live
+    // rows. The curve must still fall to C: measured 2026-09-09, honouring that None sends the
+    // catalog_fit to NA-curve rows (prices rise, e.g. 4528 -> 6919) or to a refusal (25 rows).
+    const pl: Pipeline = { output: ["mcb_curve"], steps: [CURVE_MAP] as Pipeline["steps"] };
+    const r = runPipeline("curve", pl, CF_ITEMS, { mcb_curve_stated: NONE_SENTINEL });
+    expect(mapAttributeOutcomes([r]).get("mcb_curve")).toEqual({ result_attr: "mcb_curve", stated: false, value: "C" });
+    expect(r.steps[0].matchedCondition).toContain("nothing stated -> C (default)");
+    // the full row: ROW98 carries mcb_curve_stated None and must still fit a C-curve MCB as before
+    const full = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, ROW98);
+    expect(full.status).toBe("ok");
+    expect(cfTrace(full)!.catalogFit!.fitted).not.toBeNull();
+  });
+
+  it("NEGATIVE, condition (ii): the 14 wiring rows -- a None on a self-preferring map whose default IS None behaves exactly as today", () => {
+    // wiring_cabling size_mm: prefer itself, table {MS: 25}, default None. The model writes "None"
+    // for a conduit named at a non-catalogue size (19 mm, 40 mm); charging the 25 mm rung there is
+    // ruling (vi). Measured 2026-09-09: honouring that None drops the conduit on 14 live rows
+    // (240/50 -> 180/30). The wiring conduit_type map (default None) is the same shape.
+    const SIZE_MAP = { step: "map_attribute" as const, params: { result_attr: "size_mm", prefer_attr: "size_mm", from_attr: "conduit_type", table: { MS: 25, PVC: 25 }, default: NONE_SENTINEL } };
+    const TYPE_MAP = { step: "map_attribute" as const, params: { result_attr: "conduit_type", prefer_attr: "conduit_type", default: NONE_SENTINEL } };
+    const pl: Pipeline = { output: ["size_mm"], steps: [TYPE_MAP, SIZE_MAP] as Pipeline["steps"] };
+    const r = runPipeline("size", pl, CF_ITEMS, { conduit_type: "MS", size_mm: NONE_SENTINEL });
+    const out = mapAttributeOutcomes([r]);
+    expect(out.get("size_mm")).toEqual({ result_attr: "size_mm", stated: false, value: 25 });
+    expect(r.steps[1].matchedCondition).toContain("conduit_type MS -> 25");
+    // and a None on the default-None type map resolves to the default, unmarked as stated (as today)
+    const t = runPipeline("type", pl, CF_ITEMS, { conduit_type: NONE_SENTINEL });
+    expect(mapAttributeOutcomes([t]).get("conduit_type")).toEqual({ result_attr: "conduit_type", stated: false, value: NONE_SENTINEL });
+  });
+
+  it("NEGATIVE (a different predicate): catalog_fit's stated-None path is byte-identical -- owner-locked, not this rule", () => {
+    const r = runPipeline("indsock_boq", indsockSupply(), CF_ITEMS, { ...ROW98, paired_mcb: NONE_SENTINEL });
+    expect(cfTrace(r)!.catalogFit!.stated).toBe(NONE_SENTINEL);
+    expect(cfTrace(r)!.catalogFit!.absent).toBe(true);
+    expect(r.finals.supply).toBe(9222);
+  });
+
+  it("NEGATIVE (the source): both conditions are spelled out in the predicate, as config keys, never as a category", () => {
+    // The rule reads two CONFIG keys of the step. A category id in the predicate would be the HV-10
+    // defect; the comments may name the populations they protect, the code may not test for them.
+    const src = runPipeline.toString();
+    expect(src).toContain("p.prefer_attr === p.result_attr");
+    expect(src).toContain("p.default !== NONE_SENTINEL");
+    expect(src).not.toMatch(/=== ["']point_wiring["']|=== ["']wiring_cabling["']|=== ["']industrial_sockets["']/);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// THE INCLUDES-MODULES GATE (owner rulings 2026-09-10) -- `module_fit.params.include_when`.
+//
+// popup_boxes' `has_modules` was an EXTRACTION instruction (rule P1) that nothing at pricing time
+// read: BOQ-26-00241 / "BOQ | Electircal" / 123 priced 3060 / 380 / 3440 with the switch at Yes AND
+// at No. Owner: No -> "the bare box price"; the filled slots "stay and just dont get included in the
+// price"; "switch win both sides"; "blank refuses"; Yes with every slot empty -> "no change required".
+//
+// Confined by KEY PRESENCE: switches_sockets and point_wiring run the same step without the key and
+// are pinned byte-identical below, named for the categories they protect (the HV-10 lesson).
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+const PB_ITEMS: RateMasterItem[] = [
+  ssItem("Switch", "16A 1 WAY SWITCH", "White", 258), ssItem("Socket", "6A/16A 3-Pin Socket", "White", 425),
+  ssItem("Switch", "1M Blanker", "White", 61), ssItem("Grid and Face Plates", "6M", "White", 302),
+];
+const PB_GATE = { attr: "has_modules", equals: "Yes" };
+const pbFit = (extra: Record<string, unknown> = {}) => ({
+  step: "module_fit" as const,
+  params: {
+    terms: [{ attr: "switch_qty", weight: 1, none_when: "switch_item" }, { attr: "socket1_qty", weight: 2, none_when: "socket1_item" }],
+    ladders: [{ kind: "switch_socket_item", where: { family: "Grid and Face Plates" }, bind: "plate_item", floor_from: "plate_item", on_none: "none" }],
+    blanks: { bind: "blank_count", from_ladder: "plate_item", bind_item: "blank_fit_item", item_when_positive: "1M Blanker" },
+    ...extra,
+  },
+});
+const pbRef = (name: string, family: string, item: string, qty: Qty) => ({
+  step: "component_ref" as const, name, ref: ssRef(family, item, "@colour"), target: "list_price", rate_stages: [{ mult: 1 }], qty, none_skips: true,
+});
+// the live popup shape minus the box: the four none_skips lines the gate must zero, summed
+const pbPipe = (mf: unknown = pbFit()): Pipeline => ({
+  output: ["modules"],
+  steps: [
+    mf,
+    pbRef("switch", "Switch", "@switch_item", { from_attr: "switch_qty" }),
+    pbRef("socket1", "Socket", "@socket1_item", { from_attr: "socket1_qty" }),
+    pbRef("blank", "Switch", "@blank_fit_item", { from_fit: "blank_count" }),
+    pbRef("plate", "Grid and Face Plates", "@plate_item", { from_attr: "plate_qty" }),
+    { step: "sum_components", result: "modules" },
+  ] as Pipeline["steps"],
+});
+// 1 switch (1M) + 1 socket (2M) on a stated 6M plate -> 3 blanks: 258 + 425 + 3x61 + 302 = 1168
+const PB_FULL: Record<string, string | number> = {
+  has_modules: "Yes", switch_item: "16A 1 WAY SWITCH", switch_qty: 1, socket1_item: "6A/16A 3-Pin Socket", socket1_qty: 1,
+  plate_item: "6M", plate_qty: 1, colour: "White",
+};
+const PB_EMPTY: Record<string, string | number> = { has_modules: "Yes", switch_item: "None", socket1_item: "None", plate_item: "None", colour: "White" };
+const lines = (r: ReturnType<typeof runPipeline>) =>
+  Object.fromEntries(r.steps.filter((s) => s.step === "component_ref" && s.produced).map((s) => [s.produced!.key, s.produced!.value]));
+const bailLabel = (r: ReturnType<typeof runPipeline>) => r.steps.find((s) => s.step === "module_fit")?.label ?? "";
+const gateOutcome = (r: ReturnType<typeof runPipeline>) => r.steps.find((s) => s.step === "module_fit")?.moduleFit;
+
+describe("INCLUDES-MODULES GATE -- the switch wins over the slots, both ways", () => {
+  it("POSITIVE (the defect, closed): switch No + slots filled -> the modules contribute NOTHING; the slot values are still in the selection", () => {
+    const row: Record<string, string | number> = { ...PB_FULL, has_modules: "No" };
+    const snapshot = JSON.stringify(row);
+    const r = runPipeline("popup", pbPipe(pbFit({ include_when: PB_GATE })), PB_ITEMS, row);
+    expect(r.status).toBe("ok");
+    expect(r.finals).toEqual({ modules: 0 });
+    expect(lines(r)).toEqual({ switch: 0, socket1: 0, blank: 0, plate: 0 });
+    // the four lines zero through the SAME "None -> 0" short-circuit a "None" slot takes
+    expect(r.steps.filter((s) => s.step === "component_ref").map((s) => s.matchedCondition)).toEqual(["None -> 0", "None -> 0", "None -> 0", "None -> 0"]);
+    expect(mfTrace(r)).toBe("has_modules is No -> modules not included: switch_item, socket1_item, plate_item, blank_fit_item -> None (the slot picks stay; none is priced)");
+    expect(gateOutcome(r)).toEqual({ occupied: 0, ladders: [{ bind: "plate_item", floorFrom: "plate_item", label: null, modules: null, absent: true }], excluded: { attr: "has_modules", value: "No" } });
+    // owner: "they stay" -- the caller's selection is untouched, every pick still present
+    expect(JSON.stringify(row)).toBe(snapshot);
+    expect(row.switch_item).toBe("16A 1 WAY SWITCH");
+    expect(row.plate_item).toBe("6M");
+  });
+  it("POSITIVE: No -> Yes on the same row restores the full price without re-picking", () => {
+    const pl = pbPipe(pbFit({ include_when: PB_GATE }));
+    const off = runPipeline("popup", pl, PB_ITEMS, { ...PB_FULL, has_modules: "No" });
+    const on = runPipeline("popup", pl, PB_ITEMS, { ...PB_FULL, has_modules: "Yes" });
+    expect(off.finals).toEqual({ modules: 0 });
+    expect(on.finals).toEqual({ modules: 1168 });
+    expect(lines(on)).toEqual({ switch: 258, socket1: 425, blank: 183, plate: 302 });
+  });
+  it("NEGATIVE (the invariant): switch Yes + slots filled -> exactly the number the step gives WITHOUT the key, trace and outcome included", () => {
+    const a = runPipeline("popup", pbPipe(pbFit()), PB_ITEMS, PB_FULL);
+    const b = runPipeline("popup", pbPipe(pbFit({ include_when: PB_GATE })), PB_ITEMS, PB_FULL);
+    expect(a.finals).toEqual({ modules: 1168 });
+    expect(b.finals).toEqual(a.finals);
+    expect(b.steps).toEqual(a.steps);
+    expect(gateOutcome(b)?.excluded).toBeUndefined();
+  });
+  it("NEGATIVE (owner: 'no change required'): switch Yes + every slot empty -> exactly today's number, NO note, NO refusal", () => {
+    const a = runPipeline("popup", pbPipe(pbFit()), PB_ITEMS, PB_EMPTY);
+    const b = runPipeline("popup", pbPipe(pbFit({ include_when: PB_GATE })), PB_ITEMS, PB_EMPTY);
+    expect(a.status).toBe("ok");
+    expect(b.status).toBe("ok");
+    expect(b.finals).toEqual({ modules: 0 });
+    expect(b.steps).toEqual(a.steps);
+    expect(mfTrace(b)).not.toContain("has_modules");
+    expect(gateOutcome(b)?.excluded).toBeUndefined();
+  });
+  it("NEGATIVE (owner: 'blank refuses'): switch blank -> an honest no-compute naming the attribute", () => {
+    const r = runPipeline("popup", pbPipe(pbFit({ include_when: PB_GATE })), PB_ITEMS, { ...PB_FULL, has_modules: "" });
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+    expect(bailLabel(r)).toBe("'has_modules' is blank -- whether the modules are included is not stated, no value computed");
+  });
+  it("NEGATIVE: switch absent from the row -> refuses the same way", () => {
+    const { has_modules: _h, ...noSwitch } = PB_FULL;
+    const r = runPipeline("popup", pbPipe(pbFit({ include_when: PB_GATE })), PB_ITEMS, noSwitch);
+    expect(r.status).toBe("no_match");
+    expect(bailLabel(r)).toContain("'has_modules' is blank");
+    // and without the key the same row prices the modules (today's interpreter behaviour; the panel's field gate is what refused)
+    expect(runPipeline("popup", pbPipe(pbFit()), PB_ITEMS, noSwitch).finals).toEqual({ modules: 1168 });
+  });
+  it("the ONE reader: included / blank / excluded, and no gate at all is 'included'", () => {
+    expect(moduleFitGateVerdict(undefined, { has_modules: "No" })).toBe("included");
+    expect(moduleFitGateVerdict(PB_GATE, { has_modules: "Yes" })).toBe("included");
+    expect(moduleFitGateVerdict(PB_GATE, { has_modules: "No" })).toBe("excluded");
+    expect(moduleFitGateVerdict(PB_GATE, { has_modules: "Maybe" })).toBe("excluded");
+    expect(moduleFitGateVerdict(PB_GATE, { has_modules: "" })).toBe("blank");
+    expect(moduleFitGateVerdict(PB_GATE, {})).toBe("blank");
+  });
+});
+
+describe("INCLUDES-MODULES GATE -- THE CROSS-CATEGORY NEGATIVE: a module_fit WITHOUT the key is byte-identical (the HV-10 pin)", () => {
+  it("switches_sockets: the box-ladder shape (floor branch) with a stray has_modules No prices, traces and publishes exactly as without it", () => {
+    const base = runPipeline("swsock_boq", bareBoxPipe(), BOX_LADDER_ITEMS, plated("6M"));
+    const stray = runPipeline("swsock_boq", bareBoxPipe(), BOX_LADDER_ITEMS, plated("6M", undefined, { has_modules: "No" }));
+    expect(base.finals).toEqual({ supply: 549 });                       // 3 x 90 switch + 279 box (6M)
+    expect(stray.finals).toEqual(base.finals);
+    expect(stray.steps).toEqual(base.steps);
+  });
+  it("switches_sockets: the zero-module (bare box) branch with a stray has_modules No is byte-identical", () => {
+    const base = runPipeline("swsock_boq", bareBoxPipe(), BOX_LADDER_ITEMS, bare(3));
+    const stray = runPipeline("swsock_boq", bareBoxPipe(), BOX_LADDER_ITEMS, bare(3, { has_modules: "No" }));
+    expect(stray.finals).toEqual(base.finals);
+    expect(stray.steps).toEqual(base.steps);
+  });
+  it("point_wiring: the live module_fit shape with a stray has_modules No is byte-identical -- RULING 1 trace verbatim", () => {
+    const base = runPipeline("pw_boq_supply", pwZeroPipe(PW_MODULE_FIT_ZERO3), PW198_ITEMS, PW_ROW198);
+    const stray = runPipeline("pw_boq_supply", pwZeroPipe(PW_MODULE_FIT_ZERO3), PW198_ITEMS, { ...PW_ROW198, has_modules: "No" });
+    expect(base.finals).toEqual({ supply: 2359 });
+    expect(stray.finals).toEqual(base.finals);
+    expect(stray.steps).toEqual(base.steps);
+    const full = runPipeline("pw_boq_supply", PW_MF_SUPPLY, PW198_ITEMS, PW_ROW198);
+    const fullStray = runPipeline("pw_boq_supply", PW_MF_SUPPLY, PW198_ITEMS, { ...PW_ROW198, has_modules: "" });
+    expect(fullStray.steps).toEqual(full.steps);
+  });
+  it("the popup-shaped step WITHOUT the key with a stray has_modules No / blank is byte-identical (the key, not the attribute, is the switch)", () => {
+    const base = runPipeline("popup", pbPipe(pbFit()), PB_ITEMS, PB_FULL);
+    for (const v of ["No", ""]) {
+      const stray = runPipeline("popup", pbPipe(pbFit()), PB_ITEMS, { ...PB_FULL, has_modules: v });
+      expect(stray.finals).toEqual({ modules: 1168 });
+      expect(stray.steps).toEqual(base.steps);
+    }
+  });
+  it("NEGATIVE: the reader names no category", () => {
+    expect(moduleFitGateVerdict.toString()).not.toMatch(/switches_sockets|point_wiring|popup_boxes/);
+  });
+});
+
+describe("INCLUDES-MODULES GATE -- THE LIVE ASSET (v62): popup_boxes carries the key, nothing else does, golden p1 and the U1 row", () => {
+  type Asset = { category_configs: RateCategoryConfig[]; items: RateMasterItem[] };
+  const v62 = LIVE_ASSET_V62 as unknown as Asset;
+  const v61 = PRIOR_ASSET_V61 as unknown as Asset;
+  const popup = v62.category_configs.find((c) => c.category_id === "popup_boxes")!;
+  const popupPipe = popup.pipelines!["popup_boq"] as Pipeline;
+  const mfStepOf = (c: RateCategoryConfig) =>
+    Object.values(c.pipelines ?? {}).flatMap((p) => (p as Pipeline).steps).filter((s) => (s as { step: string }).step === "module_fit") as Array<{ params?: { include_when?: unknown } }>;
+  it("the key is on popup_boxes' one module_fit and on NO other module_fit in the 12 configs (switches_sockets x2, point_wiring x3 carry none)", () => {
+    expect(mfStepOf(popup).map((s) => s.params?.include_when)).toEqual([{ attr: "has_modules", equals: "Yes" }]);
+    const others = v62.category_configs.filter((c) => c.category_id !== "popup_boxes");
+    const withFit = others.filter((c) => mfStepOf(c).length > 0).map((c) => [c.category_id, mfStepOf(c).length]);
+    expect(withFit.sort()).toEqual([["point_wiring", 3], ["switches_sockets", 2]]);
+    for (const c of others) for (const s of mfStepOf(c)) expect(s.params).not.toHaveProperty("include_when");
+  });
+  it("every other category, every item and popup's own goldens are byte-equal to v61; popup differs only in the module_fit key and explain, and the notes", () => {
+    for (const c of v61.category_configs) {
+      const now = v62.category_configs.find((x) => x.category_id === c.category_id)!;
+      if (c.category_id !== "popup_boxes") { expect(now).toEqual(c); continue; }
+      const strip = (x: RateCategoryConfig) => {
+        const { pipelines: _p, notes: _n, ...rest } = x as unknown as Record<string, unknown>;
+        return rest;
+      };
+      expect(strip(now)).toEqual(strip(c));
+      const os = (c.pipelines!["popup_boq"] as Pipeline).steps, ns = popupPipe.steps;
+      expect(ns.length).toBe(os.length);
+      os.forEach((o, i) => {
+        if ((o as { step: string }).step !== "module_fit") { expect(ns[i]).toEqual(o); return; }
+        const { include_when, ...restParams } = (ns[i] as { params: Record<string, unknown> }).params;
+        expect(include_when).toEqual({ attr: "has_modules", equals: "Yes" });
+        expect(restParams).toEqual((o as { params: Record<string, unknown> }).params);
+      });
+    }
+    expect(v62.items).toEqual(v61.items);
+  });
+  it("golden p1 (switch No, every slot None) is UNCHANGED at 10800 / 1200 -- and now prices by the switch, not by the Nones", () => {
+    const g = (popup as unknown as { goldens: Array<{ id: string; attrs: Record<string, string | number>; expect: Record<string, Record<string, number>> }> }).goldens.find((x) => x.id === "p1")!;
+    expect(g.expect).toEqual({ popup_boq: { supply: 10800, install: 1200 } });
+    const attrs = Object.fromEntries(Object.entries(g.attrs).filter(([, v]) => v !== null && v !== undefined)) as Record<string, string | number>;
+    const r = runPipeline("popup_boq", popupPipe, v62.items, attrs);
+    expect(r.status).toBe("ok");
+    expect(r.finals).toEqual({ supply: 10800, install: 1200 });
+    expect(mfTrace(r)).toContain("has_modules is No -> modules not included");
+    // under v61 the same golden priced by the Nones -- same number, different reason
+    const r61 = runPipeline("popup_boq", v61.category_configs.find((c) => c.category_id === "popup_boxes")!.pipelines!["popup_boq"] as Pipeline, v61.items, attrs);
+    expect(r61.finals).toEqual({ supply: 10800, install: 1200 });
+    expect(mfTrace(r61)).not.toContain("has_modules");
+  });
+  it("THE U1 ROW (BOQ-26-00241 / 'BOQ | Electircal' / 123, stored attrs): Yes -> 3060 / 380 exactly as today; No -> the bare box 2700 / 300; back to Yes -> 3060 / 380", () => {
+    const row123: Record<string, string | number> = {
+      module_count: 3, has_modules: "Yes", switch_item: "16A 1 WAY SWITCH", switch_qty: 1, socket1_item: "6A/16A 3-Pin Socket", socket1_qty: 1,
+      socket2_item: "None", socket3_item: "None", socket4_item: "None", blank_item: "None", plate_item: "3M", plate_qty: 1, colour: "White",
+    };
+    const yes = runPipeline("popup_boq", popupPipe, v62.items, row123);
+    expect(yes.finals).toEqual({ supply: 3060, install: 380 });
+    // v61 (no key) gives the SAME figure at Yes -- the invariant on the one row the cert reads
+    const v61pipe = v61.category_configs.find((c) => c.category_id === "popup_boxes")!.pipelines!["popup_boq"] as Pipeline;
+    expect(runPipeline("popup_boq", v61pipe, v61.items, row123).finals).toEqual({ supply: 3060, install: 380 });
+    const no = runPipeline("popup_boq", popupPipe, v62.items, { ...row123, has_modules: "No" });
+    expect(no.status).toBe("ok");
+    expect(no.finals).toEqual({ supply: 2700, install: 300 });          // 3 modules x 900 / x 100 -- the box alone
+    // and v61 charged the modules regardless -- THE DEFECT
+    expect(runPipeline("popup_boq", v61pipe, v61.items, { ...row123, has_modules: "No" }).finals).toEqual({ supply: 3060, install: 380 });
+    const back = runPipeline("popup_boq", popupPipe, v62.items, { ...row123, has_modules: "Yes" });
+    expect(back.finals).toEqual({ supply: 3060, install: 380 });
   });
 });

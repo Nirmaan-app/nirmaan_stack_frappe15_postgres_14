@@ -70,7 +70,13 @@ import { REASON_NEEDS_HELPER, applyHelperFixesOffline, applyLiveFix, assessHit }
 import { attachDataValidations } from "./pricingValidations";
 import { installDropdownSearch } from "./pricingDropdownSearch";
 import { workbookForPath } from "./pricingWorkbooks";
-import { pricingRootClass, shouldExitPricingFullscreenOnEsc } from "./pricingHelpers";
+import { PRICING_ROOT_CLASS_NORMAL, pricingRootClass, shouldExitPricingFullscreenOnEsc } from "./pricingHelpers";
+import { cn } from "@/lib/utils";
+import { PricingCalculator, calculatorDisciplineForPath } from "./PricingCalculator";
+
+/** Calculator slice 2: the sheet's NORMAL root class when it is a tab-strip child -- the strip's column
+ * already carries the page height, so the sheet fills what is left instead of re-claiming the viewport. */
+const PRICING_ROOT_CLASS_IN_TABS = "flex flex-col flex-1 min-h-0";
 // Dropdown cap (DIAG 2026-07-27): a bare-ID rule capping the Luckysheet
 // data-validation dropdown list to 300px + overflow-y:auto, so long
 // range-sourced lists scroll internally instead of rendering at full
@@ -166,7 +172,74 @@ function csrfToken(): string {
 	return (window as any).frappe?.csrf_token || (window as any).csrf_token || "";
 }
 
+/**
+ * Calculator slice 2 (2026-09-09, owner: "create a new tab beside the excel screen"). The page is now
+ * a TAB STRIP over two children: the spreadsheet (`PricingWorkbookSheet` -- the whole component that
+ * used to BE this page, unchanged) and the Calculator (`PricingCalculator`). The tab renders only on a
+ * workbook that has a calculator discipline (`CALCULATOR_WORKBOOKS`: Electrical today); HVAC / ELV get
+ * the sheet alone, exactly as before.
+ *
+ * ⚠️ SWITCHING TO THE CALCULATOR UNMOUNTS THE SHEET AND RELEASES ITS LOCK -- BY CONDITIONAL RENDER,
+ * NOT BY A NEW PATH. The sheet is `tab === "sheet" ? <PricingWorkbookSheet/> : <PricingCalculator/>`,
+ * so leaving the tab unmounts the sheet component and its EXISTING unmount cleanup runs: the
+ * `release` beacon (only when `lockMineRef` says we hold the lock) and `luckysheet.destroy()` -- the
+ * same path the route comment in routesConfig.tsx requires between workbooks. No warning is shown
+ * (owner: "Don't warn. - no work is lost"); there is also nothing to warn ON -- the page holds no
+ * dirty flag and the engine reports nothing back. Switching back REMOUNTS the sheet as a fresh open:
+ * `list_workbooks` + `get_workbook` run again, read-only, and `get_workbook` writes one
+ * `Pricing Access Log` "open" row per return, as it does on every load. The full-screen overlay
+ * (`fixed inset-0`) still covers the tab strip, unchanged.
+ */
 export function PricingWorkbookPage() {
+	const { pathname } = useLocation();
+	const calculatorDiscipline = useMemo(() => calculatorDisciplineForPath(pathname), [pathname]);
+	const [tab, setTab] = useState<PricingPageTab>("sheet");
+
+	if (!calculatorDiscipline) return <PricingWorkbookSheet />;
+
+	return (
+		<div className={PRICING_ROOT_CLASS_NORMAL}>
+			<div role="tablist" aria-label="Pricing views" className="flex items-center gap-1 border-b border-border px-2 pt-1">
+				{PRICING_PAGE_TABS.map((t) => (
+					<button
+						key={t.id}
+						type="button"
+						role="tab"
+						aria-selected={tab === t.id}
+						onClick={() => setTab(t.id)}
+						className={cn(
+							"rounded-t-md border border-b-0 px-3 py-1.5 text-sm",
+							tab === t.id
+								? "bg-background font-medium text-foreground"
+								: "bg-muted/40 text-muted-foreground hover:text-foreground",
+						)}
+					>
+						{t.label}
+					</button>
+				))}
+			</div>
+			{tab === "sheet" ? (
+				<PricingWorkbookSheet inTabs />
+			) : (
+				<PricingCalculator discipline={calculatorDiscipline} />
+			)}
+		</div>
+	);
+}
+
+export type PricingPageTab = "sheet" | "calculator";
+/** The two tabs, in strip order. Labels are the owner's words: the "excel screen" and the Calculator. */
+export const PRICING_PAGE_TABS: ReadonlyArray<{ id: PricingPageTab; label: string }> = [
+	{ id: "sheet", label: "Spreadsheet" },
+	{ id: "calculator", label: "Calculator" },
+];
+
+/**
+ * THE SPREADSHEET -- everything `PricingWorkbookPage` was before calculator slice 2, byte-for-byte in
+ * behaviour. `inTabs` only changes the NORMAL root class (the fixed-height page root becomes a flex
+ * child of the tab strip's column); the full-screen class and every lifecycle path are untouched.
+ */
+function PricingWorkbookSheet({ inTabs = false }: { inTabs?: boolean }) {
 	const { full_name, user_id, role } = useUserData();
 	const { pathname } = useLocation();
 
@@ -958,7 +1031,7 @@ export function PricingWorkbookPage() {
 		// inset-0 overlay). The action bar + sandbox band stay the fixed-height first
 		// children and the sheet slot keeps flex-1, so no child remounts and the engine
 		// container / watermark siblings are untouched.
-		<div className={pricingRootClass(expanded)}>
+		<div className={!expanded && inTabs ? PRICING_ROOT_CLASS_IN_TABS : pricingRootClass(expanded)}>
 			<div className="flex flex-wrap items-center gap-2 p-2 border-b border-border">
 				<h1 className="text-base font-semibold text-foreground mr-2">{workbookTitle}</h1>
 
