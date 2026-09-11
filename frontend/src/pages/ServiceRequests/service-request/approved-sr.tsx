@@ -28,7 +28,6 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
-import SITEURL from "@/constants/siteURL";
 import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog";
 import { PaymentTDSDeduction } from "@/types/NirmaanStack/PaymentTDSDeduction";
@@ -710,7 +709,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                     <TableHead className="text-black font-bold">Amount</TableHead>
                                     <TableHead className="text-black font-bold">TDS</TableHead>
                                     <TableHead className="text-black font-bold">UTR No.</TableHead>
-                                    <TableHead className="text-black font-bold">Date</TableHead>
+                                    <TableHead className="text-black font-bold">Payment Date</TableHead>
                                     <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
                                     {/* 1. ADD VOUCHER HEADER */}
                                     <TableHead className="text-black font-bold text-center">Voucher</TableHead>
@@ -728,17 +727,9 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                 <TableCell className="font-semibold">
                                                     {tds ? formatToRoundedIndianRupee(tds.tds_amount) : "--"}
                                                 </TableCell>
-                                                {(payment?.utr && payment?.payment_attachment) ? (
-                                                    <TableCell className="font-semibold text-blue-500 underline">
-                                                        <a href={`${SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
-                                                            {payment?.utr}
-                                                        </a>
-                                                    </TableCell>
-                                                ) : (
-                                                    <TableCell className="font-semibold">
-                                                        {payment?.utr || "--"}
-                                                    </TableCell>
-                                                )}
+                                                <TableCell className="font-semibold">
+                                                    {payment?.utr || "--"}
+                                                </TableCell>
 
 
                                                 {/* ⚠️ PAYMENT DATE ONLY — NEVER FALL BACK TO `creation`. This column used to read

@@ -27,7 +27,6 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/use-toast";
 import { ValidationMessages } from "@/components/validations/ValidationMessages";
-import SITEURL from "@/constants/siteURL";
 import { usePOValidation } from "@/hooks/usePOValidation";
 import { useUserData } from "@/hooks/useUserData";
 import { PaymentVoucherActions } from "@/components/paymentsVoucher/PaymentVoucherActions";
@@ -347,22 +346,9 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                     <TableCell>
                       {formatToRoundedIndianRupee(payment?.amount)}
                     </TableCell>
-                    {(payment?.utr && payment?.payment_attachment) ? (
-                      <TableCell className="text-blue-500 overflow-hidden truncate underline max-w-28 ">
-                        {<a
-                          href={`${SITEURL}${payment?.payment_attachment}`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {payment?.utr}
-
-                        </a>}
-                      </TableCell>
-                    ) : (
-                      <TableCell className="text-blue-500 overflow-hidden truncate  max-w-28 ">
-                        {payment?.utr || "--"}
-                      </TableCell>
-                    )}
+                    <TableCell className="overflow-hidden truncate max-w-28">
+                      {payment?.utr || "--"}
+                    </TableCell>
                     <TableCell>
                       {payment?.payment_date ? formatDate(payment.payment_date) : "--"}
                     </TableCell>
