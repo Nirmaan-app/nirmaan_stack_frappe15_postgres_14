@@ -13,7 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useUpdateCriticalPOTask } from "@/pages/projects/data/critical-po/useCriticalPOMutations";
+import { useUpdatePOTaskLinks } from "@/pages/projects/data/critical-po/useCriticalPOMutations";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { Link } from "react-router-dom";
 
@@ -29,23 +29,10 @@ export const LinkedPOsColumn: React.FC<LinkedPOsColumnProps> = ({ task, projectI
   const [poToUnlink, setPoToUnlink] = useState<string | null>(null);
   const [isUnlinking, setIsUnlinking] = useState(false);
 
-  const { updateDoc } = useUpdateCriticalPOTask();
+  const { updateLinks } = useUpdatePOTaskLinks();
 
-  // Parse linked POs
-  const linkedPOs = useMemo(() => {
-    try {
-      const associated = task.associated_pos;
-      if (typeof associated === "string") {
-        const parsed = JSON.parse(associated);
-        return parsed?.pos || [];
-      } else if (associated && typeof associated === "object") {
-        return associated.pos || [];
-      }
-      return [];
-    } catch {
-      return [];
-    }
-  }, [task.associated_pos]);
+  // Linked POs, from the Critical PO Task Child Table
+  const linkedPOs = useMemo<string[]>(() => task.linked_pos ?? [], [task.linked_pos]);
 
   // Extract PO ID (2nd part after /)
   const extractPOId = (fullName: string) => {
@@ -69,12 +56,7 @@ export const LinkedPOsColumn: React.FC<LinkedPOsColumnProps> = ({ task, projectI
     setIsUnlinking(true);
 
     try {
-      // Remove the PO from the list
-      const updatedPOs = linkedPOs.filter((po: string) => po !== poToUnlink);
-
-      await updateDoc(task.name, {
-        associated_pos: JSON.stringify({ pos: updatedPOs }),
-      }, projectId);
+      await updateLinks(projectId, { remove: [{ po: poToUnlink, task: task.name }] });
 
       toast({
         title: "Success",

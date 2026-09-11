@@ -47,7 +47,6 @@ import {
     getProgressColor,
     getStatusBadgeVariant,
     CRITICAL_PO_STATUS_OPTIONS,
-    parseAssociatedPOs,
 } from "./utils";
 
 // Mobile Card Component for tasks
@@ -62,8 +61,8 @@ const TaskMobileCard: React.FC<TaskMobileCardProps> = ({ task, projectId, mutate
     const [isOpen, setIsOpen] = useState(false);
 
     const linkedPOsCount = React.useMemo(() => {
-        return parseAssociatedPOs(task.associated_pos).length;
-    }, [task.associated_pos]);
+        return task.linked_po_count ?? 0;
+    }, [task.linked_po_count]);
 
     return (
         <Card className="p-3">

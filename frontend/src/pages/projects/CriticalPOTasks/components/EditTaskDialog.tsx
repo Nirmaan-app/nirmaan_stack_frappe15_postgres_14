@@ -53,7 +53,7 @@ import {
   useCriticalPOProcurementRequests,
   useAllCriticalPOTasks
 } from "@/pages/projects/data/critical-po/useCriticalPOQueries";
-import { useUpdateCriticalPOTask } from "@/pages/projects/data/critical-po/useCriticalPOMutations";
+import { useUpdateCriticalPOTask, useUpdatePOTaskLinks } from "@/pages/projects/data/critical-po/useCriticalPOMutations";
 import { filterPOsByPackage } from "@/pages/projects/CriticalPOTasks/utils";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import dayjs from "dayjs";
@@ -79,21 +79,6 @@ interface POConflictInfo {
     category: string;
   }[];
 }
-
-// Helper to parse associated_pos from string or object
-const parseAssociatedPOs = (associated: any): string[] => {
-  try {
-    if (typeof associated === "string") {
-      const parsed = JSON.parse(associated);
-      return parsed?.pos || [];
-    } else if (associated && typeof associated === "object") {
-      return associated.pos || [];
-    }
-    return [];
-  } catch {
-    return [];
-  }
-};
 
 interface EditTaskDialogProps {
   task: CriticalPOTask;
@@ -128,6 +113,7 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({
   const [showConflictDialog, setShowConflictDialog] = useState(false);
 
   const { updateDoc, loading } = useUpdateCriticalPOTask();
+  const { updateLinks } = useUpdatePOTaskLinks();
 
   const form = useForm<EditTaskFormValues>({
     resolver: zodResolver(editTaskFormSchema),
@@ -214,7 +200,7 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({
     allProjectTasks
       ?.filter((t) => t.name !== task.name) // Exclude current task
       .forEach((t) => {
-        const pos = parseAssociatedPOs(t.associated_pos);
+        const pos = t.linked_pos ?? [];
         pos.forEach((po) => {
           if (!map.has(po)) {
             map.set(po, []);
@@ -230,21 +216,8 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({
     return map;
   }, [allProjectTasks, task.name]);
 
-  // Get currently linked POs from task
-  const currentlyLinkedPOs = useMemo(() => {
-    try {
-      const associated = task.associated_pos;
-      if (typeof associated === "string") {
-        const parsed = JSON.parse(associated);
-        return parsed?.pos || [];
-      } else if (associated && typeof associated === "object") {
-        return associated.pos || [];
-      }
-      return [];
-    } catch {
-      return [];
-    }
-  }, [task.associated_pos]);
+  // Currently linked POs, from the Critical PO Task Child Table
+  const currentlyLinkedPOs = useMemo<string[]>(() => task.linked_pos ?? [], [task.linked_pos]);
 
   // Filter POs by procurement package and already linked status
   const availablePOs = useMemo(() => {
@@ -280,12 +253,9 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({
     setShowConflictDialog(false);
 
     try {
-      // Merge with existing linked POs
-      const updatedPOs = Array.from(new Set([...currentlyLinkedPOs, ...selectedPOs]));
-
-      await updateDoc(task.name, {
-        associated_pos: JSON.stringify({ pos: updatedPOs }),
-      }, projectId);
+      await updateLinks(projectId, {
+        add: Array.from(selectedPOs).map((po) => ({ po, task: task.name })),
+      });
 
       toast({
         title: "Success",
@@ -343,11 +313,7 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({
     setIsUnlinking(true);
 
     try {
-      const updatedPOs = currentlyLinkedPOs.filter((po: string) => po !== poName);
-
-      await updateDoc(task.name, {
-        associated_pos: JSON.stringify({ pos: updatedPOs }),
-      }, projectId);
+      await updateLinks(projectId, { remove: [{ po: poName, task: task.name }] });
 
       toast({
         title: "Success",
