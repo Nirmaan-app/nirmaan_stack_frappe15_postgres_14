@@ -3744,11 +3744,18 @@ across many payments"* turns it red. It also went red once for a REAL reason dur
 `settle.py`'s own comment quoting the retired TDS sentence — which is the best evidence available
 that it is reading the file it claims to read.
 
-⚠️ **HONEST LIMIT, stated rather than worked around.** The dialog itself is STRUCTURALLY untestable
-here (no DOM environment, deliberate), so *"Confirm is clickable on a single oversized tick and the
-amount-window dialog opens"* is pinned only at the predicate — the runtime path was traced by hand
-(gate → `disabled` → `handleConfirmClick` → `settleBlocker` → `setBlocked`, with
-`SHOW_PARTIAL_SETTLE = true` and `partialOffer` firing on the same over-tick shape), not observed.
-The `settle.py` change is syntax-checked and its COPY is pinned by the parity test, but the throw is
-not EXERCISED: the installed app is the main checkout, not this worktree, so no bench suite could be
-run against it here. **Both want a live browser walk before this is called done.**
+✅ **AC1 + AC2 ARE OWNER-VERIFIED IN THE BROWSER (2026-09-11): the dialog opens.** That is the
+verification this slice was gated on, and it is recorded here because nothing else can hold it —
+the dialog is STRUCTURALLY untestable in this repo (no DOM environment, deliberate), so *"Confirm is
+clickable on a single oversized tick and the amount-window dialog opens"* is pinned only at the
+predicate. Before the walk, the runtime path had merely been traced by hand (gate → `disabled` →
+`handleConfirmClick` → `settleBlocker` → `setBlocked`, with `SHOW_PARTIAL_SETTLE = true` and
+`partialOffer` firing on the same over-tick shape). ⚠️ **A later change to any link in that chain
+re-opens the question and needs its own walk** — a green suite will not notice, which is the whole
+reason the gate was able to make two features unreachable in the first place.
+
+⚠️ **STILL OWED: the `settle.py` throw is not EXERCISED.** Its COPY is pinned by
+`settleModeLabelParity.test.ts` and it is syntax-checked, but no bench suite was run against it —
+and CI runs the Python side, so the first real exercise will be a genuine amount mismatch on a live
+row. The direction-aware branch is the half to watch: a record LARGER than the transfer, arriving
+through bulk *"confirm all matched"*, is the shape with no dialog in front of it.
