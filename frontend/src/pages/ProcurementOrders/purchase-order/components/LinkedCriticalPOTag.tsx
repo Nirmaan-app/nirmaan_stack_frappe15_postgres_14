@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from "react";
-import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetDocList } from "frappe-react-sdk";
 import ReactSelect from "react-select";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -27,21 +27,9 @@ import {
 } from "lucide-react";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { formatDate } from "@/utils/FormatDate";
-
-// Helper to parse associated_pos from string or object
-const parseAssociatedPOs = (associated: any): string[] => {
-  try {
-    if (typeof associated === "string") {
-      const parsed = JSON.parse(associated);
-      return parsed?.pos || [];
-    } else if (associated && typeof associated === "object") {
-      return associated.pos || [];
-    }
-    return [];
-  } catch {
-    return [];
-  }
-};
+import { useProjectPOTaskLinks } from "@/pages/projects/data/critical-po/useCriticalPOQueries";
+import { useUpdatePOTaskLinks } from "@/pages/projects/data/critical-po/useCriticalPOMutations";
+import { attachLinkedPOs } from "@/pages/projects/CriticalPOTasks/utils";
 
 interface LinkedCriticalPOTagProps {
   poName: string;
@@ -113,10 +101,10 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
   const [addCategoryFilter, setAddCategoryFilter] = useState<CategoryOption | null>(null);
   const [isAdding, setIsAdding] = useState(false);
 
-  const { updateDoc } = useFrappeUpdateDoc();
+  const { updateLinks } = useUpdatePOTaskLinks();
 
   // Fetch Critical PO Tasks for the project
-  const { data: tasks = [], mutate } = useFrappeGetDocList<CriticalPOTask>(
+  const { data: rawTasks, mutate: mutateTasks } = useFrappeGetDocList<CriticalPOTask>(
     "Critical PO Tasks",
     {
       fields: [
@@ -127,19 +115,27 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
         "sub_category",
         "po_release_date",
         "status",
-        "associated_pos",
       ],
       filters: [["project", "=", projectId]],
       limit: 0,
     }
   );
 
+  // Which tasks this PO is linked to comes from its Critical PO Task Child Table rows.
+  const { taskPOMap, mutate: mutateLinks } = useProjectPOTaskLinks(projectId, !!projectId);
+
+  const tasks = useMemo<CriticalPOTask[]>(
+    () => attachLinkedPOs(rawTasks, taskPOMap) ?? [],
+    [rawTasks, taskPOMap]
+  );
+  const mutate = useCallback(
+    () => Promise.all([mutateTasks(), mutateLinks()]),
+    [mutateTasks, mutateLinks]
+  );
+
   // Find ALL tasks that have this PO linked (supports multiple task links)
   const linkedTasks = useMemo<CriticalPOTask[]>(() => {
-    return tasks.filter((task) => {
-      const pos = parseAssociatedPOs(task.associated_pos);
-      return pos.includes(poName);
-    });
+    return tasks.filter((task) => (task.linked_pos ?? []).includes(poName));
   }, [tasks, poName]);
 
   // Create task options for re-linking (excludes all currently linked tasks)
@@ -156,34 +152,13 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
       }));
   }, [tasks, linkedTasks]);
 
-  // Get linked POs for a task
-  const getLinkedPOs = (task: CriticalPOTask): string[] => {
-    try {
-      const associated = task.associated_pos;
-      if (typeof associated === "string") {
-        const parsed = JSON.parse(associated);
-        return parsed?.pos || [];
-      } else if (associated && typeof associated === "object") {
-        return associated.pos || [];
-      }
-      return [];
-    } catch {
-      return [];
-    }
-  };
-
   // Handle unlink - uses taskToEdit for per-task unlinking
   const handleUnlink = useCallback(async () => {
     if (!taskToEdit) return;
 
     setIsUpdating(true);
     try {
-      const currentPOs = getLinkedPOs(taskToEdit);
-      const updatedPOs = currentPOs.filter((po) => po !== poName);
-
-      await updateDoc("Critical PO Tasks", taskToEdit.name, {
-        associated_pos: JSON.stringify({ pos: updatedPOs }),
-      });
+      await updateLinks(projectId, { remove: [{ po: poName, task: taskToEdit.name }] });
 
       toast({
         title: "Success",
@@ -204,7 +179,7 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
     } finally {
       setIsUpdating(false);
     }
-  }, [taskToEdit, poName, updateDoc, mutate, onUpdate]);
+  }, [taskToEdit, poName, projectId, updateLinks, mutate, onUpdate]);
 
   // Handle change to different task - uses taskToEdit for per-task editing
   const handleChangeTask = useCallback(async () => {
@@ -212,20 +187,10 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
 
     setIsUpdating(true);
     try {
-      // Remove from old task
-      const oldPOs = getLinkedPOs(taskToEdit);
-      const updatedOldPOs = oldPOs.filter((po) => po !== poName);
-
-      await updateDoc("Critical PO Tasks", taskToEdit.name, {
-        associated_pos: JSON.stringify({ pos: updatedOldPOs }),
-      });
-
-      // Add to new task
-      const newTaskPOs = getLinkedPOs(selectedNewTask.data);
-      const updatedNewPOs = [...newTaskPOs, poName];
-
-      await updateDoc("Critical PO Tasks", selectedNewTask.data.name, {
-        associated_pos: JSON.stringify({ pos: updatedNewPOs }),
+      // Move = unlink from the old task + link to the new one, in one transaction.
+      await updateLinks(projectId, {
+        remove: [{ po: poName, task: taskToEdit.name }],
+        add: [{ po: poName, task: selectedNewTask.data.name }],
       });
 
       toast({
@@ -248,7 +213,7 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
     } finally {
       setIsUpdating(false);
     }
-  }, [taskToEdit, selectedNewTask, poName, updateDoc, mutate, onUpdate]);
+  }, [taskToEdit, selectedNewTask, poName, projectId, updateLinks, mutate, onUpdate]);
 
   // Helper to open edit dialog for a specific task
   const openEditDialog = useCallback((task: CriticalPOTask) => {
@@ -306,14 +271,9 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
 
     setIsAdding(true);
     try {
-      for (const option of tasksToAdd) {
-        const currentPOs = getLinkedPOs(option.data);
-        if (currentPOs.includes(poName)) continue;
-
-        await updateDoc("Critical PO Tasks", option.data.name, {
-          associated_pos: JSON.stringify({ pos: [...currentPOs, poName] }),
-        });
-      }
+      await updateLinks(projectId, {
+        add: tasksToAdd.map((option) => ({ po: poName, task: option.data.name })),
+      });
 
       toast({
         title: "Success",
@@ -334,7 +294,7 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
     } finally {
       setIsAdding(false);
     }
-  }, [tasksToAdd, poName, updateDoc, mutate, onUpdate, resetAddDialog]);
+  }, [tasksToAdd, poName, projectId, updateLinks, mutate, onUpdate, resetAddDialog]);
 
   const canAddTasks = canEdit && availableTaskOptions.length > 0;
 
