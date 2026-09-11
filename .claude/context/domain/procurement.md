@@ -16,6 +16,7 @@ This manifest names the **one owning module** for each procurement concept (per 
 | Faceted filter fetching | `frontend/src/components/data-table/SelfFetchingFacetFilter.tsx` + `getColumnFacet` (`meta.facet` in `*.config.ts`) | hand-roll `useFacetValues` in a page (legacy islands in ADR-0010) |
 | Concurrent-edit safety for PR approval | `frontend/src/pages/ProcurementRequests/ApproveNewPR/hooks/useEditingLock.ts` (the F5 write seam — extend it) | invent a second lock mechanism |
 | Vendor credit status transitions | `nirmaan_stack/api/vendor_credit.py` (`recalculate_vendor_credit`) | set `vendor_status` ad-hoc; the asymmetry (On-Hold→Active realtime, Active→On-Hold cron-only) is owner-locked |
+| Critical PO Task ↔ PO link (`Critical PO Task Child Table` rows on Procurement Orders) + `Critical PO Tasks.linked_po_count` | BE `nirmaan_stack/api/critical_po_tasks/po_links.py` (`update_po_task_links` = the only writer; `refresh_task_po_counts`; readers `get_task_pos` / `get_project_task_pos`) + FE `frontend/src/pages/projects/data/critical-po/` (`useUpdatePOTaskLinks`, `useProjectPOTaskLinks` / `useAllPOTaskLinks`) | `updateDoc` the PO's child table or a task's `associated_pos` (legacy, unused); +1/−1 `linked_po_count` instead of recounting from the rows |
 
 Template note: copy this section shape into other domain docs as they're touched; keep rows verified, not aspirational.
 

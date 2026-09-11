@@ -4,6 +4,29 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-09-11: Critical PO links → `Critical PO Task Child Table` on Procurement Orders
+
+**Summary:** Critical PO Task ↔ PO links moved off the task's `associated_pos` JSON onto the PO, one child
+row per (PO, task). Nine `feat(critical-po-child-table)` commits on `bug/po-dc` (`7340a28c`..`869f3517`).
+Frontend detail: `frontend/.claude/CHANGELOG.md` (same date).
+
+### What was built
+
+- **Doctypes:** new child `Critical PO Task Child Table` (`critical_po_task`, `task_name`,
+  `critical_po_category`, `sub_category`; index on `critical_po_task`); `Procurement Orders.critical_po_tasks`
+  Table field; `Critical PO Tasks.linked_po_count` (read-only Int). `associated_pos` kept, unused.
+- **`api/critical_po_tasks/po_links.py`:** `update_po_task_links(add, remove)` — the only writer (task write
+  permission, same-project check, direct child-row insert/delete so the PO is never saved);
+  `refresh_task_po_counts` recounts from the rows; `get_task_pos` / `get_project_task_pos` readers.
+- **Hooks (`integrations/controllers/critical_po_tasks.py`):** task `on_update` keeps each row's `task_name`
+  / `sub_category` in step; task `on_trash` clears its rows before the link check; PO `on_update` /
+  `after_delete` recount the affected tasks. `critical_po_items` rename cascade updates the rows too.
+- **`material_plan_api.py`:** reads links from the child table; response keys `linked_pos` / `linked_pos_count`.
+- **Patch `v3_0.migrate_critical_po_links_to_po_child`** (one patch, idempotent): JSON → rows, skips
+  dead PO refs, re-syncs labels on existing rows, recomputes every count and asserts the row total.
+
+---
+
 ## 2026-07-31: Reminder Schedule & Action Center
 
 **Summary:** Implemented a comprehensive Reminder Schedule feature and Action Center for role-based compliance task reminders. Features a pure-math services layer for schedule calculation, a daily cron worker (8 AM) gated by `notify_before_days`, and a unified frontend Action Center (right-rail panel) to display actionable tasks to users based on their Role Profiles. Includes Mark Done with remarks, completion history, real-time updates, and schedule edit reconciliation.
