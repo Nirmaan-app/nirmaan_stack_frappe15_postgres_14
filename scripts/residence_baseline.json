@@ -20,7 +20,7 @@
     "rule": "F2"
   },
   "f5_raw_updatedoc_files": {
-    "count": 116,
+    "count": 115,
     "description": "Frontend files calling useFrappeUpdateDoc / updateDoc( directly instead of one write-safety seam.",
     "rule": "F5"
   }
