@@ -81,11 +81,12 @@ import {
 } from "../outflowTableModel";
 import {
     EMPTY_FILTERS,
-    SPLIT_NO_CANDIDATES_NOTE,
     SPLIT_PAYMENTS_ONLY_NOTE,
     facetValues,
     hasActiveFilters,
     nextSortState,
+    recordPoolMessage,
+    recordPoolState,
     splitCandidates,
     visibleRecords,
     type RecordFilters,
@@ -1673,7 +1674,7 @@ const RecordPicker = ({
     // Fetching against a provisional whole-transfer figure would cache the wrong ranking under the
     // wrong key and leave the reviewer reading it. It re-ranks per DIALOG OPEN, never per tick: the
     // banked legs do not move when a box is ticked, so neither does this key (AC5).
-    const { data, isLoading } = useFrappeGetCall<{ message: SettleableRecord[] }>(
+    const { data, isLoading, error, mutate } = useFrappeGetCall<{ message: SettleableRecord[] }>(
         "nirmaan_stack.api.outflow_import.review.search_settleable_records",
         compareAmount === null
             ? { row: row.name }
@@ -1684,12 +1685,6 @@ const RecordPicker = ({
               ? `settleable-${row.name}`
               : `settleable-${row.name}-balance-${compareAmount}`
     );
-
-    // ⚠️ AN UNKNOWN BALANCE IS LOADING, NOT EMPTY. With a `null` key SWR never fires, so `isLoading`
-    // is `false` and `data` is `undefined` -- which would fall through to "There are no approved
-    // payments or expenses to link to." on a row that has plenty. A silent empty list reads as a
-    // broken screen, which is the standing rule this picker's other two empty states already follow.
-    const poolLoading = isLoading || compareUnknown;
 
     // ⚠️ THE SAME FIGURE THE SERVER RANKED BY, SO THE "off by" MARK AGREES WITH THE ORDER (AC3).
     // `AmountMark` renders the SERVER's `suggested` beside a CLIENT-computed difference; measuring
@@ -1716,6 +1711,17 @@ const RecordPicker = ({
         () => (mode === "split" ? splitCandidates(wholePool) : wholePool),
         [mode, wholePool]
     );
+    // ⚠️ LOADING, FAILED AND EMPTY ARE THREE ANSWERS, AND THE CHOICE IS `recordPoolState`'s, NOT A
+    // TERNARY HERE (issue #1248). This read `data` and `isLoading` and never `error`, so a failed
+    // search (no data, not loading) fell through to "there is nothing" on a row with a full pool.
+    // An unknown balance still counts as loading: with a `null` key SWR never fires at all.
+    const poolState = recordPoolState({
+        balanceUnknown: compareUnknown,
+        hasAnswer: data !== undefined,
+        poolSize: pool.length,
+        isLoading,
+        failed: Boolean(error),
+    });
     const facets = useMemo(() => facetValues(pool), [pool]);
     const options = useMemo(() => visibleRecords(pool, filters, sort), [pool, filters, sort]);
 
@@ -1859,7 +1865,7 @@ const RecordPicker = ({
             {/* ⚠️ THE COUNT LINE AND THE CLEAR CONTROL SIT TOGETHER, ABOVE THE TABLE. A filtered
                 table that does not say it is filtered is how a reviewer concludes a record does
                 not exist -- and the way out has to be beside the number that reports it. */}
-            {!poolLoading && pool.length > 0 && (
+            {poolState === "ready" && (
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                     <span>
                         {options.length === pool.length
@@ -1883,18 +1889,35 @@ const RecordPicker = ({
                 </div>
             )}
 
-            {poolLoading ? (
-                <p className="text-sm text-muted-foreground">Loading records…</p>
-            ) : !pool.length ? (
+            {poolState === "loading" ? (
+                <p className="text-sm text-muted-foreground">{recordPoolMessage("loading", mode)}</p>
+            ) : poolState === "failed" ? (
+                // ⚠️ A FAILED SEARCH KNOWS NOTHING ABOUT THE POOL, SO IT SAYS SO AND OFFERS A RETRY
+                // (issue #1248). It must never borrow the empty sentence below: a reviewer who
+                // believes "there is nothing" walks away from a transfer that can be settled.
+                <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-3 text-sm">
+                    <p className="flex items-start gap-2 text-destructive">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>{recordPoolMessage("failed", mode)}</span>
+                    </p>
+                    <p className="pl-6 text-xs text-muted-foreground">
+                        {describeFrappeError(error, "The request failed.")}
+                    </p>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="ml-6 h-7 text-xs"
+                        onClick={() => void mutate()}
+                    >
+                        Try again
+                    </Button>
+                </div>
+            ) : poolState === "empty" ? (
                 // ⚠️ TWO DIFFERENT ABSENCES, AND CONFLATING THEM IS THE DEFECT (issue #1241). In
                 // Split mode an empty pool usually does NOT mean there is nothing to link to -- it
                 // means the payments-only narrowing emptied a pool that still holds expenses. A
                 // silent empty list, or the Normal sentence, would both read as a broken screen.
-                <p className="text-sm text-muted-foreground">
-                    {mode === "split"
-                        ? SPLIT_NO_CANDIDATES_NOTE
-                        : "There are no approved payments or expenses to link to."}
-                </p>
+                <p className="text-sm text-muted-foreground">{recordPoolMessage("empty", mode)}</p>
             ) : !options.length ? (
                 // ⚠️ "NOTHING MATCHES" IS A DIFFERENT SENTENCE FROM "THERE IS NOTHING", and the
                 // difference decides what the reviewer does next. This branch also has to offer the

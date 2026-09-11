@@ -7,6 +7,8 @@ import type { SettleableRecord } from "./outflowTableModel";
 import {
     BLANK_FACET_ID,
     EMPTY_FILTERS,
+    NORMAL_NO_CANDIDATES_NOTE,
+    RECORD_POOL_FAILED_NOTE,
     SPLIT_NO_CANDIDATES_NOTE,
     SPLIT_PAYMENTS_ONLY_NOTE,
     applyRecordFilters,
@@ -17,6 +19,8 @@ import {
     nextSortState,
     parseAmountBound,
     reasonCaption,
+    recordPoolMessage,
+    recordPoolState,
     recordSortDate,
     sortRecords,
     visibleRecords,
@@ -417,6 +421,70 @@ describe("splitCandidates -- Split mode lists approved payments only (ADR-0020 B
             SETTLE_MODE_HINT.split,
         ]) {
             expect(copy.toLowerCase()).not.toMatch(/part payment|partial/);
+        }
+    });
+});
+
+describe("recordPoolState -- loading, failed and empty are three different answers (issue #1248)", () => {
+    // What a fresh fetch looks like before anything has come back.
+    const base = { balanceUnknown: false, hasAnswer: false, poolSize: 0, isLoading: false, failed: false };
+
+    it("a failed search is FAILED, never empty -- this is the defect", () => {
+        // ⚠️ SWR's failed shape: no data, not loading, an error. Before #1248 the screen read only
+        // `data` and `isLoading`, so this was indistinguishable from an empty pool.
+        expect(recordPoolState({ ...base, failed: true })).toBe("failed");
+    });
+
+    it("a retry after a failure is LOADING, never empty", () => {
+        // ⚠️ SWR keeps the old `error` while it retries and sets `isLoading` again (no data is
+        // cached). Loading and failed may alternate; "there is nothing" must never appear between.
+        expect(recordPoolState({ ...base, isLoading: true, failed: true })).toBe("loading");
+    });
+
+    it("EMPTY needs a real answer -- no answer and no error is still loading", () => {
+        // A key that has not fired yet (or a `null` key) reports neither loading nor an error.
+        expect(recordPoolState(base)).toBe("loading");
+        expect(recordPoolState({ ...base, hasAnswer: true })).toBe("empty");
+    });
+
+    it("an unknown balance is loading, whatever the fetch says", () => {
+        expect(recordPoolState({ ...base, balanceUnknown: true, failed: true })).toBe("loading");
+        expect(recordPoolState({ ...base, balanceUnknown: true, hasAnswer: true, poolSize: 3 })).toBe("loading");
+    });
+
+    it("records in hand are shown, even if a background refresh then failed", () => {
+        expect(recordPoolState({ ...base, hasAnswer: true, poolSize: 2 })).toBe("ready");
+        expect(recordPoolState({ ...base, hasAnswer: true, poolSize: 2, failed: true })).toBe("ready");
+    });
+
+    it("an answer that the Split narrowing emptied is EMPTY, not failed", () => {
+        expect(recordPoolState({ ...base, hasAnswer: true, poolSize: 0 })).toBe("empty");
+    });
+});
+
+describe("recordPoolMessage -- one sentence per state, per mode", () => {
+    it("keeps both empty sentences exactly as they were", () => {
+        expect(recordPoolMessage("empty", "split")).toBe(SPLIT_NO_CANDIDATES_NOTE);
+        expect(recordPoolMessage("empty", "normal")).toBe(NORMAL_NO_CANDIDATES_NOTE);
+        expect(NORMAL_NO_CANDIDATES_NOTE).toBe("There are no approved payments or expenses to link to.");
+    });
+
+    it("says the list could not be loaded -- and claims nothing about what exists", () => {
+        for (const mode of ["normal", "split"] as const) {
+            const failed = recordPoolMessage("failed", mode);
+            expect(failed).toBe(RECORD_POOL_FAILED_NOTE);
+            expect(failed).toMatch(/could not be loaded/i);
+            expect(failed).toMatch(/try again/i);
+            // ⚠️ A FAILURE MUST NOT BORROW THE EMPTY SENTENCE, or say anything is absent.
+            expect(failed).not.toBe(recordPoolMessage("empty", mode));
+            expect(failed.toLowerCase()).not.toMatch(/there are no|nothing to/);
+        }
+    });
+
+    it("gives loading, failed and empty three distinct sentences in both modes", () => {
+        for (const mode of ["normal", "split"] as const) {
+            const sentences = (["loading", "failed", "empty"] as const).map((s) => recordPoolMessage(s, mode));
+            expect(new Set(sentences).size).toBe(3);
         }
     });
 });

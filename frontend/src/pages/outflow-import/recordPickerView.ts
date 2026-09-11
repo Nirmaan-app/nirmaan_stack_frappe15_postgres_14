@@ -22,6 +22,7 @@
  * filter in this codebase follows. Composition is AND across axes, OR within an axis.
  */
 
+import type { SettleMode } from "./allocationView";
 import { PROJECT_PAYMENTS_DOCTYPE, type SettleableRecord } from "./outflowTableModel";
 
 /**
@@ -327,6 +328,92 @@ export const SPLIT_PAYMENTS_ONLY_NOTE =
  */
 export const SPLIT_NO_CANDIDATES_NOTE =
     "There are no approved Project Payments to split this transfer across. If this transfer paid an expense, or one record settles it in full, switch back to Normal.";
+
+/** The Normal empty state -- the whole pool, all three ledgers, came back with nothing in it. */
+export const NORMAL_NO_CANDIDATES_NOTE = "There are no approved payments or expenses to link to.";
+
+/**
+ * The record search FAILED (issue #1248).
+ *
+ * ⚠️ IT SAYS NOTHING ABOUT WHAT EXISTS. A failed search knows nothing about the pool, so any
+ * sentence that describes the pool -- "there are none", "nothing to settle" -- is a guess dressed as
+ * a fact. The reviewer who believed the empty sentence here concluded a settleable transfer could
+ * not be settled. The same sentence serves both modes: it is about the request, not the pool.
+ */
+export const RECORD_POOL_FAILED_NOTE =
+    "The approved records could not be loaded, so this list is not showing what exists. Try again.";
+
+export const RECORD_POOL_LOADING_NOTE = "Loading records…";
+
+/**
+ * What the picker has in hand: still waiting, the search failed, it answered with nothing, or it
+ * answered with records.
+ */
+export type RecordPoolState = "loading" | "failed" | "empty" | "ready";
+
+/**
+ * Which of the four the picker is in (issue #1248).
+ *
+ * ⚠️ "EMPTY" NEEDS AN ANSWER. It is the only branch that makes a claim about the pool, so it is
+ * reached ONLY when the server has actually replied. Before #1248 the screen read `data` and
+ * `isLoading` and never `error`, and a failed search (no data, not loading) fell through to "there
+ * is nothing" -- on a row whose pool was full. Making `hasAnswer` a precondition, rather than
+ * adding an `error` check in front of the old test, is what keeps that true for every shape SWR can
+ * produce, including a key that has not fired yet.
+ *
+ * ⚠️ LOADING BEATS FAILED. SWR retries a failed request with backoff and keeps the old `error`
+ * while it does, with `isLoading` true again (nothing is cached). So a retry reads as loading and a
+ * retry that fails reads as failed -- the two may alternate, which is honest; "empty" can never
+ * appear between them, because neither carries an answer.
+ *
+ * ⚠️ AN UNKNOWN BALANCE IS LOADING WHATEVER THE FETCH SAYS -- the search key is `null` until it
+ * resolves, so the fetch has nothing to report yet (issue #1243).
+ *
+ * ⚠️ RECORDS IN HAND WIN OVER A LATER FAILURE. A background refresh that fails leaves the last
+ * answer cached; that list was true when it came back, and hiding it behind an error would take
+ * away a list the reviewer can still act on.
+ */
+export const recordPoolState = ({
+    balanceUnknown,
+    hasAnswer,
+    poolSize,
+    isLoading,
+    failed,
+}: {
+    /** The remaining balance is still unresolved, so the search has not been sent. */
+    balanceUnknown: boolean;
+    /** The server has replied with a list (possibly an empty one). */
+    hasAnswer: boolean;
+    /** How many records the picker may offer, AFTER the Split narrowing. */
+    poolSize: number;
+    isLoading: boolean;
+    /** The fetch reports an error. */
+    failed: boolean;
+}): RecordPoolState => {
+    if (balanceUnknown) return "loading";
+    if (hasAnswer) return poolSize > 0 ? "ready" : "empty";
+    if (isLoading) return "loading";
+    if (failed) return "failed";
+    return "loading";
+};
+
+/**
+ * The sentence for a non-ready state. Empty is the only one that differs by mode (see
+ * `SPLIT_NO_CANDIDATES_NOTE` for why Split needs its own).
+ */
+export const recordPoolMessage = (
+    state: Exclude<RecordPoolState, "ready">,
+    mode: SettleMode
+): string => {
+    switch (state) {
+        case "loading":
+            return RECORD_POOL_LOADING_NOTE;
+        case "failed":
+            return RECORD_POOL_FAILED_NOTE;
+        case "empty":
+            return mode === "split" ? SPLIT_NO_CANDIDATES_NOTE : NORMAL_NO_CANDIDATES_NOTE;
+    }
+};
 
 /** Filter, then sort. The one composition, so no caller can do the two in the wrong order. */
 export const visibleRecords = (
