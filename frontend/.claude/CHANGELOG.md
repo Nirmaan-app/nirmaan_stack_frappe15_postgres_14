@@ -4,6 +4,36 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-09-11 — Notional GST on the Projects list, WO Summary and Cash Sheet
+
+Commits `1b67d01b` (feature) and `b8dd426a` (Projects list column widths) on `bug/po-dc`. Rule, owner
+ruling and per-surface visibility: `../.claude/context/domain/projects.md` § Notional GST.
+
+### What changed
+
+- **Projects list (`pages/projects/projects.tsx`):** "Notional GST" column after "PO + WO Amount
+  (incl.GST)", read from the rollup's `notional_gst` through `getProjectFinancials`. Same visibility as
+  PO + WO Amount (it is not in `PMO_HIDDEN_FINANCIAL_COLUMNS`). Type: `ProjectFinancialRollup.notional_gst`
+  (`data/root/useProjectRootApi.ts`).
+- **Project → WO Summary (`components/ProjectSRSummaryTable.tsx`):** per-WO "Notional GST" column after
+  "Incl. GST" (`--` for GST-on); the cell and the export share `notionalGstFor` / `formatNotionalGst`.
+  `enableSorting: false`, because `useServerDataTable` sends a column id as `order_by` and `notional_gst`
+  is not a field. Card line "Notional GST" from `total_notional_gst`
+  (`data/tab/summary/useProjectSRSummaryApi.ts`), gated on `!hideFinancialColumns` like the column.
+- **Reports → Cash Sheet:** `hooks/useProjectReportCalculations.ts` returns `notionalGst` from the same
+  date-filtered `srsByProject` set as `totalInvoiced` (WO `creation` in range). Column after "Total PO+SR
+  Value" (`components/columns/projectColumns.tsx`); "Total Notional GST" box after it in the summary
+  card's lower row, now 4 columns (`components/ProjectReports.tsx`); CSV export column.
+- **Column widths (`b8dd426a`):** ID 80, Project Name 180, Created 120, Status 100, Type 120 — the last
+  three previously fell back to the 150px default.
+
+### Not verified in-session
+
+- No `tsc` run and no browser check. Expected Cash Sheet figures with the date range on ALL: Total
+  Notional GST 104.58 L; Telus GIFT City 4.51 L (matches its WO Summary card, ₹4,50,539).
+
+---
+
 ## 2026-09-11 — Critical PO links move from the task's JSON to a PO child table
 
 Commits `7340a28c`..`869f3517` — nine `feat(critical-po-child-table): …` commits on `bug/po-dc`

@@ -63,3 +63,30 @@ This is bypassed when `all={true}` prop is passed.
 2. **PR/SR creation pages don't use ProjectSelect** — They have their own project selection logic, so project status does not restrict new PR or SR creation at all.
 3. **Financial operations intentionally bypass** — `NewInflowPayment` and `NewProjectInvoiceDialog` pass `all={true}` to allow recording payments/invoices for completed projects.
 4. **"Created" is a one-way status** — Set only by system on project creation. The UI only offers WIP, Completed, and Halted as changeable statuses.
+
+---
+
+## Notional GST (Work Orders raised with GST off)
+
+Term: `CONTEXT.md` § Work-order GST. Shipped 2026-09-11 (`1b67d01b`).
+
+**Rule:** `Σ Service Requests.total_amount × 0.18` over **Approved** SRs with `gst != "true"`.
+`calculate_total_amount` (`doctype/service_requests/service_requests.py`) adds 18% only when `gst` is
+truthy, so a GST-off WO's `total_amount` is the bare subtotal and ×0.18 is exactly the GST it never
+charged. Live data holds only `"true"` / `"false"` in `gst`. The `!= "true"` test matches
+`_calculate_sr_totals` in the same aggregates module.
+
+**Status scope — Approved only (owner ruling 2026-09-11).** It mirrors the WO side of "PO + WO Amount"
+(`get_projects_financial_rollup` filters SRs on `status = "Approved"`), so an *Amendment* WO drops out of
+BOTH until re-approved. Widen the two together or neither — widening one alone makes them disagree about
+which WOs they count.
+
+| Surface | Source | Visibility / notes |
+|---|---|---|
+| Projects list — "Notional GST" column, after "PO + WO Amount" (`pages/projects/projects.tsx`) | `get_projects_financial_rollup` → `notional_gst` (`api/projects/project_aggregates.py`) | Same as PO + WO Amount: `FINANCIAL_COLUMNS_ROLES`, PMO included (not in `PMO_HIDDEN_FINANCIAL_COLUMNS`) |
+| Project → WO Summary tab — per-WO column after "Incl. GST" + card line (`pages/projects/components/ProjectSRSummaryTable.tsx`) | Row: `notionalGstFor(sr)` on the fetched `gst` / `total_amount` (`--` for GST-on). Card: `get_project_sr_summary_aggregates` → `total_notional_gst` | Column and card line both hidden where `hideFinancialColumns` (Project Manager). Column is **not sortable** — it is computed, and `useServerDataTable` sends a column id straight to the server as `order_by` |
+| Reports → Cash Sheet — column after "Total PO+SR Value" + "Total Notional GST" summary box (`pages/reports/`) | `useProjectReportCalculations` → `notionalGst` | Same **date-filtered** WO set as Total PO+SR Value (WO `creation` in range); every Cash Sheet viewer; in the CSV export |
+
+**Consistency:** one rule on every surface. The two backend figures are pinned by `TestProjectNotionalGst`
+(`api/projects/test_project_aggregates.py`); on 2026-09-11 the card total, the rollup and a direct SQL sum
+agreed on all 85 projects with Approved WOs.
