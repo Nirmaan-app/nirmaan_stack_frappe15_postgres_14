@@ -35,6 +35,7 @@ import {
     SETTLE_MODE_LABEL,
     allocateButtonLabel,
     allocationBar,
+    chooseSettleEndpoint,
     confirmGate,
     effectiveSettleMode,
     settleModeLocked,
@@ -499,10 +500,21 @@ export const DecisionDialog = ({
     // row, including one whose reviewer has opened a "create something new" card, where the balance
     // no longer governs the confirm. Reasons and visibility are different questions; only reasons
     // come from `gate`.
+    //
+    // ⚠️ #1242 -- THE OVER-TICK GATE IS NARROWED BY THE `endpoint`, AND THE ROUTING RULE IS THE
+    // PREDICATE. `bar.over` on a fresh row is algebraically the condition that opens
+    // `AmountOutsideWindowDialog`, whose only trigger is `handleConfirmClick` -- so disabling the
+    // button here made the part-payment and TDS-deduction detours unreachable from the product.
+    // Passing `chooseSettleEndpoint`'s own answer means there is no second copy of "does allocation
+    // govern here?" to drift: this is the SAME call `OutflowMasterPage` routes the confirm with,
+    // built from the SAME chosen `settleMode` (the helper applies `effectiveSettleMode` itself), so
+    // the gate and the endpoint can never disagree about one pick. Do NOT replace it with an inline
+    // boolean -- that is the untestable shape #1239 removed.
     const gate = confirmGate({
         busy,
         decisionConfirmable: isConfirmable(row, decision),
         balanceGoverns: isLinkDecision,
+        endpoint: chooseSettleEndpoint({ ticks, rowStatus: row.row_status, mode: settleMode }),
         legsUnknown,
         over: bar.over,
     });

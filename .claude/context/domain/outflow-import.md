@@ -3590,3 +3590,114 @@ reads.
 container, **which passes 19/19 in isolation and is present in the pre-slice baseline** — unrelated.
 `src/pages/outflow-import` alone: **10 files, 607 tests, all green** (600 before the wave).
 `tsc --noEmit`: zero errors under `src/pages/outflow-import/`.
+
+
+---
+
+## Slice 1b (2026-09-11) — the Confirm gate is NARROWED to the allocation path
+
+**Issue #1242** (parent #1236, ADR-0020 Amendment B § B4). The gate disabled Confirm whenever a
+ticked record exceeded the transfer by more than the tolerance. On a fresh row `banked = 0`, so
+`bar.over` reduces to *"the ticked record exceeds the transfer by more than the tolerance"* —
+**algebraically the same condition** that opens the part-payment / TDS detour, since the settle
+window and `AMOUNT_TOLERANCE` are literally the same constant. That detour's ONLY trigger is
+`handleConfirmClick`, which a disabled button never fires. **So every pick that could open the
+detour was a pick whose Confirm was dead**, and both paths sat live in source and unreachable from
+the product.
+
+⚠️ **Two corrections to the record, for anyone bisecting.** The clause was **not** introduced by the
+"six review fixes" commit — that added only the `|| legsUnknown` disjunct, which is innocent. It came
+from the **feature commit** and was present from the start. And it was **plan-mandated, not a review
+finding**: the design spec said *"over-ticking is allowed; Confirm is not"*, a rationale entirely
+about WHICH control disables. Nothing in the plan, brief, report or four review passes considered
+its effect on the single-tick path. **So narrowing it reopens nothing.**
+
+### The routing rule IS the predicate — `confirmGate` takes the endpoint, not a boolean
+
+`confirmGate` gains `endpoint: SettleEndpoint | null` — `chooseSettleEndpoint`'s own return value,
+passed straight through from `DecisionDialog` off the same chosen `settleMode` the page routes the
+confirm with. Inside:
+
+```ts
+const allocationGoverns = balanceGoverns && endpoint === "allocate_row";
+```
+
+⚠️ **THE ENDPOINT IS PASSED, NOT A BOOLEAN DERIVED AT THE CALL SITE.** ADR-0020 B4: *"the predicate
+already exists and is already single-homed."* A boolean built in the dialog would be a second,
+untestable copy of "does allocation govern here?" — the exact shape #1239 removed — and it is the
+pass-through that makes the narrowing pinnable at all, which is why #1239 ran first.
+
+**Nothing is lost.** `settle_row` keeps its strict whole-transfer guard server-side and refuses an
+oversized tick regardless; the client gate was never the boundary.
+
+### ⚠️ `legsUnknown` is NOT narrowed, and the two terms must not be folded back together
+
+`balance-unknown` keeps `balanceGoverns` alone; only `over-allocated` reads `allocationGoverns`:
+
+```ts
+busy -> "busy"
+!decisionConfirmable -> "decision-incomplete"
+balanceGoverns && legsUnknown -> "balance-unknown"
+allocationGoverns && over -> "over-allocated"
+```
+
+`legsUnknown` is innocent (ADR-0020 B4, explicitly): it is already scoped to `Partially Allocated`
+rows, so it is always false on a fresh one, and such a row is FORCED to Split and therefore inside
+the narrowed set anyway. Ruling U — *never draw a confident balance over an unknown leg set* — must
+keep biting on every endpoint. ⚠️ **Branch order is no longer merely cosmetic**: the last two carry
+DIFFERENT conditions now, so re-ordering them changes which reason is NAMED (though still never, on
+any input, whether Confirm is available).
+
+### The red bar survives; only the instruction changes
+
+The bar still goes red and still says the ticks exceed the transfer — the over-tick is a real fact on
+a money screen whichever endpoint is about to be called. But *"— untick something before confirming"*
+is advice about a tick-set the gate is REFUSING, and beside a live button it is simply wrong, so the
+message tracks whether the gate bites:
+
+| Path | `balanceMessage` |
+|---|---|
+| gate bites (`allocationGoverns`) | `— untick something before confirming` (unchanged) |
+| narrowed away | `— press Confirm to see your options` |
+
+Both still come out of the ONE `confirmGate` call, which is what stops the gate and the message
+disagreeing — the whole point of #1239's one-value shape.
+
+### The server refusal names Split mode, not TDS
+
+`settle.py`'s payment amount-mismatch throw dropped *"A deduction such as TDS looks like this; settle
+it in the payments screen."* It sent a reviewer off the screen for a problem most of them do not
+have: the commonest arrival here is now a DELIBERATE first leg — a payment smaller than the transfer,
+which Split mode allocates and this whole-transfer path is right to refuse. A real deduction is
+answered on the screen itself by `AmountOutsideWindowDialog`, which opens when the record is LARGER
+than the transfer. It now reads:
+
+> To settle it as one part of this transfer, choose 'Split across several payments' on the row.
+
+⚠️ **The quoted label MIRRORS `allocationView.SETTLE_MODE_LABEL.split`.** Naming a control the
+reviewer cannot find is the same defect as naming the wrong screen — reword both in one change. The
+EXPENSE mismatch throw (`settle_existing_expense`'s) never cited TDS and is untouched.
+
+### Parked with a ruling (do not rediscover as new)
+
+On a `Partially Allocated` row with a single tick, the detour's own comparisons read the WHOLE
+transfer rather than the remainder. B1 makes that shape unreachable — such a row is forced to Split,
+and `handleConfirmClick` gates the detour on `effectiveMode === "normal"` — **so the bug dies rather
+than being fixed.**
+
+### Verification
+
+`allocationView.test` grew a `confirmGate — the narrowing` block; the pre-existing *"matches the
+inline expression it replaced"* pin was **RETIRED BY INVERSION, never deleted** — it now asserts the
+old algebra still holds on `allocate_row` AND that the same formula **with `over` struck out** is the
+truth on `settle_row`. **Mutation-checked:** reverting `allocationGoverns` to plain `balanceGoverns`
+fails 5 of the new cases.
+
+`vitest run` (in-container): **90 files, 3481 tests, all green.** `src/pages/outflow-import` alone:
+10 files, 616 tests. `tsc --noEmit`: zero errors in `allocationView` / `DecisionDialog`.
+
+⚠️ **HONEST LIMIT, stated rather than worked around.** The dialog itself is STRUCTURALLY untestable
+here (no DOM environment, deliberate), so *"Confirm is clickable on a single oversized tick and the
+amount-window dialog opens"* is pinned only at the predicate. The `settle.py` message is
+syntax-checked but not exercised: the installed app is the main checkout, not this worktree, and no
+suite pins that string (grepped). **Both want a live browser walk before this is called done.**

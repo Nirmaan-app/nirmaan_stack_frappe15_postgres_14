@@ -254,10 +254,15 @@ describe("reversalNotice -- a successful reverse has to SAY it worked (review F9
 
 describe("confirmGate", () => {
     // The state a reviewer is in almost all of the time: a live decision, legs known, ticks fit.
+    //
+    // ⚠️ `endpoint` DEFAULTS TO THE ALLOCATION PATH HERE SO THE PRE-#1242 CASES BELOW KEEP ASSERTING
+    // WHAT THEY ALWAYS ASSERTED. The narrowing only changes the OTHER endpoint, and its own block
+    // ("the narrowing") states that difference explicitly rather than hiding it in a fixture.
     const open = {
         busy: false,
         decisionConfirmable: true,
         balanceGoverns: true,
+        endpoint: "allocate_row" as const,
         legsUnknown: false,
         over: false,
     };
@@ -338,6 +343,7 @@ describe("confirmGate", () => {
             busy: true,
             decisionConfirmable: false,
             balanceGoverns: true,
+            endpoint: "allocate_row",
             legsUnknown: true,
             over: true,
         });
@@ -359,9 +365,15 @@ describe("confirmGate", () => {
                 ).toBe(legsUnknown);
     });
 
-    // A behaviour pin against the expression this replaced:
+    // ⚠️ RETIRED BY INVERSION, NEVER DELETED (#1242, and the repo's standing rule -- a deleted pin
+    // checks nothing). This block used to assert the algebra of the expression #1239 extracted:
+    //
     //   busy || !isConfirmable(row, decision) || (isLinkDecision && (bar.over || legsUnknown))
-    it("matches the inline expression it replaced, over every input combination", () => {
+    //
+    // #1242 narrows exactly ONE term of it -- `over` -- to the allocation path. So the old formula
+    // is still the whole truth on `allocate_row`, and is now provably WRONG on `settle_row`. Both
+    // halves are asserted, which is what keeps this failing for anything but the intended change.
+    it("keeps the expression it replaced, over every input combination, on the allocation path", () => {
         const bools = [false, true];
         for (const busy of bools)
             for (const decisionConfirmable of bools)
@@ -377,10 +389,138 @@ describe("confirmGate", () => {
                                     busy,
                                     decisionConfirmable,
                                     balanceGoverns,
+                                    endpoint: "allocate_row",
                                     legsUnknown,
                                     over,
                                 }).reason !== null
                             ).toBe(expected);
                         }
+    });
+
+    it("no longer matches that expression on the whole-transfer path -- an over-tick is let through", () => {
+        const bools = [false, true];
+        for (const busy of bools)
+            for (const decisionConfirmable of bools)
+                for (const balanceGoverns of bools)
+                    for (const legsUnknown of bools)
+                        for (const over of bools) {
+                            // The SAME formula with `over` struck out of it -- the narrowing, stated
+                            // as arithmetic rather than as prose.
+                            const narrowed =
+                                busy || !decisionConfirmable || (balanceGoverns && legsUnknown);
+                            expect(
+                                confirmGate({
+                                    busy,
+                                    decisionConfirmable,
+                                    balanceGoverns,
+                                    endpoint: "settle_row",
+                                    legsUnknown,
+                                    over,
+                                }).reason !== null
+                            ).toBe(narrowed);
+                        }
+    });
+});
+
+/**
+ * ⚠️ THE POINT OF #1242, AND THE ONLY PLACE IT CAN BE PINNED. The gate disabled Confirm on exactly
+ * the picks that needed a decision: `bar.over` on a fresh row reduces to "the ticked record exceeds
+ * the transfer by more than the tolerance", which is ALGEBRAICALLY the condition that opens the
+ * part-payment / TDS detour -- and that detour's only trigger lives inside the confirm HANDLER,
+ * which a disabled button never fires. Both paths were live in source and unreachable from the
+ * product (ADR-0020 Amendment B4).
+ *
+ * This repo has no DOM environment, by deliberate choice, so the dialog itself cannot be tested.
+ * The predicate is the highest point the narrowing can be held at -- which is why #1239 extracted
+ * it first.
+ */
+describe("confirmGate -- the narrowing (#1242): the gate follows the ENDPOINT, not the pick", () => {
+    const over = {
+        busy: false,
+        decisionConfirmable: true,
+        balanceGoverns: true,
+        legsUnknown: false,
+        over: true,
+    };
+
+    it("lets a single oversized whole-transfer pick through, so the amount-window dialog can open", () => {
+        const gate = confirmGate({ ...over, endpoint: "settle_row" });
+        expect(gate.reason).toBeNull();
+    });
+
+    it("still refuses an over-tick where the allocation arithmetic actually governs", () => {
+        expect(confirmGate({ ...over, endpoint: "allocate_row" }).reason).toBe("over-allocated");
+    });
+
+    // ⚠️ NOTHING TICKED IS NOT AN ALLOCATION. `chooseSettleEndpoint` returns `null` there, and an
+    // over-allocation measured against no pick is not a fact about anything.
+    it("cannot report an over-tick when nothing is ticked", () => {
+        expect(confirmGate({ ...over, endpoint: null }).reason).toBeNull();
+    });
+
+    // ⚠️ THE RED BAR SURVIVES THE NARROWING (ADR-0020 B4, and #1242's own acceptance criterion).
+    // Only the INSTRUCTION changes: "untick something" is advice about a tick-set the gate is
+    // refusing, and it is simply wrong beside a button the reviewer is now meant to press.
+    it("keeps saying the ticks are over the transfer on BOTH paths, with different advice", () => {
+        const gated = confirmGate({ ...over, endpoint: "allocate_row" });
+        const narrowed = confirmGate({ ...over, endpoint: "settle_row" });
+
+        expect(gated.balanceReason).toBe("over-allocated");
+        expect(narrowed.balanceReason).toBe("over-allocated");
+
+        expect(gated.balanceMessage).toBe("— untick something before confirming");
+        expect(narrowed.balanceMessage).not.toBe(gated.balanceMessage);
+        expect(narrowed.balanceMessage).toContain("Confirm");
+        // It must not tell somebody to untick on a path where unticking is not the answer.
+        expect(narrowed.balanceMessage).not.toContain("untick");
+    });
+
+    // ⚠️ `legsUnknown` IS INNOCENT AND IS NOT NARROWED (ADR-0020 B4, explicitly). It is already
+    // scoped to `Partially Allocated` rows, so it is always false on a fresh row -- and ruling U,
+    // "never draw a confident balance over an unknown leg set", has to survive on every endpoint.
+    it("does not narrow the unknown-legs guard", () => {
+        for (const endpoint of ["settle_row", "allocate_row", null] as const) {
+            const gate = confirmGate({
+                ...over,
+                over: false,
+                legsUnknown: true,
+                endpoint,
+            });
+            expect(gate.reason).toBe("balance-unknown");
+        }
+    });
+
+    // The narrowing must not resurrect a confirm on a decision that is not one.
+    it("leaves the busy and incomplete-decision blockers alone", () => {
+        expect(confirmGate({ ...over, endpoint: "settle_row", busy: true }).reason).toBe("busy");
+        expect(
+            confirmGate({ ...over, endpoint: "settle_row", decisionConfirmable: false }).reason
+        ).toBe("decision-incomplete");
+    });
+
+    // ⚠️ THE COMPOSITION THAT MAKES THE NARROWING REAL. `chooseSettleEndpoint` is the ONE routing
+    // rule; feeding it straight into the gate is what stops a second, drifting copy of "does
+    // allocation govern here?" appearing inside the dialog -- the same reasoning `settlePickerFor`
+    // carries. A single tick in Normal mode is the shape the whole ticket is about.
+    it("composes with the routing rule: a single Normal tick is confirmable, a Split one is not", () => {
+        const normal = chooseSettleEndpoint({ ticks: 1, rowStatus: "Matched", mode: "normal" });
+        const split = chooseSettleEndpoint({ ticks: 1, rowStatus: "Matched", mode: "split" });
+
+        expect(confirmGate({ ...over, endpoint: normal }).reason).toBeNull();
+        expect(confirmGate({ ...over, endpoint: split }).reason).toBe("over-allocated");
+    });
+
+    // ⚠️ A `Partially Allocated` ROW IS FORCED TO SPLIT, so it stays inside the narrowed set and
+    // loses nothing. This is the pin behind the ADR's "its target is inside the narrowed set".
+    it("keeps the gate on a partly-allocated row, whatever mode was chosen", () => {
+        for (const mode of ["normal", "split"] as const) {
+            const endpoint = chooseSettleEndpoint({
+                ticks: 1,
+                rowStatus: "Partially Allocated",
+                mode,
+            });
+            expect(endpoint).toBe("allocate_row");
+            expect(confirmGate({ ...over, endpoint }).reason).toBe("over-allocated");
+        }
     });
 });

@@ -182,6 +182,8 @@ export function settlePickerFor(mode: SettleMode): SettlePicker {
  * `settle_row`, byte-unchanged, with its stricter whole-transfer guard. Every settle that worked
  * before ADR-0020 -- including every bulk one, which passes no mode -- takes the identical path.
  */
+export type SettleEndpoint = "settle_row" | "allocate_row";
+
 export function chooseSettleEndpoint({
     ticks,
     rowStatus,
@@ -191,7 +193,7 @@ export function chooseSettleEndpoint({
     rowStatus: string;
     /** Absent means Normal. See `effectiveSettleMode` for why that default is load-bearing. */
     mode?: SettleMode;
-}): "settle_row" | "allocate_row" | null {
+}): SettleEndpoint | null {
     if (ticks <= 0) return null;
     if (effectiveSettleMode(mode, rowStatus) === "split") return "allocate_row";
     // ⚠️ THIS IS A CAPACITY RULE, NOT THE OLD TICK-COUNT RULE SURVIVING. `settle_row` takes ONE
@@ -318,17 +320,45 @@ const BALANCE_MESSAGES: Record<BalanceGateReason, string> = {
 };
 
 /**
+ * What the red bar says once the gate has been NARROWED away from this pick (#1242).
+ *
+ * ⚠️ THE BAR STILL GOES RED, AND ONLY THE INSTRUCTION CHANGES (ADR-0020 B4). The ticks really do
+ * exceed the transfer, which is worth showing on a money screen whichever endpoint is about to be
+ * called -- but "untick something before confirming" is advice about a tick-set the gate is
+ * REFUSING, and beside a live button the reviewer is now meant to press it is simply wrong. So the
+ * fact keeps its red skin and the sentence points at the button, which is where the answer is:
+ * `AmountOutsideWindowDialog` opens on the click and names the part-payment and TDS options.
+ */
+const OVER_ALLOCATED_NARROWED = "— press Confirm to see your options";
+
+/**
  * Whether Confirm is available, and why not.
  *
  * ⚠️ PURE, AND THAT IS THE REASON IT EXISTS. This repo has no DOM test environment, by deliberate
  * choice (`frontend/CLAUDE.md`), so an expression living inside the dialog component is untestable
  * where it sits -- which is how this gate survived four review passes while making the part-payment
- * and TDS-deduction detours unreachable from the product. The narrowing that fixes that is a
- * separate ticket; this one only moves the rule somewhere a test can see it.
+ * and TDS-deduction detours unreachable from the product. #1239 moved it here so a test could see
+ * it; #1242 is the narrowing that test now pins.
  *
- * ⚠️ `balanceGoverns` IS AN INPUT, NOT A CONSTANT. Today the dialog passes "this is a link
- * decision"; the narrowing ticket will pass "the allocation endpoint is the one being called",
- * reusing `chooseSettleEndpoint`. Behaviour is byte-identical either way at this ticket.
+ * ⚠️ THE OVER-ALLOCATION GATE FOLLOWS THE `endpoint`, NOT THE PICK (#1242, ADR-0020 B4). On a fresh
+ * row `banked = 0`, so `over` reduces to *"the ticked record exceeds the transfer by more than the
+ * tolerance"* -- which is ALGEBRAICALLY the condition that opens the part-payment / TDS detour,
+ * since the settle window and `AMOUNT_TOLERANCE` are literally the same constant. That detour's
+ * only trigger sits inside the dialog's confirm HANDLER, which a disabled button never fires, so
+ * every pick that could open it was a pick whose Confirm was dead: both paths live in source and
+ * unreachable from the product. Gating on the endpoint restores them, and loses nothing -- the
+ * allocation arithmetic only governs where `allocate_row` is being called, and `settle_row` keeps
+ * its own stricter whole-transfer guard server-side and refuses an oversized tick regardless.
+ *
+ * ⚠️ NARROW, DO NOT DELETE, AND `legsUnknown` IS NOT PART OF THE NARROWING. It is innocent: already
+ * scoped to `Partially Allocated` rows, so always false on a fresh row, and such a row is FORCED to
+ * Split mode and therefore inside the narrowed set anyway. Ruling U -- never draw a confident
+ * balance over an unknown leg set -- must keep biting on every endpoint. Do not fold the two terms
+ * back together.
+ *
+ * ⚠️ `balanceGoverns` IS STILL THE OUTER CONDITION FOR BOTH. It answers "is a link decision being
+ * confirmed at all", which a "create something new" card makes false; the endpoint answers "which
+ * settle is it". An `allocate_row` on a create-expense card governs nothing, so the two AND.
  *
  * ⚠️ `balance-unknown` OUTRANKS `over-allocated`, matching the bar's own short-circuit -- an
  * over-tick measured against a balance nobody has read is not a fact worth reporting.
@@ -337,12 +367,24 @@ export function confirmGate({
     busy,
     decisionConfirmable,
     balanceGoverns,
+    endpoint,
     legsUnknown,
     over,
 }: {
     busy: boolean;
     decisionConfirmable: boolean;
     balanceGoverns: boolean;
+    /**
+     * The endpoint this confirm would call -- `chooseSettleEndpoint`'s own return value, passed
+     * straight through.
+     *
+     * ⚠️ THE ROUTING RULE IS THE PREDICATE, NOT A SECOND COPY OF IT (ADR-0020 B4: *"the predicate
+     * already exists and is already single-homed"*). Handing the gate the endpoint rather than a
+     * boolean derived at the call site is what stops a drifting second answer to "does allocation
+     * govern here?" appearing inside the dialog -- and it is what makes the narrowing testable,
+     * which is the whole reason #1239 ran first. `null` (nothing ticked) is not an allocation.
+     */
+    endpoint: SettleEndpoint | null;
     legsUnknown: boolean;
     over: boolean;
 }): ConfirmGate {
@@ -352,20 +394,34 @@ export function confirmGate({
           ? "over-allocated"
           : null;
 
-    // ⚠️ ORDER IS PRECEDENCE, AND ONLY THE REPORTED REASON DEPENDS ON IT -- every branch produces
-    // the same `reason !== null`, because the expression this replaced was a plain OR. So a
-    // re-ordering can never change whether Confirm is available, only which blocker gets named.
+    /** Where the allocation arithmetic actually decides whether this confirm may be sent. */
+    const allocationGoverns = balanceGoverns && endpoint === "allocate_row";
+
+    // ⚠️ ORDER IS PRECEDENCE. `balance-unknown` and `over-allocated` now carry DIFFERENT conditions
+    // (see the narrowing note above), so unlike the plain OR this replaced, a re-ordering of these
+    // last two branches WOULD change which reason is named -- though still never, on any input,
+    // whether Confirm is available, because their conditions are evaluated independently.
     const reason: ConfirmGateReason | null = busy
         ? "busy"
         : !decisionConfirmable
           ? "decision-incomplete"
-          : balanceGoverns
-            ? balanceReason
-            : null;
+          : balanceGoverns && legsUnknown
+            ? "balance-unknown"
+            : allocationGoverns && over
+              ? "over-allocated"
+              : null;
 
     return {
         reason,
         balanceReason,
-        balanceMessage: balanceReason ? BALANCE_MESSAGES[balanceReason] : null,
+        // ⚠️ THE MESSAGE TRACKS WHETHER THE GATE BITES, which is the point of returning one value:
+        // "untick something before confirming" is only true where unticking is what unblocks the
+        // button. Everywhere else the over-tick is still reported, pointing at the button instead.
+        balanceMessage:
+            balanceReason === "over-allocated" && !allocationGoverns
+                ? OVER_ALLOCATED_NARROWED
+                : balanceReason
+                  ? BALANCE_MESSAGES[balanceReason]
+                  : null,
     };
 }

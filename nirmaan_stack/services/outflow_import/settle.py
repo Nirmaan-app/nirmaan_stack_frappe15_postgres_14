@@ -814,10 +814,23 @@ def _lock_and_assert_payment_settleable(
     expected = amount if tds is None else amount - to_decimal(tds)
     if not amounts_match(expected, bank_amount):
         if tds is None:
+            # ⚠️ IT NAMES SPLIT MODE, NOT TDS (issue #1242, ADR-0020 B4). The old sentence read
+            # "A deduction such as TDS looks like this; settle it in the payments screen." It sent
+            # a reviewer off the screen for a problem most of them do not have: the commonest way
+            # to arrive here is now a DELIBERATE first leg -- a payment smaller than the transfer,
+            # which Split mode allocates and this whole-transfer path is right to refuse. A real
+            # deduction is answered on the screen itself, by `AmountOutsideWindowDialog`, which
+            # opens when the record is LARGER than the transfer and offers the part-payment and
+            # TDS answers there.
+            #
+            # ⚠️ THE QUOTED LABEL MIRRORS `allocationView.SETTLE_MODE_LABEL.split`. Naming a
+            # control the reviewer cannot find is the same defect as naming the wrong screen, so if
+            # that label is ever reworded, reword it here in the same change.
             frappe.throw(
                 f"{name} is for {amount} but {bank_amount} left the bank, a difference of "
                 f"{abs(amount - bank_amount)}. "
-                f"A deduction such as TDS looks like this; settle it in the payments screen.",
+                f"To settle it as one part of this transfer, choose "
+                f"'Split across several payments' on the row.",
                 AmountMismatchError,
                 title="Amounts differ",
             )
