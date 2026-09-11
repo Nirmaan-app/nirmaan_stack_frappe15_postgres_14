@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Download, History, Loader2 } from "lucide-react";
+import { Download, History, Loader2, Pencil } from "lucide-react";
 
 import SITEURL from "@/constants/siteURL";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,11 @@ import { ProjectSnagBatch } from "../types";
 export interface SnagBatchesPanelProps {
   batches: ProjectSnagBatch[];
   isLoading?: boolean;
+  /**
+   * Open the Rename dialog for a batch (its document `name`). PRESENCE IS THE GATE:
+   * withheld for anyone who may not manage batches, and then no pencil renders.
+   */
+  onRenameClick?: (batch: string) => void;
 }
 
 const fileHref = (source_file?: string | null): string | null => {
@@ -38,16 +43,20 @@ const fileHref = (source_file?: string | null): string | null => {
  * own first line cannot say. The number still rides the `aria-label`, so it is
  * announced without being opened.
  *
- * THE PANEL IS READ-ONLY (owner decision): it lists what was imported and links
- * the original workbook, and offers no way to remove a batch. Deleting one is
- * unguarded server-side (plan § 8.2, ADR-0017) — recovery means a developer reading
- * `Deleted Document` in a bench console — so the action does not belong on a
- * popover a mis-click can reach. `tracking.delete_batch` still exists for Desk and
- * for scripts; do not put it back on this surface without an owner decision.
+ * RENAME (2026-09-11): each row's pencil opens the SAME Rename dialog the pencil on a
+ * batch tab opens — the dialog lives in `SnagListTab`, not here. The popover closes
+ * first, so a modal dialog never sits on top of an open popover.
+ *
+ * DELETE STAYS OFF THIS PANEL (owner decision). Deleting a batch is unguarded server-side
+ * (plan § 8.2, ADR-0017) — recovery means a developer reading `Deleted Document` in a
+ * bench console — so the action does not belong on a popover a mis-click can reach.
+ * `tracking.delete_batch` still exists for Desk and for scripts; do not put it back on
+ * this surface without an owner decision.
  */
 export const SnagBatchesPanel: React.FC<SnagBatchesPanelProps> = ({
   batches,
   isLoading = false,
+  onRenameClick,
 }) => {
   const [open, setOpen] = React.useState(false);
 
@@ -123,6 +132,21 @@ export const SnagBatchesPanel: React.FC<SnagBatchesPanelProps> = ({
                   </div>
 
                   <div className="flex shrink-0 items-center gap-1">
+                    {onRenameClick && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        title="Rename this batch"
+                        aria-label={`Rename ${b.batch_name || b.name}`}
+                        onClick={() => {
+                          setOpen(false);
+                          onRenameClick(b.name);
+                        }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                     {href ? (
                       <Button
                         asChild
