@@ -63,9 +63,17 @@ IDEMPOTENT
     "at least one rung has something" clause keeps it from rewriting NULL over NULL on the rows
     that genuinely have no reference to offer.
 
-The corresponding patches.txt wiring (`nirmaan_stack.patches.v3_0.backfill_outflow_settlement_reference`
-under [post_model_sync]) is added separately by the maintainer -- it is intentionally not part of
-this patch.
+⚠️ THE `patches.txt` WIRING IS PART OF THIS CHANGE, UNLIKE ITS TWO SIBLINGS
+    `v3_0.backfill_outflow_row_direction` and `v3_0.backfill_outflow_row_source` each leave the
+    wiring to the maintainer and say so. The maintainer asked for it inline here, so
+    `nirmaan_stack.patches.v3_0.backfill_outflow_settlement_reference` sits under `[post_model_sync]`
+    in `patches.txt` in the same commit.
+
+    ⚠️ THAT REMOVES THE DEPLOY WINDOW ON THIS SITE, AND ONLY ON THIS SITE. The floor in
+    `settlement_reference.settlement_reference_of_row` stays: a database that has not yet run this
+    migrate -- another developer's, a staging copy restored from an older dump -- still has the
+    column NULL on every row, and the floor is what keeps those settling correctly. Its removal
+    condition is unchanged: the recompute goes when every database has run this patch.
 """
 
 import frappe

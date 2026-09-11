@@ -3282,7 +3282,10 @@ idempotent, source names spelled literally rather than imported (a patch is appe
 **rung 2** (`reference_id`); none needed rung 3. A post-run audit found **0** non-wallet rows stamped
 with their own transfer id.
 
-⚠️ **The `patches.txt` wiring is NOT part of the patch**, per the convention its two siblings state.
+⚠️ **The `patches.txt` wiring IS part of this change**, unlike its two siblings — the maintainer
+asked for it inline (2026-09-11), so the `[post_model_sync]` line ships in the same commit. That
+closes the deploy window on THIS database only; the floor stays, because a database that has not yet
+run the migrate still has the column NULL on every row.
 
 ### Tests — and every new one was proven to go RED
 

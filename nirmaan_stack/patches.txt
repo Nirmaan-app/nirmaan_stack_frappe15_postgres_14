@@ -153,3 +153,4 @@ nirmaan_stack.patches.v3_0.add_outflow_master_index
 nirmaan_stack.patches.v3_0.add_outflow_stack_index
 nirmaan_stack.patches.v3_0.add_outflow_match_import_row_index
 nirmaan_stack.patches.v3_0.outflow_match_partial_unique
+nirmaan_stack.patches.v3_0.backfill_outflow_settlement_reference
