@@ -36,7 +36,7 @@
 | 17 | The "off by" mark measures the REMAINDER | **PASS** |
 | 18 | Match-run marks gone on a partly-allocated row | **PASS**, with an evidence limit |
 | — | Over-allocated row → picker falls back | **PARTIAL** (see below) |
-| — | Failed legs fetch → no "Loading records…" hang | **NOT EXERCISED** (see below) |
+| — | Failed legs fetch → no "Loading records…" hang | **PASS** on re-test (owner, 2026-09-11) — see below |
 
 Two defects found, both **copy**, neither affecting money. Details in "Findings".
 
@@ -297,6 +297,14 @@ the `Outflow Row Match` read. The dialog opened with the legs loaded and my bloc
 fired. **I am not claiming this path was tested.** Doing it properly needs an XHR-level intercept, a
 devtools request-block rule, or a temporary server-side failure.
 *(The patch was reverted afterwards; the browser was left unmodified.)*
+
+> **✅ UPDATE — PASSED ON RE-TEST (owner, 2026-09-11).** Done the way the paragraph above
+> recommends: a DevTools request-block rule on **only** the `Outflow Row Match` request, a full page
+> reload, then ZTEST-TR-C2 reopened. **The normal record list loaded** — no hang, and no "there is
+> nothing" sentence. A first attempt was inconclusive: its block also caught the record search, and the
+> screen then claimed there were no approved payments at all. That false sentence was a real, separate
+> defect — fixed as #1248 in `bea38acb` — and fixing it is what made this re-test unambiguous. The
+> paragraph above is left as written: it was accurate when recorded.
 
 ---
 

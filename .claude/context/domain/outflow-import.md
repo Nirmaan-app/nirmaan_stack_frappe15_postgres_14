@@ -2770,13 +2770,14 @@ files were READ for their param contract and never edited (`git status` shows th
 
 ---
 
-## The selector split and the fan-out seams (2026-09-10) — DECIDED, NOT YET BUILT
+## The selector split and the fan-out seams (2026-09-10) — SHIPPED, BROWSER-VERIFIED 2026-09-11
 
-⚠️ **NOTHING IN THIS SECTION IS SHIPPED.** It records decisions and measurements from a
-`grill-with-docs` session on `HANDOFF-outflow-fanout-selector-split.md`, so the evidence is not
-re-derived later. The authority for WHAT is built and in what order is
-**`docs/adr/0020-one-transfer-many-payments.md` § Amendment B** — read it, not this summary.
-As-built detail replaces this section slice by slice.
+✅ **SHIPPED.** Everything this section describes was built and passed an 18-step browser walk plus a
+final re-test (spec #1236 and walk #1245, both closed; the walk record is `docs/browser-walk-1245.md`).
+This section was written *before* any of it was built, and its banner said so — that banner is retired
+here because it stopped being true. The measurements below are kept because several decisions rest on
+them. The authority for WHAT was built remains **`docs/adr/0020-one-transfer-many-payments.md`
+§ Amendment B**, and each slice's as-built detail sits in the sections the implementing sessions added.
 
 ### The one-line version
 

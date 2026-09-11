@@ -1,6 +1,6 @@
 # ADR-0020 — One transfer settles many payments, allocated incrementally
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-09-11 — built and browser-verified, spec #1236 closed; Amendment B is the as-built decision record)
 - **Date:** 2026-09-09
 - **Supersedes:** owner ruling **Q4** ("fan-out is report-only")
 - **Feature:** Bulk Import Transactions (`outflow_import`)
