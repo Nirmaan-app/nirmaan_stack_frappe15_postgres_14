@@ -7,6 +7,8 @@ export interface SRAggregates {
   total_sr_value_inc_gst: number;
   total_sr_value_excl_gst: number;
   total_amount_paid_for_srs: number;
+  // 18% of Approved WOs raised with GST off — the GST never charged on them.
+  total_notional_gst: number;
 }
 
 const srSummaryKeys = {
@@ -18,6 +20,7 @@ export const useProjectSRAggregates = (projectId?: string) => {
     total_sr_value_inc_gst: 0,
     total_sr_value_excl_gst: 0,
     total_amount_paid_for_srs: 0,
+    total_notional_gst: 0,
   });
 
   const aggregateResponse = useFrappePostCall<{ message: SRAggregates }>(
@@ -34,6 +37,7 @@ export const useProjectSRAggregates = (projectId?: string) => {
             total_sr_value_inc_gst: 0,
             total_sr_value_excl_gst: 0,
             total_amount_paid_for_srs: 0,
+            total_notional_gst: 0,
           });
         });
       return;
@@ -43,6 +47,7 @@ export const useProjectSRAggregates = (projectId?: string) => {
       total_sr_value_inc_gst: 0,
       total_sr_value_excl_gst: 0,
       total_amount_paid_for_srs: 0,
+      total_notional_gst: 0,
     });
   }, [projectId]);
 

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from "react";
-import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetDocList } from "frappe-react-sdk";
 import ReactSelect from "react-select";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -23,24 +23,13 @@ import {
   X,
   Unlink,
   AlertTriangle,
+  Plus,
 } from "lucide-react";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { formatDate } from "@/utils/FormatDate";
-
-// Helper to parse associated_pos from string or object
-const parseAssociatedPOs = (associated: any): string[] => {
-  try {
-    if (typeof associated === "string") {
-      const parsed = JSON.parse(associated);
-      return parsed?.pos || [];
-    } else if (associated && typeof associated === "object") {
-      return associated.pos || [];
-    }
-    return [];
-  } catch {
-    return [];
-  }
-};
+import { useProjectPOTaskLinks } from "@/pages/projects/data/critical-po/useCriticalPOQueries";
+import { useUpdatePOTaskLinks } from "@/pages/projects/data/critical-po/useCriticalPOMutations";
+import { attachLinkedPOs } from "@/pages/projects/CriticalPOTasks/utils";
 
 interface LinkedCriticalPOTagProps {
   poName: string;
@@ -53,6 +42,11 @@ interface TaskOption {
   label: string;
   value: string;
   data: CriticalPOTask;
+}
+
+interface CategoryOption {
+  label: string;
+  value: string;
 }
 
 // React-Select custom styles
@@ -101,11 +95,16 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
   const [isUpdating, setIsUpdating] = useState(false);
   // Track which specific task is being edited (for per-task editing with multiple linked tasks)
   const [taskToEdit, setTaskToEdit] = useState<CriticalPOTask | null>(null);
+  // Add-more-tasks dialog state
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [tasksToAdd, setTasksToAdd] = useState<readonly TaskOption[]>([]);
+  const [addCategoryFilter, setAddCategoryFilter] = useState<CategoryOption | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
 
-  const { updateDoc } = useFrappeUpdateDoc();
+  const { updateLinks } = useUpdatePOTaskLinks();
 
   // Fetch Critical PO Tasks for the project
-  const { data: tasks = [], mutate } = useFrappeGetDocList<CriticalPOTask>(
+  const { data: rawTasks, mutate: mutateTasks } = useFrappeGetDocList<CriticalPOTask>(
     "Critical PO Tasks",
     {
       fields: [
@@ -116,19 +115,27 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
         "sub_category",
         "po_release_date",
         "status",
-        "associated_pos",
       ],
       filters: [["project", "=", projectId]],
       limit: 0,
     }
   );
 
+  // Which tasks this PO is linked to comes from its Critical PO Task Child Table rows.
+  const { taskPOMap, mutate: mutateLinks } = useProjectPOTaskLinks(projectId, !!projectId);
+
+  const tasks = useMemo<CriticalPOTask[]>(
+    () => attachLinkedPOs(rawTasks, taskPOMap) ?? [],
+    [rawTasks, taskPOMap]
+  );
+  const mutate = useCallback(
+    () => Promise.all([mutateTasks(), mutateLinks()]),
+    [mutateTasks, mutateLinks]
+  );
+
   // Find ALL tasks that have this PO linked (supports multiple task links)
   const linkedTasks = useMemo<CriticalPOTask[]>(() => {
-    return tasks.filter((task) => {
-      const pos = parseAssociatedPOs(task.associated_pos);
-      return pos.includes(poName);
-    });
+    return tasks.filter((task) => (task.linked_pos ?? []).includes(poName));
   }, [tasks, poName]);
 
   // Create task options for re-linking (excludes all currently linked tasks)
@@ -145,34 +152,13 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
       }));
   }, [tasks, linkedTasks]);
 
-  // Get linked POs for a task
-  const getLinkedPOs = (task: CriticalPOTask): string[] => {
-    try {
-      const associated = task.associated_pos;
-      if (typeof associated === "string") {
-        const parsed = JSON.parse(associated);
-        return parsed?.pos || [];
-      } else if (associated && typeof associated === "object") {
-        return associated.pos || [];
-      }
-      return [];
-    } catch {
-      return [];
-    }
-  };
-
   // Handle unlink - uses taskToEdit for per-task unlinking
   const handleUnlink = useCallback(async () => {
     if (!taskToEdit) return;
 
     setIsUpdating(true);
     try {
-      const currentPOs = getLinkedPOs(taskToEdit);
-      const updatedPOs = currentPOs.filter((po) => po !== poName);
-
-      await updateDoc("Critical PO Tasks", taskToEdit.name, {
-        associated_pos: JSON.stringify({ pos: updatedPOs }),
-      });
+      await updateLinks(projectId, { remove: [{ po: poName, task: taskToEdit.name }] });
 
       toast({
         title: "Success",
@@ -193,7 +179,7 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
     } finally {
       setIsUpdating(false);
     }
-  }, [taskToEdit, poName, updateDoc, mutate, onUpdate]);
+  }, [taskToEdit, poName, projectId, updateLinks, mutate, onUpdate]);
 
   // Handle change to different task - uses taskToEdit for per-task editing
   const handleChangeTask = useCallback(async () => {
@@ -201,20 +187,10 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
 
     setIsUpdating(true);
     try {
-      // Remove from old task
-      const oldPOs = getLinkedPOs(taskToEdit);
-      const updatedOldPOs = oldPOs.filter((po) => po !== poName);
-
-      await updateDoc("Critical PO Tasks", taskToEdit.name, {
-        associated_pos: JSON.stringify({ pos: updatedOldPOs }),
-      });
-
-      // Add to new task
-      const newTaskPOs = getLinkedPOs(selectedNewTask.data);
-      const updatedNewPOs = [...newTaskPOs, poName];
-
-      await updateDoc("Critical PO Tasks", selectedNewTask.data.name, {
-        associated_pos: JSON.stringify({ pos: updatedNewPOs }),
+      // Move = unlink from the old task + link to the new one, in one transaction.
+      await updateLinks(projectId, {
+        remove: [{ po: poName, task: taskToEdit.name }],
+        add: [{ po: poName, task: selectedNewTask.data.name }],
       });
 
       toast({
@@ -237,7 +213,7 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
     } finally {
       setIsUpdating(false);
     }
-  }, [taskToEdit, selectedNewTask, poName, updateDoc, mutate, onUpdate]);
+  }, [taskToEdit, selectedNewTask, poName, projectId, updateLinks, mutate, onUpdate]);
 
   // Helper to open edit dialog for a specific task
   const openEditDialog = useCallback((task: CriticalPOTask) => {
@@ -250,6 +226,77 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
     if (!taskToEdit) return [];
     return getTaskOptionsExcluding(taskToEdit.name);
   }, [taskToEdit, getTaskOptionsExcluding]);
+
+  // ── Add more tasks ───────────────────────────────────────
+  // Every task this PO is not linked to yet.
+  const availableTaskOptions = useMemo<TaskOption[]>(() => {
+    const linkedTaskNames = new Set(linkedTasks.map((t) => t.name));
+    return tasks
+      .filter((task) => !linkedTaskNames.has(task.name))
+      .map((task) => ({
+        label: task.sub_category
+          ? `${task.item_name} (${task.sub_category})`
+          : task.item_name,
+        value: task.name,
+        data: task,
+      }));
+  }, [tasks, linkedTasks]);
+
+  const addCategoryOptions = useMemo<CategoryOption[]>(() => {
+    const categories = new Set(
+      availableTaskOptions
+        .map((o) => o.data.critical_po_category)
+        .filter(Boolean)
+    );
+    return Array.from(categories)
+      .sort()
+      .map((cat) => ({ label: cat, value: cat }));
+  }, [availableTaskOptions]);
+
+  const filteredAddTaskOptions = useMemo<TaskOption[]>(() => {
+    if (!addCategoryFilter) return availableTaskOptions;
+    return availableTaskOptions.filter(
+      (o) => o.data.critical_po_category === addCategoryFilter.value
+    );
+  }, [availableTaskOptions, addCategoryFilter]);
+
+  const resetAddDialog = useCallback(() => {
+    setTasksToAdd([]);
+    setAddCategoryFilter(null);
+  }, []);
+
+  // Link this PO to each selected task, leaving their existing POs untouched.
+  const handleAddTasks = useCallback(async () => {
+    if (tasksToAdd.length === 0) return;
+
+    setIsAdding(true);
+    try {
+      await updateLinks(projectId, {
+        add: tasksToAdd.map((option) => ({ po: poName, task: option.data.name })),
+      });
+
+      toast({
+        title: "Success",
+        description: `PO linked to ${tasksToAdd.length} task${tasksToAdd.length > 1 ? "s" : ""}.`,
+        variant: "success",
+      });
+
+      await mutate();
+      if (onUpdate) await onUpdate();
+      setAddDialogOpen(false);
+      resetAddDialog();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to link tasks.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAdding(false);
+    }
+  }, [tasksToAdd, poName, projectId, updateLinks, mutate, onUpdate, resetAddDialog]);
+
+  const canAddTasks = canEdit && availableTaskOptions.length > 0;
 
   // If no linked tasks, don't render anything
   if (linkedTasks.length === 0) {
@@ -330,7 +377,145 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
             </TooltipContent>
           </Tooltip>
         ))}
+
+        {/* Add more tasks */}
+        {canAddTasks && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="
+                  inline-flex items-center gap-1 px-2 py-0.5 rounded-md
+                  text-xs font-medium text-slate-600
+                  bg-white border border-dashed border-slate-300
+                  cursor-pointer transition-all duration-200 ease-out
+                  hover:text-red-600 hover:border-red-300 hover:bg-red-50/50
+                "
+                onClick={() => setAddDialogOpen(true)}
+              >
+                <Plus className="w-3 h-3" />
+                <span className="tracking-tight">Add Task</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="bottom"
+              className="bg-slate-900 text-white border-slate-800 shadow-xl"
+            >
+              <p className="text-xs py-0.5">Link this PO to more Critical PO Tasks</p>
+            </TooltipContent>
+          </Tooltip>
+        )}
       </div>
+
+      {/* Add Tasks Dialog */}
+      {canAddTasks && (
+        <Dialog
+          open={addDialogOpen}
+          onOpenChange={(open) => {
+            setAddDialogOpen(open);
+            if (!open) resetAddDialog();
+          }}
+        >
+          <DialogContent className="sm:max-w-[520px]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Plus className="w-5 h-5 text-red-500" />
+                Link To More Critical PO Tasks
+              </DialogTitle>
+              <DialogDescription>
+                Select the tasks this PO should also be linked to. Existing links are
+                left untouched.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2">
+              {/* Category filter — the task list is long, so narrow it first */}
+              {addCategoryOptions.length > 1 && (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">
+                    Filter By Category{" "}
+                    <span className="text-slate-400 font-normal">(optional)</span>
+                  </Label>
+                  <ReactSelect<CategoryOption>
+                    options={addCategoryOptions}
+                    placeholder="All categories"
+                    isClearable
+                    styles={selectStyles}
+                    value={addCategoryFilter}
+                    onChange={(option) => setAddCategoryFilter(option)}
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">
+                  Tasks{" "}
+                  <span className="text-slate-400 font-normal">
+                    ({filteredAddTaskOptions.length} available)
+                  </span>
+                </Label>
+                <ReactSelect<TaskOption, true>
+                  isMulti
+                  options={filteredAddTaskOptions}
+                  placeholder="Search and select tasks..."
+                  closeMenuOnSelect={false}
+                  styles={selectStyles}
+                  value={tasksToAdd}
+                  onChange={(options) => setTasksToAdd(options ?? [])}
+                  filterOption={(option, input) =>
+                    option.label.toLowerCase().includes(input.toLowerCase())
+                  }
+                  noOptionsMessage={() => "No tasks left to link"}
+                />
+              </div>
+
+              {tasksToAdd.length > 0 && (
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3 space-y-2">
+                  {tasksToAdd.map((option) => (
+                    <div
+                      key={option.value}
+                      className="flex items-center justify-between gap-2 text-xs"
+                    >
+                      <span className="font-medium text-slate-800 truncate">
+                        {option.label}
+                      </span>
+                      <span className="text-slate-500 shrink-0">
+                        {option.data.critical_po_category} ·{" "}
+                        {formatDate(option.data.po_release_date)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setAddDialogOpen(false);
+                  resetAddDialog();
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleAddTasks}
+                disabled={tasksToAdd.length === 0 || isAdding}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                {isAdding ? (
+                  <TailSpin width={16} height={16} color="white" />
+                ) : (
+                  tasksToAdd.length > 1
+                    ? `Link ${tasksToAdd.length} Tasks`
+                    : "Link Task"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Edit Dialog - Only rendered when canEdit is true and taskToEdit is set */}
       {canEdit && taskToEdit && (

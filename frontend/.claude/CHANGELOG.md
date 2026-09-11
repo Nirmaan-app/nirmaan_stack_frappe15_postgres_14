@@ -4,6 +4,129 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-09-11 — Notional GST on the Projects list, WO Summary and Cash Sheet
+
+Commits `1b67d01b` (feature) and `b8dd426a` (Projects list column widths) on `bug/po-dc`. Rule, owner
+ruling and per-surface visibility: `../.claude/context/domain/projects.md` § Notional GST.
+
+### What changed
+
+- **Projects list (`pages/projects/projects.tsx`):** "Notional GST" column after "PO + WO Amount
+  (incl.GST)", read from the rollup's `notional_gst` through `getProjectFinancials`. Same visibility as
+  PO + WO Amount (it is not in `PMO_HIDDEN_FINANCIAL_COLUMNS`). Type: `ProjectFinancialRollup.notional_gst`
+  (`data/root/useProjectRootApi.ts`).
+- **Project → WO Summary (`components/ProjectSRSummaryTable.tsx`):** per-WO "Notional GST" column after
+  "Incl. GST" (`--` for GST-on); the cell and the export share `notionalGstFor` / `formatNotionalGst`.
+  `enableSorting: false`, because `useServerDataTable` sends a column id as `order_by` and `notional_gst`
+  is not a field. Card line "Notional GST" from `total_notional_gst`
+  (`data/tab/summary/useProjectSRSummaryApi.ts`), gated on `!hideFinancialColumns` like the column.
+- **Reports → Cash Sheet:** `hooks/useProjectReportCalculations.ts` returns `notionalGst` from the same
+  date-filtered `srsByProject` set as `totalInvoiced` (WO `creation` in range). Column after "Total PO+SR
+  Value" (`components/columns/projectColumns.tsx`); "Total Notional GST" box after it in the summary
+  card's lower row, now 4 columns (`components/ProjectReports.tsx`); CSV export column.
+- **Column widths (`b8dd426a`):** ID 80, Project Name 180, Created 120, Status 100, Type 120 — the last
+  three previously fell back to the 150px default.
+
+### Not verified in-session
+
+- No `tsc` run and no browser check. Expected Cash Sheet figures with the date range on ALL: Total
+  Notional GST 104.58 L; Telus GIFT City 4.51 L (matches its WO Summary card, ₹4,50,539).
+
+---
+
+## 2026-09-11 — Critical PO links move from the task's JSON to a PO child table
+
+Commits `7340a28c`..`869f3517` — nine `feat(critical-po-child-table): …` commits on `bug/po-dc`
+(schema → backend → migration → frontend).
+
+### What changed
+
+- **Where a link lives:** one `Critical PO Task Child Table` row per (PO, task) under
+  `Procurement Orders.critical_po_tasks` — `critical_po_task`, `task_name` (display label
+  `item_name (sub_category)`), `critical_po_category`, `sub_category`. `Critical PO Tasks.associated_pos`
+  is kept in the DB but nothing reads or writes it (owner drops it later).
+- **Count vs list:** the tracker badge reads the stored `Critical PO Tasks.linked_po_count`; clicking it
+  lists `task.linked_pos`, read from the child table.
+- **Reads:** `useProjectPOTaskLinks` / `useAllPOTaskLinks` fetch child rows via the Procurement Orders
+  parent join; `buildTaskPOMap` / `attachLinkedPOs` attach `linked_pos`. Types dropped `associated_pos`.
+- **Writes:** tracker dialogs, `LinkedCriticalPOTag` (Add / Change / Unlink) and the dispatch hook all call
+  `useUpdatePOTaskLinks` → `update_po_task_links`. Change is ONE call with `remove` + `add`.
+- **PO Summary:** the hand-built Critical PO filter bar is replaced by a column facet on
+  `Critical PO Task Child Table.task_name`.
+- **Material plan / cashflow / bulk download** read `linked_pos` / `linked_pos_count`.
+
+### Verification (localhost, 2026-09-11)
+
+- Migration patch `#v3`: every row's `task_name`, `sub_category` and category match its task; zero
+  `linked_po_count` mismatches site-wide; 9 refs to deleted POs skipped and printed.
+- Chrome DevTools, request + response + DB checked for each write: tracker link/unlink, PO-page Add Task,
+  Change, Unlink. `sub_category` written correctly; PO `modified` never touched; DB restored afterwards.
+- Read surfaces match the DB: tracker badges, PO Summary facet (22 options), Material Plan task picker,
+  DC & MIR Critical PO column, Bulk Download.
+- Residence ratchet: F5 119 → 115 (4 files moved off raw `updateDoc`), F2 224 → 210.
+
+### Not covered
+
+- Dispatch-time linking was not clicked through in the UI (dispatch is irreversible); it uses the same
+  `update_po_task_links` call as the tested paths.
+
+---
+
+## 2026-09-09 — Critical PO Tasks: package resolution via PR tags, dialog freshness, PO-side task linking
+
+Commit `e4b38a3d` — `fix(critical-po): resolve PO packages via PR tags, refresh dialog, add task linking`.
+
+### The bug: "Available POs (0)" for every real package
+
+`LinkPODialog` / `EditTaskDialog` resolved a PO's procurement package as
+`PO → procurement_request → Procurement Requests.work_package`, then compared that against a dropdown
+built from the project's Procurement Packages. The v3.0 patch `migrate_work_package_to_pr_tags` had
+already moved packages onto the PR's `PR Tag Child Table` rows and left `work_package` holding only the
+PR **type** — live counts 5062 `Normal`, 191 `Custom`, 2 pre-patch survivors (`Electrical Work`). Every
+PO therefore mapped to `"Normal"`, which matched no dropdown option, so every real package listed zero POs.
+
+### Fixes
+
+- **`useCriticalPOProcurementRequests`** now selects ``"`tabPR Tag Child Table`.tag_package as tag_package"``
+  alongside `name` + `work_package`. It is a LEFT JOIN: a PR with two tags returns two rows, an untagged PR
+  returns once with `tag_package: null`. The child field needs an `as unknown as (keyof PRPackageRow)[]`
+  cast — valid for Frappe's list API, outside the SDK's `keyof`-based `fields` type. Return type changed
+  `ProcurementRequest` → new `PRPackageRow`, and the SWR key dropped its `selectedPackage` segment (the
+  query no longer varies by package).
+- **One shared rule** in `CriticalPOTasks/utils.tsx` (ADR-0010 F1/F4): `buildPRPackageMap` folds the
+  tag-joined rows into one `{packages: Set, isCustomPR}` per PR; `filterPOsByPackage` keeps the POs for the
+  selected package. A `work_package` that is neither `Normal` nor `Custom` is honoured as a legacy package
+  name. `"Custom"` is **not** a Procurement Package — it keeps custom-flow PRs *and* every PO with no
+  resolvable package (untagged PR, or no PR at all) reachable, so nothing findable before v3.0 was lost.
+  Both dialogs deleted their duplicated inline maps and call the helper.
+- **Unfiltered query dropped**: `useCriticalPOProcurementOrders` built its `filters` conditionally, so with
+  no package selected it was a query over every PO in the system, guarded only by the null SWR key. Filters
+  are now unconditional (`project` + `status not in [Merged, Inactive]`).
+- **Stale edit dialog**: `CriticalPOTasksList` held the whole `CriticalPOTask` row in state, so a link/unlink
+  called `mutate()`, refreshed the table, and left the open dialog rendering its opening snapshot (stale PO
+  chips). It now holds `editingTaskName` and derives the live row via `useMemo` over the refetched `tasks`.
+  `setEditingTask` is a `useCallback` and joins the `columns` memo deps.
+- **`+ Add Task` on the PO detail page** (`LinkedCriticalPOTag.tsx`): a PO could previously only *move* or
+  *drop* a critical task from its own page — the multi-select that adds one lives in the Dispatch sheet,
+  which disappears once the PO ships. A dashed badge beside the linked-task chips opens a multi-select
+  dialog that **appends** links (each task's existing `associated_pos` untouched), with an optional category
+  filter the "Change To Different Task" picker never had. Gated on `canEdit && availableTaskOptions.length > 0`.
+
+### Verified
+
+Live DB, `BENGALURU-PROJ-00101`: HVAC System offers **63 POs** where it offered 0; `Custom` still offers its 3.
+
+### Documentation updated
+
+- `CLAUDE.md` — Domain Gotchas: `Procurement Requests.work_package` is the PR type, not the package.
+- `.claude/context/domain/procurement.md` — new "PR Package Tagging (post-v3.0)" section (field table,
+  patch decision flow, consequences, measured counts).
+- `frontend/CLAUDE.md` — Important Notes: the Critical PO package rule + the "hold the row's name, not the
+  row object" dialog-freshness pattern.
+- `frontend/.claude/context/_index.md` — module rows for `CriticalPOTasks/` and `LinkedCriticalPOTag.tsx`.
+
+---
+
 ## 2026-03-16 — PO Adjustments: Decoupled Payment Reconciliation
 
 ### PO Adjustments System (NEW)

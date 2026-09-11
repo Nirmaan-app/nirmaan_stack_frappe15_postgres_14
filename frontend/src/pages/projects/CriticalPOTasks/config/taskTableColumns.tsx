@@ -18,7 +18,6 @@ import { Link } from "react-router-dom";
 import {
     getCriticalPOStatusStyle,
     formatDeadlineShort,
-    parseAssociatedPOs,
     extractPOId,
 } from "../utils";
 
@@ -270,12 +269,13 @@ export const getTaskTableColumns = (
         },
         // Associated POs column
         {
-            id: "associated_pos",
-            accessorKey: "associated_pos",
+            id: "linked_pos",
+            accessorFn: (row: CriticalPOTask) => row.linked_po_count ?? 0,
             header: () => <div className="text-center text-[10px]">Linked POs</div>,
             cell: ({ row }) => {
-                const linkedPOs = parseAssociatedPOs(row.original.associated_pos);
-                const count = linkedPOs.length;
+                // The count is stored on the task; clicking opens the list from the PO child table.
+                const count = row.original.linked_po_count ?? 0;
+                const linkedPOs = row.original.linked_pos ?? [];
                 const projectId = row.original.project;
                 const itemName = row.original.item_name;
 
@@ -325,7 +325,7 @@ export const getTaskTableColumns = (
             meta: { 
                 exportHeaderName: "Linked POs",
                 exportValue: (row: CriticalPOTask) => {
-                    const linkedPOs = parseAssociatedPOs(row.associated_pos);
+                    const linkedPOs = row.linked_pos ?? [];
                     if (linkedPOs.length === 0) return "";
                     return linkedPOs.map(po => `• ${extractPOId(po)}`).join("\n");
                 }

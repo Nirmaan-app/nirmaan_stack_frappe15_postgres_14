@@ -3,7 +3,9 @@ import {
     useFrappeUpdateDoc,
     useFrappeDeleteDoc,
     useFrappeAuth,
+    useFrappePostCall,
 } from "frappe-react-sdk";
+import { useCallback } from "react";
 import { useSWRConfig } from "swr";
 import { criticalPOKeys } from "./useCriticalPOQueries";
 import { captureApiError } from "@/utils/sentry/captureApiError";
@@ -150,4 +152,62 @@ export const useDeleteCriticalPOTask = () => {
     };
 
     return { deleteDoc: wrappedDeleteDoc, loading };
+};
+
+// ─── PO ↔ Critical PO Task links ─────────────────────────────
+
+export interface POTaskLink {
+    po: string;
+    task: string;
+}
+
+/**
+ * Add and/or remove (PO, Critical PO Task) links through the one write endpoint, which stores
+ * them as `Critical PO Task Child Table` rows on the PO. A call is one transaction, so a move (remove + add)
+ * can never half-apply. Invalidates every cache that shows links for the project.
+ */
+export const useUpdatePOTaskLinks = () => {
+    const { call, loading } = useFrappePostCall<{ message: { added: number; removed: number } }>(
+        "nirmaan_stack.api.critical_po_tasks.po_links.update_po_task_links"
+    );
+    const { mutate } = useSWRConfig();
+    const { currentUser } = useFrappeAuth();
+
+    const updateLinks = useCallback(
+        async (projectId: string, changes: { add?: POTaskLink[]; remove?: POTaskLink[] }) => {
+            try {
+                const result = await call({ add: changes.add ?? [], remove: changes.remove ?? [] });
+                try {
+                    await Promise.all([
+                        mutate(criticalPOKeys.poLinks(projectId)),
+                        mutate(criticalPOKeys.poLinksAll()),
+                        mutate(criticalPOKeys.tasks(projectId)),
+                        mutate(criticalPOKeys.allTasks(projectId)),
+                    ]);
+                } catch (invalidateError) {
+                    captureApiError({
+                        hook: "useUpdatePOTaskLinks",
+                        api: "SWR Invalidation",
+                        feature: "critical-po",
+                        error: invalidateError,
+                        user: currentUser ?? undefined,
+                    });
+                }
+                return result?.message;
+            } catch (error) {
+                captureApiError({
+                    hook: "useUpdatePOTaskLinks",
+                    api: "Update PO Task Links",
+                    feature: "critical-po",
+                    doctype: "Critical PO Task Child Table",
+                    error,
+                    user: currentUser ?? undefined,
+                });
+                throw error;
+            }
+        },
+        [call, mutate, currentUser]
+    );
+
+    return { updateLinks, loading };
 };

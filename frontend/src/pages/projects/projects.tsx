@@ -408,6 +408,7 @@ export const Projects: React.FC<ProjectsProps> = ({
     const ZERO = {
       calculatedTotalProjectInvoiced: 0,
       calculatedTotalInvoiced: 0,
+      notionalGst: 0,
       calculatedTotalInflow: 0,
       calculatedTotalOutflow: 0,
       totalCreditPurchase: 0,
@@ -423,6 +424,7 @@ export const Projects: React.FC<ProjectsProps> = ({
       return {
         calculatedTotalProjectInvoiced: r.total_project_invoiced,
         calculatedTotalInvoiced: r.po_wo_amount,
+        notionalGst: r.notional_gst ?? 0,
         calculatedTotalInflow: r.inflow,
         calculatedTotalOutflow: r.outflow,
         totalCreditPurchase: r.total_credit_purchase,
@@ -476,7 +478,7 @@ export const Projects: React.FC<ProjectsProps> = ({
             {row.original.name?.slice(-5)}
           </Link>
         ),
-        size: 100,
+        size: 80,
         meta: {
           exportHeaderName: "Project ID",
         },
@@ -492,7 +494,7 @@ export const Projects: React.FC<ProjectsProps> = ({
             {row.original.project_name || row.original.name}
           </Link>
         ),
-        size: 200,
+        size: 180,
       },
       {
         accessorKey: "creation",
@@ -500,6 +502,7 @@ export const Projects: React.FC<ProjectsProps> = ({
           <DataTableColumnHeader column={column} title="Created" />
         ),
         cell: ({ row }) => formatDate(row.original.creation),
+        size: 120,
         meta: {
           exportHeaderName: "Project Creation Date",
         },
@@ -519,6 +522,7 @@ export const Projects: React.FC<ProjectsProps> = ({
             </Badge>
           </div>
         ),
+        size: 100,
         enableColumnFilter: true,
         meta: {
           facet: { field: "status", title: "Status" } satisfies FacetDeclaration,
@@ -530,6 +534,7 @@ export const Projects: React.FC<ProjectsProps> = ({
           <DataTableColumnHeader column={column} title="Type" />
         ),
         cell: ({ row }) => <div>{row.original.project_type || "--"}</div>,
+        size: 120,
         enableColumnFilter: true,
         meta: {
           facet: { field: "project_type", title: "Project Type" } satisfies FacetDeclaration,
@@ -599,6 +604,31 @@ export const Projects: React.FC<ProjectsProps> = ({
           exportValue: (row) => {
             const financials = getProjectFinancials(row.name);
             return formatToLakhsNumber(financials.calculatedTotalInvoiced);
+          },
+          isNumeric: true,
+        },
+      },
+      {
+        id: "notional_gst",
+        header: ({ column }) => (
+          <HeaderWithInfo tooltip="Sum of GST Amount for Work Orders where GST is marked off in the system">
+            <DataTableColumnHeader column={column} title="Notional GST" />
+          </HeaderWithInfo>
+        ),
+        cell: ({ row }) => {
+          const financials = getProjectFinancials(row.original.name);
+          return (
+            <span className="tabular-nums">
+              {formatToApproxLakhs(financials.notionalGst)}
+            </span>
+          );
+        },
+        size: 100,
+        meta: {
+          exportHeaderName: "Notional GST (in Lakhs)",
+          exportValue: (row) => {
+            const financials = getProjectFinancials(row.name);
+            return formatToLakhsNumber(financials.notionalGst);
           },
           isNumeric: true,
         },

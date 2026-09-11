@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -47,7 +47,6 @@ import {
     getProgressColor,
     getStatusBadgeVariant,
     CRITICAL_PO_STATUS_OPTIONS,
-    parseAssociatedPOs,
 } from "./utils";
 
 // Mobile Card Component for tasks
@@ -62,8 +61,8 @@ const TaskMobileCard: React.FC<TaskMobileCardProps> = ({ task, projectId, mutate
     const [isOpen, setIsOpen] = useState(false);
 
     const linkedPOsCount = React.useMemo(() => {
-        return parseAssociatedPOs(task.associated_pos).length;
-    }, [task.associated_pos]);
+        return task.linked_po_count ?? 0;
+    }, [task.linked_po_count]);
 
     return (
         <Card className="p-3">
@@ -166,8 +165,20 @@ export const CriticalPOTasksList: React.FC<CriticalPOTasksListProps> = ({
     ]);
     const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 50 });
 
-    // Edit task state (for controlled dialog from table row)
-    const [editingTask, setEditingTask] = useState<CriticalPOTask | null>(null);
+    // Edit task state (for controlled dialog from table row).
+    // Hold the task NAME, not the row object: the dialog links/unlinks POs and calls
+    // mutate(), so it must render off the refetched task rather than a frozen snapshot.
+    const [editingTaskName, setEditingTaskName] = useState<string | null>(null);
+
+    const setEditingTask = useCallback(
+        (task: CriticalPOTask | null) => setEditingTaskName(task?.name ?? null),
+        []
+    );
+
+    const editingTask = useMemo(
+        () => (editingTaskName ? tasks.find((t) => t.name === editingTaskName) ?? null : null),
+        [tasks, editingTaskName]
+    );
 
     // Calculate progress statistics
     const { totalTasks, releasedTasks, completionPercentage, statusCounts } = useMemo(
@@ -208,7 +219,7 @@ export const CriticalPOTasksList: React.FC<CriticalPOTasksListProps> = ({
     // Column definitions
     const columns = useMemo(
         () => getTaskTableColumns(setEditingTask, canEdit),
-        [canEdit]
+        [setEditingTask, canEdit]
     );
 
     // TanStack Table instance
@@ -445,7 +456,7 @@ export const CriticalPOTasksList: React.FC<CriticalPOTasksListProps> = ({
                     mutate={mutate}
                     open={!!editingTask}
                     onOpenChange={(open) => {
-                        if (!open) setEditingTask(null);
+                        if (!open) setEditingTaskName(null);
                     }}
                 />
             )}

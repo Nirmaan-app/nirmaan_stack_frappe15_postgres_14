@@ -127,6 +127,7 @@ function CashSheetReport() {
       const calculated = getProjectCalculatedFields(project.name);
       const defaultCalc = {
         totalInvoiced: 0,
+        notionalGst: 0,
         totalPoSrInvoiced: 0,
         totalProjectInvoiced: 0,
         totalInflow: 0,
@@ -228,6 +229,7 @@ function CashSheetReport() {
         // ACCUMULATE ALL FIELDS
         acc.projectValue += parseNumber(row.project_value_gst);
         acc.totalInvoiced += parseNumber(row.totalInvoiced);
+        acc.totalNotionalGst += parseNumber(row.notionalGst);
         acc.totalPoSrInvoiced += parseNumber(row.totalPoSrInvoiced);
         acc.totalProjectInvoiced += parseNumber(row.totalProjectInvoiced);
         acc.totalInflow += parseNumber(row.totalInflow);
@@ -244,6 +246,7 @@ function CashSheetReport() {
         projectCount: 0,
         projectValue: 0,
         totalInvoiced: 0,
+        totalNotionalGst: 0,
         totalPoSrInvoiced: 0,
         totalProjectInvoiced: 0,
         totalInflow: 0,
@@ -288,6 +291,7 @@ function CashSheetReport() {
       liability: formatValueToLakhsNumber(row.totalLiabilities),
       gap: formatValueToLakhsNumber(row.cashflowGap),
       po_sr_value: formatValueToLakhsNumber(row.totalInvoiced),
+      notional_gst: formatValueToLakhsNumber(row.notionalGst),
       po_sr_invoiced: formatValueToLakhsNumber(row.totalPoSrInvoiced),
       purchase_over_credit: formatValueToLakhsNumber(row.TotalPurchaseOverCredit),
     }));
@@ -301,6 +305,7 @@ function CashSheetReport() {
       { header: "Current Liability (in Lakhs)", accessorKey: "liability" },
       { header: "Cashflow Gap (in Lakhs)", accessorKey: "gap" },
       { header: "Total PO+SR Value incl. GST (in Lakhs)", accessorKey: "po_sr_value" },
+      { header: "Notional GST (in Lakhs)", accessorKey: "notional_gst" },
       { header: "Total PO+SR Invoice Received (in Lakhs)", accessorKey: "po_sr_invoiced" },
       { header: "Total Purchase Over Credit (in Lakhs)", accessorKey: "purchase_over_credit" },
     ];
@@ -556,7 +561,7 @@ function CashSheetReport() {
 
                 {/* Secondary Row: PO/SR Details */}
                 <div className="bg-slate-50/80 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-4 gap-3">
                     {/* 8. Total PO+SR Value (incl. GST) */}
                     <div>
                       <dt className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-0.5">
@@ -564,6 +569,16 @@ function CashSheetReport() {
                       </dt>
                       <dd className="text-sm font-semibold text-slate-700 dark:text-slate-300 tabular-nums">
                         {formatValueToLakhsString(financialSummary.totalInvoiced)}
+                      </dd>
+                    </div>
+
+                    {/* 8a. Total Notional GST — 18% of in-range Approved GST-off WOs */}
+                    <div>
+                      <dt className="text-[10px] font-medium text-purple-600 dark:text-purple-400 uppercase tracking-wide mb-0.5">
+                        Total Notional GST
+                      </dt>
+                      <dd className="text-sm font-semibold text-purple-700 dark:text-purple-400 tabular-nums">
+                        {formatValueToLakhsString(financialSummary.totalNotionalGst)}
                       </dd>
                     </div>
 

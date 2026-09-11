@@ -30,7 +30,8 @@ import {
   useCriticalPOProcurementRequests,
   useAllCriticalPOTasks
 } from "@/pages/projects/data/critical-po/useCriticalPOQueries";
-import { useUpdateCriticalPOTask } from "@/pages/projects/data/critical-po/useCriticalPOMutations";
+import { useUpdatePOTaskLinks } from "@/pages/projects/data/critical-po/useCriticalPOMutations";
+import { filterPOsByPackage } from "@/pages/projects/CriticalPOTasks/utils";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
@@ -46,21 +47,6 @@ interface POConflictInfo {
     category: string;
   }[];
 }
-
-// Helper to parse associated_pos from string or object
-const parseAssociatedPOs = (associated: any): string[] => {
-  try {
-    if (typeof associated === "string") {
-      const parsed = JSON.parse(associated);
-      return parsed?.pos || [];
-    } else if (associated && typeof associated === "object") {
-      return associated.pos || [];
-    }
-    return [];
-  } catch {
-    return [];
-  }
-};
 
 interface LinkPODialogProps {
   task: CriticalPOTask;
@@ -78,7 +64,7 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
   const [conflictingPOs, setConflictingPOs] = useState<POConflictInfo[]>([]);
   const [showConflictDialog, setShowConflictDialog] = useState(false);
 
-  const { updateDoc } = useUpdateCriticalPOTask();
+  const { updateLinks } = useUpdatePOTaskLinks();
 
   // Custom styles for react-select
   const selectStyles = {
@@ -146,7 +132,7 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
     allProjectTasks
       ?.filter((t) => t.name !== task.name) // Exclude current task
       .forEach((t) => {
-        const pos = parseAssociatedPOs(t.associated_pos);
+        const pos = t.linked_pos ?? [];
         pos.forEach((po) => {
           if (!map.has(po)) {
             map.set(po, []);
@@ -162,43 +148,15 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
     return map;
   }, [allProjectTasks, task.name]);
 
-  // Get currently linked POs from task
-  const currentlyLinkedPOs = useMemo(() => {
-    try {
-      const associated = task.associated_pos;
-      if (typeof associated === "string") {
-        const parsed = JSON.parse(associated);
-        return new Set(parsed?.pos || []);
-      } else if (associated && typeof associated === "object") {
-        return new Set(associated.pos || []);
-      }
-      return new Set<string>();
-    } catch {
-      return new Set<string>();
-    }
-  }, [task.associated_pos]);
+  // Currently linked POs, from the Critical PO Task Child Table
+  const currentlyLinkedPOs = useMemo(() => new Set<string>(task.linked_pos ?? []), [task.linked_pos]);
 
-  // Filter POs by work package and already linked status
+  // Filter POs by procurement package and already linked status
   const availablePOs = useMemo(() => {
     if (!procurementOrders || !procurementRequests) return [];
 
-    // Create a map from PO -> work_package via PR
-    const poToWorkPackageMap = new Map<string, string>();
-    procurementOrders.forEach((po) => {
-      const pr = procurementRequests.find((pr) => pr.name === po.procurement_request);
-      const workPackage = pr?.work_package?.trim() ? pr.work_package : "Custom";
-      poToWorkPackageMap.set(po.name, workPackage);
-    });
-
-    // Filter POs by selected work package
-    let filteredPOs = procurementOrders;
-
-    if (selectedPackage) {
-      filteredPOs = procurementOrders.filter((po) => {
-        const poWorkPackage = poToWorkPackageMap.get(po.name);
-        return poWorkPackage === selectedPackage;
-      });
-    }
+    // A PO's package comes from its PR's tags — see filterPOsByPackage.
+    const filteredPOs = filterPOsByPackage(procurementOrders, procurementRequests, selectedPackage);
 
     // Filter out already linked POs
     return filteredPOs.filter((po) => !currentlyLinkedPOs.has(po.name));
@@ -220,12 +178,9 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
     setShowConflictDialog(false);
 
     try {
-      // Merge with existing linked POs
-      const updatedPOs = Array.from(new Set([...currentlyLinkedPOs, ...selectedPOs]));
-
-      await updateDoc(task.name, {
-        associated_pos: JSON.stringify({ pos: updatedPOs }),
-      }, projectId);
+      await updateLinks(projectId, {
+        add: Array.from(selectedPOs).map((po) => ({ po, task: task.name })),
+      });
 
       toast({
         title: "Success",

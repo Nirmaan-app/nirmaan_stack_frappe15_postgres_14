@@ -4,6 +4,8 @@ import { FrappeContext, FrappeConfig, useFrappeGetDocList } from "frappe-react-s
 import { DateFilterValue } from "@/components/ui/standalone-date-filter";
 import { subDays, subMonths, subYears, startOfWeek, startOfMonth, startOfQuarter, startOfYear, isAfter, isBefore, isEqual, isWithinInterval } from "date-fns";
 import { useUserData } from "@/hooks/useUserData";
+import { useProjectPOTaskLinks } from "@/pages/projects/data/critical-po/useCriticalPOQueries";
+import { attachLinkedPOs } from "@/pages/projects/CriticalPOTasks/utils";
 
 export type BulkDocType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN" | "ClientInvoice";
 export type InvoiceSubType = "PO Invoices" | "WO Invoices" | "All Invoices";
@@ -57,15 +59,8 @@ export interface CriticalPOTask {
     name: string;
     item_name: string;
     critical_po_category?: string;
-    associated_pos?: string; // JSON: { pos: string[] }
-}
-
-function parseAssociatedPOs(raw?: string): string[] {
-    if (!raw) return [];
-    try {
-        const p = typeof raw === "string" ? JSON.parse(raw) : raw;
-        return Array.isArray(p?.pos) ? p.pos : [];
-    } catch { return []; }
+    /** POs linked to this task (Critical PO Task Child Table), attached client-side. */
+    linked_pos?: string[];
 }
 
 export const useBulkDownloadWizard = (projectId: string, projectName?: string) => {
@@ -188,16 +183,24 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
         projectId ? `bulk-pi-${projectId}` : null
     );
 
-    const { data: criticalTasks = [], isLoading: criticalTasksLoading } = useFrappeGetDocList<CriticalPOTask>(
+    const { data: rawCriticalTasks, isLoading: criticalTasksListLoading } = useFrappeGetDocList<CriticalPOTask>(
         "Critical PO Tasks",
         {
-            fields: ["name", "item_name", "critical_po_category", "associated_pos"],
+            fields: ["name", "item_name", "critical_po_category"],
             filters: [["project", "=", projectId]],
             limit: 0,
             orderBy: { field: "creation", order: "desc" },
         },
         projectId ? `bulk-critical-${projectId}` : null
     );
+
+    // Which POs each task has comes from the Critical PO Task Child Table.
+    const { taskPOMap, isLoading: criticalLinksLoading } = useProjectPOTaskLinks(projectId || "", !!projectId);
+    const criticalTasks = useMemo(
+        () => attachLinkedPOs(rawCriticalTasks, taskPOMap) ?? [],
+        [rawCriticalTasks, taskPOMap]
+    );
+    const criticalTasksLoading = criticalTasksListLoading || criticalLinksLoading;
 
     const allVendorOptions = useMemo(() => {
         const map = new Map<string, string>();
@@ -361,7 +364,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
 
     const selectMultipleCriticalTaskPOs = useCallback((taskNames: string[]) => {
         const all = new Set<string>();
-        taskNames.forEach(n => parseAssociatedPOs(criticalTasks.find(t => t.name === n)?.associated_pos).forEach(p => all.add(p)));
+        taskNames.forEach(n => (criticalTasks.find(t => t.name === n)?.linked_pos ?? []).forEach(p => all.add(p)));
         setSelectedIds(poList.filter(p => all.has(p.name)).map(p => p.name));
     }, [criticalTasks, poList]);
 

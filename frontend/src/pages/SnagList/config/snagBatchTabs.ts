@@ -47,6 +47,11 @@ export interface SnagBatchTab {
   /** The untruncated label, for the `title` attribute. */
   title: string;
   count: number;
+  /**
+   * True for a real batch tab, which may be renamed (its label is `batch_name`). False for
+   * "All" and "Added manually" — they are views, not batches, and have no name to change.
+   */
+  renamable: boolean;
 }
 
 const emptySlice = (): SnagBatchStats => ({
@@ -77,7 +82,13 @@ export function buildSnagBatchTabs(
   projectTotal: number
 ): SnagBatchTab[] {
   const tabs: SnagBatchTab[] = [
-    { value: ALL_BATCHES, label: "All", title: "Every snag in this project", count: projectTotal },
+    {
+      value: ALL_BATCHES,
+      label: "All",
+      title: "Every snag in this project",
+      count: projectTotal,
+      renamable: false,
+    },
   ];
 
   // A copy — `useSnagBatches`'s array is SWR-owned and must not be reversed in place.
@@ -90,6 +101,7 @@ export function buildSnagBatchTabs(
         ? `${label} — ${sheetSummary(batch.source_sheet)}`
         : label,
       count: byBatch[batch.name]?.total ?? 0,
+      renamable: true,
     });
   }
 
@@ -100,6 +112,7 @@ export function buildSnagBatchTabs(
       label: "Added manually",
       title: "Snags added by hand, not imported from a workbook",
       count: manualCount,
+      renamable: false,
     });
   }
 
