@@ -20,7 +20,7 @@ import { formatDate } from "@/utils/FormatDate";
 // ⚠️ THE ONE IMPORT DIRECTION THAT AVOIDS A CYCLE (review fix 2): `allocationView.ts` is a pure
 // leaf with no imports from this file, so this module -- not that one -- is the dependency. Do
 // NOT flip this to satisfy some other convenience; check for a cycle again before you do.
-import { AMOUNT_TOLERANCE } from "./allocationView";
+import { AMOUNT_TOLERANCE, SETTLE_MODE_LABEL, type SettleMode } from "./allocationView";
 import {
     OPEN_ROW_STATUSES,
     ROW_MATCHED,
@@ -2569,6 +2569,18 @@ export interface SettleBlock {
     bankAmount: number;
     /** Signed: record minus bank. Negative means the bank moved MORE than the record is for. */
     difference: number;
+    /**
+     * The record's ledger, carried so the REMEDY can differ by ledger where the REASON does not.
+     *
+     * ⚠️ `bank_paid_more` fires for a payment AND an expense alike -- deliberately, and pinned. But
+     * the way OUT of it is payments-only: splitting a transfer works on approved Project Payments,
+     * so `settleBlockRemedy` must not send an expense reviewer to a mode that would never list
+     * their record. The REASON stays ledger-blind; only the REMEDY reads this.
+     *
+     * ⚠️ ABSENT IS NEVER AN EXPENSE -- the same fail-open `settleBlockReason` uses. An older
+     * payload with no `target_doctype` is offered the Split route rather than silently denied it.
+     */
+    targetDoctype?: string;
 }
 
 /**
@@ -2613,6 +2625,7 @@ export const settleBlocker = (
         recordAmount,
         bankAmount: bank,
         difference: recordAmount - bank,
+        targetDoctype: record.target_doctype,
     };
 };
 
@@ -2660,6 +2673,39 @@ export const settleBlocker = (
 export const AMOUNT_GAP_HINT =
     "too far apart to settle at this amount — pick it and confirm to see the options";
 
+/**
+ * The same gap, said to a reviewer who is in SPLIT mode (browser walk #1245, finding 1).
+ *
+ * ⚠️ THE NORMAL SENTENCE IS WRONG HERE, AND ONLY HERE. `AMOUNT_GAP_HINT` describes a pick that
+ * CANNOT be settled: it is "too far apart", and confirming opens `AmountOutsideWindowDialog` to ask
+ * what happened. In Split mode a record SMALLER than the transfer is not a fault at all -- it is
+ * the ordinary first leg, and confirming ALLOCATES it, with no dialog and no options. So the Normal
+ * wording told a reviewer their correct action was a mistake, at the moment they took it, and
+ * promised options that never appeared. Observed on a real transfer, 2026-09-11.
+ *
+ * ⚠️ THE ARITHMETIC WAS NEVER WRONG -- only the words. The figure printed beside this sentence
+ * already measures the REMAINING BALANCE on a partly-allocated row (issue #1243), which is why this
+ * is a copy change and not a maths one. Do not "fix" the number.
+ *
+ * ⚠️ TWO CONSTANTS, NOT TWO COPIES. The note above records that this hint drifted when each CALL
+ * SITE carried its own copy of ONE sentence. These are two DIFFERENT sentences with one owner each,
+ * in one module, and the MODE picks between them: `SettleableRecordTable` (Normal) takes the first,
+ * `FanOutRecordTable` (Split) takes this one. Do not merge them, and do not inline either.
+ */
+export const AMOUNT_GAP_HINT_SPLIT =
+    "smaller than the balance left on this transfer — tick it to allocate it as one part";
+
+/**
+ * Which of the two gap sentences this reviewer should read.
+ *
+ * ⚠️ ONE OWNER FOR THE CHOICE, not a ternary at each call site -- the same rule the two constants
+ * above are written under. The two PICKER tables need no selector because each is already
+ * mode-specific by construction (`SettleableRecordTable` is Normal, `FanOutRecordTable` is Split);
+ * `RecordVerdict` renders in BOTH modes from one place, so it asks here rather than deciding.
+ */
+export const amountGapHint = (mode: SettleMode): string =>
+    mode === "split" ? AMOUNT_GAP_HINT_SPLIT : AMOUNT_GAP_HINT;
+
 export const settleBlockText = (block: SettleBlock | null | undefined): string => {
     if (!block) return "";
     switch (block.reason) {
@@ -2672,6 +2718,41 @@ export const settleBlockText = (block: SettleBlock | null | undefined): string =
         case "record_larger":
             return "This record is for more than the transfer covers, and settling a payment in parts is currently switched off, so the difference has to be sorted out on the record itself.";
     }
+};
+
+/**
+ * What to DO about it -- the dialog's closing line (browser walk #1245, finding 2).
+ *
+ * ⚠️ IT USED TO BE ONE HARDCODED SENTENCE IN THE JSX, AND IT WAS WRONG FOR THE COMMONEST ARRIVAL.
+ * The dialog ended "Pick the record that matches this transfer instead." for every blocked pick. On
+ * a transfer that pays SEVERAL records no single record matches, so that instruction cannot be
+ * followed -- and the real answer, Split mode, sits unnamed on a radio in the same dialog.
+ *
+ * ⚠️ THE SERVER ALREADY SAID THIS AND THE SCREEN DID NOT. `settle.py`'s amount-mismatch throw is
+ * direction-aware and names the Split control for exactly this direction (#1242). But
+ * `settleBlocker` runs inside the confirm HANDLER, so on the dialog path the client ALWAYS
+ * intercepts first and the reviewer never reaches the server's sentence -- it is reachable only
+ * through BULK confirm, which has no dialog. The two surfaces now give the same advice.
+ *
+ * ⚠️ THE LABEL IS BOUND, NEVER SPELLED. It comes from `SETTLE_MODE_LABEL.split`, the same constant
+ * the radio renders and the one `settleModeLabelParity.test.ts` pins `settle.py` against. Typing
+ * the words here would be a THIRD copy, free to drift from both.
+ *
+ * ⚠️ LEDGER-GATED, BECAUSE THE REASON IS NOT. `bank_paid_more` is returned for an expense as well
+ * as a payment (pinned above), but splitting works on approved Project Payments only -- so an
+ * expense keeps the original sentence rather than being sent to a mode that would never list it.
+ *
+ * ⚠️ IT LIVES BESIDE `settleBlockText` ON PURPOSE. That function owns the wording of WHY; this one
+ * owns the wording of WHAT NEXT. Two sentences of one paragraph, in one module, so a change to the
+ * reason cannot leave the remedy describing a different world.
+ */
+export const settleBlockRemedy = (block: SettleBlock | null | undefined): string => {
+    if (!block) return "";
+    const splittable = !block.targetDoctype || block.targetDoctype === PROJECT_PAYMENTS_DOCTYPE;
+    if (block.reason === "bank_paid_more" && splittable) {
+        return `To settle it as one part of this transfer, choose '${SETTLE_MODE_LABEL.split}' on the row.`;
+    }
+    return "Pick the record that matches this transfer instead.";
 };
 
 /**

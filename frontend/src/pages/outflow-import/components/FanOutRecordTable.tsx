@@ -7,7 +7,7 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
-    AMOUNT_GAP_HINT,
+    AMOUNT_GAP_HINT_SPLIT,
     RECORD_COLUMNS,
     RECORD_DATE_LABELS,
     amountVerdict,
@@ -511,7 +511,7 @@ const AmountMark = ({
     return (
         <span
             className="flex items-center justify-end gap-1 text-[11px] text-amber-700"
-            title={`Differs by ${gap} — ${AMOUNT_GAP_HINT}`}
+            title={`Differs by ${gap} — ${AMOUNT_GAP_HINT_SPLIT}`}
         >
             <AlertTriangle className="h-3 w-3" /> off by {gap}
         </span>

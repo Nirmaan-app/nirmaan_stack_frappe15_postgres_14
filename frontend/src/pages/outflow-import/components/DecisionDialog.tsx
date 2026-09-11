@@ -47,9 +47,9 @@ import {
 } from "../allocationView";
 import { ROW_PARTIALLY_ALLOCATED } from "../outflowImportStatus";
 import {
-    AMOUNT_GAP_HINT,
     INTENT_DEDUCTION,
     INTENT_PART_PAYMENT,
+    amountGapHint,
     amountVerdict,
     availableDecisionTargets,
     candidateKeySet,
@@ -66,6 +66,7 @@ import {
     receiptStoredAmount,
     recordKey,
     settlementLink,
+    settleBlockRemedy,
     settleBlockText,
     settleBlocker,
     tickAllowedForFanOut,
@@ -1063,9 +1064,15 @@ const AmountOutsideWindowDialog = ({
                                     <p className="font-medium text-foreground">
                                         Nothing has been recorded, and nothing will be.
                                     </p>
-                                    <p className="text-muted-foreground">
-                                        Pick the record that matches this transfer instead.
-                                    </p>
+                                    {/* ⚠️ THE REMEDY IS OWNED BY `settleBlockRemedy`, NOT TYPED
+                                        HERE (browser walk #1245). This was one fixed sentence for
+                                        every reason -- "Pick the record that matches this transfer
+                                        instead." -- and on a transfer that pays SEVERAL records it
+                                        cannot be followed: no single record matches, and the answer
+                                        is Split mode, offered unnamed on a radio just above. The
+                                        server already said so for this direction; the screen did
+                                        not, because this dialog intercepts before the server runs. */}
+                                    <p className="text-muted-foreground">{settleBlockRemedy(block)}</p>
                                 </>
                             )}
                         </div>
@@ -2014,7 +2021,12 @@ const RecordPicker = ({
             )}
 
             {selectedRecords.map((record) => (
-                <RecordVerdict key={recordKey(record)} record={record} bankAmount={pickerBankAmount} />
+                <RecordVerdict
+                    key={recordKey(record)}
+                    record={record}
+                    bankAmount={pickerBankAmount}
+                    mode={mode}
+                />
             ))}
 
             {/* ⚠️ CLEARS EVERY TICK, NOT JUST ONE (ADR-0020 fan-out) -- a reviewer who ticked the
@@ -2078,9 +2090,18 @@ const RecordPicker = ({
 const RecordVerdict = ({
     record,
     bankAmount,
+    mode,
 }: {
     record: SettleableRecord;
     bankAmount: number;
+    /**
+     * ⚠️ THE GAP SENTENCE IS MODE-SPECIFIC, AND THIS LINE RENDERS IN BOTH MODES (walk #1245).
+     * The two picker TABLES need no such prop -- each is already one mode by construction -- but
+     * this verdict is rendered once, above them, for whichever picker is showing. Telling a Split
+     * reviewer their deliberate first leg is "too far apart to settle" is the defect this carries
+     * the mode to avoid. The EFFECTIVE mode, passed straight down from `RecordPicker`.
+     */
+    mode: SettleMode;
 }) => {
     const verdict = amountVerdict(record.amount, bankAmount);
     const settleable = record.suggested;
@@ -2118,7 +2139,8 @@ const RecordVerdict = ({
                         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                         <span>
                             <span className="font-mono">{record.name}</span> differs by{" "}
-                            {formatToIndianRupee(Math.abs(verdict.difference))} — {AMOUNT_GAP_HINT}
+                            {formatToIndianRupee(Math.abs(verdict.difference))} —{" "}
+                            {amountGapHint(mode)}
                         </span>
                     </>
                 )}
