@@ -124,6 +124,18 @@ export const canDeleteDeliveryDocument = (
   userId === "Administrator" || (!!role && PDD_DELETE_PROFILES.includes(role));
 
 /**
+ * May remove a user from a project — the ✕ on the Project Overview "Assignees" card.
+ * ADMIN ONLY, and deliberately narrower than assigning, which Admin / PMO / Project Lead
+ * may do. Mirrors `role_profiles.is_nirmaan_admin`, which
+ * `api/projects/assignees.remove_project_assignee` ENFORCES; this only decides whether
+ * the ✕ renders.
+ */
+export const canRemoveProjectAssignee = (
+  role?: string | null,
+  userId?: string | null
+): boolean => userId === "Administrator" || role === ADMIN_PROFILE;
+
+/**
  * May act on the "Pending Invoice Approvals" queue — approve, reject, or re-run
  * the auto-approve gates on an invoice stuck behind a stale reason.
  *

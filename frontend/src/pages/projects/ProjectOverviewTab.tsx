@@ -23,7 +23,7 @@ import { Customers } from "@/types/NirmaanStack/Customers";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getTotalInflowAmount } from "@/utils/getAmounts";
-import { AlertCircle, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, ListChecks } from "lucide-react";
+import { AlertCircle, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, ListChecks, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate } from "react-router-dom";
@@ -35,7 +35,17 @@ import { useGstOptions } from "@/hooks/useGstOptions";
 import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
 import { useProjectOverviewApi } from "./data/tab/overview/useProjectOverviewTabApi";
 import { ProjectModuleDeactivationStatus } from "./components/ProjectModuleDeactivationStatus";
-import { PROCUREMENT_PROFILES } from "@/constants/roles";
+import { canRemoveProjectAssignee, PROCUREMENT_PROFILES } from "@/constants/roles";
+import { getFrappeError } from "@/utils/frappeErrors";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 
 interface ProjectOverviewTabProps {
@@ -51,6 +61,12 @@ interface ProjectOverviewTabProps {
   };
 }
 
+/** One person on the Assignees card — the id is what a removal needs, the name is shown. */
+interface ProjectAssignee {
+  user: string;
+  fullName: string;
+}
+
 {/* <OverviewSkeleton2 /> */ }
 
 export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectData, projectCustomer, getAllSRsTotalWithGST, totalPOAmountWithGST, getTotalAmountPaid }) => {
@@ -64,6 +80,8 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
   const {
     createUserPermission,
     createDocLoading,
+    removeProjectAssignee,
+    removeAssigneeLoading,
     projectInflowsResponse,
     projectTypeResponse,
     projectAssigneesResponse,
@@ -83,6 +101,12 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
   // Accordion state
   const [expandedRoles, setExpandedRoles] = useState<{ [key: string]: boolean }>({});
 
+  // The assignee whose removal is being confirmed. `null` = the dialog is closed.
+  const [removeTarget, setRemoveTarget] = useState<ProjectAssignee | null>(null);
+  // Admin only — narrower than Assign User (Admin / PMO / Project Lead). The server
+  // enforces it; this only decides whether the ✕ renders.
+  const canRemoveAssignee = canRemoveProjectAssignee(role, user_id);
+
   const { data: projectInflows, isLoading: projectInflowsLoading } = projectInflowsResponse;
 
   const totalAmountReceived = getTotalInflowAmount(projectInflows || [])
@@ -98,14 +122,15 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
   const { data: usersList, isLoading: usersListLoading, mutate: usersListMutate, } = useUsersList()
 
   // Grouping functionality
-  const groupedAssignees: { [key: string]: string[] } = useMemo(() => {
+  // Keeps the user id beside the name: removing someone needs the id.
+  const groupedAssignees: { [key: string]: ProjectAssignee[] } = useMemo(() => {
     if (!projectAssignees || !usersList) return {};
 
     const filteredAssignees = projectAssignees.filter((assignee) =>
       usersList.some((user) => user.name === assignee.user)
     );
 
-    return filteredAssignees.reduce((acc, assignee) => {
+    return filteredAssignees.reduce((acc: { [key: string]: ProjectAssignee[] }, assignee) => {
       const user = usersList.find((user) => user.name === assignee.user);
       if (user) {
         const { role_profile, full_name } = user;
@@ -113,7 +138,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
         const formattedRoleProfile = role_profile?.replace(/Nirmaan\s|\sProfile/g, "") || "";
 
         if (!acc[formattedRoleProfile]) acc[formattedRoleProfile] = [];
-        acc[formattedRoleProfile].push(full_name);
+        acc[formattedRoleProfile].push({ user: assignee.user, fullName: full_name });
       }
 
       return acc;
@@ -214,6 +239,26 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
       });
     } finally {
       setSelectedUser(undefined);
+    }
+  };
+
+  const handleRemoveAssignee = async () => {
+    if (!removeTarget || !projectData?.name) return;
+    try {
+      await removeProjectAssignee(removeTarget.user, projectData.name);
+      await projectAssigneesMutate();
+      toast({
+        title: "Removed",
+        description: `${removeTarget.fullName} was removed from ${projectData.project_name}.`,
+        variant: "success",
+      });
+      setRemoveTarget(null);
+    } catch (error) {
+      toast({
+        title: "Could not remove",
+        description: getFrappeError(error) || `Failed to remove ${removeTarget.fullName}.`,
+        variant: "destructive",
+      });
     }
   };
 
@@ -515,15 +560,26 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
                       </div>
                       {expandedRoles[roleProfile] && (
                         <ul className="pl-8 mt-2 space-y-2">
-                          {assigneeList.map((fullName, index) => (
+                          {assigneeList.map((assignee) => (
                             <li
-                              key={index}
+                              key={assignee.user}
                               className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-all duration-200"
                             >
-                              <CheckCircleIcon className="w-5 h-5 text-green-500" />
-                              <span className="text-sm font-medium text-gray-600">
-                                {fullName}
+                              <CheckCircleIcon className="w-5 h-5 shrink-0 text-green-500" />
+                              <span className="flex-1 text-sm font-medium text-gray-600">
+                                {assignee.fullName}
                               </span>
+                              {canRemoveAssignee && (
+                                <button
+                                  type="button"
+                                  title="Remove from this project"
+                                  aria-label={`Remove ${assignee.fullName} from this project`}
+                                  onClick={() => setRemoveTarget(assignee)}
+                                  className="ml-1 rounded p-0.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:text-red-600"
+                                >
+                                  <X className="h-4 w-4" />
+                                </button>
+                              )}
                             </li>
                           ))}
                         </ul>
@@ -536,6 +592,37 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
           </CardDescription>
         </CardContent>
       </Card>
+      {/* Confirm before taking someone off the project. Only Admin can open it (the ✕
+          renders for Admin only) and the server refuses anyone else. */}
+      <AlertDialog
+        open={!!removeTarget}
+        onOpenChange={(open) => {
+          if (!open && !removeAssigneeLoading) setRemoveTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove from project?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <span className="font-medium text-foreground">{removeTarget?.fullName}</span>{" "}
+              will be removed from{" "}
+              <span className="font-medium text-foreground">{projectData?.project_name}</span>{" "}
+              and will lose access to its records — PRs, POs and the rest — until someone
+              assigns them again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removeAssigneeLoading}>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={removeAssigneeLoading}
+              onClick={handleRemoveAssignee}
+            >
+              {removeAssigneeLoading ? "Removing..." : "Remove"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {!isPMO && (
         <Card>
           <CustomerPODetailsCard projectId={projectData.name} />

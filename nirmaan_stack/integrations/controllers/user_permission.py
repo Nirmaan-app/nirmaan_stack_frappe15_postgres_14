@@ -39,14 +39,26 @@ def on_trash(doc, method):
                                  'allow': doc.allow,
                                  'for_value': doc.for_value
                              })
-    up = frappe.db.get_all("Nirmaan User Permissions", 
-            filters={
-                'user':doc.user
-            })
-    if(len(up)==0):
-       nuser = frappe.get_doc("Nirmaan Users", doc.user)
-       nuser.has_project = "false"
-       nuser.save(ignore_permissions=True)
+    sync_has_project(doc.user)
+
+
+def sync_has_project(user):
+    """Set `Nirmaan Users.has_project` to "false" once the user has no mirror row left.
+
+    Shared by `on_trash` above and `api/projects/assignees.remove_project_assignee`, which
+    also clears mirror rows that have no `User Permission` behind them -- one owner for the
+    rule, so the two paths cannot disagree.
+
+    Skips a user with no `Nirmaan Users` row: the mirror table holds rows for users deleted
+    since (`Nirmaan Users` deletion does not cascade to it), and `get_doc` would raise.
+    """
+    if frappe.db.exists("Nirmaan User Permissions", {"user": user}):
+        return
+    if not frappe.db.exists("Nirmaan Users", user):
+        return
+    nuser = frappe.get_doc("Nirmaan Users", user)
+    nuser.has_project = "false"
+    nuser.save(ignore_permissions=True)
 
     
     
