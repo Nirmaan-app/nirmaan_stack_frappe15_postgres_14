@@ -42,6 +42,8 @@ import {
     settlePickerFor,
     type AllocationBar,
     type SettleMode,
+    matcherMarksVisible,
+    pickerComparisonAmount,
 } from "../allocationView";
 import { ROW_PARTIALLY_ALLOCATED } from "../outflowImportStatus";
 import {
@@ -315,9 +317,33 @@ export const DecisionDialog = ({
         { row: row?.name },
         row?.name ? `row-candidates-${row.name}` : null
     );
+    /**
+     * ⚠️ SUPPRESSED ON A PARTLY-ALLOCATED ROW (issue #1243, AC6).
+     *
+     * `get_row_candidates` re-runs the matcher LIVE on every dialog open, and it has NO
+     * frozen-status guard. Partly-allocated rows are frozen from matching everywhere else, so on
+     * such a row this call answers a question about the WHOLE transfer that nobody asked: it marks
+     * records that can no longer fit in what is left, and — worse — it marks records ALREADY SETTLED
+     * AS LEGS OF THIS VERY ROW as though they were still on offer.
+     *
+     * ⚠️ SUPPRESSED, NEVER MADE REMAINDER-AWARE (owner ruling). Teaching the live re-match about the
+     * remainder would push RANKING into the matcher, and this feature's standing fence is that the
+     * browse ranking must never reach anything that settles (`similarity.py`'s first invariant, with
+     * a test pinning the absent import both ways). The marker is a screen affordance, so the
+     * correction belongs on the screen.
+     *
+     * ⚠️ THE COUNT SENTENCE GOES WITH IT, AND THAT IS WHY THIS IS ONE VARIABLE. `matcherCandidateLine`
+     * reads `.size` from exactly this set, so an empty set silences the sentence too. Suppressing the
+     * marks while leaving "6 approved records match this transfer … pick which one it settled" on
+     * screen would recreate the slice-N3 defect the marks were built to fix: an instruction pointing
+     * at nothing.
+     */
     const matcherCandidates = useMemo(
-        () => candidateKeySet(candidateData?.message?.settleable_candidates),
-        [candidateData]
+        () =>
+            matcherMarksVisible(row?.row_status ?? "")
+                ? candidateKeySet(candidateData?.message?.settleable_candidates)
+                : candidateKeySet(undefined),
+        [candidateData, row?.row_status]
     );
 
     const isPartiallyAllocated = row?.row_status === ROW_PARTIALLY_ALLOCATED;
@@ -344,8 +370,14 @@ export const DecisionDialog = ({
      * The legs this transfer has ALREADY settled (Task 7, ADR-0020 fan-out).
      *
      * ⚠️ NO DEDICATED ENDPOINT EXISTS FOR "one row's current allocation" -- `get_row_allocation`
-     * was never built, and the `legs` a write returns only cover THAT write. This reads the
-     * `Outflow Row Match` doctype directly instead: an ordinary `useFrappeGetDocList`, the same
+     * was never built. (⚠️ CORRECTED, issue #1243: this used to add "and the `legs` a write returns
+     * only cover THAT write", which is FALSE. `allocate_row` returns every LIVE leg on the row, and
+     * therefore an authoritative balance. The real reason a separate read exists is that the dialog
+     * needs the balance BEFORE any write -- on open, with nothing submitted yet -- and a write
+     * response cannot answer that. Left corrected rather than deleted: the sentence was load-bearing
+     * enough to be believed, and the next reader is entitled to know it was wrong.)
+     *
+     * This reads the `Outflow Row Match` doctype directly instead: an ordinary `useFrappeGetDocList`, the same
      * doc-permission-gated pattern every other Frappe list read in this app uses, and it already
      * admits the outflow-access roles (System Manager / Nirmaan Accountant / Nirmaan Accountant
      * Lead). Fetched only while the row is `Partially Allocated` -- the one status where an
@@ -380,6 +412,24 @@ export const DecisionDialog = ({
      * merely absent.
      */
     const legsUnknown = isPartiallyAllocated && (legsLoading || Boolean(legsError));
+
+    /**
+     * What the RECORD PICKER measures every candidate against (issue #1243).
+     *
+     * ⚠️ THE BANKED REMAINDER, AND DELIBERATELY NOT `bar.remaining`. `bar` folds the current TICKS
+     * in, because the bar has to move as the reviewer works. This must not: the pool is ranked once
+     * per dialog open, and a list that re-ranks under the cursor mid-selection is worse than a
+     * static answer (AC5). `pickerComparisonAmount` takes no ticks at all, which is what makes that
+     * impossible rather than merely discouraged.
+     *
+     * ⚠️ `null` ON A ROW WITH NO LEGS, WHICH IS WHAT KEEPS AC4 TRUE. Such a row sends the endpoint
+     * the same params and the same SWR key it always sent, so nothing about the overwhelming
+     * majority of transfers changes.
+     */
+    const compareAmount = useMemo(
+        () => pickerComparisonAmount(row?.amount ?? 0, allocatedLegs),
+        [row?.amount, allocatedLegs]
+    );
 
     // ⚠️ TICKED AMOUNTS COME FROM `pickedRecords`, NOT FROM `decision.linkTargets`. The picker
     // reports the actual `SettleableRecord`s it resolved its ticks to, which is what carries an
@@ -651,6 +701,22 @@ export const DecisionDialog = ({
                             }
                             onSelectedRecordsChange={handleSelectedRecordsChange}
                             matcherCandidates={matcherCandidates}
+                            compareAmount={compareAmount}
+                            // ⚠️ THE LOADING HALF OF `legsUnknown`, DELIBERATELY NOT ALL OF IT
+                            // (review finding, issue #1243). `legsUnknown` is
+                            // `legsLoading || legsError`, and the error half NEVER CLEARS while the
+                            // dialog is open -- so passing it here withheld the record fetch
+                            // permanently and left the picker reading "Loading records…" forever on
+                            // a row whose pool had loaded fine before this change. That is strictly
+                            // worse than the defect being fixed: the reviewer could not see or link
+                            // ANY record.
+                            //
+                            // On a failed legs fetch the honest fallback is the ORDINARY list,
+                            // ranked against the whole transfer -- which is what `compareAmount`
+                            // already is in that state, since `allocatedLegs` is `[]`. The balance
+                            // bar still says the balance is unknown and `confirmGate` still refuses
+                            // the click, so nothing can be written off the wrong number.
+                            compareUnknown={isPartiallyAllocated && legsLoading}
                         />
                     )}
 
@@ -1391,6 +1457,8 @@ const LinkPaymentSection = ({
     dimmed,
     onSelectedRecordsChange,
     matcherCandidates,
+    compareAmount,
+    compareUnknown,
 }: {
     row: OutflowImportRow;
     decision: RowDecision | undefined;
@@ -1403,6 +1471,10 @@ const LinkPaymentSection = ({
     onSelectedRecordsChange: (records: SettleableRecord[]) => void;
     /** `recordKey`s the match run found for this transfer (slice N3). */
     matcherCandidates: ReadonlySet<string>;
+    /** The balance remaining, or `null` for "measure against the whole transfer" (issue #1243). */
+    compareAmount: number | null;
+    /** Whether that balance is still unresolved. Passed straight through to `RecordPicker`. */
+    compareUnknown: boolean;
 }) => (
     <div className={`rounded-md border border-muted-foreground/20 ${dimmed ? "opacity-40" : ""}`}>
         <div className="px-3 py-2.5">
@@ -1424,6 +1496,8 @@ const LinkPaymentSection = ({
                 onChange={onChange}
                 onSelectedRecordsChange={onSelectedRecordsChange}
                 matcherCandidates={matcherCandidates}
+                compareAmount={compareAmount}
+                compareUnknown={compareUnknown}
             />
         </div>
     </div>
@@ -1519,6 +1593,8 @@ const RecordPicker = ({
     onChange,
     onSelectedRecordsChange,
     matcherCandidates,
+    compareAmount,
+    compareUnknown,
 }: {
     row: OutflowImportRow;
     decision: RowDecision;
@@ -1532,6 +1608,23 @@ const RecordPicker = ({
     onChange: (decision: RowDecision) => void;
     onSelectedRecordsChange: (records: SettleableRecord[]) => void;
     matcherCandidates: ReadonlySet<string>;
+    /**
+     * ⚠️ THE BALANCE REMAINING, OR `null` FOR "the whole transfer" (issue #1243). RESOLVED BY THE
+     * CALLER, never re-derived here -- the same discipline `mode` already carries. The dialog owns
+     * the legs, so it owns the remainder; a picker that recomputed it from a second source could
+     * rank against a number the balance bar above it disagrees with.
+     */
+    compareAmount: number | null;
+    /**
+     * Whether that balance is still unresolved (the legs are loading, or their fetch failed).
+     *
+     * ⚠️ ABSENT IS NOT UNKNOWN, and this is the one place that distinction reaches a FETCH. An
+     * unresolved balance reads as a confident `[]`, which would make `compareAmount` `null` and send
+     * the whole-transfer request -- ranking against exactly the number this change exists to stop
+     * using, and then never re-ranking, because the reply would be cached under the key it was
+     * fetched with.
+     */
+    compareUnknown: boolean;
 }) => {
     const [filters, setFilters] = useState<RecordFilters>(EMPTY_FILTERS);
     const [sort, setSort] = useState<RecordSort | null>(null);
@@ -1557,11 +1650,50 @@ const RecordPicker = ({
     // It used to carry the search text, which minted a new key -- and so a new REQUEST -- on every
     // keystroke. The whole approved pool now arrives in one call and every narrowing below is
     // local, which is what makes filtering and sorting instant.
+    // ⚠️ THE COMPARISON AMOUNT RIDES THE EXISTING CALL, AND AN UNTOUCHED ROW SENDS NEITHER THE
+    // PARAMETER NOR A NEW KEY (issue #1243, AC4). The endpoint measures every candidate against
+    // this figure at ONE derivation point, which moves the per-ledger ordering, the `suggested`
+    // flag, the ranker's hard split and the amount score axis together -- so there stays exactly one
+    // amount-opinion per record. A dedicated endpoint was rejected: it would add a serialised round
+    // trip on this dialog's critical path to fetch a number already sitting in memory one component
+    // up, and it would not even remove the direct `Outflow Row Match` read that appears to justify it.
+    //
+    // ⚠️ THE KEY CARRIES THE AMOUNT, AND IT HAS TO. SWR caches on the key alone, so a remainder that
+    // arrives after the first render -- which is every partly-allocated row, because the legs are a
+    // second fetch -- would otherwise never reach the server at all.
+    //
+    // ⚠️ AND THE KEY IS `null` WHILE THE BALANCE IS UNKNOWN, WHICH IS WHAT STOPS THAT BEING A RACE.
+    // Fetching against a provisional whole-transfer figure would cache the wrong ranking under the
+    // wrong key and leave the reviewer reading it. It re-ranks per DIALOG OPEN, never per tick: the
+    // banked legs do not move when a box is ticked, so neither does this key (AC5).
     const { data, isLoading } = useFrappeGetCall<{ message: SettleableRecord[] }>(
         "nirmaan_stack.api.outflow_import.review.search_settleable_records",
-        { row: row.name },
-        `settleable-${row.name}`
+        compareAmount === null
+            ? { row: row.name }
+            : { row: row.name, compare_amount: compareAmount },
+        compareUnknown
+            ? null
+            : compareAmount === null
+              ? `settleable-${row.name}`
+              : `settleable-${row.name}-balance-${compareAmount}`
     );
+
+    // ⚠️ AN UNKNOWN BALANCE IS LOADING, NOT EMPTY. With a `null` key SWR never fires, so `isLoading`
+    // is `false` and `data` is `undefined` -- which would fall through to "There are no approved
+    // payments or expenses to link to." on a row that has plenty. A silent empty list reads as a
+    // broken screen, which is the standing rule this picker's other two empty states already follow.
+    const poolLoading = isLoading || compareUnknown;
+
+    // ⚠️ THE SAME FIGURE THE SERVER RANKED BY, SO THE "off by" MARK AGREES WITH THE ORDER (AC3).
+    // `AmountMark` renders the SERVER's `suggested` beside a CLIENT-computed difference; measuring
+    // them against different amounts would print "off by ₹65,000" on the record the server has just
+    // flagged as the one that fits.
+    //
+    // ⚠️ `??` IS ENOUGH ONLY BECAUSE A NON-`null` `compareAmount` IS ALWAYS POSITIVE. That guarantee
+    // lives in `pickerComparisonAmount`, which mirrors the server's own `wanted <= 0` refusal -- see
+    // its docstring. Do not "harden" this line with a second `> 0` test: two copies of one rule is
+    // how the client and the server came to measure different things in the first place.
+    const pickerBankAmount = compareAmount ?? row.amount;
 
     // ⚠️ THE SERVER'S ORDER IS THE RANKING, SO IT IS NOT RE-SORTED HERE. This used to call
     // `orderBySuggestion`, which re-sorted by amount and would now silently undo the similarity
@@ -1720,7 +1852,7 @@ const RecordPicker = ({
             {/* ⚠️ THE COUNT LINE AND THE CLEAR CONTROL SIT TOGETHER, ABOVE THE TABLE. A filtered
                 table that does not say it is filtered is how a reviewer concludes a record does
                 not exist -- and the way out has to be beside the number that reports it. */}
-            {!isLoading && pool.length > 0 && (
+            {!poolLoading && pool.length > 0 && (
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                     <span>
                         {options.length === pool.length
@@ -1744,7 +1876,7 @@ const RecordPicker = ({
                 </div>
             )}
 
-            {isLoading ? (
+            {poolLoading ? (
                 <p className="text-sm text-muted-foreground">Loading records…</p>
             ) : !pool.length ? (
                 // ⚠️ TWO DIFFERENT ABSENCES, AND CONFLATING THEM IS THE DEFECT (issue #1241). In
@@ -1791,7 +1923,7 @@ const RecordPicker = ({
                    environment. Do not inline it back. */
                 <SettleableRecordTable
                     records={options}
-                    bankAmount={row.amount}
+                    bankAmount={pickerBankAmount}
                     matcherCandidates={matcherCandidates}
                     sort={sort}
                     onSort={handleSort}
@@ -1827,7 +1959,7 @@ const RecordPicker = ({
             ) : (
                 <FanOutRecordTable
                     records={options}
-                    bankAmount={row.amount}
+                    bankAmount={pickerBankAmount}
                     matcherCandidates={matcherCandidates}
                     sort={sort}
                     onSort={handleSort}
@@ -1882,7 +2014,7 @@ const RecordPicker = ({
             )}
 
             {selectedRecords.map((record) => (
-                <RecordVerdict key={recordKey(record)} record={record} bankAmount={row.amount} />
+                <RecordVerdict key={recordKey(record)} record={record} bankAmount={pickerBankAmount} />
             ))}
 
             {/* ⚠️ CLEARS EVERY TICK, NOT JUST ONE (ADR-0020 fan-out) -- a reviewer who ticked the

@@ -6,6 +6,8 @@ import {
     chooseSettleEndpoint,
     confirmGate,
     effectiveSettleMode,
+    matcherMarksVisible,
+    pickerComparisonAmount,
     reversalNotice,
     settleModeLocked,
     settlePickerFor,
@@ -530,6 +532,117 @@ describe("confirmGate -- the narrowing (#1242): the gate follows the ENDPOINT, n
             });
             expect(endpoint).toBe("allocate_row");
             expect(confirmGate({ ...over, endpoint }).reason).toBe("over-allocated");
+        }
+    });
+});
+
+// ---------------------------------------------------------------------------------------------
+// issue #1243 -- the picker measures the REMAINING BALANCE, not the full transfer
+// ---------------------------------------------------------------------------------------------
+
+describe("pickerComparisonAmount", () => {
+    it("is null when the transfer has no legs, so the caller sends today's request unchanged", () => {
+        // ⚠️ `null` IS NOT `rowAmount`, AND THE DIFFERENCE IS THE WHOLE POINT. An untouched row must
+        // reach `search_settleable_records` with the SAME params and the SAME SWR key it always
+        // did -- "a row with no legs behaves byte-identically to today" (AC4). Returning the row's
+        // own amount would be arithmetically equal and would still mint a new parameter and a new
+        // cache key on every open row in the system.
+        expect(pickerComparisonAmount(213396, [])).toBeNull();
+    });
+
+    it("is what is left after the banked legs", () => {
+        // The ticket's own shape: most of the transfer allocated, and the one payment that would
+        // COMPLETE it is the 35,000 -- which scores zero against 1,00,000 and is flagged
+        // unsettleable there, below every record that can no longer possibly fit.
+        expect(pickerComparisonAmount(100000, [leg(40000), leg(25000)])).toBe(35000);
+    });
+
+    it("ignores a reversed leg, exactly as the balance bar does", () => {
+        const legs = [leg(55819), { target_amount: 5310, match_kind: "Reversed" }];
+        expect(pickerComparisonAmount(213396, legs)).toBe(213396 - 55819);
+    });
+
+    it("is null again once every leg has been reversed", () => {
+        // Reversal reopens the row, and the picker has to go back to measuring the whole transfer
+        // rather than keep a remainder derived from legs that no longer count.
+        expect(pickerComparisonAmount(100000, [{ target_amount: 40000, match_kind: "Reversed" }]))
+            .toBeNull();
+    });
+
+    it("takes no ticks at all, so the ordering cannot move while the reviewer ticks", () => {
+        // ⚠️ AC5, ENFORCED BY THE SIGNATURE RATHER THAN BY A CALLER'S DISCIPLINE. `allocationBar`
+        // takes ticked amounts because the BAR must move live; this must not, because a list that
+        // re-ranks under the cursor mid-selection is worse than a static answer, and the bar
+        // already shows the live figure. There is no third parameter for ticks to arrive through.
+        expect(pickerComparisonAmount.length).toBe(2);
+    });
+
+    it("agrees with the balance bar's untouched remainder", () => {
+        // One arithmetic, two readers: the bar the reviewer looks at and the amount the picker
+        // ranks by must never be able to disagree about the same row.
+        const legs = [leg(40000), leg(25000)];
+        expect(pickerComparisonAmount(100000, legs)).toBe(allocationBar(100000, legs, []).remaining);
+    });
+
+    // ⚠️ RETIRED BY INVERSION, NEVER DELETED (review finding, issue #1243). This case used to read
+    // "can go negative on an over-allocated row rather than pretending it is zero", and asserted
+    // `-60`. The reasoning was that clamping would hide a real state -- true about the BALANCE BAR,
+    // which does report it, and false about this function, whose only consumers cannot use a
+    // negative for anything. `review._comparison_amount` refuses every `wanted <= 0` and ranks
+    // against the transfer instead, so keeping the negative here made the two sides measure
+    // DIFFERENT THINGS: an emerald "this can be settled" from the server beside a large client-side
+    // "off by" on the same row. The new truth is asserted, and the old one is kept failing.
+    it("is null on an over-allocated row, because no record can be within the window of a negative", () => {
+        expect(pickerComparisonAmount(100, [leg(160)])).toBeNull();
+        expect(pickerComparisonAmount(100, [leg(160)])).not.toBe(-60);
+    });
+
+    it("is null on an exactly-exhausted row rather than a zero nothing can match", () => {
+        // `0 ?? row.amount` yields `0`, so a zero leaking out would make every record read
+        // "off by <its own full amount>" -- confidently wrong, on every row at once.
+        expect(pickerComparisonAmount(100, [leg(100)])).toBeNull();
+    });
+
+    it("★ never returns a non-positive number, which is what makes `?? row.amount` safe", () => {
+        // The property the caller relies on, asserted as a property rather than case by case: it is
+        // why `pickerBankAmount` needs no second guard, and a second guard is how one rule becomes
+        // two copies free to drift.
+        const shapes = [
+            [100, [leg(160)]],
+            [100, [leg(100)]],
+            [100, [leg(60), leg(60)]],
+            [0, [leg(5)]],
+            [-50, [leg(10)]],
+            [213396, [leg(55819)]],
+        ] as const;
+        for (const [amount, legs] of shapes) {
+            const answer = pickerComparisonAmount(amount, [...legs]);
+            if (answer !== null) expect(answer).toBeGreaterThan(0);
+        }
+    });
+});
+
+describe("matcherMarksVisible", () => {
+    // ⚠️ AC6. `get_row_candidates` re-runs the match LIVE on every dialog open and has no
+    // frozen-status guard, so on a partly-allocated row it marks records as matcher-found against
+    // the FULL transfer -- including records already settled as legs of that very row. Suppressing
+    // the marker client-side is the fix the ticket specifies; making the matcher remainder-aware is
+    // explicitly rejected, because that would push ranking into the matcher.
+    it("hides the match run's marks on a partly-allocated row", () => {
+        expect(matcherMarksVisible("Partially Allocated")).toBe(false);
+    });
+
+    it("shows them on every status where the match run still describes the whole transfer", () => {
+        for (const status of ["Pending match run", "Mismatched", "Matched", "Settled", "Error", ""]) {
+            expect(matcherMarksVisible(status)).toBe(true);
+        }
+    });
+
+    // The same composition guard `settlePickerFor` carries: this must key off the SAME status the
+    // mode lock reads, or the marks and the mode could come to describe different rows.
+    it("is suppressed exactly where the mode is locked to Split", () => {
+        for (const status of ["Partially Allocated", "Matched", "Mismatched", ""]) {
+            expect(matcherMarksVisible(status)).toBe(!settleModeLocked(status));
         }
     });
 });

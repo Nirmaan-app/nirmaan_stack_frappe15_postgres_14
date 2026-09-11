@@ -1393,7 +1393,7 @@ def get_row_candidates(row: str):
 
 @frappe.whitelist()
 def search_settleable_records(
-    row: str, target_doctype: str = "", search: str = "", limit: int = 0
+    row: str, target_doctype: str = "", search: str = "", limit: int = 0, compare_amount=None
 ):
     """Approved records a reviewer may link to this row BY HAND (slice V4a; all-ledger at R2).
 
@@ -1453,6 +1453,33 @@ def search_settleable_records(
 
     `suggested` marks the records within the matching tolerance, so the screen can float them to the
     top without hiding anything else.
+
+    ⚠️ `compare_amount` MEASURES AGAINST THE BALANCE REMAINING, NOT THE TRANSFER (issue #1243). On a
+    PARTLY ALLOCATED row the reviewer is looking for the record that fits what is LEFT, and this
+    endpoint used to answer a question nobody had asked. The consequence was not cosmetic: the one
+    payment that would COMPLETE the transfer scored zero on the amount axis, came back
+    `suggested: False`, and therefore sorted BELOW every record too large to fit -- because
+    settleability is a HARD SPLIT above the score (`similarity.ranked_records`). The reviewer was
+    shown the impossible candidates first and the right one last, marked with a large "off by".
+
+    ⚠️ ONE SUBSTITUTION MOVES ALL FOUR CONSUMERS, AND THAT IS WHY IT IS A PARAMETER HERE RATHER THAN
+    A SECOND ENDPOINT. `bank_amount` is derived at ONE point below and handed as an ARGUMENT to the
+    per-ledger SQL ordering, the `suggested` flag, the ranker's hard split and the amount score axis.
+    Substituting it once therefore preserves the existing invariant that there is exactly ONE
+    amount-opinion per record; a second read anywhere would let the flag and the ordering disagree
+    about the same row. A new read endpoint would also add a serialised round trip on the dialog's
+    critical path to fetch a number the dialog already has in memory.
+
+    ⚠️ IT DECIDES NOTHING, AND THAT IS WHAT MAKES A CLIENT-SUPPLIED FIGURE SAFE HERE. This only
+    ORDERS and MARKS a list a person then confirms; `settle_row` / `allocate_row` re-read every leg
+    under a row lock and re-assert the real fit before anything is written. So a blank, a zero, a
+    negative or an unparseable value FALLS BACK to the transfer's own amount rather than throwing --
+    denying the reviewer the screen would be a worse answer than today's ordering.
+
+    ⚠️ THE CALLER RANKS ONCE PER DIALOG OPEN, AGAINST THE BANKED REMAINDER -- never live per tick.
+    See `allocationView.pickerComparisonAmount`: a round trip per click, with records moving under
+    the cursor mid-selection, is worse than the static answer, and the balance bar already shows the
+    live figure.
     """
     require_outflow_access()
     doc = frappe.db.get_value(
@@ -1461,7 +1488,8 @@ def search_settleable_records(
     if not doc:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
 
-    bank_amount = normalize_amount(doc.get("amount"))
+    # ⚠️ THE ONE DERIVATION POINT. Everything below takes it as an argument -- see the docstring.
+    bank_amount = _comparison_amount(normalize_amount(doc.get("amount")), compare_amount)
     cap = _browse_cap(limit)
 
     wanted = (target_doctype or "").strip()
@@ -1479,7 +1507,13 @@ def search_settleable_records(
     for ledger in ledgers:
         records.extend(_search_one_ledger(ledger, bank_amount, search, cap))
 
-    return _rank_browse_records(records, doc, bank_amount)[:cap]
+    # ⚠️ THE TWO TEXT FIELDS EXPLICITLY, NOT THE WHOLE ROW (issue #1243). `doc` carries an `amount`
+    # of its own, and once `bank_amount` may differ from it, handing both to the ranker would put
+    # two disagreeing amounts one argument apart -- a trap for the next reader, and an invitation to
+    # reach for the wrong one. The ranker needs the row's TEXT; it is given exactly that.
+    return _rank_browse_records(
+        records, doc.get("beneficiary_name"), doc.get("remarks"), bank_amount
+    )[:cap]
 
 
 # The ceiling `limit=0` resolves to. Not a page size -- a guard, so that a ledger which grows by an
@@ -1505,7 +1539,34 @@ def _browse_cap(limit) -> int:
     return min(wanted, _MAX_BROWSE)
 
 
-def _rank_browse_records(records: list[dict], doc: dict, bank_amount) -> list[dict]:
+def _comparison_amount(row_amount, compare_amount):
+    """What every candidate is measured against: the caller's figure, or the row's own (issue #1243).
+
+    ⚠️ IT FAILS BACK, IT NEVER THROWS. A blank, a zero, a negative or an unparseable value yields the
+    transfer's own amount -- byte-identically to the behaviour before this parameter existed. This
+    number only ORDERS and MARKS a list a person confirms; the write paths re-assert the real fit
+    under a row lock, so refusing the whole screen over a garbled query parameter would trade a
+    slightly worse ordering for no ordering at all.
+
+    ⚠️ `normalize_amount` ALREADY RETURNS `Decimal("0")` FOR RUBBISH rather than raising (see its
+    docstring), so "unparseable" and "blank" arrive here as the same falsy zero and take the same
+    branch. Do not add a `try` around it expecting an exception that cannot come.
+
+    ⚠️ A NEGATIVE IS REFUSED HERE EVEN THOUGH THE CLIENT CAN COMPUTE ONE. An over-allocated row has a
+    negative remainder, and `pickerComparisonAmount` deliberately reports it -- but no approved
+    record can be "within Rs 5" of a negative target, so honouring it would return a list in which
+    NOTHING is settleable, with no sentence on screen explaining why. Falling back leaves the
+    reviewer the ordinary list; the balance bar is what tells them the row is over-allocated.
+    """
+    wanted = normalize_amount(compare_amount)
+    if wanted <= 0:
+        return row_amount
+    return wanted
+
+
+def _rank_browse_records(
+    records: list[dict], beneficiary_name, remarks, bank_amount
+) -> list[dict]:
     """Order the merged pool by how much each record looks like this transfer.
 
     ⚠️ THE PROJECT INDEX IS BUILT ONCE PER CALL, not per record. It is 194 names; tokenising them
@@ -1516,8 +1577,8 @@ def _rank_browse_records(records: list[dict], doc: dict, bank_amount) -> list[di
     describing the wrong row, and this list is about to be filtered and sorted by the client.
     """
     row_signals = build_row_signals(
-        doc.get("beneficiary_name"),
-        doc.get("remarks"),
+        beneficiary_name,
+        remarks,
         bank_amount,
         C.load_project_index(),
     )

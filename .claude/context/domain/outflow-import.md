@@ -76,6 +76,8 @@ pick one ad-hoc; ask.
 | Which words count when comparing free text to a master name | `services/outflow_import/project_match.comparable_tokens` (public since N1) | grow a private twin. Two readers now — tier 2's project index and the browse ranking — and a second copy would drift: change the length floor in one and the ranked list quietly stops agreeing with the matcher about what a word even is. ⚠️ Sharing the TOKENISER is not sharing a POLICY |
 | How the browse list is ORDERED | `services/outflow_import/similarity.py` (`SimilarityPolicy`, `build_row_signals`, `score_record`, `ranked_records`) — N1 | let it reach anything that SETTLES. `matcher`, `disambiguate` and `status` must not import it, directly or transitively (pinned by a test both ways). Its weights exist to be tuned against reviewer feedback; a tweak made because a list felt wrongly ordered must not change which transfers move money unattended. It also must not reuse `matcher.VendorScoringPolicy` — sharing the dataclass retunes the matcher every time the list is retuned |
 | Filtering + sorting that list on screen | `frontend/src/pages/outflow-import/recordPickerView.ts` — N1 | re-score a record in the client. The server sends the pool already ranked; `sortRecords(records, null)` MEANS "keep that order". A second scoring implementation here would be free to drift, and the symptom — a list ordered differently from the reasons printed on it — is invisible to every test on either side |
+| **What that list is MEASURED AGAINST** (#1243) | `frontend/.../outflow-import/allocationView.ts` (`pickerComparisonAmount`) → the endpoint's `compare_amount` → `review._comparison_amount` → the ONE `bank_amount` derivation | measure a candidate against the transfer at a second site. The endpoint derives `bank_amount` ONCE and hands it as an ARGUMENT to all four consumers — the per-ledger SQL ordering, the `suggested` flag, the ranker's hard split and the amount score axis — so substituting it once moves all four together and there stays **exactly one amount-opinion per record**. ⚠️ The CLIENT's `bankAmount` prop (the "off by" mark) must be fed the SAME figure, or the mark contradicts the order it sits in. ⚠️ `pickerComparisonAmount` takes **no ticks**: the pool is ranked once per dialog open, against the BANKED remainder, never live per tick |
+| **Whether the match run's marks may be shown** (#1243) | `frontend/.../outflow-import/allocationView.ts` (`matcherMarksVisible`) | teach `get_row_candidates` about the remainder. That live re-match has no frozen-status guard, so on a partly-allocated row it marks records against the WHOLE transfer — including records already settled as legs of that row. Making it remainder-aware would push RANKING into the matcher, which is the one fence this feature never crosses; the marks are a screen affordance, so they are suppressed on the screen |
 | What may be settled, and from which status; and WHEN a record was decided | `services/outflow_import/ledgers.py` (`SETTLEABLE_STATUSES`, `settleable_statuses`, `DECIDED_ON_SQL`, `decided_on_sql`) | carry its own Approved-only list. Read by `candidates.py` (what may be OFFERED) and `settle.py` (what may be WRITTEN) so the two can never disagree about one record |
 | Bank row → target matching | `services/outflow_import/matcher.py` (`match_row`, `match_by_reference`, `match_payments`, `match_expenses`, `resolve_vendors`) | decide anything. It PROPOSES ranked candidates; `status.py` derives the outcome and a person makes the choice |
 | Choosing BETWEEN several admitted candidates | `services/outflow_import/disambiguate.py` (`pick_from_several`, `pick_note`, `RULE_*`) — the pure half; `review._disambiguate_matched` owns the writes | add a fourth way to separate candidates. It is **not a tier** and must never live in `matcher.py` — it cannot introduce a record the ladder did not admit |
@@ -2146,10 +2148,10 @@ wrong conclusion from the same reasoning.
 | Suite | How |
 |---|---|
 | pure services (**878** tests, measured 2026-09-11) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed (862 before #1244, 441 before D3, 409 before PS) |
-| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` — measured 2026-09-11: `test_upload` **83** (76 before #1244), `test_review` **251**, `test_expenses` **45**, `test_settle_payment` **63** (56 before #1244), `test_approved` **29**, `test_cashbook_import` **35** (34 before #1244), `test_cashbook_rules` **13**, `test_inflows` **44**, `test_allocate_row` **17**, `test_reverse_allocation` **17**, `test_match_record` **12** |
+| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` — measured 2026-09-11: `test_upload` **83** (76 before #1244), `test_review` **258** (251 before #1243), `test_expenses` **45**, `test_settle_payment` **63** (56 before #1244), `test_approved` **29**, `test_cashbook_import` **35** (34 before #1244), `test_cashbook_rules` **13**, `test_inflows` **44**, `test_allocate_row` **17**, `test_reverse_allocation` **17**, `test_match_record` **12** |
 | ⚠️ a suite against a WORKTREE | `bench` resolves `nirmaan_stack` through the MAIN checkout, so worktree backend code is invisible to it. Set `PYTHONPATH=<worktree root>` — it wins, and the doctype JSON follows (Frappe locates it from the module's `__file__`). The binary is `/home/frappe/.local/bin/bench`, NOT under `env/bin`. |
 | the SHARED split (CEO + partial settlement) | `… --module nirmaan_stack.api.payments.test_payment_split` — **31** (26 before PS-1; those 26 are the proof the CEO path is unchanged) |
-| frontend | `yarn test` (vitest, `node` environment — pure helpers only). **317** across this feature (316 before Q1, 305 before E1-E3, 287 before D1/D2, 267 before N2); **2,503** repo-wide. ⚠️ `POAdjustment/writeOffControl.test.ts` has a PRE-EXISTING flake unrelated to this feature -- one case `await import`s the very large `SheetPricingPage` and trips vitest's 5s default on a loaded machine; it passes at `--testTimeout=60000`. |
+| frontend | `yarn test` (vitest, `node` environment — pure helpers only). **639** across 12 files under `src/pages/outflow-import` (622 across 11 before #1243); **3,504** repo-wide (3,487 before #1243). ⚠️ The older figure recorded here was *"317 across this feature"*, counted before several suites joined the folder — read the folder total, not a remembered number. ⚠️ `POAdjustment/writeOffControl.test.ts` has a PRE-EXISTING flake unrelated to this feature -- one case `await import`s the very large `SheetPricingPage` and trips vitest's 5s default on a loaded machine; it passes at `--testTimeout=60000`. |
 
 ⚠️ **A TEST THAT PASSES BEFORE AND AFTER A BEHAVIOUR CHANGE IS EVIDENCE OF NEITHER.** Every
 pre-existing `test_upload` test stayed green when the duplicate key widened at D3, because none of
@@ -3759,3 +3761,172 @@ reason the gate was able to make two features unreachable in the first place.
 and CI runs the Python side, so the first real exercise will be a genuine amount mismatch on a live
 row. The direction-aware branch is the half to watch: a record LARGER than the transfer, arriving
 through bulk *"confirm all matched"*, is the shape with no dialog in front of it.
+
+---
+
+## Slice 1c (2026-09-11) — the picker measures the REMAINING BALANCE, not the full transfer
+
+**Issue #1243** (parent #1236, blocked by #1241 — the mode had to exist before the picker could
+measure differently inside it).
+
+On a partly-allocated transfer the record picker was answering a question nobody had asked. The
+payment that would **complete** the row scored zero on the amount axis, came back
+`suggested: False`, and therefore sorted **below every record too large to fit** — because
+settleability is a HARD SPLIT above the score (`similarity.ranked_records`). It was then labelled
+with a large "off by" figure, and a single tick on it was refused with a message untrue of the
+balance actually left. The one record the reviewer needed was presented as the least plausible.
+
+⚠️ **FAR SMALLER THAN THE HANDOFF'S "TEN SITES" FRAMING.** The endpoint derives its comparison
+amount at **ONE point** and every consumer below it already takes it as an **argument** — the
+per-ledger SQL `ORDER BY`, the `suggested` flag, the ranker's hard split (which rides in on
+`suggested`, never recomputed) and `_amount_score`. **One substitution moves all four**, which is
+exactly what preserves the existing invariant that there is ONE amount-opinion per record.
+
+### The shape: a parameter on the existing endpoint, never a second endpoint
+
+`search_settleable_records(..., compare_amount=None)`. The dialog already computes the remainder
+client-side, so the parameter costs **zero additional requests**. A new read endpoint would have put
+a serialised round trip on this dialog's critical path to fetch a number already in memory one
+component up — and would not even have removed the direct `Outflow Row Match` read that appears to
+justify it.
+
+- **`_comparison_amount(row_amount, compare_amount)` FAILS BACK, NEVER THROWS.** Blank, zero,
+  negative or unparseable → the transfer's own amount, byte-identically to before. This figure only
+  ORDERS and MARKS a list a person then confirms; `settle_row` / `allocate_row` re-read every leg
+  under a row lock and re-assert the real fit, so denying the reviewer the screen over a garbled
+  query parameter would trade a slightly worse ordering for no ordering at all.
+- ⚠️ **A NON-POSITIVE FIGURE IS REFUSED ON BOTH SIDES, AND THE PAIR IS PINNED** (`if wanted <= 0` on
+  the server; `remaining > 0 ? remaining : null` on the client; `comparisonAmountParity.test.ts`
+  holds them together). No approved record can be "within ₹5" of a negative or zero target, so
+  honouring one would return a list in which NOTHING is settleable, with no sentence on screen
+  saying why. ⚠️ **The first cut kept the negative on the client and refused it on the server, and a
+  review pass caught it after both suites were green**: the two then measured DIFFERENT THINGS on
+  the same row — an emerald "this can be settled" from the server beside a large client-side "off
+  by" — which is exactly the contradiction this slice exists to remove. An over-allocated row is not
+  hidden by this: the **balance bar** reports it, in the words written for it.
+- ⚠️ **THE CONSEQUENCE THAT MAKES THE CALLER SAFE: a non-`null` `pickerComparisonAmount` is ALWAYS
+  POSITIVE.** That is what lets `pickerBankAmount = compareAmount ?? row.amount` stand without a
+  second `> 0` test — and a second test is how one rule becomes two copies free to drift. A test
+  asserts the property directly, not just the cases.
+- ⚠️ **`normalize_amount` ALREADY RETURNS `Decimal("0")` FOR RUBBISH** rather than raising, so
+  "blank" and "unparseable" arrive as the same falsy zero. Do not wrap it in a `try` expecting an
+  exception that cannot come.
+- ⚠️ **`_rank_browse_records` NOW TAKES THE TWO TEXT FIELDS EXPLICITLY, NOT THE WHOLE ROW.** Once
+  `bank_amount` may differ from `doc["amount"]`, handing both to the ranker would put two
+  disagreeing amounts one argument apart — a trap for the next reader.
+
+### Rank once per dialog open, against the BANKED remainder — never live per tick
+
+`allocationView.pickerComparisonAmount(rowAmount, legs)` returns the banked remainder, or **`null`**
+when the row has no settled legs.
+
+- ⚠️ **`null` IS NOT `rowAmount`, AND THE DIFFERENCE IS THE WHOLE OF AC4.** They are arithmetically
+  equal on an untouched row, but `null` is what lets the caller send the params and the SWR key it
+  has always sent. A number there would mint a new parameter and a new cache key on **every open row
+  in the system**, to say something the endpoint already knew.
+- ⚠️ **IT TAKES NO TICKS, AND THE ABSENT PARAMETER IS THE ENFORCEMENT.** `allocationBar` folds ticks
+  in because the bar must move live; this must not, because a list that re-ranks under the cursor
+  mid-selection is worse than a static answer — and the bar beside it already shows the live figure.
+  There is no third parameter for a caller to pass ticks through by accident. A test pins
+  `pickerComparisonAmount.length === 2`.
+- **It shares `allocationBar`'s arithmetic rather than repeating it**, so the remainder the reviewer
+  READS and the remainder the picker RANKS BY cannot disagree about the same row.
+- ⚠️ **THE SWR KEY CARRIES THE AMOUNT, AND IT HAS TO.** SWR caches on the key alone, so a remainder
+  that arrives after the first render — which is every partly-allocated row, because the legs are a
+  SECOND fetch — would otherwise never reach the server at all. **And the key is `null` while the
+  balance is unknown**, which is what stops that being a race: fetching against a provisional
+  whole-transfer figure would cache the wrong ranking under the wrong key and leave the reviewer
+  reading it. The banked legs do not move when a box is ticked, so neither does the key.
+- ⚠️ **AN UNKNOWN BALANCE IS LOADING, NOT EMPTY** (`poolLoading = isLoading || compareUnknown`).
+  With a `null` key SWR never fires, so `isLoading` is `false` and `data` is `undefined` — which
+  would fall through to *"There are no approved payments or expenses to link to."* on a row that has
+  plenty. Same `legsUnknown` distinction the bar already draws, one component further down: **absent
+  is not unknown.**
+- ⚠️ **BUT `compareUnknown` IS THE LOADING HALF OF `legsUnknown` ONLY — NEVER THE ERROR HALF**
+  (review finding). `legsUnknown` is `legsLoading || legsError`, and **the error half never clears
+  while the dialog is open**, so passing all of it withheld the record fetch permanently: the picker
+  read *"Loading records…"* forever, with the count line and Clear control hidden, on a row whose
+  pool had loaded fine before this slice. **That is strictly worse than the defect being fixed** —
+  the reviewer could see and link nothing at all. On a failed legs fetch the honest fallback is the
+  ORDINARY list ranked against the whole transfer, which is what `compareAmount` already is there
+  (`allocatedLegs` is `[]`); the bar still says the balance is unknown and `confirmGate` still
+  refuses the click, so nothing can be written off the wrong number.
+- ⚠️ **THE CLIENT "off by" MARK IS FED THE SAME FIGURE** (`pickerBankAmount = compareAmount ??
+  row.amount`, one const, three render sites). `AmountMark` renders the SERVER's `suggested` beside a
+  CLIENT-computed difference; measuring them against different amounts would print "off by ₹65,000"
+  on the record the server has just flagged as the one that fits.
+
+### The matcher-found marker is SUPPRESSED on a partly-allocated row
+
+⚠️ **The automatic matcher is out of scope and stays out.** Partly-allocated rows are frozen from
+matching and the ranker is architecturally forbidden from feeding the matcher (pinned both ways in
+`test_similarity`). **One exception leaked:** `get_row_candidates` re-runs the match LIVE on every
+dialog open with **no frozen-status guard**, so on such a row it marked records against the WHOLE
+transfer — including records **already settled as legs of that very row**.
+
+`matcherMarksVisible(rowStatus)` (`= !settleModeLocked(rowStatus)`) suppresses them client-side.
+
+- ⚠️ **SUPPRESSED, NEVER MADE REMAINDER-AWARE** (owner ruling). That would push RANKING into the
+  matcher, which is the one fence this feature never crosses.
+- ⚠️ **THE COUNT SENTENCE GOES WITH IT, AND THAT IS WHY IT IS ONE VARIABLE.**
+  `matcherCandidateLine` reads `.size` off the same set, so an empty set silences the sentence too.
+  Suppressing the marks while leaving *"6 approved records match this transfer … pick which one it
+  settled"* on screen would recreate the **slice-N3 defect the marks were built to fix**: an
+  instruction pointing at nothing.
+- It reads the SAME status `settleModeLocked` reads, so the marks and the mode can never come to
+  describe different rows — pinned as a composition, the same guard `settlePickerFor` carries.
+
+### ⚠️ A comment in the dialog was FALSE, and is corrected rather than deleted
+
+It claimed *"the `legs` a write returns only cover THAT write"*. **`allocate_row` returns every LIVE
+leg on the row, and therefore an authoritative balance.** The real reason the dialog reads
+`Outflow Row Match` directly is that it needs the balance **before any write** — on open, with
+nothing submitted. Left corrected in place, with the old sentence quoted: it was load-bearing enough
+to be believed, and the next reader is entitled to know it was wrong.
+
+### ⚠️ What the review pass caught, after both sides' suites were green
+
+Both findings were **cross-seam**, which is the standing warning in this repo's testing conventions:
+a test on each side of a boundary is not a test of the boundary. Each side's suite was green and
+each side was internally consistent; only the JOIN was wrong.
+
+1. **The client kept a non-positive remainder the server refuses.** Covered above and now pinned by
+   `comparisonAmountParity.test.ts`, a dedicated FE↔BE parity file on the `rateFieldParity` /
+   `settleModeLabelParity` precedent. The old client case was **retired by INVERSION, never
+   deleted**: it now asserts `null` AND `not.toBe(-60)`.
+2. **A failed legs fetch hung the picker on "Loading records…" permanently**, because
+   `compareUnknown` was handed all of `legsUnknown` including its never-clearing error half. Covered
+   above. ⚠️ **It was a REGRESSION STRICTLY WORSE THAN THE DEFECT BEING FIXED** — the reviewer could
+   see and link nothing at all, where before they at least got a whole-transfer-ranked list. Worth
+   recording as a shape: a new gate wired onto an existing "unknown" flag inherits every state that
+   flag can be stuck in, and `legsError` persists until the dialog is closed.
+
+### Verification
+
+- `test_review` **258** (251 before), including a `#1243` block: an absent/zero/blank/rubbish
+  `compare_amount` leaves the payload **byte-identical**; the `suggested` flag follows the figure;
+  the completing record **outranks where it sat before**; it never sits below a record that can no
+  longer fit; the **score axis** reports "the amount is identical"; and the value arrives as a
+  **string**, the way Frappe hands every whitelisted argument over from HTTP.
+- `vitest run`: **92 files, 3,504 tests** (3,487 before); `src/pages/outflow-import` alone **12
+  files, 639 tests** (11 files / 622 before). `tsc --noEmit`: zero errors under
+  `src/pages/outflow-import/`.
+- Pure services suite unchanged at **883**. All ten original frontend cases were confirmed **RED**
+  before the helpers existed, and all seven backend cases RED against the old signature; the seven
+  added for the two review findings were written against the fixed behaviour, with the inverted case
+  carrying an explicit `not.toBe(-60)` so the retired claim stays failing.
+- ⚠️ **`scripts/residence_check.py` fails on this branch for PRE-EXISTING drift** (`f5` 116→119,
+  `f2` 207→223). Both are frontend FILE-COUNT rules and the two files this slice touches contain
+  **zero** `updateDoc` / `JSON.parse` occurrences, so it cannot have moved either count. The
+  baseline has not been refreshed since the branch diverged; do not `--init` it to go green, that
+  would hide real drift.
+
+### ⚠️ STILL OWED: a browser walk on a partly-allocated row
+
+The dialog is STRUCTURALLY untestable in this repo (no DOM environment, deliberate), so every
+acceptance criterion here is pinned at the PREDICATE and at the ENDPOINT, and the join between them
+— *does the computed remainder actually reach the request?* — is exactly the cross-seam shape the
+standing rule says a test on each side does not cover. What a walk must observe on a
+`Partially Allocated` row: the completing payment **first** in the list, marked `same` rather than
+`off by`, the candidate chips **gone**, the ordering **unmoved** while boxes are ticked, and an
+untouched row's list **unchanged**.

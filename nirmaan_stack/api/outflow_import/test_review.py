@@ -625,7 +625,19 @@ class TestSearchSettleableRecords(OutflowReviewFixture):
             project=cls.project,
             expense_type=cls.expense_type,
         )
+        # issue #1243 -- a payment at a REMAINDER-sized figure, nowhere near row 0009's Rs 1,234.50.
+        # It is unsettleable against the whole transfer and settleable against a comparison amount
+        # of its own value, which is exactly the record a partly-allocated row needs to find.
+        cls.pay_remainder = cls._insert_payment_row(
+            amount=cls.REMAINDER_AMOUNT, status="Approved", utr=None, payment_date=None
+        )
         frappe.db.commit()
+
+    #: Deliberately odd, and deliberately far from every fixture amount: the assertions below turn
+    #: on this record being OUTSIDE the settle window of the transfer and INSIDE the window of the
+    #: comparison amount, so a round number that a live approved record might share would make the
+    #: negative half vacuous.
+    REMAINDER_AMOUNT = 431.25
 
     def _row_name(self, suffix="0009"):
         return self._rows_by_transfer_suffix()[suffix]["name"]
@@ -864,6 +876,110 @@ class TestSearchSettleableRecords(OutflowReviewFixture):
         first = [(r["target_doctype"], r["name"]) for r in search_settleable_records(self._row_name(), "")]
         again = [(r["target_doctype"], r["name"]) for r in search_settleable_records(self._row_name(), "")]
         self.assertEqual(first, again)
+
+    # --- issue #1243: the picker measures the REMAINING BALANCE, not the full transfer -----------
+    #
+    # On a partly-allocated transfer the dialog has a remainder in hand and the endpoint was still
+    # measuring every candidate against the whole transfer. The consequence was not cosmetic: the
+    # one payment that would COMPLETE the row scored zero on the amount axis, was flagged
+    # unsettleable, and therefore sorted BELOW every record that could no longer possibly fit --
+    # because settleability is a HARD SPLIT above the score (`similarity.ranked_records`).
+    #
+    # ⚠️ ONE SUBSTITUTION MOVES ALL FOUR CONSUMERS, and that is the design rather than an
+    # implementation detail. `bank_amount` is derived at ONE point and handed as an argument to the
+    # per-ledger SQL ordering, the `suggested` flag, the ranker's hard split and the score axis --
+    # so there stays exactly ONE amount-opinion per record. A second read anywhere would let the
+    # flag and the ordering disagree about the same row.
+
+    def _find(self, records, name):
+        return next((r for r in records if r["name"] == name), None)
+
+    def test_an_absent_comparison_amount_leaves_the_payload_byte_identical(self):
+        """⚠️ AC4, AND IT IS THE ONE THAT PROTECTS EVERY ROW IN THE SYSTEM. Most transfers have no
+        legs at all; the new parameter must be invisible to them, not merely harmless."""
+        base = search_settleable_records(self._row_name(), "")
+        for absent in (None, 0, "", "0"):
+            self.assertEqual(
+                search_settleable_records(self._row_name(), "", compare_amount=absent),
+                base,
+                f"compare_amount={absent!r} changed a payload that should be untouched",
+            )
+
+    def test_the_settleable_flag_follows_the_comparison_amount(self):
+        """AC2. `suggested` is what `similarity` reads as the hard split, so this flag IS the
+        ordering -- it is not merely a badge beside it."""
+        whole = self._find(search_settleable_records(self._row_name(), ""), self.pay_remainder)
+        self.assertIsNotNone(whole, "the fixture payment is missing from the approved pool")
+        self.assertFalse(
+            whole["suggested"],
+            "Rs 431.25 is not settleable against row 0009's Rs 1,234.50 -- if it is, the fixture "
+            "amount has collided with live data and the positive case below proves nothing",
+        )
+
+        remainder = self._find(
+            search_settleable_records(
+                self._row_name(), "", compare_amount=self.REMAINDER_AMOUNT
+            ),
+            self.pay_remainder,
+        )
+        self.assertTrue(remainder["suggested"])
+
+    def test_the_record_completing_the_remainder_outranks_where_it_sat_before(self):
+        """AC1. The same record, the same pool, the same call -- one number apart."""
+        before = [r["name"] for r in search_settleable_records(self._row_name(), "")]
+        after = [
+            r["name"]
+            for r in search_settleable_records(
+                self._row_name(), "", compare_amount=self.REMAINDER_AMOUNT
+            )
+        ]
+        self.assertLess(after.index(self.pay_remainder), before.index(self.pay_remainder))
+
+    def test_it_never_sits_below_a_record_that_can_no_longer_fit(self):
+        """The hard split, re-asserted against the COMPARISON amount rather than the transfer.
+
+        This is the defect in its plainest form: the record that completes the row was sorted
+        beneath every record too large to fit in what is left.
+        """
+        records = search_settleable_records(
+            self._row_name(), "", compare_amount=self.REMAINDER_AMOUNT
+        )
+        index = [r["name"] for r in records].index(self.pay_remainder)
+        self.assertTrue(
+            all(r["suggested"] for r in records[: index + 1]),
+            "an unsettleable record outranked the one that completes the remainder",
+        )
+
+    def test_the_score_axis_reads_the_comparison_amount_too(self):
+        """⚠️ NOT JUST THE FLAG. `_amount_score` compares against `RowSignals.amount`, which is the
+        same threaded value -- so the REASON printed under the record has to move with it, or the
+        screen would explain an order using a number it is no longer ranked by."""
+        records = search_settleable_records(
+            self._row_name(), "", compare_amount=self.REMAINDER_AMOUNT
+        )
+        record = self._find(records, self.pay_remainder)
+        self.assertIn("the amount is identical", record["similarity_reasons"])
+
+    def test_a_nonsense_comparison_amount_falls_back_to_the_transfer(self):
+        """⚠️ FAIL BACK TO THE ROW, NEVER THROW. This parameter only ORDERS a list a person then
+        confirms -- `settle_row` / `allocate_row` re-assert the real fit under a row lock -- so a
+        garbled value must degrade to today's answer rather than deny the reviewer the screen."""
+        base = search_settleable_records(self._row_name(), "")
+        for junk in ("abc", "-5", -5, "  "):
+            self.assertEqual(
+                search_settleable_records(self._row_name(), "", compare_amount=junk),
+                base,
+                f"compare_amount={junk!r} should have fallen back to the transfer's own amount",
+            )
+
+    def test_it_arrives_as_a_string_the_way_the_wire_sends_it(self):
+        """Frappe hands every whitelisted argument over as TEXT from an HTTP call, so the float the
+        client computes reaches this endpoint as `"431.25"`. A parameter that only works when a
+        test passes a real float works nowhere in production."""
+        typed = search_settleable_records(
+            self._row_name(), "", compare_amount=str(self.REMAINDER_AMOUNT)
+        )
+        self.assertTrue(self._find(typed, self.pay_remainder)["suggested"])
 
 
 class TestAmbiguityIsNotResolved(OutflowReviewFixture):

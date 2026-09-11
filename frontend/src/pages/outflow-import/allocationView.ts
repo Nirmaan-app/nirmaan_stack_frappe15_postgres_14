@@ -76,6 +76,73 @@ export function allocationBar(
 }
 
 /**
+ * What the RECORD PICKER should measure every candidate against (issue #1243).
+ *
+ * `null` on a transfer with no legs; the BANKED REMAINDER on one that has some.
+ *
+ * ⚠️ `null` IS NOT THE SAME ANSWER AS `rowAmount`, AND THE DIFFERENCE IS THE WHOLE OF AC4. The two
+ * are arithmetically equal on an untouched row, but `null` is what lets the caller send
+ * `search_settleable_records` the params and the cache key it has always sent. Returning a number
+ * there would mint a new parameter and a new key on every open row in the system, to say something
+ * the endpoint already knew.
+ *
+ * ⚠️ IT TAKES NO TICKS, AND THE ABSENT PARAMETER IS THE ENFORCEMENT (AC5). `allocationBar` folds
+ * ticks in because the BAR has to move as the reviewer works; this must not, because a list that
+ * re-ranks under the cursor mid-selection is worse than a static answer -- a round trip per click,
+ * with records moving as you reach for them. The bar beside it already shows the live figure. There
+ * is no third parameter for a caller to pass ticks through by accident.
+ *
+ * ⚠️ IT SHARES `allocationBar`'S ARITHMETIC RATHER THAN REPEATING IT. The remainder the reviewer
+ * READS and the remainder the picker RANKS BY are the same claim about the same row; two
+ * implementations would be free to disagree, and the symptom -- a record marked "off by ₹0" sitting
+ * below a record that cannot fit -- is invisible to any test that looks at only one of them.
+ *
+ * ⚠️ A NON-POSITIVE REMAINDER IS `null` TOO, AND THAT MIRRORS THE SERVER RATHER THAN HIDING A STATE
+ * (review finding, issue #1243). `review._comparison_amount` refuses any `wanted <= 0` and ranks
+ * against the transfer's own amount instead, because NO approved record can be "within ₹5" of a
+ * negative target -- honouring one would return a list in which nothing at all is settleable. If
+ * this side kept the negative, the two would measure DIFFERENT THINGS on the same screen: the
+ * server would flag a record settleable while `AmountMark` printed a large "off by" beside it,
+ * which is precisely the contradiction this whole change exists to remove. An over-allocated row is
+ * still visible -- the BALANCE BAR reports it, in the words written for it -- so nothing is hidden
+ * by declining to rank against an impossible target.
+ *
+ * ⚠️ THE CONSEQUENCE THAT MAKES IT SAFE AT EVERY CALL SITE: a non-`null` return is ALWAYS POSITIVE.
+ * That is what lets the caller write `compareAmount ?? row.amount` without a second guard, and it
+ * is why the rule lives HERE rather than beside the one that happens to need it first.
+ */
+export function pickerComparisonAmount(
+    rowAmount: number,
+    legs: readonly AllocationLeg[],
+): number | null {
+    const settled = legs.filter((leg) => leg.match_kind === "Settled");
+    if (!settled.length) return null;
+    const { remaining } = allocationBar(rowAmount, settled, []);
+    return remaining > 0 ? remaining : null;
+}
+
+/**
+ * Whether the match run's "candidate" marks may be shown on this row's records (issue #1243).
+ *
+ * ⚠️ THE LIVE RE-MATCH HAS NO FROZEN-STATUS GUARD, AND THAT IS WHY THIS EXISTS.
+ * `get_row_candidates` re-runs the matcher on every dialog open, against the FULL transfer -- so on
+ * a partly-allocated row it cheerfully marks records that can no longer fit in what is left, and
+ * marks records ALREADY SETTLED AS LEGS OF THAT VERY ROW as though they were still on offer.
+ *
+ * ⚠️ SUPPRESSED HERE, NEVER MADE REMAINDER-AWARE (owner ruling, issue #1243). Teaching the matcher
+ * about the remainder would push RANKING into the matcher, and this feature's standing fence is that
+ * `similarity` must never reach anything that settles. Partly-allocated rows are frozen from
+ * matching precisely so that the two stay apart; this marker is the one live-match surface that
+ * slipped through, so the fix belongs on the screen.
+ *
+ * ⚠️ IT READS THE SAME STATUS `settleModeLocked` READS. The marks and the mode must describe the
+ * same row, so both keep their opinion of "partly allocated" in one place.
+ */
+export function matcherMarksVisible(rowStatus: string): boolean {
+    return !settleModeLocked(rowStatus);
+}
+
+/**
  * How the reviewer intends to settle this transfer (ADR-0020 B3, issue #1241).
  *
  * ⚠️ THE LABELS THE SCREEN USES ARE NOT THESE IDS, AND THE WORD "PARTIAL" IS BANNED FROM THEM. The
