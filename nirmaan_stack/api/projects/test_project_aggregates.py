@@ -109,7 +109,8 @@ class TestProjectFinancialRollup(FrappeTestCase):
         self.assertAlmostEqual(flt(r["outflow"]), 80)
 
     def test_invoice_totals_pending_plus_approved(self):
-        m = get_invoice_totals_by_document()["message"]
+        # Returns the map directly (Frappe adds the {"message": ...} wrapper itself).
+        m = get_invoice_totals_by_document()
         key = f"Procurement Orders|{self.PO}"
         self.assertIn(key, m)
         self.assertAlmostEqual(flt(m[key]), 300)  # 100 Pending + 200 Approved; Rejected excluded
