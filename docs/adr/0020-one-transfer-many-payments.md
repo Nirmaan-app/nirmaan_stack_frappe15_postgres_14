@@ -634,7 +634,23 @@ A1's fix is retained, and this amendment is not a licence to remove it:
   over-allocation genuinely would be reachable. A future Frappe upgrade, or a site that sets its
   own isolation level, would make A1 true again — and would find the lock already there.
 
-### B4 — OPEN: neither failure is fit for a reviewer's screen
+### B4 — neither failure is fit for a reviewer's screen (✅ CLOSED for the locked shape, #1246)
+
+> **Resolved 2026-09-11, issue #1246, on the owner's wording:** *"just put a message about some
+> other user might have resolved this."* `allocate_row` now turns the `SerializationFailure` — and
+> ONLY it (`services/outflow_import/concurrency.is_concurrent_writer_refusal`) — into *"Another user
+> may have already resolved this transfer, so nothing you selected was saved."* The refusal itself is
+> unchanged. The lockless `InFailedSqlTransaction` is deliberately NOT translated: any earlier
+> swallowed error produces it too, so it cannot be given a cause — one more reason B3's lock stays.
+> Re-reading the transfer for the loser and carrying their ticks over were DEFERRED by the same
+> ruling and are not built. The translation ENDS AT THE COMMIT: after it, "nothing was saved" would
+> be false, so a failure there stays raw. Each translated race writes one `outflow_import` log line,
+> so a refusal the screen now hides as a sentence still leaves a server-side trace.
+> ⚠️ **OUT OF SCOPE, NOT FIXED: `settle_row`** (the single-tick path). It takes no row lock and has no
+> translation, so a reviewer single-ticking a transfer while a colleague's allocation on it commits
+> first can still see the raw `SerializationFailure` (found by the #1246 code review, from reading the
+> code — not reproduced live). B4 named `allocate_row`'s boundary; widening it is its own ticket.
+> The original finding is kept below as it was written.
 
 `SerializationFailure: could not serialize access due to concurrent update` is what the second
 reviewer sees. It is a raw psycopg2 error. D5's "visible, not silent" is technically satisfied —

@@ -7,8 +7,14 @@ import json
 from unittest.mock import patch
 
 import frappe
+import psycopg2.errors as pg_errors
 
-from nirmaan_stack.api.outflow_import.expenses import allocate_row
+from nirmaan_stack.api.outflow_import import expenses
+from nirmaan_stack.api.outflow_import.expenses import (
+    CONCURRENT_ALLOCATION_MESSAGE,
+    ConcurrentAllocationError,
+    allocate_row,
+)
 from nirmaan_stack.api.outflow_import.test_settle_payment import PaymentSettlementFixture
 from nirmaan_stack.services.outflow_import.settle import ExpenseSettlementError
 from nirmaan_stack.services.outflow_import.status import (
@@ -248,6 +254,114 @@ class TestRefusals(AllocationFixture):
         extra = self._approved_payment("5")
         with self.assertRaises(frappe.ValidationError):
             allocate_row(row=row, targets=self._targets([extra]))
+
+
+class TestAConcurrentLoser(AllocationFixture):
+    """Issue #1246 (ADR-0020 Amendment B4). Two reviewers on one transfer: the loser used to see
+    `SerializationFailure: could not serialize access due to concurrent update`.
+
+    ⚠️ THE REFUSAL IS SIMULATED HERE, AND THE REAL ONE WAS CHECKED SEPARATELY. A genuine 40001 needs
+    two connections and a winner holding its transaction open -- the shape Amendment B2 measured, and
+    the one this fix was confirmed against. What these cases pin is the TRANSLATION: which failure
+    becomes the sentence, that nothing is written, and that every other failure stays itself.
+
+    Fixtures are COMMITTED before each call because the translation rolls the whole transaction
+    back, exactly as a real loser's already-aborted transaction is.
+    """
+
+    def _refusal(self):
+        return pg_errors.SerializationFailure("could not serialize access due to concurrent update")
+
+    def _assert_nothing_written(self, row, pays):
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row}), 0)
+        for p in pays:
+            self.assertEqual(frappe.db.get_value("Project Payments", p, "status"), "Approved")
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row, "row_status"), ROW_MATCHED)
+
+    def test_the_loser_is_told_in_a_sentence_not_database_text(self):
+        """Where the refusal really lands with the row lock in place: the eligibility read."""
+        row = self._staged_row(amount="100")
+        pays = self._three_payments()
+        frappe.db.commit()
+        with patch.object(expenses, "_load_allocatable_row", side_effect=self._refusal()):
+            with self.assertRaises(ConcurrentAllocationError) as caught:
+                allocate_row(row=row, targets=self._targets(pays))
+        message = str(caught.exception)
+        self.assertEqual(message, CONCURRENT_ALLOCATION_MESSAGE)
+        self.assertIn("another user may have already resolved this transfer", message.lower())
+        self.assertNotIn("serialize", message.lower())
+        self._assert_nothing_written(row, pays)
+
+    def test_it_is_still_a_validation_error_so_the_screen_reads_it(self):
+        """The screen's `describeFrappeError` reads `_server_messages`, which only a `frappe.throw`
+        fills. A bare exception would reach it as `exception` text again -- the defect."""
+        self.assertTrue(issubclass(ConcurrentAllocationError, frappe.ValidationError))
+
+    def test_a_refusal_after_a_leg_has_landed_is_translated_and_the_leg_goes_back(self):
+        """The late shape -- what the same race looks like if the refusal arrives mid-loop instead
+        of at the read. The first leg really settles; the second is refused. Nothing may survive."""
+        row = self._staged_row(amount="100")
+        pays = self._three_payments()
+        frappe.db.commit()
+        real_settle = expenses.settle_payment
+        calls = []
+
+        def second_leg_refused(*args, **kwargs):
+            calls.append(1)
+            if len(calls) == 2:
+                raise self._refusal()
+            return real_settle(*args, **kwargs)
+
+        with patch.object(expenses, "settle_payment", side_effect=second_leg_refused):
+            with self.assertRaises(ConcurrentAllocationError):
+                allocate_row(row=row, targets=self._targets(pays))
+        self.assertEqual(len(calls), 2)
+        self._assert_nothing_written(row, pays)
+
+    def test_any_other_database_error_still_surfaces_as_itself(self):
+        """⚠️ THE ACCEPTANCE CRITERION THAT MATTERS MORE THAN THE WORDING. An aborted transaction is
+        what the race looks like WITHOUT the lock -- and also what any earlier swallowed error looks
+        like. Translating it would report an unknown fault as a harmless race."""
+        row = self._staged_row(amount="100")
+        pays = self._three_payments()
+        frappe.db.commit()
+        for other in (
+            pg_errors.InFailedSqlTransaction("current transaction is aborted"),
+            pg_errors.DeadlockDetected("deadlock detected"),
+            pg_errors.UniqueViolation("duplicate key value"),
+        ):
+            with self.subTest(error=type(other).__name__):
+                with patch.object(expenses, "_load_allocatable_row", side_effect=other):
+                    with self.assertRaises(type(other)) as caught:
+                        allocate_row(row=row, targets=self._targets(pays))
+                self.assertNotIsInstance(caught.exception, ConcurrentAllocationError)
+        self._assert_nothing_written(row, pays)
+
+    def test_a_refusal_AFTER_the_commit_is_not_translated(self):
+        """⚠️ The sentence says "nothing you selected was saved". After the commit that is FALSE --
+        everything was saved -- so the translation must end at the commit (code review, #1246). The
+        post-commit steps only read and link today, but a 40001 from there must stay itself."""
+        row = self._staged_row(amount="100")
+        pays = self._three_payments()
+        frappe.db.commit()
+        with patch.object(
+            expenses, "_link_statement_file_to_target", side_effect=self._refusal()
+        ):
+            with self.assertRaises(pg_errors.SerializationFailure) as caught:
+                allocate_row(row=row, targets=self._targets(pays))
+        self.assertNotIsInstance(caught.exception, ConcurrentAllocationError)
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row, "row_status"), ROW_SETTLED)
+
+    def test_an_ordinary_refusal_keeps_its_own_words(self):
+        """The guard is unchanged: over-allocation is still refused with its own sentence, not
+        re-worded as a race."""
+        row = self._staged_row(amount="50")
+        pays = self._three_payments()  # 60 + 30 + 10
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError) as caught:
+            allocate_row(row=row, targets=self._targets(pays))
+        self.assertNotIsInstance(caught.exception, ConcurrentAllocationError)
+        self.assertIn("unallocated", str(caught.exception))
 
 
 class TestTheOrdinarySettleIsUntouched(AllocationFixture):

@@ -54,6 +54,8 @@ is yes, it has to move outside the savepoint or be suppressed. `amount_paid` is 
 inside the same transaction, exactly once. Only the commit and the notifications go.
 """
 
+from typing import NamedTuple
+
 import frappe
 
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
@@ -68,6 +70,7 @@ from nirmaan_stack.api.outflow_import.review import (
 from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE, TARGET_SNAPSHOT_FIELDS
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.amounts import to_decimal
+from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
 from nirmaan_stack.services.outflow_import.settlement_reference import (
     settlement_reference_of_row,
 )
@@ -204,6 +207,23 @@ def settle_row(row: str, target_doctype: str, target_name: str):
     return _summary(row, result, doc["import_batch"], statuses)
 
 
+# ⚠️ OWNER'S WORDING (issue #1246, 2026-09-11): "just put a message about some other user might
+# have resolved this". It says what happened and what is now true -- and NOTHING about reopening or
+# retrying, because re-reading the transfer and carrying ticks over were both DEFERRED by the same
+# ruling. Do not grow it into instructions without that decision.
+CONCURRENT_ALLOCATION_MESSAGE = (
+    "Another user may have already resolved this transfer, so nothing you selected was saved."
+)
+
+
+class ConcurrentAllocationError(frappe.ValidationError):
+    """Another reviewer's allocation on the same transfer committed first (issue #1246).
+
+    A `ValidationError` so it reaches the screen through `_server_messages` like every other
+    deliberate refusal here -- a bare exception arrives as raw `exception` text, which is the defect.
+    """
+
+
 @frappe.whitelist(methods=["POST"])
 def allocate_row(row: str, targets):
     """Allocate part or all of one bank transfer across several approved Project Payments.
@@ -230,7 +250,67 @@ def allocate_row(row: str, targets):
     PROJECT PAYMENTS ONLY. Neither expense doctype is offered: `Non Project Expenses` has no
     project column and cannot be corroborated, and an expense fan-out has never been observed.
     Widening it is a separate decision with its own evidence.
+
+    ⚠️ ONE DATABASE FAILURE IS TRANSLATED AT THIS BOUNDARY, AND ONLY ONE (issue #1246). When two
+    reviewers allocate against the same transfer, the loser is refused by Postgres with a
+    `SerializationFailure` (ADR-0020 Amendment B2). That refusal is correct and is NOT relaxed here --
+    only its wording changes, to `CONCURRENT_ALLOCATION_MESSAGE`. Every other failure, database or
+    not, propagates exactly as before: `is_concurrent_writer_refusal` says no to everything else, so
+    a genuinely different fault can never be reported as a harmless race.
+
+    ⚠️ THE TRANSLATION ENDS AT THE COMMIT (code review, #1246). The sentence says nothing was saved;
+    after the commit everything was, so a failure in the post-commit linking stays itself.
     """
+    try:
+        done = _allocate_and_commit(row, targets)
+    except Exception as exc:
+        if not is_concurrent_writer_refusal(exc):
+            raise
+        # The refusal is now a sentence the screen shows and Frappe does not log, so this line is
+        # the only server-side trace that two reviewers raced on this transfer. ⚠️ `.error`, NOT
+        # `.warning`: outside the dev server Frappe's logger level defaults to ERROR
+        # (`frappe/utils/logger.py`), so a warning here would be dropped in production -- measured,
+        # the first draft's warning wrote nothing from a plain bench process.
+        frappe.logger("outflow_import").error(
+            f"allocate_row: concurrent writer on import row {row}, refused: {exc}"
+        )
+        # The loser's transaction is already aborted by Postgres; roll it back explicitly so nothing
+        # after this point runs inside a dead transaction. Nothing of the loser's was written.
+        frappe.db.rollback()
+        frappe.throw(
+            CONCURRENT_ALLOCATION_MESSAGE,
+            title="Changed elsewhere",
+            exc=ConcurrentAllocationError,
+        )
+
+    # After the commit and outside the savepoint, same reasoning as every other call site of this
+    # function: it never raises, so looping over every leg's result is safe.
+    for result in done.results:
+        _link_statement_file_to_target(done.statement_file_url, result)
+    legs = _live_legs(row)
+    return {
+        "row": row,
+        "row_status": done.row_status,
+        "allocated": float(allocated_of(legs)),
+        "remaining": float(remaining_of(done.amount, legs)),
+        "legs": legs,
+        "batch_status": derive_batch_status(done.batch_statuses),
+    }
+
+
+class _CommittedAllocation(NamedTuple):
+    """What `_allocate_and_commit` hands back for the post-commit steps `allocate_row` runs."""
+
+    amount: object
+    results: list
+    statement_file_url: str
+    row_status: str
+    batch_statuses: list
+
+
+def _allocate_and_commit(row: str, targets) -> _CommittedAllocation:
+    """The allocation itself, up to and including the commit. `allocate_row` above is its
+    whitelisted boundary and the one place a concurrent writer's refusal is turned into a sentence."""
     actor = require_outflow_access()
     targets = _parse_targets(targets)
     # ⚠️ THIS TAKES A `FOR UPDATE` ROW LOCK, AND IT SERIALISES ALLOCATION AGAINST ONE TRANSFER
@@ -298,19 +378,13 @@ def allocate_row(row: str, targets):
 
     statuses = _refresh_batch_rollup(doc["import_batch"])
     frappe.db.commit()
-    # After the commit and outside the savepoint, same reasoning as every other call site of this
-    # function: it never raises, so looping over every leg's result is safe.
-    for result in results:
-        _link_statement_file_to_target(statement_file_url, result)
-    legs = _live_legs(staged.name)
-    return {
-        "row": row,
-        "row_status": new_status,
-        "allocated": float(allocated_of(legs)),
-        "remaining": float(remaining_of(doc["amount"], legs)),
-        "legs": legs,
-        "batch_status": derive_batch_status(statuses),
-    }
+    return _CommittedAllocation(
+        amount=doc["amount"],
+        results=results,
+        statement_file_url=statement_file_url,
+        row_status=new_status,
+        batch_statuses=statuses,
+    )
 
 
 @frappe.whitelist(methods=["POST"])
@@ -628,10 +702,11 @@ def _load_allocatable_row(row: str):
     original silent over-allocation WOULD be reachable. Do not remove it on the grounds that the
     database already refuses.
 
-    ⚠️ NEITHER FAILURE IS FIT FOR A REVIEWER'S SCREEN, and that is an OPEN finding, not a fixed one
-    (Amendment B, parked). Both are raw psycopg2 errors. ADR-0020 D5's "visible, not silent" is
-    satisfied -- nothing is written and the reviewer is stopped -- but "visible" is doing a lot of
-    work for a sentence that reads as a database crash.
+    ⚠️ THE `SerializationFailure` IS NOW A SENTENCE; THE LOCKLESS `InFailedSqlTransaction` IS NOT,
+    ON PURPOSE (issue #1246, closing Amendment B4). `allocate_row` translates the refusal THIS read
+    raises into "another user may have already resolved this transfer". The lockless shape stays raw
+    because it carries no cause -- any earlier swallowed error produces it too -- which is one more
+    reason the lock must stay: it is what makes the race fail as the one error that CAN be named.
 
     ⚠️ THE LOCK IS TAKEN IN THE SAME READ THAT DECIDES ELIGIBILITY, not before or after it -- a
     status read outside the lock is a stale status -- and it is held to the request's commit, since
