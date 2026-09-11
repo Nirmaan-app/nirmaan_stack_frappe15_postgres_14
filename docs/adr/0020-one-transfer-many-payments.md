@@ -649,7 +649,8 @@ A1's fix is retained, and this amendment is not a licence to remove it:
 > ⚠️ **OUT OF SCOPE, NOT FIXED: `settle_row`** (the single-tick path). It takes no row lock and has no
 > translation, so a reviewer single-ticking a transfer while a colleague's allocation on it commits
 > first can still see the raw `SerializationFailure` (found by the #1246 code review, from reading the
-> code — not reproduced live). B4 named `allocate_row`'s boundary; widening it is its own ticket.
+> code — not reproduced live). B4 named `allocate_row`'s boundary; widening it is its own ticket:
+> **#1250**.
 > The original finding is kept below as it was written.
 
 `SerializationFailure: could not serialize access due to concurrent update` is what the second
