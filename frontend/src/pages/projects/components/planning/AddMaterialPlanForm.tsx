@@ -19,8 +19,8 @@ interface Task {
     name: string;
     item_name: string;
     critical_po_category: string;
-    associated_pos: string[];
-    associated_pos_count: number;
+    linked_pos: string[];
+    linked_pos_count: number;
     status?: string;
     sub_category?: string;
 }
@@ -123,9 +123,9 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
     
     const categories = catTaskResult?.message?.categories || [];
     const allTasks = catTaskResult?.message?.tasks || [];
-    const associatedPOs = selectedTaskDoc?.associated_pos || [];
+    const associatedPOs = selectedTaskDoc?.linked_pos || [];
     
-    // POs from Task's associated_pos
+    // POs from Task's linked_pos
     const taskPOs = dataV2Result?.message?.pos || [];
     const taskItems = dataV2Result?.message?.items || [];
     const hasTaskPOs = dataV2Result?.message?.has_pos || false;
