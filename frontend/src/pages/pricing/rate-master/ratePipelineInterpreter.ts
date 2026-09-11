@@ -366,6 +366,26 @@ function chooseBand(bands: { when: string; target: string }[], rawVal: unknown):
   return undefined;
 }
 
+// ---- INCLUDES-MODULES GATE (owner rulings 2026-09-10): the ONE reader of `include_when` ----
+
+/**
+ * The verdict of a `module_fit` step's `include_when` gate for one row. PURE, and the ONLY place the
+ * key is interpreted, so the trace and the bindings can never disagree about what the switch said.
+ *   "included" -> the value equals the declared one: the step runs exactly as without the key.
+ *   "blank"    -> undefined / null / "": whether the modules are included is not stated -> refuse.
+ *   "excluded" -> any other value: the modules contribute nothing; the box prices alone.
+ * No category is named here -- the behaviour is confined by the KEY'S PRESENCE on the step.
+ */
+export function moduleFitGateVerdict(
+  gate: { attr: string; equals: string } | undefined,
+  selected: Record<string, string | number>,
+): "included" | "blank" | "excluded" {
+  if (!gate) return "included";
+  const v = selected[gate.attr];
+  if (v === undefined || v === null || v === "") return "blank";
+  return String(v) === gate.equals ? "included" : "excluded";
+}
+
 // ---- SLICE 2: module-count ladder helpers (used only by module_fit) ----
 
 /** One resolvable rung of a catalog ladder: a module SIZE and the catalog LABEL that serves it. */
@@ -961,10 +981,35 @@ export function runPipeline(
       const isStated = (v: string | number | undefined) =>
         v !== undefined && v !== null && v !== "" && v !== NONE_SENTINEL;
 
+      // THE NONE-PICK RULE (owner ruling 2026-09-09: "the none selection is inert now" -> "ok. proceed
+      // with build"). `isStated` above EXCLUDES the "None" sentinel on purpose -- for a map that fills
+      // its target from ANOTHER attribute, "None" means "the source said nothing" and the mapping
+      // must still run. But when a pricer picks "None" on the attribute a map READS BACK INTO ITSELF,
+      // the sentinel is a DECISION ("this row has no conduit"), and discarding it made a valid panel
+      // selection silently do nothing: point_wiring's `conduit_type` rendered "PVC (computed)" over
+      // the pick and priced a conduit the pricer had declined (owner-reproduced on
+      // BOQ-26-00174 / Electrical / 251: 1775 / 358 unchanged after picking None).
+      //
+      // ⚠️ NARROW BY DESIGN -- BOTH conditions are load-bearing and both were MEASURED on the 5,001
+      // rows of the 42 active runs (recon 4, 2026-09-09). Do not simplify to one:
+      //   (i)  `prefer_attr` must BE `result_attr` (the field reads its own value). Without this,
+      //        industrial_sockets' hidden `mcb_curve_stated` -- which the model writes as "None" on
+      //        107 of 147 live rows -- becomes the curve instead of falling to C: 59 live rows move
+      //        and 25 of them stop pricing altogether. The catalog_fit test "STATED 'None' STICKS"
+      //        pins that asymmetry as deliberate.
+      //   (ii) `default` must NOT itself be the "None" sentinel. Without this, 14 wiring_cabling rows
+      //        that NAME a conduit at a non-catalogue size (the model writes size_mm "None") drop
+      //        their conduit (240/50 -> 180/30); charging the 25 mm rung there is ruling (vi).
+      // With both conditions: 0 of 10,002 verdicts move on the live corpus; only a pricer's pick can.
+      // This rule is NOT guessable from the config -- the pins named for each condition are the guard.
+      const noneIsADecision =
+        typeof p.prefer_attr === "string" && p.prefer_attr === p.result_attr &&   // (i)
+        p.default !== undefined && p.default !== NONE_SENTINEL;                   // (ii)
+
       // (a) STATED-WINS, checked FIRST -- before the source is even read, so a stated value resolves
       // even when the attribute the table would have mapped is blank or unreadable.
       const stated = p.prefer_attr ? selected[p.prefer_attr] : undefined;
-      if (isStated(stated)) {
+      if (isStated(stated) || (noneIsADecision && stated === NONE_SENTINEL)) {
         selected[p.result_attr] = stated as string | number;
         steps.push({
           step: stepType,
@@ -1388,6 +1433,67 @@ export function runPipeline(
         steps.push({ step: stepType, label, runningValues: snapshot() });
         return { pipelineId, outputs: pipeline.output, status: "no_match" as const, steps, finals: {}, matchedItem, note: pipeline.note };
       };
+
+      // (0) INCLUDES-MODULES GATE (owner rulings 2026-09-10) -- THE SWITCH WINS OVER THE SLOTS.
+      //
+      // `popup_boxes.has_modules` was an EXTRACTION instruction (rule P1) that nothing at pricing time
+      // read: a pricer who set it to No expecting the bare box was still charged the modules
+      // (BOQ-26-00241 / "BOQ | Electircal" / 123 priced 3060 / 380 / 3440 with the switch at Yes AND
+      // at No). Four config mechanisms were tried first and all four fail -- see the key's note in
+      // the types -- so it is a step-level key, read ONCE here through the ONE reader above.
+      //   * included -> fall through: the step below is byte-identical, trace included. Yes with
+      //                 every slot empty is the same number either way and needs nothing extra
+      //                 (owner: "no change required") -- no note, no refusal.
+      //   * blank    -> an honest no-compute (owner: "blank refuses").
+      //   * excluded -> every term's controlling item, every ladder bind and the blanker item bind
+      //                 take the None sentinel in `fitLabels` -- the existing shadow-the-selection
+      //                 channel -- so each `none_skips` component zeroes its line exactly as a "None"
+      //                 slot does, and the box prices alone. `selected` IS NEVER WRITTEN: the slot
+      //                 picks stay on screen and simply are not charged (owner: "they stay and just
+      //                 dont get included in the price"), so flipping back restores the full price
+      //                 without re-picking. `bind_modules` binds a truthful 0 (nothing is included).
+      //
+      // CONFINED BY KEY PRESENCE, NEVER BY A CATEGORY NAME (the HV-10 lesson). `module_fit` is
+      // shared by switches_sockets, point_wiring and popup_boxes; a step without `include_when`
+      // never enters this block (pinned per category in the test file). The api validator
+      // `_ref`-guards `attr`, requires `equals` to be a declared value of that attribute (an
+      // `equals: "yes"` typo would otherwise EXCLUDE every Yes row, silently) and requires every term
+      // to carry `none_when`, because the gate excludes a term THROUGH its item.
+      const gateVerdict = moduleFitGateVerdict(p?.include_when, selected);
+      if (gateVerdict === "blank") {
+        return bail(`'${p!.include_when!.attr}' is blank -- whether the modules are included is not stated, no value computed`);
+      }
+      if (gateVerdict === "excluded") {
+        const gate = p!.include_when!;
+        const bound: string[] = [];
+        for (const t of p?.terms ?? []) {
+          if (t.none_when && !bound.includes(t.none_when)) {
+            fitLabels[t.none_when] = NONE_SENTINEL;
+            bound.push(t.none_when);
+          }
+        }
+        const ladderOutcomesOff: import("./rateMasterTypes").ModuleFitLadderOutcome[] = [];
+        for (const L of p?.ladders ?? []) {
+          fitLabels[L.bind] = NONE_SENTINEL;
+          if (L.bind_modules) ctx[L.bind_modules] = 0;
+          bound.push(L.bind);
+          ladderOutcomesOff.push({ bind: L.bind, floorFrom: L.floor_from, label: null, modules: null, absent: true });
+        }
+        if (p?.blanks?.bind_item) {
+          fitLabels[p.blanks.bind_item] = NONE_SENTINEL;
+          bound.push(p.blanks.bind_item);
+        }
+        steps.push({
+          step: stepType,
+          label: s.explain || "module fit",
+          matchedCondition:
+            `${gate.attr} is ${String(selected[gate.attr])} -> modules not included: ` +
+            `${bound.join(", ")} -> None (the slot picks stay; none is priced)`,
+          moduleFit: { occupied: 0, ladders: ladderOutcomesOff, excluded: { attr: gate.attr, value: String(selected[gate.attr]) } },
+          runningValues: snapshot(),
+        });
+        continue;
+      }
 
       // (a) the parameterised weighted sum -------------------------------------------------------
       let occupied = 0;

@@ -54,7 +54,7 @@ import type {
   RateCategoryConfig,
   RateMasterItem,
 } from "@/pages/pricing/rate-master/rateMasterTypes";
-import { POLE_WORDS, sortAttrNotes } from "./rateHelperTypes";
+import { POLE_WORDS, attrDisplayValue, sortAttrNotes } from "./rateHelperTypes";
 import type {
   AttrNote,
   ExtractedAttr,
@@ -108,13 +108,69 @@ export function isBcsPipelineId(id: string): boolean {
   return id.toLowerCase().includes("bcs");
 }
 
-/** Group label for a pipeline: the config's `pipeline_labels` when present (config data), else a
- * prettified id. PURE. */
+/** Prettify a snake_case id ("conduit_boq" -> "Conduit Boq"). PURE. The LAST fallback only. */
 export function prettifyPipelineId(id: string): string {
   return id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+/** The category's human label: the config's `category_display` (config data), else a prettified
+ * category id. PURE. The ONE place a category is named to the pricer in this helper. */
+export function categoryLabel(config: RateCategoryConfig): string {
+  const d = config.category_display;
+  return typeof d === "string" && d.trim() !== "" ? d : prettifyPipelineId(config.category_id);
+}
+
+/** The pricer's word for a pipeline output: "Supply" / "Install" for an output that fills a rate
+ * kind, else the output name itself. PURE. */
+export function outputWord(output: string): string {
+  const k = kindForOutput(output);
+  return k === "supply_rate" ? "Supply" : k === "install_rate" ? "Install" : output;
+}
+
+/**
+ * Group label for a pipeline: the config's `pipeline_labels` when present (config data), else the
+ * CATEGORY's label, suffixed with the rate kind(s) the pipeline produces when the category surfaces
+ * more than one pipeline. PURE.
+ *
+ * Calculator slice 1 (owner 2026-09-08, "ok. reword"): the fallback used to be a prettified
+ * pipeline id ("Swsock Boq", "Pw Boq Supply") -- an internal name on the screen. It is now
+ * "Switches and Sockets", "Point Wiring — Supply" / "Point Wiring — Install", which reads the same
+ * on a BoQ row and on a no-row calculator. Config data still wins (wiring's two labels are untouched).
+ */
 export function pipelineLabel(config: RateCategoryConfig, id: string): string {
-  return config.pipeline_labels?.[id] ?? prettifyPipelineId(id);
+  const fromConfig = config.pipeline_labels?.[id];
+  if (fromConfig) return fromConfig;
+  const base = categoryLabel(config);
+  const surfaced = nonBcsPipelines(config);
+  if (surfaced.length <= 1) return base;
+  const outputs = (config.pipelines?.[id] as Pipeline | undefined)?.output ?? [];
+  const kinds = Array.from(new Set(outputs.map((o) => kindForOutput(o)).filter((k): k is string => k !== null)));
+  const words = kinds.map((k) => (k === "supply_rate" ? "Supply" : "Install"));
+  // Both kinds (or none) => the pipeline IS the category's rate; no suffix says anything.
+  return words.length === 1 ? `${base} — ${words[0]}` : base;
+}
+
+/**
+ * PURE. ONE group's three figures from ITS OWN `finals`: each rate kind from the first output that
+ * fills it, and `combined_rate` = THIS group's supply + THIS group's install when both exist.
+ *
+ * ⚠️ THE NEVER-SUMMED INVARIANT LIVES IN THE SIGNATURE: the function sees ONE `finals` map, so it
+ * cannot add two groups. Cable (per Mtr) and Termination (per Set) each get their own combined; no
+ * code path folds them, and none may be added. Both wiring `headlines` entries and every section's
+ * `figures` are produced here -- one definition, so a headline and its section can never disagree.
+ * A `combined_*` output already present in `finals` (cable's `combined_per_mtr`) maps to no kind
+ * and is ignored; combined is always re-derived from the two halves.
+ */
+export function groupFigures(finals: Record<string, number>): Partial<Record<RateKind, number>> {
+  const out: Partial<Record<RateKind, number>> = {};
+  for (const [o, v] of Object.entries(finals)) {
+    const k = kindForOutput(o) as RateKind | null;
+    if (k && out[k] === undefined) out[k] = v;
+  }
+  if (typeof out.supply_rate === "number" && typeof out.install_rate === "number") {
+    out.combined_rate = out.supply_rate + out.install_rate;
+  }
+  return out;
 }
 
 /** The non-BCS pipelines of a config, in declaration order. PURE. */
@@ -242,6 +298,13 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
    * hop note is produced and every caller that never passed it is byte-identical.
    */
   items?: RateMasterItem[],
+  /**
+   * TWO WAYS (2026-09-10) -- the row's SELECTION, so the `no_match` producer can name what the
+   * document stated for a field the pipeline left blank (a gauge outside the table lives in the
+   * hidden `thickness_swg`, not on the visible field). OPTIONAL: absent, no `no_match` note is
+   * produced from a hidden source; every caller that never passed it is byte-identical otherwise.
+   */
+  selected?: Record<string, string | number>,
 ): WorkingsAttribute[] {
   // The ONE derived predicate (both mechanisms) -- reused, never re-implemented (#179).
   const derivedIds = rowDerivedIds ?? derivedAttrIds(config);
@@ -255,7 +318,7 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
   const arbitratedQty = blanksQtyAttr(config);
   const blanksItemAttr = blanksBindItemAttr(config);
 
-  return attrs.map((a) => {
+  const displayed = attrs.map((a) => {
     if (!derivedIds.has(a.id)) return a;
 
     // 0. THE ARBITRATED QUANTITY (the blanker count). Checked FIRST, because the superseded branch
@@ -406,12 +469,21 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
         // in the note area, through the ONE producer and the ONE wording the board ladder uses. The
         // trace already carried "20 not carried -> 25 (next higher)"; a pricer may never open it.
         const hop = catalogFitRatingUpNote(cf, items);
+        // WIDTH DROPDOWN (owner 2026-09-10) -- a plain SIZE hop on a dropdown field. The field can
+        // only show a stocked size, so it shows the FITTED one (`derivedValue`, unchanged above) and
+        // the row's own number would otherwise vanish from the screen; this note is where it
+        // survives. Produced ONLY where: the ladder hopped UP, no device-shaped `rating_up` note
+        // already says so, and the def is a dropdown (`a.options`) -- a free number input still
+        // shows "(computed)" beside the fitted value exactly as before, byte-unchanged. A direct pick
+        // hits its rung exactly and carries no note; above the top rung nothing fits and there is no
+        // outcome here at all (owner: blank, refusing, no note).
+        const sizeUp = catalogFitSizeUpNote(cf, !!a.options && !hop);
         return {
           ...a,
           derived: true,
           derivedValue: cf.fitted,
           substituted: cf.substituted || restsOnASubstitutedFact,
-          ...(hop ? { notes: [hop] } : {}),
+          ...(hop ? { notes: [hop] } : sizeUp ? { notes: [sizeUp] } : {}),
         };
       }
       // 5. SLICE 3b FINISH -- a `map_attribute` TARGET (the tray thickness). The FIFTH mechanism
@@ -460,6 +532,101 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
       ...((ladder.upgraded || (ladder.pick && ladder.pick.label !== ladder.label)) && ladder.label ? { substituted: true } : {}),
       ...(ladderNotes(ladder)),
     };
+  });
+  return withNoMatchNotes(displayed, config, items, selected);
+}
+
+/**
+ * TWO WAYS (owner 2026-09-10). PURE. THE PRODUCER OF THE `no_match` NOTE -- the first note on a BLANK
+ * field. Where a stated value has no stocked match the pipeline prices nothing (it never snaps: a
+ * non-stocked thickness makes `catalog_fit` find no rung, a gauge outside the table makes
+ * `map_attribute` bail, a width above the top rung makes the ladder bail) and the dropdown, having
+ * no option to show, renders its placeholder. Both were already true; what was missing was the
+ * sentence saying WHY, which lived only in the trace. This adds it, config-driven, naming no category:
+ *
+ *   (a) a DROPDOWN def whose displayed value is not one of its options and which no ladder fitted
+ *       (no `fit_up` / `rating_up` note) -- a stated 2.5 mm, a gauge-converted 4.1 mm;
+ *   (b) a `map_attribute` TARGET whose SOURCE is stated but is not a key of the step's table -- a gauge
+ *       the conversion table does not carry (the visible field is blank; the source is hidden);
+ *   (c) a `catalog_fit` BIND whose stated value exceeds the largest rung the catalogue carries for
+ *       that kind -- a width above 600. A value BELOW the top that simply has not been fitted yet
+ *       (the row refuses on another attribute) gets NO note: it may fit once the row is complete.
+ *
+ * ⚠️ CONFINED BY KEY PRESENCE, never by a category name (the HV-10 lesson): only a def that carries
+ * `extract_as: "number"` -- read FREELY from the document, so its stored value CAN legitimately be
+ * off-list -- gets this note. A closed-list def never stores an off-list value (the coercer nulls it),
+ * and the pre-existing off-list DISPLAY gaps on other fields (a conduit `size_mm` of 19.05, a plate
+ * label "1M & 2M", a material spelled differently) are REGISTER items, not this note: measured on the
+ * 42 active runs, an ungated producer would have added 70 notes on three fields outside #57.
+ *
+ * Reads config + items + the selection only; never the trace prose. The wording lives in
+ * `attrNoteText` (one place). A field that already carries a note keeps it and gains nothing here.
+ */
+export function withNoMatchNotes(
+  attrs: WorkingsAttribute[],
+  config: RateCategoryConfig,
+  items?: RateMasterItem[],
+  selected?: Record<string, string | number>,
+): WorkingsAttribute[] {
+  const steps = Object.values(config.pipelines ?? {}).flatMap((p) => p.steps ?? []);
+  const mapByTarget = new Map<string, { from_attr?: string; table?: Record<string, string | number> }>();
+  const fitByBind = new Map<string, { kind: string; size_attr?: string }>();
+  for (const st of steps as Array<{ step: string; params?: Record<string, unknown> }>) {
+    const p = (st.params ?? {}) as Record<string, unknown>;
+    if (st.step === "map_attribute" && typeof p.result_attr === "string" && !mapByTarget.has(p.result_attr)) {
+      mapByTarget.set(p.result_attr, {
+        from_attr: typeof p.from_attr === "string" ? p.from_attr : undefined,
+        table: p.table && typeof p.table === "object" ? (p.table as Record<string, string | number>) : undefined,
+      });
+    }
+    if (st.step === "catalog_fit" && typeof p.bind === "string" && typeof p.kind === "string" && !fitByBind.has(p.bind)) {
+      const sf = p.size_from as { attr?: string } | undefined;
+      fitByBind.set(p.bind, { kind: p.kind, size_attr: sf && typeof sf.attr === "string" ? sf.attr : undefined });
+    }
+  }
+  // the stocked list in the sentence reads ASCENDING when every option is a number (the dropdown itself
+  // keeps catalogue order -- a sort there would reorder every other dropdown, not this slice).
+  const stocked = (a: WorkingsAttribute) => {
+    const opts = (a.options ?? []).filter((o) => o !== NONE_SENTINEL);
+    const nums = opts.map(Number);
+    return (nums.every(Number.isFinite) ? [...opts].sort((x, y) => Number(x) - Number(y)) : opts).join(", ");
+  };
+  const isStated = (v: unknown): v is string | number => v !== undefined && v !== null && v !== "" && v !== NONE_SENTINEL;
+  // `extract_as` is a config key the AttributeDefinition type does not declare (types out of scope).
+  const freeRead = new Set(
+    (config.attribute_definitions ?? [])
+      .filter((d) => (d as { extract_as?: string }).extract_as === "number")
+      .map((d) => d.id),
+  );
+  return attrs.map((a) => {
+    if (!freeRead.has(a.id)) return a;
+    if (!a.options || a.disabled || a.readOnly) return a;
+    if (a.notes && a.notes.length) return a;
+    const map = mapByTarget.get(a.id);
+    const src = map?.from_attr && selected ? selected[map.from_attr] : undefined;
+    // (b) the source of a conversion is stated but the table has no such key -> the field is blank
+    if (map?.table && isStated(src) && !Object.prototype.hasOwnProperty.call(map.table, String(src))) {
+      const keys = Object.keys(map.table).map(Number).filter(Number.isFinite);
+      const range = keys.length ? `${Math.min(...keys)}-${Math.max(...keys)} SWG` : "the conversion table";
+      return { ...a, notes: [{ kind: "no_match", stated: `${String(src)} SWG`, field: "gauge", stocked: range }] };
+    }
+    const shown = attrDisplayValue(a);
+    if (shown === "" || a.options.includes(shown)) return a;
+    // (c) a ladder bind: only ABOVE the top rung is a no-match; below it the ladder can still fit
+    const fit = fitByBind.get(a.id);
+    if (fit) {
+      const want = Number(shown);
+      const sizes = (items ?? [])
+        .filter((it) => it.kind === fit.kind)
+        .map((it) => Number(it.attributes?.[fit.size_attr ?? a.id]))
+        .filter(Number.isFinite);
+      if (!sizes.length || !Number.isFinite(want) || want <= Math.max(...sizes)) return a;
+      return { ...a, notes: [{ kind: "no_match", stated: shown, field: a.label, stocked: stocked(a) }] };
+    }
+    // (a) any other dropdown: the displayed value is not stocked. Name a converted gauge as such.
+    const viaTable = map?.table && isStated(src) ? map.table[String(src)] : undefined;
+    const statedText = viaTable !== undefined && String(viaTable) === shown ? `${String(src)} SWG (${shown} mm)` : shown;
+    return { ...a, notes: [{ kind: "no_match", stated: statedText, field: a.label, stocked: stocked(a) }] };
   });
 }
 
@@ -560,6 +727,25 @@ export function catalogFitRatingUpNote(
   const priced = items.find((it) => it.attributes?.item === cf.fitted);
   if (typeof priced?.attributes?.device !== "string") return undefined;
   return ratingUpNote({ to: cf.fitted, amp_moved_up: { from: cf.requested, to: cf.size } }, items);
+}
+
+/**
+ * WIDTH DROPDOWN (owner 2026-09-10). PURE. The producer of the `fit_up` note -- a frontend
+ * `catalog_fit` HOP on a plain catalogue size (the tray width), where the fitted row carries no
+ * device word and `catalogFitRatingUpNote` therefore has nothing to say. The sentence lives in
+ * `attrNoteText`, the one wording source; this only carries the two numbers it needs.
+ *
+ * Undefined when: `enabled` is false (the caller decides the field is not a dropdown, or a
+ * rating_up note already covers the hop), nothing fitted, the fit was exact, or the size did not
+ * move UP (a `direction: "down"` ladder is not "the next size stocked").
+ */
+export function catalogFitSizeUpNote(
+  cf: import("@/pages/pricing/rate-master/rateMasterTypes").CatalogFitOutcome | undefined,
+  enabled: boolean,
+): AttrNote | undefined {
+  if (!enabled || !cf || cf.fitted === null || cf.exact) return undefined;
+  if (typeof cf.requested !== "number" || typeof cf.size !== "number" || !(cf.size > cf.requested)) return undefined;
+  return { kind: "fit_up", stated: cf.requested, using: cf.fitted };
 }
 
 /** Map a pipeline output key -> the sheet rate-kind it fills. EA-4a: the assembly categories name their
@@ -876,20 +1062,26 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         kind: "suggestion",
         values: {},
         ...(inRun ? { producibleKinds: PRODUCIBLE_KINDS } : {}),
+        // Calculator slice 1 (owner 2026-09-08, "ok. reword"): the manual-row basis used to end "this
+        // row". The same sentence now serves a surface with no row; "Fill the attributes to price" is
+        // true on both -- a BoQ row outside the run still has every attribute to fill.
         basis: inRun
           ? "Complete the missing attributes to price"
-          : "Fill the attributes to price this row",
+          : "Fill the attributes to price",
         workings: {
           // DERIVED DISPLAY: no pipeline runs on this path, so there is no computed value to show --
           // but the derived attributes must still not be flagged as the thing that is missing. The
           // red borders that remain are the GENUINE missing inputs, which is exactly the narrowing
           // this slice is: fewer fields flagged, and every one that still is, really is.
-          attributes: applyDerivedDisplay(workingsAttrs, category, [], fillableDerived),
+          attributes: applyDerivedDisplay(workingsAttrs, category, [], fillableDerived, items, selected),
           matchedRows: [],
           derivation: [
+            // Calculator slice 1: WAS "Not in the suggestion run -- fill the attributes to compute a
+            // rate." -- there is no run on the calculator. "No extracted attributes" is what a manual
+            // BoQ row and a calculator entry have in common, and it is true of both.
             inRun
               ? "Some attributes are missing -- fill them to compute a rate."
-              : "Not in the suggestion run -- fill the attributes to compute a rate.",
+              : "No extracted attributes -- fill them to compute a rate.",
           ],
           finalValues: {},
         },
@@ -927,10 +1119,13 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       const finals: Record<string, number> = {};
       const derivation: string[] = [];
       const matchedRows: string[] = [];
+      const label = pipelineLabel(category, pid);
       if (res.status === "ok") {
         for (const o of res.outputs) {
           finals[o] = res.finals[o];
-          derivation.push(`${o} = ${res.finals[o]}`);
+          // Calculator slice 1: the pricer's word ("Supply = 320"), not the output id ("supply = 320",
+          // "supply_per_mtr = 1490"); an output that fills no kind keeps its own name.
+          derivation.push(`${outputWord(o)} = ${res.finals[o]}`);
           // EA-4a: a category may split supply + install across SEPARATE pipelines (point_wiring's
           // pw_boq_supply / pw_boq_install, cabletray). Take each rate-kind from the FIRST pipeline
           // that produces it -- a single combined pipeline (conduit) still fills both from its one pass.
@@ -942,21 +1137,30 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         for (const st of res.steps) {
           if (st.produced && st.refItem) matchedRows.push(`${st.produced.key}: ${st.refItem} = ${st.produced.value}`);
         }
-        flatMatched.push(`Matched ${pid} for ${attrLine}.`);
+        flatMatched.push(`Matched ${label} for ${attrLine}.`);
       } else if (res.status === "no_match") {
-        derivation.push(`No ${pid} rate row matches ${attrLine}.`);
+        derivation.push(`No ${label} rate row matches ${attrLine}.`);
       } else {
-        derivation.push(`Pipeline '${pid}' has an unsupported step.`);
+        derivation.push(`${label} uses an unsupported step.`);
       }
       if (idx === 0) flatDerivation.push(...derivation);
-      sections.push({ label: pipelineLabel(category, pid), derivation, finals, ...(matchedRows.length ? { matchedRows } : {}) });
+      // Calculator slice 1: EVERY section carries its own three figures (`groupFigures` over THIS
+      // section's finals -- never another's). `finals` itself is unchanged: the raw output map stays
+      // the contract for tests and for anything that reads outputs by name.
+      sections.push({
+        label,
+        derivation,
+        finals,
+        figures: groupFigures(finals),
+        ...(matchedRows.length ? { matchedRows } : {}),
+      });
     });
     // Combine AFTER scanning every pipeline -- supply + install may come from different pipelines
     // (point_wiring / cabletray). A single combined pipeline (conduit) also lands here; the combined
     // line is added to its one group so its in-group display is unchanged.
     if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") {
       values.combined_rate = values.supply_rate + values.install_rate;
-      const combinedLine = `combined_rate = supply + install = ${values.combined_rate}`;
+      const combinedLine = `Combined = supply + install = ${values.combined_rate}`;
       flatDerivation.push(combinedLine);
       if (sections.length === 1) sections[0].derivation.push(combinedLine);
     }
@@ -981,11 +1185,12 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       kind: "suggestion",
       values,
       producibleKinds: PRODUCIBLE_KINDS,
+      // Calculator slice 1: the category's LABEL ("Switches and Sockets"), not its id ("switches_sockets").
       basis: Object.keys(values).length
-        ? `Rate master: ${category.category_id} @ ${attrLine}`
+        ? `Rate master: ${categoryLabel(category)} @ ${attrLine}`
         : "no match for these attributes",
       workings: {
-        attributes: applyDerivedDisplay(workingsAttrs, category, pipelineResults, fillableDerived, items),
+        attributes: applyDerivedDisplay(workingsAttrs, category, pipelineResults, fillableDerived, items, selected),
         matchedRows: flatMatched,
         derivation: flatDerivation,
         finalValues: { ...values },
@@ -1013,7 +1218,7 @@ function computeWiring(
   const primaryId = termination ? "termination_boq" : "cable_boq";
   const primary = pipelines[primaryId] as Pipeline | undefined;
   if (!primary) {
-    return { kind: "none", reason: `No ${primaryId} pipeline in the config` };
+    return { kind: "none", reason: `No ${termination ? "termination" : "cable"} pipeline in the config` };
   }
   const result = runPipeline(primaryId, primary, items, selected);
   // DERIVED DISPLAY: wiring declares no derived attribute today (no module_fit, no {from_fit} qty),
@@ -1029,17 +1234,17 @@ function computeWiring(
     for (const o of result.outputs) {
       const kind = kindForOutput(o);
       if (kind) values[kind] = result.finals[o];
-      derivation.push(`${o} = ${result.finals[o]}`);
+      derivation.push(`${outputWord(o)} = ${result.finals[o]}`);
     }
     if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") {
       values.combined_rate = values.supply_rate + values.install_rate;
-      derivation.push(`combined_rate = supply + install = ${values.combined_rate}`);
+      derivation.push(`Combined = supply + install = ${values.combined_rate}`);
     }
     matchedRows.push(`Matched ${termination ? "termination" : "cable"} rate row for ${attrLine}.`);
   } else if (result.status === "no_match") {
     derivation.push(`No ${termination ? "termination" : "cable"} rate row matches ${attrLine}.`);
   } else {
-    derivation.push(`Pipeline '${primaryId}' has an unsupported step.`);
+    derivation.push(`${pipelineLabel(config, primaryId)} uses an unsupported step.`);
   }
 
   // BOTH BLOCKS, ON EVERY WIRING ROW (owner ruling 2026-08-22, verbatim: "we side step all this
@@ -1075,6 +1280,8 @@ function computeWiring(
     label: pipelineLabel(config, primaryId),
     derivation: [...derivation],
     finals: primaryFinals,
+    // Calculator slice 1: this group's OWN three figures, from ITS finals alone.
+    figures: groupFigures(primaryFinals),
     matchedRows: [...matchedRows],
   };
 
@@ -1094,7 +1301,7 @@ function computeWiring(
     if (sr.status === "ok") {
       for (const o of sr.outputs) {
         secondaryGroup.finals[o] = sr.finals[o];
-        secondaryGroup.derivation.push(`${o} = ${sr.finals[o]}`);
+        secondaryGroup.derivation.push(`${outputWord(o)} = ${sr.finals[o]}`);
       }
     } else {
       secondaryGroup.derivation.push(
@@ -1127,18 +1334,12 @@ function computeWiring(
   // pipeline's figure exactly as before (owner Ruling B). A kind a block did not produce is simply
   // ABSENT here, which the panel renders as its existing em dash -- never a zero, never the other
   // block's number.
-  const headlineValuesFor = (finals: Record<string, number>) => {
-    const out: Partial<Record<RateKind, number>> = {};
-    for (const [o, v] of Object.entries(finals)) {
-      const k = kindForOutput(o) as RateKind | null;
-      if (k && out[k] === undefined) out[k] = v;
-    }
-    if (typeof out.supply_rate === "number" && typeof out.install_rate === "number") {
-      out.combined_rate = out.supply_rate + out.install_rate;
-    }
-    return out;
-  };
-  const headlines = sections.map((g) => ({ label: g.label, values: headlineValuesFor(g.finals) }));
+  // Calculator slice 1: the per-block figures used to be computed here for the headlines ONLY; the
+  // same function (`groupFigures`, one definition) now also fills each section's `figures`, so the
+  // Termination block's combined -- which the header always carried but the section never showed --
+  // appears in the section too. The secondary group's figures are filled here, after its finals are.
+  secondaryGroup.figures = groupFigures(secondaryGroup.finals);
+  const headlines = sections.map((g) => ({ label: g.label, values: groupFigures(g.finals) }));
 
   return {
     kind: "suggestion",
@@ -1147,10 +1348,10 @@ function computeWiring(
     headlines,
     basis:
       result.status === "ok"
-        ? `Rate master: ${config.category_id} @ ${attrLine}`
+        ? `Rate master: ${categoryLabel(config)} @ ${attrLine}`
         : "no match for these attributes",
     workings: {
-      attributes: applyDerivedDisplay(workingsAttrs, config, pipelineResults),
+      attributes: applyDerivedDisplay(workingsAttrs, config, pipelineResults, undefined, items, selected),
       matchedRows,
       derivation,
       finalValues: { ...values },

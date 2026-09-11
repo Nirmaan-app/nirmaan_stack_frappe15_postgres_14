@@ -83,7 +83,7 @@ pick one ad-hoc; ask.
 | How a suggestion was chosen | the `suggestion_rule` field + `disambiguate.RULE_LABELS` | invent a label. BLANK means "no suggestion", never "no rule" |
 | Reading approved-and-unpaid across the three ledgers | `services/outflow_import/ledger_read.py` (`LEDGER_SOURCES`, `approved_rows`, `approved_count`, `approved_projects`) | write a fourth query that knows the three ledgers' asymmetries. `review._search_one_ledger` is the OTHER caller and stays separate deliberately |
 | The settlement write | `services/outflow_import/settle.py` + the one orchestrator `api/outflow_import/expenses.settle_row` | write to a ledger from anywhere else in this feature |
-| **May a transfer pay PART of a record, or is the gap a DEDUCTION?** (PS + TD) | `services/outflow_import/partial_settle.py` (`partial_eligibility`, `deduction_eligibility`, `looks_like_tds`, `TDS_BAND_*`, `SERVICE_DOCTYPE`, `INTENT_*`) — pure. `deduction_eligibility` LAYERS on `partial_eligibility`; the shared shape half has one copy | let it reach the MATCHER. `matcher`, `disambiguate`, `status`, `stacks`, `claims` and `candidates` must not import it (pinned by a test). A partial sits OUTSIDE the ±₹5 settle window that gates every other write here; it is safe only because a person opens it on one specific row, and the moment the matcher can reach it that sentence stops being true. The frontend mirror `outflowTableModel.partialOffer` is a CONVENIENCE — the server re-asserts the whole gate under a row lock |
+| **May a transfer pay PART of a record?** (PS; slice TD's DEDUCTION answer is REMOVED) | `services/outflow_import/partial_settle.py` (`partial_eligibility`, `looks_like_tds`, `INTENT_PART_PAYMENT`, `VALID_INTENTS`) — pure. ⚠️ `deduction_eligibility` and the band/service gate are GONE: the import records no tax, `services/payment_tds.py` withholds SR tax at approval | let it reach the MATCHER. `matcher`, `disambiguate`, `status`, `stacks`, `claims` and `candidates` must not import it (pinned by a test). A partial sits OUTSIDE the ±₹5 settle window that gates every other write here; it is safe only because a person opens it on one specific row, and the moment the matcher can reach it that sentence stops being true. The frontend mirror `outflowTableModel.partialOffer` is a CONVENIENCE — the server re-asserts the whole gate under a row lock |
 | **Splitting a Project Payment in two** (PS-1) | `services/payment_split.py` (`split_payment`; `split_and_approve` is a thin wrapper) — SHARED with the CEO partial approval | fork it for the second caller. ONE concept, ONE owner (ADR-0010 B1): two copies of the sum invariant and the PO-term surgery would drift, and the symptom is a PO whose terms stopped adding up, months later, with no way to tell which copy wrote it. **Every parameter defaults to the CEO behaviour**, which is what makes `test_payment_split`'s 26 original tests the proof that generalising it changed nothing |
 | **Did a settlement take the machine's pick?** (Q1) | `services/outflow_import/status.py` (`settlement_origin`, `ORIGIN_*`) — pure | re-derive the accepted/overridden/no-suggestion test. THREE callers share it: the settle path, the summary aggregate, and the backfill patch. ⚠️ It is in `services/` because `api/expenses.py` imports `api/review.py`, so the reverse would be a cycle. ⚠️ NOT `auto_matched`, which means only "a suggestion existed" |
 | **What makes two staged transfers THE SAME transfer** (D3; widened source-aware at B3) | `services/outflow_import/duplicates.py` (`row_identity`, `row_identity_of`, `WIDE_IDENTITY_SOURCES`, `dates_agree`, `RowIdentity`) — pure | key a duplicate check on anything else. THREE readers: the cross-batch lookup (`candidates.find_earlier_batches_for_rows`), the in-file repeat check in `upload._stage_batch`, and the parser's `_duplicate_transfer_ids`. They used to key on `transfer_id` independently; a key that differed between them would let one call two rows duplicates while another called them distinct, on the same file. ⚠️ It is **NOT** the `Outflow Row Match` unique constraint — that stays `(transfer_id, target_doctype, target_name)` and is the money guarantee; this is about WORK, and may be more discriminating | ⚠️ **THE KEY IS SOURCE-AWARE SINCE B3, and the DEFAULT is the guarantee.** `row_identity(..., source="")` — what every caller passing nothing gets — returns the old `(transfer_id, amount, date)` triple **BYTE-IDENTICALLY**, because Cashfree and Cashbook carry live settled data whose duplicate behaviour is proven in production. A source in `WIDE_IDENTITY_SOURCES` (today: `ICICI Bank Statement`) gets `+ (direction, remarks)`. **Both extra fields are load-bearing and each catches a different failure, measured on the real 1,274-row statement where the triple silently LOSES 5 REAL ROWS:** *remarks* catches four SGST/CGST pairs (same id, date, amount AND direction, differing only in narration), *direction* catches the GL transfer whose two legs carry byte-identical narration. These are bank-narration artefacts that cannot occur in a payout export — which is exactly why the widening is per-source and not global. ⚠️ `row_identity_of(row, source)` is the ADAPTER over the one rule, never a second rule: the widening added two fields that live ON the row, and forgetting `remarks` at a call site degrades ICICI silently back to the four-field key — it still works, it just loses four rows a statement and says nothing. ⚠️ It is a DIFFERENT set from `sources.BANK_STATEMENT_SOURCES` and they must not be merged "because they hold the same string today": this one answers *what makes two lines of this statement the same line?*, that one answers *what can this statement's rows DO?*. Full numbers: ADR-0016 § 4.
@@ -1498,11 +1498,13 @@ Guess it wrong in the part-payment direction and this feature **creates an appro
 never be paid, inflating what the PO thinks it still owes, forever** — worse than the dead end it
 replaces. Hence:
 
-- **`intent` is REQUIRED with no default**, server-side. Missing or unrecognised → throw.
-- **Neither option is pre-selected** on screen, and the primary button is disabled until one is.
+- **`intent` is REQUIRED with no default**, server-side. Missing or unrecognised → throw. Since
+  slice TD's removal it has exactly ONE legal value, `"part_payment"`; the allowlist stays because it
+  is the guard on a money-out endpoint, not because a choice is left to police.
 - `partial_settle.looks_like_tds` flags a shortfall sitting on 1/2/5/10% — **a warning beside the
-  choice, never a gate.** A 2% gap is still eligible; a part payment can land on 2% by coincidence.
-- `intent="deduction"` **throws and writes nothing**, routing to the payments screen.
+  split, never a gate.** A 2% gap is still eligible; a part payment can land on 2% by coincidence.
+  ⚠️ It is now the WHOLE guard against splitting a real withholding, so its banner instructs.
+- `intent="deduction"` **throws and writes nothing** — see the REMOVED section below.
 
 ### The gate (`services/outflow_import/partial_settle.py`, pure)
 
@@ -1557,72 +1559,70 @@ commit -> _link_statement_file_to_target -> _record_partial_provenance
 - **The bulk confirm cannot reach this**: a different endpoint name the confirm tree never calls, and
   `get_confirmable_rows` only offers rows carrying a `suggested_name`, which a partial has not got.
 
-### The OTHER answer: recording the shortfall as TDS (slice TD, 2026-08-12)
+### ⚠️ REMOVED: recording the shortfall as TDS (slice TD, 2026-08-12 → removed)
 
-The same dialog, the same shortfall, the opposite reading. `intent="deduction"` used to throw; it now
-**writes `Project Payments.tds` and settles the payment in full** — in one narrow, measured case.
+**THE IMPORT RECORDS NO TAX. There is ONE answer to a shortfall — a part payment — and `intent="deduction"`
+is refused outright.**
 
-```
-tds    = amount − bank        DERIVED, never typed
-amount = UNCHANGED            the record keeps its invoiced figure
-status = Paid, + utr + payment_date
-```
+Slice TD briefly gave the dialog a second answer: on a `Service Requests` payment whose shortfall
+landed in a 0.95–2.05% band it derived `tds = amount − bank`, wrote it to the legacy
+`Project Payments.tds`, left `amount` GROSS, and marked the payment Paid. That whole path is gone —
+`deduction_eligibility`, `DeductionEligibility`, `SERVICE_DOCTYPE`, `TDS_BAND_*`,
+`REFUSAL_NOT_SERVICE`, `REFUSAL_RATE_OUT_OF_BAND`, `INTENT_DEDUCTION`, `_settle_as_deduction`,
+`_assert_deduction_recordable`, `_record_deduction_provenance`, `_DEDUCTION_REFUSALS`,
+`settle_payment(tds=…)`, `format_tds`, `SettleResult.tds_written`, and the frontend's
+`deductionOffer` / `deductionRefusalText` / `BAND_EDGE_EPSILON` / `PartialIntentChoice`.
 
-**Owner rulings:** band **0.95–2.05%** (T-R1) · **`Service Requests` only** (T-R2) · no new approval
-gate (T-R4) · the amount never changes (T-R5).
+**WHY.** SR tax withheld is now recorded ONCE, at approval, by `services/payment_tds.py`: it writes a
+`Payment TDS Deduction` row (gross, snapshotted rate, tds amount) and **rewrites
+`Project Payments.amount` to the NET figure**; `Service Requests.amount_due` became
+`total_amount − amount_paid − total_tds`. So an approved SR payment now equals its transfer and
+settles through the ordinary Confirm — slice TD's population is exactly the population the new module
+owns, and the two conventions are **OPPOSITE** (net-stored at approval, gross-stored here). Left in
+place, a netted payment whose transfer came in slightly short would still be offered "record ₹X TDS
+and settle", withholding a SECOND time against an `amount_due` that already subtracts the first.
 
-**Measured on the live ledger, 2026-08-12** — 671 Paid payments carry a TDS figure:
+**Deduction settlements ever performed before the removal: ZERO** (`Outflow Row Match` by basis:
+account+IFSC 18 · cashbook remark 16 · project in remark 3 · Manual 2). No schema field or Select
+option ever named a deduction, so the removal needed **no patch and no migrate**.
 
-- **584 are Service Requests** (87%); **505 sit at exactly 1.00% and 60 at exactly 2.00%**
-- the band captures **584 of 671**; widening to 0.5–2.5% adds **two**
-- service-only costs **5** in-band rows
-- ⚠️ **TDS is computed on `amount` DIRECTLY, not a pre-GST base.** Checked, because the opposite
-  would have mattered: `/1.18` turns those clean 1.00 / 2.00 into 1.18 / 2.36, and a band built on
-  that assumption misses almost every real deduction while every test stays green.
+⚠️ **WHAT THE REMOVAL COSTS, AND THE MITIGATION.** Slice TD existed for a stated reason: *a reviewer
+looking at a genuine 2% TDS on a materials PO, offered only "part payment", will take it — and that
+creates an approved balance for money nobody owes.* That risk is BACK **for POs**, which
+`payment_tds.DEDUCTIBLE_PARENTS` (`{"Service Requests"}`) does not cover — PO tax is still
+hand-entered at fulfilment by `_fulfil_payment`. SR payments are safe because they arrive net.
+`partial_settle.looks_like_tds` + the dialog's amber banner are now the **whole guard**, so the banner
+**instructs** rather than observes: *"…a common TDS rate. If tax was withheld rather than part of the
+money being unpaid, do not split this: record it in the payments screen. Splitting would create an
+approved balance nobody owes."* It still WARNS and must never gate, default or pre-select.
 
-⚠️ **`Project Payments.tds` IS EMPTY ON AN APPROVED PAYMENT — an INVARIANT, not a description of the
-table.** 39 rows violate it: every one is residue from a fulfilment undone by a hand write outside
-the document lifecycle (33 carry a `Version` row reading `Approved → Paid` and none for the way back;
-all 39 had `utr` and `payment_date` cleared and `tds` missed). **So nothing on this path READS the
-field** — `deduction_eligibility` has no `stored_tds` parameter and must never grow one. Residue is
-simply replaced by the figure this transfer implies, and `track_changes` records the replacement.
-**The 39 rows are a separate data-cleanup item**; spot the class with `status='Approved'` and a
-non-empty `tds`, no `utr`, no `payment_date`.
+⚠️ **`intent` SURVIVES WITH ONE LEGAL VALUE, AND DROPPING IT WOULD BE A REGRESSION.**
+`VALID_INTENTS == {"part_payment"}` is the allowlist that makes a missing or garbage intent THROW on a
+money-out endpoint; removing the parameter leaves a door accepting a bare "split this" with nothing to
+reject, and strips the declaration `_record_partial_provenance` writes onto both halves. Clicking
+*Settle … and carry the rest* IS that declaration.
 
-⚠️ **THE WINDOW IS NOT WIDENED — IT IS POINTED AT THE RIGHT NUMBER.** With a `tds`,
-`_lock_and_assert_payment_settleable` asserts `|amount − tds − bank| ≤ AMOUNT_TOLERANCE`, because
-`amount − tds` is what the bank was expected to move. `tds=None` is byte-identical to before, and
-`rewrite_amount` is skipped entirely on the deduction path (X1's take-the-bank's-figure rule is for a
-record that should EQUAL the transfer; here it is deliberately larger).
+⚠️ **`Project Payments.tds` IS STILL WRITTEN — JUST NOT HERE.** `api/payments/project_payments._fulfil_payment`
+(manual PO fulfilment) remains its writer and is untouched; 625 Paid SR payments hold ₹6,34,002 of
+legacy `tds` and are NOT backfilled. What changed is that **this import touches the column at no point.**
 
-⚠️ **THE DEDUCTION OPTION IS GREYED, NEVER HIDDEN, AND THAT IS THE SAFETY ARGUMENT.** A reviewer
-looking at a genuine 2% TDS on a **materials PO**, offered only "part payment", will take it — and
-that creates an approved balance for money nobody owes, the exact phantom the PS slice exists to
-prevent. `deductionOffer` therefore always returns a verdict with a REASON, and the screen renders it
-beside the disabled option.
-
-⚠️ **THE CLIENT MIRROR IS FLOAT AND THE SERVER IS `Decimal`.** `2050/100000*100` is exactly `2.05`
-server-side and `2.0500000000000003` in IEEE-754 — so a naive comparison greys out an option the
-server accepts, on the very boundary the band is defined by. `BAND_EDGE_EPSILON` fixes it, and **the
-direction is the rule: the mirror may never be STRICTER than the server.** Erring toward offering is
-safe (the server re-asserts under a row lock); erring the other way hides the choice.
-
-⚠️ **`format_tds` is SEPARATE from `format_amount_for`.** That one keys on the DOCTYPE and would be
-right here only by coincidence — it is about `amount`, a real Currency column, while `tds` on the
-same doctype is a **Data** column of stringified numbers. The live column already holds both
-`'1000.0'` and `'1000'` because two writers disagreed; this path must not add a third shape, so it
-matches `_fulfil_payment`'s `flt()` exactly (pinned by test).
+⚠️ **THE REGRESSION FENCES.** Three inverted pins, not deletions — a deleted pin checks nothing:
+`test_partial_settle.TestTheIntentVocabulary.test_the_deduction_answer_is_gone_and_this_pin_keeps_it_gone`
+(the module exports none of the removed names), `test_settle_payment.TestPartialSettlementRefusals.test_a_declared_deduction_is_now_refused_outright`
+(the literal wire value `"deduction"` throws and writes nothing), and
+`test_settle_payment.TestTheImportWritesNoTaxAtAll` (no `tds` written; `rewrite_amount` always runs).
+The frontend mirror is pinned by an exported-surface loop in `outflowTableModel.test.ts`.
 
 ⚠️ **NAME COLLISION — READ BEFORE GREPPING.** `TDS Items`, `TDS Repository`, `Project TDS Setting`
 and `TDS Items Child Table` are **Technical Data Sheets** (materials approval: `make`,
 `work_package`, `Verified / Not Verified`), and the "TDS Approval" tab with its Admin+PL approvers
-belongs to *that* feature. `Project Payments.tds` is **Tax Deducted at Source** and is unrelated to
-any of it. Same three letters, two concepts — the same trap this repo documents for "BCS".
+belongs to *that* feature. `Project Payments.tds` and `Payment TDS Deduction` are **Tax Deducted at
+Source** and are unrelated to any of it. Same three letters, two concepts — the same trap this repo
+documents for "BCS".
 
-**`looks_like_tds` and the band are DIFFERENT QUESTIONS and must not be merged.** The first asks
-*"does this look like a deduction?"* (1/2/5/10%) and warns before a part payment is chosen; the second
-asks *"may we record it here?"* and gates the button. They deliberately disagree at 5% and 10%, which
-are real rates this path does not write.
+**`looks_like_tds` IS ALL THAT REMAINS OF THE TDS VOCABULARY HERE**, and it is a warning only. The
+band it used to be contrasted against is gone, so there is no second question to keep it distinct
+from — but it must still never gate.
 
 ### What it does NOT solve
 
@@ -1651,7 +1651,7 @@ pick**, and by this date three of its claims were false:
 | The old sentence | Why it was wrong |
 |---|---|
 | *"This gap is far larger than that"* | It had never checked. A gap of ₹6 trips this branch |
-| *"A deduction such as TDS looks exactly like this — settle those in the payments screen"* | ⚠️ **Slice TD made that route live HERE** and did not touch this sentence |
+| *"A deduction such as TDS looks exactly like this — settle those in the payments screen"* | ⚠️ Slice TD made that route live HERE and did not touch this sentence. **Since TD's removal the claim is TRUE again**, but `settleBlockText` was deliberately NOT reverted — its destination-free wording was also chosen to point at the affordance rather than predict the outcome (browser walk, 2026-08-13) |
 | *"or record it as a new expense"* | `SHOW_CREATE_NEW_EXPENSE` is `false` — that route is not on this dialog |
 
 It also read identically whether the record was bigger or smaller than the transfer — and since PS
@@ -2073,6 +2073,9 @@ this; settle it in the payments screen"* also lived in the record verdict line a
 tooltip. It was not simply wrong — outside the 0.95–2.05% service band the payments screen IS still
 the answer — it stated unconditionally something slice TD had made conditional. Both now read the
 ONE shared `AMOUNT_GAP_HINT`, which points at the affordance instead of predicting the outcome.
+⚠️ **Slice TD's removal makes the old sentence unconditionally true again, and `AMOUNT_GAP_HINT` was
+deliberately NOT reverted** — the affordance-not-outcome wording was its second, independent reason
+(browser walk 2026-08-13) and stays correct either way; reverting re-opens a settled decision.
 
 **⚠️ AND A PRE-EXISTING ONE, NOT FIXED: the `time` column's funnel does nothing.** It renders a value
 DERIVED in the client from `added_on`; there is no `time` column to filter on, so it appears in
@@ -2101,11 +2104,14 @@ wrong conclusion from the same reasoning.
 
 ## Known limits, accepted with numbers
 
-- **TDS payments will not MATCH** — the matcher is untouched and a deduction-sized gap reaches no
-  tier. ⚠️ **But since slice TD they can be SETTLED by hand**, in one narrow case — see the
-  Deductions section above. Measured 2026-08-12: **671 of 7,642** Paid payments carry a TDS figure
-  (the 709 / 7,421 recorded here on 2026-08-10 is superseded). A tolerance pass (Q11) is still
-  **next version**.
+- **A GROSS payment against a net transfer will not MATCH** — the matcher is untouched and a
+  deduction-sized gap reaches no tier. ⚠️ **Slice TD's hand-settle route is REMOVED**, so such a row
+  has no terminal state here and belongs in the payments screen. This matters far less than it did:
+  since `services/payment_tds.py` nets SR payment amounts AT APPROVAL, an approved SR payment now
+  EQUALS its transfer and matches on the ordinary tiers — the case survives only for **POs**, whose
+  tax is still hand-entered at fulfilment. Measured 2026-08-12: **671 of 7,642** Paid payments carry
+  a legacy TDS figure (the 709 / 7,421 recorded here on 2026-08-10 is superseded). A tolerance pass
+  (Q11) is still **next version**.
 - **No undo of a settle** from inside the import (Q9). Fix it in the payments screen.
 - **Fan-out is report-only** (Q4) — which is why the existing UTR guard is never challenged. Chunk E
   did NOT change this: a fan-out disqualifies its whole stack rather than being paired.

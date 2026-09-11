@@ -31,6 +31,7 @@ import {
   FileChartLine,
   Tickets,
   Table2,
+  Percent,
   TriangleAlert
 } from "lucide-react";
 
@@ -70,6 +71,7 @@ import { Separator } from "../ui/separator";
 import { useCountsBridge } from "@/hooks/useSidebarCounts";
 import {
   MATERIAL_PROCUREMENT_PROFILES,
+  PAYMENT_TDS_ACCESS,
   PROCUREMENT_PROFILES,
   SERVICE_PROCUREMENT_PROFILES,
   isMaterialProcurementProfile,
@@ -557,6 +559,30 @@ export function NewSidebar() {
         },
       ]
       : []),
+    // Payment TDS Deduction -- Tax Deducted at Source, sitting directly under the payments it is
+    // withheld from.
+    //
+    // ⚠️ NARROWER THAN THE ENTRY ABOVE, AND IT HAS TO BE. The `Payment TDS Deduction` doctype
+    // grants read to System Manager / Nirmaan Accountant / Nirmaan Accountant Lead only, so the
+    // PMO, Project Lead and procurement profiles listed above would follow this link into a
+    // PermissionError.
+    //
+    // ⚠️ READS THE SHARED CONSTANT RATHER THAN LISTING PROFILES INLINE, unlike its neighbours.
+    // `PAYMENT_TDS_ACCESS` also guards the ROUTE (routesConfig.tsx), and the nav item and the
+    // route have to agree: an inline second copy drifts the day one of them is edited, and it
+    // fails in the quiet direction -- a visible link that dead-ends on "Access Denied".
+    //
+    // ⚠️ NOT RELATED TO 'TDS Repository' / 'TDS Approval' further down this same menu -- those are
+    // the TECHNICAL DATA SHEET module. Same three letters, unrelated concepts.
+    ...(user_id == "Administrator" || PAYMENT_TDS_ACCESS.includes(role as string)
+      ? [
+        {
+          key: '/payment-tds-deductions',
+          icon: Percent,
+          label: 'Payment TDS Deduction',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan HR Executive Profile"].includes(role as string)
       ? [
         {
@@ -772,6 +798,7 @@ export function NewSidebar() {
     // "approved-sr",
     "notifications",
     "project-payments",
+    "payment-tds-deductions",
     "credits",
     "in-flow-payments",
     'invoice-reconciliation',
@@ -825,6 +852,7 @@ export function NewSidebar() {
     "/service-requests": ["service-requests", "service-requests-list"],
     "/purchase-orders": ["purchase-orders"],
     "/project-payments": ["project-payments"],
+    "/payment-tds-deductions": ["payment-tds-deductions"],
     "/credits": ["credits"],
     "/in-flow-payments": ["in-flow-payments"],
     "/invoice-reconciliation": ["invoice-reconciliation"],
@@ -944,6 +972,7 @@ export function NewSidebar() {
                     "Procurement Requests",
                     "Purchase Orders",
                     "Project Payments",
+                    "Payment TDS Deduction",
                     "Credit Payments",
                     "Sent Back Requests",
                     "Projects",

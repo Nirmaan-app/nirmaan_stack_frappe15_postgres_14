@@ -210,8 +210,16 @@ import {
   makePricingSheetHelper,
 } from "./rate-helper/pricingSheetHelper";
 import { RateSuggestProgressModal, type SuggestModalSummary } from "./rate-helper/RateSuggestProgressModal";
-import type { RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
-import { RATE_MASTER_DISCIPLINES } from "@/pages/pricing/rate-master/rateMasterRegistry";
+// Calculator slice 2: the rate-master data plumbing (config targets, the per-category config
+// fetcher, the config map, the items fetch) moved OUT of this page into ONE shared module so the
+// Calculator tab mounts the same helper on the same data. A move, not a redesign -- same methods,
+// arguments, SWR keys and accumulate-once logic.
+import {
+  RATE_MASTER_CONFIG_TARGETS,
+  RateConfigFetcher,
+  useConfigsByCategory,
+  useRateMasterItems,
+} from "./rate-helper/rateHelperPlumbing";
 
 // Slice 3c: "saved as of" uses the CLIENT clock at save-success (save_cell_price returns no
 // timestamp). HH:MM, mirroring SheetReviewPage's fmtSavedTime shape (client-clock seeded).
@@ -322,36 +330,8 @@ function EngineCatalogFetcher({
   return null;
 }
 
-// EA-2: the rate-master category configs the pricing helper may resolve, one per registry category
-// (all Electrical). Fetched by a RateConfigFetcher child each -- the same hook-safe N-fetch shape as
-// EngineCatalogFetcher -- into configsByCategory. Registry-driven: a new category flows through with
-// no code change here.
-const RATE_MASTER_CONFIG_TARGETS: Array<{ discipline: string; categoryId: string }> =
-  RATE_MASTER_DISCIPLINES.flatMap((d) =>
-    d.categories.map((c) => ({ discipline: d.discipline, categoryId: c.category_id })),
-  );
-
-/** EA-2: fetch ONE category's rate config and report it up. Renders no DOM; one hook per instance. */
-function RateConfigFetcher({
-  discipline,
-  categoryId,
-  onLoaded,
-}: {
-  discipline: string;
-  categoryId: string;
-  onLoaded: (categoryId: string, config: RateCategoryConfig | null) => void;
-}) {
-  const { data } = useFrappeGetCall<{ message: { config: RateCategoryConfig | null } }>(
-    "nirmaan_stack.api.boq.rate_master.get_rate_category_config",
-    { discipline, category_id: categoryId },
-    `boq-rm-config::${discipline}::${categoryId}`,
-  );
-  const config = data?.message?.config;
-  useEffect(() => {
-    if (config !== undefined) onLoaded(categoryId, config ?? null);
-  }, [config, categoryId, onLoaded]);
-  return null;
-}
+// EA-2: RATE_MASTER_CONFIG_TARGETS + RateConfigFetcher now live in ./rate-helper/rateHelperPlumbing
+// (calculator slice 2) and are imported above; they are rendered unchanged further down.
 
 /**
  * HV-10: poll ONE discipline's classify status. Rendered once per (ran UNION running) discipline.
@@ -668,26 +648,10 @@ const SheetPricingPage = () => {
   // EA-2: N-category configs, accumulated from child RateConfigFetchers (hook-safe N-fetch, mirroring
   // the HV-10 catalog fetchers) so the helper can resolve a config PER row category. Load-once per
   // category (a settled Map -> a stable helper); the single wiring-only fetch is gone.
-  const [configsByCategory, setConfigsByCategory] = useState<Map<string, RateCategoryConfig>>(
-    () => new Map(),
-  );
-  const handleRateConfigLoaded = useCallback(
-    (categoryId: string, config: RateCategoryConfig | null) => {
-      if (!config) return;
-      setConfigsByCategory((prev) => {
-        if (prev.has(categoryId)) return prev;
-        const next = new Map(prev);
-        next.set(categoryId, config);
-        return next;
-      });
-    },
-    [],
-  );
-  const { data: rmItemsData } = useFrappeGetCall<{ message: { items: RateMasterItem[] } }>(
-    "nirmaan_stack.api.boq.rate_master.get_rate_master_items",
-    { discipline: "Electrical" },
-    RATE_HELPER_ENABLED ? "boq-rm-items-electrical" : null,
-  );
+  // Calculator slice 2: the map + its accumulate-once callback and the items fetch (discipline
+  // "Electrical", SWR key `boq-rm-items-electrical`) are the shared plumbing's, unchanged.
+  const { configsByCategory, onConfigLoaded: handleRateConfigLoaded } = useConfigsByCategory();
+  const { data: rmItemsData } = useRateMasterItems(RATE_HELPER_ENABLED);
   // The ACTIVE suggestion run for this sheet (persistence -- version-keyed on load).
   const { data: activeRunData, mutate: mutateActiveRun } = useFrappeGetCall<{
     message: {

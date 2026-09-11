@@ -200,6 +200,11 @@ export default function UpdatePaymentRequestDialog({
     }
   };
 
+  /* Whether this payment's tax was already withheld at approval, in which case `payment.amount`
+     is the net figure and there is nothing left for a person to enter. Scoped to the ledger that
+     automates it - mirrors `payment_tds.DEDUCTIBLE_PARENTS` on the server. */
+  const tdsIsAutomatic = payment?.document_type === "Service Requests";
+
   /* Live amount mismatch — recomputes when TDS changes so the banner
      hides automatically once the user accounts for the deduction. */
   const amountMismatch = useMemo(() => {
@@ -359,7 +364,7 @@ export default function UpdatePaymentRequestDialog({
                   <AlertTriangle className="h-3.5 w-3.5 text-amber-700 flex-shrink-0 mt-0.5" />
                   <p className="text-xs text-amber-900 leading-snug">
                     <span className="font-medium">Amount mismatch:</span> receipt {fmt(amountMismatch.extracted)} vs expected {fmt(amountMismatch.expected)} (off {fmt(Math.abs(amountMismatch.delta))})
-                    {parseNumber(tds) === 0 ? " — add TDS if applicable" : ""}.
+                    {parseNumber(tds) === 0 && !tdsIsAutomatic ? " — add TDS if applicable" : ""}.
                   </p>
                 </div>
               )}
@@ -387,18 +392,26 @@ export default function UpdatePaymentRequestDialog({
                        onChange={e => { setUtr(e.target.value); clearAutofillFlag("utr"); }} />
               </div>
 
-              {/* TDS */}
-              <div className="grid grid-cols-5 items-center gap-4">
-                <Label htmlFor="tds" className="col-span-2 text-right">TDS</Label>
-                <div className="col-span-3">
-                  <Input id="tds" type="number" className="h-8"
-                         value={tds} onChange={e=>setTds(e.target.value)} />
-                  {parseNumber(tds) > 0 &&
-                    <span className="text-xs text-muted-foreground">
-                      Amt&nbsp;Paid:&nbsp;{fmt(payment.amount - parseNumber(tds))}
-                    </span>}
+              {/* TDS — manual entry only where the tax is NOT already withheld.
+                  ⚠️ A Service Request payment has its TDS deducted automatically the moment it
+                  is approved, and its `amount` is ALREADY the net figure (services/payment_tds.py).
+                  Offering the field here would invite a second deduction on top of the first: the
+                  figure would be written to the legacy `tds` column, and the receipt-mismatch
+                  banner below - which expects (amount - tds) - would start flagging a correct
+                  receipt as wrong. A Procurement Order payment is unaffected and still needs it. */}
+              {!tdsIsAutomatic && (
+                <div className="grid grid-cols-5 items-center gap-4">
+                  <Label htmlFor="tds" className="col-span-2 text-right">TDS</Label>
+                  <div className="col-span-3">
+                    <Input id="tds" type="number" className="h-8"
+                           value={tds} onChange={e=>setTds(e.target.value)} />
+                    {parseNumber(tds) > 0 &&
+                      <span className="text-xs text-muted-foreground">
+                        Amt&nbsp;Paid:&nbsp;{fmt(payment.amount - parseNumber(tds))}
+                      </span>}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Date */}
               <div className="grid grid-cols-5 items-center gap-4">

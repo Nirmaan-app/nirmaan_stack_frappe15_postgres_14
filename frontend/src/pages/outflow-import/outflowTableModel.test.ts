@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
+// ⚠️ A NAMESPACE IMPORT BESIDE THE NAMED ONES, for the deduction-is-gone pin only. A named
+// import of a removed export is a COMPILE error, which cannot express "this must stay absent".
+import * as model from "./outflowTableModel";
 import {
     DEFAULT_HIDDEN_COLUMNS,
     UPLOADER_DISPLAY_MAX,
@@ -28,12 +31,7 @@ import {
     amountVerdict,
     candidateKeySet,
     partialOffer,
-    deductionOffer,
-    deductionRefusalText,
-    TDS_BAND_MIN_PCT,
-    TDS_BAND_MAX_PCT,
     INTENT_PART_PAYMENT,
-    INTENT_DEDUCTION,
     matcherCandidateLine,
     confirmFunnel,
     describeFrappeError,
@@ -3466,101 +3464,30 @@ describe("partialOffer — may this transfer pay part of this record? (PS)", () 
         expect(offer!.tdsLike).toBe(false);
     });
 
-    it("mirrors the server's gate, and the two intents are the server's strings", () => {
+    it("mirrors the server's gate, and the ONE intent is the server's string", () => {
         // A typo here posts an intent the endpoint rejects -- which is the safe direction, but the
         // reviewer would see a refusal with no way to act on it.
         expect(INTENT_PART_PAYMENT).toBe("part_payment");
-        expect(INTENT_DEDUCTION).toBe("deduction");
-    });
-});
-
-describe("deductionOffer — may the shortfall be recorded as TDS? (TD)", () => {
-    const service = (over: Record<string, unknown> = {}) => ({
-        target_doctype: "Project Payments",
-        amount: 100000,
-        document_type: "Service Requests",
-        ...over,
-    });
-    const shapeFor = (rec: any, bank: number) => partialOffer(rec, bank);
-
-    it("a 1% shortfall on a service payment is recordable", () => {
-        const rec = service();
-        const offer = deductionOffer(rec, shapeFor(rec, 99000));
-        expect(offer.eligible).toBe(true);
-        expect(offer.tds).toBe(1000);
-        expect(offer.impliedPct).toBeCloseTo(1, 6);
     });
 
-    it("a 2% shortfall is recordable", () => {
-        const rec = service({ amount: 200000 });
-        expect(deductionOffer(rec, shapeFor(rec, 196000)).eligible).toBe(true);
-    });
-
-    it("a PO payment is refused, and the verdict SAYS SO rather than vanishing", () => {
-        // ⚠️ THE SAFETY ARGUMENT. If this returned null/absent the screen would hide the option, and
-        // a reviewer with a real 2% TDS on a materials PO would take "part payment" instead —
-        // creating an approved balance for money nobody owes.
-        const rec = service({ document_type: "Procurement Orders" });
-        const offer = deductionOffer(rec, shapeFor(rec, 98000));
-        expect(offer.eligible).toBe(false);
-        expect(offer.refusal).toBe("not_service");
-        expect(deductionRefusalText(offer)).toContain("service payments");
-    });
-
-    it("a rate outside the band is refused with its own reason", () => {
-        const rec = service();
-        for (const bank of [60000, 95000, 90000, 99900]) {
-            const offer = deductionOffer(rec, shapeFor(rec, bank));
-            expect(offer.eligible).toBe(false);
-            expect(offer.refusal).toBe("rate_out_of_band");
-        }
-        expect(deductionRefusalText(deductionOffer(rec, shapeFor(rec, 60000)))).toContain("1–2%");
-    });
-
-    it("the band edges are inclusive and mirror the server", () => {
-        const rec = service();
-        expect(deductionOffer(rec, shapeFor(rec, 99050)).eligible).toBe(true);   // 0.95%
-        expect(deductionOffer(rec, shapeFor(rec, 97950)).eligible).toBe(true);   // 2.05%
-        expect(deductionOffer(rec, shapeFor(rec, 99060)).eligible).toBe(false);  // 0.94%
-        expect(deductionOffer(rec, shapeFor(rec, 97940)).eligible).toBe(false);  // 2.06%
-        expect(TDS_BAND_MIN_PCT).toBe(0.95);
-        expect(TDS_BAND_MAX_PCT).toBe(2.05);
-    });
-
-    it("the upper edge survives float arithmetic that the server does in Decimal", () => {
-        // ⚠️ THIS CAUGHT A REAL DIVERGENCE. 2050/100000*100 is exactly 2.05 in Python's Decimal and
-        // 2.0500000000000003 in IEEE-754 — so a naive `> MAX` comparison greys out an option the
-        // server accepts, on the very boundary the band is defined by. The mirror must never be
-        // stricter than the server; see BAND_EDGE_EPSILON.
-        const rec = service();
-        expect((100000 - 97950) / 100000 * 100).toBeGreaterThan(2.05); // the float, stated plainly
-        expect(deductionOffer(rec, shapeFor(rec, 97950)).eligible).toBe(true);
-    });
-
-    it("no shape means no deduction, and no reason to show either", () => {
-        // The record is not larger than the transfer at all — the dialog is the pre-TD one.
-        expect(deductionOffer(service(), null).eligible).toBe(false);
-        expect(deductionOffer(service(), null).refusal).toBe("shape");
-    });
-
-    it("an expense can never carry a deduction", () => {
-        const rec = service({ target_doctype: "Project Expenses", document_type: "" });
-        expect(deductionOffer(rec, shapeFor(rec, 99000)).eligible).toBe(false);
-    });
-
-    it("a blank parent doctype is refused rather than assumed to be a service", () => {
-        const rec = service({ document_type: "" });
-        expect(deductionOffer(rec, shapeFor(rec, 99000)).refusal).toBe("not_service");
-    });
-
-    it("the derived TDS reconciles the transfer exactly", () => {
-        // ⚠️ `bank = amount - tds` is the relation the whole ledger reads. Deriving the figure —
-        // never typing it — is what keeps it true.
-        for (const [amount, bank] of [[100000, 99000], [715757, 701441.86], [200000, 196000]]) {
-            const rec = service({ amount });
-            const offer = deductionOffer(rec, shapeFor(rec, bank));
-            expect(offer.eligible).toBe(true);
-            expect(amount - offer.tds).toBeCloseTo(bank, 2);
+    it("⚠️ the deduction answer is GONE, and this pin is what keeps it gone", () => {
+        // Slice TD let a reviewer record a shortfall as TDS from a statement. SR tax is now
+        // withheld ONCE, at approval, by `services/payment_tds.py`, which nets
+        // `Project Payments.amount` -- so a second mechanism here would withhold twice against an
+        // `amount_due` that already subtracts the first.
+        //
+        // ⚠️ INVERTED FROM `expect(INTENT_DEDUCTION).toBe("deduction")`, NOT DELETED. A deleted pin
+        // checks nothing; this one fails the moment any of the removed surface is re-exported.
+        const exported = model as unknown as Record<string, unknown>;
+        for (const name of [
+            "INTENT_DEDUCTION",
+            "deductionOffer",
+            "deductionRefusalText",
+            "TDS_BAND_MIN_PCT",
+            "TDS_BAND_MAX_PCT",
+            "SERVICE_DOCTYPE",
+        ]) {
+            expect(exported[name]).toBeUndefined();
         }
     });
 });

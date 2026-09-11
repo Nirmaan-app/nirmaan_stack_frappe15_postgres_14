@@ -447,6 +447,32 @@ export interface ModuleFitStep {
      * ladder are DIFFERENT LENGTHS (the box has no 9M and no 16M), so each derives from its own
      * catalog family and each takes the next higher size independently. */
     ladders: ModuleLadderSpec[];
+    /**
+     * INCLUDES-MODULES GATE (owner rulings 2026-09-10) -- THE SWITCH WINS OVER THE SLOTS, BOTH WAYS.
+     *
+     * Names the attribute that says whether the modules are part of this row's price at all, and the
+     * value that means "included" (popup_boxes: `has_modules` / "Yes"). Read ONCE, before the weighted
+     * sum:
+     *   * equal            -> the step runs exactly as without the key (byte-identical, incl. the trace).
+     *   * blank / absent   -> an honest no-compute (owner: "blank refuses").
+     *   * any other value  -> EXCLUDED: every term's `none_when` item, every ladder `bind` and the
+     *                         blanks `bind_item` take the "None" sentinel in `fitLabels`, so each
+     *                         `none_skips` component zeroes its line and the box prices alone. The
+     *                         SELECTION is never written: the slot picks stay on screen, uncharged
+     *                         (owner: "they stay and just dont get included in the price"), and setting
+     *                         the switch back restores the full price without re-picking.
+     *
+     * WHY A STEP KEY AND NOT CONFIG: `if_attr` on a qty loses the stated quantity and leaves module_fit
+     * itself ungated; `conditions` is dead on the assembly shape; `absent_when` does not exist on
+     * module_fit or component_ref; `map_attribute` cannot override a stated value. Measured 2026-09-10.
+     *
+     * CONFINED BY KEY PRESENCE, NEVER BY A CATEGORY NAME (the HV-10 lesson): switches_sockets and
+     * point_wiring run the same step without this key and are byte-identical, pinned per category.
+     * `attr` is `_ref`-guarded by the api validator, which also requires `equals` to be one of the
+     * attribute's declared values and every term to carry `none_when` (the gate excludes a term
+     * THROUGH its item, so a term without one could not be excluded).
+     */
+    include_when?: { attr: string; equals: string };
     /** OPTIONAL filler ("blanker") count, bound as a NUMBER: the modules the plate carries minus the
      * modules its contents occupy. The only blanker in the catalog is `1M Blanker` at one module, so
      * the blank count IS a module count. */
@@ -876,6 +902,13 @@ export interface ModuleFitOutcome {
   ladders: ModuleFitLadderOutcome[];
   /** The blank-count arbitration. Absent when nothing was counted (see ModuleFitBlanksOutcome). */
   blanks?: ModuleFitBlanksOutcome;
+  /**
+   * INCLUDES-MODULES GATE: set ONLY when the step's `include_when` EXCLUDED the modules -- the
+   * attribute read and the value it held. `occupied` is 0 and every ladder is `absent` on that path,
+   * exactly the shape a "None" plate publishes; this field says WHY. Absent on the included path and
+   * on every step without the key (byte-identical).
+   */
+  excluded?: { attr: string; value: string };
 }
 
 /**

@@ -31,6 +31,13 @@ SNAG_STATUSES = ("Pending", "WIP", "Completed", "Not Applicable")
 #: no remark box for it; this is the half a client cannot skip.
 NO_REMARK_STATUS = "Not Applicable"
 
+#: The `by_batch` key a MANUALLY ADDED snag (one with no batch) is counted under.
+#: An EMPTY STRING, never None: `by_batch` is a JSON object on the wire and `null` is
+#: not a key there. It also folds NULL and "" together, so it stays correct whichever
+#: the database holds for an unset Link (`add_manual_snag` writes None; Frappe is free
+#: to store either).
+MANUAL_BATCH_KEY = ""
+
 
 def _assert_status(status):
     if status not in SNAG_STATUSES:
@@ -180,8 +187,24 @@ def bulk_update_snag_status(snags=None, status=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def add_manual_snag(project=None, area=None, category=None, description=None):
-    """Create one snag by hand -- no batch. Admin / Project Lead / PMO."""
+def add_manual_snag(project=None, area=None, category=None, description=None, batch=None):
+    """Create one snag by hand. Admin / Project Lead / PMO.
+
+    `batch` IS OPTIONAL AND IS THE TAB THE USER WAS ON (owner decision 2026-09-09,
+    NARROWING "a manually added snag belongs to no batch"). Adding a snag while a batch
+    tab is open now files it INTO that import, which is what the screen implies: the row
+    appears in the list the user is looking at instead of vanishing into "All".
+
+    Omitted (the "Added manually" tab, or any caller that does not send it) the snag
+    still has NO batch, and that path is unchanged.
+
+    ⚠️ TWO CONSEQUENCES OF FILING A HAND-TYPED SNAG INTO A BATCH, both accepted:
+      - `delete_batch` sweeps every snag with that batch, so a snag added this way CAN
+        be deleted with the import -- unlike a batch-less one, which nothing deletes.
+      - The batch's `source_file` no longer accounts for every row in it. `source_row`
+        stays 0, which is what still tells an imported row from a typed one -- the S.No
+        no longer does, because a blank one read as broken beside numbered neighbours.
+    """
     if not project:
         frappe.throw("project is required.", title="Missing field: project")
     if not frappe.db.exists("Projects", project):
@@ -190,12 +213,30 @@ def add_manual_snag(project=None, area=None, category=None, description=None):
         frappe.throw("A description is required.", title="Missing field: description")
     require_import_access("add a snag")
 
+    batch = (batch or "").strip() or None
+    if batch:
+        # The batch must belong to THIS project. Without the check a client could file a
+        # snag into another project's import, and nothing downstream would ever notice:
+        # the snag's own `project` would still read correctly while its batch pointed
+        # somewhere else entirely.
+        batch_project = frappe.db.get_value("Project Snag Batch", batch, "project")
+        if batch_project is None:
+            frappe.throw(f"Snag batch '{batch}' not found.", title="Not found")
+        if batch_project != project:
+            frappe.throw(
+                f"Snag batch '{batch}' belongs to a different project.",
+                title="Wrong project",
+            )
+
     doc = frappe.get_doc(
         {
             "doctype": "Project Snag",
             "project": project,
-            # A Manual Snag has no batch -- that absence is how the UI tells the two apart.
-            "batch": None,
+            # The tab the user was on, or None on the manual tab.
+            "batch": batch,
+            # The next free number in the list it joins -- never blank. See
+            # `_next_manual_serial`.
+            "source_serial": _next_manual_serial(project, batch),
             "status": "Pending",
             # SHARED normalisation with `update_snag_details` -- see `_normalized_details`.
             # (A HAND-TYPED snag still needs its own text: the blank ADR-0019 allows is the
@@ -204,9 +245,81 @@ def add_manual_snag(project=None, area=None, category=None, description=None):
         }
     )
     doc.insert(ignore_permissions=True)
+
+    if batch:
+        _refresh_batch_snag_count(batch)
+
     frappe.db.commit()
 
-    return {"name": doc.name, "status": doc.status}
+    return {
+        "name": doc.name,
+        "status": doc.status,
+        "batch": doc.batch,
+        "source_serial": doc.source_serial,
+    }
+
+
+def _next_manual_serial(project, batch):
+    """The S.No a hand-added snag takes: the next free number in the list it joins.
+
+    A manual snag used to land with a BLANK S.No, which was survivable only while such
+    snags had no batch and sat alone. Now that one joins the batch the user is looking
+    at, the blank sits in a column where every neighbouring row is numbered -- so the
+    row reads as broken rather than as hand-added.
+
+    SCOPE IS THE LIST IT JOINS, matching `import_wizard._serials_for`: a serial is a
+    POSITION within its batch, so the count runs over that batch -- or, on the manual
+    tab, over the project's batch-less snags.
+
+    ⚠️ `source_serial` is DATA, not Int, and deliberately so: a consultant numbering
+    `1.1` or `A-3` keeps it. So the highest INTEGER is what advances, and a scope whose
+    numbering is entirely non-numeric falls back to its row count. Both are floored by
+    the row count, so the answer can never be lower than the rows already present.
+
+    NOT unique-checked, for the same reason the importer does not check: a real sheet
+    restarts its numbering per section, so duplicates are the consultant's data.
+    """
+    if batch:
+        serials = frappe.get_all(
+            "Project Snag", filters={"batch": batch}, pluck="source_serial",
+            limit_page_length=0,
+        )
+    else:
+        serials = frappe.get_all(
+            "Project Snag",
+            filters=[["project", "=", project], ["batch", "is", "not set"]],
+            pluck="source_serial",
+            limit_page_length=0,
+        )
+
+    highest = 0
+    for value in serials:
+        text = (value or "").strip()
+        if text.isdigit():
+            highest = max(highest, int(text))
+
+    return str(max(highest, len(serials)) + 1)
+
+
+def _refresh_batch_snag_count(batch):
+    """Re-derive `Project Snag Batch.snag_count` from the rows that carry the batch.
+
+    RECOMPUTED FROM SOURCE, never incremented by a delta (root CLAUDE.md): any later
+    ordinary save then repairs it exactly, and a reconcile pass can always prove it.
+    It stopped being "how many rows this import brought in" the moment a snag could be
+    added to a batch by hand -- Import History reads it as the batch's SIZE, so a count
+    that ignored hand-added rows would disagree with the tab count beside it.
+
+    `set_value` with `update_modified=False`: this is a derived counter, and touching
+    `modified` would make every hand-added snag look like someone edited the import.
+    """
+    frappe.db.set_value(
+        "Project Snag Batch",
+        batch,
+        "snag_count",
+        frappe.db.count("Project Snag", {"batch": batch}),
+        update_modified=False,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -394,11 +507,22 @@ def delete_batch(batch=None):
 
 @frappe.whitelist()
 def get_snag_stats(project=None):
-    """SnagStatsSummary for the tab's stats strip.
+    """SnagStatsSummary for the tab's stats strip AND the batch tab strip's counts.
 
-    A count over many rows is the DATABASE's job (ADR-0010) -- one GROUP BY, never a
-    get_doc / row loop in Python. Every status is seeded to 0 so the response is a total
-    map over SnagStatus, as `Record<SnagStatus, number>` in types.ts requires.
+    A count over many rows is the DATABASE's job (ADR-0010) -- ONE GROUP BY, never a
+    get_doc / row loop in Python. It groups by `batch, status` rather than `status`
+    alone, which is what lets a project with N batches render its tab strip, its
+    per-batch counts and its per-batch stats strip from a SINGLE call. The frontend
+    slices `by_batch`; it never asks per batch (that would be N round trips on a
+    screen that already has the whole grid in hand).
+
+    ⚠️ `by_status` NOW ACCUMULATES (`+=`), and that is load-bearing. With the batch
+    dimension added there is one row PER (batch, status), so the assignment this
+    replaced would report only the LAST batch's count for each status -- a project
+    with two batches would show the smaller number and look like snags had vanished.
+
+    Every status is seeded to 0 on every slice, so each is a total map over SnagStatus
+    as `Record<SnagStatus, number>` in types.ts requires.
 
     READ-GUARDED. It shipped with no guard at all, which made a project's defect counts
     readable by any logged-in session, Accountant included -- the one role the tab is
@@ -411,20 +535,32 @@ def get_snag_stats(project=None):
     rows = frappe.get_all(
         "Project Snag",
         filters={"project": project},
-        fields=["status", "count(name) as cnt"],
-        group_by="status",
+        fields=["batch", "status", "count(name) as cnt"],
+        group_by="batch, status",
         limit_page_length=0,
     )
 
     by_status = {status: 0 for status in SNAG_STATUSES}
+    by_batch = {}
     total = 0
     for row in rows:
         count = int(row.get("cnt") or 0)
+        status = row.get("status")
         total += count
-        if row.get("status") in by_status:
-            by_status[row["status"]] = count
+        if status in by_status:
+            by_status[status] += count
 
-    return {"total": total, "by_status": by_status}
+        # A snag with no batch was added by hand -- it belongs to the manual slice,
+        # not to a batch that does not exist.
+        key = row.get("batch") or MANUAL_BATCH_KEY
+        slice_ = by_batch.setdefault(
+            key, {"total": 0, "by_status": {s: 0 for s in SNAG_STATUSES}}
+        )
+        slice_["total"] += count
+        if status in slice_["by_status"]:
+            slice_["by_status"][status] += count
+
+    return {"total": total, "by_status": by_status, "by_batch": by_batch}
 
 
 # ---------------------------------------------------------------------------

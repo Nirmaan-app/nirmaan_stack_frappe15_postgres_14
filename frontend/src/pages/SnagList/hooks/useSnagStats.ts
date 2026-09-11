@@ -11,6 +11,7 @@ const EMPTY_STATS: SnagStatsSummary = {
     Completed: 0,
     "Not Applicable": 0,
   },
+  by_batch: {},
 };
 
 export interface UseSnagStatsResult {
@@ -21,7 +22,8 @@ export interface UseSnagStatsResult {
 }
 
 /**
- * Project-scoped Total / Pending / WIP / Completed tally.
+ * Project-scoped Total / Pending / WIP / Completed tally, PLUS the same tally split
+ * per batch (`by_batch`) that feeds the batch tab strip.
  *
  * NOTE there is deliberately NO Risk Level in this feature (plan § 2 + § 8.4) —
  * the source file's hand-maintained High/Medium/Low tally is not replaced, so do
@@ -45,6 +47,11 @@ export function useSnagStats(projectId?: string): UseSnagStatsResult {
           SnagStatus,
           number
         >,
+        // Passed through as sent. A batch ABSENT from the map has no snags, which is
+        // what its tab must read as -- do not seed a key per known batch here: the
+        // batch list is not this hook's to know, and a seeded 0 would be
+        // indistinguishable from a stats call that failed.
+        by_batch: raw.by_batch ?? {},
       }
     : EMPTY_STATS;
 

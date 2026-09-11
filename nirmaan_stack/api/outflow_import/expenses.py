@@ -73,16 +73,12 @@ from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 # later, with no way to tell which copy wrote it.
 from nirmaan_stack.services.payment_split import split_payment
 from nirmaan_stack.services.outflow_import.partial_settle import (
-    INTENT_DEDUCTION,
     REFUSAL_NOT_APPROVED,
     REFUSAL_NOT_A_PAYMENT,
     REFUSAL_NOT_POSITIVE,
-    REFUSAL_NOT_SERVICE,
     REFUSAL_NOT_SHORT,
-    REFUSAL_RATE_OUT_OF_BAND,
     REFUSAL_WITHIN_WINDOW,
     VALID_INTENTS,
-    deduction_eligibility,
     partial_eligibility,
 )
 from nirmaan_stack.services.outflow_import.settle import (
@@ -185,13 +181,18 @@ def settle_row_partial(row: str, target_name: str, intent: str):
     other exits are switched off. The record is split first, so each transfer then settles an
     ordinary exact-amount payment through `settle_payment`, UNCHANGED.
 
-    ⚠️ `intent` IS REQUIRED AND HAS NO DEFAULT, AND THAT IS THE PRODUCT OF THIS SLICE. A shortfall
-    is EITHER a part payment (the balance is still owed) OR a deduction such as TDS (nothing more is
-    owed). Nothing in this system can tell them apart -- `Project Payments.tds` is blank until a
-    human writes it at fulfilment -- so the reviewer declares it. Guess it wrong in the part-payment
-    direction and this creates an approved payment that will never be paid, inflating what the PO
-    thinks it still owes, forever: worse than the dead end it replaces. A missing or unrecognised
-    intent throws rather than assuming.
+    ⚠️ `intent` IS REQUIRED AND HAS NO DEFAULT, AND IT SURVIVES SLICE TD'S REMOVAL WITH ONE LEGAL
+    VALUE. A shortfall is EITHER a part payment (the balance is still owed) OR a deduction such as
+    TDS (nothing more is owed). Nothing in this system can tell them apart -- `Project Payments.tds`
+    is blank until a human writes it at fulfilment -- so the reviewer declares it. Guess it wrong in
+    the part-payment direction and this creates an approved payment that will never be paid,
+    inflating what the PO thinks it still owes, forever: worse than the dead end it replaces. A
+    missing or unrecognised intent throws rather than assuming.
+
+    ⚠️ THIS ENDPOINT NO LONGER RECORDS TDS, AND MUST NOT LEARN TO AGAIN. Slice TD's deduction branch
+    is gone: SR tax withheld is recorded once, at approval, by `services/payment_tds.py`, which nets
+    `Project Payments.amount` -- so an approved SR payment now matches its transfer outright. A
+    `deduction` intent falls through to the `VALID_INTENTS` throw, which is the regression fence.
 
     ⚠️ THERE IS NO `amount` PARAMETER, AND THAT IS THE BIGGEST SAFETY DIFFERENCE FROM THE CEO SPLIT.
     The kept amount IS the bank amount, so the reviewer types no figure -- there is no typo to make
@@ -219,24 +220,22 @@ def settle_row_partial(row: str, target_name: str, intent: str):
 
     declared = (intent or "").strip()
     if declared not in VALID_INTENTS:
+        # ⚠️ THIS IS WHERE A `deduction` INTENT NOW LANDS, AND THE MESSAGE HAS TO SAY SO. A caller
+        # still sending the removed intent -- a cached bundle, a saved request -- must be told the
+        # answer moved rather than that it typed nonsense, or it will retry the same call.
         frappe.throw(
-            "Say whether this is a part payment or a deduction before settling part of a payment.",
+            "Declare that this is a part payment before settling part of a payment. Tax withheld is "
+            "no longer recorded from a statement -- it is deducted when the payment is approved.",
             frappe.ValidationError,
             title="No intent given",
         )
     staged, doc = _load_settleable_row(row)
     # ⚠️ THE THIRD MONEY-OUT DOOR, AND IT HAD THE SAME HOLE AS THE OTHER TWO. This one both settles
     # a payment AND performs surgery on a PO's terms, so an unguarded credit would leave a split
-    # sanction behind it as well as a wrongly-Paid record. Guarded here rather than only in the two
-    # branches below, because both of them spend.
+    # sanction behind it as well as a wrongly-Paid record. Guarded above the spend, not inside it.
     _guard_is_a_debit(doc)
     statement_file_url = _statement_file_url(doc["import_batch"])
     bank_amount = normalize_amount(doc.get("amount"))
-
-    if declared == INTENT_DEDUCTION:
-        return _settle_as_deduction(
-            row, staged, doc, target_name, bank_amount, actor, statement_file_url
-        )
 
     savepoint = f"ofi_partial_{frappe.generate_hash(length=10)}"
     frappe.db.savepoint(savepoint)
@@ -278,128 +277,6 @@ def settle_row_partial(row: str, target_name: str, intent: str):
     return summary
 
 
-def _settle_as_deduction(
-    row: str, staged, doc, target_name: str, bank_amount, actor: str, statement_file_url
-):
-    """Record the shortfall as TDS on the payment and settle it in full (slice TD).
-
-    ⚠️ THIS BRANCH USED TO THROW, and the throw was right until the owner ruled otherwise on
-    2026-08-12. What changed is narrow: on a `Service Requests` payment whose shortfall lands in the
-    0.95-2.05% band, the deduction is DERIVED (`amount - bank`, forced by arithmetic) and written.
-    Everywhere else this still routes to the payments screen, because a figure this import cannot
-    derive is one it must not invent.
-
-    ⚠️ NO SPLIT HAPPENS HERE. A deduction means the payment was settled IN FULL and something was
-    withheld -- there is no balance and nothing is owed. Creating one would be the phantom the whole
-    partial-settlement slice exists to avoid, pointed the other way.
-
-    ⚠️ THE AMOUNT IS UNTOUCHED. `settle_payment` skips `rewrite_amount` on this path; the record
-    keeps the invoiced figure and `tds` carries the withholding, exactly as `_fulfil_payment` does
-    it. That is what keeps `bank = amount - tds` true for every reader of this ledger.
-    """
-    savepoint = f"ofi_tds_{frappe.generate_hash(length=10)}"
-    frappe.db.savepoint(savepoint)
-    try:
-        eligibility = _assert_deduction_recordable(target_name, bank_amount)
-        result = settle_payment(
-            staged,
-            target_name,
-            actor,
-            statement_file_url=statement_file_url,
-            tds=eligibility.tds,
-        )
-        _record_settlement(staged, doc, result, actor)
-    except Exception:
-        frappe.db.rollback(save_point=savepoint)
-        raise
-    frappe.db.release_savepoint(savepoint)
-
-    statuses = _refresh_batch_rollup(doc["import_batch"])
-    frappe.db.commit()
-    _link_statement_file_to_target(statement_file_url, result)
-    _record_deduction_provenance(staged, result, eligibility)
-
-    summary = _summary(row, result, doc["import_batch"], statuses)
-    summary["deduction"] = {
-        "tds": float(eligibility.tds),
-        "implied_pct": float(eligibility.implied_pct),
-    }
-    return summary
-
-
-def _assert_deduction_recordable(target_name: str, bank_amount):
-    """Re-read the payment UNDER A ROW LOCK and re-assert the whole deduction gate.
-
-    ⚠️ THE PARENT DOCTYPE IS READ HERE, NOT TAKEN FROM THE CLIENT. The service rule is the only
-    thing standing between this path and a materials PO, and a payload field is not evidence -- the
-    screen mirrors the gate for UX and the server decides.
-
-    ⚠️ `tds` IS NOT READ. It is empty on an approved payment by rule, and the rows that carry one are
-    residue from an un-fulfil that bypassed the document lifecycle. The figure is derived from this
-    transfer, every time -- see `partial_settle.deduction_eligibility`.
-    """
-    current = frappe.db.get_value(
-        PAYMENT_DOCTYPE,
-        target_name,
-        ["status", "amount", "document_type"],
-        as_dict=True,
-        for_update=True,
-    )
-    if not current:
-        frappe.throw(f"Payment '{target_name}' not found.", title="Not found")
-
-    eligibility = deduction_eligibility(
-        current.get("amount"),
-        bank_amount,
-        PAYMENT_DOCTYPE,
-        current.get("status") or "",
-        current.get("document_type") or "",
-    )
-    if not eligibility.eligible:
-        frappe.throw(
-            _DEDUCTION_REFUSALS.get(
-                eligibility.refusal,
-                "This shortfall cannot be recorded as TDS from a bank statement.",
-            ),
-            frappe.ValidationError,
-            title="Not recordable here",
-        )
-    return eligibility
-
-
-def _record_deduction_provenance(staged, result, eligibility) -> None:
-    """Say on the payment what was recorded and on whose say-so. After the commit.
-
-    ⚠️ THE DECLARED INTENT IS WRITTEN DOWN. The alternative reading of the same shortfall -- a part
-    payment -- would have produced a balance carried forward, so someone reading this payment later
-    needs to see that a person asserted the money was WITHHELD, not still owed.
-
-    ⚠️ IT ALSO NAMES THE RATE. That is what makes the figure checkable at a glance against the
-    contract, and it is the number the gate turned on.
-
-    Best effort, never fatal, and after the commit -- same reasoning as
-    `_link_statement_file_to_target`: the money is written and the row is `Settled` by the time this
-    runs, so a failure here must not report a successful settlement as an error.
-    """
-    tds = frappe.format_value(float(eligibility.tds), "Currency")
-    amount = frappe.format_value(float(result.amount), "Currency")
-    reference = (getattr(staged, "bank_reference_no", "") or "").strip() or "a bank transfer"
-    try:
-        frappe.get_doc(PAYMENT_DOCTYPE, result.name).add_comment(
-            "Comment",
-            text=(
-                f"Settled from a bank statement ({reference}). The reviewer recorded the shortfall "
-                f"as a DEDUCTION of {tds} — {eligibility.implied_pct:.2f}% of the payment — so the "
-                f"amount stays {amount} and nothing further is owed."
-            ),
-        )
-    except Exception:
-        frappe.log_error(
-            title=f"Outflow import: could not comment on a TDS settle ({result.name})",
-            message=frappe.get_traceback(),
-        )
-
-
 def _assert_partially_settleable(target_name: str, bank_amount):
     """Re-read the payment UNDER A ROW LOCK and re-assert the whole gate. Returns the eligibility.
 
@@ -431,6 +308,11 @@ def _assert_partially_settleable(target_name: str, bank_amount):
 
 # One sentence per named refusal, so a reviewer is told which rule stopped them rather than a
 # single message covering five different situations -- the mistake `_fulfil_payment` makes.
+#
+# ⚠️ A SECOND DICT USED TO READ THIS ONE AT MODULE LOAD (`_DEDUCTION_REFUSALS`, slice TD), which
+# forced this declaration to sit above it regardless of narrative order. That dependency is gone
+# with the deduction path, so this dict is now free-standing -- there is no longer a placement
+# constraint here to preserve, and nothing should reintroduce one.
 _PARTIAL_REFUSALS = {
     REFUSAL_NOT_A_PAYMENT: (
         "Only an approved payment can be settled in parts. An expense has no balance to carry."
@@ -448,31 +330,6 @@ _PARTIAL_REFUSALS = {
         "A refund or a zero-value payment cannot be settled in parts."
     ),
 }
-
-# The deduction path's refusals: every shape refusal above, plus the two that are its own.
-#
-# ⚠️ DEFINED AFTER `_PARTIAL_REFUSALS`, AND THAT IS NOT COSMETIC. It reads that dict at MODULE LOAD,
-# so declaring it beside `_settle_as_deduction` -- where it belongs by topic -- raises `NameError`
-# on import and takes the whole endpoint module down with it. Placement follows the dependency here,
-# not the narrative.
-#
-# ⚠️ THE TWO TD-SPECIFIC SENTENCES BOTH NAME THE RULE AND POINT SOMEWHERE ELSE. A reviewer meets
-# both often -- a materials PO, or a 40% gap -- and can do nothing about either from this screen,
-# so a bare "not allowed" would strand them.
-_DEDUCTION_REFUSALS = dict(
-    _PARTIAL_REFUSALS,
-    **{
-        REFUSAL_NOT_SERVICE: (
-            "TDS is recorded here only on service payments. Record this one in the payments "
-            "screen. Nothing has been recorded."
-        ),
-        REFUSAL_RATE_OUT_OF_BAND: (
-            "Only a shortfall of about 1-2% can be recorded as TDS here. Record this one in the "
-            "payments screen. Nothing has been recorded."
-        ),
-    },
-)
-
 
 def _record_partial_provenance(staged, split: dict, declared_intent: str) -> None:
     """Say on BOTH halves what happened and what the reviewer declared. After the commit.

@@ -122,6 +122,18 @@ class ProjectPayments(Document):
 		try:
 			frappe.db.set_value(self.document_type, self.document_name, "amount_paid", total_paid)
 
+			# `total_tds` rides THIS recompute rather than having its own trigger, and the
+			# co-location is the design: both totals are sums over the SAME population (this
+			# parent's Paid payments), so computing them in one pass is what makes it impossible
+			# for a Service Request to report tax withheld on money it has not paid. It no-ops
+			# for any parent outside `payment_tds.DEDUCTIBLE_PARENTS` — a Procurement Order has
+			# no `total_tds` field to write to.
+			from nirmaan_stack.services import payment_tds
+
+			payment_tds.sync_total_tds(
+				self.document_type, self.document_name, exclude_payment=exclude_name
+			)
+
 			# `amount_due` on the parent is derived from `amount_paid`, so it moves with it.
 			# PO: amount_invoiced - amount_paid | SR: total_amount - amount_paid -- deliberately
 			# different formulas; the helper owns that split.

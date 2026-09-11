@@ -46,6 +46,7 @@ import PaymentSummaryCards from "../PaymentSummaryCards";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useVendorTdsRates, VendorTdsRateContext } from "../hooks/useVendorTdsRates";
 import {
   FacetDeclaration,
   FacetOverrides,
@@ -880,6 +881,11 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     [selectedPayment, updateDoc, ceoApproveCall, closeDialog, toast, isCEOHold, showBlockedToast, isCEOMode, refetch]
   );
 
+  // Vendor rates for the rows on this page, so the approve dialogs can forecast the deduction.
+  // Called AFTER the table hook because it feeds off `data`, and delivered by context because the
+  // dialogs are rendered from this component's JSX rather than passed the rate row by row.
+  const { rateFor: tdsRateFor } = useVendorTdsRates(data);
+
   // --- useServerDataTable Hook moved up above facets for columnFilters access ---
 
   // --- CEO Hold Row Highlighting ---
@@ -919,6 +925,9 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   }
 
   return (
+    // Both approve dialogs read the rate from here. Deliberately NOT surfaced in the table
+    // columns (owner ruling 2026-09-10) — the figure matters when deciding, not when scanning.
+    <VendorTdsRateContext.Provider value={tdsRateFor}>
     <div className="flex-1 space-y-4">
       {isPageLoading && !data?.length ? (
         <TableSkeleton />
@@ -985,9 +994,12 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           // Partial approval is the CEO gate ONLY (owner ruling). The lead tick stays a plain
           // full approve — two split points would let one payment fragment twice on its way up.
           allowPartial={isCEOMode}
+          // Tax comes off at the transition INTO `Approved`, which is the CEO's click.
+          withholdsTdsNow={isCEOMode}
         />
       )}
     </div>
+    </VendorTdsRateContext.Provider>
   );
 };
 

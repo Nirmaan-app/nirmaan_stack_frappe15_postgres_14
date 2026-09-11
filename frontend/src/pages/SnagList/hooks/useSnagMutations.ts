@@ -23,6 +23,11 @@ export interface AddManualSnagInput {
   area: string;
   category: string;
   description: string;
+  /**
+   * The batch tab the user was on, so the new snag lands in the list they are looking
+   * at. `null` on the "Added manually" tab — that snag genuinely belongs to no import.
+   */
+  batch?: string | null;
 }
 
 export interface UseSnagMutationsResult {
@@ -152,7 +157,7 @@ export function useSnagMutations(
   );
 
   const addManualSnag = useCallback(
-    async ({ area, category, description }: AddManualSnagInput) => {
+    async ({ area, category, description, batch }: AddManualSnagInput) => {
       if (!projectId) return false;
       setIsAdding(true);
       try {
@@ -161,10 +166,14 @@ export function useSnagMutations(
           area,
           category,
           description,
+          // Omitted/blank means "no batch" server-side, which is the manual-tab case.
+          batch: batch ?? null,
         });
         toast({
           title: "Snag added",
-          description: "The snag was added and starts at Pending.",
+          description: batch
+            ? "The snag was added to this batch and starts at Pending."
+            : "The snag was added and starts at Pending.",
           variant: "success",
         });
         onChanged?.();

@@ -6,14 +6,17 @@
  * so a new helper needs no panel change. Nothing persists (guardrail G2).
  */
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { X, ChevronRight, ChevronDown, RotateCcw, Sparkles, CheckCircle2 } from "lucide-react";
+import { X, ChevronRight, ChevronDown, RotateCcw, Sparkles, CheckCircle2, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { copyTextToClipboard, COPY_CONFIRM_MS } from "@/lib/clipboard";
 import { resolveRateHelpers } from "./rateHelperRegistry";
 import {
   attrDisplayValue,
   attrNoteText,
+  bareNumberText,
+  DISPLAY_RATE_KINDS,
   isAttrBlank,
   isAttrDefaulted,
   isShowingDerived,
@@ -21,6 +24,7 @@ import {
   startsAttributeGroup,
   type RateHelper,
   type RateHelperRowContext,
+  type WorkingsGroup,
 } from "./rateHelperTypes";
 
 // RM-3c item B: the FULL-SCREEN panel is a resizable PUSH panel (occupies real layout width, narrows
@@ -89,6 +93,40 @@ export function kindLabel(kind: string): string {
   return KIND_LABELS[kind] ?? kind;
 }
 
+/**
+ * Calculator slice 1 (owner 2026-09-08, "place small copy icon besude each umber" / "bare number").
+ * ONE figure's copy control: a 12-px icon that puts `bareNumberText(value)` on the clipboard -- the
+ * number exactly as the figure reads, no symbol, no separator -- and shows a tick for
+ * `COPY_CONFIRM_MS`. It sits INSIDE the section block's wrapping finals row, the one place on the
+ * 320-px panel with room for it (the header and the final-value row have none -- recon 2026-09-08).
+ * The copy is the ONLY thing it does: no state outside this button, nothing persisted, nothing
+ * written to a cell.
+ */
+function CopyFigureButton({ value, label }: { value: number; label: string }) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<number | null>(null);
+  useEffect(() => () => { if (timerRef.current !== null) window.clearTimeout(timerRef.current); }, []);
+  const onCopy = async (e: ReactMouseEvent) => {
+    e.stopPropagation();
+    const ok = await copyTextToClipboard(bareNumberText(value));
+    if (!ok) return;
+    setCopied(true);
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => setCopied(false), COPY_CONFIRM_MS);
+  };
+  return (
+    <button
+      type="button"
+      onClick={(e) => void onCopy(e)}
+      title={copied ? "Copied" : `Copy the ${label.toLowerCase()} figure (bare number)`}
+      aria-label={`Copy ${label.toLowerCase()} figure`}
+      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    >
+      {copied ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+    </button>
+  );
+}
+
 interface RateHelperPanelProps {
   /** RM-3b: OPTIONAL -- absent => the empty-state placeholder (embedded panel-as-default, no row
    * selected yet). Present together (excelRow + col + kind + ctx) => a row is loaded. */
@@ -100,15 +138,46 @@ interface RateHelperPanelProps {
   ctx?: RateHelperRowContext;
   /** The page-built helper list (real pricing-sheet helper prepended); default = the static two. */
   helpers?: RateHelper[];
-  /** Apply a value to the (excelRow, col) rate cell through the real save path + record telemetry. */
-  onUse: (col: string, value: number, meta: UseMeta) => void;
-  onClose: () => void;
-  /** Two-mode mount. `push` (RM-3c, full-screen) = an IN-FLOW resizable panel that occupies real layout
+  /** Apply a value to the (excelRow, col) rate cell through the real save path + record telemetry.
+   * OPTIONAL since calculator slice 2: the `calculator` variant has no row to write to and renders no
+   * "Use this value" -- absent here means the write affordance does not exist on that surface. */
+  onUse?: (col: string, value: number, meta: UseMeta) => void;
+  onClose?: () => void;
+  /** Three-mode mount. `push` (RM-3c, full-screen) = an IN-FLOW resizable panel that occupies real layout
    * width at the right of the full-screen flex row, narrowing the grid (supersedes the RM-3a fixed
    * overlay drawer); it keeps a close X and has a left-edge drag handle. `embedded` (default) = the
    * RM-3b ALWAYS-MOUNTED sticky in-flow panel-as-default -- no close X, an empty-state card until a row
-   * is selected. */
-  variant?: "embedded" | "push";
+   * is selected.
+   *
+   * `calculator` (calculator slice 2, owner 2026-09-08: "calculator lays out its own screen.
+   * functionally it should be excatly same with the helper") = the SAME component, the same cards,
+   * the same attributes, sections, figures, notes and refusal sentences, mounted on a screen with no
+   * BoQ row: it drops only the panel SHELL (the "Rate suggestions" banner, the "Row N · kind" scope
+   * line, the final-value field and "Use this value" -- there is no cell to write to), opens its card
+   * by default and takes the full width it is given. Everything a pricer reads is rendered by the
+   * lines below that the other two variants render -- THIS IS DELIBERATELY A VARIANT, NOT A FORK, so a
+   * figure can never be drawn twice. */
+  variant?: "embedded" | "push" | "calculator";
+  /**
+   * Calculator layout slice (owner 2026-09-09, "empty blocks at the top"): the labels of the price
+   * blocks the category WILL produce, known from its config before anything prices, so the blocks
+   * are on screen with em dashes from the first render and the layout never jumps. Read ONLY by
+   * `variant="calculator"`; the two BoQ variants ignore it. Rendered through the SAME section
+   * renderer as a priced block (a placeholder group with empty `figures`), never a second one.
+   */
+  calculatorBlocks?: string[];
+  /**
+   * Calculator layout slice: how many columns the attribute fields flow into (1..3), decided by the
+   * calculator screen from the category's visible field count and the available width. Read ONLY
+   * by `variant="calculator"`; absent or on a BoQ variant the fields stay in the single column.
+   */
+  fieldColumns?: number;
+  /**
+   * Calculator layout slice: how many price blocks sit side by side per row (2 on a wide calculator,
+   * 1 on a narrow one), from the same observed width as `fieldColumns`. Read ONLY by
+   * `variant="calculator"`; the BoQ variants stack their sections as before.
+   */
+  blockColumns?: number;
 }
 
 /**
@@ -161,7 +230,7 @@ export function hasSessionEdits(
   return anyAttr || Object.keys(finals).length > 0;
 }
 
-export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onClose, variant = "embedded" }: RateHelperPanelProps) {
+export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onClose, variant = "embedded", calculatorBlocks, fieldColumns, blockColumns }: RateHelperPanelProps) {
   // RM-3b: a row is loaded iff we have its context. Absent => the empty-state placeholder.
   const hasSelection = ctx != null && excelRow != null && col != null && kind != null;
   // Panel-session state ONLY (never persisted): per-helper attribute edits, which card is expanded,
@@ -182,7 +251,10 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
   // `excelRow` changes but before the effect runs would still compute with the old row's edits, and
   // a click in that window would bank it. Carrying the row makes a mismatch impossible to observe.
   const [attrOverrideState, setAttrOverrideState] = useState<RowScoped<Record<string, Record<string, string>>>>(EMPTY_ATTR_STATE);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  // Calculator slice 2: the calculator has ONE card and no header to click through, so it opens
+  // expanded; the two BoQ variants keep their collapsed default.
+  const isCalculator = variant === "calculator";
+  const [expanded, setExpanded] = useState<string | null>(isCalculator ? (helpers?.[0]?.id ?? null) : null);
   const [finalOverrideState, setFinalOverrideState] = useState<RowScoped<Record<string, string>>>(EMPTY_FINAL_STATE);
   // What the CURRENT row may see. A different row (or none) sees nothing -- never the previous row's.
   const attrOverrides = overridesForRow(attrOverrideState, excelRow, EMPTY_ATTR_MAP);
@@ -313,12 +385,16 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
             // real width and the grid narrows by exactly this width. `relative` anchors the left-edge
             // drag handle; `min-h-0` lets the body scroll within the flex row's height.
             "relative shrink-0 min-h-0 border-l"
-          : // Embedded: an in-flow sticky panel that rides the viewport, fixed w-80, bounded so its
-            // body scrolls internally rather than growing the page.
-            "w-80 sticky top-4 max-h-[calc(100vh-2rem)] shrink-0 self-start rounded-md border shadow-lg",
+          : isCalculator
+            ? // Calculator slice 2: the calculator screen owns the layout -- the panel takes the width it
+              // is given and scrolls its own body within it. No sticky, no fixed width, no shadow.
+              "w-full min-h-0 flex-1"
+            : // Embedded: an in-flow sticky panel that rides the viewport, fixed w-80, bounded so its
+              // body scrolls internally rather than growing the page.
+              "w-80 sticky top-4 max-h-[calc(100vh-2rem)] shrink-0 self-start rounded-md border shadow-lg",
       )}
       style={isPush ? { width: `${panelWidth}px` } : undefined}
-      aria-label="Rate suggestions"
+      aria-label={isCalculator ? "Pricing calculator" : "Rate suggestions"}
     >
       {isPush && (
         // RM-3c: left-edge DRAG HANDLE -- drag resizes live (clamp 280..50%), double-click resets to
@@ -336,6 +412,10 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
           className="absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none select-none bg-border/40 hover:bg-primary/40 focus:bg-primary/50 focus:outline-none"
         />
       )}
+      {/* Calculator slice 2: the banner and the scope line are panel SHELL -- BoQ-editor copy the
+          calculator screen does not mount (it has its own heading and no row). Everything below the
+          shell is shared. */}
+      {!isCalculator && (
       <header className="flex items-center justify-between border-b px-3 py-2">
         <div className="flex items-center gap-1.5 text-sm font-medium">
           <Sparkles className="h-4 w-4 text-primary" />
@@ -354,7 +434,8 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
           </button>
         )}
       </header>
-      {hasSelection && (
+      )}
+      {hasSelection && !isCalculator && (
         <div className="border-b px-3 py-1.5 text-xs text-muted-foreground">
           Row {excelRow} &middot; {kindLabel(kind!)} rate
         </div>
@@ -439,9 +520,21 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
               </button>
 
               {isOpen && (
-                <div className="space-y-2 border-t px-3 py-2">
+                // Calculator layout slice (owner 2026-09-09): on the CALCULATOR the body is a flex
+                // column and its three children carry `order-*` -- price blocks FIRST (order-1), the
+                // attribute fields BELOW them (order-2), the Revert row last (order-3). The JSX order
+                // below is unchanged, so the two BoQ variants render byte-identically; only the
+                // calculator's CSS order and containers differ. No element is rendered twice.
+                <div className={isCalculator ? "flex flex-col gap-3 border-t px-3 py-2" : "space-y-2 border-t px-3 py-2"}>
                   {result.workings.attributes.length > 0 && (
-                    <div className="space-y-1.5">
+                    <div
+                      className={isCalculator ? "order-2 grid gap-x-6 gap-y-2" : "space-y-1.5"}
+                      // Calculator layout slice: the fields flow into N equal columns, N decided by the
+                      // calculator screen (content sets the maximum, width may only reduce it). The
+                      // ORDER is the panel's own render order, split across the columns -- "split as
+                      // per order" (owner); no grouping is invented here.
+                      style={isCalculator ? { gridTemplateColumns: `repeat(${Math.max(1, fieldColumns ?? 1)}, minmax(0, 1fr))` } : undefined}
+                    >
                       {result.workings.attributes.map((a, ai, attrs) => {
                         // F4b -- THE LABELLED GROUP HEADER. General: emitted whenever `groupLabel`
                         // CHANGES between consecutive rendered attributes, so a config declaring
@@ -484,13 +577,21 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                         {startsGroup && (
                           <div
                             data-testid="attr-group-header"
-                            className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                            // Calculator layout slice: a group heading spans every column, so it still
+                            // renders where it falls in the order and never sits inside one column.
+                            className={cn(
+                              "pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground",
+                              isCalculator && "col-span-full",
+                            )}
                           >
                             {a.groupLabel}
                           </div>
                         )}
                         <div className="group/attr space-y-0.5">
-                        <label className="flex items-center justify-between gap-2 text-xs">
+                        {/* Calculator layout slice: the label sits ABOVE its box (a column, boxes
+                            full-width and equal within a column); the BoQ variants keep label-left /
+                            box-right on one line, byte-unchanged. */}
+                        <label className={isCalculator ? "flex flex-col items-stretch gap-1 text-xs" : "flex items-center justify-between gap-2 text-xs"}>
                           <span className="flex items-center gap-1 text-muted-foreground">
                             {a.label}
                             {showingDerived && (
@@ -517,7 +618,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                               <button
                                 type="button"
                                 onClick={() => resetAttr(helper.id, a.id)}
-                                title="Undo my edit to this field -- restores what the row supplied"
+                                title="Undo my edit to this field -- restores the original value"
                                 aria-label={`Undo my edit to ${a.label}`}
                                 className="opacity-0 transition-opacity group-hover/attr:opacity-100 focus:opacity-100 focus-visible:opacity-100"
                               >
@@ -541,6 +642,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                               // EA-4a-r: disabled = greyed (an allow_none controller is set to "None").
                               className={cn(
                                 "h-7 rounded border bg-background px-1 text-xs disabled:opacity-50",
+                                isCalculator && "w-full",
                                 fieldTone,
                               )}
                               value={shown}
@@ -590,7 +692,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                               ))}
                             </select>
                           ) : (
-                            <span className="flex items-center gap-1">
+                            <span className={isCalculator ? "flex w-full items-center gap-1" : "flex items-center gap-1"}>
                               {/* EA-4a-r: a NUMBER allow_none def offers "None" (positive absence) as a
                                   checkbox -- the input-appropriate analogue of a choice def's top-of-list
                                   "None". Checked -> the sentinel + the numeric field greys/clears. */}
@@ -605,7 +707,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                                 </label>
                               )}
                               <Input
-                                className={cn("h-7 w-28 text-xs disabled:opacity-50", fieldTone)}
+                                className={cn(isCalculator ? "h-7 w-full text-xs disabled:opacity-50" : "h-7 w-28 text-xs disabled:opacity-50", fieldTone)}
                                 value={shown === "None" ? "" : shown}
                                 // READ-ONLY, not disabled: the value is real and worth reading (and
                                 // copying) -- greying it out would read as "positively absent", which
@@ -662,14 +764,12 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                     </div>
                   )}
 
-                  {result.workings.sections && result.workings.sections.length > 0 ? (
-                    // RM-3a: LABELLED groups -- each rendered as its OWN separated block (header +
-                    // card/divider + own derivation lines + own final values), so a cable row's
-                    // Cable and Termination workings read as visually distinct sections. The shared
-                    // EXTRACTED attributes already render ONCE above (they belong to the row, not a
-                    // group). ABSENT `sections` => the flat rendering below, byte-identical to before.
-                    <div className="space-y-1.5">
-                      {result.workings.sections.map((g, gi) => (
+                  {/* Calculator layout slice: the ONE section renderer. A priced block and a placeholder
+                      block (a group with empty `figures`, so the three kinds render as em dashes and
+                      no copy button) go through the same JSX -- there is deliberately no second
+                      renderer of a figure anywhere. */}
+                  {(() => {
+                    const renderSection = (g: WorkingsGroup, gi: number) => (
                         <div key={gi} className="rounded-md border bg-muted/30 px-2 py-1.5">
                           <div className="text-xs font-semibold text-foreground">{g.label}</div>
                           {g.matchedRows && g.matchedRows.length > 0 && (
@@ -686,20 +786,73 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                               ))}
                             </ul>
                           )}
-                          {Object.keys(g.finals).length > 0 && (
+                          {/* Calculator slice 1 (owner 2026-09-08): EVERY priced line shows the SAME
+                              three labelled figures -- Supply, Install, Combined -- each with a copy
+                              icon, in this section block (the one place on the panel with room). A
+                              kind the line did not produce is the em dash, never hidden and never 0.
+                              Combined is THIS line's own supply + install (`groupFigures` over this
+                              group's finals alone); there is deliberately no total across lines and
+                              no code path that adds two groups. The raw `finals` map is no longer
+                              rendered: its output ids ("supply_per_mtr") were the internal vocabulary
+                              this slice takes off the screen. An older producer with no `figures`
+                              renders three dashes rather than a blank. */}
+                          {(g.figures !== undefined || Object.keys(g.finals).length > 0) && (
                             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
-                              {Object.entries(g.finals).map(([k, v]) => (
-                                <span key={k} className="tabular-nums">
-                                  <span className="text-muted-foreground">{k}</span>{" "}
-                                  <span className="font-semibold text-foreground">{v}</span>
-                                </span>
-                              ))}
+                              {DISPLAY_RATE_KINDS.map((k) => {
+                                const v = g.figures?.[k];
+                                return (
+                                  <span key={k} className="inline-flex items-center gap-1 tabular-nums">
+                                    <span className="text-muted-foreground">{kindLabel(k)}</span>
+                                    <span className="font-semibold text-foreground">
+                                      {typeof v === "number" ? v : "—"}
+                                    </span>
+                                    {typeof v === "number" && <CopyFigureButton value={v} label={kindLabel(k)} />}
+                                  </span>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
-                      ))}
-                    </div>
-                  ) : (
+                    );
+                    // Calculator layout slice (owner: "1*2 grid per row which then gets repeated as
+                    // required"): two blocks per row, wrapping; a grid's items stretch to the row, so
+                    // blocks in a row are equal height however many derivation lines each carries.
+                    // The blocks-per-row count comes from the calculator's OWN width (`blockColumns`,
+                    // the same observed width that folds the fields), so a narrow container folds the
+                    // blocks to one per row at the same moment the fields fold to one column.
+                    const sectionsClass = isCalculator ? "order-1 grid gap-2" : "space-y-1.5";
+                    const sectionsStyle = isCalculator
+                      ? { gridTemplateColumns: `repeat(${Math.max(1, blockColumns ?? 2)}, minmax(0, 1fr))` }
+                      : undefined;
+                    if (result.workings.sections && result.workings.sections.length > 0) {
+                      // RM-3a: LABELLED groups -- each rendered as its OWN separated block (header +
+                      // card/divider + own derivation lines + own final values), so a cable row's
+                      // Cable and Termination workings read as visually distinct sections. The shared
+                      // EXTRACTED attributes already render ONCE above (they belong to the row, not a
+                      // group). ABSENT `sections` => the flat rendering below, byte-identical to before.
+                      return <div className={sectionsClass} style={sectionsStyle}>{result.workings.sections.map(renderSection)}</div>;
+                    }
+                    if (isCalculator && calculatorBlocks && calculatorBlocks.length > 0) {
+                      // EMPTY BLOCKS FROM THE START (owner-ruled): before the category prices, the
+                      // blocks it will produce are already on screen with dashes -- placeholder groups
+                      // rendered by the same `renderSection`; the flat lines (the "fill them" sentence)
+                      // follow underneath. The layout cannot jump when the first field is answered.
+                      return (
+                        <div className="order-1 space-y-2">
+                          <div className={sectionsClass} style={sectionsStyle}>
+                            {calculatorBlocks.map((label, gi) => renderSection({ label, derivation: [], finals: {}, figures: {} }, gi))}
+                          </div>
+                          {result.workings.derivation.length > 0 && (
+                            <ul className="space-y-0.5 text-xs text-muted-foreground">
+                              {result.workings.derivation.map((line, i) => (
+                                <li key={i}>{line}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      );
+                    }
+                    return (
                     <>
                       {result.workings.matchedRows.length > 0 && (
                         <ul className="space-y-0.5 text-xs text-muted-foreground">
@@ -716,9 +869,16 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                         </ul>
                       )}
                     </>
-                  )}
+                    );
+                  })()}
 
-                  <div className="flex items-center gap-2 pt-1">
+                  <div className={isCalculator ? "order-3 flex items-center gap-2 pt-1" : "flex items-center gap-2 pt-1"}>
+                    {/* Calculator slice 2: the final-value field and "Use this value" are the WRITE
+                        affordance -- they exist only where there is a cell to write to. The calculator
+                        variant renders neither (owner: nothing is saved; there is no row). Revert stays:
+                        it is a session reset, not a write. */}
+                    {!isCalculator && onUse && (
+                    <>
                     <Input
                       className="h-8 w-28 text-sm"
                       inputMode="decimal"
@@ -751,6 +911,8 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                     >
                       Use this value
                     </Button>
+                    </>
+                    )}
                     {/* SLICE 2c -- REVERT TO SUGGESTION. Two resets, and nothing else.
                         This works because the SUGGESTION IS NEVER MUTATED: `ctx` is the source and
                         the overrides are a separate map layered on read, so discarding them re-derives
@@ -765,10 +927,14 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                       variant="ghost"
                       className="h-8"
                       disabled={!sessionEdited}
+                      // Calculator slice 1 (owner 2026-09-08, "ok. reword"): the two titles used to say
+                      // "on this row". The same panel now serves a surface with no row, and the
+                      // sentences are true without the phrase on both -- the state IS per row, which
+                      // is what makes dropping the words safe rather than merely shorter.
                       title={
                         sessionEdited
-                          ? "Discard your edits on this row and show the suggested calculation again"
-                          : "No edits to discard on this row"
+                          ? "Discard your edits and show the original values again"
+                          : "No edits to discard"
                       }
                       onClick={() => {
                         setAttrOverrideState(EMPTY_ATTR_STATE);

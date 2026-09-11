@@ -10,11 +10,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments"; // Assuming type path
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { TailSpin } from 'react-loader-spinner';
 import { DIALOG_ACTION_TYPES, DialogActionType } from '../constants';
 import { computeSplit, isAmountKeystroke, isSplittable } from '../paymentSplit';
+import { useVendorTdsRate } from '../../hooks/useVendorTdsRates';
+import { forecastTds } from '../../tdsForecast';
 
 interface PaymentActionDialogProps {
     isOpen: boolean;
@@ -32,6 +34,15 @@ interface PaymentActionDialogProps {
      * "approve 3 of 5" reads like "reject 2" unless the screen states otherwise.
      */
     allowPartial?: boolean;
+    /**
+     * Whether approving HERE is the transition into `Approved` — i.e. the CEO gate.
+     *
+     * ⚠️ IT DRIVES THE TENSE, NOT THE NUMBERS. The figures are identical either way; what differs
+     * is whether the tax comes off on this click or at the next approval. A Project Lead moving a
+     * payment to `CEO Pending` withholds nothing, and a dialog that says otherwise beside a button
+     * that does nothing of the sort is how somebody concludes their click deducted it.
+     */
+    withholdsTdsNow?: boolean;
 }
 
 export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
@@ -43,8 +54,10 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     onSubmit,
     isLoading,
     allowPartial = false,
+    withholdsTdsNow = false,
 }) => {
     const [amountInput, setAmountInput] = useState<string>("");
+    const rateFor = useVendorTdsRate();
 
     const requestedAmount = parseNumber(paymentData?.amount);
     // `isSplittable` is what keeps a REFUND approvable. A negative payment (a credit raised after
@@ -68,6 +81,21 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     const split = useMemo(
         () => computeSplit(requestedAmount, amountInput),
         [requestedAmount, amountInput]
+    );
+
+    /**
+     * What tax the approval will withhold.
+     *
+     * ⚠️ IT FOLLOWS THE AMOUNT BEING APPROVED, NOT THE AMOUNT REQUESTED. A partial approval splits
+     * the payment first, so the tax is taken on the figure in the box — forecasting off
+     * `paymentData.amount` would be wrong on exactly the row somebody is looking hardest at.
+     * `null` for a Procurement Order, a vendor with no rate, or a refund, and the panel then
+     * renders no tax lines at all rather than a row of zeroes.
+     */
+    const approvingAmount = isPartialApprove && split.valid ? split.approved : requestedAmount;
+    const tds = useMemo(
+        () => forecastTds(paymentData?.document_type, approvingAmount, rateFor(paymentData?.vendor)),
+        [paymentData?.document_type, paymentData?.vendor, approvingAmount, rateFor]
     );
 
     const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -125,51 +153,86 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                     </AlertDialogTitle>
                 </AlertDialogHeader>
 
-                {isPartialApprove && paymentData && (
-                    <div className="space-y-3">
-                        <div className="flex items-baseline justify-between text-sm">
+                {paymentData && type === DIALOG_ACTION_TYPES.APPROVE && (
+                    <div className="rounded-md border divide-y text-sm">
+                        {/* Requested — the figure the payment was raised for. */}
+                        <div className="flex items-baseline justify-between px-3 py-2">
                             <span className="text-muted-foreground">Requested</span>
                             <span className="font-medium tabular-nums">
-                                {formatToRoundedIndianRupee(requestedAmount)}
+                                {formatToIndianRupee(requestedAmount)}
                             </span>
                         </div>
 
-                        <div className="space-y-1.5">
-                            <label htmlFor="approved-amount" className="text-sm font-medium">
-                                Approving now
-                            </label>
-                            <Input
-                                id="approved-amount"
-                                type="text" // Use text to allow decimal input easily, validation handles numeric check
-                                inputMode="decimal" // Hint for mobile keyboards
-                                onChange={handleAmountChange}
-                                value={amountInput}
-                                className="h-9 text-right tabular-nums"
-                                disabled={isLoading}
-                                aria-invalid={!split.valid}
-                                aria-describedby="approved-amount-help"
-                            />
-                            <p id="approved-amount-help" className="text-xs">
-                                {!split.valid ? (
-                                    <span className="text-destructive">{split.reason}</span>
-                                ) : split.isPartial ? (
-                                    <span className="text-amber-700 dark:text-amber-400">
-                                        The balance of{' '}
-                                        <span className="font-semibold tabular-nums">
-                                            {formatToRoundedIndianRupee(split.remainder)}
-                                        </span>{' '}
-                                        stays pending as a new payment, and is added to{' '}
-                                        <i>#{paymentData.document_name}</i> as a separate payment term.
-                                        Nothing is written off.
-                                    </span>
-                                ) : (
+                        {isPartialApprove && (
+                            <div className="px-3 py-2">
+                                <div className="flex items-center justify-between gap-3">
+                                    <label htmlFor="approved-amount" className="font-medium whitespace-nowrap">
+                                        Approving now
+                                    </label>
+                                    <Input
+                                        id="approved-amount"
+                                        type="text"
+                                        inputMode="decimal"
+                                        onChange={handleAmountChange}
+                                        value={amountInput}
+                                        className="h-8 w-40 text-right tabular-nums"
+                                        disabled={isLoading}
+                                        aria-invalid={!split.valid}
+                                        aria-describedby="approved-amount-help"
+                                    />
+                                </div>
+                                <p id="approved-amount-help" className="mt-1.5 text-xs">
+                                    {!split.valid ? (
+                                        <span className="text-destructive">{split.reason}</span>
+                                    ) : split.isPartial ? (
+                                        <span className="text-amber-700 dark:text-amber-400">
+                                            The balance of{' '}
+                                            <span className="font-semibold tabular-nums">
+                                                {formatToRoundedIndianRupee(split.remainder)}
+                                            </span>{' '}
+                                            stays pending as a new payment, and is added to{' '}
+                                            <i>#{paymentData.document_name}</i> as a separate payment term.
+                                            Nothing is written off.
+                                        </span>
+                                    ) : (
+                                        <span className="text-muted-foreground">
+                                            Approving the full requested amount.
+                                        </span>
+                                    )}
+                                </p>
+                            </div>
+                        )}
+
+                        {/* Tax lines — absent entirely when nothing is withheld (a Procurement
+                            Order, a vendor with no rate, a refund), because a row of zeroes on
+                            every other payment trains people to stop reading this panel. */}
+                        {tds && (
+                            <>
+                                <div className="flex items-baseline justify-between px-3 py-2">
                                     <span className="text-muted-foreground">
-                                        Approving the full requested amount.
+                                        TDS @ {tds.ratePct}%
                                     </span>
-                                )}
-                            </p>
-                        </div>
+                                    <span className="font-medium tabular-nums text-rose-600 dark:text-rose-400">
+                                        − {formatToIndianRupee(tds.tds)}
+                                    </span>
+                                </div>
+                                <div className="flex items-baseline justify-between bg-muted/40 px-3 py-2">
+                                    <span className="font-semibold">Vendor receives</span>
+                                    <span className="font-semibold tabular-nums text-green-700 dark:text-green-400">
+                                        {formatToIndianRupee(tds.net)}
+                                    </span>
+                                </div>
+                            </>
+                        )}
                     </div>
+                )}
+
+                {tds && (
+                    <p className="text-xs text-muted-foreground">
+                        {withholdsTdsNow
+                            ? "TDS is withheld when you approve, and recorded against the work order."
+                            : "TDS is withheld at CEO approval, not on this step."}
+                    </p>
                 )}
 
                 <AlertDialogFooter className="mt-4">

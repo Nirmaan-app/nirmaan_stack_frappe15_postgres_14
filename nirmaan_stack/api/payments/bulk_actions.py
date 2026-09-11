@@ -28,6 +28,7 @@ from nirmaan_stack.integrations.Notifications.pr_notifications import (
     get_admin_users,
     get_allowed_accountants,
 )
+from nirmaan_stack.services import payment_tds
 
 MAX_BATCH_SIZE = 100
 LEAD_ALLOWED_ROLE_PROFILES = (
@@ -289,6 +290,19 @@ def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config:
     # on disk; if the engine had a fatal failure we would never reach this line.
     frappe.db.commit()
 
+    # SR tax withheld — AFTER the commit above, deliberately, and this is the only place in
+    # the run that may write it (the `bulk_approval` flag takes the controller hook off this
+    # path). Inside the save loop it shared ONE transaction with every approval in the batch,
+    # so a single database-level failure aborted the lot; out here the approvals are already
+    # on disk and nothing this phase does can take them back.
+    #
+    # `tds_failed` is the repair list, and it is the reason this is worth a second phase at
+    # all: the same failure inside the hook was swallowed and left no trace but an Error Log
+    # line, on a payment whose amount silently stayed GROSS.
+    tds_recorded, tds_failed = 0, []
+    if action == "approve" and config.approve_target_status == payment_tds.APPROVED:
+        tds_recorded, tds_failed = _record_bulk_deductions(succeeded)
+
     # Best-effort: rejection-reason comments. A failure here does not unwind the
     # approvals — the comment is purely auditing.
     if action == "reject" and rejection_reason and pending_comments:
@@ -312,6 +326,12 @@ def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config:
             "succeeded": succeeded,
             "failed": failed,
             "total": len(deduped_ids),
+            # `tds_recorded` = approved payments that carry a deduction; `tds_failed` NAMES
+            # the ones that do not — approved, still sitting at their GROSS amount, and needing
+            # the deduction re-run. An empty `tds_failed` is the check that matters. Both keys
+            # are 0/[] for a reject, for lead-mode, and for a batch with no SR payments in it.
+            "tds_recorded": tds_recorded,
+            "tds_failed": tds_failed,
         },
     }
 
@@ -495,6 +515,60 @@ def _add_rejection_comments(payment_ids: list[str], rejection_reason: str):
                 title=f"Bulk Reject Comment Error ({pid})",
                 message=frappe.get_traceback(),
             )
+
+
+# ---------------------------------------------------------------------------
+# SR tax withheld (post-commit)
+# ---------------------------------------------------------------------------
+
+def _record_bulk_deductions(payment_ids: list[str]) -> tuple[int, list[str]]:
+    """Withhold SR tax for an ALREADY-COMMITTED batch. Returns (covered, failed names).
+
+    ⚠️ THE FIRST NUMBER COUNTS PAYMENTS THAT CARRY A DEDUCTION WHEN THIS RETURNS, NOT ROWS
+    INSERTED. `record_deduction` answers with the existing row when there already is one, so
+    a payment re-run through here is counted again. That is the reading worth having: run
+    this over a previous run's `tds_failed` and the number says how many are now covered.
+
+    ⚠️ ONE TRANSACTION PER PAYMENT, AND BOTH HALVES OF THAT EARN THEIR KEEP. The commit
+    ends a failure's blast radius at the payment that caused it instead of letting an
+    aborted Postgres transaction take the rest of the loop down with it — and it releases
+    the `PTD-` naming series row lock, which Postgres holds until COMMIT, after each row
+    rather than holding a single company-wide lock for the length of the batch.
+
+    ⚠️ `record_deduction`, NOT `record_deduction_if_eligible`. That wrapper swallows
+    failures because it rides inside somebody's save and must never fail their approval;
+    out here the approval is already committed and the failure has somewhere to be
+    reported, so discarding it silently is exactly what this phase exists to stop.
+
+    ⚠️ IT NEVER RAISES. The approvals are on disk and the caller is about to return them;
+    a bookkeeping failure must not turn a successful bulk approve into a 500.
+
+    `is_deductible` is what keeps this correct for a mixed batch — a Procurement Orders
+    payment, or one whose status did not end up at `Approved`, is skipped without a query.
+    """
+    recorded: int = 0
+    failed: list[str] = []
+
+    for pid in payment_ids:
+        try:
+            pay = frappe.get_doc("Project Payments", pid)
+            if not payment_tds.is_deductible(pay):
+                continue
+            if payment_tds.record_deduction(pay):
+                recorded += 1
+            frappe.db.commit()
+        except Exception:
+            # Plain rollback, no savepoint: each payment owns its transaction, so this
+            # discards only the half-written deduction — and on Postgres it is also what
+            # clears an aborted transaction so the next payment can be attempted at all.
+            frappe.db.rollback()
+            failed.append(pid)
+            frappe.log_error(
+                title=f"Bulk Payment TDS Failed ({pid})",
+                message=frappe.get_traceback(),
+            )
+
+    return recorded, failed
 
 
 # ---------------------------------------------------------------------------

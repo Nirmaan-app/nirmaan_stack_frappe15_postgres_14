@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/popover";
 import { formatDate } from "@/utils/FormatDate";
 
+import { sheetSummary } from "../config/snagBatchTabs";
 import { ProjectSnagBatch } from "../types";
 
 export interface SnagBatchesPanelProps {
@@ -74,7 +75,7 @@ export const SnagBatchesPanel: React.FC<SnagBatchesPanelProps> = ({
             </span>
           </div>
           <p className="text-xs text-muted-foreground">
-            One batch per imported worksheet.
+            One batch per imported file.
           </p>
         </div>
 
@@ -111,12 +112,12 @@ export const SnagBatchesPanel: React.FC<SnagBatchesPanelProps> = ({
                       {b.uploaded_by ? ` · ${b.uploaded_by}` : ""}
                       {b.uploaded_on ? ` · ${formatDate(b.uploaded_on)}` : ""}
                     </p>
-                    {b.source_sheet && (
+                    {sheetSummary(b.source_sheet) && (
                       <p
                         className="mt-0.5 truncate text-[11px] text-muted-foreground"
-                        title={b.source_sheet}
+                        title={b.source_sheet ?? undefined}
                       >
-                        Sheet: {b.source_sheet}
+                        {sheetSummary(b.source_sheet)}
                       </p>
                     )}
                   </div>

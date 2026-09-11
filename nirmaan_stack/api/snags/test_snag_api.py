@@ -280,22 +280,48 @@ class TestSnagApi(FrappeTestCase):
         self.addCleanup(restore)
         return stub_parser
 
-    def _ingest(self, entries, by_sheet):
+    def _ingest(self, entries, by_sheet, batch_name="Batch A"):
+        """Run ONE import. `entries` are SHEETS of a single batch, not batches.
+
+        The suite tracks what it created for teardown; the import is atomic, so a failing
+        run creates nothing and the sweep below simply finds nothing new.
+        """
         self.stub_parser = self._install_parser(by_sheet)
-        result = import_wizard.ingest_batches(
+        result = import_wizard.ingest_batch(
             project=self.project,
             file_url=self.file_url,
             file_name="snags.xlsx",
-            batches=entries,
+            batch_name=batch_name,
+            sheets=entries,
         )
-        for entry in result["results"]:
-            if entry.get("batch"):
-                type(self)._created_names.add(entry["batch"])
+        if result.get("batch"):
+            type(self)._created_names.add(result["batch"])
         for name in frappe.get_all(
             "Project Snag", filters={"project": self.project}, pluck="name", limit_page_length=0
         ):
             type(self)._created_names.add(name)
         return result
+
+    def _ingest_expecting_failure(self, entries, by_sheet, batch_name="Batch A"):
+        """Run an import that must FAIL, and sweep anything it might have left behind.
+
+        A failure now raises rather than reporting per-sheet, so the assertion is on the
+        exception -- and the sweep is what proves ATOMICITY: nothing may survive it.
+        """
+        self.stub_parser = self._install_parser(by_sheet)
+        with self.assertRaises(Exception) as caught:
+            import_wizard.ingest_batch(
+                project=self.project,
+                file_url=self.file_url,
+                file_name="snags.xlsx",
+                batch_name=batch_name,
+                sheets=entries,
+            )
+        for name in frappe.get_all(
+            "Project Snag", filters={"project": self.project}, pluck="name", limit_page_length=0
+        ):
+            type(self)._created_names.add(name)
+        return caught.exception
 
     def _one_sheet(self, sheet="Sheet1", batch_name="Batch A", rows=None):
         rows = rows or [
@@ -305,39 +331,33 @@ class TestSnagApi(FrappeTestCase):
         ]
         entry = {
             "sheet_name": sheet,
-            "batch_name": batch_name,
             "mapping": _MAPPING,
             "header_row": None,
             "accepted_rows": [r["source_row"] for r in rows],
         }
-        return self._ingest([entry], {sheet: _parsed(rows)})
+        return self._ingest([entry], {sheet: _parsed(rows)}, batch_name=batch_name)
 
     # -- ingest ----------------------------------------------------------------
 
     def test_ingest_creates_one_batch_and_n_snags_all_pending(self):
         result = self._one_sheet()
 
-        self.assertEqual(result["failed_count"], 0)
-        self.assertEqual(result["total_imported"], 3)
-        self.assertEqual(len(result["results"]), 1)
+        self.assertEqual(result["imported"], 3)
+        self.assertEqual(result["batch_name"], "Batch A")
+        # The per-sheet breakdown of the one batch's total.
+        self.assertEqual(result["sheets"], [{"sheet_name": "Sheet1", "imported": 3}])
 
-        entry = result["results"][0]
-        self.assertTrue(entry["ok"])
-        self.assertEqual(entry["imported"], 3)
-        self.assertEqual(entry["batch_name"], "Batch A")
-        # Reported on every ok result, 0 included.
-        self.assertEqual(entry["refused_no_description"], 0)
-
-        batch = frappe.get_doc("Project Snag Batch", entry["batch"])
+        batch = frappe.get_doc("Project Snag Batch", result["batch"])
         self.assertEqual(batch.snag_count, 3)
         self.assertEqual(batch.source_sheet, "Sheet1")
         self.assertEqual(batch.source_file, self.file_url)
         self.assertEqual(batch.uploaded_by, "Administrator")
-        self.assertEqual(frappe.parse_json(batch.column_mapping), _MAPPING)
+        # KEYED BY SHEET now -- a batch may span several sheets, each mapped separately.
+        self.assertEqual(frappe.parse_json(batch.column_mapping), {"Sheet1": _MAPPING})
 
         rows = frappe.get_all(
             "Project Snag",
-            filters={"batch": entry["batch"]},
+            filters={"batch": result["batch"]},
             fields=["status", "source_row", "description", "remark"],
             limit_page_length=0,
         )
@@ -367,7 +387,7 @@ class TestSnagApi(FrappeTestCase):
 
         stored = frappe.get_all(
             "Project Snag",
-            filters={"batch": result["results"][0]["batch"]},
+            filters={"batch": result["batch"]},
             fields=["source_row", "source_serial"],
             limit_page_length=0,
         )
@@ -386,7 +406,7 @@ class TestSnagApi(FrappeTestCase):
 
         stored = frappe.get_all(
             "Project Snag",
-            filters={"batch": result["results"][0]["batch"]},
+            filters={"batch": result["batch"]},
             fields=["source_row", "source_serial"],
             limit_page_length=0,
         )
@@ -411,7 +431,7 @@ class TestSnagApi(FrappeTestCase):
 
         stored = frappe.get_all(
             "Project Snag",
-            filters={"batch": result["results"][0]["batch"]},
+            filters={"batch": result["batch"]},
             fields=["source_row", "source_serial"],
             limit_page_length=0,
         )
@@ -428,7 +448,6 @@ class TestSnagApi(FrappeTestCase):
         ]
         entry = {
             "sheet_name": "Reticked",
-            "batch_name": "Reticked batch",
             "mapping": _MAPPING,
             "header_row": None,
             "accepted_rows": [8, 9],
@@ -437,34 +456,84 @@ class TestSnagApi(FrappeTestCase):
 
         stored = frappe.get_all(
             "Project Snag",
-            filters={"batch": result["results"][0]["batch"]},
+            filters={"batch": result["batch"]},
             fields=["source_row", "source_serial"],
             limit_page_length=0,
         )
         self.assertEqual({r.source_row: r.source_serial for r in stored}, {8: "1", 9: "2"})
         self.assertTrue(all(r.source_serial for r in stored), "an imported snag with no S.No")
 
-    def test_a_manual_snag_has_no_s_no(self):
-        """Nothing invents a number outside an import: `source_serial` is provenance, and
-        a hand-added snag has no sheet to have come from."""
-        payload = tracking.add_manual_snag(
+    def test_a_manual_snag_TAKES_the_next_s_no(self):
+        """THE INVERSION of `test_a_manual_snag_has_no_s_no`.
+
+        That test pinned the opposite: nothing invented a number outside an import,
+        because `source_serial` was provenance and a hand-added snag had no sheet to
+        have come from. It was survivable only while such snags had no batch and sat
+        alone; once one joins the batch the user is looking at (owner decision
+        2026-09-09) the blank sits in a column where every neighbour is numbered, and
+        the row reads as broken rather than as hand-added.
+
+        Kept as an inversion rather than deleted so the reversal is visible, and it
+        asserts what replaced the old guarantee: the number is the next free one IN THE
+        LIST THE SNAG JOINS, and consecutive adds do not collide.
+        """
+        first = tracking.add_manual_snag(
             project=self.project, area="Kitchen", category="Civil", description="Hand added"
         )
-        type(self)._created_names.add(payload["name"])
-        self.assertFalse(frappe.db.get_value("Project Snag", payload["name"], "source_serial"))
+        type(self)._created_names.add(first["name"])
+        second = tracking.add_manual_snag(
+            project=self.project, area="Kitchen", category="Civil", description="Hand added 2"
+        )
+        type(self)._created_names.add(second["name"])
+
+        stored_first = frappe.db.get_value("Project Snag", first["name"], "source_serial")
+        stored_second = frappe.db.get_value("Project Snag", second["name"], "source_serial")
+
+        # Never blank -- that is the whole point of the reversal.
+        self.assertTrue(stored_first)
+        self.assertTrue(stored_second)
+        # Returned on the wire as well as stored, so the caller need not re-read the row.
+        self.assertEqual(first["source_serial"], stored_first)
+        # Numeric, and the second follows the first rather than repeating it.
+        self.assertTrue(stored_first.isdigit(), stored_first)
+        self.assertEqual(int(stored_second), int(stored_first) + 1)
+
+    def test_a_manual_snag_added_into_a_batch_continues_that_batch_s_numbering(self):
+        """The scope is the list it JOINS, not the project.
+
+        A snag filed into a batch takes the next number in THAT batch, so it reads as
+        row N+1 of that import rather than restarting from 1 among rows numbered 1..N.
+        """
+        imported = self._one_sheet(sheet="SerialScope", batch_name="Serial scope batch")
+        batch = imported["batch"]
+        # The fixture's three rows are numbered 1, 2, 3 by the importer.
+        self.assertEqual(imported["imported"], 3)
+
+        added = tracking.add_manual_snag(
+            project=self.project, area="Kitchen", category="Civil",
+            description="Hand added into the batch", batch=batch,
+        )
+        type(self)._created_names.add(added["name"])
+
+        self.assertEqual(added["batch"], batch)
+        self.assertEqual(added["source_serial"], "4")
+        # And the batch's own count follows the row it gained -- recomputed, not stale.
+        self.assertEqual(
+            frappe.db.get_value("Project Snag Batch", batch, "snag_count"),
+            frappe.db.count("Project Snag", {"batch": batch}),
+        )
 
     def test_ingest_writes_the_source_remark_onto_the_one_remark_field(self):
         rows = [_row(8, "Kitchen", "Leaking tap", remark="Consultant: urgent, re-check 20th")]
         entry = {
             "sheet_name": "Remarks",
-            "batch_name": "Remarks batch",
             "mapping": _MAPPING,
             "header_row": None,
             "accepted_rows": [8],
         }
         result = self._ingest([entry], {"Remarks": _parsed(rows)})
         snag = frappe.get_all(
-            "Project Snag", filters={"batch": result["results"][0]["batch"]}, pluck="name"
+            "Project Snag", filters={"batch": result["batch"]}, pluck="name"
         )[0]
         self.assertEqual(
             frappe.db.get_value("Project Snag", snag, "remark"),
@@ -475,79 +544,141 @@ class TestSnagApi(FrappeTestCase):
         rows = [_row(8, "Kitchen", "A"), _row(9, "Lobby", "B"), _row(10, "Roof", "C")]
         entry = {
             "sheet_name": "Picky",
-            "batch_name": "Picky batch",
             "mapping": _MAPPING,
             "header_row": None,
             "accepted_rows": [8, 10],
         }
         result = self._ingest([entry], {"Picky": _parsed(rows)})
 
-        self.assertEqual(result["total_imported"], 2)
+        self.assertEqual(result["imported"], 2)
         got = frappe.get_all(
             "Project Snag",
-            filters={"batch": result["results"][0]["batch"]},
+            filters={"batch": result["batch"]},
             pluck="source_row",
             limit_page_length=0,
         )
         self.assertEqual(sorted(got), [8, 10])
 
-    def test_per_sheet_failure_isolation(self):
-        """One bad sheet must not take the good one down with it."""
+    def test_a_failing_sheet_aborts_the_WHOLE_import_and_leaves_nothing(self):
+        """THE INVERSION of `test_per_sheet_failure_isolation`.
+
+        That test pinned the OPPOSITE guarantee -- one bad sheet failed alone and its
+        siblings still imported. It could not survive per-file batching (owner decision
+        2026-09-09): with one batch spanning every sheet, "the good sheet still imported"
+        would mean a batch that CLAIMS to be the file while silently missing a sheet's
+        rows, and nothing on screen would ever say which rows were absent.
+
+        Kept as an inversion rather than deleted, so the reversal is visible: this asserts
+        the new truth AND that the good sheet's rows did NOT land.
+        """
         entries = [
-            {
-                "sheet_name": "Bad",
-                "batch_name": "Bad batch",
-                "mapping": _MAPPING,
-                "accepted_rows": [8],
-            },
-            {
-                "sheet_name": "Good",
-                "batch_name": "Good batch",
-                "mapping": _MAPPING,
-                "accepted_rows": [8, 9],
-            },
+            {"sheet_name": "Bad", "mapping": _MAPPING, "accepted_rows": [8]},
+            {"sheet_name": "Good", "mapping": _MAPPING, "accepted_rows": [8, 9]},
         ]
         by_sheet = {
             "Bad": RuntimeError("workbook is corrupt on this sheet"),
             "Good": _parsed([_row(8, "Kitchen", "Good one"), _row(9, "Lobby", "Good two")]),
         }
-        result = self._ingest(entries, by_sheet)
+        before = frappe.db.count("Project Snag", {"project": self.project})
 
-        self.assertEqual(result["failed_count"], 1)
-        self.assertEqual(result["total_imported"], 2)
+        error = self._ingest_expecting_failure(entries, by_sheet, batch_name="Aborted batch")
 
-        bad, good = result["results"]
-        self.assertFalse(bad["ok"])
-        self.assertIn("corrupt", bad["error"])
-        self.assertNotIn("batch", bad)
-        self.assertTrue(good["ok"])
-        self.assertEqual(good["imported"], 2)
-
-        # The failed sheet left nothing behind, and the good sheet is fully durable.
+        self.assertIn("corrupt", str(error))
+        # No batch, and -- the half that matters -- not one row of the GOOD sheet either.
         self.assertFalse(
-            frappe.db.exists("Project Snag Batch", {"project": self.project, "batch_name": "Bad batch"})
+            frappe.db.exists(
+                "Project Snag Batch", {"project": self.project, "batch_name": "Aborted batch"}
+            )
         )
-        self.assertEqual(frappe.db.count("Project Snag", {"batch": good["batch"]}), 2)
+        self.assertEqual(frappe.db.count("Project Snag", {"project": self.project}), before)
 
-    def test_ingest_reports_a_sheet_with_no_accepted_rows_instead_of_creating_an_empty_batch(self):
-        entry = {
-            "sheet_name": "Empty",
-            "batch_name": "Empty batch",
-            "mapping": _MAPPING,
-            "accepted_rows": [],
-        }
-        result = self._ingest([entry], {"Empty": _parsed([_row(8, "Kitchen", "Unticked")])})
+    def test_a_sheet_with_no_ticked_rows_aborts_instead_of_creating_an_empty_batch(self):
+        entry = {"sheet_name": "Empty", "mapping": _MAPPING, "accepted_rows": []}
+        before = frappe.db.count("Project Snag", {"project": self.project})
 
-        self.assertEqual(result["failed_count"], 1)
-        self.assertEqual(result["total_imported"], 0)
-        self.assertFalse(result["results"][0]["ok"])
+        error = self._ingest_expecting_failure(
+            [entry], {"Empty": _parsed([_row(8, "Kitchen", "Unticked")])}, batch_name="Empty batch"
+        )
+
         # "You ticked nothing" -- distinct from "none of them exist in the sheet as it
         # parses now", which is the OTHER surviving branch (ADR-0019 removed the third).
-        self.assertIn("No rows were ticked", result["results"][0]["error"])
+        self.assertIn("No rows were ticked", str(error))
         self.assertFalse(
             frappe.db.exists(
                 "Project Snag Batch", {"project": self.project, "batch_name": "Empty batch"}
             )
+        )
+        self.assertEqual(frappe.db.count("Project Snag", {"project": self.project}), before)
+
+    # -- a batch is the FILE, not the sheet (owner decision 2026-09-09) --------
+
+    def test_two_sheets_combine_into_ONE_batch(self):
+        """THE point of per-file batching: one upload, one batch, both sheets' rows.
+
+        This is the direct reversal of plan section 4's "One Batch per ticked sheet". The
+        old behaviour would have produced TWO batches here, and two tabs on the snag list.
+        """
+        entries = [
+            {"sheet_name": "Ground", "mapping": _MAPPING, "accepted_rows": [8, 9]},
+            {"sheet_name": "First", "mapping": _MAPPING, "accepted_rows": [8]},
+        ]
+        by_sheet = {
+            "Ground": _parsed([_row(8, "Lobby", "Cracked tile"), _row(9, "Lift", "Scuffed door")]),
+            "First": _parsed([_row(8, "Pantry", "Loose socket")]),
+        }
+        result = self._ingest(entries, by_sheet, batch_name="Whole file")
+
+        self.assertEqual(result["imported"], 3)
+        self.assertEqual(result["batch_name"], "Whole file")
+        # ONE batch, with the per-sheet breakdown of its total.
+        self.assertEqual(
+            result["sheets"],
+            [{"sheet_name": "Ground", "imported": 2}, {"sheet_name": "First", "imported": 1}],
+        )
+        self.assertEqual(
+            frappe.db.count("Project Snag Batch", {"project": self.project, "batch_name": "Whole file"}),
+            1,
+        )
+
+        batch = frappe.get_doc("Project Snag Batch", result["batch"])
+        self.assertEqual(batch.snag_count, 3)
+        # The batch names EVERY sheet it drew from, not just the first.
+        self.assertEqual(batch.source_sheet, "Ground, First")
+        # One mapping PER SHEET -- a flat mapping could only ever describe one of them.
+        self.assertEqual(
+            frappe.parse_json(batch.column_mapping),
+            {"Ground": _MAPPING, "First": _MAPPING},
+        )
+
+        self.assertEqual(frappe.db.count("Project Snag", {"batch": batch.name}), 3)
+
+    def test_serials_run_CONTINUOUSLY_across_the_sheets_of_one_batch(self):
+        """An unnumbered row is numbered by its position in the BATCH, not in its sheet.
+
+        The batch is what a serial identifies a row inside of, so restarting the count at
+        each sheet boundary would put two rows of one batch on the same number -- exactly
+        what `_serials_for` refuses to do within a sheet.
+        """
+        entries = [
+            {"sheet_name": "A", "mapping": _MAPPING, "accepted_rows": [8, 9]},
+            {"sheet_name": "B", "mapping": _MAPPING, "accepted_rows": [8, 9]},
+        ]
+        by_sheet = {
+            "A": _parsed([_row(8, "Lobby", "One"), _row(9, "Lobby", "Two")]),
+            "B": _parsed([_row(8, "Pantry", "Three"), _row(9, "Pantry", "Four")]),
+        }
+        result = self._ingest(entries, by_sheet, batch_name="Continuous")
+
+        serials = frappe.get_all(
+            "Project Snag",
+            filters={"batch": result["batch"]},
+            fields=["source_serial", "description"],
+            limit_page_length=0,
+        )
+        by_description = {r.description: r.source_serial for r in serials}
+        # 1,2 from the first sheet and 3,4 from the second -- NOT 1,2 then 1,2 again.
+        self.assertEqual(
+            by_description, {"One": "1", "Two": "2", "Three": "3", "Four": "4"}
         )
 
     # -- the R2.1 bug: a re-ticked SKIPPED row ---------------------------------
@@ -575,21 +706,19 @@ class TestSnagApi(FrappeTestCase):
         ]
         entry = {
             "sheet_name": "Rescue",
-            "batch_name": "Rescue batch",
             "mapping": _MAPPING,
             "header_row": None,
             "accepted_rows": [8, 9, 10],
         }
         result = self._ingest([entry], {"Rescue": _parsed(rows)})
 
-        sheet_result = result["results"][0]
-        self.assertTrue(sheet_result["ok"])
+        sheet_result = result["sheets"][0]
         self.assertEqual(sheet_result["imported"], 3)
-        self.assertEqual(result["total_imported"], 3)
+        self.assertEqual(result["imported"], 3)
 
         landed = frappe.get_all(
             "Project Snag",
-            filters={"batch": sheet_result["batch"]},
+            filters={"batch": result["batch"]},
             fields=["source_row", "description"],
             limit_page_length=0,
         )
@@ -608,17 +737,15 @@ class TestSnagApi(FrappeTestCase):
         ]
         entry = {
             "sheet_name": "AllRescued",
-            "batch_name": "All rescued batch",
             "mapping": _MAPPING,
             "header_row": None,
             "accepted_rows": [8, 9],
         }
         result = self._ingest([entry], {"AllRescued": _parsed(rows)})
 
-        self.assertEqual(result["failed_count"], 0)
-        self.assertEqual(result["total_imported"], 2)
+        self.assertEqual(result["imported"], 2)
         self.assertEqual(
-            frappe.db.count("Project Snag", {"batch": result["results"][0]["batch"]}), 2
+            frappe.db.count("Project Snag", {"batch": result["batch"]}), 2
         )
 
     def test_a_ticked_row_with_no_description_IMPORTS_falling_back_to_preview_text(self):
@@ -642,22 +769,20 @@ class TestSnagApi(FrappeTestCase):
         ]
         entry = {
             "sheet_name": "Fallback",
-            "batch_name": "Fallback batch",
             "mapping": _MAPPING,
             "header_row": None,
             "accepted_rows": [8, 9, 10],
         }
         result = self._ingest([entry], {"Fallback": _parsed(rows)})
 
-        sheet_result = result["results"][0]
-        self.assertTrue(sheet_result["ok"])
+        sheet_result = result["sheets"][0]
         # THREE, not two: nothing is refused any more.
         self.assertEqual(sheet_result["imported"], 3)
         self.assertEqual(
             sorted(
                 frappe.get_all(
                     "Project Snag",
-                    filters={"batch": sheet_result["batch"]},
+                    filters={"batch": result["batch"]},
                     pluck="source_row",
                     limit_page_length=0,
                 )
@@ -666,18 +791,21 @@ class TestSnagApi(FrappeTestCase):
         )
         self.assertEqual(
             frappe.db.get_value(
-                "Project Snag", {"batch": sheet_result["batch"], "source_row": 9}, "description"
+                "Project Snag", {"batch": result["batch"], "source_row": 9}, "description"
             ),
             "RISK SUMMARY",
         )
 
-    def test_refused_no_description_is_retained_on_the_wire_and_always_zero(self):
-        """ADR-0019-DEAD, and RETAINED on purpose.
+    def test_nothing_is_refused_for_want_of_a_description(self):
+        """THE INVERSION of `test_refused_no_description_is_retained_on_the_wire_and_always_zero`.
 
-        It is the counter that proved Revision 2's silent-drop bug fixed. A payload that
-        can still SAY "nothing was refused" is worth more than one that cannot express the
-        question -- so it must be PRESENT, and it must read 0 even on the very import that
-        used to make it non-zero.
+        That counter was retained on the per-sheet RESULT as the instrument that proved
+        Revision 2's silent-drop bug fixed. Per-file batching replaced that result shape
+        with a plain `{sheet_name, imported}` outcome, so the counter has no home left.
+
+        What it actually guarded is asserted directly here instead, and more strongly: the
+        description-less ticked row IS imported, so `imported` counts BOTH rows. A silent
+        drop would show up as 1, which is exactly what the counter existed to catch.
         """
         rows = [
             _row(8, "Kitchen", "Leaking tap"),
@@ -685,16 +813,15 @@ class TestSnagApi(FrappeTestCase):
         ]
         entry = {
             "sheet_name": "DeadCounter",
-            "batch_name": "Dead counter batch",
             "mapping": _MAPPING,
             "header_row": None,
             "accepted_rows": [8, 9],
         }
-        sheet_result = self._ingest([entry], {"DeadCounter": _parsed(rows)})["results"][0]
+        result = self._ingest([entry], {"DeadCounter": _parsed(rows)})
 
-        self.assertIn("refused_no_description", sheet_result)
-        self.assertEqual(sheet_result["refused_no_description"], 0)
-        self.assertEqual(sheet_result["imported"], 2)
+        self.assertEqual(result["imported"], 2)
+        self.assertEqual(result["sheets"][0]["imported"], 2)
+        self.assertNotIn("refused_no_description", result)
 
     def test_a_ticked_row_with_nothing_anywhere_imports_BLANK_not_a_placeholder(self):
         """No mapped description AND no first non-empty cell -> a BLANK description.
@@ -705,7 +832,6 @@ class TestSnagApi(FrappeTestCase):
         """
         entry = {
             "sheet_name": "NothingAnywhere",
-            "batch_name": "Nothing anywhere batch",
             "mapping": _MAPPING,
             "header_row": None,
             "accepted_rows": [9],
@@ -719,18 +845,17 @@ class TestSnagApi(FrappeTestCase):
             },
         )
 
-        sheet_result = result["results"][0]
+        sheet_result = result["sheets"][0]
         # This snag is blank in BOTH duplicate-key fields, so leaving it behind would make
         # every later blank row in this project read as a duplicate -- which is a true
         # statement about a shared live database and a false one about the test that hit
         # it. It is deleted here rather than in tearDownClass for that reason.
-        self.addCleanup(tracking.delete_batch, batch=sheet_result["batch"])
+        self.addCleanup(tracking.delete_batch, batch=result["batch"])
 
-        self.assertTrue(sheet_result["ok"], sheet_result.get("error"))
         self.assertEqual(sheet_result["imported"], 1)
         self.assertEqual(
             frappe.db.get_value(
-                "Project Snag", {"batch": sheet_result["batch"], "source_row": 9}, "description"
+                "Project Snag", {"batch": result["batch"], "source_row": 9}, "description"
             ),
             "",
         )
@@ -744,7 +869,6 @@ class TestSnagApi(FrappeTestCase):
         """
         entry = {
             "sheet_name": "AllBlank",
-            "batch_name": "All blank batch",
             "mapping": _MAPPING,
             "header_row": None,
             "accepted_rows": [9],
@@ -756,10 +880,10 @@ class TestSnagApi(FrappeTestCase):
                     [_row(9, "Lobby", "", skipped_reason="no_description", preview_text="Note")]
                 )
             },
+            batch_name="All blank batch",
         )
 
-        self.assertEqual(result["failed_count"], 0)
-        self.assertEqual(result["total_imported"], 1)
+        self.assertEqual(result["imported"], 1)
         self.assertTrue(
             frappe.db.exists(
                 "Project Snag Batch", {"project": self.project, "batch_name": "All blank batch"}
@@ -777,25 +901,26 @@ class TestSnagApi(FrappeTestCase):
         def run(header_row, batch_name, sheet):
             entry = {
                 "sheet_name": sheet,
-                "batch_name": batch_name,
                 "mapping": _MAPPING,
                 "header_row": header_row,
                 "accepted_rows": [8, 9],
             }
             # Same parse for either argument -- the stub's guess IS 7.
-            return self._ingest([entry], {sheet: {7: _parsed(rows, header_row=7)}})
+            return self._ingest(
+                [entry], {sheet: {7: _parsed(rows, header_row=7)}}, batch_name=batch_name
+            )
 
         auto = run(None, "Auto batch", "AutoHdr")
         explicit = run(7, "Explicit batch", "ExplicitHdr")
 
-        self.assertEqual(auto["total_imported"], 2)
-        self.assertEqual(explicit["total_imported"], 2)
+        self.assertEqual(auto["imported"], 2)
+        self.assertEqual(explicit["imported"], 2)
 
         def landed(result):
             return sorted(
                 frappe.get_all(
                     "Project Snag",
-                    filters={"batch": result["results"][0]["batch"]},
+                    filters={"batch": result["batch"]},
                     fields=["source_row", "area", "category", "description", "remark"],
                     limit_page_length=0,
                 ),
@@ -825,7 +950,6 @@ class TestSnagApi(FrappeTestCase):
             [
                 {
                     "sheet_name": "TwoBlocks",
-                    "batch_name": "Header 7",
                     "mapping": _MAPPING,
                     "header_row": 7,
                     "accepted_rows": [8, 55, 56],
@@ -837,7 +961,7 @@ class TestSnagApi(FrappeTestCase):
         self.assertEqual(
             frappe.get_all(
                 "Project Snag",
-                filters={"batch": first["results"][0]["batch"]},
+                filters={"batch": first["batch"]},
                 pluck="source_row",
                 limit_page_length=0,
             ),
@@ -848,7 +972,6 @@ class TestSnagApi(FrappeTestCase):
             [
                 {
                     "sheet_name": "TwoBlocks",
-                    "batch_name": "Header 54",
                     "mapping": _MAPPING,
                     "header_row": 54,
                     "accepted_rows": [8, 55, 56],
@@ -861,7 +984,7 @@ class TestSnagApi(FrappeTestCase):
             sorted(
                 frappe.get_all(
                     "Project Snag",
-                    filters={"batch": second["results"][0]["batch"]},
+                    filters={"batch": second["batch"]},
                     pluck="source_row",
                     limit_page_length=0,
                 )
@@ -872,13 +995,14 @@ class TestSnagApi(FrappeTestCase):
     def test_a_header_row_that_is_not_a_row_number_is_refused(self):
         entry = {
             "sheet_name": "Sheet1",
-            "batch_name": "Bad header",
             "mapping": _MAPPING,
             "header_row": 0,
             "accepted_rows": [8],
         }
-        result = self._ingest([entry], {"Sheet1": _parsed([_row(8, "Kitchen", "A")])})
-        self.assertEqual(result["failed_count"], 1)
+        error = self._ingest_expecting_failure(
+            [entry], {"Sheet1": _parsed([_row(8, "Kitchen", "A")])}
+        )
+        self.assertIn("header_row", str(error).lower().replace(" ", "_"))
 
     # -- get_sheet_columns: THE R3.1 DEADLOCK ----------------------------------
 
@@ -1152,7 +1276,7 @@ class TestSnagApi(FrappeTestCase):
     def test_update_snag_status_stamps_attribution_and_a_later_save_does_not_move_it(self):
         result = self._one_sheet(sheet="Stamp", batch_name="Stamp batch")
         snag = frappe.get_all(
-            "Project Snag", filters={"batch": result["results"][0]["batch"]}, pluck="name"
+            "Project Snag", filters={"batch": result["batch"]}, pluck="name"
         )[0]
 
         payload = tracking.update_snag_status(snag=snag, status="WIP")
@@ -1190,7 +1314,6 @@ class TestSnagApi(FrappeTestCase):
             [
                 {
                     "sheet_name": sheet,
-                    "batch_name": batch_name,
                     "mapping": _MAPPING,
                     "header_row": None,
                     "accepted_rows": [8],
@@ -1199,7 +1322,7 @@ class TestSnagApi(FrappeTestCase):
             {sheet: _parsed([_row(8, "Kitchen", "Leaking tap", remark=remark)])},
         )
         return frappe.get_all(
-            "Project Snag", filters={"batch": result["results"][0]["batch"]}, pluck="name"
+            "Project Snag", filters={"batch": result["batch"]}, pluck="name"
         )[0]
 
     def test_update_snag_status_writes_the_remark_leaves_it_on_none_and_clears_on_empty(self):
@@ -1256,7 +1379,7 @@ class TestSnagApi(FrappeTestCase):
     def test_update_snag_status_rejects_an_unknown_status(self):
         result = self._one_sheet(sheet="BadStatus", batch_name="Bad status batch")
         snag = frappe.get_all(
-            "Project Snag", filters={"batch": result["results"][0]["batch"]}, pluck="name"
+            "Project Snag", filters={"batch": result["batch"]}, pluck="name"
         )[0]
         with self.assertRaises(frappe.ValidationError):
             tracking.update_snag_status(snag=snag, status="Open")
@@ -1264,7 +1387,7 @@ class TestSnagApi(FrappeTestCase):
     def test_bulk_update_is_refused_for_a_non_admin(self):
         result = self._one_sheet(sheet="Bulk", batch_name="Bulk batch")
         names = frappe.get_all(
-            "Project Snag", filters={"batch": result["results"][0]["batch"]}, pluck="name"
+            "Project Snag", filters={"batch": result["batch"]}, pluck="name"
         )
 
         # A user with no role profile at all: the tier helpers must refuse.
@@ -1277,7 +1400,7 @@ class TestSnagApi(FrappeTestCase):
             frappe.session.user = "Administrator"
 
         self.assertEqual(
-            frappe.db.count("Project Snag", {"batch": result["results"][0]["batch"], "status": "Pending"}),
+            frappe.db.count("Project Snag", {"batch": result["batch"], "status": "Pending"}),
             len(names),
         )
 
@@ -1286,7 +1409,7 @@ class TestSnagApi(FrappeTestCase):
         self.assertEqual(payload["updated"], len(names))
         self.assertEqual(
             frappe.db.count(
-                "Project Snag", {"batch": result["results"][0]["batch"], "status": "Completed"}
+                "Project Snag", {"batch": result["batch"], "status": "Completed"}
             ),
             len(names),
         )
@@ -1294,7 +1417,7 @@ class TestSnagApi(FrappeTestCase):
     def test_a_project_manager_may_change_one_status_but_not_bulk(self):
         result = self._one_sheet(sheet="PM", batch_name="PM batch")
         names = frappe.get_all(
-            "Project Snag", filters={"batch": result["results"][0]["batch"]}, pluck="name"
+            "Project Snag", filters={"batch": result["batch"]}, pluck="name"
         )
 
         import nirmaan_stack.api.snags as snag_pkg
@@ -1350,7 +1473,7 @@ class TestSnagApi(FrappeTestCase):
     def _a_snag(self, sheet, batch_name):
         result = self._one_sheet(sheet=sheet, batch_name=batch_name)
         return frappe.get_all(
-            "Project Snag", filters={"batch": result["results"][0]["batch"]}, pluck="name"
+            "Project Snag", filters={"batch": result["batch"]}, pluck="name"
         )[0]
 
     def test_update_snag_details_rewrites_the_three_data_fields(self):
@@ -1521,7 +1644,6 @@ class TestSnagApi(FrappeTestCase):
         ]
         entry = {
             "sheet_name": "Values",
-            "batch_name": "Values batch",
             "mapping": _MAPPING,
             "header_row": None,
             "accepted_rows": [8, 9, 10],
@@ -1558,7 +1680,7 @@ class TestSnagApi(FrappeTestCase):
 
     def test_delete_batch_goes_through_the_document_layer_and_writes_deleted_documents(self):
         result = self._one_sheet(sheet="Doomed", batch_name="Doomed batch")
-        batch = result["results"][0]["batch"]
+        batch = result["batch"]
 
         tracking.update_snag_status(
             snag=frappe.get_all("Project Snag", filters={"batch": batch}, pluck="name")[0],

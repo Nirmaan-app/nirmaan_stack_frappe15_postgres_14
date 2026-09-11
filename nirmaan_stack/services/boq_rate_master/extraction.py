@@ -637,9 +637,23 @@ def build_attribute_defs(cfg, catalog=None, discipline=None):
         if d.get("extract") is False:
             continue
         entry = {"id": d["id"], "label": d.get("label") or d["id"], "type": d.get("type") or "choice"}
+        # TWO WAYS (owner 2026-09-10, "not ask the extraction engine to pick from the list"): a def's
+        # `type` is BOTH what the pricer sees AND what the model is told, and a `number_choice` reaches
+        # the model as a closed list -- shown the ten stocked widths, the model returned 50 for an
+        # "80 x 50mm" tray and a live row priced wrong. `extract_as: "number"` splits the two: the panel
+        # keeps its dropdown (the frontend keys on `type`), the MODEL is asked for a FREE number with no
+        # `values`, and the ladder / the SWG map fit it code-side afterwards. THIS IS THE ONE CHOKEPOINT:
+        # `_extract_batch` builds `defs_by_id` from THIS list, so `_coerce_value_ex` sees `type: number`
+        # and applies no domain -- 80 and 2.5 survive by construction. The validator
+        # (`rate_master._validate_config`) is what makes a misspelled key LOUD rather than silent.
+        free_number = d.get("extract_as") == "number"
+        if free_number:
+            entry["type"] = "number"
         if identity and d["id"] == identity:
             entry["identity"] = True
             entry["values"] = list(catalog or [])
+        elif free_number:
+            pass  # a free number carries NO values -- the whole point
         elif d.get("values_from"):
             entry["values"] = values_from_catalog(discipline, d["values_from"])
         elif d.get("values"):
@@ -1685,6 +1699,84 @@ def _cf_num(cell, default=None):
     return f
 
 
+# -- CONDUIT TRADE SIZE (v63, owner 2026-09-10) -------------------------------------------------
+#
+# A conduit size written in INCHES converts to the TRADE size the catalogue speaks -- NOT to the
+# arithmetic millimetre. Measured on the corpus: the same model read the same token `1"` as 25.4 on
+# BOQ-26-00198 and as 25 on BOQ-26-00242 (same prompt), and the arithmetic reading is the one that
+# buys the wrong rung -- 25.4 overshoots the 25 rung by 0.4 mm so a next-higher ladder buys 32, and
+# 50.8 sits above the top rung (50) so a stocked 2" conduit refuses. `x 25.4` in code would make
+# that answer deterministic, which is worse than today. So the table is the vocabulary, five entries:
+# 3/4 -> 20, 1 -> 25, 1 1/4 -> 32, 1 1/2 -> 40, 2 -> 50 -- and 1 1/2 maps to 40, which the catalogue
+# does NOT stock, by design: the ladder then takes it to 50.
+#
+# THE PROMPT SENTENCE IS GUIDANCE; THIS IS THE ENFORCEMENT -- the same doctrine and the same shape
+# as `apply_conductor_floor` above and `correct_four_pole_mcb_picks` below.
+#
+# CONFINED BY KEY PRESENCE, never by a category name (the HV-10 lesson): the table lives on the
+# attribute definition as `inch_trade_mm`, `inch_trade_tables(cfg)` reads it FROM THE CONFIG, and a
+# config declaring none yields {} so the corrector is inert for it. That is what keeps the corpus's
+# 88 non-conduit inch tokens out (HVAC copper-pipe fractions, brick thickness in earth-pit notes, GI
+# strip lengths, glove sizes, `RG 6 in`, `4x4 Inch-PVC Junction Box`): they sit on rows of categories
+# whose defs carry no table, so the corrector never reads them.
+#
+# THE SURFACE IS ONE FORM, measured across every row of the 42 active sheets: a number or a mixed
+# fraction followed by a straight double-quote (`3/4"`, `1"`, `1 1/4"`, `1 1/2"`, `2"`). The token
+# is read from the ROW'S OWN DESCRIPTION only. A token the table does not carry is recorded and the
+# model's value is LEFT ALONE -- the corrector never invents a size, and a metric size (`40 mm`) is
+# never touched because it carries no inch mark.
+_INCH_TOKEN_RE = re.compile(r'(?<![\w/.])(\d+\s+\d+/\d+|\d+/\d+|\d+(?:\.\d+)?)\s*(?:"|\u201d|\u2033)')
+
+
+def inch_trade_tables(cfg):
+    """{attr_id: {inch_text: trade_mm}} for every attribute definition carrying `inch_trade_mm`, in
+    DEFINITION ORDER, or {} -- which makes `_extract_batch`'s corrector inert for the config."""
+    out = {}
+    for d in (cfg or {}).get("attribute_definitions") or []:
+        table = d.get("inch_trade_mm")
+        aid = d.get("id")
+        if not isinstance(table, dict) or not table or not isinstance(aid, str) or not aid:
+            continue
+        out[aid] = {re.sub(r"\s+", " ", str(k).strip()): v for k, v in table.items()}
+    return out
+
+
+def inch_trade_size_from_text(text, table):
+    """(token, trade_mm) for the FIRST inch token in `text`: `trade_mm` is the table's entry, or None
+    when the table does not carry that fraction; (None, None) when the text states no inch size."""
+    m = _INCH_TOKEN_RE.search(text or "")
+    if not m:
+        return None, None
+    key = re.sub(r"\s+", " ", m.group(1).strip())
+    return m.group(0).strip(), table.get(key)
+
+
+def apply_inch_trade_size(row_out, row_src, tables):
+    """Write the TRADE size for an inch-stated conduit size. PURE apart from mutating the `row_out`
+    it is handed; returns one record per attribute examined, the same shape as the correctors above.
+
+    It fires only for a def that carries a table (`tables` is config-derived), only when the row's
+    own description states an inch size, and only when the table carries that fraction; every other
+    row -- metric, no inch mark, a fraction outside the table -- keeps the model's value untouched.
+    """
+    changed = []
+    if not row_out or not tables or row_src is None:
+        return changed
+    text = str((row_src or {}).get("description") or "")
+    for aid, table in tables.items():
+        token, mm = inch_trade_size_from_text(text, table)
+        if token is None:
+            continue
+        prev = (row_out.get(aid) or {}).get("value")
+        if mm is None:
+            changed.append({"attr": aid, "token": token, "from": prev, "to": prev, "action": "unmapped"})
+            continue
+        conf = (row_out.get(aid) or {}).get("confidence")
+        row_out[aid] = {"value": mm, "confidence": conf if conf is not None else 1.0}
+        changed.append({"attr": aid, "token": token, "from": prev, "to": mm, "action": "trade"})
+    return changed
+
+
 def conductor_floor_groups(cfg):
     """{group_name: [(thickness_attr, core_attr, runs_attr), ...]} in DEFINITION ORDER, or {}.
 
@@ -2177,7 +2269,7 @@ def stamp_pole_ladder(row_out, records):
             cell["pole_ladder"] = dict(extras, to=rec.get("to"))
 
 
-def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, absent_rules=None, conductor_groups=None, paired_fill=None, module_count_attrs=None, *, capture_ctx=None):
+def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, pole_catalog=None, code_attrs=None, absent_rules=None, conductor_groups=None, paired_fill=None, module_count_attrs=None, inch_trade=None, *, capture_ctx=None):
     """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
     confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
     (<=20 rows, 3 attempts, sleep 2*attempt).
@@ -2335,6 +2427,10 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 # re-selected as their four-pole sibling, and the ones left alone for want of a
                 # unique sibling. Observation only, like every sibling here.
                 "four_pole_mcb_corrections": {},
+                # CONDUIT TRADE SIZE (v63): {excel_row: [{attr, token, from, to, action}, ...]} -- an inch
+                # size the row states, rewritten to its trade size (or left alone when the table has no
+                # such fraction). Observation only, like every sibling here.
+                "inch_trade_applied": {},
                 # ⚠️ CONDUCTOR FLOOR: {excel_row: [{attr, action}, ...]}. THIS KEY WAS MISSING AND
                 # THE OMISSION WAS A CRASH, not a lost observation -- its write site uses
                 # `.setdefault(...)`, which READS the key first, so the moment
@@ -2523,6 +2619,25 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                             row_map[_a]["four_pole_corrected"] = _rec.get("to")
                             if row_out.get(_a, {}).get("pole_ladder"):
                                 row_map[_a]["pole_ladder"] = row_out[_a]["pole_ladder"]
+                # CONDUIT TRADE SIZE (v63) -- an inch-stated size becomes the catalogue's TRADE size,
+                # server-side, in code. THE PROMPT IS GUIDANCE; THIS IS THE ENFORCEMENT. Placed beside the
+                # corrections above because it is the same kind of thing: pure, deterministic, applied to
+                # the row dict this loop is assembling, BEFORE the result is stored. `inch_trade` is
+                # config-derived and {} for every category whose defs carry no table, so this is inert --
+                # and byte-identical -- for them.
+                if inch_trade and _row_src is not None:
+                    for _rec in apply_inch_trade_size(row_out, _row_src, inch_trade):
+                        drops["inch_trade_applied"].setdefault(str(rid), []).append(_rec)
+                        _a = _rec.get("attr")
+                        if _a in row_map:
+                            row_map[_a]["inch_trade"] = _rec
+                        else:
+                            row_map[_a] = {"raw": None, "coerced": _rec.get("to"),
+                                           "reason": "inch trade size (code)",
+                                           "confidence_raw": None,
+                                           "confidence": (row_out.get(_a) or {}).get("confidence"),
+                                           "defaulted_claimed": False, "defaulted_kept": False,
+                                           "inch_trade": _rec}
                 # PIECE 4 -- THE POINT TYPE, a DETERMINISTIC CODE MATCH over the payload.
                 #
                 # Placed beside the two corrections above because it is the same kind of thing: pure,
@@ -2884,6 +2999,9 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
             # PW-CIRCUIT-STRETCH: {controller: (absent_value, [dependents])} read FROM THE CONFIG --
             # a category declaring none yields {} and the corrector is inert for it.
             "absent_rules": absent_dependent_rules(cfg),
+            # CONDUIT TRADE SIZE (v63): {attr_id: {inch_text: trade_mm}} read FROM THE CONFIG -- a
+            # category declaring no `inch_trade_mm` yields {} and the corrector is inert for it.
+            "inch_trade": inch_trade_tables(cfg),
         }
 
     def _defs_for(r):
@@ -2937,7 +3055,7 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
                     # `boq` is NOT on the row dict -- it lives only in this enclosing scope, so the
                     # capture's join key is threaded in from here.
                     return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], _gc["pole_catalog"], _gc["code_attrs"], _gc["absent_rules"], _gc["conductor_groups"],
-                                          _gc["paired_fill"], _gc["module_count_attrs"],
+                                          _gc["paired_fill"], _gc["module_count_attrs"], _gc["inch_trade"],
                                           capture_ctx={"boq": boq})
 
                 # SR-2 (3): ONE iteration when the batch fits (byte-identical to the pre-SR-2 single

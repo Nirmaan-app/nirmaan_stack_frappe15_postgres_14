@@ -31,6 +31,7 @@ import { toast } from "@/components/ui/use-toast";
 import SITEURL from "@/constants/siteURL";
 import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog";
+import { PaymentTDSDeduction } from "@/types/NirmaanStack/PaymentTDSDeduction";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -125,11 +126,21 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         setNewPaymentDialog((prevState) => !prevState);
     }, []);
 
+    // ⚠️ NO `tds` FIELD, AND THAT IS DELIBERATE. SR tax withheld is recorded ONCE, at approval, by
+    // `services/payment_tds.py` -- it writes a `Payment TDS Deduction` row and nets
+    // `Project Payments.amount`. This dialog creates a payment straight as `Paid`, so it never
+    // reaches that hook; a figure typed here landed in the legacy `Project Payments.tds` column and
+    // rendered as "--" in the payments table below, which reads the new doctype.
+    //
+    // Removing it is ARITHMETICALLY NEUTRAL: `update_parent_amount_paid` sums `amount`, never
+    // `amount - tds`, so these payments have always contributed their GROSS figure to `amount_paid`,
+    // and with `total_tds` at 0 for them `amount_due = total_amount - amount_paid - total_tds` was
+    // and stays correct. What is lost is only the CAPTURE of the withheld figure here -- intended,
+    // because the sanctioned route is approve -> net -> export payout -> settle from the statement.
     const [newPayment, setNewPayment] = useState({
         amount: "",
         payment_date: "",
         utr: "",
-        tds: ""
     });
 
     const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
@@ -213,7 +224,22 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         limit: 1000,
     }, id ? `VendorInvoices-SR-${id}` : null)
 
+    // Tax withheld from this order's payments. Keyed by payment so a row can show its own
+    // deduction and the summary can restrict itself to the PAID ones.
+    const { data: tdsDeductions } = useFrappeGetDocList<PaymentTDSDeduction>("Payment TDS Deduction", {
+        fields: ["name", "project_payment", "gross_amount", "tds_percentage", "tds_amount", "deducted_on"],
+        filters: [["document_name", "=", id]],
+        limit: 100,
+    }, id ? `PaymentTDSDeduction-SR-${id}` : null)
+
+    const tdsByPayment = useMemo(() => {
+        const map: Record<string, PaymentTDSDeduction> = {};
+        (tdsDeductions || []).forEach((d) => { map[d.project_payment] = d; });
+        return map;
+    }, [tdsDeductions]);
+
     const getAmountPaid = useMemo(() => getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid") || []), [projectPayments]);
+
 
     const amountPending = useMemo(() => getTotalAmountPaid((projectPayments || []).filter(i => ["Requested", "CEO Pending", "Approved"].includes(i?.status))), [projectPayments]);
 
@@ -349,7 +375,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 vendor: orderData?.vendor,
                 utr: newPayment?.utr,
                 amount: parseNumber(newPayment?.amount),
-                tds: parseNumber(newPayment?.tds),
                 payment_date: newPayment?.payment_date,
                 status: "Paid"
             })
@@ -386,7 +411,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 amount: "",
                 payment_date: "",
                 utr: "",
-                tds: ""
             })
 
             setPaymentScreenshot(null)
@@ -627,21 +651,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                     </div>
                                                 </div>
                                                 <div className="flex gap-4 w-full">
-                                                    <Label className="w-[40%]">TDS Amount</Label>
-                                                    <div className="w-full">
-                                                        <Input
-                                                            type="number"
-                                                            placeholder="Enter TDS Amount"
-                                                            value={newPayment.tds}
-                                                            onChange={(e) => {
-                                                                const tdsValue = e.target.value;
-                                                                setNewPayment({ ...newPayment, tds: tdsValue })
-                                                            }}
-                                                        />
-                                                        {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToRoundedIndianRupee(parseNumber(newPayment?.amount) - parseNumber(newPayment?.tds))}</span>}
-                                                    </div>
-                                                </div>
-                                                <div className="flex gap-4 w-full">
                                                     <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
                                                     <Input
                                                         type="text"
@@ -699,9 +708,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                             <TableHeader>
                                 <TableRow>
                                     <TableHead className="text-black font-bold">Amount</TableHead>
-                                    {/* {service_request?.gst === "true" && (
-                                    <TableHead className="text-black font-bold">TDS Amt</TableHead>
-                                )} */}
+                                    <TableHead className="text-black font-bold">TDS</TableHead>
                                     <TableHead className="text-black font-bold">UTR No.</TableHead>
                                     <TableHead className="text-black font-bold">Date</TableHead>
                                     <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
@@ -714,12 +721,13 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                             <TableBody>
                                 {(projectPayments || []).length > 0 ? (
                                     projectPayments?.map((payment) => {
+                                        const tds = tdsByPayment[payment?.name];
                                         return (
                                             <TableRow key={payment?.name}>
                                                 <TableCell className="font-semibold">{formatToRoundedIndianRupee(payment?.amount)}</TableCell>
-                                                {/* {service_request?.gst === "true" && (
-                                                     <TableCell className="font-semibold">{formatToIndianRupee(payment?.tds)}</TableCell>
-                                                 )} */}
+                                                <TableCell className="font-semibold">
+                                                    {tds ? formatToRoundedIndianRupee(tds.tds_amount) : "--"}
+                                                </TableCell>
                                                 {(payment?.utr && payment?.payment_attachment) ? (
                                                     <TableCell className="font-semibold text-blue-500 underline">
                                                         <a href={`${SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
@@ -733,7 +741,14 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                 )}
 
 
-                                                <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
+                                                {/* ⚠️ PAYMENT DATE ONLY — NEVER FALL BACK TO `creation`. This column used to read
+                                                    `payment_date || creation`, so an unpaid payment showed the day the REQUEST was
+                                                    raised in a column headed "Date" beside a UTR and a status — indistinguishable
+                                                    from the day money actually moved. A blank payment date is a fact worth showing
+                                                    as blank. Same shape as the PO card's TransactionDetailsCard. */}
+                                                <TableCell className="font-semibold">
+                                                    {payment?.payment_date ? formatDate(payment.payment_date) : "--"}
+                                                </TableCell>
                                                 <TableCell className="font-semibold">{payment?.status}</TableCell>
                                                 {/* 2. RENDER THE PaymentVoucherActions COMPONENT */}
                                                 <TableCell className="text-center w-[10%]">
@@ -763,6 +778,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                     <DeletePaymentDialog isOpen={!!deleteFlagged} onOpenChange={() => setDeleteFlagged(null)} paymentToDelete={deleteFlagged} onDeleteSuccess={() => projectPaymentsMutate()} />
                                                 </TableCell>
                                             </TableRow>
+
                                         )
                                     })
                                 ) : (

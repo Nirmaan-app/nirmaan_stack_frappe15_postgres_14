@@ -1,0 +1,163 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "PTD-.YY.-.#####",
+ "creation": "2026-09-10 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "links_section",
+  "project_payment",
+  "document_type",
+  "document_name",
+  "column_break_links",
+  "vendor",
+  "project",
+  "amounts_section",
+  "gross_amount",
+  "tds_percentage",
+  "column_break_amounts",
+  "tds_amount",
+  "deducted_on"
+ ],
+ "fields": [
+  {
+   "fieldname": "links_section",
+   "fieldtype": "Section Break",
+   "label": "Links"
+  },
+  {
+   "description": "The payment this tax was withheld from. UNIQUE, and that constraint IS the idempotency guarantee: the Approved transition can fire more than once (a re-save, a retried bulk action) and only the first attempt can write a row - which is also what stops the payment amount being reduced twice. Deleting the payment deletes this row.",
+   "fieldname": "project_payment",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Project Payment",
+   "options": "Project Payments",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "description": "The payment's parent doctype, snapshotted. Today only \"Service Requests\" is deducted from; the field mirrors Project Payments' own shape so a later ledger needs no migration.",
+   "fieldname": "document_type",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Document Type",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "document_name",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Document Name",
+   "options": "document_type"
+  },
+  {
+   "fieldname": "column_break_links",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Snapshotted from the payment so a vendor-wise filing report needs no join.",
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Vendor",
+   "options": "Vendors"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Project",
+   "options": "Projects"
+  },
+  {
+   "fieldname": "amounts_section",
+   "fieldtype": "Section Break",
+   "label": "Amounts"
+  },
+  {
+   "description": "The payment's amount BEFORE tax was withheld. \u26a0\ufe0f THE ONLY SURVIVING RECORD OF IT - Project Payments.amount is rewritten to the net figure when this row is created, so this field is what makes that rewrite auditable and reversible.",
+   "fieldname": "gross_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Gross Amount",
+   "reqd": 1
+  },
+  {
+   "description": "\u26a0\ufe0f THE RATE AS APPLIED, SNAPSHOTTED \u2014 never re-read from the vendor later. Vendors.tds_deduction_percentage can be edited, and a historical deduction must not silently restate itself at the new rate.",
+   "fieldname": "tds_percentage",
+   "fieldtype": "Percent",
+   "label": "TDS Percentage",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_amounts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "gross_amount x tds_percentage / 100, rounded to 2 decimals. This is the figure Service Requests.total_tds sums. The NET figure is not stored here - after this row is written, Project Payments.amount IS the net, so a second copy could only drift.",
+   "fieldname": "tds_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "TDS Amount",
+   "reqd": 1
+  },
+  {
+   "description": "The day the payment reached Approved and the tax was withheld.",
+   "fieldname": "deducted_on",
+   "fieldtype": "Date",
+   "label": "Deducted On"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-09-10 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Payment TDS Deduction",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant Lead",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

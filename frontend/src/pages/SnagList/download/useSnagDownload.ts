@@ -8,7 +8,14 @@ import { useCallback, useState } from "react";
 
 import { toast } from "@/components/ui/use-toast";
 
-import { buildSnagDownloadUrl, buildSnagPdfFilename, SnagDownloadState } from "./snagDownloadParams";
+import { filenameFromResponse } from "../import/templateDownload";
+
+import {
+  buildSnagDownloadAllUrl,
+  buildSnagDownloadUrl,
+  buildSnagPdfFilename,
+  SnagDownloadState,
+} from "./snagDownloadParams";
 
 /**
  * Frappe answers a failed print with a JSON body, not a PDF. Without this check a
@@ -57,7 +64,8 @@ export function useSnagDownload(
 ): UseSnagDownloadResult {
   const [isDownloading, setIsDownloading] = useState(false);
 
-  const { projectId, columnFilters, searchTerm, selectedSearchField, projectLabel } = state;
+  const { projectId, columnFilters, searchTerm, selectedSearchField, batch, projectLabel } =
+    state;
 
   const download = useCallback(async () => {
     if (!projectId) return;
@@ -70,7 +78,13 @@ export function useSnagDownload(
       });
 
       const response = await fetch(
-        buildSnagDownloadUrl({ projectId, columnFilters, searchTerm, selectedSearchField })
+        buildSnagDownloadUrl({
+          projectId,
+          columnFilters,
+          searchTerm,
+          selectedSearchField,
+          batch,
+        })
       );
       await assertPdfResponse(response);
 
@@ -90,6 +104,74 @@ export function useSnagDownload(
         title: "Error",
         description:
           error instanceof Error ? error.message : "Failed to download the snag list.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [projectId, columnFilters, searchTerm, selectedSearchField, batch, projectLabel]);
+
+  return { isDownloading, download };
+}
+
+/**
+ * "Download All" — every batch's report merged into ONE PDF, server-side.
+ *
+ * Deliberately its own hook rather than a flag on `useSnagDownload`: the two produce
+ * different documents from different endpoints, and the button that fires this one is
+ * shown under a different condition (more than one batch). Sharing the fetch/blob
+ * plumbing while keeping the two callers apart is what stops a later "just pass a
+ * boolean" from making one control quietly do the other's job.
+ *
+ * The saved file is named by the SERVER (via Content-Disposition), because it is the
+ * side that knows how many batches went in — the local name is only a fallback.
+ */
+export function useSnagDownloadAll(
+  state: SnagDownloadState & { projectLabel?: string }
+): UseSnagDownloadResult {
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const { projectId, columnFilters, searchTerm, selectedSearchField, projectLabel } = state;
+
+  const download = useCallback(async () => {
+    if (!projectId) return;
+
+    setIsDownloading(true);
+    try {
+      toast({
+        title: "Generating PDF...",
+        description: "Building one report per batch and merging them.",
+      });
+
+      const response = await fetch(
+        buildSnagDownloadAllUrl({
+          projectId,
+          columnFilters,
+          searchTerm,
+          selectedSearchField,
+        })
+      );
+      await assertPdfResponse(response);
+
+      saveBlob(
+        await response.blob(),
+        filenameFromResponse(
+          response,
+          buildSnagPdfFilename(`ALL_${projectLabel || projectId}`, new Date())
+        )
+      );
+
+      toast({
+        title: "Success",
+        description: "Every batch was downloaded as one PDF.",
+        variant: "success",
+      });
+    } catch (error) {
+      console.error("Snag list download-all error:", error);
+      toast({
+        title: "Error",
+        description:
+          error instanceof Error ? error.message : "Failed to download the snag lists.",
         variant: "destructive",
       });
     } finally {

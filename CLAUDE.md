@@ -537,6 +537,64 @@ so **the fix lives in the parser, never in a prompt**: a balanced span whose ele
 skipped and the scan continues; a reply holding ONLY such a list still ends in the loud `ValueError`. Do not
 re-narrow it to "first list", and do not add a prompt sentence asking the model not to explain itself.
 
+**⚠️ A DEF'S `type` IS BOTH THE SCREEN AND THE MODEL'S INSTRUCTION (owner-locked, 2026-09-10, v61).**
+`extraction.build_attribute_defs` projects `{id, label, type, values}` into the prompt, and a `number_choice` -- the
+on-screen dropdown type -- reaches the model as a CLOSED LIST that the prompt tells it to pick from; `_coerce_value_ex`
+then nulls anything off the list. Shown the ten stocked tray widths, the model returned 50 for an "80 x 50mm" tray and
+a live row priced wrong. **`extract_as: "number"` on a def is the split: the panel keeps its dropdown (the frontend
+keys on `type`), the model is asked for a FREE number with no `values`, and the ladder / the SWG map fit it code-side
+afterwards.** It is honoured at ONE chokepoint (the projection; the coercer reads the projected def, so it follows by
+construction) and guarded by `rate_master._KNOWN_DEF_KEYS` -- attribute definitions had no key allowlist, so a
+misspelled key would have shipped the closed-list behaviour silently. Only defs whose document number can
+legitimately be off-list carry it (cabletray `width_mm`, `thickness_mm`); for a catalogue pick or a Yes/No the closed
+list is right. **STORED DATA CANNOT PROVE THIS CLASS** -- 10,002 verdicts showed 0 moved while the defect was live,
+because stored values never pass through the coercer again; only a fresh read (spend, on a live sheet) catches it.
+Where a stated value has no stocked match the field is left BLANK with the `no_match` note (never a snapped value).
+
+**⚠️ AN ATTRIBUTE THE MODEL IS ASKED FOR IS NOT THEREBY READ AT PRICING TIME (owner rulings 2026-09-10, v62).**
+`popup_boxes.has_modules` ("Includes modules") was an extraction instruction (rule P1) that no pricing step read, so a
+row priced 3060 / 380 with the switch at Yes AND at No. **A Yes/No switch that must change the price needs a DECLARED
+STEP KEY that ONE reader interprets** -- here `module_fit.params.include_when: {attr, equals}` and
+`ratePipelineInterpreter.moduleFitGateVerdict` (equal -> today's path byte-identical; blank -> refuse; anything else ->
+every term item, ladder bind and blank bind takes the None sentinel in `fitLabels`, so the existing `none_skips` lines
+zero and the selection is never written -- the picks stay on screen, uncharged). **Confined by KEY PRESENCE, never by a
+category name**: `module_fit` is shared, and a step without the key is pinned byte-identical per category. Four config
+mechanisms were measured unable to do this and must not be re-tried for it: `if_attr` on a qty (loses the stated
+quantity, leaves `module_fit` ungated), `conditions` (dead on the assembly shape), `absent_when` (absent from
+`module_fit` / `component_ref`), `map_attribute` (cannot override a stated value). The validator `_ref`-guards `attr`,
+checks `equals` against the def's `values` (a typo would exclude every Yes row) and requires `none_when` on every term;
+**the loader does not run the validator, so an asset typo passes at import.**
+
+**⚠️ A UNIT CONVERSION BELONGS IN CODE, BUT AS THE VOCABULARY THE CATALOGUE SPEAKS, NEVER AS ARITHMETIC (owner-locked).**
+A conduit written in inches converts through a TRADE-SIZE table (`inch_trade_mm` on the def: three-quarter inch is
+20, one inch is 25, one-and-a-quarter is 32, one-and-a-half is 40, two inch is 50), applied by the extraction corrector
+`apply_inch_trade_size` on the `apply_conductor_floor` precedent. **Multiplying by 25.4 is wrong in a way that survives
+review**: 25.4 overshoots the 25 rung so a next-higher ladder buys 32, and 50.8 sits above the top rung so a stocked
+two-inch conduit refuses -- and the model, asked for a free number, converts arithmetically on EVERY sheet (measured on
+fresh reads of both sheets), so the table is the only thing that lands the value on a rung. The table may name an
+UNSTOCKED trade size (one-and-a-half is 40): that is correct, the `catalog_fit` ladder then buys 50. Confine such a
+corrector by KEY PRESENCE on the def, never by a category name -- the corpus's many non-conduit inch tokens sit on rows
+whose defs carry no table. ⚠️ A `catalog_fit` `bind` is a LABEL SLOT and a `where` "@" reference may name a
+`map_attribute` TARGET (industrial_sockets): the validator reference-guards neither as a plain definition, and
+re-tightening that refuses a shipped config.
+
+**⚠️ A CONFIG KEY THAT VALIDATES BUT NEVER EXECUTES IS WORSE THAN ONE THAT DOES NEITHER (owner-locked, 2026-09-10).**
+It reads as live to the next author, and it is how a wrong price hides: `conditions` on an assembly-shape
+`component_ref` passed the validator and was never read; `qty.if_attr` naming a non-existent attribute passed and
+priced the row WITHOUT the component, silently. Three rules follow. **(1) The validator REFUSES a key the interpreter
+cannot run on that shape, by name -- it does not implement it** (the legacy semantics bind `cond.params` into a
+`formula`; assembly has neither, so there is no meaning to execute). **(2) Every name a step READS is checked in the
+NAMESPACE it reads from:** an attribute id through `_ref_or_map` (a `map_attribute` target needs no definition);
+`qty.from_fit` reads the RUN SCOPE, so it is checked against the ctx binds DECLARED BY AN EARLIER STEP of the same
+pipeline -- a plain `_ref` there refuses all nine shipped uses (six read a module_fit `blanks.bind`, not a circuit_fit
+bind). **(3) The ONE predicate runs at BOTH writers:** it lives in `services/boq_rate_master/config_validation.py`
+(moved DOWN so the loader can import it without a service reaching into `api/`; `api/boq/rate_master.py` re-imports
+every name) and the loader runs it over the config AS STORED (`_loaded_config`: discipline stamped, goldens merged)
+BEFORE the first write. Before switching such a gate on, sweep every asset on disk plus the live rows -- 570
+configs, 569 pass; the one refusal (v12 `point_wiring.switch_item`, a `choice` with no values) is a real defect in a
+retired asset. **A test that loads a historical asset through the loader is in the gate's blast radius**
+(six did, on v12) -- repair the fixture in memory and pin the untouched file as REFUSED; never add a `validate=False`.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.

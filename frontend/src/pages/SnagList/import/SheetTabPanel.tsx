@@ -30,7 +30,6 @@ import {
 export interface SheetTabPanelProps {
   sheet: WorkbookSheet;
   state: TabState;
-  onBatchNameChange: (sheetName: string, value: string) => void;
   onHeaderRowChange: (sheetName: string, headerRow: number | null) => void;
   onMappingChange: (sheetName: string, mapping: SnagColumnMapping) => void;
   onToggleRow: (sheetName: string, sourceRow: number) => void;
@@ -40,13 +39,11 @@ export interface SheetTabPanelProps {
 export function SheetTabPanel({
   sheet,
   state,
-  onBatchNameChange,
   onHeaderRowChange,
   onMappingChange,
   onToggleRow,
   onSetRows,
 }: SheetTabPanelProps) {
-  const batchInputId = `snag-batch-${sheet.name}`;
   const headerInputId = `snag-header-row-${sheet.name}`;
   const mappingOk = isMappingValid(state.mapping, state.columns);
   // What the preview ACTUALLY used, once one has landed -- the input can be ahead of it for
@@ -55,23 +52,6 @@ export function SheetTabPanel({
 
   return (
     <div className="space-y-4">
-      {/* a) batch name ------------------------------------------------------- */}
-      <div className="space-y-1.5">
-        <Label htmlFor={batchInputId} className="text-xs">
-          Batch name
-        </Label>
-        <Input
-          id={batchInputId}
-          value={state.batchName}
-          maxLength={140}
-          placeholder="Name this batch"
-          onChange={(e) => onBatchNameChange(sheet.name, e.target.value)}
-        />
-        <p className="text-xs text-muted-foreground">
-          Shown on every snag imported from this sheet. Editable now and later.
-        </p>
-      </div>
-
       {/* b) header row + column mapping --------------------------------------- */}
       <div className="space-y-3 rounded-md border border-border p-3">
         <div className="flex flex-wrap items-end justify-between gap-3">

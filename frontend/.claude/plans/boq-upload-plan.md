@@ -37614,3 +37614,1292 @@ completes.
 `nirmaan_stack/services/boq_category/ai_voter.py`, `nirmaan_stack/services/boq_category/tests/test_hv2_voter_harness.py`,
 `nirmaan_stack/services/boq_rate_master/test_extraction_coercion.py`, this record, root `CLAUDE.md` (one
 paragraph: the shared parser's list-of-dicts rule, its three callers, and never-in-the-prompt).
+
+## Calculator slice 1 -- the SHARED panel: three figures per line with a copy icon, combined on every line, the rewording (2026-09-09)
+
+**Why slice 1 of two.** The Calculator is a full-screen tab on `/electrical-pricing` that calls the SAME helper as the
+Rate suggestions panel and must "show the same value for the same attributes at all times" (owner 2026-09-08). Six
+things are owed; FOUR are changes to the shared panel and were built and certified on the BoQ editor that exists today
+(this slice); TWO are the new screen (slice 2, owed below). No page, no tab, no plumbing export was built here.
+
+Tip on entry 8f744e50 (in step with origin); live asset v59, batch `rmbulk-0bd36d23eaca`, 1,367 active items, 12
+configs (re-measured by the harness dump). Owner rulings, verbatim: "for such catgeories which price 2 or more things at
+once, supply install and combined (spply + install) should be mentioned for each"; single-line categories "show the same
+three figures -- yes"; "place small copy icon besude each umber"; the copy puts the "bare number"; Termination having no
+combined today: "ok"; the two blanks: "ok"; the row-assuming messages: "ok. reword"; "calculator lays out its own screen.
+functionally it should be excatly same with the helper."
+
+### Premises corrected by the repo (S12)
+- **THREE ("the two blanks look alike") did not survive contact with the code and was NOT built.** Row 397's blank
+  "Frame/Face plate" select is `plate_item`, the `module_fit` ladder BIND on `popup_boxes` (live config: ladders
+  `[(plate_item, floor_from plate_item)]`), so `derivedAttrIds` marks it DERIVED and `isAttrBlank`
+  (`rateHelperTypes.ts`) deliberately exempts it from red -- the pipeline computes it; it is not missing input. "Module
+  count" is a genuine missing input, hence red. A genuinely blank SELECT is already red: one `fieldTone` reaches both the
+  `<select>` and the `<Input>` in `RateHelperPanel.tsx`. Confirmed on screen in the cert (BOQ-26-00242 row 16: both LMS
+  selects blank AND red). Making the two alike would mark a computed field as unanswered -- the defect the exemption
+  exists to prevent. #57 item 4 therefore does NOT land; the correction is pinned by four tests.
+- The brief's invariant expectation "`headlines` GAIN a combined key where a line lacked one" was half wrong: wiring's
+  headlines already carried `combined_rate` for both blocks (`headlineValuesFor`). What lacked a combined was the
+  SECTION finals row the panel rendered. The gain therefore lands in the new per-section `figures` (measured below).
+- S2 established before building: a termination-primary row ALREADY had `values.combined_rate` (`computeWiring`'s
+  combined line), so extending combined to every line moves nothing a "Use this value" writes. Pinned.
+
+### The four changes (files: `pricingSheetHelper.ts`, `rateHelperTypes.ts`, `RateHelperPanel.tsx`, new
+`frontend/src/lib/clipboard.ts`, the helper test)
+1. **Combined on EVERY priced line -- `groupFigures(finals)`** (exported, PURE): each rate kind from the first output
+   that fills it, `combined_rate` = THIS group's supply + THIS group's install when both exist. It is the ONE producer:
+   every generic section, wiring's primary and secondary groups, AND wiring's `headlines` (the private
+   `headlineValuesFor` was byte-for-byte this logic and is replaced by it). New optional `WorkingsGroup.figures?:
+   Partial<Record<RateKind, number>>`. **THE NEVER-SUMMED INVARIANT LIVES IN THE SIGNATURE**: one map in, no second
+   operand, so no code path can add two groups -- pinned by a source test that every call site passes one map with no
+   `+` and no `sections[` index. `finals` is BYTE-UNCHANGED (the raw output map stays the by-name contract); `values`
+   untouched; a stored `combined_*` output (cable's `combined_per_mtr`) maps to no kind and is re-derived, never trusted.
+2. **Three figures with a copy icon each -- IN THE SECTION BLOCK, not the header.** Recon measured the panel at 320 px
+   embedded / 300 px push with the Revert button already clipped by 35 px and a 262-px select overrunning the edge: three
+   figures do not fit the header (six lines for wiring) and three inputs do not fit the final-value row. The section
+   block is a wrapping `flex flex-wrap gap-x-3` row, the one place with room; the raw `finals` row there (output ids,
+   "supply_per_mtr 1490") is replaced by `Supply <n> [copy]  Install <n> [copy]  Combined <n> [copy]` over
+   `DISPLAY_RATE_KINDS`, an em dash where a kind is absent (never hidden, never 0). `CopyFigureButton` puts
+   `bareNumberText(v)` (= `String(v)`, no symbol, separator or unit) on the clipboard through the NEW shared
+   `lib/clipboard.ts` (`copyTextToClipboard`: async clipboard + hidden-textarea fallback, `COPY_CONFIRM_MS` 1400) and
+   shows a tick for 1.4 s. **New file, not an extraction**: `QuickCalc.tsx` (the only prior implementation, inline) is
+   out of scope and was not rewired; a later cleanup may point it here. Header block and final-value row untouched.
+3. **Not built** (correction above); behaviour pinned: the blank predicate is type-blind; a derived blank is not blank;
+   one `fieldTone` reaches both controls; the `<option value="">` placeholder stays SELECTABLE (owner-locked).
+4. **The rewording -- ONE source per sentence, each true with a row and without.** 14 strings (the recon named "roughly
+   fifteen"; the amber `default` tooltip and the corroborated tick are unreachable without an extraction and were
+   left): (1) basis "Fill the attributes to price this row" -> "Fill the attributes to price"; (2) derivation "Not in
+   the suggestion run -- fill the attributes to compute a rate." -> "No extracted attributes -- fill them to compute a
+   rate."; (3) Revert "Discard your edits on this row and show the suggested calculation again" -> "Discard your edits
+   and show the original values again"; (4) Revert "No edits to discard on this row" -> "No edits to discard"; (5) undo
+   "Undo my edit to this field -- restores what the row supplied" -> "... restores the original value"; (6) `assumed`
+   note "No module size readable in the row or its headings -- assumed 3M. Check it." -> "No module size stated --
+   assumed 3M. Check it."; (7) section-title fallback: a prettified pipeline id ("Swsock Boq") -> the CATEGORY label
+   (`categoryLabel` = `category_display`, else prettified category id), suffixed " -- Supply" / " -- Install" only when
+   the category surfaces more than one pipeline ("Point Wiring -- Supply"; config `pipeline_labels` still win, wiring's
+   two untouched); (8) derivation "supply_per_mtr = 1490" / "install = 70" -> "Supply = 1490" / "Install = 70"
+   (`outputWord`; an output filling no kind keeps its name); (9) "combined_rate = supply + install = N" -> "Combined =
+   supply + install = N"; (10) basis "Rate master: switches_sockets @ ..." -> "Rate master: Switches and Sockets @ ...";
+   (11) "No swsock_boq rate row matches ..." -> "No Switches and Sockets rate row matches ..."; (12) "Matched swsock_boq
+   for ..." -> "Matched Switches and Sockets for ..."; (13) "Pipeline 'x' has an unsupported step." -> "<label> uses an
+   unsupported step."; (14) wiring declined reason "No cable_boq pipeline in the config" -> "No cable pipeline in the
+   config". NOT changed (panel-shell copy the calculator will not mount): the title "Rate suggestions", the empty-state
+   sentence, the two stub cards, the scope line.
+
+**Design note, recorded not chosen:** the three split-pipeline categories (`point_wiring`, `cabletray_raceway`,
+`industrial_sockets`) produce ONE kind per section, so the literal per-line rule renders "Supply 1869  Install --
+Combined --" on the supply block and "Supply --  Install 735  Combined --" on the install block; the category's combined
+(2604) stays where it was, the header when the combined column is clicked. Measured: **4,953 sections across the 42
+active runs carry exactly one figure and two dashes.** Register item for the owner.
+
+### THE INVARIANT -- proven, not asserted
+The real `makePricingSheetHelper` + `buildExtractionByRow` bundled with the project's esbuild in-container
+(`--alias:@=./src`, `--alias:HELPER_MOD=` HEAD copies vs the working tree; no DB, no network) and run over all **5,001
+rows of the 42 active runs** against the 12 live configs and 1,367 live items (read through `get_rate_master_items`, so
+brand is projected as the frontend sees it), under BOTH the run category and the live category (`get_sheet_categories_
+resolved`), before and after. **10,002 verdicts compared: `values` differing 0, `finalValues` differing 0, headline
+values differing 0, `finals` differing 0, kind changes 0, throws 0** (9,984 suggestions, 18 declines). 12,717 sections
+gained `figures`; 7,259 carry a combined figure, of which **4,738 had supply + install in `finals` and NO combined before
+(the Termination class and every single-pipeline generic section)**; 7,311 section labels and 7,257 basis lines reworded.
+
+### Tests (in-container vitest; the helper file is the only test file in scope)
+Full suite BEFORE (three source files stashed, new pins present): **19 failed / 3,235 passed of 3,254** = the known
+`writeOffControl` timeout + 18 red; AFTER: **1 failed / 3,253 passed** (the same known failure; total 3,254 = 3,234 + 20
+new pins). Helper file 258 -> **278**. The 18 red-before = 4 pins moved mechanically (`pipelineLabel` fallback "Db
+Install" -> "Db Switchgear"; `/^No probe_boq rate row matches /` -> `/^No Cf Probe .../` + not-contains; the assumed-note
+string; the manual-row basis) + 14 of the 20 new; the 6 new pins green before are the four THREE correction pins
+(existing behaviour, by design), the never-summed negative and the price-cannot-move pin (invariants that already held).
+New pins: ONE -- both wiring sections' own three figures (termination combined 100), the cross-line negative (200/40/240
+appear nowhere), the source negative on `groupFigures` call sites, purity (no combined without both halves; stored
+`combined_*` ignored; BCS output fills nothing), a single-line category's one section (320/70/390, label "Switches and
+Sockets"), **`lighting_mgmt_system` from the LIVE v59 asset** (Lutron 24,500 -> `{supply_rate: 31850}` only, `[31850,
+undefined, undefined]`, `values` = supply only), the price-cannot-move pin (cable AND termination-primary `values`
+byte-equal to the goldens; `values` never assigned from `figures`); TWO -- `bareNumberText` exact strings, kind order,
+source: the panel hands `bareNumberText(value)` to the clipboard helper, no `toLocaleString`/`Intl.NumberFormat`/rupee,
+figures inside the section block, em dash for absence, header unchanged; THREE -- the four correction pins; FOUR -- no
+forbidden phrase in the shipped strings of the three files (comments stripped), the manual-row sentences identical on a
+real row outside the run and on a no-row ctx, basis/titles/derivation identical in-run vs no-row-with-overrides with
+`values` equal, `outputWord`/`categoryLabel`/`pipelineLabel` incl. the split suffix, the assumed note exact, the panel's
+titles. VACUITY (A4), each disabled then restored to the identical diff hash: combined line in `groupFigures` -> 4 red
+(both-sections, cross-line negative, purity, single-line); `bareNumberText` formatting -> 1 red; `fieldTone` off the
+select -> 1 red; one rewording reverted -> 3 red. Python suites (read-only baselines): coercion **149 OK**, hv2 **43
+OK**, rate_suggest **71 OK**, rate_master **337 OK** (529 s). tsc: 0 errors in the five touched/new files (3,231
+pre-existing repo-wide). Residence check F2 223 / F5 119 = the recorded pre-existing drift (a `JSON.parse` in the new
+LMS pin briefly counted F2 224; replaced by a JSON import, the `bcsColumns.test.ts` precedent).
+
+### The browser live cert (2026-09-09, admins@nirmaan.app, :8080 via vite) -- ZERO AI calls, ZERO writes
+Docker Desktop's engine was down for ~40 min at the start of the slice (every API call 500; the owner restarted it) and
+the container came back bare: `bench serve --port 8000 --noreload` (PID 971), `bench worker` (973), `node
+apps/frappe/socketio.js` (975) and `yarn dev` (2102, after `node_modules/.vite` cleared) were started fresh -- nothing to
+kill by PID. `:8000` ping 200 x3, `:8080` 200 x3; FRONTEND-derived markers on the plain URLs: `CopyFigureButton` x5,
+`groupFigures(` x5, `copyTextToClipboard` x1. De-stale: 1 service worker unregistered, storage cleared, tab closed and
+reopened. No CSRF break (the cert makes no POST); the session survived. `/electrical-pricing` never opened.
+| step | row | result |
+|---|---|---|
+| L1 | BOQ-26-00015 / Electrical works / 10 (wiring) | Cable -- per Mtr: Supply **1490** Install **130** Combined **1620**; Termination -- per Set: Supply **2610** Install **660** Combined **3270** (where it showed none); six copy buttons (16 px); header still 1490 / 2610; no figure is 4100 / 790 / 4890 |
+| L2 | row 370 (switches) | section "Switches and Sockets" (was "Swsock Boq"): Supply **320** Install **70** Combined **390**; derivation "Supply = 320 / Install = 70 / Combined = supply + install = 390"; header 320. Also row 394: 640 / 130 / 770 |
+| L3 | row 10, termination Combined | clipboard held exactly `3270` (pasted into the search box, length 4, then cleared) -- page-JS `readText` froze the renderer and was abandoned |
+| L4 | row 397 (popup) | Module count: blank number, RED; Frame/Face plate: blank select, no red -- correct, it is the derived ladder bind; "Some attributes are missing -- fill them to compute a rate."; Use and Revert disabled |
+| L5 | rows 10 / 370 / 397, and BOQ-26-00242 / LT Electrical works / 16 (a real row outside its partial run) | on screen: "Rate master: Wiring, Cabling & Termination @ ...", "Rate master: Switches and Sockets @ ...", "Supply = ...", "Combined = supply + install = ...", "No edits to discard", after a session pick on Material (undone at once) "Discard your edits and show the original values again" and the undo tooltip "Undo my edit to this field -- restores the original value"; on row 16 "Fill the attributes to price" and "No extracted attributes -- fill them to compute a rate." with both genuinely-blank selects RED. The assumed note was not observed (needs a bare-box row) -- pinned only |
+| L6 | rows 10 and 370 | every figure identical to the 2026-09-08 recon reads (1490/130/1620, 2610/660; 320/70); final-value prefills 1490 / 320 unchanged |
+Session picks: Material ALUMINIUM -> COPPER on row 10 (undone via the field's own undo; "No edits to discard" confirmed);
+the Category view filter (Switches / Pop up Boxes) left applied on BOQ-26-00015, session-only. Tool anomaly: two
+ref-clicks on row 16's sparkle silently did nothing; a DOM `click()` opened it.
+
+### #57 -- what landed on the live BoQ editor
+1 every priced line shows Supply / Install / Combined where the section showed the raw finals; 2 a copy icon beside each;
+3 the Termination line gains its combined; **4 did NOT land (premise corrected)**; 5 the 14 rewordings. The list did not
+grow.
+
+### WHAT SLICE 2 OWES
+Export `RateConfigFetcher`, `RATE_MASTER_CONFIG_TARGETS` and the items fetch (discipline hardcoded "Electrical") out of
+`SheetPricingPage.tsx` into `rate-helper/` -- ONE definition; the tab on `/electrical-pricing` which UNMOUNTS the sheet
+and releases its checkout lock on switch with NO warning (owner: no work is lost); the calculator's own full-screen
+layout, mounting `makePricingSheetHelper({configsByCategory, items, extractionByRow: new Map()})` and the shared
+`RateHelperPanel` with a sentinel `excelRow` / `col` / `kind` and a category-dropdown `ctx`, functionally identical to the
+panel; and a PARITY TEST asserting both surfaces produce identical `values`, `headlines` and `figures` for the same inputs.
+
+### Register (record, do not fix)
+- Units are not data anywhere (no `unit` key in any config or pipeline; only wiring's two `pipeline_labels` carry "per
+  Mtr" / "per Set"); the owner has not ruled on a unit key.
+- 4,953 split-pipeline sections render one figure and two dashes under the literal per-line rule; the category-level
+  combined for point_wiring / cabletray / industrial_sockets is visible only in the header on the combined column.
+- The panel is reachable by six profiles; `/electrical-pricing` by two (Admin, Estimates Executive) -- accepted.
+- An app-wide floating calculator named `QuickCalc` already exists; its inline clipboard block is now duplicated by
+  `lib/clipboard.ts` until rewired.
+- A 262-px select ("Switch", LMS "Item") still overruns the 320-px panel; the Revert button is still clipped by 35 px.
+- Docker Desktop engine outage (API 500 for ~40 min); a bare container needs the four processes again.
+- Carried unchanged: the standing register (run-to-run variance, the missing BRSR run records, the 20 non-assembly rows,
+  the plate-ladder-top refusals, the never-asked recurring cause, the derivation tab rework).
+
+### Files
+`frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.ts`, `.../rateHelperTypes.ts`, `.../RateHelperPanel.tsx`,
+`.../pricingSheetHelper.test.ts`, `frontend/src/lib/clipboard.ts` (new), this record. Root `CLAUDE.md`: judged, nothing
+earned -- the never-summed rule and the derived-blank exemption are already recorded invariants; the per-line `figures`
+contract is a panel detail that belongs here and in the frontend domain doc.
+
+## Calculator slice 2 -- the plumbing exported once, the tab on /electrical-pricing, the calculator screen, the parity test (2026-09-09)
+
+Tip on entry e6dd4656 (pushed, in step with origin). Owner rulings, verbatim: "create a new tab beside the excel
+screen"; the sheet's lock on a switch: "release"; warning first: "Don't warn. - no work is lost"; "calculator lays
+out its own screen. functionally it should be excatly same with the helper"; "it can be used by multiple users
+simultaneously"; audience narrowing: "that is ok"; the split-pipeline two-dash shape: "let it be for now. we will
+change this latr if it becomes too much of an irritant... we will fix both calvulator and helper later together".
+
+### ONE -- the plumbing, exported once (`rate-helper/rateHelperPlumbing.tsx`)
+`RATE_MASTER_CONFIG_TARGETS`, `RateConfigFetcher`, `useConfigsByCategory` (the accumulate-once map + its
+reference-stable `onLoaded`) and `useRateMasterItems(enabled, discipline = "Electrical")` moved out of
+`SheetPricingPage.tsx` (which held them privately at :329-356 and :671-690) into ONE module. **A move, not a
+redesign**: the same method names, arguments, SWR keys (`boq-rm-config::<d>::<c>`, and `boq-rm-items-electrical`
+for the default discipline) and load-once logic (`if (prev.has(categoryId)) return prev;`). The BoQ page now
+imports them and renders the fetchers exactly as before (`RATE_MASTER_CONFIG_TARGETS.map(... <RateConfigFetcher
+onLoaded={handleRateConfigLoaded}/>)`, `useRateMasterItems(RATE_HELPER_ENABLED)`); `PricingCalculator.tsx` imports
+the SAME module. Pinned from both sides: the page no longer defines any of the three and names none of the two
+endpoints; the calculator defines no target list of its own; the targets equal the registry (12).
+
+### TWO -- the tab (`PricingWorkbookPage.tsx`)
+The page is now a tab strip ("Spreadsheet" | "Calculator") over two children. The whole former page component is
+`PricingWorkbookSheet` (behaviour untouched; `inTabs` only swaps its NORMAL root class for `flex flex-col flex-1
+min-h-0` so it fills the strip's column -- the full-screen class and every lifecycle path are the same). The tab
+renders only on a workbook with a calculator discipline (`CALCULATOR_WORKBOOKS = {"/electrical-pricing":
+"Electrical"}`, kept in the calculator module so the workbook registry is untouched); HVAC / ELV render the sheet
+alone. **Switching to the Calculator UNMOUNTS the sheet by conditional render** (`tab === "sheet" ?
+<PricingWorkbookSheet inTabs/> : <PricingCalculator/>`), so the sheet's EXISTING unmount cleanup runs -- the
+`release` beacon (only when `lockMineRef` says the lock is ours) and `luckysheet.destroy()` -- the same path the
+route comment requires between workbooks. No warning, no confirm, no new release path (pinned: the file still has
+exactly the two `.release` sites it had). Switching back REMOUNTS the sheet as a fresh read-only open:
+`list_workbooks` + `get_workbook` run again, and `get_workbook` writes its `Pricing Access Log` "open" row as it
+does on every load. **Measured: 2 rows per mount in dev** (React StrictMode runs the load effect twice -- the
+owner's own 18:05 opens show the same pair), i.e. one row per open in production. The page has no dirty flag and
+the engine reports nothing back, so there is nothing to warn on even if the ruling were otherwise.
+
+### THREE -- the calculator screen (`pages/pricing/PricingCalculator.tsx`)
+A Category dropdown (registry categories, labelled from each config's `category_display` via `categoryLabel`),
+the picked category's fields all starting BLANK, and the price panel -- **the SAME `RateHelperPanel`**, mounted in
+a new `variant="calculator"`. **The helper is constructed, not copied:** `makePricingSheetHelper({
+configsByCategory, items, extractionByRow: new Map() })`, the picks reaching `compute` as `overrides` through the
+panel exactly as a BoQ-row override does. The panel gets a sentinel row context (`calculatorCtx`: `excelRow` =
+registry index + 1 -- DISTINCT per category so the panel's row-scoped edit state cannot carry a pick from one
+category to the next; `description: ""`; `col: "calculator"`; `kind: "supply_rate"`). The `calculator` variant is
+a VARIANT, NOT A FORK: it drops only the panel shell (the "Rate suggestions" banner, the "Row N · kind" scope
+line, the final-value field and "Use this value" -- `onUse` is now optional and absent), opens its one card by
+default, and takes the width it is given; every field, note, figure, section and refusal sentence is rendered by
+the same lines the two BoQ variants render. Nothing is read from a BoQ, nothing saved, no lock, no BCS, no stub
+cards, no `useFrappePostCall`. Units: nothing added (wiring's two `pipeline_labels` remain the only units).
+Layout note from the cert: the panel wrapper is a `min-w-0` COLUMN so a long basis line truncates instead of pushing
+the header figures past the viewport (seen once on wiring at full width, fixed and re-verified: stacked headlines end
+at x=2051 of 2133).
+
+### THE PARKED SHAPE, reproduced not fixed (owner 2026-09-09)
+On `point_wiring`, `cabletray_raceway` and `industrial_sockets` the panel renders two blocks each with ONE figure
+and two em dashes; the calculator renders the same panel and therefore the same shape -- pinned per category with
+a dated PARKED-BY-RULING comment, and demonstrated on screen (M7: Ladder / GI / 2 mm / 600 / Cover No / Ceiling /
+no cutting / no refill -> "Supply 711 · Install -- · Combined --" and "Supply -- · Install 380 · Combined --" on
+BOTH surfaces). **The owner's corrected intent, recorded so a later reader does not start from the wrong reading:
+ONE line per THING PRICED -- cable and termination are two things; a category's supply and install halves are ONE
+thing.** The fix moves both surfaces together, and this pin moves with it.
+
+### THE PARITY TEST (`pages/pricing/pricingCalculator.test.ts`) -- what it covers and what it does NOT
+For EVERY golden in the live v59 asset (34 across the 12 categories; all 12 configs and 1,367 items loaded from
+the asset, brand projected as the endpoint does): helper A = in-run row with the golden's attributes; V = the
+picks a user would make to reproduce what A's panel SHOWS (`attrDisplayValue` of every non-read-only,
+non-disabled field -- the row's value or the pipeline's computed one); helper B = the calculator's construction
+(EMPTY map) computing `rowCtx` with `overrides = V`; helper C = the same with the calculator's own sentinel ctx.
+**Asserted deep-equal on A, B and C: `values`, `headlines`, every section's `figures`**, and the basis LABEL.
+Priced population: >= 25 of 34 (a refusal on both sides is parity too). Two findings the test records:
+(1) **the picks must be the DISPLAYED values, not the extracted ones** -- `industrial_sockets` derives its paired
+MCB from hidden `panel: false` facts (`mcb_present`, `mcb_amp_a`) only an extraction carries, but the panel SHOWS
+the fitted MCB in the visible `paired_mcb` field and that visible pick reproduces the price (10,618 on i4; with the
+extracted-only set the calculator gave 9,222); (2) the **basis line is not compared for equality** -- it lists the
+attributes the row STATED, and a calculator user states values the in-run row derived, so its list is longer.
+**THE GAP, stated:** `values` (the header / Use figure) follows the ROW'S TEXT on wiring (`isTerminationRow`); the
+calculator has no text, so it is cable-primary while a termination-texted BoQ row is termination-primary --
+headlines and every section's figures are still identical (pinned). **NOT COVERED: the RENDER.** No DOM here;
+that is why the three figures live in the one panel component and the calculator reuses it -- a second render of a
+figure would sit outside both the test and the cert.
+
+### Tests (in-container vitest)
+New file 52 pins (parity x34 + population + gap; plumbing x3; blank/None x3; construction/no-arithmetic/no-write/
+sentinel x4; parked shape x3; tab x2). RED-before: the file cannot resolve `PricingCalculator` / the plumbing
+module at HEAD (file-level red). Full suite BEFORE 3,253 / 1 (slice 1's after); **AFTER 3,305 passed / 1 failed**
+(the known `writeOffControl` timeout; total 3,306 = 3,254 + 52). VACUITY x5, each restored to the identical diff
+hash: a local targets definition re-added to the BoQ page -> 1 red; the sentinel row made constant -> 1 red; the
+calculator variant rendering "Use this value" -> 1 red; the tab no longer unmounting by the pinned conditional ->
+1 red; the calculator ctx given row text -> 7 red (the five wiring parities, the gap pin, the sentinel pin).
+Python (read-only baselines): coercion **149 OK**, hv2 **43 OK**, rate_suggest **71 OK**, rate_master **337 OK**
+(492 s). tsc: 0 errors in the touched files. Residence F2 223 / F5 119 (pre-existing drift, unchanged).
+
+### The browser live cert (2026-09-09, admins@nirmaan.app, :8080 via vite) -- ZERO AI calls; writes = the page's own access-log rows
+Processes restarted BY PID (971/973/975/2101/2102; `kill -9` needed for four, declared) -> 3831 / 3833 / 3835 /
+3861, `node_modules/.vite` cleared, :8000 ping 200 x3, :8080 200 x3; FRONTEND markers on the plain URLs
+`calculatorDisciplineForPath` x2, `CALCULATOR_WORKBOOKS` x2, `rateHelperPlumbing` x1, `isCalculator` x7. De-stale
+(1 SW unregistered, storage cleared, tab closed/reopened); no CSRF break (the cert makes no POST).
+| M | result |
+|---|---|
+| M1 | `/electrical-pricing`: tab strip "Spreadsheet | Calculator", the sheet under it with Edit / Sandbox / Full screen; Luckysheet mounted (1 container) |
+| M2 | switch to Calculator: 0 engine containers, 0 dialogs, network = 12 config GETs + the items GET only. DB before AND after: `Electrical Pricing` `checked_out_by = None` -- **no lock was HELD**: taking one needs a `checkout` (a write beyond the access log, S10), so the lock-held variant is OWED to the owner (hold Edit yourself, then switch); the release path itself is the untouched unmount cleanup, source-pinned |
+| M3 | calculator Switches and Sockets with row 370's picks -> **320 · 70 · 390**; the panel on row 370 -> **320 · 70 · 390**, identical component lines. Wiring with row 10's picks -> **1490 · 130 · 1620** and **2610 · 660 · 3270** on both surfaces |
+| M4 | with Colour left blank: header "Fill the attributes to price" + em dash, line "No extracted attributes -- fill them to compute a rate.", the blank select red, no figures; Colour = White -> the figures appear |
+| M5 | **NOT DEMONSTRATED**: every copy click reported no tick and the paste came back empty -- the tab was `visibilityState: "hidden"` (the owner's window in front), and the clipboard API refuses writes to a hidden document; slice 1's cert put `3270` on the clipboard with the tab visible. Owed: one copy with the tab in front |
+| M6 | calculator wiring: Cable 1490 / 130 / 1620, Termination 2610 / 660 / 3270, six copy buttons; 4100 / 790 / 4890 appear nowhere |
+| M7 | cabletray, above -- the same two-dash shape on both surfaces |
+| M8 | before -> after: access log 1,560 -> 1,566 (six "open" rows, all mine, 3 mounts x 2); suggestion runs 71 -> 71; events 1,532 -> 1,532; `BoQ Cell Pricing` 37,699 -> 37,699; sheet locks 295 -> 295; BCS rows 1,524 -> 1,524; workbook lock None throughout |
+Tool anomaly: CDP ref-clicks silently no-op'd on several controls (a tab, a badge, a funnel) while the tab was
+hidden; DOM `click()` / keyboard-driven Radix worked. Session picks on the calculator are session-only by design.
+
+### #57 -- what landed
+1 the tab strip on `/electrical-pricing`; 2 the Calculator screen. Nothing changed on the BoQ editor (the plumbing
+move is behaviour-identical, pinned). The list did not grow.
+
+### Register (record, do not fix)
+- The split-pipeline two-dash shape, PARKED, with the owner's corrected intent above.
+- Units are not data anywhere; nothing added.
+- `get_workbook` writes one access-log row per open (two in dev StrictMode); a tab switch back is an open.
+- `values` follows the row's text on wiring; the calculator is cable-primary (both blocks shown regardless).
+- A calculator user cannot state `panel: false` facts (industrial_sockets' MCB presence / amps); the visible
+  `paired_mcb` pick reproduces the price -- but a pricer who does not know the MCB gets the socket alone.
+- The panel is reachable by six profiles; `/electrical-pricing` by two (owner: "that is ok").
+- Owed to the owner: M5 with the tab visible; M2 with a lock actually held (needs a checkout).
+- Standing register carried unchanged.
+
+### Files
+`frontend/src/pages/boq-wizard/rate-helper/rateHelperPlumbing.tsx` (new), `.../SheetPricingPage.tsx` (the import
+swap), `.../rate-helper/RateHelperPanel.tsx` (the `calculator` variant), `frontend/src/pages/pricing/
+PricingWorkbookPage.tsx` (the tab), `frontend/src/pages/pricing/PricingCalculator.tsx` (new),
+`frontend/src/pages/pricing/pricingCalculator.test.ts` (new), this record. Root `CLAUDE.md`: judged, nothing earned.
+
+#### Slice 2 cert addendum (2026-09-09 19:00, owner-held lock, tab in front) -- the two owed items CLOSED
+The owner clicked Edit on `Electrical Pricing` (checkout 18:59:21, one approved checkout/release pair) and brought
+the tab to the front (`visibilityState: "visible"`). Nothing else was written.
+- **M2, lock HELD:** `checked_out_by` = `admins@nirmaan.app` BEFORE the switch (Save / Release buttons on screen,
+  1 engine container) -> switch to Calculator (DOM tab click) -> **IMMEDIATELY AFTER: `None`**, with a `release`
+  access-log row at 19:00:30 (the sheet's own unmount cleanup, no new code path) -> switch back -> **still `None`**,
+  the sheet remounted read-only (Edit / Sandbox buttons, 1 container) and wrote its two `open` rows (19:02:00 /
+  19:02:01, dev StrictMode). Access log 1,584 -> 1,587 for the exercise (1 release + 2 opens).
+- **M5, copy:** Switches and Sockets with 10A 1 WAY SWITCH x1, every socket/switch-2/blanker None, White, No, 2M ->
+  Supply 60 · Install 20 · Combined 80; a real click on "Copy combined figure", then Ctrl+V into a throwaway
+  textarea (removed afterwards): the clipboard held **exactly `80`** -- two characters (codes 56, 48), no currency
+  symbol, no separator, no trailing newline. The button's tick state was not observed after the click (the probe
+  read ran after the tick's timeout) -- the paste is the evidence.
+
+## The none-pick rule -- a hand-picked "None" is honoured where the map's fallback is not None (2026-09-09)
+
+Tip on entry `ea3a890d` (in step with origin). Owner, after reproducing it on screen: *"checked this..it needs to
+be fixed. the none selection is inert now."*; on the narrow shape chat described: *"ok. proceed with build"*.
+**"Unclear" is UNTOUCHED by owner ruling** (*"ok.. letsleave unclear untouched. we will decide later."*) -- see the
+register below.
+
+### THE DEFECT, and how the owner found it
+`map_attribute`'s stated-wins test (`ratePipelineInterpreter.ts` `isStated`, the line just above the rule) excludes
+the "None" sentinel, so a pricer's deliberate None was discarded and the step's `default` substituted. On
+`point_wiring.conduit_type` the default is "PVC": the row priced a conduit the pricer had declined and the field
+rendered "PVC (computed)" over the pick. Found by the 114-row verification (BOQ-26-00126 / ELEC / 475: the panel's
+hidden-fact None priced 1565 / 313, a hand None on the calculator 1775 / 358), reproduced by the owner on the PANEL
+(BOQ-26-00174 / `Electrical ` / 251: None -> "PVC (computed)", 1775 / 358 unchanged). Shared engine: the BoQ editor
+and the calculator alike.
+
+### THE RULE -- narrow by design, both conditions load-bearing, NOT guessable from the config
+A stated "None" on a `map_attribute` step is honoured when BOTH hold: **(i)** `prefer_attr` IS `result_attr` (the
+field reads its own value); **(ii)** the step's `default` is NOT itself the "None" sentinel. Otherwise the step
+behaves exactly as before. One predicate (`noneIsADecision`) beside `isStated`; the stated-wins branch is
+`isStated(stated) || (noneIsADecision && stated === NONE_SENTINEL)`. The comment names both measured consequences
+and the ruling's date, and each condition has its own NEGATIVE pin named for the population it protects.
+- **Dropping (i)** (recon 4, 5,001 rows): **59 live rows move and 25 of them stop pricing** -- `industrial_sockets`'
+  hidden `mcb_curve_stated`, which the model writes as "None" on 107 of 147 live rows, would become the curve
+  instead of falling to C; the `catalog_fit` pin "STATED 'None' STICKS" already records that asymmetry as
+  deliberate and is untouched.
+- **Dropping (ii)**: **14 `wiring_cabling` rows** that NAME a conduit at a non-catalogue size (the model writes
+  `size_mm` "None") would drop their conduit (240/50 -> 180/30); charging the 25 mm rung there is ruling (vi).
+- Nothing else reads the rule: the 22 other sentinel sites (recon 4, Q1) already treat None as positive absence,
+  and the honoured None flows into `circuit_fit.absent_when` and `component_ref.none_skips` exactly as an
+  extraction-derived None does.
+
+### THE INVARIANT -- proven
+Real `makePricingSheetHelper` + `buildExtractionByRow` bundled with the project's esbuild in-container from a full
+copy of `frontend/src` with the interpreter at HEAD (`bcab168f38a2`) vs the working tree (`1c21474bc301`), run over
+all **5,001 rows of the 42 active runs** (re-dumped read-only) against the 12 live configs and 1,367 items, under
+the run category AND the live category: **10,002 verdicts compared, 0 moved**; `values`, every section's finals and
+figures, `finalValues` and the verdict kind identical; figure-set hash `da71b4f4bc6d` before and after. Nothing
+moves unless a pricer picks.
+
+### Tests (in-container vitest)
+`ratePipelineInterpreter.test.ts` +9 pins in one describe ("THE NONE-PICK RULE"): POSITIVE the defect (None honoured,
+conduit line 0, supply = PVC supply minus the conduit line); POSITIVE end to end (the pick reaches the SAME finals
+as the hidden `conduit_included = No` route); POSITIVE the consumers (`circuit_fit` "no conduit (positive absence)",
+`component_ref` "None -> 0", wires and switch still price); POSITIVE the screen (`mapAttributeOutcomes` publishes
+`stated: true, value: "None"`, so `applyDerivedDisplay` publishes no derivedValue and the panel renders the pick
+plain); UNCHANGED (MS stated; unstated -> PVC default; "" -> PVC); **NEGATIVE condition (i)** named for
+industrial_sockets' curve, quoting the 59 / 25 consequence (`CURVE_MAP` with `mcb_curve_stated` None -> C, and ROW98
+still fits); **NEGATIVE condition (ii)** named for the 14 wiring rows (`size_mm` None + MS -> 25 unmarked; the
+default-None type map -> None unmarked); NEGATIVE catalog_fit stated-None byte-identical (9222); NEGATIVE the source
+spells both conditions as config keys and tests no category id. RED before: 5 of 9 fail at HEAD. GREEN: 9 / 9.
+**VACUITY x2**: condition (i) disabled -> its negative + the source pin red (2 fail / 7 pass); condition (ii) disabled
+-> its negative + the source pin red (2 / 7); restored to hash `1c21474bc301` each time. Full file 475 / 475; the
+three rate files 805; full vitest **3,314 passed / 1 failed** (the known `writeOffControl` timeout; 3,315 = 3,306 +
+9). Python: coercion **149 OK**, hv2 (`services.boq_category.tests.test_hv2_voter_harness`) **43 OK**, rate_suggest
+**71 OK**, rate_master **337 OK** (520 s; one logged duplicate-key message inside a passing test, as before).
+`pricingSheetHelper.test.ts`: no pin had to move. tsc: no new errors in the touched files.
+
+### The browser live cert (2026-09-09 22:30-22:50, admins@nirmaan.app, tab VISIBLE, zero AI calls, no writes)
+Web `--noreload` / worker / socketio / vite restarted BY PID (3831 / 3833 / 3835 / 3848 / 3861 -> 7395 / 7399 / 7406
+/ 7428; `kill -9` needed for all five, declared), `node_modules/.vite` cleared, :8000 ping 200 x3, :8080 200 x3,
+FRONTEND marker on the plain module URL: `noneIsADecision` x2, `p.prefer_attr === p.result_attr` x1. The session
+survived the restart (no CSRF break, no login). Anomaly: the FIRST load after the restart served the dev shell with
+its `{{ boot }}` placeholders un-substituted (blank page, console `SyntaxError: Unexpected token '{'` at the inline
+boot script) while :8000 was warming; a reload rendered normally, though the same console exception is logged on
+every load of the dev shell -- pre-existing, not from this change.
+| N | result |
+|---|---|
+| N1 | BOQ-26-00174 / `Electrical ` / 251 on the PANEL: PVC, **1775 / 358** -> pick None -> field shows **"None"** (plain, not "(computed)"), **1565 / 313** (-210 / -45, the conduit leg) -> revert -> 1775 / 358, undo count **0** |
+| N2 | Calculator, the same attributes with Conduit type None -> **1565 / 313**, identical to N1; PVC control 1775 / 358 |
+| N3 | BOQ-26-00126 / ELEC / 475 panel **1565 / 313** (hidden-fact None); the calculator with the same attributes and a hand-picked None -> **1565 / 313**. The defect closed end to end |
+| N4 | condition (i): BOQ-26-00232 / 151 (curve stated None, `32A DP MCB C CURVE (computed)`) **9549 / 3350** and / 155 (`63A FP MCB C CURVE (computed)`) **24918 / 8730** -- identical to the verification's figures |
+| N5 | condition (ii): BOQ-26-00238 / 24 (size None beside a named 19 mm PVC conduit) **162 / 34 / 196 + 70 / 20 / 90**, size still "25 (computed)"; / 26 **222 / 40 / 262** -- identical |
+| N6 | BOQ-26-00232 / 192 earthing **340.75 / 79.75 / 420.5**; / 309 junction box **360 / 80 / 440** -- identical |
+Writes: none beyond the page's own access log (1,595 -> 1,597: the ONE `/electrical-pricing` load for N2/N3; two
+more at 22:30 came from the open tab reloading when vite restarted). Suggestion runs 71, events 1,532,
+`BoQ Cell Pricing` 37,699, sheet locks 295, BCS rows 1,524, workbook lock None throughout. Every panel override
+reverted (undo count 0); calculator picks session-only.
+
+### #57 -- what landed
+1 On a field that reads its own value and whose fallback is not None, a pricer's "None" pick is now honoured
+instead of being silently replaced -- today `point_wiring.conduit_type`: picking None stops the row pricing a
+conduit. Nothing changes on any row where nobody picks None (proven above). The list did not grow.
+
+### Register (record, do not fix)
+- **"Unclear" is a RULING CONFLICT, not a defect -- owner-parked.** It exists for the model (R11 tells it to answer
+  Unclear when a conduit is named but the document does not say who carries its cost); an earlier owner ruling (v),
+  pinned in `ratePipelineInterpreter.test.ts` ("CANNOT JUDGE -> not priced, cable rate intact"), says Unclear prices
+  the cable with no conduit; today's statement wants a blank that refuses. 13 live rows carry it (187 x7, 217 x5,
+  232 x1). Making a blank refuse would stop 1,383 of 1,559 live wiring rows pricing. Untouched here.
+- **The `wiring_cabling.size_mm` discard is deliberately left in place**: a None pick on the size with a known type
+  still prices the 25 mm rung (its map's default IS None, so condition (ii) excludes it) -- the same shape that
+  protects the 14 live rows.
+- The rule is not guessable from the config; the two named negative pins are the only guard.
+- Standing register carried unchanged (units, access-log row per load, the parked split-pipeline shape).
+
+### Files
+`frontend/src/pages/pricing/rate-master/ratePipelineInterpreter.ts` (the predicate + comment),
+`frontend/src/pages/pricing/rate-master/ratePipelineInterpreter.test.ts` (+9 pins), this record. Root `CLAUDE.md`:
+judged -- the rule is pinned and documented here; no durable convention beyond the existing "None is positive
+absence" line was earned, so nothing added.
+
+## Calculator layout slice -- price blocks two-up on top, fields in adaptive columns (2026-09-09)
+
+Tip on entry `063c3960` (2 ahead of origin, not pushed). LAYOUT ONLY: no engine, config, asset, mint, import,
+extraction or prompt change. Owner, verbatim: *"the grid has expanded too much and its difficult to assciate the
+field labels with the boxes."*; *"pricing show n in top is better. but we need to keep a separate block for it. we
+just put these bl;ocks at the top and maybe side by side and not one below the other. we can show in 1*2 grid per
+row which then gets repeated as required if therie are more than 2 blocks."*; *"this works"* (the mockup); *"empty
+blocks at the top"*; *"split as per order"*; *"can we make the column layout dynamic so that it renders 1/2/3
+column as required."*
+
+### THE LAYOUT (calculator variant only; the BoQ panel is byte-unchanged)
+- **Price blocks two per row, at the top, from the first render.** `PricingCalculator` derives the block labels
+  from the CONFIG before anything prices -- `calculatorBlockLabels(config)` = one label per non-BCS pipeline in
+  declaration order, through the helper's own `pipelineLabel` -- and hands them to the panel as
+  `calculatorBlocks`. With no sections yet, the panel renders them as PLACEHOLDER groups (`figures: {}` -> three
+  em dashes, no copy button) through the ONE `renderSection` closure a priced block uses; the "fill them"
+  sentence sits under them. Once priced the real sections replace the placeholders one-for-one (pinned per golden:
+  labels before == labels after, all 12 categories), so the layout never jumps. Blocks per row come from the
+  calculator's OWN observed width (`blockColumnsFor`: 2, folding to 1 below 640 px) -- never more than two. A CSS
+  grid stretches its row, so two blocks with one and five derivation lines are the same height (measured: both
+  104 px on point_wiring priced, both 122 px on wiring).
+- **Fields below, label ABOVE its box, in 1 / 2 / 3 equal columns.** `fieldColumns` = `columnsFor(visible field
+  count, observed width)` = `min(content maximum, width cap)`. CONTENT sets the maximum from the measured
+  distribution; WIDTH may only reduce it. The order is the panel's own render order split across the columns
+  ("split as per order" -- pinned: `visibleFieldIds(config)` == the ids the helper renders); a config's group
+  heading spans every column where it falls. Boxes are `w-full` within a column (the Switch dropdown no longer
+  starts further left). Computed fields keep their "(computed)" marker and muted tone -- display only.
+- **The BoQ variants are untouched**: every calculator class is a ternary on `isCalculator` with the ORIGINAL
+  string as the other branch (pinned verbatim, six strings); the JSX order is unchanged and the calculator reorders
+  by CSS `order-*`; the three new props (`calculatorBlocks`, `fieldColumns`, `blockColumns`) are read only under
+  `isCalculator` and `SheetPricingPage` passes none (pinned). ONE section renderer, ONE `DISPLAY_RATE_KINDS.map`,
+  ONE `CopyFigureButton` site (pinned) -- no fork.
+
+### THE MEASURED FIELD COUNTS AND THE BANDS (2026-09-09, panel-visible defs: `selector !== false && panel !== false`)
+| category | visible fields | columns (wide) |
+|---|---|---|
+| junction_box_raceway 1, miscellaneous 1, conduit_piping 2, lighting_mgmt_system 2, earthing 3 | <= 4 | **1** |
+| industrial_sockets 5, cabletray_raceway 8, wiring_cabling 8 | 5-12 | **2** |
+| db_switchgear 14, popup_boxes 17, switches_sockets 17, point_wiring 27 | >= 13 | **3** |
+Bands `COLUMN_BANDS`: <= 4 -> 1, 5-12 -> 2, >= 13 -> 3. Both edges (4/5, 12/13) fall in EMPTY gaps of the
+distribution (3 -> 5, 8 -> 14), so no live category sits on a boundary and no category looked wrong in two bands
+(S8 did not fire). The middling categories -- earthing 3 (one column), industrial_sockets 5 and cabletray /
+wiring 8 (two) -- are shown on screen in the cert for the owner to judge. Width caps `WIDTH_COLUMN_CAPS`:
+< 640 px -> 1, < 1024 -> 2, else 3 (Tailwind sm / lg edges), measured on the calculator's container by a
+ResizeObserver. Corrections to the brief: point_wiring has 27 visible fields (not ~24) and miscellaneous has 1
+(not 2); the count is the def list minus `panel:false` (industrial_sockets carries 9 defs, 4 hidden).
+
+### THE INVARIANT -- proven
+Real helper bundled in-container from a full `src` copy at HEAD vs the working tree, over all **5,001 rows of the
+42 active runs**, run category AND live category: **10,002 verdicts, 0 moved**, figure-set hash `da71b4f4bc6d`
+before and after. The engine files are untouched (the layout lives in `PricingCalculator.tsx` and the panel's
+calculator branches only).
+
+### Tests (in-container vitest)
+`pricingCalculator.test.ts` +36 pins in four describes: blocks known BEFORE pricing (per category, labels before ==
+section labels after, every golden; the count table; wiring = ["Cable — per Mtr", "Termination — per Set"];
+NEGATIVE no picks -> no sections, the blocks come from the config); the field ORDER (per category,
+`visibleFieldIds` == the helper's rendered ids; the measured counts; NEGATIVE hidden facts are not fields); the
+column rule (the bands as a table incl. every boundary; the twelve categories by band; NEGATIVE width only
+reduces; NEGATIVE a one-field category is one column at any width incl. Infinity; the width caps and the block
+fold at the same edge); the BoQ panel unchanged (props read only under `isCalculator`, the six original class
+strings verbatim, >= 7 `isCalculator ?` ternaries, ONE section renderer / ONE figure map / ONE copy button, the
+helper output unchanged). RED before: the block-label and order pins fail against the HEAD calculator + panel.
+GREEN: 88 / 88 in the file. **VACUITY x2**: (a) block-count derivation returning [] -> the 12 per-category block
+pins + the count pin red, restored to `de2061127f15`; (b) the content half of the column rule returning 3 -> the
+band table, the twelve-categories, width-only-reduces and one-field pins red (4 fail / 84 pass), restored. Full
+vitest **3,350 passed / 1 failed** (the known `writeOffControl` timeout); the three rate files 841. Python
+coercion **149 OK**, hv2 **43 OK**, rate_suggest **71 OK**, rate_master **337 OK**. tsc: no new errors in the
+touched files. One bug caught by a pin during the build: `maxColumnsForWidth(Infinity)` read as 0 (one column);
+fixed to treat an unbounded width as wide.
+
+### The browser live cert (2026-09-09 ~23:20-23:45, admins@nirmaan.app, tab VISIBLE, zero AI, no writes)
+Web / worker / socketio / vite restarted BY PID (7395 / 7399 / 7406 / 7416 / 7428 -> 9154 / 9158 / 9165 / 9187;
+vite once more 9175 / 9187 -> 9571 / 9583 after a stale-module finding), `.vite` cleared, :8000 + :8080 200 x3,
+markers on the plain module URLs (`calculatorBlockLabels` / `COLUMN_BANDS` x4, `calculatorBlocks` x3, then
+`blockColumns` x2). Session intact, no CSRF break.
+| P | result | capture |
+|---|---|---|
+| P1 | Point Wiring, nothing answered: TWO blocks already on screen with dashes ("Point Wiring — Supply" / "— Install", 872 x 50 each, equal) | `2026-09-09_layout_P1_P2_point_wiring_empty_blocks_three_columns.jpg` |
+| P2 | same screen: 27 fields in THREE columns (x 318 / 911 / 1503), every label directly above its box (27 / 27), one box width (568 px), the "circuit wiring" heading spanning all three | same capture |
+| P3 | the none-fix attributes -> **1565 / 313**, blocks equal at 104 px | `..._P3_point_wiring_1565_313.jpg` |
+| P4 | Wiring: Cable 1490 / 130 / 1620 and Termination 2610 / 660 / 3270 side by side, three figures + three copy buttons each, equal height 122 px; 8 fields in two columns | `..._P4_wiring_two_blocks.jpg` |
+| P5 | judged by eye: junction_box_raceway 1 field -> 1 column; earthing 3 -> 1 column (its boxes span the full width -- the rule's own outcome, shown for the owner); industrial_sockets 5 -> 2 columns; cabletray_raceway 8 -> 2 columns; point_wiring 27 -> 3 | `..._P5_junction_box_1_field_1_col.jpg`, `..._P5_earthing_3_fields_1_col.jpg`, `..._P5_industrial_5_fields_2_cols.jpg`, `..._P5_cabletray_8_fields_2_cols.jpg` |
+| P6 | NO live category has more than two blocks (pinned: max = 2), so the wrap row cannot be shown on live data; the grid wraps by construction (`repeat(2, ...)`) | - |
+| P7 | copy on the Cable block's supply figure -> clipboard exactly `1490` (4 chars, no symbol) | - |
+| P8 | BoQ editor, BOQ-26-00015 row 370: panel 320 px, label and box on ONE line (measured), sections BELOW the fields, no grid style, 320 / 70 / 390 -- nothing moved | `..._P8_boq_panel_unchanged_320px.jpg` |
+| P9 | ⚠️ the window would not resize through the extension (innerWidth stayed 2133 after two `resize_window` calls -- the Chrome window is maximised); certified instead by narrowing the CALCULATOR CONTAINER, which is what the layout actually observes: 1000 px -> two columns and two blocks per row; 600 px -> ONE column and the blocks STACKED one per row (y 273 then 332); junction_box at 600 px stays one column | `..._P9_narrow_600px_container_emulated_blocks_stacked_one_column.jpg` |
+Writes: none beyond the page's own access log (1,597 -> 1,603: three loads of `/electrical-pricing`); runs 71,
+events 1,532, `BoQ Cell Pricing` 37,699, locks 295, BCS 1,524 unchanged. Picks session-only.
+Anomaly found and fixed mid-cert: vite on the bind mount served the STALE panel module after the second panel edit
+(no `blockColumns` in the served source) until vite was restarted -- the standing Vite stale-module recipe; the
+first cert pass therefore showed the blocks NOT folding at a narrow container, which is what prompted keying the
+blocks on the observed width rather than the viewport `sm:` breakpoint.
+
+### #57 -- what landed
+1 The Calculator screen is rearranged: price blocks two per row at the top, present from the start with dashes;
+fields in one, two or three columns by field count and width, each label above its box. Nothing on the BoQ
+editor; no figure anywhere. The list did not grow.
+
+### Register (record, do not fix)
+- **The parked split-pipeline shape is now MORE visible**: point wiring's (and cable tray's, industrial's) two
+  blocks sit side by side, each with one figure and two dashes, and the eye wants to add them. When the owner's
+  corrected intent lands (one line per THING priced) they collapse into one block; the pin in
+  `pricingCalculator.test.ts` moves with it.
+- A ONE-COLUMN category stretches its boxes to the full calculator width (earthing, junction box) -- the rule's
+  outcome, not a cap; an owner call whether a single column should have a maximum width.
+- The Chrome window cannot be resized through the extension while maximised; a true-viewport P9 is owed if the
+  owner wants it (resize the browser by hand; the same rule applies to the container).
+- Standing register unchanged (units; the access-log row per load; "Unclear" owner-parked; the size_mm discard).
+
+### Files
+`frontend/src/pages/pricing/PricingCalculator.tsx` (block labels, visible fields, bands, caps, `columnsFor`,
+`blockColumnsFor`, the observed width), `frontend/src/pages/boq-wizard/rate-helper/RateHelperPanel.tsx` (three
+optional props, the calculator branches, `renderSection`), `frontend/src/pages/pricing/pricingCalculator.test.ts`
+(+36), this record. Root `CLAUDE.md`: judged -- nothing durable beyond what the plan doc and the pins carry.
+
+
+## Two ways -- a field can show a list and still be read freely; width AND thickness; blank-and-explain (2026-09-10, v61)
+
+### The defect, and the one root cause
+A def's `type` was BOTH what the pricer sees AND what the model is told. `extraction.build_attribute_defs`
+projects `{id, label, type, values}` into the prompt, and a `number_choice` (the on-screen dropdown type)
+reached the model as a closed list; the base prompt says *"choice attributes: the value MUST be one of the
+allowed values"*, and `_coerce_value_ex` nulls a `number_choice` reply outside its numeric domain. So the
+reverted v60 (width as a plain `number_choice`) made the model pick: shown the ten stocked widths it returned
+**50, 50, 25, 50, 25, 50** for six "80 x NNmm" trays (capture, 2026-09-10 00:57), and row 321 of
+`BOQ-26-00174 / "Electrical "` priced **444/100/544 against 540/120/660**. Stored data could not show it --
+**10,002 verdicts, 0 moved** while the defect was live -- because stored values never pass through the
+coercer again. Only a fresh read catches this class.
+
+Owner rulings (verbatim): *"then we just need to do the ladder matching properly code side and not ask the
+extraction engine to pick from the list"*; *"in case there is no corresponding match for a swg or even a mm
+thickness, then it should be left blank in the helper panel for the user to decide rather than silently
+picking up a wrong thickness"*; *"we can have a note explaining"*; *"do all of these together in one slice"*.
+The model needs NO dimension rule (312 of 312 tray widths right under a free-number def); R13 untouched.
+
+### ONE -- the mechanism: `extract_as: "number"` (shape 1, and why)
+The three shapes from the recon: (1) a def-level key honoured at the projection; (2) a frontend-only options
+source with the def kept as `number`; (3) the thickness pattern (a hidden free field + `extract: false` on the
+visible one, four pipeline edits). **Shape 1 was built** because it is the only one that fixes the actual seam
+-- (2) leaves the model constrained wherever the def is a `number_choice`, (3) duplicates a field per fix and
+edits every pipeline -- and because the projection is ONE chokepoint: `_extract_batch` builds `defs_by_id`
+from the projected list, so `_coerce_value_ex` sees `type: number` and applies no domain. **No second edit
+was needed at the coercer** (a premise correction: the brief named two chokepoints; the second is satisfied
+by construction and is pinned on its own, `test_v61_07`).
+
+What crosses now for a def carrying the key: `{"id": "width_mm", "label": "Width (mm)", "type": "number"}` --
+no `values`, and the key itself never crosses. Every other list-typed def (65 across the 12 configs) projects
+byte-identically to v59, pinned per def (`test_v61_06`).
+
+**The guard.** Attribute definitions had NO key allowlist (the validator's own comment said so), so a
+misspelled `extract_as` would have shipped the closed-list behaviour with no signal. `rate_master._KNOWN_DEF_KEYS`
+(the 16 keys in use across the 12 live configs and every asset on disk, plus `extract_as`) now rejects an
+unknown def key BY NAME; `extract_as` must be the literal `"number"` and only on a `number_choice`. Pinned
+positive (the v61 config and all 12 validate) and negative (`extractas`, `extract_as_`, `extract_type`,
+`Extract_as`, `panell` all refuse, naming the key and the def). ⚠️ The loader's own `_validate_one_config` does
+NOT call `_validate_config` -- an asset typo is caught by the editor endpoint and by the suite's "all 12
+configs validate" pin, not by the import itself. Register item.
+
+### TWO -- both fields, asset v61 (minted FROM v59, never v60)
+`cabletray_raceway.width_mm`: `number` -> `number_choice` + `values_from cable_tray.width_mm` + `extract_as`.
+`cabletray_raceway.thickness_mm`: the same `number_choice` + `values_from` it already had, + `extract_as`. The
+ten widths (50..600, identical across all 45 type/material/thickness combinations) and the five thicknesses
+(1, 1.2, 1.4, 1.6, 2) are the on-screen lists; the ladder (`catalog_fit` exact-else-next-higher) and the SWG
+map (`map_attribute`, 27 gauges, a stated millimetre wins) are byte-untouched -- every pipeline equal to v59.
+Textual diff v59 -> v61: **+9 / -3 lines** (the two defs and the notes). sha256 `437a19df…e42f30` (v59
+`921f56a4…c867a`). Mint script (scratchpad, the `_mint_v5*_tmp.py` precedent): asserts the serialiser
+round-trips v59 byte-for-byte, both v59 def shapes, all four ladder + map steps, 450 trays / 45 combos / one
+width set / five thicknesses, refuses if v60 is on disk; then KEY BY KEY every other config, all 1,367 items,
+every golden and top-level key equal, and cabletray differing in exactly the two defs + notes.
+`scripts/mint_completeness_check.py HEAD:v59 v61`: **PASS, no atoms disappeared**. NO third def carries the key
+(S5): the closed list is right for the 65; a candidate to watch is `conduit_piping.size_mm`, whose stored
+values include imperial sizes (19.05, 25.4, 31.75, 38.1 on `BOQ-26-00198`) that no list can carry -- REGISTER,
+not this slice.
+
+### THREE -- blank, with a note saying why (`no_match`)
+Where a stated value has no stocked match the pipeline already priced nothing (it never snaps at pricing
+time: a non-stocked thickness makes `catalog_fit` find no rung, a gauge outside the table makes
+`map_attribute` bail, a width above the top rung makes the ladder bail) and the dropdown, having no option to
+show, already rendered its placeholder -- by the select's no-matching-option fallback, not by design. What
+was missing was the sentence, which lived only in the trace. A NEW note kind was needed: every shipped kind
+says what was priced INSTEAD; this says NOTHING WAS PRICED, and why; `assumed` (WE GUESSED) is the nearest in
+subject and the opposite in meaning. `{ kind: "no_match"; stated; field; stocked }`, worded once in
+`attrNoteText`:
+
+> The row states 2.5 — nothing stocked matches for Thickness (mm) (1, 1.2, 1.4, 1.6, 2); left blank for you to decide.
+> The row states 1500 — nothing stocked matches for Width (mm) (50, 100, 150, 200, 250, 300, 350, 400, 450, 600); left blank for you to decide.
+> The row states 27 SWG — nothing stocked matches for gauge (0-26 SWG); left blank for you to decide.
+> The row states 8 SWG (4.1 mm) — nothing stocked matches for Thickness (mm) (1, 1.2, 1.4, 1.6, 2); left blank for you to decide.
+
+Registered in `ATTR_NOTE_ORDER` after `fit_up` (the two exact-order pins widened with a dated comment). The
+producer `pricingSheetHelper.withNoMatchNotes` runs after `applyDerivedDisplay`, config-driven, naming no
+category: (a) a dropdown whose displayed value is not an option and which no ladder fitted; (b) a
+`map_attribute` target whose stated SOURCE is not a table key (the source is hidden -- `thickness_swg`,
+`panel: false` -- so the selection is threaded in as a new optional last argument of `applyDerivedDisplay`);
+(c) a `catalog_fit` bind whose stated value exceeds the largest rung of its kind. A value BELOW the top that
+was never fitted (the row refuses elsewhere) gets NO note -- it may fit once the row is complete. **CONFINED BY
+KEY PRESENCE**: only a def carrying `extract_as: "number"` gets the note. Measured on the 42 active runs an
+ungated producer added 70 notes on THREE fields outside #57 (`conduit size_mm` 28, `plate_item` "1M & 2M" 32,
+`material` 10 -- pre-existing off-list display gaps; register, not this slice). The `fit_up` note from the
+reverted work is kept: an off-list width that fits shows the fitted value and says what the row stated.
+
+**What the field renders (the first note on a blank field, established):** a stated-but-unstocked value is
+neither derived nor blank-by-omission -- `isAttrBlank` is FALSE (no red border: the value is stated, not
+missing), `isShowingDerived` is FALSE for a stated 2.5 (nothing substituted; TRUE for the gauge-converted 4.1,
+which IS a substitution) -- so the select shows its placeholder with no "(computed)" marker and the amber note
+beneath it. The stated value survives in the data (`value: "2.5"`), so nothing is lost. Pinned.
+
+### THE INVARIANT -- stored data
+Real helper bundled in-container (`esbuild --alias:@=./src`), HEAD helper + live v59 configs vs the edited
+helper + the v61 asset configs, over all **5,001 rows of the 42 active runs**, run category AND live
+category: **10,002 verdicts, 0 moved**, figure-set hash **`482d982ca136`** both sides. Display diffs confined
+to the two fields: `width_mm` gains its options on 1,265 verdicts, the `fit_up` note on 36 (18 rows) and the
+`no_match` note on 60 (the 30 above-600 rows); `thickness_mm` gains `no_match` on 16 (the 8 `BOQ-26-00201`
+rows storing a millimetre in the gauge slot: *"The row states 1.6 SWG — nothing stocked matches for gauge
+(0-26 SWG)"*). **The five approved movers do NOT move on stored data** (a premise correction): their stored
+`thickness_mm` is the snapped 2.0, which is on-list; they move only when a fresh read stores the document's
+2.5 -- which is T2 below.
+
+### Tests
+Canonical command re-verified from root CLAUDE.md (`bench --site localhost run-tests --module ...`, in-container);
+vitest in-container. **Baselines measured in session:** coercion **149 OK**, rate_suggest **71 OK**, hv2 **43 OK**,
+rate_master **337 OK**; full vitest with the `fit_up` work already in the tree **3,072 / 3,073** (one file failed to
+load on the missing v60 import -- the HEAD baseline is the recorded 3,350 / 3,351).
+**After:** `pricingSheetHelper.test.ts` **309 / 309** (280 at HEAD, +18 `fit_up`, +11 `no_match`/v61); the three rate
+files **872 / 872** (841 baseline); full vitest **3,381 passed / 1 failed of 3,382** (the known `writeOffControl`
+timeout; S6 did not fire); rate_master **348 tests, 347 OK before the import** (`test_v61_11` red by design, GREEN
+after the import together with `_05` and `_08` re-run), coercion **149 OK**. tsc: no errors in the touched files.
+**Pins named.** Python `TestV61TwoWays`: 01 exactly two defs carry `extract_as` (POSITIVE both shapes, NEGATIVE no other
+def, v59 none); 02 the ladder and the SWG map byte-equal (27 gauges, 14 -> 2.0, 8 -> 4.1); 03 cabletray differs from
+v59 in exactly the two defs + notes; 04 every other config / 1,367 items / goldens equal; **05 THE PROJECTION** --
+both defs reach the model as `{"type": "number"}` with NO `values` and the key itself never crosses (NEGATIVE: v59's
+thickness projected the five values; the hidden gauge unchanged); **06 the 65** -- every other list-typed def projects
+byte-identically WITH its list (>= 60 asserted per def); **07 THE COERCER** -- 80 and 2.5 survive through the projected
+defs, NEGATIVE the v59 projection nulled 2.5 (`outside_numeric_domain`) and a non-number is still nulled; **08 THE
+GUARD** -- `extractas`, `extract_as_`, `extract_type`, `Extract_as` refused naming the key and the def, all 12 configs
+validate; 09 `extract_as` must be `"number"`, refused on a `choice` and on a plain `number`; 10 the allowlist covers
+every key in use, `panell` refused; 11 live == v61 leaf by leaf and the LIVE read projects both as free numbers. Six
+cumulative cross-asset pins widened with a dated comment (CC standing authority, mechanical). Vitest: the v60
+describes re-pointed at v61 (the width def now carries `extract_as`; "exactly the width def" became "exactly the two
+defs"); the two exact `ATTR_NOTE_ORDER` pins widened (dated); the above-ceiling pin INVERTED (v60 ruled "no note",
+the owner then ruled a note); new TWO WAYS describes: a stated 2.5 -> blank, refusing, the exact sentence, `isAttrBlank`
+false, `isShowingDerived` false (POSITIVE, the five rows); a gauge outside the table (27) -> blank + the gauge
+sentence; 8 SWG -> 4.1 -> blank + "8 SWG (4.1 mm)"; gauge 14 -> 2.0, prices, NO note, derivation byte-equal to the
+v59-shaped def (NEGATIVE, the SWG path); width 1500 -> blank + the ten in the sentence (the 30 rows); 80 keeps `fit_up`
+and gets no `no_match`; 80 on an incomplete row gets NO note; on-list width + stocked thickness plain; **CONFINED BY
+KEY PRESENCE** (a def without `extract_as` never gets the note); the producer unit (existing note kept, disabled /
+read-only / option-less skipped, gauge needs the selection); render order; the LIVE asset (both defs, both option
+lists, only two carriers); the fresh-read shape on a real cabletray row (2.5 -> blank + the live sentence with the
+five stocked values; 2.0 -> 850 supply as today).
+**RED before:** the producer disabled -> 7 red / 302 (the five `no_match` pins, the producer unit, the fresh-read
+shape); the projection change disabled entirely (HEAD behaviour) -> `_05` and `_07` red.
+**VACUITY (A4), three runs:** (1) the projection's VALUES-DROP disabled (type still flips) -> `_05` red, `_07` green
+(the coercer pin tests the type flip, not the values); (2) the projection change disabled entirely -> `_05` AND `_07`
+red -- the defect, pinned; restored -> 4 / 4 OK, 0 probes left; (3) the note producer returning its input -> 7 red /
+302; restored -> 309 / 309, 0 probes left. The coercer has no separate edit to disable (by construction), so run (2)
+is its vacuity.
+
+### Delivery path
+1. Freeze OFF (`frozen: False`). 2. PRE: active Electrical **1,367** on `rmbulk-b4856a6f97aa`, 12 configs, cabletray
+`BRCC-26-22541`, width `{"type": "number"}`, thickness `number_choice + values_from` (no `extract_as`), snapshots 10.
+3-5. Mint (above), `CURRENT_EALL_ASSET` -> v61, completeness gate PASS. 6. Import in-container, explicit v61 path,
+`replace=True`: `status loaded`, batch **`rmbulk-99dd433e65d8`**, items_total 1,367, configs_loaded 12,
+items_deactivated 1,367, configs_deactivated 12, retirements existing 6 / created 0. 7. AFTER: active **1,367** on
+the new batch, 12 configs; live vs v61 LEAF BY LEAF (goldens/discipline excluded): cabletray `BRCC-26-24085`
+**351 / 351, 0 differing** (v59 carried 347: the two `values_from` leaves and the two `extract_as` leaves); wiring 259,
+switches 471, popup 287, point_wiring 1,011, misc 53, lms 39, jbr 32, indsock 247, earthing 85, dbsw 368, conduit
+41 -- **all 0 differing**; `values_from_catalog` width = the ten; snapshots 10 (none created). 8. Restarted by PID:
+serve 13989 -> **17148**, worker 14165 -> **17324**, yarn/vite 13362/13374 -> **17681/17693** (`node_modules/.vite`
+cleared), socketio 13182 -> **17939** (its first kill missed on a pattern mismatch, then killed by PID -- declared).
+`:8000` ping 200 x3, `:8080` 200 x3. BACKEND-derived marker: the live config read through the logged-in session
+carries `extract_as: "number"` on both defs. FRONTEND-derived markers on the plain URLs: `pricingSheetHelper.ts`
+`withNoMatchNotes` x2, `catalogFitSizeUpNote` x2, `freeRead` x2; `rateHelperTypes.ts` `no_match` x2, `fit_up` x2. No
+CSRF break: the session survived the restart (the page reads made no POST before the runs, which were started
+server-side).
+
+### The fresh reads (two scoped runs, the only spend) and the browser cert
+**Spend: exactly two scoped runs (T1, T2), both `claude-opus-4-8`, one batch each, attempt 1, `end_turn`. No whole-sheet
+run; both sheets carried a completed run to carry from, so neither was refused.**
+- **T1 -- width, `BOQ-26-00174 / "Electrical "` rows 321, 362, 368, 374, 382, 409** (job `a30468e9…`, run
+  `BRSR-26-00748`, now ACTIVE). The def SENT: `{"id": "width_mm", "label": "Width (mm)", "type": "number"}` -- no
+  values. The model returned, VERBATIM: **321 -> 80 (0.95); 362 -> 80 (0.95); 368 -> 80 (0.95); 374 -> 80 (0.95);
+  382 -> 80 (0.95); 409 -> 80 (0.95)**; coerced and stored as 80 on all six. Under v60 the same six read 50, 50, 25,
+  50, 25, 50. S3 did not fire.
+- **T2 -- thickness, `BOQ-26-00198 / ELEC` rows 252, 254** (job `085bbde1…`, run `BRSR-26-00749`, now ACTIVE). The
+  defs SENT: `{"id": "thickness_mm", ... "type": "number"}` and the gauge as a free number. The model returned,
+  VERBATIM: **252 -> thickness_mm 2.5 (0.95), thickness_swg null (0.9), width 600 (0.98); 254 -> thickness_mm 2.5
+  (0.95), thickness_swg null (0.9), width 450 (0.98)**; coerced `ok`, stored 2.5. Rows 256/258/260 were outside the
+  two-row scope and carry forward the old 2.0 -- so on this test database TWO of the five approved rows stop pricing
+  now; the other three need their own re-read (the brief scoped T2 to 252 and 254).
+- **T2 panel** (row 252, read through the DOM): Thickness shows **"— select —"** (blank), no "(computed)" mark, no red
+  border; Width 600 from the dropdown of ten; the row refuses ("no match for these attributes"); the note, character
+  for character: **"The row states 2.5 — nothing stocked matches for Thickness (mm) (1, 1.2, 1.4, 1.6, 2); left blank for
+  you to decide."** (The live thickness options render 1, 1.2, 1.4, 1.6, 2 -- the DB's row order for this batch happens
+  to be ascending.)
+- **T3** `BOQ-26-00174 / 319` ("100 x 50mm"): Width **100** selected from the 10-option dropdown, Thickness 2, no
+  note, **Supply 540 / Install 120** -- unchanged.
+- **T4** `BOQ-26-00174 / 321` (fresh read 80): Width **100** marked "(computed)", note **"The row states 80 — using 100,
+  the next size stocked."**, **Supply 540 / Install 120** -- unchanged from before the fresh read.
+- **T5** `BOQ-26-00229 / Electrical BOQ / 385` (1500): Width **"— select —"** (blank, no red border), Thickness 2, the
+  row refuses, note **"The row states 1500 — nothing stocked matches for Width (mm) (50, 100, 150, 200, 250, 300, 350,
+  400, 450, 600); left blank for you to decide."**
+- **T6** the calculator (`/electrical-pricing`, Calculator tab, CableTray & Raceway): Thickness offers `1, 1.2, 1.4,
+  1.6, 2`, Width the ten; Perforated / GI / 2 / 300 / Cover No / Ceiling / No / No prices **Supply 792, Install 220**,
+  no note, nothing saved.
+- **T7** `BOQ-26-00174 / 409` (the fresh read stored gauge 14, no millimetre): Thickness shows **2 "(computed)"** -- the
+  SWG map, unchanged -- with no thickness note; Width 100 with the `fit_up` note; prices Supply 356 / Install 120 (it
+  REFUSED before the fresh read filled its gauge and width; the harness holds every stored gauge-14 row's price
+  byte-identical). `BOQ-26-00217 / ELE-8F / 295` (stored 14, untouched) still prices 2276 / 380 per the harness.
+- **T8** live config == v61 leaf by leaf (the delivery path above; `test_v61_11` green after the import); active
+  Electrical **1,367**.
+Screenshots time out on the tall grids (the recorded trait); every panel was read through the DOM with the tab
+visible. Every pick was on the calculator (never persisted) or a read; no "Use this value", no cell write.
+
+### #57 -- what landed
+1. Cable tray's Width and Thickness are dropdowns of the stocked values on both surfaces; the model is asked
+   for a free number. 2. Where a stated value has no match the field is blank and the panel says why. 3. The
+   five `BOQ-26-00198 / ELEC` rows 252/254/256/258/260 stop pricing once re-read (2.5 stated; 2.0 was never
+   stated). 4. An off-list width that fits shows the fitted value and says what the row stated. The list did
+   not grow.
+
+### Register (record, do not fix)
+- The 18 `BOQ-26-00217 / ELE-8F, ELE-3F, ELE-2F` rows 295-300 price on a stored gauge 14 the document never
+  states (the only gauge in their text is an 8 SWG earth wire); the 7 `BOQ-26-00196 / ELECTRICAL` rows 353-365
+  store gauge 16 where the text says 3 mm / 14 SWG; the 8 `BOQ-26-00201 / Electrical BOQ` rows 167-169, 178-182
+  store a millimetre (1.6) in the gauge slot and refuse (now with the `no_match` note naming "1.6 SWG"); the 18
+  `db_switchgear` rows where the model named an RCCB (`32A RCCB 30mA / 300mA (DP)`) the item list does not
+  carry (capture-log `not_an_allowed_choice`).
+- Pre-existing off-list DISPLAY gaps on closed-list fields (blank select, no note, by the fallback): conduit
+  `size_mm` imperial values (28 verdicts), plate `1M & 2M` (32), material spellings (10).
+- `conduit_piping.size_mm` as a candidate for `extract_as` -- imperial sizes are document numbers; owner call.
+- The loader does not run `_validate_config`; an asset typo is caught by the editor and the suite, not the import.
+- The dropdown's option ORDER follows catalogue row order (thickness shows 2, 1.2, 1.6, 1, 1.4); the note lists
+  ascending. A sort in `attributeOptions` would reorder every dropdown -- owner call.
+- Standing: `popup_boxes.has_modules` dead on the panel; `point_wiring.blank_item`; run `BRSR-26-00722`
+  (owner: test database, leave it); units; "Unclear" owner-parked; the `size_mm` discard; the parked
+  split-pipeline shape; a one-column category's box width; the true-viewport narrow check.
+
+### Files
+`nirmaan_stack/services/boq_rate_master/extraction.py` (the projection, +14), `nirmaan_stack/api/boq/rate_master.py`
+(`_KNOWN_DEF_KEYS` + the `extract_as` guard, +30), `nirmaan_stack/api/boq/test_rate_master.py`
+(`CURRENT_EALL_ASSET` -> v61, six cumulative pins widened, `TestV61TwoWays` 01-11),
+`nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v61.json` (new),
+`frontend/src/pages/boq-wizard/rate-helper/rateHelperTypes.ts` (`fit_up` + `no_match` kinds, order, wording),
+`frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.ts` (`catalogFitSizeUpNote`, `withNoMatchNotes`,
+the `selected` argument), `frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.test.ts`, this record.
+Root `CLAUDE.md`: a durable rule IS earned and added under "BoQ Rate Master (RM-1)": a def's `type` is both the screen
+and the model's instruction; `extract_as: "number"` is the split; a `number_choice` without it reaches the model as a
+closed list and the model picks from it -- stored data cannot show it, only a fresh read can..
+
+
+## The includes-modules gate -- the popup "Includes modules" switch prices the bare box when No (2026-09-10, v62)
+
+### The defect, and how it was found
+`popup_boxes.has_modules` ("Includes modules", a Yes/No choice def) was an EXTRACTION instruction -- rule P1 tells
+the model how to READ it -- and nothing at pricing time read it. Measured on `BOQ-26-00241 / "BOQ | Electircal" /
+123` (Module count 3, switch 16A 1 WAY SWITCH x1, socket 6A/16A 3-Pin x1, plate 3M): **3060 / 380 / 3440 with the
+switch at Yes AND at No.** A pricer who set it to No expecting the bare box was still charged the modules. The recon
+(2026-09-10, the prior session) tested FOUR existing config mechanisms and all four fail: `if_attr` on a component's
+qty loses the stated quantity AND leaves `module_fit` itself ungated (the plate ladder and the blank count still run);
+`conditions` is DEAD on the assembly-shape component (validated, `_ref`-guarded, never executed); `absent_when` does
+not exist on `module_fit` or `component_ref`; `map_attribute` cannot override a stated value. So the gate is code.
+
+### The rule -- all four owner rulings (verbatim, 2026-09-10)
+*"if the user edits it to no, they should get the bare box price. if they set it to yes they should get price of box
+oplus components as [per the selction"* -- No prices the box alone; Yes the box plus whatever is picked, as today.
+On slots already filled when the switch goes to No: *"they stay and just dont get included in the price."* -- the
+picks stay on screen, uncharged; flipping back restores the full price with no re-pick. *"switch win both sides"* --
+the switch beats the slots in both directions. *"blank refuses"* -- a blank or absent switch is an honest no-compute.
+Yes with every slot empty: *"no change required"* -- the same number either way, a plain figure, no note, no refusal.
+
+### The gate key -- `module_fit.params.include_when: {attr, equals}`, confined by KEY PRESENCE
+ONE reader, `ratePipelineInterpreter.moduleFitGateVerdict(gate, selected)` (pure, exported; names no category):
+`included` when `selected[attr] === equals` -> the step runs exactly as without the key, trace included (byte-identical,
+pinned); `blank` (undefined / null / "") -> `bail` naming the attribute (`'has_modules' is blank -- whether the modules
+are included is not stated, no value computed`); `excluded` (any other value) -> every term's `none_when` item, every
+ladder `bind` (and a truthful 0 on `bind_modules`) and the blanks `bind_item` take the None sentinel in `fitLabels` --
+the existing shadow-the-selection channel -- so the seven `none_skips` components zero their lines through the SAME
+"None -> 0" short-circuit a None slot takes, and the box prices alone. `selected` is never written (the picks stay),
+the step publishes `moduleFit: {occupied: 0, ladders: [every ladder absent], excluded: {attr, value}}` and the trace
+reads `has_modules is No -> modules not included: socket1_item, socket2_item, socket3_item, socket4_item, switch_item,
+plate_item, blank_fit_item -> None (the slot picks stay; none is priced)`. `module_fit` is shared by switches_sockets
+(2 steps), point_wiring (3) and popup_boxes (1); a step without the key never enters the block -- pinned per category
+(the HV-10 lesson). Types: `ModuleFitStep.params.include_when?`, `ModuleFitOutcome.excluded?` (additive).
+
+### The validator entry (`rate_master._validate_config`, module_fit branch) -- three guards, each closing a SILENT failure
+`include_when` must be `{attr: non-empty str, equals: non-empty str}`; `attr` is `_ref`-guarded like `floor_from` /
+`pick_from` (an unguarded typo reads every row as blank and refuses the whole category with no error anywhere);
+`equals` must be one of the attribute's declared `values` when it carries a list (an `equals: "yes"` typo would EXCLUDE
+every Yes row -- a wrong price that looks finished); every term must carry `none_when` (the gate excludes a term
+THROUGH its item bind, so a term without one would price under No). **The loader does NOT run `_validate_config`, so
+an asset typo passes at import** -- only the api write path and the suite's asset pin catch it (register, standing).
+
+### The mint and the import (real figures)
+Mint `mint_v62.py` (scratchpad, the `_mint_v5*_tmp.py` precedent) FROM v61: asserts the writer round-trips v61 byte-for-
+byte, the popup shape (one pipeline, one module_fit, five terms all with `none_when`, the plate ladder, `blank_fit_item`,
+`has_modules` = the Yes/No choice def, the seven `none_skips` refs, golden p1 = switch No / all None / 10800-1200), adds
+the ONE key + an explain clause + a notes sentence, then asserts KEY BY KEY that every other category, all 1,367 items,
+every golden and every top-level key are equal and popup differs in exactly that. v61 `437a19df…` 786,610 bytes ->
+v62 **`22376da5…`** 787,540 bytes; textual diff **+6 / -2 lines**. `CURRENT_EALL_ASSET` -> v62.
+`scripts/mint_completeness_check.py v61 v62`: **PASS, no atoms disappeared**. Freeze OFF. PRE: active Electrical
+**1,367** on `rmbulk-99dd433e65d8`, 12 configs, popup `BRCC-26-24094` params `[blanks, ladders, terms]`, live == v61
+leaf by leaf (0 differing). Import in-container, explicit v62 path, `replace=True`: `status loaded`, batch
+**`rmbulk-b1985c53a6d9`**, items_total 1,367, configs_loaded 12, items_deactivated 1,367, configs_deactivated 12,
+retirements existing 6 / created 0. AFTER: active **1,367** on the new batch, 12 configs, popup `BRCC-26-25638` params
+`[blanks, include_when, ladders, terms]` = `{has_modules, Yes}`; live vs v62 LEAF BY LEAF (goldens/discipline excluded):
+cabletray 351, conduit 41, dbsw 368, earthing 85, indsock 247, jbr 32, lms 39, misc 53, point_wiring 1,011, **popup 289**
+(287 + the two gate leaves), switches 471, wiring 259 -- **all 0 differing**; `get_rate_master_items` 1,367; snapshots 10
+(none created). Restarted by PID: serve 17148 -> **21301**, worker 17324 -> **21303**, socketio 17939 -> **21305**,
+yarn/vite 17681/17692/17693 -> **21314/21331** (`kill -9` needed for all six -- the plain kill left every one alive;
+declared), `node_modules/.vite` cleared; `:8000` ping 000 (first, still booting) then 200 x2, `:8080` 200 x3.
+
+### THE INVARIANT -- stored data, all categories
+Real helper bundled in-container (`esbuild --alias:@=<src>`, the calc1 runner shape): HEAD `src` copy + the live v61
+configs vs the working tree + the v62 asset configs, AND vs the re-dumped live configs after the import, over all
+**5,001 rows of the 42 active runs**, run category AND live category: **10,002 verdicts, 0 moved** (values, every
+section's finals and figures, finalValues), figure-set hash **`3a091e8a96ff`** on all three sides; ZERO display diffs
+(attrs / derivation). A fourth run (HEAD interpreter + v62 configs) isolates the asset change: also 0 moved. Popup:
+84 verdicts, 7 rows priced before and after with identical figures (see U2). Premise corrections: the popup census is
+**12** never-asked rows (not 16), **2** rows at No (not one -- `BOQ-26-00235 / Sheet1 / 136` and `BOQ-26-00196 /
+ELECTRICAL / 263`, both every slot None and a blank module count, both refusing) and **7** priced rows (not five -- the
+brief omitted `BOQ-26-00174 / Electrical / 188` 15630/1850 and `/190` 7170/960). A first harness run priced nothing
+on the BEFORE side (the runner read the corpus file as the config map); fixed and re-run -- declared.
+
+### Tests
+Canonical command re-verified from root `CLAUDE.md` (`bench --site localhost run-tests --module ...`, in-container);
+vitest in-container. **Baselines measured in session (HEAD):** rate_master **348 OK** (507 s), rate_suggest **71 OK**,
+coercion **149 OK**, hv2 **43 OK**; full vitest **3,381 / 3,382** (the known `writeOffControl` timeout); tsc **3,228**
+errors at HEAD (worktree), the two lines in the touched files (`ratePipelineInterpreter.ts` 1361 -> 1381, the test at
+4951 -> 4955) both pre-existing.
+**New vitest pins (16, `ratePipelineInterpreter.test.ts`, three describes):** POSITIVE switch No + slots filled -> the
+four lines "None -> 0", finals 0, the caller's selection byte-untouched with the picks present; POSITIVE No -> Yes on
+the same row restores 1168 without re-picking; NEGATIVE Yes + slots filled == the no-key run (finals AND every step
+deep-equal); NEGATIVE Yes + every slot empty == the no-key run, no `excluded`, no note; NEGATIVE blank -> `no_match`
+naming the attribute; NEGATIVE absent -> the same (and the no-key run of that row prices 1168 -- the panel's field
+gate is what refused before); the ONE reader's six verdicts; THE CROSS-CATEGORY NEGATIVE named per category --
+switches_sockets floor branch (549) and zero branch, point_wiring (RULING 1 trace verbatim, 2359) and the full
+`PW_MF_SUPPLY`, the popup-shaped step WITHOUT the key with a stray No / blank -- every step deep-equal; the reader names
+no category; THE LIVE ASSET (v62 + v61 imported as modules): the key on popup's one module_fit and on NO other
+(switches 2 / point_wiring 3 carry none), v62 vs v61 differs in exactly the key + explain + notes with items and
+goldens equal, golden p1 unchanged at 10800 / 1200 and now priced BY THE SWITCH (the v61 run of the same golden
+carries no `has_modules` in its trace), and THE U1 ROW from its stored attrs: v62 Yes 3060 / 380 (== v61), v62 No
+**2700 / 300**, v61 No **3060 / 380** (the defect), back to Yes 3060 / 380.
+**New Python pins (7, `TestIncludesModulesGate`):** accept (Yes, No, absent); NEGATIVE attr `_ref` by name; NEGATIVE
+`equals` off the list (message names `'yes'` and `Yes, No`; a value-less number def is not list-checked); NEGATIVE a
+term without `none_when` (and the same terms WITHOUT the gate stay valid); NEGATIVE six malformed shapes; the v62 asset
+(every config validates, popup carries the gate, switches `[None, None]`, point_wiring `[None, None, None]`); v62 vs
+v61 mint completeness incl. p1. **RED before:** the four validator negatives fail on the HEAD validator (4 of 7; the
+positives pass -- the asset pin is a pin on data). Seven CUMULATIVE byte-equal pins widened by naming `popup_boxes`
+(`test_f25s3_04`, `test_lms_12`, `test_pw_cs_14/23/31`, `test_r12…`, `test_v61_04`) -- the same mechanical widening
+v61 did, each with its dated note; a further category still fails.
+**GREEN:** interpreter file **491 / 491**; the three rate files + helper **913** before the pins, full vitest
+**3,397 / 3,398** (16 new; the known timeout only); rate_master **355 OK** (348 + 7), rate_suggest 71, coercion 149,
+hv2 43 (re-run after the import, see the report); tsc **3,228** before and after -- no new error.
+**VACUITY (A4):** `moduleFitGateVerdict` forced to `"included"` -> **7 red / 484 green** (both No-case positives, blank,
+absent, the reader, golden-p1-by-the-switch, the U1 row); interpreter restored byte-identical (cmp) -> **491 / 491**.
+
+### The browser live cert (2026-09-10 ~04:10-04:40, admins@nirmaan.app, tab VISIBLE, zero AI calls, no writes)
+De-stale: SW unregistered (1), caches 0, storage cleared, 3 firebase IndexedDBs deleted; session survived (dashboard as
+admins@nirmaan.app, **no CSRF break**; the inline `{{ boot }}` SyntaxError at `index.html:32` is the raw dev template,
+pre-existing). FRONTEND-derived marker on the plain URL: `ratePipelineInterpreter.ts` `include_when` x3,
+`moduleFitGateVerdict` x2 (`rateMasterTypes.ts` serves as an empty module -- types only -- so 0 there by construction).
+Every panel read through the DOM (`Page.captureScreenshot` times out on the tall grids, the recorded trait; the grid
+re-windows on wheel scrolls, and the Category column filter isolates a category's rows); every pick a SESSION
+OVERRIDE reverted with the panel's Revert; "Use this value" never clicked; Undo disabled throughout (0).
+- **U1 THE DEFECT, CLOSED** -- `00241 / "BOQ | Electircal" / 123`: at Yes **Supply 3060 / Install 380 / Combined 3440**
+  (body `switch 290 / socket1 464 / plate 3M 229`). Switch -> No: **2700 / 300 / 3000**, body empty, and the Switch
+  `16A 1 WAY SWITCH`, Socket 1 `6A/16A 3-Pin Socket`, Plate `3M` selects STILL SHOW their picks (blank-plate qty shows
+  empty, its "(computed)" marker gone -- nothing counted). Switch -> Yes: **3060 / 380 / 3440** back with no re-pick.
+  Revert: Revert disabled, Undo disabled.
+- **U2** unchanged at Yes: `00216 / 2. ELECTRICAL / 154` **10020 / 1210 / 11230**; `00139 / RFQ / 732` **7800 / 920 /
+  8720**; `00230 / ELECTRICAL / 230` **4570 / 600 / 5170**; `00224 / ELECTRICAL / 230` **4570 / 600 / 5170** (the other
+  two priced rows, `00174 / 188` 15630/1850 and `/190` 7170/960, by the harness).
+- **U3 YES WITH NOTHING PICKED** -- row 123 with Switch, Socket 1 and Plate set to None, switch Yes: **2700 / 300 /
+  3000**, a plain figure, NO note, no refusal. Reverted.
+- **U4 BLANK REFUSES** -- `00171 / Electrical / 231` (has_modules never asked, module count 8): "Complete the missing
+  attributes to price", Includes modules `— select —`, exactly as today.
+- **U5 THE OTHER CATEGORIES** -- `00241 / 101` Switches and Sockets **840 / 170 / 1010**; `00241 / 143` Point Wiring
+  **Supply 3101 / Install 535** -- both to the rupee against the harness BEFORE values.
+- **U6** live config == v62 leaf by leaf (12 x 0 differing); active Electrical **1,367**; `test_img_06` green after import.
+
+### #57 -- what landed
+1. On a popup box row, setting "Includes modules" to No now prices the bare box. The slot picks stay on screen and are
+   not charged; setting it back to Yes restores the full price. No live row changed (10,002 / 0). The list did not grow.
+
+### Register (record, do not fix)
+- The dead `conditions` key on an assembly-shape `component_ref`: validated, `_ref`-guarded, never executed -- a future
+  author reads it as live.
+- The loader does not run `_validate_config`; an asset typo passes at import (the v62 gate key included).
+- `absent_when` (catalog_fit / circuit_fit) is validated nowhere; `qty.if_attr` keys are shape-checked but never
+  `_ref`'d -- a typo silently never fires.
+- Popup rows with a BLANK `module_count` refuse on it: 18 of the 28 Yes rows and both No rows in this census (the brief
+  said 11 -- a count correction); the 12 never-asked rows (owner: the pricer handles them).
+- The 70 blank fields on face plates (`1M & 2M`, 32), materials (10) and conduit sizes (28) -- the pre-existing
+  off-list display gaps.
+- Residence check: F2 (207 -> 224) and F5 (116 -> 119) fail IDENTICALLY at HEAD and in this tree -- pre-existing drift,
+  not this slice.
+- Standing: `point_wiring.blank_item`; run `BRSR-26-00722`; units; "Unclear" owner-parked; the `size_mm` discard; the
+  parked split-pipeline shape; a one-column category's box width; the true-viewport narrow check; the dropdown option
+  order; `conduit_piping.size_mm` as an `extract_as` candidate.
+
+### Files
+`frontend/src/pages/pricing/rate-master/ratePipelineInterpreter.ts` (`moduleFitGateVerdict` + the gate block, +81),
+`frontend/src/pages/pricing/rate-master/rateMasterTypes.ts` (`include_when`, `excluded`, +33),
+`frontend/src/pages/pricing/rate-master/ratePipelineInterpreter.test.ts` (+227: two asset imports, 16 pins),
+`nirmaan_stack/api/boq/rate_master.py` (the validator entry, +39), `nirmaan_stack/api/boq/test_rate_master.py`
+(`CURRENT_EALL_ASSET` -> v62, seven cumulative pins widened, `TestIncludesModulesGate` 01-07),
+`nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v62.json` (new), this record. Out of scope and
+untouched: `pricingSheetHelper.ts`, `PricingCalculator.tsx`, `extraction.py` / rule P1, `patches.txt`; the modified
+`.claude/settings.local.json` and the root untracked files are declared noise, not staged.
+Root `CLAUDE.md`: a durable rule IS earned and added under "BoQ Rate Master (RM-1)": an attribute the model is asked for
+is not thereby read at pricing time -- a Yes/No switch that must change the price needs a declared step key that ONE
+reader interprets, confined by key presence; the four config mechanisms that cannot do it are named so they are not
+re-tried.
+
+## CONDUIT SIZE -- the trade-size conversion in code and the next-higher ladder (asset v63, 2026-09-10) -- SHIPPED
+
+Owner rulings (verbatim, 2026-09-10): *"9+ 4 we need to fix by implementing a match with next higher ladder in the
+catalog and giving the correct note as we did for cabletray width. we should idelly do the unit conversion also code
+side."* · *"my lean is towards seprating the arithmentic to the code side. but if it creates problem then we leave it
+with the model as it is currently."* · on the calculator never reaching the ladder: *"this is ok."* · *"ship both
+together"*. Feat `69bbe9bd` on `b470e2e1`; asset v63 from v62; live batch `rmbulk-bce10321eae6`.
+
+### THE DEFECT
+14 `conduit_piping` rows stored a size the catalogue does not stock (20 / 25 / 32 / 50, flat across PVC and MS) and
+refused with NOTHING on screen saying why -- no red border, no note, only the trace. Nine were faithful arithmetic
+conversions of inch sizes on `BOQ-26-00198 / ELEC` (`3/4"` 19.05, `1"` 25.4, `1 1/4"` 31.75, `1 1/2"` 38.1, `2"`
+50.8); four a genuine 40 mm (`BOQ-26-00194 / ELE` 276, 282, 335; `BOQ-26-00184 / Electrical Est` 63); one a
+chase-width misread (`BOQ-26-00174 / "Electrical " / 444`, "40 mm width chipping and refilling"). Conduit selected its
+row by EXACT match (`match_master_row` on `conduit_type` + `size_mm`; brand ignored) -- no ladder existed. And a fresh
+read could never even store an off-list size: the def was a closed `number_choice` and `_coerce_value_ex` nulled it
+(`outside_numeric_domain`); the 14 were v43-era survivors carried forward by scoped runs.
+
+### WHY A TRADE TABLE AND NOT ARITHMETIC (the lean, TESTED)
+The recon measured the same model reading the same token `1"` as **25.4** on `BOQ-26-00198` and as **25** on
+`BOQ-26-00242` (rows 227-232, `1 1/4"` 32, `2"` 50). Under a next-higher ladder the arithmetic reading buys the WRONG
+RUNG: 25.4 overshoots the 25 rung by 0.4 mm so the ladder buys 32 (70/20 per metre instead of 42/10, on 400 m), and
+50.8 sits ABOVE the top rung so a stocked 2" conduit refuses. `x 25.4` in code would make that answer deterministic --
+worse than today. So the conversion is the VOCABULARY THE CATALOGUE SPEAKS, a five-entry table: 3/4 -> 20, 1 -> 25,
+1 1/4 -> 32, 1 1/2 -> 40, 2 -> 50. **1 1/2 maps to 40, which is NOT stocked, by design: the ladder then buys 50.**
+⚠️ The fresh reads then showed WHY the two sheets had disagreed: under the closed list the model SNAPPED `1"` to the
+listed 25 on `00242`; asked for a free number (v63) it converts arithmetically on BOTH sheets (25.4 / 31.75 / 50.8 on
+`00242` too). The model is consistent; the list was the variable. The table is therefore not a tidy-up of an
+inconsistent model but the ONLY thing that lands a free number on the rung -- the lean was right for a stronger reason
+than the recon gave.
+
+### ONE -- the corrector (`extraction.py`, code)
+`inch_trade_tables(cfg)` reads `{attr_id: {inch_text: mm}}` from every def carrying `inch_trade_mm` (`{}` for a config
+declaring none); `_gc["inch_trade"]` carries it into `_extract_batch(..., inch_trade=None)`; `apply_inch_trade_size(
+row_out, row_src, tables)` runs directly after the four-pole correction, BEFORE the result is stored, on the
+`apply_conductor_floor` / `correct_four_pole_mcb_picks` precedent -- the prompt is guidance, this is enforcement. It
+reads the ROW'S OWN DESCRIPTION only, the first token matching `_INCH_TOKEN_RE` (a number or mixed fraction followed by
+a straight `"`, `”` or `″`), and writes the table's millimetres over whatever the model returned (the model's
+confidence kept; 1.0 when it returned nothing). A fraction the table does not carry (`3/8"`, `9"`) is recorded
+`unmapped` and the value LEFT ALONE; a metric size (`40 mm`) carries no inch mark and is never touched (row 444's
+shape). Capture: drops `inch_trade_applied` + `row_map[attr].inch_trade` `{token, from, to, action}`.
+**SCOPE = KEY PRESENCE, never a category name.** Only `conduit_piping.size_mm` carries `inch_trade_mm`, so the corpus's
+**88 non-conduit inch tokens** (HVAC copper-pipe fractions `3/8 inch … 1 5/8 inch` on `BOQ-26-00231`, `9"` / `10"`
+brick thickness in earth-pit notes, `4 inches long` GI strip, `2 inches` trench depth, `15"` gloves, `RG 6 in`, `4x4
+Inch-PVC Junction Box`, `1 IN 5 Out`) sit on rows of categories whose defs carry no table and are never read -- pinned
+by `test_it_06` (a table-less config is inert) and `test_it_07` (three of the 88, verbatim, untouched; the word forms
+never even match). **THE SURFACE, verified across all 7,770 payload items of the 42 active sheets: ONE form on conduit
+lines** -- `3/4"` ×1, `1"` ×5, `1 1/4"` ×3, `1 1/2"` ×2, `2"` ×4; no `in` / `inch` / decimal / hyphenated (`1-1/2"`)
+form on any conduit line (S4 clear; a hyphenated form would read as `1/2"` and be left alone -- register).
+
+### TWO -- the ladder (asset v63, config)
+`conduit_piping.size_mm` gains `extract_as: "number"` + `inch_trade_mm`; both pipelines (`conduit_boq`, `conduit_bcs`)
+open with the tray-shaped `catalog_fit` -- `bind`/`fit_into`/`size_from`/`fit_from` = `size_mm`, `kind: conduit`,
+`where: {conduit_type: "@conduit_type"}`, `label_attr: size_mm`, `direction: up`, `on_miss: no_compute` -- BEFORE
+`match_master_row`, which then hits exactly because `fit_into` wrote the fitted rung into the selection. One ladder key
+inside one exact key: the same topology as tray width. **NO interpreter change, NO helper change, NO new note kind** --
+`derivedAttrIds`, `catalogFitOutcomes`, `catalogFitSizeUpNote` and `withNoMatchNotes` already key on a `catalog_fit`
+bind. Mint `mint_v63.py` (scratchpad, the `_mint_v5*_tmp.py` precedent): asserts every precondition, changes ONE
+category, every other config / all 1,367 items / every golden byte-equal, conduit's own golden c1 (PVC 25 -> 42 / 10 /
+30) unchanged; v62 sha256 `22376da5…742d89` -> v63 `25f23eb3…965c5`, +51 / -1 lines; `mint_completeness_check.py
+HEAD:v62 v63`: **PASS, no atoms disappeared**. `CURRENT_EALL_ASSET` -> v63.
+
+### THREE -- the validator (`api/boq/rate_master.py`)
+`_KNOWN_DEF_KEYS` gains `inch_trade_mm`; its shape is guarded (non-empty object; keys an inch fraction `N`, `N/N` or
+`N N/N`; positive millimetres; REQUIRES `extract_as: "number"` on the same def -- on a closed list the coercer would null
+the free value before the corrector saw it). `catalog_fit` was PASS-THROUGH; it now has a branch: `bind` / `kind`
+non-empty strings, `fit_from {attr}` required, `direction` in up/down, `on_miss` a string, and `fit_into` /
+`prefer_attr` / `fit_from.attr` / `absent_when.attr` / every `where` "@" reference `_ref`-guarded -- **except that a
+name which is a `map_attribute` TARGET in the same config is legal without a definition** (industrial_sockets fits on
+`@mcb_pole` / `@mcb_curve`, written by its own map steps), and **`bind` is a LABEL SLOT, not reference-guarded**
+(industrial_sockets binds `paired_mcb`). Measured the hard way: the first cut `_ref`-guarded all of them and refused the
+shipped industrial_sockets config (`test_92`, `test_img_06`, rate_suggest `test_27`); the map-target carve-out is the
+fix, pinned positive in `test_v63_07`. ⚠️ REGISTER: the loader does NOT run `_validate_config`; an asset typo passes
+at import (unchanged).
+
+### THE INVARIANT -- 5,001 rows, both category modes, real helper (esbuild in-container), live v62 configs vs v63
+**10,002 verdicts, 44 moved (22 rows), and every one is in an approved group:**
+- **11 rows START pricing** (22 verdicts; all `conduit_piping`, all `no match` today): 00198/212 -> 35/10/45, 214 ->
+  70/20/90, 278 -> 70/20/90, 216 -> 70/20/90, 280 -> 70/20/90, 218 -> 140/30/170, 282 -> 140/30/170; 00194/276 ->
+  168/40/208, 282 -> 140/30/170, 335 -> 168/40/208; 00184/63 -> 140/30/170. (Stored values, before the fresh read:
+  214 / 278 buy 32 from the stored 25.4 -- the overshoot the table now prevents on every future read.)
+- **11 rows with a blank size change face, not outcome** (22 verdicts): `Complete the missing attributes to price` with a
+  red `size_mm` -> `no match for these attributes` with no red border, because a `catalog_fit` bind is DERIVED --
+  00015/453; 00106/87, 616, 617; 00126/415, 419; and five more, all `conduit_piping` with a type and no size.
+- **2 rows gain a note and keep refusing**: 00198/220 and 284 (stored 50.8, above the top rung) -- display, not a mover.
+- **0 of the 454 priced conduit verdicts moved** (an exact hit is an exact rung; 454 -> 476 priced after). Their `attrs`
+  gain a `derivedValue` equal to the stated size, INVISIBLE on screen (`attrDisplayValue` shows the stated value,
+  `substituted` false, no marker) -- 458 display-only diffs, 0 rupees.
+- **0 verdicts in `wiring_cabling` or `point_wiring`** (they reach the conduit catalogue through their own
+  `component_ref`); pinned per category in python and vitest.
+Figure-set hash `05bf382f8c5b` -> `88d91e028ae1`; every mover named above.
+
+### TESTS
+Canonical command re-verified from root CLAUDE.md (`bench --site localhost run-tests --module …`, in-container); vitest
+in-container. **Baselines measured in session:** coercion **149 OK**, rate_suggest **71 OK**, hv2 **43 OK** (the chain
+first named the wrong module path; re-run by its real name `services.boq_category.tests.test_hv2_voter_harness`);
+rate_master **355 ran with 1 error** -- `test_rmf_14`'s `inspect.getsource` tokenised `rate_master.py` MID-EDIT (the
+patch landed while that process ran; it passes in every later run) -- and the vitest "baseline" chain started AFTER the
+edits were in the tree, so its 7 failures were the known `writeOffControl` + 6 of these pins before their figure
+shape was corrected (a `values` object also carries `combined_rate`); it is NOT a HEAD measurement -- disclosed.
+**After:** rate_master **364 OK** (355 + `TestV63ConduitTradeSizeLadder` 01-09), coercion **160 OK** (149 +
+`TestInchTradeSize` it_01-11), rate_suggest **71 OK**, hv2 **43 OK**; helper vitest file **321 / 321** (309 + 12);
+full vitest **3,409 passed / 1 failed of 3,410** (the known `writeOffControl` timeout; S6 did not fire).
+**Pins, positive AND negative:** the five forms (it_01); `1"` -> 25 NOT 25.4 naming the 32-mm overshoot (it_02); `2"` ->
+50 NOT 50.8 naming the refused stocked size (it_03); `1 1/2"` -> 40 unstocked by design (it_04); a blank model answer
+filled from the text (it_05); fires ONLY for a def carrying the table (it_06); three of the 88 untouched + the word forms
+never match (it_07); `40 mm` untouched, row 444's shape (it_08); an unmapped fraction leaves the value (it_09); the one
+form (it_10); the hook normalises keys (it_11). Asset: the def + no other carrier (v63_01); the ladder at the head of
+both pipelines, otherwise v62, no other category gained one (v63_02); wiring_cabling and point_wiring byte-identical,
+named for what they protect, every other category equal (v63_03); the projection is a free number and the table never
+crosses; 19.05 / 40 / 25.4 survive the coercer where v62 nulled them (v63_04); the whole asset validates (v63_05); the
+`inch_trade_mm` guard, six refusals by name (v63_06); the `catalog_fit` guard, five refusals + tray + industrial_sockets
+positive (v63_07); the hook reads the shipped config and no other (v63_08); the live config leaf by leaf -- RED before
+import, green after (v63_09). Vitest: exact-else-next-higher on every corpus value with figures; never down; above the
+top rung -> `no_match`, refuses; the 227 on-list rows unchanged vs v62; a direct pick carries no note; the 11 blank-size
+rows' new face; row 444's shape unchanged; the asset pins. **Six cumulative pins widened mechanically** (`v61_01`
+carriers, `v61_04`, `img_06`/`img_07`, `f25s3_04`, `lms_12`, `pw_cs_14/23/31`, `r12` -- conduit_piping added to each
+exclusion list with a dated comment).
+**VACUITY (A4), both runs, restored and re-verified green:** A -- `apply_inch_trade_size` made to return before it
+reads anything: it_01-05 RED (5 of 7 in the subset; it_06 and it_08 are negatives and stay green as they should);
+restored, sha `19122a964a87` before == after. B -- both `catalog_fit` steps removed from the v63 asset: 6 ladder pins
+RED (315 / 321); restored from backup, sha256 `25f23eb3d28b770c` before == after; then coercion subset **7 OK** and
+helper file **321 / 321**.
+
+### THE DELIVERY PATH (evidence)
+1. Freeze OFF. 2. Pre-state: **1,367** active on `rmbulk-b1985c53a6d9`, 12 configs, conduit def `[conduit_type,
+size_mm(number_choice, values_from)]`, pipelines `[match_master_row, scale, scale, roundup]` / `[match_master_row,
+scale]`, 8 conduit items. 3. Mint v63 (above). 4. `CURRENT_EALL_ASSET` -> v63. 5. Completeness PASS. 6. Import
+in-container, explicit v63 path, `replace=True`: `status loaded`, batch **`rmbulk-bce10321eae6`**, items_total 1,367,
+configs_loaded 12, deactivated 1,367 / 12, retirements existing 6 / created 0. 7. AFTER: **1,367** active on the new
+batch, 12 configs; live vs v63 LEAF BY LEAF: conduit `BRCC-26-27940` **69 / 69, 0 differing**; all 12 categories **0
+differing**; `get_rate_master_items` 1,367; snapshots 10 (none created); `test_v63_09` green. 8. ⚠️ The container had
+RESTARTED about an hour before this slice (no bench process existed -- declared), so this was a START, not a restart:
+web (`bench serve`, PID 2711 + reloader 2762), worker (2712), socketio (2713), vite (2738, `node_modules/.vite`
+cleared) -- `:8000` ping 200 ×3 after one warm-up 000, `:8080` 200 ×3; BACKEND marker: the served process started after
+the edit and the module exposes `apply_inch_trade_size` / `inch_trade_tables`; FRONTEND marker on the plain url:
+`withNoMatchNotes` ×2, `catalog_fit` ×2. No CSRF break: the debug profile's session held.
+
+### THE CERT -- BOTH FRESH READS (spend: exactly two scoped runs, `start_suggest(only_rows)`)
+- **V1 `BOQ-26-00198 / ELEC` rows 212, 214, 216, 218, 220** (run `BRSR-26-00877`, job `2554649e…`, complete, active).
+  Capture verbatim -- def sent `{"id": "size_mm", "label": "Size (mm)", "type": "number"}`; MODEL returned `size_mm`
+  **19.05 / 25.4 / 31.75 / 38.1 / 50.8** (0.90 each, `conduit_type` PVC 0.98); corrector `inch_trade` `{token: "3/4\"",
+  from 19.05, to 20}`, `{"1\"", 25.4 -> 25}`, `{"1 1/4\"", 31.75 -> 32}`, `{"1 1/2\"", 38.1 -> 40}`, `{"2\"", 50.8 ->
+  50}`, all `action: trade`; STORED **20 / 25 / 32 / 40 / 50** (0.90). Before: 19.05 / 25.4 / 31.75 / 38.1 / 50.8.
+- **V2 `BOQ-26-00242 / LT Electrical works` rows 227, 228, 229** (run `BRSR-26-00878`, job `eef529ed…`, `Job OK`).
+  MODEL returned **25.4 / 31.75 / 50.8** -- the arithmetic, on the sheet that had stored trade sizes under the closed
+  list; corrector -> **25 / 32 / 50**; STORED 25 / 32 / 50, exactly what they stored before. ⚠️ The run row is
+  `status partial, active 0, run_at None`: a scoped run on this sheet CARRIES the prior run's 127-of-129 attempted set
+  and stays `partial`, so it never supersedes the active run (`BRSR-26-00046`, 09-04) -- the product's documented
+  "never supersede a prior COMPLETE run until this one completes" rule, and the same shape as the earlier scoped run
+  `BRSR-26-00462` (09-07). Pre-existing behaviour, not this slice; the panel on `00242` therefore reads `00046`'s
+  stored 25 / 32 / 50, which are the same numbers. Register.
+- **SIDE BY SIDE -- the point of the slice:** `1"` PVC prices **42 / 10 / 52 on both BoQs** -- `00198 / 214` (active run
+  `00877`, stored 25 from the corrector) and `00242 / 227` (stored 25) -- read off the rendered panels. Before v63:
+  `00198 / 214` refused; under a ladder alone it would have bought 32 (70 / 20).
+- **V3** `BOQ-26-00194 / ELE / 276` (stored 40 MS, untouched by any read): panel `Rate master: Electrical Conduit @
+  Conduit Type = MS, Size (mm) = 40` -> **Supply 168 / Install 40 / Combined 208**; Size (mm) select shows **50** with
+  the italic `(computed)` tone; note character for character: **"The row states 40 — using 50, the next size
+  stocked."**
+- **V4** `BOQ-26-00198 / ELEC / 284` (stored 50.8, OUTSIDE the V1 scope so carried, not re-read -- V4 was certified on
+  it because V1 had already converted 220): Size select **blank** (`""`, options 20/25/32/50), basis `no match for
+  these attributes`, note verbatim **"The row states 50.8 — nothing stocked matches for Size (mm) (20, 25, 32, 50);
+  left blank for you to decide."**
+- **V5** `BOQ-26-00015 / Electrical works / 453` (`c) 40 mm dia`, type PVC, size blank): Size select blank with **no red
+  tone**, basis `no match for these attributes`, no note -- same refusal, different face; not a regression (the
+  harness names all 11 and shows both faces). ⚠️ Its text SAYS 40 mm; the stored size is blank (a model miss on the
+  stored run) -- a fresh read would now store 40 and the ladder buy 50. Register.
+- **V6** `BOQ-26-00194 / ELE / 81` (wiring_cabling, `4Core 300sq. mm.A2XFY`): **2190 / 140 / 2330**; `/ 185`
+  (point_wiring, `Primary light points…`): **2256 / 689.2** -- both to the rupee against the harness before AND after.
+- **V7** Electrical Pricing -> Calculator -> Electrical Conduit: Size is a dropdown of **20 / 25 / 32 / 50**; PVC + 25
+  -> **42 / 10 / 52**, no note, no `(computed)`. Nothing saved (the calculator never persists).
+- **V8** live == v63 leaf by leaf (12 × 0 differing); active Electrical **1,367**.
+Screenshots time out on the tall grids (the recorded trait); every panel was read through the DOM with the tab
+visible, the Category filter narrowed to Electrical Conduit and `scrollIntoView`; every pick was on the calculator
+(never persisted) or a read; no "Use this value", no cell write.
+
+### #57 -- what landed
+1. Eleven rows that refused START PRICING (three carry quantity: ₹31,500 supply / ₹9,000 install across `00198` 214,
+   278, 280 -- and after a fresh read of 214 / 278 the 1"-as-32 overshoot inside that figure comes back off: 42 / 10).
+2. Two rows gain a note explaining why they refuse. 3. Eleven blank-size rows lose their red border, same refusal.
+4. A conduit written in inches now prices at its trade size on every sheet -- proven by two fresh reads.
+
+### Register (record, do not fix)
+- The loader does not run `_validate_config`; an asset typo passes at import (the v63 keys included).
+- Row 444 (`40 mm width chipping…`) is a category/attribute misread the ladder cannot touch; refuses on `conduit_type`.
+- `1 1/2"` maps to 40, unstocked, so the ladder always buys 50 for it (2 rows today, qty 0).
+- The parity test compares figures, never notes; note parity across panel / calculator is untested by design.
+- The dead `conditions` key on an assembly-shape `component_ref`; `absent_when` and `qty.if_attr` unvalidated (standing).
+- A scoped run on a sheet whose prior run was `partial` stays `partial` and inactive (`BRSR-26-00878`, `00462`).
+- `BOQ-26-00015 / 453` says `40 mm dia` but stores a blank size -- a stored-run miss a fresh read would fill.
+- A hyphenated inch form (`1-1/2"`) would read as `1/2"` -> unmapped -> left alone; not in the corpus.
+- The `test_rmf_14` baseline error was a mid-edit `inspect.getsource` artefact; the vitest baseline was not a HEAD run.
+- Standing: `point_wiring.blank_item`; run `BRSR-26-00722`; units; "Unclear" owner-parked; the dropdown option order;
+  the parked split-pipeline shape; a one-column category's box width; the true-viewport narrow check.
+
+### Files
+`nirmaan_stack/services/boq_rate_master/extraction.py` (`_INCH_TOKEN_RE`, `inch_trade_tables`,
+`inch_trade_size_from_text`, `apply_inch_trade_size`, the `inch_trade` kwarg / `_gc` key / drops key / call, +106 -2),
+`nirmaan_stack/services/boq_rate_master/test_extraction_coercion.py` (`TestInchTradeSize` it_01-11, +127),
+`nirmaan_stack/api/boq/rate_master.py` (`inch_trade_mm` in `_KNOWN_DEF_KEYS` + its guard; the `catalog_fit` branch,
++77), `nirmaan_stack/api/boq/test_rate_master.py` (`CURRENT_EALL_ASSET` -> v63, six cumulative pins widened,
+`TestV63ConduitTradeSizeLadder` 01-09, +198 -10), `nirmaan_stack/services/boq_rate_master/data/
+rate_master_electrical_all_v63.json` (new), `frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper.test.ts`
+(two asset imports, the conduit fixtures, 12 pins, +156), this record, root `CLAUDE.md` (one durable rule). Out of
+scope and untouched: `ratePipelineInterpreter.ts`, `pricingSheetHelper.ts`, `PricingCalculator.tsx`, the prompt and
+R-rules, `wiring_cabling` / `point_wiring` configs, `patches.txt`; the modified `.claude/settings.local.json` and the
+root untracked files are declared noise, not staged.
+
+
+## THE VALIDATION GAPS -- reject what cannot run, guard what is read, validate at import (2026-09-10) -- SHIPPED
+
+Owner ruling (verbatim, 2026-09-10): *"lets do the validation fixes now. then we will update the docs, deploy into
+production and the start workin gopn HVAC helpers"*; on the three items as scoped plus the component-conditions gap:
+*"proceed"*. NO config, NO asset, NO mint, NO extraction change, NO interpreter change. Live stays asset **v63**; the
+W2 re-import moved the live batch from `rmbulk-bce10321eae6` to **`rmbulk-b2147c6e15b1`** (same 1,367 items, same
+12 configs, leaf-equal -- see W2).
+
+### ONE DEFECT, FOUR PLACES
+Every item is the same failure: **the system accepted a config key and quietly did not do it.** Each is how a wrong
+price hides -- not a refusal, not a warning, a total that looks finished.
+1. **Reject what cannot run.** The interpreter's `component_ref` branch splits on SHAPE: the assembly shape
+   (`rate_stages` / `qty`) prices `stageRate x qty` and `continue`s BEFORE the legacy code that reads `conditions`,
+   `params` and `formula`; the legacy shape never reads `none_skips`. The validator accepted all four -- its
+   `conditions` block landed `7b557b94` (2026-07-30, EA-2c legacy) ONE DAY before the assembly shape (`f5b21cbc`)
+   and was never re-scoped. Now refused BY NAME, with the reason. **Not implemented:** the legacy semantics bind
+   `cond.params` into a `formula`; assembly has neither, so there is no meaning to execute -- that would be a new
+   feature wearing a repair's name (S5 honoured; no such design was started).
+2. **Guard what is read.** `qty.from_attr`, `qty.if_attr` keys and `circuit_fit.absent_when.attr` are now
+   reference-checked through `_ref_or_map` -- the map-target carve-out `catalog_fit` settled on at v63, hoisted ONCE
+   above the pipelines loop and shared. **`if_attr` is the one that matters most:** unresolved, the interpreter reads
+   `selected[k] === val` as FALSE and takes `else` (0 in every shipped use) -- the row prices WITHOUT the component,
+   silently. `if_attr` also now requires finite `then` / `else`. **The `from_fit` trap:** it reads the RUN SCOPE
+   (`ctx[key]`), never the selection, so a plain `_ref` would have refused all nine shipped uses; it is checked
+   against the ctx binds DECLARED BY AN EARLIER STEP of the same pipeline (`circuit_fit.binds`, module_fit
+   `blanks.bind` / `bind_modules`, and the `result` of scale / apply / sum / install), the way
+   `blanks.from_ladder` is checked against its own ladders. **Premise correction:** the brief said `from_fit` names
+   a `circuit_fit` bind; only 3 of the 9 do (`conduit_qty`), 6 read `blank_count` -- a module_fit `blanks.bind`. A
+   check against circuit_fit binds alone would have refused six shipped uses.
+3. **The component's own conditions.** A `component` step's `conditions` is EXECUTED by the interpreter and was
+   validated NOWHERE (no `_ref` on `when` keys, no exact-value check, no `_validate_params` on `cond.params`);
+   cabletray_raceway runs eight of them live. Validated the way component_ref's block already is.
+4. **Validate at import.** The loader checked only category id + non-empty attribute list + pipelines object
+   (`_validate_one_config`, still run first). v56 through v63 all arrived by import, so no guard had run on what
+   was loaded until `test_92` ran after the fact. Now `_validate_loaded_config` runs the FULL validator on every
+   config BEFORE the first write, over the SAME object it stores (`_loaded_config`: discipline stamped, goldens
+   merged -- the one helper both the gate and the insert loop use, so the validated object IS the written one).
+
+### THE RELOCATION
+`_validate_config` lived in `api/boq/rate_master.py`; the loader lives in `services/`. A service importing `api/`
+breaks the import-direction law (`services/boq_rate_master/` is clean of `api` imports bar one lazy `ai_settings`
+import inside `extraction.py`). So the predicate moved DOWN, whole -- `_validate_config`, `_validate_params`,
+`_KNOWN_STEP_TYPES` / `_KNOWN_DEF_KEYS` / `_KNOWN_CONFIG_KEYS`, `_BAND_WHEN_RE`, `_is_finite_number`, `_vthrow`,
+the three suffix constants, 820 lines -- into the NEW `services/boq_rate_master/config_validation.py`, and
+`api/boq/rate_master.py` RE-IMPORTS every name (`from ...config_validation import (...)`, the
+`services/boq_bcs/readiness.py` precedent). `rate_master._validate_config` etc. still resolve; the 82 test references
+are untouched; `test_vg_14` pins the re-import BY IDENTITY (`assertIs`), pins the service module free of any
+`nirmaan_stack.api` import, pins no second copy in `api/`, and pins the loader validating before it deactivates.
+`rate_master.py` 2,517 -> 1,697 lines; `re` stays imported (two slug sites still use it).
+
+### THE SWEEP (570 configs) -- before and after
+`_validate_config` over every config in every asset on disk (47 files: E-ALL v12..v63 as present + wiring v3 =
+558) plus the 12 live rows, each in its LOADED form. **BEFORE: 570 validated, 569 pass. AFTER (all four guards
+on): 570 validated, 569 pass, the SAME one failure** -- `rate_master_electrical_all_v12.json / point_wiring`:
+*choice attribute 'switch_item' needs a non-empty values list (or values_from)* -- a bare `choice` with no values
+(v12 predates `values_from`; v13 carries it). A real defect, in a retired asset F-20 already forbids re-importing.
+No new rule refuses anything else (S3 clean). Live counts verified both times: 1,367 active Electrical items, 12
+configs. (One run of the sweep mid-session read 1,278 "live" rows because the AFTER suite was creating TEST_RM_*
+fixtures concurrently and the live query had no discipline filter -- fixed to `discipline = Electrical`, re-run
+clean; declared.)
+
+### WHAT THE GATE NEWLY REJECTS -- the v12 test fixture (premise correction, owner to note)
+The recon said the suite loads only passing assets. Wrong: `TestRateMaster` loads the **v12** E-ALL asset through
+`loader.load_rate_master` in six loader-behaviour tests (`test_22`, `23`, `24`, `24d`, `25`, `29`), and v12 AS
+SHIPPED now fails the gate on `point_wiring` (four empty-choice defs; the validator names `switch_item`). Handled
+WITHOUT a bypass: `_eall_payload` repairs those FOUR defs in memory (v13's exact shapes) so the count / goldens-merge / scoped-replace / retirement pins keep pinning
+what they pinned, and `test_vg_12` pins the untouched file being REFUSED by name. A `validate=False` switch on the
+loader was rejected as exactly the opt-out the gate exists to remove. The v12 file on disk is untouched.
+
+### TESTS
+Canonical command re-verified from root `CLAUDE.md` (`bench --site localhost run-tests --module ...`, in-container;
+`--test <name>` for the pins). **Baselines measured in session (HEAD):** rate_master 364 ran, 361 OK + **3 ERRORs in
+`test_rmf_14`** -- an artefact of this session: the suite was already running when `rate_master.py` was rewritten on
+disk (820 lines removed) and `inspect.getsource` on three endpoints read the wrong lines; re-run alone on the
+finished tree: **1 OK**; coercion **160 OK**; rate_suggest **71 OK**; hv2 **43 OK** (module is
+`services.boq_category.tests.test_hv2_voter_harness`). Coercion / rate_suggest / hv2 baselines ran after the
+relocation existed on disk (sequential in one chain) -- declared; none touches the validator.
+**14 new pins, `TestValidationGaps` (`test_vg_01`..`_14`), 14 OK in 5.7 s:** vg_01 assembly + conditions / params /
+formula REFUSED; vg_02 legacy + none_skips REFUSED; vg_03 NEGATIVE earthing's two legacy steps keep their
+conditions and validate; vg_04 NEGATIVE all 79 live assembly steps validate, none carries a dead key; vg_05
+from_attr / if_attr naming nothing, missing then/else, range predicate REFUSED; vg_06 NEGATIVE a map_attribute
+target is an accepted qty source (and refused without the mapper; wiring_cabling's `conduit_included` is both);
+vg_07 NEGATIVE all NINE live from_fit uses validate, an undeclared bind and a LATER-declared bind REFUSED; vg_08
+circuit_fit absent_when naming nothing / malformed REFUSED, point_wiring's three live ones validate; vg_09
+component.conditions bad key / range / string param / non-list REFUSED, cabletray's eight validate; vg_10 THE
+LOADER refuses a typo'd copy of the current asset naming category + key + location, 0 items / 0 configs written;
+vg_11 the loader accepts the current asset whole (12 configs, every item); vg_12 v12 as shipped REFUSED naming
+`switch_item`; vg_13 every live config (12, from the DB) and every asset config (through `_loaded_config`)
+validates; vg_14 the relocation by identity + import-direction + validate-before-deactivate + no second copy.
+**A4 VACUITY, four runs, each restored sha-equal (cv `1843a79e68ac`, loader `68dfae9bac1a` before and after):**
+G1 (dead-key refusals off) -> vg_01, vg_02 red, 12 green; G2 (the four reference guards off) -> vg_05, vg_06,
+vg_07, vg_08, vg_10 red, 9 green; G3 (component.conditions off) -> vg_09 red, 13 green; G4 (loader gate off) ->
+vg_10, vg_12 red + vg_14 error (the ordering pin cannot find the call), 11 green. Nothing else moved.
+**AFTER:** rate_master **378 OK** (545 s; 364 + 14); coercion **160 OK**; rate_suggest **71 OK**; vitest **3,409 / 3,410** (the known
+`writeOffControl` timeout; frontend zero-line diff). A first AFTER run of rate_master showed **6 ERRORs**, all the
+v12 loader tests -- v12's `point_wiring` carries FOUR empty-choice defs (`switch_item`, `socket_item`, `plate_item`,
+`colour`), not one (the validator names only the first, so the sweep reported one); the fixture repair was widened to
+all four (v13's exact shapes) -- plus **`test_24i`**, which pinned that an unknown top-level config key SURVIVES A
+RE-IMPORT: exactly what `_KNOWN_CONFIG_KEYS` now refuses at import. INVERTED, not deleted -- the export half
+(verbatim blob leaves the DB) is unchanged; the re-import half now asserts the refusal by name and 0 rows written.
+The eight affected tests pass; the full re-run is the AFTER figure above.
+
+### THE INVARIANT -- 5,001 rows, both category modes, real helper (esbuild in-container)
+Harness rebuilt from the v63 slice's artefacts in `/tmp/valgaps`: the working-tree helper bundled ONCE (bundle sha
+`16e83753...`, interpreter `7463b06e...`, helper `676a68e7...` -- neither file changed), the corpus dumped BEFORE
+any edit and AGAIN after the W2 re-import (42 runs, 5,001 rows, 12 configs, 1,367 items both times). **10,002
+verdicts, 0 moved; figure-set hash `18dc605b27e3` on both sides;** 9,984 suggestions + 18 none, identical. Nothing
+here touches pricing, and the re-import's fresh item names do not reach a figure.
+
+### THE CERT (no user-visible change; proven where it lives)
+- **W1** the sweep, post-change: 570 validated, 569 pass, v12 the only failure, same reason (above).
+- **W2** the CURRENT asset re-imported in-container (`load_rate_master(path=<v63>, replace=True)`, freeze OFF):
+  batch `rmbulk-b2147c6e15b1`, 1,367 items deactivated + 1,367 inserted, 12 configs deactivated + 12 inserted,
+  retirements re-recorded as existing (0 created); **12 of 12 configs equal leaf-by-leaf** to `_loaded_config` of
+  the asset, **1,367 of 1,367 items leaf-equal** (kind / brand / unit / item_uid / attributes / rates / source; names
+  and batch differ by design). The only write in the slice; it re-imported what was already live.
+- **W3** a scratch copy of v63 with ONE typo (`switches_sockets / swsock_boq / switch` `qty.from_attr`
+  `switch_qty` -> `switch_qtyx`), imported with `replace=True`: **REFUSED**, active items / configs / total
+  Electrical rows identical before and after (`UNCHANGED: True`), scratch deleted and confirmed gone. The message a
+  pricer sees, verbatim: *Rate master import refused -- category_configs[10] (category 'switches_sockets') is not a
+  valid config: These attributes are referenced by a pipeline but not defined: 'switch_qtyx' (referenced by pipeline
+  'swsock_boq' step 1 (qty.from_attr)). Add the definition, or remove the references first. Nothing was written. Fix
+  the asset and re-run the import.*
+- **W4** the panel: `BOQ-26-00181 / Electrical / row 39` ("One no. 6 amps one way switch with modular face plate",
+  switches_sockets) opened on `:8080` after W2 -- Rate suggestions **Supply 170**, **Install 40** (harness after:
+  170 / 40 / 210), the pricer's own typed cells 160 / 40 untouched. One row; the harness carries the rest.
+
+### REGISTER (record, do not fix)
+- The 134 assembly `"@"` refs (112 selection / 19 fitLabels / 3 fitted_size live) are NOT `_ref`'d -- the biggest
+  single unguarded surface; a typo is loud at runtime ("'x' not provided -- not computed"). `resolveAtRef` reads
+  `fitted_size` from ctx, else fitLabels, else the selection -- so `"@circuits"` would NOT resolve (none live).
+- `*_from_attr` params (`_validate_params` string-checks, never `_ref`s; loud at runtime) and `*_from_ctx` params
+  (never checked against ctx keys); `module_fit terms[].weight_from.from_attr`; `map_attribute` from_attr /
+  prefer_attr / result_attr (pass-through); `lookup_or_ratio` (pass-through, not live since v31).
+- Def-level names never resolved: `disables_when_none`, `absent_dependents`, `conductor_floor.core_attr` /
+  `runs_attr`, `extraction_defaults` keys + `requires_named`, `synonyms` keys; `blanks.display_attr` (frontend-only
+  read). Catalogue-namespace names (`size_from.attr`, `label_attr`, ladder `kind` / `where`) need the catalogue.
+- `scale.conditions` -- accepted, never executed, already pinned as a known degrade in the interpreter tests.
+- `module_fit` ladder `where` with an `"@attr"` value -- accepted as an exact value; `buildModuleLadder` does not
+  resolve `"@"` (only `catalog_fit` does). Latent; none live.
+- Client/server guard drift: the editor's `referencedAttrIds` collects `conditions.when` keys for
+  `apply_effective_multiplier` only; the server `_ref`s them for component_ref and (now) component too.
+- Standing: the `TestRateMaster` fixture's in-memory repair of v12 and the INVERSION of `test_24i` (unknown keys no
+  longer survive a re-import -- inherent in validate-at-import) are the two judgements the owner may reverse; the
+  alternative for the first is moving six count pins to the current asset. `test_rmf_14`'s three baseline ERRORs
+  were the mid-run rewrite, not a defect.
+
+### FILES
+`nirmaan_stack/services/boq_rate_master/config_validation.py` (NEW, the relocated predicate + the four guards),
+`nirmaan_stack/api/boq/rate_master.py` (the block removed, the names re-imported), `nirmaan_stack/services/
+boq_rate_master/loader.py` (`_loaded_config`, `_validate_loaded_config`, both loader paths gated before any write),
+`nirmaan_stack/api/boq/test_rate_master.py` (`_eall_payload` fixture repair + `TestValidationGaps`, 14 pins), this
+record, root `CLAUDE.md` (one durable rule). Out of scope and untouched: every config and asset, `patches.txt`,
+`ratePipelineInterpreter.ts` and every frontend file, `extraction.py` and the prompt; the modified
+`.claude/settings.local.json` and the root untracked files are declared noise, not staged.

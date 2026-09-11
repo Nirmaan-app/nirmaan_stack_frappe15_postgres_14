@@ -149,3 +149,4 @@ nirmaan_stack.patches.v3_0.backfill_document_amount_invoiced
 nirmaan_stack.patches.v3_0.backfill_document_amount_due
 nirmaan_stack.patches.v3_0.retire_po_number_gate
 nirmaan_stack.patches.v3_0.backfill_snag_source_serial
+nirmaan_stack.patches.v3_0.backfill_sr_payment_tds_deductions
