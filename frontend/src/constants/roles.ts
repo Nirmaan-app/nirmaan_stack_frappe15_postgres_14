@@ -136,6 +136,27 @@ export const canRemoveProjectAssignee = (
 ): boolean => userId === "Administrator" || role === ADMIN_PROFILE;
 
 /**
+ * May EDIT a Cashflow Plan row (PO / WO / Misc / Inflow) — Admin + PMO (owner ruling).
+ * Narrower than who can SEE the Cashflow tab (Admin / PMO / Project Lead). UI-only: the
+ * `Cashflow Plan` DocPerm still grants write/delete to every Nirmaan role, so this
+ * decides whether the ✏️ renders, not what the server allows.
+ */
+export const canEditCashflowPlan = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" || role === ADMIN_PROFILE || role === PMO_EXECUTIVE_PROFILE;
+
+/**
+ * May DELETE a Cashflow Plan row — Admin only; PMO may edit but not delete (owner
+ * ruling). UI-only, same caveat as `canEditCashflowPlan`: decides whether the 🗑️ renders.
+ */
+export const canDeleteCashflowPlan = (
+  role?: string | null,
+  userId?: string | null
+): boolean => userId === "Administrator" || role === ADMIN_PROFILE;
+
+/**
  * May act on the "Pending Invoice Approvals" queue — approve, reject, or re-run
  * the auto-approve gates on an invoice stuck behind a stale reason.
  *

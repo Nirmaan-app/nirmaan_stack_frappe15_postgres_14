@@ -17,7 +17,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { downloadProjectPrintFormatPdf } from "@/pages/projects/data/tab/planning/useProjectPlanningDownloadApi";
 
-import { isMaterialProcurementProfile } from "@/constants/roles";
+import { isMaterialProcurementProfile, PMO_EXECUTIVE_PROFILE } from "@/constants/roles";
 
 const ADMIN_ROLE = "Nirmaan Admin Profile";
 import {
@@ -57,7 +57,9 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
     // --- Role gates ---
     const { role } = useUserData();
     const isAdmin = role === ADMIN_ROLE;
-    const canEditPlan = isAdmin || isMaterialProcurementProfile(role);
+    const isPMO = role === PMO_EXECUTIVE_PROFILE;
+    const canEditPlan = isAdmin || isPMO || isMaterialProcurementProfile(role);
+    const canDeletePlan = isAdmin || isPMO;
 
     // --- Date/Duration State (Local) ---
     const activeDurationParam = useUrlParam("planningDuration");
@@ -486,8 +488,8 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                                     </span>
                                 </div>
 
-                                {/* ACTIONS — Edit: Admin + Procurement, Delete: Admin only */}
-                                {!isOverview && (canEditPlan || isAdmin) && (
+                                {/* ACTIONS — Edit: Admin + PMO + Procurement, Delete: Admin + PMO */}
+                                {!isOverview && (canEditPlan || canDeletePlan) && (
                                     <div className="flex items-center gap-1 shrink-0 self-start lg:self-center w-full md:w-auto justify-end border-t md:border-0 border-gray-100 pt-2 md:pt-0 mt-1 md:mt-0">
                                         <span className="hidden md:block w-px h-6 bg-gray-200 mr-1" aria-hidden="true" />
                                         {canEditPlan && (
@@ -499,7 +501,7 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                                                 <Edit2 className="w-4 h-4" />
                                             </button>
                                         )}
-                                        {isAdmin && (
+                                        {canDeletePlan && (
                                             <button
                                                 onClick={(e) => { e.stopPropagation(); setDeleteDialogState({ isOpen: true, planName: plan.name }); }}
                                                 className="p-1.5 text-red-600 hover:text-red-700 transition-colors hover:bg-red-50 rounded-md"
