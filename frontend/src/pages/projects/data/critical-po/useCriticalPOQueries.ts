@@ -1,3 +1,4 @@
+import { useCallback, useMemo } from "react";
 import {
     useFrappeGetDocList,
     useFrappeGetDoc,
@@ -6,7 +7,12 @@ import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { CriticalPOCategory } from "@/pages/CriticalPOCategories/components/CriticalPOCategoriesMaster";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
-import { PRPackageRow } from "@/pages/projects/CriticalPOTasks/utils";
+import {
+    PRPackageRow,
+    POTaskLinkRow,
+    buildTaskPOMap,
+    attachLinkedPOs,
+} from "@/pages/projects/CriticalPOTasks/utils";
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
 
 // ─── Critical PO Tasks Cache Keys (Standardized) ─────────────
@@ -19,6 +25,8 @@ export const criticalPOKeys = {
     procurementRequests: (projectId: string) =>
         ["critical-po", "prs", projectId] as const,
     allTasks: (projectId: string) => ["critical-po", "allTasks", projectId] as const,
+    poLinks: (projectId: string) => ["critical-po", "poLinks", projectId] as const,
+    poLinksAll: () => ["critical-po", "poLinks", "all"] as const,
 };
 
 // ─── Queries ─────────────────────────────────────────────────
@@ -30,6 +38,73 @@ const PR_PACKAGE_FIELDS = [
     "work_package",
     "`tabPR Tag Child Table`.tag_package as tag_package",
 ] as unknown as (keyof PRPackageRow)[];
+
+const PO_TASK_LINK_FIELDS = [
+    "name",
+    "`tabCritical PO Task Child Table`.critical_po_task as critical_po_task",
+] as unknown as (keyof POTaskLinkRow)[];
+
+/**
+ * Task ↔ PO links for a project, read from the `Critical PO Task Child Table` on Procurement
+ * Orders -- the source of truth for which POs a Critical PO Task has. One row per (PO, task);
+ * the child-table filter drops POs that carry no link.
+ */
+export const useProjectPOTaskLinks = (projectId: string, enabled: boolean = true) => {
+    const response = useFrappeGetDocList<POTaskLinkRow>(
+        "Procurement Orders",
+        {
+            fields: PO_TASK_LINK_FIELDS,
+            filters: [
+                ["project", "=", projectId],
+                ["Critical PO Task Child Table", "critical_po_task", "is", "set"],
+            ] as any,
+            limit: 0,
+        },
+        enabled && projectId ? criticalPOKeys.poLinks(projectId) : null
+    );
+
+    useApiErrorLogger(response.error, {
+        hook: "useProjectPOTaskLinks",
+        api: "Critical PO Task Child Table Links",
+        feature: "critical-po",
+        entity_id: projectId,
+    });
+
+    const taskPOMap = useMemo(() => buildTaskPOMap(response.data), [response.data]);
+
+    return {
+        taskPOMap,
+        isLoading: response.isLoading,
+        error: response.error,
+        mutate: response.mutate,
+    };
+};
+
+/**
+ * Task ↔ PO links across EVERY project (reports) -- the same rows as useProjectPOTaskLinks,
+ * without the project filter.
+ */
+export const useAllPOTaskLinks = (enabled: boolean = true) => {
+    const response = useFrappeGetDocList<POTaskLinkRow>(
+        "Procurement Orders",
+        {
+            fields: PO_TASK_LINK_FIELDS,
+            filters: [["Critical PO Task Child Table", "critical_po_task", "is", "set"]] as any,
+            limit: 0,
+        },
+        enabled ? criticalPOKeys.poLinksAll() : null
+    );
+
+    useApiErrorLogger(response.error, {
+        hook: "useAllPOTaskLinks",
+        api: "Critical PO Task Child Table Links",
+        feature: "critical-po",
+    });
+
+    const taskPOMap = useMemo(() => buildTaskPOMap(response.data), [response.data]);
+
+    return { taskPOMap, isLoading: response.isLoading, error: response.error };
+};
 
 
 /**
@@ -48,7 +123,7 @@ export const useCriticalPOTasks = (projectId: string) => {
                 "sub_category",
                 "po_release_date",
                 "status",
-                "associated_pos",
+                "linked_po_count",
                 "revised_date",
                 "remarks",
             ],
@@ -66,7 +141,25 @@ export const useCriticalPOTasks = (projectId: string) => {
         entity_id: projectId,
     });
 
-    return response;
+    const links = useProjectPOTaskLinks(projectId);
+    const data = useMemo(
+        () => attachLinkedPOs(response.data, links.taskPOMap),
+        [response.data, links.taskPOMap]
+    );
+    const { mutate: mutateTasks } = response;
+    const { mutate: mutateLinks } = links;
+    const mutate = useCallback(
+        () => Promise.all([mutateTasks(), mutateLinks()]),
+        [mutateTasks, mutateLinks]
+    );
+
+    return {
+        ...response,
+        data,
+        mutate,
+        isLoading: response.isLoading || links.isLoading,
+        error: response.error ?? links.error,
+    };
 };
 
 /**
@@ -188,7 +281,7 @@ export const useAllCriticalPOTasks = (projectId: string, enabled: boolean = true
     const response = useFrappeGetDocList<CriticalPOTask>(
         "Critical PO Tasks",
         {
-            fields: ["name", "item_name", "critical_po_category", "associated_pos"],
+            fields: ["name", "item_name", "critical_po_category"],
             filters: [["project", "=", projectId]],
             limit: 0,
         },
@@ -202,5 +295,11 @@ export const useAllCriticalPOTasks = (projectId: string, enabled: boolean = true
         entity_id: projectId,
     });
 
-    return response;
+    const links = useProjectPOTaskLinks(projectId, enabled);
+    const data = useMemo(
+        () => attachLinkedPOs(response.data, links.taskPOMap),
+        [response.data, links.taskPOMap]
+    );
+
+    return { ...response, data };
 };

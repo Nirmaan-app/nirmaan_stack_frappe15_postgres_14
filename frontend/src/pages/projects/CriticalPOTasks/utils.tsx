@@ -73,23 +73,6 @@ export const getProgressColor = (percentage: number): string => {
 };
 
 /**
- * Parse associated POs from JSON string or object
- */
-export const parseAssociatedPOs = (associated: any): string[] => {
-    try {
-        if (typeof associated === "string") {
-            const parsed = JSON.parse(associated);
-            return parsed?.pos || [];
-        } else if (associated && typeof associated === "object") {
-            return associated.pos || [];
-        }
-        return [];
-    } catch {
-        return [];
-    }
-};
-
-/**
  * Extract PO ID (second part after /)
  * e.g., "PO/2024/001" -> "2024/001"
  */
@@ -225,3 +208,35 @@ export const filterPOsByPackage = <T extends POWithPR>(
         return isCustomSelection && info.isCustomPR;
     });
 };
+
+/**
+ * ─── Task ↔ PO links (Critical PO Task Child Table) ──────────
+ *
+ * The link lives on the PO: one `Critical PO Task Child Table` row per (PO, task). useProjectPOTaskLinks
+ * reads those rows through a parent-join query, one row per link.
+ */
+export interface POTaskLinkRow {
+    /** Procurement Orders name */
+    name: string;
+    critical_po_task: string;
+}
+
+/** Fold the link rows into task → PO names, each list sorted by PO name. */
+export const buildTaskPOMap = (rows: POTaskLinkRow[] | undefined): Map<string, string[]> => {
+    const map = new Map<string, string[]>();
+    rows?.forEach((row) => {
+        if (!row?.name || !row.critical_po_task) return;
+        const pos = map.get(row.critical_po_task);
+        if (!pos) map.set(row.critical_po_task, [row.name]);
+        else if (!pos.includes(row.name)) pos.push(row.name);
+    });
+    map.forEach((pos) => pos.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })));
+    return map;
+};
+
+/** Attach each task's linked POs as `linked_pos`. */
+export const attachLinkedPOs = <T extends { name: string }>(
+    tasks: T[] | undefined,
+    taskPOMap: Map<string, string[]>
+): (T & { linked_pos: string[] })[] | undefined =>
+    tasks?.map((task) => ({ ...task, linked_pos: taskPOMap.get(task.name) ?? [] }));
