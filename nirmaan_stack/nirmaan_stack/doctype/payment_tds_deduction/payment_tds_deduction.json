@@ -17,6 +17,7 @@
   "tds_percentage",
   "column_break_amounts",
   "tds_amount",
+  "payment_approved_on",
   "deducted_on",
   "challan_section",
   "status",
@@ -106,12 +107,6 @@
    "reqd": 1
   },
   {
-   "description": "The day the payment reached Approved and the tax was withheld.",
-   "fieldname": "deducted_on",
-   "fieldtype": "Date",
-   "label": "Deducted On"
-  },
-  {
    "fieldname": "challan_section",
    "fieldtype": "Section Break",
    "label": "Challan"
@@ -136,11 +131,24 @@
    "fieldtype": "Link",
    "label": "TDS Challan",
    "options": "TDS Challan Attachment"
+  },
+  {
+   "description": "The day the payment reached Approved and the tax was withheld. Renamed from `deducted_on` (same data, truer name) -- the column carries the APPROVAL date, which for the backfilled rows is years before the row itself was written.",
+   "fieldname": "payment_approved_on",
+   "fieldtype": "Date",
+   "label": "Payment Approved On"
+  },
+  {
+   "description": "RETIRED, READ-ONLY, FROZEN. The pre-rename copy of Payment Approved On, kept only until the column is dropped by hand. Nothing writes it any more: a deduction recorded after the rename fills Payment Approved On and leaves this empty, so it is a snapshot of the old rows and must never be read as the live date.",
+   "fieldname": "deducted_on",
+   "fieldtype": "Date",
+   "label": "Deducted On (retired)",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-12 09:56:07.391615",
+ "modified": "2026-09-12 11:04:30.881098",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Payment TDS Deduction",

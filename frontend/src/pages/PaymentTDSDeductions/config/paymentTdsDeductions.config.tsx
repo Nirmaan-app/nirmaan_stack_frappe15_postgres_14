@@ -63,7 +63,7 @@ export const PAYMENT_TDS_FIELDS_TO_FETCH: string[] = [
     "gross_amount",
     "tds_percentage",
     "tds_amount",
-    "deducted_on",
+    "payment_approved_on",
     // Drives the Status column AND the Pay-TDS selection gate (only `Pending` rows are selectable),
     // so a missing fetch here would silently make every row unselectable.
     "status",
@@ -78,9 +78,10 @@ export const PAYMENT_TDS_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "project", label: "Project ID", placeholder: "Search by Project ID..." },
 ];
 
-/** `deducted_on` is the day the tax was withheld; `creation` is when the ROW was written — and for
- *  the 629 backfilled rows those are years apart, so both are offered. */
-export const PAYMENT_TDS_DATE_COLUMNS: string[] = ["deducted_on", "creation"];
+/** `payment_approved_on` is the day the payment was approved and the tax withheld; `creation` is
+ *  when the ROW was written — and for the 629 backfilled rows those are years apart, so both are
+ *  offered. */
+export const PAYMENT_TDS_DATE_COLUMNS: string[] = ["payment_approved_on", "creation"];
 
 /**
  * Columns HIDDEN BY DEFAULT (owner ruling 2026-09-12) — not deleted.
@@ -152,18 +153,18 @@ export const getPaymentTdsColumns = ({
         },
     },
     {
-        accessorKey: "deducted_on",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Deducted On" />,
+        accessorKey: "payment_approved_on",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Approved On" />,
         cell: ({ row }) => (
             <div className="whitespace-nowrap">
-                {row.original.deducted_on ? formatDate(row.original.deducted_on) : "--"}
+                {row.original.payment_approved_on ? formatDate(row.original.payment_approved_on) : "--"}
             </div>
         ),
         filterFn: dateFilterFn,
         meta: {
-            exportHeaderName: "Deducted On",
+            exportHeaderName: "Payment Approved On",
             exportValue: (row: PaymentTDSDeductionRow) =>
-                row.deducted_on ? formatDate(row.deducted_on) : "--",
+                row.payment_approved_on ? formatDate(row.payment_approved_on) : "--",
         },
     },
     {

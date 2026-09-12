@@ -134,9 +134,9 @@ export const PaymentTDSDeductions: React.FC<PaymentTDSDeductionsProps> = ({
         searchableFields: PAYMENT_TDS_SEARCHABLE_FIELDS,
         additionalFilters: staticFilters,
         urlSyncKey: urlSyncKey ?? `payment_tds_${projectId || vendorId || "all"}`,
-        // The day the tax was withheld, newest first -- `creation` would sort the 629 backfilled
-        // rows by the day the patch ran, which is the same day for all of them.
-        defaultSort: "deducted_on desc",
+        // The day the payment was approved, newest first -- `creation` would sort the 629
+        // backfilled rows by the day the patch ran, which is the same day for all of them.
+        defaultSort: "payment_approved_on desc",
         aggregatesConfig: PAYMENT_TDS_AGGREGATES_CONFIG,
         // ⚠️ ONLY A `Pending` DEDUCTION IS SELECTABLE. DataTable renders each row's checkbox with
         // `disabled={!row.getCanSelect()}`, so an already-paid row cannot be ticked at all -- and

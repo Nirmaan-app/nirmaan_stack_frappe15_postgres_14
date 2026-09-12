@@ -27,7 +27,9 @@ export interface PaymentTDSDeduction {
 	tds_percentage: number;
 	/** gross_amount x tds_percentage / 100. This is what Service Requests.total_tds sums. */
 	tds_amount: number;
-	deducted_on?: string;
+	/** The day the payment reached `Approved` and the tax was withheld. Renamed from
+	 *  `deducted_on` — same data, truer name. */
+	payment_approved_on?: string;
 	/** Pending until paid to the department under a challan. Written by the Pay TDS action
 	 *  (`api/tds_challan/pay_tds`), never by hand. */
 	status?: "Pending" | "Paid";
