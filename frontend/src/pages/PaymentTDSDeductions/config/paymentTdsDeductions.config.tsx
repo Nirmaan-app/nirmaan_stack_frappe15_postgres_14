@@ -4,8 +4,9 @@
  * ⚠️ "TDS" HERE IS **TAX DEDUCTED AT SOURCE ON A VENDOR PAYMENT**. This repo ALSO uses "TDS" for
  * **TECHNICAL DATA SHEET** (`TDS Items`, `TDS Repository`, `Project TDS Setting`, and the
  * `/tds-repository` + `/tds-approval` routes in the sidebar). Same three letters, unrelated
- * concepts, different owners. This module's route is deliberately `/payment-tds-deductions` and
- * NOT `/tds-…`, so the two families never collide in the URL space either.
+ * concepts, different owners. This module lives in the Reports hub under the tab "Payment TDS
+ * Deduction" and its legacy route was deliberately `/payment-tds-deductions`, NOT `/tds-…`, so the
+ * two families never collide in the URL space either.
  *
  * The rows are written by `services/payment_tds.py` when an SR-backed payment reaches `Approved`.
  * This screen only READS them — there is no create, edit or delete path here, because a deduction
@@ -62,7 +63,10 @@ export const PAYMENT_TDS_FIELDS_TO_FETCH: string[] = [
     "gross_amount",
     "tds_percentage",
     "tds_amount",
-    "deducted_on",
+    "payment_approved_on",
+    // Drives the Status column AND the Pay-TDS selection gate (only `Pending` rows are selectable),
+    // so a missing fetch here would silently make every row unselectable.
+    "status",
     "creation",
 ];
 
@@ -74,9 +78,30 @@ export const PAYMENT_TDS_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "project", label: "Project ID", placeholder: "Search by Project ID..." },
 ];
 
-/** `deducted_on` is the day the tax was withheld; `creation` is when the ROW was written — and for
- *  the 629 backfilled rows those are years apart, so both are offered. */
-export const PAYMENT_TDS_DATE_COLUMNS: string[] = ["deducted_on", "creation"];
+/** `payment_approved_on` is the day the payment was approved and the tax withheld; `creation` is
+ *  when the ROW was written — and for the 629 backfilled rows those are years apart, so both are
+ *  offered. */
+export const PAYMENT_TDS_DATE_COLUMNS: string[] = ["payment_approved_on", "creation"];
+
+/**
+ * Columns HIDDEN BY DEFAULT (owner ruling 2026-09-12) — not deleted.
+ *
+ * They stay in the column list, so the "View" menu switches any of them back on per user, and the
+ * CSV export still carries them (export reads the column DEFINITIONS, not what is on screen). The
+ * ledger's point is the withheld tax; Project, Payment, Gross and Net are the supporting figures
+ * and cost four columns of width on a screen that now lives inside the Reports hub.
+ *
+ * ⚠️ HIDING `project` ALSO REMOVES ITS FACET DROPDOWN, because DataTable renders a facet from the
+ * table's HEADERS and a hidden column has none. Filtering by project is still possible two ways —
+ * switch the column back on in "View", or search the "Project ID" field — but the one-click Project
+ * filter is gone until someone unhides it. `vendor` keeps its facet (that column stays visible).
+ */
+export const PAYMENT_TDS_HIDDEN_COLUMNS: Record<string, boolean> = {
+    project: false,
+    project_payment: false,
+    gross_amount: false,
+    net_paid: false,
+};
 
 export const PAYMENT_TDS_AGGREGATES_CONFIG: AggregationConfig[] = [
     { field: "gross_amount", function: "sum" },
@@ -128,18 +153,46 @@ export const getPaymentTdsColumns = ({
         },
     },
     {
-        accessorKey: "deducted_on",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Deducted On" />,
+        accessorKey: "payment_approved_on",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Approved On" />,
         cell: ({ row }) => (
             <div className="whitespace-nowrap">
-                {row.original.deducted_on ? formatDate(row.original.deducted_on) : "--"}
+                {row.original.payment_approved_on ? formatDate(row.original.payment_approved_on) : "--"}
             </div>
         ),
         filterFn: dateFilterFn,
         meta: {
-            exportHeaderName: "Deducted On",
+            exportHeaderName: "Payment Approved On",
             exportValue: (row: PaymentTDSDeductionRow) =>
-                row.deducted_on ? formatDate(row.deducted_on) : "--",
+                row.payment_approved_on ? formatDate(row.payment_approved_on) : "--",
+        },
+    },
+    {
+        accessorKey: "status",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+        // ⚠️ A BLANK READS AS `Pending`, and the selection gate in PaymentTDSDeductions.tsx makes the
+        // SAME assumption -- keep the two in step. The doctype defaults `status` to "Pending" and
+        // Postgres backfilled all 626 existing rows with it, so a blank should not occur; if one
+        // ever does, showing it as Pending keeps it payable rather than stranding it.
+        cell: ({ row }) => {
+            const status = row.original.status || "Pending";
+            const isPending = status === "Pending";
+            return (
+                <span
+                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${isPending
+                        ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                        : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                        }`}
+                >
+                    {status}
+                </span>
+            );
+        },
+        filterFn: facetedFilterFn,
+        meta: {
+            exportHeaderName: "Status",
+            exportValue: (row: PaymentTDSDeductionRow) => row.status || "Pending",
+            facet: { field: "status", title: "Status" } satisfies FacetDeclaration,
         },
     },
     {

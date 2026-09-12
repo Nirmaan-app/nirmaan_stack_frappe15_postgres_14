@@ -140,7 +140,7 @@ def write_deduction(
 	*,
 	tds_amount,
 	tds_percentage,
-	deducted_on: str | None = None,
+	payment_approved_on: str | None = None,
 	update_modified: bool = True,
 ) -> str | None:
 	"""Record ONE deduction and net the payment. The caller supplies the FIGURES; this owns the
@@ -182,7 +182,7 @@ def write_deduction(
 			"gross_amount": gross,
 			"tds_percentage": flt(tds_percentage, 2),
 			"tds_amount": tds_amount,
-			"deducted_on": deducted_on or nowdate(),
+			"payment_approved_on": payment_approved_on or nowdate(),
 		}
 	)
 	row.insert(ignore_permissions=True)
@@ -203,7 +203,7 @@ def write_deduction(
 	return row.name
 
 
-def record_deduction(doc, *, deducted_on: str | None = None, update_modified: bool = True) -> str | None:
+def record_deduction(doc, *, payment_approved_on: str | None = None, update_modified: bool = True) -> str | None:
 	"""Withhold tax from one approved payment AT THE VENDOR'S CURRENT RATE. The forward path.
 
 	IDEMPOTENT: an already-recorded payment returns the existing row untouched. This is reached from
@@ -235,7 +235,12 @@ def record_deduction(doc, *, deducted_on: str | None = None, update_modified: bo
 		tds_percentage=rate,
 		# `None` on the hook path -> today, which IS the approval day there. The backfill passes the
 		# historical approval date instead, so a record always carries the day it was decided.
-		deducted_on=deducted_on,
+		#
+		# ⚠️ THE ALREADY-RUN BACKFILL PATCH STILL CALLS THIS WITH THE OLD KEYWORD `deducted_on=`.
+		# `patches/` is append-only history and that patch has run everywhere, so it is left alone;
+		# it would only raise on a fresh site that replays the whole patch log, which this repo
+		# never does (new environments restore a backup, and the Patch Log travels with it).
+		payment_approved_on=payment_approved_on,
 		update_modified=update_modified,
 	)
 

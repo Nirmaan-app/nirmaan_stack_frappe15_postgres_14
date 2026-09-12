@@ -227,7 +227,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     // Tax withheld from this order's payments. Keyed by payment so a row can show its own
     // deduction and the summary can restrict itself to the PAID ones.
     const { data: tdsDeductions } = useFrappeGetDocList<PaymentTDSDeduction>("Payment TDS Deduction", {
-        fields: ["name", "project_payment", "gross_amount", "tds_percentage", "tds_amount", "deducted_on"],
+        fields: ["name", "project_payment", "gross_amount", "tds_percentage", "tds_amount", "payment_approved_on"],
         filters: [["document_name", "=", id]],
         limit: 100,
     }, id ? `PaymentTDSDeduction-SR-${id}` : null)
