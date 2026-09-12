@@ -28,4 +28,9 @@ export interface PaymentTDSDeduction {
 	/** gross_amount x tds_percentage / 100. This is what Service Requests.total_tds sums. */
 	tds_amount: number;
 	deducted_on?: string;
+	/** Pending until paid to the department under a challan. Written by the Pay TDS action
+	 *  (`api/tds_challan/pay_tds`), never by hand. */
+	status?: "Pending" | "Paid";
+	/** Link to TDS Challan Attachment — the receipt this tax was deposited under. */
+	tds_challan?: string;
 }
