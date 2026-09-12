@@ -5,6 +5,10 @@ export const REPORTS_TABS = {
   PO: 'po',
   SR: 'sr',
   DCS_MIRS: 'dcs_mirs',
+  // Tax Deducted at Source — NOT the Technical Data Sheet family (`/tds-repository`,
+  // `/tds-approval`). Spelled `payment_tds` for the same reason the old route was spelled
+  // `/payment-tds-deductions` in full: the two TDS families must never collide.
+  PAYMENT_TDS: 'payment_tds',
 } as const; // Use "as const" for stricter typing
 
 // export const INVOICE_TASK_TYPE = "po_invoice_approval";

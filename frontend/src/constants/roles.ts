@@ -268,13 +268,20 @@ export const PROJECT_INVOICES_ACCESS: readonly string[] = [
 ];
 
 /**
- * `/payment-tds-deductions` — the Tax Deducted at Source ledger.
+ * Reports > "Payment TDS Deduction" tab — the Tax Deducted at Source ledger.
+ * (It had its own sidebar item and `/payment-tds-deductions` route until it moved
+ * into the Reports hub; that path is now a redirect into the tab.)
+ *
+ * Read in THREE places, all of which must agree: the tab itself
+ * (`ReportsContainer.tabs`), the tab's report-type list + default
+ * (`currentReportOptions` / `useReportStore`), and nothing else — a second inline
+ * copy of this list drifts the day one of them is edited.
  *
  * ⚠️ NARROWER THAN `/project-payments` ON PURPOSE, AND NOT A UX CHOICE. The
  * `Payment TDS Deduction` doctype grants read to `System Manager`,
  * `Nirmaan Accountant` and `Nirmaan Accountant Lead` only. PMO, Project Lead and
  * the procurement profiles can see Project Payments but hold none of those roles,
- * so a nav item for them would land on a PermissionError. Admin Profile is in
+ * so a tab for them would land on a PermissionError. Admin Profile is in
  * because its role profile carries BOTH `System Manager` and `Nirmaan Accountant`.
  *
  * Widening this list without also widening the doctype's permissions produces a
