@@ -2145,6 +2145,25 @@ wrong conclusion from the same reasoning.
 - **There is no reverse view.** `get_reconciliation_report` was deleted at V5, and with it the answer
   to "is every payment we recorded backed by a real transfer?". The three tabs answer only "is this
   transfer recorded?". Deliberate scope decision, not an oversight.
+- ⏳ **PENDING (owner, 2026-09-13) — reversing a fan-out leg WITHHOLDS TDS on the payment.** Deferred
+  to the planned **universal unreconcile** feature for this workflow; do not patch it in isolation.
+  Found in the post-merge browser walk of `outflow-merge` (merge `81c037c8`, fan-out + SR-TDS).
+  **Mechanism:** `expenses._revert_payment` saves the payment `Paid -> Approved` through the document
+  layer, and `integrations/controllers/project_payments.on_update` treats ANY transition into
+  `Approved` as an approval, so `payment_tds.record_deduction_if_eligible` fires. For a Service Request
+  payment with no existing `Payment TDS Deduction` row (e.g. paid before the SR-TDS feature, or a
+  fixture inserted with `from_adjustment`) it banks a deduction and NETS `amount`, inside the same
+  save as the reversal. `Vendors.tds_deduction_percentage` defaults to **2**, so most real vendors
+  qualify. **Observed:** PAY-01393-018 ₹25,000 -> ₹24,500 (PTD-26-00663); PAY-01393-023 ₹20,000 ->
+  ₹19,600 (PTD-26-00664); PAY-01393-024 ₹21,000 -> ₹20,580 (PTD-26-00665). **Harm:** the bank moved
+  the GROSS figure, so re-linking the payment to the correct transfer no longer matches (outside the
+  ±₹5 window) and a transfer it used to complete is left short (C2 stranded ₹500 short). The reverse
+  dialog and banner say nothing about the amount changing. **Options on record:** (1) an unreconcile
+  never changes money — the reversal save carries a flag the TDS hook respects (recommended at the
+  walk); (2) keep it — a reversed payment is a fresh approval and is netted, consistent with the
+  backfill's treatment of still-Approved payments, but relinking breaks. **Not affected:** a payment
+  approved after SR-TDS already has its PTD row, so `existing_deduction` makes the hook a no-op; the
+  `tds`-field refusal in `_guard_leg_is_plainly_reversible` is unrelated (PTD does not write `tds`).
 - **Fixtures stay synthetic — the repo is public.** Real statements carry live beneficiary names,
   accounts and IFSC codes.
 
