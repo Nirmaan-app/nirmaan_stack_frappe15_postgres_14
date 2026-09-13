@@ -16,6 +16,7 @@ import {
     HoverCardContent,
     HoverCardTrigger,
 } from "@/components/ui/hover-card";
+import { TruncatedText } from "@/components/common/TruncatedText";
 
 /** Minimal inflow shape needed to render the reverse "Inflows" column. */
 export type LinkedInflowEntry = {
@@ -239,14 +240,14 @@ export const getProjectInvoiceColumns = (
                                                     rel="noopener noreferrer"
                                                     className="block text-xs text-blue-600 hover:underline px-1 py-0.5 rounded hover:bg-blue-50"
                                                 >
-                                                    {display}{amountText}
+                                                    <TruncatedText text={display} className="max-w-[10rem]" />{amountText}
                                                 </a>
                                             ) : (
                                                 <span
                                                     className="block text-xs text-muted-foreground px-1 py-0.5"
                                                     title="No payment proof attached"
                                                 >
-                                                    {display}{amountText}
+                                                    <TruncatedText text={display} className="max-w-[10rem]" />{amountText}
                                                 </span>
                                             )}
                                         </li>

@@ -83,6 +83,8 @@ import { EditInflowPayment } from "./components/EditInflowPayment"; // NEW
 import { InflowSummaryCard } from "./components/InflowSummaryCard";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useUserData } from "@/hooks/useUserData";
+import { TruncatedText } from "@/components/common/TruncatedText";
+import { ellipsize } from "@/utils/ellipsize";
 
 // --- Constants ---
 const DOCTYPE = "Project Inflows";
@@ -247,9 +249,10 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
       await deleteDoc(DOCTYPE, inflowToDelete.name);
       toast({
         title: "Success",
-        description: `Inflow "${
-          inflowToDelete.utr || inflowToDelete.name
-        }" deleted.`,
+        description: `Inflow "${ellipsize(
+          inflowToDelete.utr || inflowToDelete.name,
+          40
+        )}" deleted.`,
         variant: "success",
       });
       refetch(); // Refetch table data
@@ -301,10 +304,12 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
               rel="noreferrer"
               className="font-medium text-blue-600 underline hover:underline-offset-2"
             >
-              {data.utr || "View Proof"}
+              <TruncatedText text={data.utr} fallback="View Proof" />
             </a>
           ) : (
-            <div className="font-medium">{data.utr || "--"}</div>
+            <div className="font-medium">
+              <TruncatedText text={data.utr} />
+            </div>
           );
         },
         size: 180,
@@ -708,7 +713,10 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                 This action cannot be undone. This will permanently delete the
                 inflow payment for{" "}
                 <span className="font-semibold mx-1">
-                  {inflowToDelete.utr || inflowToDelete.name}
+                  <TruncatedText
+                    text={inflowToDelete.utr || inflowToDelete.name}
+                    className="max-w-[16rem]"
+                  />
                 </span>
                 .
               </AlertDialogDescription>

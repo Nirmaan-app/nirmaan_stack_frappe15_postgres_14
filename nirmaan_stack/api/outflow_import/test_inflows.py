@@ -38,6 +38,7 @@ from nirmaan_stack.api.outflow_import.inflows import (
     get_inflow_context,
 )
 from nirmaan_stack.api.outflow_import.review import BATCH_DOCTYPE, MATCH_DOCTYPE, ROW_DOCTYPE
+from nirmaan_stack.api.outflow_import.long_reference_fixture import _give_row_a_long_reference
 from nirmaan_stack.api.outflow_import.upload import _stage_batch
 from nirmaan_stack.services.outflow_import import parser as parser_module
 from nirmaan_stack.services.outflow_import.parser import parse_statement
@@ -272,6 +273,20 @@ class TestTheHappyPath(InflowFixture):
         )
         self.assertEqual(
             frappe.db.get_value(ROW_DOCTYPE, row["name"], "decided_by"), frappe.session.user
+        )
+
+
+class TestALongReferenceIsWrittenWhole(InflowFixture):
+    """#1254: `Project Inflows.utr` is Text, so a long bank narration saves whole."""
+
+    def test_creating_an_inflow_stores_the_whole_narration(self):
+        row = self._next_credit_row()
+        narration = _give_row_a_long_reference(self, row["name"])
+
+        _, summary = self._record(row=row)
+
+        self.assertEqual(
+            frappe.db.get_value(INFLOW_DOCTYPE, summary["settled"]["name"], "utr"), narration
         )
 
 

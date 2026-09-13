@@ -55,6 +55,7 @@ import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/DeletePaymentDialog";
 import SRPdf from "./SRPdf";
 import { PaymentVoucherActions } from "@/components/paymentsVoucher/PaymentVoucherActions";
+import { TruncatedText } from "@/components/common/TruncatedText";
 
 // const { Sider, Content } = Layout;
 
@@ -728,7 +729,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                     {tds ? formatToRoundedIndianRupee(tds.tds_amount) : "--"}
                                                 </TableCell>
                                                 <TableCell className="font-semibold">
-                                                    {payment?.utr || "--"}
+                                                    <TruncatedText text={payment?.utr} />
                                                 </TableCell>
 
 

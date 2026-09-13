@@ -19,6 +19,7 @@ import { formatToApproxLakhs, formatToRoundedIndianRupee } from "@/utils/FormatP
 import { CircleCheck, CircleX, IndianRupee, Paperclip, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import SITEURL from "@/constants/siteURL";
+import { TruncatedText } from "@/components/common/TruncatedText";
 
 import {
   ApprovalColumnId,
@@ -468,7 +469,7 @@ const REGISTRY: Record<
     size: 150,
     cell: ({ row }) =>
       row.original.utr_ref
-        ? <span className="font-mono text-[11px]">{row.original.utr_ref}</span>
+        ? <TruncatedText text={row.original.utr_ref} className="max-w-[9rem] font-mono text-[11px]" />
         : <Blank />,
     meta: { exportHeaderName: "UTR / Ref", exportValue: (r: ApprovalQueueRow) => r.utr_ref },
   }),

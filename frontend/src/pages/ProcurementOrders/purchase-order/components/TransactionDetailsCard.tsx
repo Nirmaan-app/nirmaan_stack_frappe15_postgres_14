@@ -42,6 +42,7 @@ import { debounce } from "lodash";
 import { SquarePlus, Trash2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
+import { TruncatedText } from "@/components/common/TruncatedText";
 // import RequestPaymentDialog from "../ProjectPayments/request-payment-dialog";
 
 interface TransactionDetailsCardProps {
@@ -347,7 +348,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                       {formatToRoundedIndianRupee(payment?.amount)}
                     </TableCell>
                     <TableCell className="overflow-hidden truncate max-w-28">
-                      {payment?.utr || "--"}
+                      <TruncatedText text={payment?.utr} className="max-w-28" />
                     </TableCell>
                     <TableCell>
                       {payment?.payment_date ? formatDate(payment.payment_date) : "--"}

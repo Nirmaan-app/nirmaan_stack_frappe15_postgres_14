@@ -12,6 +12,7 @@ import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useFrappeGetCall } from "frappe-react-sdk";
 import React, { Suspense, useCallback, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
+import { TruncatedText } from "@/components/common/TruncatedText";
 
 interface CustomerFinancialsProps {
   customerId?: string
@@ -172,11 +173,11 @@ const amountsSummaryItems = useMemo(() => [
                                                               {payment?.inflow_attachment ? (
                                                                 <TableCell className="font-semibold text-blue-500 underline">
                                                                       <a href={`${SITEURL}${payment?.inflow_attachment}`} target="_blank" rel="noreferrer">
-                                                                          {payment?.utr}
+                                                                          <TruncatedText text={payment?.utr} fallback="" />
                                                                     </a>
                                                               </TableCell>
                                                               ) : (
-                                                                  <TableCell className="font-semibold">{payment?.utr}</TableCell>
+                                                                  <TableCell className="font-semibold"><TruncatedText text={payment?.utr} fallback="" /></TableCell>
                                                               )}
                                                               <TableCell className="font-semibold">{formatToRoundedIndianRupee(payment?.amount)}</TableCell>
                                                           </TableRow>

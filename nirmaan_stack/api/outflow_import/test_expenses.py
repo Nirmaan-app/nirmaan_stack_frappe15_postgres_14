@@ -28,6 +28,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
     settle_row,
     settle_row_partial,
 )
+from nirmaan_stack.api.outflow_import.long_reference_fixture import _give_row_a_long_reference
 from nirmaan_stack.api.outflow_import.review import MATCH_DOCTYPE, ROW_DOCTYPE
 from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE
 from nirmaan_stack.services.outflow_import.partial_settle import INTENT_PART_PAYMENT
@@ -773,6 +774,30 @@ class TestCreateExpense(SettlementFixture):
         row = self._next_settleable_row()
         with self.assertRaises(WrongStatusError):
             create_expense(row["name"], PROJECT_EXPENSE, self.project_type)
+
+
+class TestALongReferenceIsWrittenWhole(SettlementFixture):
+    """#1254: the reference fields are Text, so a long bank narration saves instead of failing
+    Frappe's 140-character check -- on the import row and on both expense ledgers."""
+
+    def test_settling_a_project_expense_stores_the_whole_narration(self):
+        row = self._next_settleable_row()
+        narration = _give_row_a_long_reference(self, row["name"])
+        expense = self._make_expense(PROJECT_EXPENSE, row["amount"])
+
+        settle_expense(row["name"], PROJECT_EXPENSE, expense)
+
+        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, expense, "payment_ref"), narration)
+
+    def test_creating_a_non_project_expense_stores_the_whole_narration(self):
+        row = self._next_settleable_row()
+        narration = _give_row_a_long_reference(self, row["name"])
+
+        result = create_expense(row["name"], NON_PROJECT_EXPENSE, self.non_project_type)
+        name = result["settled"]["name"]
+        self.non_project_expenses.append(name)
+
+        self.assertEqual(frappe.db.get_value(NON_PROJECT_EXPENSE, name, "payment_ref"), narration)
 
 
 class TestTheDebitPathIsStillCLOSEDToASignedAmount(SettlementFixture):

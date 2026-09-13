@@ -103,7 +103,7 @@
   },
   {
    "fieldname": "payment_ref",
-   "fieldtype": "Data",
+   "fieldtype": "Text",
    "label": "Payment Ref"
   },
   {

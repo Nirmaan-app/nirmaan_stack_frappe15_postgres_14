@@ -32,6 +32,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { Customers } from "@/types/NirmaanStack/Customers";
 import { DEFAULT_INFLOW_FIELDS_TO_FETCH, INFLOW_SEARCHABLE_FIELDS, INFLOW_DATE_COLUMNS } from '../config/inflowPaymentsTable.config'; // Adjusted path
 import { getCustomerListOptions, getProjectListOptions, queryKeys } from "@/config/queryKeys";
+import { TruncatedText } from "@/components/common/TruncatedText";
 
 const DOCTYPE = 'Project Inflows';
 
@@ -153,9 +154,9 @@ export function InflowReportTable() {
             accessorKey: "utr", header: ({ column }) => <DataTableColumnHeader column={column} title="Payment Ref (UTR)" />,
             cell: ({ row }) => row.original.inflow_attachment ? (
                 <a href={SITEURL + row.original.inflow_attachment} target="_blank" rel="noreferrer" className="font-medium text-blue-600 underline hover:underline-offset-2">
-                    {row.original.utr || "View Proof"}
+                    <TruncatedText text={row.original.utr} fallback="View Proof" />
                 </a>
-            ) : <div className="font-medium">{row.original.utr || '--'}</div>,
+            ) : <div className="font-medium"><TruncatedText text={row.original.utr} /></div>,
             meta: { exportHeaderName: "Payment Ref (UTR)", exportValue: (row) => row.utr || '--' }
         },
         {

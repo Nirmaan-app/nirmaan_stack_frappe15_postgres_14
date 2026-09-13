@@ -43,6 +43,7 @@ from nirmaan_stack.services.outflow_import.partial_settle import (
     INTENT_PART_PAYMENT,
 )
 from nirmaan_stack.api.outflow_import.review import MATCH_DOCTYPE, match_batch
+from nirmaan_stack.api.outflow_import.long_reference_fixture import _give_row_a_long_reference
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
 from nirmaan_stack.services.outflow_import.parser import parse_statement
 from nirmaan_stack.services.outflow_import.settle import (
@@ -105,6 +106,21 @@ class PaymentSettlementFixture(unittest.TestCase):
             )
         frappe.db.commit()
         match_batch(self.batch.name)
+
+    def _stage_one(self, **reference_fields):
+        parsed = _fresh_parse()
+        parsed = replace(parsed, rows=(replace(parsed.rows[0], **reference_fields),))
+        batch = _stage_batch(
+            parsed,
+            file_url="/private/files/test-statement.csv",
+            filename="test-statement.csv",
+            user="Administrator",
+        )
+        self.batches.append(batch.name)
+        name = frappe.db.get_value(ROW_DOCTYPE, {"import_batch": batch.name}, "name")
+        frappe.db.set_value(ROW_DOCTYPE, name, "row_status", "Matched", update_modified=False)
+        frappe.db.commit()
+        return frappe._dict(frappe.db.get_value(ROW_DOCTYPE, name, "*", as_dict=True))
 
     def _row(self, suffix):
         return next(r for r in self.parsed.rows if r.transfer_id.endswith(suffix))
@@ -1377,21 +1393,6 @@ class TestTheCollisionGuardNeverSeesTheResolvedReference(PaymentSettlementFixtur
         )
         frappe.db.commit()
 
-    def _stage_one(self, **reference_fields):
-        parsed = _fresh_parse()
-        parsed = replace(parsed, rows=(replace(parsed.rows[0], **reference_fields),))
-        batch = _stage_batch(
-            parsed,
-            file_url="/private/files/test-statement.csv",
-            filename="test-statement.csv",
-            user="Administrator",
-        )
-        self.batches.append(batch.name)
-        name = frappe.db.get_value(ROW_DOCTYPE, {"import_batch": batch.name}, "name")
-        frappe.db.set_value(ROW_DOCTYPE, name, "row_status", "Matched", update_modified=False)
-        frappe.db.commit()
-        return frappe._dict(frappe.db.get_value(ROW_DOCTYPE, name, "*", as_dict=True))
-
     def test_a_colliding_gateway_reference_does_not_block_the_settle(self):
         """THE NEGATIVE TEST. Blank bank reference, gateway reference equal to a value an unrelated
         payment already holds. It must settle, and it must write the colliding value -- accepted
@@ -1429,6 +1430,22 @@ class TestTheCollisionGuardNeverSeesTheResolvedReference(PaymentSettlementFixtur
             settle_row(row.name, PAYMENT, payment)
 
         self.assertEqual(frappe.db.get_value(PAYMENT, payment, "status"), "Approved")
+
+
+class TestALongReferenceIsWrittenWhole(PaymentSettlementFixture):
+    """#1254: `Project Payments.utr` is Text, so a long bank narration saves whole."""
+
+    def test_settling_a_payment_stores_the_whole_narration(self):
+        row = self._stage_one(bank_reference_no="", reference_id="")
+        narration = _give_row_a_long_reference(self, row.name)
+        payment = self._insert_payment(
+            amount=float(row.amount), status="Approved", utr=None, payment_date=None
+        )
+        frappe.db.commit()
+
+        settle_row(row.name, PAYMENT, payment)
+
+        self.assertEqual(frappe.db.get_value(PAYMENT, payment, "utr"), narration)
 
 
 class TestTheWindowsStayInTheirRelation(unittest.TestCase):

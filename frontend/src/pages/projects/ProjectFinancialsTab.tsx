@@ -25,6 +25,7 @@ import {
   useProjectFinancialsTabData,
 } from "./data/tab/financials/useProjectFinancialsTabApi";
 import { useProjectAllCredits } from "./hooks/useProjectAllCredits";
+import { TruncatedText } from "@/components/common/TruncatedText";
 
 const AllPayments = React.lazy(() => import("../ProjectPayments/AllPayments"));
 const ProjectPaymentsList = React.lazy(() => import("../ProjectPayments/project-payments-list"));
@@ -490,11 +491,11 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
                       {payment?.inflow_attachment ? (
                         <TableCell className="font-semibold text-blue-500 underline">
                           <a href={`${SITEURL}${payment?.inflow_attachment}`} target="_blank" rel="noreferrer">
-                            {payment?.utr}
+                            <TruncatedText text={payment?.utr} fallback="" />
                           </a>
                         </TableCell>
                       ) : (
-                        <TableCell className="font-semibold">{payment?.utr}</TableCell>
+                        <TableCell className="font-semibold"><TruncatedText text={payment?.utr} fallback="" /></TableCell>
                       )}
                       <TableCell className="font-semibold">{formatToRoundedIndianRupee(payment?.amount)}</TableCell>
                     </TableRow>

@@ -47,7 +47,7 @@
   },
   {
    "fieldname": "utr",
-   "fieldtype": "Data",
+   "fieldtype": "Text",
    "label": "UTR"
   },
   {
