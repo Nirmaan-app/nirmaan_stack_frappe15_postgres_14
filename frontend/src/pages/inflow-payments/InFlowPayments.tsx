@@ -66,6 +66,7 @@ import { Customers } from "@/types/NirmaanStack/Customers";
 import {
   DEFAULT_INFLOW_FIELDS_TO_FETCH,
   INFLOW_SEARCHABLE_FIELDS,
+  buildInflowUrlSyncKey,
   INFLOW_DATE_COLUMNS,
   getInflowStaticFilters,
 } from "./config/inflowPaymentsTable.config";
@@ -130,11 +131,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
 
   // Dynamic URL key for this table instance
   const urlSyncKey = useMemo(
-    () =>
-      `inflow_${urlContext}_${(customerId || projectId || "all").replace(
-        /[^a-zA-Z0-9]/g,
-        "_"
-      )}`,
+    () => buildInflowUrlSyncKey(urlContext, customerId || projectId),
     [urlContext, customerId, projectId]
   );
 

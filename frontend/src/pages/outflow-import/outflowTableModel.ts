@@ -31,6 +31,7 @@ import {
     rowStatusLabel,
 } from "./outflowImportStatus";
 import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable.config";
+import { inflowHref } from "@/pages/inflow-payments/config/inflowPaymentsTable.config";
 import type {
     OutflowImportRow,
     OutflowRowsPage,
@@ -2311,6 +2312,19 @@ export const settlementLink = (
             title: `Open ${name} in Project Payments → ${tab}`,
         };
     }
+    if (doctype === "Project Inflows") {
+        // #1253: a deposit's duplicate lives here, and until then this function returned null for
+        // it -- so a skipped row named the inflow in its note and offered no link. An inflow's id
+        // (`PAYIN-…`) is readable AND searchable on its table, so unlike an expense this lands ON the
+        // record. There is no status tab to pick: an inflow is never Approved or Paid, which is why
+        // `settled` is not read here.
+        return {
+            href: inflowHref(name),
+            label: name,
+            exact: true,
+            title: `Open ${name} in Project Inflows`,
+        };
+    }
     if (doctype === "Project Expenses" || doctype === "Non Project Expenses") {
         const isProject = doctype === "Project Expenses";
         // ⚠️ THE STATUS TAB RIDES THE URL, AND IT FOLLOWS `settled` RATHER THAN BEING HARDCODED
@@ -2363,14 +2377,16 @@ export const rowSettlementLinks = (row: OutflowImportRow): SettlementLink[] => {
         .filter((link): link is SettlementLink => link !== null);
     if (settled.length) return settled;
 
-    // An already-recorded duplicate: SOMEBODY ELSE ticked it Paid before this statement was
-    // uploaded. We settled nothing, but the payment is Paid all the same -> "Payments Done".
-    // This is the only route to a link on a Skipped or Mismatched row, whose note names the
-    // payment in prose and which carries neither a match record nor a suggestion.
-    const alreadyPaid = (row.related_payments ?? [])
-        .map((p) => settlementLink(p.target_doctype, p.target_name, true, p.order_name))
+    // An already-recorded duplicate: SOMEBODY ELSE recorded this money before the statement was
+    // uploaded, in any of four ledgers (#1253). We settled nothing, but the record is already Paid
+    // (or, for an inflow, already received) -> `settled = true`, so a payment falls back to
+    // "Payments Done" and an expense lands on its Paid tab. This is the only route to a link on a
+    // Skipped or Mismatched row, whose note names the record in prose and which carries neither a
+    // match record nor a suggestion.
+    const alreadyRecorded = (row.related_records ?? [])
+        .map((r) => settlementLink(r.target_doctype, r.target_name, true, r.order_name))
         .filter((link): link is SettlementLink => link !== null);
-    if (alreadyPaid.length) return alreadyPaid;
+    if (alreadyRecorded.length) return alreadyRecorded;
 
     // A suggestion has settled nothing, so its payment is still Approved -> "All Payments" on the
     // fallback path. Its order travels under its own key: the suggestion is two scalar columns on

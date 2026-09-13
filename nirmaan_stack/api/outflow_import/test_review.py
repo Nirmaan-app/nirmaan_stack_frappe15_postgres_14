@@ -292,8 +292,10 @@ class TestMatchBatch(OutflowReviewFixture):
         """
         row = self._rows_by_transfer_suffix()["0003"]
         self.assertEqual(row["row_status"], "Skipped")
-        self.assertIn("Already recorded as Paid", row["outcome_note"])
-        self.assertIn(self.pay_already, row["outcome_note"])
+        # Inverted at #1253: the record is named WITH its ledger, never as a bare name.
+        self.assertIn(
+            f"Already recorded as Paid on Project Payment {self.pay_already}", row["outcome_note"]
+        )
 
     def test_fan_out_matches_as_one_group(self):
         row = self._rows_by_transfer_suffix()["0004"]
@@ -1149,11 +1151,33 @@ class TestTheOrderNameForLinking(OutflowReviewFixture):
         )
         frappe.db.commit()
         rows = get_batch_rows(self.batch.name)["rows"]
-        related = [e for r in rows for e in (r.get("related_payments") or [])]
+        related = [e for r in rows for e in (r.get("related_records") or [])]
         self.assertTrue(related, "fixture precondition: a row with a related paid payment")
         stamped = [e for e in related if e["target_name"] == self.pay_already]
         self.assertTrue(stamped)
         self.assertTrue(all(e["order_name"] == "TEST-PO/REL/25-26" for e in stamped))
+
+    def test_BOTH_row_reads_ship_related_RECORDS_and_the_old_key_is_gone(self):
+        """#1253 widened the already-recorded links from payments to records in any of four ledgers.
+
+        ⚠️ RENAMED, NOT WIDENED IN PLACE -- the `settled_ledger` -> `settled_ledgers` precedent. A
+        payload still carrying `related_payments` would let a stale reader keep rendering only the
+        payment half and look correct doing it; with the key gone it renders nothing, loudly.
+        Every entry names its ledger, so the client can build a link for whichever book it is in.
+        """
+        for label, rows in (
+            ("get_batch_rows", get_batch_rows(self.batch.name)["rows"]),
+            ("get_outflow_rows", get_outflow_rows(scope="all", limit=200)["rows"]),
+        ):
+            self.assertTrue(rows, f"{label}: fixture precondition")
+            for row in rows:
+                self.assertIn("related_records", row, f"{label} dropped the key")
+                self.assertNotIn("related_payments", row, f"{label} still ships the old key")
+                for entry in row["related_records"]:
+                    self.assertTrue(entry["target_doctype"] and entry["target_name"])
+
+        with_records = [r for r in get_batch_rows(self.batch.name)["rows"] if r["related_records"]]
+        self.assertTrue(with_records, "fixture precondition: a row with an already-recorded record")
 
     def test_BOTH_row_reads_actually_SHIP_settlement_origin(self):
         """⚠️ THE BUG THE BROWSER WALK FOUND AND EVERY GREEN SUITE MISSED.
@@ -3995,12 +4019,13 @@ class TestTheOutflowExport(OutflowReviewFixture):
             self.assertIsInstance(row["amount"], float)
 
     def test_it_omits_the_three_keys_that_only_a_DIALOG_could_use(self):
-        """`matches`, `related_payments` and `suggested_order_name` exist for the decision dialog's
-        LINKS. A CSV has nothing to click, `related_payments` is a list of dicts that cannot become
+        """`matches`, `related_records` and `suggested_order_name` exist for the decision dialog's
+        LINKS. A CSV has nothing to click, `related_records` is a list of dicts that cannot become
         a cell, and `suggested_order_name` costs a second query over the payments table to produce a
-        value no spreadsheet reads."""
+        value no spreadsheet reads. (`related_payments` is the key's name before #1253, asserted
+        absent too so a half-renamed export cannot pass.)"""
         for row in export_outflow_rows(scope="all", batch=self.batch.name)["rows"]:
-            for key in ("matches", "related_payments", "suggested_order_name"):
+            for key in ("matches", "related_records", "related_payments", "suggested_order_name"):
                 self.assertNotIn(key, row)
 
     def test_it_REFUSES_over_the_cap_and_NAMES_BOTH_NUMBERS(self):
@@ -4365,14 +4390,17 @@ class TestABankStatementIsDuplicateGuardOnly(BankStatementFixture):
         click books the same money a second time."""
         row = self._bank_rows()[_BANK_ALREADY_PAID]
         self.assertEqual(row["row_status"], ROW_SKIPPED)
-        self.assertIn(self.bank_already_paid, row["outcome_note"])
-        self.assertIn("Already recorded as Paid on", row["outcome_note"])
+        self.assertIn(
+            f"Already recorded as Paid on Project Payment {self.bank_already_paid}",
+            row["outcome_note"],
+        )
 
     def test_the_skip_sentence_is_the_SHARED_one_not_a_bank_specific_retype(self):
         row = self._bank_rows()[_BANK_ALREADY_PAID]
+        # Inverted at #1253: `{records}` is the ledger-named phrase, not the bare payment name.
         self.assertEqual(
             row["outcome_note"],
-            SKIP_REASON_ALREADY_PAID.format(records=self.bank_already_paid),
+            SKIP_REASON_ALREADY_PAID.format(records=f"Project Payment {self.bank_already_paid}"),
         )
 
     def test_the_guard_s_amount_disagreement_branch_survives_too(self):

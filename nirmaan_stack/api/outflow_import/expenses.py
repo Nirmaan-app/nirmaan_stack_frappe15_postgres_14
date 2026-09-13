@@ -721,6 +721,16 @@ def _parse_targets(targets) -> list:
     return parsed
 
 
+# ⚠️ ONE SENTENCE FOR BOTH REFUSALS (`_load_allocatable_row`, `_load_settleable_row`), AND IT MUST
+# NOT PROMISE A REMEDY THAT DOES NOT EXIST (#1253). It used to say "Re-run the match to reconsider
+# it" -- but `Skipped` is in `review._FROZEN_ROW_STATUSES`, so a re-run never revisits the row, and
+# there is no unskip action on the screen. The only way back is an admin editing the row in Desk.
+SKIPPED_ROW_REFUSAL = (
+    "This row was skipped, and a skip is final: re-running the match does not reopen it. "
+    "If it was skipped by mistake, an admin must correct it in Desk."
+)
+
+
 def _load_allocatable_row(row: str):
     """Like `_load_settleable_row`, but a `Partially Allocated` row is ALLOWED through.
 
@@ -779,9 +789,7 @@ def _load_allocatable_row(row: str):
             title="Fully allocated",
         )
     if doc.get("row_status") == ROW_SKIPPED:
-        frappe.throw(
-            "This row was skipped. Re-run the match to reconsider it.", title="Row skipped"
-        )
+        frappe.throw(SKIPPED_ROW_REFUSAL, title="Row skipped")
     return _StagedRow(doc), doc
 
 
@@ -1202,9 +1210,7 @@ def _load_settleable_row(row: str):
             title="Partly allocated",
         )
     if doc.get("row_status") == ROW_SKIPPED:
-        frappe.throw(
-            "This row was skipped. Re-run the match to reconsider it.", title="Row skipped"
-        )
+        frappe.throw(SKIPPED_ROW_REFUSAL, title="Row skipped")
     return _StagedRow(doc), doc
 
 

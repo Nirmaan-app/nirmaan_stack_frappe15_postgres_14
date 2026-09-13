@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 // ⚠️ A NAMESPACE IMPORT BESIDE THE NAMED ONES, for the deduction-is-gone pin only. A named
 // import of a removed export is a COMPILE error, which cannot express "this must stay absent".
+import {
+    buildInflowUrlSyncKey,
+    inflowHref,
+} from "@/pages/inflow-payments/config/inflowPaymentsTable.config";
 import * as model from "./outflowTableModel";
 import {
     DEFAULT_HIDDEN_COLUMNS,
@@ -2125,6 +2129,37 @@ describe("⚠️ an expense link lands on the tab the record is actually IN", ()
     });
 });
 
+describe("⚠️ a PROJECT INFLOW link lands ON the record (#1253)", () => {
+    it("opens the inflow list searched by the inflow's own id", () => {
+        // An inflow's name (`PAYIN-00190-01`) is readable and IS one of the table's search fields,
+        // so unlike an expense this link can pinpoint the record.
+        const link = settlementLink("Project Inflows", "PAYIN-00190-01", true)!;
+        const key = buildInflowUrlSyncKey();
+        const params = new URLSearchParams(link.href.split("?")[1]);
+        expect(link.href.startsWith("/in-flow-payments?")).toBe(true);
+        expect(params.get(`${key}_searchBy`)).toBe("name");
+        expect(params.get(`${key}_q`)).toBe("PAYIN-00190-01");
+        expect(link.exact).toBe(true);
+        expect(link.label).toBe("PAYIN-00190-01");
+        expect(link.title).toContain("Project Inflows");
+    });
+
+    it("⚠️ the url key is the one the inflow page itself builds", () => {
+        // A CONTRACT WITH `InFlowPayments`, which reads `inflow_<context>_<scope>_q`. The route
+        // renders it with the default context and no customer/project scope.
+        expect(buildInflowUrlSyncKey()).toBe("inflow_default_all");
+        expect(inflowHref("PAYIN-1")).toBe(
+            "/in-flow-payments?inflow_default_all_searchBy=name&inflow_default_all_q=PAYIN-1"
+        );
+    });
+
+    it("an inflow has no Paid tab, so the settled flag changes nothing", () => {
+        expect(settlementLink("Project Inflows", "PAYIN-1", true)!.href).toBe(
+            settlementLink("Project Inflows", "PAYIN-1", false)!.href
+        );
+    });
+});
+
 describe("links to the record a row settles — the FALLBACK path, with no order known", () => {
     it("sends a SETTLED payment to Payments Done", () => {
         const link = settlementLink("Project Payments", "PAY-00105-038", true)!;
@@ -2246,11 +2281,13 @@ describe("links to the record a row settles — the FALLBACK path, with no order
         // The gap this closed: a skip settles nothing and DELETES its match records, and it carries
         // no suggestion either (`sole_suggestion` is gated on Matched, so a skipped row can never
         // render as ready to confirm). The payment existed only inside the note's prose.
+        // ⚠️ INVERTED AT #1253: `related_payments` became `related_records`, and the note names the
+        // ledger beside the record.
         const skipped = row({
             row_status: "Skipped",
-            outcome_note: "Already recorded as Paid on PAY-00102-211.",
+            outcome_note: "Already recorded as Paid on Project Payment PAY-00102-211.",
             matches: [],
-            related_payments: [
+            related_records: [
                 { target_doctype: "Project Payments", target_name: "PAY-00102-211" },
             ],
         });
@@ -2264,7 +2301,7 @@ describe("links to the record a row settles — the FALLBACK path, with no order
         const mismatched = row({
             row_status: "Mismatched",
             matches: [],
-            related_payments: [
+            related_records: [
                 { target_doctype: "Project Payments", target_name: "PAY-00187-018" },
             ],
         });
@@ -2277,11 +2314,55 @@ describe("links to the record a row settles — the FALLBACK path, with no order
             matches: [
                 { target_doctype: "Project Payments", target_name: "PAY-SETTLED" },
             ] as OutflowImportRow["matches"],
-            related_payments: [
+            related_records: [
                 { target_doctype: "Project Payments", target_name: "PAY-DUPLICATE" },
             ],
         });
         expect(rowSettlementLinks(both).map((l) => l.label)).toEqual(["PAY-SETTLED"]);
+    });
+
+    it("⚠️ links a SKIPPED duplicate to a PROJECT INFLOW — a ledger the screen had no branch for", () => {
+        // #1253: a deposit's duplicate lives in `Project Inflows`. Before this, `settlementLink`
+        // returned null for that doctype, so the row named the inflow in prose and offered nothing.
+        const skipped = row({
+            row_status: "Skipped",
+            outcome_note: "Already recorded as received on Project Inflow PAYIN-00190-01.",
+            matches: [],
+            related_records: [
+                { target_doctype: "Project Inflows", target_name: "PAYIN-00190-01" },
+            ],
+        });
+        const [link] = rowSettlementLinks(skipped);
+        expect(link.label).toBe("PAYIN-00190-01");
+        expect(link.href).toMatch(/^\/in-flow-payments\?/);
+    });
+
+    it("links a skipped row to EVERY related record, whichever ledgers they are in", () => {
+        const skipped = row({
+            row_status: "Skipped",
+            matches: [],
+            related_records: [
+                { target_doctype: "Project Payments", target_name: "PAY-1", order_name: "PO/1/25-26" },
+                { target_doctype: "Project Expenses", target_name: "ecuu6rldvp" },
+                { target_doctype: "Non Project Expenses", target_name: "1t69cnkk6v" },
+            ],
+        });
+        expect(rowSettlementLinks(skipped).map((l) => l.href)).toEqual([
+            "/project-payments/PO&=1&=25-26",
+            // A related record is already PAID, so an expense lands on the Paid tab.
+            "/expense/project?pe_status=Paid",
+            "/expense/non-project?npe_status=Paid",
+        ]);
+    });
+
+    it("⚠️ ignores a stale `related_payments` key — the rename is loud, not half-applied", () => {
+        // The backend stopped sending `related_payments` at #1253. A payload still carrying it (a
+        // cached response, an old server) must render no link rather than keep the payments half.
+        const stale = row({ row_status: "Skipped", matches: [] }) as OutflowImportRow & {
+            related_payments?: unknown;
+        };
+        stale.related_payments = [{ target_doctype: "Project Payments", target_name: "PAY-OLD" }];
+        expect(rowSettlementLinks(stale)).toEqual([]);
     });
 
     it("gives a mismatched row nothing to link to", () => {
@@ -2291,7 +2372,7 @@ describe("links to the record a row settles — the FALLBACK path, with no order
     it("gives a skip with no payment behind it nothing to link to", () => {
         // "Transfer did not succeed at the bank", or a manual skip -- no record is involved.
         expect(
-            rowSettlementLinks(row({ row_status: "Skipped", matches: [], related_payments: [] }))
+            rowSettlementLinks(row({ row_status: "Skipped", matches: [], related_records: [] }))
         ).toEqual([]);
     });
 });

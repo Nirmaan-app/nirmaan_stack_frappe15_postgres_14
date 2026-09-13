@@ -92,7 +92,8 @@ pick one ad-hoc; ask.
 | **Which database failure means "another reviewer wrote to this transfer first"** (#1246, ADR-0020 B4) | `services/outflow_import/concurrency.py` (`is_concurrent_writer_refusal`) — pure; the ONE reader is `expenses._concurrent_writer_refusal_as_sentence`, the shared boundary `allocate_row` (#1246) and `settle_row` (#1250) both wrap their work-up-to-the-commit in, which turns it into `CONCURRENT_ALLOCATION_MESSAGE` | widen it, or catch database errors broadly anywhere in this feature. Whatever it says yes to is told to a reviewer as a harmless race, on a screen that settles money. It recognises `SerializationFailure` (SQLSTATE 40001) ONLY — `InFailedSqlTransaction` and `DeadlockDetected` are deliberately outside, each pinned by a test. ⚠️ The translation ENDS AT THE COMMIT ("nothing was saved" is false after it). ⚠️ Where both racing payments sit on ONE PO the loser still sees raw `InFailedSqlTransaction` — `update_parent_amount_paid` swallows the 40001 first; measured and recorded in ADR-0020 B4a, deliberately NOT translated. `settle_row_partial` / `create_expense` are not covered |
 | **What makes two staged transfers THE SAME transfer** (D3; widened source-aware at B3) | `services/outflow_import/duplicates.py` (`row_identity`, `row_identity_of`, `WIDE_IDENTITY_SOURCES`, `dates_agree`, `RowIdentity`) — pure | key a duplicate check on anything else. THREE readers: the cross-batch lookup (`candidates.find_earlier_batches_for_rows`), the in-file repeat check in `upload._stage_batch`, and the parser's `_duplicate_transfer_ids`. They used to key on `transfer_id` independently; a key that differed between them would let one call two rows duplicates while another called them distinct, on the same file. ⚠️ It is **NOT** the `Outflow Row Match` unique constraint — that stays `(transfer_id, target_doctype, target_name)` and is the money guarantee; this is about WORK, and may be more discriminating | ⚠️ **THE KEY IS SOURCE-AWARE SINCE B3, and the DEFAULT is the guarantee.** `row_identity(..., source="")` — what every caller passing nothing gets — returns the old `(transfer_id, amount, date)` triple **BYTE-IDENTICALLY**, because Cashfree and Cashbook carry live settled data whose duplicate behaviour is proven in production. A source in `WIDE_IDENTITY_SOURCES` (today: `ICICI Bank Statement`) gets `+ (direction, remarks)`. **Both extra fields are load-bearing and each catches a different failure, measured on the real 1,274-row statement where the triple silently LOSES 5 REAL ROWS:** *remarks* catches four SGST/CGST pairs (same id, date, amount AND direction, differing only in narration), *direction* catches the GL transfer whose two legs carry byte-identical narration. These are bank-narration artefacts that cannot occur in a payout export — which is exactly why the widening is per-source and not global. ⚠️ `row_identity_of(row, source)` is the ADAPTER over the one rule, never a second rule: the widening added two fields that live ON the row, and forgetting `remarks` at a call site degrades ICICI silently back to the four-field key — it still works, it just loses four rows a statement and says nothing. ⚠️ It is a DIFFERENT set from `sources.BANK_STATEMENT_SOURCES` and they must not be merged "because they hold the same string today": this one answers *what makes two lines of this statement the same line?*, that one answers *what can this statement's rows DO?*. Full numbers: ADR-0016 § 4.
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
-| **Where a settled/matched record's link GOES** (E3) | `frontend/.../outflow-import/outflowTableModel.ts` (`settlementLink`, `orderPaymentsHref`) + `review._payment_order_names` / `_with_order_names` server-side | build a payments URL at a render site, or render one through a raw `<a href>`. A payment links to its ORDER (`/project-payments/<id>` with `/` escaped as `&=`) because that is what the app's other twelve call sites do; `paymentHref`'s search-param scheme is the FALLBACK only. ⚠️ The router carries a `basename` (`VITE_BASE_NAME`: `""` dev, `'frontend'` prod), so an anchor resolves to the SERVER ROOT and 404s in production while working in dev |
+| **Where a settled/matched record's link GOES** (E3; inflows at #1253) | `frontend/.../outflow-import/outflowTableModel.ts` (`settlementLink`, `orderPaymentsHref`) + `review._payment_order_names` / `_with_order_names` server-side; an inflow's URL is `inflow-payments/config/inflowPaymentsTable.config.ts` (`inflowHref`, over the ONE key builder `buildInflowUrlSyncKey` the inflow page also reads) | build a payments URL at a render site, or render one through a raw `<a href>`. A payment links to its ORDER (`/project-payments/<id>` with `/` escaped as `&=`) because that is what the app's other twelve call sites do; `paymentHref`'s search-param scheme is the FALLBACK only. ⚠️ The router carries a `basename` (`VITE_BASE_NAME`: `""` dev, `'frontend'` prod), so an anchor resolves to the SERVER ROOT and 404s in production while working in dev |
+| **How a duplicate note names the records behind it** (#1253) | `services/outflow_import/status.py` (`_record_sentence`, `_records_phrase`, `SKIP_REASON_ALREADY_PAID` / `_RECEIVED`) — pure; ledger nouns from `ledgers.LEDGER_NOUNS`; the link data is `review._related_records` (`related_records`) | print a bare expense id (a random hash), call an inflow "Paid", or offer the TDS hint on a group with no Project Payment. `_related_records` must read the SAME source as the duplicate guard, or a skipped row names a record it cannot link |
 | **The record's date, and which date it IS** (E2) | `frontend/.../outflow-import/outflowTableModel.ts` (`recordDateParts`, `RECORD_DATE_LABELS`) | render an approval/updated distinction inline. `recordSortDate` merges the two for ORDERING only -- an ordering claims nothing about meaning; a LABEL does |
 | **Why a picked record cannot be settled** (D1) | `frontend/.../outflow-import/outflowTableModel.ts` (`settleBlocker`, `settleBlockText`, `SettleBlockReason`) | write the refusal prose at a render site. The dialog used ONE fixed paragraph for every blocked pick and three of its claims went stale without anything failing — the worst told the reviewer to settle a TDS deduction "in the payments screen" after slice TD made that route live here |
 | Browsable approved records (hand-linking) | `api/outflow_import/review.search_settleable_records` (+ `_search_one_ledger`, `_rank_browse_records`, `_browse_cap`) | reuse `get_row_candidates` for browsing — that is the MATCHER's output, and when the matcher finds nothing it is empty, which is exactly when hand-linking is needed. Since N1 it returns the WHOLE approved pool by default and `limit` is a safety ceiling, not a page size |
@@ -1698,7 +1699,7 @@ TABLE: since N2 the table prints a per-row similarity reason and since N3 it mar
 match run actually found, so the card restated — one level less precisely, and for the whole row
 rather than per record — what the reviewer can now read against each candidate.
 
-**Nothing server-side changed.** `outcome_note`, `related_payments` and `bank_reference_no` are all
+**Nothing server-side changed.** `outcome_note`, `related_payments` (renamed `related_records` at #1253) and `bank_reference_no` are all
 still written, still returned and still read elsewhere. Only the one rendering is gone.
 
 `suppressOutcomeNote` went with it — it answered "should the dialog stop printing the stored note?",
@@ -1872,12 +1873,14 @@ fixtures**: `execute()` sweeps the whole table by design, so it also repairs any
 row the site carries. Acceptable because that is the repair it exists to perform and it is
 idempotent — but a future edit widening the patch's `WHERE` widens this blast radius with it.
 
-#### Still open
+#### ~~Still open~~ — fixed at #1253
 
-`expenses._load_settleable_row` tells a user *"This row was skipped. Re-run the match to reconsider
-it."* — but `match_batch` treats `Skipped` as frozen, so re-running the match **never** reconsiders
-it. The message names a remedy that does not exist. Not fixed here; it is a separate decision about
-whether skipped rows should be re-openable from the screen at all.
+`expenses._load_settleable_row` (and `_load_allocatable_row`) used to tell a user *"This row was
+skipped. Re-run the match to reconsider it."* — but `match_batch` treats `Skipped` as frozen, so
+re-running the match **never** reconsiders it. The message named a remedy that does not exist. Both
+now raise the one `expenses.SKIPPED_ROW_REFUSAL`: the skip is final, a re-run does not reopen it, and
+an admin corrects a mistaken skip in Desk. Re-opening skipped rows from the screen is still not a
+feature — the parent issue #1252 lists an undo action as future work.
 
 ---
 
@@ -2355,7 +2358,7 @@ approved pool. **The fence — `sources.source_has_settlement_path` — is on th
 ### Invariants that break silently
 
 1. **Rows land `Mismatched`, and that choice is load-bearing.** `review._FROZEN_ROW_STATUSES` is
-   `(Skipped, Settled)` and `match_batch` filters on it, so a `Mismatched` row is still examined by a
+   `(Skipped, Settled, Partially Allocated)` (the third joined at ADR-0020) and `match_batch` filters on it, so a `Mismatched` row is still examined by a
    later match run — which is what keeps the Q31a duplicate guard alive. **Landing them `Skipped`
    would have frozen them and silently deleted that guard.** The landing note says *"no settlement
    path"* and never *"the matcher never runs"* — there is a NEGATIVE pin
@@ -3957,3 +3960,54 @@ standing rule says a test on each side does not cover. What a walk must observe 
 `Partially Allocated` row: the completing payment **first** in the list, marked `same` rather than
 `off by`, the candidate chips **gone**, the ordering **unmoved** while boxes are ticked, and an
 untouched row's list **unchanged**.
+
+---
+
+## #1253 prefactor (2026-09-14) — a duplicate note and its link can name ANY of the four ledgers
+
+The first slice of #1252 (skip statement rows whose money is already recorded). **No new row is
+skipped.** The existing Cashfree/ICICI already-Paid-payment guard produces the same statuses as
+before; only its sentence and its link data widened, so the guards that follow can point at a
+Project Expense, Non Project Expense or Project Inflow without touching the screen again.
+
+### What changed
+
+- **Notes name the ledger** (`status._record_sentence` / `_records_phrase`, pure). A payment reads
+  `Project Payment PAY-1` (`Project Payments PAY-1, PAY-2` for a fan-out). ⚠️ **An expense is never
+  shown as its id** — both expense doctypes autoname a random hash nobody can search for — so it is
+  DESCRIBED: `Project Expense "<description, 60 chars>" of 2935.00 paid on 12-Sep-2026`. Ledgers in one
+  note are separated by `;` (a description may hold commas).
+- **Wording follows the ledger.** An all-inflow group reads `SKIP_REASON_ALREADY_RECEIVED`
+  ("Already recorded as received on …"), never "Paid"; its amount-off note says "received" /
+  "arrived in". **The TDS hint appears only when a Project Payment is among the records.** A group
+  mixing inflows with anything else is unreachable under direction scoping and reads a neutral
+  "Already recorded on …" rather than calling an inflow Paid.
+- **`related_payments` → `related_records`, RENAMED not widened in place** (the `settled_ledgers`
+  precedent). `review._related_records` feeds both `get_batch_rows` and `get_outflow_rows`; entries are
+  `{target_doctype, target_name}` for any of the four ledgers (payments also carry `order_name`).
+  ⚠️ **Its source must stay the duplicate guard's source** — today that is Paid payments only, so a
+  guard widened to another ledger widens this loader in the same change.
+- **Frontend:** `settlementLink` gained a `Project Inflows` branch → `inflowHref(name)`
+  (`/in-flow-payments`, searched by `name`, `exact: true`). The url-sync key now has ONE builder,
+  `buildInflowUrlSyncKey`, read by `InFlowPayments` and by the link. `rowSettlementLinks` reads
+  `related_records`; a stale `related_payments` key renders nothing (pinned).
+- **Skipped-row refusal corrected:** `expenses.SKIPPED_ROW_REFUSAL` (both loaders) says a skip is
+  final and an admin fixes a mistaken one in Desk — the old "Re-run the match to reconsider it" named
+  a remedy that does not exist.
+- **Doc drift fixed:** `_FROZEN_ROW_STATUSES` is `(Skipped, Settled, Partially Allocated)`.
+
+### Verification
+
+- Baseline `test_review` **258 OK** before starting (inside the container). After: `test_review`
+  **259**, and every outflow api suite green (expenses 45, settle_payment 54, allocate_row 23,
+  inflows 44, upload 84, approved 29, cashbook_import 35, cashbook_rules 13, match_record 12,
+  reverse_allocation 19). Pure services **887** (12 new/inverted status tests shown RED first).
+- vitest `outflow-import` + `inflow-payments`: **13 files, 656 tests** (8 new/inverted shown RED
+  first). Full run 3712/3713 — the one failure, `POAdjustment/writeOffControl.test.ts`, passes alone
+  (19/19) and is untouched. `tsc`: zero errors in touched files.
+- Browser: the Skipped dialog on `OFI-26-00005` renders payment links from `related_records` (live
+  payload has the new key, not the old), a link click lands on the order's payments page, and the
+  inflow href lands on exactly `PAYIN-00190-01`. ⚠️ No real row carries an inflow related record yet
+  (no guard produces one), so the in-dialog inflow link is pinned by vitest and the href by hand.
+- `scripts/residence_check.py`: backend rules B1/B2/B3 hold; `f5` 119 / `f2` 224 fail **identically
+  with this slice's changes stashed** — pre-existing branch drift, not introduced here.

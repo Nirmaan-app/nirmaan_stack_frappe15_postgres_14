@@ -20,6 +20,32 @@ export const INFLOW_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "amount", label: "Amount", placeholder: "Search by Amount..." },
 ];
 
+/**
+ * The url-sync key an Inflow Payments table persists its search/sort/page state under.
+ *
+ * ⚠️ THE ONE DEFINITION, read by `InFlowPayments` itself AND by `inflowHref` below. A link that spelled
+ * the key on its own would keep working only until someone changed the format here, and then land on
+ * an unfiltered table with nothing on screen explaining why.
+ */
+export const buildInflowUrlSyncKey = (urlContext = "default", scopeId?: string): string =>
+    `inflow_${urlContext}_${(scopeId || "all").replace(/[^a-zA-Z0-9]/g, "_")}`;
+
+/**
+ * A link to ONE inflow: the `/in-flow-payments` list, searched by the inflow's own id.
+ *
+ * The route renders `InFlowPayments` with the default context and no customer/project scope, and
+ * `name` is one of `INFLOW_SEARCHABLE_FIELDS`, so this lands on the record itself. Render it through
+ * React Router (it carries the app's `basename`), never a raw `<a href>`.
+ */
+export const inflowHref = (inflowName: string): string => {
+    const key = buildInflowUrlSyncKey();
+    const params = new URLSearchParams({
+        [`${key}_searchBy`]: "name",
+        [`${key}_q`]: inflowName,
+    });
+    return `/in-flow-payments?${params.toString()}`;
+};
+
 // Date columns for Inflow Payments tables
 export const INFLOW_DATE_COLUMNS: string[] = ["creation", "modified", "payment_date"];
 

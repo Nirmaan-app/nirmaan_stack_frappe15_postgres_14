@@ -39,6 +39,7 @@ __all__ = [
     "EXPENSE_DOCTYPES",
     "LEDGER_DOCTYPES",
     "RECEIVED_LEDGER_DOCTYPES",
+    "LEDGER_NOUNS",
     "SETTLEABLE_STATUSES",
     "TARGET_SNAPSHOT_FIELDS",
     "PAID",
@@ -105,6 +106,18 @@ INFLOW_DOCTYPE = "Project Inflows"
 # implementation of ordering, zero-filling and the `Other` slot, not two. Reordering this tuple
 # reorders the received block. It is NEVER sorted by value.
 RECEIVED_LEDGER_DOCTYPES = (INFLOW_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE)
+
+# The singular and plural READER-FACING name of each ledger, for sentences a person reads (#1253).
+#
+# ⚠️ ALL FOUR LEDGERS, INFLOWS INCLUDED -- this is vocabulary, not a settle list, so the rule that keeps
+# `INFLOW_DOCTYPE` out of `LEDGER_DOCTYPES` does not apply here. Read by `status._records_phrase`; a
+# duplicate note must never spell a ledger name of its own.
+LEDGER_NOUNS: dict[str, tuple[str, str]] = {
+    PAYMENT_DOCTYPE: ("Project Payment", "Project Payments"),
+    PROJECT_EXPENSE_DOCTYPE: ("Project Expense", "Project Expenses"),
+    NON_PROJECT_EXPENSE_DOCTYPE: ("Non Project Expense", "Non Project Expenses"),
+    INFLOW_DOCTYPE: ("Project Inflow", "Project Inflows"),
+}
 
 # THE single source of the Approved-only rule. Read by `candidates.py` (what may be offered) and by
 # `settle.py` (what may be written), so the two can never disagree about the same record.

@@ -109,7 +109,12 @@ from nirmaan_stack.services.outflow_import.amounts import amounts_match
 # and `settle.py` writes to -- and the symptom would be a settled-by-ledger panel that silently
 # omits a book the import had just settled into.
 from nirmaan_stack.services.outflow_import.ledgers import (
+    INFLOW_DOCTYPE,
     LEDGER_DOCTYPES,
+    LEDGER_NOUNS,
+    NON_PROJECT_EXPENSE_DOCTYPE,
+    PAYMENT_DOCTYPE,
+    PROJECT_EXPENSE_DOCTYPE,
     RECEIVED_LEDGER_DOCTYPES,
 )
 
@@ -159,6 +164,7 @@ __all__ = [
     "SKIP_REASON_ALREADY_IMPORTED",
     "SKIP_REASON_DUPLICATE_IN_FILE",
     "SKIP_REASON_ALREADY_PAID",
+    "SKIP_REASON_ALREADY_RECEIVED",
     "SKIP_REASON_EXCLUDED_AT_INGEST",
     "STAGED_NOTE_NO_SETTLEMENT_PATH",
 ]
@@ -261,7 +267,16 @@ BATCH_STATUSES = (BATCH_DRAFT, BATCH_IN_REVIEW, BATCH_PARTIALLY_SETTLED, BATCH_C
 SKIP_REASON_NOT_SUCCESSFUL = "Transfer did not succeed at the bank ({status})."
 SKIP_REASON_ALREADY_IMPORTED = "Already imported in batch {batch}."
 SKIP_REASON_DUPLICATE_IN_FILE = "This transfer appears earlier in the same statement."
+# `{records}` is `_records_phrase(...)`: every record NAMED WITH ITS LEDGER (#1253), never a bare
+# name. See `_record_sentence` for which of these two a group reads.
+#
+# ⚠️ AN INFLOW IS NEVER "PAID". `Project Inflows` has no status field at all -- the money arrived, it
+# was not paid out -- so a receipt reads its own sentence rather than borrowing the payments one.
 SKIP_REASON_ALREADY_PAID = "Already recorded as Paid on {records}."
+SKIP_REASON_ALREADY_RECEIVED = "Already recorded as received on {records}."
+# A group mixing an inflow with anything else -- unreachable under direction scoping; see
+# `_record_sentence`. It claims neither "Paid" nor "received".
+_SKIP_REASON_ALREADY_RECORDED = "Already recorded on {records}."
 
 # The bank-statement exclusion (slice B3). `{category}` is a `bank_exclusions.SKIP_CATEGORY_IDS`
 # member, verbatim.
@@ -477,10 +492,7 @@ def _failed_or_already_paid(row, paid_duplicate) -> RowOutcome | None:
             # since the tolerance landed; this branch was the one call site that never got it.
             # Restoring the exact test re-breaks 8 rows in every real statement measured so far.
             return RowOutcome(ROW_MISMATCHED, _delta_note(bank_amount, total, paid_duplicate))
-        return RowOutcome(
-            ROW_SKIPPED,
-            SKIP_REASON_ALREADY_PAID.format(records=_name_list(paid_duplicate)),
-        )
+        return RowOutcome(ROW_SKIPPED, _record_sentence(paid_duplicate))
 
     return None
 
@@ -697,19 +709,127 @@ def several_found_note(count: int) -> str:
 
 
 def _delta_note(bank_amount: Decimal, total: Decimal, group) -> str:
+    """The amount-disagreement note for an already-recorded duplicate, in its ledger's own words.
+
+    ⚠️ BOTH HALVES OF THE WORDING DEPEND ON THE LEDGER (#1253), and each was always-true only while
+    the guard could reach nothing but `Project Payments`:
+
+      * a RECEIPT arrived rather than left, so it reads "received" and "arrived", never "paid";
+      * TDS is deducted from a payment to a vendor, so the "deduction such as TDS" hint appears only
+        when a Project Payment is among the records. Offered on an expense or an inflow shortfall it
+        would send the reviewer looking for a deduction that cannot exist there.
+    """
+    receipt = _is_receipt_group(group)
+    verb = "received" if receipt else "paid"
     delta = total - bank_amount
     if delta > 0:
         implied = (delta / total * 100) if total else Decimal("0")
         shortfall = (
-            f"The bank paid {delta} less than the recorded total of {total} "
-            f"({implied:.2f}% of it). A deduction such as TDS would look like this."
+            f"The bank {verb} {delta} less than the recorded total of {total} "
+            f"({implied:.2f}% of it)."
         )
+        if _has_payment(group):
+            shortfall += " A deduction such as TDS would look like this."
     else:
+        movement = "arrived in" if receipt else "left"
         shortfall = (
-            f"The bank paid {-delta} MORE than the recorded total of {total}. "
-            f"More money left the account than any matched record claims."
+            f"The bank {verb} {-delta} MORE than the recorded total of {total}. "
+            f"More money {movement} the account than any matched record claims."
         )
-    return f"{shortfall} Already recorded as Paid on {_name_list(group)}."
+    return f"{shortfall} {_record_sentence(group)}"
+
+
+# The order ledgers are named in when one note spans several. The display order the rest of this
+# module already uses (`LEDGER_DOCTYPES`), with the received-only ledger after it.
+_LEDGER_NAMING_ORDER = (*LEDGER_DOCTYPES, INFLOW_DOCTYPE)
+
+# ⚠️ THE LEDGERS WHOSE RECORD NAME MEANS NOTHING TO A PERSON. Both expense doctypes autoname with a
+# random hash (`ecuu6rldvp`), and neither expense table can search by it -- so a note that printed it
+# would hand the reviewer a string they cannot use anywhere. These records are DESCRIBED instead:
+# what the description says, how much, and when it was paid.
+_DESCRIBED_LEDGERS = frozenset({PROJECT_EXPENSE_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE})
+
+_DESCRIPTION_LIMIT = 60
+
+
+def _record_sentence(group) -> str:
+    """"Already recorded as Paid on …" or "… as received on …", for the records behind a duplicate.
+
+    A group whose records are ALL inflows reads as received. A group with no inflow reads as Paid.
+    A group mixing the two is unreachable while the guard checks a withdrawal against payments and
+    expenses and a deposit against inflows only -- and if it ever were reached, it reads a sentence
+    that claims neither, rather than calling an inflow Paid.
+
+    ⚠️ RECEIPT-NESS IS READ FROM THE DOCTYPE HERE, NOT FROM `is_received_direction`, AND THAT HOLDS
+    ONLY WHILE A DEPOSIT IS CHECKED AGAINST `Project Inflows` ALONE (owner ruling on #1252: negative
+    Non Project Expense receipts are deliberately not checked). The day a deposit guard reaches a
+    negative Non Project Expense, this must key on the ROW's direction instead -- a doctype test would
+    call that receipt "Paid".
+    """
+    records = _records_phrase(group)
+    if _is_receipt_group(group):
+        return SKIP_REASON_ALREADY_RECEIVED.format(records=records)
+    if any(t.doctype == INFLOW_DOCTYPE for t in _targets_of(group)):
+        return _SKIP_REASON_ALREADY_RECORDED.format(records=records)
+    return SKIP_REASON_ALREADY_PAID.format(records=records)
+
+
+def _records_phrase(group) -> str:
+    """Every record in a duplicate group, each named under its ledger.
+
+        Project Payment PAY-1
+        Project Payments PAY-1, PAY-2
+        Project Expense "Hotel stay" of 2935.00 paid on 12-Sep-2026
+        Project Payment PAY-1; Project Expense "Hotel stay" of 2935.00 paid on 12-Sep-2026
+
+    Ledgers are separated by `;` because an expense's own description may contain commas.
+    """
+    targets = _targets_of(group)
+    by_ledger: dict[str, list] = {}
+    for target in targets:
+        by_ledger.setdefault(target.doctype, []).append(target)
+    order = [d for d in _LEDGER_NAMING_ORDER if d in by_ledger]
+    order += [d for d in by_ledger if d not in order]
+
+    parts: list[str] = []
+    for doctype in order:
+        records = by_ledger[doctype]
+        singular, plural = LEDGER_NOUNS.get(doctype, (doctype, doctype))
+        if doctype in _DESCRIBED_LEDGERS:
+            parts += [_described_record(singular, r) for r in records]
+        else:
+            noun = singular if len(records) == 1 else plural
+            parts.append(f"{noun} {', '.join(r.name for r in records)}")
+    return "; ".join(parts) or "an unnamed record"
+
+
+def _described_record(noun: str, target) -> str:
+    description = " ".join((getattr(target, "description", "") or "").split())
+    if len(description) > _DESCRIPTION_LIMIT:
+        description = description[:_DESCRIPTION_LIMIT] + "…"
+    text = f'{noun} "{description}"' if description else noun
+    text += f" of {_amount_text(target.amount)}"
+    paid_on = getattr(target, "txn_date", None)
+    if paid_on:
+        text += f" paid on {paid_on.strftime('%d-%b-%Y')}"
+    return text
+
+
+def _amount_text(amount) -> str:
+    return f"{Decimal(str(amount or 0)):.2f}"
+
+
+def _targets_of(group) -> tuple:
+    return tuple(getattr(group, "targets", ()) or ())
+
+
+def _is_receipt_group(group) -> bool:
+    targets = _targets_of(group)
+    return bool(targets) and all(t.doctype == INFLOW_DOCTYPE for t in targets)
+
+
+def _has_payment(group) -> bool:
+    return any(t.doctype == PAYMENT_DOCTYPE for t in _targets_of(group))
 
 
 def _name_list(candidate) -> str:

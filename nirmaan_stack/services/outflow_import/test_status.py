@@ -18,6 +18,7 @@ or one half of the app renders a status the other has never heard of.
 """
 
 import unittest
+from datetime import date
 from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.ledgers import (
@@ -303,8 +304,13 @@ class TestAlreadyPaidDuplicate(unittest.TestCase):
             paid_duplicate=_group([_payment("PAY-00066-003", amount="5000", status="Paid")]),
         )
         self.assertEqual(outcome.status, ROW_SKIPPED)
-        self.assertIn("Already recorded as Paid", outcome.note)
-        self.assertIn("PAY-00066-003", outcome.note)
+        # ⚠️ INVERTED AT #1253 (was: "Already recorded as Paid" + the bare name). The note now names
+        # the LEDGER beside the record, because a guard reaching four ledgers cannot leave a reader
+        # to guess which book "PAY-00066-003" -- or a random expense id -- lives in.
+        self.assertEqual(
+            outcome.note, "Already recorded as Paid on Project Payment PAY-00066-003."
+        )
+        self.assertNotIn("Paid on PAY-00066-003", outcome.note)
 
     def test_a_sub_rupee_gap_is_the_bank_rounding_and_still_skips(self):
         """⚠️ THE REGRESSION THIS PINS COST 8 OF 26 ROWS IN A LIVE STATEMENT.
@@ -405,6 +411,155 @@ class TestAlreadyPaidDuplicate(unittest.TestCase):
         record that mismatches every non-zero transfer."""
         outcome = derive_row_outcome(_Row(), _match([_payment()]), paid_duplicate=_group([]))
         self.assertEqual(outcome.status, ROW_MATCHED)
+
+
+# --- a duplicate note names the ledger, in that ledger's own words (#1253) ------------------------
+
+
+def _paid_expense(
+    name="ecuu6rldvp",
+    amount="2935",
+    doctype="Project Expenses",
+    description="Site accommodation for the electrical team",
+    paid_on=date(2026, 9, 12),
+):
+    return TargetRef(
+        doctype, name, Decimal(str(amount)), "Paid", None, "", paid_on, None, description
+    )
+
+
+def _inflow(name="PAYIN-00190-01", amount="5000"):
+    return TargetRef("Project Inflows", name, Decimal(str(amount)))
+
+
+class TestDuplicateNotesNameTheLedger(unittest.TestCase):
+    """The prefactor for a duplicate guard that reaches all four ledgers (#1253).
+
+    Until now only a Paid `Project Payment` could be a duplicate, so a bare `PAY-…` name was enough
+    and "Paid" and "TDS" were always true. Neither survives four ledgers: an expense's name is a
+    random id nobody can search for, an inflow is never "Paid", and TDS is deducted from payments.
+    """
+
+    def test_a_payment_fan_out_names_the_ledger_once_for_all_its_records(self):
+        outcome = derive_row_outcome(
+            _Row(amount="9000"),
+            _match(),
+            paid_duplicate=_group(
+                [
+                    _payment("PAY-A", amount="5000", status="Paid"),
+                    _payment("PAY-B", amount="4000", status="Paid"),
+                ]
+            ),
+        )
+        self.assertEqual(outcome.note, "Already recorded as Paid on Project Payments PAY-A, PAY-B.")
+
+    def test_an_expense_is_described_never_shown_as_its_bare_random_id(self):
+        outcome = derive_row_outcome(
+            _Row(amount="2935"), _match(), paid_duplicate=_group([_paid_expense()])
+        )
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertEqual(
+            outcome.note,
+            'Already recorded as Paid on Project Expense "Site accommodation for the electrical '
+            'team" of 2935.00 paid on 12-Sep-2026.',
+        )
+        self.assertNotIn("ecuu6rldvp", outcome.note)
+
+    def test_a_non_project_expense_with_no_description_still_reads_as_a_record(self):
+        outcome = derive_row_outcome(
+            _Row(amount="2935"),
+            _match(),
+            paid_duplicate=_group(
+                [_paid_expense("1t69cnkk6v", doctype="Non Project Expenses", description="")]
+            ),
+        )
+        self.assertEqual(
+            outcome.note,
+            "Already recorded as Paid on Non Project Expense of 2935.00 paid on 12-Sep-2026.",
+        )
+        self.assertNotIn("1t69cnkk6v", outcome.note)
+
+    def test_a_long_description_is_shortened_rather_than_flooding_the_note(self):
+        outcome = derive_row_outcome(
+            _Row(amount="2935"),
+            _match(),
+            paid_duplicate=_group([_paid_expense(description="x" * 200)]),
+        )
+        self.assertIn('"' + "x" * 60 + '…"', outcome.note)
+        self.assertNotIn("x" * 61, outcome.note)
+
+    def test_an_expense_with_no_paid_date_drops_the_date_not_the_sentence(self):
+        outcome = derive_row_outcome(
+            _Row(amount="2935"),
+            _match(),
+            paid_duplicate=_group([_paid_expense(description="Hotel", paid_on=None)]),
+        )
+        self.assertEqual(
+            outcome.note, 'Already recorded as Paid on Project Expense "Hotel" of 2935.00.'
+        )
+
+    def test_an_inflow_is_received_never_paid(self):
+        outcome = derive_duplicate_guard_outcome(
+            _Row(amount="5000"), paid_duplicate=_group([_inflow()])
+        )
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertEqual(
+            outcome.note, "Already recorded as received on Project Inflow PAYIN-00190-01."
+        )
+        self.assertNotIn("Paid", outcome.note)
+
+    def test_an_inflow_amount_disagreement_says_received_and_never_suggests_tds(self):
+        less = derive_duplicate_guard_outcome(
+            _Row(amount="4800"), paid_duplicate=_group([_inflow(amount="5000")])
+        )
+        more = derive_duplicate_guard_outcome(
+            _Row(amount="5200"), paid_duplicate=_group([_inflow(amount="5000")])
+        )
+        for outcome in (less, more):
+            self.assertEqual(outcome.status, ROW_MISMATCHED)
+            self.assertIn("received", outcome.note)
+            self.assertIn("Project Inflow PAYIN-00190-01", outcome.note)
+            self.assertNotIn("Paid", outcome.note)
+            self.assertNotIn("TDS", outcome.note)
+            self.assertNotIn("left the account", outcome.note)
+        self.assertIn("less", less.note)
+        self.assertIn("MORE", more.note)
+
+    def test_tds_is_a_payments_concept_so_an_expense_shortfall_never_suggests_it(self):
+        outcome = derive_row_outcome(
+            _Row(amount="2800"), _match(), paid_duplicate=_group([_paid_expense(amount="2935")])
+        )
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+        self.assertIn("less", outcome.note)
+        self.assertNotIn("TDS", outcome.note)
+        self.assertIn("Project Expense", outcome.note)
+
+    def test_a_payment_shortfall_keeps_its_tds_hint(self):
+        outcome = derive_row_outcome(
+            _Row(amount="98000"),
+            _match(),
+            paid_duplicate=_group([_payment("PAY-9", amount="100000", status="Paid")]),
+        )
+        self.assertIn("TDS", outcome.note)
+        self.assertIn("Already recorded as Paid on Project Payment PAY-9.", outcome.note)
+
+    def test_records_from_two_ledgers_are_each_named_under_their_own_ledger(self):
+        outcome = derive_row_outcome(
+            _Row(amount="7935"),
+            _match(),
+            paid_duplicate=_group(
+                [
+                    _payment("PAY-A", amount="5000", status="Paid"),
+                    _paid_expense(description="Hotel"),
+                ]
+            ),
+        )
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertEqual(
+            outcome.note,
+            'Already recorded as Paid on Project Payment PAY-A; Project Expense "Hotel" of '
+            "2935.00 paid on 12-Sep-2026.",
+        )
 
 
 # --- Matched and the found-nothing half of Mismatched ------------------------------------------------------------------------
@@ -800,8 +955,8 @@ class TestDeriveDuplicateGuardOutcome(unittest.TestCase):
             _Row(), paid_duplicate=_group([_payment("PAY-OLD", status="Paid")])
         )
         self.assertEqual(outcome.status, ROW_SKIPPED)
-        self.assertIn("PAY-OLD", outcome.note)
-        self.assertIn("Already recorded as Paid", outcome.note)
+        # Inverted at #1253: the record is named WITH its ledger, never bare.
+        self.assertIn("Already recorded as Paid on Project Payment PAY-OLD", outcome.note)
 
     def test_a_hand_recorded_fan_out_is_ONE_already_recorded_transfer(self):
         outcome = derive_duplicate_guard_outcome(

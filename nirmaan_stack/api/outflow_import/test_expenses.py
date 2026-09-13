@@ -386,8 +386,15 @@ class TestRefusals(SettlementFixture):
     def test_a_skipped_row_cannot_be_settled(self):
         row = self._row("0002")  # the FAILED transfer, auto-skipped at upload
         expense = self._make_expense(PROJECT_EXPENSE, row["amount"])
-        with self.assertRaises(frappe.ValidationError):
+        with self.assertRaises(frappe.ValidationError) as refused:
             settle_expense(row["name"], PROJECT_EXPENSE, expense)
+        # ⚠️ INVERTED AT #1253. The refusal used to say "Re-run the match to reconsider it", and that
+        # remedy does not exist: `match_batch` never revisits a Skipped row (it is frozen). The
+        # sentence must say the skip is final and name the one real way out.
+        message = str(refused.exception)
+        self.assertNotIn("Re-run the match", message)
+        self.assertIn("final", message)
+        self.assertIn("Desk", message)
 
     def test_a_failed_settlement_leaves_nothing_behind(self):
         # Savepoint isolation: the refusal must not leave a match record claiming a settlement

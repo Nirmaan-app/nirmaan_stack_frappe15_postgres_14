@@ -97,7 +97,7 @@ ICICI debits (5.8%) and every hit is an auto-skip.
 
 **Tier 0 therefore SURVIVES as the duplicate guard, and the owner explicitly kept it (Q31a).** This
 is why ICICI rows land `Mismatched` and not `Skipped`: `review._FROZEN_ROW_STATUSES` is
-`(Skipped, Settled)`, so a `Skipped` row is frozen out of every later match run — landing them there
+`(Skipped, Settled)` (`Partially Allocated` joined later, at ADR-0020), so a `Skipped` row is frozen out of every later match run — landing them there
 would have silently deleted the guard.
 
 **Tier 2 — fires ZERO times, and the rows that would fire are ALL FALSE POSITIVES.**

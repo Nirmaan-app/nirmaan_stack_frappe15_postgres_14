@@ -155,9 +155,13 @@ describe("toExportColumns", () => {
         // Falls back to the skip reason, then to blank — never to `undefined` in a cell.
         expect(
             byId.get("outcome")!.meta.exportValue(
-                row({ outcome_note: undefined, skip_reason: "Already recorded as Paid" })
+                row({
+                    outcome_note: undefined,
+                    // Inverted at #1253: the sentence names the ledger beside the record.
+                    skip_reason: "Already recorded as Paid on Project Payment PAY-0091.",
+                })
             )
-        ).toBe("Already recorded as Paid");
+        ).toBe("Already recorded as Paid on Project Payment PAY-0091.");
         expect(
             byId.get("outcome")!.meta.exportValue(
                 row({ outcome_note: undefined, skip_reason: undefined })

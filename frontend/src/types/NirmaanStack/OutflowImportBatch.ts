@@ -139,24 +139,28 @@ export interface OutflowImportRow {
     outcome_note?: string;
     matches: OutflowRowMatch[];
     /**
-     * Already-Paid payments this row's bank reference points at — the records behind a
-     * "Already recorded as Paid on …" skip, and behind a `Mismatched` row.
+     * Records already carrying the money this row describes — the records behind an
+     * "Already recorded as Paid / received on …" skip, and behind a `Mismatched` row.
+     *
+     * ⚠️ RECORDS, IN ANY OF FOUR LEDGERS (#1253): `Project Payments`, `Project Expenses`,
+     * `Non Project Expenses` or `Project Inflows`. RENAMED from `related_payments` rather than
+     * widened in place, so a stale reader renders nothing instead of silently only the payments.
      *
      * ⚠️ NOT a settlement and NOT a suggestion. The row settled nothing, so it has no
-     * `Outflow Row Match` record, and it carries no stored suggestion either. Derived server-side in
-     * `get_batch_rows` from the same loader the duplicate guard uses, so the screen can link the
-     * payment its note only names in prose.
+     * `Outflow Row Match` record, and it carries no stored suggestion either. Derived server-side
+     * from the same source the duplicate guard uses, so the screen can link the record its note only
+     * names in prose.
      */
-    related_payments?: {
+    related_records?: {
         target_doctype: string;
         target_name: string;
-        /** The order this payment is against, for the app's own route (slice E3). */
+        /** The order a PAYMENT is against, for the app's own route (slice E3). Payments only. */
         order_name?: string;
     }[];
     /**
      * The order behind `suggested_name`, for the app's own route (slice E3).
      *
-     * ⚠️ ITS OWN KEY BECAUSE THE SUGGESTION IS NOT A LIST. `matches` and `related_payments` carry
+     * ⚠️ ITS OWN KEY BECAUSE THE SUGGESTION IS NOT A LIST. `matches` and `related_records` carry
      * their order stamped onto each entry; the suggestion is two scalar columns on the row, so
      * there is no entry to stamp.
      */

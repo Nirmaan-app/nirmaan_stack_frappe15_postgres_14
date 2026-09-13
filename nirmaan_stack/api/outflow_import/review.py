@@ -1146,8 +1146,8 @@ def get_batch_rows(batch: str):
     for match in matches:
         by_row.setdefault(match["import_row"], []).append(match)
 
-    related = _related_paid_payments(rows)
-    # Stamps `order_name` onto matches and related payments in place, and gives us the map the
+    related = _related_records(rows)
+    # Stamps `order_name` onto matches and related records in place, and gives us the map the
     # suggestion needs below -- see `_with_order_names` for why all three share one lookup.
     suggested_orders = _payment_order_names(
         [
@@ -1167,7 +1167,7 @@ def get_batch_rows(batch: str):
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
                 "matches": by_row.get(row["name"], []),
-                "related_payments": related.get(row.get("normalized_reference") or "", []),
+                "related_records": related.get(row.get("normalized_reference") or "", []),
                 # The suggestion is a pair of scalar columns on the row, not a list, so it takes
                 # its own key rather than being stamped in place like the two lists above.
                 "suggested_order_name": suggested_orders.get(row.get("suggested_name") or "", ""),
@@ -1177,8 +1177,19 @@ def get_batch_rows(batch: str):
     }
 
 
-def _related_paid_payments(rows: list) -> dict[str, list]:
-    """Already-Paid payments each row's bank reference points at, keyed by that reference.
+def _related_records(rows: list) -> dict[str, list]:
+    """The already-recorded records each row's bank reference points at, keyed by that reference.
+
+    ⚠️ RECORDS, NOT PAYMENTS, SINCE #1253 -- and the payload key was RENAMED with it
+    (`related_payments` -> `related_records`), on the `settled_ledger` -> `settled_ledgers` precedent.
+    Every entry is `{target_doctype, target_name}` and may name ANY of the four ledgers a duplicate
+    can already live in: `Project Payments`, `Project Expenses`, `Non Project Expenses` or
+    `Project Inflows`. The client builds a link for each (`settlementLink`), including an inflow.
+    Only a `Project Payment` entry also carries `order_name` (see `_with_order_names`).
+
+    ⚠️ ITS SOURCE MUST STAY THE DUPLICATE GUARD'S SOURCE. Today that guard reaches Paid payments only,
+    so today only payments come back here; a guard widened to another ledger widens THIS loader in the
+    same change, or a skipped row names a record in its note and offers no link to it.
 
     ⚠️ THIS IS WHAT MAKES A SKIPPED ROW CLICKABLE. A row skipped as an already-recorded duplicate --
     and a `Mismatched` row, which comes from the same check -- names its payment ONLY inside
@@ -1248,7 +1259,7 @@ def _with_order_names(rows: list, by_row: dict, related: dict) -> None:
     """Stamp `order_name` onto every payment link source, IN PLACE (slice E3).
 
     ⚠️ ONE LOOKUP FOR ALL THREE SOURCES. A row can link through a match, through an already-Paid
-    related payment, or through its stored suggestion, and all three end up in the same
+    related record, or through its stored suggestion, and all three end up in the same
     `rowSettlementLinks` on the client. Enriching them separately would be three queries and, worse,
     three chances for one of them to be forgotten -- which presents as a link that silently keeps
     the old behaviour on some rows and not others.
@@ -2219,7 +2230,7 @@ def get_outflow_rows(
         as_dict=True,
     )[0]["n"]
 
-    related = _related_paid_payments(rows)
+    related = _related_records(rows)
     # ⚠️ THE SAME ENRICHMENT AS `get_batch_rows`, AND IT HAS TO BE. This is the MASTER TABLE -- the
     # surface most of the feature's payment links are actually clicked on -- so enriching only the
     # batch view would leave the app's own route working in one place and not the other, which is
@@ -2256,7 +2267,7 @@ def get_outflow_rows(
                 # the settlement-link helpers already read. A master-table page never carries match
                 # records: they mean "settled", and the Settled tab reads them per row on demand.
                 "matches": [],
-                "related_payments": related.get(row.get("normalized_reference") or "", []),
+                "related_records": related.get(row.get("normalized_reference") or "", []),
                 "suggested_order_name": suggested_orders.get(row.get("suggested_name") or "", ""),
             }
             for row in rows
@@ -2586,9 +2597,9 @@ def export_outflow_rows(
     aggregate `get_outflow_rows` uses, as a list, for the same reason (ADR-0020: one transfer may now
     settle into several ledgers).
 
-    It OMITS `matches`, `related_payments` and `suggested_order_name`. Those three exist for the
-    decision dialog's LINKS -- they are how a row's settlement and its related payments become
-    clickable on screen -- and a CSV has nothing to click. `related_payments` in particular is a
+    It OMITS `matches`, `related_records` and `suggested_order_name`. Those three exist for the
+    decision dialog's LINKS -- they are how a row's settlement and its related records become
+    clickable on screen -- and a CSV has nothing to click. `related_records` in particular is a
     per-row list of dicts that cannot become a cell, and `suggested_order_name` costs a second query
     over the payments table to produce a value nothing in a spreadsheet reads.
     """
@@ -3181,7 +3192,7 @@ def get_outflow_summary(
     ⚠️ THE AUTO / MANUAL SKIP SPLIT KEYS ON `decided_by`, NOT ON THE REASON TEXT. A skip written at
     upload carries a system-generated `skip_reason` and no decider; a manual one records the person.
     That is a fact the database already holds exactly, so it needs no sentence parsed -- the same
-    rule `_related_paid_payments` follows for exactly the same reason.
+    rule `_related_records` follows for exactly the same reason.
     """
     require_outflow_access()
     if batch:

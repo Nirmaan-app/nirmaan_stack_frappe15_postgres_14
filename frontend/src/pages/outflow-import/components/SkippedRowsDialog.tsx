@@ -82,7 +82,7 @@ const NO_ORIGINS = new Map();
  *
  * ⚠️ THE REASON IS IN THE OUTCOME COLUMN, NOT IN `skip_reason`. 20 of the 47 skipped rows on the
  * first real statement carry no `skip_reason` at all -- the already-Paid duplicates record it as
- * "Already recorded as Paid on PAY-…" in the note, exactly as the Mismatched causes do. The table's
+ * "Already recorded as Paid on Project Payment PAY-…" in the note, exactly as the Mismatched causes do. The table's
  * terminal cell already falls back `outcome_note || skip_reason`, which is why this dialog needs no
  * column of its own.
  */

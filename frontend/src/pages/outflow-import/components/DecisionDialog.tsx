@@ -1198,7 +1198,7 @@ const SettleModeChoice = ({
  * It also cost vertical space the dialog does not have: it sat above a 420px table with "Clear
  * selection" below it, which is how that control ended up under the fold.
  *
- * NOTHING SERVER-SIDE CHANGED. `outcome_note`, `related_payments` and `bank_reference_no` are all
+ * NOTHING SERVER-SIDE CHANGED. `outcome_note`, `related_records` (then `related_payments`) and `bank_reference_no` are all
  * still written, still returned, and still read elsewhere -- the Skipped tab and the row table use
  * them. Only this one rendering is gone.
  */
