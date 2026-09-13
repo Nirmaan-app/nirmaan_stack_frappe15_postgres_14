@@ -130,6 +130,31 @@ class TestStaging(CashbookImportCase):
         for row in self._rows(suggested_doctype="Non Project Expenses"):
             self.assertIsNone(row.resolved_project)
 
+    def test_every_row_is_staged_with_the_wallet_txn_id_as_its_settlement_reference(self):
+        """⚠️ THE WALLET'S OWN INGEST PATH, WHICH IS NOT `upload._stage_batch` (ADR-0020 B9).
+
+        This source populates NEITHER reference field and never will -- its export maps neither
+        column, deliberately -- so the third rung of the ladder is the only one it can land on and
+        `transfer_id` IS its settlement reference. Every write site reads that one field now,
+        which is what finally reaches the PAYMENT path: the wallet's remedy used to be
+        `cashbook.py` passing `payment_ref` into the EXPENSE path by hand, so a wallet row settling
+        a payment wrote a blank.
+
+        Pinned here rather than assumed from the gateway path's test, because these are two
+        separate row-insert sites and the whole point of the slice is that they cannot diverge.
+        """
+        # `_rows` projects the planning columns; these three are what this test is about.
+        rows = frappe.get_all(
+            "Outflow Import Row",
+            filters={"import_batch": self.batch},
+            fields=["transfer_id", "bank_reference_no", "reference_id", "settlement_reference"],
+        )
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertFalse((row.bank_reference_no or "").strip(), row.transfer_id)
+            self.assertFalse((row.reference_id or "").strip(), row.transfer_id)
+            self.assertEqual(row.settlement_reference, row.transfer_id)
+
 
 class TestTheWorker(CashbookImportCase):
     def test_it_creates_one_expense_per_planned_row(self):

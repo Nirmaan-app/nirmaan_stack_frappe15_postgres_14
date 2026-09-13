@@ -62,6 +62,40 @@ amount), which neither can reach and neither may be stretched to reach. A TDS pa
                                                is "every amount comparison in this feature", not
                                                "every one that writes" -- and an unlisted site is
                                                exactly how the fifth one went wrong.
+  * `allocation.is_fully_allocated`         -- SETTLE window, and ⚠️ ONE-SIDED (ADR-0020). It reads
+                                               `remaining <= AMOUNT_TOLERANCE`, NOT an absolute
+                                               difference, so an OVER-allocated row (a large
+                                               NEGATIVE remainder) still answers `True`. On purpose:
+                                               `status_for_allocation` has no fourth status to give
+                                               that case, and "remaining is very negative" must not
+                                               read as `Partially Allocated`. What keeps a row from
+                                               ever landing there is the SEPARATE
+                                               `is_over_allocated`, not this window.
+  * `allocation.allocation_fits`            -- SETTLE window, REMAINDER-bounded: a candidate may be
+                                               written if it does not exceed what is left, plus the
+                                               window. ⚠️ DELIBERATELY WEAKER than `settle_row`'s
+                                               whole-transfer guard -- a leg is by definition
+                                               smaller than the transfer, so nothing stronger can be
+                                               asserted about one.
+  * `allocation.is_over_allocated`          -- SETTLE window, the other side of that same number
+                                               (`remaining < -AMOUNT_TOLERANCE`). `allocate_row`'s
+                                               post-loop backstop.
+  * `allocationView.AMOUNT_TOLERANCE`       -- the FRONTEND mirror (ADR-0020), a SECOND one beside
+                                               the TDS band's. SETTLE window; it feeds the balance
+                                               bar's `allocated / remaining / over / complete`.
+                                               ⚠️ Its `complete` is TWO-SIDED where the server's
+                                               `is_fully_allocated` is one-sided (above) -- a button
+                                               must not label an over-tick "completes this transfer"
+                                               -- and it must not be STRICTER than the server
+                                               anywhere else: erring toward OFFERING is safe because
+                                               the server re-asserts, erring the other way hides a
+                                               choice the server would have accepted.
+NOT ON THIS LIST, AND SAYING WHY IS PART OF THE RULE: `expenses.reverse_allocation`'s "has the
+payment changed underneath this leg" check (whole-branch review, F5) compares `leg.target_amount`
+against the payment's own `amount` EXACTLY, through `normalize_amount`, with NO window at all. It
+is not asking "is this the same money" -- both figures were written by the same settle from the
+same source, so ANY difference means somebody edited the record afterwards, which is exactly what
+it refuses on. A tolerance there would silently permit a reversal over the edit it exists to catch.
 These are easy to fix independently and catastrophic to fix inconsistently: a pool wider than the
 guard offers a record the confirm then refuses; a guard wider than the pool silently permits a
 settlement the screen never proposed. The SQL half cannot import this module's function, so it takes

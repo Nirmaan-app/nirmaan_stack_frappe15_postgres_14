@@ -51,9 +51,11 @@ from nirmaan_stack.api.outflow_import.review import (
     search_settleable_records,
     skip_row,
 )
-from nirmaan_stack.api.outflow_import.expenses import settle_row
+from nirmaan_stack.api.outflow_import.expenses import allocate_row, settle_row
+from nirmaan_stack.api.outflow_import.test_allocate_row import AllocationFixture
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
 from nirmaan_stack.services.outflow_import import candidates as C
+from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.amounts import AMOUNT_TOLERANCE
 from nirmaan_stack.services.outflow_import.normalize import normalize_account
 from nirmaan_stack.services.outflow_import.parser import parse_statement
@@ -623,7 +625,19 @@ class TestSearchSettleableRecords(OutflowReviewFixture):
             project=cls.project,
             expense_type=cls.expense_type,
         )
+        # issue #1243 -- a payment at a REMAINDER-sized figure, nowhere near row 0009's Rs 1,234.50.
+        # It is unsettleable against the whole transfer and settleable against a comparison amount
+        # of its own value, which is exactly the record a partly-allocated row needs to find.
+        cls.pay_remainder = cls._insert_payment_row(
+            amount=cls.REMAINDER_AMOUNT, status="Approved", utr=None, payment_date=None
+        )
         frappe.db.commit()
+
+    #: Deliberately odd, and deliberately far from every fixture amount: the assertions below turn
+    #: on this record being OUTSIDE the settle window of the transfer and INSIDE the window of the
+    #: comparison amount, so a round number that a live approved record might share would make the
+    #: negative half vacuous.
+    REMAINDER_AMOUNT = 431.25
 
     def _row_name(self, suffix="0009"):
         return self._rows_by_transfer_suffix()[suffix]["name"]
@@ -862,6 +876,110 @@ class TestSearchSettleableRecords(OutflowReviewFixture):
         first = [(r["target_doctype"], r["name"]) for r in search_settleable_records(self._row_name(), "")]
         again = [(r["target_doctype"], r["name"]) for r in search_settleable_records(self._row_name(), "")]
         self.assertEqual(first, again)
+
+    # --- issue #1243: the picker measures the REMAINING BALANCE, not the full transfer -----------
+    #
+    # On a partly-allocated transfer the dialog has a remainder in hand and the endpoint was still
+    # measuring every candidate against the whole transfer. The consequence was not cosmetic: the
+    # one payment that would COMPLETE the row scored zero on the amount axis, was flagged
+    # unsettleable, and therefore sorted BELOW every record that could no longer possibly fit --
+    # because settleability is a HARD SPLIT above the score (`similarity.ranked_records`).
+    #
+    # ⚠️ ONE SUBSTITUTION MOVES ALL FOUR CONSUMERS, and that is the design rather than an
+    # implementation detail. `bank_amount` is derived at ONE point and handed as an argument to the
+    # per-ledger SQL ordering, the `suggested` flag, the ranker's hard split and the score axis --
+    # so there stays exactly ONE amount-opinion per record. A second read anywhere would let the
+    # flag and the ordering disagree about the same row.
+
+    def _find(self, records, name):
+        return next((r for r in records if r["name"] == name), None)
+
+    def test_an_absent_comparison_amount_leaves_the_payload_byte_identical(self):
+        """⚠️ AC4, AND IT IS THE ONE THAT PROTECTS EVERY ROW IN THE SYSTEM. Most transfers have no
+        legs at all; the new parameter must be invisible to them, not merely harmless."""
+        base = search_settleable_records(self._row_name(), "")
+        for absent in (None, 0, "", "0"):
+            self.assertEqual(
+                search_settleable_records(self._row_name(), "", compare_amount=absent),
+                base,
+                f"compare_amount={absent!r} changed a payload that should be untouched",
+            )
+
+    def test_the_settleable_flag_follows_the_comparison_amount(self):
+        """AC2. `suggested` is what `similarity` reads as the hard split, so this flag IS the
+        ordering -- it is not merely a badge beside it."""
+        whole = self._find(search_settleable_records(self._row_name(), ""), self.pay_remainder)
+        self.assertIsNotNone(whole, "the fixture payment is missing from the approved pool")
+        self.assertFalse(
+            whole["suggested"],
+            "Rs 431.25 is not settleable against row 0009's Rs 1,234.50 -- if it is, the fixture "
+            "amount has collided with live data and the positive case below proves nothing",
+        )
+
+        remainder = self._find(
+            search_settleable_records(
+                self._row_name(), "", compare_amount=self.REMAINDER_AMOUNT
+            ),
+            self.pay_remainder,
+        )
+        self.assertTrue(remainder["suggested"])
+
+    def test_the_record_completing_the_remainder_outranks_where_it_sat_before(self):
+        """AC1. The same record, the same pool, the same call -- one number apart."""
+        before = [r["name"] for r in search_settleable_records(self._row_name(), "")]
+        after = [
+            r["name"]
+            for r in search_settleable_records(
+                self._row_name(), "", compare_amount=self.REMAINDER_AMOUNT
+            )
+        ]
+        self.assertLess(after.index(self.pay_remainder), before.index(self.pay_remainder))
+
+    def test_it_never_sits_below_a_record_that_can_no_longer_fit(self):
+        """The hard split, re-asserted against the COMPARISON amount rather than the transfer.
+
+        This is the defect in its plainest form: the record that completes the row was sorted
+        beneath every record too large to fit in what is left.
+        """
+        records = search_settleable_records(
+            self._row_name(), "", compare_amount=self.REMAINDER_AMOUNT
+        )
+        index = [r["name"] for r in records].index(self.pay_remainder)
+        self.assertTrue(
+            all(r["suggested"] for r in records[: index + 1]),
+            "an unsettleable record outranked the one that completes the remainder",
+        )
+
+    def test_the_score_axis_reads_the_comparison_amount_too(self):
+        """⚠️ NOT JUST THE FLAG. `_amount_score` compares against `RowSignals.amount`, which is the
+        same threaded value -- so the REASON printed under the record has to move with it, or the
+        screen would explain an order using a number it is no longer ranked by."""
+        records = search_settleable_records(
+            self._row_name(), "", compare_amount=self.REMAINDER_AMOUNT
+        )
+        record = self._find(records, self.pay_remainder)
+        self.assertIn("the amount is identical", record["similarity_reasons"])
+
+    def test_a_nonsense_comparison_amount_falls_back_to_the_transfer(self):
+        """⚠️ FAIL BACK TO THE ROW, NEVER THROW. This parameter only ORDERS a list a person then
+        confirms -- `settle_row` / `allocate_row` re-assert the real fit under a row lock -- so a
+        garbled value must degrade to today's answer rather than deny the reviewer the screen."""
+        base = search_settleable_records(self._row_name(), "")
+        for junk in ("abc", "-5", -5, "  "):
+            self.assertEqual(
+                search_settleable_records(self._row_name(), "", compare_amount=junk),
+                base,
+                f"compare_amount={junk!r} should have fallen back to the transfer's own amount",
+            )
+
+    def test_it_arrives_as_a_string_the_way_the_wire_sends_it(self):
+        """Frappe hands every whitelisted argument over as TEXT from an HTTP call, so the float the
+        client computes reaches this endpoint as `"431.25"`. A parameter that only works when a
+        test passes a real float works nowhere in production."""
+        typed = search_settleable_records(
+            self._row_name(), "", compare_amount=str(self.REMAINDER_AMOUNT)
+        )
+        self.assertTrue(self._find(typed, self.pay_remainder)["suggested"])
 
 
 class TestAmbiguityIsNotResolved(OutflowReviewFixture):
@@ -1578,14 +1696,19 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
         for row in page["rows"]:
             self.assertIn(row["row_status"], ("Pending match run", "Mismatched", "Error"))
 
-    def test_the_two_working_scopes_partition_everything_except_skipped(self):
+    def test_the_three_working_scopes_partition_everything_except_skipped(self):
         """⚠️ `all` IS NOT EVERY ROW (owner ruling 2026-08-10). It is everything a person might
-        still act on -- skipped rows are excluded from it, exactly as they are from the other two,
-        because they have no tab at all. Asserted as arithmetic rather than a code read: the day
-        `all` silently reverts to "no WHERE clause", this is what catches it.
+        still act on -- skipped rows are excluded from it, exactly as they are from the other
+        three (`not_matched`, `partly`, `matched`), because they have no tab at all. Asserted as
+        arithmetic rather than a code read: the day `all` silently reverts to "no WHERE clause",
+        this is what catches it.
         """
         counts = self._page()["tab_counts"]
-        self.assertEqual(counts["not_matched"] + counts["matched"], counts["all"])
+        # ⚠️ `+ partly` -- `Partially Allocated` is inert this slice (nothing writes it yet), so
+        # `counts["partly"]` is 0 today, but the arithmetic must hold once something does.
+        self.assertEqual(
+            counts["not_matched"] + counts["partly"] + counts["matched"], counts["all"]
+        )
 
         # ⚠️ COUNTED FROM THE DATABASE, NOT THROUGH `_rows_by_transfer_suffix`. That helper is keyed
         # by transfer id, and this fixture deliberately REPEATS one -- so the two rows of the
@@ -1621,7 +1744,11 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
     def test_the_skipped_scope_does_not_change_what_all_holds(self):
         """Adding a scope must not widen the working views by one row."""
         counts = self._page()["tab_counts"]
-        self.assertEqual(counts["not_matched"] + counts["matched"], counts["all"])
+        # ⚠️ `+ partly` -- `Partially Allocated` is inert this slice (nothing writes it yet), so
+        # `counts["partly"]` is 0 today, but the arithmetic must hold once something does.
+        self.assertEqual(
+            counts["not_matched"] + counts["partly"] + counts["matched"], counts["all"]
+        )
         self.assertGreater(counts["skipped"], 0)
 
     def test_the_failed_filter_splits_skipped_into_the_two_facts_it_hides(self):
@@ -1716,7 +1843,7 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
         # ⚠️ AGAINST THE SCOPE'S OWN COUNT, not against every parsed row. `all` stopped meaning
         # every row at the 2026-08-10 retab -- it excludes `Skipped` -- and this test is about
         # paging, so pinning it to the file length would make it fail for a reason it does not
-        # describe. `test_the_two_working_scopes_partition_everything_except_skipped` owns that
+        # describe. `test_the_three_working_scopes_partition_everything_except_skipped` owns that
         # arithmetic.
         self.assertEqual(page["total"], page["tab_counts"]["all"])
         self.assertGreater(page["total"], 2)
@@ -2677,7 +2804,7 @@ class TestStackAutoPairing(OutflowReviewFixture):
 
 
 # ⚠️ `get_reconciliation_report` AND ITS TWO TESTS WERE DELETED AT V5, and one capability went with
-# them that the three tabs do NOT replace: the REVERSE VIEW -- payments we recorded as Paid inside
+# them that the four tabs do NOT replace: the REVERSE VIEW -- payments we recorded as Paid inside
 # the statement's period with no bank row behind them. The tabs answer "is this transfer recorded?";
 # nothing now answers "is every payment we recorded backed by a real transfer?". That is a
 # deliberate scope decision, not an oversight; if it is wanted back it is a revert of this commit,
@@ -3122,7 +3249,7 @@ class TestThePeriodScopedSummary(OutflowReviewFixture):
         The bank's date column is free text and does not always parse; the parser stores NULL rather
         than guessing, and this fixture carries a literal `not-a-date` row for the case. Under a
         plain `>=` / `<` bound such a row matches NO window -- so once the period became the SCREEN'S
-        SCOPE it would vanish from the summary, all three tabs and the Skipped dialog at once, with
+        SCOPE it would vanish from the summary, all four tabs and the Skipped dialog at once, with
         no filter on screen able to bring it back.
 
         The transfer still moved money and still needs settling, so it survives every period instead.
@@ -3715,8 +3842,10 @@ class TestTheSettledLedgerSplit(OutflowReviewFixture):
         """
         rows = get_outflow_rows(scope="all", batch=self.batch.name, limit=200)["rows"]
         by_name = {r["name"]: r for r in rows}
-        self.assertIn("settled_ledger", by_name[self.settled_row])
-        self.assertEqual(by_name[self.settled_row]["settled_ledger"], self.settled_ledger)
+        # ⚠️ RENAMED TO A LIST AT TASK 6 (ADR-0020 fan-out): `settled_ledger` (scalar) is GONE
+        # rather than kept beside `settled_ledgers` -- see `TestTheSettledReadsSurviveAFanOut`.
+        self.assertIn("settled_ledgers", by_name[self.settled_row])
+        self.assertEqual(by_name[self.settled_row]["settled_ledgers"], [self.settled_ledger])
 
     def test_an_UNSETTLED_row_carries_a_BLANK_ledger_not_a_guess(self):
         """An open transfer has not landed anywhere yet, and blank is the honest value. Every row
@@ -3725,8 +3854,8 @@ class TestTheSettledLedgerSplit(OutflowReviewFixture):
         open_rows = [r for r in rows if r["row_status"] in OPEN_ROW_STATUSES]
         self.assertTrue(open_rows, "fixture precondition: an unsettled row")
         for row in open_rows:
-            self.assertIn("settled_ledger", row)
-            self.assertFalse((row["settled_ledger"] or "").strip())
+            self.assertIn("settled_ledgers", row)
+            self.assertEqual(row["settled_ledgers"], [])
 
     def test_the_funnel_offers_the_ledgers_that_were_actually_settled_into(self):
         values = get_outflow_facet_values(column="settled_ledger", batch=self.batch.name)
@@ -3841,11 +3970,17 @@ class TestTheOutflowExport(OutflowReviewFixture):
         self.assertEqual({r["row_status"] for r in skipped["rows"]}, {"Skipped"})
 
     def test_it_carries_the_three_settlement_columns_a_RECONCILER_needs(self):
-        """A book name alone cannot be joined to a ledger export. `settled_target_name` says WHICH
-        record and `settled_target_amount` says for how much -- and on a partial settle that figure
-        differs from the transfer's own, which is a large part of why somebody exports at all."""
+        """A book name alone cannot be joined to a ledger export. `settled_target_names` says WHICH
+        record(s) and `settled_target_amounts` says for how much each -- and on a partial settle
+        those figures differ from the transfer's own, which is a large part of why somebody exports
+        at all.
+
+        ⚠️ RENAMED AT TASK 6 (ADR-0020 fan-out): `settled_target_name` / `settled_target_amount`
+        (scalar, `LIMIT 1` with no `ORDER BY`) are GONE, replaced by the plural, pipe-joined keys --
+        see `TestTheSettledReadsSurviveAFanOut`.
+        """
         for row in export_outflow_rows(scope="all", batch=self.batch.name)["rows"]:
-            for key in ("settled_ledger", "settled_target_name", "settled_target_amount"):
+            for key in ("settled_ledgers", "settled_target_names", "settled_target_amounts"):
                 self.assertIn(key, row, f"the export dropped `{key}`")
 
     def test_an_unsettled_row_has_a_BLANK_target_amount_and_NOT_a_zero(self):
@@ -3855,8 +3990,8 @@ class TestTheOutflowExport(OutflowReviewFixture):
         rows = export_outflow_rows(scope="not_matched", batch=self.batch.name)["rows"]
         self.assertTrue(rows, "fixture precondition: an unsettled row")
         for row in rows:
-            self.assertIsNone(row["settled_target_amount"])
-            self.assertFalse((row["settled_ledger"] or "").strip())
+            self.assertIsNone(row["settled_target_amounts"])
+            self.assertEqual(row["settled_ledgers"], [])
             self.assertIsInstance(row["amount"], float)
 
     def test_it_omits_the_three_keys_that_only_a_DIALOG_could_use(self):
@@ -4445,3 +4580,244 @@ class TestInflowDoctypeSpelling(unittest.TestCase):
         self.assertNotIn(INFLOW_DOCTYPE, EXPENSE_DOCTYPES)
         self.assertFalse(is_expense_doctype(INFLOW_DOCTYPE))
         self.assertEqual(settleable_statuses(INFLOW_DOCTYPE), ())
+
+
+class TestSettledMatchKindSpelling(unittest.TestCase):
+    """The one string `ledgers.py` and `allocation.py` both spell, pinned (Task 6 review fix E).
+
+    ⚠️ `ledgers.py` IS A PURE LEAF AND CANNOT IMPORT `allocation.py`: `allocation.py` imports
+    `status.py`, which imports `ledgers.py` -- so `ledgers.py -> allocation.py -> status.py ->
+    ledgers.py` is a REAL circular import (verified with `frappe.init()`: `ImportError: cannot
+    import name 'LEDGER_DOCTYPES' from partially initialized module`, regardless of import order).
+    Exactly the precedent `TestInflowDoctypeSpelling` already pins for `INFLOW_DOCTYPE` -- the name
+    is spelled twice, and this suite is what keeps a rename from reaching only one of them.
+
+    A drift here would make `SETTLED_LEDGER_SQL` silently stop excluding reversed legs (or start
+    excluding every leg), which is exactly the kind of wrong-number-on-a-screen this task exists to
+    prevent, and no other test would catch it -- both spellings would still be internally
+    consistent, just not with each other.
+    """
+
+    def test_the_two_modules_spell_the_settled_match_kind_identically(self):
+        from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
+        from nirmaan_stack.services.outflow_import.ledgers import _SETTLED_MATCH_KIND
+
+        self.assertEqual(_SETTLED_MATCH_KIND, MATCH_SETTLED)
+
+    def test_it_names_a_real_match_kind_option(self):
+        """Not just equal to each other, but equal to a value the doctype's own `Select` field
+        actually offers -- a rename that moved both spellings to the same WRONG string would pass
+        the identity check above and still be silently wrong."""
+        from nirmaan_stack.services.outflow_import.ledgers import _SETTLED_MATCH_KIND
+
+        options = frappe.get_meta(MATCH_DOCTYPE).get_field("match_kind").options.splitlines()
+        self.assertIn(_SETTLED_MATCH_KIND, [o.strip() for o in options])
+
+
+class TestTheSettledReadsSurviveAFanOut(AllocationFixture):
+    """⚠️ EVERY FAILURE IN THIS AREA IS SILENT -- a wrong number on a screen, never an exception.
+    These tests are the only thing that can see it.
+
+    ⚠️ CORRECTED AT REVIEW, TWICE, AGAINST THE BRIEF'S OWN SNIPPETS -- both corrections are about
+    the FIXTURE, never about the query under test:
+
+    (1) `search=row` (the brief's literal text) searches `_SEARCHABLE_COLUMNS` -- beneficiary_name,
+    remarks, bank_reference_no, transfer_id, bank_account -- and NONE of those is `r.name`, which is
+    what `_staged_row` returns. Verified empirically: the brief's own snippet raises `StopIteration`
+    before this task changed a single line. Every test here scopes by `batch` instead -- each
+    `_staged_row` call mints a fresh batch holding exactly the one row, so `batch=` finds it exactly
+    as precisely as a (broken) search by name was meant to.
+
+    (2) `_staged_row` never sets `status_raw`, so `UPPER(TRIM(COALESCE(status_raw,''))) <>
+    'SUCCESS'` reads it as a BANK FAILURE and `derive_import_summary` excludes it from `total_rows`
+    / `open_rows` / `settled_rows` entirely (verified: the brief's summary snippet reports
+    `open_rows == 0` for a row that plainly needs settling). The summary test stamps `status_raw`
+    to a real success value first, matching what a genuinely staged row would carry.
+    """
+
+    def _batch_of(self, row):
+        return frappe.db.get_value(ROW_DOCTYPE, row, "import_batch")
+
+    def test_a_fan_out_row_reports_every_ledger_it_settled_into(self):
+        row = self._staged_row(amount="100")
+        allocate_row(row=row, targets=self._targets(self._three_payments()))
+        page = get_outflow_rows(scope="all", batch=self._batch_of(row))
+        payload = next(r for r in page["rows"] if r["name"] == row)
+        self.assertEqual(payload["settled_ledgers"], ["Project Payments"])
+
+    def test_the_scalar_settled_ledger_key_is_GONE(self):
+        """Replaced, not widened. A stale reader must get `undefined` and render nothing rather
+        than one arbitrarily-picked leg -- the disposition `settled_by_ledger` established."""
+        row = self._staged_row(amount="100")
+        allocate_row(row=row, targets=self._targets(self._three_payments()))
+        page = get_outflow_rows(scope="all", batch=self._batch_of(row))
+        payload = next(r for r in page["rows"] if r["name"] == row)
+        self.assertNotIn("settled_ledger", payload)
+
+    def test_the_ledger_facet_never_hides_a_row_matching_its_own_label(self):
+        """⚠️ THE WORST SHAPE AVAILABLE, in review.py's own words: a filter that hides rows
+        matching the label it was ticked from looks like it worked."""
+        row = self._staged_row(amount="100")
+        allocate_row(row=row, targets=self._targets(self._three_payments()))
+        page = get_outflow_rows(
+            scope="all",
+            batch=self._batch_of(row),
+            facets=json.dumps({"settled_ledger": ["Project Payments"]}),
+        )
+        self.assertIn(row, [r["name"] for r in page["rows"]])
+
+    def test_the_export_lists_every_leg_rather_than_one(self):
+        row = self._staged_row(amount="100")
+        pays = self._three_payments()
+        allocate_row(row=row, targets=self._targets(pays))
+        rows = export_outflow_rows(scope="all", batch=self._batch_of(row))["rows"]
+        payload = next(r for r in rows if r["name"] == row)
+        for p in pays:
+            self.assertIn(p, payload["settled_target_names"])
+        self.assertNotIn("settled_target_name", payload)
+
+    def test_the_export_and_the_screen_agree_on_how_many_transfers_there_are(self):
+        """A JOIN here would multiply the row out. The subquery shape is what prevents it."""
+        row = self._staged_row(amount="100")
+        allocate_row(row=row, targets=self._targets(self._three_payments()))
+        batch = self._batch_of(row)
+        screen = get_outflow_rows(scope="all", batch=batch)["total"]
+        exported = len(export_outflow_rows(scope="all", batch=batch)["rows"])
+        self.assertEqual(screen, exported)
+
+    def test_a_partly_allocated_transfer_is_reported_as_open_not_as_settled(self):
+        """⚠️ THE RECONCILIATION IS PRESERVED BY DOING NOTHING HERE. `_settled_by_direction` sums
+        ROW amounts and filters `row_status = 'Settled'`, so a partly-allocated transfer is in
+        neither block -- and Task 1 put it inside `open_value`, so `Total = Settled + Still open`
+        still adds up. Its own docstring predicted this exact slice ("green everywhere, until the
+        first partial settlement quietly makes a breakdown stop adding up"); this is the test that
+        answers it.
+
+        THE COST, STATED: the money already written against a partly-allocated transfer is reported
+        as open. That is the honest reading -- the TRANSFER is not settled -- but it means the
+        settled figure understates what has been paid. Reporting it per-leg would need
+        `SUM(m.target_amount)`, which breaks the reconciliation. Deferred deliberately.
+        """
+        row = self._staged_row(amount="100")
+        # See the class docstring, correction (2): a bank-success status is what makes this row
+        # count at all in the summary, which is the fact under test here, not a workaround for it.
+        frappe.db.set_value(ROW_DOCTYPE, row, "status_raw", "SUCCESS", update_modified=False)
+        frappe.db.commit()
+        a, _, _ = self._three_payments()
+        allocate_row(row=row, targets=self._targets([a]))
+        payload = get_outflow_summary(batch=self._batch_of(row))
+        # ⚠️ `get_outflow_summary` NESTS THESE UNDER `totals`, NOT AT THE TOP LEVEL -- see
+        # `_jsonable_summary`. The brief's own snippet reads them off the payload directly; this is
+        # the correction, not a change of what is being asserted.
+        summary = payload["totals"]
+        self.assertEqual(summary["settled_rows"], 0)
+        self.assertEqual(summary["open_rows"], 1)
+        self.assertEqual(
+            summary["total_rows"], summary["settled_rows"] + summary["open_rows"]
+        )
+
+    def test_settle_row_refuses_a_partly_allocated_row(self):
+        """FIX A (Task 6 review, ADR-0020): `settle_row` is the WHOLE-TRANSFER path, and its own
+        guard is that the record settled equals the whole transfer -- already false the moment
+        anything has been allocated. Before this fix, allocating Rs 60 of a Rs 100 transfer and
+        then calling `settle_row` with a Rs 100 record on the SAME row wrote a SECOND leg with no
+        guard anywhere: Rs 160 allocated against a Rs 100 transfer, reachable through the UI.
+
+        Asserts BOTH that the call is refused AND that nothing was written -- a refusal that still
+        left a match record would be worse than no guard, because it would look safe.
+        """
+        row = self._staged_row(amount="100")
+        a, _, _ = self._three_payments()
+        allocate_row(row=row, targets=self._targets([a]))
+
+        status_before = frappe.db.get_value(ROW_DOCTYPE, row, "row_status")
+        matches_before = frappe.db.count(MATCH_DOCTYPE, {"import_row": row})
+
+        other = self._approved_payment("100")
+        with self.assertRaises(frappe.ValidationError):
+            settle_row(row, "Project Payments", other)
+
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row, "row_status"), status_before)
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row}), matches_before)
+
+
+class TestTheLedgerAggregateOnAGenuineMultiLedgerRow(AllocationFixture):
+    """FIX B / FIX C (Task 6 review): the discriminating case this task exists for -- a row
+    settled into TWO DIFFERENT ledgers -- was never producible through `allocate_row` /
+    `settle_row` even before FIX A (that combination needed two DIFFERENT target doctypes in one
+    call, and `allocate_row` is Project-Payments-only), and FIX A now additionally closes the
+    `settle_row`-on-top-of-an-allocation route. So this fixture inserts the second `Outflow Row
+    Match` leg DIRECTLY, as data -- the read-side SQL must be correct for whatever the table
+    holds, whoever or whatever wrote it. This is also what makes
+    `test_the_ledger_facet_never_hides_a_row_matching_its_own_label` (above) non-discriminating on
+    its own: with every leg in ONE ledger, `CAST(aggregate AS text) IN ('Project Payments')` and
+    `EXISTS (... target_doctype IN ('Project Payments'))` agree by coincidence. Only a genuinely
+    two-ledger row tells them apart.
+    """
+
+    def _insert_settled_leg(self, *, row, batch, transfer_id, target_doctype, target_name, amount):
+        """Raw INSERT, bypassing the document lifecycle and the Dynamic Link validation `target_name`
+        would otherwise need a real record for -- this suite only ever reads the row back with SQL,
+        exactly the reasoning `OutflowReviewFixture._insert_expense_row` already gives for the same
+        pattern."""
+        name = f"TEST-OFM-{frappe.generate_hash(length=10)}"
+        frappe.db.sql(
+            """
+            INSERT INTO "tabOutflow Row Match"
+                (name, creation, modified, modified_by, owner, docstatus, idx,
+                 import_row, import_batch, transfer_id, target_doctype, target_name,
+                 target_amount, match_kind, match_basis, matched_at)
+            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+            """,
+            (
+                name, "Administrator", "Administrator",
+                row, batch, transfer_id, target_doctype, target_name,
+                str(amount), MATCH_SETTLED, "Manual",
+            ),
+        )
+        return name
+
+    def _two_ledger_row(self):
+        row = self._staged_row(amount="100")
+        batch = self._batch_of(row)
+        transfer_id = frappe.db.get_value(ROW_DOCTYPE, row, "transfer_id")
+        self._insert_settled_leg(
+            row=row, batch=batch, transfer_id=transfer_id,
+            target_doctype="Project Payments", target_name="TEST-OFI-FAKE-PAY-A", amount="60",
+        )
+        self._insert_settled_leg(
+            row=row, batch=batch, transfer_id=transfer_id,
+            target_doctype="Project Expenses", target_name="TEST-OFI-FAKE-EXP-B", amount="40",
+        )
+        frappe.db.commit()
+        return row, batch
+
+    def _batch_of(self, row):
+        return frappe.db.get_value(ROW_DOCTYPE, row, "import_batch")
+
+    def test_settled_ledgers_lists_both_labels_separately_never_a_composite_string(self):
+        row, batch = self._two_ledger_row()
+        page = get_outflow_rows(scope="all", batch=batch)
+        payload = next(r for r in page["rows"] if r["name"] == row)
+        self.assertEqual(
+            sorted(payload["settled_ledgers"]), ["Project Expenses", "Project Payments"]
+        )
+        self.assertNotIn("Project Expenses|Project Payments", payload["settled_ledgers"])
+        self.assertNotIn("Project Payments|Project Expenses", payload["settled_ledgers"])
+
+    def test_ticking_EITHER_ledger_label_returns_the_row(self):
+        row, batch = self._two_ledger_row()
+        for label in ("Project Payments", "Project Expenses"):
+            page = get_outflow_rows(
+                scope="all", batch=batch, facets=json.dumps({"settled_ledger": [label]})
+            )
+            self.assertIn(
+                row, [r["name"] for r in page["rows"]],
+                f"ticking '{label}' hid a row that settled into it -- the worst shape available",
+            )
+
+    def test_the_facet_values_list_the_two_labels_separately_never_a_composite_string(self):
+        _, batch = self._two_ledger_row()
+        values = get_outflow_facet_values(column="settled_ledger", batch=batch)
+        self.assertEqual(sorted(values["values"]), ["Project Expenses", "Project Payments"])
+        self.assertNotIn("Project Expenses|Project Payments", values["values"])

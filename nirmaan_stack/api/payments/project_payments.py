@@ -10,6 +10,9 @@ from nirmaan_stack.services.approval_tiers import (
     TIER_AUTO_APPROVE_BELOW,
     is_auto_approved,
 )
+# api -> service is the one legal direction (ADR-0010). See `reference_guard.py`'s module
+# docstring: this call site and `settle._assert_reference_is_free` must move together.
+from nirmaan_stack.services.outflow_import.reference_guard import assert_reference_is_free
 
 # This constant is a good security practice
 ALLOWED_DOCS = {"Procurement Orders", "Service Requests"}
@@ -375,15 +378,19 @@ def _fulfil_payment(pay, args):
     utr = (args.get("utr") or "").strip()
     if not utr:
         frappe.throw(_("UTR is required"))
-    
-    dup = frappe.db.get_value(
-        "Project Payments",
-        {"utr" : utr},
-        "name"
-    )
 
-    if dup and dup != pay.name:
-        frappe.throw(f"UTR {utr} already exists in payment {dup}")
+    # ⚠️ THE SAME GUARD THE IMPORT USES -- `services/outflow_import/reference_guard.py` (ADR-0020).
+    # `transfer_id=None` because a manual fulfil has no transfer to check against, which reproduces
+    # the strict rule this block used to spell inline. It must stay in step with the import's call:
+    # if only one site learns about siblings, an accountant fulfilling by hand is refused on a UTR
+    # the import wrote seconds earlier.
+    #
+    # ⚠️ OWN TAIL SENTENCE (fixed at review, Task 4): this screen has no transfer in view, so a
+    # message naming one is not guidance, it is noise. Point at the fix that is actually available
+    # here instead.
+    assert_reference_is_free(
+        utr, pay.name, tail="Use a different UTR, or correct the existing payment first."
+    )
 
     pay.status        = "Paid"
     pay.utr           = utr

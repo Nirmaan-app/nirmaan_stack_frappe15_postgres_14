@@ -320,6 +320,7 @@ Why `[:19]` truncation: `frappe.utils.now()` returns microsecond-precision strin
 - Read `docs/<feature>/spec.md` and the latest entries in `decisions.md` before starting any feature phase.
 - **Output a written plan before writing any code. Never write code in the same turn as the plan.** Wait for user review.
 - One branch per phase: `feature/<feature>-phase-<N>`. Commit at end of each phase.
+- **Work in place on the current branch — do NOT create a git worktree unless the user asks for one.** `bench` resolves this app through `sites/apps.txt` and an editable install pointing at the main checkout, so a backend test run from a worktree exercises the main checkout's code, not the change — a green result there proves nothing. The one sanctioned exception is a frontend-only browser walk: a second vite on `:8081`, with the worktree's `node_modules` symlinked to the main checkout's. Stating the preference here is also what makes a worktree-creating skill stand down — such a skill honours a preference already given in the instructions rather than creating a worktree by default.
 - New doctypes: controllers go in `integrations/controllers/`. Doctype `*.py` stays minimal.
 - New APIs: `nirmaan_stack/api/<feature>/<file>.py`, snake_case.
 - Frontend: stay within the existing stack (shadcn/ui + TanStack Table + Zustand + frappe-react-sdk + React Hook Form + Zod). Do not introduce new UI libraries.

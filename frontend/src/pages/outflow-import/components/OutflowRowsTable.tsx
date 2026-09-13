@@ -15,7 +15,7 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import { DateFilterPopover } from "@/components/data-table/date-filter-popover";
 
-import { rowStatusLabel, rowStatusTone } from "../outflowImportStatus";
+import { TERMINAL_ROW_STATUSES, rowStatusLabel, rowStatusTone } from "../outflowImportStatus";
 import {
     OUTFLOW_COLUMNS,
     SERVER_SORT_COLUMNS,
@@ -698,7 +698,11 @@ const OutcomeButton = ({
     origin: DecisionOrigin;
     onOpenDecision: (row: OutflowImportRow) => void;
 }) => {
-    const terminal = row.row_status === "Settled" || row.row_status === "Skipped";
+    // ⚠️ READ THE SET, never re-spell it. This was two string literals, the one place in the
+    // client that duplicated the terminal vocabulary -- so a change to the module could not reach
+    // it. A `Partially Allocated` row must keep its Outcome button: it is frozen against
+    // re-matching, but a person still owes it a decision.
+    const terminal = TERMINAL_ROW_STATUSES.has(row.row_status);
     const note = row.outcome_note || row.skip_reason || "";
     const links = rowSettlementLinks(row);
 

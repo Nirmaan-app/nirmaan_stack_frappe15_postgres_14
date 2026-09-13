@@ -595,9 +595,12 @@ class TestTheReceiptBookkeeping(InflowFixture):
         self.assertEqual(match.match_kind, "Settled")
         # ⚠️ THE MATCH RECORD CARRIES THE NEGATIVE TOO, because `SettleResult.amount` means "the
         # amount WRITTEN". It reaches the export's `settled_target_amount`, where a negative is the
-        # truth about what this settlement recorded. It is NOT summed anywhere -- the batch totals
-        # read the ROW's own amount, which `review.py` states in its own note -- so it cannot net
-        # anything off.
+        # truth about what this settlement recorded. The batch totals still read the ROW's own
+        # amount (`review.py` says so in its own note), so it nets nothing off there. ⚠️ IT IS
+        # SUMMED IN EXACTLY ONE PLACE -- `allocation.allocated_of`, which takes its MAGNITUDE, and
+        # this line used to claim it was summed nowhere. That claim went stale when row status
+        # became a derived figure (ADR-0020); see that function for why both operands of the
+        # subtraction have to be magnitudes.
         self.assertLess(float(match.target_amount), 0)
 
     def test_the_summary_reports_a_created_record_at_the_negative_figure(self):

@@ -35,8 +35,8 @@ describe("toExportColumns", () => {
             OUTFLOW_COLUMNS.map((c) => c.id)
         );
         expect(columns.slice(OUTFLOW_COLUMNS.length).map((c) => c.id)).toEqual([
-            "settled_target_name",
-            "settled_target_amount",
+            "settled_target_names",
+            "settled_target_amounts",
         ]);
     });
 
@@ -44,20 +44,27 @@ describe("toExportColumns", () => {
         // ⚠️ These are export-only: `get_outflow_rows` does not select them, only
         // `export_outflow_rows` does. Declaring them in `OUTFLOW_COLUMNS` would render an em dash
         // on every row forever — the `settlement_origin` defect wearing the other face.
+        //
+        // ⚠️ RENAMED FROM SINGULAR SCALARS AT TASK 6 (ADR-0020 fan-out): `settled_target_name` /
+        // `settled_target_amount` are GONE, replaced by pipe-joined, plural keys that stay strings
+        // (one entry per settled leg, never a list) so a stale reader gets `undefined` rather than
+        // one arbitrarily-picked leg.
         const modelIds = new Set(OUTFLOW_COLUMNS.map((c) => c.id));
-        expect(modelIds.has("settled_target_name")).toBe(false);
-        expect(modelIds.has("settled_target_amount")).toBe(false);
+        expect(modelIds.has("settled_target_names")).toBe(false);
+        expect(modelIds.has("settled_target_amounts")).toBe(false);
 
         const byId = new Map(toExportColumns(OUTFLOW_COLUMNS).map((c) => [c.id, c]));
-        expect(byId.get("settled_target_name")!.meta.exportHeaderName).toBe("Settled record");
-        expect(byId.get("settled_target_amount")!.meta.exportHeaderName).toBe("Settled amount");
+        expect(byId.get("settled_target_names")!.meta.exportHeaderName).toBe("Settled record(s)");
+        expect(byId.get("settled_target_amounts")!.meta.exportHeaderName).toBe(
+            "Settled amount(s)"
+        );
 
         const settled = row({
-            settled_target_name: "PAY-26-00042",
-            settled_target_amount: 27504.31,
+            settled_target_names: "PAY-26-00042",
+            settled_target_amounts: "27504.31",
         });
-        expect(byId.get("settled_target_name")!.meta.exportValue(settled)).toBe("PAY-26-00042");
-        expect(byId.get("settled_target_amount")!.meta.exportValue(settled)).toBe(27504.31);
+        expect(byId.get("settled_target_names")!.meta.exportValue(settled)).toBe("PAY-26-00042");
+        expect(byId.get("settled_target_amounts")!.meta.exportValue(settled)).toBe("27504.31");
     });
 
     it("leaves an unsettled row BLANK, never zero", () => {
@@ -65,9 +72,11 @@ describe("toExportColumns", () => {
         // settled YET, and only absence says that.
         const byId = new Map(toExportColumns(OUTFLOW_COLUMNS).map((c) => [c.id, c]));
         const open = row({});
-        expect(byId.get("settled_target_name")!.meta.exportValue(open)).toBe("");
-        expect(byId.get("settled_target_amount")!.meta.exportValue(open)).toBe("");
-        expect(byId.get("settled_target_amount")!.meta.exportValue(row({ settled_target_amount: null }))).toBe("");
+        expect(byId.get("settled_target_names")!.meta.exportValue(open)).toBe("");
+        expect(byId.get("settled_target_amounts")!.meta.exportValue(open)).toBe("");
+        expect(
+            byId.get("settled_target_amounts")!.meta.exportValue(row({ settled_target_amounts: undefined }))
+        ).toBe("");
     });
 
     it("names every heading with the column's own title, on both keys the writer reads", () => {
@@ -183,8 +192,8 @@ describe("toExportColumns", () => {
         // The export-only pair does not come from the screen's model, so it does not disappear with
         // it. Both callers must produce the same file shape whatever they pass.
         expect(toExportColumns([]).map((c) => c.id)).toEqual([
-            "settled_target_name",
-            "settled_target_amount",
+            "settled_target_names",
+            "settled_target_amounts",
         ]);
     });
 });

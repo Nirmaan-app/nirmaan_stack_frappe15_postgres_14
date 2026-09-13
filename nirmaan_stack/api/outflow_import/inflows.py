@@ -75,6 +75,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
     _link_statement_file_to_target,
     _load_settleable_row,
     _record_settlement,
+    _refresh_row_allocation,
     _statement_file_url,
     _summary,
 )
@@ -138,6 +139,16 @@ def create_inflow(row: str, project: str, customer: str = None, invoice: str = N
             direction=doc.get("direction"),
         )
         _record_settlement(staged, doc, result, actor)
+        # ⚠️ INSIDE THE SAVEPOINT, AND IT IS WHAT MARKS THE ROW DONE. `_record_settlement` writes
+        # the leg; the row's own status is DERIVED from its legs (ADR-0020) and written here. This
+        # call is the port that was missed when the flip moved out of `_record_settlement` -- this
+        # module never referenced either name, so a recorded credit sat at `Mismatched` and the
+        # per-row guard both endpoints lean on never engaged.
+        #
+        # ⚠️ `result` IS PASSED SO THE NOTE READS "Recorded", NOT "Settled". Both credit paths
+        # CREATE their record, and `allocation_note` distinguishes a record this import brought into
+        # existence from one that was already sitting there approved.
+        _refresh_row_allocation(staged.name, actor, result)
     except Exception:
         # Roll back to the savepoint rather than the whole request, for the reason `settle_row`
         # gives: the caller gets the real error and the database is exactly as it was.
@@ -211,6 +222,16 @@ def create_non_project_receipt(row: str, expense_type: str, description: str = N
             statement_file_url=statement_file_url,
         )
         _record_settlement(staged, doc, result, actor)
+        # ⚠️ INSIDE THE SAVEPOINT, AND IT IS WHAT MARKS THE ROW DONE. `_record_settlement` writes
+        # the leg; the row's own status is DERIVED from its legs (ADR-0020) and written here. This
+        # call is the port that was missed when the flip moved out of `_record_settlement` -- this
+        # module never referenced either name, so a recorded credit sat at `Mismatched` and the
+        # per-row guard both endpoints lean on never engaged.
+        #
+        # ⚠️ `result` IS PASSED SO THE NOTE READS "Recorded", NOT "Settled". Both credit paths
+        # CREATE their record, and `allocation_note` distinguishes a record this import brought into
+        # existence from one that was already sitting there approved.
+        _refresh_row_allocation(staged.name, actor, result)
     except Exception:
         # Roll back to the savepoint rather than the whole request, for the reason `settle_row`
         # gives: the caller gets the real error and the database is exactly as it was.
@@ -304,11 +325,19 @@ def _guard_not_already_recorded(staged, doc) -> None:
     look at, then a record booked outside this feature, which names only the record.
 
     ⚠️ THE TWO LOOKUPS KEY ON DIFFERENT COLUMNS, AND THAT IS NOT AN INCONSISTENCY. An
-    `Outflow Row Match` carries the `transfer_id`; a `Project Inflow` carries the bank REFERENCE, in
-    `utr`, because that is what `create_inflow_from_row` writes there. Cashbook's pair happens to
-    use one value for both only because a wallet's transfer id IS its payment reference. Keying the
-    second lookup on `transfer_id` here would compare a bank tran-id against a NEFT/RTGS reference
-    and match nothing, silently -- a guard that always passes.
+    `Outflow Row Match` carries the `transfer_id`; a `Project Inflow` carries a REFERENCE, in `utr`,
+    because that is what `create_inflow_from_row` writes there. Cashbook's pair happens to use one
+    value for both only because a wallet's transfer id IS its payment reference. Keying the second
+    lookup on `transfer_id` here would compare a bank tran-id against a NEFT/RTGS reference and
+    match nothing, silently -- a guard that always passes.
+
+    ⚠️ THIS GUARD STILL KEYS ON `bank_reference_no`, WHILE THE WRITE IS NOW `settlement_reference`
+    (ADR-0020 B9) -- and the mismatch is DELIBERATE, not an oversight left behind by that slice.
+    The resolved value may be a gateway id, and `reference_id` is not unique (2,237 rows carry 523
+    distinct values), so keying a duplicate guard on it would refuse an unrelated second receipt.
+    The cost is unchanged from before B9: a credit whose bank gave no reference is unseeable to
+    this second lookup either way -- it used to write a blank `utr`, it now writes a value this
+    guard does not compare. The FIRST lookup, on `transfer_id`, is what actually covers a re-import.
     """
     prior = find_prior_sighting(
         _already_created_by_import(staged),

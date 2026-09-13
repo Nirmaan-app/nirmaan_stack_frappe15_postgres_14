@@ -2,17 +2,25 @@
 
 import { describe, expect, it } from "vitest";
 
+import { SETTLE_MODE_HINT, SETTLE_MODE_LABEL } from "./allocationView";
 import type { SettleableRecord } from "./outflowTableModel";
 import {
     BLANK_FACET_ID,
     EMPTY_FILTERS,
+    NORMAL_NO_CANDIDATES_NOTE,
+    RECORD_POOL_FAILED_NOTE,
+    SPLIT_NO_CANDIDATES_NOTE,
+    SPLIT_PAYMENTS_ONLY_NOTE,
     applyRecordFilters,
+    splitCandidates,
     facetValues,
     hasActiveFilters,
     matchesText,
     nextSortState,
     parseAmountBound,
     reasonCaption,
+    recordPoolMessage,
+    recordPoolState,
     recordSortDate,
     sortRecords,
     visibleRecords,
@@ -352,5 +360,131 @@ describe("visibleRecords composes filter then sort", () => {
             dir: "asc",
         });
         expect(shown.map((r) => r.name)).toEqual(["C", "A"]);
+    });
+});
+
+describe("splitCandidates -- Split mode lists approved payments only (ADR-0020 B2/B3)", () => {
+    const pool = [
+        record({ target_doctype: "Project Payments", name: "PAY-1" }),
+        record({ target_doctype: "Project Expenses", name: "PE-1" }),
+        record({ target_doctype: "Project Payments", name: "PAY-2" }),
+        record({ target_doctype: "Non Project Expenses", name: "NPE-1" }),
+    ];
+
+    it("keeps every Project Payment and drops both expense ledgers", () => {
+        // ⚠️ THE RESTRICTION ALREADY EXISTS on `allocate_row` and on `tickAllowedForFanOut`; this
+        // stops OFFERING what would be refused, rather than adding a rule.
+        expect(splitCandidates(pool).map((r) => r.name)).toEqual(["PAY-1", "PAY-2"]);
+    });
+
+    it("keeps the server's ranking order untouched", () => {
+        // The pool arrives ranked by similarity server-side; narrowing must not re-sort it.
+        const ranked = [
+            record({ target_doctype: "Project Payments", name: "B" }),
+            record({ target_doctype: "Project Expenses", name: "X" }),
+            record({ target_doctype: "Project Payments", name: "A" }),
+        ];
+        expect(splitCandidates(ranked).map((r) => r.name)).toEqual(["B", "A"]);
+    });
+
+    it("returns an empty list rather than falling back to the whole pool", () => {
+        // ⚠️ A FALLBACK WOULD BE THE WORST SHAPE: it would offer expense records the endpoint
+        // refuses, on the one screen whose whole job is to stop that. The caller renders
+        // `SPLIT_NO_CANDIDATES_NOTE` instead -- a silent empty list reads as a broken screen.
+        const expensesOnly = [
+            record({ target_doctype: "Project Expenses", name: "PE-1" }),
+            record({ target_doctype: "Non Project Expenses", name: "NPE-1" }),
+        ];
+        expect(splitCandidates(expensesOnly)).toEqual([]);
+        expect(splitCandidates([])).toEqual([]);
+    });
+
+    it("says why the list is narrowed, and what to do when it is empty", () => {
+        // The sentences are pinned because both are the ONLY thing on screen explaining an absence.
+        expect(SPLIT_PAYMENTS_ONLY_NOTE).toMatch(/approved project payments/i);
+        expect(SPLIT_NO_CANDIDATES_NOTE).toMatch(/no approved project payment/i);
+        // ⚠️ THE EMPTY STATE MUST NAME THE WAY OUT, not merely report the absence.
+        expect(SPLIT_NO_CANDIDATES_NOTE).toMatch(/normal/i);
+    });
+
+    it("NEVER calls either mode a 'partial' anything -- the inverse feature owns that word", () => {
+        // ⚠️ THE SAME DIALOG RENDERS A RADIO LABELLED "A part payment", belonging to the INVERSE
+        // feature (one approved payment split across several TRANSFERS). Two radio groups in one
+        // dialog with near-identical labels and opposite meanings is the worst available outcome,
+        // so the ban is mechanical rather than a note somebody has to remember.
+        for (const copy of [
+            SPLIT_PAYMENTS_ONLY_NOTE,
+            SPLIT_NO_CANDIDATES_NOTE,
+            SETTLE_MODE_LABEL.normal,
+            SETTLE_MODE_LABEL.split,
+            SETTLE_MODE_HINT.normal,
+            SETTLE_MODE_HINT.split,
+        ]) {
+            expect(copy.toLowerCase()).not.toMatch(/part payment|partial/);
+        }
+    });
+});
+
+describe("recordPoolState -- loading, failed and empty are three different answers (issue #1248)", () => {
+    // What a fresh fetch looks like before anything has come back.
+    const base = { balanceUnknown: false, hasAnswer: false, poolSize: 0, isLoading: false, failed: false };
+
+    it("a failed search is FAILED, never empty -- this is the defect", () => {
+        // ⚠️ SWR's failed shape: no data, not loading, an error. Before #1248 the screen read only
+        // `data` and `isLoading`, so this was indistinguishable from an empty pool.
+        expect(recordPoolState({ ...base, failed: true })).toBe("failed");
+    });
+
+    it("a retry after a failure is LOADING, never empty", () => {
+        // ⚠️ SWR keeps the old `error` while it retries and sets `isLoading` again (no data is
+        // cached). Loading and failed may alternate; "there is nothing" must never appear between.
+        expect(recordPoolState({ ...base, isLoading: true, failed: true })).toBe("loading");
+    });
+
+    it("EMPTY needs a real answer -- no answer and no error is still loading", () => {
+        // A key that has not fired yet (or a `null` key) reports neither loading nor an error.
+        expect(recordPoolState(base)).toBe("loading");
+        expect(recordPoolState({ ...base, hasAnswer: true })).toBe("empty");
+    });
+
+    it("an unknown balance is loading, whatever the fetch says", () => {
+        expect(recordPoolState({ ...base, balanceUnknown: true, failed: true })).toBe("loading");
+        expect(recordPoolState({ ...base, balanceUnknown: true, hasAnswer: true, poolSize: 3 })).toBe("loading");
+    });
+
+    it("records in hand are shown, even if a background refresh then failed", () => {
+        expect(recordPoolState({ ...base, hasAnswer: true, poolSize: 2 })).toBe("ready");
+        expect(recordPoolState({ ...base, hasAnswer: true, poolSize: 2, failed: true })).toBe("ready");
+    });
+
+    it("an answer that the Split narrowing emptied is EMPTY, not failed", () => {
+        expect(recordPoolState({ ...base, hasAnswer: true, poolSize: 0 })).toBe("empty");
+    });
+});
+
+describe("recordPoolMessage -- one sentence per state, per mode", () => {
+    it("keeps both empty sentences exactly as they were", () => {
+        expect(recordPoolMessage("empty", "split")).toBe(SPLIT_NO_CANDIDATES_NOTE);
+        expect(recordPoolMessage("empty", "normal")).toBe(NORMAL_NO_CANDIDATES_NOTE);
+        expect(NORMAL_NO_CANDIDATES_NOTE).toBe("There are no approved payments or expenses to link to.");
+    });
+
+    it("says the list could not be loaded -- and claims nothing about what exists", () => {
+        for (const mode of ["normal", "split"] as const) {
+            const failed = recordPoolMessage("failed", mode);
+            expect(failed).toBe(RECORD_POOL_FAILED_NOTE);
+            expect(failed).toMatch(/could not be loaded/i);
+            expect(failed).toMatch(/try again/i);
+            // ⚠️ A FAILURE MUST NOT BORROW THE EMPTY SENTENCE, or say anything is absent.
+            expect(failed).not.toBe(recordPoolMessage("empty", mode));
+            expect(failed.toLowerCase()).not.toMatch(/there are no|nothing to/);
+        }
+    });
+
+    it("gives loading, failed and empty three distinct sentences in both modes", () => {
+        for (const mode of ["normal", "split"] as const) {
+            const sentences = (["loading", "failed", "empty"] as const).map((s) => recordPoolMessage(s, mode));
+            expect(new Set(sentences).size).toBe(3);
+        }
     });
 });

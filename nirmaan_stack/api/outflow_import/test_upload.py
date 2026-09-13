@@ -36,6 +36,9 @@ from nirmaan_stack.api.outflow_import.permissions import (
 # Aliased at the import so a bare `execute()` in a test body cannot be read as anything but this
 # patch -- `patches/` is full of functions with that name.
 from nirmaan_stack.patches.v3_0.backfill_outflow_row_direction import execute as backfill_direction
+from nirmaan_stack.patches.v3_0.backfill_outflow_settlement_reference import (
+    execute as backfill_settlement_reference,
+)
 from nirmaan_stack.services.outflow_import.parser import SUPPORTED_SOURCES, parse_statement
 
 FIXTURE = (
@@ -1260,6 +1263,228 @@ class TestDirectionBackfillPatch(unittest.TestCase):
 
         backfill_direction()
         self.assertEqual(sorted(before, key=str), sorted(self._directions(batch), key=str))
+
+
+class TestSettlementReferenceIsResolvedAtIngest(unittest.TestCase):
+    """`Outflow Import Row.settlement_reference` -- the ONE value every write site reads (B9).
+
+    ⚠️ THE RESOLUTION IS PINNED HERE, AT THE INGEST, BECAUSE THAT IS WHERE IT HAPPENS. The five
+    write sites' behaviour is pinned in `test_settle_payment.TestTheResolvedSettlementReference`;
+    what this asserts is that the value ARRIVES on the staged row in the first place, per source
+    and per rung. A ladder that resolves correctly in a unit test and is never written would leave
+    every one of those suites green and every settlement blank.
+    """
+
+    created_batches: list = []
+
+    @classmethod
+    def tearDownClass(cls):
+        for name in cls.created_batches:
+            frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
+            frappe.db.delete(BATCH_DOCTYPE, {"name": name})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _stage_one(self, *, source="Cashfree", **reference_fields):
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        parsed = replace(
+            parsed, source=source, rows=(replace(parsed.rows[0], **reference_fields),)
+        )
+        batch = _stage_batch(
+            parsed,
+            file_url="/private/files/test-statement.csv",
+            filename="test-statement.csv",
+            user="Administrator",
+        )
+        self.created_batches.append(batch.name)
+        frappe.db.commit()
+        return frappe._dict(
+            frappe.db.get_value(
+                ROW_DOCTYPE,
+                {"import_batch": batch.name},
+                ["name", "bank_reference_no", "reference_id", "transfer_id",
+                 "settlement_reference"],
+                as_dict=True,
+            )
+        )
+
+    def test_rung_one_the_bank_reference_wins(self):
+        row = self._stage_one(bank_reference_no="UTR-RUNG-1", reference_id="GW-1")
+        self.assertEqual(row.settlement_reference, "UTR-RUNG-1")
+
+    def test_rung_two_the_gateway_reference_when_the_bank_gave_none(self):
+        """The 61 live rows in this shape are all `Skipped`, so nothing on the ledger is wrong
+        today -- this is what stops it going wrong the day one of them is re-decided."""
+        row = self._stage_one(bank_reference_no="", reference_id="GW-RUNG-2")
+        self.assertEqual(row.settlement_reference, "GW-RUNG-2")
+
+    def test_rung_three_is_the_wallet_transfer_id_and_only_the_wallet(self):
+        """⚠️ BOTH HALVES IN ONE TEST, because the scope is the load-bearing part. Every source has
+        a `transfer_id`; only the wallet has nothing else, which is what makes its transaction id a
+        settlement reference rather than a fourth identifier nobody reconciles against. An
+        unscoped third rung would stamp a gateway's own transfer id into `Project Payments.utr` on
+        2,237 Cashfree rows nobody asked for."""
+        wallet = self._stage_one(source="Cashbook", bank_reference_no="", reference_id="")
+        self.assertEqual(wallet.settlement_reference, wallet.transfer_id)
+
+        gateway = self._stage_one(source="Cashfree", bank_reference_no="", reference_id="")
+        self.assertTrue(gateway.transfer_id, "fixture precondition: it HAS a transfer id")
+        self.assertIn(gateway.settlement_reference, (None, ""))
+
+    def test_the_matchers_own_column_is_untouched_by_any_of_this(self):
+        """⚠️ THE GUARDED SURFACE, PINNED FROM THE INGEST SIDE. `normalized_reference` is derived
+        from `bank_reference_no` ALONE and feeds reference matching and the duplicate guard. A row
+        with no bank reference must still store a BLANK there, however much
+        `settlement_reference` now has to offer -- deriving it from the resolved value would make a
+        gateway id matchable against `Project Payments.utr`, a column already holding hundreds of
+        non-bank strings.
+
+        ⚠️ `normalized_reference` IS BLANKED IN THE FIXTURE ALONGSIDE `bank_reference_no`, and it
+        has to be: `dataclasses.replace` copies the derived field rather than re-deriving it, so
+        clearing only the bank column leaves a `RawRow` no parser could ever produce. The parser
+        computes `normalize_reference("")` for a row with no bank reference, which is what this
+        reproduces -- the earlier draft asserted against a fixture that lied.
+        """
+        row = self._stage_one(
+            bank_reference_no="", normalized_reference="", reference_id="GW-NOT-A-BANK-REF"
+        )
+        self.assertEqual(row.settlement_reference, "GW-NOT-A-BANK-REF")
+        self.assertIn(
+            frappe.db.get_value(ROW_DOCTYPE, row.name, "normalized_reference"), (None, "")
+        )
+
+
+class TestSettlementReferenceBackfillPatch(unittest.TestCase):
+    """`patches/v3_0/backfill_outflow_settlement_reference.py`.
+
+    ⚠️ IT RUNS AGAINST THE LIVE SITE TABLE, for the reason `TestDirectionBackfillPatch` gives: that
+    is what the patch does, there is no honest way to scope an `UPDATE ... FROM` to one suite's
+    rows, and it is idempotent and only ever fills a blank. What is ASSERTED is this suite's own
+    rows.
+    """
+
+    created_batches: list = []
+
+    @classmethod
+    def tearDownClass(cls):
+        for name in cls.created_batches:
+            frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
+            frappe.db.delete(BATCH_DOCTYPE, {"name": name})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _stage_blanked(self, *, source="Cashfree", **reference_fields):
+        """Stage a batch, then BLANK `settlement_reference` -- manufacturing the historical shape
+        the patch exists for: a row staged before the column existed.
+
+        ⚠️ Do NOT "simplify" this by deleting the blanking and asserting the rows already carry the
+        value. That asserts the INGEST's behaviour through the patch's test, and the patch could
+        then be gutted entirely without a single test going red -- the trap
+        `TestDirectionBackfillPatch` records having fallen into once already.
+        """
+        parsed = _parsed_in_a_fresh_transfer_namespace()
+        parsed = replace(
+            parsed, source=source, rows=(replace(parsed.rows[0], **reference_fields),)
+        )
+        batch = _stage_batch(
+            parsed,
+            file_url="/private/files/test-statement.csv",
+            filename="test-statement.csv",
+            user="Administrator",
+        )
+        self.created_batches.append(batch.name)
+        name = frappe.db.get_value(ROW_DOCTYPE, {"import_batch": batch.name}, "name")
+        frappe.db.set_value(ROW_DOCTYPE, name, "settlement_reference", "", update_modified=False)
+        frappe.db.commit()
+        self.assertIn(
+            frappe.db.get_value(ROW_DOCTYPE, name, "settlement_reference"), (None, "")
+        )
+        return name
+
+    def _resolved(self, name):
+        return frappe.db.get_value(ROW_DOCTYPE, name, "settlement_reference")
+
+    def test_it_fills_each_rung_on_a_row_that_predates_the_column(self):
+        bank = self._stage_blanked(bank_reference_no="UTR-OLD-1", reference_id="GW-OLD-1")
+        gateway = self._stage_blanked(bank_reference_no="", reference_id="GW-OLD-2")
+        wallet = self._stage_blanked(source="Cashbook", bank_reference_no="", reference_id="")
+
+        backfill_settlement_reference()
+
+        self.assertEqual(self._resolved(bank), "UTR-OLD-1")
+        self.assertEqual(self._resolved(gateway), "GW-OLD-2")
+        self.assertEqual(
+            self._resolved(wallet),
+            frappe.db.get_value(ROW_DOCTYPE, wallet, "transfer_id"),
+        )
+
+    def test_it_never_gives_a_gateway_row_its_own_transfer_id(self):
+        """⚠️ THE NEGATIVE THE SCOPE EXISTS FOR. A bare `COALESCE(bank, gateway, transfer)` reads
+        as harmless and would stamp a gateway's transfer id into `Project Payments.utr` on every
+        such row -- invisibly, in a column that already holds hundreds of non-bank strings."""
+        gateway = self._stage_blanked(bank_reference_no="", reference_id="")
+        self.assertTrue(frappe.db.get_value(ROW_DOCTYPE, gateway, "transfer_id"))
+
+        backfill_settlement_reference()
+
+        self.assertIn(self._resolved(gateway), (None, ""))
+
+    def test_the_sql_restatement_agrees_with_the_resolver_on_every_rung(self):
+        """⚠️ THE SEAM NOTHING ELSE CROSSES. The patch RESTATES the ladder in SQL rather than
+        importing it, deliberately -- a patch is append-only history and must keep meaning what it
+        meant on the day it ran. Restating means the two CAN disagree, and they never meet at
+        runtime: the resolver runs at ingest, the SQL runs once at migrate. Each side's own tests
+        would stay green through a divergence.
+
+        Verified separately against all 2,511 live rows on 2026-09-11 (0 mismatches); this pins the
+        same comparison on rows the suite owns, per rung and per source.
+        """
+        from nirmaan_stack.services.outflow_import.settlement_reference import (
+            resolve_settlement_reference,
+        )
+
+        cases = [
+            self._stage_blanked(bank_reference_no="UTR-P", reference_id="GW-P"),
+            self._stage_blanked(bank_reference_no="", reference_id="GW-P2"),
+            self._stage_blanked(bank_reference_no="", reference_id=""),
+            self._stage_blanked(source="Cashbook", bank_reference_no="", reference_id=""),
+        ]
+
+        backfill_settlement_reference()
+
+        for name in cases:
+            row = frappe.db.get_value(
+                ROW_DOCTYPE,
+                name,
+                ["bank_reference_no", "reference_id", "transfer_id", "settlement_reference"],
+                as_dict=True,
+            )
+            source = frappe.db.get_value(
+                BATCH_DOCTYPE,
+                frappe.db.get_value(ROW_DOCTYPE, name, "import_batch"),
+                "source",
+            )
+            self.assertEqual(
+                (row["settlement_reference"] or "").strip(),
+                resolve_settlement_reference(
+                    bank_reference_no=row["bank_reference_no"],
+                    reference_id=row["reference_id"],
+                    transfer_id=row["transfer_id"],
+                    source=source,
+                ),
+                f"{name} ({source}) -- the patch's SQL and the resolver disagree",
+            )
+
+    def test_it_is_idempotent_and_never_overwrites_a_value_already_there(self):
+        row = self._stage_blanked(bank_reference_no="UTR-OLD-3", reference_id="GW-OLD-3")
+        # A hand correction the patch must leave alone.
+        frappe.db.set_value(ROW_DOCTYPE, row, "settlement_reference", "HAND", update_modified=False)
+        frappe.db.commit()
+
+        backfill_settlement_reference()
+        backfill_settlement_reference()
+
+        self.assertEqual(self._resolved(row), "HAND")
 
 
 # --- slice C5: what the Check step is told about the SHEET -----------------------------------------

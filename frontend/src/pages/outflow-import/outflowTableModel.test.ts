@@ -6,6 +6,8 @@ import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import * as model from "./outflowTableModel";
 import {
     DEFAULT_HIDDEN_COLUMNS,
+    clearedPick,
+    pickFitsSingleSelect,
     UPLOADER_DISPLAY_MAX,
     isCreditRow,
     availableDecisionTargets,
@@ -58,10 +60,12 @@ import {
     RECORD_DATE_LABELS,
     recordDateParts,
     recordKey,
+    tickAllowedForFanOut,
     DEFAULT_PAGE_SIZE,
     SCOPE_FOR_TAB,
     countDecided,
     decidedRows,
+    decisionLinkKeys,
     decisionOrigin,
     highlightSegments,
     importOptionLabel,
@@ -100,6 +104,14 @@ import {
  * that is NOT a React semantic. The screen itself is verified by a live browser walk -- the method
  * that found five real defects in the prototype that a green suite could never have seen.
  */
+
+/**
+ * Test-only shorthand: the `linkTargets` set the picker would build from one or more ticks
+ * (Task 7, ADR-0020 fan-out). Replaces the old bare `linkTo: "PAY-1"` string pins.
+ */
+const linkTargets = (
+    ...picks: Array<{ target_doctype: string; name: string }>
+): Set<string> => new Set(picks.map((p) => recordKey(p)));
 
 const row = (over: Partial<OutflowImportRow> = {}): OutflowImportRow =>
     ({
@@ -300,16 +312,23 @@ describe("columns", () => {
         expect(DEFAULT_HIDDEN_COLUMNS).not.toContain("settled_ledger");
     });
 
-    it("reads the ledger off the row, and blank when nothing has settled", () => {
-        // Blank is CORRECT, not missing data: an open transfer has no settlement, so it has no
-        // ledger. `get` must never return undefined -- it feeds the sort, the funnel and the CSV.
+    it("reads the ledger LIST off the row and joins it, blank when nothing has settled", () => {
+        // ⚠️ RENAMED AT TASK 6 (ADR-0020 fan-out): `r.settled_ledgers` (a list, possibly more than
+        // one entry since a single transfer may now settle into several books) REPLACED the scalar
+        // `r.settled_ledger` this column used to read. Blank is CORRECT, not missing data: an open
+        // transfer has no settlement, so it has no ledger. `get` must never return undefined -- it
+        // feeds the sort, the funnel and the CSV.
         const col = OUTFLOW_COLUMNS.find((c) => c.id === "settled_ledger")!;
-        expect(col.get(row({ settled_ledger: "Project Payments" }))).toBe("Project Payments");
-        expect(col.get(row({ settled_ledger: "Non Project Expenses" }))).toBe(
+        expect(col.get(row({ settled_ledgers: ["Project Payments"] }))).toBe("Project Payments");
+        expect(col.get(row({ settled_ledgers: ["Non Project Expenses"] }))).toBe(
             "Non Project Expenses"
         );
+        expect(
+            col.get(row({ settled_ledgers: ["Project Payments", "Project Expenses"] }))
+        ).toBe("Project Payments, Project Expenses");
         expect(col.get(row())).toBe("");
-        expect(col.get(row({ settled_ledger: undefined }))).toBe("");
+        expect(col.get(row({ settled_ledgers: [] }))).toBe("");
+        expect(col.get(row({ settled_ledgers: undefined }))).toBe("");
     });
 
     it("faceted on the server and NEVER sorted there", () => {
@@ -956,14 +975,24 @@ describe("the Vendor / Description cell", () => {
 });
 
 describe("tabs", () => {
-    it("is All / Not-Matched / Matched-Settled, in that order", () => {
+    it("is All / Not-Matched / Partly Allocated / Matched-Settled, in that order", () => {
         // ⚠️ THERE IS NO SKIPPED TAB, and "All" excludes Skipped too (owner ruling 2026-08-10) --
         // it means everything a person might still act on, not every row in the table. The import
         // summary panel is the only place skipped transfers are reported.
-        expect(OUTFLOW_TABS.map((t) => t.id)).toEqual(["all", "notMatched", "matched"]);
+        //
+        // `Partly Allocated` got its OWN tab rather than being folded into `matched` -- see the
+        // `_SCOPE_STATUSES` comment in review.py: a third status under "Matched / Settled" would
+        // break `tabCountParts`' two-chip split.
+        expect(OUTFLOW_TABS.map((t) => t.id)).toEqual([
+            "all",
+            "notMatched",
+            "partlyAllocated",
+            "matched",
+        ]);
         expect(OUTFLOW_TABS.map((t) => t.label)).toEqual([
             "All",
             "Not-Matched",
+            "Partly Allocated",
             "Matched / Settled",
         ]);
     });
@@ -978,6 +1007,7 @@ describe("tabs", () => {
         // would silently scope to the server's fallback rather than to what the label promises.
         expect(SCOPE_FOR_TAB.all).toBe("all");
         expect(SCOPE_FOR_TAB.notMatched).toBe("not_matched");
+        expect(SCOPE_FOR_TAB.partlyAllocated).toBe("partly");
         expect(SCOPE_FOR_TAB.matched).toBe("matched");
     });
 
@@ -1217,8 +1247,160 @@ describe("activeFilterCount", () => {
     });
 });
 
+/**
+ * ⚠️ THE ONE READER OF "WHAT DID THIS DECISION PICK" (issue #1240 prefactor, ADR-0020 B3).
+ *
+ * A `RowDecision` can now name its record(s) in EITHER of two fields -- `linkTo` (the restored
+ * single-select picker, Normal mode) or `linkTargets` (the fan-out picker, Split mode) -- and the
+ * readers that consume them include the BULK confirm path, which has no dialog and therefore no
+ * mode. Everything downstream goes through this one normaliser rather than reading a field, so a
+ * reader cannot accidentally accept one shape and reject the other. That naive revert -- checking
+ * `decision.target && decision.linkTo` -- would reject every fan-out decision on the branch.
+ */
+/**
+ * ⚠️ THE TWO RULES THE SETTLE MODE NEEDS, BOTH ABOUT THE TWO-FIELD PICK SHAPE (issue #1241).
+ * They live beside `decisionLinkKeys` because that is the module that owns the shape, and they are
+ * pinned here because the alternative -- an inline object spread in `OutflowMasterPage` -- is a
+ * domain rule inside a page component, which ADR-0010 F4 forbids and this repo has no way to test.
+ */
+describe("clearedPick / pickFitsSingleSelect -- the mode's half of the pick contract", () => {
+    it("clears BOTH pick fields, not just the outgoing one", () => {
+        // ⚠️ `decisionLinkKeys` lets a non-empty `linkTargets` WIN, so a `linkTo` left behind is
+        // INVISIBLE while ticks exist and speaks again the moment the last one comes off. Clearing
+        // one field would leave the row counted as decided against a record nobody can see.
+        const cleared = clearedPick({
+            target: "Project Payments",
+            linkTo: "PAY-1",
+            linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-2" }),
+        });
+        expect(decisionLinkKeys(cleared).size).toBe(0);
+        expect(cleared.linkTo).toBeNull();
+        expect(cleared.linkTargets?.size).toBe(0);
+        expect(cleared.target).toBeUndefined();
+    });
+
+    it("keeps everything else on the decision untouched", () => {
+        // A half-filled "create a new expense" form must survive a mode switch: the reviewer has
+        // not abandoned it, they have changed how the SETTLE half of the dialog behaves.
+        const cleared = clearedPick({
+            target: "new",
+            newExpense: { doctype: "Project Expenses", description: "kept" },
+        });
+        expect(cleared.newExpense).toEqual({ doctype: "Project Expenses", description: "kept" });
+    });
+
+    it("`linkTo: null` is a DELIBERATE CLEAR, never an absence", () => {
+        // `seedDecisions` relies on that distinction to avoid overwriting a cleared decision, so
+        // the cleared shape must carry the null rather than dropping the key.
+        expect("linkTo" in clearedPick({})).toBe(true);
+        expect(clearedPick({}).linkTo).toBeNull();
+    });
+
+    it("says whether a pick can be shown by a SINGLE-SELECT picker", () => {
+        expect(pickFitsSingleSelect({})).toBe(true);
+        expect(pickFitsSingleSelect({ target: "Project Payments", linkTo: "PAY-1" })).toBe(true);
+        expect(
+            pickFitsSingleSelect({
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+            })
+        ).toBe(true);
+    });
+
+    it("REFUSES a multi-pick, which is the defect it exists for", () => {
+        // ⚠️ THE REACHABLE BUG. Decisions outlive the dialog: tick two payments in Split, close
+        // WITHOUT confirming, reopen. The mode resets to Normal, whose radio table can show only
+        // ONE of the two -- while `settleOne` still reads both through `decisionLinkKeys` and, by
+        // the capacity rule, posts them to `allocate_row`. The screen would show one record and
+        // submit two. `openDecisionRow` clears such a pick instead of truncating it: taking the
+        // first would silently settle one of two records the reviewer deliberately chose.
+        expect(
+            pickFitsSingleSelect({
+                linkTargets: linkTargets(
+                    { target_doctype: "Project Payments", name: "PAY-1" },
+                    { target_doctype: "Project Payments", name: "PAY-2" }
+                ),
+            })
+        ).toBe(false);
+    });
+});
+
+describe("decisionLinkKeys", () => {
+    const keys = (d: RowDecision) => [...decisionLinkKeys(d)];
+
+    it("reads the Split shape -- the ticked `linkTargets` set, in order", () => {
+        expect(
+            keys({
+                linkTargets: linkTargets(
+                    { target_doctype: "Project Payments", name: "PAY-1" },
+                    { target_doctype: "Project Payments", name: "PAY-2" }
+                ),
+            })
+        ).toEqual(["Project Payments|PAY-1", "Project Payments|PAY-2"]);
+    });
+
+    it("reads the Normal shape -- `target` + `linkTo` folded into ONE recordKey", () => {
+        // ⚠️ The ledger comes from `target`, which is why the Normal shape needs BOTH halves: a
+        // bare name is not unique across the three ledgers.
+        expect(keys({ target: "Project Payments", linkTo: "PAY-1" })).toEqual([
+            "Project Payments|PAY-1",
+        ]);
+        expect(keys({ target: "Non Project Expenses", linkTo: "NPE-4" })).toEqual([
+            "Non Project Expenses|NPE-4",
+        ]);
+    });
+
+    it("reads a half-written Normal decision as nothing picked", () => {
+        expect(keys({})).toEqual([]);
+        expect(keys({ target: "Project Payments" })).toEqual([]);
+        expect(keys({ target: "Project Payments", linkTo: null })).toEqual([]);
+        expect(keys({ target: "Project Payments", linkTo: "   " })).toEqual([]);
+        expect(keys({ linkTo: "PAY-1" })).toEqual([]);
+    });
+
+    it("refuses a `linkTo` under a ledger this screen cannot settle", () => {
+        // A leftover link under a "create something new" / inflow / receipt disposition is not a
+        // settle pick, and must never be folded into a key that looks like one.
+        expect(keys({ target: "new", linkTo: "PAY-1" })).toEqual([]);
+        expect(keys({ target: "inflow", linkTo: "PAY-1" })).toEqual([]);
+        expect(keys({ target: "receipt", linkTo: "PAY-1" })).toEqual([]);
+    });
+
+    it("reads an emptied Split selection as nothing picked", () => {
+        expect(keys({ target: "Project Payments", linkTargets: new Set() })).toEqual([]);
+    });
+
+    /**
+     * ⚠️ PRECEDENCE, AND THE CONTRACT IT RESTS ON. A non-empty `linkTargets` wins; `linkTo` is read
+     * only when nothing is ticked. This is safe because each picker OWNS its field and clears the
+     * other one -- see `RowDecision`. The precedence exists so a stale field can never be the one
+     * that speaks, not so the two can coexist.
+     */
+    it("lets a non-empty Split selection win over a leftover `linkTo`", () => {
+        expect(
+            keys({
+                target: "Project Payments",
+                linkTo: "PAY-STALE",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+            })
+        ).toEqual(["Project Payments|PAY-1"]);
+    });
+
+    it("falls back to `linkTo` when the Split field is present but empty", () => {
+        expect(
+            keys({
+                target: "Project Payments",
+                linkTo: "PAY-1",
+                linkTargets: new Set(),
+            })
+        ).toEqual(["Project Payments|PAY-1"]);
+    });
+});
+
 describe("isConfirmable", () => {
-    const link: RowDecision = { target: "Project Payments", linkTo: "PAY-1" };
+    const link: RowDecision = {
+        target: "Project Payments",
+        linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+    };
 
     it("accepts a matched row with a linked record", () => {
         expect(isConfirmable(row({ row_status: "Matched" }), link)).toBe(true);
@@ -1240,22 +1422,76 @@ describe("isConfirmable", () => {
         expect(isConfirmable(row({ row_status: "Skipped" }), link)).toBe(false);
     });
 
+    // ⚠️ Task 7 (ADR-0020): `Partially Allocated` is NOT in `OPEN_ROW_STATUSES` -- see that set's
+    // own docstring -- so the status gate above needs its own clause to admit it. Money is already
+    // written and a balance remains; a person still owes this row a decision.
+    it("accepts a Partially Allocated row -- money is written and a balance remains", () => {
+        expect(isConfirmable(row({ row_status: "Partially Allocated" }), link)).toBe(true);
+    });
+
     it("refuses a row with no decision at all", () => {
         expect(isConfirmable(row({ row_status: "Mismatched" }), undefined)).toBe(false);
     });
 
-    it("refuses a linked record with no ledger behind it", () => {
-        // ⚠️ The ledger now arrives WITH the chosen record instead of from a card clicked first
-        // (slice R2), so a decision can hold one half and not the other. Without both,
-        // `settle_row` would be posted with an undefined doctype.
-        expect(isConfirmable(row(), { linkTo: "PAY-1" })).toBe(false);
+    it("refuses a decision with nothing linked and nothing else set", () => {
         expect(isConfirmable(row(), {})).toBe(false);
+    });
+
+    // ⚠️ INVERTED at Task 7 (ADR-0020 fan-out), not deleted. Before `linkTargets`, `target` had to
+    // arrive WITH the record because a bare `linkTo` string carried no doctype (slice R2). Each
+    // `recordKey` in `linkTargets` now carries its OWN doctype, so `target` is no longer
+    // load-bearing for this branch -- a `linkTargets`-only decision is a complete one.
+    it("no longer needs `target` alongside `linkTargets` -- each recordKey carries its own ledger", () => {
+        expect(
+            isConfirmable(row(), {
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+            })
+        ).toBe(true);
+    });
+
+    /**
+     * ⚠️ THE RESTORED SINGLE-SELECT SHAPE (issue #1240, ADR-0020 B3). `linkTo` is what the Normal
+     * picker writes; `linkTargets` is what Split writes. This reader accepts EITHER, through the one
+     * `decisionLinkKeys` normaliser -- the naive revert to `decision.target && decision.linkTo`
+     * would reject every fan-out decision, and the bulk confirm path has no mode to tell them apart.
+     */
+    it("accepts the Normal shape -- `target` + `linkTo`, with no `linkTargets` at all", () => {
+        expect(
+            isConfirmable(row({ row_status: "Matched" }), {
+                target: "Project Payments",
+                linkTo: "PAY-1",
+            })
+        ).toBe(true);
+        // Any of the three ledgers, exactly as the `linkTargets` shape above -- `isConfirmable` has
+        // never been the place the ledger is narrowed.
+        expect(
+            isConfirmable(row({ row_status: "Mismatched" }), {
+                target: "Project Expenses",
+                linkTo: "PE-9",
+            })
+        ).toBe(true);
+        // ⚠️ DELIBERATELY A PAYMENT ON A `Partially Allocated` ROW. A single tick on that status
+        // routes to `allocate_row` (`chooseSettleEndpoint`), which refuses every non-payment target,
+        // so pinning a non-payment ledger as confirmable HERE would bank a shape the server rejects
+        // -- the offered-and-refused failure `tickAllowedForFanOut` exists to prevent. The Normal
+        // picker owes that same withholding when it lands; this pin must not read as permission.
+        expect(
+            isConfirmable(row({ row_status: "Partially Allocated" }), {
+                target: "Project Payments",
+                linkTo: "PAY-9",
+            })
+        ).toBe(true);
+    });
+
+    it("refuses a Normal decision the reviewer CLEARED -- a null `linkTo`", () => {
+        expect(isConfirmable(row(), { target: "Project Payments", linkTo: null })).toBe(false);
     });
 
     it("refuses a link decision with nothing linked", () => {
         expect(
-            isConfirmable(row(), { target: "Project Payments", linkTo: null })
+            isConfirmable(row(), { target: "Project Payments", linkTargets: new Set() })
         ).toBe(false);
+        expect(isConfirmable(row(), { target: "Project Payments" })).toBe(false);
     });
 
     it("requires a type on a new expense, and a project on the project side", () => {
@@ -1325,14 +1561,14 @@ describe("isConfirmable", () => {
         ).toBe(false);
     });
 
-    it("ignores a leftover `linkTo` on a `new` decision", () => {
+    it("ignores a leftover `linkTargets` on a `new` decision", () => {
         // Picking a record and THEN choosing the create card leaves the old link in the object --
         // `settleOne` reads only `newExpense` when the target is `new`, so it must not tip the
         // verdict either way. Here the form is complete, so the answer is yes despite the link.
         expect(
             isConfirmable(row({ row_status: "Matched" }), {
                 target: "new",
-                linkTo: "PAY-1",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
                 newExpense: { doctype: "Non Project Expenses", expenseType: "Rent" },
             })
         ).toBe(true);
@@ -1433,13 +1669,13 @@ describe("isConfirmable", () => {
         ).toBe(true);
     });
 
-    it("ignores a leftover `linkTo` on an `inflow` decision", () => {
+    it("ignores a leftover `linkTargets` on an `inflow` decision", () => {
         // Picking a record and THEN choosing the inflow card leaves the old link in the object;
         // `settleOne` reads only `newInflow` when the target is `inflow`.
         expect(
             isConfirmable(row({ row_status: "Matched", direction: "Credit" } as any), {
                 target: "inflow",
-                linkTo: "PAY-1",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
                 newInflow: { project: "P-1", customer: "CUST-1" },
             })
         ).toBe(true);
@@ -1537,13 +1773,13 @@ describe("isConfirmable", () => {
         ).toBe(true);
     });
 
-    it("ignores a leftover `linkTo` or `newInflow` on a `receipt` decision", () => {
+    it("ignores a leftover `linkTargets` or `newInflow` on a `receipt` decision", () => {
         // Picking a record, then the inflow card, then this one leaves both behind in the object;
         // `settleOne` reads only `newReceipt` when the target is `receipt`.
         expect(
             isConfirmable(row({ row_status: "Matched", direction: "Credit" } as any), {
                 target: "receipt",
-                linkTo: "PAY-1",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
                 newInflow: { project: "P-1", customer: "CUST-1" },
                 newReceipt: { expenseType: "Interest Received" },
             })
@@ -1588,7 +1824,7 @@ describe("isConfirmable", () => {
             expect(
                 isConfirmable(row({ row_status: "Mismatched", direction: "Credit" } as any), {
                     target,
-                    linkTo: "EXP-1",
+                    linkTargets: linkTargets({ target_doctype: target, name: "EXP-1" }),
                 })
             ).toBe(false);
         }
@@ -1688,7 +1924,10 @@ describe("the machine never proposes CREATING an expense (slice B5)", () => {
                     suggested_name: "PAY-1",
                 } as any)
             )
-        ).toEqual({ target: "Project Payments", linkTo: "PAY-1" });
+        ).toEqual({
+            target: "Project Payments",
+            linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+        });
     });
 });
 
@@ -1699,8 +1938,20 @@ describe("the bulk bar counts DECIDED rows, not selected ones", () => {
         row({ name: "c", row_status: "Mismatched" }),
     ];
     const decisions = new Map<string, RowDecision>([
-        ["a", { target: "Project Payments", linkTo: "PAY-1" }],
-        ["b", { target: "Project Payments", linkTo: "PAY-2" }],
+        [
+            "a",
+            {
+                target: "Project Payments",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+            },
+        ],
+        [
+            "b",
+            {
+                target: "Project Payments",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-2" }),
+            },
+        ],
     ]);
 
     it("reports 2 when 3 are ticked but one is unresolved", () => {
@@ -2045,6 +2296,47 @@ describe("links to the record a row settles — the FALLBACK path, with no order
     });
 });
 
+// Review fix 4: mirrors `allocate_row`'s "PROJECT PAYMENTS ONLY" refusal, so the picker can
+// disable a checkbox BEFORE the click rather than let the server's sentence be the first the
+// reviewer hears of it.
+describe("tickAllowedForFanOut", () => {
+    it("allows a lone non-payment tick on an untouched row -- settle_row handles any ledger", () => {
+        expect(tickAllowedForFanOut("Project Expenses", [], "Matched")).toBe(true);
+        expect(tickAllowedForFanOut("Non Project Expenses", [], "Mismatched")).toBe(true);
+    });
+
+    it("refuses a second tick that would add a non-payment to an existing tick-set", () => {
+        expect(
+            tickAllowedForFanOut("Project Expenses", ["Project Payments"], "Matched")
+        ).toBe(false);
+    });
+
+    it("refuses a second tick of any kind once a non-payment is already the sole tick", () => {
+        // Adding ANYTHING here makes a 2-element `targets` array containing a non-payment --
+        // `allocate_row` refuses the whole call, not just the offending element.
+        expect(
+            tickAllowedForFanOut("Project Payments", ["Project Expenses"], "Matched")
+        ).toBe(false);
+    });
+
+    it("allows growing an all-payments tick-set", () => {
+        expect(
+            tickAllowedForFanOut("Project Payments", ["Project Payments", "Project Payments"], "Matched")
+        ).toBe(true);
+    });
+
+    it("refuses ANY non-payment tick on an already Partially Allocated row", () => {
+        // Even a single tick there routes to `allocate_row` (`chooseSettleEndpoint`), so a lone
+        // non-payment tick is unsafe here even though the same tick is fine on an untouched row.
+        expect(tickAllowedForFanOut("Project Expenses", [], "Partially Allocated")).toBe(false);
+        expect(tickAllowedForFanOut("Non Project Expenses", [], "Partially Allocated")).toBe(false);
+    });
+
+    it("still allows a payment tick on a Partially Allocated row", () => {
+        expect(tickAllowedForFanOut("Project Payments", [], "Partially Allocated")).toBe(true);
+    });
+});
+
 describe("the match run's suggestion becomes a decision", () => {
     /**
      * ⚠️ THE "EXACTLY ONE" RULE IS NOT TESTED HERE, ON PURPOSE. It lives on the server, in
@@ -2063,7 +2355,10 @@ describe("the match run's suggestion becomes a decision", () => {
     it("reads the stored pair as a ready decision", () => {
         expect(suggestedDecision(suggested())).toEqual({
             target: "Project Payments",
-            linkTo: "PAY-00105-038",
+            linkTargets: linkTargets({
+                target_doctype: "Project Payments",
+                name: "PAY-00105-038",
+            }),
         });
     });
 
@@ -2073,7 +2368,10 @@ describe("the match run's suggestion becomes a decision", () => {
             suggestedDecision(
                 suggested({ suggested_doctype: "Non Project Expenses", suggested_name: "NPE-4" })
             )
-        ).toEqual({ target: "Non Project Expenses", linkTo: "NPE-4" });
+        ).toEqual({
+            target: "Non Project Expenses",
+            linkTargets: linkTargets({ target_doctype: "Non Project Expenses", name: "NPE-4" }),
+        });
     });
 
     it("reads a blank or half-written pair as nothing", () => {
@@ -2102,28 +2400,54 @@ describe("the match run's suggestion becomes a decision", () => {
         ];
         const seeded = seedDecisions(rows, new Map());
         expect(seeded.size).toBe(2);
-        expect(seeded.get("A")?.linkTo).toBe("PAY-00105-038");
-        expect(seeded.get("B")?.linkTo).toBe("PAY-2");
+        expect([...(seeded.get("A")?.linkTargets ?? [])]).toEqual([
+            recordKey({ target_doctype: "Project Payments", name: "PAY-00105-038" }),
+        ]);
+        expect([...(seeded.get("B")?.linkTargets ?? [])]).toEqual([
+            recordKey({ target_doctype: "Project Payments", name: "PAY-2" }),
+        ]);
         expect(seeded.has("C")).toBe(false);
     });
 
     it("never overwrites a decision the reviewer already made", () => {
         const existing = new Map<string, RowDecision>([
-            ["A", { target: "Project Expenses", linkTo: "PE-9" }],
+            [
+                "A",
+                {
+                    target: "Project Expenses",
+                    linkTargets: linkTargets({ target_doctype: "Project Expenses", name: "PE-9" }),
+                },
+            ],
         ]);
         const seeded = seedDecisions([suggested({ name: "A" })], existing);
-        expect(seeded.get("A")).toEqual({ target: "Project Expenses", linkTo: "PE-9" });
+        expect(seeded.get("A")).toEqual({
+            target: "Project Expenses",
+            linkTargets: linkTargets({ target_doctype: "Project Expenses", name: "PE-9" }),
+        });
     });
 
     it("never re-seeds a selection the reviewer deliberately CLEARED", () => {
-        // Clearing leaves an entry with a null link, not an absent entry -- which is what makes it
-        // distinguishable from "never touched". Re-seeding here would put the machine's pick back
-        // under someone who had just rejected it, on the next refetch, silently.
+        // ⚠️ Clearing leaves an entry with an EMPTY `linkTargets` set (Task 7; it used to be a null
+        // `linkTo`), not an absent entry -- which is what makes it distinguishable from "never
+        // touched". Re-seeding here would put the machine's pick back under someone who had just
+        // rejected it, on the next refetch, silently.
+        const cleared = new Map<string, RowDecision>([
+            ["A", { target: "Project Payments", linkTargets: new Set() }],
+        ]);
+        const seeded = seedDecisions([suggested({ name: "A" })], cleared);
+        expect(seeded.get("A")?.linkTargets?.size).toBe(0);
+    });
+
+    it("never re-seeds a Normal selection the reviewer CLEARED -- a null `linkTo`", () => {
+        // ⚠️ The mirror of the case above for the restored single-select shape (issue #1240). The
+        // contract is "an ENTRY exists", not "a particular field is empty", so both clears are
+        // honoured by the same line -- but only one of them was ever pinned.
         const cleared = new Map<string, RowDecision>([
             ["A", { target: "Project Payments", linkTo: null }],
         ]);
         const seeded = seedDecisions([suggested({ name: "A" })], cleared);
-        expect(seeded.get("A")?.linkTo).toBeNull();
+        expect(seeded.get("A")).toEqual({ target: "Project Payments", linkTo: null });
+        expect(isConfirmable(suggested({ name: "A" }), seeded.get("A"))).toBe(false);
     });
 
     it("returns the SAME map when there is nothing to add", () => {
@@ -2141,19 +2465,66 @@ describe("the match run's suggestion becomes a decision", () => {
     it("tells the table whether the machine or a person put the decision there", () => {
         const r = suggested();
         expect(decisionOrigin(r, undefined)).toBe("none");
+        expect(
+            decisionOrigin(r, {
+                target: "Project Payments",
+                linkTargets: linkTargets({
+                    target_doctype: "Project Payments",
+                    name: "PAY-00105-038",
+                }),
+            })
+        ).toBe("suggested");
+        expect(
+            decisionOrigin(r, {
+                target: "Project Payments",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-OTHER" }),
+            })
+        ).toBe("chosen");
+        // ⚠️ Same bare NAME as the suggestion, different LEDGER -- `recordKey` folds doctype into
+        // the identity, so this is a different `linkTargets` set even though `linkTo` used to read
+        // identically. Still "chosen", which is the behaviour this pins.
+        expect(
+            decisionOrigin(r, {
+                target: "Project Expenses",
+                linkTargets: linkTargets({
+                    target_doctype: "Project Expenses",
+                    name: "PAY-00105-038",
+                }),
+            })
+        ).toBe("chosen");
+        // A picker with TWO targets can never equal a suggestion, which is always a singleton.
+        expect(
+            decisionOrigin(r, {
+                target: "Project Payments",
+                linkTargets: linkTargets(
+                    { target_doctype: "Project Payments", name: "PAY-00105-038" },
+                    { target_doctype: "Project Payments", name: "PAY-OTHER" }
+                ),
+            })
+        ).toBe("chosen");
+        // ⚠️ THE RESTORED NORMAL SHAPE (issue #1240). The suggestion is banked as a `linkTargets`
+        // singleton, but a person picking that same record in Normal mode writes `linkTo`. Both
+        // normalise to the SAME recordKey, so the badge cannot start reading "chosen" for a pick
+        // that is word-for-word the machine's.
         expect(decisionOrigin(r, { target: "Project Payments", linkTo: "PAY-00105-038" })).toBe(
             "suggested"
         );
         expect(decisionOrigin(r, { target: "Project Payments", linkTo: "PAY-OTHER" })).toBe(
             "chosen"
         );
+        // Same bare name, different ledger -- `target` is what supplies the ledger half of the key.
         expect(decisionOrigin(r, { target: "Project Expenses", linkTo: "PAY-00105-038" })).toBe(
             "chosen"
         );
+        // A cleared Normal decision is not the suggestion either.
+        expect(decisionOrigin(r, { target: "Project Payments", linkTo: null })).toBe("chosen");
         // A row with no suggestion at all: anything on it was chosen by a person.
-        expect(decisionOrigin(row(), { target: "Project Payments", linkTo: "PAY-1" })).toBe(
-            "chosen"
-        );
+        expect(
+            decisionOrigin(row(), {
+                target: "Project Payments",
+                linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
+            })
+        ).toBe("chosen");
     });
 });
 
@@ -2665,7 +3036,7 @@ describe("previewCounts", () => {
 describe("tabCountParts", () => {
     // ⚠️ `skipped` IS A SCOPE WITH NO TAB. It rides `tab_counts` because every count derives from
     // `_SCOPE_STATUSES`, and it must never appear in the tab strip -- pinned below.
-    const tabCounts = { all: 996, not_matched: 133, matched: 863, skipped: 47 };
+    const tabCounts = { all: 996, not_matched: 133, partly: 0, matched: 863, skipped: 47 };
     const statusCounts = {
         "Pending match run": 0,
         Matched: 863,

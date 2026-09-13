@@ -76,6 +76,8 @@ pick one ad-hoc; ask.
 | Which words count when comparing free text to a master name | `services/outflow_import/project_match.comparable_tokens` (public since N1) | grow a private twin. Two readers now — tier 2's project index and the browse ranking — and a second copy would drift: change the length floor in one and the ranked list quietly stops agreeing with the matcher about what a word even is. ⚠️ Sharing the TOKENISER is not sharing a POLICY |
 | How the browse list is ORDERED | `services/outflow_import/similarity.py` (`SimilarityPolicy`, `build_row_signals`, `score_record`, `ranked_records`) — N1 | let it reach anything that SETTLES. `matcher`, `disambiguate` and `status` must not import it, directly or transitively (pinned by a test both ways). Its weights exist to be tuned against reviewer feedback; a tweak made because a list felt wrongly ordered must not change which transfers move money unattended. It also must not reuse `matcher.VendorScoringPolicy` — sharing the dataclass retunes the matcher every time the list is retuned |
 | Filtering + sorting that list on screen | `frontend/src/pages/outflow-import/recordPickerView.ts` — N1 | re-score a record in the client. The server sends the pool already ranked; `sortRecords(records, null)` MEANS "keep that order". A second scoring implementation here would be free to drift, and the symptom — a list ordered differently from the reasons printed on it — is invisible to every test on either side |
+| **What that list is MEASURED AGAINST** (#1243) | `frontend/.../outflow-import/allocationView.ts` (`pickerComparisonAmount`) → the endpoint's `compare_amount` → `review._comparison_amount` → the ONE `bank_amount` derivation | measure a candidate against the transfer at a second site. The endpoint derives `bank_amount` ONCE and hands it as an ARGUMENT to all four consumers — the per-ledger SQL ordering, the `suggested` flag, the ranker's hard split and the amount score axis — so substituting it once moves all four together and there stays **exactly one amount-opinion per record**. ⚠️ The CLIENT's `bankAmount` prop (the "off by" mark) must be fed the SAME figure, or the mark contradicts the order it sits in. ⚠️ `pickerComparisonAmount` takes **no ticks**: the pool is ranked once per dialog open, against the BANKED remainder, never live per tick |
+| **Whether the match run's marks may be shown** (#1243) | `frontend/.../outflow-import/allocationView.ts` (`matcherMarksVisible`) | teach `get_row_candidates` about the remainder. That live re-match has no frozen-status guard, so on a partly-allocated row it marks records against the WHOLE transfer — including records already settled as legs of that row. Making it remainder-aware would push RANKING into the matcher, which is the one fence this feature never crosses; the marks are a screen affordance, so they are suppressed on the screen |
 | What may be settled, and from which status; and WHEN a record was decided | `services/outflow_import/ledgers.py` (`SETTLEABLE_STATUSES`, `settleable_statuses`, `DECIDED_ON_SQL`, `decided_on_sql`) | carry its own Approved-only list. Read by `candidates.py` (what may be OFFERED) and `settle.py` (what may be WRITTEN) so the two can never disagree about one record |
 | Bank row → target matching | `services/outflow_import/matcher.py` (`match_row`, `match_by_reference`, `match_payments`, `match_expenses`, `resolve_vendors`) | decide anything. It PROPOSES ranked candidates; `status.py` derives the outcome and a person makes the choice |
 | Choosing BETWEEN several admitted candidates | `services/outflow_import/disambiguate.py` (`pick_from_several`, `pick_note`, `RULE_*`) — the pure half; `review._disambiguate_matched` owns the writes | add a fourth way to separate candidates. It is **not a tier** and must never live in `matcher.py` — it cannot introduce a record the ladder did not admit |
@@ -83,9 +85,11 @@ pick one ad-hoc; ask.
 | How a suggestion was chosen | the `suggestion_rule` field + `disambiguate.RULE_LABELS` | invent a label. BLANK means "no suggestion", never "no rule" |
 | Reading approved-and-unpaid across the three ledgers | `services/outflow_import/ledger_read.py` (`LEDGER_SOURCES`, `approved_rows`, `approved_count`, `approved_projects`) | write a fourth query that knows the three ledgers' asymmetries. `review._search_one_ledger` is the OTHER caller and stays separate deliberately |
 | The settlement write | `services/outflow_import/settle.py` + the one orchestrator `api/outflow_import/expenses.settle_row` | write to a ledger from anywhere else in this feature |
+| **Which endpoint a confirm calls** (B3 + B4) | `frontend/.../outflow-import/allocationView.ts` (`chooseSettleEndpoint`, `SettleEndpoint`, `effectiveSettleMode`, `settleModeLocked`) | answer *"is this a whole-transfer settle or an allocation?"* anywhere else. TWO readers since #1242: `OutflowMasterPage` ROUTES the confirm with it, and `confirmGate` PREDICTS that routing to decide whether the balance arithmetic governs the button. Which is why the gate is handed the endpoint itself rather than a boolean derived at the call site -- a second copy would be free to disagree with the router about the very pick it is gating, and the symptom is a live button whose refusal arrives from the server instead. ⚠️ **Both readers must also feed it the SAME TICK COUNT** (`decisionLinkKeys`), not the picker's resolved-record count -- see the #1242 slice below |
 | **May a transfer pay PART of a record?** (PS; slice TD's DEDUCTION answer is REMOVED) | `services/outflow_import/partial_settle.py` (`partial_eligibility`, `looks_like_tds`, `INTENT_PART_PAYMENT`, `VALID_INTENTS`) — pure. ⚠️ `deduction_eligibility` and the band/service gate are GONE: the import records no tax, `services/payment_tds.py` withholds SR tax at approval | let it reach the MATCHER. `matcher`, `disambiguate`, `status`, `stacks`, `claims` and `candidates` must not import it (pinned by a test). A partial sits OUTSIDE the ±₹5 settle window that gates every other write here; it is safe only because a person opens it on one specific row, and the moment the matcher can reach it that sentence stops being true. The frontend mirror `outflowTableModel.partialOffer` is a CONVENIENCE — the server re-asserts the whole gate under a row lock |
 | **Splitting a Project Payment in two** (PS-1) | `services/payment_split.py` (`split_payment`; `split_and_approve` is a thin wrapper) — SHARED with the CEO partial approval | fork it for the second caller. ONE concept, ONE owner (ADR-0010 B1): two copies of the sum invariant and the PO-term surgery would drift, and the symptom is a PO whose terms stopped adding up, months later, with no way to tell which copy wrote it. **Every parameter defaults to the CEO behaviour**, which is what makes `test_payment_split`'s 26 original tests the proof that generalising it changed nothing |
 | **Did a settlement take the machine's pick?** (Q1) | `services/outflow_import/status.py` (`settlement_origin`, `ORIGIN_*`) — pure | re-derive the accepted/overridden/no-suggestion test. THREE callers share it: the settle path, the summary aggregate, and the backfill patch. ⚠️ It is in `services/` because `api/expenses.py` imports `api/review.py`, so the reverse would be a cycle. ⚠️ NOT `auto_matched`, which means only "a suggestion existed" |
+| **Which database failure means "another reviewer wrote to this transfer first"** (#1246, ADR-0020 B4) | `services/outflow_import/concurrency.py` (`is_concurrent_writer_refusal`) — pure; the ONE reader is `expenses._concurrent_writer_refusal_as_sentence`, the shared boundary `allocate_row` (#1246) and `settle_row` (#1250) both wrap their work-up-to-the-commit in, which turns it into `CONCURRENT_ALLOCATION_MESSAGE` | widen it, or catch database errors broadly anywhere in this feature. Whatever it says yes to is told to a reviewer as a harmless race, on a screen that settles money. It recognises `SerializationFailure` (SQLSTATE 40001) ONLY — `InFailedSqlTransaction` and `DeadlockDetected` are deliberately outside, each pinned by a test. ⚠️ The translation ENDS AT THE COMMIT ("nothing was saved" is false after it). ⚠️ Where both racing payments sit on ONE PO the loser still sees raw `InFailedSqlTransaction` — `update_parent_amount_paid` swallows the 40001 first; measured and recorded in ADR-0020 B4a, deliberately NOT translated. `settle_row_partial` / `create_expense` are not covered |
 | **What makes two staged transfers THE SAME transfer** (D3; widened source-aware at B3) | `services/outflow_import/duplicates.py` (`row_identity`, `row_identity_of`, `WIDE_IDENTITY_SOURCES`, `dates_agree`, `RowIdentity`) — pure | key a duplicate check on anything else. THREE readers: the cross-batch lookup (`candidates.find_earlier_batches_for_rows`), the in-file repeat check in `upload._stage_batch`, and the parser's `_duplicate_transfer_ids`. They used to key on `transfer_id` independently; a key that differed between them would let one call two rows duplicates while another called them distinct, on the same file. ⚠️ It is **NOT** the `Outflow Row Match` unique constraint — that stays `(transfer_id, target_doctype, target_name)` and is the money guarantee; this is about WORK, and may be more discriminating | ⚠️ **THE KEY IS SOURCE-AWARE SINCE B3, and the DEFAULT is the guarantee.** `row_identity(..., source="")` — what every caller passing nothing gets — returns the old `(transfer_id, amount, date)` triple **BYTE-IDENTICALLY**, because Cashfree and Cashbook carry live settled data whose duplicate behaviour is proven in production. A source in `WIDE_IDENTITY_SOURCES` (today: `ICICI Bank Statement`) gets `+ (direction, remarks)`. **Both extra fields are load-bearing and each catches a different failure, measured on the real 1,274-row statement where the triple silently LOSES 5 REAL ROWS:** *remarks* catches four SGST/CGST pairs (same id, date, amount AND direction, differing only in narration), *direction* catches the GL transfer whose two legs carry byte-identical narration. These are bank-narration artefacts that cannot occur in a payout export — which is exactly why the widening is per-source and not global. ⚠️ `row_identity_of(row, source)` is the ADAPTER over the one rule, never a second rule: the widening added two fields that live ON the row, and forgetting `remarks` at a call site degrades ICICI silently back to the four-field key — it still works, it just loses four rows a statement and says nothing. ⚠️ It is a DIFFERENT set from `sources.BANK_STATEMENT_SOURCES` and they must not be merged "because they hold the same string today": this one answers *what makes two lines of this statement the same line?*, that one answers *what can this statement's rows DO?*. Full numbers: ADR-0016 § 4.
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
 | **Where a settled/matched record's link GOES** (E3) | `frontend/.../outflow-import/outflowTableModel.ts` (`settlementLink`, `orderPaymentsHref`) + `review._payment_order_names` / `_with_order_names` server-side | build a payments URL at a render site, or render one through a raw `<a href>`. A payment links to its ORDER (`/project-payments/<id>` with `/` escaped as `&=`) because that is what the app's other twelve call sites do; `paymentHref`'s search-param scheme is the FALLBACK only. ⚠️ The router carries a `basename` (`VITE_BASE_NAME`: `""` dev, `'frontend'` prod), so an anchor resolves to the SERVER ROOT and 404s in production while working in dev |
@@ -2150,10 +2154,11 @@ wrong conclusion from the same reasoning.
 
 | Suite | How |
 |---|---|
-| pure services (13 modules, **457** tests) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed (441 before D3, 409 before PS) |
-| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` — `test_expenses` **34** (31 before Q1), `test_upload` **31** (25 before D3), `test_review` **148** (143 before E3, 137 before N3), `test_expenses` **31**, `test_settle_payment` **54** (39 after PS, 25 before), `test_approved` **16** |
+| pure services (**878** tests, measured 2026-09-11) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed (862 before #1244, 441 before D3, 409 before PS) |
+| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` — measured 2026-09-11: `test_upload` **83** (76 before #1244), `test_review` **258** (251 before #1243), `test_expenses` **45**, `test_settle_payment` **63** (56 before #1244), `test_approved` **29**, `test_cashbook_import` **35** (34 before #1244), `test_cashbook_rules` **13**, `test_inflows` **44**, `test_allocate_row` **17**, `test_reverse_allocation` **17**, `test_match_record` **12** |
+| ⚠️ a suite against a WORKTREE | `bench` resolves `nirmaan_stack` through the MAIN checkout, so worktree backend code is invisible to it. Set `PYTHONPATH=<worktree root>` — it wins, and the doctype JSON follows (Frappe locates it from the module's `__file__`). The binary is `/home/frappe/.local/bin/bench`, NOT under `env/bin`. |
 | the SHARED split (CEO + partial settlement) | `… --module nirmaan_stack.api.payments.test_payment_split` — **31** (26 before PS-1; those 26 are the proof the CEO path is unchanged) |
-| frontend | `yarn test` (vitest, `node` environment — pure helpers only). **317** across this feature (316 before Q1, 305 before E1-E3, 287 before D1/D2, 267 before N2); **2,503** repo-wide. ⚠️ `POAdjustment/writeOffControl.test.ts` has a PRE-EXISTING flake unrelated to this feature -- one case `await import`s the very large `SheetPricingPage` and trips vitest's 5s default on a loaded machine; it passes at `--testTimeout=60000`. |
+| frontend | `yarn test` (vitest, `node` environment — pure helpers only). **639** across 12 files under `src/pages/outflow-import` (622 across 11 before #1243); **3,504** repo-wide (3,487 before #1243). ⚠️ The older figure recorded here was *"317 across this feature"*, counted before several suites joined the folder — read the folder total, not a remembered number. ⚠️ `POAdjustment/writeOffControl.test.ts` has a PRE-EXISTING flake unrelated to this feature -- one case `await import`s the very large `SheetPricingPage` and trips vitest's 5s default on a loaded machine; it passes at `--testTimeout=60000`. |
 
 ⚠️ **A TEST THAT PASSES BEFORE AND AFTER A BEHAVIOUR CHANGE IS EVIDENCE OF NEITHER.** Every
 pre-existing `test_upload` test stayed green when the duplicate key widened at D3, because none of
@@ -2769,3 +2774,1167 @@ there would silently strand this link on the default tab, so it must break a tes
 
 ⚠️ The 22 `tsc` errors under `ProjectExpenses` / `NonProjectExpenses` are **PRE-EXISTING** — those
 files were READ for their param contract and never edited (`git status` shows them unmodified).
+
+---
+
+## The selector split and the fan-out seams (2026-09-10) — SHIPPED, BROWSER-VERIFIED 2026-09-11
+
+✅ **SHIPPED.** Everything this section describes was built and passed an 18-step browser walk plus a
+final re-test (spec #1236 and walk #1245, both closed; the walk record is `docs/browser-walk-1245.md`).
+This section was written *before* any of it was built, and its banner said so — that banner is retired
+here because it stopped being true. The measurements below are kept because several decisions rest on
+them. The authority for WHAT was built remains **`docs/adr/0020-one-transfer-many-payments.md`
+§ Amendment B**, and each slice's as-built detail sits in the sections the implementing sessions added.
+
+### The one-line version
+
+The fan-out arithmetic (ADR-0020) is sound. Every defect found was at a **seam** where it met a
+pre-existing flow, and every one of them was invisible to the branch's own suites — which is the
+standing rule in root `CLAUDE.md` doing exactly what it says: *"A test on each side of a boundary is
+not a test of the boundary."*
+
+### Measured facts — expensive to re-derive, cheap to record
+
+All measured against the live `localhost` DB on 2026-09-10.
+
+| Fact | Value | Why it mattered |
+|---|---|---|
+| `Partially Allocated` rows in existence | **1** of 2,511 | killed the batch-exemption decision outright (Amendment B6) |
+| Batches: total / open | 79 / 16 | |
+| Batches where every remaining active row is partly allocated | **0** | the "true no-op" case is unreachable |
+| Batches reading `Partially Settled` with NO partly-allocated row | **15 of 16** | the status is driven by SKIPPED rows, with no threshold |
+| Settled bank rows settling against an EXPENSE | **236 of 574 (41%)** | the Split control is inapplicable on a large share of rows |
+| Rows whose candidate pool mixes ledgers | **44 of 44** | the pool is never ledger-scoped |
+| Open rows giving NO amount signal in any ledger | **26 of 44** | so the control cannot be hidden by inference |
+| Multi-leg rows in production | **2**, both created 2026-09-10 | fan-out has no production history yet — it is all test data |
+| Cashfree rows with a blank `bank_reference_no` | **61** (not 17) — **all `Skipped`** | the blank-`utr` defect has ZERO live instances |
+| Blank-`utr` payments among 344 settled legs | **0** | |
+| Distinct `reference_id` values across 2,237 Cashfree rows | **523** | `reference_id` is NOT unique |
+| Settled Cashbook expenses carrying the wallet `transfer_id` | **222 of 222** | Cashbook is already remedied, differently |
+
+### Load-bearing things a future reader will otherwise get wrong
+
+- **Routing must read INTENT, not tick count.** A single tick on a fresh row went to `settle_row`
+  and its whole-transfer guard, so a first-leg-then-second-leg workflow had no path. The mode radio
+  is the fix, and Split ALWAYS routes via `allocate_row` — even a full-amount tick, because
+  `reverse_allocation` acts on legs and `settle_row` writes none.
+- **`bar.over` and the part-payment detour fire on the SAME band.** `SETTLE_WINDOW` and
+  `AMOUNT_TOLERANCE` are literally the same constant, so a Confirm gate on `bar.over` made the
+  TDS / part-payment detour unreachable from the product. Narrow the gate to the allocate path; do
+  not delete it. `legsUnknown` is a separate, innocent concern.
+- **The refusal on a partly-allocated row must stay on THREE callers** — `settle_row`,
+  `settle_row_partial` and `create_expense` — because all three write the whole transfer amount and
+  nothing downstream is leg-aware. It is unpinned by any test. On the two INFLOW callers it is dead
+  code (credit rows can never become partly allocated) and stays, with a comment.
+- **`search_settleable_records` derives its comparison amount at ONE line**, and every consumer
+  below takes it as a parameter. The "ten sites" framing over-states the work by an order of
+  magnitude.
+- **`get_row_candidates` re-runs the matcher LIVE with no frozen guard**, on every dialog open. It
+  is the one matcher-shaped surface a partly-allocated row can reach. Suppress its marker
+  client-side; do NOT make it remainder-aware (the ranker is test-pinned out of the matcher).
+- **A full reversal returns the row to `Matched`/`Mismatched` and every gate unlocks for free** —
+  verified in code, in an existing test, and on live row `OFR-26-002185`. The status is RE-DERIVED,
+  never restored. There is no stuck-row trap.
+- ⚠️ **`inflows.py` was BROKEN by the Task 3 status-derivation commit** — 44 tests, 3 failures,
+  4 errors — and `create_non_project_receipt` lost its only duplicate guard as a result. Live blast
+  radius zero (no credit rows exist). Fixed first. See Amendment B7.
+- ⚠️ **The blank-reference field must be WRITE-ONLY, and FIVE surfaces must never read it** —
+  `normalize_reference`, `candidates._payments_by_reference`, `matcher.match_by_reference`, the
+  parser's stored `normalized_reference` column, and `reference_guard.assert_reference_is_free`.
+  The last is the one earlier notes missed, and given `reference_id`'s non-uniqueness it is where a
+  mis-wire bites first.
+
+### Verification shape
+
+⚠️ **Most of the frontend half is STRUCTURALLY untestable here** — nothing pins `confirmDisabled`,
+and this repo has no DOM environment (`frontend/CLAUDE.md`, deliberate). A green suite proves
+nothing about the mode radio, the narrowed gate or the error copy. The honest verification is a live
+browser A/B: revert, reproduce, restore, re-verify. The manual walk lands at the end of the mode-split
+slice, **except** the two-browser concurrency check, which exercises the Amendment A1 server lock and
+is pulled forward.
+
+⚠️ **A baseline is only as good as its coverage.** The branch's gate was *"no NEW failures vs BASE"*
+and the recorded baseline named `test_expenses` and `test_settle_payment` as though complete.
+`test_inflows` was never run, and that is how B7 shipped unnoticed.
+
+---
+
+## Slice 0 (2026-09-10) — the inflow row-status regression, repaired; and the branch baseline, measured
+
+**AS-BUILT.** Issue #1238, ADR-0020 § B7 + B7a. The first slice of the selector-split spec above.
+
+### What was wrong, and what it took to fix
+
+`inflows.py` never referenced `_refresh_row_allocation`, because the commit that moved the `Settled`
+flip out of `_record_settlement` predates nothing in that module — it simply missed it. Both credit
+endpoints wrote their leg and then wrote no status at all, so a recorded credit stayed `Mismatched`.
+
+**Two changes, and the second is the one a reader will not predict:**
+
+1. `create_inflow` and `create_non_project_receipt` each call
+   `_refresh_row_allocation(staged.name, actor, result)` immediately after `_record_settlement`,
+   **inside the savepoint** — the same shape as all five outflow call sites. `result` is passed so
+   `allocation_note` renders **"Recorded"** rather than "Settled": both credit paths CREATE their
+   record.
+2. `allocation.allocated_of` now sums **`abs(target_amount)`**. See ADR-0020 § B7a for the full
+   reasoning. The short version: a non-project receipt's leg is legitimately NEGATIVE (it writes a
+   negative `Non Project Expense`) while a row's amount is a MAGNITUDE by ADR-0016's explicit
+   decision, so a signed sum made `remaining_of` read `2X` and pinned every recorded receipt at
+   `Partially Allocated` for ever — taking the duplicate protection down with it, since that
+   protection IS the status flip. `abs()` is a no-op on every outflow path (all legs are positive by
+   construction), so it is a units fix, not a loosening.
+
+The duplicate protection returns as a **consequence**: `_load_settleable_row` refuses a row already
+reading `Settled`, so `create_non_project_receipt` — which by design has no duplicate lookup of its
+own — is once again callable exactly once per staged row. The module header's claim is true again.
+
+### ⚠️ The honest baseline — every suite in the area, measured both sides
+
+Run per module, `bench --site localhost run-tests --module <mod>`, against the live `localhost` site
+on 2026-09-10. **29 modules, 1,556 tests.** This replaces the recorded baseline that named two
+suites as though the list were complete.
+
+| | Before slice 0 | After slice 0 |
+|---|---|---|
+| Modules failing | **2** | **1** |
+| `api.outflow_import.test_inflows` | 44 tests — **3 failures, 4 errors** | **44 OK** (2 skipped) |
+| `api.outflow_import.test_expenses` | 45 tests — **2 failures** | 45 tests — **2 failures** (unchanged) |
+| Every other module (27) | OK | OK |
+| `services.outflow_import.test_allocation` | 35 OK | **38 OK** (+3 new sign pins) |
+
+**No new failures. Seven fixed.**
+
+⚠️ **The two surviving `test_expenses` failures are PRE-EXISTING and unrelated to this branch, and
+the spec mis-stated their cause.** They are NOT "a hardcoded project fixture whose tendering status
+refuses payment creation" — they are `test_a_requested_project_expense_is_refused` and
+`test_a_requested_non_project_expense_is_now_refused_too`, both failing with `WrongStatusError not
+raised`. Cause: `_make_expense(..., status="Requested")` plants an expense at the open row's own
+amount, and the expense doctype's create-time ladder **auto-approves anything at or below
+`AUTO_APPROVE_LIMIT`** — so the planted expense is `Approved` by the time the settle runs, and the
+settle is correctly allowed. It is **data-dependent** on which row the fixture picks. Fixing it is
+not this slice's business; naming it correctly is.
+
+⚠️ **Four of the seven `test_inflows` failures were CASCADES, not independent defects**, and the
+cascade is worth knowing because it will recur. `_next_credit_row` filters on
+`row_status not in ("Settled", "Skipped")`. A row that never flips is never consumed, so every test
+in the class recorded against the SAME row — and the second one hit the duplicate guard, reporting
+"already recorded" rather than the missing flip. **A fixture that consumes rows by status turns one
+status defect into a suite-wide failure that names the wrong cause.**
+
+### Tests
+
+- `services.outflow_import.test_allocation` — three new pins on the pure side: a negative leg counts
+  as the money it moved; a recorded receipt leaves `remaining_of` at zero, `is_fully_allocated`
+  true and `status_for_allocation` at `Settled`.
+- `api.outflow_import.test_inflows` — **not modified except for one stale comment.** Its
+  `test_the_row_flips_to_settled_and_gets_a_match_record` (both classes) and
+  `test_a_settled_row_cannot_be_recorded_twice` already crossed the boundary and were already red;
+  green is the gate, exactly as the spec asked. The corrected comment used to claim the leg amount
+  "is NOT summed anywhere" — true when written, stale the day status became derived.
+
+---
+
+## Slice 1 prefactor (2026-09-10) — the single-select picker is restored, the fan-out moves out, and the decision model keeps BOTH pick fields
+
+**Issue #1240** (parent #1236, ADR-0020 Amendment B § B3). **No user-visible change**, deliberately:
+this is the "make the next change easy" half of slice 1, landed before the mode radio so the risky
+part can be reviewed on its own.
+
+### What moved, and the proof that nothing else did
+
+| File | Change |
+|---|---|
+| `components/SettleableRecordTable.tsx` | **restored to `develop`** — the single-select `<input type="radio">` picker, byte-identical apart from one added docstring paragraph naming its twin |
+| `components/FanOutRecordTable.tsx` | **NEW** — the multi-select checkbox table Task 7 had converted `SettleableRecordTable` into, moved out verbatim. Diff against the pre-change file: the header path comment, the exported name, one `@see` word, and one added docstring paragraph. Nothing else. |
+| `components/DecisionDialog.tsx` | one import site + one JSX site repointed; `RecordPicker` is otherwise untouched and still renders the fan-out table, which is what makes this invisible on screen |
+| `outflowTableModel.ts` | `RowDecision.linkTo` restored beside `linkTargets`; new `decisionLinkKeys`; `isConfirmable` + `decisionOrigin` read through it |
+| `OutflowMasterPage.tsx` | `settleOne` builds its `targets` through `decisionLinkKeys` instead of reading `linkTargets` |
+
+⚠️ **THE DUPLICATION IS SANCTIONED AND MUST NOT BE CONSOLIDATED** (owner ruling, the same one
+`GridColumnFilter` carries against `RateMasterDataViewer`'s `ColumnFilter`). Task 7 converted the
+single-select table **in place**, which is why the dialog ended up with no way to offer the ordinary
+one-record settle at all. Merging the two behind a `multiple` flag would put the control that decides
+where money is written behind a boolean, and would re-couple two things that are free to diverge: the
+fan-out side is payments-only, ranks against a REMAINDER rather than the transfer, and withholds rows
+its endpoint would refuse. None of that belongs in the ordinary settle.
+
+### ⚠️ `decisionLinkKeys` — the one reader, and why a field read is the trap
+
+`RowDecision` now carries **both** pick fields, optional: `linkTo` (Normal, a bare name under
+`target`'s ledger) and `linkTargets` (Split, whole `recordKey`s). **The readers of those fields serve
+the BULK "confirm all matched" path, which has no dialog and therefore no mode** — so neither field
+can be read directly:
+
+- reverting a reader to `decision.target && decision.linkTo` **rejects every fan-out decision**
+  (`decisionOrigin` stopped comparing `target` at Task 7, and the fan-out picker clears `target` on
+  every tick);
+- leaving it at `linkTargets` alone **rejects every Normal decision** once the mode radio lands.
+
+All three readers — `isConfirmable`, `decisionOrigin`, `settleOne` — now normalise through
+`decisionLinkKeys` first. `decisionOrigin` compares normalised **key sets**, never field against
+field, so a person picking the suggested record in Normal mode (`linkTo`) still reads as
+`suggested` against a suggestion banked as a `linkTargets` singleton.
+
+⚠️ **PRECEDENCE + THE WRITER CONTRACT, which are one rule in two halves.** A non-empty `linkTargets`
+wins; `linkTo` speaks only when nothing is ticked. That is safe **only** because each picker owns one
+field and clears the other. The fan-out picker now clears `linkTo` on every tick and on Clear
+selection (added here). **The Normal picker must clear `linkTargets` on every pick** — a seeded
+decision arrives carrying `linkTargets`, so a Normal picker that forgets would settle the machine's
+old record instead of the person's new one, silently and with the right record named on screen.
+
+`suggestedDecision` is deliberately **unchanged** — it still emits the `linkTargets` singleton, and
+its two `toEqual` pins stay byte-green. Making it emit both fields would have been the other way to
+fix `decisionOrigin`; normalising at the reader keeps one shape being produced and two being accepted.
+
+### Tests
+
+`outflowTableModel.test.ts` +10 (380 → 390). A new `decisionLinkKeys` block (both shapes, the
+half-written and non-settleable-`target` cases, the emptied Split selection, and both precedence
+directions), plus the Normal shape added to the `isConfirmable`, `decisionOrigin` and `seedDecisions`
+blocks — the last of which pins that a `linkTo: null` clear is not re-seeded, the mirror of the
+already-pinned empty-`linkTargets` clear.
+
+**Measured both sides.** `src/pages/outflow-import/`: 567 → **577**, all green. Whole frontend suite:
+baseline **3431 passed / 1 failed**, after **3441 passed / 1 failed** — the same failure both sides,
+`POAdjustment/writeOffControl.test.ts > mirrors the sibling admin predicates`, a **5 s timeout on a
+test that takes ~2.1 s alone**: a load flake under 90-file parallelism, not a regression. `tsc` over
+`src/pages/outflow-import/`: **0 errors** (the repo carries many pre-existing errors elsewhere).
+
+⚠️ **The two browser acceptance criteria are NOT met by this record.** Bulk "confirm all matched" on
+an ordinary row, and the existing fan-out flow, are React semantics with no DOM test environment in
+this repo — they are verified by a live walk, and that walk needs a signed-in session. What IS
+established here is that the fan-out table is byte-identical to its pre-move self, that the dialog's
+only behavioural diff is two `linkTo: null` writes on a field nothing reads yet, and that every
+decision shape the app can currently produce normalises to exactly what the old field reads returned.
+
+### The review of this prefactor — three taken, one refused
+
+⚠️ **Every finding was about the CONTRACT this slice leaves behind, not about the code it ships.**
+The reviewer independently confirmed the move is verbatim and the normalisation byte-equivalent for
+every decision shape the app can currently produce. That is the shape a good prefactor review takes:
+the risk is not in what runs today, it is in what the next slice inherits.
+
+1. **`Clear selection` was gated on `linkTargets.size > 0`** — byte-equivalent today, but once the
+   Normal picker lands its pick leaves `linkTargets` empty, the control stops rendering, and **a
+   `<input type="radio">` cannot be un-ticked by clicking it**: no way back to undecided, while the
+   bulk bar still counts the row as ready against a record the reviewer rejected. Now gated on
+   `decisionLinkKeys(decision).size > 0`.
+2. **The prune effect is a THIRD writer of `linkTargets`, and it is not a picker** — it rewrites the
+   set when a ticked record leaves the approved pool, and never touched `linkTo`. If it prunes to
+   empty, a leftover `linkTo` becomes the effective pick with nothing on screen showing it. It now
+   writes `linkTo: null` too. **The writer contract has to hold for every writer, not just the two
+   that look like pickers.**
+3. **A new pin was banking a shape the server refuses** — `isConfirmable` on a `Partially Allocated`
+   row with a `Project Expenses` `linkTo`. A single tick on that status routes to `allocate_row`,
+   which refuses every non-payment target; the fan-out picker withholds those rows via
+   `tickAllowedForFanOut`, but a single-select picker has no equivalent. The pin now uses a payment
+   and says in its own comment that **the Normal picker owes that withholding when it lands**.
+
+⚠️ **REFUSED, DELIBERATELY: `<tbody role="radiogroup">` in `SettleableRecordTable`.** It overrides
+the implicit `rowgroup` role and drops table semantics for assistive tech, and the native
+`name="settleable-record"` grouping already supplies the group — a real defect. But it is
+**pre-existing on `develop`**, and the whole value of this slice rests on the restored file being
+provably its pre-branch self: the diff against `develop` is comments only, which is the evidence that
+no post-Task-7 fix was silently reverted with it. Trading that for an a11y correction is the wrong
+exchange **in this slice**. It is a standalone fix, and the checkbox twin carries the same defect as
+`role="group"` — fix both together or neither.
+
+### The browser walk — run 2026-09-10, signed in as Administrator, against the worktree on :8081
+
+⚠️ **A SECOND VITE ON :8081 IS THE WAY TO WALK A WORKTREE WITHOUT DISTURBING THE OWNER'S :8080.**
+The devcontainer publishes 8000-8005, 8080, 8081, 9000, 9001, so a worktree can serve itself:
+`docker exec -w <worktree>/frontend -e NODE_OPTIONS=--max-http-header-size=8192 <container>
+./node_modules/.bin/vite --host 0.0.0.0 --port 8081 --strictPort`, after symlinking the worktree's
+`frontend/node_modules` at the main checkout's (the host copy is linux-arm64 and cannot run vite).
+Cookies ignore port, so the session is shared with :8080. ⚠️ **`/login` renders BLANK on a cold
+load; `/` redirects to it and renders** — do not read the blank page as a broken build.
+
+**Verified on the seeded `ZTEST` fixture world, WITHOUT confirming anything:**
+
+| Reader changed | What was observed |
+|---|---|
+| `isConfirmable` (`linkTargets`, open row) | ticking one record on `ZTEST Bank Match Co` ₹44,393 armed the footer button |
+| `isConfirmable` (`Partially Allocated`) | `ZTEST Fanout Traders` ₹1,00,000 with ₹40,000 + ₹25,000 legs: ticking the ₹35,000 record armed **"Allocate 1 record · completes this transfer"** — the remaining-balance arithmetic intact |
+| `decisionOrigin` | the row's Outcome cell flipped to the **Decided / Review** badge on tick, and back on untick |
+| `decidedRows` (**the bulk path, which has no dialog**) | selecting the decided row raised the bar reading **"1 selected · 1 decided"** with **"Confirm 1 decided"** enabled |
+| the moved `FanOutRecordTable` | checkbox table, 52 records, `off by ₹X` marks, the verdict line, and `disabledKeys` still **dimming the `Project Expense` rows** on the partly-allocated row |
+| review fix 1 (`Clear selection` on `decisionLinkKeys`) | rendered on the first tick and cleared every tick, the badge and the button |
+
+Console across the whole walk: **one** exception, the pre-existing `index.html` jinja placeholder
+(`frappe.boot = {{ boot }}`, line 32) that any vite dev server raises because it serves the RAW
+template — it fires identically on :8080. No React errors.
+
+⚠️ **WHAT THE WALK DELIBERATELY DID NOT DO: click Confirm.** `settleOne`'s target-building is the one
+changed reader a click would exercise, and **a whole-transfer `settle_row` writes no legs, so it
+cannot be reversed from the screen** (ADR-0020 D1/A3) — irreversible even on fixture data. The
+evidence standing in its place: the "1 decided" count the bar shows comes from the SAME
+`decisionLinkKeys` call `settleOne` builds its `targets` from, and the swap it replaced
+(`decision.linkTargets ?? []`) returns the identical Set for every shape the app can produce today.
+
+---
+
+## The Confirm gate is a pure predicate returning a REASON (#1239, prefactor — 2026-09-10)
+
+**No user-visible change.** The rule deciding whether Confirm is available moved out of
+`DecisionDialog` and into `allocationView.confirmGate`, the module that already owns the allocation
+view's pure logic. It was an inline OR-expression in the footer:
+
+```ts
+busy || !isConfirmable(row, decision) || (isLinkDecision && (bar.over || legsUnknown))
+```
+
+which this repo has **no way to test where it sat** — there is no DOM environment, by deliberate
+choice (`frontend/CLAUDE.md`) — and that is how it survived four review passes while making the
+part-payment and TDS-deduction detours unreachable from the product (#1236 defect 1). The narrowing
+that fixes that is a later ticket; this one only moves the rule somewhere a test can see it.
+
+### It returns a reason, not a boolean, and the reason is ONE value with the message
+
+`ConfirmGate` = `{ reason, balanceReason, balanceMessage }`. The gate and the sentence beside it
+used to be derived at two different places — the gate in the footer, the wording as two separate
+JSX conditions in the balance bar — with nothing tying them together, so a change to one could
+silently stop describing the other. One call now answers every part, and a test asserts
+`reason === balanceReason` whenever the balance is what disables. **Do NOT re-derive any of them
+from `bar.over` / `legsUnknown` at a render site.** THREE readers take it: the button's `disabled`,
+the bar's branch + text, and the button's LABEL (whose completion claim used to read raw
+`legsUnknown`).
+
+⚠️ **THERE IS DELIBERATELY NO `disabled: boolean` ON `ConfirmGate` — the button reads
+`gate.reason !== null`.** A convenience projection is exactly what lets a caller take the boolean
+and never consult the reason, which is the "bare boolean" shape this ticket exists to remove; the
+requirement is that the dialog render the disabled state FROM the reason. **Do not add one back** —
+the "nothing blocks" test is a WHOLE-OBJECT `toEqual`, so it goes red if anyone does.
+
+⚠️ **`reason` IS TOTAL, which is why `busy` and `decision-incomplete` are members** even though
+nothing on screen says either out loud today (neither had a message before this change, and this is
+a prefactor with no user-visible change). Without them `reason` would read `null` — "Confirm is
+available" — on a row where the button is plainly dead, and the narrowing ticket needs to know WHICH
+blocker won in order to narrow the right one. Branch ORDER is precedence and nothing else: every
+branch yields the same `reason !== null`, because the expression this replaced was a plain OR.
+
+⚠️ **`balanceMessage` IS NOT ONE SHAPE, and the caller still asks WHICH reason before rendering it.**
+`balance-unknown` is a standalone sentence filling the whole bar (with no balance to print, there is
+nothing for a figure to sit beside); `over-allocated` is a trailing fragment that follows the
+figures, em dash included. Both are the pre-change strings, byte-for-byte.
+
+`ConfirmGateReason` is `busy | decision-incomplete | balance-unknown | over-allocated`, in that
+precedence. `balance-unknown` outranks `over-allocated`, matching the bar's own short-circuit — an
+over-tick measured against a balance nobody has read is not a fact worth reporting.
+
+### ⚠️ `balanceReason` is DELIBERATELY NOT GATED ON `balanceGoverns`, and that asymmetry is the design
+
+`disabled` respects which path is being confirmed (`balanceGoverns`, today `isLinkDecision`);
+`balanceReason` does not. A `Partially Allocated` row whose reviewer has opened the "create a new
+expense" card still has legs nobody has read yet, and the bar must keep saying so — collapsing the
+two would print a confident `allocated ₹0 · left ₹<the whole transfer>` there, which is the exact
+false-confidence defect **review fix 1** removed. Both still come out of ONE call, which is what
+stops the gate and the message disagreeing.
+
+`balanceGoverns` is an INPUT, not a constant: the narrowing ticket will pass "the allocation endpoint
+is the one being called" (reusing `chooseSettleEndpoint`) with no change to this module.
+
+⚠️ **THE ONE THING STILL ALLOWED TO READ `legsUnknown` RAW IS THE BAR'S VISIBILITY**
+(`canLinkPayment && (legsUnknown || ticks > 0 || allocatedLegs.length > 0)`). That is LAYOUT —
+whether the bar is on screen at all — and it is deliberately WIDER than the gate, for the same
+reason `balanceReason` is: it must render on a linkable row whose reviewer has opened a
+"create something new" card. Reasons and visibility are different questions; only reasons come from
+`gate`.
+
+### Pinned by
+
+`allocationView.test.ts` — 12 new cases: a **combinatorial pin** walking all 32 input combinations
+and asserting `reason !== null` equals the inline expression this replaced; a pin that
+`balanceReason === "balance-unknown"` tracks `legsUnknown` on BOTH sides of `balanceGoverns` (the
+equivalence the label's swap relied on); and the whole-object `toEqual` guarding against a
+re-added `disabled`.
+
+Full suite after the change: **3454 passed / 90 files**. ⚠️ `writeOffControl.test.ts` FLAKES in a
+worktree on a cold vite cache — its dynamic import of `SheetPricingPage` takes ~4.8 s against a 5 s
+`testTimeout`; it passes on a warm cache and in the main checkout. Not this change.
+⚠️ **`tsc --noEmit` is NOT clean on this repo and never was** — 3770 pre-existing errors, of which
+**0 are in `outflow-import`**, and every importer of `allocationView` lives in that folder.
+`residence_check.py` is unchanged from the branch baseline (its two ✗ lines pre-date this work —
+identical counts on the untouched checkout).
+
+### The browser walk — run 2026-09-10, Administrator, worktree on :8081
+
+Four states walked on `ZTEST Fanout Traders` ₹1,00,000 (legs ₹40,000 + ₹25,000, ₹35,000 remaining),
+**without clicking Confirm** — same discipline as the walk above:
+
+| State | What was observed |
+|---|---|
+| no tick (`decision-incomplete`) | `Confirm → Paid` greyed; bar neutral **`allocated ₹65,000 · left ₹35,000`** |
+| tick that fits (available) | button armed, reading **`Allocate 1 record · completes this transfer`**; bar **`allocated ₹1,00,000 · left ₹0`**, neutral |
+| over-tick (`over-allocated`) | button greyed, label drops the completion claim; bar RED reading **`allocated ₹1,30,100 · left ₹-30,100 — untick something before confirming`** |
+| the `balanceGoverns: false` corner | selecting **Create a new expense** clears the ticks, dims the picker, and returns the footer to `Confirm → Paid` disabled **by the form** — the balance no longer governs while the bar still reports |
+
+Console: the pre-existing `{{ boot }}` jinja placeholder exception, plus the pre-existing Radix
+`DialogContent requires a DialogTitle` a11y warning already recorded above as a standalone fix. No
+new errors. ⚠️ **The `balance-unknown` neutral box was NOT reproduced in the browser** — it needs the
+legs fetch in flight or failed, which the fixture world does not hold still for; it is covered by
+the unit test and by the branch condition being mechanically equivalent to the one it replaced.
+
+The fitting-tick and over-tick states were **re-walked after the two-axis review's fixes** (the
+button reading `gate.reason !== null`, the label reading `gate.balanceReason`) and rendered
+identically, which is the point of re-walking: those fixes touched render code the first walk had
+already signed off.
+
+⚠️ **A `--port 8081` vite started through `docker exec` SURVIVES stopping the exec client** — the
+process keeps running in the container and a restart then fails with `Port 8081 is already in use`.
+It also keeps WATCHING, so it serves current code; verify with
+`curl -s localhost:8081/src/<path> | grep <a token only the new version has>` rather than assuming
+either way. Kill it with `docker exec <container> pkill -f "port 8081"`.
+
+---
+
+## The settlement reference, resolved once at ingest (#1244 / ADR-0020 B9 — 2026-09-11)
+
+The last slice of the fan-out arc, sequenced last because it had **zero live instances**: 61 Cashfree
+rows carry a blank `bank_reference_no`, all 61 are `Skipped`, and blank-`utr` payments in the database
+were 0 of 344 settled legs. Latent, not bleeding.
+
+### What was wrong
+
+`settle_payment` read ONE field, `row.bank_reference_no`, and wrote it `if reference:` — **a blank
+reference was a silent skip, not an error.** The row also carried `reference_id`, the gateway's own
+reference, extracted since the first slice and never used. With no group id by deliberate design, a
+shared reference is the only thing linking the several payments of one transfer on the Payments
+screen, so the blank cost an accountant the only handle they had. It was **five write sites**, not
+one — the other four already wrote an explicit `None`.
+
+### The shape
+
+A new **`Outflow Import Row.settlement_reference`** (Data, read-only), resolved ONCE at ingest by the
+new pure leaf `services/outflow_import/settlement_reference.resolve_settlement_reference`:
+
+| rung | value | scope |
+|---|---|---|
+| 1 | `bank_reference_no` | every source |
+| 2 | `reference_id` | every source |
+| 3 | `transfer_id` | **`sources.TRANSFER_ID_REFERENCE_SOURCES` only — today `{"Cashbook"}`** |
+
+⚠️ **THE PER-SOURCE RUNG LIVES IN THE RESOLUTION, NEVER AT A WRITE SITE.** That is the whole point of
+resolving once. The wallet's old remedy — `cashbook.py` passing `payment_ref=transfer_id` into the
+EXPENSE path by hand — is exactly the per-path divergence this replaces, and it is why the PAYMENT
+path stayed broken for that source: a remedy at one write site fixes one write site. Both the
+`payment_ref` parameter on `create_expense_from_row` and the `utr` parameter on
+`create_inflow_from_row` were **deleted** in the same change; re-adding either puts a second answer
+back in the codebase, free to drift.
+
+The third rung asks a NAMED capability question (`sources.source_transfer_id_is_its_reference`),
+following that module's own stated convention. ⚠️ Its default for an unknown source is **`False`** —
+the OPPOSITE of `source_has_settlement_path`'s, deliberately: that one keeps an unrecognised source on
+the path it has always been on; this one declines to WRITE a value into the ledger on a source nobody
+has thought about yet.
+
+### Two ingest sites, one resolver
+
+`upload._stage_batch` (gateway + passbook) and `cashbook._stage` (the wallet's own staging path) both
+call it. The wallet path always lands on rung 3, so writing `raw.transfer_id` there directly would
+produce the identical string today and be the **second definition of the ladder** — at the very source
+that made the ladder necessary.
+
+### ⚠️ THE LOAD-BEARING CONSTRAINT — THE MATCHER NEVER READS IT
+
+`reference_id` is **NOT unique**: 2,237 Cashfree rows carry 523 distinct values, and one value
+(`2386126381`) was measured on three separate rows. Five surfaces are **byte-unchanged** and none may
+ever be pointed at the new field — `normalize_reference`, `candidates._payments_by_reference`,
+`matcher.match_by_reference`, the parser's stored `normalized_reference` column, and
+`reference_guard.assert_reference_is_free`. No file among `normalize.py` / `candidates.py` /
+`matcher.py` / `reference_guard.py` / `parser.py` appears in this slice's diff.
+
+**`settle_payment` therefore GUARDS on `bank_reference_no` and WRITES `settlement_reference`** — two
+values, two jobs. Collapsing them back into one variable is the mis-wire, and the COLLISION GUARD is
+where it bites first: a gateway id fed to it would refuse the second of two unrelated transfers
+outright, with a message about a duplicate that is not one.
+
+Accepted cost (owner, unchanged): a gateway id in `Project Payments.utr` is invisible to tier 0 and to
+the re-import duplicate guard. Invisible-but-present loses nothing against the blank it replaces.
+
+### ⚠️ IT IS FIVE WRITERS AND ONE READER — the sixth site the spec did not count
+
+`expenses.reverse_allocation` READS BACK what the payment write site wrote: `_revert_payment` refuses
+to unwind a payment whose `utr` is not this transfer's. It compared `bank_reference_no`. After B9 a
+blank-bank-reference row settles with its GATEWAY reference, so that guard would see a stored `GW-…`
+against an expected `""` and refuse — **the exact 61 rows this slice exists for would settle and then
+be PERMANENTLY UN-REVERSIBLE**, with a message blaming a third party for re-pointing the payment.
+
+It now reads the same resolved value. **Found by the spec review, not by a test** — no suite settled
+such a row and then reversed it. `test_reverse_allocation.TestReversingALegSettledWithAResolvedReference`
+now does, with the re-pointed guard as its positive control, and was confirmed RED against the old line.
+
+### ⚠️ THE DEPLOY-WINDOW FLOOR — one function, both readers, and it keeps every rung
+
+`settlement_reference_of_row(doc)` takes the stored column and recomputes the ladder **only when it is
+blank**. Both api readers (`review._StagedRow`, `expenses.reverse_allocation`) call it. **Without it
+this slice is a REGRESSION**: the backfill's `patches.txt` wiring is added by the maintainer, by this
+repo's own convention, so the code can be live while the column is still NULL on every existing row,
+and reading the column alone would settle every one of them with a BLANK.
+
+⚠️ **The recompute goes through `resolve_settlement_reference`, never a shorter ladder.** A first draft
+floored on `bank_reference_no` alone; it looked harmless and silently dropped the WALLET rung, so a
+pre-backfill wallet row would have written a blank where the deleted per-site override wrote its
+transaction id — the very source B9 exists to reach. Caught by the spec review.
+
+⚠️ **REMOVAL CONDITION** (on the function): delete the recompute once the backfill is wired into
+`patches.txt` and has run everywhere. Pinned by
+`test_allocate_row.test_every_leg_carries_the_RAW_bank_reference`, whose fixture builds a row the
+pre-B9 way — `_staged_row`'s default shape is deliberately NOT modernised for that reason.
+
+`review._load_rows` gained `settlement_reference` and `source`: `_StagedRow` builds the value for every
+row it adapts, and a projection omitting them would silently hand the wallet rung a blank.
+
+### The backfill
+
+`patches/v3_0/backfill_outflow_settlement_reference.py`: one `UPDATE … FROM`, `has_column` guard,
+idempotent, source names spelled literally rather than imported (a patch is append-only history).
+**Run against the live dev database 2026-09-11: 2,511 rows, 2,237 Cashfree + 274 Cashbook, blanks
+2,511 → 0, and a second run changed nothing.** All 61 of the blank-bank-reference rows resolved on
+**rung 2** (`reference_id`); none needed rung 3. A post-run audit found **0** non-wallet rows stamped
+with their own transfer id.
+
+⚠️ **The `patches.txt` wiring IS part of this change**, unlike its two siblings — the maintainer
+asked for it inline (2026-09-11), so the `[post_model_sync]` line ships in the same commit. That
+closes the deploy window on THIS database only; the floor stays, because a database that has not yet
+run the migrate still has the column NULL on every row.
+
+### Tests — and every new one was proven to go RED
+
+| suite | before → after |
+|---|---|
+| pure services | 862 → **883** |
+| `test_upload` | 76 → **84** (the ingest ladder, per rung + per source; the backfill patch, incl. its scope negative and a resolver-vs-SQL parity pin) |
+| `test_settle_payment` | 56 → **63** (the five write sites; the collision negative + its positive control; the deploy-window floor) |
+| `test_reverse_allocation` | 17 → **19** (the sixth site — settle with a resolved reference, then reverse; plus the re-pointed guard as control) |
+| `test_cashbook_import` | 34 → **35** (the wallet's own ingest site) |
+| unchanged and green | `test_review` 251, `test_expenses` 45, `test_inflows` 44, `test_approved` 29, `test_allocate_row` 17, `test_match_record` 12, `test_cashbook_rules` 13, `payments/test_payment_split` 31 |
+
+⚠️ **THE SQL RESTATEMENT IS PINNED AGAINST THE RESOLVER.** The patch restates the ladder rather than
+importing it (deliberate — a patch is append-only history), and the two never meet at runtime: the
+resolver runs at ingest, the SQL once at migrate. Each side's own tests would stay green through a
+divergence. Verified against **all 2,511 live rows — 0 mismatches** — and pinned per rung and per
+source by `test_the_sql_restatement_agrees_with_the_resolver_on_every_rung`.
+
+⚠️ **THE MOST IMPORTANT TEST IS THE NEGATIVE ONE, AND IT WAS PROVEN.** Three deliberate breaks were
+run and each produced the expected red:
+
+| break | went red |
+|---|---|
+| guard re-pointed at `settlement_reference` | `test_a_colliding_gateway_reference_does_not_block_the_settle` |
+| payment write reverted to `bank_reference` | that one, plus `…_settles_with_the_gateway_reference` and `…_carries_its_wallet_reference` |
+| backfill's `b.source = 'Cashbook'` unscoped to `1 = 1` | `test_it_never_gives_a_gateway_row_its_own_transfer_id` |
+| the sixth site reverted to `row.bank_reference_no` | `test_a_leg_settled_with_the_gateway_reference_reverses`, with the live refusal text |
+
+Proving the write works is the easy half; proving the read stayed put is the half that protects
+matching. The collision test ships with a **positive control** — the same colliding value in
+`bank_reference_no` must still raise `DuplicateReferenceError` — so it cannot pass because the guard
+was switched off or the planted holder never found.
+
+⚠️ **`dataclasses.replace` does NOT re-derive.** Clearing `bank_reference_no` on a parsed `RawRow`
+leaves `normalized_reference` holding the old value — a row no parser could produce. The ingest test
+that pins the matcher's column blanks both, and said so; an earlier draft asserted against a fixture
+that lied.
+
+### Running a suite against a worktree
+
+`bench` resolves `nirmaan_stack` through the main checkout, so a worktree's backend code is invisible
+to it by default. **`PYTHONPATH=<worktree root>` wins** — verified by printing `nirmaan_stack.__file__`
+— and the doctype JSON follows, since Frappe locates it from the module's own `__file__`. The bench
+binary is at `/home/frappe/.local/bin/bench`, not under `env/bin`. A single doctype can be synced with
+`frappe.reload_doctype(...)` instead of a full migrate.
+
+`residence_check.py`: B1/B2/B3 hold at baseline. Its two ✗ lines are **F2 and F5, both frontend
+rules**, and this slice's diff contains **zero frontend files** — pre-existing branch drift.
+
+---
+
+## Slice 1 (2026-09-11) — the mode radio: routing reads INTENT, not tick count
+
+**Issue #1241** (parent #1236, ADR-0020 Amendment B § B3). This is the owner's actual blocker: a
+reviewer could not tick one approved payment worth less than the bank transfer, confirm it as the
+first leg, and come back in a later sitting for the next. The dialog chose its endpoint from the
+NUMBER of ticked records, so a single tick on an untouched row always went down `settle_row`, whose
+guard demands the record equal the WHOLE transfer.
+
+### The routing rule now takes a mode, and the old pins were INVERTED, not deleted
+
+`allocationView.chooseSettleEndpoint` keeps its single home and gains `mode?: SettleMode`:
+
+```ts
+if (ticks <= 0) return null;
+if (effectiveSettleMode(mode, rowStatus) === "split") return "allocate_row";
+if (ticks > 1) return "allocate_row";   // a CAPACITY rule now, see below
+return "settle_row";
+```
+
+- **Split always routes through `allocate_row`, including a single tick that equals the whole
+  transfer.** The function cannot see an amount at all, which is what makes an amount-based shortcut
+  impossible rather than merely discouraged. Reversal operates on LEGS and `settle_row` writes none,
+  so a shortcut would make two identical-looking actions behave differently on undo with nothing on
+  screen saying which one you got.
+- ⚠️ **The `ticks > 1` clause is NOT the old tick-count rule surviving.** It is a CAPACITY rule:
+  `settle_row` takes ONE target, so routing a multi-pick there would settle the first record and
+  silently DROP the rest. Normal's picker is single-select by construction, so the shape is
+  unreachable from the product; the clause exists so that a writer which ever produced it lands on
+  the endpoint that can EXPRESS it and is refused loudly, rather than half-written in silence.
+- ⚠️ **An ABSENT mode means Normal, and that default is load-bearing.** The BULK "confirm all
+  matched" path has no dialog and therefore no radio; it calls `settleOne(row, decision)` with no
+  mode and keeps taking `settle_row`'s stricter path. **Permanently** — do not give the bulk caller
+  a mode to pass.
+- ⚠️ **The old `describe("chooseSettleEndpoint")` block asserted the rule this replaces. It was
+  RETIRED BY INVERSION** (`allocationView.test.ts`), per the repo's standing rule: each case now
+  states the NEW truth about the very inputs the old rule got wrong, so a revert to counting ticks
+  fails loudly instead of passing on a suite that no longer mentions the question. Two cases carry an
+  `INVERTED:` prefix and the retired clause carries its own explanatory case. **A deleted pin checks
+  nothing.**
+
+### The status clause survives as a CONSEQUENCE, not a rule of its own
+
+`settleModeLocked(rowStatus)` is `rowStatus === ROW_PARTIALLY_ALLOCATED`; `effectiveSettleMode`
+forces `"split"` there. So the old "a single tick on a `Partially Allocated` row goes to
+`allocate_row`" behaviour is byte-identical — including on the bulk path, which passes no mode —
+but it now falls out of the mode rule rather than sitting beside it.
+
+**On such a row the radio is LOCKED, not hidden**, with the reason beside it ("This transfer already
+has money allocated against it… Reverse every allocation above to get the choice back"). Only the
+OTHER option is disabled: greying the chosen one too would grey out the answer the reviewer needs to
+read. The lock **unlocks for free after a full reversal** — every gate keys off `row_status`, and
+`_refresh_row_allocation` re-derives it back to `Matched`/`Mismatched`. Verified in code, in
+`test_reversing_every_leg_returns_the_row_to_an_open_status`, and on live row `OFR-26-002185`.
+
+### Where the mode lives, and why
+
+**On the PAGE (`OutflowMasterPage.settleMode`), not in the dialog.** `settleOne` is on the page, so
+the mode must be readable at confirm time; a copy in the dialog would have to be shipped up on every
+change and trusted to agree at the one moment it decides where money is written.
+
+- **Reset rides the OPEN** (`openDecisionRow`), not an effect on `openRow`: "opening a row" and "the
+  mode it opens on" are then one action and cannot come apart. `closeDecisionRow` resets too, but
+  that is belt-and-braces — every route back in goes through the open. **Mode is never remembered
+  between rows**; a sticky mode is how a transfer gets split by accident.
+- **Switching mode CLEARS the pick** (`handleSettleModeChange`), and clears **BOTH** fields. The two
+  modes store the pick in different fields and mean different things by it — one record that settles
+  the whole transfer, versus one leg of several. `decisionLinkKeys` lets a non-empty `linkTargets`
+  win, so a `linkTo` left behind is invisible while ticks exist and speaks again the moment the last
+  one comes off. Same writer contract every other writer of these fields holds.
+- The dialog receives the CHOSEN mode and derives `effectiveMode` / `modeLocked` **once**, handing
+  `effectiveMode` down to `LinkPaymentSection` → `RecordPicker`. The picker must never re-derive it,
+  or the control collecting the pick and the rule routing it could disagree about the endpoint.
+
+### The picker forks on the mode — two components, still not consolidated
+
+`RecordPicker` renders `SettleableRecordTable` (Normal: one `<input type="radio">`, all three
+ledgers) or `FanOutRecordTable` (Split: checkboxes). The duplication stays sanctioned by owner
+ruling — see either file's header.
+
+- **Normal's `onSelect` writes `linkTo` + `target` and CLEARS `linkTargets`.** A seeded decision
+  arrives carrying `linkTargets` (`seedDecisions` writes a singleton set), which
+  `decisionLinkKeys` lets WIN — so a Normal pick that forgot to clear it would settle the machine's
+  old record instead of the person's new one, silently, with the person's choice on screen.
+- **`selectedRecords` now resolves through `decisionLinkKeys`, not `decision.linkTargets`.** Same
+  reason: a seeded suggestion would otherwise be invisible in the Normal table while the footer still
+  counted the row as decided. The prune effect, `disabledKeys` and both tables' `selected` prop all
+  read that one memoised `linkKeys`, so the ticked boxes and the balance bar can never count
+  different things. **`EMPTY_LINK_TARGETS` was deleted** — `decisionLinkKeys` already returns a
+  module-level empty set, so the identity stability is inherited from the one function that had to
+  have it. Do not add a second.
+
+### Split lists payments only — a narrowing, with two sentences
+
+`recordPickerView.splitCandidates(pool)` keeps only `Project Payments`, applied **before** any
+filter, facet or sort runs, so the count line, the facets and the "Showing N of M" arithmetic all
+describe the list the reviewer can act on.
+
+- It **adds no rule** — `allocate_row` throws on the first non-payment target and
+  `tickAllowedForFanOut` already withheld the checkbox. It stops OFFERING what would be refused.
+- **No fallback to the whole pool when it comes back empty.** That would offer the very records the
+  endpoint refuses, on the screen whose job is to stop that.
+- `SPLIT_PAYMENTS_ONLY_NOTE` renders **always in Split**, not only when something was dropped: a
+  reviewer hunting an expense they can SEE in Normal needs the reason at the moment they look for it.
+- `SPLIT_NO_CANDIDATES_NOTE` replaces the Normal empty sentence when the narrowed pool is empty — a
+  silent empty list, or "there are no approved payments or expenses to link to" over a pool that
+  still holds expenses, both read as a broken screen. It NAMES the way out (switch back to Normal).
+- ⚠️ **`disabledKeys` / `tickAllowedForFanOut` are now belt-and-braces and are KEPT ON PURPOSE.**
+  Nothing can fire them while the pool is narrowed. They stay because they mirror a SERVER refusal,
+  not because they decorate the narrowing: if the pool is ever widened again the withholding has to
+  already be in place rather than be remembered.
+- **Filters and sort reset on a mode change**, as they already did on a row change. Split narrows
+  before the facets are computed, so a vendor filter set in Normal can survive into a Split facet
+  list that no longer offers it — an active filter with no chip on screen, exactly the shape that
+  reset exists to prevent.
+
+### ⚠️ Two changes NOT in the ticket that the slice could not ship without
+
+1. **The amount-window detour is gated on Normal mode.** `handleConfirmClick` ran `settleBlocker`
+   whenever exactly one record was ticked. `suggested` is false for any record outside the settle
+   window of the FULL transfer, so **a deliberate first leg would have opened "this record is
+   ₹2,19,000 away from the transfer" instead of being allocated** — acceptance criterion 1
+   unreachable. Task 7 had already exempted a multi-tick fan-out ("governed by the balance bar
+   instead"); Split is that same fan-out at ONE tick, so the exemption follows the MODE, not the
+   count.
+2. **The Confirm label says "Allocate" only when it is going to allocate.** It keyed on `ticks > 0`
+   alone, so a single pick routed to `settle_row` still read `Allocate 1 record`. Survivable while
+   the routing was invisible; with a mode radio directly above it, "Allocate" one line under a chosen
+   "Normal" is a straight contradiction. Normal keeps `Confirm → Paid`, which is also what the
+   endpoint actually does.
+
+### The label must not say "partial", and the ban is MECHANICAL
+
+The same dialog renders `PartialIntentChoice`'s radio labelled **"A part payment"**, belonging to the
+INVERSE feature (one approved payment split across several TRANSFERS). Two radio groups in one dialog
+with near-identical labels and opposite meanings is the worst available outcome. The visible copy
+lives in `allocationView.SETTLE_MODE_LABEL` / `SETTLE_MODE_HINT` and a test in
+`recordPickerView.test.ts` asserts that neither those nor either split note contains
+`part payment` or `partial`. **Do not move the copy inline** — the ban would become a note somebody
+has to remember.
+
+### The radio's placement
+
+Directly ABOVE the picker it governs, BELOW `AlreadyAllocatedSection`, and **gated on
+`canLinkPayment`**. That is "the top of the settle dialog" in the only sense that is true: a CREDIT
+row has no settle picker at all (it is recorded as an inflow or a receipt), so the question there
+would be offering a choice about a control that is not on the screen. It sits below the legs for the
+same reason those sit above the picker — the money already written against the transfer is the
+evidence for why the mode is locked.
+
+### Verification
+
+- `vitest run` — **90 files, 3465 tests, all green** (baseline before the slice: 3454 with one
+  container-timing flake in `POAdjustment/writeOffControl.test.ts`, which passes on a re-run). Eleven
+  new tests: the inverted routing block, `effectiveSettleMode` / `settleModeLocked`, `splitCandidates`
+  and the copy ban.
+- `tsc --noEmit` — **zero errors under `src/pages/outflow-import/`** (the repo carries a large
+  pre-existing backlog elsewhere).
+- ⚠️ **NOT verified in a browser by this slice.** Everything the mode touches that a unit test can
+  see is pinned; everything it touches that a unit test CANNOT see — the radio rendering, the lock,
+  the mode switch clearing a tick, the Normal radio table, and the first-leg-then-second-leg walk
+  itself — is a React semantic in a repo with no DOM environment, by deliberate choice. **Issue
+  #1245 is the browser walk and is where those criteria are actually discharged.**
+
+### The two-axis review wave (same day) — AC10 answered, and one reachable defect found
+
+The Standards axis and the Spec axis were run as separate agents against `d13aecdc`. Between them
+they produced one real defect, one documented-standard breach and the acceptance criterion the first
+pass had missed. All three are fixed in the follow-up commit; the rest were judgement calls, recorded
+below with the reason they were not taken.
+
+#### AC10 — the ledger-withholding gap: **ANSWER 2 IS TAKEN, and this is the record of it**
+
+The ticket offers two ways to close it and demands one be chosen deliberately:
+
+> either the radio picker withholds non-payment rows with a reason, or a test pins that a
+> `Partially Allocated` row can never reach the radio picker
+
+**Answer 2** — proved unreachable. `tickAllowedForFanOut` + `disabledKeys` are wired ONLY to
+`FanOutRecordTable`; the restored `SettleableRecordTable` has no equivalent, so if it could render on
+a `Partially Allocated` row a reviewer could pick an expense, press Confirm, and be refused by the
+server for a reason nothing on screen hinted at.
+
+⚠️ **The ticket forbids answering "it can't happen" without pinning it**, and the pin has to be of
+the JOIN, not of either half: `effectiveSettleMode` forcing `"split"` and the render fork consuming
+it are two facts that can both be true while the wire between them is cut. So the fork was extracted
+out of the JSX into `allocationView.settlePickerFor(mode): "radio" | "checkbox"`, and
+`allocationView.test` pins the composition the screen actually runs —
+`settlePickerFor(effectiveSettleMode(chosen, "Partially Allocated")) === "checkbox"` for **every**
+chosen mode, plus the negative half so the pin cannot pass on a function that returns `"checkbox"`
+for everything. Same reason `PricingGrid` keeps `selectRenderPath` outside its JSX: this repo has no
+DOM environment, so a ternary in a render is beyond every test it has. **Do not inline it back.**
+
+Answer 1 was rejected: it would add a `disabledKeys` prop to a component restored byte-identical one
+commit earlier, to withhold rows that can never be shown — dead code standing in for a proof.
+
+#### ⚠️ A REACHABLE DEFECT: a decision OUTLIVES the dialog, but the mode does not
+
+**Tick two payments in Split, close the dialog WITHOUT confirming, reopen.** The mode resets to
+Normal on every open; the decision does not reset at all — it lives in the page's `decisions` map. So
+the radio table renders showing ONE of the two, while `settleOne` still reads both through
+`decisionLinkKeys` and, by the capacity rule, posts them to `allocate_row`. **The screen would show
+one record and settle two.** No mode switch is involved, so `handleSettleModeChange`'s clearing never
+fires; reversing every leg of a `Partially Allocated` row reaches the same shape by a second route.
+
+Fixed at the open: `openDecisionRow` drops a pick the opening mode cannot represent, via the pure
+`outflowTableModel.pickFitsSingleSelect`. ⚠️ **It CLEARS, it never truncates** — taking the first key
+would silently settle one of two records the reviewer deliberately chose, and a wrong write is worse
+than a lost selection, which the reviewer can at least see.
+
+#### ADR-0010 F4 — the clearing rule moved out of the page
+
+`handleSettleModeChange` spelled the clearing inline as `{...current, target: undefined, linkTo: null,
+linkTargets: new Set()}` — a domain rule about `outflowTableModel`'s own two-field shape, living in a
+page component where this repo cannot test it, while every neighbouring rule in the same commit
+(`effectiveSettleMode`, `settleModeLocked`, `splitCandidates`) had been extracted and pinned. It is
+now `outflowTableModel.clearedPick`, pinned in `outflowTableModel.test` — including that `linkTo` is
+present-and-`null` (a deliberate clear) rather than dropped (never picked), which `seedDecisions`
+reads.
+
+#### Judgement calls NOT taken, and why
+
+- **`isPartiallyAllocated` and `settleModeLocked` are the same comparison three lines apart.** Kept
+  as two, with a note. They are two different questions — "does this transfer already have legs?"
+  (gating the legs fetch and the already-allocated section) and "does the reviewer get a choice of
+  mode?" — that happen to share one answer today. The mode question must read the function
+  `chooseSettleEndpoint` also reads, or a change to the locking rule would move the routing and leave
+  the radio behind.
+- **The mode copy lives in `allocationView` while the split notes live in `recordPickerView`.** Each
+  constant sits with the concept it describes — the mode vocabulary, and the pool view. The
+  "partial"-ban test spans both deliberately, because the ban is about the DIALOG, not either module.
+- **Effect deps carry a `Set` and an array** (`linkKeys`, `selectedRecords`). Both are `useMemo`'d,
+  so identity is stable; the standing rule is about inline objects/arrays minting a new identity per
+  render.
+- **Three `setOpenRow(null)` closes** (reverse / partial-settle / skip) do not call
+  `closeDecisionRow`. Harmless because the reset rides the OPEN and every route back in goes through
+  `openDecisionRow` — which is also where the multi-pick guard now sits, so those paths inherit it.
+
+#### Two further scope items the Spec axis flagged, both deliberate
+
+- The `decisionLinkKeys` / `linkKeys` rewrite of `selectedRecords`, the prune effect and
+  `disabledKeys` is **required**, not incidental: the Normal table takes a SCALAR `selected`, and
+  `seedDecisions` writes its suggestion into `linkTargets` on a row that opens in Normal mode — so
+  reading `decision.linkTargets` alone would have left every seeded suggestion invisible in the
+  Normal table while the footer still counted the row as decided.
+- The `LinkPaymentSection` subtitle follows the mode because the old line ("the approved record(s)
+  this transfer paid — payment or expense") is false in both halves under Split, and it sits directly
+  above the control it describes.
+
+**Verification after the wave:** `vitest run` — 3471 of 3472 green; the one failure is
+`POAdjustment/writeOffControl.test.ts` timing out at 5s under full-suite parallelism in the
+container, **which passes 19/19 in isolation and is present in the pre-slice baseline** — unrelated.
+`src/pages/outflow-import` alone: **10 files, 607 tests, all green** (600 before the wave).
+`tsc --noEmit`: zero errors under `src/pages/outflow-import/`.
+
+
+---
+
+## Slice 1b (2026-09-11) — the Confirm gate is NARROWED to the allocation path
+
+**Issue #1242** (parent #1236, ADR-0020 Amendment B § B4). The gate disabled Confirm whenever a
+ticked record exceeded the transfer by more than the tolerance. On a fresh row `banked = 0`, so
+`bar.over` reduces to *"the ticked record exceeds the transfer by more than the tolerance"* —
+**algebraically the same condition** that opens the part-payment / TDS detour, since the settle
+window and `AMOUNT_TOLERANCE` are literally the same constant. That detour's ONLY trigger is
+`handleConfirmClick`, which a disabled button never fires. **So every pick that could open the
+detour was a pick whose Confirm was dead**, and both paths sat live in source and unreachable from
+the product.
+
+⚠️ **Two corrections to the record, for anyone bisecting.** The clause was **not** introduced by the
+"six review fixes" commit — that added only the `|| legsUnknown` disjunct, which is innocent. It came
+from the **feature commit** and was present from the start. And it was **plan-mandated, not a review
+finding**: the design spec said *"over-ticking is allowed; Confirm is not"*, a rationale entirely
+about WHICH control disables. Nothing in the plan, brief, report or four review passes considered
+its effect on the single-tick path. **So narrowing it reopens nothing.**
+
+### The routing rule IS the predicate — `confirmGate` takes the endpoint, not a boolean
+
+`confirmGate` gains `endpoint: SettleEndpoint | null` — `chooseSettleEndpoint`'s own return value,
+passed straight through from `DecisionDialog` off the same chosen `settleMode` the page routes the
+confirm with. Inside:
+
+```ts
+const allocationGoverns = balanceGoverns && endpoint === "allocate_row";
+```
+
+⚠️ **THE ENDPOINT IS PASSED, NOT A BOOLEAN DERIVED AT THE CALL SITE.** ADR-0020 B4: *"the predicate
+already exists and is already single-homed."* A boolean built in the dialog would be a second,
+untestable copy of "does allocation govern here?" — the exact shape #1239 removed — and it is the
+pass-through that makes the narrowing pinnable at all, which is why #1239 ran first.
+
+**Nothing is lost.** `settle_row` keeps its strict whole-transfer guard server-side and refuses an
+oversized tick regardless; the client gate was never the boundary.
+
+### ⚠️ `legsUnknown` is NOT narrowed, and the two terms must not be folded back together
+
+`balance-unknown` keeps `balanceGoverns` alone; only `over-allocated` reads `allocationGoverns`:
+
+```ts
+busy -> "busy"
+!decisionConfirmable -> "decision-incomplete"
+balanceGoverns && legsUnknown -> "balance-unknown"
+allocationGoverns && over -> "over-allocated"
+```
+
+`legsUnknown` is innocent (ADR-0020 B4, explicitly): it is already scoped to `Partially Allocated`
+rows, so it is always false on a fresh one, and such a row is FORCED to Split and therefore inside
+the narrowed set anyway. Ruling U — *never draw a confident balance over an unknown leg set* — must
+keep biting on every endpoint. ⚠️ **Branch order is no longer merely cosmetic**: the last two carry
+DIFFERENT conditions now, so re-ordering them changes which reason is NAMED (though still never, on
+any input, whether Confirm is available).
+
+### The red bar survives; only the instruction changes
+
+The bar still goes red and still says the ticks exceed the transfer — the over-tick is a real fact on
+a money screen whichever endpoint is about to be called. But *"— untick something before confirming"*
+is advice about a tick-set the gate is REFUSING, and beside a live button it is simply wrong, so the
+message tracks whether the gate bites:
+
+| Path | `balanceMessage` |
+|---|---|
+| gate bites (`allocationGoverns`) | `— untick something before confirming` (unchanged) |
+| narrowed away | `— press Confirm to see your options` |
+
+Both still come out of the ONE `confirmGate` call, which is what stops the gate and the message
+disagreeing — the whole point of #1239's one-value shape.
+
+### The server refusal names Split mode, not TDS
+
+`settle.py`'s payment amount-mismatch throw dropped *"A deduction such as TDS looks like this; settle
+it in the payments screen."* It sent a reviewer off the screen for a problem most of them do not
+have: the commonest arrival here is now a DELIBERATE first leg — a payment smaller than the transfer,
+which Split mode allocates and this whole-transfer path is right to refuse. A real deduction is
+answered on the screen itself by `AmountOutsideWindowDialog`, which opens when the record is LARGER
+than the transfer. It now reads:
+
+⚠️ **THE REMEDY IS DIRECTION-AWARE, and it has to be — the throw fires on BOTH directions.** An
+unconditional *"choose Split"* would be a newly-wrong sentence for half its arrivals: Split allocates
+several records against one transfer, so a record LARGER than the transfer would be over-allocated by
+following it. `settleBlockText` already splits the two cases client-side (`bank_paid_more` vs
+`record_larger`); this now matches:
+
+| Direction | What it says |
+|---|---|
+| record **smaller** than the transfer (`amount < bank_amount`) | *To settle it as one part of this transfer, choose 'Split across several payments' on the row.* |
+| record **larger** | *This record is larger than the transfer. Open the row and confirm the pick to see the options for the difference.* |
+
+⚠️ **That second row is NOT redundant with the dialog.** The BULK *"confirm all matched"* button
+reaches this function with no dialog in front of it to intercept the pick, so the sentence has to
+carry the answer itself.
+
+⚠️ **The quoted label MIRRORS `allocationView.SETTLE_MODE_LABEL.split`, AND IS NOW PINNED** —
+`settleModeLabelParity.test.ts` reads `settle.py` as text and asserts the TypeScript label appears in
+it, that the retired TDS sentence does not, and that the record-larger branch still answers. Naming a
+control the reviewer cannot find is the same defect as naming the wrong screen, and a comment saying
+*"reword both together"* is prose where this repo mandates a test (root `CLAUDE.md`'s
+`INFLOW_DOCTYPE` precedent; ADR-0010 F1). Two properties of that pin are load-bearing: its FIRST case
+asserts the file was actually found and is non-trivial (every other case is a substring check, so a
+rotted path would make them all vacuously pass), and the absence check scans the file **with `#`
+comment lines stripped** — `settle.py` deliberately quotes the retired sentence in the comment
+explaining why it went, and the naive check went red on the very change it protects.
+
+⚠️ **HONEST LIMIT: `vitest` is a LOCAL gate, not run by CI** (`frontend/CLAUDE.md`), which runs the
+Python suite only. A bench-side twin would run in CI but would have to read the TypeScript file as
+text in the other direction; one pin, not two, is the rule, and this is the side that could be run
+and proven at the moment it was written.
+
+The EXPENSE mismatch throw (`settle_existing_expense`'s) never cited TDS and is untouched.
+
+### ⚠️ The gate predicts with the reader the PAGE routes with, not the picker's count
+
+`DecisionDialog` holds TWO tick counts and they diverge **by design** (REVIEW FIX 3): `ticks` comes
+from `pickedRecords` — the records the pool actually resolved — and drives the button LABEL and the
+bar, which must agree with each other. `OutflowMasterPage` routes the confirm from
+`decisionLinkKeys(decision)` instead, which counts every ticked KEY including one the pool has not
+resolved yet or no longer holds.
+
+A gate that PREDICTS the endpoint has to read what the confirm will read, so it is fed
+`decisionLinkKeys(decision).size`. Feeding it `ticks` left a real hole: an unresolved key reads as
+`endpoint === null`, the over-tick guard is skipped, and the row it is skipped on is one whose
+ALREADY-BANKED legs exceed the transfer — precisely the row that must not be confirmed. It is also
+the same reader `isConfirmable` uses, so a `null` endpoint can never outlive a confirmable decision,
+and the test suite pins that composition rather than only the bare input.
+
+### Parked with a ruling (do not rediscover as new)
+
+On a `Partially Allocated` row with a single tick, the detour's own comparisons read the WHOLE
+transfer rather than the remainder. B1 makes that shape unreachable — such a row is forced to Split,
+and `handleConfirmClick` gates the detour on `effectiveMode === "normal"` — **so the bug dies rather
+than being fixed.**
+
+### Verification
+
+`allocationView.test` grew a `confirmGate — the narrowing` block; the pre-existing *"matches the
+inline expression it replaced"* pin was **RETIRED BY INVERSION, never deleted** — it now asserts the
+old algebra still holds on `allocate_row` AND that the same formula **with `over` struck out** is the
+truth on `settle_row`. **Mutation-checked:** reverting `allocationGoverns` to plain `balanceGoverns`
+fails 5 of the new cases.
+
+`vitest run` (in-container): **91 files, 3487 tests, all green.** `src/pages/outflow-import` alone:
+11 files, 622 tests. `tsc --noEmit`: zero errors anywhere under `src/pages/outflow-import/`.
+
+The label parity pin is **mutation-checked too**: rewording `SETTLE_MODE_LABEL.split` to *"Split
+across many payments"* turns it red. It also went red once for a REAL reason during the change — on
+`settle.py`'s own comment quoting the retired TDS sentence — which is the best evidence available
+that it is reading the file it claims to read.
+
+✅ **AC1 + AC2 ARE OWNER-VERIFIED IN THE BROWSER (2026-09-11): the dialog opens.** That is the
+verification this slice was gated on, and it is recorded here because nothing else can hold it —
+the dialog is STRUCTURALLY untestable in this repo (no DOM environment, deliberate), so *"Confirm is
+clickable on a single oversized tick and the amount-window dialog opens"* is pinned only at the
+predicate. Before the walk, the runtime path had merely been traced by hand (gate → `disabled` →
+`handleConfirmClick` → `settleBlocker` → `setBlocked`, with `SHOW_PARTIAL_SETTLE = true` and
+`partialOffer` firing on the same over-tick shape). ⚠️ **A later change to any link in that chain
+re-opens the question and needs its own walk** — a green suite will not notice, which is the whole
+reason the gate was able to make two features unreachable in the first place.
+
+⚠️ **STILL OWED: the `settle.py` throw is not EXERCISED.** Its COPY is pinned by
+`settleModeLabelParity.test.ts` and it is syntax-checked, but no bench suite was run against it —
+and CI runs the Python side, so the first real exercise will be a genuine amount mismatch on a live
+row. The direction-aware branch is the half to watch: a record LARGER than the transfer, arriving
+through bulk *"confirm all matched"*, is the shape with no dialog in front of it.
+
+---
+
+## Slice 1c (2026-09-11) — the picker measures the REMAINING BALANCE, not the full transfer
+
+**Issue #1243** (parent #1236, blocked by #1241 — the mode had to exist before the picker could
+measure differently inside it).
+
+On a partly-allocated transfer the record picker was answering a question nobody had asked. The
+payment that would **complete** the row scored zero on the amount axis, came back
+`suggested: False`, and therefore sorted **below every record too large to fit** — because
+settleability is a HARD SPLIT above the score (`similarity.ranked_records`). It was then labelled
+with a large "off by" figure, and a single tick on it was refused with a message untrue of the
+balance actually left. The one record the reviewer needed was presented as the least plausible.
+
+⚠️ **FAR SMALLER THAN THE HANDOFF'S "TEN SITES" FRAMING.** The endpoint derives its comparison
+amount at **ONE point** and every consumer below it already takes it as an **argument** — the
+per-ledger SQL `ORDER BY`, the `suggested` flag, the ranker's hard split (which rides in on
+`suggested`, never recomputed) and `_amount_score`. **One substitution moves all four**, which is
+exactly what preserves the existing invariant that there is ONE amount-opinion per record.
+
+### The shape: a parameter on the existing endpoint, never a second endpoint
+
+`search_settleable_records(..., compare_amount=None)`. The dialog already computes the remainder
+client-side, so the parameter costs **zero additional requests**. A new read endpoint would have put
+a serialised round trip on this dialog's critical path to fetch a number already in memory one
+component up — and would not even have removed the direct `Outflow Row Match` read that appears to
+justify it.
+
+- **`_comparison_amount(row_amount, compare_amount)` FAILS BACK, NEVER THROWS.** Blank, zero,
+  negative or unparseable → the transfer's own amount, byte-identically to before. This figure only
+  ORDERS and MARKS a list a person then confirms; `settle_row` / `allocate_row` re-read every leg
+  under a row lock and re-assert the real fit, so denying the reviewer the screen over a garbled
+  query parameter would trade a slightly worse ordering for no ordering at all.
+- ⚠️ **A NON-POSITIVE FIGURE IS REFUSED ON BOTH SIDES, AND THE PAIR IS PINNED** (`if wanted <= 0` on
+  the server; `remaining > 0 ? remaining : null` on the client; `comparisonAmountParity.test.ts`
+  holds them together). No approved record can be "within ₹5" of a negative or zero target, so
+  honouring one would return a list in which NOTHING is settleable, with no sentence on screen
+  saying why. ⚠️ **The first cut kept the negative on the client and refused it on the server, and a
+  review pass caught it after both suites were green**: the two then measured DIFFERENT THINGS on
+  the same row — an emerald "this can be settled" from the server beside a large client-side "off
+  by" — which is exactly the contradiction this slice exists to remove. An over-allocated row is not
+  hidden by this: the **balance bar** reports it, in the words written for it.
+- ⚠️ **THE CONSEQUENCE THAT MAKES THE CALLER SAFE: a non-`null` `pickerComparisonAmount` is ALWAYS
+  POSITIVE.** That is what lets `pickerBankAmount = compareAmount ?? row.amount` stand without a
+  second `> 0` test — and a second test is how one rule becomes two copies free to drift. A test
+  asserts the property directly, not just the cases.
+- ⚠️ **`normalize_amount` ALREADY RETURNS `Decimal("0")` FOR RUBBISH** rather than raising, so
+  "blank" and "unparseable" arrive as the same falsy zero. Do not wrap it in a `try` expecting an
+  exception that cannot come.
+- ⚠️ **`_rank_browse_records` NOW TAKES THE TWO TEXT FIELDS EXPLICITLY, NOT THE WHOLE ROW.** Once
+  `bank_amount` may differ from `doc["amount"]`, handing both to the ranker would put two
+  disagreeing amounts one argument apart — a trap for the next reader.
+
+### Rank once per dialog open, against the BANKED remainder — never live per tick
+
+`allocationView.pickerComparisonAmount(rowAmount, legs)` returns the banked remainder, or **`null`**
+when the row has no settled legs.
+
+- ⚠️ **`null` IS NOT `rowAmount`, AND THE DIFFERENCE IS THE WHOLE OF AC4.** They are arithmetically
+  equal on an untouched row, but `null` is what lets the caller send the params and the SWR key it
+  has always sent. A number there would mint a new parameter and a new cache key on **every open row
+  in the system**, to say something the endpoint already knew.
+- ⚠️ **IT TAKES NO TICKS, AND THE ABSENT PARAMETER IS THE ENFORCEMENT.** `allocationBar` folds ticks
+  in because the bar must move live; this must not, because a list that re-ranks under the cursor
+  mid-selection is worse than a static answer — and the bar beside it already shows the live figure.
+  There is no third parameter for a caller to pass ticks through by accident. A test pins
+  `pickerComparisonAmount.length === 2`.
+- **It shares `allocationBar`'s arithmetic rather than repeating it**, so the remainder the reviewer
+  READS and the remainder the picker RANKS BY cannot disagree about the same row.
+- ⚠️ **THE SWR KEY CARRIES THE AMOUNT, AND IT HAS TO.** SWR caches on the key alone, so a remainder
+  that arrives after the first render — which is every partly-allocated row, because the legs are a
+  SECOND fetch — would otherwise never reach the server at all. **And the key is `null` while the
+  balance is unknown**, which is what stops that being a race: fetching against a provisional
+  whole-transfer figure would cache the wrong ranking under the wrong key and leave the reviewer
+  reading it. The banked legs do not move when a box is ticked, so neither does the key.
+- ⚠️ **AN UNKNOWN BALANCE IS LOADING, NOT EMPTY** (`poolLoading = isLoading || compareUnknown`).
+  With a `null` key SWR never fires, so `isLoading` is `false` and `data` is `undefined` — which
+  would fall through to *"There are no approved payments or expenses to link to."* on a row that has
+  plenty. Same `legsUnknown` distinction the bar already draws, one component further down: **absent
+  is not unknown.**
+- ⚠️ **BUT `compareUnknown` IS THE LOADING HALF OF `legsUnknown` ONLY — NEVER THE ERROR HALF**
+  (review finding). `legsUnknown` is `legsLoading || legsError`, and **the error half never clears
+  while the dialog is open**, so passing all of it withheld the record fetch permanently: the picker
+  read *"Loading records…"* forever, with the count line and Clear control hidden, on a row whose
+  pool had loaded fine before this slice. **That is strictly worse than the defect being fixed** —
+  the reviewer could see and link nothing at all. On a failed legs fetch the honest fallback is the
+  ORDINARY list ranked against the whole transfer, which is what `compareAmount` already is there
+  (`allocatedLegs` is `[]`); the bar still says the balance is unknown and `confirmGate` still
+  refuses the click, so nothing can be written off the wrong number.
+- ⚠️ **THE CLIENT "off by" MARK IS FED THE SAME FIGURE** (`pickerBankAmount = compareAmount ??
+  row.amount`, one const, three render sites). `AmountMark` renders the SERVER's `suggested` beside a
+  CLIENT-computed difference; measuring them against different amounts would print "off by ₹65,000"
+  on the record the server has just flagged as the one that fits.
+
+### The matcher-found marker is SUPPRESSED on a partly-allocated row
+
+⚠️ **The automatic matcher is out of scope and stays out.** Partly-allocated rows are frozen from
+matching and the ranker is architecturally forbidden from feeding the matcher (pinned both ways in
+`test_similarity`). **One exception leaked:** `get_row_candidates` re-runs the match LIVE on every
+dialog open with **no frozen-status guard**, so on such a row it marked records against the WHOLE
+transfer — including records **already settled as legs of that very row**.
+
+`matcherMarksVisible(rowStatus)` (`= !settleModeLocked(rowStatus)`) suppresses them client-side.
+
+- ⚠️ **SUPPRESSED, NEVER MADE REMAINDER-AWARE** (owner ruling). That would push RANKING into the
+  matcher, which is the one fence this feature never crosses.
+- ⚠️ **THE COUNT SENTENCE GOES WITH IT, AND THAT IS WHY IT IS ONE VARIABLE.**
+  `matcherCandidateLine` reads `.size` off the same set, so an empty set silences the sentence too.
+  Suppressing the marks while leaving *"6 approved records match this transfer … pick which one it
+  settled"* on screen would recreate the **slice-N3 defect the marks were built to fix**: an
+  instruction pointing at nothing.
+- It reads the SAME status `settleModeLocked` reads, so the marks and the mode can never come to
+  describe different rows — pinned as a composition, the same guard `settlePickerFor` carries.
+
+### ⚠️ A comment in the dialog was FALSE, and is corrected rather than deleted
+
+It claimed *"the `legs` a write returns only cover THAT write"*. **`allocate_row` returns every LIVE
+leg on the row, and therefore an authoritative balance.** The real reason the dialog reads
+`Outflow Row Match` directly is that it needs the balance **before any write** — on open, with
+nothing submitted. Left corrected in place, with the old sentence quoted: it was load-bearing enough
+to be believed, and the next reader is entitled to know it was wrong.
+
+### ⚠️ What the review pass caught, after both sides' suites were green
+
+Both findings were **cross-seam**, which is the standing warning in this repo's testing conventions:
+a test on each side of a boundary is not a test of the boundary. Each side's suite was green and
+each side was internally consistent; only the JOIN was wrong.
+
+1. **The client kept a non-positive remainder the server refuses.** Covered above and now pinned by
+   `comparisonAmountParity.test.ts`, a dedicated FE↔BE parity file on the `rateFieldParity` /
+   `settleModeLabelParity` precedent. The old client case was **retired by INVERSION, never
+   deleted**: it now asserts `null` AND `not.toBe(-60)`.
+2. **A failed legs fetch hung the picker on "Loading records…" permanently**, because
+   `compareUnknown` was handed all of `legsUnknown` including its never-clearing error half. Covered
+   above. ⚠️ **It was a REGRESSION STRICTLY WORSE THAN THE DEFECT BEING FIXED** — the reviewer could
+   see and link nothing at all, where before they at least got a whole-transfer-ranked list. Worth
+   recording as a shape: a new gate wired onto an existing "unknown" flag inherits every state that
+   flag can be stuck in, and `legsError` persists until the dialog is closed.
+
+### Verification
+
+- `test_review` **258** (251 before), including a `#1243` block: an absent/zero/blank/rubbish
+  `compare_amount` leaves the payload **byte-identical**; the `suggested` flag follows the figure;
+  the completing record **outranks where it sat before**; it never sits below a record that can no
+  longer fit; the **score axis** reports "the amount is identical"; and the value arrives as a
+  **string**, the way Frappe hands every whitelisted argument over from HTTP.
+- `vitest run`: **92 files, 3,504 tests** (3,487 before); `src/pages/outflow-import` alone **12
+  files, 639 tests** (11 files / 622 before). `tsc --noEmit`: zero errors under
+  `src/pages/outflow-import/`.
+- Pure services suite unchanged at **883**. All ten original frontend cases were confirmed **RED**
+  before the helpers existed, and all seven backend cases RED against the old signature; the seven
+  added for the two review findings were written against the fixed behaviour, with the inverted case
+  carrying an explicit `not.toBe(-60)` so the retired claim stays failing.
+- ⚠️ **`scripts/residence_check.py` fails on this branch for PRE-EXISTING drift** (`f5` 116→119,
+  `f2` 207→223). Both are frontend FILE-COUNT rules and the two files this slice touches contain
+  **zero** `updateDoc` / `JSON.parse` occurrences, so it cannot have moved either count. The
+  baseline has not been refreshed since the branch diverged; do not `--init` it to go green, that
+  would hide real drift.
+
+### ⚠️ STILL OWED: a browser walk on a partly-allocated row
+
+The dialog is STRUCTURALLY untestable in this repo (no DOM environment, deliberate), so every
+acceptance criterion here is pinned at the PREDICATE and at the ENDPOINT, and the join between them
+— *does the computed remainder actually reach the request?* — is exactly the cross-seam shape the
+standing rule says a test on each side does not cover. What a walk must observe on a
+`Partially Allocated` row: the completing payment **first** in the list, marked `same` rather than
+`off by`, the candidate chips **gone**, the ordering **unmoved** while boxes are ticked, and an
+untouched row's list **unchanged**.

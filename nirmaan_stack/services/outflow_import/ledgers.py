@@ -40,9 +40,11 @@ __all__ = [
     "LEDGER_DOCTYPES",
     "RECEIVED_LEDGER_DOCTYPES",
     "SETTLEABLE_STATUSES",
+    "TARGET_SNAPSHOT_FIELDS",
     "PAID",
     "APPROVED",
     "DECIDED_ON_SQL",
+    "SETTLED_LEDGER_SEPARATOR",
     "SETTLED_LEDGER_SQL",
     "settleable_statuses",
     "decided_on_sql",
@@ -110,6 +112,21 @@ SETTLEABLE_STATUSES: dict[str, tuple[str, ...]] = {
     PAYMENT_DOCTYPE: (APPROVED,),
     PROJECT_EXPENSE_DOCTYPE: (APPROVED,),
     NON_PROJECT_EXPENSE_DOCTYPE: (APPROVED,),
+}
+
+
+# The per-ledger PROJECT/VENDOR field names for the `Outflow Row Match` snapshot taken at
+# settlement time (ADR-0020, Task 3). It lives beside `SETTLEABLE_STATUSES` for the same reason:
+# a per-ledger column fact gets ONE owner, and `expenses._target_snapshot` reads THIS map rather
+# than a private copy.
+#
+# ⚠️ THE PROJECT FIELD IS NAMED DIFFERENTLY ON EACH LEDGER, and `Non Project Expenses` has neither
+# a project nor a vendor. A single `doc.get("project")` at the call site would silently snapshot
+# `None` on every Project Expense -- correct-looking and wrong.
+TARGET_SNAPSHOT_FIELDS: dict[str, tuple[str | None, str | None]] = {
+    PAYMENT_DOCTYPE: ("project", "vendor"),
+    PROJECT_EXPENSE_DOCTYPE: ("projects", "vendor"),
+    NON_PROJECT_EXPENSE_DOCTYPE: (None, None),
 }
 
 
@@ -191,21 +208,50 @@ def decided_on_sql(doctype: str) -> str:
 # no interest in the match table at all. A scalar subquery is confined to the SELECT list of the one
 # query that wants it and leaves the other four byte-identical.
 #
-# ⚠️ `LIMIT 1` IS EXACT HERE, NOT A GUESS. A settled row carries at most one `Outflow Row Match`
-# (verified on live data 2026-08-20: 0 rows with a blank `import_row`, 0 `import_row` values holding
-# more than one match). The shape that could change that is a FAN-OUT -- one transfer covering
-# several payments, which the unique key `(transfer_id, target_doctype, target_name)` deliberately
-# permits -- so if fan-out settlements ever start writing several match rows per import row, this
-# constant is what needs re-deciding: `LIMIT 1` would then pick one of them arbitrarily. It is a
-# reporting figure, so an arbitrary pick would be quietly wrong rather than loudly broken; re-check
-# the multi-match count before assuming it still holds.
+# ⚠️ AN AGGREGATE, NOT `LIMIT 1` (changed at ADR-0020). One transfer may settle several payments,
+# so `LIMIT 1` -- which had no `ORDER BY` -- would pick one leg arbitrarily and quietly mis-report
+# the row. The previous note here asked the next reader to re-check the multi-match count before
+# relying on it; that count is no longer zero, and this is the re-decision it asked for.
 #
-# ⚠️ `import_row` IS NOT INDEXED as of 2026-08-20 -- `Outflow Row Match.on_doctype_update` declares
-# `import_batch`, `transfer_id` and the target unique constraint, and nothing on this column. The
-# subquery is therefore a sequential probe per settled row. Measure before adding one; the
-# established pattern is a controller hook plus a patch that CALLS it
-# (`patches/v3_0/add_outflow_master_index.py`).
+# STILL A SCALAR CORRELATED SUBQUERY, for the reason the rest of this comment gives: five reads
+# share `_row_filters` (nine statements across six callers, in fact) and a JOIN would change the
+# FROM clause of every one of them. `string_agg` keeps the result one value per row.
+#
+# REVERSED LEGS ARE EXCLUDED, matching `allocation.allocated_of`. A reversed settlement no longer
+# landed anywhere, and reporting its ledger would claim money that is no longer there.
+#
+# ⚠️ `ofm_match_import_row_idx` (patched onto already-deployed databases by
+# `patches/v3_0/add_outflow_match_import_row_index.py`) is what keeps this affordable; without it
+# the subquery is a sequential probe per settled row.
+#
+# ⚠️ `'Settled'` IS SPELLED HERE RATHER THAN IMPORTED, on the EXACT precedent `INFLOW_DOCTYPE` sets
+# a few lines up (Task 6 review fix E). `allocation.py` OWNS this value as `MATCH_SETTLED` -- but
+# `allocation.py` imports `status.py`, and `status.py` imports THIS module (`ledgers.py`), so
+# `ledgers.py -> allocation.py -> status.py -> ledgers.py` is a REAL circular import, not a
+# theoretical one: verified with `frappe.init()`, it raises `ImportError: cannot import name
+# 'LEDGER_DOCTYPES' from partially initialized module 'ledgers'` regardless of which of the three
+# is imported first (both `status.py`'s and `allocation.py`'s own imports of the names they need sit
+# AFTER the circular import line in each file, so neither import order survives). A local constant,
+# pinned against `allocation.MATCH_SETTLED` under bench by
+# `test_review.TestSettledMatchKindSpelling` (the same shape as `TestInflowDoctypeSpelling`), keeps
+# the two spellings from drifting the way `INFLOW_DOCTYPE` already guards against for the inflow
+# doctype name.
+_SETTLED_MATCH_KIND = "Settled"
+
+# ⚠️ THE ONE PLACE THIS SEPARATOR IS SPELLED (Task 6 review fix F). `SETTLED_LEDGER_SQL` writes it
+# and `review.py`'s row-shaping loop (`get_outflow_rows` AND `export_outflow_rows`, both) reads it
+# back with `.split(SETTLED_LEDGER_SEPARATOR)` -- imported from here, never re-spelled, so the two
+# sides cannot drift the way five independent copies of `'|'` could. It is deliberately BARE (no
+# surrounding spaces): this value is PARSED back into a list, and a padded separator would leave
+# whitespace on every ledger name after the split. Contrast `review._SETTLED_EXPORT_SEPARATOR`
+# (`' | '`, WITH spaces) -- that one is a display string a reconciler reads directly in a
+# spreadsheet cell and NOTHING ever parses back, so it is free to be human-readable. The two must
+# stay two constants, not one: unifying them would either put whitespace into every parsed ledger
+# name, or make the CSV's name/amount columns visually cramped.
+SETTLED_LEDGER_SEPARATOR = "|"
 SETTLED_LEDGER_SQL = (
-    '(SELECT m.target_doctype FROM "tabOutflow Row Match" m '
-    "WHERE m.import_row = r.name LIMIT 1)"
+    f"(SELECT string_agg(DISTINCT m.target_doctype, '{SETTLED_LEDGER_SEPARATOR}' "
+    "ORDER BY m.target_doctype) "
+    'FROM "tabOutflow Row Match" m '
+    f"WHERE m.import_row = r.name AND m.match_kind = '{_SETTLED_MATCH_KIND}')"
 )

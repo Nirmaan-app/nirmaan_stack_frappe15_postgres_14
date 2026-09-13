@@ -1,7 +1,7 @@
 // src/pages/outflow-import/outflowTableModel.ts
 //
-// PURE MODULE -- no React, no fetching, no DOM. The model behind the batch screen's three tabs
-// (slice V4).
+// PURE MODULE -- no React, no fetching, no DOM. The model behind the batch screen's four tabs
+// (slice V4; the fourth, Partly Allocated, joined at the ADR-0020 D5 status).
 //
 // ⚠️ THIS FILE EXISTS BECAUSE OF WHAT CANNOT BE TESTED. There is no DOM test environment in this
 // repository, by deliberate choice, so the table, the dialog and the selection behaviour are React
@@ -17,10 +17,15 @@
 import type { DateFilterValue } from "@/components/data-table/dateFilterModel";
 import { resolveDateFilter } from "@/utils/dateFilterRange";
 import { formatDate } from "@/utils/FormatDate";
+// ⚠️ THE ONE IMPORT DIRECTION THAT AVOIDS A CYCLE (review fix 2): `allocationView.ts` is a pure
+// leaf with no imports from this file, so this module -- not that one -- is the dependency. Do
+// NOT flip this to satisfy some other convenience; check for a cycle again before you do.
+import { AMOUNT_TOLERANCE, SETTLE_MODE_LABEL, type SettleMode } from "./allocationView";
 import {
     OPEN_ROW_STATUSES,
     ROW_MATCHED,
     ROW_MISMATCHED,
+    ROW_PARTIALLY_ALLOCATED,
     ROW_PENDING_MATCH,
     ROW_SETTLED,
     rowStatusLabel,
@@ -240,8 +245,24 @@ export interface RowDecision {
      * transfer. An entry with no target is a row someone has opened, or deliberately cleared.
      */
     target?: DecisionTarget;
-    /** The record to settle. Required, with `target`, for everything except `new`. */
+    /**
+     * The ONE record to settle, by bare name, under `target`'s ledger. The **Normal** picker's
+     * field (ADR-0020 B3, restored at issue #1240 after Task 7 had replaced it outright).
+     *
+     * ⚠️ IT NEEDS `target` ALONGSIDE IT, because a bare name is not unique across the three
+     * ledgers -- which is exactly why the fan-out shape below stores whole `recordKey`s instead.
+     * `null` means "deliberately cleared"; absent means "never picked".
+     */
     linkTo?: string | null;
+    /**
+     * The record(s) to settle, as `recordKey`s. The **Split** picker's field (ADR-0020 fan-out).
+     *
+     * ⚠️ AN EMPTY SET MEANS "NOTHING PICKED"; ABSENT MEANS "NEVER TOUCHED". `seedDecisions` relies
+     * on that distinction to avoid overwriting a deliberately-cleared decision -- the same contract
+     * `linkTo: null` carries on the Normal side. `recordKey` / `parseRecordKey` (below) are the one
+     * identity function this reuses rather than re-minting.
+     */
+    linkTargets?: ReadonlySet<string>;
     /** Only for `target: "new"`. */
     newExpense?: {
         doctype: "Project Expenses" | "Non Project Expenses";
@@ -413,7 +434,12 @@ export const OUTFLOW_COLUMNS: OutflowColumn[] = [
     // `_SORTABLE_COLUMNS`, which refuses it -- a per-row correlated subquery over the whole
     // filtered table, blank on most rows). That absence is the whole mechanism: the header only
     // draws a sort button for a column `SERVER_SORT_COLUMNS` contains.
-    { id: "settled_ledger", title: "Ledger", get: (r) => r.settled_ledger ?? "", filter: "facet", width: "150px" },
+    // ⚠️ READS THE LIST AND JOINS IT (Task 6, ADR-0020 fan-out) -- `r.settled_ledgers` REPLACED the
+    // scalar `r.settled_ledger` this column used to read; a stale reader of the old field now gets
+    // `undefined` and an empty cell rather than one arbitrarily-picked ledger. The `id` stays
+    // `settled_ledger` (singular) on purpose: it is the FACET COLUMN NAME the server still filters
+    // on (`_FACET_COLUMNS["settled_ledger"]`), not the payload field this cell reads.
+    { id: "settled_ledger", title: "Ledger", get: (r) => (r.settled_ledgers ?? []).join(", "), filter: "facet", width: "150px" },
     // The Outcome cell is a BUTTON, not text, so it neither sorts nor filters -- there is nothing
     // meaningful to order "open this dialog" by.
     // ⚠️ NARROWED FROM 320px (owner, 2026-08-10) once the outcome NOTE moved out of the button and
@@ -456,7 +482,8 @@ export const DEFAULT_HIDDEN_COLUMNS: string[] = OUTFLOW_COLUMNS.filter(
 ).map((c) => c.id);
 
 /**
- * The three tabs (owner ruling 2026-08-10, replacing Pending / Settled / Skipped).
+ * The four tabs (owner ruling 2026-08-10, replacing Pending / Settled / Skipped; `Partly
+ * Allocated` joined later as its own tab, ADR-0020 D5).
  *
  * ⚠️ THERE IS NO SKIPPED TAB, AND `all` EXCLUDES SKIPPED TOO. "All" here means everything a person
  * might still act on, not every row in the table. Skipped rows are bookkeeping -- a failed
@@ -469,11 +496,12 @@ export const DEFAULT_HIDDEN_COLUMNS: string[] = OUTFLOW_COLUMNS.filter(
  * consequence is that the tab holds a mix, which is why row selection is per-row on this screen
  * rather than per-tab.
  */
-export type OutflowTab = "all" | "notMatched" | "matched";
+export type OutflowTab = "all" | "notMatched" | "partlyAllocated" | "matched";
 
 export const OUTFLOW_TABS: { id: OutflowTab; label: string }[] = [
     { id: "all", label: "All" },
     { id: "notMatched", label: "Not-Matched" },
+    { id: "partlyAllocated", label: "Partly Allocated" },
     { id: "matched", label: "Matched / Settled" },
 ];
 
@@ -500,6 +528,7 @@ export type OutflowScope = keyof OutflowRowsPage["tab_counts"];
 export const SCOPE_FOR_TAB: Record<OutflowTab, OutflowScope> = {
     all: "all",
     notMatched: "not_matched",
+    partlyAllocated: "partly",
     matched: "matched",
 };
 
@@ -1997,17 +2026,97 @@ export const previewCounts = (preview: {
 // --- what counts as decided --------------------------------------------------------------------
 
 /**
+ * WHICH records a decision picked, as `recordKey`s -- whichever of the two fields it used.
+ *
+ * ⚠️ THE ONE READER OF THE TWO-FIELD SHAPE, AND THE REASON IT EXISTS (issue #1240, ADR-0020 B3).
+ * `RowDecision` carries BOTH `linkTo` (the Normal single-select picker) and `linkTargets` (the
+ * Split fan-out picker), optional, because the readers below are used by the BULK "confirm all
+ * matched" path -- which has no dialog and therefore no mode to tell the two apart. Reverting a
+ * reader to `decision.target && decision.linkTo` would reject EVERY fan-out decision; leaving it at
+ * `linkTargets` alone rejects every Normal one. Both go through here instead, so a new reader
+ * cannot accept one shape and silently refuse the other.
+ *
+ * ⚠️ PRECEDENCE: A NON-EMPTY `linkTargets` WINS; `linkTo` speaks only when nothing is ticked. That
+ * ordering is safe ONLY because of the WRITER CONTRACT: **each picker owns one field and clears the
+ * other**. The Split picker clears `linkTo` on every tick; the Normal picker must clear
+ * `linkTargets` on every pick -- a seeded decision arrives carrying `linkTargets`, so a Normal
+ * picker that forgets would settle the machine's old record instead of the person's new one.
+ *
+ * ⚠️ A `linkTo` UNDER A NON-SETTLEABLE `target` IS NOT A PICK. `new` / `inflow` / `receipt` are
+ * dispositions that write something rather than link to something, so a leftover link under one of
+ * them must never fold into a key that looks like a settle target.
+ */
+export const decisionLinkKeys = (decision: RowDecision): ReadonlySet<string> => {
+    if (decision.linkTargets && decision.linkTargets.size > 0) return decision.linkTargets;
+    const name = (decision.linkTo ?? "").trim();
+    const target = decision.target ?? "";
+    if (!name || !SETTLEABLE_TARGETS.includes(target)) return EMPTY_LINK_KEYS;
+    return new Set([recordKey({ target_doctype: target, name })]);
+};
+
+/** A shared empty result, so "nothing picked" never mints a fresh identity per call. */
+const EMPTY_LINK_KEYS: ReadonlySet<string> = new Set();
+
+/**
+ * The same decision with NO record picked, whichever field held it.
+ *
+ * ⚠️ IT CLEARS BOTH FIELDS, AND THAT IS THE WRITER CONTRACT, NOT TIDINESS (issue #1241). The two
+ * settle modes store the pick in different fields -- Normal in `linkTo`, Split in `linkTargets` --
+ * and `decisionLinkKeys` lets a non-empty `linkTargets` WIN. A `linkTo` left behind is therefore
+ * INVISIBLE while ticks exist and speaks again the moment the last one comes off, which reads to
+ * every downstream reader as a row decided against a record nobody can see on screen.
+ *
+ * ⚠️ `linkTo: null` IS PRESENT AND NULL, NEVER DROPPED. Absent means "never picked" and null means
+ * "deliberately cleared"; `seedDecisions` reads that distinction to avoid re-seeding a decision the
+ * reviewer has emptied on purpose.
+ *
+ * ⚠️ IT LIVES HERE, NOT INLINE IN THE PAGE. It is a domain rule about this module's own two-field
+ * shape, and ADR-0010 F4 keeps those out of components -- an inline spread in `OutflowMasterPage`
+ * would be untestable where it sat, in a repo with no DOM environment by deliberate choice. Every
+ * caller that "empties the pick" must come through here rather than spelling the three fields again.
+ */
+export const clearedPick = (decision: RowDecision): RowDecision => ({
+    ...decision,
+    target: undefined,
+    linkTo: null,
+    linkTargets: new Set(),
+});
+
+/**
+ * Whether a pick is one a SINGLE-SELECT picker could faithfully display.
+ *
+ * ⚠️ IT GUARDS A REACHABLE DIVERGENCE BETWEEN WHAT IS SHOWN AND WHAT IS SUBMITTED (issue #1241,
+ * found in review). Decisions OUTLIVE the dialog -- they live in the page's `decisions` map, while
+ * the settle mode resets to Normal on every open. So: tick two payments in Split, close WITHOUT
+ * confirming, reopen. Normal's radio table can show only ONE of the two, while `settleOne` still
+ * reads both through `decisionLinkKeys` and posts them. The screen would show one record and settle
+ * two.
+ *
+ * ⚠️ THE CALLER CLEARS, IT NEVER TRUNCATES. Taking the first key would silently settle one of two
+ * records the reviewer deliberately chose -- a wrong write is worse than a lost selection.
+ */
+export const pickFitsSingleSelect = (decision: RowDecision): boolean =>
+    decisionLinkKeys(decision).size <= 1;
+
+/**
  * Whether a row carries a decision that could be confirmed right now.
  *
  * ⚠️ A ROW THE MATCH HAS NOT RUN ON IS NEVER CONFIRMABLE, whatever decision is attached to it.
  * `Pending match run` means nothing has been looked up, so any decision on it was made against no
  * evidence at all.
+ *
+ * ⚠️ `Partially Allocated` IS CONFIRMABLE (Task 7, ADR-0020), AND IT IS NOT IN `OPEN_ROW_STATUSES`
+ * -- see that set's own docstring for why the obvious placements are both wrong. Money is already
+ * written and a balance remains, so a person still owes this row a decision: the next tick-set
+ * calls `allocate_row` again, never `settle_row`, which `chooseSettleEndpoint` enforces.
  */
 export const isConfirmable = (
     row: OutflowImportRow,
     decision: RowDecision | undefined
 ): boolean => {
-    if (!OPEN_ROW_STATUSES.has(row.row_status)) return false;
+    if (!OPEN_ROW_STATUSES.has(row.row_status) && row.row_status !== ROW_PARTIALLY_ALLOCATED) {
+        return false;
+    }
     if (row.row_status === "Pending match run") return false;
     if (!decision) return false;
     /**
@@ -2062,12 +2171,15 @@ export const isConfirmable = (
      * `receipt` branches have refused a debit since B6/B7 -- this is the mirror they were always
      * half of, and it is what makes `availableDecisionTargets` a partition rather than a hint.
      *
-     * ⚠️ BOTH, not just the link. The ledger now arrives with the chosen record rather than from a
-     * card clicked beforehand, so a link with no target is a half-written decision -- and
-     * `settle_row` would be called with an undefined doctype.
+     * ⚠️ EITHER SHAPE, THROUGH `decisionLinkKeys` (issue #1240) -- the Normal picker's
+     * `target` + `linkTo`, or the Split picker's `linkTargets`. See that function for why this
+     * reader must not be narrowed to one of them: it runs on the BULK confirm path too, which has
+     * no dialog and therefore no mode. On the `linkTargets` side each entry is a `recordKey`
+     * carrying its own doctype, so `target` is not load-bearing there and is left whatever a
+     * "create something new" card may have set it to (the fan-out picker clears it on every tick).
      */
     if (isCreditRow(row)) return false;
-    return Boolean(decision.target && decision.linkTo);
+    return decisionLinkKeys(decision).size > 0;
 };
 
 /**
@@ -2301,16 +2413,23 @@ export const suggestedDecision = (row: OutflowImportRow): RowDecision | null => 
     if (!SETTLEABLE_TARGETS.includes(target)) return null;
     if (!OPEN_ROW_STATUSES.has(row.row_status)) return null;
     if (row.row_status === ROW_PENDING_MATCH) return null;
-    return { target: target as DecisionTarget, linkTo };
+    // ⚠️ A ONE-ELEMENT SET (Task 7) -- the match run only ever proposes a single record, so this
+    // is `linkTargets`' singleton case. `recordKey` is the SAME identity function the picker and
+    // `parseRecordKey` share; a second way to spell `"<doctype>|<name>"` here would be exactly the
+    // drift `recordKey` exists to rule out.
+    return {
+        target: target as DecisionTarget,
+        linkTargets: new Set([recordKey({ target_doctype: target, name: linkTo })]),
+    };
 };
 
 /**
  * Fold every row's stored suggestion into the decisions the reviewer is holding.
  *
  * ⚠️ IT NEVER OVERWRITES AN EXISTING ENTRY, and that is the whole contract. A row the reviewer has
- * touched -- including one they deliberately CLEARED, which leaves an entry with a null link -- is
- * theirs. Re-seeding it on the next refetch would silently undo the clear and put the machine's
- * pick back under a person who had just rejected it.
+ * touched -- including one they deliberately CLEARED, which leaves an entry with an EMPTY
+ * `linkTargets` set -- is theirs. Re-seeding it on the next refetch would silently undo the clear
+ * and put the machine's pick back under a person who had just rejected it.
  *
  * ⚠️ IT RETURNS THE SAME MAP WHEN NOTHING WAS ADDED. The page holds this in state and re-runs it on
  * every fetch; handing back a fresh Map each time would change the reference, re-render the table
@@ -2348,14 +2467,23 @@ export const decisionOrigin = (
 ): DecisionOrigin => {
     if (!decision) return "none";
     const suggestion = suggestedDecision(row);
-    if (
-        suggestion &&
-        suggestion.target === decision.target &&
-        suggestion.linkTo === decision.linkTo
-    ) {
+    // ⚠️ COMPARED AS NORMALISED KEY SETS (issue #1240), never field-against-field. The suggestion is
+    // always banked in `linkTargets`, but a person picking that same record in Normal mode writes
+    // `linkTo` -- and a field-against-field compare would then read a word-for-word agreement as
+    // "chosen". `decisionLinkKeys` folds both shapes onto the same `recordKey`s first.
+    if (suggestion && sameLinkKeys(decisionLinkKeys(suggestion), decisionLinkKeys(decision))) {
         return "suggested";
     }
     return "chosen";
+};
+
+/** Set equality for two normalised key sets. An empty set is never equal to anything, including
+ *  another empty one -- "nobody picked" is not agreement, and the suggestion is never empty. */
+const sameLinkKeys = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean => {
+    if (a.size === 0 || b.size === 0) return false;
+    if (a.size !== b.size) return false;
+    for (const key of a) if (!b.has(key)) return false;
+    return true;
 };
 
 // --- candidate ordering ------------------------------------------------------------------------
@@ -2407,7 +2535,7 @@ export interface CandidateLike {
  * ("Service Requests" / "Procurement Orders"), which used to gate the TDS deduction offer before
  * slice TD was removed. Two lookalike keys; the wrong one passes silently.
  */
-const PROJECT_PAYMENTS_DOCTYPE = "Project Payments";
+export const PROJECT_PAYMENTS_DOCTYPE = "Project Payments";
 
 /**
  * WHICH of the amount rules this pick falls foul of (slice D1).
@@ -2441,6 +2569,18 @@ export interface SettleBlock {
     bankAmount: number;
     /** Signed: record minus bank. Negative means the bank moved MORE than the record is for. */
     difference: number;
+    /**
+     * The record's ledger, carried so the REMEDY can differ by ledger where the REASON does not.
+     *
+     * ⚠️ `bank_paid_more` fires for a payment AND an expense alike -- deliberately, and pinned. But
+     * the way OUT of it is payments-only: splitting a transfer works on approved Project Payments,
+     * so `settleBlockRemedy` must not send an expense reviewer to a mode that would never list
+     * their record. The REASON stays ledger-blind; only the REMEDY reads this.
+     *
+     * ⚠️ ABSENT IS NEVER AN EXPENSE -- the same fail-open `settleBlockReason` uses. An older
+     * payload with no `target_doctype` is offered the Split route rather than silently denied it.
+     */
+    targetDoctype?: string;
 }
 
 /**
@@ -2485,6 +2625,7 @@ export const settleBlocker = (
         recordAmount,
         bankAmount: bank,
         difference: recordAmount - bank,
+        targetDoctype: record.target_doctype,
     };
 };
 
@@ -2532,6 +2673,39 @@ export const settleBlocker = (
 export const AMOUNT_GAP_HINT =
     "too far apart to settle at this amount — pick it and confirm to see the options";
 
+/**
+ * The same gap, said to a reviewer who is in SPLIT mode (browser walk #1245, finding 1).
+ *
+ * ⚠️ THE NORMAL SENTENCE IS WRONG HERE, AND ONLY HERE. `AMOUNT_GAP_HINT` describes a pick that
+ * CANNOT be settled: it is "too far apart", and confirming opens `AmountOutsideWindowDialog` to ask
+ * what happened. In Split mode a record SMALLER than the transfer is not a fault at all -- it is
+ * the ordinary first leg, and confirming ALLOCATES it, with no dialog and no options. So the Normal
+ * wording told a reviewer their correct action was a mistake, at the moment they took it, and
+ * promised options that never appeared. Observed on a real transfer, 2026-09-11.
+ *
+ * ⚠️ THE ARITHMETIC WAS NEVER WRONG -- only the words. The figure printed beside this sentence
+ * already measures the REMAINING BALANCE on a partly-allocated row (issue #1243), which is why this
+ * is a copy change and not a maths one. Do not "fix" the number.
+ *
+ * ⚠️ TWO CONSTANTS, NOT TWO COPIES. The note above records that this hint drifted when each CALL
+ * SITE carried its own copy of ONE sentence. These are two DIFFERENT sentences with one owner each,
+ * in one module, and the MODE picks between them: `SettleableRecordTable` (Normal) takes the first,
+ * `FanOutRecordTable` (Split) takes this one. Do not merge them, and do not inline either.
+ */
+export const AMOUNT_GAP_HINT_SPLIT =
+    "smaller than the balance left on this transfer — tick it to allocate it as one part";
+
+/**
+ * Which of the two gap sentences this reviewer should read.
+ *
+ * ⚠️ ONE OWNER FOR THE CHOICE, not a ternary at each call site -- the same rule the two constants
+ * above are written under. The two PICKER tables need no selector because each is already
+ * mode-specific by construction (`SettleableRecordTable` is Normal, `FanOutRecordTable` is Split);
+ * `RecordVerdict` renders in BOTH modes from one place, so it asks here rather than deciding.
+ */
+export const amountGapHint = (mode: SettleMode): string =>
+    mode === "split" ? AMOUNT_GAP_HINT_SPLIT : AMOUNT_GAP_HINT;
+
 export const settleBlockText = (block: SettleBlock | null | undefined): string => {
     if (!block) return "";
     switch (block.reason) {
@@ -2544,6 +2718,41 @@ export const settleBlockText = (block: SettleBlock | null | undefined): string =
         case "record_larger":
             return "This record is for more than the transfer covers, and settling a payment in parts is currently switched off, so the difference has to be sorted out on the record itself.";
     }
+};
+
+/**
+ * What to DO about it -- the dialog's closing line (browser walk #1245, finding 2).
+ *
+ * ⚠️ IT USED TO BE ONE HARDCODED SENTENCE IN THE JSX, AND IT WAS WRONG FOR THE COMMONEST ARRIVAL.
+ * The dialog ended "Pick the record that matches this transfer instead." for every blocked pick. On
+ * a transfer that pays SEVERAL records no single record matches, so that instruction cannot be
+ * followed -- and the real answer, Split mode, sits unnamed on a radio in the same dialog.
+ *
+ * ⚠️ THE SERVER ALREADY SAID THIS AND THE SCREEN DID NOT. `settle.py`'s amount-mismatch throw is
+ * direction-aware and names the Split control for exactly this direction (#1242). But
+ * `settleBlocker` runs inside the confirm HANDLER, so on the dialog path the client ALWAYS
+ * intercepts first and the reviewer never reaches the server's sentence -- it is reachable only
+ * through BULK confirm, which has no dialog. The two surfaces now give the same advice.
+ *
+ * ⚠️ THE LABEL IS BOUND, NEVER SPELLED. It comes from `SETTLE_MODE_LABEL.split`, the same constant
+ * the radio renders and the one `settleModeLabelParity.test.ts` pins `settle.py` against. Typing
+ * the words here would be a THIRD copy, free to drift from both.
+ *
+ * ⚠️ LEDGER-GATED, BECAUSE THE REASON IS NOT. `bank_paid_more` is returned for an expense as well
+ * as a payment (pinned above), but splitting works on approved Project Payments only -- so an
+ * expense keeps the original sentence rather than being sent to a mode that would never list it.
+ *
+ * ⚠️ IT LIVES BESIDE `settleBlockText` ON PURPOSE. That function owns the wording of WHY; this one
+ * owns the wording of WHAT NEXT. Two sentences of one paragraph, in one module, so a change to the
+ * reason cannot leave the remedy describing a different world.
+ */
+export const settleBlockRemedy = (block: SettleBlock | null | undefined): string => {
+    if (!block) return "";
+    const splittable = !block.targetDoctype || block.targetDoctype === PROJECT_PAYMENTS_DOCTYPE;
+    if (block.reason === "bank_paid_more" && splittable) {
+        return `To settle it as one part of this transfer, choose '${SETTLE_MODE_LABEL.split}' on the row.`;
+    }
+    return "Pick the record that matches this transfer instead.";
 };
 
 /**
@@ -2681,19 +2890,60 @@ export const parseRecordKey = (
     return { target: target as DecisionTarget, name };
 };
 
+// --- fan-out tick eligibility (review fix 4) ----------------------------------------------------
+
+/**
+ * Whether ticking a record of this doctype would still let Confirm succeed, given what is already
+ * ticked and the row's own status.
+ *
+ * ⚠️ MIRRORS `allocate_row`'s "PROJECT PAYMENTS ONLY" REFUSAL, not merely its wording. The server
+ * accepts a fan-out -- 2+ targets in one call, OR even a single tick on a row that is already
+ * `Partially Allocated` (`chooseSettleEndpoint` routes both to `allocate_row`) -- ONLY when every
+ * target in the call is a `Project Payments` record; it throws on the first one that is not.
+ *
+ * ⚠️ A LONE NON-PAYMENT TICK ON AN UNTOUCHED ROW IS STILL FINE, deliberately. `chooseSettleEndpoint`
+ * sends that through `settle_row`, unchanged, which settles any of the three ledgers -- this refuses
+ * only the SECOND tick that would turn a valid single settle into an invalid fan-out, in either
+ * direction: adding a non-payment to an existing tick-set, or adding anything at all once a
+ * non-payment is already the sole tick.
+ *
+ * ⚠️ THIS IS THE "STATE THE RULE WHERE IT LIVES" HALF (review fix 4). The server already refuses the
+ * write with a clear sentence -- see `_parse_targets` -- so nothing was silently wrong before this;
+ * what was missing is a control that says so BEFORE the click, which is this dialog's own standard
+ * for every other refusal it can predict (see `settleBlocker`, `partialOffer`).
+ */
+export function tickAllowedForFanOut(
+    candidateDoctype: string,
+    alreadyTickedDoctypes: readonly string[],
+    rowStatus: string
+): boolean {
+    if (rowStatus === ROW_PARTIALLY_ALLOCATED) {
+        return candidateDoctype === PROJECT_PAYMENTS_DOCTYPE;
+    }
+    if (alreadyTickedDoctypes.length === 0) return true;
+    return [...alreadyTickedDoctypes, candidateDoctype].every(
+        (doctype) => doctype === PROJECT_PAYMENTS_DOCTYPE
+    );
+}
+
 // --- partial settlement (slice PS) --------------------------------------------------------------
 
 /**
  * The settle window, MIRRORED for the client's own eligibility check.
  *
  * ⚠️ THE SERVER OWNS THIS NUMBER (`services/outflow_import/amounts.AMOUNT_TOLERANCE`) AND IS THE
- * AUTHORITY. This copy exists for the same reason `isRateEditableRow` mirrors the pricing gate: the
- * screen has to know whether to OFFER the choice before it posts anything. If the two ever
+ * AUTHORITY. This mirror exists for the same reason `isRateEditableRow` mirrors the pricing gate:
+ * the screen has to know whether to OFFER the choice before it posts anything. If the two ever
  * disagree, the server wins and the reviewer sees its refusal — which is the honest failure, not a
  * silent one. The nearby `AmountMark` deliberately does NOT print this value for exactly the reason
  * that makes a mirror risky.
+ *
+ * ⚠️ NOT A SECOND `= 5` LITERAL (review fix 2, Task 7). This used to declare its own `= 5`, which
+ * was the SAME server constant `allocationView.AMOUNT_TOLERANCE` also mirrors — one number, two
+ * copies, each claiming to be the only one. `allocationView.ts` is the pure leaf, so it owns the
+ * literal; this just re-exports its name for every existing caller in this module.
  */
-export const SETTLE_WINDOW = 5;
+export const SETTLE_WINDOW = AMOUNT_TOLERANCE;
 
 /**
  * What the reviewer declares about a shortfall before the endpoint will act on it.
