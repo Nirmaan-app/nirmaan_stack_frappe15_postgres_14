@@ -54,6 +54,7 @@ is yes, it has to move outside the savepoint or be suppressed. `amount_paid` is 
 inside the same transaction, exactly once. Only the commit and the notifications go.
 """
 
+from contextlib import contextmanager
 from typing import NamedTuple
 
 import frappe
@@ -138,6 +139,62 @@ from nirmaan_stack.services.outflow_import.allocation import (
 _APPROVED = "Approved"
 
 
+# ⚠️ OWNER'S WORDING (issue #1246, 2026-09-11): "just put a message about some other user might
+# have resolved this". It says what happened and what is now true -- and NOTHING about reopening or
+# retrying, because re-reading the transfer and carrying ticks over were both DEFERRED by the same
+# ruling. Do not grow it into instructions without that decision.
+#
+# ONE SENTENCE FOR BOTH WRITE PATHS (#1250). It says "transfer", never "allocation" or "split", so
+# it reads true on `settle_row`'s single tick too -- which writes an allocation leg of its own.
+CONCURRENT_ALLOCATION_MESSAGE = (
+    "Another user may have already resolved this transfer, so nothing you selected was saved."
+)
+
+
+class ConcurrentAllocationError(frappe.ValidationError):
+    """Another reviewer's write on the same transfer committed first (issues #1246, #1250).
+
+    A `ValidationError` so it reaches the screen through `_server_messages` like every other
+    deliberate refusal here -- a bare exception arrives as raw `exception` text, which is the defect.
+    """
+
+
+@contextmanager
+def _concurrent_writer_refusal_as_sentence(endpoint: str, row: str):
+    """Turn a concurrent writer's refusal -- and ONLY that -- into `CONCURRENT_ALLOCATION_MESSAGE`.
+
+    The one shared boundary for `allocate_row` (#1246) and `settle_row` (#1250), so the two
+    endpoints cannot drift into two wordings, two log lines or two definitions of "a race".
+
+    ⚠️ WRAP ONLY THE WORK UP TO AND INCLUDING THE COMMIT. The sentence says nothing was saved;
+    after the commit everything was, so a failure in the post-commit steps must stay itself.
+
+    ⚠️ EVERY OTHER FAILURE PROPAGATES UNCHANGED. `is_concurrent_writer_refusal` says no to
+    everything else, so a genuinely different fault is never reported as a harmless race.
+    """
+    try:
+        yield
+    except Exception as exc:
+        if not is_concurrent_writer_refusal(exc):
+            raise
+        # The refusal is now a sentence the screen shows and Frappe does not log, so this line is
+        # the only server-side trace that two reviewers raced on this transfer. ⚠️ `.error`, NOT
+        # `.warning`: outside the dev server Frappe's logger level defaults to ERROR
+        # (`frappe/utils/logger.py`), so a warning here would be dropped in production -- measured,
+        # the first draft's warning wrote nothing from a plain bench process.
+        frappe.logger("outflow_import").error(
+            f"{endpoint}: concurrent writer on import row {row}, refused: {exc}"
+        )
+        # The loser's transaction is already aborted by Postgres; roll it back explicitly so nothing
+        # after this point runs inside a dead transaction. Nothing of the loser's was written.
+        frappe.db.rollback()
+        frappe.throw(
+            CONCURRENT_ALLOCATION_MESSAGE,
+            title="Changed elsewhere",
+            exc=ConcurrentAllocationError,
+        )
+
+
 @frappe.whitelist(methods=["POST"])
 def settle_row(row: str, target_doctype: str, target_name: str):
     """Settle a bank row against an approved record in ANY of the three ledgers (slice V2).
@@ -154,7 +211,38 @@ def settle_row(row: str, target_doctype: str, target_name: str):
     third untouched, and the rest still attemptable -- which is the honest shape for a screen whose
     rows were each decided separately. It is NOT all-or-nothing, and it must not become so: one
     unsettleable row would then discard seven good decisions.
+
+    ⚠️ THE SAME ONE DATABASE FAILURE IS TRANSLATED HERE AS ON `allocate_row` (issue #1250), through
+    the same `_concurrent_writer_refusal_as_sentence`. Two reviewers on one transfer, and this one
+    commits second: Postgres refuses it with a `SerializationFailure`, and it now reads "another
+    user may have already resolved this transfer". In a bulk confirm that sentence lands on the ONE
+    row that lost, prefixed with its name; each row is its own request and its own transaction, so
+    the translation's full rollback can never reach another row's outcome.
+
+    ⚠️ NO ROW LOCK WAS ADDED, ON PURPOSE. This path locks the PAYMENT first and `allocate_row` locks
+    the ROW first; taking the row here too would invert that order and invite deadlocks. That is
+    its own decision, not a message fix. So the refusal lands LATE (measured, ADR-0020 B4a), and
+    where both payments sit on one PO it reaches this boundary as the untranslatable
+    `InFailedSqlTransaction` instead -- `update_parent_amount_paid` swallows the 40001 first.
     """
+    with _concurrent_writer_refusal_as_sentence("settle_row", row):
+        done = _settle_and_commit(row, target_doctype, target_name)
+    _link_statement_file_to_target(done.statement_file_url, done.result)
+    return _summary(row, done.result, done.batch, done.batch_statuses)
+
+
+class _CommittedSettle(NamedTuple):
+    """What `_settle_and_commit` hands back for the post-commit steps `settle_row` runs."""
+
+    result: object
+    statement_file_url: str | None
+    batch: str
+    batch_statuses: list
+
+
+def _settle_and_commit(row: str, target_doctype: str, target_name: str) -> _CommittedSettle:
+    """The settle itself, up to and including the commit. `settle_row` above is its whitelisted
+    boundary and the one place a concurrent writer's refusal is turned into a sentence."""
     actor = require_outflow_access()
     staged, doc = _load_settleable_row(row)
     # ⚠️ BEFORE THE SAVEPOINT, NOT INSIDE IT. Nothing here needs rolling back -- the point is that
@@ -203,25 +291,12 @@ def settle_row(row: str, target_doctype: str, target_name: str):
 
     statuses = _refresh_batch_rollup(doc["import_batch"])
     frappe.db.commit()
-    _link_statement_file_to_target(statement_file_url, result)
-    return _summary(row, result, doc["import_batch"], statuses)
-
-
-# ⚠️ OWNER'S WORDING (issue #1246, 2026-09-11): "just put a message about some other user might
-# have resolved this". It says what happened and what is now true -- and NOTHING about reopening or
-# retrying, because re-reading the transfer and carrying ticks over were both DEFERRED by the same
-# ruling. Do not grow it into instructions without that decision.
-CONCURRENT_ALLOCATION_MESSAGE = (
-    "Another user may have already resolved this transfer, so nothing you selected was saved."
-)
-
-
-class ConcurrentAllocationError(frappe.ValidationError):
-    """Another reviewer's allocation on the same transfer committed first (issue #1246).
-
-    A `ValidationError` so it reaches the screen through `_server_messages` like every other
-    deliberate refusal here -- a bare exception arrives as raw `exception` text, which is the defect.
-    """
+    return _CommittedSettle(
+        result=result,
+        statement_file_url=statement_file_url,
+        batch=doc["import_batch"],
+        batch_statuses=statuses,
+    )
 
 
 @frappe.whitelist(methods=["POST"])
@@ -259,29 +334,11 @@ def allocate_row(row: str, targets):
     a genuinely different fault can never be reported as a harmless race.
 
     ⚠️ THE TRANSLATION ENDS AT THE COMMIT (code review, #1246). The sentence says nothing was saved;
-    after the commit everything was, so a failure in the post-commit linking stays itself.
+    after the commit everything was, so a failure in the post-commit linking stays itself. Both
+    rules live in `_concurrent_writer_refusal_as_sentence`, shared with `settle_row` (#1250).
     """
-    try:
+    with _concurrent_writer_refusal_as_sentence("allocate_row", row):
         done = _allocate_and_commit(row, targets)
-    except Exception as exc:
-        if not is_concurrent_writer_refusal(exc):
-            raise
-        # The refusal is now a sentence the screen shows and Frappe does not log, so this line is
-        # the only server-side trace that two reviewers raced on this transfer. ⚠️ `.error`, NOT
-        # `.warning`: outside the dev server Frappe's logger level defaults to ERROR
-        # (`frappe/utils/logger.py`), so a warning here would be dropped in production -- measured,
-        # the first draft's warning wrote nothing from a plain bench process.
-        frappe.logger("outflow_import").error(
-            f"allocate_row: concurrent writer on import row {row}, refused: {exc}"
-        )
-        # The loser's transaction is already aborted by Postgres; roll it back explicitly so nothing
-        # after this point runs inside a dead transaction. Nothing of the loser's was written.
-        frappe.db.rollback()
-        frappe.throw(
-            CONCURRENT_ALLOCATION_MESSAGE,
-            title="Changed elsewhere",
-            exc=ConcurrentAllocationError,
-        )
 
     # After the commit and outside the savepoint, same reasoning as every other call site of this
     # function: it never raises, so looping over every leg's result is safe.

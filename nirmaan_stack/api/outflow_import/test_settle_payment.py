@@ -26,10 +26,15 @@ The properties that matter, in the order they would hurt if they broke:
 
 import unittest
 from dataclasses import replace
+from unittest.mock import patch
 
 import frappe
+import psycopg2.errors as pg_errors
 
+from nirmaan_stack.api.outflow_import import expenses
 from nirmaan_stack.api.outflow_import.expenses import (
+    CONCURRENT_ALLOCATION_MESSAGE,
+    ConcurrentAllocationError,
     settle_expense,
     settle_row,
     settle_row_partial,
@@ -676,6 +681,97 @@ class TestDoubleSettleIsRefused(PaymentSettlementFixture):
             frappe.db.get_value(ROW_DOCTYPE, row.name, "row_status"), "Settled"
         )
         self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row.name}), 1)
+
+
+class TestAConcurrentSingleTickLoser(PaymentSettlementFixture):
+    """Issue #1250, the single-tick twin of #1246 (`test_allocate_row.TestAConcurrentLoser`). Two
+    reviewers on one transfer: the one who single-ticks second used to see
+    `SerializationFailure: could not serialize access due to concurrent update`.
+
+    ⚠️ THE REFUSAL IS SIMULATED HERE, AND THE REAL ONE WAS REPRODUCED SEPARATELY (two processes, one
+    Rs 100 transfer, the winner holding its transaction open -- ADR-0020 Amendment B4). It landed in
+    exactly the two places patched below: the payment's `FOR UPDATE` read when both reviewers ticked
+    the SAME payment, and the match-record insert when they ticked DIFFERENT payments on different
+    POs. What these cases pin is the TRANSLATION.
+
+    Fixtures are COMMITTED before each call because the translation rolls the whole transaction
+    back, exactly as a real loser's already-aborted transaction is.
+    """
+
+    def _refusal(self):
+        return pg_errors.SerializationFailure("could not serialize access due to concurrent update")
+
+    def _ticked(self):
+        row = self._staged_row(amount="100")
+        pay = self._approved_payment("100")
+        frappe.db.commit()
+        return row, pay
+
+    def _assert_nothing_written(self, row, pay):
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row}), 0)
+        self.assertEqual(frappe.db.get_value(PAYMENT, pay, "status"), "Approved")
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row, "row_status"), "Matched")
+
+    def test_the_loser_is_told_in_a_sentence_not_database_text(self):
+        """Where the refusal lands when both reviewers tick the SAME payment: its row lock."""
+        row, pay = self._ticked()
+        with patch.object(expenses, "settle_payment", side_effect=self._refusal()):
+            with self.assertRaises(ConcurrentAllocationError) as caught:
+                settle_row(row, PAYMENT, pay)
+        message = str(caught.exception)
+        self.assertEqual(message, CONCURRENT_ALLOCATION_MESSAGE)
+        self.assertNotIn("serialize", message.lower())
+        self._assert_nothing_written(row, pay)
+
+    def test_a_refusal_after_the_payment_was_written_is_translated_and_the_payment_goes_back(self):
+        """Where it lands when they tick DIFFERENT payments: late, after this reviewer's payment has
+        already been flipped to Paid. `settle_row` holds no row lock, so this is the common shape."""
+        row, pay = self._ticked()
+        with patch.object(expenses, "_record_settlement", side_effect=self._refusal()):
+            with self.assertRaises(ConcurrentAllocationError):
+                settle_row(row, PAYMENT, pay)
+        self._assert_nothing_written(row, pay)
+
+    def test_any_other_database_error_still_surfaces_as_itself(self):
+        """⚠️ THE CRITERION THAT MATTERS MORE THAN THE WORDING. `InFailedSqlTransaction` is what the
+        loser really sees when both payments sit on ONE PO -- `update_parent_amount_paid` swallows
+        the 40001 and its error log then hits the dead transaction (measured, #1250) -- and it is
+        also what any earlier swallowed error looks like. It carries no cause, so it gets none."""
+        row, pay = self._ticked()
+        for other in (
+            pg_errors.InFailedSqlTransaction("current transaction is aborted"),
+            pg_errors.DeadlockDetected("deadlock detected"),
+            pg_errors.UniqueViolation("duplicate key value"),
+        ):
+            with self.subTest(error=type(other).__name__):
+                with patch.object(expenses, "settle_payment", side_effect=other):
+                    with self.assertRaises(type(other)) as caught:
+                        settle_row(row, PAYMENT, pay)
+                self.assertNotIsInstance(caught.exception, ConcurrentAllocationError)
+        self._assert_nothing_written(row, pay)
+
+    def test_a_refusal_AFTER_the_commit_is_not_translated(self):
+        """⚠️ "Nothing you selected was saved" is FALSE after the commit, so the translation ends
+        there, exactly as it does on `allocate_row`."""
+        row, pay = self._ticked()
+        with patch.object(
+            expenses, "_link_statement_file_to_target", side_effect=self._refusal()
+        ):
+            with self.assertRaises(pg_errors.SerializationFailure) as caught:
+                settle_row(row, PAYMENT, pay)
+        self.assertNotIsInstance(caught.exception, ConcurrentAllocationError)
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row, "row_status"), "Settled")
+        self.assertEqual(frappe.db.get_value(PAYMENT, pay, "status"), "Paid")
+
+    def test_an_ordinary_refusal_keeps_its_own_words(self):
+        """The guards are unchanged: a second settle of a settled row is still refused in its own
+        sentence, never re-worded as a race."""
+        row, pay = self._ticked()
+        settle_row(row, PAYMENT, pay)
+        with self.assertRaises(frappe.ValidationError) as caught:
+            settle_row(row, PAYMENT, pay)
+        self.assertNotIsInstance(caught.exception, ConcurrentAllocationError)
+        self.assertIn("already settled", str(caught.exception))
 
 
 class TestTheStatementIsAttachedToWhatItSettled(PaymentSettlementFixture):

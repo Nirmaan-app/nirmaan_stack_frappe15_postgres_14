@@ -646,12 +646,59 @@ A1's fix is retained, and this amendment is not a licence to remove it:
 > ruling and are not built. The translation ENDS AT THE COMMIT: after it, "nothing was saved" would
 > be false, so a failure there stays raw. Each translated race writes one `outflow_import` log line,
 > so a refusal the screen now hides as a sentence still leaves a server-side trace.
-> ⚠️ **OUT OF SCOPE, NOT FIXED: `settle_row`** (the single-tick path). It takes no row lock and has no
-> translation, so a reviewer single-ticking a transfer while a colleague's allocation on it commits
-> first can still see the raw `SerializationFailure` (found by the #1246 code review, from reading the
-> code — not reproduced live). B4 named `allocate_row`'s boundary; widening it is its own ticket:
-> **#1250**.
+> ✅ **`settle_row` NOW TRANSLATES TOO (2026-09-13, #1250)** — the single-tick path, which #1246's code
+> review found from reading the code and left out of scope. Both endpoints go through ONE boundary,
+> `expenses._concurrent_writer_refusal_as_sentence`: same classifier, same sentence, same
+> `ConcurrentAllocationError`, same log line (prefixed with the endpoint), same end-at-the-commit
+> rule. **No row lock was added to `settle_row`** (it locks the payment first, `allocate_row` the row
+> first; inverting that is a separate decision), so the refusal is unchanged and lands LATE.
 > The original finding is kept below as it was written.
+
+#### B4a — what the single-tick race actually raises (measured, #1250)
+
+Reproduced the way #1246 was confirmed: one Rs 100 transfer, two processes, the winner holding its
+transaction open 5 s, the loser started 1.5 s later. Every row below ended with **exactly one
+settlement written, the loser's payment still `Approved`, and no over-allocation.** Only the
+message differed.
+
+| shape | winner | loser | loser's payment | loser saw BEFORE | where it landed | loser sees NOW |
+|---|---|---|---|---|---|---|
+| 3 | single tick, P1 | single tick, **same** P1 | — | `SerializationFailure` | payment `FOR UPDATE` read | **the sentence** |
+| 2 | single tick, P1 | single tick, P2 | on a **different** PO | `SerializationFailure` | match-record insert | **the sentence** |
+| 1 | Split, commits first | single tick, P2 | on a **different** PO | `SerializationFailure` | match-record insert | **the sentence** |
+| 2 | single tick, P1 | single tick, P2 | on the **same** PO | `InFailedSqlTransaction` | see below | unchanged, raw |
+| 1 | Split, commits first | single tick, P2 | on the **same** PO | `InFailedSqlTransaction` | see below | unchanged, raw |
+| 1′ | Split, holds its row lock **before** writing | single tick, P2 | either | the single tick **wins** | — | Split loser: `InFailedSqlTransaction`, unchanged |
+
+⚠️ **THE SAME-PO SHAPE IS NOT TRANSLATED, AND THAT IS THE CLASSIFIER WORKING.** The loser does get a
+40001 — on the PO's `amount_paid` UPDATE — but `Project Payments.update_parent_amount_paid` wraps that
+write in `except Exception: frappe.log_error(...)`. The error-log insert then runs in the dead
+transaction and raises `InFailedSqlTransaction`, and THAT is what reaches the endpoint. Python still
+chains the 40001 as `__context__`, but reading through a chain to name a cause is exactly the
+widening `concurrency.py` forbids; the owner decides whether the hook should stop swallowing
+database errors (a change to a payment controller other features share, not to this import).
+
+⚠️ **SHAPE 1′ IS THE LOCK-ORDER DEADLOCK #1250 WARNED ABOUT, AND IT ALREADY EXISTS.** When a Split
+holds `allocate_row`'s row lock and has not yet written, a single tick settles its payment (taking
+the PO or project rows), then waits on the row; the Split wakes and waits on those rows. Postgres
+detects the deadlock and aborts the Split — measured `DeadlockDetected`, swallowed by the same hook
+(or the CEO-hold cashflow hook on a different PO) into `InFailedSqlTransaction`. The data is still
+right: the single tick settles the whole transfer, the Split writes nothing. Adding a row lock to
+`settle_row` would change which side deadlocks, not whether one can — still a separate decision.
+
+**Bulk confirm.** Both bulk paths send one request per row, each its own transaction:
+`ConfirmMatchedPanel.run` calls `settle_row`; `OutflowMasterPage.handleBulkConfirm` goes through
+`settleOne`, whose endpoint choice can be either write path — both now share the one boundary, so
+the outcome is the same. `describeFrappeError` joins the title, so a translated refusal reads
+*"Changed elsewhere: Another user may have already resolved this transfer, so nothing you selected
+was saved."* It lands on the one row that lost: `ConfirmMatchedPanel` shows it under that row's own
+header (beneficiary, amount, target, UTR); `handleBulkConfirm` prefixes it with the beneficiary name
+in its failure list. The translation's full `frappe.db.rollback()` reaches only that request, so
+rows before it stay written and rows after it are still attempted. Scoped to its row either way,
+"nothing you selected" reads as that row's selection.
+
+Also not covered, and NOT reproduced: `settle_row_partial` and `create_expense` are the other
+whole-transfer writes and have no translation either.
 
 `SerializationFailure: could not serialize access due to concurrent update` is what the second
 reviewer sees. It is a raw psycopg2 error. D5's "visible, not silent" is technically satisfied —
