@@ -29,7 +29,11 @@ from decimal import Decimal
 
 import frappe
 
-from nirmaan_stack.api.outflow_import.expenses import get_expense_types
+from nirmaan_stack.api.outflow_import.expenses import (
+    MoneyAlreadyRecordedError,
+    RecordedMoneyNeedsConfirmationError,
+    get_expense_types,
+)
 from nirmaan_stack.api.outflow_import.inflows import (
     _already_created_by_import,
     create_inflow,
@@ -363,7 +367,8 @@ class TestRefusals(InflowFixture):
 class TestTheDuplicateGuards(InflowFixture):
     """⚠️ THE `Outflow Row Match` UNIQUE KEY CANNOT REACH THIS PATH. Its key is
     `(transfer_id, target_doctype, target_name)` and a created record's name is new every time, so
-    two imports of one credit contend on nothing. These two lookups are the guard instead."""
+    two imports of one credit contend on nothing. These lookups are the guard instead: the import's
+    own earlier inflow, then the recorded-money guard every write endpoint shares (#1260)."""
 
     def test_the_unique_key_really_does_not_contend(self):
         """Stated as a test because the whole design rests on it. Two match records for the SAME
@@ -423,16 +428,24 @@ class TestTheDuplicateGuards(InflowFixture):
         frappe.db.delete(INFLOW_DOCTYPE, {"name": name})
         frappe.db.commit()
 
-    def _refusal(self, row):
+    def _refusal(self, row, error=MoneyAlreadyRecordedError, create=None):
         """The refusal message; a create that was NOT refused is tracked for the purge, then fails.
 
-        A bare `assertRaises` leaks the inflow when the guard is reverted to show a test RED."""
+        A bare `assertRaises` leaks the record when the guard is reverted to show a test RED.
+        `create` defaults to `create_inflow`; `_receive_unguarded` passes the receipt path."""
         try:
-            summary = create_inflow(row=row["name"], project=self.project)
-        except InflowNotRecordableError as refused:
+            if create is None:
+                summary = create_inflow(row=row["name"], project=self.project)
+                bucket = self.inflows
+            else:
+                summary, bucket = create(row), self.receipts
+        except error as refused:
             return str(refused)
-        self.inflows.append(summary["settled"]["name"])
-        self.fail("create_inflow was not refused")
+        bucket.append(summary["settled"]["name"])
+        self.fail(f"the create was not refused with {error.__name__}")
+
+    def _receipt_call(self, row):
+        return create_non_project_receipt(row=row["name"], expense_type=self.non_project_type)
 
     def test_an_inflow_keyed_in_by_hand_blocks_the_import(self):
         """The measured hole: 330 of 463 live inflows carry a `utr` and NONE came from this import."""
@@ -459,13 +472,43 @@ class TestTheDuplicateGuards(InflowFixture):
 
         self.assertIn(planted, self._refusal(row))
 
-    def test_a_different_amount_on_the_same_reference_is_not_refused(self):
-        """Inverted at #1259 (it asserted a private exact lookup). A hit whose amount is off by more
-        than the settle window does not refuse -- the match run leaves such a line Mismatched."""
+    def test_a_different_amount_on_the_same_reference_asks_before_recording(self):
+        """Inverted at #1260 (it asserted the create went through). A hit whose amount is off by more
+        than the settle window leaves the line Mismatched in the match run, so the button refuses
+        until the call confirms -- and then records."""
+        row = self._next_credit_row()
+        planted = self._plant_inflow(row, row["remarks"], amount_delta=500)
+
+        self.assertIn(planted, self._refusal(row, error=RecordedMoneyNeedsConfirmationError))
+        self.assertNotEqual(
+            frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), ROW_SETTLED
+        )
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)
+
+        row, summary = self._record(row=row, confirm_mismatch=1)
+        self.assertTrue(summary["settled"]["name"])
+
+    def test_a_receipt_already_recorded_as_an_inflow_is_refused(self):
+        """The known gap closed at #1260: a non-project receipt had no ledger duplicate check."""
+        row = self._next_credit_row()
+        planted = self._plant_inflow(row, row["remarks"])
+        before = frappe.db.count(NON_PROJECT_EXPENSE)
+
+        self.assertIn(planted, self._refusal(row, create=self._receipt_call))
+        self.assertEqual(frappe.db.count(NON_PROJECT_EXPENSE), before)
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)
+
+    def test_a_receipt_with_the_amount_off_asks_before_recording(self):
         row = self._next_credit_row()
         self._plant_inflow(row, row["remarks"], amount_delta=500)
 
-        row, summary = self._record(row=row)
+        self._refusal(row, error=RecordedMoneyNeedsConfirmationError, create=self._receipt_call)
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)
+        self.assertNotEqual(
+            frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), ROW_SETTLED
+        )
+
+        row, summary = self._receive(row=row, confirm_mismatch=True)
         self.assertTrue(summary["settled"]["name"])
 
     def test_a_junk_reference_inside_the_narration_does_not_refuse(self):

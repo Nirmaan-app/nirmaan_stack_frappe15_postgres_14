@@ -444,6 +444,47 @@ def _recorded_group_for(row, pool, claims=()):
     return pick_recorded_group(row, find_hits(row, pool), claims)
 
 
+def _recorded_money_group(row, batch: str, writing=()):
+    """The already-recorded group a WRITE endpoint judges this line on -- the match run's own (#1260).
+
+    ⚠️ THE SAME FORK AS `match_batch`, ON THE SAME BATCH SOURCE, so a button and the screen can never
+    disagree about a line: a bank statement asks the ICICI contains-guard (`_recorded_group_for`, with
+    the one-record-one-line claims); every other source asks the exact Paid-reference guard
+    (`_paid_duplicate_for`). The verdict on the group is `status.derive_recorded_money_verdict`'s.
+
+    ⚠️ A RECORD THIS LINE ALREADY SETTLED IS NOT A DUPLICATE OF IT. An Allocate leg writes the line's
+    reference onto a Paid payment, so without this exclusion every second Allocate on a partly
+    allocated transfer would refuse itself. The match run never meets the case -- a partly allocated
+    row is frozen there -- which is why only this path carries it. A `Reversed` leg is not excluded:
+    its record is no longer this line's.
+
+    ⚠️ NOR IS A RECORD THE CALL IS ABOUT TO WRITE (`writing`, `(doctype, name)` pairs). A Link target
+    that is already Paid is refused by the settle itself, with `AlreadyPaidError` -- the distinct "somebody
+    beat you to it" error a bulk confirm reads. Counting it here would replace that sentence with a
+    vaguer one; it opens no hole, because such a target is refused either way.
+    """
+    own = {
+        (m["target_doctype"], m["target_name"])
+        for m in frappe.get_all(
+            MATCH_DOCTYPE,
+            filters={"import_row": row.name, "match_kind": MATCH_SETTLED},
+            fields=["target_doctype", "target_name"],
+        )
+    } | set(writing)
+
+    def _not_own(records):
+        return tuple(r for r in records if (r.doctype, r.name) not in own)
+
+    if source_has_settlement_path(_batch_source(batch)):
+        pools = _paid_duplicate_pools([row.normalized_reference])
+        return _paid_duplicate_for(row, {key: _not_own(pool) for key, pool in pools.items()})
+
+    pool = _not_own(C.load_recorded_by_contains([row]))
+    if not pool:
+        return None
+    return _recorded_group_for(row, pool, C.load_record_claims(pool))
+
+
 def _paid_duplicate_for(row, pools):
     """The already-Paid group this row duplicates, or None.
 

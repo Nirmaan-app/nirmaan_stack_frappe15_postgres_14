@@ -21,6 +21,7 @@ import unittest
 from datetime import date
 from decimal import Decimal
 
+from nirmaan_stack.services.outflow_import.contains_guard import RecordClaim, RecordedGroup
 from nirmaan_stack.services.outflow_import.ledgers import (
     INFLOW_DOCTYPE,
     LEDGER_DOCTYPES,
@@ -74,7 +75,10 @@ from nirmaan_stack.services.outflow_import.status import (
     derive_batch_status,
     derive_import_summary,
     STAGED_NOTE_NO_SETTLEMENT_PATH,
+    RECORDED_DUPLICATE,
+    RECORDED_NEEDS_CONFIRMATION,
     derive_duplicate_guard_outcome,
+    derive_recorded_money_verdict,
     derive_row_outcome,
     derive_staged_row_outcome,
     pick_duplicate_group,
@@ -603,6 +607,70 @@ class TestPickDuplicateGroup(unittest.TestCase):
         expenses = _group([_paid_expense(amount="7000")])
         self.assertIs(pick_duplicate_group(_Row("5000"), (None, _group([]), expenses)), expenses)
         self.assertIsNone(pick_duplicate_group(_Row("5000"), (None, _group([]))))
+
+
+class TestRecordedMoneyVerdict(unittest.TestCase):
+    """What a WRITE endpoint does with a line whose money is already recorded (#1260).
+
+    The five buttons that record money ask the match run's own question and must reach the match
+    run's own answer: a line the run would SKIP is refused; a line the run would leave MISMATCHED
+    naming a record needs a confirmation; anything else proceeds. The sentences are the run's too.
+    """
+
+    def _used(self, group):
+        claim = RecordClaim("Project Payments", "PAY-A", "OIR-OTHER", "OIB-26-000007")
+        return RecordedGroup(targets=group.targets, used_by=(claim,))
+
+    def test_no_group_or_an_empty_one_is_clean(self):
+        self.assertIsNone(derive_recorded_money_verdict(_Row("5000"), None))
+        self.assertIsNone(derive_recorded_money_verdict(_Row("5000"), _group([])))
+
+    def test_an_agreeing_record_is_a_duplicate_named_as_the_run_names_it(self):
+        group = _group([_payment("PAY-A", "5000", "Paid")])
+        verdict = derive_recorded_money_verdict(_Row("5000"), group)
+
+        self.assertEqual(verdict.kind, RECORDED_DUPLICATE)
+        self.assertEqual(verdict.note, derive_duplicate_guard_outcome(_Row("5000"), group).note)
+        self.assertIn("PAY-A", verdict.note)
+
+    def test_an_amount_off_record_needs_confirmation(self):
+        group = _group([_paid_expense(amount="7000")])
+        verdict = derive_recorded_money_verdict(_Row("5000"), group)
+
+        self.assertEqual(verdict.kind, RECORDED_NEEDS_CONFIRMATION)
+        self.assertEqual(verdict.note, derive_duplicate_guard_outcome(_Row("5000"), group).note)
+
+    def test_an_agreeing_record_already_used_by_another_line_needs_confirmation(self):
+        """#1258's case: the run leaves it Mismatched, so a write asks rather than refuses."""
+        group = self._used(_group([_payment("PAY-A", "5000", "Paid")]))
+        verdict = derive_recorded_money_verdict(_Row("5000"), group)
+
+        self.assertEqual(verdict.kind, RECORDED_NEEDS_CONFIRMATION)
+        self.assertIn("OIB-26-000007", verdict.note)
+
+    def test_inside_the_settle_window_is_still_a_duplicate(self):
+        group = _group([_payment("PAY-A", "5004.50", "Paid")])
+        self.assertEqual(
+            derive_recorded_money_verdict(_Row("5000"), group).kind, RECORDED_DUPLICATE
+        )
+
+    def test_it_agrees_with_the_match_run_on_every_shape(self):
+        """The screen and the button can never disagree: Skipped <-> refuse, Mismatched <-> ask."""
+        shapes = [
+            _group([_payment("PAY-A", "5000", "Paid")]),
+            _group([_payment("PAY-A", "9000", "Paid")]),
+            _group([_paid_expense(amount="2935"), _payment("PAY-B", "2065", "Paid")]),
+            _group([_inflow(amount="5000")]),
+            _group([_inflow(amount="4000")]),
+            self._used(_group([_payment("PAY-A", "5000", "Paid")])),
+        ]
+        expected = {ROW_SKIPPED: RECORDED_DUPLICATE, ROW_MISMATCHED: RECORDED_NEEDS_CONFIRMATION}
+        for group in shapes:
+            with self.subTest(group=group):
+                outcome = derive_duplicate_guard_outcome(_Row("5000"), paid_duplicate=group)
+                verdict = derive_recorded_money_verdict(_Row("5000"), group)
+                self.assertEqual(verdict.kind, expected[outcome.status])
+                self.assertEqual(verdict.note, outcome.note)
 
 
 # --- Matched and the found-nothing half of Mismatched ------------------------------------------------------------------------

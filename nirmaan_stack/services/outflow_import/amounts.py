@@ -53,8 +53,12 @@ amount), which neither can reach and neither may be stretched to reach. A TDS pa
   * `matcher.match_payments` / `match_expenses` -- the in-memory comparison (tier 1 at
                                                `TIER1_TOLERANCE`, tier 2 at `AMOUNT_TOLERANCE`)
   * `settle.settle_payment` / `_lock_and_assert_settleable` -- the WRITE guard
-  * `status.derive_row_outcome`             -- the ALREADY-PAID duplicate check (`_failed_or_already_
-                                               paid`, shared with `derive_duplicate_guard_outcome`).
+  * `status.derive_row_outcome`             -- the ALREADY-PAID duplicate check (`_already_recorded_
+                                               outcome`, reached through `_failed_or_already_paid`,
+                                               shared with `derive_duplicate_guard_outcome` -- and,
+                                               since #1260, with `derive_recorded_money_verdict`,
+                                               the refusal on the five write endpoints, so a button
+                                               and the match run judge one window).
                                                SETTLE window. Since #1256 its pool includes Paid
                                                EXPENSES on a gateway row, from
                                                `candidates.load_paid_expenses_by_reference` -- ⚠️ A

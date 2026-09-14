@@ -4030,3 +4030,56 @@ describe("importUploaderLabel", () => {
         expect(option.uploaded_by).toBe("priyanka@nirmaan.app");
     });
 });
+
+describe("the record-anyway confirmation (#1260)", () => {
+    const refusal = (excType: string) => ({
+        httpStatus: 417,
+        exc_type: excType,
+        message: "There was an error.",
+        _server_messages: JSON.stringify([
+            JSON.stringify({
+                title: "Check before recording",
+                message:
+                    "The bank paid 2000 less than the recorded total of 7000. Already recorded as Paid on Project Payment PAY-1.",
+            }),
+        ]),
+    });
+
+    it("asks only for the server's needs-confirmation refusal", () => {
+        expect(model.needsRecordAnywayConfirmation(refusal("RecordedMoneyNeedsConfirmationError"))).toBe(
+            true
+        );
+    });
+
+    it("never asks on a duplicate, which is refused outright", () => {
+        expect(model.needsRecordAnywayConfirmation(refusal("MoneyAlreadyRecordedError"))).toBe(false);
+    });
+
+    it("never asks on any other failure, or on nothing", () => {
+        expect(model.needsRecordAnywayConfirmation(refusal("ValidationError"))).toBe(false);
+        expect(model.needsRecordAnywayConfirmation({ message: "boom" })).toBe(false);
+        expect(model.needsRecordAnywayConfirmation(undefined)).toBe(false);
+    });
+
+    it("says Create for the three create cards and Link for a record", () => {
+        for (const target of ["new", "inflow", "receipt"] as const) {
+            expect(model.recordAnywayWording({ target })).toEqual({
+                title: "Create anyway?",
+                action: "Create anyway",
+            });
+        }
+        for (const target of ["Project Payments", "Project Expenses", "Non Project Expenses"] as const) {
+            expect(model.recordAnywayWording({ target })).toEqual({
+                title: "Link anyway?",
+                action: "Link anyway",
+            });
+        }
+    });
+
+    it("tells a bulk confirm, which cannot ask, where to go instead", () => {
+        expect(model.bulkRecordAnywayHint(refusal("RecordedMoneyNeedsConfirmationError"))).toBe(
+            " Open the transfer to record it anyway."
+        );
+        expect(model.bulkRecordAnywayHint(refusal("MoneyAlreadyRecordedError"))).toBe("");
+    });
+});

@@ -482,26 +482,42 @@ def _failed_or_already_paid(row, paid_duplicate) -> RowOutcome | None:
 
     # 3. Already recorded as Paid by hand (rule 2). Safe to test before the candidate pool because
     #    an already-Paid record is not IN the candidate pool (rule 1) -- the two cannot contend.
-    if paid_duplicate is not None and getattr(paid_duplicate, "targets", ()):
-        bank_amount = _amount_of(row)
-        total = _total_of(paid_duplicate)
-        if not amounts_match(total, bank_amount):
-            # The AMOUNT route to `Mismatched` -- narrow and honest: the bank amount disagrees with
-            # what the already-Paid record(s) claim by MORE THAN THE ROUNDING WINDOW. Since the
-            # 2026-08-10 merge it is no longer the ONLY route (found-nothing lands here too), which
-            # is exactly why `_delta_note` must keep naming the record and the shortfall -- the note
-            # is now the only thing telling the two apart.
-            #
-            # ⚠️ THIS USED TO BE `total != bank_amount`, AND THE EXACTNESS WAS A DEFECT. The bank
-            # rounds to the whole rupee and 31.4% of payments carry paise, so every hand-ticked
-            # payment with paise on it arrived here as a "discrepancy" -- announced with a note
-            # suggesting TDS, for gaps of 14 to 86 paise. The candidate passes had used the window
-            # since the tolerance landed; this branch was the one call site that never got it.
-            # Restoring the exact test re-breaks 8 rows in every real statement measured so far.
-            return RowOutcome(ROW_MISMATCHED, _delta_note(bank_amount, total, paid_duplicate))
-        return RowOutcome(ROW_SKIPPED, _record_sentence(paid_duplicate))
+    return _already_recorded_outcome(row, paid_duplicate)
 
-    return None
+
+def _already_recorded_outcome(row, paid_duplicate) -> RowOutcome | None:
+    """Rule 3 alone: the outcome a line gets from the records it duplicates, or `None` for none.
+
+    ⚠️ SHARED BY THE MATCH RUN AND THE WRITE ENDPOINTS (#1260), so a button can never answer
+    differently from the screen. `derive_recorded_money_verdict` reads it; the run reads it through
+    `_failed_or_already_paid`, after the failed-transfer rule a staged write can never meet.
+
+    ⚠️ ONE RECORD, ONE LINE (#1258) COMES FIRST. A group that agrees but whose record already accounts
+    for another line carries `used_by`, and must never reach the amount test below, which would skip
+    it. Only the ICICI contains-guard sets it -- every other group has no such attribute.
+    """
+    if paid_duplicate is None or not getattr(paid_duplicate, "targets", ()):
+        return None
+    used_by = getattr(paid_duplicate, "used_by", ()) or ()
+    if used_by:
+        return RowOutcome(ROW_MISMATCHED, _already_used_note(paid_duplicate, used_by))
+    bank_amount = _amount_of(row)
+    total = _total_of(paid_duplicate)
+    if not amounts_match(total, bank_amount):
+        # The AMOUNT route to `Mismatched` -- narrow and honest: the bank amount disagrees with
+        # what the already-Paid record(s) claim by MORE THAN THE ROUNDING WINDOW. Since the
+        # 2026-08-10 merge it is no longer the ONLY route (found-nothing lands here too), which
+        # is exactly why `_delta_note` must keep naming the record and the shortfall -- the note
+        # is now the only thing telling the two apart.
+        #
+        # ⚠️ THIS USED TO BE `total != bank_amount`, AND THE EXACTNESS WAS A DEFECT. The bank
+        # rounds to the whole rupee and 31.4% of payments carry paise, so every hand-ticked
+        # payment with paise on it arrived here as a "discrepancy" -- announced with a note
+        # suggesting TDS, for gaps of 14 to 86 paise. The candidate passes had used the window
+        # since the tolerance landed; this branch was the one call site that never got it.
+        # Restoring the exact test re-breaks 8 rows in every real statement measured so far.
+        return RowOutcome(ROW_MISMATCHED, _delta_note(bank_amount, total, paid_duplicate))
+    return RowOutcome(ROW_SKIPPED, _record_sentence(paid_duplicate))
 
 
 def derive_duplicate_guard_outcome(row, paid_duplicate=None) -> RowOutcome:
@@ -536,12 +552,8 @@ def derive_duplicate_guard_outcome(row, paid_duplicate=None) -> RowOutcome:
     settled at UPLOAD for every source (`derive_staged_row_outcome`), and `review.match_batch` has
     never passed it either.
     """
-    # ⚠️ ONE RECORD, ONE LINE (#1258). A group that agrees but whose record already accounts for
-    # another line carries `used_by`; it must never reach `_failed_or_already_paid`, which would skip
-    # it. Only the ICICI contains-guard sets it -- every other group has no such attribute.
-    used_by = getattr(paid_duplicate, "used_by", ()) or ()
-    if used_by and getattr(row, "is_success", False):
-        return RowOutcome(ROW_MISMATCHED, _already_used_note(paid_duplicate, used_by))
+    # ⚠️ ONE RECORD, ONE LINE (#1258) is decided inside `_already_recorded_outcome`, after the
+    # failed-transfer rule: a group carrying `used_by` reads `Mismatched`, never `Skipped`.
     decided = _failed_or_already_paid(row, paid_duplicate)
     if decided is not None:
         return decided
@@ -573,6 +585,41 @@ def pick_duplicate_group(row, groups):
         if amounts_match(_total_of(group), bank_amount):
             return group
     return present[0]
+
+
+# The two things a write endpoint does with a line whose money is already recorded (#1260).
+RECORDED_DUPLICATE = "duplicate"
+RECORDED_NEEDS_CONFIRMATION = "needs confirmation"
+
+
+@dataclass(frozen=True)
+class RecordedMoneyVerdict:
+    """Why a write must stop: `kind` is one of the two constants above; `note` names the records."""
+
+    kind: str
+    note: str
+
+
+def derive_recorded_money_verdict(row, paid_duplicate) -> RecordedMoneyVerdict | None:
+    """What a WRITE endpoint does with the records this line duplicates, or `None` to proceed (#1260).
+
+    `paid_duplicate` is the group the MATCH RUN would judge this line on, for its source --
+    `review._recorded_money_group` builds it. The answer follows the run's own verdict on that group:
+
+      * the run would SKIP the line   -> `RECORDED_DUPLICATE`: refuse, write nothing;
+      * the run would leave it MISMATCHED naming a record (the amount is off, or #1258's record is
+        already used by another line) -> `RECORDED_NEEDS_CONFIRMATION`: refuse unless confirmed;
+      * no record -> `None`.
+
+    ⚠️ IT READS `_already_recorded_outcome`, THE SAME BRANCH THE RUN READS, and the note is that
+    outcome's note, so the refusal and the row's note are the same sentence. It never reads
+    `is_success`: a failed transfer is `Skipped` at staging, so no write can reach one.
+    """
+    outcome = _already_recorded_outcome(row, paid_duplicate)
+    if outcome is None:
+        return None
+    kind = RECORDED_DUPLICATE if outcome.status == ROW_SKIPPED else RECORDED_NEEDS_CONFIRMATION
+    return RecordedMoneyVerdict(kind=kind, note=outcome.note)
 
 
 def _settleable_candidates(match) -> tuple:

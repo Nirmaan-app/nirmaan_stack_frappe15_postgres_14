@@ -1908,6 +1908,39 @@ export const describeFrappeError = (err: unknown, fallback = "The request failed
     return `${fallback}${status}`;
 };
 
+/**
+ * The server's "a record already carries this transfer's reference, but the amounts differ" refusal
+ * (#1260) -- the one refusal a reviewer may overrule by re-calling with `confirm_mismatch`.
+ *
+ * ⚠️ IT IS THE EXCEPTION CLASS NAME IN `api/outflow_import/expenses.py`, and the two must move
+ * together: renamed there, this stops matching and every "... anyway?" becomes a plain refusal. A
+ * duplicate (`MoneyAlreadyRecordedError`) is deliberately NOT overrulable.
+ */
+export const RECORDED_MONEY_NEEDS_CONFIRMATION = "RecordedMoneyNeedsConfirmationError";
+
+/** Does this failure ask "create / link anyway?" rather than refuse outright? (#1260) */
+export const needsRecordAnywayConfirmation = (err: unknown): boolean =>
+    ((err ?? {}) as Record<string, unknown>).exc_type === RECORDED_MONEY_NEEDS_CONFIRMATION;
+
+/**
+ * The "... anyway?" dialog's wording for the card that was confirmed: the three create cards write a
+ * new record, every other target links an existing one.
+ */
+export const recordAnywayWording = (
+    decision: Pick<RowDecision, "target">
+): { title: string; action: string } => {
+    const creates = decision.target === "new" || decision.target === "inflow" || decision.target === "receipt";
+    const verb = creates ? "Create" : "Link";
+    return { title: `${verb} anyway?`, action: `${verb} anyway` };
+};
+
+/**
+ * What a BULK confirm adds to such a refusal. It has no dialog, so it cannot ask; it points at the
+ * one place that can, rather than leaving "confirm to record it anyway" unanswerable.
+ */
+export const bulkRecordAnywayHint = (err: unknown): string =>
+    needsRecordAnywayConfirmation(err) ? " Open the transfer to record it anyway." : "";
+
 /** Frappe's placeholder for "a `frappe.throw` happened, look in `_server_messages`". */
 const GENERIC_FRAPPE_MESSAGE = "There was an error.";
 

@@ -1174,8 +1174,13 @@ class TestPartialSettlementIsAllOrNothing(PartialSettlementFixture):
         )
         frappe.db.commit()
 
+        # ⚠️ CONFIRMED (#1260). That Paid payment is also "already recorded" money whose amount is
+        # off, so the recorded-money guard would ask first and nothing would reach the split. The
+        # confirmation carries the call past it, to the settle failure this test is about.
         with self.assertRaises(DuplicateReferenceError):
-            settle_row_partial(self.partial_row.name, self.big_payment, INTENT_PART_PAYMENT)
+            settle_row_partial(
+                self.partial_row.name, self.big_payment, INTENT_PART_PAYMENT, confirm_mismatch=True
+            )
 
         frappe.db.commit()
         self.assertEqual(

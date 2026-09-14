@@ -65,6 +65,7 @@ from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
     ROW_DOCTYPE,
     _StagedRow,
+    _recorded_money_group,
     _refresh_batch_rollup,
     derive_batch_status,
 )
@@ -107,6 +108,8 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_PARTIALLY_ALLOCATED,
     ROW_SETTLED,
     ROW_SKIPPED,
+    RECORDED_DUPLICATE,
+    derive_recorded_money_verdict,
     # ⚠️ THE ONE DEFINITION OF THE DIRECTION AXIS, REUSED RATHER THAN RE-SPELLED (ADR-0010 B1).
     # `_guard_is_a_debit` is the exact NEGATION of the receipt side's rule, so it must read the
     # same predicate `status.derive_settled_direction_blocks` sorts settled rows with. A second
@@ -145,6 +148,18 @@ _APPROVED = "Approved"
 CONCURRENT_ALLOCATION_MESSAGE = (
     "Another user may have already resolved this transfer, so nothing you selected was saved."
 )
+
+
+class MoneyAlreadyRecordedError(frappe.ValidationError):
+    """This line's money is already recorded, so the match run would SKIP it (#1260). Nothing written."""
+
+
+class RecordedMoneyNeedsConfirmationError(frappe.ValidationError):
+    """A record carries this line's reference but the match run would leave it MISMATCHED (#1260).
+
+    ⚠️ THE SCREEN KEYS ON THIS CLASS NAME (`exc_type`) to offer "... anyway?" and re-call with
+    `confirm_mismatch`. Renaming it silently turns the confirmation into a plain refusal.
+    """
 
 
 class ConcurrentAllocationError(frappe.ValidationError):
@@ -192,7 +207,7 @@ def _concurrent_writer_refusal_as_sentence(endpoint: str, row: str):
 
 
 @frappe.whitelist(methods=["POST"])
-def settle_row(row: str, target_doctype: str, target_name: str):
+def settle_row(row: str, target_doctype: str, target_name: str, confirm_mismatch=False):
     """Settle a bank row against an approved record in ANY of the three ledgers (slice V2).
 
     URL: /api/method/nirmaan_stack.api.outflow_import.expenses.settle_row
@@ -222,7 +237,7 @@ def settle_row(row: str, target_doctype: str, target_name: str):
     `InFailedSqlTransaction` instead -- `update_parent_amount_paid` swallows the 40001 first.
     """
     with _concurrent_writer_refusal_as_sentence("settle_row", row):
-        done = _settle_and_commit(row, target_doctype, target_name)
+        done = _settle_and_commit(row, target_doctype, target_name, confirm_mismatch)
     _link_statement_file_to_target(done.statement_file_url, done.result)
     return _summary(row, done.result, done.batch, done.batch_statuses)
 
@@ -236,7 +251,9 @@ class _CommittedSettle(NamedTuple):
     batch_statuses: list
 
 
-def _settle_and_commit(row: str, target_doctype: str, target_name: str) -> _CommittedSettle:
+def _settle_and_commit(
+    row: str, target_doctype: str, target_name: str, confirm_mismatch=False
+) -> _CommittedSettle:
     """The settle itself, up to and including the commit. `settle_row` above is its whitelisted
     boundary and the one place a concurrent writer's refusal is turned into a sentence."""
     actor = require_outflow_access()
@@ -246,6 +263,9 @@ def _settle_and_commit(row: str, target_doctype: str, target_name: str) -> _Comm
     # across. The same guard sits on `create_expense`; every path in this module that moves money
     # OUT carries it.
     _guard_is_a_debit(doc)
+    _guard_money_not_recorded(
+        staged, doc, confirm_mismatch, writing=[(target_doctype, target_name)]
+    )
     statement_file_url = _statement_file_url(doc["import_batch"])
 
     savepoint = f"ofi_settle_{frappe.generate_hash(length=10)}"
@@ -296,7 +316,7 @@ def _settle_and_commit(row: str, target_doctype: str, target_name: str) -> _Comm
 
 
 @frappe.whitelist(methods=["POST"])
-def allocate_row(row: str, targets):
+def allocate_row(row: str, targets, confirm_mismatch=False):
     """Allocate part or all of one bank transfer across several approved Project Payments.
 
     URL: /api/method/nirmaan_stack.api.outflow_import.expenses.allocate_row
@@ -334,7 +354,7 @@ def allocate_row(row: str, targets):
     rules live in `_concurrent_writer_refusal_as_sentence`, shared with `settle_row` (#1250).
     """
     with _concurrent_writer_refusal_as_sentence("allocate_row", row):
-        done = _allocate_and_commit(row, targets)
+        done = _allocate_and_commit(row, targets, confirm_mismatch)
 
     # After the commit and outside the savepoint, same reasoning as every other call site of this
     # function: it never raises, so looping over every leg's result is safe.
@@ -361,7 +381,7 @@ class _CommittedAllocation(NamedTuple):
     batch_statuses: list
 
 
-def _allocate_and_commit(row: str, targets) -> _CommittedAllocation:
+def _allocate_and_commit(row: str, targets, confirm_mismatch=False) -> _CommittedAllocation:
     """The allocation itself, up to and including the commit. `allocate_row` above is its
     whitelisted boundary and the one place a concurrent writer's refusal is turned into a sentence."""
     actor = require_outflow_access()
@@ -375,6 +395,14 @@ def _allocate_and_commit(row: str, targets) -> _CommittedAllocation:
     # and does not buy.
     staged, doc = _load_allocatable_row(row)
     _guard_is_a_debit(doc)
+    # Under the row lock `_load_allocatable_row` just took, so the verdict is read on a row nobody
+    # else can be allocating against.
+    _guard_money_not_recorded(
+        staged,
+        doc,
+        confirm_mismatch,
+        writing=[(PAYMENT_DOCTYPE, t["target_name"]) for t in targets],
+    )
     statement_file_url = _statement_file_url(doc["import_batch"])
 
     savepoint = f"ofi_alloc_{frappe.generate_hash(length=10)}"
@@ -823,7 +851,7 @@ def _approved_payment_amount(name: str):
 
 
 @frappe.whitelist(methods=["POST"])
-def settle_row_partial(row: str, target_name: str, intent: str):
+def settle_row_partial(row: str, target_name: str, intent: str, confirm_mismatch=False):
     """Settle PART of an approved payment from this transfer; carry the balance forward (slice PS).
 
     URL: /api/method/nirmaan_stack.api.outflow_import.expenses.settle_row_partial
@@ -887,6 +915,12 @@ def settle_row_partial(row: str, target_name: str, intent: str):
     # a payment AND performs surgery on a PO's terms, so an unguarded credit would leave a split
     # sanction behind it as well as a wrongly-Paid record. Guarded above the spend, not inside it.
     _guard_is_a_debit(doc)
+    # ⚠️ A SIXTH CALLER, beyond the five #1260 names, because this is Link too: a line already Paid on
+    # an expense could otherwise be part-settled onto a larger Approved payment from the same dialog,
+    # and `settle_payment`'s UTR guard sees only references on OTHER PAYMENTS.
+    _guard_money_not_recorded(
+        staged, doc, confirm_mismatch, writing=[(PAYMENT_DOCTYPE, target_name)]
+    )
     statement_file_url = _statement_file_url(doc["import_batch"])
     bank_amount = normalize_amount(doc.get("amount"))
 
@@ -1027,7 +1061,7 @@ def _record_partial_provenance(staged, split: dict, declared_intent: str) -> Non
 
 
 @frappe.whitelist(methods=["POST"])
-def settle_expense(row: str, target_doctype: str, target_name: str):
+def settle_expense(row: str, target_doctype: str, target_name: str, confirm_mismatch=False):
     """Deprecated alias for `settle_row`, kept so an in-flight client keeps working.
 
     Removed at V5 once the new screen ships. It cannot settle a payment -- a caller reaching this
@@ -1040,7 +1074,7 @@ def settle_expense(row: str, target_doctype: str, target_name: str):
             frappe.ValidationError,
             title="Wrong endpoint",
         )
-    return settle_row(row, target_doctype, target_name)
+    return settle_row(row, target_doctype, target_name, confirm_mismatch)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1052,6 +1086,7 @@ def create_expense(
     description: str = None,
     vendor: str = None,
     comment: str = None,
+    confirm_mismatch=False,
 ):
     """Record a NEW expense, already Paid, for a bank row that matched nothing.
 
@@ -1064,6 +1099,7 @@ def create_expense(
     # `Paid` expense out of the bank row alone, so an unguarded credit would mint a brand-new
     # payment-out document for money that arrived.
     _guard_is_a_debit(doc)
+    _guard_money_not_recorded(staged, doc, confirm_mismatch)
     statement_file_url = _statement_file_url(doc["import_batch"])
 
     savepoint = f"ofi_create_{frappe.generate_hash(length=10)}"
@@ -1259,6 +1295,50 @@ def _guard_is_a_debit(doc) -> None:
         "non-project receipt instead.",
         ExpenseSettlementError,
         title="Not a debit",
+    )
+
+
+def _guard_money_not_recorded(staged, doc, confirm_mismatch=False, writing=()) -> None:
+    """Refuse a line whose money is already recorded, BEFORE anything is written (#1260).
+
+    Shared by every endpoint that records money from a line: `settle_row` (and its `settle_expense`
+    alias), `settle_row_partial`, `allocate_row`, `create_expense`, and `inflows.create_inflow` /
+    `create_non_project_receipt`. It asks the match
+    run's own question for the line's source (`review._recorded_money_group`) and follows the run's
+    own verdict (`status.derive_recorded_money_verdict`), so it holds even if no match run ever ran:
+
+      * the run would SKIP the line -> `MoneyAlreadyRecordedError`, always;
+      * the run would leave it MISMATCHED naming a record -> `RecordedMoneyNeedsConfirmationError`,
+        unless `confirm_mismatch` -- the screen's "... anyway?" answer;
+      * otherwise it returns and the write proceeds exactly as before.
+
+    The refusal carries the run's own note, so it names every record and its ledger. `writing` are the
+    `(doctype, name)` records this call is about to settle; see `review._recorded_money_group` for why
+    they are never the duplicate.
+
+    ⚠️ IT RUNS BEFORE THE SAVEPOINT AND READS ONLY, so a refusal leaves nothing behind. Only
+    `allocate_row` holds a row lock, and the guard runs under it. The others take none -- #1260 asked
+    for "under the row lock", and taking one on `settle_row` is the lock-order decision #1250
+    deliberately deferred, so it is an OPEN ITEM, not done here. A concurrent second write on the same
+    row still fails at the row update.
+    """
+    verdict = derive_recorded_money_verdict(
+        staged, _recorded_money_group(staged, doc["import_batch"], writing)
+    )
+    if verdict is None:
+        return
+    if verdict.kind == RECORDED_DUPLICATE:
+        frappe.throw(
+            f"{verdict.note} Nothing has been recorded again.",
+            MoneyAlreadyRecordedError,
+            title="Already recorded",
+        )
+    if frappe.utils.sbool(confirm_mismatch):
+        return
+    frappe.throw(
+        f"{verdict.note} Nothing has been recorded yet -- confirm to record it anyway.",
+        RecordedMoneyNeedsConfirmationError,
+        title="Check before recording",
     )
 
 

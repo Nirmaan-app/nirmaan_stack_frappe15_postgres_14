@@ -100,6 +100,7 @@ pick one ad-hoc; ask.
 | **The record's date, and which date it IS** (E2) | `frontend/.../outflow-import/outflowTableModel.ts` (`recordDateParts`, `RECORD_DATE_LABELS`) | render an approval/updated distinction inline. `recordSortDate` merges the two for ORDERING only -- an ordering claims nothing about meaning; a LABEL does |
 | **Why a picked record cannot be settled** (D1) | `frontend/.../outflow-import/outflowTableModel.ts` (`settleBlocker`, `settleBlockText`, `SettleBlockReason`) | write the refusal prose at a render site. The dialog used ONE fixed paragraph for every blocked pick and three of its claims went stale without anything failing — the worst told the reviewer to settle a TDS deduction "in the payments screen" after slice TD made that route live here |
 | Browsable approved records (hand-linking) | `api/outflow_import/review.search_settleable_records` (+ `_search_one_ledger`, `_rank_browse_records`, `_browse_cap`) | reuse `get_row_candidates` for browsing — that is the MATCHER's output, and when the matcher finds nothing it is empty, which is exactly when hand-linking is needed. Since N1 it returns the WHOLE approved pool by default and `limit` is a safety ceiling, not a page size |
+| **Whether a WRITE may record a line's money** (#1260) | `status.derive_recorded_money_verdict` (pure; reads `_already_recorded_outcome`, the branch the match run reads) over `review._recorded_money_group` (the match run's per-source fork); enforced by `expenses._guard_money_not_recorded` | refuse a duplicate on one write endpoint with its own lookup. SIX callers: the five #1260 names (`settle_row`, `allocate_row`, `create_expense`, `inflows.create_inflow`, `inflows.create_non_project_receipt`) plus `settle_row_partial`. A second lookup would let a button disagree with the row's note about the same line |
 | What counts as "decided" on the screen | `frontend/src/pages/outflow-import/outflowTableModel.ts` (`isConfirmable`) | gate a confirm button on its own predicate — the dialog and the bulk bar both read this one |
 | Which rows the master table shows (X3) | `api/outflow_import/review.get_outflow_rows` (+ `_row_filters`, `_scope_clause`, `get_outflow_facet_values`) | filter, sort or search rows in the browser. ⚠️ `_row_filters` is ONE builder shared by the page query, its count, the tab counts, the facet values **and — since P1 — the summary, the confirmable list and `match_period`** — a count computed under different filters than the page it labels is a lie that looks like a paging bug. ⚠️ Its two date clauses carry `OR r.added_on IS NULL` on purpose: an unparseable bank date would otherwise match no period and vanish from every surface at once |
 | What the screen ASKS for (X3) | `outflowTableModel.serverQuery` | build endpoint params at a call site. It owns the MEANING of a filter; SQL owns the application |
@@ -2949,8 +2950,8 @@ endpoints wrote their leg and then wrote no status at all, so a recorded credit 
    construction), so it is a units fix, not a loosening.
 
 The duplicate protection returns as a **consequence**: `_load_settleable_row` refuses a row already
-reading `Settled`, so `create_non_project_receipt` — which by design has no duplicate lookup of its
-own — is once again callable exactly once per staged row. The module header's claim is true again.
+reading `Settled`, so `create_non_project_receipt` — which by design had no duplicate lookup of its
+own (closed at #1260, see the end of this doc) — is once again callable exactly once per staged row. The module header's claim is true again.
 
 ### ⚠️ The honest baseline — every suite in the area, measured both sides
 
@@ -4337,4 +4338,95 @@ first cheque's number. But a payee PIECE that is itself an eligible token (6+ ch
 - ⚠️ Refusal tests in `test_inflows` go through `_refusal` and plant with a per-test purge: a bare
   `assertRaises` LEAKED real inflows when the guard was reverted, and a planted record left for the class
   refused the next test's (same, still-open) row.
+
+## #1260 (2026-09-14) — Link, Allocate and Create refuse a line whose money is already recorded
+
+**What.** The five buttons that record money from a line -- **Link** (`settle_row`), **Allocate**
+(`allocate_row`), **Create expense** (`create_expense`), **Create inflow** (`create_inflow`) and **Create
+non-project receipt** (`create_non_project_receipt`) -- now ask the match run's own question before they
+write, even if no match run ever ran:
+
+| The match run would… | The endpoint… |
+|---|---|
+| **Skip** the line (the money is already recorded) | refuses with `MoneyAlreadyRecordedError`, naming the record(s). Nothing is written |
+| leave it **Mismatched** naming a record (amount off by more than ₹5, or #1258's record already used by another line) | refuses with `RecordedMoneyNeedsConfirmationError` **unless** the call carries `confirm_mismatch` |
+| find nothing | proceeds exactly as before |
+
+**`settle_row_partial` runs it too** (added at review): it is Link to a larger Approved payment from the
+same dialog, and without the guard a line already Paid on an expense could be part-settled onto a payment
+-- `settle_payment`'s UTR guard sees only references on other PAYMENTS.
+
+The screen catches the second error (by `exc_type`), shows **"Create anyway?"** / **"Link anyway?"** with the
+server's own sentence, and re-calls with `confirm_mismatch: 1` (the partial settle takes the same dialog). A duplicate is never overrulable. The bulk
+confirm cannot ask, so its failure line adds *"Open the transfer to record it anyway."*
+
+### The shape -- one verdict, one group, one guard
+
+- **Pure verdict:** `status.derive_recorded_money_verdict(row, group)`. It reads `_already_recorded_outcome`,
+  the rule-3 branch factored out of `_failed_or_already_paid` -- the SAME branch the match run reads -- and
+  returns the run's own note. `TestRecordedMoneyVerdict.test_it_agrees_with_the_match_run_on_every_shape`
+  pins Skipped ↔ refuse and Mismatched ↔ ask. The refactor moved #1258's `used_by` check into that branch
+  (after the failed-transfer rule, which is equivalent); the whole pure suite is unchanged.
+- **Group:** `review._recorded_money_group(row, batch, writing)` -- the fork `match_batch` takes, on the
+  BATCH source: a bank statement asks the ICICI contains-guard (with claims), every other source (Cashfree,
+  Cashbook, legacy) the exact Paid-reference guard (`_paid_duplicate_for`).
+- **Guard:** `expenses._guard_money_not_recorded(staged, doc, confirm_mismatch, writing)`, after the direction
+  guard and BEFORE the savepoint. It only reads, so a refusal writes nothing.
+
+### ⚠️ Two exclusions, both load-bearing
+
+- **A record this line already settled is not its duplicate.** An Allocate leg writes the line's reference
+  onto a Paid payment; without the exclusion every second Allocate on a partly allocated transfer refused
+  itself (`test_a_line_s_own_earlier_legs_never_refuse_its_next_one`, RED without it). The match run never
+  meets this -- a partly allocated row is frozen there.
+- **Nor is a record the call is about to write (`writing`).** A Link target already Paid is refused by the
+  settle with `AlreadyPaidError`, the distinct "somebody beat you to it" error a bulk confirm reads.
+  `test_settle_payment.test_an_already_paid_payment_is_refused_DISTINCTLY` went red when the guard counted
+  the target. No hole: such a target is refused either way.
+
+### ⚠️ OPEN ITEM -- "under the row lock" is met on `allocate_row` only
+
+The ticket says the guard runs "under the row lock". `allocate_row` runs it under its `FOR UPDATE` row lock.
+`settle_row`, `settle_row_partial` and the three creates take NO row lock today, by the decision recorded on
+`settle_row` (#1250 deliberately did not add one: it changes the lock order and the concurrent-refusal
+shape). So on those paths the verdict is read without a lock; a second concurrent write on the same row
+still fails at the row update, but two reviewers racing on two DIFFERENT lines of the same money are not
+serialised. Taking the lock is the owner's call and a follow-up, not done here.
+
+### The known gap is closed
+
+`inflows.py`'s header recorded that `create_non_project_receipt` and `create_expense` had no ledger
+duplicate check. Both run the shared guard now; the note is replaced. What remains is the owner's ruling,
+not a gap: a deposit reads Project Inflows only, so a receipt booked earlier as a negative Non Project
+Expense is not found. `inflows._already_booked` is deleted -- the shared guard does its job and more.
+`create_inflow` keeps `_already_created_by_import` (it names the batch) and runs it first.
+
+`settle_expense` (the deprecated alias) passes `confirm_mismatch` through to `settle_row`.
+
+### Tests (every new refusal shown RED under a reverted rule)
+
+- Pure: `test_status.TestRecordedMoneyVerdict` (6).
+- API, new `test_recorded_money_guard.py` (13): the worked example (a Cashfree ₹5,000 line Paid on one
+  expense cannot Link another Approved ₹5,000 expense), Link amount-off refused then confirmed, ICICI Link
+  via the narration, Allocate duplicate + amount-off + own-legs, Create expense Cashfree-on-a-payment +
+  ICICI + amount-off confirmed; three clean-row controls; the partial settle refusal on the REAL split
+  fixture (`PartialSettlementFixture`, so without the guard the split succeeds -- a first draft on a
+  bare PO went red for the wrong reason); and an F1 parity pin that the frontend matches the exception
+  class name. `test_settle_payment.test_a_failed_settle_rolls_the_split_back_and_leaves_no_orphan` now
+  passes `confirm_mismatch`: its decoy Paid payment is also amount-off recorded money, and the guard
+  would otherwise stop the call before the settle failure it exists to test. The planted "already recorded" record is an
+  EXPENSE wherever the target is a payment, so `settle_payment`'s UTR guard cannot answer first.
+- API, `test_inflows.TestTheDuplicateGuards`: booked-by-hand refusals now raise `MoneyAlreadyRecordedError`;
+  `test_a_different_amount_on_the_same_reference_is_not_refused` INVERTED to
+  `..._asks_before_recording` (refused, then recorded with the flag); receipt duplicate + receipt amount-off.
+- Vitest (`outflowTableModel.test.ts`, 5): `needsRecordAnywayConfirmation` keys on the class name only,
+  `recordAnywayWording` (Create for new/inflow/receipt, Link otherwise), `bulkRecordAnywayHint`.
+- RED probes: guard a no-op → 8 of 11 new API tests + all 6 inflow/receipt guard tests fail (clean controls
+  pass); own-legs exclusion off → the own-legs test fails; partial guard off → the partial test fails with
+  "MoneyAlreadyRecordedError not raised".
+- Residence check: backend rules B1/B2/B3 hold. F2/F5 fail identically with and without this change
+  (224/207, 119/116 -- pre-existing drift in other files).
+- Browser (dev, Administrator, :8080): a Cashfree ₹4,321 line with a Paid ₹5,321 expense on its reference →
+  Create expense showed "Create anyway?" naming the expense and the ₹1,000 gap; Cancel left the row
+  Mismatched with no match record; "Create anyway" settled it. Fixture data deleted afterwards.
 

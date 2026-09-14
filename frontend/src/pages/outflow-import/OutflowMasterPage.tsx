@@ -9,6 +9,7 @@ import { TailSpin } from "react-loader-spinner";
 import {
     AlertDialog,
     AlertDialogAction,
+    AlertDialogCancel,
     AlertDialogContent,
     AlertDialogDescription,
     AlertDialogFooter,
@@ -67,7 +68,10 @@ import {
     type PartialIntent,
     type RowDecision,
     type SettleableRecord,
+    bulkRecordAnywayHint,
     describeFrappeError,
+    needsRecordAnywayConfirmation,
+    recordAnywayWording,
     tabCountParts,
 } from "./outflowTableModel";
 
@@ -210,6 +214,16 @@ export const OutflowMasterPage = () => {
     // the click happened -- a toast would be gone before the reviewer looked up from the record
     // list they are about to correct.
     const [confirmError, setConfirmError] = useState<string | null>(null);
+    /**
+     * The "Create / Link anyway?" question (#1260): the server refused because a record already
+     * carries this transfer's reference but the amounts differ, and a person may overrule that.
+     *
+     * ⚠️ A DUPLICATE NEVER LANDS HERE. The server refuses one outright with a different error, and
+     * `needsRecordAnywayConfirmation` answers no to it -- it shows in `confirmError` like any refusal.
+     */
+    const [recordAnyway, setRecordAnyway] = useState<
+        { title: string; action: string; message: string; retry: () => Promise<void> } | null
+    >(null);
     const [importing, setImporting] = useState(false);
     const [showingHistory, setShowingHistory] = useState(false);
     const [confirmingAll, setConfirmingAll] = useState(false);
@@ -532,7 +546,16 @@ export const OutflowMasterPage = () => {
      * belong in a fifty-row action. Do not give the bulk caller a mode to pass.
      */
     const settleOne = useCallback(
-        async (row: OutflowImportRow, decision: RowDecision, mode?: SettleMode) => {
+        async (
+            row: OutflowImportRow,
+            decision: RowDecision,
+            mode?: SettleMode,
+            confirmMismatch = false
+        ) => {
+            // ⚠️ SENT ONLY AS THE ANSWER TO "... anyway?" (#1260), so every other call's payload is
+            // byte-identical to what it was. The server re-derives the verdict every time; the flag
+            // overrules only an amount-off hit, never a duplicate.
+            const anyway = confirmMismatch ? { confirm_mismatch: 1 } : {};
             if (decision.target === "new") {
                 const form = decision.newExpense!;
                 await callCreate({
@@ -542,6 +565,7 @@ export const OutflowMasterPage = () => {
                     project: form.project || undefined,
                     description: form.description || undefined,
                     vendor: form.vendor || undefined,
+                    ...anyway,
                 });
             } else if (decision.target === "inflow") {
                 // ⚠️ NO AMOUNT, DATE OR REFERENCE IN THE PAYLOAD, exactly as the create-expense
@@ -555,6 +579,7 @@ export const OutflowMasterPage = () => {
                     project: form.project,
                     customer: form.customer || undefined,
                     invoice: form.invoice || undefined,
+                    ...anyway,
                 });
             } else if (decision.target === "receipt") {
                 // ⚠️ NO AMOUNT AND, ABOVE ALL, NO SIGN IN THE PAYLOAD (slice B7). The server reads
@@ -568,6 +593,7 @@ export const OutflowMasterPage = () => {
                     row: row.name,
                     expense_type: form.expenseType,
                     description: form.description || undefined,
+                    ...anyway,
                 });
             } else {
                 // ⚠️ THE ROUTING RULE HAS ONE HOME: `chooseSettleEndpoint` (ADR-0020, Task 7;
@@ -597,6 +623,7 @@ export const OutflowMasterPage = () => {
                         row: row.name,
                         target_doctype: only.target,
                         target_name: only.name,
+                        ...anyway,
                     });
                 } else if (endpoint === "allocate_row") {
                     await callAllocate({
@@ -612,6 +639,7 @@ export const OutflowMasterPage = () => {
                                 target_name: t.name,
                             }))
                         ),
+                        ...anyway,
                     });
                 }
                 // `endpoint === null` means nothing was ticked, which `isConfirmable` already
@@ -659,7 +687,7 @@ export const OutflowMasterPage = () => {
         [callReverseAllocation, refreshAll]
     );
 
-    const handleConfirmOne = useCallback(async () => {
+    const confirmOne = useCallback(async (confirmMismatch: boolean) => {
         if (!openRow) return;
         const decision = decisions.get(openRow.name);
         // Backstop to the dialog's disabled Confirm button: never post a settle for a row that is
@@ -671,10 +699,20 @@ export const OutflowMasterPage = () => {
         try {
             // ⚠️ THE DIALOG'S OWN MODE RIDES THE CONFIRM (issue #1241). This is the ONE call site
             // that has one; the bulk loop below deliberately passes none.
-            await settleOne(openRow, decision, settleMode);
+            await settleOne(openRow, decision, settleMode, confirmMismatch);
             closeDecisionRow();
             await refreshAll();
         } catch (err: any) {
+            // ⚠️ ASKED ONCE (#1260). An amount-off hit is a question for the reviewer, not a failure;
+            // a refusal on the confirmed re-call is a real one and lands in the footer below.
+            if (!confirmMismatch && needsRecordAnywayConfirmation(err)) {
+                setRecordAnyway({
+                    ...recordAnywayWording(decision),
+                    message: describeFrappeError(err, "A record already carries this transfer."),
+                    retry: () => confirmOne(true),
+                });
+                return;
+            }
             // ⚠️ THIS `catch` IS THE DEFECT THE OWNER REPORTED, AND ITS ABSENCE WAS THE WHOLE BUG.
             // A refused settle rejected the promise, nothing caught it, and the dialog just sat
             // there -- so a deliberate server rule ("this record is 2,19,000 away from the
@@ -686,6 +724,10 @@ export const OutflowMasterPage = () => {
         }
     }, [openRow, decisions, settleMode, settleOne, closeDecisionRow, refreshAll]);
 
+    // The dialog's Confirm: never pre-confirmed. `confirmOne(true)` is reachable only from the
+    // "... anyway?" answer below.
+    const handleConfirmOne = useCallback(() => confirmOne(false), [confirmOne]);
+
     /**
      * Settle part of an approved payment and carry the balance forward (slice PS).
      *
@@ -695,7 +737,7 @@ export const OutflowMasterPage = () => {
      * recreate, one dialog deeper.
      */
     const handlePartialSettle = useCallback(
-        async (record: SettleableRecord, intent: PartialIntent) => {
+        async (record: SettleableRecord, intent: PartialIntent, confirmMismatch = false) => {
             if (!openRow) return;
             setBusy(true);
             setConfirmError(null);
@@ -704,10 +746,20 @@ export const OutflowMasterPage = () => {
                     row: openRow.name,
                     target_name: record.name,
                     intent,
+                    // #1260: only as the answer to "Link anyway?" -- see `settleOne`.
+                    ...(confirmMismatch ? { confirm_mismatch: 1 } : {}),
                 });
                 setOpenRow(null);
                 await refreshAll();
             } catch (err: any) {
+                if (!confirmMismatch && needsRecordAnywayConfirmation(err)) {
+                    setRecordAnyway({
+                        ...recordAnywayWording({ target: "Project Payments" }),
+                        message: describeFrappeError(err, "A record already carries this transfer."),
+                        retry: () => handlePartialSettle(record, intent, true),
+                    });
+                    return;
+                }
                 setConfirmError(describeFrappeError(err, "The partial settle failed."));
             } finally {
                 setBusy(false);
@@ -742,7 +794,8 @@ export const OutflowMasterPage = () => {
                 } catch (err: any) {
                     // The server's own sentence, not Frappe's "There was an error." envelope.
                     failures.push(
-                        `${row.beneficiary_name}: ${describeFrappeError(err, "the settle failed")}`
+                        `${row.beneficiary_name}: ${describeFrappeError(err, "the settle failed")}` +
+                            bulkRecordAnywayHint(err)
                     );
                 }
             }
@@ -1284,6 +1337,32 @@ export const OutflowMasterPage = () => {
                 error={confirmError}
                 onDismissError={dismissConfirmError}
             />
+
+            <AlertDialog
+                open={recordAnyway !== null}
+                onOpenChange={(open) => !open && setRecordAnyway(null)}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>{recordAnyway?.title}</AlertDialogTitle>
+                        {/* The server's own sentence: it names every record, its ledger and the
+                            difference, which is what the reviewer is being asked to judge. */}
+                        <AlertDialogDescription>{recordAnyway?.message}</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={() => {
+                                const retry = recordAnyway?.retry;
+                                setRecordAnyway(null);
+                                void retry?.();
+                            }}
+                        >
+                            {recordAnyway?.action}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 };

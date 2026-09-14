@@ -51,27 +51,32 @@ bank-statement import, and the import's own gate is what governs it; layering th
 top would let somebody who may record a receipt by hand record one from a statement they may not
 open.
 
-⚠️ THE `Outflow Row Match` UNIQUE KEY CANNOT GUARD THIS PATH, AND THAT IS THE WHOLE REASON THE TWO
+⚠️ THE `Outflow Row Match` UNIQUE KEY CANNOT GUARD THIS PATH, AND THAT IS THE WHOLE REASON THE
 LOOKUPS BELOW EXIST. The constraint is `(transfer_id, target_doctype, target_name)` and a created
 record has a NEW `target_name` every time, so it never contends -- the identical hole the Cashbook
 slice hit, whose second lookup then caught 17 live expenses carrying a wallet id nobody had
-imported. Same shape here: `_already_created_by_import`, keyed through the ONE identity rule in
-`services/outflow_import/duplicates.py`, and `_already_booked`, the ICICI contains-match (#1259).
+imported.
 
-⚠️ THOSE TWO LOOKUPS GUARD `create_inflow` ONLY, AND `create_non_project_receipt` DELIBERATELY HAS
-NO EQUIVALENT -- A KNOWN GAP, RECORDED HERE RATHER THAN DISCOVERED LATER. It writes the same ledger
-`expenses.create_expense` writes, and THAT path has no cross-batch duplicate guard either. Adding
-one to this endpoint alone would produce the worse state: two endpoints writing
-`Non Project Expenses` from the same statement, one refusing a repeat and one accepting it, so
-whether a duplicate is caught would depend on which card the reviewer clicked. Closing it means
-closing it on both, keyed on `payment_ref`, and that is its own slice. What DOES hold today is the
-per-row guard: `_load_settleable_row` refuses a row that is already `Settled` or `Skipped`, so no
-single staged row can write twice.
+⚠️ BOTH ENDPOINTS RUN `expenses._guard_money_not_recorded` (#1260), the same guard `create_expense`,
+`settle_row` and `allocate_row` run: the match run's own already-recorded question for the line's
+source, refusing a line the run would skip and asking for confirmation on one it would leave
+Mismatched naming a record. This closed the gap once recorded here, where
+`create_non_project_receipt` and `create_expense` had no ledger duplicate check at all -- closed on
+both at once, so whether a duplicate is caught never depends on which card the reviewer clicked.
+
+⚠️ WHAT A CREDIT IS CHECKED AGAINST IS THE OWNER'S RULING, NOT A GAP: a deposit reads Project Inflows
+only (#1252), so a receipt booked earlier as a NEGATIVE Non Project Expense is not found. A re-upload
+of the same statement line is still caught at upload by the cross-batch identity.
+
+`create_inflow` also keeps `_already_created_by_import`, keyed through the ONE identity rule in
+`services/outflow_import/duplicates.py`: an inflow THIS import created for the same transfer id,
+which names the batch it came from.
 """
 
 import frappe
 
 from nirmaan_stack.api.outflow_import.expenses import (
+    _guard_money_not_recorded,
     _link_statement_file_to_target,
     _load_settleable_row,
     _record_settlement,
@@ -83,11 +88,8 @@ from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
     ROW_DOCTYPE,
-    _recorded_group_for,
     _refresh_batch_rollup,
 )
-from nirmaan_stack.services.outflow_import import candidates as C
-from nirmaan_stack.services.outflow_import.contains_guard import skip_basis
 from nirmaan_stack.services.outflow_import.duplicates import (
     find_prior_sighting,
     index_prior_sightings,
@@ -100,10 +102,6 @@ from nirmaan_stack.services.outflow_import.settle import (
     create_inflow_from_row,
     create_non_project_receipt_from_row,
 )
-from nirmaan_stack.services.outflow_import.status import (
-    ROW_SKIPPED,
-    derive_duplicate_guard_outcome,
-)
 
 #: ⚠️ THERE IS NO `get_non_project_receipt_types` HERE, AND THERE MUST NOT BE. The receipt form's
 #: type list is the EXISTING `expenses.get_expense_types("Non Project Expenses")` -- the same
@@ -114,7 +112,9 @@ __all__ = ["create_inflow", "create_non_project_receipt", "get_inflow_context"]
 
 
 @frappe.whitelist(methods=["POST"])
-def create_inflow(row: str, project: str, customer: str = None, invoice: str = None):
+def create_inflow(
+    row: str, project: str, customer: str = None, invoice: str = None, confirm_mismatch=False
+):
     """Record a NEW `Project Inflow`, for a bank credit that this import cannot settle.
 
     URL: /api/method/nirmaan_stack.api.outflow_import.inflows.create_inflow
@@ -135,6 +135,7 @@ def create_inflow(row: str, project: str, customer: str = None, invoice: str = N
     staged, doc = _load_settleable_row(row)
     _guard_is_a_credit(doc)
     _guard_not_already_recorded(staged, doc)
+    _guard_money_not_recorded(staged, doc, confirm_mismatch)
     statement_file_url = _statement_file_url(doc["import_batch"])
 
     savepoint = f"ofi_inflow_{frappe.generate_hash(length=10)}"
@@ -181,7 +182,9 @@ def create_inflow(row: str, project: str, customer: str = None, invoice: str = N
 
 
 @frappe.whitelist(methods=["POST"])
-def create_non_project_receipt(row: str, expense_type: str, description: str = None):
+def create_non_project_receipt(
+    row: str, expense_type: str, description: str = None, confirm_mismatch=False
+):
     """Record a bank CREDIT that belongs to no project, as a NEGATIVE `Non Project Expense` (B7).
 
     URL: /api/method/nirmaan_stack.api.outflow_import.inflows.create_non_project_receipt
@@ -198,9 +201,9 @@ def create_non_project_receipt(row: str, expense_type: str, description: str = N
     negative number could book a debit as income, and the books would be wrong by twice the
     transfer with nothing on screen looking odd.
 
-    ⚠️ THE SAME THREE-LINE PRELUDE AS `create_inflow`, MINUS THE DUPLICATE GUARD, and the module
-    header says why that omission is deliberate rather than forgotten. `_load_settleable_row` still
-    refuses a row that is already `Settled` or `Skipped`, so one staged row can never write twice.
+    ⚠️ THE SAME PRELUDE AS `create_inflow`, INCLUDING THE RECORDED-MONEY GUARD (#1260), minus only
+    `_already_created_by_import` -- which looks for an INFLOW the import created, and this path
+    creates none.
 
     ⚠️ ONE ROW PER CALL, its own savepoint, its own commit -- the isolation `settle_row` documents
     at length. A failure on one row leaves the others written and the rest still attemptable.
@@ -212,6 +215,7 @@ def create_non_project_receipt(row: str, expense_type: str, description: str = N
     # This one reads the STORED column and fails fast with the row in hand; the service re-checks
     # the value it is handed, because it is a service anything may call.
     _guard_is_a_credit(doc)
+    _guard_money_not_recorded(staged, doc, confirm_mismatch)
     statement_file_url = _statement_file_url(doc["import_batch"])
 
     savepoint = f"ofi_receipt_{frappe.generate_hash(length=10)}"
@@ -329,23 +333,14 @@ def _guard_is_a_credit(doc) -> None:
 
 
 def _guard_not_already_recorded(staged, doc) -> None:
-    """Refuse a credit that has already produced an inflow -- by this import, or by hand.
+    """Refuse a credit that THIS IMPORT has already turned into an inflow.
 
-    ⚠️ THE ORDER IS THE MESSAGE, exactly as `cashbook.plan_statement` orders its own three tests:
-    the import's OWN earlier work first, because that names a batch and a row the reader can go and
-    look at, then a record booked outside this feature, which names only the record.
-
-    ⚠️ THE TWO LOOKUPS ASK DIFFERENT QUESTIONS ON DIFFERENT COLUMNS, AND THAT IS NOT AN INCONSISTENCY.
-    An `Outflow Row Match` carries the `transfer_id`; a `Project Inflow` carries a REFERENCE, in `utr`.
-
-    ⚠️ THE SECOND LOOKUP IS THE ICICI CONTAINS-MATCH (#1259), NOT AN EXACT COMPARE ON
-    `bank_reference_no`. An ICICI settle now stores the whole bank narration as `utr`, so an exact
-    compare would go blind to every inflow this import records; and a hand-typed reference sits
-    INSIDE the narration, not equal to the extracted one. It refuses exactly when the match run would
-    SKIP this line -- the same pool, the same picker (`review._recorded_group_for`, with the
-    one-record-one-line claims) and the same verdict (`status.derive_duplicate_guard_outcome` read
-    through `contains_guard.skip_basis`) -- so the screen and the button cannot disagree. A hit whose
-    amount is off does not refuse here; asking "record anyway?" is #1260's.
+    ⚠️ IT RUNS BEFORE `expenses._guard_money_not_recorded`, AND THE ORDER IS THE MESSAGE, exactly as
+    `cashbook.plan_statement` orders its own tests: the import's OWN earlier work first, because that
+    names a batch the reader can go and look at; then a record booked by anyone, which names only the
+    record. The two ask different questions on different columns -- an `Outflow Row Match` carries
+    the `transfer_id`, a `Project Inflow` carries a REFERENCE in `utr` -- and that is not an
+    inconsistency.
     """
     prior = find_prior_sighting(
         _already_created_by_import(staged),
@@ -358,16 +353,6 @@ def _guard_not_already_recorded(staged, doc) -> None:
             f"This credit has already been recorded as {prior}. Nothing has been recorded again.",
             InflowNotRecordableError,
             title="Already recorded",
-        )
-
-    booked = _already_booked(staged)
-    if booked:
-        names = ", ".join(f"{t.doctype} {t.name}" for t in booked)
-        frappe.throw(
-            f"{names} already records this credit -- its reference is in this line's bank "
-            f"narration. Nothing has been recorded again.",
-            InflowNotRecordableError,
-            title="Already booked",
         )
 
 
@@ -417,24 +402,6 @@ def _already_created_by_import(staged) -> dict:
         )
         for r in rows
     )
-
-
-def _already_booked(staged) -> tuple:
-    """The records this credit's match run would SKIP it on, or `()` (#1259).
-
-    Whoever recorded them: a receipt keyed in by hand is the ordinary way it is done today (measured
-    2026-09-07: 330 of 463 live `Project Inflows` carry a `utr`, every one typed by hand).
-
-    ⚠️ NO STATUS FILTER, because `Project Inflows` has none. The ledger by direction (a credit reads
-    inflows only), the token rules, the 15-day window and the amount window are all
-    `contains_guard`'s, applied through the one query `candidates.load_recorded_by_contains`.
-    """
-    pool = C.load_recorded_by_contains([staged])
-    if not pool:
-        return ()
-    group = _recorded_group_for(staged, pool, C.load_record_claims(pool))
-    outcome = derive_duplicate_guard_outcome(staged, paid_duplicate=group)
-    return skip_basis(staged, group, outcome.status == ROW_SKIPPED)
 
 
 def _date_of(value):
