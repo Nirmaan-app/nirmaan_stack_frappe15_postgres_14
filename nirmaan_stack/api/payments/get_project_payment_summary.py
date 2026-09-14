@@ -77,6 +77,10 @@ def get_payment_dashboard_stats():
         # Inflow: money received (Project Inflows)
         'total_inflow_30_days_count': 0,
         'total_inflow_30_days_amount': 0.0,
+        # Non-project inflow: Non Project Inflows (ADR-0016 A-D4). Its own figure, NEVER netted
+        # against any outflow.
+        'total_non_project_inflow_30_days_count': 0,
+        'total_non_project_inflow_30_days_amount': 0.0,
         # Project outflow: PO + WO Paid payments + Project Expenses
         'total_project_outflow_30_days_count': 0,
         'total_project_outflow_30_days_amount': 0.0,
@@ -224,6 +228,20 @@ def get_payment_dashboard_stats():
         )
         stats['total_inflow_30_days_count'] = len(inflows)
         stats['total_inflow_30_days_amount'] = sum(_to_float(r.amount) for r in inflows)
+
+        # --- 2f2. Non-project inflow (Non Project Inflows) — last 30 days ---
+        # A separate figure (ADR-0016 A-D4): it is never subtracted from the non-project outflow
+        # below. No status field — a record counts the moment it is saved.
+        non_project_inflows = frappe.get_all(
+            "Non Project Inflows",
+            filters={"payment_date": ["between", [thirty_days_ago, today_date]]},
+            fields=["amount"],
+            limit_page_length=None,
+        )
+        stats['total_non_project_inflow_30_days_count'] = len(non_project_inflows)
+        stats['total_non_project_inflow_30_days_amount'] = sum(
+            _to_float(r.amount) for r in non_project_inflows
+        )
 
         # --- 2g. Non-project outflow (Non Project Expenses) — last 30 days ---
         non_project_expenses = frappe.get_all(

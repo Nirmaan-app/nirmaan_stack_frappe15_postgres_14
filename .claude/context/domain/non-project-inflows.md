@@ -74,6 +74,15 @@ In-Flow Payments.
 proof), sum aggregate, `InflowSummaryCard` reused with a `title` prop, CSV export; one parametric
 `NonProjectInflowDialog` for add and edit. Sidebar item sits directly under In-Flow Payments.
 
+## Payments dashboard figure (#1267, A-D4)
+
+`api/payments/get_project_payment_summary.get_payment_dashboard_stats` returns
+`total_non_project_inflow_30_days_count` / `_amount`, shown by `ProjectPayments/PaymentSummaryCards.tsx` beside
+project inflow on every page carrying the card. **Never netted:** no outflow figure reads it. The endpoint uses
+`frappe.get_all`, which skips the profile gate above, so every card viewer sees the total — that is the ruling
+for now. ⚠️ When the audience is narrowed (Q11) it must be done in that endpoint or the card; the doctype's
+permission hooks will not hide it there.
+
 ## Accepted risks (Amendment A)
 
 - **AR1** a vendor refund booked as Others reduces no PO / vendor paid amount.

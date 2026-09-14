@@ -241,6 +241,9 @@ interface PaymentStats {
     // --- Cash flow (last 30 days) ---
     total_inflow_30_days_count: number;
     total_inflow_30_days_amount: number;
+    // Never netted against outflow (ADR-0016 A-D4).
+    total_non_project_inflow_30_days_count: number;
+    total_non_project_inflow_30_days_amount: number;
     total_project_outflow_30_days_count: number;
     total_project_outflow_30_days_amount: number;
     total_non_project_expense_30_days_count: number;
@@ -288,7 +291,6 @@ const getAccent = (type: string) => {
 };
 
 const getHoverText = (label: string) => {
-    if (label.includes("Total Inflow")) return "Total money received (Project Inflows) in the last 30 days.";
     if (label.includes("Total Outflow")) return "Total money paid out in the last 30 days — project payments (PO/WO) plus non-project expenses.";
     if (label.includes("Pending Payment Request")) return "Payments Requested but not yet Approved.";
     if (label.includes("Pending Payment Approval")) return "All payments awaiting an approval gate (Requested + CEO Pending).";
@@ -447,6 +449,8 @@ const RecentActivityTile: React.FC<{
     // Cash flow (last 30 days)
     inflowAmount: number;
     inflowCount: number;
+    nonProjectInflowAmount: number;
+    nonProjectInflowCount: number;
     projectOutflowAmount: number;
     projectOutflowCount: number;
     nonProjectOutflowAmount: number;
@@ -461,6 +465,7 @@ const RecentActivityTile: React.FC<{
     paidTodayAmount, paidTodayCount,
     paid7dAmount, paid7dCount,
     inflowAmount, inflowCount,
+    nonProjectInflowAmount, nonProjectInflowCount,
     projectOutflowAmount, projectOutflowCount,
     nonProjectOutflowAmount, nonProjectOutflowCount,
 }) => (
@@ -499,13 +504,16 @@ const RecentActivityTile: React.FC<{
                         <BreakdownRow tone="emerald" label="Paid" labelLong="Paid (7 days)" amount={paid7dAmount} count={paid7dCount} />
                     </div>
                 </div>
-                {/* Cash flow (last 30 days) — Inflow | Outflow (project PO/WO + non-project) */}
+                {/* Cash flow (last 30 days) — Inflow (project | non-project) | Outflow (project PO/WO + non-project).
+                    The non-project inflow is its own figure: never summed with project inflow and never
+                    netted against outflow (ADR-0016 A-D4). */}
                 <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
                     <div className="grid grid-cols-1 sm:grid-cols-2 sm:divide-x divide-slate-200 dark:divide-slate-700 gap-y-2">
                         {/* INFLOW */}
                         <div className="space-y-1 sm:pr-4">
                             <div className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">Inflow (30 Days)</div>
-                            <BreakdownRow tone="emerald" label="Inflow" labelLong="Total Inflow" amount={inflowAmount} count={inflowCount} amountClassName="text-emerald-600 dark:text-emerald-400" />
+                            <BreakdownRow tone="emerald" label="Project" labelLong="Project Inflow" amount={inflowAmount} count={inflowCount} amountClassName="text-emerald-600 dark:text-emerald-400" />
+                            <BreakdownRow tone="blue" label="Non-Project" labelLong="Non-Project Inflow" amount={nonProjectInflowAmount} count={nonProjectInflowCount} amountClassName="text-emerald-600 dark:text-emerald-400" />
                         </div>
                         {/* OUTFLOW */}
                         <div className="space-y-1 sm:pl-4">
@@ -553,10 +561,10 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
     // --- REFETCH ON INFLOW / EXPENSE / NON-PROJECT-EXPENSE CHANGES ---
     // Project Payments already refreshes via the totalCount effect above. The
     // summary also folds in Project Inflows, Project Expenses, and Non Project
-    // Expenses (see get_payment_dashboard_stats) — but those live on separate
-    // pages, so their add/update/delete never moved totalCount and the summary
-    // went stale. Listen to Frappe's built-in list_update realtime for those
-    // three doctypes and refetch (debounced so a burst collapses to one call).
+    // Expenses, Non Project Inflows (see get_payment_dashboard_stats) — but those
+    // live on separate pages, so their add/update/delete never moved totalCount
+    // and the summary went stale. Listen to Frappe's built-in list_update realtime
+    // for those doctypes and refetch (debounced so a burst collapses to one call).
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const scheduleRefetch = useCallback(() => {
         if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -568,6 +576,7 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
     useFrappeDocTypeEventListener("Project Inflows", scheduleRefetch);
     useFrappeDocTypeEventListener("Project Expenses", scheduleRefetch);
     useFrappeDocTypeEventListener("Non Project Expenses", scheduleRefetch);
+    useFrappeDocTypeEventListener("Non Project Inflows", scheduleRefetch);
 
     useEffect(() => () => {
         if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -673,11 +682,17 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                         </div>
                     </div>
                     {/* Cash flow (last 30 days) */}
-                    <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div className="grid grid-cols-3 gap-2 mt-2">
                         <div className="bg-emerald-50 dark:bg-emerald-950/30 rounded-md p-2 border border-emerald-100 dark:border-emerald-900/50">
-                            <span className="text-[9px] font-medium text-emerald-600 dark:text-emerald-400 uppercase block">Inflow (30d)</span>
+                            <span className="text-[9px] font-medium text-emerald-600 dark:text-emerald-400 uppercase block">Proj. Inflow (30d)</span>
                             <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
                                 {formatToRoundedIndianRupee(stats.total_inflow_30_days_amount)}
+                            </span>
+                        </div>
+                        <div className="bg-emerald-50 dark:bg-emerald-950/30 rounded-md p-2 border border-emerald-100 dark:border-emerald-900/50">
+                            <span className="text-[9px] font-medium text-emerald-600 dark:text-emerald-400 uppercase block">Non-Proj. Inflow (30d)</span>
+                            <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                                {formatToRoundedIndianRupee(stats.total_non_project_inflow_30_days_amount)}
                             </span>
                         </div>
                         <div className="bg-red-50 dark:bg-red-950/30 rounded-md p-2 border border-red-100 dark:border-red-900/50">
@@ -739,6 +754,8 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                                 paid7dCount={stats.payment_done_7_days}
                                 inflowAmount={stats.total_inflow_30_days_amount}
                                 inflowCount={stats.total_inflow_30_days_count}
+                                nonProjectInflowAmount={stats.total_non_project_inflow_30_days_amount}
+                                nonProjectInflowCount={stats.total_non_project_inflow_30_days_count}
                                 projectOutflowAmount={stats.total_project_outflow_30_days_amount}
                                 projectOutflowCount={stats.total_project_outflow_30_days_count}
                                 nonProjectOutflowAmount={stats.total_non_project_expense_30_days_amount}

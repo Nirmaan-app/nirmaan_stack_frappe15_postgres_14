@@ -88,6 +88,12 @@ rollups never read the new doctype.
 ### S6 — Payments dashboard figure
 - `api/payments/get_project_payment_summary.py`: `total_non_project_inflow_30_days` beside the project inflow.
 - `ProjectPayments/PaymentSummaryCards.tsx`: a separate figure; never subtracted from outflow.
+- **Built in #1267.** Keys `total_non_project_inflow_30_days_count` / `_amount` (inclusive `today-29` window, no
+  status filter). Card: "Project Inflow" (relabelled from "Total Inflow", which would have read as both) and
+  "Non-Project Inflow" rows under *Inflow (30 Days)*; a third mobile tile; a `Non Project Inflows` realtime
+  listener refetches the card. Tests: `api/payments/test_payment_dashboard_stats.py` (4, delta-based on the live
+  site: window boundary at -29/-30, outflow and project inflow untouched). Live-checked: +₹4,321 shown with no
+  reload, outflow unchanged, back to ₹0 after delete; 400px layout fits.
 
 ### S7 — Docs
 - `.claude/context/domain/outflow-import.md`: fix the stale three-tab "The screen" section; ICICI section
