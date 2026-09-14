@@ -73,6 +73,22 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Auto-approval (of a small Expense)** — a positive Expense of ₹10,000 or less is created directly at *Approved*, skipping *Requested*. It is an **approval shortcut only** — it makes no claim that the money has been paid, so an auto-approved Expense is still not counted as settled spend until it is separately marked *Paid*. A refund (non-positive amount) or an amount above ₹10,000 follows the full *Requested → Approved → Paid* path. (2026-09-04: threshold raised from ₹5,000 and the comparison made inclusive — exactly ₹10,000 auto-approves.)
 
+## Inflows
+
+- **Project Inflow** — money received from a customer against a specific Project, optionally against one of that Project's invoices. It counts the moment it is recorded; there is no approval step.
+
+- **Non-Project Inflow** — money the company receives that belongs to no Project and no customer. Like a Project Inflow it counts the moment it is recorded (no approval step), and it is never netted against spend. (2026-09-14: introduced; replaces the negative Non-Project Expense "receipt" as the way a bank-statement credit with no project is recorded.)
+  *Avoid*: receipt, negative expense.
+
+- **Inflow Type** — the kind of a Non-Project Inflow, exactly one of:
+  - **Interest Payout** — interest paid to the company (e.g. on a deposit).
+  - **FD Closure** — proceeds of a fixed deposit that was closed.
+  - **Loan Received** — a loan disbursed to the company.
+  - **Others** — anything else; a description saying what it is is then required.
+  A **vendor refund** is conceptually separate and will get its own workflow; until then it is recorded as a Non-Project Inflow of type *Others*.
+
+- **Transaction direction (of an imported bank row)** — *Inflow* is money received (a bank credit); *Outflow* is money paid (a debit). A row whose source states no direction counts as Outflow. The import screen's own facet labels the same two values *Received* / *Paid*.
+
 ## Vendor invoices & credit notes
 
 - **Vendor Invoice** — a recorded vendor bill entered against a Purchase Order or a Work Order (Service Request). Distinct from a *Project Invoice*, which bills the Customer.

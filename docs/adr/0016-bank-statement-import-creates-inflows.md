@@ -7,6 +7,11 @@ Date: 2026-09-07
 **Accepted — owner-ruled 2026-09-07**, over six rounds of grilling (Q1–Q31a) against a real
 1,274-row ICICI current/OD statement covering 01-Jan-2026 → 20-Aug-2026.
 
+**Amended by [Amendment A](#amendment-a--2026-09-14--a-non-project-inflow-is-its-own-doctype)
+(2026-09-14):** decision 3 is **superseded** — a credit with no project now becomes a
+`Non Project Inflows` record, never a negative `Non Project Expense`. Decisions 1, 2, 4, 5 and 6
+are unchanged.
+
 ⚠️ **The number `0016` is NOT free, and this is deliberate rather than an oversight.**
 `0016-snag-category-is-free-text.md` already carries it, as do the historical `0002` / `0007` /
 `0008` / `0014` / `0015` collisions. This repo has two parallel ADR sequences and never renumbered
@@ -285,3 +290,68 @@ import. Any figure presented as total spend has to add them back.
   two-amount-column source.
 - Revisit **R4** if the monthly correction load on created inflows turns out material, and **R1** if
   the broken bookmarks generate real support traffic.
+
+## Amendment A — 2026-09-14 — a non-project inflow is its own doctype
+
+**Trigger.** The owner re-opened decision 3 (re-grill via `/grill-with-docs`, 2026-09-14, Q1–Q15).
+Its stated cost — **R3, money coming in lives in a doctype called *Expenses*** — was judged not worth
+carrying, and a second cost it never named was found: a negative `Non Project Expense` is summed
+straight into the payments dashboard's "non-project outflow" figure, so every recorded FD closure or
+loan drawdown silently **shrinks** reported spend. `outflow-duplicate-skip-plan.md` FW1 had already
+anticipated this reversal.
+
+### A-D1 — `Non Project Inflows` replaces the negative receipt (supersedes decision 3)
+
+A new doctype for money the company receives that belongs to no project and no customer.
+
+- **Inflow Type** — a Select, exactly one of *Interest Payouts*, *FD Closures*, *Loan Received*,
+  *Others* (owner wording). A Select, not a Link doctype: the list is owner-fixed.
+- **Description** — optional, **required when the type is *Others***.
+- **Inflow Details** — copied **exactly** from `Project Inflows`: UTR (Text), Inflow Attachment,
+  Amount (Currency), Payment Date. No Links section — there is no project, customer or invoice.
+- **No status.** It counts the moment it is saved, for the reason decision 5 gives for
+  `Project Inflows`: the bank row is the review gate, and the money is already in the bank.
+- **Access.** Create: Admin, Accountant, Accountant Lead. Edit: Admin and Accountant Lead only (an
+  Accountant creates but does not edit). Delete: Admin only. Sales roles cannot see it.
+  Deliberately narrower than `Project Inflows`' write list — this is company treasury money.
+  Change tracking on, which is the owner's stated control over edits (A-D2).
+
+### A-D2 — The import creates it through the existing one-way link
+
+- The Decision Dialog's "non-project receipt" card is replaced by a "non-project inflow" card. The
+  receipt **endpoint, service and tests are removed**, not just the card — a live endpoint nobody
+  calls can still write negative expenses. The READ side (ledger lists, `allocated_of`'s `abs()`)
+  stays, because rows written by it may already exist.
+- The link from bank row to record is **`Outflow Row Match` only** (`target_doctype` /
+  `target_name`), exactly as for `Project Inflows`. **No back-link field is added to either inflow
+  doctype** (owner, Q14).
+- The credit-row duplicate guard (contains-match and create-time) extends to `Non Project Inflows`,
+  closing R4-"for now" of `outflow-duplicate-skip-plan.md`.
+- **Every field stays editable on an import-created record** (owner, Q15) — the audit trail and the
+  narrow edit list are the control, not a field lock.
+
+### A-D3 — Negative expenses OUTSIDE the import are NOT touched
+
+The manual Project / Non-Project Expense dialogs still accept a negative amount, and existing
+negative `Non Project Expense` rows stay as they are (21 on localhost on 2026-09-14, ₹-2.73 Cr, all
+hand-entered). The owner will decide their fate **after this amendment is live and tested** (Q7).
+
+### A-D4 — The payments dashboard gets a separate "Non-Project Inflow (30 days)" figure
+
+Shown beside the project inflow figure, **never netted** against outflow (the same rule as Q14 of
+the original ruling). For now it is visible wherever the dashboard card is; the audience is to be
+narrowed later (Q11).
+
+### Accepted risks (Amendment A)
+
+- **AR1 — vendor refunds are booked as *Others* until they get their own workflow (Q3, Q10).** The
+  original *Deferred* note stands: a real vendor refund belongs inside a `PO Adjustments` doc. A
+  refund recorded as a Non-Project Inflow does **not** reduce any PO's or vendor's paid amount.
+  Labour advance returns go to *Others* too.
+- **AR2 — two shapes of non-project money-in coexist.** Old and hand-entered negative Non-Project
+  Expenses (A-D3) sit beside new Non-Project Inflows. Any "total non-project received" figure must
+  read both until the Q7 follow-up.
+- **AR3 — an import-created inflow cannot be deleted from the screen, and the import cannot undo it.**
+  Frappe's delete-time dynamic-link check (`frappe/model/delete_doc.py`) refuses to delete a record an
+  `Outflow Row Match` points at, and `reverse_allocation` handles `Project Payments` legs only. This is
+  already true of import-created `Project Inflows`; correction is by editing.
