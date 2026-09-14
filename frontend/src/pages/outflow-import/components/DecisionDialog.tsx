@@ -1,6 +1,6 @@
 // src/pages/outflow-import/components/DecisionDialog.tsx
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import { AlertTriangle, Check, ExternalLink, Loader2, X } from "lucide-react";
@@ -239,6 +239,12 @@ interface Props {
      */
     onPartialSettle: (record: SettleableRecord, intent: PartialIntent) => Promise<void> | void;
     /**
+     * Ask the server whether a partial settle of `record` would be refused outright, BEFORE the
+     * "carry the rest?" question opens (#1269). Resolves `true` when the question may be asked; on a
+     * refusal the page shows the server's sentence and resolves `false`.
+     */
+    onCheckPartialSettle: (record: SettleableRecord) => Promise<boolean>;
+    /**
      * Undo one Settled leg of an allocation (Task 7, ADR-0020 fan-out). A reason is REQUIRED --
      * `reverse_allocation` throws without one, the same standard `skip_row` already holds.
      */
@@ -284,6 +290,7 @@ export const DecisionDialog = ({
     onSettleModeChange,
     onConfirm,
     onPartialSettle,
+    onCheckPartialSettle,
     onReverseAllocation,
     onSkip,
     onRerun,
@@ -490,7 +497,13 @@ export const DecisionDialog = ({
     // can offer. Mirrors `partial_settle.partial_eligibility`; the server is still the authority.
     const partialShape = SHOW_PARTIAL_SETTLE ? partialOffer(picked, row?.amount ?? 0) : null;
 
-    const handleConfirmClick = useCallback(() => {
+    // #1269: which row + record is on screen NOW, read after the recorded-money check comes back, and
+    // whether a check is already out. Refs, so reading them never re-renders the dialog.
+    const currentPickRef = useRef("");
+    currentPickRef.current = `${row?.name}|${picked?.name}`;
+    const checkingPartialRef = useRef(false);
+
+    const handleConfirmClick = useCallback(async () => {
         // ⚠️ THE AMOUNT-WINDOW DETOUR IS A **NORMAL-MODE** QUESTION, AND GATING IT ON THE MODE IS
         // WHAT MAKES THE WHOLE SLICE WORK (issue #1241). It asks "does this ONE record equal the
         // WHOLE transfer, and if not, was the shortfall a part payment or a deduction?" -- which is
@@ -505,12 +518,41 @@ export const DecisionDialog = ({
         if (effectiveMode === "normal" && pickedRecords.length === 1) {
             const block = settleBlocker(picked, row?.amount ?? 0);
             if (block) {
+                // ⚠️ #1269 -- THE REFUSAL COMES BEFORE THE SPLIT QUESTION. When this pick would
+                // be offered "settle and carry the rest?", the server is asked first whether the
+                // line's money is already recorded. Otherwise the reviewer answers a question about
+                // a split that can never happen, and only then hears it was refused. A pick with
+                // no offer opens the "cannot be settled here" dialog, which asks nothing.
+                //
+                // ⚠️ THE ANSWER IS DROPPED IF THE PICK MOVED WHILE IT WAS OUT, and a second click
+                // while one check is out does nothing. Otherwise an answer about one record could
+                // open the question for another, which was never checked.
+                if (picked && partialShape) {
+                    if (checkingPartialRef.current) return;
+                    const asked = `${row?.name}|${picked.name}`;
+                    checkingPartialRef.current = true;
+                    try {
+                        const allowed = await onCheckPartialSettle(picked);
+                        if (!allowed || currentPickRef.current !== asked) return;
+                    } finally {
+                        checkingPartialRef.current = false;
+                    }
+                }
                 setBlocked(block);
                 return;
             }
         }
         onConfirm();
-    }, [effectiveMode, picked, pickedRecords.length, row?.amount, onConfirm]);
+    }, [
+        effectiveMode,
+        picked,
+        pickedRecords.length,
+        row?.name,
+        row?.amount,
+        partialShape,
+        onConfirm,
+        onCheckPartialSettle,
+    ]);
 
     if (!row) return null;
 

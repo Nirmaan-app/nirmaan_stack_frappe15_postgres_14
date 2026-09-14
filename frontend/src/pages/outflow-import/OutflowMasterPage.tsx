@@ -372,6 +372,10 @@ export const OutflowMasterPage = () => {
     const { call: callSettlePartial } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.expenses.settle_row_partial"
     );
+    // Read-only: would that partial be refused outright? Asked before its question opens (#1269).
+    const { call: callCheckPartial } = useFrappePostCall(
+        "nirmaan_stack.api.outflow_import.expenses.check_partial_settle"
+    );
     // ⚠️ ADR-0020 (Task 7): the fan-out sibling of `settle_row`. `settleOne` below routes to this
     // one, NEVER inline, via `chooseSettleEndpoint` -- the ONE home for the routing rule, so a
     // single tick on an untouched row always takes `settle_row`'s identical, stricter path.
@@ -766,6 +770,32 @@ export const OutflowMasterPage = () => {
             }
         },
         [openRow, callSettlePartial, refreshAll]
+    );
+
+    /**
+     * Ask whether `handlePartialSettle` would be refused outright, before its question opens (#1269).
+     *
+     * ⚠️ A REFUSAL LANDS IN THE SAME FOOTER A REFUSED SETTLE DOES, and the question never opens. Any
+     * failure -- a refusal or a dropped request -- keeps the question closed: offering a split the
+     * server was not asked about is the defect this exists to remove. The server still re-checks
+     * everything when the split is sent.
+     */
+    const handleCheckPartialSettle = useCallback(
+        async (record: SettleableRecord) => {
+            if (!openRow) return false;
+            setBusy(true);
+            setConfirmError(null);
+            try {
+                await callCheckPartial({ row: openRow.name, target_name: record.name });
+                return true;
+            } catch (err: any) {
+                setConfirmError(describeFrappeError(err, "Could not check this transfer."));
+                return false;
+            } finally {
+                setBusy(false);
+            }
+        },
+        [openRow, callCheckPartial]
     );
 
     /**
@@ -1324,6 +1354,7 @@ export const OutflowMasterPage = () => {
                 onSettleModeChange={handleSettleModeChange}
                 onConfirm={handleConfirmOne}
                 onPartialSettle={handlePartialSettle}
+                onCheckPartialSettle={handleCheckPartialSettle}
                 onReverseAllocation={handleReverseAllocation}
                 onSkip={async (reason) => {
                     if (openRow) await handleSkip(openRow, reason);

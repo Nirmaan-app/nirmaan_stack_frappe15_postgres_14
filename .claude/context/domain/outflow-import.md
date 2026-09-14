@@ -4527,3 +4527,36 @@ tested) and the Create inflow / receipt refusals (API tested).
 
 **Logged, not fixed:** #1269 — partial Link asks "Settle and carry the rest?" before saying the money is
 already recorded (safe — nothing is written — but the refusal should come first).
+
+## #1269 (2026-09-14) — a partial Link says "already recorded" BEFORE it asks "settle and carry the rest?"
+
+**The defect.** Normal mode, one Approved payment LARGER than the line. `settleBlocker` fires and the screen
+opened "This record is larger than the transfer — Settle ₹X and carry the rest?" without asking the server
+anything. Only when the reviewer pressed it did `settle_row_partial` run the #1260 guard and refuse. Nothing
+was written, but the reviewer answered a question about a split that could never happen. The ordinary Link
+and Create already refused at the first click.
+
+**The fix.** A read-only endpoint `expenses.check_partial_settle(row, target_name)` → `{"ok": True}` or the
+same exception the write would throw. `DecisionDialog.handleConfirmClick` awaits it (through the page's
+`handleCheckPartialSettle`) ONLY when the split would be offered (`partialShape` non-null); a refusal lands
+in the dialog footer, like any refused settle, and the question never opens. A pick with no offer opens
+"cannot be settled here", which asks nothing, so it is not checked.
+
+- **⚠️ ONE HELPER, NOT A COPY.** `_guard_partial_preconditions(row, target_name, confirm_mismatch)` holds
+  `_load_settleable_row` → `_guard_is_a_debit` → `_guard_money_not_recorded(writing=[payment])`, and BOTH
+  `settle_row_partial` and the check call it. The check cannot pass a line the write refuses on those guards.
+- **⚠️ AN AMOUNT-OFF HIT PASSES THE CHECK (`confirm_mismatch=True`).** It is a question the reviewer may answer
+  yes to, so the order stays: split question, then "Link anyway?". Only the refusals nobody can overrule go
+  first. If the owner wants the amount-off question first too, that is a new ticket.
+- **⚠️ `_assert_partially_settleable` IS NOT IN THE CHECK.** It takes a row lock inside the write's savepoint.
+  The screen's `partialOffer` mirrors that gate; a payment that changed between the two still refuses after
+  the question, as before.
+- **Fail closed.** A dropped check request shows "Could not check this transfer." and keeps the question shut.
+- **Stale answers are dropped.** The dialog compares `row|record` before and after the await (a ref), and a
+  second click while a check is out does nothing — an answer about one record never opens the question for another.
+- **Tests:** `test_recorded_money_guard.TestPartialSettleRefusesRecordedMoney` +3 (the check refuses the
+  worked example and writes nothing; a clean line passes and writes nothing; an amount-off hit passes the
+  check and the write still asks). The refusal test was shown RED with the guard removed from the check.
+  The ORDERING is a React callback (no DOM env), so it was verified live on dev: a planted ₹10,000 Cashfree
+  line with a Paid Non Project Expense on its reference, picked against `PAY-00107-110` (₹34,031) → the footer
+  refusal, no split dialog; the expense removed → the split dialog opens; Cancel; nothing written; fixtures purged.

@@ -910,17 +910,7 @@ def settle_row_partial(row: str, target_name: str, intent: str, confirm_mismatch
             frappe.ValidationError,
             title="No intent given",
         )
-    staged, doc = _load_settleable_row(row)
-    # ⚠️ THE THIRD MONEY-OUT DOOR, AND IT HAD THE SAME HOLE AS THE OTHER TWO. This one both settles
-    # a payment AND performs surgery on a PO's terms, so an unguarded credit would leave a split
-    # sanction behind it as well as a wrongly-Paid record. Guarded above the spend, not inside it.
-    _guard_is_a_debit(doc)
-    # ⚠️ A SIXTH CALLER, beyond the five #1260 names, because this is Link too: a line already Paid on
-    # an expense could otherwise be part-settled onto a larger Approved payment from the same dialog,
-    # and `settle_payment`'s UTR guard sees only references on OTHER PAYMENTS.
-    _guard_money_not_recorded(
-        staged, doc, confirm_mismatch, writing=[(PAYMENT_DOCTYPE, target_name)]
-    )
+    staged, doc = _guard_partial_preconditions(row, target_name, confirm_mismatch)
     statement_file_url = _statement_file_url(doc["import_batch"])
     bank_amount = normalize_amount(doc.get("amount"))
 
@@ -965,6 +955,54 @@ def settle_row_partial(row: str, target_name: str, intent: str, confirm_mismatch
         "original_amount": float(split["original_amount"]),
     }
     return summary
+
+
+@frappe.whitelist(methods=["POST"])
+def check_partial_settle(row: str, target_name: str):
+    """Would `settle_row_partial` refuse this line outright? Read-only; returns `{"ok": True}` (#1269).
+
+    URL: /api/method/nirmaan_stack.api.outflow_import.expenses.check_partial_settle
+
+    The screen asks this BEFORE it opens "This record is larger than the transfer -- settle and carry
+    the rest?". Without it, a line whose money was already recorded got that question first, and the
+    refusal only came after the reviewer answered it -- a question about a split that could never
+    happen.
+
+    ⚠️ IT CALLS `_guard_partial_preconditions`, THE ONE HELPER `settle_row_partial` RUNS BEFORE ITS
+    SAVEPOINT, so the check cannot pass a line the write then refuses on those guards. It does NOT
+    run `_assert_partially_settleable` (that takes a row lock, inside the write's savepoint); the
+    screen's `partialOffer` mirrors that gate and the write re-asserts it.
+
+    ⚠️ AN AMOUNT-OFF HIT PASSES (`confirm_mismatch=True`). That is a question the reviewer may answer
+    yes to, and `settle_row_partial` still asks it when the split is sent. Only the refusals nobody
+    can overrule go first.
+
+    ⚠️ IT IS NOT THE AUTHORITY. `settle_row_partial` re-asserts everything; this only changes the
+    ORDER the reviewer hears things in.
+    """
+    require_outflow_access()
+    _guard_partial_preconditions(row, target_name, confirm_mismatch=True)
+    return {"ok": True}
+
+
+def _guard_partial_preconditions(row: str, target_name: str, confirm_mismatch):
+    """The read-only guards a partial settle runs before its savepoint. Returns `(staged, doc)`.
+
+    Shared by `settle_row_partial` and `check_partial_settle` (#1269), so the check and the write can
+    never ask them in a different order or skip one.
+    """
+    staged, doc = _load_settleable_row(row)
+    # ⚠️ THE THIRD MONEY-OUT DOOR, AND IT HAD THE SAME HOLE AS THE OTHER TWO. This one both settles
+    # a payment AND performs surgery on a PO's terms, so an unguarded credit would leave a split
+    # sanction behind it as well as a wrongly-Paid record. Guarded above the spend, not inside it.
+    _guard_is_a_debit(doc)
+    # ⚠️ A SIXTH CALLER, beyond the five #1260 names, because this is Link too: a line already Paid on
+    # an expense could otherwise be part-settled onto a larger Approved payment from the same dialog,
+    # and `settle_payment`'s UTR guard sees only references on OTHER PAYMENTS.
+    _guard_money_not_recorded(
+        staged, doc, confirm_mismatch, writing=[(PAYMENT_DOCTYPE, target_name)]
+    )
+    return staged, doc
 
 
 def _assert_partially_settleable(target_name: str, bank_amount):

@@ -31,6 +31,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
     MoneyAlreadyRecordedError,
     RecordedMoneyNeedsConfirmationError,
     allocate_row,
+    check_partial_settle,
     create_expense,
     settle_row,
     settle_row_partial,
@@ -243,11 +244,40 @@ class TestPartialSettleRefusesRecordedMoney(PartialSettlementFixture):
         with self.assertRaises(MoneyAlreadyRecordedError):
             settle_row_partial(self.partial_row.name, self.big_payment, INTENT_PART_PAYMENT)
 
+        self._assert_partial_untouched()
+
+    def _assert_partial_untouched(self):
         frappe.db.commit()
         self.assertEqual(float(frappe.db.get_value(PAYMENT, self.big_payment, "amount")), self.RECORD)
         self.assertEqual(frappe.db.get_value(PAYMENT, self.big_payment, "status"), "Approved")
         self.assertEqual(self._balance_of(self.big_payment), [])
         self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": self.partial_row.name}), 0)
+
+    # --- check_partial_settle: the refusal comes BEFORE the "carry the rest?" question (#1269) ---
+
+    def test_the_check_refuses_a_line_already_recorded_and_writes_nothing(self):
+        """#1269's own example: the screen asks this before it offers the split."""
+        self._paid_expense_on_the_transfer(self.BANK)
+
+        with self.assertRaises(MoneyAlreadyRecordedError) as caught:
+            check_partial_settle(self.partial_row.name, self.big_payment)
+
+        self.assertIn("Non Project Expense", str(caught.exception))
+        self._assert_partial_untouched()
+
+    def test_the_check_passes_a_clean_line_and_writes_nothing(self):
+        self.assertEqual(check_partial_settle(self.partial_row.name, self.big_payment), {"ok": True})
+        self._assert_partial_untouched()
+
+    def test_the_check_leaves_an_amount_off_hit_to_the_real_call(self):
+        """An amount-off hit is a question the reviewer may answer yes to, so it is asked when the
+        split is sent -- the check only puts the refusals nobody can overrule first."""
+        self._paid_expense_on_the_transfer(self.BANK + 50000)
+
+        self.assertEqual(check_partial_settle(self.partial_row.name, self.big_payment), {"ok": True})
+        self._assert_partial_untouched()
+        with self.assertRaises(RecordedMoneyNeedsConfirmationError):
+            settle_row_partial(self.partial_row.name, self.big_payment, INTENT_PART_PAYMENT)
 
 
 class TestAllocateRefusesRecordedMoney(RecordedMoneyFixture):
