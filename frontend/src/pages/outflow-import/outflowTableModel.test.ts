@@ -96,6 +96,7 @@ import {
     settlementLink,
     suggestedDecision,
     summaryTiles,
+    SKIPPED_ON_PURPOSE_PHRASE,
     type RowDecision,
 } from "./outflowTableModel";
 
@@ -1167,6 +1168,15 @@ describe("the summary panel's figures", () => {
     it("puts an un-matched-yet import's own figure first", () => {
         const tiles = summaryTiles({ ...totals, pending_rows: 26 });
         expect(tiles[0].id).toBe("pending");
+    });
+
+    it("does not call every skipped line money 'Paid by hand' (#1252 browser walk)", () => {
+        // The skipped figure also holds a received Project Inflow, a line excluded as not spending, a
+        // line imported before, and a line a person skipped -- so "already recorded as Paid by hand"
+        // was false for most of it. The hint and the Skipped dialog share one phrase for the reason.
+        const hint = summaryTiles({ ...totals, failed_rows: 2 }).find((t) => t.id === "skipped")?.hint;
+        expect(hint).toBe(`3 ${SKIPPED_ON_PURPOSE_PHRASE} · 2 refused by the bank, which are left out of every figure above`);
+        expect(SKIPPED_ON_PURPOSE_PHRASE).not.toMatch(/paid/i);
     });
 
     it("carries no status set, because a figure is not a filter", () => {

@@ -674,6 +674,32 @@ class TestRecordedMoneyVerdict(unittest.TestCase):
                 self.assertEqual(verdict.note, outcome.note)
 
 
+class TestTheAmountOffNoteReadsAsMoney(unittest.TestCase):
+    """The "amount off" note prints money to two decimals, whatever shape the amounts arrive in.
+
+    Found in the #1252 browser walk: a Currency column comes back from PostgreSQL with nine decimals,
+    so the screen read "The bank paid 500.000000000 less than the recorded total of 20500.000000000",
+    and the Allocate path, fed a float, read "900.0". Both are the same money and must read the same way.
+    """
+
+    def _note(self, bank, recorded):
+        group = _group([_paid_expense(amount=recorded)])
+        return derive_duplicate_guard_outcome(_Row(bank), paid_duplicate=group).note
+
+    def test_database_amounts_with_nine_decimals_read_as_rupees_and_paise(self):
+        note = self._note("20000.000000000", "20500.000000000")
+        self.assertIn("paid 500.00 less than the recorded total of 20500.00 (2.44% of it)", note)
+        self.assertNotIn("000000", note)
+
+    def test_a_float_shaped_amount_reads_the_same_way(self):
+        self.assertIn("paid 900.00 less than the recorded total of 45900.00", self._note("45000.0", "45900.0"))
+
+    def test_the_more_than_branch_reads_as_money_too(self):
+        note = self._note("21000.000000000", "20500.000000000")
+        self.assertIn("paid 500.00 MORE than the recorded total of 20500.00.", note)
+        self.assertNotIn("000000", note)
+
+
 class TestGuardVerdict(unittest.TestCase):
     """What the read-only production preview reports (#1261): the run's guard decision, and only it.
 

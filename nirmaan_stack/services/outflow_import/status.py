@@ -816,6 +816,10 @@ def _delta_note(bank_amount: Decimal, total: Decimal, group) -> str:
       * TDS is deducted from a payment to a vendor, so the "deduction such as TDS" hint appears only
         when a Project Payment is among the records. Offered on an expense or an inflow shortfall it
         would send the reviewer looking for a deduction that cannot exist there.
+
+    ⚠️ BOTH AMOUNTS ARE PRINTED `:.2f`. They arrive as a nine-decimal `Decimal` from a Currency column
+    or as a float-shaped one from another path, and printed raw the screen read "500.000000000" on one
+    and "900.0" on the other (#1252 browser walk). `TestTheAmountOffNoteReadsAsMoney` pins it.
     """
     receipt = _is_receipt_group(group)
     verb = "received" if receipt else "paid"
@@ -823,7 +827,7 @@ def _delta_note(bank_amount: Decimal, total: Decimal, group) -> str:
     if delta > 0:
         implied = (delta / total * 100) if total else Decimal("0")
         shortfall = (
-            f"The bank {verb} {delta} less than the recorded total of {total} "
+            f"The bank {verb} {delta:.2f} less than the recorded total of {total:.2f} "
             f"({implied:.2f}% of it)."
         )
         if _has_payment(group):
@@ -831,7 +835,7 @@ def _delta_note(bank_amount: Decimal, total: Decimal, group) -> str:
     else:
         movement = "arrived in" if receipt else "left"
         shortfall = (
-            f"The bank {verb} {-delta} MORE than the recorded total of {total}. "
+            f"The bank {verb} {-delta:.2f} MORE than the recorded total of {total:.2f}. "
             f"More money {movement} the account than any matched record claims."
         )
     return f"{shortfall} {_record_sentence(group)}"

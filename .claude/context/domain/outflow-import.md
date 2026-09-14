@@ -4491,3 +4491,28 @@ is `on` (else refuses to run), builds the report, rolls back, then prints. A wri
   verdicts — the earlier slices' runs already skipped them. So, non-vacuously, inside one ROLLED-BACK
   transaction with commit blocked: all 107 existing duplicate skips reopened → preview 107 skips → real
   `match_batch` over the same 16 batches: 259 rows compared, **0 disagreements**; database identical after.
+
+## #1252 browser walk (2026-09-14) — what the screen showed, and two text fixes
+
+Walked on dev with a planted `WALK1261` fixture (every record deleted afterwards, residue checked 0).
+**Passed on screen:** a Skipped ICICI deposit links to its Project Inflow and the link opens exactly it;
+long UTR / payment_ref cells truncate with a full-text tooltip (Inflows, Payments Done) and search inside
+them; Link on an amount-off line asks "Link anyway?" naming the record (Cancel writes nothing, confirm
+settles and stores the full narration); Link and Create on a line recorded AFTER the match run are refused
+with no "anyway"; Allocate on an amount-off line asks, then settles both legs; partial Link on a duplicate
+line is refused and writes nothing; the "Not skipped: … already accounts" note is readable on hover.
+Not done on screen: the voucher PDF download (a file download needs the owner's OK; the 40-char cap is unit
+tested) and the Create inflow / receipt refusals (API tested).
+
+**Fixed from the walk:**
+- **The amount-off note printed raw amounts** — "500.000000000" from a Currency column, "900.0" on the
+  Allocate path. `status._delta_note` now prints both `:.2f`; pinned by
+  `test_status.TestTheAmountOffNoteReadsAsMoney` (3, RED before the fix).
+- **"already recorded as Paid by hand" on the Skipped figure was false for most of it** — the figure also
+  holds a received Project Inflow, lines excluded as not spending, lines imported before, and lines a person
+  skipped. The chip hint, the Skipped dialog sentence and its filter button now read **"skipped on purpose"**
+  / **"On purpose"** from ONE constant pair in `outflowTableModel.ts` (`SKIPPED_ON_PURPOSE_PHRASE` /
+  `_LABEL`), pinned by vitest. Browser-checked on `OFI-26-00005`.
+
+**Logged, not fixed:** #1269 — partial Link asks "Settle and carry the rest?" before saying the money is
+already recorded (safe — nothing is written — but the refusal should come first).

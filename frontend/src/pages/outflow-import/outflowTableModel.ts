@@ -1031,6 +1031,17 @@ export interface SummaryTile {
  * genuinely useful thing: this import is finished finding work. Only `Error` stays conditional,
  * because it still means the software failed and that is still rare.
  */
+/**
+ * How the Skipped figure's successful lines are described, beside the ones the bank refused.
+ *
+ * ⚠️ NOT "already recorded as Paid by hand" -- that was false for most of the figure (#1252 browser
+ * walk). It also holds a received Project Inflow, a line excluded as not spending, a line imported
+ * before, and a line a person skipped. The row's Outcome says which. Shared by `summaryTiles`' hint
+ * and `SkippedRowsDialog`, so the two cannot drift apart again.
+ */
+export const SKIPPED_ON_PURPOSE_PHRASE = "skipped on purpose";
+export const SKIPPED_ON_PURPOSE_LABEL = "On purpose";
+
 export const summaryTiles = (totals: {
     matched_rows: number;
     mismatched_rows: number;
@@ -1086,7 +1097,7 @@ export const summaryTiles = (totals: {
             label: "Skipped",
             count: totals.skipped_rows + (totals.failed_rows ?? 0),
             hint: totals.failed_rows
-                ? `${totals.skipped_rows} already recorded as Paid by hand · ${totals.failed_rows} refused by the bank, which are left out of every figure above`
+                ? `${totals.skipped_rows} ${SKIPPED_ON_PURPOSE_PHRASE} · ${totals.failed_rows} refused by the bank, which are left out of every figure above`
                 : undefined,
             tone: "border-muted bg-muted/50 text-muted-foreground",
         },

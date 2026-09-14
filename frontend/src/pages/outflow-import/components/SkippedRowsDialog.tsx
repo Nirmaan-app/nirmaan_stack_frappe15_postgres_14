@@ -29,7 +29,12 @@ import { ExportButton } from "./ExportButton";
 import { ClearFiltersButton, OutflowRowsTable, TablePagination } from "./OutflowRowsTable";
 import { useOutflowRows } from "../useOutflowRows";
 import { exportFileBase, toExportColumns } from "../outflowExport";
-import { OUTFLOW_COLUMNS, describeFrappeError } from "../outflowTableModel";
+import {
+    OUTFLOW_COLUMNS,
+    SKIPPED_ON_PURPOSE_LABEL,
+    SKIPPED_ON_PURPOSE_PHRASE,
+    describeFrappeError,
+} from "../outflowTableModel";
 
 interface Props {
     /**
@@ -161,7 +166,7 @@ export const SkippedRowsDialog = ({ batch, skippedRows, failedRows, open, onOpen
                                 <strong className="font-medium text-foreground">
                                     {skippedRows}
                                 </strong>{" "}
-                                were already recorded as Paid by hand and{" "}
+                                were {SKIPPED_ON_PURPOSE_PHRASE} (the Outcome column says why) and{" "}
                                 <strong className="font-medium text-foreground">
                                     {failedRows}
                                 </strong>{" "}
@@ -199,7 +204,7 @@ export const SkippedRowsDialog = ({ batch, skippedRows, failedRows, open, onOpen
                         {(
                             [
                                 ["", "All", (skippedRows ?? 0) + (failedRows ?? 0)],
-                                ["recorded", "Already paid", skippedRows],
+                                ["recorded", SKIPPED_ON_PURPOSE_LABEL, skippedRows],
                                 ["failed", "Bank refused", failedRows],
                             ] as [BankFilter, string, number | undefined][]
                         ).map(([value, label, count]) => (
