@@ -67,6 +67,7 @@ import {
     partialOffer,
     nonProjectInflowDescriptionSeed,
     recordKey,
+    referenceValue,
     settlementLink,
     settleBlockRemedy,
     settleBlockText,
@@ -2546,9 +2547,12 @@ const NewNonProjectInflowForm = ({
                 label="Payment date"
                 value={row.added_on ? formatDate(row.added_on.split(/[ T]/)[0]) : "—"}
             />
+            {/* `referenceValue`, the table's own Reference cell: an ICICI closure line carries no
+                `bank_reference_no`, so reading that field alone showed "—" beside a table showing
+                the reference. */}
             <ReadOnlyField
                 label="Payment reference"
-                value={row.bank_reference_no || "—"}
+                value={referenceValue(row) || "—"}
                 className="sm:col-span-2"
             />
         </div>
