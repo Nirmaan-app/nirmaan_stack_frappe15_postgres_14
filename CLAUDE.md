@@ -281,7 +281,7 @@ Why `[:19]` truncation: `frappe.utils.now()` returns microsecond-precision strin
 |---|---|---|---|
 | BoQ Upload & Management | `feature/boq-pricing-helper` | `frontend/.claude/plans/boq-upload-plan.md` | **Which phase/slice is active is NOT recorded here — read the plan doc.** A status written in this cell dates the moment the next slice lands. Full slice-by-slice status + as-built detail: `plans/boq-upload-plan.md` + `.claude/context/domain/boq-backend.md`. Do NOT duplicate the changelog here. |
 
-**Always read `frontend/.claude/plans/boq-upload-plan.md` + `.claude/context/domain/boq-backend.md` before working on BoQ.**
+**Before BoQ work, find and read only the section you need in `frontend/.claude/plans/boq-upload-plan.md` (~3 MB) and `.claude/context/domain/boq-backend.md` (~250 KB). Never read either one whole; neither fits in context.** List the headings with `grep -n '^## ' <file>`, then read that range.
 
 **Active BoQ doctypes** (full per-doctype detail in `.claude/context/domain/boq-backend.md`):
 - `BOQs` — root BoQ doc; `BoQ Sheet Draft` (child) — per-sheet wizard config (`wizard_status`, `sheet_config`); `BoQ General Specs Sheet` / `BoQ Sheet Work Package` — child tables.
@@ -317,9 +317,10 @@ Why `[:19]` truncation: `frappe.utils.now()` returns microsecond-precision strin
 
 ## Working with Claude Code
 
-- Read `docs/<feature>/spec.md` and the latest entries in `decisions.md` before starting any feature phase.
-- **Output a written plan before writing any code. Never write code in the same turn as the plan.** Wait for user review.
-- One branch per phase: `feature/<feature>-phase-<N>`. Commit at end of each phase.
+- **Specs and tickets are GitHub issues** (see *Agent skills* below), not files. Before starting, read the ticket and its parent spec: `gh issue view <n> --comments --repo Nirmaan-app/nirmaan_stack_frappe15_postgres_14`.
+- **Ad-hoc work (no ticket): output a written plan before writing any code, and wait for user review.** When `/implement` runs on a ticket, the ticket IS the approved plan: build it without re-planning or stopping for review.
+- **Commit once per ticket, on the current branch.** Create a new branch only when the user asks.
+- **Never push, and never close issues.** The user does both, by hand.
 - **Work in place on the current branch — do NOT create a git worktree unless the user asks for one.** `bench` resolves this app through `sites/apps.txt` and an editable install pointing at the main checkout, so a backend test run from a worktree exercises the main checkout's code, not the change — a green result there proves nothing. The one sanctioned exception is a frontend-only browser walk: a second vite on `:8081`, with the worktree's `node_modules` symlinked to the main checkout's. Stating the preference here is also what makes a worktree-creating skill stand down — such a skill honours a preference already given in the instructions rather than creating a worktree by default.
 - New doctypes: controllers go in `integrations/controllers/`. Doctype `*.py` stays minimal.
 - New APIs: `nirmaan_stack/api/<feature>/<file>.py`, snake_case.

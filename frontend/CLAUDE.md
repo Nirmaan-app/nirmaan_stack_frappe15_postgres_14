@@ -249,7 +249,7 @@ doc's **`## Residence — concept → owner`** manifest (see `.claude/context/do
 All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This section keeps ONLY the
 **stable conventions + load-bearing / owner-locked invariants**. The FULL per-slice as-built detail
 (component contracts, per-slice changelog, feat hashes) is in
-`frontend/.claude/context/domain/boq-frontend.md` — load it first. Live status = `frontend/.claude/plans/boq-upload-plan.md`.
+`frontend/.claude/context/domain/boq-frontend.md` (~340 KB): find the section you need with `grep -n '^## '`, never load it whole. Live status = `frontend/.claude/plans/boq-upload-plan.md`.
 **Pricing Module + Rate Master frontend detail** (the rate-helper panel's attribute semantics, the workbook pages, the RM-2 screens): `frontend/.claude/context/domain/pricing-rate-master-frontend.md`.
 
 **Docs discipline -- DOCS-UPDATE RULE:** full rule, and the `guard_claude_md.py` hook enforcing it, in root
