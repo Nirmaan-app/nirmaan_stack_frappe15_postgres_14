@@ -34,6 +34,7 @@ TWO ROW STATES ARE NEVER RE-MATCHED:
 """
 
 from decimal import Decimal
+from typing import Sequence
 
 import frappe
 
@@ -51,8 +52,13 @@ from nirmaan_stack.services.outflow_import.claims import (
     resolve_claims,
 )
 from nirmaan_stack.services.outflow_import.contains_guard import (
+    basis_entries,
+    claims_of_skip,
+    decode_basis,
+    encode_basis,
     find_hits,
     pick_recorded_group,
+    skip_basis,
 )
 from nirmaan_stack.services.outflow_import.disambiguate import (
     RULE_SOLE,
@@ -340,11 +346,19 @@ def _guard_duplicates_only(batch: str, matchable) -> dict:
         # The ONLY pool this path loads, and it is a duplicate guard, never a settle candidate --
         # Paid payments / expenses and every inflow, by direction (#1257).
         pool = C.load_recorded_by_contains(matchable)
+        # ⚠️ ONE RECORD JUSTIFIES ONE LINE, ACROSS ALL IMPORTS (#1258). The claims already standing --
+        # every Skipped row's `duplicate_basis`, every Settled match -- plus, as the loop goes, each
+        # skip this run makes. Rows arrive in `_load_rows` order (added_on, name), so which of two
+        # lines keeps a shared record is decided the same way on every run. A frozen row is not in
+        # `matchable`, so a re-run leaves an earlier skip alone and its claim still stands.
+        claims = list(C.load_record_claims(pool))
         for row in matchable:
-            outcome = derive_duplicate_guard_outcome(
-                row, paid_duplicate=_recorded_group_for(row, pool)
-            )
-            _persist_row_outcome(row, outcome, None, batch)
+            group = _recorded_group_for(row, pool, claims)
+            outcome = derive_duplicate_guard_outcome(row, paid_duplicate=group)
+            basis = skip_basis(row, group, outcome.status == ROW_SKIPPED)
+            _persist_row_outcome(row, outcome, None, batch, duplicate_basis=basis)
+            if basis:
+                claims.extend(claims_of_skip(row, batch, group))
 
     statuses = _refresh_batch_rollup(batch)
     frappe.db.commit()
@@ -419,14 +433,15 @@ def _paid_duplicate_pools(references) -> dict:
     }
 
 
-def _recorded_group_for(row, pool):
+def _recorded_group_for(row, pool, claims=()):
     """The ICICI contains-guard's group for one line: what it duplicates, or what its note names (#1257).
 
-    `pool` is `candidates.load_recorded_by_contains` over the lines being asked about. The rules are
-    all `contains_guard`'s; this is the one place the match run and the row links both call, so the
-    two can never disagree about which records a line refers to.
+    `pool` is `candidates.load_recorded_by_contains` over the lines being asked about, and `claims`
+    is `candidates.load_record_claims` over that pool (#1258). The rules are all `contains_guard`'s;
+    this is the one place the match run and the row links both call, so the two can never disagree
+    about which records a line refers to.
     """
-    return pick_recorded_group(row, find_hits(row, pool))
+    return pick_recorded_group(row, find_hits(row, pool), claims)
 
 
 def _paid_duplicate_for(row, pools):
@@ -456,7 +471,9 @@ def _paid_duplicate_for(row, pools):
     return pick_duplicate_group(row, candidates)
 
 
-def _persist_row_outcome(row: _StagedRow, outcome, result, batch: str) -> None:
+def _persist_row_outcome(
+    row: _StagedRow, outcome, result, batch: str, duplicate_basis: Sequence = ()
+) -> None:
     """Write the derived status and note. A match run records NO `Outflow Row Match` rows.
 
     ⚠️ THIS STOPPED WRITING MATCH ROWS AT V1, AND THE REASON IS THE UNIQUE CONSTRAINT. v2 minted a
@@ -511,6 +528,11 @@ def _persist_row_outcome(row: _StagedRow, outcome, result, batch: str) -> None:
             # stack pairings under "Only candidate" in the confirm dialog's filter. Blank now means
             # exactly one thing: there is no suggestion.
             "suggestion_rule": RULE_SOLE if suggestion else None,
+            # ⚠️ THE CONTAINS-GUARD SKIP BASIS (#1258), WRITTEN ON EVERY RUN FOR THE SAME REASON: a
+            # row that was skipped under an older run can only be here if someone un-froze it, and
+            # a basis left behind would keep claiming a record the row no longer skips on. Every
+            # outcome but a contains-guard skip writes it blank.
+            "duplicate_basis": encode_basis(duplicate_basis),
         },
         update_modified=False,
     )
@@ -1257,9 +1279,10 @@ def _related_records(rows: list) -> dict[str, list]:
     `Matched`, deliberately, so a skipped row can never render as ready to confirm). So the screen
     had the payment's NAME in prose and no way to link it.
 
-    ⚠️ DERIVED HERE RATHER THAN PARSED FROM THE NOTE, and rather than persisted. Parsing the sentence
-    back out would be guessing at a fact the database already holds exactly. Persisting it would mean
-    another field and another migrate on a branch that already owes six. This reuses the SAME loader
+    ⚠️ DERIVED HERE RATHER THAN PARSED FROM THE NOTE. Parsing the sentence back out would be guessing
+    at a fact the database already holds exactly. (One exception since #1258: an ICICI line SKIPPED by
+    the contains-guard links its persisted `duplicate_basis`, which exists anyway so "one record, one
+    line" can hold across imports -- see the bank branch below.) This reuses the SAME loader
     the matcher's duplicate guard uses, so the two can never disagree about which payment a row
     refers to -- one query for the whole batch, which is tens of rows, not thousands.
 
@@ -1283,14 +1306,32 @@ def _related_records(rows: list) -> dict[str, list]:
                 dict(entry) for entry in index.get(member.get("normalized_reference") or "", [])
             ]
     if bank:
-        pool = C.load_recorded_by_contains(bank)
+        # ⚠️ A SKIPPED LINE LINKS ITS PERSISTED BASIS (#1258) -- the records the skip was actually
+        # decided on, which later ledger edits cannot move. Only a line with no basis (every other
+        # outcome, and a skip made before the field existed) is derived, through the same pool and
+        # claims the match run reads, so a line blocked by "one record, one line" still links the
+        # record its note names.
+        bases = _stored_bases([m.name for m in bank if m.row_status == ROW_SKIPPED])
+        derive = [m for m in bank if not bases.get(m.name)]
+        pool = C.load_recorded_by_contains(derive) if derive else ()
+        claims = C.load_record_claims(pool) if pool else ()
         for member in bank:
-            group = _recorded_group_for(member, pool)
-            related[member.name] = [
-                {"target_doctype": t.doctype, "target_name": t.name}
-                for t in (group.targets if group else ())
-            ]
+            if bases.get(member.name):
+                related[member.name] = bases[member.name]
+                continue
+            group = _recorded_group_for(member, pool, claims)
+            related[member.name] = basis_entries(group.targets if group else ())
     return related
+
+
+def _stored_bases(row_names) -> dict[str, list]:
+    """Row name -> its stored `duplicate_basis` as link entries, for the rows that carry one."""
+    if not row_names:
+        return {}
+    found = frappe.get_all(
+        ROW_DOCTYPE, filters={"name": ["in", list(row_names)]}, fields=["name", "duplicate_basis"],
+    )
+    return {r["name"]: entries for r in found if (entries := decode_basis(r.get("duplicate_basis")))}
 
 
 def _records_by_reference(targets) -> dict[str, list]:

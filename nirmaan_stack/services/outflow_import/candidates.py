@@ -58,9 +58,13 @@ from typing import Sequence
 import frappe
 from frappe.utils import getdate
 
+from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.amounts import tolerance_bounds
 from nirmaan_stack.services.outflow_import.contains_guard import (
+    BASIS_DOCTYPE_KEY,
+    BASIS_NAME_KEY,
     MIN_TOKEN_LENGTH,
+    RecordClaim,
     ledgers_for_direction,
     line_surface,
 )
@@ -86,6 +90,7 @@ from nirmaan_stack.services.outflow_import.normalize import normalize_amount, no
 # `duplicates` and `normalize`, so this direction adds no cycle.
 from nirmaan_stack.services.outflow_import.parser import BANK_TERMINAL_STATUSES
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, build_project_index
+from nirmaan_stack.services.outflow_import.status import ROW_SKIPPED
 
 __all__ = [
     "load_vendor_index",
@@ -94,6 +99,7 @@ __all__ = [
     "load_paid_payments_by_reference",
     "load_paid_expenses_by_reference",
     "load_recorded_by_contains",
+    "load_record_claims",
     "ContainsLedger",
     "CONTAINS_LEDGERS",
     "load_payments_by_amount",
@@ -515,6 +521,60 @@ def load_recorded_by_contains(
             reference=r.get("reference") or "",
             txn_date=r.get("payment_date"),
             description=r.get("description") or "",
+        )
+        for r in found
+    )
+
+
+def load_record_claims(records) -> tuple[RecordClaim, ...]:
+    """Which of these records ALREADY ACCOUNT FOR a statement line, in ANY import (#1258).
+
+    The claims `contains_guard.pick_recorded_group` reads, from two places:
+
+      * the BASIS OF A DUPLICATE SKIP -- `Outflow Import Row.duplicate_basis` on a row that is still
+        `Skipped` (a row an admin un-skips in Desk therefore releases its records with no edit);
+      * a SETTLEMENT -- a `Settled` `Outflow Row Match`, which every settle and every create-from-
+        import writes. A `Reversed` leg claims nothing: that settlement was undone.
+
+    It filters on the RECORD only, never on the asking row or batch: a line's own claim is dropped
+    by the pure pick, by `import_row`, so this one query serves a first run and a re-run alike.
+
+    `records` is anything with `doctype` and `name` -- in practice the contains-guard pool. The pairs
+    travel as a `VALUES` list with explicit placeholders (see the module docstring on `= ANY(%s)`).
+    """
+    pairs = sorted({(r.doctype, r.name) for r in records})
+    if not pairs:
+        return ()
+    values = ", ".join(["(%s, %s)"] * len(pairs))
+    found = frappe.db.sql(
+        f"""
+        WITH rec(doctype, name) AS (VALUES {values})
+        SELECT rec.doctype, rec.name, r.name AS import_row, r.import_batch, 0 AS settled
+        FROM "tabOutflow Import Row" r
+        -- The CASE, not a WHERE on json_typeof: a WHERE may be applied after the set-returning call,
+        -- and one non-array value would then fail the whole match run.
+        CROSS JOIN LATERAL json_array_elements(
+            CASE WHEN json_typeof(r.duplicate_basis) = 'array' THEN r.duplicate_basis ELSE '[]'::json END
+        ) AS basis
+        JOIN rec ON rec.doctype = basis->>'{BASIS_DOCTYPE_KEY}' AND rec.name = basis->>'{BASIS_NAME_KEY}'
+        WHERE r.duplicate_basis IS NOT NULL
+          AND r.row_status = %s
+        UNION
+        SELECT rec.doctype, rec.name, m.import_row, m.import_batch, 1 AS settled
+        FROM "tabOutflow Row Match" m
+        JOIN rec ON rec.doctype = m.target_doctype AND rec.name = m.target_name
+        WHERE m.match_kind = %s
+        """,
+        (*[v for pair in pairs for v in pair], ROW_SKIPPED, MATCH_SETTLED),
+        as_dict=True,
+    )
+    return tuple(
+        RecordClaim(
+            doctype=r["doctype"],
+            name=r["name"],
+            import_row=r.get("import_row") or "",
+            import_batch=r.get("import_batch") or "",
+            settled=bool(r.get("settled")),
         )
         for r in found
     )

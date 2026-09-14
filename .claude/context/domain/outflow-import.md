@@ -4093,8 +4093,7 @@ which checked every ICICI row against Paid payments. Deliberate: a blank means t
 in BOTH money columns and refused to guess, and any ledger choice would be the crossing the ruling
 forbids. Live data had 0 such rows when this shipped.
 
-**Not yet:** one record ⇒ one row across all imports is #1258. Until then two lines may skip on the
-same record (the SGST/CGST legs of one transfer id do).
+**One record ⇒ one line across all imports** landed at #1258 — see the next section.
 
 ### Where it sits in the run
 
@@ -4177,3 +4176,85 @@ exclusions** (711 debit, 158 credit), parsed and excluded exactly as upload does
 - ⚠️ **An IMPS narration ending in `IDFB0020101` is EXCLUDED at upload** (`platform_cashfree`, a wallet
   top-up). A fixture built on one never reaches the match run; the exclusion note lands in
   `skip_reason`, not `outcome_note`.
+
+## #1258 (2026-09-14) — ICICI duplicate skip: one record justifies one line, across all imports
+
+**Why.** A counterparty's bank ACCOUNT NUMBER typed as a payment's reference sits inside every
+narration to that counterparty. Under #1257 alone, last month's record would silently skip next
+month's genuine payment of the same amount. Now a ledger record can justify skipping at most ONE
+statement line — in this batch or any other. ICICI contains-guard only; the exact Cashfree guards are
+unchanged. Re-importing the SAME line is still caught at upload (already-imported check).
+
+### What counts as "already used" (a `contains_guard.RecordClaim`)
+
+- **The basis of a duplicate skip** — `Outflow Import Row.duplicate_basis`, a JSON list of
+  `{target_doctype, target_name}`, read only while the row is `Skipped` (an admin un-skip in Desk
+  releases the records with no edit).
+- **A settlement** — a `Settled` `Outflow Row Match` (every settle and every create-from-import writes
+  one). A `Reversed` leg claims nothing.
+- A line's OWN claim never blocks it (matched on `import_row`), so re-running a batch keeps its skips.
+
+⚠️ **Why a row field, not a new `Outflow Row Match.match_kind`.** A match record means money was
+written: `allocation` sums it, several readers join/EXISTS it on that premise, the controller only
+creates `Settled`, and its partial unique index on `Settled` is the idempotency guarantee. A skip
+writes no money. Do not "tidy" the basis into that table.
+
+### The rule (pure, `contains_guard.pick_recorded_group(row, hits, claims)`)
+
+1. Drop claims whose `import_row` is this line.
+2. Run the #1257 precedence (one record → same-reference group → all hits) over the UNCLAIMED hits.
+   If that agrees within ±₹5, skip on it — so a genuine second payment recorded under the same
+   reference still skips on its OWN record (the SGST/CGST legs now take one record each).
+3. Otherwise run it over EVERY hit. If that agrees only because of a claimed record, return the group
+   with `used_by` set → `status.derive_duplicate_guard_outcome` makes the line `Mismatched` with
+   `SKIP_BLOCKED_RECORD_USED`: *"Not skipped: Project Payment X already accounts for another statement
+   line (a line skipped in batch B / recorded from batch B). One record can justify skipping only one
+   line -- check whether this is a second, genuine payment."* (`receipt` for an inflow).
+4. An amount-off hit reads the #1257 delta note whether or not its record is used.
+
+⚠️ **Which line keeps a shared record is ORDER, not date.** Inside one run, lines claim in
+`_load_rows` order (added_on, name). Across batches, the batch whose match runs FIRST keeps the record
+— even if a later-matched batch holds an earlier-dated line. The spec allows this; the note on the
+blocked line names the batch, so a reviewer can find the other line.
+
+**The basis shape has ONE owner (ADR-0010 B2):** `contains_guard.encode_basis` / `decode_basis` /
+`basis_entries` and the key names `BASIS_DOCTYPE_KEY` / `BASIS_NAME_KEY` (which the claims SQL reads);
+`contains_guard.skip_basis` decides whether an outcome has one. `review.py` only calls them.
+
+### Where it sits in the run
+
+`_guard_duplicates_only`: pool → `candidates.load_record_claims(pool)` (one query: Skipped bases via
+`json_array_elements` + Settled matches) → per row, in `_load_rows` order (added_on, name):
+`_recorded_group_for(row, pool, claims)` → outcome → `_skip_basis` → `_persist_row_outcome(...,
+duplicate_basis=)` (written on EVERY run, blank unless this run skipped on a group) → the skip's claims
+are appended so later lines in the same run see them. `_related_records`: a Skipped line with a stored
+basis links that basis; every other bank line derives through the same pool + claims, so a blocked
+line links the record its note names.
+
+⚠️ **Known gap: skips made BEFORE #1258 have no basis and claim nothing.** Dev had 0 such ICICI rows
+(88 Cashfree duplicate skips, out of scope). Any older ICICI duplicate skips on production (not measured
+here) would not block a later line — count them in the #1261 preview before the first production run.
+
+### Replay of the real statement (read-only, 2026-09-14)
+
+Same 869 lines as #1257, in match-run order: **196 skips without the rule, 196 with in-run claims,
+196 with stored + in-run claims** (0 stored claims on the 247 pool records). Cost 0, as measured.
+
+### Tests
+
+- Pure `test_contains_guard.TestOneRecordJustifiesOneLine` (**11**) + the SGST/CGST test now asserts each
+  leg takes its own record. **All 12 RED** under reverted rules (claims ignored: 5; own-claim blocks /
+  no amount check / any claim blocks: 3; a skip claiming only its first record: 1; no unclaimed-first
+  pass / no `is_success` check / no basis validation: the 3 added after review, which pin that unused
+  records adding up WIN over a used single record, that only an unblocked skip has a basis, and that
+  a junk stored basis reads as empty).
+- `test_review.TestOneRecordJustifiesOneLineAcrossImports` (**9**): basis persisted and blank otherwise;
+  a second line in the same batch, a line in a LATER batch, and a line on a record a Cashfree row
+  SETTLED are all Mismatched naming the record; twins skip on distinct records; blocked lines link
+  the record; re-running both batches changes nothing; no match record is written. ⚠️ The re-run test holds partly
+  because `Skipped` is FROZEN, so "a line never blocks itself" is not reachable through the API — the
+  pure `test_a_line_is_never_blocked_by_its_own_claim` is what pins that check. Wiring probes:
+  claims off (5 RED), stored claims off (4), settlements not claiming (2), basis not persisted (4),
+  blocked group unlinked (1). `test_a_skip_writes_no_match_record...` is a design pin (green under
+  every probe by nature).
+- Helper `_stage_icici_statement` now builds every synthetic ICICI statement in `test_review`.

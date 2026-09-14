@@ -9,6 +9,7 @@ refactor of a private helper cannot break a test while leaving the rule intact.
 """
 
 import ast
+import json
 import unittest
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -17,10 +18,15 @@ from pathlib import Path
 
 from nirmaan_stack.services.outflow_import.contains_guard import (
     CONTAINS_GUARD_WINDOW_DAYS,
+    RecordClaim,
+    claims_of_skip,
+    decode_basis,
+    encode_basis,
     find_hits,
     match_surface,
     pick_recorded_group,
     reference_tokens,
+    skip_basis,
 )
 from nirmaan_stack.services.outflow_import.ledgers import (
     INFLOW_DOCTYPE,
@@ -44,6 +50,7 @@ class Row:
 
     amount: Decimal
     remarks: str = ""
+    name: str = "ROW-THIS"
     transfer_id: str = "S99999999"
     reference_id: str = ""
     direction: str = "Debit"
@@ -66,9 +73,15 @@ def record(reference, amount, *, doctype=PAYMENT_DOCTYPE, name=None, on=ROW_DATE
     )
 
 
-def verdict(row, records):
-    group = pick_recorded_group(row, find_hits(row, records))
+def verdict(row, records, claims=()):
+    group = pick_recorded_group(row, find_hits(row, records), claims)
     return derive_duplicate_guard_outcome(row, paid_duplicate=group), group
+
+
+def claim(rec, *, row="ROW-OTHER", batch="OIB-EARLIER", settled=False):
+    return RecordClaim(
+        doctype=rec.doctype, name=rec.name, import_row=row, import_batch=batch, settled=settled,
+    )
 
 
 IMPS = "MMT/IMPS/610415565123/ALPHA REFUND /TESTPAYEEB/Kotak Mahindra"
@@ -168,15 +181,20 @@ class TestTheTransferIdRung(unittest.TestCase):
         row = Row(amount=Decimal("2250"), remarks="742905000271:SGST Coll", transfer_id="S20000001")
         self.assertEqual(len(find_hits(row, [record("s20000001", 2250)])), 1)
 
-    def test_SGST_and_CGST_legs_sharing_a_transfer_id_each_skip(self):
-        sgst = Row(amount=Decimal("2250"), remarks="742905000271:SGST Coll:01-01-2026", transfer_id="S20000001")
-        cgst = Row(amount=Decimal("2250"), remarks="742905000271:CGST Coll:01-01-2026", transfer_id="S20000001")
+    def test_SGST_and_CGST_legs_sharing_a_transfer_id_each_skip_on_their_OWN_record(self):
+        sgst = Row(amount=Decimal("2250"), remarks="742905000271:SGST Coll:01-01-2026", transfer_id="S20000001", name="SGST")
+        cgst = Row(amount=Decimal("2250"), remarks="742905000271:CGST Coll:01-01-2026", transfer_id="S20000001", name="CGST")
         records = [record("S20000001", 2250, name="LEG-A"), record("S20000001", 2250, name="LEG-B")]
+        claims, used = [], []
         for leg in (sgst, cgst):
-            outcome, group = verdict(leg, records)
+            outcome, group = verdict(leg, records, claims)
             self.assertEqual(outcome.status, ROW_SKIPPED)
             # A single agreeing record -- never the 4,500 the shared reference sums to.
             self.assertEqual(len(group.targets), 1)
+            used.append(group.targets[0].name)
+            claims.extend(claims_of_skip(leg, "OIB-THIS", group))
+        # One record, one line (#1258): the second leg takes the record the first did not.
+        self.assertEqual(sorted(used), ["LEG-A", "LEG-B"])
 
     def test_equality_is_whole_token_not_a_prefix(self):
         row = Row(amount=Decimal("2250"), remarks="GL transfer", transfer_id="S20000001")
@@ -307,6 +325,116 @@ class TestGrouping(unittest.TestCase):
             record("610415565123", 999, name="NEAR", on=ROW_DATE.date() + timedelta(days=2)),
         ]
         self.assertEqual([t.name for t in verdict(row, records)[1].targets], ["NEAR"])
+
+
+class TestOneRecordJustifiesOneLine(unittest.TestCase):
+    """#1258: a record already accounting for one statement line cannot skip a DIFFERENT line."""
+
+    def test_a_record_another_line_skipped_on_cannot_skip_this_line(self):
+        row = Row(amount=Decimal("12500"), remarks=IMPS)
+        rec = record("610415565123", 12500, name="PAY-1")
+        outcome, group = verdict(row, [rec], [claim(rec, batch="OIB-26-000007")])
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+        self.assertIn("Project Payment PAY-1", outcome.note)
+        self.assertIn("OIB-26-000007", outcome.note)
+        self.assertIn("skipped", outcome.note)
+        # The row still links the record its note names.
+        self.assertEqual([t.name for t in group.targets], ["PAY-1"])
+
+    def test_a_record_an_import_row_settled_or_created_cannot_skip_this_line(self):
+        row = Row(amount=Decimal("50000"), remarks=IMPS, direction="Credit")
+        rec = record("610415565123", 50000, doctype=INFLOW_DOCTYPE, name="PI-1")
+        outcome, _ = verdict(row, [rec], [claim(rec, batch="OIB-26-000003", settled=True)])
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+        self.assertIn("Project Inflow PI-1", outcome.note)
+        self.assertIn("recorded from", outcome.note)
+        self.assertIn("OIB-26-000003", outcome.note)
+        self.assertIn("receipt", outcome.note)
+
+    def test_a_line_is_never_blocked_by_its_own_claim(self):
+        row = Row(amount=Decimal("12500"), remarks=IMPS, name="ROW-THIS")
+        rec = record("610415565123", 12500, name="PAY-1")
+        outcome, _ = verdict(row, [rec], [claim(rec, row="ROW-THIS")])
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+
+    def test_an_unused_twin_record_still_skips_the_line(self):
+        row = Row(amount=Decimal("12500"), remarks=IMPS)
+        used = record("610415565123", 12500, name="PAY-A")
+        free = record("610415565123", 12500, name="PAY-B")
+        outcome, group = verdict(row, [used, free], [claim(used)])
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertEqual([t.name for t in group.targets], ["PAY-B"])
+
+    def test_a_group_is_blocked_when_one_member_is_used(self):
+        row = Row(amount=Decimal("1000"), remarks=IMPS)
+        a = record("610415565123", 600, name="PAY-A")
+        b = record("610415565123", 400, name="PAY-B")
+        outcome, _ = verdict(row, [a, b], [claim(b)])
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+        self.assertIn("Project Payment PAY-B already accounts", outcome.note)
+
+    def test_an_amount_off_hit_reads_the_delta_note_whether_or_not_it_is_used(self):
+        row = Row(amount=Decimal("20000"), remarks=IMPS)
+        rec = record("610415565123", 20500, name="PAY-OFF")
+        plain, _ = verdict(row, [rec])
+        used, _ = verdict(row, [rec], [claim(rec)])
+        self.assertEqual(used, plain)
+
+    def test_a_claim_on_a_record_the_line_did_not_hit_changes_nothing(self):
+        row = Row(amount=Decimal("12500"), remarks=IMPS)
+        rec = record("610415565123", 12500, name="PAY-1")
+        elsewhere = record("999999999999", 12500, name="PAY-ELSEWHERE")
+        self.assertEqual(verdict(row, [rec], [claim(elsewhere)]), verdict(row, [rec]))
+
+    def test_unclaimed_records_that_add_up_win_over_a_claimed_single_record(self):
+        # Without the claim the single 1,000 record would be picked; with it, the two unused
+        # records that sum to the line justify the skip instead -- never the used one.
+        row = Row(amount=Decimal("1000"), remarks=IMPS)
+        used = record("610415565123", 1000, name="PAY-USED")
+        a = record("610415565123", 600, name="PAY-A")
+        b = record("610415565123", 400, name="PAY-B")
+        outcome, group = verdict(row, [used, a, b], [claim(used)])
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertEqual(sorted(t.name for t in group.targets), ["PAY-A", "PAY-B"])
+
+    def test_only_a_skip_on_an_unblocked_group_has_a_basis(self):
+        row = Row(amount=Decimal("12500"), remarks=IMPS)
+        rec = record("610415565123", 12500, name="PAY-1")
+        _, free = verdict(row, [rec])
+        _, blocked = verdict(row, [rec], [claim(rec)])
+        self.assertEqual([t.name for t in skip_basis(row, free, skipped=True)], ["PAY-1"])
+        self.assertEqual(skip_basis(row, blocked, skipped=False), ())
+        self.assertEqual(skip_basis(row, None, skipped=True), ())
+
+        class Failed(Row):
+            @property
+            def is_success(self):
+                return False
+
+        failed = Failed(amount=Decimal("12500"), remarks=IMPS)
+        self.assertEqual(skip_basis(failed, free, skipped=True), ())
+
+    def test_the_stored_basis_round_trips_and_tolerates_junk(self):
+        recs = (record("610415565123", 600, name="A"), record("610415565123", 400, name="B"))
+        stored = encode_basis(recs)
+        self.assertEqual(
+            decode_basis(stored),
+            [{"target_doctype": PAYMENT_DOCTYPE, "target_name": "A"},
+             {"target_doctype": PAYMENT_DOCTYPE, "target_name": "B"}],
+        )
+        self.assertEqual(decode_basis(json.loads(stored)), decode_basis(stored))
+        self.assertIsNone(encode_basis(()))
+        for junk in (None, "", "not json", "{}", '[{"target_doctype": "X"}]', 5):
+            self.assertEqual(decode_basis(junk), [], junk)
+
+    def test_a_skip_claims_every_record_of_its_group(self):
+        row = Row(amount=Decimal("1000"), remarks=IMPS, name="ROW-SPLIT")
+        _, group = verdict(row, [record("610415565123", 600, name="A"), record("610415565123", 400, name="B")])
+        claims = claims_of_skip(row, "OIB-9", group)
+        self.assertEqual(
+            sorted((c.name, c.import_row, c.import_batch, c.settled) for c in claims),
+            [("A", "ROW-SPLIT", "OIB-9", False), ("B", "ROW-SPLIT", "OIB-9", False)],
+        )
 
 
 class TestPurity(unittest.TestCase):

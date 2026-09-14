@@ -41,6 +41,7 @@
   "row_status",
   "skip_reason",
   "outcome_note",
+  "duplicate_basis",
   "decided_at",
   "decided_by",
   "settlement_origin"
@@ -256,6 +257,13 @@
    "label": "Outcome Note"
   },
   {
+   "description": "ICICI contains-guard only (#1258). The record(s) this row's DUPLICATE SKIP was based on, as a JSON list of {target_doctype, target_name}. Written by the match run on every run -- the group when the row lands Skipped as already recorded, blank otherwise -- so a stale basis never survives a re-run. It is what makes ONE RECORD JUSTIFY ONE STATEMENT LINE ACROSS ALL IMPORTS: a later match run, in this batch or any other, reads every Skipped row's basis (candidates.load_record_claims) and refuses to skip a DIFFERENT line on the same record. DELIBERATELY NOT AN Outflow Row Match: a row in that table means money was written, many readers sum and join it on that premise, and its partial unique index on Settled records is the idempotency guarantee -- a skip wrote no money and must not stand beside a settlement there. Read only while the row is Skipped, so a row an admin un-skips in Desk releases its records without this field being edited.",
+   "fieldname": "duplicate_basis",
+   "fieldtype": "JSON",
+   "label": "Duplicate Basis",
+   "read_only": 1
+  },
+  {
    "description": "When the row left Pending.",
    "fieldname": "decided_at",
    "fieldtype": "Datetime",
@@ -306,7 +314,7 @@
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-09-11 00:00:00.000000",
+ "modified": "2026-09-14 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Import Row",

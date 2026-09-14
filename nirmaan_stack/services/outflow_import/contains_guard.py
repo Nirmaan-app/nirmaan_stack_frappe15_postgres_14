@@ -36,14 +36,23 @@ THE RULES, IN THE ORDER A LINE MEETS THEM
      agrees with the line within the SETTLE window (`amounts.amounts_match`, +-Rs 5 -- never
      stretched to reach TDS). Otherwise the line is `Mismatched` with a note naming every hit. The
      sentences are `status`'s; this module only picks the group they describe.
+  6. ONE RECORD JUSTIFIES ONE LINE, ACROSS ALL IMPORTS (#1258). A record already accounting for a
+     statement line -- the basis of another line's duplicate skip, or settled / created by an import
+     row -- is a `RecordClaim`, and it cannot skip a DIFFERENT line. The pick is tried on the
+     unclaimed hits first, so a genuine second payment recorded under the same reference still
+     skips on its own record; only when nothing but a claimed record would agree is the line
+     `Mismatched`, its group carrying `used_by` so the note names the record and where it was used.
+     A line's own claim never blocks it.
 
-⚠️ WHAT IS NOT HERE YET: one record justifies at most one line, across all imports (#1258). Until it
-lands, two lines can skip on the same record -- the SGST/CGST legs of one transfer do, by design of
-the test that pins them.
+     Why it exists: a counterparty's bank ACCOUNT NUMBER typed as a reference sits in every
+     narration to that counterparty, so without this last month's record would silently hide next
+     month's genuine payment of the same amount. It applies to THIS guard only -- the exact guards
+     keep their behaviour -- and re-importing the same statement line is still caught at upload.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -63,6 +72,14 @@ __all__ = [
     "CONTAINS_GUARD_WINDOW_DAYS",
     "MIN_TOKEN_LENGTH",
     "RecordedGroup",
+    "RecordClaim",
+    "claims_of_skip",
+    "skip_basis",
+    "BASIS_DOCTYPE_KEY",
+    "BASIS_NAME_KEY",
+    "basis_entries",
+    "encode_basis",
+    "decode_basis",
     "ledgers_for_direction",
     "match_surface",
     "line_surface",
@@ -101,10 +118,31 @@ _LONG_NUMBER = re.compile(r"\d{6,}")
 
 
 @dataclass(frozen=True)
+class RecordClaim:
+    """One record already accounting for one statement line (#1258).
+
+    `settled` is False for the basis of a duplicate skip (read from `Outflow Import Row.
+    duplicate_basis`) and True for a record an import row settled or created (a `Settled`
+    `Outflow Row Match`). `import_row` is what lets a line ignore its own claim.
+    """
+
+    doctype: str
+    name: str
+    import_row: str
+    import_batch: str
+    settled: bool = False
+
+
+@dataclass(frozen=True)
 class RecordedGroup:
-    """The records a line duplicates, in the shape `status._failed_or_already_paid` reads."""
+    """The records a line duplicates, in the shape `status._failed_or_already_paid` reads.
+
+    `used_by` is empty unless the group WOULD skip the line but a record in it already accounts
+    for another line (#1258); `status.derive_duplicate_guard_outcome` then reads it as `Mismatched`.
+    """
 
     targets: tuple
+    used_by: tuple = ()
 
     @property
     def total_amount(self) -> Decimal:
@@ -184,7 +222,9 @@ def find_hits(row, records: Iterable) -> tuple:
     return tuple(sorted(hits, key=_record_order))
 
 
-def pick_recorded_group(row, hits: Sequence) -> RecordedGroup | None:
+def pick_recorded_group(
+    row, hits: Sequence, claims: Iterable[RecordClaim] = ()
+) -> RecordedGroup | None:
     """The group this line duplicates, or the group its `Mismatched` note names, or `None`.
 
     In precedence order, the first that agrees with the line inside the settle window:
@@ -193,12 +233,94 @@ def pick_recorded_group(row, hits: Sequence) -> RecordedGroup | None:
       3. every hit together (one line covering several differently-referenced records).
     When none agrees, every hit comes back, so the note names them all.
 
+    ⚠️ ONE RECORD, ONE LINE (#1258). `claims` are the records already accounting for some line; a
+    claim whose `import_row` is this line's own `name` is ignored, so re-running a batch never
+    blocks the skip it already made. The precedence above runs over the UNCLAIMED hits first. Only
+    if that finds nothing agreeing, and the same precedence over EVERY hit would agree, is the group
+    returned carrying `used_by` -- the claims on its records -- which reads as `Mismatched`.
+    An amount-off hit is unaffected: whether or not its record is used, it would not skip.
+
     ⚠️ AN AMOUNT-WINDOW SITE, listed in `amounts.py`. It picks with `amounts_match`, the same window
     `status._failed_or_already_paid` then judges the group with, so the pick and the verdict can
     never disagree.
     """
     if not hits:
         return None
+    own = getattr(row, "name", "") or ""
+    used: dict[tuple[str, str], list[RecordClaim]] = {}
+    for c in claims:
+        if c.import_row != own:
+            used.setdefault((c.doctype, c.name), []).append(c)
+
+    free = tuple(h for h in hits if _key(h) not in used)
+    if free and len(free) < len(hits):
+        group = _pick(row, free)
+        if _agrees(row, group):
+            return group
+
+    group = _pick(row, hits)
+    blocking = [c for t in group.targets for c in used.get(_key(t), ())]
+    if blocking and _agrees(row, group):
+        return RecordedGroup(targets=group.targets, used_by=tuple(sorted(set(blocking), key=_claim_order)))
+    return group
+
+
+def claims_of_skip(row, batch: str, group: RecordedGroup) -> tuple[RecordClaim, ...]:
+    """The claims a line's duplicate skip on `group` makes -- one per record, so a later line in the
+    same run sees them exactly as it would see a skip persisted by an earlier batch."""
+    return tuple(
+        RecordClaim(doctype=t.doctype, name=t.name, import_row=row.name, import_batch=batch)
+        for t in group.targets
+    )
+
+
+def skip_basis(row, group: RecordedGroup | None, skipped: bool) -> tuple:
+    """The records a line's SKIP was based on, or `()` (#1258).
+
+    `skipped` is whether the line's outcome is `Skipped`. A successful line reaches `Skipped` from
+    this guard only by agreeing with an unblocked group; `is_success` is checked because a failed
+    line is also `Skipped` -- for a reason that used no record, so it must claim none.
+    """
+    if not skipped or group is None or group.used_by or not getattr(row, "is_success", False):
+        return ()
+    return tuple(group.targets)
+
+
+# ⚠️ THE ONE OWNER OF THE `Outflow Import Row.duplicate_basis` SHAPE (#1258, ADR-0010 B2): a JSON list
+# of `{target_doctype, target_name}`, the same entry shape the row links use. The SQL reader
+# (`candidates.load_record_claims`) reads these two key names from here.
+BASIS_DOCTYPE_KEY = "target_doctype"
+BASIS_NAME_KEY = "target_name"
+
+
+def basis_entries(targets) -> list[dict]:
+    """Records as `{target_doctype, target_name}` entries, in the order given."""
+    return [{BASIS_DOCTYPE_KEY: t.doctype, BASIS_NAME_KEY: t.name} for t in targets]
+
+
+def encode_basis(targets) -> str | None:
+    """The stored `duplicate_basis` for these records: a JSON list, or `None` when there are none."""
+    return json.dumps(basis_entries(targets)) if targets else None
+
+
+def decode_basis(value) -> list[dict]:
+    """A stored `duplicate_basis` (JSON text, or already parsed) back as entries; `[]` for blank or
+    malformed data, so a hand-edited value can never fail a page."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value) if value.strip() else []
+        except ValueError:
+            return []
+    if not isinstance(value, list):
+        return []
+    return [
+        {BASIS_DOCTYPE_KEY: e[BASIS_DOCTYPE_KEY], BASIS_NAME_KEY: e[BASIS_NAME_KEY]}
+        for e in value
+        if isinstance(e, dict) and e.get(BASIS_DOCTYPE_KEY) and e.get(BASIS_NAME_KEY)
+    ]
+
+
+def _pick(row, hits: Sequence) -> RecordedGroup:
     bank = Decimal(str(getattr(row, "amount", 0) or 0))
     row_date = _as_date(getattr(row, "added_on", None))
 
@@ -222,6 +344,18 @@ def pick_recorded_group(row, hits: Sequence) -> RecordedGroup | None:
             return group
 
     return RecordedGroup(targets=tuple(hits))
+
+
+def _agrees(row, group: RecordedGroup) -> bool:
+    return amounts_match(group.total_amount, Decimal(str(getattr(row, "amount", 0) or 0)))
+
+
+def _key(rec) -> tuple[str, str]:
+    return (rec.doctype, rec.name)
+
+
+def _claim_order(c: RecordClaim) -> tuple:
+    return (_LEDGER_ORDER.get(c.doctype, len(_LEDGER_ORDER)), c.name, c.import_batch, c.import_row)
 
 
 def _within_window(row_date: date, record_date: date | None) -> bool:

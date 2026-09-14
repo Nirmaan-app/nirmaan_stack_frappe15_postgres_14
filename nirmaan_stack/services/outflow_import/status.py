@@ -278,6 +278,12 @@ SKIP_REASON_ALREADY_RECEIVED = "Already recorded as received on {records}."
 # A group mixing an inflow with anything else -- unreachable under direction scoping; see
 # `_record_sentence`. It claims neither "Paid" nor "received".
 _SKIP_REASON_ALREADY_RECORDED = "Already recorded on {records}."
+# The ICICI contains-guard's "one record justifies one line" note (#1258). `{records}` names only the
+# record(s) already used; `{places}` says where, e.g. "a line skipped in batch OIB-26-000007".
+SKIP_BLOCKED_RECORD_USED = (
+    "Not skipped: {records} already {verb} for another statement line ({places}). "
+    "One record can justify skipping only one line -- check whether this is a second, genuine {money}."
+)
 
 # The bank-statement exclusion (slice B3). `{category}` is a `bank_exclusions.SKIP_CATEGORY_IDS`
 # member, verbatim.
@@ -530,6 +536,12 @@ def derive_duplicate_guard_outcome(row, paid_duplicate=None) -> RowOutcome:
     settled at UPLOAD for every source (`derive_staged_row_outcome`), and `review.match_batch` has
     never passed it either.
     """
+    # ⚠️ ONE RECORD, ONE LINE (#1258). A group that agrees but whose record already accounts for
+    # another line carries `used_by`; it must never reach `_failed_or_already_paid`, which would skip
+    # it. Only the ICICI contains-guard sets it -- every other group has no such attribute.
+    used_by = getattr(paid_duplicate, "used_by", ()) or ()
+    if used_by and getattr(row, "is_success", False):
+        return RowOutcome(ROW_MISMATCHED, _already_used_note(paid_duplicate, used_by))
     decided = _failed_or_already_paid(row, paid_duplicate)
     if decided is not None:
         return decided
@@ -765,6 +777,38 @@ def _delta_note(bank_amount: Decimal, total: Decimal, group) -> str:
             f"More money {movement} the account than any matched record claims."
         )
     return f"{shortfall} {_record_sentence(group)}"
+
+
+@dataclass(frozen=True)
+class _UsedRecords:
+    """The subset of a blocked group's records that are already used, shaped like a group so the
+    shared `_records_phrase` / `_is_receipt_group` can name them."""
+
+    targets: tuple
+
+
+def _already_used_note(group, used_by) -> str:
+    """Why an agreeing duplicate did NOT skip: its record already accounts for another line (#1258).
+
+    Names the USED record(s) under their ledger and says where each was used -- the batch, and
+    whether a line there was skipped on it or it was recorded from that import -- because that is
+    what a reviewer must open to decide whether this line is a second, genuine payment.
+    """
+    used_keys = {(c.doctype, c.name) for c in used_by}
+    used = _UsedRecords(tuple(t for t in _targets_of(group) if (t.doctype, t.name) in used_keys))
+    places: list[str] = []
+    for c in used_by:
+        place = (
+            f"recorded from batch {c.import_batch}" if c.settled
+            else f"a line skipped in batch {c.import_batch}"
+        )
+        if place not in places:
+            places.append(place)
+    verb = "accounts" if len(used.targets) == 1 else "account"
+    money = "receipt" if _is_receipt_group(used) else "payment"
+    return SKIP_BLOCKED_RECORD_USED.format(
+        records=_records_phrase(used), verb=verb, places="; ".join(places), money=money,
+    )
 
 
 # The order ledgers are named in when one note spans several. The display order the rest of this

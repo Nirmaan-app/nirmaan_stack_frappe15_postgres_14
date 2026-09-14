@@ -69,7 +69,11 @@ amount), which neither can reach and neither may be stretched to reach. A TDS pa
                                                picker: one hit record, then a same-reference group,
                                                then all hits, each judged with `amounts_match`
                                                before `_failed_or_already_paid` re-judges the chosen
-                                               group with the same window. Its pool,
+                                               group with the same window. Since #1258 its `_agrees`
+                                               also decides whether a CLAIMED record is what made a
+                                               group agree -- same window, so "blocked by one record,
+                                               one line" can never mean "would not have skipped
+                                               anyway". Its pool,
                                                `candidates.load_recorded_by_contains`, carries NO
                                                amount predicate, so an amount-off hit still reads
                                                `Mismatched` naming the record. Never stretched to

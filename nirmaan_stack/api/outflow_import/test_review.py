@@ -4833,6 +4833,26 @@ def _random_reference() -> str:
     return "9" + str(int(frappe.generate_hash(length=10), 16))[-11:].rjust(11, "0")
 
 
+def _stage_icici_statement(lines, filename):
+    """Stage a synthetic ICICI statement from `{tid, day, cheque, narration, amount, credit}` lines."""
+    import csv
+    import io
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, quoting=csv.QUOTE_ALL)
+    writer.writerow(_ICICI_HEADER)
+    for n, line in enumerate(lines, start=1):
+        money = f"{line['amount']:.2f}"
+        writer.writerow([
+            n, line["tid"], line["day"].strftime("%d/%b/%Y"), line["cheque"], line["narration"],
+            "" if line["credit"] else money, money if line["credit"] else "", "0.00",
+        ])
+    parsed = parse_statement(buffer.getvalue().encode(), source="ICICI Bank Statement")
+    return _stage_batch(
+        parsed, file_url=f"/private/files/{filename}", filename=filename, user="Administrator",
+    )
+
+
 class TestTheICICIContainsGuard(OutflowReviewFixture):
     """#1257: an ICICI line whose money is already recorded is SKIPPED on the match run.
 
@@ -4875,23 +4895,7 @@ class TestTheICICIContainsGuard(OutflowReviewFixture):
 
     @classmethod
     def _plant_targets(cls):
-        import csv
-        import io
-
-        buffer = io.StringIO()
-        writer = csv.writer(buffer, quoting=csv.QUOTE_ALL)
-        writer.writerow(_ICICI_HEADER)
-        for n, line in enumerate(cls._lines(), start=1):
-            money = f"{line['amount']:.2f}"
-            writer.writerow([
-                n, line["tid"], line["day"].strftime("%d/%b/%Y"), line["cheque"], line["narration"],
-                "" if line["credit"] else money, money if line["credit"] else "", "0.00",
-            ])
-        parsed = parse_statement(buffer.getvalue().encode(), source="ICICI Bank Statement")
-        cls.guard_batch = _stage_batch(
-            parsed, file_url="/private/files/test-1257-icici.csv", filename="test-1257-icici.csv",
-            user="Administrator",
-        )
+        cls.guard_batch = _stage_icici_statement(cls._lines(), "test-1257-icici.csv")
         cls.batches.append(cls.guard_batch.name)
         cls.inflows = []
 
@@ -5104,6 +5108,152 @@ class TestTheICICIContainsGuard(OutflowReviewFixture):
         for key, row in self.after_first.items():
             if key != "stale":
                 self.assertEqual(again[key], row, key)
+
+
+class TestOneRecordJustifiesOneLineAcrossImports(OutflowReviewFixture):
+    """#1258: one ledger record can justify skipping at most one ICICI line -- across ALL imports.
+
+    The motivating shape is `acct`: a counterparty's bank ACCOUNT NUMBER typed as a payment's
+    reference. It sits inside every narration to that counterparty, so the same record hits this
+    month's line, a second line in the same statement, and next month's line alike. Only the first
+    may skip on it. Random references and a far-future date keep the live ledger out of it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.refs = {key: _random_reference() for key in ("acct", "twin", "settled")}
+        cls.tid_prefix = f"T1258{frappe.generate_hash(length=6).upper()}"
+        super().setUpClass()
+
+    @classmethod
+    def _line(cls, key, narration, amount, *, day):
+        return {
+            "key": key, "tid": f"{cls.tid_prefix}{key.upper()}", "narration": narration,
+            "amount": amount, "credit": False, "cheque": "", "day": day,
+        }
+
+    @classmethod
+    def _plant_targets(cls):
+        r, day = cls.refs, _GUARD_DAY
+        cls.first = _stage_icici_statement(
+            [
+                cls._line("acct1", f"NEFT-{r['acct']}-TEST VENDOR PVT-UTIB0000052", 15000, day=day),
+                cls._line("acct2", f"IMPS/{r['acct']}/TEST VENDOR PVT/second", 15000, day=day + timedelta(days=1)),
+                cls._line("twin1", f"MMT/IMPS/{r['twin']}/LEG ONE", 7000, day=day),
+                cls._line("twin2", f"MMT/IMPS/{r['twin']}/LEG TWO", 7000, day=day),
+                cls._line("settled", f"MMT/IMPS/{r['settled']}/TESTPAYEE", 9000, day=day),
+            ],
+            f"test-1258-first-{cls.tid_prefix}.csv",
+        )
+        cls.batches.append(cls.first.name)
+
+        d = day.date()
+        cls.rec_acct = cls._insert_payment_row(amount=15000, status="Paid", utr=r["acct"], payment_date=d)
+        cls.rec_twin = sorted(
+            cls._insert_payment_row(amount=7000, status="Paid", utr=r["twin"], payment_date=d) for _ in range(2)
+        )
+        cls.rec_settled = cls._insert_payment_row(amount=9000, status="Paid", utr=r["settled"], payment_date=d)
+
+        # A record an import row already SETTLED, in a different batch (the fixture's Cashfree one).
+        settler = frappe.get_all(
+            ROW_DOCTYPE, filters={"import_batch": cls.batch.name}, fields=["name", "transfer_id"], limit=1,
+        )[0]
+        frappe.get_doc({
+            "doctype": MATCH_DOCTYPE, "import_row": settler["name"], "import_batch": cls.batch.name,
+            "transfer_id": settler["transfer_id"], "target_doctype": "Project Payments",
+            "target_name": cls.rec_settled, "target_amount": 9000, "match_kind": MATCH_SETTLED,
+            "match_basis": "Manual",
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        cls.first_run = match_batch(cls.first.name)
+        cls.after_first = cls._rows(cls.first.name)
+
+        # NEXT MONTH'S statement: a genuinely new line to the same counterparty, same amount.
+        cls.second = _stage_icici_statement(
+            [cls._line("acct3", f"NEFT-{r['acct']}-TEST VENDOR PVT-UTIB0000052/APR", 15000, day=day + timedelta(days=10))],
+            f"test-1258-second-{cls.tid_prefix}.csv",
+        )
+        cls.batches.append(cls.second.name)
+        frappe.db.commit()
+        match_batch(cls.second.name)
+        cls.after_second = cls._rows(cls.second.name)
+
+    @classmethod
+    def _rows(cls, batch):
+        rows = frappe.get_all(
+            ROW_DOCTYPE, filters={"import_batch": batch},
+            fields=["name", "transfer_id", "row_status", "outcome_note", "duplicate_basis"],
+        )
+        return {r["transfer_id"][len(cls.tid_prefix):].lower(): r for r in rows}
+
+    @staticmethod
+    def _basis(row):
+        value = row["duplicate_basis"]
+        return json.loads(value) if isinstance(value, str) else (value or [])
+
+    def _links(self, batch):
+        return {
+            r["transfer_id"][len(self.tid_prefix):].lower(): {e["target_name"] for e in r["related_records"]}
+            for r in get_batch_rows(batch)["rows"]
+        }
+
+    # --- the skip records its basis --------------------------------------------------------------------
+
+    def test_a_skip_persists_the_record_it_was_based_on(self):
+        row = self.after_first["acct1"]
+        self.assertEqual(row["row_status"], ROW_SKIPPED)
+        self.assertEqual(
+            self._basis(row), [{"target_doctype": "Project Payments", "target_name": self.rec_acct}]
+        )
+
+    def test_a_row_that_did_not_skip_carries_no_basis(self):
+        for key in ("acct2", "settled"):
+            self.assertIsNone(self.after_first[key]["duplicate_basis"], key)
+        self.assertIsNone(self.after_second["acct3"]["duplicate_basis"])
+
+    def test_a_skip_writes_no_match_record_so_the_settled_uniqueness_is_untouched(self):
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_batch": self.first.name}), 0)
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_batch": self.second.name}), 0)
+
+    # --- one record, one line ------------------------------------------------------------------------
+
+    def test_a_second_line_in_the_same_batch_on_a_used_record_is_mismatched_naming_it(self):
+        row = self.after_first["acct2"]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertIn(f"Project Payment {self.rec_acct} already accounts", row["outcome_note"])
+        self.assertIn(f"a line skipped in batch {self.first.name}", row["outcome_note"])
+
+    def test_a_line_in_a_LATER_batch_on_a_record_used_by_an_earlier_batch_is_mismatched(self):
+        row = self.after_second["acct3"]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertIn(f"Project Payment {self.rec_acct} already accounts", row["outcome_note"])
+        self.assertIn(self.first.name, row["outcome_note"])
+
+    def test_a_record_an_import_row_settled_cannot_skip_a_line(self):
+        row = self.after_first["settled"]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertIn(f"Project Payment {self.rec_settled} already accounts", row["outcome_note"])
+        self.assertIn(f"recorded from batch {self.batch.name}", row["outcome_note"])
+
+    def test_two_lines_sharing_a_reference_each_skip_on_their_own_record(self):
+        one, two = self.after_first["twin1"], self.after_first["twin2"]
+        self.assertEqual((one["row_status"], two["row_status"]), (ROW_SKIPPED, ROW_SKIPPED))
+        used = sorted(self._basis(r)[0]["target_name"] for r in (one, two))
+        self.assertEqual(used, self.rec_twin)
+
+    def test_a_blocked_line_links_the_record_its_note_names(self):
+        self.assertEqual(self._links(self.first.name)["acct2"], {self.rec_acct})
+        self.assertEqual(self._links(self.first.name)["acct1"], {self.rec_acct})
+        self.assertEqual(self._links(self.second.name)["acct3"], {self.rec_acct})
+
+    # --- re-running ----------------------------------------------------------------------------------
+
+    def test_re_running_the_batch_that_owns_the_skip_keeps_it(self):
+        match_batch(self.first.name)
+        match_batch(self.second.name)
+        self.assertEqual(self._rows(self.first.name), self.after_first)
+        self.assertEqual(self._rows(self.second.name), self.after_second)
 
 
 @dataclass
