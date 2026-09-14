@@ -25,6 +25,7 @@ from nirmaan_stack.services.outflow_import.contains_guard import (
     find_hits,
     match_surface,
     pick_recorded_group,
+    reference_is_inside,
     reference_tokens,
     skip_basis,
 )
@@ -435,6 +436,39 @@ class TestOneRecordJustifiesOneLine(unittest.TestCase):
             sorted((c.name, c.import_row, c.import_batch, c.settled) for c in claims),
             [("A", "ROW-SPLIT", "OIB-9", False), ("B", "ROW-SPLIT", "OIB-9", False)],
         )
+
+
+class TestAReferenceInsideAStoredOne(unittest.TestCase):
+    """`reference_is_inside` -- the manual UTR guard's containment half (#1259).
+
+    An ICICI settle now stores a whole narration, so a UTR typed by hand onto a payment is compared
+    against the stored narration by the SAME token rules the contains-guard uses, turned around: the
+    typed reference is the needle, the stored `utr` the text.
+    """
+
+    NARRATION = "MMT/IMPS/610415565123/TEST VENDOR/UTIB0000052"
+
+    def test_a_reference_inside_a_stored_narration_is_found(self):
+        self.assertTrue(reference_is_inside("610415565123", self.NARRATION))
+
+    def test_case_and_whitespace_do_not_matter_on_either_side(self):
+        self.assertTrue(reference_is_inside(" 6104 15565123 ", "mmt/imps/610415565123/test vendor"))
+
+    def test_a_typed_reference_with_words_around_it_is_found_by_its_piece(self):
+        self.assertTrue(reference_is_inside("610415565123 ICICI", self.NARRATION))
+
+    def test_an_unrelated_reference_is_not_found(self):
+        self.assertFalse(reference_is_inside("610415565124", self.NARRATION))
+
+    def test_an_ineligible_reference_is_never_found_even_when_it_is_there(self):
+        narration = "INF/NEFT/0003 ICICI refund/BULD67453750/DUMMY-610415565123"
+        for junk in ("ICICI", "refund", "0003", "BULD67453750", "DUMMY-610415565123"):
+            self.assertFalse(reference_is_inside(junk, narration), junk)
+
+    def test_a_blank_on_either_side_is_never_found(self):
+        self.assertFalse(reference_is_inside("", self.NARRATION))
+        self.assertFalse(reference_is_inside("610415565123", ""))
+        self.assertFalse(reference_is_inside("610415565123", None))
 
 
 class TestPurity(unittest.TestCase):

@@ -3,8 +3,8 @@
 
 """What reference does a SETTLED record get from this bank row? (ADR-0020 B9)
 
-A pure leaf. It imports one sibling (`sources`, itself a leaf) and nothing else -- not Frappe, not
-another service -- so it stays callable from a plain unittest and from a backfill patch alike.
+A pure leaf. It imports two pure siblings (`sources`, and `contains_guard` for the ICICI surface) and
+nothing else -- not Frappe -- so it stays callable from a plain unittest and from a backfill patch alike.
 
 WHAT IT IS FOR
     `settle_payment` used to read `bank_reference_no` and write it `if reference:` -- a blank
@@ -23,7 +23,26 @@ WHAT IT IS FOR
     expense path by hand -- reintroduces exactly the per-path divergence this shape removes, AND
     misses the payment path, which is the one currently broken for that source.
 
-⚠️ THE LOAD-BEARING CONSTRAINT -- THE MATCHER MUST NEVER READ THIS
+⚠️ THE BANK-STATEMENT RUNG COMES FIRST, AND FOR THAT SOURCE THE STORED VALUE IS A GUARD KEY (#1259)
+    For a bank passbook (ICICI) the value is the line's whole MATCH SURFACE --
+    `contains_guard.match_surface`: the narration, plus the cheque number on a cheque-clearing line
+    with no long number. That is BY DESIGN what the ICICI contains-guard later searches for on the
+    ledger: a record written with this text is found again when the same money reappears on a later
+    statement. One function builds both texts, so the two can never diverge.
+
+    ⚠️ ORDERING RULE: this write may never ship ahead of the contains-match. An exact-match guard
+    comparing a short reference against a stored narration finds nothing, so every exact guard goes
+    blind to an ICICI-settled record. The guards that read a stored reference therefore all see a
+    narration now: the contains-guard (#1257), `reference_guard` (containment, #1259) and the
+    Create-inflow duplicate check (contains-match, #1259).
+
+    ⚠️ IT WINS OVER THE STORED COLUMN, SO THERE IS NO BACKFILL. A passbook row staged before #1259
+    stored the short extracted reference; `settlement_reference_of_row` recomputes the surface from
+    the row's own `remarks` and `reference_id` for that source. `settlement_references_of_row` still
+    offers the old value, because a payment settled before #1259 carries it and a reversal must
+    recognise it.
+
+⚠️ FOR EVERY OTHER SOURCE -- THE MATCHER MUST NEVER READ THIS
     Reference MATCHING and the re-import DUPLICATE GUARD compare the BANK's real reference. Feeding
     a gateway id into either risks matching an unrelated stored value: `Project Payments.utr`
     already holds hundreds of non-bank strings (purchase order numbers, short numbers, the literal
@@ -52,9 +71,17 @@ ACCEPTED COST (owner, unchanged)
     reconcile with.
 """
 
-from nirmaan_stack.services.outflow_import.sources import source_transfer_id_is_its_reference
+from nirmaan_stack.services.outflow_import.contains_guard import match_surface
+from nirmaan_stack.services.outflow_import.sources import (
+    source_transfer_id_is_its_reference,
+    source_writes_its_match_surface,
+)
 
-__all__ = ["resolve_settlement_reference", "settlement_reference_of_row"]
+__all__ = [
+    "resolve_settlement_reference",
+    "settlement_reference_of_row",
+    "settlement_references_of_row",
+]
 
 
 def _stripped(value) -> str:
@@ -66,15 +93,35 @@ def _stripped(value) -> str:
 
 
 def resolve_settlement_reference(
-    *, bank_reference_no, reference_id, transfer_id, source
+    *, bank_reference_no, reference_id, transfer_id, remarks, source
 ) -> str:
-    """PURE. The ONE ladder: the bank's reference, else the gateway's, else -- for a source whose
-    transfer id is its only reference -- that. `""` when the row has nothing to offer, which is an
-    honest blank rather than a silent skip.
+    """PURE. The ONE ladder: for a bank passbook, the line's match surface (#1259); otherwise the
+    bank's reference, else the gateway's, else -- for a source whose transfer id is its only
+    reference -- that. `""` when the row has nothing to offer, which is an honest blank rather than
+    a silent skip.
 
-    Every argument is keyword-only: the three candidate values are interchangeable strings, and a
+    Every argument is keyword-only: the candidate values are interchangeable strings, and a
     positional call that swapped two of them would resolve to a plausible wrong answer in silence.
+    `remarks` is REQUIRED rather than defaulted, so a caller that forgets it cannot silently drop the
+    passbook rung. On a passbook `reference_id` is the cheque column.
     """
+    return _passbook_surface(source, remarks, reference_id) or _ladder(
+        bank_reference_no=bank_reference_no,
+        reference_id=reference_id,
+        transfer_id=transfer_id,
+        source=source,
+    )
+
+
+def _passbook_surface(source, remarks, reference_id) -> str:
+    """The match surface for a bank-passbook row; `""` for any other source or a blank narration."""
+    if not source_writes_its_match_surface(source):
+        return ""
+    return match_surface(remarks, reference_id)
+
+
+def _ladder(*, bank_reference_no, reference_id, transfer_id, source) -> str:
+    """The pre-#1259 ladder, which is still every non-passbook source's whole answer."""
     return (
         _stripped(bank_reference_no)
         or _stripped(reference_id)
@@ -104,16 +151,40 @@ def settlement_reference_of_row(doc) -> str:
     nothing. Deleting it is safe exactly when `settlement_reference` is non-blank on every row that
     can resolve to one.
 
+    ⚠️ A BANK PASSBOOK ROW RECOMPUTES EVEN WHEN THE COLUMN IS FILLED (#1259). One staged before
+    #1259 stored the short extracted reference, and that is not what its settle writes now.
+
     `doc` is any mapping with `.get` -- a `frappe._dict` from `get_value(..., "*")`, or a plain dict.
     A projection that omits a field simply loses that rung, so a caller that can SETTLE must select
-    `bank_reference_no`, `reference_id`, `transfer_id` and `source`.
+    `bank_reference_no`, `reference_id`, `transfer_id`, `remarks` and `source`.
     """
+    surface = _passbook_surface(doc.get("source"), doc.get("remarks"), doc.get("reference_id"))
+    if surface:
+        return surface
     stored = _stripped(doc.get("settlement_reference"))
     if stored:
         return stored
-    return resolve_settlement_reference(
+    return _ladder(
         bank_reference_no=doc.get("bank_reference_no"),
         reference_id=doc.get("reference_id"),
         transfer_id=doc.get("transfer_id"),
         source=doc.get("source"),
     )
+
+
+def settlement_references_of_row(doc) -> tuple[str, ...]:
+    """PURE. Every value a settle of this persisted row may have written, current first (#1259).
+
+    What a REVERSAL compares a payment's `utr` against. A passbook payment settled before #1259
+    carries the old value (the stored column, else the old ladder); one settled after carries the
+    match surface. Refusing the old one would make every earlier ICICI settle un-reversible, with a
+    message blaming somebody for re-pointing it. Deduplicated; blanks dropped.
+    """
+    current = settlement_reference_of_row(doc)
+    legacy = _stripped(doc.get("settlement_reference")) or _ladder(
+        bank_reference_no=doc.get("bank_reference_no"),
+        reference_id=doc.get("reference_id"),
+        transfer_id=doc.get("transfer_id"),
+        source=doc.get("source"),
+    )
+    return tuple(dict.fromkeys(v for v in (current, legacy) if v))

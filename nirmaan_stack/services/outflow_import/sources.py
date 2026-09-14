@@ -33,6 +33,7 @@ __all__ = [
     "source_has_settlement_path",
     "source_has_preamble",
     "source_transfer_id_is_its_reference",
+    "source_writes_its_match_surface",
 ]
 
 #: Sources that are a BANK PASSBOOK rather than a payout gateway.
@@ -170,5 +171,22 @@ def source_has_preamble(source: str) -> bool:
     ⚠️ SAME DEFAULT DIRECTION AS `source_has_settlement_path`: an unknown or blank source answers
     `False` and therefore keeps the row-1 behaviour every source has had since slice S1. A new
     passbook is opted IN by being added to `BANK_STATEMENT_SOURCES`.
+    """
+    return (source or "").strip() in BANK_STATEMENT_SOURCES
+
+
+def source_writes_its_match_surface(source: str) -> bool:
+    """Does a settle from this source store the line's whole MATCH SURFACE as the reference? (#1259)
+
+    `True` for a bank passbook. Its narration is the only reference it has, and the short value the
+    parser extracts from it is not always there. Storing the whole surface
+    (`contains_guard.match_surface`: the narration, plus the cheque number on a cheque-clearing line)
+    is what lets the ICICI contains-guard find the record again when the same money reappears.
+
+    `False` for a payout gateway, which keeps its clean bank reference (the Cashfree guards compare
+    it whole-string), and for the wallet, which keeps its transaction id.
+
+    ⚠️ AN UNKNOWN OR BLANK SOURCE ANSWERS `False`: a narration in `utr` on a source nobody has thought
+    about is a value no guard of that source has been taught to read.
     """
     return (source or "").strip() in BANK_STATEMENT_SOURCES

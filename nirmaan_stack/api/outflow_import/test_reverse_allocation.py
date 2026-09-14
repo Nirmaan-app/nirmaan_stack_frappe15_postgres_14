@@ -332,3 +332,62 @@ class TestReversingALegSettledWithAResolvedReference(AllocationFixture):
         )
         with self.assertRaises(frappe.ValidationError):
             reverse_allocation(match=leg, reason="wrong PO")
+
+
+class TestReversingAnICICILeg(AllocationFixture):
+    """#1259: an ICICI settle writes the whole narration as `utr`, and the reversal must still
+    recognise what it wrote -- AND what a settle made before #1259 wrote (the short reference), or
+    every earlier ICICI settle becomes un-reversible with a message blaming somebody else."""
+
+    ICICI = "ICICI Bank Statement"
+
+    def _icici_row(self):
+        reference = "7" + str(int(frappe.generate_hash(length=10), 16))[-11:].rjust(11, "0")
+        narration = f"MMT/IMPS/{reference}/TEST VENDOR/UTIB0000052"
+        row = self._staged_row(
+            amount="100",
+            references={
+                "source": self.ICICI,
+                "bank_reference_no": reference,
+                "reference_id": "",
+                "remarks": narration,
+            },
+        )
+        return row, reference, narration
+
+    def _leg(self, row, payment):
+        return frappe.db.get_value(MATCH_DOCTYPE, {"import_row": row, "target_name": payment}, "name")
+
+    def test_a_leg_settled_with_the_narration_reverses(self):
+        row, _, narration = self._icici_row()
+        pays = self._three_payments()
+        allocate_row(row=row, targets=self._targets(pays))
+        self.assertEqual(frappe.db.get_value("Project Payments", pays[0], "utr"), narration)
+
+        reverse_allocation(match=self._leg(row, pays[0]), reason="wrong PO")
+
+        self.assertEqual(frappe.db.get_value("Project Payments", pays[0], "status"), "Approved")
+        self.assertFalse((frappe.db.get_value("Project Payments", pays[0], "utr") or "").strip())
+
+    def test_a_leg_settled_before_1259_with_the_short_reference_still_reverses(self):
+        row, reference, _ = self._icici_row()
+        pays = self._three_payments()
+        allocate_row(row=row, targets=self._targets(pays))
+        # What an earlier import wrote: the short reference, on the row's column and the payment.
+        frappe.db.set_value(ROW_DOCTYPE, row, "settlement_reference", reference, update_modified=False)
+        frappe.db.set_value("Project Payments", pays[0], "utr", reference, update_modified=False)
+        frappe.db.commit()
+
+        reverse_allocation(match=self._leg(row, pays[0]), reason="wrong PO")
+
+        self.assertEqual(frappe.db.get_value("Project Payments", pays[0], "status"), "Approved")
+
+    def test_a_re_pointed_icici_payment_is_still_refused(self):
+        row, _, _ = self._icici_row()
+        pays = self._three_payments()
+        allocate_row(row=row, targets=self._targets(pays))
+        frappe.db.set_value("Project Payments", pays[0], "utr", "SOMEBODY-ELSE", update_modified=False)
+        frappe.db.commit()
+
+        with self.assertRaises(frappe.ValidationError):
+            reverse_allocation(match=self._leg(row, pays[0]), reason="wrong PO")

@@ -800,6 +800,78 @@ class TestALongReferenceIsWrittenWhole(SettlementFixture):
         self.assertEqual(frappe.db.get_value(NON_PROJECT_EXPENSE, name, "payment_ref"), narration)
 
 
+class TestAnICICISettleStoresTheFullNarration(SettlementFixture):
+    """#1259: an ICICI row's settle or create stores the line's whole match surface as `payment_ref`
+    -- the narration, plus the cheque number on a cheque-clearing line -- so the contains-guard finds
+    the record again. A Cashfree row keeps its clean bank reference.
+
+    The fixture is a Cashfree statement, so a row is turned into an ICICI debit in place: the writers
+    read only `source`, `remarks`, `reference_id` and `direction` for this."""
+
+    ICICI = "ICICI Bank Statement"
+
+    def _as_icici_debit(self, row, narration, cheque=""):
+        frappe.db.set_value(
+            ROW_DOCTYPE, row["name"],
+            {"source": self.ICICI, "remarks": narration, "reference_id": cheque, "direction": "Debit"},
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+    @staticmethod
+    def _narration():
+        return f"MMT/IMPS/{frappe.generate_hash(length=12).upper()}/TEST VENDOR/UTIB0000052"
+
+    def test_settling_a_project_expense_stores_the_narration(self):
+        row = self._next_settleable_row()
+        narration = self._narration()
+        self._as_icici_debit(row, narration)
+        expense = self._make_expense(PROJECT_EXPENSE, row["amount"])
+
+        settle_expense(row["name"], PROJECT_EXPENSE, expense)
+
+        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, expense, "payment_ref"), narration)
+
+    def test_creating_an_expense_stores_the_narration(self):
+        row = self._next_settleable_row()
+        narration = self._narration()
+        self._as_icici_debit(row, narration)
+
+        result = create_expense(row["name"], NON_PROJECT_EXPENSE, self.non_project_type)
+        self.non_project_expenses.append(result["settled"]["name"])
+
+        self.assertEqual(
+            frappe.db.get_value(NON_PROJECT_EXPENSE, result["settled"]["name"], "payment_ref"), narration
+        )
+
+    def test_a_cheque_clearing_line_stores_its_narration_and_cheque_number(self):
+        row = self._next_settleable_row()
+        self._as_icici_debit(row, "CLG/SUMAN ELECTRIC UDYOGS P/HSB", cheque="004521")
+
+        result = create_expense(row["name"], NON_PROJECT_EXPENSE, self.non_project_type)
+        self.non_project_expenses.append(result["settled"]["name"])
+
+        self.assertEqual(
+            frappe.db.get_value(NON_PROJECT_EXPENSE, result["settled"]["name"], "payment_ref"),
+            "CLG/SUMAN ELECTRIC UDYOGS P/HSB 004521",
+        )
+
+    def test_a_cashfree_settle_still_stores_its_clean_bank_reference(self):
+        row = self._next_settleable_row()
+        staged = frappe.db.get_value(
+            ROW_DOCTYPE, row["name"], ["source", "bank_reference_no", "remarks"], as_dict=True
+        )
+        self.assertEqual(staged.source, "Cashfree")
+        self.assertTrue(staged.bank_reference_no, "fixture precondition: a bank reference")
+        expense = self._make_expense(PROJECT_EXPENSE, row["amount"])
+
+        settle_expense(row["name"], PROJECT_EXPENSE, expense)
+
+        self.assertEqual(
+            frappe.db.get_value(PROJECT_EXPENSE, expense, "payment_ref"), staged.bank_reference_no
+        )
+
+
 class TestTheDebitPathIsStillCLOSEDToASignedAmount(SettlementFixture):
     """⚠️ SLICE B7 OPENED A SIGNED WRITE IN `settle.py`. THESE PIN THAT IT DID NOT REACH HERE.
 

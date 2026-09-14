@@ -31,16 +31,16 @@ import frappe
 
 from nirmaan_stack.api.outflow_import.expenses import get_expense_types
 from nirmaan_stack.api.outflow_import.inflows import (
-    _already_booked,
     _already_created_by_import,
     create_inflow,
     create_non_project_receipt,
     get_inflow_context,
 )
 from nirmaan_stack.api.outflow_import.review import BATCH_DOCTYPE, MATCH_DOCTYPE, ROW_DOCTYPE
-from nirmaan_stack.api.outflow_import.long_reference_fixture import _give_row_a_long_reference
+from nirmaan_stack.api.outflow_import.long_reference_fixture import _give_row_a_long_narration
 from nirmaan_stack.api.outflow_import.upload import _stage_batch
 from nirmaan_stack.services.outflow_import import parser as parser_module
+from nirmaan_stack.services.outflow_import.contains_guard import match_surface
 from nirmaan_stack.services.outflow_import.parser import parse_statement
 from nirmaan_stack.services.outflow_import.settle import (
     DIRECTION_CREDIT,
@@ -159,6 +159,8 @@ class InflowFixture(unittest.TestCase):
                 "amount",
                 "row_status",
                 "bank_reference_no",
+                # #1259: the cheque column, which the stored match surface can carry.
+                "reference_id",
                 "added_on",
                 # B7 reads these two: the payer has nowhere else to go on a ledger with no vendor
                 # column, so `_default_description` folds them in.
@@ -217,7 +219,9 @@ class TestTheHappyPath(InflowFixture):
         self.assertEqual(inflow.customer, self.customer)
         self.assertEqual(Decimal(str(inflow.amount)), Decimal(str(row["amount"])))
         self.assertEqual(inflow.payment_date, row["added_on"].date())
-        self.assertEqual(inflow.utr, row["bank_reference_no"])
+        # #1259 (inverted): an ICICI credit stores its whole match surface, not the short reference.
+        self.assertEqual(inflow.utr, match_surface(row["remarks"], row["reference_id"]))
+        self.assertNotEqual(inflow.utr, row["bank_reference_no"])
         self.assertIsNone(inflow.invoice)
 
     def test_the_amount_is_a_real_number_because_the_column_is_Currency(self):
@@ -279,11 +283,13 @@ class TestTheHappyPath(InflowFixture):
 
 
 class TestALongReferenceIsWrittenWhole(InflowFixture):
-    """#1254: `Project Inflows.utr` is Text, so a long bank narration saves whole."""
+    """#1254: `Project Inflows.utr` is Text, so a long bank narration saves whole.
+
+    Since #1259 an ICICI credit stores its own narration, so the long text goes on `remarks`."""
 
     def test_creating_an_inflow_stores_the_whole_narration(self):
         row = self._next_credit_row()
-        narration = _give_row_a_long_reference(self, row["name"])
+        narration = _give_row_a_long_narration(self, row["name"])
 
         _, summary = self._record(row=row)
 
@@ -391,38 +397,85 @@ class TestTheDuplicateGuards(InflowFixture):
             create_inflow(row=twin.name, project=self.project)
         self.assertIn(summary["settled"]["name"], str(caught.exception))
 
-    def test_an_inflow_keyed_in_by_hand_blocks_the_import(self):
-        """The measured hole: 330 of 463 live inflows carry a `utr` and NONE came from this import."""
-        row = self._next_credit_row()
+    def _plant_inflow(self, row, utr, *, amount_delta=0):
         planted = frappe.new_doc(INFLOW_DOCTYPE)
         planted.update(
             {
                 "project": self.project,
                 "customer": self.customer,
-                "utr": row["bank_reference_no"],
-                "amount": format_amount_for(INFLOW_DOCTYPE, Decimal(str(row["amount"]))),
+                "utr": utr,
+                "amount": format_amount_for(
+                    INFLOW_DOCTYPE, Decimal(str(row["amount"])) + Decimal(amount_delta)
+                ),
                 "payment_date": row["added_on"].date(),
             }
         )
         planted.insert(ignore_permissions=True)
         frappe.db.commit()
-        self.inflows.append(planted.name)
+        # Removed after THIS test, not the class: a refused row stays open, so the next test picks the
+        # same row, and a planted record left behind would refuse it too.
+        self.addCleanup(self._purge_planted, planted.name)
+        return planted.name
 
-        with self.assertRaises(InflowNotRecordableError) as caught:
-            create_inflow(row=row["name"], project=self.project)
-        self.assertIn(planted.name, str(caught.exception))
+    @staticmethod
+    def _purge_planted(name):
+        frappe.db.delete("Version", {"ref_doctype": INFLOW_DOCTYPE, "docname": name})
+        frappe.db.delete(INFLOW_DOCTYPE, {"name": name})
+        frappe.db.commit()
 
-    def test_a_different_amount_on_the_same_reference_is_not_a_duplicate(self):
-        """⚠️ IDENTITY IS `(reference, amount, date)`, NOT THE REFERENCE ALONE -- the one rule in
-        `duplicates.row_identity`. A corrected figure is a different fact and must import."""
+    def _refusal(self, row):
+        """The refusal message; a create that was NOT refused is tracked for the purge, then fails.
+
+        A bare `assertRaises` leaks the inflow when the guard is reverted to show a test RED."""
+        try:
+            summary = create_inflow(row=row["name"], project=self.project)
+        except InflowNotRecordableError as refused:
+            return str(refused)
+        self.inflows.append(summary["settled"]["name"])
+        self.fail("create_inflow was not refused")
+
+    def test_an_inflow_keyed_in_by_hand_blocks_the_import(self):
+        """The measured hole: 330 of 463 live inflows carry a `utr` and NONE came from this import."""
         row = self._next_credit_row()
-        index = _already_booked(row["bank_reference_no"])
-        self.assertEqual(index, {}, "the fixture reference should not already be booked")
+        planted = self._plant_inflow(row, row["bank_reference_no"])
 
-    def test_the_booked_lookup_ignores_a_blank_reference(self):
-        """A blank key fails OPEN: never recognised as a repeat, which is the recoverable
-        direction. A duplicate somebody can see beats a real receipt silently refused."""
-        self.assertEqual(_already_booked(""), {})
+        self.assertIn(planted, self._refusal(row))
+
+    def test_an_inflow_carrying_the_whole_narration_blocks_the_import(self):
+        """#1259: an ICICI settle stores the narration, so the check must be the contains-match. The
+        old exact compare against `bank_reference_no` could never see this record."""
+        row = self._next_credit_row()
+        planted = self._plant_inflow(row, row["remarks"])
+
+        self.assertIn(planted, self._refusal(row))
+        self.assertNotEqual(
+            frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), ROW_SETTLED
+        )
+
+    def test_a_reference_with_words_around_it_inside_the_narration_blocks_the_import(self):
+        row = self._next_credit_row()
+        self.assertTrue(row["bank_reference_no"], "fixture precondition: the credit has a reference")
+        planted = self._plant_inflow(row, f"{row['bank_reference_no']} ICICI receipt")
+
+        self.assertIn(planted, self._refusal(row))
+
+    def test_a_different_amount_on_the_same_reference_is_not_refused(self):
+        """Inverted at #1259 (it asserted a private exact lookup). A hit whose amount is off by more
+        than the settle window does not refuse -- the match run leaves such a line Mismatched."""
+        row = self._next_credit_row()
+        self._plant_inflow(row, row["remarks"], amount_delta=500)
+
+        row, summary = self._record(row=row)
+        self.assertTrue(summary["settled"]["name"])
+
+    def test_a_junk_reference_inside_the_narration_does_not_refuse(self):
+        """Inverted at #1259 (it asserted a blank key). A reference with no eligible token --
+        `ICICI`, a short code -- never refuses a receipt, even when the narration contains it."""
+        row = self._next_credit_row()
+        self._plant_inflow(row, "ICICI")
+
+        row, summary = self._record(row=row)
+        self.assertTrue(summary["settled"]["name"])
 
     def test_the_import_lookup_ignores_a_blank_transfer_id(self):
         class _Bare:
@@ -600,7 +653,9 @@ class TestTheNonProjectReceipt(InflowFixture):
             ["payment_ref", "payment_date", "comment", "type", "payment_attachment"],
             as_dict=True,
         )
-        self.assertEqual(doc.payment_ref, row["bank_reference_no"])
+        # #1259 (inverted): an ICICI credit stores its whole match surface, not the short reference.
+        self.assertEqual(doc.payment_ref, match_surface(row["remarks"], row["reference_id"]))
+        self.assertNotEqual(doc.payment_ref, row["bank_reference_no"])
         self.assertEqual(doc.payment_date, row["added_on"].date())
         self.assertEqual(doc.type, self.non_project_type)
         # Visible provenance: the match record is durable but invisible on the expense form, and on

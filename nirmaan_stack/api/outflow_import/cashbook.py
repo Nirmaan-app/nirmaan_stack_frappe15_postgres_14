@@ -528,6 +528,7 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
                     bank_reference_no=raw.bank_reference_no,
                     reference_id=raw.reference_id,
                     transfer_id=raw.transfer_id,
+                    remarks=raw.remarks,
                     source=SOURCE,
                 )
                 or None,

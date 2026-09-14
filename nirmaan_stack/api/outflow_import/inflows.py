@@ -55,8 +55,8 @@ open.
 LOOKUPS BELOW EXIST. The constraint is `(transfer_id, target_doctype, target_name)` and a created
 record has a NEW `target_name` every time, so it never contends -- the identical hole the Cashbook
 slice hit, whose second lookup then caught 17 live expenses carrying a wallet id nobody had
-imported. Same shape here: `_already_created_by_import` and `_already_booked`, both keyed through
-the ONE identity rule in `services/outflow_import/duplicates.py`.
+imported. Same shape here: `_already_created_by_import`, keyed through the ONE identity rule in
+`services/outflow_import/duplicates.py`, and `_already_booked`, the ICICI contains-match (#1259).
 
 ⚠️ THOSE TWO LOOKUPS GUARD `create_inflow` ONLY, AND `create_non_project_receipt` DELIBERATELY HAS
 NO EQUIVALENT -- A KNOWN GAP, RECORDED HERE RATHER THAN DISCOVERED LATER. It writes the same ledger
@@ -80,7 +80,14 @@ from nirmaan_stack.api.outflow_import.expenses import (
     _summary,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
-from nirmaan_stack.api.outflow_import.review import MATCH_DOCTYPE, ROW_DOCTYPE, _refresh_batch_rollup
+from nirmaan_stack.api.outflow_import.review import (
+    MATCH_DOCTYPE,
+    ROW_DOCTYPE,
+    _recorded_group_for,
+    _refresh_batch_rollup,
+)
+from nirmaan_stack.services.outflow_import import candidates as C
+from nirmaan_stack.services.outflow_import.contains_guard import skip_basis
 from nirmaan_stack.services.outflow_import.duplicates import (
     find_prior_sighting,
     index_prior_sightings,
@@ -92,6 +99,10 @@ from nirmaan_stack.services.outflow_import.settle import (
     InflowNotRecordableError,
     create_inflow_from_row,
     create_non_project_receipt_from_row,
+)
+from nirmaan_stack.services.outflow_import.status import (
+    ROW_SKIPPED,
+    derive_duplicate_guard_outcome,
 )
 
 #: ⚠️ THERE IS NO `get_non_project_receipt_types` HERE, AND THERE MUST NOT BE. The receipt form's
@@ -324,20 +335,17 @@ def _guard_not_already_recorded(staged, doc) -> None:
     the import's OWN earlier work first, because that names a batch and a row the reader can go and
     look at, then a record booked outside this feature, which names only the record.
 
-    ⚠️ THE TWO LOOKUPS KEY ON DIFFERENT COLUMNS, AND THAT IS NOT AN INCONSISTENCY. An
-    `Outflow Row Match` carries the `transfer_id`; a `Project Inflow` carries a REFERENCE, in `utr`,
-    because that is what `create_inflow_from_row` writes there. Cashbook's pair happens to use one
-    value for both only because a wallet's transfer id IS its payment reference. Keying the second
-    lookup on `transfer_id` here would compare a bank tran-id against a NEFT/RTGS reference and
-    match nothing, silently -- a guard that always passes.
+    ⚠️ THE TWO LOOKUPS ASK DIFFERENT QUESTIONS ON DIFFERENT COLUMNS, AND THAT IS NOT AN INCONSISTENCY.
+    An `Outflow Row Match` carries the `transfer_id`; a `Project Inflow` carries a REFERENCE, in `utr`.
 
-    ⚠️ THIS GUARD STILL KEYS ON `bank_reference_no`, WHILE THE WRITE IS NOW `settlement_reference`
-    (ADR-0020 B9) -- and the mismatch is DELIBERATE, not an oversight left behind by that slice.
-    The resolved value may be a gateway id, and `reference_id` is not unique (2,237 rows carry 523
-    distinct values), so keying a duplicate guard on it would refuse an unrelated second receipt.
-    The cost is unchanged from before B9: a credit whose bank gave no reference is unseeable to
-    this second lookup either way -- it used to write a blank `utr`, it now writes a value this
-    guard does not compare. The FIRST lookup, on `transfer_id`, is what actually covers a re-import.
+    ⚠️ THE SECOND LOOKUP IS THE ICICI CONTAINS-MATCH (#1259), NOT AN EXACT COMPARE ON
+    `bank_reference_no`. An ICICI settle now stores the whole bank narration as `utr`, so an exact
+    compare would go blind to every inflow this import records; and a hand-typed reference sits
+    INSIDE the narration, not equal to the extracted one. It refuses exactly when the match run would
+    SKIP this line -- the same pool, the same picker (`review._recorded_group_for`, with the
+    one-record-one-line claims) and the same verdict (`status.derive_duplicate_guard_outcome` read
+    through `contains_guard.skip_basis`) -- so the screen and the button cannot disagree. A hit whose
+    amount is off does not refuse here; asking "record anyway?" is #1260's.
     """
     prior = find_prior_sighting(
         _already_created_by_import(staged),
@@ -352,14 +360,12 @@ def _guard_not_already_recorded(staged, doc) -> None:
             title="Already recorded",
         )
 
-    reference = (getattr(staged, "bank_reference_no", "") or "").strip()
-    booked = find_prior_sighting(
-        _already_booked(reference), reference, staged.amount, staged.added_on_date
-    )
+    booked = _already_booked(staged)
     if booked:
+        names = ", ".join(f"{t.doctype} {t.name}" for t in booked)
         frappe.throw(
-            f"{booked} already carries this bank reference. It was recorded outside this import; "
-            f"nothing has been recorded again.",
+            f"{names} already records this credit -- its reference is in this line's bank "
+            f"narration. Nothing has been recorded again.",
             InflowNotRecordableError,
             title="Already booked",
         )
@@ -413,55 +419,22 @@ def _already_created_by_import(staged) -> dict:
     )
 
 
-def _already_booked(reference: str) -> dict:
-    """Every `Project Inflow` already carrying this bank reference, whoever recorded it.
+def _already_booked(staged) -> tuple:
+    """The records this credit's match run would SKIP it on, or `()` (#1259).
 
-    ⚠️ A DIFFERENT QUESTION FROM `_already_created_by_import`, AND THE GAP BETWEEN THEM IS THE HOLE.
-    That one asks whether THIS import created a record. This asks whether the receipt is booked AT
-    ALL -- which it can be without this import ever having seen it, because recording an inflow by
-    hand is the ordinary way it is done today. Measured 2026-09-07: **330 of 463 live
-    `Project Inflows` carry a `utr`**, every one of them keyed in by hand -- `Outflow Row Match`
-    holds zero `Project Inflows` targets, so nothing in this feature has ever created one. All 463
-    carry a `payment_date`, so the date axis is populated on every row of the corpus this scans.
+    Whoever recorded them: a receipt keyed in by hand is the ordinary way it is done today (measured
+    2026-09-07: 330 of 463 live `Project Inflows` carry a `utr`, every one typed by hand).
 
-    ⚠️ NARROWED BY REFERENCE IN SQL, NOT IN PYTHON, and by ONE reference because this endpoint is
-    per-row. `utr` is unindexed; at 463 rows the sequential scan is free. Revisit past ~100k.
-
-    ⚠️ NO STATUS FILTER, because there is no status to filter on -- `Project Inflows` has none, which
-    is the fact this whole slice turns on.
-
-    THE AMOUNT COLUMN IS **Currency** since #1255 (it was Data, cast here with a `BTRIM <> ''` guard).
-    ⚠️ Never `BTRIM` it again: PostgreSQL has no `btrim(numeric)`, so the query errors outright.
-
-    A BLANK REFERENCE FAILS OPEN -- `index_prior_sightings` drops blank keys and
-    `find_prior_sighting` returns `None` for one, so such a row is never recognised as a repeat.
-    That is the recoverable direction: a duplicate somebody can see beats a real receipt silently
-    refused. (Measured: 0 of the ICICI credits in the corpus lack a reference.)
+    ⚠️ NO STATUS FILTER, because `Project Inflows` has none. The ledger by direction (a credit reads
+    inflows only), the token rules, the 15-day window and the amount window are all
+    `contains_guard`'s, applied through the one query `candidates.load_recorded_by_contains`.
     """
-    if not reference:
-        return {}
-    rows = frappe.db.sql(
-        f"""
-        SELECT BTRIM(utr) AS utr,
-               amount,
-               payment_date, name
-        FROM "tab{INFLOW_DOCTYPE}"
-        WHERE BTRIM(COALESCE(utr, '')) = %s
-          AND amount IS NOT NULL
-        ORDER BY creation ASC
-        """,
-        (reference,),
-        as_dict=True,
-    )
-    return index_prior_sightings(
-        (
-            r["utr"],
-            normalize_amount(r.get("amount")),
-            r.get("payment_date"),
-            f"{INFLOW_DOCTYPE} {r['name']}",
-        )
-        for r in rows
-    )
+    pool = C.load_recorded_by_contains([staged])
+    if not pool:
+        return ()
+    group = _recorded_group_for(staged, pool, C.load_record_claims(pool))
+    outcome = derive_duplicate_guard_outcome(staged, paid_duplicate=group)
+    return skip_basis(staged, group, outcome.status == ROW_SKIPPED)
 
 
 def _date_of(value):

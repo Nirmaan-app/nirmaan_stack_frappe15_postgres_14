@@ -11,15 +11,21 @@ test proving the matcher and the collision guard never do).
 
 import unittest
 
+from nirmaan_stack.services.outflow_import.contains_guard import match_surface
 from nirmaan_stack.services.outflow_import.parser import SUPPORTED_SOURCES
 from nirmaan_stack.services.outflow_import.settlement_reference import (
     resolve_settlement_reference,
     settlement_reference_of_row,
+    settlement_references_of_row,
 )
 from nirmaan_stack.services.outflow_import.sources import (
     TRANSFER_ID_REFERENCE_SOURCES,
     source_transfer_id_is_its_reference,
+    source_writes_its_match_surface,
 )
+
+
+ICICI = "ICICI Bank Statement"
 
 
 def _resolve(**overrides):
@@ -28,6 +34,7 @@ def _resolve(**overrides):
         "bank_reference_no": "",
         "reference_id": "",
         "transfer_id": "",
+        "remarks": "",
         "source": "Cashfree",
     }
     kwargs.update(overrides)
@@ -58,9 +65,62 @@ class TestTheLadder(unittest.TestCase):
     def test_nothing_anywhere_resolves_to_blank(self):
         self.assertEqual(_resolve(), "")
 
-    def test_every_supported_source_resolves_a_bank_reference_the_same_way(self):
+    def test_every_source_but_a_passbook_resolves_a_bank_reference_the_same_way(self):
+        """Inverted at #1259: a passbook with a narration now stores the narration (see
+        `TestTheBankStatementRung`). Every other source still stores its bank reference, even when
+        the row carries remarks."""
         for source in SUPPORTED_SOURCES:
-            self.assertEqual(_resolve(bank_reference_no="UTR123", source=source), "UTR123", source)
+            if source_writes_its_match_surface(source):
+                continue
+            self.assertEqual(
+                _resolve(bank_reference_no="UTR123", remarks="SOME REMARK 123456", source=source),
+                "UTR123",
+                source,
+            )
+
+
+class TestTheBankStatementRung(unittest.TestCase):
+    """#1259: an ICICI settle stores the line's whole MATCH SURFACE, so the contains-guard finds the
+    record again when the same money reappears on a later statement."""
+
+    NARRATION = "MMT/IMPS/600219693408/TEST VENDOR/UTIB0000052"
+
+    def test_a_passbook_stores_the_whole_narration_not_the_extracted_reference(self):
+        self.assertEqual(
+            _resolve(source=ICICI, remarks=self.NARRATION, bank_reference_no="600219693408"),
+            self.NARRATION,
+        )
+
+    def test_a_cheque_clearing_line_stores_the_narration_plus_its_cheque_number(self):
+        """Two cheques to one payee for one amount carry the same narration; the cheque number is
+        what keeps the second from reading as a duplicate of the first."""
+        self.assertEqual(
+            _resolve(source=ICICI, remarks="CLG/SUMAN ELECTRIC UDYOGS P/HSB", reference_id="004521"),
+            "CLG/SUMAN ELECTRIC UDYOGS P/HSB 004521",
+        )
+
+    def test_it_is_the_guards_own_surface_builder(self):
+        """⚠️ ONE FUNCTION FOR THE SEARCHED TEXT AND THE STORED TEXT. A second builder would store a
+        reference the guard cannot find again."""
+        for remarks, cheque in (
+            (self.NARRATION, ""),
+            (self.NARRATION, "000123"),
+            ("CLG/SUMAN ELECTRIC UDYOGS P/HSB", "004521"),
+            ("  BIL/INFT/PAYEE  ", ""),
+        ):
+            self.assertEqual(
+                _resolve(source=ICICI, remarks=remarks, reference_id=cheque),
+                match_surface(remarks, cheque),
+                (remarks, cheque),
+            )
+
+    def test_a_passbook_line_with_no_narration_falls_back_to_the_old_ladder(self):
+        self.assertEqual(_resolve(source=ICICI, remarks="  ", bank_reference_no="UTR9"), "UTR9")
+
+    def test_the_wallet_still_stores_its_transfer_id(self):
+        self.assertEqual(
+            _resolve(source="Cashbook", remarks="TEA 123456", transfer_id="OBO-1"), "OBO-1"
+        )
 
 
 class TestWhitespaceAndAbsence(unittest.TestCase):
@@ -87,7 +147,7 @@ class TestWhitespaceAndAbsence(unittest.TestCase):
         a backfill reads persisted rows."""
         self.assertEqual(
             resolve_settlement_reference(
-                bank_reference_no=None, reference_id=None, transfer_id=None, source=None
+                bank_reference_no=None, reference_id=None, transfer_id=None, remarks=None, source=None
             ),
             "",
         )
@@ -96,6 +156,7 @@ class TestWhitespaceAndAbsence(unittest.TestCase):
                 bank_reference_no=None,
                 reference_id=None,
                 transfer_id="TR-1",
+                remarks=None,
                 source="Cashbook",
             ),
             "TR-1",
@@ -192,6 +253,54 @@ class TestThePersistedRowAccessor(unittest.TestCase):
 
     def test_a_row_with_nothing_at_all_resolves_to_blank(self):
         self.assertEqual(settlement_reference_of_row({}), "")
+
+    def test_a_passbook_row_staged_before_1259_resolves_its_narration_at_read_time(self):
+        """⚠️ NO BACKFILL. A row staged earlier stored the short extracted reference; the ICICI rung
+        wins over that stored column, so it settles with the narration anyway."""
+        row = {
+            "settlement_reference": "600219693408",
+            "bank_reference_no": "600219693408",
+            "remarks": "MMT/IMPS/600219693408/TEST VENDOR",
+            "reference_id": "",
+            "transfer_id": "S123",
+            "source": ICICI,
+        }
+        self.assertEqual(settlement_reference_of_row(row), "MMT/IMPS/600219693408/TEST VENDOR")
+
+
+class TestWhatASettleMayHaveWritten(unittest.TestCase):
+    """`settlement_references_of_row` -- every value a settle of this row could have written, for the
+    reversal to recognise (#1259). A payment settled before #1259 carries the short reference."""
+
+    def test_a_passbook_row_staged_before_1259_offers_both(self):
+        row = {
+            "settlement_reference": "600219693408",
+            "bank_reference_no": "600219693408",
+            "remarks": "MMT/IMPS/600219693408/TEST VENDOR",
+            "reference_id": "",
+            "transfer_id": "S123",
+            "source": ICICI,
+        }
+        self.assertEqual(
+            settlement_references_of_row(row),
+            ("MMT/IMPS/600219693408/TEST VENDOR", "600219693408"),
+        )
+
+    def test_a_passbook_row_whose_column_already_holds_the_narration_offers_it_once(self):
+        row = {
+            "settlement_reference": "MMT/IMPS/600219693408/TEST VENDOR",
+            "bank_reference_no": "600219693408",
+            "remarks": "MMT/IMPS/600219693408/TEST VENDOR",
+            "source": ICICI,
+        }
+        self.assertEqual(settlement_references_of_row(row), ("MMT/IMPS/600219693408/TEST VENDOR",))
+
+    def test_a_gateway_row_offers_only_its_one_value(self):
+        row = {"settlement_reference": "", "bank_reference_no": "UTR-9", "source": "Cashfree"}
+        self.assertEqual(settlement_references_of_row(row), ("UTR-9",))
+
+    def test_a_row_with_nothing_offers_nothing(self):
+        self.assertEqual(settlement_references_of_row({}), ())
 
 
 if __name__ == "__main__":

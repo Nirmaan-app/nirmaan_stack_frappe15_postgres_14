@@ -84,6 +84,7 @@ __all__ = [
     "match_surface",
     "line_surface",
     "reference_tokens",
+    "reference_is_inside",
     "find_hits",
     "pick_recorded_group",
 ]
@@ -187,6 +188,18 @@ def reference_tokens(stored_reference: str | None) -> frozenset[str]:
         return frozenset()
     pieces = {p.upper() for p in _PIECE_SPLIT.split(str(stored_reference)) if p}
     return frozenset(t for t in (whole, *pieces) if _is_eligible(t))
+
+
+def reference_is_inside(reference: str | None, stored_reference: str | None) -> bool:
+    """Does an eligible token of `reference` appear inside `stored_reference`? (#1259)
+
+    The manual UTR guard's containment half (`reference_guard.assert_reference_is_free`). Since an
+    ICICI settle stores a whole narration, a UTR typed onto another payment is looked for INSIDE the
+    stored text, by the same token rules this guard uses -- turned around, because here the typed
+    reference is the needle. A junk or short reference therefore never refuses anything.
+    """
+    text = normalize_reference(stored_reference)
+    return bool(text) and any(t in text for t in reference_tokens(reference))
 
 
 def _is_eligible(token: str) -> bool:

@@ -557,6 +557,8 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str):
                     bank_reference_no=row.bank_reference_no,
                     reference_id=row.reference_id,
                     transfer_id=row.transfer_id,
+                    # #1259: a bank passbook resolves to the line's whole match surface.
+                    remarks=row.remarks,
                     source=parsed.source,
                 )
                 or None,

@@ -16,6 +16,7 @@ from nirmaan_stack.services.outflow_import.sources import (
     BANK_STATEMENT_SOURCES,
     source_has_preamble,
     source_has_settlement_path,
+    source_writes_its_match_surface,
 )
 
 
@@ -120,3 +121,29 @@ class TestThePreambleQuestion(unittest.TestCase):
             self.assertEqual(
                 source_has_preamble(source), not source_has_settlement_path(source), source
             )
+
+
+class TestTheMatchSurfaceQuestion(unittest.TestCase):
+    """Does a settle from this source store the line's whole match surface as the reference? (#1259)"""
+
+    def test_a_bank_passbook_does(self):
+        self.assertTrue(source_writes_its_match_surface("ICICI Bank Statement"))
+        self.assertTrue(source_writes_its_match_surface("  ICICI Bank Statement  "))
+
+    def test_a_gateway_and_the_wallet_do_not(self):
+        """Cashfree keeps its clean bank reference (the Cashfree guards compare it whole-string);
+        the wallet keeps its transaction id."""
+        self.assertFalse(source_writes_its_match_surface("Cashfree"))
+        self.assertFalse(source_writes_its_match_surface("Cashbook"))
+
+    def test_the_predicate_is_the_set_read_both_directions(self):
+        for source in SUPPORTED_SOURCES:
+            self.assertEqual(
+                source_writes_its_match_surface(source), source in BANK_STATEMENT_SOURCES, source
+            )
+
+    def test_an_unknown_source_writes_no_narration(self):
+        """⚠️ THE DEFAULT DECLINES TO WRITE. A narration landing in `utr` on a source nobody has
+        thought about would be a value no guard of that source has been taught to read."""
+        for source in ("", "   ", None, "Some Future Gateway"):
+            self.assertFalse(source_writes_its_match_surface(source), repr(source))

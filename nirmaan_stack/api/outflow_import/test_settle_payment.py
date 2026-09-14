@@ -1432,6 +1432,112 @@ class TestTheCollisionGuardNeverSeesTheResolvedReference(PaymentSettlementFixtur
         self.assertEqual(frappe.db.get_value(PAYMENT, payment, "status"), "Approved")
 
 
+def _unused_reference() -> str:
+    """A 12-digit reference nothing in the live ledger carries."""
+    return "8" + str(int(frappe.generate_hash(length=10), 16))[-11:].rjust(11, "0")
+
+
+class TestTheUTRGuardLooksInsideAStoredNarration(PaymentSettlementFixture):
+    """#1259: an ICICI settle stores the whole bank narration as `utr`, so the one UTR guard
+    (`reference_guard.assert_reference_is_free`) must also refuse a reference that sits INSIDE
+    another payment's stored text -- by the contains-guard's token rules. An exact compare alone
+    goes blind the moment the narration write lands. Both call sites move together."""
+
+    def _plant_a_narration_holder(self, reference):
+        holder = self._insert_payment(
+            amount=4321.0, status="Paid", link_po=False, payment_date=None,
+            utr=f"MMT/IMPS/{reference}/TEST VENDOR/UTIB0000052",
+        )
+        frappe.db.commit()
+        return holder
+
+    def test_a_hand_typed_utr_inside_another_payments_narration_is_refused(self):
+        from nirmaan_stack.api.payments.project_payments import _fulfil_payment
+
+        reference = _unused_reference()
+        holder = self._plant_a_narration_holder(reference)
+        target = self._insert_payment(amount=900.0, status="Approved", utr=None, payment_date=None)
+        frappe.db.commit()
+
+        with self.assertRaises(frappe.ValidationError) as caught:
+            _fulfil_payment(frappe.get_doc(PAYMENT, target), {"utr": reference})
+        self.assertIn(holder, str(caught.exception))
+        self.assertEqual(frappe.db.get_value(PAYMENT, target, "status"), "Approved")
+
+    def test_the_sql_pre_filter_finds_what_the_pure_rule_finds(self):
+        """The SQL `strpos` pre-filter must not be narrower than `reference_is_inside`: a stored
+        narration in lower case with whitespace inside the token still blocks."""
+        from nirmaan_stack.services.outflow_import.contains_guard import reference_is_inside
+        from nirmaan_stack.services.outflow_import.reference_guard import assert_reference_is_free
+
+        reference = _unused_reference()
+        stored = f"mmt / imps / {reference[:5]} {reference[5:]} / test vendor"
+        self.assertTrue(reference_is_inside(reference, stored), "precondition: the pure rule finds it")
+        holder = self._insert_payment(
+            amount=4321.0, status="Paid", link_po=False, payment_date=None, utr=stored
+        )
+        target = self._insert_payment(amount=900.0, status="Approved", utr=None, payment_date=None)
+        frappe.db.commit()
+
+        with self.assertRaises(frappe.ValidationError) as caught:
+            assert_reference_is_free(reference, target)
+        self.assertIn(holder, str(caught.exception))
+
+    def test_an_unrelated_utr_is_accepted(self):
+        from nirmaan_stack.services.outflow_import.reference_guard import assert_reference_is_free
+
+        reference = _unused_reference()
+        self._plant_a_narration_holder(reference)
+        target = self._insert_payment(amount=900.0, status="Approved", utr=None, payment_date=None)
+        frappe.db.commit()
+
+        assert_reference_is_free(_unused_reference(), target)  # does not raise
+
+    def test_the_import_refuses_a_bank_reference_inside_a_narration_too(self):
+        reference = _unused_reference()
+        self._plant_a_narration_holder(reference)
+        row = self._stage_one(bank_reference_no=reference, reference_id="")
+        payment = self._insert_payment(
+            amount=float(row.amount), status="Approved", utr=None, payment_date=None
+        )
+        frappe.db.commit()
+
+        with self.assertRaises(DuplicateReferenceError):
+            settle_row(row.name, PAYMENT, payment)
+        self.assertEqual(frappe.db.get_value(PAYMENT, payment, "status"), "Approved")
+
+
+class TestAnICICISettleToAPaymentStoresTheFullNarration(PaymentSettlementFixture):
+    """#1259: settling an ICICI row onto a payment writes the line's whole match surface as `utr`;
+    a Cashfree row keeps its clean bank reference."""
+
+    ICICI = "ICICI Bank Statement"
+
+    def _settle(self, references):
+        row = self._staged_row(amount="100", references=references)
+        payment = self._approved_payment("100")
+        settle_row(row, PAYMENT, payment)
+        return frappe.db.get_value(PAYMENT, payment, "utr")
+
+    def test_an_icici_row_stores_the_narration(self):
+        reference = _unused_reference()
+        narration = f"MMT/IMPS/{reference}/TEST VENDOR/UTIB0000052"
+        utr = self._settle({"source": self.ICICI, "bank_reference_no": reference, "remarks": narration})
+        self.assertEqual(utr, narration)
+
+    def test_an_icici_cheque_clearing_row_stores_narration_and_cheque_number(self):
+        utr = self._settle({
+            "source": self.ICICI, "bank_reference_no": "", "reference_id": "004521",
+            "remarks": "CLG/SUMAN ELECTRIC UDYOGS P/HSB",
+        })
+        self.assertEqual(utr, "CLG/SUMAN ELECTRIC UDYOGS P/HSB 004521")
+
+    def test_a_cashfree_row_stores_its_bank_reference_not_its_remarks(self):
+        reference = _unused_reference()
+        utr = self._settle({"bank_reference_no": reference, "remarks": f"PAYOUT {reference} VENDOR"})
+        self.assertEqual(utr, reference)
+
+
 class TestALongReferenceIsWrittenWhole(PaymentSettlementFixture):
     """#1254: `Project Payments.utr` is Text, so a long bank narration saves whole."""
 

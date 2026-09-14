@@ -1470,6 +1470,9 @@ class TestSettlementReferenceBackfillPatch(unittest.TestCase):
                     bank_reference_no=row["bank_reference_no"],
                     reference_id=row["reference_id"],
                     transfer_id=row["transfer_id"],
+                    # Every case here is a gateway or the wallet; the patch predates the passbook
+                    # rung (#1259), which resolves at read time and needs no backfill.
+                    remarks="",
                     source=source,
                 ),
                 f"{name} ({source}) -- the patch's SQL and the resolver disagree",

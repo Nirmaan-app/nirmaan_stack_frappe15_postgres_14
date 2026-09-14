@@ -51,7 +51,7 @@ from nirmaan_stack.api.outflow_import.review import (
     search_settleable_records,
     skip_row,
 )
-from nirmaan_stack.api.outflow_import.expenses import allocate_row, settle_row
+from nirmaan_stack.api.outflow_import.expenses import allocate_row, create_expense, settle_row
 from nirmaan_stack.api.outflow_import.test_allocate_row import AllocationFixture
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
 from nirmaan_stack.services.outflow_import import candidates as C
@@ -5254,6 +5254,134 @@ class TestOneRecordJustifiesOneLineAcrossImports(OutflowReviewFixture):
         match_batch(self.second.name)
         self.assertEqual(self._rows(self.first.name), self.after_first)
         self.assertEqual(self._rows(self.second.name), self.after_second)
+
+
+class TestAnICICISettleIsFoundAgainWhenItsMoneyReappears(OutflowReviewFixture):
+    """#1259: an ICICI settle stores the line's whole match surface, so a LATER statement carrying the
+    same money is recognised by the contains-match -- and two cheques that only differ by number stay
+    apart.
+
+    ⚠️ RECOGNISED, NOT SKIPPED. The record was created by an import row, so by the #1258 rule (one
+    record justifies one line, across all imports) it cannot skip a DIFFERENT line: the later line is
+    `Mismatched` with a note naming the record and the batch it was recorded from. (Re-uploading the
+    very same statement line is caught earlier, at upload, by its identity.)
+
+    The GST-challan line is chosen because the parser extracts NO reference from it (`GIB/...`), so
+    before #1259 its settle stored nothing a later statement could find.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tid_prefix = f"T1259{frappe.generate_hash(length=6).upper()}"
+        cls.gst_ref = _random_reference()
+        # LETTERS plus a lone digit: no piece is an eligible token on its own, but the whole narration
+        # is -- exactly the shape where only the cheque number keeps two cheques apart. (A payee piece
+        # with its own digits, `ABC2021`, would be a token and would match both; that is #1257's rule.)
+        letters = frappe.generate_hash(length=6).upper().translate(str.maketrans("0123456789", "GHIJKLMNOP"))
+        cls.payee = f"TEST{letters} ELECTRIC 2"
+        super().setUpClass()
+
+    @classmethod
+    def _line(cls, key, narration, amount, *, cheque="", day=_GUARD_DAY):
+        return {
+            "key": key, "tid": f"{cls.tid_prefix}{key.upper()}", "narration": narration,
+            "amount": amount, "credit": False, "cheque": cheque, "day": day,
+        }
+
+    @classmethod
+    def _plant_targets(cls):
+        cls.gst_narration = f"GIB/{cls.gst_ref}/DTAX TESTCHALLAN"
+        cls.cheque_narration = f"CLG/{cls.payee} P/HSB"
+        cls.first = _stage_icici_statement(
+            [
+                cls._line("gst", cls.gst_narration, 18630),
+                cls._line("chq", cls.cheque_narration, 45000, cheque="004521"),
+            ],
+            f"test-1259-first-{cls.tid_prefix}.csv",
+        )
+        cls.batches.append(cls.first.name)
+        expense_type = frappe.db.get_value("Expense Type", {"non_project": 1, "project": 0}, "name")
+        cls.first_rows = cls._rows(cls.first.name)
+        cls.rec = {}
+        for key in ("gst", "chq"):
+            result = create_expense(cls.first_rows[key]["name"], "Non Project Expenses", expense_type)
+            cls.rec[key] = result["settled"]["name"]
+            cls.non_project_expenses.append(cls.rec[key])
+
+        later = _GUARD_DAY + timedelta(days=3)
+        cls.second = _stage_icici_statement(
+            [
+                cls._line("gst2", cls.gst_narration, 18630, day=later),
+                cls._line("chq2", cls.cheque_narration, 45000, cheque="004522", day=later),
+            ],
+            f"test-1259-second-{cls.tid_prefix}.csv",
+        )
+        cls.batches.append(cls.second.name)
+        frappe.db.commit()
+        match_batch(cls.second.name)
+        cls.after_second = cls._rows(cls.second.name)
+
+        # The SAME statement line uploaded again, in a new file.
+        cls.again = _stage_icici_statement(
+            [cls._line("gst", cls.gst_narration, 18630)], f"test-1259-again-{cls.tid_prefix}.csv",
+        )
+        cls.batches.append(cls.again.name)
+        frappe.db.commit()
+        match_batch(cls.again.name)
+        cls.after_again = cls._rows(cls.again.name)
+
+    @classmethod
+    def tearDownClass(cls):
+        for name in cls.non_project_expenses:
+            frappe.db.delete("Version", {"ref_doctype": "Non Project Expenses", "docname": name})
+            frappe.db.delete(
+                "File", {"attached_to_doctype": "Non Project Expenses", "attached_to_name": name}
+            )
+        super().tearDownClass()
+
+    @classmethod
+    def _rows(cls, batch):
+        rows = frappe.get_all(
+            ROW_DOCTYPE, filters={"import_batch": batch},
+            fields=["name", "transfer_id", "row_status", "outcome_note", "bank_reference_no"],
+        )
+        return {r["transfer_id"][len(cls.tid_prefix):].lower(): r for r in rows}
+
+    def _links(self, batch):
+        return {
+            r["transfer_id"][len(self.tid_prefix):].lower(): {e["target_name"] for e in r["related_records"]}
+            for r in get_batch_rows(batch)["rows"]
+        }
+
+    def test_the_settles_stored_the_whole_match_surface(self):
+        self.assertFalse(self.first_rows["gst"]["bank_reference_no"], "precondition: no extracted reference")
+        self.assertEqual(
+            frappe.db.get_value("Non Project Expenses", self.rec["gst"], "payment_ref"), self.gst_narration
+        )
+        self.assertEqual(
+            frappe.db.get_value("Non Project Expenses", self.rec["chq"], "payment_ref"),
+            f"{self.cheque_narration} 004521",
+        )
+
+    def test_the_same_money_on_a_later_statement_is_recognised_naming_the_record(self):
+        row = self.after_second["gst2"]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertIn("Non Project Expense", row["outcome_note"] or "")
+        self.assertIn(f"recorded from batch {self.first.name}", row["outcome_note"] or "")
+        self.assertEqual(self._links(self.second.name)["gst2"], {self.rec["gst"]})
+
+    def test_re_importing_the_settled_line_itself_is_skipped(self):
+        """The acceptance line's re-import: the same statement line in a new file lands Skipped --
+        caught at upload by its identity, and the match run leaves a Skipped row frozen."""
+        self.assertEqual(self.after_again["gst"]["row_status"], ROW_SKIPPED)
+        self.assertIn(self.first.name, self.after_again["gst"]["outcome_note"] or frappe.db.get_value(
+            ROW_DOCTYPE, self.after_again["gst"]["name"], "skip_reason") or "")
+
+    def test_a_second_cheque_with_the_same_narration_and_amount_is_not_skipped(self):
+        row = self.after_second["chq2"]
+        self.assertNotEqual(row["row_status"], ROW_SKIPPED)
+        self.assertNotIn("already accounts", row["outcome_note"] or "")
+        self.assertNotIn(self.rec["chq"], self._links(self.second.name)["chq2"])
 
 
 @dataclass

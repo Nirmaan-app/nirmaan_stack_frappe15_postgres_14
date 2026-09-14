@@ -94,6 +94,7 @@ pick one ad-hoc; ask.
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
 | **Which Paid records a GATEWAY row already duplicates** (#1256) | `api/outflow_import/review._paid_duplicate_pools` (over `candidates.load_paid_payments_by_reference` + `load_paid_expenses_by_reference`) builds the pools; `services/outflow_import/status.pick_duplicate_group` (pure) picks the group | compose the already-recorded pools a second time, or concatenate them before the pick. Both readers — the gateway run and `_related_records` for gateway rows — call the one builder, so a row is never skipped on a record its link omits. ⚠️ GATEWAY-ONLY since #1257: the `has_settlement_path` flag is gone because no bank-statement caller is left. ⚠️ The pick order `payments → expenses → both` is what keeps the pre-#1256 payment skip unchanged |
 | **Whether an ICICI line's money is already recorded** (#1257, the contains-guard) | `services/outflow_import/contains_guard.py` (pure: `reference_tokens`, `match_surface`, `ledgers_for_direction`, `find_hits`, `pick_recorded_group`, `CONTAINS_GUARD_WINDOW_DAYS`); its ONE query `candidates.load_recorded_by_contains`; both the ICICI run and `_related_records` call `review._recorded_group_for` | tokenise a reference, build a match surface, map a direction to ledgers or apply the 15-day window anywhere else. ⚠️ **`match_surface` is the one function for the searched text AND (from #1259) the text a settle stores** — two builders would write a reference the guard cannot find again. ⚠️ The query's SQL tokenising MIRRORS `reference_tokens` and may never be NARROWER than it; the pure module re-applies every rule. ⚠️ Never port these rules to the Cashfree guards and never widen `matcher.match_by_reference` — the heuristic skip is an owner ruling for ICICI only |
+| **What reference a settlement WRITES** (B9; the ICICI rung at #1259) | `services/outflow_import/settlement_reference.py` (`resolve_settlement_reference` at ingest, `settlement_reference_of_row` at settle, `settlement_references_of_row` for the reversal) + `sources.source_writes_its_match_surface` | decide per write site what goes into `utr` / `payment_ref`. ⚠️ For a bank passbook it is `contains_guard.match_surface` and nothing else. ⚠️ **ORDERING RULE: the full-narration write may never ship ahead of the contains-match** -- every exact guard is blind to a stored narration |
 | **Where a settled/matched record's link GOES** (E3; inflows at #1253) | `frontend/.../outflow-import/outflowTableModel.ts` (`settlementLink`, `orderPaymentsHref`) + `review._payment_order_names` / `_with_order_names` server-side; an inflow's URL is `inflow-payments/config/inflowPaymentsTable.config.ts` (`inflowHref`, over the ONE key builder `buildInflowUrlSyncKey` the inflow page also reads) | build a payments URL at a render site, or render one through a raw `<a href>`. A payment links to its ORDER (`/project-payments/<id>` with `/` escaped as `&=`) because that is what the app's other twelve call sites do; `paymentHref`'s search-param scheme is the FALLBACK only. ⚠️ The router carries a `basename` (`VITE_BASE_NAME`: `""` dev, `'frontend'` prod), so an anchor resolves to the SERVER ROOT and 404s in production while working in dev |
 | **How a duplicate note names the records behind it** (#1253) | `services/outflow_import/status.py` (`_record_sentence`, `_records_phrase`, `SKIP_REASON_ALREADY_PAID` / `_RECEIVED`) — pure; ledger nouns from `ledgers.LEDGER_NOUNS`; the link data is `review._related_records` (`related_records`) | print a bare expense id (a random hash), call an inflow "Paid", or offer the TDS hint on a group with no Project Payment. `_related_records` must read the SAME source as the duplicate guard, or a skipped row names a record it cannot link |
 | **The record's date, and which date it IS** (E2) | `frontend/.../outflow-import/outflowTableModel.ts` (`recordDateParts`, `RECORD_DATE_LABELS`) | render an approval/updated distinction inline. `recordSortDate` merges the two for ORDERING only -- an ordering claims nothing about meaning; a LABEL does |
@@ -4258,3 +4259,82 @@ Same 869 lines as #1257, in match-run order: **196 skips without the rule, 196 w
   blocked group unlinked (1). `test_a_skip_writes_no_match_record...` is a design pin (green under
   every probe by nature).
 - Helper `_stage_icici_statement` now builds every synthetic ICICI statement in `test_review`.
+
+## #1259 (2026-09-14) — ICICI settles store the full bank narration as the reference
+
+**What.** When an ICICI row settles a record or creates one, `utr` / `payment_ref` now holds the line's
+whole MATCH SURFACE -- `contains_guard.match_surface`: the narration, plus the cheque number on a
+cheque-clearing line with no run of 6+ digits -- instead of the short reference the parser extracts.
+Cashfree keeps its clean bank reference; Cashbook keeps its transaction id. Why: the parser extracts no
+reference at all from many lines (a GST challan `GIB/<number>/DTAX ...`, FD closures), so their record
+stored nothing a later statement could find; storing the surface lets the contains-guard find it again.
+
+### ⚠️ The ordering rule
+
+**The full-narration write must never ship ahead of the contains-match (#1257).** An exact compare of
+a short reference against a stored narration finds nothing, so every exact guard goes blind to an
+ICICI-settled record. Every guard that reads a stored reference therefore sees a narration now:
+
+| Reader | Before | Now |
+|---|---|---|
+| ICICI match run | contains-guard (#1257) | unchanged |
+| Manual UTR / import collision guard (`reference_guard.assert_reference_is_free`) | `utr = typed` | `utr = typed` **or** the stored `utr` CONTAINS an eligible token of it (`contains_guard.reference_is_inside`, same token rules). Both call sites (`_fulfil_payment`, `settle._assert_reference_is_free`) get it -- one function. SQL `strpos` pre-filter, pure predicate confirms |
+| Create inflow's second duplicate lookup (`inflows._already_booked`) | exact `BTRIM(utr) = bank_reference_no` + identity | the contains-match: same pool, same picker with #1258 claims, same verdict (`derive_duplicate_guard_outcome` → `skip_basis`). Refuses exactly when the match run would SKIP. Amount-off hits do not refuse (the "anyway?" flow is #1260) |
+| Reversal (`reverse_allocation` → `_revert_payment`) | stored `utr` == one value | stored `utr` in `settlement_references_of_row(row)`: the current surface AND the pre-#1259 value, so earlier ICICI settles stay reversible |
+| Cashfree guards (`load_paid_*_by_reference`) | whole-string exact | **unchanged** (owner ruling) -- a Cashfree row cannot see an ICICI-settled narration; accepted |
+
+### No backfill
+
+`settlement_reference_of_row` recomputes the surface from the row's own `remarks` + `reference_id` for
+a passbook row EVEN WHEN the column is filled -- a row staged before #1259 stored the short reference.
+New uploads store the surface at ingest through the same resolver (`remarks` is now a REQUIRED keyword
+of `resolve_settlement_reference`, so no caller can silently drop the rung). The B9 backfill patch is
+append-only history and still restates the old ladder; for ICICI the read-time rung supersedes it.
+
+### ⚠️ A re-imported line is RECOGNISED, not SKIPPED
+
+The ticket said "re-importing ... → Skipped by the contains-match". Under #1258 a record created or
+settled by an import row cannot skip a DIFFERENT line, so a later statement's line on that money lands
+`Mismatched` with *"... already accounts for another statement line (recorded from batch B)"* and links
+the record. Re-uploading the very same line is still caught at upload by its identity. #1258 is the
+newer owner rule and was kept.
+
+### ⚠️ Cheque twins -- the cheque number only helps when no payee piece is a token
+
+Two cheques with identical narration and amount stay apart because the stored whole token ends in the
+first cheque's number. But a payee PIECE that is itself an eligible token (6+ chars with a digit, e.g.
+`INFRA2021`) matches both lines regardless -- that is #1257's token rule, not changed here.
+
+### ⚠️ Two consequences of putting containment in the ONE UTR guard (flagged at review, kept)
+
+- **It also runs when an import settles a payment** (`settle_row` / `allocate_row`, Cashfree too), not only
+  on the manual fulfil. `reference_guard`'s standing rule is that its two call sites MOVE TOGETHER -- a
+  guard only one of them knows about refuses a person on a value the other path wrote. So a Cashfree bank
+  reference sitting inside another payment's stored ICICI narration is now a hard refusal on settle, like
+  an exact collision always was. The "…anyway?" confirmation for Create/Link is #1260's; if the owner
+  wants the import side confirmable rather than refused, that is where it goes.
+- **A typed reference is split into pieces**, the same eligibility rules as the contains-guard: typed
+  `610415565123 ICICI` is found by its `610415565123` piece. A typed value with an unrelated 6+-char
+  digit-bearing piece (`INV 2024-000123` → `000123`) refuses wherever that piece appears in a stored `utr`.
+  Accepted as "same eligibility rules" (#1252); narrow to the whole typed token if it misfires in use.
+
+### Tests (every new one shown RED under a reverted rule)
+
+- Pure: `test_settlement_reference` (`TestTheBankStatementRung`, read-time rung, `TestWhatASettleMayHaveWritten`),
+  `test_sources.TestTheMatchSurfaceQuestion`, `test_contains_guard.TestAReferenceInsideAStoredOne`.
+- API: ICICI settle to a payment / cheque line / Cashfree control (`test_settle_payment`), settle to an
+  expense / create expense / cheque line / Cashfree control (`test_expenses`), create inflow + non-project
+  receipt pins INVERTED to the surface (`test_inflows`), the UTR guard inside a narration + the import
+  side + an unrelated UTR (`test_settle_payment`), Create-inflow contains-match (narration, words-around;
+  amount-off and junk no longer refuse -- two pinned tests inverted), reversal of a narration leg, a
+  pre-#1259 leg, and a re-pointed control (`test_reverse_allocation`), and a later statement's line
+  recognised + a cheque twin not matched + the SAME line re-uploaded lands Skipped (a pin on the upload
+  identity check, green by nature) (`test_review.TestAnICICISettleIsFoundAgainWhenItsMoneyReappears`),
+  and the UTR guard's SQL pre-filter finds a lower-case, space-split narration the pure rule finds
+  (`test_the_sql_pre_filter_finds_what_the_pure_rule_finds`, RED with an un-normalised `strpos`).
+- RED probes: ICICI rung off (16 RED, Cashfree controls green); cheque number dropped (4); containment
+  off (5); inflow lookup back to exact (2); reversal accepting only the current value (1).
+- ⚠️ Refusal tests in `test_inflows` go through `_refusal` and plant with a per-test purge: a bare
+  `assertRaises` LEAKED real inflows when the guard was reverted, and a planted record left for the class
+  refused the next test's (same, still-open) row.
+

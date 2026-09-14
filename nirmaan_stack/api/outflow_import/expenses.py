@@ -73,7 +73,7 @@ from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.amounts import to_decimal
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
 from nirmaan_stack.services.outflow_import.settlement_reference import (
-    settlement_reference_of_row,
+    settlement_references_of_row,
 )
 # ⚠️ THE SPLIT LIVES IN `services/payment_split.py`, THE SAME MODULE THE CEO PARTIAL APPROVAL USES,
 # and this import is the whole reason it was generalised rather than copied (ADR-0010 B1, slice
@@ -521,10 +521,14 @@ def reverse_allocation(match: str, reason: str):
     # settle with its gateway reference and then be permanently UN-REVERSIBLE, refused with a
     # message blaming a third party for re-pointing it. That is exactly the 61 rows this slice
     # exists for. Found by review, not by a test -- no suite settled such a row and then reversed it.
+    #
+    # ⚠️ #1259: AN ICICI SETTLE WRITES THE WHOLE NARRATION, and one made before #1259 wrote the short
+    # reference -- so the reversal accepts EVERY value a settle of this row may have written
+    # (`settlement_references_of_row`). `remarks` is selected because the narration is built from it.
     row = frappe.db.get_value(
         ROW_DOCTYPE,
         leg.import_row,
-        ["name", "bank_reference_no", "reference_id", "transfer_id", "source",
+        ["name", "bank_reference_no", "reference_id", "transfer_id", "source", "remarks",
          "settlement_reference", "import_batch"],
         as_dict=True,
     )
@@ -532,7 +536,7 @@ def reverse_allocation(match: str, reason: str):
     savepoint = f"ofi_rev_{frappe.generate_hash(length=10)}"
     frappe.db.savepoint(savepoint)
     try:
-        _revert_payment(leg.target_name, settlement_reference_of_row(row), actor)
+        _revert_payment(leg.target_name, settlement_references_of_row(row), actor)
         doc = frappe.get_doc(MATCH_DOCTYPE, leg.name)
         doc.match_kind = MATCH_REVERSED
         doc.reversed_at = frappe.utils.now_datetime()
@@ -634,8 +638,11 @@ def _guard_leg_is_plainly_reversible(leg) -> None:
         )
 
 
-def _revert_payment(name: str, expected_reference: str, actor: str) -> None:
+def _revert_payment(name: str, expected_references: tuple[str, ...], actor: str) -> None:
     """Put the payment back to Approved, under a row lock, only if it still looks like ours.
+
+    `expected_references` is every value this transfer's settle may have written (#1259); a stored
+    `utr` equal to any of them is ours.
 
     ⚠️ `doc.save()`, NOT `db.set_value`. The status is going `Paid -> Approved`, which is exactly
     the transition `update_parent_amount_paid` watches -- and it SUMS the Paid payments rather than
@@ -675,7 +682,7 @@ def _revert_payment(name: str, expected_reference: str, actor: str) -> None:
             title="Changed elsewhere",
         )
     stored = (current.get("utr") or "").strip()
-    if stored and stored != (expected_reference or "").strip():
+    if stored and stored not in {(r or "").strip() for r in expected_references}:
         frappe.throw(
             f"{name} carries reference '{stored}', not this transfer's. Somebody has re-pointed "
             f"it, so this allocation cannot be safely reversed.",

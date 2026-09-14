@@ -29,3 +29,15 @@ def _give_row_a_long_reference(test, row_name):
         frappe.db.get_value(ROW_DOCTYPE, row_name, "settlement_reference"), narration
     )
     return narration
+
+
+def _give_row_a_long_narration(test, row_name):
+    """Save a long narration as the row's `remarks` -- what an ICICI settle stores since #1259, which
+    reads the passbook line's own narration rather than `settlement_reference`."""
+    narration = _long_narration()
+    doc = frappe.get_doc(ROW_DOCTYPE, row_name)
+    doc.remarks = narration
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    test.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row_name, "remarks"), narration)
+    return narration

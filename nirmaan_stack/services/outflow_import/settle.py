@@ -293,9 +293,14 @@ def _settlement_reference_of(row) -> str:
     source's old per-site remedy was exactly that, and it is why the payment path stayed broken for
     that source.
 
-    ⚠️ IT IS NOT THE BANK'S REFERENCE AND MUST NEVER BE HANDED TO A GUARD OR A MATCHER. The value may
-    be a payment gateway's own `reference_id`, which is not unique (2,237 rows, 523 distinct values),
-    or a wallet transaction id. `settle_payment` GUARDS on `bank_reference_no` and WRITES this.
+    ⚠️ THE ROW'S VALUE IS NEVER HANDED TO A GUARD OR A MATCHER. On a gateway row it may be the
+    gateway's own `reference_id`, which is not unique (2,237 rows, 523 distinct values), or a wallet
+    transaction id. `settle_payment` GUARDS on `bank_reference_no` and WRITES this.
+
+    ⚠️ ON AN ICICI ROW IT IS THE LINE'S WHOLE MATCH SURFACE (#1259) -- the narration, plus the cheque
+    number on a cheque-clearing line -- and once WRITTEN onto the ledger it is exactly what the ICICI
+    contains-guard searches for, by design. See `settlement_reference`'s module docstring, including
+    the ordering rule that this write may never ship ahead of the contains-match.
 
     Returns `""` when the row has nothing to offer; every call site turns that into an explicit
     `None`, which is what the four non-payment sites have always written.
