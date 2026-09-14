@@ -13,6 +13,8 @@ interface InflowSummaryCardProps {
     searchTerm: string;
     projectName?: string;
     customerName?: string;
+    /** Overrides the desktop title. Non-Project Inflows (#1265) reuses this card with its own name. */
+    title?: string;
 }
 
 // Helper component to display active filters
@@ -66,8 +68,10 @@ export const InflowSummaryCard: React.FC<InflowSummaryCardProps> = ({
     searchTerm,
     projectName,
     customerName,
+    title,
 }) => {
     const getTitle = () => {
+        if (title) return title;
         if (projectName) return `Inflow Summary — ${projectName}`;
         if (customerName) return `Inflow Summary — ${customerName}`;
         return "Inflow Summary";

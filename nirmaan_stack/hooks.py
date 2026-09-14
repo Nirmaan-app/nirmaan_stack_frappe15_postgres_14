@@ -112,6 +112,17 @@ app_license = "mit"
 # 	"Event": "frappe.desk.doctype.event.event.has_permission",
 # }
 
+# Non Project Inflows (#1265): the access table is per PROFILE and role rows cannot express it --
+# System Manager, the only deleting role, also rides on PMO / Project Lead / Estimates / HR / Design
+# Lead. These two narrow it (a has_permission hook can only deny, never grant).
+has_permission = {
+    "Non Project Inflows": "nirmaan_stack.integrations.controllers.non_project_inflows.has_permission",
+}
+
+permission_query_conditions = {
+    "Non Project Inflows": "nirmaan_stack.integrations.controllers.non_project_inflows.get_permission_query_conditions",
+}
+
 # DocType Class
 # ---------------
 # Override standard doctype classes
@@ -169,6 +180,11 @@ doc_events = {
         # `projects.on_update` (only when the project window changes), so we
         # don't list it as a separate doc_event here.
         "on_update": "nirmaan_stack.nirmaan_stack.doctype.projects.projects.on_update"
+    },
+    "Non Project Inflows": {
+        # Claim the loose receipt File the add dialog uploaded before the record existed. Frappe's
+        # own `attach_files_to_document` skips the GCP attachment app's `/api/method/...` URLs.
+        "on_update": "nirmaan_stack.integrations.controllers.non_project_inflows.adopt_receipt_file"
     },
     "Project Progress Reports": {
         # Adopt capture-time DPR photo Files (uploaded before the report existed,

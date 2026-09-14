@@ -41,6 +41,7 @@ import Customers from "@/pages/customers/customers";
 import Dashboard from "@/pages/dashboard";
 import { PDF } from "@/pages/pdf";
 import { InFlowPayments } from "@/pages/inflow-payments/InFlowPayments";
+import { NonProjectInflows } from "@/pages/non-project-inflows/NonProjectInflows";
 import { ProjectForm } from "@/pages/projects/project-form/index";
 import { NewProjectChoice } from "@/pages/projects/new-project/NewProjectChoice";
 import { TenderingProjectForm } from "@/pages/projects/tendering/TenderingProjectForm";
@@ -60,6 +61,7 @@ import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewP
 import {
   BOQ_TEMPLATES_ACCESS,
   CUSTOMERS_ACCESS,
+  NON_PROJECT_INFLOWS_ACCESS,
   PROJECT_INVOICES_ACCESS,
   UPLOAD_BOQ_ACCESS,
 } from "@/constants/roles";
@@ -618,6 +620,18 @@ export const appRoutes: RouteObject[] = [
             children: [
               { index: true, element: <InFlowPayments /> },
             ]
+          },
+          // --- Non-Project Inflows (#1265) --- company money-in with no project / customer.
+          // Narrower than In-Flow Payments: no Sales, no Project Lead. The sidebar item reads the
+          // same constant, so the link and the guard cannot drift apart.
+          {
+            element: <RoleRoute allowed={NON_PROJECT_INFLOWS_ACCESS} what="Non-Project Inflows" />,
+            children: [
+              {
+                path: "non-project-inflows",
+                children: [{ index: true, element: <NonProjectInflows /> }],
+              },
+            ],
           },
 
           // --- Users Section ---

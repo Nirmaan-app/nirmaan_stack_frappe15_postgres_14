@@ -47,6 +47,7 @@
 | **Project Invoices** | Legacy invoice tracking (being replaced by Vendor Invoices) |
 | **Project Expenses** | Project-related expenses |
 | **Project Inflows** | Revenue/cash inflows |
+| **Non Project Inflows** | Company money received with no project/customer (Interest Payouts, FD Closures, Loan Received, Others). Autoname `NPI-.YY.-.#####`, no status. See [domain/non-project-inflows.md](domain/non-project-inflows.md) |
 | **Non Project Expenses** | Overhead expenses |
 | **Expense Type** | Expense categorization |
 | **Target Rates** | Historical rate benchmarks |

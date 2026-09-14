@@ -325,3 +325,26 @@ export const PAYMENT_TDS_ACCESS: readonly string[] = [
   ACCOUNTANT_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
 ];
+
+/**
+ * `/non-project-inflows` — company money received with no project or customer (#1265).
+ *
+ * Three sets because the three actions differ (ADR-0016 Amendment A): an Accountant creates
+ * but does not edit, and only Admin deletes. Sales profiles are in none of them.
+ *
+ * ⚠️ THE SERVER IS THE ENFORCEMENT BOUNDARY; these only shape the UI. It enforces the same
+ * three sets BY PROFILE (`services/role_profiles.NON_PROJECT_INFLOWS_*_PROFILES`, applied by
+ * the doctype's `has_permission` / list hooks), because role rows cannot: `System Manager`,
+ * the only role that deletes, also rides on PMO, Project Lead, Estimates, HR and Design Lead.
+ * Change a set here only together with its server twin.
+ */
+export const NON_PROJECT_INFLOWS_ACCESS: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+export const NON_PROJECT_INFLOWS_EDIT: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+export const NON_PROJECT_INFLOWS_DELETE: readonly string[] = [ADMIN_PROFILE];

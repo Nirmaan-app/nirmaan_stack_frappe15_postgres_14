@@ -22,6 +22,7 @@ import {
   ClipboardCheck,
   ClipboardMinus,
   HandCoins,
+  PiggyBank,
   ReceiptText, FileUp,
   CreditCard,
   Dices,
@@ -70,6 +71,7 @@ import { Separator } from "../ui/separator";
 import { useCountsBridge } from "@/hooks/useSidebarCounts";
 import {
   MATERIAL_PROCUREMENT_PROFILES,
+  NON_PROJECT_INFLOWS_ACCESS,
   PROCUREMENT_PROFILES,
   SERVICE_PROCUREMENT_PROFILES,
   isMaterialProcurementProfile,
@@ -616,6 +618,17 @@ export function NewSidebar() {
         },
       ]
       : []),
+    // Non-Project Inflows (#1265) -- directly under In-Flow Payments. Reads the same constant as the
+    // route guard (routesConfig.tsx) so the link and the route agree.
+    ...(user_id == "Administrator" || NON_PROJECT_INFLOWS_ACCESS.includes(role as string)
+      ? [
+        {
+          key: '/non-project-inflows',
+          icon: PiggyBank,
+          label: 'Non-Project Inflows',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES].includes(role as string)
       ? [
         {
@@ -802,6 +815,7 @@ export function NewSidebar() {
     "project-payments",
     "credits",
     "in-flow-payments",
+    "non-project-inflows",
     'invoice-reconciliation',
     'project-invoices',
     'expense',
@@ -855,6 +869,7 @@ export function NewSidebar() {
     "/project-payments": ["project-payments"],
     "/credits": ["credits"],
     "/in-flow-payments": ["in-flow-payments"],
+    "/non-project-inflows": ["non-project-inflows"],
     "/invoice-reconciliation": ["invoice-reconciliation"],
     "/project-invoices": ["project-invoices"],
     "/expense/project": ["expense"],
