@@ -170,6 +170,7 @@ __all__ = [
     "BANK_TERMINAL_STATUSES",
     "DIRECTION_DEBIT",
     "DIRECTION_CREDIT",
+    "source_can_carry_credit",
     "is_success_status",
     "is_terminal_status",
 ]
@@ -812,6 +813,32 @@ def _icici_counterparty(remarks: str) -> tuple[str, str]:
 _MULTI_COLUMN_JOIN = " - "
 
 SUPPORTED_SOURCES = tuple(sorted(_ADAPTERS))
+
+
+def source_can_carry_credit(source: str | None) -> bool:
+    """Can a row from this source EVER be a credit? (#1264)
+
+    Read off the source's OWN column map: `True` iff some marker filling `direction` can write
+    `DIRECTION_CREDIT`. ICICI's Withdrawal / Deposit pair can; Cashfree's `Amount` and Cashbook's
+    `Debit` can only ever write `Debit` (Cashbook's `Credit` column is deliberately unmapped).
+
+    ⚠️ DERIVED, NEVER A LIST OF NAMES. The screen hides its two Inflow tabs when this answers
+    `False` for the chosen source; a name list would be a second copy of what the adapter already
+    declares, and would go stale the day a source gains a deposit column.
+
+    An unknown or blank source answers `False` -- there is no adapter to say it could.
+    """
+    adapter = _ADAPTERS.get((source or "").strip())
+    if adapter is None:
+        return False
+    column_map, _required, _derive = adapter
+    for marker in column_map.values():
+        if getattr(marker, "label_field", None) != "direction":
+            continue
+        labels = getattr(marker, "labels", None) or (getattr(marker, "label", None),)
+        if DIRECTION_CREDIT in labels:
+            return True
+    return False
 
 _DATETIME_FORMATS = (
     "%Y-%m-%dT%H:%M:%S",

@@ -46,6 +46,11 @@ import {
     previewCounts,
     statementDebit,
     tabCountParts,
+    inflowTabsVisible,
+    visibleTabs,
+    reachableTab,
+    tabFromCarried,
+    postImportTab,
     matchBasisLabel,
     ARBITRARY_SUGGESTION_RULES,
     SUGGESTION_RULE_LABELS,
@@ -980,45 +985,139 @@ describe("the Vendor / Description cell", () => {
 });
 
 describe("tabs", () => {
-    it("is All / Not-Matched / Partly Allocated / Matched-Settled, in that order", () => {
+    it("is All then the three Outflow tabs then the two Inflow tabs, in that order (#1264)", () => {
         // ⚠️ THERE IS NO SKIPPED TAB, and "All" excludes Skipped too (owner ruling 2026-08-10) --
-        // it means everything a person might still act on, not every row in the table. The import
-        // summary panel is the only place skipped transfers are reported.
-        //
-        // `Partly Allocated` got its OWN tab rather than being folded into `matched` -- see the
-        // `_SCOPE_STATUSES` comment in review.py: a third status under "Matched / Settled" would
-        // break `tabCountParts`' two-chip split.
+        // it means everything a person might still act on, not every row in the table.
         expect(OUTFLOW_TABS.map((t) => t.id)).toEqual([
             "all",
-            "notMatched",
-            "partlyAllocated",
-            "matched",
+            "notMatchedOutflow",
+            "partlyAllocatedOutflow",
+            "matchedOutflow",
+            "notMatchedInflow",
+            "settledInflow",
         ]);
         expect(OUTFLOW_TABS.map((t) => t.label)).toEqual([
             "All",
-            "Not-Matched",
-            "Partly Allocated",
-            "Matched / Settled",
+            "Not Matched – Outflow",
+            "Partly Allocated – Outflow",
+            "Matched / Settled – Outflow",
+            "Not Matched – Inflow",
+            "Settled – Inflow",
         ]);
     });
 
-    it("opens on the work, not the archive", () => {
-        expect(DEFAULT_TAB).toBe("notMatched");
+    it("marks each tab's direction; All spans both", () => {
+        expect(OUTFLOW_TABS.map((t) => t.direction ?? null)).toEqual([
+            null,
+            "outflow",
+            "outflow",
+            "outflow",
+            "inflow",
+            "inflow",
+        ]);
+    });
+
+    it("opens on Not Matched – Outflow, where most of the work is", () => {
+        expect(DEFAULT_TAB).toBe("notMatchedOutflow");
     });
 
     it("maps every tab to a scope the server knows", () => {
         // ⚠️ The two vocabularies differ on purpose -- camelCase ids in TypeScript, snake_case
         // scopes in Python and in URLs. This map is the one place they meet, so an unmapped tab
         // would silently scope to the server's fallback rather than to what the label promises.
-        expect(SCOPE_FOR_TAB.all).toBe("all");
-        expect(SCOPE_FOR_TAB.notMatched).toBe("not_matched");
-        expect(SCOPE_FOR_TAB.partlyAllocated).toBe("partly");
-        expect(SCOPE_FOR_TAB.matched).toBe("matched");
+        expect(SCOPE_FOR_TAB).toEqual({
+            all: "all",
+            notMatchedOutflow: "not_matched_outflow",
+            partlyAllocatedOutflow: "partly_outflow",
+            matchedOutflow: "matched_outflow",
+            notMatchedInflow: "not_matched_inflow",
+            settledInflow: "settled_inflow",
+        });
     });
 
     it("maps every declared tab, with no gaps", () => {
         // A tab present in the strip but missing from the map renders an empty table with no error.
         for (const tab of OUTFLOW_TABS) expect(SCOPE_FOR_TAB[tab.id]).toBeTruthy();
+    });
+});
+
+describe("inflow tab visibility (#1264)", () => {
+    const counts = (inflow: number) => ({
+        all: 10,
+        not_matched_outflow: 10 - inflow,
+        partly_outflow: 0,
+        matched_outflow: 0,
+        not_matched_inflow: inflow,
+        settled_inflow: 0,
+        skipped: 0,
+    });
+
+    it("shows the Inflow tabs when the chosen source can carry a credit", () => {
+        expect(inflowTabsVisible(true, counts(0))).toBe(true);
+    });
+
+    it("hides them when the source can never carry a credit", () => {
+        expect(inflowTabsVisible(false, counts(0))).toBe(false);
+        expect(visibleTabs(inflowTabsVisible(false, counts(0))).map((t) => t.id)).toEqual([
+            "all",
+            "notMatchedOutflow",
+            "partlyAllocatedOutflow",
+            "matchedOutflow",
+        ]);
+    });
+
+    it("shows them while the server has not answered -- a hidden tab is the costlier mistake", () => {
+        expect(inflowTabsVisible(undefined, undefined)).toBe(true);
+    });
+
+    it("never hides a tab that holds rows, whatever the source says", () => {
+        expect(inflowTabsVisible(false, counts(2))).toBe(true);
+        expect(inflowTabsVisible(false, { ...counts(0), settled_inflow: 1 })).toBe(true);
+    });
+
+    it("moves a hidden Inflow tab to its Outflow twin, and leaves every other tab alone", () => {
+        expect(reachableTab("notMatchedInflow", false)).toBe("notMatchedOutflow");
+        expect(reachableTab("settledInflow", false)).toBe("matchedOutflow");
+        expect(reachableTab("partlyAllocatedOutflow", false)).toBe("partlyAllocatedOutflow");
+        expect(reachableTab("all", false)).toBe("all");
+        expect(reachableTab("settledInflow", true)).toBe("settledInflow");
+    });
+});
+
+describe("tabFromCarried -- the tab a history entry carries across a remount", () => {
+    it("keeps a current tab id", () => {
+        for (const tab of OUTFLOW_TABS) expect(tabFromCarried(tab.id)).toBe(tab.id);
+    });
+
+    it("sends a pre-#1264 id to its Outflow variant", () => {
+        expect(tabFromCarried("notMatched")).toBe("notMatchedOutflow");
+        expect(tabFromCarried("partlyAllocated")).toBe("partlyAllocatedOutflow");
+        expect(tabFromCarried("matched")).toBe("matchedOutflow");
+    });
+
+    it("falls back to the default for anything else", () => {
+        expect(tabFromCarried(undefined)).toBe(DEFAULT_TAB);
+        expect(tabFromCarried("skipped")).toBe(DEFAULT_TAB);
+        expect(tabFromCarried(42)).toBe(DEFAULT_TAB);
+    });
+});
+
+describe("postImportTab", () => {
+    it("lands a Cashbook import on Matched / Settled – Outflow, where its created rows are", () => {
+        expect(postImportTab("Cashbook", "notMatchedOutflow")).toBe("matchedOutflow");
+    });
+
+    it("leaves every other source where the reader was", () => {
+        expect(postImportTab("Cashfree", "partlyAllocatedOutflow")).toBe("partlyAllocatedOutflow");
+        expect(postImportTab("ICICI Bank Statement", "notMatchedInflow")).toBe("notMatchedInflow");
+        expect(postImportTab(undefined, "all")).toBe("all");
+    });
+
+    it("only ever returns a tab the strip has", () => {
+        const ids = OUTFLOW_TABS.map((t) => t.id);
+        for (const source of ["Cashfree", "Cashbook", "ICICI Bank Statement", "Unknown"]) {
+            expect(ids).toContain(postImportTab(source, DEFAULT_TAB));
+        }
     });
 });
 
@@ -1035,8 +1134,9 @@ describe("tabs", () => {
  */
 describe("serverQuery", () => {
     it("translates the tab into the scope the endpoint knows", () => {
-        expect(serverQuery({ tab: "notMatched" }).scope).toBe("not_matched");
-        expect(serverQuery({ tab: "matched" }).scope).toBe("matched");
+        expect(serverQuery({ tab: "notMatchedOutflow" }).scope).toBe("not_matched_outflow");
+        expect(serverQuery({ tab: "matchedOutflow" }).scope).toBe("matched_outflow");
+        expect(serverQuery({ tab: "settledInflow" }).scope).toBe("settled_inflow");
         expect(serverQuery({ tab: "all" }).scope).toBe("all");
     });
 
@@ -1045,7 +1145,7 @@ describe("serverQuery", () => {
         // a naive handler, and the day one treats it as "match nothing" the table blanks when you
         // untick the last value. Omitting is unambiguous at both ends.
         const query = serverQuery({
-            tab: "notMatched",
+            tab: "notMatchedOutflow",
             query: "   ",
             filters: { beneficiary_name: [], amount: { min: null, max: null } },
         });
@@ -1056,22 +1156,22 @@ describe("serverQuery", () => {
 
     it("sends only the columns the server can facet on", () => {
         const query = serverQuery({
-            tab: "notMatched",
+            tab: "notMatchedOutflow",
             filters: { beneficiary_name: ["APEX"], outcome: ["nonsense"] },
         });
         expect(query.facets).toEqual({ beneficiary_name: ["APEX"] });
     });
 
     it("passes an amount range through as two bounds", () => {
-        const query = serverQuery({ tab: "notMatched", filters: { amount: { min: 100, max: 500 } } });
+        const query = serverQuery({ tab: "notMatchedOutflow", filters: { amount: { min: 100, max: 500 } } });
         expect(query.amount_min).toBe(100);
         expect(query.amount_max).toBe(500);
     });
 
     it("allows a one-sided range", () => {
-        expect(serverQuery({ tab: "notMatched", filters: { amount: { min: 500 } } }).amount_max)
+        expect(serverQuery({ tab: "notMatchedOutflow", filters: { amount: { min: 500 } } }).amount_max)
             .toBeUndefined();
-        expect(serverQuery({ tab: "notMatched", filters: { amount: { max: 100 } } }).amount_min)
+        expect(serverQuery({ tab: "notMatchedOutflow", filters: { amount: { max: 100 } } }).amount_min)
             .toBeUndefined();
     });
 
@@ -1080,7 +1180,7 @@ describe("serverQuery", () => {
         // key the endpoint knows, and sending one would fail the whole page load over a cosmetic
         // click.
         const query = serverQuery({
-            tab: "notMatched",
+            tab: "notMatchedOutflow",
             sort: { columnId: "outcome", direction: "asc" },
         });
         expect(query.sort_by).toBe("added_on");
@@ -1088,35 +1188,35 @@ describe("serverQuery", () => {
     });
 
     it("passes a sortable column through with its direction", () => {
-        const query = serverQuery({ tab: "notMatched", sort: { columnId: "amount", direction: "asc" } });
+        const query = serverQuery({ tab: "notMatchedOutflow", sort: { columnId: "amount", direction: "asc" } });
         expect(query.sort_by).toBe("amount");
         expect(query.sort_dir).toBe("asc");
     });
 
     it("turns the page number into an offset", () => {
-        expect(serverQuery({ tab: "notMatched", page: 0 }).offset).toBe(0);
-        expect(serverQuery({ tab: "notMatched", page: 2 }).offset).toBe(2 * DEFAULT_PAGE_SIZE);
-        expect(serverQuery({ tab: "notMatched", page: 2, pageSize: 10 }).offset).toBe(20);
+        expect(serverQuery({ tab: "notMatchedOutflow", page: 0 }).offset).toBe(0);
+        expect(serverQuery({ tab: "notMatchedOutflow", page: 2 }).offset).toBe(2 * DEFAULT_PAGE_SIZE);
+        expect(serverQuery({ tab: "notMatchedOutflow", page: 2, pageSize: 10 }).offset).toBe(20);
     });
 
     it("never sends a negative offset", () => {
-        expect(serverQuery({ tab: "notMatched", page: -3 }).offset).toBe(0);
+        expect(serverQuery({ tab: "notMatchedOutflow", page: -3 }).offset).toBe(0);
     });
 
     it("scopes to one import when the screen is deep-linked to it", () => {
-        expect(serverQuery({ tab: "notMatched", batch: "OFI-26-00007" }).batch).toBe("OFI-26-00007");
-        expect(serverQuery({ tab: "notMatched" }).batch).toBeUndefined();
+        expect(serverQuery({ tab: "notMatchedOutflow", batch: "OFI-26-00007" }).batch).toBe("OFI-26-00007");
+        expect(serverQuery({ tab: "notMatchedOutflow" }).batch).toBeUndefined();
     });
 
     it("folds a per-column text filter into the search the server already runs", () => {
         // `remarks` and `bank_reference_no` are both covered by the endpoint's search, so they do
         // not need two more parameters for a distinction no reader makes.
-        expect(serverQuery({ tab: "notMatched", filters: { remarks: "rent" } }).search).toBe("rent");
+        expect(serverQuery({ tab: "notMatchedOutflow", filters: { remarks: "rent" } }).search).toBe("rent");
     });
 
     it("lets an explicit search win over a column text filter", () => {
         const query = serverQuery({
-            tab: "notMatched",
+            tab: "notMatchedOutflow",
             query: "apex",
             filters: { remarks: "rent" },
         });
@@ -3127,51 +3227,84 @@ describe("previewCounts", () => {
 describe("tabCountParts", () => {
     // ⚠️ `skipped` IS A SCOPE WITH NO TAB. It rides `tab_counts` because every count derives from
     // `_SCOPE_STATUSES`, and it must never appear in the tab strip -- pinned below.
-    const tabCounts = { all: 996, not_matched: 133, partly: 0, matched: 863, skipped: 47 };
-    const statusCounts = {
+    const tabCounts = {
+        all: 1001,
+        not_matched_outflow: 130,
+        partly_outflow: 0,
+        matched_outflow: 863,
+        not_matched_inflow: 3,
+        settled_inflow: 5,
+        skipped: 47,
+    };
+    const zero = {
         "Pending match run": 0,
-        Matched: 863,
-        Mismatched: 133,
+        Matched: 0,
+        Mismatched: 0,
+        "Partially Allocated": 0,
         Settled: 0,
-        Skipped: 47,
+        Skipped: 0,
         Error: 0,
     };
+    const directionStatusCounts = {
+        outflow: { ...zero, Matched: 863, Mismatched: 130, Skipped: 47 },
+        inflow: { ...zero, Mismatched: 3, Settled: 5 },
+    };
 
-    it("gives the two single-status tabs one number, unchanged", () => {
-        expect(tabCountParts("all", tabCounts, statusCounts)).toEqual([{ key: "all", count: 996 }]);
-        expect(tabCountParts("notMatched", tabCounts, statusCounts)).toEqual([
-            { key: "not_matched", count: 133 },
+    it("gives the single-status tabs one number, unchanged", () => {
+        expect(tabCountParts("all", tabCounts, directionStatusCounts)).toEqual([
+            { key: "all", count: 1001 },
+        ]);
+        expect(tabCountParts("notMatchedOutflow", tabCounts, directionStatusCounts)).toEqual([
+            { key: "not_matched_outflow", count: 130 },
+        ]);
+        expect(tabCountParts("notMatchedInflow", tabCounts, directionStatusCounts)).toEqual([
+            { key: "not_matched_inflow", count: 3 },
         ]);
     });
 
-    it("splits the matched tab, because one number there reads as the terminal half", () => {
-        const parts = tabCountParts("matched", tabCounts, statusCounts);
+    it("splits Matched / Settled – Outflow, because one number there reads as the terminal half", () => {
+        const parts = tabCountParts("matchedOutflow", tabCounts, directionStatusCounts);
         expect(parts.map((p) => [p.label, p.count])).toEqual([
             ["matched", 863],
             ["settled", 0],
         ]);
     });
 
-    it("the split still adds up to the tab it labels", () => {
-        const parts = tabCountParts("matched", tabCounts, statusCounts);
-        expect(parts.reduce((n, p) => n + (p.count ?? 0), 0)).toBe(tabCounts.matched);
+    it("the split still adds up to the tab it labels -- OUTFLOW counts only", () => {
+        // The 5 settled CREDITS must not leak into the outflow tab's settled chip.
+        const parts = tabCountParts("matchedOutflow", tabCounts, directionStatusCounts);
+        expect(parts.reduce((n, p) => n + (p.count ?? 0), 0)).toBe(tabCounts.matched_outflow);
     });
 
     // The live shape that started this: 863 under a tab whose second word means finished, while
     // nothing at all had been settled.
     it("says zero settled rather than leaving it to be inferred", () => {
-        const parts = tabCountParts("matched", tabCounts, statusCounts);
+        const parts = tabCountParts("matchedOutflow", tabCounts, directionStatusCounts);
         expect(parts[1]).toMatchObject({ label: "settled", count: 0 });
     });
 
-    it("falls back to the single total when the server sends no status counts", () => {
-        expect(tabCountParts("matched", tabCounts, undefined)).toEqual([
-            { key: "matched", count: 863 },
+    it("gives Settled – Inflow the settled count only -- a credit never becomes Matched", () => {
+        const withAStrayMatchedCredit = {
+            ...directionStatusCounts,
+            inflow: { ...directionStatusCounts.inflow, Matched: 2 },
+        };
+        expect(
+            tabCountParts("settledInflow", { ...tabCounts, settled_inflow: 7 }, withAStrayMatchedCredit)
+        ).toEqual([{ key: "settled_inflow", count: 5 }]);
+    });
+
+    it("falls back to the single total when the server sends no direction split", () => {
+        expect(tabCountParts("matchedOutflow", tabCounts, undefined)).toEqual([
+            { key: "matched_outflow", count: 863 },
+        ]);
+        expect(tabCountParts("settledInflow", tabCounts, undefined)).toEqual([
+            { key: "settled_inflow", count: 5 },
         ]);
     });
 
     it("reports an unanswered page as null, never as zero", () => {
         expect(tabCountParts("all", undefined, undefined)[0].count).toBeNull();
+        expect(tabCountParts("settledInflow", undefined, undefined)[0].count).toBeNull();
     });
 
     // ⚠️ THE OWNER RULING, PINNED IN THE ONE PLACE THE TWO VOCABULARIES MEET. Skipped rows have a
@@ -3182,7 +3315,7 @@ describe("tabCountParts", () => {
 
     it("the tab strip never renders a skipped count", () => {
         for (const tab of OUTFLOW_TABS) {
-            const parts = tabCountParts(tab.id, tabCounts, statusCounts);
+            const parts = tabCountParts(tab.id, tabCounts, directionStatusCounts);
             expect(parts.map((p) => p.count)).not.toContain(tabCounts.skipped);
         }
     });

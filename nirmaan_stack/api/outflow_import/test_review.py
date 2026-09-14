@@ -79,6 +79,16 @@ from nirmaan_stack.services.outflow_import.status import (
     sole_suggestion,
 )
 
+#: The five direction tabs (#1264), named out rather than read from `_SCOPE_STATUSES`: a test that
+#: iterates the map agrees with whatever the map says.
+DIRECTION_TAB_SCOPES = (
+    "not_matched_outflow",
+    "partly_outflow",
+    "matched_outflow",
+    "not_matched_inflow",
+    "settled_inflow",
+)
+
 FIXTURE = (
     frappe.get_app_path("nirmaan_stack")
     + "/services/outflow_import/tests/fixtures/cashfree_sample.csv"
@@ -1902,7 +1912,8 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
         lives with `Settled` because both mean "this transfer has a record".
         """
         page = self._page()
-        self.assertEqual(page["scope"], "not_matched")
+        # Since #1264 the default is the OUTFLOW half of Not Matched -- where most of the work is.
+        self.assertEqual(page["scope"], "not_matched_outflow")
         self.assertTrue(page["rows"])
         for row in page["rows"]:
             self.assertIn(row["row_status"], ("Pending match run", "Mismatched", "Error"))
@@ -1915,11 +1926,9 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
         this is what catches it.
         """
         counts = self._page()["tab_counts"]
-        # ⚠️ `+ partly` -- `Partially Allocated` is inert this slice (nothing writes it yet), so
-        # `counts["partly"]` is 0 today, but the arithmetic must hold once something does.
-        self.assertEqual(
-            counts["not_matched"] + counts["partly"] + counts["matched"], counts["all"]
-        )
+        # ⚠️ THE FIVE DIRECTION TABS (#1264). A partly-allocated row and an inflow row must still
+        # be counted, so all five are summed even where the fixture leaves some at 0.
+        self.assertEqual(sum(counts[s] for s in DIRECTION_TAB_SCOPES), counts["all"])
 
         # ⚠️ COUNTED FROM THE DATABASE, NOT THROUGH `_rows_by_transfer_suffix`. That helper is keyed
         # by transfer id, and this fixture deliberately REPEATS one -- so the two rows of the
@@ -1940,7 +1949,7 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
         fourth scope exists now -- `skipped`, which the Skipped dialog asks for by name -- and
         iterating the map would have made this test quietly assert the opposite of its own title the
         moment that scope was added."""
-        for scope in ("all", "not_matched", "matched"):
+        for scope in ("all", *DIRECTION_TAB_SCOPES):
             for row in self._page(scope=scope, limit=200)["rows"]:
                 self.assertNotEqual(row["row_status"], "Skipped", scope)
 
@@ -1955,11 +1964,9 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
     def test_the_skipped_scope_does_not_change_what_all_holds(self):
         """Adding a scope must not widen the working views by one row."""
         counts = self._page()["tab_counts"]
-        # ⚠️ `+ partly` -- `Partially Allocated` is inert this slice (nothing writes it yet), so
-        # `counts["partly"]` is 0 today, but the arithmetic must hold once something does.
-        self.assertEqual(
-            counts["not_matched"] + counts["partly"] + counts["matched"], counts["all"]
-        )
+        # ⚠️ THE FIVE DIRECTION TABS (#1264). A partly-allocated row and an inflow row must still
+        # be counted, so all five are summed even where the fixture leaves some at 0.
+        self.assertEqual(sum(counts[s] for s in DIRECTION_TAB_SCOPES), counts["all"])
         self.assertGreater(counts["skipped"], 0)
 
     def test_the_failed_filter_splits_skipped_into_the_two_facts_it_hides(self):
@@ -2011,10 +2018,12 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
         to the tab it labels, or the screen shows two numbers that disagree with the third.
         """
         page = self._page()
-        counts = page["status_counts"]
+        # OUTFLOW-only since #1264: the tab is `Matched / Settled - Outflow`, so a settled credit
+        # counted here would make the two chips outgrow the tab they label.
+        counts = page["direction_status_counts"]["outflow"]
         self.assertEqual(
             counts["Matched"] + counts["Settled"],
-            page["tab_counts"]["matched"],
+            page["tab_counts"]["matched_outflow"],
             "the split must total the tab it labels",
         )
 
@@ -2370,6 +2379,197 @@ class TestTheDirectionFacet(OutflowReviewFixture):
         # doctype's own description forbids reading a blank as "Debit by default", and the payload
         # is where that would first stop being true.
         self.assertFalse((by_name[self.blank_row]["direction"] or "").strip())
+
+
+class TestTheDirectionTabs(OutflowReviewFixture):
+    """The five direction tabs (#1264, ADR-0016 Amendment A): each is today's status set, narrowed
+    to one direction.
+
+    ⚠️ DIRECTION IS `status.is_received_direction` -- trimmed `Credit` is inflow, EVERYTHING ELSE is
+    outflow, blank included. The expected sets below are built with that Python predicate over the
+    stored rows, never by re-spelling the SQL, so the endpoint is checked against the one rule.
+
+    ⚠️ THE STATUS SETS ARE WRITTEN OUT HERE, not read from `_SCOPE_STATUSES`, for the reason
+    `test_no_tab_scope_will_show_a_skipped_row` gives: iterating the map would make these tests
+    agree with whatever the map says.
+
+    The fixture is a Cashfree export (every row `Debit`), so every interesting shape is planted with
+    raw writes. No `Outflow Import Row` doc_event is registered in `hooks.py`, and neither
+    `direction` nor `row_status` feeds a stored derived field this suite reads.
+    """
+
+    NOT_MATCHED = ("Pending match run", "Mismatched", "Error")
+    PARTLY = ("Partially Allocated",)
+    MATCHED = ("Matched", "Settled")
+
+    #: scope -> (statuses, wants a credit?)
+    DIRECTION_SCOPES = {
+        "not_matched_outflow": (NOT_MATCHED, False),
+        "partly_outflow": (PARTLY, False),
+        "matched_outflow": (MATCHED, False),
+        "not_matched_inflow": (NOT_MATCHED, True),
+        "settled_inflow": (MATCHED, True),
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        match_batch(cls.batch.name)
+        rows = frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": cls.batch.name, "row_status": ["!=", ROW_SKIPPED]},
+            fields=["name"],
+            order_by="transfer_id asc",
+        )
+        assert len(rows) >= 6, "fixture precondition: six non-skipped rows to plant"
+        cls.planted = {
+            "credit_mismatched": (rows[0]["name"], "Credit", "Mismatched"),
+            "padded_credit_settled": (rows[1]["name"], " Credit ", "Settled"),
+            "blank_settled": (rows[2]["name"], "", "Settled"),
+            "debit_partly": (rows[3]["name"], "Debit", "Partially Allocated"),
+            "blank_mismatched": (rows[4]["name"], "", "Mismatched"),
+            "debit_matched": (rows[5]["name"], "Debit", "Matched"),
+        }
+        for name, direction, status in cls.planted.values():
+            frappe.db.set_value(
+                ROW_DOCTYPE,
+                name,
+                {"direction": direction, "row_status": status},
+                update_modified=False,
+            )
+        frappe.db.commit()
+
+    def _page(self, **kwargs):
+        kwargs.setdefault("batch", self.batch.name)
+        kwargs.setdefault("limit", 200)
+        return get_outflow_rows(**kwargs)
+
+    def _names(self, scope):
+        return {r["name"] for r in self._page(scope=scope)["rows"]}
+
+    def _expected(self, statuses, wants_credit):
+        from nirmaan_stack.services.outflow_import.status import is_received_direction
+
+        stored = frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": self.batch.name},
+            fields=["name", "direction", "row_status"],
+        )
+        return {
+            r["name"]
+            for r in stored
+            if r["row_status"] in statuses and is_received_direction(r["direction"]) == wants_credit
+        }
+
+    def test_each_direction_tab_returns_exactly_its_statuses_in_its_direction(self):
+        for scope, (statuses, wants_credit) in self.DIRECTION_SCOPES.items():
+            expected = self._expected(statuses, wants_credit)
+            self.assertEqual(self._names(scope), expected, scope)
+
+    def test_the_planted_rows_land_on_the_tab_their_direction_names(self):
+        """A BLANK direction is outflow; a PADDED `Credit` is inflow."""
+        where = {key: name for key, (name, _d, _s) in self.planted.items()}
+        self.assertIn(where["credit_mismatched"], self._names("not_matched_inflow"))
+        self.assertNotIn(where["credit_mismatched"], self._names("not_matched_outflow"))
+        self.assertIn(where["padded_credit_settled"], self._names("settled_inflow"))
+        self.assertNotIn(where["padded_credit_settled"], self._names("matched_outflow"))
+        self.assertIn(where["blank_settled"], self._names("matched_outflow"))
+        self.assertIn(where["blank_mismatched"], self._names("not_matched_outflow"))
+        self.assertIn(where["debit_partly"], self._names("partly_outflow"))
+        self.assertIn(where["debit_matched"], self._names("matched_outflow"))
+
+    def test_every_tab_count_equals_the_rows_that_tab_returns(self):
+        counts = self._page()["tab_counts"]
+        for scope in (*self.DIRECTION_SCOPES, "all", "skipped"):
+            self.assertEqual(counts[scope], self._page(scope=scope)["total"], scope)
+
+    def test_the_five_direction_tabs_partition_all(self):
+        """Every row `all` holds is on exactly one direction tab -- no line falls between them."""
+        union = set()
+        for scope in self.DIRECTION_SCOPES:
+            names = self._names(scope)
+            self.assertFalse(union & names, f"{scope} overlaps another direction tab")
+            union |= names
+        self.assertEqual(union, self._names("all"))
+
+    def test_all_and_skipped_are_unchanged_by_direction(self):
+        stored = frappe.get_all(
+            ROW_DOCTYPE, filters={"import_batch": self.batch.name}, fields=["name", "row_status"]
+        )
+        self.assertEqual(
+            self._names("all"), {r["name"] for r in stored if r["row_status"] != ROW_SKIPPED}
+        )
+        self.assertEqual(
+            self._names("skipped"), {r["name"] for r in stored if r["row_status"] == ROW_SKIPPED}
+        )
+
+    def test_an_old_scope_id_falls_back_to_its_OUTFLOW_variant(self):
+        """A stale client still sends `not_matched` / `partly` / `matched`. It must see the outflow
+        half, never an empty table and never the inflow rows mixed back in."""
+        for old, new in (
+            ("not_matched", "not_matched_outflow"),
+            ("partly", "partly_outflow"),
+            ("matched", "matched_outflow"),
+        ):
+            self.assertEqual(self._names(old), self._names(new), old)
+        self.assertEqual(self._names("NOT_MATCHED"), self._names("not_matched_outflow"))
+
+    def test_the_default_scope_is_not_matched_OUTFLOW(self):
+        page = get_outflow_rows(batch=self.batch.name, limit=200)
+        self.assertEqual({r["name"] for r in page["rows"]}, self._names("not_matched_outflow"))
+
+    def test_the_direction_status_counts_split_each_direction_tab(self):
+        """The Matched / Settled - Outflow tab renders `N matched - M settled`; both numbers must
+        be OUTFLOW-only, or the two chips stop summing to the tab they label."""
+        page = self._page()
+        split = page["direction_status_counts"]
+        tabs = page["tab_counts"]
+        self.assertEqual(
+            split["outflow"]["Matched"] + split["outflow"]["Settled"], tabs["matched_outflow"]
+        )
+        self.assertEqual(
+            split["inflow"]["Matched"] + split["inflow"]["Settled"], tabs["settled_inflow"]
+        )
+        self.assertEqual(split["outflow"]["Partially Allocated"], tabs["partly_outflow"])
+        for status in ROW_STATUSES:
+            self.assertEqual(
+                split["outflow"][status] + split["inflow"][status],
+                page["status_counts"][status],
+                status,
+            )
+
+    def test_can_carry_credit_follows_the_chosen_source(self):
+        """Hides the Inflow tabs for a source whose rows can never be a credit. No source chosen
+        means every source, which can.
+
+        ⚠️ ASKED UNPINNED (`batch=None`): only the flag is asserted, and a pinned import answers from
+        its own source instead -- see the next test."""
+        self.assertTrue(get_outflow_rows(scope="all", limit=1)["can_carry_credit"])
+        for chosen, expected in (
+            (["Cashfree"], False),
+            (["Cashbook"], False),
+            (["Cashfree", "Cashbook"], False),
+            (["ICICI Bank Statement"], True),
+            (["Cashfree", "ICICI Bank Statement"], True),
+            ([], True),
+        ):
+            page = get_outflow_rows(scope="all", limit=1, facets=json.dumps({"source": chosen}))
+            self.assertEqual(page["can_carry_credit"], expected, chosen)
+
+    def test_a_pinned_import_answers_from_ITS_OWN_source(self):
+        """One import open = one statement = one source. This fixture is a Cashfree export, so its
+        Inflow tabs hide even though no Source filter is set -- and a Source filter naming a source
+        the pinned import is not cannot turn them back on."""
+        self.assertFalse(self._page(scope="all", limit=1)["can_carry_credit"])
+        page = self._page(
+            scope="all", limit=1, facets=json.dumps({"source": ["ICICI Bank Statement"]})
+        )
+        self.assertFalse(page["can_carry_credit"])
+
+    def test_the_export_holds_exactly_what_each_direction_tab_shows(self):
+        for scope in self.DIRECTION_SCOPES:
+            exported = export_outflow_rows(scope=scope, batch=self.batch.name)
+            self.assertEqual({r["name"] for r in exported["rows"]}, self._names(scope), scope)
 
 
 class TestConfirmableRows(OutflowReviewFixture):
@@ -4090,8 +4290,8 @@ class TestTheSettledLedgerSplit(OutflowReviewFixture):
         self.assertEqual([r["name"] for r in filtered["rows"]], [self.settled_row])
         self.assertEqual(filtered["total"], 1)
         self.assertEqual(filtered["tab_counts"]["all"], 1)
-        self.assertEqual(filtered["tab_counts"]["matched"], 1)
-        self.assertEqual(filtered["tab_counts"]["not_matched"], 0)
+        self.assertEqual(filtered["tab_counts"]["matched_outflow"], 1)
+        self.assertEqual(filtered["tab_counts"]["not_matched_outflow"], 0)
         self.assertEqual(filtered["status_counts"]["Settled"], 1)
 
         # The summary -- the fifth consumer -- narrows to the same one row.
@@ -4145,7 +4345,7 @@ class TestTheOutflowExport(OutflowReviewFixture):
         front of them was showing, and nobody will ever have the two side by side to notice
         otherwise.
         """
-        for scope in ("all", "not_matched", "matched"):
+        for scope in ("all", *DIRECTION_TAB_SCOPES):
             paged = get_outflow_rows(scope=scope, batch=self.batch.name, limit=200)
             exported = export_outflow_rows(scope=scope, batch=self.batch.name)
             self.assertEqual(
@@ -4198,7 +4398,7 @@ class TestTheOutflowExport(OutflowReviewFixture):
         """⚠️ A `0` IN THAT CELL IS A CLAIM -- "settled for nothing" -- where a blank is the truth.
         The three money columns beside it ARE coerced, because every transfer has an amount whether
         the bank stated one or not; this one is different and the asymmetry is deliberate."""
-        rows = export_outflow_rows(scope="not_matched", batch=self.batch.name)["rows"]
+        rows = export_outflow_rows(scope="not_matched_outflow", batch=self.batch.name)["rows"]
         self.assertTrue(rows, "fixture precondition: an unsettled row")
         for row in rows:
             self.assertIsNone(row["settled_target_amounts"])

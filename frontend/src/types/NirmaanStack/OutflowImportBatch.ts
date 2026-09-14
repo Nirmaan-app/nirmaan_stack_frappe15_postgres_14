@@ -252,31 +252,46 @@ export interface OutflowRowsPage {
      * summary panel reports them instead.
      */
     /**
-     * ⚠️ `skipped` IS A SCOPE WITH NO TAB (owner ruling). The four working scopes (`all`,
-     * `not_matched`, `partly`, `matched`) label the tab strip; `skipped` exists so the Skipped
-     * chip's dialog can ask for those rows by name, and it is deliberately absent from
-     * `SCOPE_FOR_TAB` — there is no tab to map to it.
+     * ⚠️ `skipped` IS A SCOPE WITH NO TAB (owner ruling). The six working scopes (`all` plus the
+     * five direction scopes, #1264) label the tab strip; `skipped` exists so the Skipped chip's
+     * dialog can ask for those rows by name, and it is deliberately absent from `SCOPE_FOR_TAB` —
+     * there is no tab to map to it.
      */
     tab_counts: {
         all: number;
-        not_matched: number;
-        partly: number;
-        matched: number;
+        not_matched_outflow: number;
+        partly_outflow: number;
+        matched_outflow: number;
+        not_matched_inflow: number;
+        settled_inflow: number;
         skipped: number;
     };
     /**
-     * The SAME population as `tab_counts`, broken down by status instead of by tab.
-     *
-     * ⚠️ IT EXISTS BECAUSE ONE TAB HOLDS TWO STATUSES. "Matched / Settled" pairs an OPEN status
-     * with a TERMINAL one, so its single number cannot say which — live-observed as 863 under a tab
-     * whose second word means finished, when nothing had been settled at all. The tab renders
-     * `863 matched · 0 settled` from this.
+     * The SAME population as `tab_counts`, broken down by status instead of by tab, across BOTH
+     * directions.
      *
      * ⚠️ RAW, AND IT INCLUDES `Skipped`, which no tab shows. This is a breakdown OF the population,
-     * not a fourth scope — never sum it expecting a tab's number. `tab_counts` stays the only thing
-     * derived from the scope statuses, and the only thing a tab may be labelled with wholesale.
+     * not another scope — never sum it expecting a tab's number.
      */
     status_counts: Record<string, number>;
+    /**
+     * `status_counts`, split by transaction direction (#1264). Optional so an older server degrades
+     * to single totals.
+     *
+     * ⚠️ IT EXISTS BECAUSE ONE TAB HOLDS TWO STATUSES. "Matched / Settled – Outflow" pairs an OPEN
+     * status with a TERMINAL one, so its single number cannot say which — live-observed as 863
+     * under a tab whose second word means finished, when nothing had been settled at all. The tab
+     * renders `863 matched · 0 settled` from the `outflow` half, so the chips add up to that tab.
+     */
+    direction_status_counts?: {
+        outflow: Record<string, number>;
+        inflow: Record<string, number>;
+    };
+    /**
+     * Can the chosen source(s) ever carry a credit (#1264)? The server answers from each source's own
+     * column map; the screen hides its Inflow tabs when this is `false`. Optional: absent shows them.
+     */
+    can_carry_credit?: boolean;
 }
 
 /** One import, as the summary picker lists it. */

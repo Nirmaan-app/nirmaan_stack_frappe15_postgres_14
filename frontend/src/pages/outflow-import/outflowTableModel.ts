@@ -483,31 +483,41 @@ export const DEFAULT_HIDDEN_COLUMNS: string[] = OUTFLOW_COLUMNS.filter(
 ).map((c) => c.id);
 
 /**
- * The four tabs (owner ruling 2026-08-10, replacing Pending / Settled / Skipped; `Partly
- * Allocated` joined later as its own tab, ADR-0020 D5).
+ * The six tabs (owner ruling 2026-08-10, replacing Pending / Settled / Skipped; `Partly Allocated`
+ * joined later, ADR-0020 D5; split by TRANSACTION DIRECTION at #1264, ADR-0016 Amendment A).
+ *
+ * Each direction tab holds today's status set narrowed to one direction. Direction is the server's
+ * `is_received_direction` -- trimmed `Credit` is Inflow, EVERYTHING ELSE (blank included) is Outflow
+ * -- and the server applies it; this half only asks for the right scope.
  *
  * ⚠️ THERE IS NO SKIPPED TAB, AND `all` EXCLUDES SKIPPED TOO. "All" here means everything a person
- * might still act on, not every row in the table. Skipped rows are bookkeeping -- a failed
- * transfer, a duplicate, a payment already ticked Paid by hand -- and the import summary panel's
- * auto/manual split line is now the ONLY place they are reported. The server enforces this in
- * `_SCOPE_STATUSES`; this half only has to ask for the right scope.
+ * might still act on, not every row in the table. The server enforces this in `_SCOPE_STATUSES`.
  *
- * ⚠️ MATCHED AND SETTLED SHARE A TAB, which pairs an OPEN status with a TERMINAL one. That is the
- * reviewer's grouping, not the vocabulary's: both mean "this transfer has a record". The
- * consequence is that the tab holds a mix, which is why row selection is per-row on this screen
+ * ⚠️ MATCHED AND SETTLED SHARE THE OUTFLOW TAB, which pairs an OPEN status with a TERMINAL one --
+ * the reviewer's grouping, not the vocabulary's. That is why row selection is per-row on this screen
  * rather than per-tab.
  */
-export type OutflowTab = "all" | "notMatched" | "partlyAllocated" | "matched";
+export type OutflowTab =
+    | "all"
+    | "notMatchedOutflow"
+    | "partlyAllocatedOutflow"
+    | "matchedOutflow"
+    | "notMatchedInflow"
+    | "settledInflow";
 
-export const OUTFLOW_TABS: { id: OutflowTab; label: string }[] = [
+export type TransactionDirection = "outflow" | "inflow";
+
+export const OUTFLOW_TABS: { id: OutflowTab; label: string; direction?: TransactionDirection }[] = [
     { id: "all", label: "All" },
-    { id: "notMatched", label: "Not-Matched" },
-    { id: "partlyAllocated", label: "Partly Allocated" },
-    { id: "matched", label: "Matched / Settled" },
+    { id: "notMatchedOutflow", label: "Not Matched – Outflow", direction: "outflow" },
+    { id: "partlyAllocatedOutflow", label: "Partly Allocated – Outflow", direction: "outflow" },
+    { id: "matchedOutflow", label: "Matched / Settled – Outflow", direction: "outflow" },
+    { id: "notMatchedInflow", label: "Not Matched – Inflow", direction: "inflow" },
+    { id: "settledInflow", label: "Settled – Inflow", direction: "inflow" },
 ];
 
-/** Where the screen opens: the work, not the archive (owner ruling 2026-08-09, carried across). */
-export const DEFAULT_TAB: OutflowTab = "notMatched";
+/** Where the screen opens: the outflow work, not the archive (owner ruling, carried across #1264). */
+export const DEFAULT_TAB: OutflowTab = "notMatchedOutflow";
 
 /**
  * The scope names the endpoint knows, which are also the keys of its `tab_counts`.
@@ -528,10 +538,83 @@ export type OutflowScope = keyof OutflowRowsPage["tab_counts"];
  */
 export const SCOPE_FOR_TAB: Record<OutflowTab, OutflowScope> = {
     all: "all",
-    notMatched: "not_matched",
-    partlyAllocated: "partly",
-    matched: "matched",
+    notMatchedOutflow: "not_matched_outflow",
+    partlyAllocatedOutflow: "partly_outflow",
+    matchedOutflow: "matched_outflow",
+    notMatchedInflow: "not_matched_inflow",
+    settledInflow: "settled_inflow",
 };
+
+/**
+ * Should the two Inflow tabs show? (#1264)
+ *
+ * `canCarryCredit` is the SERVER's answer for the chosen source (`get_outflow_rows().can_carry_credit`,
+ * read off each source's own column map). The client never learns which sources say no, so there is
+ * no list of source names here to go stale.
+ *
+ * ⚠️ TWO WAYS IT STAYS VISIBLE, BOTH DELIBERATE. An unanswered page (`undefined`) shows the tabs: a
+ * tab that is briefly there is harmless, a tab wrongly hidden hides work. And a tab that HOLDS ROWS
+ * is never hidden, whatever the source says -- a hidden tab over real rows would make them reachable
+ * only through All.
+ */
+export function inflowTabsVisible(
+    canCarryCredit: boolean | undefined,
+    tabCounts?: OutflowRowsPage["tab_counts"]
+): boolean {
+    if (canCarryCredit !== false) return true;
+    return (tabCounts?.not_matched_inflow ?? 0) + (tabCounts?.settled_inflow ?? 0) > 0;
+}
+
+/** The tab strip, minus the Inflow tabs when `inflowTabsVisible` says they are hidden. */
+export const visibleTabs = (inflowVisible: boolean): typeof OUTFLOW_TABS =>
+    OUTFLOW_TABS.filter((t) => inflowVisible || t.direction !== "inflow");
+
+/** Where a hidden Inflow tab goes: its Outflow twin, so the reader keeps the same kind of work. */
+const OUTFLOW_TWIN: Partial<Record<OutflowTab, OutflowTab>> = {
+    notMatchedInflow: "notMatchedOutflow",
+    settledInflow: "matchedOutflow",
+};
+
+/** The tab actually shown, given whether the Inflow tabs are visible. */
+export const reachableTab = (tab: OutflowTab, inflowVisible: boolean): OutflowTab =>
+    inflowVisible ? tab : (OUTFLOW_TWIN[tab] ?? tab);
+
+/**
+ * The pre-#1264 tab ids, as their Outflow variants -- the same fallback the server's scope aliases
+ * use, for a history entry that still carries an old id.
+ */
+const LEGACY_TABS: Record<string, OutflowTab> = {
+    notMatched: "notMatchedOutflow",
+    partlyAllocated: "partlyAllocatedOutflow",
+    matched: "matchedOutflow",
+};
+
+/**
+ * The tab a history entry's state carries across a remount, validated. An unrecognised value falls
+ * back to the default rather than being trusted -- a bookmark or a back button can carry it.
+ */
+export const tabFromCarried = (carried: unknown): OutflowTab => {
+    if (typeof carried !== "string") return DEFAULT_TAB;
+    if (OUTFLOW_TABS.some((t) => t.id === carried)) return carried as OutflowTab;
+    return LEGACY_TABS[carried] ?? DEFAULT_TAB;
+};
+
+/**
+ * Which tab a finished import lands on, for the sources that need to move off the current one.
+ *
+ * ⚠️ A LOOKUP WITH A DEFAULT, NOT A `source === "Cashbook"` LITERAL (slice C8). Absence from this
+ * map is the ordinary case and means "stay where the reader was" -- a source is listed only because
+ * its rows would otherwise land somewhere they cannot be seen. A Cashbook import CREATES its records,
+ * so its rows arrive settled, on the outflow side (a wallet statement never states `Credit`).
+ *
+ * The per-source reasoning lives at the call site, in `OutflowMasterPage.handleImported`.
+ */
+const POST_IMPORT_TAB: Record<string, OutflowTab> = {
+    Cashbook: "matchedOutflow",
+};
+
+export const postImportTab = (source: string | undefined, current: OutflowTab): OutflowTab =>
+    (source ? POST_IMPORT_TAB[source] : undefined) ?? current;
 
 /** One number a tab is labelled with. `count` is `null` when the page has not answered yet. */
 export interface TabCountPart {
@@ -547,46 +630,53 @@ export interface TabCountPart {
 /**
  * How a tab's count renders — ONE number, or the split when one number would mean two things.
  *
- * ⚠️ THE `matched` TAB IS THE WHOLE REASON THIS EXISTS, AND IT IS NOT A STYLING CHOICE. That tab
- * holds `Matched` (OPEN — somebody still owes it a decision) beside `Settled` (TERMINAL — money
+ * ⚠️ THE `matchedOutflow` TAB IS THE WHOLE REASON THIS EXISTS, AND IT IS NOT A STYLING CHOICE. That
+ * tab holds `Matched` (OPEN — somebody still owes it a decision) beside `Settled` (TERMINAL — money
  * written), because to a reviewer both mean "this transfer has a record". A single total cannot say
  * which, and the failure is not symmetric: it reads as the terminal one. Live-observed on the first
  * real statement — the tab read `863` while `settled_rows` was `0`, and it was understood as 863
- * transfers finished. Nothing on that screen contradicted it; the "0 Settled" chip sat in a panel
- * describing one import, four inches away and much quieter.
+ * transfers finished.
  *
- * The two other tabs each hold statuses that are all open, so their single number already means one
- * thing and they stay a single number. THIS IS NOT AN OVERSIGHT TO TIDY UP LATER: splitting a tab
- * whose parts are not meaningfully different would add noise and teach people to ignore the split
- * on the one tab where it carries a fact.
+ * ⚠️ THE SPLIT READS THE **OUTFLOW** HALF OF `direction_status_counts` (#1264). The raw
+ * `status_counts` also hold settled CREDITS, which live on `settledInflow` -- chips built from them
+ * would outgrow the tab they label.
  *
- * ⚠️ IT FALLS BACK TO THE SINGLE TOTAL when `statusCounts` is absent, and the fallback is load
- * bearing rather than defensive. A client running against a server that predates `status_counts`
- * gets exactly the old rendering instead of two zeroes — a tab confidently reporting `0 matched ·
- * 0 settled` over a populated table would be a far worse lie than the one this function fixes.
+ * ⚠️ `settledInflow` SHOWS THE SETTLED COUNT ONLY. A credit never becomes `Matched` (a bank source
+ * has no settlement path), so a `matched` chip there would be a permanent `0` teaching people to
+ * ignore the chip on the tab where it carries a fact.
+ *
+ * ⚠️ BOTH FALL BACK TO THE SINGLE TOTAL when the direction split is absent, and the fallback is load
+ * bearing rather than defensive: a client against a server that predates the split gets a real
+ * number instead of two zeroes — a tab confidently reporting `0 matched · 0 settled` over a populated
+ * table would be a far worse lie than the one this function fixes.
  */
 export function tabCountParts(
     tab: OutflowTab,
     tabCounts?: OutflowRowsPage["tab_counts"],
-    statusCounts?: OutflowRowsPage["status_counts"]
+    directionStatusCounts?: OutflowRowsPage["direction_status_counts"]
 ): TabCountPart[] {
     const scope = SCOPE_FOR_TAB[tab];
     const total = tabCounts ? (tabCounts[scope] ?? null) : null;
 
-    if (tab !== "matched" || !statusCounts) {
+    if (tab === "settledInflow" && directionStatusCounts) {
+        return [{ key: scope, count: directionStatusCounts.inflow?.[ROW_SETTLED] ?? 0 }];
+    }
+
+    if (tab !== "matchedOutflow" || !directionStatusCounts) {
         return [{ key: scope, count: total }];
     }
 
+    const outflow = directionStatusCounts.outflow ?? {};
     return [
         {
             key: ROW_MATCHED,
-            count: statusCounts[ROW_MATCHED] ?? 0,
+            count: outflow[ROW_MATCHED] ?? 0,
             label: "matched",
             tone: "bg-sky-50 text-sky-700",
         },
         {
             key: ROW_SETTLED,
-            count: statusCounts[ROW_SETTLED] ?? 0,
+            count: outflow[ROW_SETTLED] ?? 0,
             label: "settled",
             tone: "bg-emerald-50 text-emerald-700",
         },

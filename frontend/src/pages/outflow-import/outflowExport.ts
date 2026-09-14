@@ -149,10 +149,21 @@ export const exportFileBase = (scope: string): string => {
     switch ((scope || "").trim()) {
         case "all":
             return "outflow-transfers-all";
+        // The pre-#1264 ids a stale client can still send name the same outflow files.
         case "not_matched":
+        case "not_matched_outflow":
             return "outflow-transfers-not-matched";
+        case "partly_outflow":
+            return "outflow-transfers-partly-allocated";
         case "matched":
+        case "matched_outflow":
             return "outflow-transfers-matched";
+        // ⚠️ AN INFLOW FILE MUST NOT BE NAMED `outflow-…`: that name would tell a reconciler the
+        // opposite of what the rows are.
+        case "not_matched_inflow":
+            return "inflow-transfers-not-matched";
+        case "settled_inflow":
+            return "inflow-transfers-settled";
         case "skipped":
             return "outflow-skipped";
         default:

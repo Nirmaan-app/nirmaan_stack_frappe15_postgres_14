@@ -679,6 +679,51 @@ class TestSingleDebitColumnDirection(unittest.TestCase):
         self.assertEqual(_cashbook().gross_amount, Decimal("6750"))
 
 
+class TestSourceCanCarryCredit(unittest.TestCase):
+    """Can a row from this source EVER be a credit? (#1264, ADR-0016 Amendment A tabs)
+
+    ⚠️ READ OFF THE ADAPTER'S DIRECTION LABELS, NEVER A LIST OF SOURCE NAMES. The screen hides its
+    two Inflow tabs for a source that answers `False`; a name list would be a second copy of what
+    the column map already declares, free to drift the day a source gains a deposit column.
+    """
+
+    def test_a_passbook_with_a_deposit_column_can_carry_a_credit(self):
+        from nirmaan_stack.services.outflow_import.parser import source_can_carry_credit
+
+        self.assertTrue(source_can_carry_credit("ICICI Bank Statement"))
+
+    def test_a_payouts_export_and_a_wallet_statement_cannot(self):
+        """Cashbook's `Credit` column is deliberately unmapped, so it never states `Credit`."""
+        from nirmaan_stack.services.outflow_import.parser import source_can_carry_credit
+
+        self.assertFalse(source_can_carry_credit("Cashfree"))
+        self.assertFalse(source_can_carry_credit("Cashbook"))
+
+    def test_an_unknown_or_blank_source_answers_false_and_padding_is_ignored(self):
+        from nirmaan_stack.services.outflow_import.parser import source_can_carry_credit
+
+        self.assertFalse(source_can_carry_credit("Some Future Bank"))
+        self.assertFalse(source_can_carry_credit(""))
+        self.assertFalse(source_can_carry_credit(None))
+        self.assertTrue(source_can_carry_credit(" ICICI Bank Statement "))
+
+    def test_every_supported_source_is_answered_from_its_own_labels(self):
+        """The mechanical check that no name list crept in: the answer equals "does any direction
+        marker on this adapter carry the `Credit` label"."""
+        from nirmaan_stack.services.outflow_import import parser as parser_module
+
+        for source in SUPPORTED_SOURCES:
+            column_map, _required, _derive = parser_module._ADAPTERS[source]
+            labels = set()
+            for marker in column_map.values():
+                if getattr(marker, "label_field", None) == "direction":
+                    labels.update(getattr(marker, "labels", ()) or ())
+                    labels.add(getattr(marker, "label", None))
+            self.assertEqual(
+                parser_module.source_can_carry_credit(source), DIRECTION_CREDIT in labels, source
+            )
+
+
 class TestIciciSource(unittest.TestCase):
     """The bank's own current-account statement (slice B1).
 

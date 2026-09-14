@@ -51,9 +51,7 @@ import {
     type SettleMode,
 } from "./allocationView";
 import {
-    DEFAULT_TAB,
     OUTFLOW_COLUMNS,
-    OUTFLOW_TABS,
     decidedRows,
     clearedPick,
     decisionLinkKeys,
@@ -73,22 +71,12 @@ import {
     needsRecordAnywayConfirmation,
     recordAnywayWording,
     tabCountParts,
+    inflowTabsVisible,
+    postImportTab,
+    reachableTab,
+    tabFromCarried,
+    visibleTabs,
 } from "./outflowTableModel";
-
-/**
- * Which tab a finished import lands on, for the sources that need to move off the default.
- *
- * ⚠️ A LOOKUP WITH A DEFAULT, NOT A `source === "Cashbook"` LITERAL (slice C8). Absence from this
- * map is the ordinary case and means "stay where the reader was" — so a source is listed here only
- * because its rows would otherwise land somewhere they cannot be seen. A third source is an entry
- * or an omission; it is DATA, and the question is answered in one place rather than at the branch.
- *
- * The per-source reasoning lives at the one call site, in `handleImported`, beside the pin it has
- * to travel with.
- */
-const POST_IMPORT_TAB: Record<string, OutflowTab> = {
-    Cashbook: "matched",
-};
 
 /**
  * Bulk Import Transactions -- ONE screen (slices X3 + X4).
@@ -157,32 +145,32 @@ export const OutflowMasterPage = () => {
     );
 
     /**
-     * Which of the four tabs is open.
+     * Which of the six tabs is open (#1264 split the three working tabs by direction).
      *
      * ⚠️ IT SEEDS FROM THE HISTORY ENTRY'S STATE, and that is the ONE thing carrying a tab across a
      * remount. Selecting an import navigates between two separate route entries, which unmounts and
      * rebuilds this component — correct in general (different rows, so a stale selection and
-     * un-confirmed decisions should go), but it would also throw away the `matched` tab a Cashbook
+     * un-confirmed decisions should go), but it would also throw away the `matchedOutflow` tab a Cashbook
      * import deliberately moves to, at the exact moment the pin sends the reader to that statement.
      * The period does not need this because it lives in a module-level store; a tab is nobody
      * else's business, so it travels with the one navigation that has a reason to keep it.
      *
      * An unrecognised value falls back to the default rather than being trusted — the state comes
-     * off a history entry a bookmark or a back button can carry.
+     * off a history entry a bookmark or a back button can carry. A pre-#1264 id lands on its
+     * Outflow variant (`tabFromCarried`).
      */
-    const [tab, setTab] = useState<OutflowTab>(() => {
-        const carried = (location.state as { outflowTab?: unknown } | null)?.outflowTab;
-        return OUTFLOW_TABS.some((t) => t.id === carried) ? (carried as OutflowTab) : DEFAULT_TAB;
-    });
+    const [tab, setTab] = useState<OutflowTab>(() =>
+        tabFromCarried((location.state as { outflowTab?: unknown } | null)?.outflowTab)
+    );
     // Read by the import handler, which runs while `tab`'s own setter is still queued.
     const tabRef = useRef(tab);
     tabRef.current = tab;
     /**
-     * The far-right view, which is NOT one of the four tabs.
+     * The far-right view, which is NOT one of the tabs.
      *
-     * ⚠️ IT IS NOT AN `OutflowTab` AND MUST NOT BECOME ONE. The four tabs are four SCOPES over
+     * ⚠️ IT IS NOT AN `OutflowTab` AND MUST NOT BECOME ONE. The tabs are SCOPES over
      * `Outflow Import Row`; this reads the three LEDGERS and has no import row anywhere in it. A
-     * fifth entry in `OUTFLOW_TABS` would put it through `SCOPE_FOR_TAB`, which has nothing to map
+     * new entry in `OUTFLOW_TABS` would put it through `SCOPE_FOR_TAB`, which has nothing to map
      * it to, and would hand it a `tab_counts` number describing a different population entirely.
      */
     const [showingApproved, setShowingApproved] = useState(false);
@@ -272,6 +260,27 @@ export const OutflowMasterPage = () => {
      */
     const table = useOutflowRows({ scope: SCOPE_FOR_TAB[tab], batch: selectedImport });
     const { rows, loading: rowsLoading, mutate: mutateRows } = table;
+
+    /**
+     * The Inflow tabs hide when the chosen source can never carry a credit (#1264). The SERVER
+     * answers that from each source's own column map — no list of source names lives here.
+     *
+     * ⚠️ AN OPEN INFLOW TAB THAT HIDES MOVES TO ITS OUTFLOW TWIN, rather than staying selected while
+     * invisible: a strip with no highlighted tab over a table of rows reads as a broken screen. The
+     * deps are two strings, so this fires only when the tab really has to move.
+     *
+     * ⚠️ AN EFFECT, NOT A DERIVATION, ON PURPOSE. Rendering `shownTab` while `tab` stayed on the
+     * hidden id would keep the ticked selection of the hidden tab's rows alive under a different
+     * table, and the import handler reads `tabRef`. Visibility is only known once the server has
+     * answered, so there is no user event to hang the move on.
+     */
+    const inflowVisible = inflowTabsVisible(table.canCarryCredit, table.tabCounts);
+    const shownTab = reachableTab(tab, inflowVisible);
+    useEffect(() => {
+        if (shownTab === tab) return;
+        setTab(shownTab);
+        setSelected(new Set());
+    }, [shownTab, tab]);
 
     /**
      * The period the whole screen is scoped to (slice P1).
@@ -968,7 +977,7 @@ export const OutflowMasterPage = () => {
              * to prevent, arriving from the other direction.
              *
              * ⚠️ WHICH IS WHY THE EXCEPTION IS A LOOKUP AND THE DEFAULT IS "DO NOT MOVE" (see
-             * `POST_IMPORT_TAB`). Staying put can only ever leave a reader where they chose to be;
+             * `postImportTab`). Staying put can only ever leave a reader where they chose to be;
              * moving them is the act that can hide their work, so it is the one that has to be
              * asked for by name.
              *
@@ -979,8 +988,7 @@ export const OutflowMasterPage = () => {
              * prevent. Setting it here STILL matters for the case where the pin navigates nowhere
              * (re-importing while already pinned to that same statement, where nothing remounts).
              */
-            const nextTab: OutflowTab =
-                (source ? POST_IMPORT_TAB[source] : undefined) ?? tabRef.current;
+            const nextTab: OutflowTab = postImportTab(source, tabRef.current);
             setTab(nextTab);
 
             // Remembered, not acted on — the pin fires when the dialog closes. See the ref's own
@@ -1072,7 +1080,7 @@ export const OutflowMasterPage = () => {
                 fact in the place a reader looks for it. */}
 
             <div className="flex flex-wrap items-center gap-2 border-b">
-                {OUTFLOW_TABS.map((t) => (
+                {visibleTabs(inflowVisible).map((t) => (
                     <button
                         key={t.id}
                         onClick={() => {
@@ -1090,18 +1098,18 @@ export const OutflowMasterPage = () => {
                         {/* ⚠️ THE COUNTS DESCRIBE THE CURRENT SEARCH, not the whole table. A search
                             matching four rows must not show "Settled 812" beside it.
 
-                            ⚠️ THE `matched` TAB RENDERS TWO NUMBERS, and that is a correctness fix
+                            ⚠️ THE `matchedOutflow` TAB RENDERS TWO NUMBERS, and that is a correctness fix
                             rather than decoration -- it holds an OPEN status beside a TERMINAL one,
                             so one number there meant two things and was read as the terminal one
                             (863 under "Matched / Settled" while nothing was settled). The split
-                            comes from the pure `tabCountParts`; the other three tabs are unchanged.
+                            comes from the pure `tabCountParts`; the other tabs render one number.
 
                             ⚠️ KEYED THROUGH `SCOPE_FOR_TAB` inside that helper, never by the tab id.
                             The endpoint returns its counts under the SCOPE names, and the two
                             vocabularies differ on purpose -- the pre-retab code special-cased the
                             one tab whose id and scope disagreed, which is a bug waiting for the
                             second one. */}
-                        {tabCountParts(t.id, table.tabCounts, table.statusCounts).map((part) => (
+                        {tabCountParts(t.id, table.tabCounts, table.directionStatusCounts).map((part) => (
                             <span
                                 key={part.key}
                                 className={`rounded-full px-1.5 text-xs tabular-nums ${
@@ -1116,7 +1124,7 @@ export const OutflowMasterPage = () => {
                 ))}
 
                 {/* ⚠️ A BUTTON, NOT A FIFTH TAB (owner, 2026-08-11), and the distinction is the
-                    whole reason it looks different. The four tabs to its left are four SCOPES over
+                    whole reason it looks different. The tabs to its left are SCOPES over
                     ONE population — `Outflow Import Row` — so their counts sit in a row precisely
                     because they can be compared and subtracted. This opens a view over three OTHER
                     doctypes with no import row in it at all. Rendering it as a tab put a control for

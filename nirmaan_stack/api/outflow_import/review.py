@@ -84,7 +84,10 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 # `ledgers._SETTLED_MATCH_KIND`). `review.py` sits above all three, so no cycle here.
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
-from nirmaan_stack.services.outflow_import.parser import BANK_SUCCESS_STATUS
+from nirmaan_stack.services.outflow_import.parser import (
+    BANK_SUCCESS_STATUS,
+    source_can_carry_credit,
+)
 from nirmaan_stack.services.outflow_import.settlement_reference import (
     settlement_reference_of_row,
 )
@@ -133,6 +136,8 @@ from nirmaan_stack.services.outflow_import.status import (
     derive_row_outcome,
     derive_settled_direction_blocks,
     sole_suggestion,
+    SETTLED_BLOCK_PAID,
+    SETTLED_BLOCK_RECEIVED,
 )
 
 BATCH_DOCTYPE = "Outflow Import Batch"
@@ -2016,13 +2021,24 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
 
 # --- the master table (slice X3) ----------------------------------------------------------------
 
-# The four tabs, as STATUS SETS (owner ruling 2026-08-10, replacing Pending / Settled / Skipped;
-# `partly` joined later as its own tab, ADR-0020 D5).
+# The tabs, as STATUS SETS narrowed by DIRECTION (owner ruling 2026-08-10, replacing Pending /
+# Settled / Skipped; `partly` joined later, ADR-0020 D5; split by direction at #1264, ADR-0016
+# Amendment A).
 #
-#   all           everything EXCEPT Skipped
-#   not_matched   the work: staged, did not line up, or the write failed
-#   partly        money already written, some of it still unallocated
-#   matched       found something, or already written -- the two "this is handled" states
+#   all                  everything EXCEPT Skipped, both directions
+#   not_matched_outflow  the work: staged, did not line up, or the write failed -- money OUT
+#   partly_outflow       money already written, some of it still unallocated -- money OUT
+#   matched_outflow      found something, or already written -- money OUT
+#   not_matched_inflow   the not-matched statuses -- money IN
+#   settled_inflow       the matched statuses -- money IN
+#
+# ⚠️ DIRECTION IS `status.is_received_direction`, AND ONLY THAT: trimmed `Credit` is inflow,
+# EVERYTHING ELSE -- blank included -- is outflow, so no row falls between the tabs. In SQL it is
+# `_DIRECTION_CLASS_SQL` (the same expression the Direction funnel filters on); never spell it again.
+#
+# ⚠️ `settled_inflow` HOLDS BOTH MATCHED STATUSES, like its outflow twin. A credit never becomes
+# `Matched` today (a bank source has no settlement path), so the screen labels it with the settled
+# count alone -- but the tab must still show a `Matched` credit if one ever appears, rather than lose it.
 #
 # ⚠️ `Skipped` HAS NO TAB, AND IS EXCLUDED FROM `all` TOO (owner ruling). It is not "everything";
 # it is everything a person might still act on. Skipped rows are bookkeeping -- a failed transfer, a
@@ -2036,10 +2052,20 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
 # `Matched` is open, so this tab holds a MIX -- which is why row selection is per-row rather than
 # per-tab on the screen.
 SCOPE_ALL = "all"
-SCOPE_NOT_MATCHED = "not_matched"
-SCOPE_PARTLY = "partly"
-SCOPE_MATCHED = "matched"
+SCOPE_NOT_MATCHED_OUTFLOW = "not_matched_outflow"
+SCOPE_PARTLY_OUTFLOW = "partly_outflow"
+SCOPE_MATCHED_OUTFLOW = "matched_outflow"
+SCOPE_NOT_MATCHED_INFLOW = "not_matched_inflow"
+SCOPE_SETTLED_INFLOW = "settled_inflow"
 SCOPE_SKIPPED = "skipped"
+
+# The two labels `_DIRECTION_CLASS_SQL` yields. They ARE the summary's direction-block labels, so
+# the funnel, the tabs and the summary name a side identically.
+DIRECTION_OUTFLOW_LABEL = SETTLED_BLOCK_PAID
+DIRECTION_INFLOW_LABEL = SETTLED_BLOCK_RECEIVED
+
+_NOT_MATCHED_STATUSES = (ROW_PENDING_MATCH, ROW_MISMATCHED, ROW_ERROR)
+_MATCHED_STATUSES = (ROW_MATCHED, ROW_SETTLED)
 
 _SCOPE_STATUSES = {
     # ⚠️ `all` CARRIES A REAL CLAUSE NOW, and it did not before. It used to fall through to "no
@@ -2047,14 +2073,16 @@ _SCOPE_STATUSES = {
     # actual filter, and forgetting that is exactly how skipped rows would leak back into the one
     # tab nobody would think to check.
     SCOPE_ALL: tuple(s for s in ROW_STATUSES if s != ROW_SKIPPED),
-    SCOPE_NOT_MATCHED: (ROW_PENDING_MATCH, ROW_MISMATCHED, ROW_ERROR),
+    SCOPE_NOT_MATCHED_OUTFLOW: _NOT_MATCHED_STATUSES,
     # ⚠️ ITS OWN SCOPE, NOT FOLDED INTO `matched`. `outflowTableModel.tabCountParts` splits the
     # Matched tab into exactly TWO chips (Matched + Settled); a third status there makes the chips
     # stop summing to the tab total -- the precise defect that function was written to fix. It is
     # also a different job: "money moved, finish the allocation" is not "nothing matched, go find
     # something", and the screen's default landing tab is Not-Matched.
-    SCOPE_PARTLY: (ROW_PARTIALLY_ALLOCATED,),
-    SCOPE_MATCHED: (ROW_MATCHED, ROW_SETTLED),
+    SCOPE_PARTLY_OUTFLOW: (ROW_PARTIALLY_ALLOCATED,),
+    SCOPE_MATCHED_OUTFLOW: _MATCHED_STATUSES,
+    SCOPE_NOT_MATCHED_INFLOW: _NOT_MATCHED_STATUSES,
+    SCOPE_SETTLED_INFLOW: _MATCHED_STATUSES,
     # ⚠️ A SCOPE, AND DELIBERATELY NOT A TAB (owner confirmed 2026-08-11). The ruling that "All means
     # everything a person might still act on, not every row" is UNCHANGED, and no tab reaches a
     # skipped transfer -- `test_no_tab_scope_will_show_a_skipped_row` still pins that. What this adds
@@ -2065,6 +2093,24 @@ _SCOPE_STATUSES = {
     # ⚠️ IT IS THE ONLY SCOPE THAT RETURNS THEM, and it returns nothing else. A scope that mixed
     # skipped rows into a working view would be the thing the ruling forbids, arrived at sideways.
     SCOPE_SKIPPED: (ROW_SKIPPED,),
+}
+
+# The direction each scope is narrowed to. A scope absent here (`all`, `skipped`) spans both.
+_SCOPE_DIRECTION = {
+    SCOPE_NOT_MATCHED_OUTFLOW: DIRECTION_OUTFLOW_LABEL,
+    SCOPE_PARTLY_OUTFLOW: DIRECTION_OUTFLOW_LABEL,
+    SCOPE_MATCHED_OUTFLOW: DIRECTION_OUTFLOW_LABEL,
+    SCOPE_NOT_MATCHED_INFLOW: DIRECTION_INFLOW_LABEL,
+    SCOPE_SETTLED_INFLOW: DIRECTION_INFLOW_LABEL,
+}
+
+# ⚠️ THE PRE-#1264 SCOPE IDS, KEPT AS ALIASES. A stale client (an open tab, a bookmark) still sends
+# them; each lands on its OUTFLOW variant -- where every row of those tabs lived until inflows
+# arrived -- rather than falling all the way back to `all`.
+_LEGACY_SCOPES = {
+    "not_matched": SCOPE_NOT_MATCHED_OUTFLOW,
+    "partly": SCOPE_PARTLY_OUTFLOW,
+    "matched": SCOPE_MATCHED_OUTFLOW,
 }
 
 # ⚠️ AN ALLOW-LIST, BECAUSE THE SORT COLUMN IS INTERPOLATED INTO SQL. A sort key cannot be a bound
@@ -2102,6 +2148,13 @@ _SEARCHABLE_COLUMNS = (
 # silent capability cut in a refactor nobody asked to lose anything in. So the distinct values come
 # from the database instead, over the WHOLE filtered table, through `get_outflow_facet_values`.
 #
+# The transaction direction as a two-value label -- `status.is_received_direction` in SQL. See the
+# long note on `_FACET_COLUMNS["direction"]` for why it is a `CASE` with a `TRIM`, not the raw field.
+_DIRECTION_CLASS_SQL = (
+    f"CASE WHEN TRIM(r.direction) = 'Credit' THEN '{DIRECTION_INFLOW_LABEL}' "
+    f"ELSE '{DIRECTION_OUTFLOW_LABEL}' END"
+)
+
 # An allow-list for the same reason as `_SORTABLE_COLUMNS`: the column name is interpolated.
 _FACET_COLUMNS = {
     "beneficiary_name": "r.beneficiary_name",
@@ -2175,7 +2228,10 @@ _FACET_COLUMNS = {
     # table is ~899 rows and every other facet already runs an unindexed `DISTINCT` over the same
     # scan, so this costs nothing at this size -- and this line is what to re-measure if it ever
     # stops being true.
-    "direction": "CASE WHEN TRIM(r.direction) = 'Credit' THEN 'Received' ELSE 'Paid' END",
+    #
+    # ⚠️ SINCE #1264 THE DIRECTION TABS FILTER AND COUNT ON THIS SAME EXPRESSION (`_scope_clause`,
+    # `_tab_counts`), which is why it now lives in one named constant.
+    "direction": _DIRECTION_CLASS_SQL,
     # ⚠️ THE ONE FACET THAT IS NOT A COLUMN ON THIS TABLE. It is `ledgers.SETTLED_LEDGER_SQL` -- a
     # SCALAR CORRELATED SUBQUERY over `Outflow Row Match`, which is precisely why it can live in
     # this map at all: `_row_filters` builds single-table fragments against the alias `r`, shared by
@@ -2291,7 +2347,7 @@ _SETTLED_TARGET_AMOUNT_SQL = (
 
 @frappe.whitelist()
 def get_outflow_rows(
-    scope: str = SCOPE_NOT_MATCHED,
+    scope: str = SCOPE_NOT_MATCHED_OUTFLOW,
     batch: str = None,
     failed=None,
     search: str = None,
@@ -2424,7 +2480,7 @@ def get_outflow_rows(
         ]
     )
     _with_order_names(rows, {}, related)
-    tab_counts, status_counts = _tab_counts(where, params)
+    tab_counts, status_counts, direction_status_counts = _tab_counts(where, params)
 
     return {
         "rows": [
@@ -2460,6 +2516,12 @@ def get_outflow_rows(
         # The same population as `tab_counts`, broken down by status rather than by tab. See
         # `_tab_counts`: one tab holds two statuses and its single number cannot say which.
         "status_counts": status_counts,
+        # The same breakdown, split by direction (#1264). The `Matched / Settled - Outflow` tab
+        # renders its two chips from the `outflow` half, so they add up to that tab and not to a
+        # count that includes settled credits.
+        "direction_status_counts": direction_status_counts,
+        # Can the chosen source(s) ever carry a credit? The screen hides its Inflow tabs when not.
+        "can_carry_credit": _can_carry_credit(facets, batch),
     }
 
 
@@ -2671,8 +2733,16 @@ def get_outflow_facet_values(
     }
 
 
+def _resolve_scope(scope: str) -> str:
+    """The scope id a request names, after aliases. An unknown id resolves to `all`."""
+    key = (scope or "").strip().lower()
+    key = _LEGACY_SCOPES.get(key, key)
+    return key if key in _SCOPE_STATUSES else SCOPE_ALL
+
+
 def _scope_clause(scope: str):
-    """The tab, as a status set. An unknown scope falls back to `all` rather than to nothing.
+    """The tab, as a status set and (for a direction tab) a direction. An unknown scope falls back to
+    `all` rather than to nothing; a pre-#1264 id falls back to its outflow variant.
 
     Failing open is right here: a client sending a scope this server has not heard of should see the
     whole table, which is visibly odd, rather than an empty one, which reads as "there is no work".
@@ -2682,63 +2752,106 @@ def _scope_clause(scope: str):
     rows that every real tab excludes, in the one view nobody would think to check. `all` is the
     widest set a client may ask for, so it is also the right thing to fall back to.
     """
-    statuses = _SCOPE_STATUSES.get((scope or "").lower()) or _SCOPE_STATUSES[SCOPE_ALL]
+    resolved = _resolve_scope(scope)
+    statuses = _SCOPE_STATUSES[resolved]
     placeholders = ", ".join(["%s"] * len(statuses))
-    return [f"r.row_status IN ({placeholders})"], list(statuses)
+    where, params = [f"r.row_status IN ({placeholders})"], list(statuses)
+    direction = _SCOPE_DIRECTION.get(resolved)
+    if direction:
+        where.append(f"{_DIRECTION_CLASS_SQL} = %s")
+        params.append(direction)
+    return where, params
 
 
-def _tab_counts(where, params) -> tuple[dict, dict]:
-    """How many rows each tab holds UNDER THE CURRENT FILTERS, in one grouped query.
+def _can_carry_credit(facets, batch: str = None) -> bool:
+    """Can the source(s) this request is scoped to ever carry a credit? No source chosen means all.
 
-    ⚠️ EVERY COUNT IS DERIVED FROM `_SCOPE_STATUSES`, never from a second list of statuses written
-    out here. The counts label the tabs, so a count that disagrees with what the tab actually shows
-    is worse than no count -- and with `Skipped` now excluded from `all`, a hand-written `all` count
-    would over-report by exactly the rows the tab refuses to show.
+    ⚠️ A PINNED IMPORT ANSWERS FROM ITS OWN SOURCE, whatever the Source filter says: one import is
+    one statement from one source, and the screen withholds the Source scope while one is pinned.
+    A legacy batch with no recorded source answers `True` -- a tab shown in error is harmless, a tab
+    hidden in error hides rows.
 
-    ⚠️ IT RETURNS THE PER-STATUS COUNTS AS WELL, AND THAT IS THE POINT OF THE SECOND RETURN VALUE.
-    One tab holds TWO statuses -- `Matched` (open) beside `Settled` (terminal) -- so its single
-    number cannot say which. Live-observed: 863 sat under a tab labelled "Matched / Settled" while
-    nothing at all had been settled, and the tab read as 863 finished. The split is already computed
-    here to derive the scopes; returning it costs nothing and no second query, and it is what lets
-    the tab show `863 matched · 0 settled` instead of one number that means two things.
+    ⚠️ ANSWERED FROM EACH SOURCE'S OWN COLUMN MAP (`parser.source_can_carry_credit`), NEVER A NAME
+    LIST. The client reads only this answer -- it never learns which sources say no.
+    """
+    if batch:
+        source = _batch_source(batch)
+        return not source or source_can_carry_credit(source)
+    chosen = [
+        str(value).strip()
+        for value in _parsed_facets(facets).get("source", [])
+        if str(value or "").strip()
+    ]
+    return not chosen or any(source_can_carry_credit(source) for source in chosen)
+
+
+def _tab_counts(where, params) -> tuple[dict, dict, dict]:
+    """How many rows each tab holds UNDER THE CURRENT FILTERS, in ONE query grouped by status AND
+    direction (#1264).
+
+    ⚠️ EVERY COUNT IS DERIVED FROM `_SCOPE_STATUSES` + `_SCOPE_DIRECTION`, never from a second list
+    written out here. The counts label the tabs, so a count that disagrees with what the tab
+    actually shows is worse than no count -- and with `Skipped` excluded from `all`, a hand-written
+    `all` count would over-report by exactly the rows the tab refuses to show.
+
+    ⚠️ IT RETURNS THE PER-STATUS COUNTS AS WELL, both whole and split by direction. One tab holds
+    TWO statuses -- `Matched` (open) beside `Settled` (terminal) -- so its single number cannot say
+    which. Live-observed: 863 sat under a tab labelled "Matched / Settled" while nothing at all had
+    been settled, and the tab read as 863 finished. The split is already computed here to derive
+    the scopes; returning it costs no second query. The screen's `Matched / Settled - Outflow` chips
+    read the `outflow` half, so they add up to that tab.
 
     ⚠️ ZERO-FILLED OVER `ROW_STATUSES`, so a status with no rows comes back as `0` rather than
     absent. A missing key would render as an em dash, which reads as "unknown" when the truth is
     "none" -- and "0 settled" is precisely the fact this split exists to make visible.
 
     ⚠️ THE STATUS COUNTS ARE RAW AND INCLUDE `Skipped`, which no tab shows. They are a breakdown OF
-    the population, not a fourth scope; never sum them expecting a tab's number. Only `tab_counts`
-    is derived from `_SCOPE_STATUSES`, and it stays the one thing a tab is labelled with.
+    the population, not another scope; never sum them expecting a tab's number. Only `tab_counts`
+    is derived from the scopes, and it stays the one thing a tab is labelled with.
     """
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     grouped = frappe.db.sql(
         f"""
-        SELECT r.row_status AS status, COUNT(*) AS n
+        SELECT r.row_status AS status, {_DIRECTION_CLASS_SQL} AS direction, COUNT(*) AS n
         FROM "tabOutflow Import Row" r
         {clause}
-        GROUP BY r.row_status
+        GROUP BY 1, 2
         """,
         tuple(params),
         as_dict=True,
     )
-    by_status = {(g["status"] or ""): int(g["n"] or 0) for g in grouped}
-    tabs = {
-        scope: sum(n for s, n in by_status.items() if s in statuses)
-        for scope, statuses in _SCOPE_STATUSES.items()
+    by_pair = {((g["status"] or ""), g["direction"]): int(g["n"] or 0) for g in grouped}
+
+    tabs = {}
+    for scope, statuses in _SCOPE_STATUSES.items():
+        wanted = _SCOPE_DIRECTION.get(scope)
+        tabs[scope] = sum(
+            n
+            for (status, direction), n in by_pair.items()
+            if status in statuses and (wanted is None or direction == wanted)
+        )
+
+    def _zero_filled(pairs):
+        counts = {status: 0 for status in ROW_STATUSES}
+        # An unrecognised status -- a row staged under an older vocabulary -- is CARRIED rather than
+        # dropped, on the same reasoning as `derive_import_summary`: a breakdown that quietly omitted
+        # it would report fewer rows than the population it claims to describe.
+        for (status, _direction), n in pairs:
+            if status:
+                counts[status] = counts.get(status, 0) + n
+        return counts
+
+    status_counts = _zero_filled(by_pair.items())
+    direction_status_counts = {
+        "outflow": _zero_filled((k, n) for k, n in by_pair.items() if k[1] == DIRECTION_OUTFLOW_LABEL),
+        "inflow": _zero_filled((k, n) for k, n in by_pair.items() if k[1] == DIRECTION_INFLOW_LABEL),
     }
-    status_counts = {status: by_status.get(status, 0) for status in ROW_STATUSES}
-    # An unrecognised status -- a row staged under an older vocabulary -- is CARRIED rather than
-    # dropped, on the same reasoning as `derive_import_summary`: a breakdown that quietly omitted it
-    # would report fewer rows than the population it claims to describe.
-    for status, n in by_status.items():
-        if status and status not in status_counts:
-            status_counts[status] = n
-    return tabs, status_counts
+    return tabs, status_counts, direction_status_counts
 
 
 @frappe.whitelist()
 def export_outflow_rows(
-    scope: str = SCOPE_NOT_MATCHED,
+    scope: str = SCOPE_NOT_MATCHED_OUTFLOW,
     batch: str = None,
     failed=None,
     search: str = None,

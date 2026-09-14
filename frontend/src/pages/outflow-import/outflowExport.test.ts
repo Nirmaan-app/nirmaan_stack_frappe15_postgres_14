@@ -208,6 +208,12 @@ describe("exportFileBase", () => {
         expect(exportFileBase("not_matched")).toBe("outflow-transfers-not-matched");
         expect(exportFileBase("matched")).toBe("outflow-transfers-matched");
         expect(exportFileBase("skipped")).toBe("outflow-skipped");
+        // The direction tabs (#1264) say their direction in the name, because the file cannot.
+        expect(exportFileBase("not_matched_outflow")).toBe("outflow-transfers-not-matched");
+        expect(exportFileBase("partly_outflow")).toBe("outflow-transfers-partly-allocated");
+        expect(exportFileBase("matched_outflow")).toBe("outflow-transfers-matched");
+        expect(exportFileBase("not_matched_inflow")).toBe("inflow-transfers-not-matched");
+        expect(exportFileBase("settled_inflow")).toBe("inflow-transfers-settled");
     });
 
     it("falls back to the bare stem for a scope this screen does not have", () => {

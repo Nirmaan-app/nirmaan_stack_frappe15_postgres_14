@@ -785,19 +785,48 @@ thing — one master table across every import at `/bulk-import-outflow` — and
   endpoint deliberately does **not** apply the funnel's own selection: a funnel that filtered its
   own options would collapse to whatever is ticked and offer no way back.
 - **Default scope is the work, not the archive** (owner ruling) — a worklist first. Since the retab
-  that default is `not_matched`, **narrower than the old `open`**, which also held `Matched`.
+  that default is `not_matched`, **narrower than the old `open`**, which also held `Matched`. Since
+  #1264 it is **`not_matched_outflow`** (tab *Not Matched – Outflow*).
 - **`/bulk-import-outflow/:id` is KEPT** and renders the same page pre-scoped to that import, so
   every pre-X3 link still resolves. `/new` is gone; uploading is a dialog.
-- **Three tabs — All / Not-Matched / Matched & Settled** (owner ruling 2026-08-10, replacing
-  Pending / Settled / Skipped) — plus the per-row decision dialog, unchanged.
+- **Six tabs, split by TRANSACTION DIRECTION** (#1264, ADR-0016 Amendment A; replacing the owner's
+  2026-08-10 All / Not-Matched / Matched & Settled strip, to which `Partly Allocated` was later
+  added, ADR-0020 D5) — plus the per-row decision dialog, unchanged.
 
   | Tab | Scope | Holds |
   |---|---|---|
-  | All | `all` | everything **except Skipped** |
-  | Not-Matched | `not_matched` | `Pending match run` · `Mismatched` · `Error` |
-  | Matched / Settled | `matched` | `Matched` · `Settled` |
+  | All | `all` | everything **except Skipped**, both directions |
+  | Not Matched – Outflow | `not_matched_outflow` | `Pending match run` · `Mismatched` · `Error`, debit or blank |
+  | Partly Allocated – Outflow | `partly_outflow` | `Partially Allocated`, debit or blank |
+  | Matched / Settled – Outflow | `matched_outflow` | `Matched` · `Settled`, debit or blank |
+  | Not Matched – Inflow | `not_matched_inflow` | `Pending match run` · `Mismatched` · `Error`, credit |
+  | Settled – Inflow | `settled_inflow` | `Matched` · `Settled`, credit |
 
-  ⚠️ **ALL THREE TABS ARE SCOPED BY THE PERIOD SINCE P1**, and so is the Skipped dialog — the
+  - **Direction is `status.is_received_direction`, and only that** — trimmed `Credit` is inflow,
+    everything else (blank included) is outflow, so the five direction tabs PARTITION `all`. In SQL it
+    is `review._DIRECTION_CLASS_SQL`, the SAME expression the Direction funnel filters on; the scope
+    clause and the tab counts both read it. Never spell the rule a third time.
+  - **Tab counts come from ONE query grouped by status AND direction** (`_tab_counts`). It also
+    returns `direction_status_counts` (`outflow` / `inflow`, zero-filled). ⚠️ The *Matched / Settled –
+    Outflow* chips read the **outflow** half — the raw `status_counts` also hold settled credits and
+    would outgrow the tab. *Settled – Inflow* shows the **settled count only** (a credit never becomes
+    `Matched`), while its scope still holds both statuses so a stray `Matched` credit is not lost.
+  - **The Inflow tabs hide when the chosen source can never carry a credit** (Cashfree, Cashbook).
+    `get_outflow_rows().can_carry_credit` answers from `parser.source_can_carry_credit`, which reads
+    each source's OWN column map (does any `direction` marker write `Credit`?) — no list of source
+    names anywhere. No source chosen = every source = `true`; a pinned import answers from its own
+    batch's source (a legacy blank source = `true`). ⚠️ Client-side (`inflowTabsVisible`),
+    an unanswered page shows the tabs, and **a tab holding rows is never hidden** whatever the answer.
+    An open Inflow tab that hides moves to its Outflow twin (`reachableTab`).
+  - ⚠️ **Old scope ids are aliases** (`review._LEGACY_SCOPES`): `not_matched` / `partly` / `matched`
+    resolve to their `_outflow` variant, so a stale client sees the outflow half, never an empty table.
+    An unknown id still falls back to `all`. The client does the same for a tab id carried on a history
+    entry (`tabFromCarried`). `tab_counts` carries only the new keys.
+  - Post-import tab (`outflowTableModel.postImportTab`): Cashbook → *Matched / Settled – Outflow*;
+    every other source stays where the reader was.
+  - An export names its direction: `inflow-transfers-…` for the two Inflow scopes (`exportFileBase`).
+
+  ⚠️ **EVERY TAB IS SCOPED BY THE PERIOD SINCE P1**, and so is the Skipped dialog — the
   period is the `added_on` column's filter, and `_row_filters` applies it to every one of these
   reads. `tab_counts` therefore describes the period, exactly as it already described the search.
 
@@ -851,7 +880,7 @@ thing — one master table across every import at `/bulk-import-outflow` — and
     whole point of those two clauses.** The bank's date column is free text and does not always
     parse — the parser stores NULL rather than guessing, and the fixture carries a literal
     `not-a-date` for the case. Under a plain `>=` / `<` bound such a row matches NO window, so once
-    the period became the screen's SCOPE it would have vanished from the summary, all three tabs and
+    the period became the screen's SCOPE it would have vanished from the summary, every tab and
     the Skipped dialog simultaneously, **with no filter on screen able to bring it back**. The
     transfer still moved money and still needs settling. Found by a test, not by the screen.
   - ⚠️ **RE-MATCHING REACHES FURTHER THAN THE PERIOD, AND THE SCREEN SAYS SO.** `match_period`
@@ -1274,7 +1303,7 @@ be a second, quieter way to spend money.
 payment we recorded backed by a real transfer?"*. This reads FORWARDS from records still Approved:
 the queue this import exists to consume. It answers "what is waiting", not "what did we get wrong".
 
-⚠️ **A BUTTON, NOT A FOURTH TAB (owner, 2026-08-11).** The three tabs are three SCOPES over ONE
+⚠️ **A BUTTON, NOT A FOURTH TAB (owner, 2026-08-11).** The tabs are SCOPES over ONE
 population — `Outflow Import Row` — so their counts sit in a row precisely because they can be
 compared and subtracted. This opens a view over three OTHER doctypes with no import row in it at all.
 **`ml-auto` is load-bearing, not alignment taste**: pushing it to the far right is what stops it
@@ -2187,7 +2216,7 @@ wrong conclusion from the same reasoning.
   three ledgers — see the invariant below. Kept struck through rather than deleted: both positions
   were held deliberately, and the next reader is entitled to see that.
 - **There is no reverse view.** `get_reconciliation_report` was deleted at V5, and with it the answer
-  to "is every payment we recorded backed by a real transfer?". The three tabs answer only "is this
+  to "is every payment we recorded backed by a real transfer?". The tabs answer only "is this
   transfer recorded?". Deliberate scope decision, not an oversight.
 - ⏳ **PENDING (owner, 2026-09-13) — reversing a fan-out leg WITHHOLDS TDS on the payment.** Deferred
   to the planned **universal unreconcile** feature for this workflow; do not patch it in isolation.
