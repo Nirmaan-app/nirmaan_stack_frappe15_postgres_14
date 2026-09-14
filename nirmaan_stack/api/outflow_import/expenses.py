@@ -1317,10 +1317,15 @@ def _guard_money_not_recorded(staged, doc, confirm_mismatch=False, writing=()) -
     they are never the duplicate.
 
     ⚠️ IT RUNS BEFORE THE SAVEPOINT AND READS ONLY, so a refusal leaves nothing behind. Only
-    `allocate_row` holds a row lock, and the guard runs under it. The others take none -- #1260 asked
-    for "under the row lock", and taking one on `settle_row` is the lock-order decision #1250
-    deliberately deferred, so it is an OPEN ITEM, not done here. A concurrent second write on the same
-    row still fails at the row update.
+    `allocate_row` holds a row lock, and the guard runs under it. The others take none, and a
+    concurrent second write on the SAME row still fails at the row update.
+
+    ⚠️ ACCEPTED RACE (owner ruling, #1262): two reviewers recording two DIFFERENT lines that describe
+    the same money, at the same moment, can both read "not yet recorded" and both write. A ROW lock
+    would NOT close this -- each line takes its own lock, so neither waits for the other; that is why
+    `allocate_row`'s lock does not close it either. Closing it needs ONE lock shared by all six
+    callers (e.g. a transaction-scoped advisory lock taken before any other lock). Deferred, not
+    forgotten: do not add a per-row lock here believing it fixes this.
     """
     verdict = derive_recorded_money_verdict(
         staged, _recorded_money_group(staged, doc["import_batch"], writing)

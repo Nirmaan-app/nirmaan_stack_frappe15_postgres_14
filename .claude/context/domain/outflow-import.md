@@ -4384,14 +4384,25 @@ confirm cannot ask, so its failure line adds *"Open the transfer to record it an
   `test_settle_payment.test_an_already_paid_payment_is_refused_DISTINCTLY` went red when the guard counted
   the target. No hole: such a target is refused either way.
 
-### ⚠️ OPEN ITEM -- "under the row lock" is met on `allocate_row` only
+### ⚠️ ACCEPTED RACE -- two lines of the same money, recorded at the same moment (#1262, owner ruling 2026-09-14)
 
 The ticket says the guard runs "under the row lock". `allocate_row` runs it under its `FOR UPDATE` row lock.
 `settle_row`, `settle_row_partial` and the three creates take NO row lock today, by the decision recorded on
 `settle_row` (#1250 deliberately did not add one: it changes the lock order and the concurrent-refusal
-shape). So on those paths the verdict is read without a lock; a second concurrent write on the same row
-still fails at the row update, but two reviewers racing on two DIFFERENT lines of the same money are not
-serialised. Taking the lock is the owner's call and a follow-up, not done here.
+shape). A second concurrent write on the SAME row still fails at the row update.
+
+**What is not serialised, on ANY path including Allocate:** two reviewers recording two DIFFERENT lines that
+describe the same money, at the same moment. Both guards can read "not yet recorded" before either commits.
+
+**⚠️ A ROW LOCK DOES NOT CLOSE THIS, and #1262 found that the ticket's own first option would not have.**
+Each line takes its OWN row lock, so neither reviewer waits for the other -- which is also why
+`allocate_row`'s lock leaves it open. The only fix is ONE lock shared by all six callers (a
+transaction-scoped Postgres advisory lock taken before any other lock, so the lock order stays uniform),
+at the cost of serialising every record-money write and re-measuring the #1246 / #1250 concurrent tests.
+
+**The owner chose to ACCEPT the race for now** (#1262): it needs two reviewers acting on two lines of the
+same money inside the same split second. Nothing in the code changed; the guard's docstring records the
+ruling. If it is ever revisited, do not add a per-row lock believing it closes this.
 
 ### The known gap is closed
 
