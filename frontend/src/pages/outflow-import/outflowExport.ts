@@ -17,7 +17,7 @@
 // never disagree about what a cell holds.
 
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
-import type { OutflowColumn } from "./outflowTableModel";
+import { isCreditRow, type OutflowColumn } from "./outflowTableModel";
 
 /**
  * One column as `exportToCsv` reads it.
@@ -86,6 +86,18 @@ export interface OutflowExportColumn {
  * states).
  */
 export const EXPORT_ONLY_COLUMNS: readonly OutflowExportColumn[] = [
+    // ⚠️ DIRECTION MOVED HERE WHEN THE SCREEN DROPPED ITS COLUMN (owner, 2026-09-14). On screen the
+    // Amount colour and the tabs say it; a CSV has neither, and every amount in it is a positive
+    // figure, so without this an export of the All tab could not tell money in from money out.
+    // `Paid` / `Received` on every row -- never blank -- via the one predicate, `isCreditRow`.
+    {
+        id: "direction",
+        header: "Direction",
+        meta: {
+            exportHeaderName: "Direction",
+            exportValue: (row: OutflowImportRow) => (isCreditRow(row) ? "Received" : "Paid"),
+        },
+    },
     {
         id: "settled_target_names",
         header: "Settled record(s)",

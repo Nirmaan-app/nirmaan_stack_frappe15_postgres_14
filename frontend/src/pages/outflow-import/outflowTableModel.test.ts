@@ -46,6 +46,8 @@ import {
     previewCounts,
     statementDebit,
     tabCountParts,
+    amountToneClass,
+    AMOUNT_TONE,
     inflowTabsVisible,
     visibleTabs,
     reachableTab,
@@ -171,16 +173,14 @@ describe("columns", () => {
         // on every source, so the old heading called a deposit "paid". The column cannot say which
         // way the money went; `direction` is the only field that can.
         //
-        // ⚠️ "Direction" JOINED VISIBLE, immediately after "Amount", and this pin was updated
-        // deliberately rather than worked around. The marker lived inside the amount CELL for a
-        // day; a fact worth filtering on cannot, because the funnel lives in the `<th>`. It sits
-        // where it does for the reason "Ledger" sits after "Status": it qualifies its neighbour.
+        // ⚠️ "Direction" JOINED VISIBLE after "Amount" (D12) and LEFT again (owner, 2026-09-14),
+        // and this pin was updated deliberately both times. The direction tabs split the table and
+        // the Amount cell is coloured red / green by direction, so the column repeated both.
         const shown = OUTFLOW_COLUMNS.filter((c) => !c.hiddenByDefault).map((c) => c.title);
         expect(shown).toEqual([
             "Payment Date",
             "Beneficiary",
             "Amount",
-            "Direction",
             "Remarks",
             "Reference",
             "Status",
@@ -240,71 +240,29 @@ describe("columns", () => {
         expect(ids[ids.indexOf("settled_ledger") + 1]).toBe("outcome");
     });
 
-    it("puts Direction immediately after Amount, where it qualifies one", () => {
-        // The same rule that puts Ledger after Status: a column that qualifies its neighbour
-        // belongs against it. A figure and the word that gives it its sign are one reading.
-        const ids = OUTFLOW_COLUMNS.map((c) => c.id);
-        expect(ids[ids.indexOf("amount") + 1]).toBe("direction");
+    it("has NO Direction column -- the tabs and the amount colour carry direction now", () => {
+        // ⚠️ OWNER RULING 2026-09-14, REVERSING D12. The direction tabs (#1264) split the table by
+        // direction and the Amount cell is coloured by it, so the column repeated both. The CSV
+        // still carries `Direction` as an export-only column (see `outflowExport`).
+        expect(OUTFLOW_COLUMNS.map((c) => c.id)).not.toContain("direction");
+        expect(SERVER_FACET_COLUMNS).not.toContain("direction");
     });
 
-    it("ships Direction VISIBLE, with its own funnel", () => {
-        // ⚠️ THE WHOLE REASON IT IS A COLUMN (owner ruling 2026-09-09, reversing D8). The marker
-        // shipped inside the AMOUNT CELL for a day, and a fact worth filtering on cannot live
-        // there: in this table the funnel lives in the `<th>`, so there is no way to offer the
-        // filter without declaring the column.
-        const col = OUTFLOW_COLUMNS.find((c) => c.id === "direction")!;
-        expect(col.title).toBe("Direction");
-        expect(col.filter).toBe("facet");
-        expect(col.hiddenByDefault).toBeUndefined();
-        expect(DEFAULT_HIDDEN_COLUMNS).not.toContain("direction");
-    });
-
-    it("reads Received on a credit and Paid on an explicit debit", () => {
-        const col = OUTFLOW_COLUMNS.find((c) => c.id === "direction")!;
-        expect(col.get(row({ direction: "Credit" }))).toBe("Received");
-        expect(col.get(row({ direction: "Debit" }))).toBe("Paid");
-    });
-
-    it("⚠️ reads Paid on a BLANK direction, and never a blank cell", () => {
-        // Blank means the statement did not say -- a gateway export has no direction column at
-        // all. It lands on Paid as a CONSEQUENCE of the single positive test on "Credit", not
-        // because blank is read as Debit: the receipt paths refuse anything that is not `Credit`
-        // at the write, so such a row could never have become a receipt. `get` feeds the CSV, so
-        // an empty string here would be a blank cell in an archived file.
-        const col = OUTFLOW_COLUMNS.find((c) => c.id === "direction")!;
-        expect(col.get(row({ direction: "" }))).toBe("Paid");
-        expect(col.get(row({ direction: undefined }))).toBe("Paid");
-        expect(col.get(row({ direction: "Something Else" }))).toBe("Paid");
-    });
-
-    it("trims, because it derives from `isCreditRow` rather than comparing inline", () => {
-        // The D5 defect, at a new site: a `" Credit "` row had its inflow cards hidden while
-        // `isConfirmable` treated it as a credit. One predicate is what stops that recurring.
-        const col = OUTFLOW_COLUMNS.find((c) => c.id === "direction")!;
-        expect(col.get(row({ direction: " Credit " }))).toBe("Received");
-        expect(col.get(row({ direction: "\tCredit\n" }))).toBe("Received");
-    });
-
-    it("is a two-value PARTITION -- every row gets one label, none gets neither", () => {
-        // ⚠️ WHY IT IS DERIVED AND NOT THE RAW `direction` FIELD. The live table holds Debit 894 /
-        // Credit 5 / blank 0, so a raw column would render identically today -- which is exactly
-        // how it would have shipped. A raw column shows an empty cell on the first blank row and
-        // grows a third, unlabelled funnel entry while the screen still shows two badges.
-        const col = OUTFLOW_COLUMNS.find((c) => c.id === "direction")!;
-        const inputs = ["Credit", "Debit", "", " Credit ", "credit", "CREDIT", "Cr", undefined];
-        for (const direction of inputs) {
-            const value = col.get(row({ direction } as Partial<OutflowImportRow>));
-            expect(["Paid", "Received"]).toContain(value);
-        }
+    it("colours an amount red for outflow and green for inflow", () => {
+        expect(amountToneClass(row({ direction: "Credit" }))).toBe(AMOUNT_TONE.inflow);
+        expect(amountToneClass(row({ direction: " Credit " }))).toBe(AMOUNT_TONE.inflow);
+        expect(amountToneClass(row({ direction: "Debit" }))).toBe(AMOUNT_TONE.outflow);
+        // Blank is outflow, by the same single positive test the tabs use.
+        expect(amountToneClass(row({ direction: "" }))).toBe(AMOUNT_TONE.outflow);
+        expect(amountToneClass(row({ direction: undefined }))).toBe(AMOUNT_TONE.outflow);
+        expect(AMOUNT_TONE.outflow).toMatch(/red/);
+        expect(AMOUNT_TONE.inflow).toMatch(/green/);
     });
 
     it("agrees with `isCreditRow`, the one definition of the axis", () => {
-        // A second spelling of `direction === "Credit"` is free to drift, and the drift presents as
-        // a row labelled Received on screen that the settle guard treats as a debit.
-        const col = OUTFLOW_COLUMNS.find((c) => c.id === "direction")!;
         for (const direction of ["Credit", "Debit", "", " Credit ", "Cr", "credit"]) {
             const r = row({ direction });
-            expect(col.get(r)).toBe(isCreditRow(r) ? "Received" : "Paid");
+            expect(amountToneClass(r)).toBe(isCreditRow(r) ? AMOUNT_TONE.inflow : AMOUNT_TONE.outflow);
         }
     });
 
@@ -985,23 +943,25 @@ describe("the Vendor / Description cell", () => {
 });
 
 describe("tabs", () => {
-    it("is All then the three Outflow tabs then the two Inflow tabs, in that order (#1264)", () => {
+    it("is All, then each Outflow tab beside its Inflow twin (#1264)", () => {
         // ⚠️ THERE IS NO SKIPPED TAB, and "All" excludes Skipped too (owner ruling 2026-08-10) --
         // it means everything a person might still act on, not every row in the table.
+        // ⚠️ SIMILAR TABS SIT TOGETHER (owner, 2026-09-14): each Inflow tab directly after its
+        // Outflow twin, with Partly Allocated (outflow-only) between the two pairs.
         expect(OUTFLOW_TABS.map((t) => t.id)).toEqual([
             "all",
             "notMatchedOutflow",
+            "notMatchedInflow",
             "partlyAllocatedOutflow",
             "matchedOutflow",
-            "notMatchedInflow",
             "settledInflow",
         ]);
         expect(OUTFLOW_TABS.map((t) => t.label)).toEqual([
             "All",
             "Not Matched – Outflow",
+            "Not Matched – Inflow",
             "Partly Allocated – Outflow",
             "Matched / Settled – Outflow",
-            "Not Matched – Inflow",
             "Settled – Inflow",
         ]);
     });
@@ -1010,9 +970,9 @@ describe("tabs", () => {
         expect(OUTFLOW_TABS.map((t) => t.direction ?? null)).toEqual([
             null,
             "outflow",
-            "outflow",
-            "outflow",
             "inflow",
+            "outflow",
+            "outflow",
             "inflow",
         ]);
     });

@@ -26,7 +26,7 @@ const row = (over: Partial<OutflowImportRow> = {}): OutflowImportRow =>
     }) as OutflowImportRow;
 
 describe("toExportColumns", () => {
-    it("produces one entry per column, in the table's order, then the export-only pair", () => {
+    it("produces one entry per column, in the table's order, then the export-only columns", () => {
         const columns = toExportColumns(OUTFLOW_COLUMNS);
         expect(columns).toHaveLength(OUTFLOW_COLUMNS.length + EXPORT_ONLY_COLUMNS.length);
         // The screen's columns come first, in the screen's order, so somebody comparing a download
@@ -35,6 +35,7 @@ describe("toExportColumns", () => {
             OUTFLOW_COLUMNS.map((c) => c.id)
         );
         expect(columns.slice(OUTFLOW_COLUMNS.length).map((c) => c.id)).toEqual([
+            "direction",
             "settled_target_names",
             "settled_target_amounts",
         ]);
@@ -108,10 +109,14 @@ describe("toExportColumns", () => {
         expect(byId.get("time")!.meta.exportValue(sample)).toBe("14:32");
     });
 
-    it("carries a Direction column, headed as the screen heads it", () => {
+    it("still carries a Direction column, as an EXPORT-ONLY one", () => {
+        // ⚠️ The screen dropped its Direction column (owner, 2026-09-14) -- colour and the tabs say
+        // it there. A CSV has neither, and every amount in it is a positive figure, so without this
+        // column an export of the All tab could not tell money in from money out.
         const byId = new Map(toExportColumns(OUTFLOW_COLUMNS).map((c) => [c.id, c]));
         expect(byId.get("direction")!.header).toBe("Direction");
         expect(byId.get("direction")!.meta.exportHeaderName).toBe("Direction");
+        expect(EXPORT_ONLY_COLUMNS.map((c) => c.id)).toContain("direction");
     });
 
     it("⚠️ writes Paid or Received on EVERY row, never a blank direction cell", () => {
@@ -192,10 +197,11 @@ describe("toExportColumns", () => {
         expect(JSON.stringify(OUTFLOW_COLUMNS.map((c) => [c.id, c.title, c.width]))).toBe(before);
     });
 
-    it("invents no screen column for an empty model, but still carries the settlement pair", () => {
-        // The export-only pair does not come from the screen's model, so it does not disappear with
-        // it. Both callers must produce the same file shape whatever they pass.
+    it("invents no screen column for an empty model, but still carries the export-only columns", () => {
+        // The export-only columns do not come from the screen's model, so they do not disappear
+        // with it. Both callers must produce the same file shape whatever they pass.
         expect(toExportColumns([]).map((c) => c.id)).toEqual([
+            "direction",
             "settled_target_names",
             "settled_target_amounts",
         ]);

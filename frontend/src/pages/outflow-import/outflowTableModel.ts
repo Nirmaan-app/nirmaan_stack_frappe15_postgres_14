@@ -220,6 +220,21 @@ export function isCreditRow(row: Pick<OutflowImportRow, "direction">): boolean {
 }
 
 /**
+ * The Amount cell's colour: red for money out, green for money in (owner, 2026-09-14).
+ *
+ * ⚠️ IT REPLACED THE `Direction` COLUMN, so it is now the only per-row direction marker on screen.
+ * Built on `isCreditRow`, never an inline compare: a blank direction is outflow, exactly as the tabs
+ * file it, so a row's colour can never disagree with the tab it sits on.
+ */
+export const AMOUNT_TONE = {
+    outflow: "text-red-600",
+    inflow: "text-green-700",
+} as const;
+
+export const amountToneClass = (row: Pick<OutflowImportRow, "direction">): string =>
+    isCreditRow(row) ? AMOUNT_TONE.inflow : AMOUNT_TONE.outflow;
+
+/**
  * Which dispositions this row may legally take.
  *
  * ⚠️ THE TWO LISTS ARE DISJOINT AND TOGETHER THEY ARE THE WHOLE UNION. That is what makes this a
@@ -373,37 +388,10 @@ export const OUTFLOW_COLUMNS: OutflowColumn[] = [
     // the CSV export -- see `shortReference` for why a display concern never reaches it. The CSV
     // heading follows this title, which is correct: the file carries both directions too.
     { id: "amount", title: "Amount", get: (r) => r.amount ?? 0, filter: "range", align: "right", width: "140px" },
-    // ⚠️ ITS OWN COLUMN, WITH ITS OWN FUNNEL (owner ruling 2026-09-09, reversing D8). The marker
-    // shipped INSIDE the amount cell for a day; a fact worth filtering on cannot live inside
-    // another column's cell, because in this table the funnel lives in the `<th>` -- there is no
-    // way to offer the filter without declaring the column.
-    //
-    // It stands immediately after Amount for the reason the Ledger column stands after Status: a
-    // column that QUALIFIES its neighbour belongs against it. "₹1,25,000" and "which way it went"
-    // are halves of one reading, and a scrolling column between them would separate a figure from
-    // the word that gives it its sign.
-    //
-    // ⚠️ `get` RETURNS THE DERIVED LABEL, AND THAT IS NOT THE `shortReference` RULE BEING BROKEN.
-    // That rule forbids a DISPLAY TRANSFORM -- a truncation, a wrap -- reaching `get`, because
-    // `get` feeds the sort, the funnel, `get_outflow_facet_values` and the CSV, so a shortened
-    // value there is a value nothing can search for. Here the two-word label IS this column's
-    // value; there is no longer, truer string it is a rendering of. The CSV must read `Paid` or
-    // `Received` on every row and never a blank, which is exactly what this returns.
-    //
-    // ⚠️ BLANK LANDS ON `Paid`, AND NOT BECAUSE BLANK MEANS `Debit`. `isCreditRow` is the single
-    // positive test on `"Credit"` that mirrors the server's `is_received_direction`, so the two
-    // values PARTITION every row and none can land in neither. A blank direction means the
-    // statement did not say -- a gateway export has no direction column at all -- and it reads as
-    // Paid as a CONSEQUENCE: the receipt paths refuse anything that is not `Credit` at the write,
-    // so such a row is structurally incapable of ever having become a receipt.
-    //
-    // ⚠️ DERIVED, NOT THE RAW `direction` FIELD, AND THE MEASUREMENT IS WHY. The live table holds
-    // `Debit` 894 / `Credit` 5 / blank 0, so a raw column and this one render identically today --
-    // which is precisely how the raw one would pass review and ship. The day a blank row lands, a
-    // raw column shows an empty cell and grows a third, unlabelled funnel entry while the screen
-    // still shows two badges. Deriving it means the column can only ever hold the two values the
-    // rest of this screen partitions on.
-    { id: "direction", title: "Direction", get: (r) => (isCreditRow(r) ? "Received" : "Paid"), filter: "facet", width: "110px" },
+    // ⚠️ NO `direction` COLUMN (owner ruling 2026-09-14, reversing D12). The direction tabs (#1264)
+    // split the table by direction and the Amount cell is coloured by it (`amountToneClass`), so a
+    // column saying `Paid` / `Received` repeated both. The CSV keeps the fact as an EXPORT-ONLY
+    // column (`outflowExport.EXPORT_ONLY_COLUMNS`) -- a file has no colour and no tabs.
     { id: "remarks", title: "Remarks", get: (r) => r.remarks ?? "", filter: "text", width: "230px" },
     // ⚠️ "Reference", NOT "Reference (UTR)" (owner ruling, slice CF/S1). A Cashbook row has no UTR
     // and never will -- `referenceValue` falls back to the wallet's own transaction id, which is
@@ -509,10 +497,13 @@ export type TransactionDirection = "outflow" | "inflow";
 
 export const OUTFLOW_TABS: { id: OutflowTab; label: string; direction?: TransactionDirection }[] = [
     { id: "all", label: "All" },
+    // ⚠️ SIMILAR TABS SIT TOGETHER (owner, 2026-09-14): each Inflow tab directly after its Outflow
+    // twin. Partly Allocated has no Inflow twin (a credit is never part-allocated), so it sits
+    // between the two pairs.
     { id: "notMatchedOutflow", label: "Not Matched – Outflow", direction: "outflow" },
+    { id: "notMatchedInflow", label: "Not Matched – Inflow", direction: "inflow" },
     { id: "partlyAllocatedOutflow", label: "Partly Allocated – Outflow", direction: "outflow" },
     { id: "matchedOutflow", label: "Matched / Settled – Outflow", direction: "outflow" },
-    { id: "notMatchedInflow", label: "Not Matched – Inflow", direction: "inflow" },
     { id: "settledInflow", label: "Settled – Inflow", direction: "inflow" },
 ];
 
@@ -921,19 +912,9 @@ export const SERVER_FACET_COLUMNS: readonly string[] = [
     // is the only thing that can enumerate it -- there is nothing on the loaded page to build a
     // funnel from, and no client-side derivation to fall back to.
     "settled_ledger",
-    // ⚠️ THE THIRD LIST, ADDED IN THE SAME CHANGE AS THE COLUMN. A facet needs all three or it
-    // fails SILENTLY: `filter: "facet"` draws the funnel, `review._FACET_COLUMNS` lets the server
-    // apply it, and ONLY this list decides whether the ticked selection is ever SENT. That is the
-    // slice Q1 defect -- a tick box that registered, showed "Clear filters (1)", and left the row
-    // set unmoved.
-    //
-    // ⚠️ THE SERVER FACETS THE DERIVED LABEL, NOT THE RAW COLUMN, so what the funnel OFFERS is
-    // what this column's `get` RENDERS -- `Paid` / `Received`, the same two values. Its
-    // `_FACET_COLUMNS` entry is a `CASE` mirroring `is_received_direction`, used for both the
-    // `DISTINCT` that builds the options and the `WHERE` that applies them. Over the raw field the
-    // funnel would grow a third, unlabelled option for blank, and ticking `Debit` would silently
-    // drop rows whose badge reads `Paid`.
-    "direction",
+    // ⚠️ `direction` LEFT THIS LIST WITH ITS COLUMN (owner, 2026-09-14). With no column there is
+    // no funnel to tick, and the direction tabs scope by it instead. The server's
+    // `_FACET_COLUMNS["direction"]` stays: the tab scopes and counts read the same expression.
 ];
 
 /**

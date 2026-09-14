@@ -797,10 +797,20 @@ thing — one master table across every import at `/bulk-import-outflow` — and
   |---|---|---|
   | All | `all` | everything **except Skipped**, both directions |
   | Not Matched – Outflow | `not_matched_outflow` | `Pending match run` · `Mismatched` · `Error`, debit or blank |
+  | Not Matched – Inflow | `not_matched_inflow` | `Pending match run` · `Mismatched` · `Error`, credit |
   | Partly Allocated – Outflow | `partly_outflow` | `Partially Allocated`, debit or blank |
   | Matched / Settled – Outflow | `matched_outflow` | `Matched` · `Settled`, debit or blank |
-  | Not Matched – Inflow | `not_matched_inflow` | `Pending match run` · `Mismatched` · `Error`, credit |
   | Settled – Inflow | `settled_inflow` | `Matched` · `Settled`, credit |
+
+  - **Order (owner, 2026-09-14): each Inflow tab sits directly after its Outflow twin**; Partly
+    Allocated has no twin and sits between the pairs.
+  - ⚠️ **THE `Direction` COLUMN IS GONE (owner, 2026-09-14, reversing D12 below).** The tabs split by
+    direction and the **Amount cell is coloured — red outflow, green inflow** (`amountToneClass`, built
+    on `isCreditRow`, so a blank direction is red exactly as it files under Outflow). That colour is now
+    the only per-row direction marker. The client dropped `direction` from `SERVER_FACET_COLUMNS` with
+    the column; the server's `_FACET_COLUMNS["direction"]` stays (the tab scopes read it). **The CSV
+    keeps `Direction` as an export-only column** (`outflowExport.EXPORT_ONLY_COLUMNS`) — a file has no
+    colour and no tabs, and its amounts are all positive.
 
   - **Direction is `status.is_received_direction`, and only that** — trimmed `Credit` is inflow,
     everything else (blank included) is outflow, so the five direction tabs PARTITION `all`. In SQL it
@@ -2661,6 +2671,8 @@ that was already outstanding.
 Three owner rulings, one of which REVERSES a D8 placement decision from the day before.
 
 ### D12 — the `Paid`/`Received` marker moves OUT of the Amount cell into a `Direction` column
+
+⚠️ **SUPERSEDED 2026-09-14:** the column was removed again once the direction tabs (#1264) shipped; the Amount cell is coloured by direction instead. See *The screen*.
 
 ⚠️ **THIS REVERSES D8's PLACEMENT, NOT ITS SUBSTANCE.** D8 put the marker inside the amount cell and
 had to lead the figure with it, because "Received" is wider than "Paid" and a trailing marker shifts
