@@ -24,6 +24,10 @@ They look almost identical and they mean opposite things:
     load_paid_payments_by_reference   -> PAID payments. These are a DUPLICATE GUARD. A row that
                                          matches one is SKIPPED, never offered.
 
+`load_paid_expenses_by_reference` (#1256) is the expense half of the second one: a DUPLICATE GUARD
+over Paid Project / Non Project Expenses, whole-string exact on `payment_ref`, read by the GATEWAY
+path only (`review._paid_duplicate_pools`).
+
 Merging them into one status-agnostic query -- which is exactly what v2 did, deliberately, to
 report money that left before approval completed -- would make an already-Paid payment look like a
 settle candidate and let the same money be recorded twice. v3 removed the finding that justified
@@ -77,6 +81,7 @@ __all__ = [
     "load_project_index",
     "load_payments_by_reference",
     "load_paid_payments_by_reference",
+    "load_paid_expenses_by_reference",
     "load_payments_by_amount",
     "load_expense_targets",
     # ⚠️ RENAMED FROM `find_earlier_batches_for_transfers` AT SLICE D3. It takes ROWS now, because
@@ -280,6 +285,63 @@ def _payments_by_reference(
         as_dict=True,
     )
     return tuple(_payment_target(r) for r in rows)
+
+
+def load_paid_expenses_by_reference(references: Sequence[str]) -> tuple[TargetRef, ...]:
+    """DUPLICATE GUARD, not a candidate pool: PAID Project / Non Project Expenses already carrying
+    one of these references (#1256).
+
+    The expense half of `load_paid_payments_by_reference`, for the same question: somebody booked
+    this transfer as a Paid expense before the statement was uploaded. The row is Skipped with the
+    expense named, or Mismatched when the amounts disagree -- decided by `status`, never here.
+
+    ⚠️ WHOLE-STRING EXACT, owner ruling on #1252: the stored `payment_ref`, trimmed and upper-cased,
+    must EQUAL a normalised bank reference -- the same `upper(btrim(...)) IN` shape as the payment
+    guard. A reference with words around the UTR (`610415565123 ICICI`) does NOT match. Tokenising,
+    containment and a date window belong to the ICICI contains-guard only; widening THIS query to
+    any of them would hand the gateway path a heuristic skip, which a duplicate guard may never make.
+
+    ⚠️ `Paid` ONLY. An `Approved` expense is waiting to be paid -- it is a settle CANDIDATE
+    (`load_expense_targets`), and treating it as a duplicate would skip the very row that pays it.
+
+    ⚠️ NO AMOUNT PREDICATE, ON PURPOSE. A reference hit whose amount is off must still come back, so
+    `status._failed_or_already_paid` can land the row `Mismatched` naming the expense rather than
+    reporting found-nothing. The amount window is applied there, in pure code.
+
+    `txn_date` carries `payment_date` and `description` the expense text: `status._described_record`
+    names an expense by both, because its random-hash name means nothing to a person.
+    """
+    wanted = sorted({normalize_reference(r) for r in references if normalize_reference(r)})
+    if not wanted:
+        return ()
+
+    reference_ph = ", ".join(["%s"] * len(wanted))
+    out: list[TargetRef] = []
+    for doctype in (PROJECT_EXPENSE_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE):
+        rows = frappe.db.sql(
+            f"""
+            SELECT name, amount, status, description, payment_ref, payment_date
+            FROM "tab{doctype}"
+            WHERE payment_ref IS NOT NULL AND payment_ref <> ''
+              AND upper(btrim(payment_ref)) IN ({reference_ph})
+              AND status = %s
+            """,
+            (*wanted, PAID),
+            as_dict=True,
+        )
+        out.extend(
+            TargetRef(
+                doctype=doctype,
+                name=r["name"],
+                amount=normalize_amount(r.get("amount")),
+                status=r.get("status") or "",
+                reference=r.get("payment_ref") or "",
+                txn_date=r.get("payment_date"),
+                description=r.get("description") or "",
+            )
+            for r in rows
+        )
+    return tuple(out)
 
 
 def load_payments_by_amount(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:

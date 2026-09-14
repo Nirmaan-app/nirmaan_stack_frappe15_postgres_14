@@ -104,6 +104,7 @@ class OutflowReviewFixture(unittest.TestCase):
     batches: list = []
     payments: list = []
     expenses: list = []
+    non_project_expenses: list = []
     project: str | None = None
 
     @classmethod
@@ -115,6 +116,7 @@ class OutflowReviewFixture(unittest.TestCase):
         cls.batches = []
         cls.payments = []
         cls.expenses = []
+        cls.non_project_expenses = []
         cls.parsed = _fresh_parse()
         cls.batch = _stage_batch(
             cls.parsed,
@@ -168,7 +170,8 @@ class OutflowReviewFixture(unittest.TestCase):
 
     @classmethod
     def _insert_project_expense(
-        cls, *, amount, status="Approved", vendor=None, project=None, expense_type=None
+        cls, *, amount, status="Approved", vendor=None, project=None, expense_type=None,
+        payment_ref=None, payment_date=None,
     ):
         """A `Project Expenses` ROW, inserted raw for the same reasons as a payment.
 
@@ -184,19 +187,44 @@ class OutflowReviewFixture(unittest.TestCase):
         did. It exists so one fixture can carry a NON-BLANK `type` and prove the payload's
         `expense_type` key reports it -- a key that is blank on every row proves only that the key
         spells correctly.
+
+        `payment_ref` / `payment_date` default to `None` for the same reason: only a PAID expense
+        carries them, and only the already-recorded guard (#1256) reads them.
         """
         name = f"TEST-OFE-{frappe.generate_hash(length=12)}"
         frappe.db.sql(
             """
             INSERT INTO "tabProject Expenses"
                 (name, creation, modified, modified_by, owner, docstatus, idx,
-                 projects, vendor, status, amount, description, type)
-            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s)
+                 projects, vendor, status, amount, description, type, payment_ref, payment_date)
+            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (name, "Administrator", "Administrator", project, vendor, status,
-             str(amount), cls.EXPENSE_DESCRIPTION, expense_type),
+             str(amount), cls.EXPENSE_DESCRIPTION, expense_type, payment_ref, payment_date),
         )
         cls.expenses.append(name)
+        return name
+
+    #: Distinct from the Project Expense text, so a note naming the wrong ledger's record fails.
+    NON_PROJECT_DESCRIPTION = "Outflow import test overhead"
+
+    @classmethod
+    def _insert_non_project_expense(cls, *, amount, status, payment_ref, payment_date):
+        """A `Non Project Expenses` ROW, inserted raw for the reasons `_insert_project_expense` gives.
+
+        `amount` is a real Currency column on this doctype, so it goes in as a float."""
+        name = f"TEST-ONPE-{frappe.generate_hash(length=12)}"
+        frappe.db.sql(
+            """
+            INSERT INTO "tabNon Project Expenses"
+                (name, creation, modified, modified_by, owner, docstatus, idx,
+                 amount, status, description, payment_ref, payment_date)
+            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s)
+            """,
+            (name, "Administrator", "Administrator", float(amount), status,
+             cls.NON_PROJECT_DESCRIPTION, payment_ref, payment_date),
+        )
+        cls.non_project_expenses.append(name)
         return name
 
     @classmethod
@@ -252,6 +280,8 @@ class OutflowReviewFixture(unittest.TestCase):
             frappe.db.delete("Project Payments", {"name": name})
         for name in cls.expenses:
             frappe.db.delete("Project Expenses", {"name": name})
+        for name in cls.non_project_expenses:
+            frappe.db.delete("Non Project Expenses", {"name": name})
         frappe.db.commit()
         super().tearDownClass()
 
@@ -430,6 +460,161 @@ class TestMatchBatch(OutflowReviewFixture):
             )
             self.assertIsNone(doc.tds)
             self.assertEqual(doc.status, expected, f"{name} moved to {doc.status}")
+
+
+class TestACashfreeRowAlreadyPaidOnAnExpenseIsSkipped(OutflowReviewFixture):
+    """#1256: the already-recorded guard reaches PAID Project / Non Project Expenses on a gateway run.
+
+    Before this a Cashfree transfer somebody had already booked as a Paid expense arrived
+    `Mismatched` with the found-nothing note, whose obvious next click is "Record a new expense" --
+    the same money booked twice.
+
+    ⚠️ THE RULE IS WHOLE-STRING EXACT, owner ruling on #1252: the expense's stored `payment_ref`
+    (trimmed, upper-cased) must EQUAL the row's normalised bank reference. No tokenising and no date
+    window on this side -- those belong to the ICICI contains-guard only.
+
+    ⚠️ THE ONLY PAYMENT PLANTED IS ON 0005, beside an expense on the same reference, so every other
+    skip below can only have come from an expense.
+    """
+
+    @classmethod
+    def _plant_targets(cls):
+        four = cls._row("0004")
+        # 0004 -- PAID Project Expense, reference and amount exact. -> Skipped
+        cls.exp_paid = cls._insert_project_expense(
+            amount=four.amount, status="Paid", payment_ref=four.bank_reference_no,
+            payment_date=four.added_on.date(),
+        )
+        three = cls._row("0003")
+        # 0003 -- PAID Non Project Expense, reference and amount exact. -> Skipped
+        cls.npe_paid = cls._insert_non_project_expense(
+            amount=three.amount, status="Paid", payment_ref=three.bank_reference_no,
+            payment_date=three.added_on.date(),
+        )
+        six = cls._row("0006")
+        # 0006 -- APPROVED Project Expense carrying the same reference. Approved is still WAITING to
+        # be paid, so it is never "already recorded". -> not Skipped
+        cls.exp_approved = cls._insert_project_expense(
+            amount=six.amount, status="Approved", payment_ref=six.bank_reference_no,
+            payment_date=six.added_on.date(),
+        )
+        seven = cls._row("0007")
+        # 0007 -- PAID Project Expense for Rs 100 MORE than left the bank, well outside +-Rs 5.
+        # -> Mismatched, naming the expense
+        cls.exp_short = cls._insert_project_expense(
+            amount=seven.amount + 100, status="Paid", payment_ref=seven.bank_reference_no,
+            payment_date=seven.added_on.date(),
+        )
+        eight = cls._row("0008")
+        # 0008 -- PAID Project Expense whose stored reference has a WORD AROUND the UTR. The ICICI
+        # guard would tokenise this; the Cashfree guard is whole-string and must not. -> not Skipped
+        cls.exp_wordy = cls._insert_project_expense(
+            amount=eight.amount, status="Paid", payment_ref=f"{eight.bank_reference_no} ICICI",
+            payment_date=eight.added_on.date(),
+        )
+        five = cls._row("0005")
+        # 0005 -- a PAID payment AND a PAID expense, both exact, on one reference. The payment skip
+        # must read exactly as it did before #1256 -- summing the two made it `Mismatched`.
+        # -> Skipped, naming the payment
+        cls.pay_and_expense_payment = cls._make_payment(five, status="Paid")
+        cls.pay_and_expense_expense = cls._insert_project_expense(
+            amount=five.amount, status="Paid", payment_ref=five.bank_reference_no,
+            payment_date=five.added_on.date(),
+        )
+        nine = cls._row("0009")
+        # 0009 -- PAID Non Project Expense Rs 4 off: inside the settle window, so it IS the same
+        # money. Stored reference whitespace-padded and lower-cased, as hand entry leaves it.
+        # -> Skipped
+        cls.npe_rounded = cls._insert_non_project_expense(
+            amount=nine.amount + 4, status="Paid",
+            payment_ref=f"  {nine.bank_reference_no.lower()} ",
+            payment_date=nine.added_on.date(),
+        )
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.result = match_batch(cls.batch.name)
+
+    def _links_by_suffix(self):
+        return {
+            r["transfer_id"][-4:]: r["related_records"]
+            for r in get_batch_rows(self.batch.name)["rows"]
+            if r.get("transfer_id")
+        }
+
+    def test_a_paid_PROJECT_expense_skips_the_row_and_names_the_expense(self):
+        row = self._rows_by_transfer_suffix()["0004"]
+        self.assertEqual(row["row_status"], ROW_SKIPPED)
+        self.assertIn(
+            f'Already recorded as Paid on Project Expense "{self.EXPENSE_DESCRIPTION}" of 10000.00',
+            row["outcome_note"],
+        )
+
+    def test_a_paid_NON_PROJECT_expense_skips_the_row_and_names_the_expense(self):
+        row = self._rows_by_transfer_suffix()["0003"]
+        self.assertEqual(row["row_status"], ROW_SKIPPED)
+        self.assertIn(
+            f'Already recorded as Paid on Non Project Expense "{self.NON_PROJECT_DESCRIPTION}" '
+            f"of 22000.00",
+            row["outcome_note"],
+        )
+
+    def test_the_skip_links_to_the_expense_it_duplicates(self):
+        """Without the link the note names the record in prose and the reviewer cannot open it --
+        `_related_records` must widen in the SAME change as the guard."""
+        links = self._links_by_suffix()
+        self.assertIn(
+            {"target_doctype": "Project Expenses", "target_name": self.exp_paid}, links["0004"]
+        )
+        self.assertIn(
+            {"target_doctype": "Non Project Expenses", "target_name": self.npe_paid},
+            links["0003"],
+        )
+
+    def test_the_existing_payment_skip_is_unchanged_when_an_expense_shares_the_reference(self):
+        row = self._rows_by_transfer_suffix()["0005"]
+        self.assertEqual(row["row_status"], ROW_SKIPPED)
+        self.assertEqual(
+            row["outcome_note"],
+            f"Already recorded as Paid on Project Payment {self.pay_and_expense_payment}.",
+        )
+
+    def test_an_APPROVED_expense_with_the_same_reference_is_not_a_duplicate(self):
+        row = self._rows_by_transfer_suffix()["0006"]
+        self.assertNotEqual(row["row_status"], ROW_SKIPPED)
+        self.assertNotIn("Already recorded", row["outcome_note"] or "")
+        self.assertNotIn(
+            self.exp_approved, {e["target_name"] for e in self._links_by_suffix()["0006"]}
+        )
+
+    def test_an_amount_off_by_more_than_the_window_is_mismatched_naming_the_expense(self):
+        row = self._rows_by_transfer_suffix()["0007"]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertIn(f'Project Expense "{self.EXPENSE_DESCRIPTION}" of 847.00', row["outcome_note"])
+        self.assertIn("100", row["outcome_note"])
+        # TDS is a deduction from a payment to a vendor; it cannot explain an expense shortfall.
+        self.assertNotIn("TDS", row["outcome_note"])
+
+    def test_an_amount_inside_the_window_is_the_same_money(self):
+        """Also proves the stored reference is TRIMMED and UPPER-CASED before the compare."""
+        row = self._rows_by_transfer_suffix()["0009"]
+        self.assertEqual(row["row_status"], ROW_SKIPPED)
+        self.assertIn(f'Non Project Expense "{self.NON_PROJECT_DESCRIPTION}"', row["outcome_note"])
+
+    def test_a_stored_reference_with_extra_words_around_the_utr_does_not_match(self):
+        row = self._rows_by_transfer_suffix()["0008"]
+        self.assertNotEqual(row["row_status"], ROW_SKIPPED)
+        self.assertNotIn("Already recorded", row["outcome_note"] or "")
+        self.assertEqual(self._links_by_suffix()["0008"], [])
+
+    def test_the_run_writes_nothing_to_any_planted_expense(self):
+        for doctype, name, status in (
+            ("Project Expenses", self.exp_paid, "Paid"),
+            ("Project Expenses", self.exp_approved, "Approved"),
+            ("Non Project Expenses", self.npe_paid, "Paid"),
+        ):
+            self.assertEqual(frappe.db.get_value(doctype, name, "status"), status, name)
 
 
 class TestSuggestionIsPersisted(OutflowReviewFixture):
@@ -4368,6 +4553,9 @@ class TestABankStatementIsDuplicateGuardOnly(BankStatementFixture):
             "pick_from_several", "resolve_claims", "resolve_vendors", "settleable_candidates",
             "sole_suggestion", "ranked_records", "load_payments_by_reference",
             "load_payments_by_amount", "load_expense_targets",
+            # #1256: the Cashfree whole-string expense guard. A bank statement's expense check is
+            # the ICICI contains-guard, never this one.
+            "load_paid_expenses_by_reference",
         }
         tree = ast.parse(inspect.getsource(R._guard_duplicates_only).strip())
         called = set()
@@ -4381,7 +4569,17 @@ class TestABankStatementIsDuplicateGuardOnly(BankStatementFixture):
         # ...and it DOES call the two things it is for, so the assertion above cannot pass by the
         # function having been emptied out.
         self.assertIn("_paid_duplicate_for", called)
-        self.assertIn("load_paid_payments_by_reference", called)
+        # INVERTED at #1256, not deleted: the payment pool now comes through the ONE pool builder,
+        # and it must be asked for the BANK shape -- `has_settlement_path=False` is what keeps the
+        # gateway-only expense pool off this path.
+        pool_calls = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and getattr(node.func, "id", None) == "_paid_duplicate_pools"
+        ]
+        self.assertEqual(len(pool_calls), 1)
+        flags = {k.arg: getattr(k.value, "value", None) for k in pool_calls[0].keywords}
+        self.assertIs(flags.get("has_settlement_path"), False)
 
     # --- ruling 2: the paid-duplicate guard is KEPT ----------------------------------------------
 
@@ -4567,6 +4765,55 @@ class TestAGatewayRunCannotReachABankStatementRow(BankStatementFixture):
             )
         )
         self.assertIn(self.gateway_row, self._found())
+
+
+class TestTheExpenseGuardIsGatewayOnly(BankStatementFixture):
+    """#1256 widened the EXACT already-recorded guard to Paid expenses on the GATEWAY path only.
+
+    ⚠️ A BANK STATEMENT GETS ITS OWN EXPENSE CHECK -- the ICICI contains-guard, with tokens, a date
+    window and one-record-one-row (#1252) -- so reaching expenses here through the exact guard would
+    give that source a second, weaker idea of a duplicate. And the row's LINKS follow the guard: an
+    expense link on a row whose note names no expense would point at a record nothing checked.
+
+    ⚠️ INVERT THIS, DO NOT DELETE IT, when the ICICI contains-guard lands and this row starts skipping.
+    """
+
+    @classmethod
+    def _plant_bank_targets(cls):
+        super()._plant_bank_targets()
+        plain = cls._icici_row(_BANK_PLAIN)
+        cls.bank_paid_expense = cls._insert_project_expense(
+            amount=plain.amount, status="Paid", payment_ref=plain.bank_reference_no,
+            payment_date=plain.added_on.date(),
+        )
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        match_batch(cls.icici_batch.name)
+
+    def test_the_precondition_the_expense_IS_what_a_gateway_row_would_skip_on(self):
+        plain = self._icici_row(_BANK_PLAIN)
+        pool = C.load_paid_expenses_by_reference([plain.bank_reference_no])
+        self.assertIn(self.bank_paid_expense, {t.name for t in pool})
+
+    def test_a_bank_row_is_not_skipped_by_the_exact_expense_guard(self):
+        row = self._bank_rows()[_BANK_PLAIN]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertEqual(row["outcome_note"], STAGED_NOTE_NO_SETTLEMENT_PATH)
+
+    def test_a_bank_row_gets_no_link_to_the_expense_either(self):
+        name = self._bank_rows()[_BANK_PLAIN]["name"]
+        for label, rows in (
+            ("get_batch_rows", get_batch_rows(self.icici_batch.name)["rows"]),
+            (
+                "get_outflow_rows",
+                get_outflow_rows(scope="all", batch=self.icici_batch.name, limit=200)["rows"],
+            ),
+        ):
+            row = next((r for r in rows if r["name"] == name), None)
+            self.assertIsNotNone(row, f"{label}: fixture precondition, the row is on the page")
+            self.assertEqual(row["related_records"], [], label)
 
 
 class TestInflowDoctypeSpelling(unittest.TestCase):

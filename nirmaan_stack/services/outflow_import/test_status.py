@@ -77,6 +77,7 @@ from nirmaan_stack.services.outflow_import.status import (
     derive_duplicate_guard_outcome,
     derive_row_outcome,
     derive_staged_row_outcome,
+    pick_duplicate_group,
     several_found_note,
     sole_suggestion,
 )
@@ -560,6 +561,48 @@ class TestDuplicateNotesNameTheLedger(unittest.TestCase):
             'Already recorded as Paid on Project Payment PAY-A; Project Expense "Hotel" of '
             "2935.00 paid on 12-Sep-2026.",
         )
+
+
+# --- which already-recorded group decides a gateway row (#1256) ---------------------------------
+
+
+class TestPickDuplicateGroup(unittest.TestCase):
+    """A gateway row's reference can sit on Paid payments AND Paid expenses at once.
+
+    ⚠️ THE PAYMENT GROUP IS TRIED FIRST, SO THE EXISTING SKIP IS UNCHANGED (#1256 acceptance: "Existing
+    Paid-payment skip behaviour unchanged"). Summing every hit into one group -- the first cut -- turned
+    a row whose payment agreed exactly into `Mismatched` the moment an expense shared its reference.
+    """
+
+    def test_a_payment_that_agrees_wins_even_when_an_expense_shares_the_reference(self):
+        payments = _group([_payment("PAY-A", "5000", "Paid")])
+        expenses = _group([_paid_expense(amount="5000")])
+        picked = pick_duplicate_group(_Row("5000"), (payments, expenses))
+        self.assertIs(picked, payments)
+
+    def test_the_expense_group_decides_when_the_payments_do_not_agree(self):
+        payments = _group([_payment("PAY-A", "9000", "Paid")])
+        expenses = _group([_paid_expense(amount="5003")])
+        self.assertIs(pick_duplicate_group(_Row("5000"), (payments, expenses)), expenses)
+
+    def test_the_combined_group_decides_when_only_the_sum_agrees(self):
+        payments = _group([_payment("PAY-A", "3000", "Paid")])
+        expenses = _group([_paid_expense(amount="2000")])
+        combined = _group([*payments.targets, *expenses.targets])
+        self.assertIs(
+            pick_duplicate_group(_Row("5000"), (payments, expenses, combined)), combined
+        )
+
+    def test_when_nothing_agrees_the_FIRST_group_is_reported(self):
+        """So an amount-off payment reads exactly the `Mismatched` note it always has."""
+        payments = _group([_payment("PAY-A", "9000", "Paid")])
+        expenses = _group([_paid_expense(amount="7000")])
+        self.assertIs(pick_duplicate_group(_Row("5000"), (payments, expenses)), payments)
+
+    def test_absent_and_empty_groups_are_ignored(self):
+        expenses = _group([_paid_expense(amount="7000")])
+        self.assertIs(pick_duplicate_group(_Row("5000"), (None, _group([]), expenses)), expenses)
+        self.assertIsNone(pick_duplicate_group(_Row("5000"), (None, _group([]))))
 
 
 # --- Matched and the found-nothing half of Mismatched ------------------------------------------------------------------------

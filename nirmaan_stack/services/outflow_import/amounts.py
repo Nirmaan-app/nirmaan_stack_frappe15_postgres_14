@@ -53,7 +53,18 @@ amount), which neither can reach and neither may be stretched to reach. A TDS pa
   * `matcher.match_payments` / `match_expenses` -- the in-memory comparison (tier 1 at
                                                `TIER1_TOLERANCE`, tier 2 at `AMOUNT_TOLERANCE`)
   * `settle.settle_payment` / `_lock_and_assert_settleable` -- the WRITE guard
-  * `status.derive_row_outcome`             -- the ALREADY-PAID duplicate check
+  * `status.derive_row_outcome`             -- the ALREADY-PAID duplicate check (`_failed_or_already_
+                                               paid`, shared with `derive_duplicate_guard_outcome`).
+                                               SETTLE window. Since #1256 its pool includes Paid
+                                               EXPENSES on a gateway row, from
+                                               `candidates.load_paid_expenses_by_reference` -- ⚠️ A
+                                               QUERY WITH NO AMOUNT PREDICATE ON PURPOSE, so an
+                                               amount-off hit still reaches here and reads
+                                               `Mismatched` naming the expense.
+  * `status.pick_duplicate_group` (#1256)   -- SETTLE window. Chooses WHICH already-recorded group
+                                               (payments, expenses, both) the check above then
+                                               judges. It must use the SAME window, or the pick
+                                               could disagree with the verdict it feeds.
   * `similarity._amount_score`              -- the browse list's RANKING axis, SETTLE window
                                                (slice N1). ⚠️ THE ONE SITE THAT DECIDES NOTHING:
                                                it shapes the ORDER of a list a person reads, and

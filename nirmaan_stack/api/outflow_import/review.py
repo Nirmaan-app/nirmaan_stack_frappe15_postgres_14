@@ -118,6 +118,7 @@ from nirmaan_stack.services.outflow_import.status import (
     several_found_note,
     derive_import_summary,
     derive_duplicate_guard_outcome,
+    pick_duplicate_group,
     derive_row_outcome,
     derive_settled_direction_blocks,
     sole_suggestion,
@@ -318,12 +319,11 @@ def _guard_duplicates_only(batch: str, matchable) -> dict:
     """
     if matchable:
         # The ONLY pool this path loads, and it is a duplicate guard, never a settle candidate --
-        # `load_paid_payments_by_reference` returns PAID payments (owner ruling Q14).
-        pools = {
-            "paid_duplicates": C.load_paid_payments_by_reference(
-                [r.normalized_reference for r in matchable]
-            )
-        }
+        # PAID payments only (owner ruling Q14). `has_settlement_path=False` is what keeps the #1256
+        # expense half off a bank statement; see `_paid_duplicate_pools`.
+        pools = _paid_duplicate_pools(
+            [r.normalized_reference for r in matchable], has_settlement_path=False
+        )
         for row in matchable:
             outcome = derive_duplicate_guard_outcome(
                 row, paid_duplicate=_paid_duplicate_for(row, pools)
@@ -362,7 +362,7 @@ def _load_pools(rows, batch: str) -> dict:
     # before this statement was uploaded. They are a duplicate guard, never a settle candidate, and
     # merging them into `by_reference` would let the same money be recorded twice. Under Q12 that
     # is the common case, not an edge case.
-    paid_duplicates = C.load_paid_payments_by_reference(references)
+    paid_duplicates = _paid_duplicate_pools(references, has_settlement_path=True)
 
     # Tier 1 + tier 2 pool: APPROVED payments at these amounts, scoped by NOTHING ELSE. The matcher
     # narrows it per tier -- by vendor account at tier 1, by project at tier 2 -- so a pool scoped by
@@ -377,8 +377,30 @@ def _load_pools(rows, batch: str) -> dict:
         "vendors": vendor_index,
         "projects": project_index,
         "payments": tuple(payments.values()),
-        "paid_duplicates": paid_duplicates,
+        **paid_duplicates,
         "expenses": C.load_expense_targets([r.amount for r in rows]),
+    }
+
+
+def _paid_duplicate_pools(references, *, has_settlement_path: bool) -> dict:
+    """The already-recorded pools for rows of one kind of source, keyed `paid_payments` / `paid_expenses`.
+
+    ⚠️ ONE DEFINITION FOR EVERY READER. The gateway match run (`_load_pools`), the bank-statement run
+    (`_guard_duplicates_only`) and the row links (`_related_records`) all read it, so a row can never
+    be skipped on a record its link omits, or linked to a record its guard never checked.
+
+    ⚠️ THE EXPENSE POOL IS GATEWAY-ONLY (#1256). A bank statement's expense check is the ICICI
+    contains-guard (#1252) -- tokens, a date window, one-record-one-row -- not this whole-string one,
+    so `has_settlement_path=False` leaves it empty.
+
+    The two pools stay SEPARATE rather than concatenated: `_paid_duplicate_for` tries the payment
+    group before the expense group, which is what keeps the pre-#1256 payment skip unchanged.
+    """
+    return {
+        "paid_payments": C.load_paid_payments_by_reference(references),
+        "paid_expenses": (
+            C.load_paid_expenses_by_reference(references) if has_settlement_path else ()
+        ),
     }
 
 
@@ -395,9 +417,18 @@ def _paid_duplicate_for(row, pools):
     produce. It used to call `match_payments` with no vendor and rely on the lower passes being
     unable to run without one -- true at the time, but true by argument rather than by construction,
     and tier 2 needs no vendor at all. Naming the reference-only function makes it structural.
+
+    ⚠️ PAYMENTS, THEN EXPENSES, THEN BOTH (#1256). `pick_duplicate_group` takes the first of these
+    whose total agrees, so a reference on an agreeing Paid payment reads exactly as it did before the
+    expense pool existed, and money split across the two ledgers is still recognised.
     """
-    groups = match_by_reference(row, pools["paid_duplicates"])
-    return groups[0] if groups else None
+    payments = pools["paid_payments"]
+    expenses = pools["paid_expenses"]
+    candidates = [
+        next(iter(match_by_reference(row, pool)), None)
+        for pool in (payments, expenses, (*payments, *expenses) if payments and expenses else ())
+    ]
+    return pick_duplicate_group(row, candidates)
 
 
 def _persist_row_outcome(row: _StagedRow, outcome, result, batch: str) -> None:
@@ -1167,7 +1198,7 @@ def get_batch_rows(batch: str):
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
                 "matches": by_row.get(row["name"], []),
-                "related_records": related.get(row.get("normalized_reference") or "", []),
+                "related_records": related.get(row["name"], []),
                 # The suggestion is a pair of scalar columns on the row, not a list, so it takes
                 # its own key rather than being stamped in place like the two lists above.
                 "suggested_order_name": suggested_orders.get(row.get("suggested_name") or "", ""),
@@ -1187,9 +1218,12 @@ def _related_records(rows: list) -> dict[str, list]:
     `Project Inflows`. The client builds a link for each (`settlementLink`), including an inflow.
     Only a `Project Payment` entry also carries `order_name` (see `_with_order_names`).
 
-    ⚠️ ITS SOURCE MUST STAY THE DUPLICATE GUARD'S SOURCE. Today that guard reaches Paid payments only,
-    so today only payments come back here; a guard widened to another ledger widens THIS loader in the
-    same change, or a skipped row names a record in its note and offers no link to it.
+    ⚠️ ITS SOURCE MUST STAY THE DUPLICATE GUARD'S SOURCE, PER ROW. A gateway row's guard reaches Paid
+    payments and Paid expenses (#1256); a bank-statement row's reaches
+    Paid payments only (`_guard_duplicates_only`); both read `_paid_duplicate_pools`. So the expense links are handed only to rows whose
+    source has a settlement path -- an expense link on an ICICI row would point at a record its note
+    never names and its guard never checked. A guard widened to another ledger widens THIS loader in
+    the same change, or a skipped row names a record in its note and offers no link to it.
 
     ⚠️ THIS IS WHAT MAKES A SKIPPED ROW CLICKABLE. A row skipped as an already-recorded duplicate --
     and a `Mismatched` row, which comes from the same check -- names its payment ONLY inside
@@ -1204,16 +1238,36 @@ def _related_records(rows: list) -> dict[str, list]:
     the matcher's duplicate guard uses, so the two can never disagree about which payment a row
     refers to -- one query for the whole batch, which is tens of rows, not thousands.
 
-    Keyed by REFERENCE, not by row: several bank rows can share one reference (that is what a
-    fan-out is), and they should all point at the same payments.
+    Keyed by ROW NAME since #1256, no longer by reference: one reference can sit on a gateway row
+    and a bank-statement row in the same master-table page, and only the first may link an expense.
+    Rows sharing a reference (a fan-out) still get the same records, each as its own entry.
 
-    Computing it for every row is safe. A `Matched` row cannot have a paid payment at its reference:
+    Computing it for every row is safe. A `Matched` row cannot have a paid record at its reference:
     the duplicate check runs FIRST and would have skipped it, so the lookup comes back empty on its
     own rather than by being excluded here.
     """
-    references = [r.get("normalized_reference") or "" for r in rows]
+    by_path: dict[bool, list] = {True: [], False: []}
+    for row in rows:
+        by_path[source_has_settlement_path(row.get("source") or "")].append(row)
+
+    related: dict[str, list] = {}
+    for has_path, members in by_path.items():
+        if not members:
+            continue
+        pools = _paid_duplicate_pools(
+            [m.get("normalized_reference") or "" for m in members], has_settlement_path=has_path
+        )
+        index = _records_by_reference((*pools["paid_payments"], *pools["paid_expenses"]))
+        for member in members:
+            related[member["name"]] = [
+                dict(entry) for entry in index.get(member.get("normalized_reference") or "", [])
+            ]
+    return related
+
+
+def _records_by_reference(targets) -> dict[str, list]:
     by_reference: dict[str, list] = {}
-    for target in C.load_paid_payments_by_reference(references):
+    for target in targets:
         by_reference.setdefault(target.normalized_reference, []).append(
             {"target_doctype": target.doctype, "target_name": target.name}
         )
@@ -2267,7 +2321,7 @@ def get_outflow_rows(
                 # the settlement-link helpers already read. A master-table page never carries match
                 # records: they mean "settled", and the Settled tab reads them per row on demand.
                 "matches": [],
-                "related_records": related.get(row.get("normalized_reference") or "", []),
+                "related_records": related.get(row["name"], []),
                 "suggested_order_name": suggested_orders.get(row.get("suggested_name") or "", ""),
             }
             for row in rows

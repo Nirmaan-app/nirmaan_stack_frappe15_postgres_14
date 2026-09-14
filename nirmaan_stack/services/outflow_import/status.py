@@ -147,6 +147,7 @@ __all__ = [
     "derive_staged_row_outcome",
     "derive_row_outcome",
     "derive_duplicate_guard_outcome",
+    "pick_duplicate_group",
     "sole_suggestion",
     "derive_batch_status",
     "derive_batch_counters",
@@ -533,6 +534,33 @@ def derive_duplicate_guard_outcome(row, paid_duplicate=None) -> RowOutcome:
     if decided is not None:
         return decided
     return RowOutcome(ROW_MISMATCHED, STAGED_NOTE_NO_SETTLEMENT_PATH)
+
+
+def pick_duplicate_group(row, groups):
+    """Which already-recorded group this row duplicates, from groups given IN PRECEDENCE ORDER (#1256).
+
+    Returns the FIRST group whose total agrees with the bank amount inside the settle window, else
+    the first group at all (so the `Mismatched` note names it), else `None`. Absent and empty groups
+    are skipped.
+
+    ⚠️ THE ORDER IS THE RULE. A gateway run passes `(payments, expenses, payments + expenses)`, so a
+    reference that sits on a Paid payment reads EXACTLY as it did before #1256 whenever that payment
+    agrees -- the acceptance line "existing Paid-payment skip behaviour unchanged". Summing every hit
+    into one group instead turned such a row `Mismatched` the moment an expense shared its reference.
+    The combined group comes last: it catches money genuinely split across both ledgers.
+
+    ⚠️ A SEVENTH AMOUNT-WINDOW SITE, listed in `amounts.py`. It uses `amounts_match` -- the settle
+    window -- because it is choosing the group `_failed_or_already_paid` then re-checks with the same
+    window; two different windows would let the pick disagree with the verdict.
+    """
+    present = [g for g in groups if g is not None and getattr(g, "targets", ())]
+    if not present:
+        return None
+    bank_amount = _amount_of(row)
+    for group in present:
+        if amounts_match(_total_of(group), bank_amount):
+            return group
+    return present[0]
 
 
 def _settleable_candidates(match) -> tuple:
