@@ -62,9 +62,9 @@ class TestAllocatedOf(unittest.TestCase):
         self.assertEqual(allocated_of([_leg("1000", "Reconciled")]), Decimal("0"))
 
     def test_a_negative_leg_counts_as_the_money_it_moved(self):
-        """THE CREDIT PATH. `inflows.create_non_project_receipt` records a bank CREDIT as a
-        NEGATIVE `Non Project Expense` -- this app has no non-project inflow doctype (owner ruling
-        Q3) -- so its leg's `target_amount` is legitimately below zero. The ROW's amount is a
+        """THE OLD CREDIT PATH. The removed B7 `inflows.create_non_project_receipt` recorded a bank
+        CREDIT as a NEGATIVE `Non Project Expense`, and the legs it wrote may still exist (#1266
+        keeps this read side), so such a leg's `target_amount` is below zero. The ROW's amount is a
         MAGNITUDE by explicit decision (ADR-0016 rejected a signed amount column), so the two are
         only subtractable once both mean "how much money this transfer moved"."""
         self.assertEqual(allocated_of([_leg("-5000")]), Decimal("5000"))
@@ -72,8 +72,7 @@ class TestAllocatedOf(unittest.TestCase):
     def test_a_recorded_receipt_leaves_its_row_fully_allocated(self):
         """THE REGRESSION THIS PIN EXISTS FOR, stated at the seam rather than at the endpoint. A
         signed sum reads -5000 against a row of 5000, so `remaining_of` reads 10000 and the row is
-        stuck at `Partially Allocated` for good -- which in turn re-opens the receipt endpoint,
-        whose only duplicate protection is that the row stops being settleable."""
+        stuck at `Partially Allocated` for good."""
         legs = [_leg("-5000")]
         self.assertEqual(remaining_of("5000", legs), Decimal("0"))
         self.assertTrue(is_fully_allocated("5000", legs))

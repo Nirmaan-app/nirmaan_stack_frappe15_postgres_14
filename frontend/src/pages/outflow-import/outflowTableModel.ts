@@ -32,6 +32,11 @@ import {
 } from "./outflowImportStatus";
 import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable.config";
 import { inflowHref } from "@/pages/inflow-payments/config/inflowPaymentsTable.config";
+import { nonProjectInflowHref } from "@/pages/non-project-inflows/config/nonProjectInflowsTable.config";
+import {
+    descriptionRequired,
+    isInflowType,
+} from "@/pages/non-project-inflows/nonProjectInflowModel";
 import type {
     OutflowImportRow,
     OutflowRowsPage,
@@ -161,21 +166,17 @@ function wrapToWidth(text: string | null | undefined, width: number): string[] {
 /**
  * Which ledger a row is being settled against, or which kind of record it is CREATING.
  *
- * ⚠️ `new`, `inflow` AND `receipt` ARE NOT LEDGERS AND NEVER APPEAR ON A `SettleableRecord`. The
- * first three members are real doctypes and are what `recordKey` / `parseRecordKey` round-trip; the
- * last three are CREATE intents, which have no record to key. Anything narrowing this union for a
- * record list must exclude them rather than assume they cannot occur.
+ * ⚠️ `new`, `inflow` AND `nonProjectInflow` ARE NOT LEDGERS AND NEVER APPEAR ON A `SettleableRecord`.
+ * The first three members are real doctypes and are what `recordKey` / `parseRecordKey` round-trip;
+ * the last three are CREATE intents, which have no record to key. Anything narrowing this union for
+ * a record list must exclude them rather than assume they cannot occur.
  *
- * ⚠️ `inflow` AND `receipt` ARE THE TWO THAT MOVE MONEY THE OTHER WAY, and both are offered only on
- * a row whose `direction` is `Credit`. They divide on whether a PROJECT is behind the money:
+ * ⚠️ `inflow` AND `nonProjectInflow` ARE THE TWO THAT MOVE MONEY THE OTHER WAY, and both are offered
+ * only on a row whose `direction` is `Credit`. They divide on whether a PROJECT is behind the money:
  *   * `inflow` (B6) — a client receipt, written as a `Project Inflow`.
- *   * `receipt` (B7) — everything else (FD interest, an FD closing, a loan drawdown, an advance
- *     coming back), written as a **negative** `Non Project Expense`.
- *
- * ⚠️ `receipt` IS NOT `"Non Project Expenses"`, AND THE COLLISION IS WHY IT IS SPELLED DIFFERENTLY.
- * That member means "SETTLE an approved non-project expense that already exists"; this one means
- * "CREATE a new one, negative, from a credit". Same doctype, opposite direction, different endpoint
- * — folding them would make `settleOne` pick a write path off a value that cannot tell them apart.
+ *   * `nonProjectInflow` (#1266) — everything else (FD interest, an FD closing, a loan drawdown, a
+ *     refund), written as a `Non Project Inflow` with an Inflow Type. It replaced the B7 `receipt`,
+ *     which wrote a NEGATIVE `Non Project Expense` (ADR-0016 Amendment A-D2).
  */
 export type DecisionTarget =
     | "Project Payments"
@@ -183,7 +184,7 @@ export type DecisionTarget =
     | "Non Project Expenses"
     | "new"
     | "inflow"
-    | "receipt";
+    | "nonProjectInflow";
 
 /** The debit-side dispositions: settle an approved record, or create the expense that is missing. */
 const PAID_TARGETS: readonly DecisionTarget[] = [
@@ -193,8 +194,18 @@ const PAID_TARGETS: readonly DecisionTarget[] = [
     "new",
 ];
 
-/** The credit-side dispositions, in the order the dialog offers them (B6 then B7). */
-const RECEIVED_TARGETS: readonly DecisionTarget[] = ["inflow", "receipt"];
+/** The credit-side dispositions, in the order the dialog offers them. The ONLY two (#1266). */
+const RECEIVED_TARGETS: readonly DecisionTarget[] = ["inflow", "nonProjectInflow"];
+
+/** The dispositions that CREATE a record rather than link an existing one. */
+const CREATE_TARGETS: readonly DecisionTarget[] = ["new", "inflow", "nonProjectInflow"];
+
+/**
+ * Does this disposition create a new record (an expense, a project inflow, a non-project inflow)?
+ * The ONE test -- the dialog's dimming, its link-vs-create wording and `recordAnywayWording` read it.
+ */
+export const isCreateTarget = (target: DecisionTarget | undefined): boolean =>
+    target !== undefined && CREATE_TARGETS.includes(target);
 
 /**
  * Did this transfer bring money IN? THE one definition of the axis on this side of the wire.
@@ -208,8 +219,8 @@ const RECEIVED_TARGETS: readonly DecisionTarget[] = ["inflow", "receipt"];
  * ⚠️ A BLANK DIRECTION IS NOT CREDIT, AND THAT IS NOT THE SAME AS READING IT AS `Debit`. Blank
  * means the statement did not say -- a gateway export with one amount column, or a bank line with
  * BOTH money columns populated that the parser refused to guess about. It lands on the paid side
- * because the receipt paths refuse anything that is not `Credit` at the WRITE, so such a row is
- * structurally incapable of having become a receipt; calling it received would offer a disposition
+ * because the credit paths refuse anything that is not `Credit` at the WRITE, so such a row is
+ * structurally incapable of having become money received; calling it received would offer a disposition
  * it can never complete. Nothing here decides that a blank row IS a debit.
  *
  * ⚠️ IT IS TRIMMED, like the server's. An unrecognised value is not credit, by the same branch --
@@ -305,44 +316,33 @@ export interface RowDecision {
         invoice?: string | null;
     };
     /**
-     * Only for `target: "receipt"` — a bank CREDIT that belongs to NO project, recorded as a
-     * **negative** `Non Project Expense` (slice B7, owner ruling Q3 / ADR-0016 decision 3).
+     * Only for `target: "nonProjectInflow"` — a bank CREDIT that belongs to NO project, recorded as
+     * a `Non Project Inflow` (#1266, ADR-0016 Amendment A-D2).
      *
-     * ⚠️ THERE IS NO AMOUNT HERE AND, ABOVE ALL, NO SIGN. The magnitude, the payment date and the
-     * reference are read server-side off the staged bank row, and the NEGATION is applied in the
-     * write path from the row's own `direction`. A client that could post a negative number could
-     * book a debit as income — the books wrong by twice the transfer, with nothing looking odd.
+     * ⚠️ THERE IS NO AMOUNT, DATE OR REFERENCE HERE, exactly as `newInflow` has none: the server
+     * reads all three off the staged bank row. The dialog shows them read-only.
      *
-     * ⚠️ THERE IS NO `doctype` EITHER, AND THERE MUST NOT BE. This disposition writes exactly one
-     * ledger; the server's own writer takes no doctype argument for the same reason, so a credit
-     * can never become a negative `Project Expense`.
+     * `description` is prefilled from the payer and the bank remarks, and is required only when the
+     * type is Others (`descriptionRequired`, the Non-Project Inflows page's one statement of it).
      */
-    newReceipt?: {
-        expenseType?: string | null;
+    newNonProjectInflow?: {
+        inflowType?: string | null;
         description?: string;
     };
 }
 
 /**
- * What the ledger will actually hold for a non-project receipt: the bank's magnitude, NEGATED.
- *
- * ⚠️ IT EXISTS SO THE SCREEN CAN SAY THE SIGN OUT LOUD. The reviewer is recording money that
- * ARRIVED into a doctype called *Expenses*; the one thing the form must not do is show them the
- * positive figure the bank printed and then store its opposite. It mirrors the server rule exactly
- * — magnitude in, negative out — and is a pure function so that rule is testable without a DOM.
- *
- * `Math.abs` rather than a bare `-`: the staged amount is a positive magnitude on every source by
- * design, and if one ever arrived signed this must still describe a receipt rather than flip it
- * back to a payment.
+ * The Description a new Non-Project Inflow card starts with: the payer, then the bank remarks
+ * (#1266). A dialog prefill only -- the server does not default the description. Blank parts are
+ * dropped; the result may be empty, and the reviewer edits it either way.
  */
-export const receiptStoredAmount = (amount: number | null | undefined): number => {
-    const magnitude = Math.abs(Number(amount ?? 0));
-    // ⚠️ ZERO IS RETURNED AS `0`, NEVER `-0`. `-0` compares equal to `0` and formats identically,
-    // so it would never be seen -- and would then surprise the next person who reaches for `Object.is`
-    // or a snapshot. A zero credit is refused server-side regardless.
-    if (!Number.isFinite(magnitude) || magnitude === 0) return 0;
-    return -magnitude;
-};
+export const nonProjectInflowDescriptionSeed = (
+    row: Pick<OutflowImportRow, "beneficiary_name" | "remarks">
+): string =>
+    [row.beneficiary_name, row.remarks]
+        .map((part) => (part ?? "").trim())
+        .filter(Boolean)
+        .join(" - ");
 
 /**
  * ⚠️ `date` IS NOT A FACET, AND IT USED TO BE (slice P1). `added_on` shipped as `filter: "facet"`,
@@ -2011,8 +2011,7 @@ export const needsRecordAnywayConfirmation = (err: unknown): boolean =>
 export const recordAnywayWording = (
     decision: Pick<RowDecision, "target">
 ): { title: string; action: string } => {
-    const creates = decision.target === "new" || decision.target === "inflow" || decision.target === "receipt";
-    const verb = creates ? "Create" : "Link";
+    const verb = isCreateTarget(decision.target) ? "Create" : "Link";
     return { title: `${verb} anyway?`, action: `${verb} anyway` };
 };
 
@@ -2158,7 +2157,7 @@ export const previewCounts = (preview: {
  * `linkTargets` on every pick -- a seeded decision arrives carrying `linkTargets`, so a Normal
  * picker that forgets would settle the machine's old record instead of the person's new one.
  *
- * ⚠️ A `linkTo` UNDER A NON-SETTLEABLE `target` IS NOT A PICK. `new` / `inflow` / `receipt` are
+ * ⚠️ A `linkTo` UNDER A NON-SETTLEABLE `target` IS NOT A PICK. `new` / `inflow` / `nonProjectInflow` are
  * dispositions that write something rather than link to something, so a leftover link under one of
  * them must never fold into a key that looks like a settle target.
  */
@@ -2239,7 +2238,7 @@ export const isConfirmable = (
      * ⚠️ A DEBIT (OR BLANK) ONLY -- THE MIRROR OF THE TWO CREDIT GATES BELOW. Creating an expense
      * out of money that ARRIVED files a receipt as a spend, which is the same class of error as
      * recording a debit as an inflow and is wrong by twice the transfer in the same way. The credit
-     * dispositions (`inflow` / `receipt`) are the ones that exist for such a row.
+     * dispositions (`inflow` / `nonProjectInflow`) are the ones that exist for such a row.
      */
     if (decision.target === "new") {
         if (isCreditRow(row)) return false;
@@ -2265,26 +2264,26 @@ export const isConfirmable = (
         return Boolean(form?.project && form.customer);
     }
     /**
-     * ⚠️ A CREDIT ONLY, AND THE DIRECTION CHECK MATTERS MORE HERE THAN ANYWHERE ELSE (slice B7).
-     * This disposition writes a NEGATIVE amount, so on a debit row it would not merely file money
-     * in the wrong place — it would file money that LEFT the account as money that arrived, and the
-     * books would be wrong by twice the transfer. The server refuses it twice as well; this keeps
-     * the bulk bar from counting such a row as decided in the first place.
+     * ⚠️ A CREDIT ONLY (#1266): a debit recorded here would book money that LEFT the account as money
+     * received. The server refuses it twice as well; this keeps the bulk bar from counting such a
+     * row as decided.
      *
-     * ⚠️ ONLY THE EXPENSE TYPE IS REQUIRED. There is no project (this receipt has none — that is
-     * what makes it this disposition rather than an inflow), and the description is optional
-     * because the server composes one from the payer and the narration when it is blank.
+     * The type must be one of the four, and Others needs a description -- the Non-Project Inflows
+     * page's own rules (`isInflowType` / `descriptionRequired`), read rather than restated.
      */
-    if (decision.target === "receipt") {
+    if (decision.target === "nonProjectInflow") {
         if (!isCreditRow(row)) return false;
-        return Boolean(decision.newReceipt?.expenseType);
+        const form = decision.newNonProjectInflow;
+        const inflowType = form?.inflowType ?? "";
+        if (!isInflowType(inflowType)) return false;
+        return !descriptionRequired(inflowType) || Boolean(form?.description?.trim());
     }
     /**
      * ⚠️ A DEBIT (OR BLANK) ONLY -- THE MISSING HALF, AND THE ONE THAT MOVED REAL MONEY. Every
      * record this branch can link to is an APPROVED PAYABLE waiting to be paid; settling one
      * against a CREDIT marks a payment we owe as discharged out of money that came IN, leaving the
-     * payable closed, the receipt unrecorded and the books wrong on both sides. The `inflow` and
-     * `receipt` branches have refused a debit since B6/B7 -- this is the mirror they were always
+     * payable closed, the receipt unrecorded and the books wrong on both sides. The two credit
+     * branches have refused a debit since B6/B7 -- this is the mirror they were always
      * half of, and it is what makes `availableDecisionTargets` a partition rather than a hint.
      *
      * ⚠️ EITHER SHAPE, THROUGH `decisionLinkKeys` (issue #1240) -- the Normal picker's
@@ -2438,6 +2437,16 @@ export const settlementLink = (
             label: name,
             exact: true,
             title: `Open ${name} in Project Inflows`,
+        };
+    }
+    if (doctype === "Non Project Inflows") {
+        // #1266: like a Project Inflow, the id (`NPI-26-00001`) is searchable on its own page, so
+        // this lands ON the record, and there is no status tab to pick.
+        return {
+            href: nonProjectInflowHref(name),
+            label: name,
+            exact: true,
+            title: `Open ${name} in Non-Project Inflows`,
         };
     }
     if (doctype === "Project Expenses" || doctype === "Non Project Expenses") {

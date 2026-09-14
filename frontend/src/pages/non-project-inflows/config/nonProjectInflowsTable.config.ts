@@ -21,3 +21,18 @@ export const NON_PROJECT_INFLOW_AGGREGATES_CONFIG: AggregationConfig[] = [
 ];
 
 export const NON_PROJECT_INFLOW_URL_SYNC_KEY = "non_project_inflows";
+
+/**
+ * A link to ONE Non-Project Inflow: the `/non-project-inflows` list, searched by its own id (#1266).
+ *
+ * `name` is one of `NON_PROJECT_INFLOW_SEARCHABLE_FIELDS` and the page syncs its search to the URL
+ * under `NON_PROJECT_INFLOW_URL_SYNC_KEY`, so this lands on the record itself -- the same shape as
+ * `inflowHref`. Render it through React Router (it carries the app's `basename`).
+ */
+export const nonProjectInflowHref = (name: string): string => {
+    const params = new URLSearchParams({
+        [`${NON_PROJECT_INFLOW_URL_SYNC_KEY}_searchBy`]: "name",
+        [`${NON_PROJECT_INFLOW_URL_SYNC_KEY}_q`]: name,
+    });
+    return `/non-project-inflows?${params.toString()}`;
+};

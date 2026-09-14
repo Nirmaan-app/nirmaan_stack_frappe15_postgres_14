@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Record a bank CREDIT -- money that ARRIVED (Bulk Import Outflow, slices B6 + B7).
+"""Record a bank CREDIT -- money that ARRIVED (Bulk Import Outflow, slice B6 + #1266).
 
 Thin orchestrators (ADR-0010 B4): authorize -> load -> guard -> call the service -> record -> commit.
 The rules live in `services/outflow_import/settle.py`; this module owns the
@@ -13,27 +13,15 @@ disagree about what a settled row looks like.
 THE TWO DISPOSITIONS A CREDIT CAN TAKE, AND THEY DIVIDE ON WHETHER A PROJECT IS BEHIND THE MONEY:
   * `create_inflow` (B6) -- a client receipt, against a project and its customer, written as a
     `Project Inflow`.
-  * `create_non_project_receipt` (B7) -- everything else: FD/RD interest, an FD closing and
-    returning its principal, a loan drawdown landing, a site advance coming back. None of those
-    name a project, so none can be an inflow. Written as a NEGATIVE `Non Project Expense`, because
-    THERE IS NO NON-PROJECT INFLOW DOCTYPE IN THIS APP AND NONE IS BEING CREATED (owner ruling Q3,
-    ADR-0016 decision 3).
+  * `create_non_project_inflow` (#1266) -- everything else: FD/RD interest, an FD closing, a loan
+    drawdown landing, a refund coming back. Written as a `Non Project Inflow` with an Inflow Type
+    (ADR-0016 Amendment A). It replaced the B7 `create_non_project_receipt`, which wrote a NEGATIVE
+    `Non Project Expense` -- that endpoint, its service and its tests are REMOVED, not just hidden:
+    a live endpoint nobody calls can still write negative expenses (A-D2).
 
-⚠️ WHY IS THE SECOND ONE IN A MODULE CALLED `inflows.py` WHEN IT WRITES AN EXPENSE DOCTYPE? BECAUSE
-THE AXIS THIS MODULE SPLITS ON IS DIRECTION, NOT DOCTYPE, and that is the sentence to weigh before
-moving it. `expenses.py` states as its own header property that EVERY endpoint in it writes an
-OUTFLOW -- it settles money that left, or records a spend that had no PO -- and its guards are read
-against that property (`create_expense_from_row` refuses `amount <= 0`, which is right only for a
-debit). Putting a money-IN write there would quietly falsify that header and sit a signed write
-beside an unsigned one under a shared name. Here it sits beside its actual sibling: the other thing
-a reviewer may do with a credit row, sharing `_guard_is_a_credit` rather than a second copy of it.
-
-⚠️ AND THE COST OF THE OWNER'S RULING, STATED HONESTLY RATHER THAN HIDDEN BY THE FILE NAME: money
-arriving is recorded in a doctype called *Expenses*. Anyone reading or summing a Non-Project
-Expenses list meets a negative row. That was weighed against a new doctype with new permissions,
-list views and reports; ADR-0016 carries it as accepted risk R3. It is not this module's to
-re-litigate -- what it can do, and does, is make the record say what it is: the new `non_project=1`
-Expense Types (Q19) name the income kinds, and `payment_ref` carries the bank reference.
+The axis this module splits on is DIRECTION: `expenses.py` holds every endpoint that writes an
+OUTFLOW, and this one holds the two a reviewer may take with a credit row, sharing
+`_guard_is_a_credit` rather than a second copy of it.
 
 ⚠️ THE THING TO UNDERSTAND BEFORE EDITING ANYTHING HERE: A CREATED INFLOW IS LIVE IMMEDIATELY AND
 THERE IS NO DRAFT STATE. `Project Inflows` has no `status` field, and every consumer sums it with
@@ -60,13 +48,13 @@ imported.
 ⚠️ BOTH ENDPOINTS RUN `expenses._guard_money_not_recorded` (#1260), the same guard `create_expense`,
 `settle_row` and `allocate_row` run: the match run's own already-recorded question for the line's
 source, refusing a line the run would skip and asking for confirmation on one it would leave
-Mismatched naming a record. This closed the gap once recorded here, where
-`create_non_project_receipt` and `create_expense` had no ledger duplicate check at all -- closed on
-both at once, so whether a duplicate is caught never depends on which card the reviewer clicked.
+Mismatched naming a record. So whether a duplicate is caught never depends on which card the
+reviewer clicked.
 
 ⚠️ WHAT A CREDIT IS CHECKED AGAINST IS THE OWNER'S RULING, NOT A GAP: a deposit reads Project Inflows
-only (#1252), so a receipt booked earlier as a NEGATIVE Non Project Expense is not found. A re-upload
-of the same statement line is still caught at upload by the cross-batch identity.
+only (#1252), so a receipt booked earlier as a NEGATIVE Non Project Expense is not found; #1268 adds
+`Non Project Inflows` to that pool. A re-upload of the same statement line is still caught at upload
+by the cross-batch identity.
 
 `create_inflow` also keeps `_already_created_by_import`, keyed through the ONE identity rule in
 `services/outflow_import/duplicates.py`: an inflow THIS import created for the same transfer id,
@@ -100,15 +88,10 @@ from nirmaan_stack.services.outflow_import.settle import (
     INFLOW_DOCTYPE,
     InflowNotRecordableError,
     create_inflow_from_row,
-    create_non_project_receipt_from_row,
+    create_non_project_inflow_from_row,
 )
 
-#: ⚠️ THERE IS NO `get_non_project_receipt_types` HERE, AND THERE MUST NOT BE. The receipt form's
-#: type list is the EXISTING `expenses.get_expense_types("Non Project Expenses")` -- the same
-#: `non_project = 1` query the create-expense form already uses, behind the same access gate. A
-#: second endpoint answering the same question is how the two lists come to disagree about which
-#: types exist, and it would be the list the SERVER's `_assert_type_scope` does not read.
-__all__ = ["create_inflow", "create_non_project_receipt", "get_inflow_context"]
+__all__ = ["create_inflow", "create_non_project_inflow", "get_inflow_context"]
 
 
 @frappe.whitelist(methods=["POST"])
@@ -182,74 +165,58 @@ def create_inflow(
 
 
 @frappe.whitelist(methods=["POST"])
-def create_non_project_receipt(
-    row: str, expense_type: str, description: str = None, confirm_mismatch=False
+def create_non_project_inflow(
+    row: str, inflow_type: str = None, description: str = None, confirm_mismatch=False
 ):
-    """Record a bank CREDIT that belongs to no project, as a NEGATIVE `Non Project Expense` (B7).
+    """Record a bank CREDIT that belongs to no project, as a new `Non Project Inflow` (#1266).
 
-    URL: /api/method/nirmaan_stack.api.outflow_import.inflows.create_non_project_receipt
+    URL: /api/method/nirmaan_stack.api.outflow_import.inflows.create_non_project_inflow
 
-    The second disposition a credit can take, beside `create_inflow`. It is the answer for the
-    receipts that name no project -- FD/RD interest, an FD closing and returning its principal, a
-    loan drawdown landing, a site advance coming back -- and there is no non-project inflow doctype
-    in this app to put them in (owner ruling Q3; ADR-0016 decision 3, accepted risk R3).
+    The second disposition a credit can take, beside `create_inflow`: FD/RD interest, an FD
+    closing, a loan drawdown, a refund coming back (ADR-0016 Amendment A-D2). It replaced the B7
+    `create_non_project_receipt`, which wrote a NEGATIVE `Non Project Expense`.
 
-    ⚠️ THE CLIENT SENDS WHAT KIND OF RECEIPT IT IS, AND NEVER A FIGURE -- LEAST OF ALL A SIGN. The
-    amount, the payment date and the reference are read SERVER-SIDE off the staged bank row, exactly
-    as `create_expense` and `create_inflow` read them, and the NEGATION is applied inside
-    `create_non_project_receipt_from_row` from the row's own `direction`. A client that could post a
-    negative number could book a debit as income, and the books would be wrong by twice the
-    transfer with nothing on screen looking odd.
+    ⚠️ THE CLIENT SENDS WHAT KIND OF MONEY IT IS, AND NEVER A FIGURE. Amount, payment date and
+    reference are read SERVER-SIDE off the staged bank row, exactly as `create_inflow` reads them.
+
+    ⚠️ `inflow_type` DEFAULTS TO None ONLY SO A MISSING ONE REACHES THE SERVICE'S OWN REFUSAL, which
+    names the four types, rather than a bare missing-argument error.
 
     ⚠️ THE SAME PRELUDE AS `create_inflow`, INCLUDING THE RECORDED-MONEY GUARD (#1260), minus only
-    `_already_created_by_import` -- which looks for an INFLOW the import created, and this path
-    creates none.
+    `_already_created_by_import` -- which looks for a `Project Inflow` the import created. #1268
+    teaches the duplicate check about `Non Project Inflows`.
 
     ⚠️ ONE ROW PER CALL, its own savepoint, its own commit -- the isolation `settle_row` documents
-    at length. A failure on one row leaves the others written and the rest still attemptable.
+    at length. A refusal writes nothing.
     """
     actor = require_outflow_access()
     staged, doc = _load_settleable_row(row)
-    # ⚠️ CHECKED HERE **AND** IN THE SERVICE, AND THEY ARE NOT REDUNDANT -- the same pairing
-    # `create_inflow` uses, and it matters more on this path because the direction chooses a SIGN.
-    # This one reads the STORED column and fails fast with the row in hand; the service re-checks
-    # the value it is handed, because it is a service anything may call.
+    # ⚠️ CHECKED HERE **AND** IN THE SERVICE, AND THEY ARE NOT REDUNDANT -- the pairing
+    # `create_inflow` uses. This one reads the STORED column and fails fast with the row in hand;
+    # the service re-checks the value it is handed, because it is a service anything may call.
     _guard_is_a_credit(doc)
     _guard_money_not_recorded(staged, doc, confirm_mismatch)
     statement_file_url = _statement_file_url(doc["import_batch"])
 
-    savepoint = f"ofi_receipt_{frappe.generate_hash(length=10)}"
+    savepoint = f"ofi_np_inflow_{frappe.generate_hash(length=10)}"
     frappe.db.savepoint(savepoint)
     try:
-        result = create_non_project_receipt_from_row(
+        result = create_non_project_inflow_from_row(
             staged,
             actor=actor,
-            expense_type=expense_type,
+            inflow_type=inflow_type,
             # ⚠️ FROM THE STORED ROW, NEVER FROM THE PAYLOAD. The endpoint has no `direction`
-            # parameter and must never grow one: it is the only thing standing between a debit and
-            # a receipt, so a caller must not be able to state it.
+            # parameter and must never grow one: it is what stands between a debit and a record of
+            # money received.
             direction=doc.get("direction"),
             description=description,
-            # Visible provenance on the record itself. The `Outflow Row Match` is the durable link,
-            # but nobody opening a Non-Project Expense form sees that -- and on THIS ledger the
-            # explanation matters more than usual, because the row they are looking at is negative.
-            comment=f"Imported from {doc['import_batch']}",
             statement_file_url=statement_file_url,
         )
         _record_settlement(staged, doc, result, actor)
-        # ⚠️ INSIDE THE SAVEPOINT, AND IT IS WHAT MARKS THE ROW DONE. `_record_settlement` writes
-        # the leg; the row's own status is DERIVED from its legs (ADR-0020) and written here. This
-        # call is the port that was missed when the flip moved out of `_record_settlement` -- this
-        # module never referenced either name, so a recorded credit sat at `Mismatched` and the
-        # per-row guard both endpoints lean on never engaged.
-        #
-        # ⚠️ `result` IS PASSED SO THE NOTE READS "Recorded", NOT "Settled". Both credit paths
-        # CREATE their record, and `allocation_note` distinguishes a record this import brought into
-        # existence from one that was already sitting there approved.
+        # INSIDE THE SAVEPOINT, AND IT IS WHAT MARKS THE ROW DONE -- see `create_inflow`. `result`
+        # is passed so the note reads "Recorded", not "Settled".
         _refresh_row_allocation(staged.name, actor, result)
     except Exception:
-        # Roll back to the savepoint rather than the whole request, for the reason `settle_row`
-        # gives: the caller gets the real error and the database is exactly as it was.
         frappe.db.rollback(save_point=savepoint)
         raise
     frappe.db.release_savepoint(savepoint)
@@ -316,7 +283,7 @@ def _guard_is_a_credit(doc) -> None:
     is a rule an endpoint can forget. Neither is the other's backstop for a race -- direction is
     written once at staging and never changes.
 
-    ⚠️ SHARED BY BOTH CREDIT ENDPOINTS SINCE B7, WHICH IS WHY THE MESSAGE NO LONGER SAYS
+    ⚠️ SHARED BY BOTH CREDIT ENDPOINTS, WHICH IS WHY THE MESSAGE NO LONGER SAYS
     "project inflow". The same fact refuses both dispositions -- this transfer took money OUT -- and
     a message naming only one of them would be wrong half the time it is read. The service-side
     twins each speak in their own voice, where the disposition IS known.

@@ -1330,7 +1330,7 @@ def _guard_is_a_debit(doc) -> None:
     frappe.throw(
         "Only a debit can settle an approved record or be recorded as an expense. This transfer "
         "is a credit, so it brought money IN -- record it as a project inflow or as a "
-        "non-project receipt instead.",
+        "non-project inflow instead.",
         ExpenseSettlementError,
         title="Not a debit",
     )
@@ -1341,7 +1341,7 @@ def _guard_money_not_recorded(staged, doc, confirm_mismatch=False, writing=()) -
 
     Shared by every endpoint that records money from a line: `settle_row` (and its `settle_expense`
     alias), `settle_row_partial`, `allocate_row`, `create_expense`, and `inflows.create_inflow` /
-    `create_non_project_receipt`. It asks the match
+    `create_non_project_inflow`. It asks the match
     run's own question for the line's source (`review._recorded_money_group`) and follows the run's
     own verdict (`status.derive_recorded_money_verdict`), so it holds even if no match run ever ran:
 

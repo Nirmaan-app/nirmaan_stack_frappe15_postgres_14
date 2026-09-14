@@ -36,6 +36,7 @@ __all__ = [
     "PROJECT_EXPENSE_DOCTYPE",
     "NON_PROJECT_EXPENSE_DOCTYPE",
     "INFLOW_DOCTYPE",
+    "NON_PROJECT_INFLOW_DOCTYPE",
     "EXPENSE_DOCTYPES",
     "LEDGER_DOCTYPES",
     "RECEIVED_LEDGER_DOCTYPES",
@@ -91,12 +92,17 @@ LEDGER_DOCTYPES = (PAYMENT_DOCTYPE, *EXPENSE_DOCTYPES)
 # other, under bench, so a rename cannot reach only one of them.
 INFLOW_DOCTYPE = "Project Inflows"
 
+# The ledger a bank CREDIT with no project behind it becomes (#1266, ADR-0016 Amendment A-D2).
+# Created, never settled -- the same rule as `INFLOW_DOCTYPE`, so it is kept out of the same tuples.
+NON_PROJECT_INFLOW_DOCTYPE = "Non Project Inflows"
+
 # The DISPLAY ORDER of the RECEIVED half of the settled-money panel (slice B8b).
 #
 # ⚠️ A SECOND ORDER, NOT A WIDENING OF THE FIRST, BECAUSE THE TWO BLOCKS HOLD DIFFERENT BOOKS. A
-# receipt can land in exactly two places: a `Project Inflow` (B6), or a NEGATIVE
-# `Non Project Expense` (B7) -- which is why `Non Project Expenses` legitimately appears in BOTH
-# tuples and is NOT a copy-paste slip. A credit can never become a `Project Payment` or a
+# credit becomes a `Project Inflow` (B6) or a `Non Project Inflow` (#1266). `Non Project Expenses`
+# is still here, and in `LEDGER_DOCTYPES` too, NOT as a copy-paste slip: the removed B7 path wrote a
+# credit as a NEGATIVE `Non Project Expense`, and rows it wrote may still exist (Amendment A-D2
+# keeps the read side). A credit can never become a `Project Payment` or a
 # `Project Expense`, so zero-filling the received block from `LEDGER_DOCTYPES` would put two
 # permanent zeroes on the panel asserting that receipts could have landed in books they cannot
 # reach -- the exact opposite of what the zero-fill is for ("nothing settled here, this time").
@@ -105,18 +111,23 @@ INFLOW_DOCTYPE = "Project Inflows"
 # `status.derive_settled_ledger_split` takes the order as a PARAMETER so there is ONE
 # implementation of ordering, zero-filling and the `Other` slot, not two. Reordering this tuple
 # reorders the received block. It is NEVER sorted by value.
-RECEIVED_LEDGER_DOCTYPES = (INFLOW_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE)
+RECEIVED_LEDGER_DOCTYPES = (
+    INFLOW_DOCTYPE,
+    NON_PROJECT_INFLOW_DOCTYPE,
+    NON_PROJECT_EXPENSE_DOCTYPE,
+)
 
 # The singular and plural READER-FACING name of each ledger, for sentences a person reads (#1253).
 #
-# ⚠️ ALL FOUR LEDGERS, INFLOWS INCLUDED -- this is vocabulary, not a settle list, so the rule that keeps
-# `INFLOW_DOCTYPE` out of `LEDGER_DOCTYPES` does not apply here. Read by `status._records_phrase`; a
+# ⚠️ EVERY LEDGER, INFLOWS INCLUDED -- this is vocabulary, not a settle list, so the rule that keeps
+# the inflow ledgers out of `LEDGER_DOCTYPES` does not apply here. Read by `status._records_phrase`; a
 # duplicate note must never spell a ledger name of its own.
 LEDGER_NOUNS: dict[str, tuple[str, str]] = {
     PAYMENT_DOCTYPE: ("Project Payment", "Project Payments"),
     PROJECT_EXPENSE_DOCTYPE: ("Project Expense", "Project Expenses"),
     NON_PROJECT_EXPENSE_DOCTYPE: ("Non Project Expense", "Non Project Expenses"),
     INFLOW_DOCTYPE: ("Project Inflow", "Project Inflows"),
+    NON_PROJECT_INFLOW_DOCTYPE: ("Non Project Inflow", "Non Project Inflows"),
 }
 
 # THE single source of the Approved-only rule. Read by `candidates.py` (what may be offered) and by

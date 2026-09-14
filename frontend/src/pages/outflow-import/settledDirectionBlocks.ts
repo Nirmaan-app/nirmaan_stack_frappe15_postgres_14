@@ -26,9 +26,9 @@ import { settledLedgerRows, type SettledLedgerSplit } from "./outflowTableModel"
  * The server's word for a block, rendered verbatim — the same contract `ledger` already has.
  *
  * The panel maps these to its own headings; it never invents a third name for a side, and it never
- * derives the side from the ledger. It cannot: a non-project RECEIPT is stored as a NEGATIVE
- * `Non Project Expense` (B7), so `Non Project Expenses` legitimately appears in BOTH blocks and the
- * target doctype genuinely does not say which way the money went.
+ * derives the side from the ledger. It cannot: the removed B7 path stored a non-project receipt as a
+ * NEGATIVE `Non Project Expense`, and those rows may still exist, so `Non Project Expenses`
+ * legitimately appears in BOTH blocks and the target doctype does not say which way the money went.
  */
 export const SETTLED_BLOCK_RECEIVED = "Received";
 export const SETTLED_BLOCK_PAID = "Paid";
@@ -64,7 +64,7 @@ export const settledDirectionBlocks = (
  *
  * ⚠️ IT NAMES THE DIRECTION, ALWAYS. The tile used to read `Settled`, which was unambiguous only
  * while every transfer on this screen moved one way. Now that a credit can become a `Project
- * Inflow` (B6) or a negative `Non Project Expense` (B7), a reviewer glancing at the panel must not
+ * Inflow` (B6) or a `Non Project Inflow` (#1266), a reviewer glancing at the panel must not
  * have to work out which way the money went — so the word for the direction is in the label, not
  * inferred from where the tile sits.
  *

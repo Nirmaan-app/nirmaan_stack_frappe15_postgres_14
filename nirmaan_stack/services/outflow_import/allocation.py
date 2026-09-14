@@ -69,16 +69,15 @@ def allocated_of(legs: Iterable[Mapping]) -> Decimal:
     ROW's amount, and a row amount is a MAGNITUDE by explicit decision -- ADR-0016 rejected a signed
     amount column, so every source stores the positive figure and the direction lives in its own
     column. A leg's `target_amount`, by contrast, is "the target's own amount at match time" (the
-    field's own description), and on ONE path that figure is legitimately BELOW ZERO: a bank CREDIT
-    recorded through `inflows.create_non_project_receipt` writes a NEGATIVE `Non Project Expense`,
-    because this app has no non-project inflow doctype (owner ruling Q3, ADR-0016 decision 3). Both
-    operands have to mean the same thing before they can be subtracted, and the thing they must both
-    mean is "how much money this transfer moved".
+    field's own description), and on legs written by the REMOVED B7 path that figure is below zero:
+    `inflows.create_non_project_receipt` recorded a bank CREDIT as a NEGATIVE `Non Project Expense`.
+    #1266 replaced it with a positive `Non Project Inflow`, but ADR-0016 Amendment A-D2 KEEPS this
+    read side, because legs the old path wrote may still exist. Both operands have to mean the same
+    thing before they can be subtracted, and the thing they must both mean is "how much money this
+    transfer moved".
 
-    ⚠️ WITHOUT IT, RECORDING A RECEIPT LEAVES ITS ROW `Partially Allocated` FOREVER: allocated
-    reads -X against a row of +X, so `remaining_of` reads 2X and the row can never reach `Settled`
-    -- and the receipt endpoint, which has no duplicate guard of its own and leans entirely on that
-    status flip, becomes callable over and over, minting a fresh negative expense each time.
+    ⚠️ WITHOUT IT, AN OLD RECEIPT LEG LEAVES ITS ROW `Partially Allocated`: allocated reads -X against
+    a row of +X, so `remaining_of` reads 2X and the row can never reach `Settled`.
 
     ⚠️ IT IS NOT A BACK DOOR FOR A WRONG SIGN ON THE DEBIT SIDE. Every outflow path writes a
     positive leg by construction -- `create_expense_from_row` refuses `amount <= 0`, and the settle

@@ -9,6 +9,10 @@ import {
 } from "@/pages/inflow-payments/config/inflowPaymentsTable.config";
 import * as model from "./outflowTableModel";
 import {
+    NON_PROJECT_INFLOW_URL_SYNC_KEY,
+    nonProjectInflowHref,
+} from "@/pages/non-project-inflows/config/nonProjectInflowsTable.config";
+import {
     DEFAULT_HIDDEN_COLUMNS,
     clearedPick,
     pickFitsSingleSelect,
@@ -89,7 +93,6 @@ import {
     importStatusTone,
     importsForSource,
     openImports,
-    receiptStoredAmount,
     rematchReachLabel,
     matchedImports,
     duplicateCheckedImports,
@@ -707,9 +710,10 @@ describe("which way the money went — the ONE definition of the axis", () => {
     });
 
     it("offers the two credit dispositions on a credit row, and nothing else", () => {
+        // #1266: project inflow and non-project inflow are the ONLY two -- the receipt is gone.
         expect(availableDecisionTargets({ direction: "Credit" } as any)).toEqual([
             "inflow",
-            "receipt",
+            "nonProjectInflow",
         ]);
     });
 
@@ -733,7 +737,7 @@ describe("which way the money went — the ONE definition of the axis", () => {
                 "Non Project Expenses",
                 "new",
                 "inflow",
-                "receipt",
+                "nonProjectInflow",
             ].sort()
         );
     });
@@ -1432,11 +1436,11 @@ describe("decisionLinkKeys", () => {
     });
 
     it("refuses a `linkTo` under a ledger this screen cannot settle", () => {
-        // A leftover link under a "create something new" / inflow / receipt disposition is not a
+        // A leftover link under a "create something new" / inflow disposition is not a
         // settle pick, and must never be folded into a key that looks like one.
         expect(keys({ target: "new", linkTo: "PAY-1" })).toEqual([]);
         expect(keys({ target: "inflow", linkTo: "PAY-1" })).toEqual([]);
-        expect(keys({ target: "receipt", linkTo: "PAY-1" })).toEqual([]);
+        expect(keys({ target: "nonProjectInflow", linkTo: "PAY-1" })).toEqual([]);
     });
 
     it("reads an emptied Split selection as nothing picked", () => {
@@ -1775,114 +1779,104 @@ describe("isConfirmable", () => {
         }
     });
 
-    // --- the `receipt` branch (slice B7) ---------------------------------------------------------
+    // --- the `nonProjectInflow` branch (#1266) --------------------------------------------------
     //
-    // ⚠️ THE ONE SIGNED WRITE IN THIS SCREEN. A credit that belongs to no project becomes a
-    // NEGATIVE `Non Project Expense` -- there is no non-project inflow doctype in this app and none
-    // is being created (owner ruling Q3, ADR-0016 decision 3). The bulk bar counts with this same
-    // function and posts without anyone reopening the row, so a shape that slips through here is a
-    // signed write nobody looked at.
+    // A credit that belongs to no project becomes a `Non Project Inflow` (ADR-0016 Amendment A).
+    // The bulk bar counts with this same function and posts without anyone reopening the row, so a
+    // shape that slips through here is a write nobody looked at.
 
-    it("accepts a credit row with a receipt type chosen", () => {
-        expect(
-            isConfirmable(row(CREDIT), {
-                target: "receipt",
-                newReceipt: { expenseType: "Interest Received" },
-            })
-        ).toBe(true);
+    const npi = (form: RowDecision["newNonProjectInflow"]): RowDecision => ({
+        target: "nonProjectInflow",
+        newNonProjectInflow: form,
+    });
+
+    it("accepts a credit row with an Inflow Type chosen", () => {
+        for (const inflowType of ["Interest Payouts", "FD Closures", "Loan Received"]) {
+            expect(isConfirmable(row(CREDIT), npi({ inflowType }))).toBe(true);
+        }
     });
 
     it("refuses a DEBIT row, whatever the form says", () => {
-        // ⚠️ THE REFUSAL THAT MATTERS MOST ON THIS BRANCH. On a debit this would not merely file
-        // money in the wrong place -- it would store money that LEFT the account as a negative
-        // expense, i.e. as income, and the books would be wrong by twice the transfer. The server
+        // Money that LEFT the account must never be recorded as money received. The server
         // refuses it twice as well.
         expect(
-            isConfirmable(row({ row_status: "Mismatched", direction: "Debit" } as any), {
-                target: "receipt",
-                newReceipt: { expenseType: "Interest Received" },
-            })
+            isConfirmable(
+                row({ row_status: "Mismatched", direction: "Debit" } as any),
+                npi({ inflowType: "FD Closures" })
+            )
         ).toBe(false);
     });
 
     it("refuses a row with no direction at all", () => {
-        // Blank is NOT "Credit by default". The parser leaves it blank when it found a figure in
-        // BOTH money columns and refused to guess; nothing signed may ride a guess.
+        // Blank is NOT "Credit by default" -- it lands on the outflow side.
         expect(
-            isConfirmable(row({ row_status: "Mismatched" }), {
-                target: "receipt",
-                newReceipt: { expenseType: "Interest Received" },
-            })
+            isConfirmable(row({ row_status: "Mismatched" }), npi({ inflowType: "FD Closures" }))
         ).toBe(false);
     });
 
-    it("refuses a `receipt` decision with no form, or with no type chosen", () => {
-        expect(isConfirmable(row(CREDIT), { target: "receipt" })).toBe(false);
-        expect(isConfirmable(row(CREDIT), { target: "receipt", newReceipt: {} })).toBe(false);
-        expect(
-            isConfirmable(row(CREDIT), { target: "receipt", newReceipt: { expenseType: "" } })
-        ).toBe(false);
-        expect(
-            isConfirmable(row(CREDIT), { target: "receipt", newReceipt: { expenseType: null } })
-        ).toBe(false);
+    it("refuses a decision with no form, no type, or a type that is not one of the four", () => {
+        expect(isConfirmable(row(CREDIT), { target: "nonProjectInflow" })).toBe(false);
+        expect(isConfirmable(row(CREDIT), npi({}))).toBe(false);
+        expect(isConfirmable(row(CREDIT), npi({ inflowType: "" }))).toBe(false);
+        expect(isConfirmable(row(CREDIT), npi({ inflowType: null }))).toBe(false);
+        // The old receipt's expense type is not an Inflow Type.
+        expect(isConfirmable(row(CREDIT), npi({ inflowType: "Interest Received" }))).toBe(false);
     });
 
-    it("does not require a description -- the server composes one from the payer", () => {
+    it("needs a description when the type is Others, and not otherwise", () => {
+        expect(isConfirmable(row(CREDIT), npi({ inflowType: "Others" }))).toBe(false);
+        expect(isConfirmable(row(CREDIT), npi({ inflowType: "Others", description: "" }))).toBe(
+            false
+        );
         expect(
-            isConfirmable(row(CREDIT), {
-                target: "receipt",
-                newReceipt: { expenseType: "Loan Received", description: "" },
-            })
+            isConfirmable(row(CREDIT), npi({ inflowType: "Others", description: "   " }))
+        ).toBe(false);
+        expect(
+            isConfirmable(
+                row(CREDIT),
+                npi({ inflowType: "Others", description: "Vendor refund, PO 0123" })
+            )
+        ).toBe(true);
+        expect(
+            isConfirmable(row(CREDIT), npi({ inflowType: "Loan Received", description: "" }))
         ).toBe(true);
     });
 
-    it("does NOT require a project -- having none is what makes it this disposition", () => {
-        // The distinction from `inflow`, pinned: a receipt with a project behind it is an inflow,
-        // and `Non Project Expenses` has no project column at all.
-        expect(
-            isConfirmable(row(CREDIT), {
-                target: "receipt",
-                newReceipt: { expenseType: "Advance Returned" },
-            })
-        ).toBe(true);
-    });
-
-    it("ignores a leftover `linkTargets` or `newInflow` on a `receipt` decision", () => {
-        // Picking a record, then the inflow card, then this one leaves both behind in the object;
-        // `settleOne` reads only `newReceipt` when the target is `receipt`.
+    it("ignores a leftover `linkTargets` or `newInflow` on a `nonProjectInflow` decision", () => {
+        // `settleOne` reads only `newNonProjectInflow` when the target is `nonProjectInflow`.
         expect(
             isConfirmable(row({ row_status: "Matched", direction: "Credit" } as any), {
-                target: "receipt",
+                target: "nonProjectInflow",
                 linkTargets: linkTargets({ target_doctype: "Project Payments", name: "PAY-1" }),
                 newInflow: { project: "P-1", customer: "CUST-1" },
-                newReceipt: { expenseType: "Interest Received" },
+                newNonProjectInflow: { inflowType: "Interest Payouts" },
             })
         ).toBe(true);
     });
 
-    it("still refuses a complete receipt form on a row the match has not run on", () => {
+    it("still refuses a complete form on a row the match has not run on", () => {
         expect(
-            isConfirmable(row({ row_status: "Pending match run", direction: "Credit" } as any), {
-                target: "receipt",
-                newReceipt: { expenseType: "Interest Received" },
-            })
+            isConfirmable(
+                row({ row_status: "Pending match run", direction: "Credit" } as any),
+                npi({ inflowType: "Interest Payouts" })
+            )
         ).toBe(false);
     });
 
-    it("still refuses a complete receipt form on an already terminal row", () => {
+    it("still refuses a complete form on an already terminal row", () => {
         for (const status of ["Settled", "Skipped"]) {
             expect(
-                isConfirmable(row({ row_status: status, direction: "Credit" } as any), {
-                    target: "receipt",
-                    newReceipt: { expenseType: "Interest Received" },
-                })
+                isConfirmable(
+                    row({ row_status: status, direction: "Credit" } as any),
+                    npi({ inflowType: "Interest Payouts" })
+                )
             ).toBe(false);
         }
     });
 
     // --- the MIRROR of the credit gate: the debit-side dispositions ------------------------------
     //
-    // ⚠️ THE HALF THAT WAS MISSING. `inflow` and `receipt` have refused a debit since B6/B7, but
+    // ⚠️ THE HALF THAT WAS MISSING. The credit dispositions have refused a debit since B6/B7, but
     // the settle branch and the `new` branch had NO direction check at all -- so a CREDIT row could
     // be confirmed against a debit-side approved payment, marking a payment we owe as paid out of
     // money that came IN. `isCreditRow` is the one predicate, and the two sides now PARTITION.
@@ -1906,7 +1900,7 @@ describe("isConfirmable", () => {
 
     it("refuses a `new` expense on a CREDIT row, however complete the form", () => {
         // Creating an expense out of money that ARRIVED files an inflow as a spend. The credit
-        // dispositions (`inflow` / `receipt`) are the only ones that may run on this row.
+        // dispositions (`inflow` / `nonProjectInflow`) are the only ones that may run on this row.
         expect(
             isConfirmable(row({ row_status: "Matched", direction: "Credit" } as any), {
                 target: "new",
@@ -1945,37 +1939,34 @@ describe("isConfirmable", () => {
     });
 });
 
-describe("what a non-project receipt will actually store (slice B7)", () => {
-    // ⚠️ THE CRUX OF THE SLICE, AND THE ONE PART OF IT A UNIT TEST CAN REACH. The bank row carries a
-    // POSITIVE magnitude on every source -- ADR-0016 rejected a signed amount column outright -- and
-    // the negation is applied in the write path. This helper is what lets the FORM say the same
-    // thing the server will do, so the reviewer is never shown the positive figure and handed the
-    // negative one.
+describe("which dispositions create a record (#1266)", () => {
+    it("is exactly the three create cards", () => {
+        for (const target of ["new", "inflow", "nonProjectInflow"] as const) {
+            expect(model.isCreateTarget(target)).toBe(true);
+        }
+        for (const target of ["Project Payments", "Project Expenses", "Non Project Expenses"] as const) {
+            expect(model.isCreateTarget(target)).toBe(false);
+        }
+        expect(model.isCreateTarget(undefined)).toBe(false);
+    });
+});
 
-    it("negates the bank's magnitude", () => {
-        expect(receiptStoredAmount(44275)).toBe(-44275);
-        expect(receiptStoredAmount(2500.5)).toBe(-2500.5);
+describe("the Non-Project Inflow description prefill (#1266)", () => {
+    it("joins the payer and the bank remarks", () => {
+        expect(
+            model.nonProjectInflowDescriptionSeed({
+                beneficiary_name: "ICICI BANK",
+                remarks: "FD 0057 CLOSURE",
+            })
+        ).toBe("ICICI BANK - FD 0057 CLOSURE");
     });
 
-    it("stays negative even if a signed amount ever reached it", () => {
-        // The staged amount should never be signed. If one ever is, this must still describe a
-        // RECEIPT rather than quietly flipping it back into a payment -- which is why it is
-        // `-Math.abs(...)` and not a bare `-`.
-        expect(receiptStoredAmount(-44275)).toBe(-44275);
-    });
-
-    it("reads a missing or unusable amount as zero rather than NaN", () => {
-        // A NaN would render as "₹--" beside a card that says money arrived, which is worse than a
-        // zero: it looks like a bug in the screen rather than a fact about the row.
-        expect(receiptStoredAmount(null)).toBe(0);
-        expect(receiptStoredAmount(undefined)).toBe(0);
-        expect(receiptStoredAmount(Number.NaN)).toBe(0);
-    });
-
-    it("returns a plain 0 for zero, never -0", () => {
-        // `-0` compares equal to `0` and formats identically, so it would never be SEEN -- and
-        // would then surprise whoever next reaches for `Object.is` or a snapshot.
-        expect(Object.is(receiptStoredAmount(0), 0)).toBe(true);
+    it("drops a blank part rather than leaving a dangling separator", () => {
+        expect(model.nonProjectInflowDescriptionSeed({ beneficiary_name: "  ", remarks: "INT" })).toBe(
+            "INT"
+        );
+        expect(model.nonProjectInflowDescriptionSeed({ beneficiary_name: "ACME" })).toBe("ACME");
+        expect(model.nonProjectInflowDescriptionSeed({})).toBe("");
     });
 });
 
@@ -2196,6 +2187,27 @@ describe("⚠️ an expense link lands on the tab the record is actually IN", ()
         // the default tab — the failure this whole block exists to prevent — so it must break here.
         expect(settlementLink("Project Expenses", "PE-1", true)!.href).toContain("pe_status=");
         expect(settlementLink("Non Project Expenses", "NPE-1", true)!.href).toContain("npe_status=");
+    });
+});
+
+describe("a NON-PROJECT INFLOW link lands ON the record (#1266)", () => {
+    it("opens the Non-Project Inflows page searched by the record's own id", () => {
+        const link = settlementLink("Non Project Inflows", "NPI-26-00007", true)!;
+        const params = new URLSearchParams(link.href.split("?")[1]);
+        expect(link.href.startsWith("/non-project-inflows?")).toBe(true);
+        expect(params.get(`${NON_PROJECT_INFLOW_URL_SYNC_KEY}_searchBy`)).toBe("name");
+        expect(params.get(`${NON_PROJECT_INFLOW_URL_SYNC_KEY}_q`)).toBe("NPI-26-00007");
+        expect(link.exact).toBe(true);
+        expect(link.label).toBe("NPI-26-00007");
+        expect(link.title).toContain("Non-Project Inflows");
+    });
+
+    it("⚠️ the url key is the one the Non-Project Inflows page itself builds", () => {
+        // A CONTRACT WITH `NonProjectInflows`, which passes `NON_PROJECT_INFLOW_URL_SYNC_KEY` to
+        // `useServerDataTable`; `name` is one of its search fields.
+        expect(nonProjectInflowHref("NPI-1")).toBe(
+            "/non-project-inflows?non_project_inflows_searchBy=name&non_project_inflows_q=NPI-1"
+        );
     });
 });
 
@@ -4165,7 +4177,7 @@ describe("the record-anyway confirmation (#1260)", () => {
     });
 
     it("says Create for the three create cards and Link for a record", () => {
-        for (const target of ["new", "inflow", "receipt"] as const) {
+        for (const target of ["new", "inflow", "nonProjectInflow"] as const) {
             expect(model.recordAnywayWording({ target })).toEqual({
                 title: "Create anyway?",
                 action: "Create anyway",

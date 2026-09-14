@@ -45,6 +45,10 @@ import {
     matcherMarksVisible,
     pickerComparisonAmount,
 } from "../allocationView";
+import {
+    descriptionRequired,
+    INFLOW_TYPES,
+} from "@/pages/non-project-inflows/nonProjectInflowModel";
 import { ROW_PARTIALLY_ALLOCATED } from "../outflowImportStatus";
 import {
     INTENT_PART_PAYMENT,
@@ -55,12 +59,13 @@ import {
     describeFrappeError,
     decisionLinkKeys,
     isConfirmable,
+    isCreateTarget,
     isCreditRow,
     ledgerLabel,
     matcherCandidateLine,
     parseRecordKey,
     partialOffer,
-    receiptStoredAmount,
+    nonProjectInflowDescriptionSeed,
     recordKey,
     settlementLink,
     settleBlockRemedy,
@@ -192,20 +197,15 @@ const CREATE_INFLOW_TARGET: { id: DecisionTarget; label: string; hint: string } 
 };
 
 /**
- * The SECOND thing a credit row can become (slice B7): money in that belongs to no project.
- *
- * ⚠️ THE HINT SAYS "as a negative expense" IN THE CARD HEADER, BEFORE THE FORM IS EVEN OPENED, AND
- * THAT IS THE POINT. There is no non-project inflow doctype in this app and none is being created
- * (owner ruling Q3, ADR-0016 decision 3): a non-project receipt is recorded as a `Non Project
- * Expense` with a NEGATIVE amount. That is the app's own existing construct for money coming back —
- * the create dialog says "use negative for refunds", the list renders a negative amount green — but
- * a reviewer picking a card should not have to already know that. The consequence they are choosing
- * has to be legible from the choice.
+ * The SECOND thing a credit row can become (#1266): money in that belongs to no project, recorded
+ * as a `Non Project Inflow` (ADR-0016 Amendment A-D2). It replaced the B7 "non-project receipt"
+ * card, which stored the credit as a NEGATIVE non-project expense. A credit row now offers exactly
+ * this card and the project inflow card above it.
  */
-const CREATE_RECEIPT_TARGET: { id: DecisionTarget; label: string; hint: string } = {
-    id: "receipt",
-    label: "Record a non-project receipt",
-    hint: "money received against no project — stored as a negative non-project expense",
+const CREATE_NON_PROJECT_INFLOW_TARGET: { id: DecisionTarget; label: string; hint: string } = {
+    id: "nonProjectInflow",
+    label: "Create a non-project inflow",
+    hint: "money received against no project — interest, an FD closure, a loan, or other",
 };
 
 interface Props {
@@ -569,8 +569,7 @@ export const DecisionDialog = ({
     // merely one the button refuses to send). `isLinkDecision` mirrors the same three-way exclusion
     // `isConfirmable` reads: a "create something new" card in progress must keep the ordinary
     // "Confirm → Paid" wording and must never be blocked by a leftover, dimmed tick-set's `bar`.
-    const isLinkDecision =
-        decision?.target !== "new" && decision?.target !== "inflow" && decision?.target !== "receipt";
+    const isLinkDecision = !isCreateTarget(decision?.target);
     // ⚠️ `bar.over` ONLY GATES THE BUTTON, NEVER `isConfirmable` -- see `allocationView.ts` and the
     // picker below. Disabling the ROWS instead would make it a puzzle: the reviewer may want to
     // untick something else first.
@@ -714,7 +713,7 @@ export const DecisionDialog = ({
                     {/* ⚠️ THE MODE RADIO SITS DIRECTLY ABOVE THE PICKER IT GOVERNS, AND IS GATED
                         ON `canLinkPayment` (issue #1241). It is "the top of the settle dialog" in
                         the only sense that is true: on a CREDIT row there is no settle picker at
-                        all -- the row is recorded as an inflow or a receipt -- so a "how is this
+                        all -- the row is recorded as a project or non-project inflow -- so a "how is this
                         being settled?" question there would be offering a choice about a control
                         that is not on the screen. It sits BELOW `AlreadyAllocatedSection` for the
                         same reason that section sits above the picker: the money already written
@@ -737,11 +736,7 @@ export const DecisionDialog = ({
                             // one (B6, widened again at B7). The records stay legible so the
                             // reviewer can see what they are declining — hiding them would remove
                             // the evidence for the choice.
-                            dimmed={
-                                decision?.target === "new" ||
-                                decision?.target === "inflow" ||
-                                decision?.target === "receipt"
-                            }
+                            dimmed={isCreateTarget(decision?.target)}
                             onSelectedRecordsChange={handleSelectedRecordsChange}
                             matcherCandidates={matcherCandidates}
                             compareAmount={compareAmount}
@@ -810,7 +805,7 @@ export const DecisionDialog = ({
                         <p className="rounded-md border border-muted-foreground/20 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
                             This transfer is money received, so it is recorded rather than settled
                             against an approved payable. Choose one of the options below — a project
-                            inflow, or a non-project receipt.
+                            inflow, or a non-project inflow.
                         </p>
                     )}
 
@@ -854,24 +849,27 @@ export const DecisionDialog = ({
                         </TargetOption>
                     )}
 
-                    {/* ⚠️ THE SECOND CREDIT CARD, UNDER THE SAME `isCreditRow` GATE (slice B7) — and
+                    {/* ⚠️ THE SECOND CREDIT CARD, UNDER THE SAME `isCreditRow` GATE (#1266) — and
                         deliberately BELOW the inflow one. The two divide on whether a project is
-                        behind the money, and a client receipt against a project is both the commoner
-                        case and the one with a real home; this is where the rest go. A reviewer who
-                        can name a project should meet that option first. */}
+                        behind the money, and a client receipt against a project is the commoner
+                        case; this is where the rest go. */}
                     {isCreditRow(row) && (
                         <TargetOption
-                            target={CREATE_RECEIPT_TARGET}
+                            target={CREATE_NON_PROJECT_INFLOW_TARGET}
                             decision={decision}
                             onChange={onChange}
                             seed={() => ({
-                                target: "receipt",
-                                newReceipt: decision?.newReceipt ?? {
-                                    description: row.remarks || "",
+                                target: "nonProjectInflow",
+                                newNonProjectInflow: decision?.newNonProjectInflow ?? {
+                                    description: nonProjectInflowDescriptionSeed(row),
                                 },
                             })}
                         >
-                            <NewReceiptForm row={row} decision={decision!} onChange={onChange} />
+                            <NewNonProjectInflowForm
+                                row={row}
+                                decision={decision!}
+                                onChange={onChange}
+                            />
                         </TargetOption>
                     )}
                 </div>
@@ -2477,32 +2475,20 @@ const NewInflowForm = ({
 };
 
 /**
- * The whole non-project RECEIPT form, in place (slice B7). Money received that names no project.
+ * The Non-Project Inflow form, in place (#1266). Money received that names no project.
  *
- * ⚠️ THE SIGN IS SHOWN, IN WORDS AND IN THE FIGURE, AND THAT IS THE POINT OF THIS FORM. The
- * reviewer is recording money that ARRIVED into a doctype called *Expenses* — the cost the owner
- * accepted when they ruled that a non-project receipt is a NEGATIVE `Non Project Expense` rather
- * than a new doctype (Q3; ADR-0016 decision 3, risk R3). The one failure this screen must never
- * produce is a reviewer seeing the positive figure the bank printed, confirming, and finding a
- * negative row they did not expect. So: the card header says "negative expense" before it is even
- * opened, the amount field is labelled "Will be stored as" and shows the negated figure, and a
- * line beneath explains why in the app's own terms.
+ * ⚠️ NO PROJECT FIELD, AND ITS ABSENCE IS THE WHOLE DISTINCTION. Money with a project behind it is
+ * a Project Inflow and belongs in the card above.
  *
- * ⚠️ GREEN, NOT RED, AND THE APP ALREADY DECIDED THAT. `nonProjectExpensesColumns.tsx` renders a
- * negative non-project expense GREEN — money coming back is good news on that screen. Colouring it
- * red here to signal "careful, this is negative" would teach the reviewer the opposite of what the
- * list they are writing into will show them.
+ * The type list is the Non-Project Inflows page's own `INFLOW_TYPES` (pinned to the doctype JSON by
+ * that page's parity test), and the Others rule is its `descriptionRequired` — the same two the
+ * confirm gate reads, so the form cannot offer a choice the gate refuses. The server's
+ * `inflow_type_problem` is the real boundary.
  *
- * ⚠️ NO PROJECT FIELD, AND ITS ABSENCE IS THE WHOLE DISTINCTION. A receipt with a project behind it
- * is an INFLOW and belongs in the card above; `Non Project Expenses` has no project column at all
- * (nor a vendor one, which is why the payer lands in the description server-side).
- *
- * ⚠️ THE TYPE LIST IS THE EXISTING `get_expense_types("Non Project Expenses")` — the same
- * `non_project = 1` query the create-expense form uses, and the same one the server's
- * `_assert_type_scope` checks against, so the form cannot offer a type the write path refuses.
- * ⚠️ Amount, payment date and reference are READ-ONLY from the bank row.
+ * Amount, payment date and reference are READ-ONLY from the bank row; the record stores the
+ * amount as a positive figure.
  */
-const NewReceiptForm = ({
+const NewNonProjectInflowForm = ({
     row,
     decision,
     onChange,
@@ -2511,79 +2497,51 @@ const NewReceiptForm = ({
     decision: RowDecision;
     onChange: (decision: RowDecision) => void;
 }) => {
-    const form = decision.newReceipt ?? {};
+    const form = decision.newNonProjectInflow ?? {};
+    const inflowType = form.inflowType ?? "";
+    const needsDescription = descriptionRequired(inflowType);
+    const descriptionMissing = needsDescription && !(form.description ?? "").trim();
 
-    const { data: typesData } = useFrappeGetCall<{ message: { name: string }[] }>(
-        "nirmaan_stack.api.outflow_import.expenses.get_expense_types",
-        { doctype: NON_PROJECT_EXPENSE },
-        // The SAME swr key the create-expense form uses for this doctype, on purpose: one cached
-        // list, and no way for the two forms to show different types.
-        `expense-types-${NON_PROJECT_EXPENSE}`
-    );
-
-    const patch = (over: Partial<NonNullable<RowDecision["newReceipt"]>>) =>
-        onChange({ ...decision, newReceipt: { ...form, ...over } });
+    const patch = (over: Partial<NonNullable<RowDecision["newNonProjectInflow"]>>) =>
+        onChange({ ...decision, newNonProjectInflow: { ...form, ...over } });
 
     return (
         <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-                <Label className="text-xs">Receipt type</Label>
-                <Select
-                    value={form.expenseType ?? ""}
-                    onValueChange={(value) => patch({ expenseType: value })}
-                >
+            <div className="space-y-1.5 sm:col-span-2">
+                <Label className="text-xs">Inflow Type</Label>
+                <Select value={inflowType} onValueChange={(value) => patch({ inflowType: value })}>
                     <SelectTrigger className="h-9">
                         <SelectValue placeholder="Choose a type…" />
                     </SelectTrigger>
                     <SelectContent>
-                        {(typesData?.message ?? []).map((type) => (
-                            <SelectItem key={type.name} value={type.name}>
-                                {type.name}
+                        {INFLOW_TYPES.map((type) => (
+                            <SelectItem key={type} value={type}>
+                                {type}
                             </SelectItem>
                         ))}
                     </SelectContent>
                 </Select>
             </div>
 
-            {/* ⚠️ THE SIGN, SAID PLAINLY AND IN GREEN -- see the component note. The label is "Will
-                be stored as" rather than "Amount", because the number beside it is NOT the number
-                on the statement: the bank printed a positive credit and this ledger will hold its
-                negative. `receiptStoredAmount` is the same rule the server applies, so the two can
-                never disagree about what the reviewer is about to write. */}
-            <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Will be stored as</Label>
-                <Input
-                    className="h-9 bg-muted/50 font-medium text-green-700 dark:text-green-500"
-                    value={`− ${formatToRoundedIndianRupee(
-                        Math.abs(receiptStoredAmount(row.amount))
-                    )}`}
-                    readOnly
-                    tabIndex={-1}
-                />
-            </div>
-
-            <p className="rounded-md border border-green-600/30 bg-green-50 px-3 py-2 text-xs text-green-900 dark:bg-green-950/30 dark:text-green-200 sm:col-span-2">
-                {formatToRoundedIndianRupee(row.amount)} came IN. There is no non-project inflow
-                record in Nirmaan, so this is filed as a non-project expense with a negative amount —
-                the same way a refund is recorded. It will show in green in the Non-Project Expenses
-                list and reduces that total rather than adding to it.
-            </p>
-
             <div className="space-y-1.5 sm:col-span-2">
-                <Label className="text-xs">Description</Label>
+                <Label className="text-xs">
+                    Description{needsDescription ? " (required for Others)" : ""}
+                </Label>
                 <Input
                     className="h-9"
                     value={form.description ?? ""}
-                    placeholder="What was this receipt for?"
+                    placeholder="What was this money for?"
                     onChange={(e) => patch({ description: e.target.value })}
                 />
+                {descriptionMissing && (
+                    <p className="text-xs text-amber-700">
+                        Describe what this is — a description is required when the type is Others.
+                    </p>
+                )}
             </div>
 
             {/* Read-only from the bank row -- the statement is the source of truth. */}
-            <ReadOnlyField
-                label="Amount received (per statement)"
-                value={formatToRoundedIndianRupee(row.amount)}
-            />
+            <ReadOnlyField label="Amount received" value={formatToRoundedIndianRupee(row.amount)} />
             <ReadOnlyField
                 label="Payment date"
                 value={row.added_on ? formatDate(row.added_on.split(/[ T]/)[0]) : "—"}

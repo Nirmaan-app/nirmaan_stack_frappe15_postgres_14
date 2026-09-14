@@ -12,7 +12,6 @@ is invisible -- the money already moved, so the books simply become quietly wron
 the guards more load-bearing than the happy path.
 """
 
-import inspect
 import unittest
 from dataclasses import replace
 from decimal import Decimal
@@ -48,8 +47,6 @@ from nirmaan_stack.services.outflow_import.settle import (
     ExpenseSettlementError,
     ExpenseTypeScopeError,
     WrongStatusError,
-    create_expense_from_row,
-    create_non_project_receipt_from_row,
     format_amount_for,
 )
 
@@ -873,19 +870,12 @@ class TestAnICICISettleStoresTheFullNarration(SettlementFixture):
 
 
 class TestTheDebitPathIsStillCLOSEDToASignedAmount(SettlementFixture):
-    """⚠️ SLICE B7 OPENED A SIGNED WRITE IN `settle.py`. THESE PIN THAT IT DID NOT REACH HERE.
+    """`create_expense_from_row` -- the DEBIT path -- refuses `amount <= 0`, because for a debit that
+    guard is correct: a transfer OUT of zero or less is not a spend.
 
-    B7 records a bank CREDIT that belongs to no project as a NEGATIVE `Non Project Expense`
-    (`create_non_project_receipt_from_row`). `create_expense_from_row` -- the DEBIT path, and a live
-    one -- keeps its `amount <= 0` guard exactly as it was, because for a debit that guard is
-    correct: a transfer OUT of zero or less is not a spend.
-
-    The safety here is structural rather than promised, and each half is pinned below:
-      * the two functions are SEPARATE, so there is no mode flag whose wrong branch is one boolean
-        away from turning every debit signed;
-      * the signed one takes NO `doctype` argument, so a credit can never be written as a negative
-        `Project Expense` -- whose `amount` is a **Data** column and whose project / vendor /
-        payment_by fields mean nothing on a receipt.
+    Slice B7 once added a signed write beside it (a NEGATIVE `Non Project Expense` for a credit).
+    #1266 removed that path (ADR-0016 Amendment A-D2) -- a credit with no project now becomes a
+    positive `Non Project Inflow` -- and these still pin that no negative amount gets through here.
     """
 
     def _row_at(self, amount):
@@ -900,9 +890,7 @@ class TestTheDebitPathIsStillCLOSEDToASignedAmount(SettlementFixture):
             create_expense(row["name"], PROJECT_EXPENSE, self.project_type, project=self.project)
 
     def test_a_NEGATIVE_amount_row_is_still_refused(self):
-        """The case B7 makes worth asserting rather than assuming.
-
-        A staged row's `amount` is the positive MAGNITUDE on every source by design (ADR-0016
+        """A staged row's `amount` is the positive MAGNITUDE on every source by design (ADR-0016
         rejected a signed amount column outright), so this shape should not occur -- which is
         exactly why the guard has to stay: if one ever did, this path must refuse it rather than
         create an expense that quietly reads as income.
@@ -913,22 +901,11 @@ class TestTheDebitPathIsStillCLOSEDToASignedAmount(SettlementFixture):
         self.assertFalse(frappe.db.exists(MATCH_DOCTYPE, {"import_row": row["name"]}))
 
     def test_a_negative_amount_is_refused_on_the_NON_PROJECT_ledger_too(self):
-        """The ledger B7 writes signed. Reaching it through the DEBIT endpoint must still refuse."""
+        """Old negative `Non Project Expenses` exist (hand-entered, and from the removed B7 path).
+        Reaching that ledger through the DEBIT endpoint must still refuse one."""
         row = self._row_at(-2500)
         with self.assertRaises(AmountMismatchError):
             create_expense(row["name"], NON_PROJECT_EXPENSE, self.non_project_type)
-
-    def test_the_signed_writer_is_a_separate_function_that_cannot_be_told_a_doctype(self):
-        """A signature pin, because this is where "a credit never becomes a negative Project
-        Expense" actually lives. Not a comment: an argument nobody can pass is a guarantee, and a
-        `doctype` parameter added here would silently demote it to a convention."""
-        params = inspect.signature(create_non_project_receipt_from_row).parameters
-        self.assertNotIn("doctype", params)
-        # And `direction` is REQUIRED on it -- the sibling `create_inflow_from_row` tolerates
-        # `None`, which would be an open door where the direction chooses a SIGN.
-        self.assertIs(params["direction"].default, inspect.Parameter.empty)
-        # The debit writer still takes one, and still guards the amount. Two writers, two rules.
-        self.assertIn("doctype", inspect.signature(create_expense_from_row).parameters)
 
 
 class TestExpenseTypeScoping(SettlementFixture):

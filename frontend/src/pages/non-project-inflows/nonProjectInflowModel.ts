@@ -31,7 +31,8 @@ export interface NonProjectInflowForm {
 
 export type NonProjectInflowFormErrors = Partial<Record<keyof NonProjectInflowForm, string>>;
 
-const isInflowType = (value: string): value is InflowType =>
+/** Is this one of the four Inflow Types? The one membership test (the Decision Dialog's gate reads it too). */
+export const isInflowType = (value: string): value is InflowType =>
     (INFLOW_TYPES as readonly string[]).includes(value);
 
 /** `true` when the type demands a description. The one place the Others rule is spelled. */

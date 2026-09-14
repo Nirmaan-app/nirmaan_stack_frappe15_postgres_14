@@ -14,15 +14,19 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import flt
 
-INFLOW_TYPES = ("Interest Payouts", "FD Closures", "Loan Received", "Others")
-INFLOW_TYPE_OTHERS = "Others"
+# The type rule lives in a pure service so the bank-statement import asks the same one (#1266).
+# `INFLOW_TYPES` is re-exported here for the existing doctype tests.
+from nirmaan_stack.services.non_project_inflows import (  # noqa: F401
+    INFLOW_TYPE_OTHERS,
+    INFLOW_TYPES,
+    inflow_type_problem,
+)
 
 
 class NonProjectInflows(Document):
     def validate(self):
         if flt(self.amount) <= 0:
             frappe.throw("Amount must be greater than 0.")
-        if self.inflow_type not in INFLOW_TYPES:
-            frappe.throw(f"Inflow Type must be one of: {', '.join(INFLOW_TYPES)}.")
-        if self.inflow_type == INFLOW_TYPE_OTHERS and not (self.description or "").strip():
-            frappe.throw("Description is required when the Inflow Type is Others.")
+        problem = inflow_type_problem(self.inflow_type, self.description)
+        if problem:
+            frappe.throw(problem)

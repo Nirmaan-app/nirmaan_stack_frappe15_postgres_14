@@ -362,17 +362,11 @@ export const OutflowMasterPage = () => {
     const { call: callCreateInflow } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.inflows.create_inflow"
     );
-    // ⚠️ THE SECOND CREDIT DISPOSITION (slice B7), AND THE ONLY SIGNED WRITE IN THIS SCREEN. It
-    // records a credit that belongs to no project as a NEGATIVE `Non Project Expense` — there is no
-    // non-project inflow doctype in this app and none is being created (owner ruling Q3, ADR-0016
-    // decision 3). It lives in `inflows.py` because this module splits on DIRECTION, not doctype:
-    // `expenses.py`'s stated property is that every endpoint in it writes an OUTFLOW, and its
-    // `amount <= 0` guard is read against that.
-    //
-    // ⚠️ THE PAYLOAD CARRIES NO AMOUNT AND NO SIGN. The magnitude, date and reference are read
-    // server-side off the staged row, and the negation is applied there from the row's `direction`.
-    const { call: callCreateReceipt } = useFrappePostCall(
-        "nirmaan_stack.api.outflow_import.inflows.create_non_project_receipt"
+    // THE SECOND CREDIT DISPOSITION (#1266): a credit that belongs to no project, recorded as a
+    // `Non Project Inflow` (ADR-0016 Amendment A-D2). It replaced the B7 non-project receipt.
+    // ⚠️ THE PAYLOAD CARRIES NO AMOUNT: magnitude, date and reference are read server-side.
+    const { call: callCreateNonProjectInflow } = useFrappePostCall(
+        "nirmaan_stack.api.outflow_import.inflows.create_non_project_inflow"
     );
     // ⚠️ A SEPARATE ENDPOINT, AND THE SEPARATION IS THE GUARD (slice PS). The bulk confirm loops
     // `settleOne`, which calls `settle_row`; a partial can only ever be reached from one reviewer
@@ -594,18 +588,14 @@ export const OutflowMasterPage = () => {
                     invoice: form.invoice || undefined,
                     ...anyway,
                 });
-            } else if (decision.target === "receipt") {
-                // ⚠️ NO AMOUNT AND, ABOVE ALL, NO SIGN IN THE PAYLOAD (slice B7). The server reads
-                // the magnitude off the staged row and negates it from that row's own `direction`.
-                // A client that could post a negative number could book a debit as income.
-                //
-                // ⚠️ AND NO `doctype`, EITHER: the endpoint writes `Non Project Expenses` and only
-                // that, so a credit can never land as a negative `Project Expense`.
-                const form = decision.newReceipt!;
-                await callCreateReceipt({
+            } else if (decision.target === "nonProjectInflow") {
+                // ⚠️ NO AMOUNT, DATE OR REFERENCE IN THE PAYLOAD, exactly as the inflow branch
+                // sends none: the server reads all three off the staged row.
+                const form = decision.newNonProjectInflow!;
+                await callCreateNonProjectInflow({
                     row: row.name,
-                    expense_type: form.expenseType,
-                    description: form.description || undefined,
+                    inflow_type: form.inflowType,
+                    description: form.description?.trim() || undefined,
                     ...anyway,
                 });
             } else {
@@ -659,7 +649,7 @@ export const OutflowMasterPage = () => {
                 // refuses before `settleOne` is ever called -- see `handleConfirmOne`.
             }
         },
-        [callAllocate, callCreate, callCreateInflow, callCreateReceipt, callSettle]
+        [callAllocate, callCreate, callCreateInflow, callCreateNonProjectInflow, callSettle]
     );
 
     /**
