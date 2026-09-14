@@ -65,7 +65,16 @@ amount), which neither can reach and neither may be stretched to reach. A TDS pa
                                                (payments, expenses, both) the check above then
                                                judges. It must use the SAME window, or the pick
                                                could disagree with the verdict it feeds.
-  * `similarity._amount_score`              -- the browse list's RANKING axis, SETTLE window
+  * `contains_guard.pick_recorded_group` (#1257) -- SETTLE window, the ICICI contains-guard's
+                                               picker: one hit record, then a same-reference group,
+                                               then all hits, each judged with `amounts_match`
+                                               before `_failed_or_already_paid` re-judges the chosen
+                                               group with the same window. Its pool,
+                                               `candidates.load_recorded_by_contains`, carries NO
+                                               amount predicate, so an amount-off hit still reads
+                                               `Mismatched` naming the record. Never stretched to
+                                               reach TDS (owner ruling on #1252).
+  * `similarity._amount_score`             -- the browse list's RANKING axis, SETTLE window
                                                (slice N1). ⚠️ THE ONE SITE THAT DECIDES NOTHING:
                                                it shapes the ORDER of a list a person reads, and
                                                `similarity` is forbidden from reaching any module

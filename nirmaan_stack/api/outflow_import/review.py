@@ -20,11 +20,12 @@ tripping on the second run.
 
 ONE SOURCE IS NEVER MATCHED AT ALL (slice B4). A bank passbook has no settlement path -- see
 `services/outflow_import/sources.source_has_settlement_path` for the measurement -- so
-`match_batch` forks at the top into `_guard_duplicates_only`, which runs the already-recorded-as-
-Paid duplicate guard and NOTHING else. It never loads a settlement pool and never calls `match_row`,
+`match_batch` forks at the top into `_guard_duplicates_only`, which runs the already-recorded
+duplicate guard -- since #1257 the ICICI contains-guard -- and NOTHING else. It never loads a settlement pool and never calls `match_row`,
 so no tier 0, tier 1 or tier 2 candidate is ever produced for such a batch. That guard is KEPT
-rather than skipping the source entirely (owner ruling Q31a): it catches 41 of 711 real debits, and
-without it those arrive as ordinary work that can be booked twice.
+rather than skipping the source entirely (owner ruling Q31a): as the exact guard it caught 41 of 711
+real debits, and as the ICICI contains-guard (#1257) it catches 196 of 869 lines of the real
+statement; without it those arrive as ordinary work that can be booked twice.
 
 TWO ROW STATES ARE NEVER RE-MATCHED:
   * `Skipped`  -- a duplicate, a failed transfer, or a person's deliberate decision. Re-matching
@@ -48,6 +49,10 @@ from nirmaan_stack.services.outflow_import.claims import (
     Claim,
     claim_note,
     resolve_claims,
+)
+from nirmaan_stack.services.outflow_import.contains_guard import (
+    find_hits,
+    pick_recorded_group,
 )
 from nirmaan_stack.services.outflow_import.disambiguate import (
     RULE_SOLE,
@@ -147,7 +152,8 @@ class _StagedRow:
     __slots__ = (
         "name", "transfer_id", "amount", "beneficiary_name", "bank_account", "ifsc",
         "bank_reference_no", "normalized_account", "normalized_reference", "added_on",
-        "status_raw", "remarks", "row_status", "settlement_reference",
+        "status_raw", "remarks", "row_status", "settlement_reference", "reference_id",
+        "direction",
     )
 
     def __init__(self, doc: dict):
@@ -180,6 +186,10 @@ class _StagedRow:
         self.status_raw = doc.get("status_raw") or ""
         self.remarks = doc.get("remarks") or ""
         self.row_status = doc.get("row_status") or ""
+        # The cheque column and the money's direction: read by the ICICI contains-guard (#1257), which
+        # builds its match surface from the cheque number and scopes its ledgers by direction.
+        self.reference_id = doc.get("reference_id") or ""
+        self.direction = doc.get("direction") or ""
 
     @property
     def is_success(self) -> bool:
@@ -290,10 +300,19 @@ def _batch_source(batch: str) -> str:
 def _guard_duplicates_only(batch: str, matchable) -> dict:
     """The whole match run for a source with NO SETTLEMENT PATH (slice B4, owner rulings Q31/Q31a).
 
-    IT DOES EXACTLY ONE THING: asks each unfrozen row whether the transfer it names is ALREADY
-    RECORDED as Paid. A hit lands `Skipped` with the same "Already recorded as Paid on ..." sentence
-    a gateway row gets; everything else lands `Mismatched` carrying the staging sentence that says
-    this statement is resolved by CREATING a record. Measured on 711 real ICICI debits: 41 hits.
+    IT DOES EXACTLY ONE THING: asks each unfrozen row whether the money it names is ALREADY
+    RECORDED. A hit lands `Skipped` with the same "Already recorded as Paid on ..." (or "... as
+    received on ...") sentence a gateway row gets; an amount-off hit lands `Mismatched` naming the
+    record; everything else lands `Mismatched` carrying the staging sentence that says this
+    statement is resolved by CREATING a record.
+
+    ⚠️ SINCE #1257 THE QUESTION IS THE ICICI CONTAINS-GUARD, NOT THE EXACT REFERENCE GUARD. A bank
+    narration carries the reference a person typed somewhere INSIDE it, so the exact compare found 40
+    of the real statement's already-recorded lines and the contains-guard finds 196 -- every one of
+    the 40 among them (replayed read-only, 869 lines after exclusions). The rules -- ledgers by
+    direction, tokens, the 15-day window, the grouping -- live in `services/outflow_import/
+    contains_guard`; its only query is `candidates.load_recorded_by_contains`. A heuristic skip is
+    allowed HERE by a fresh owner ruling and nowhere else: the gateway path keeps `_paid_duplicate_for`.
 
     ⚠️ WHAT IS NOT HERE IS THE POINT. No `_load_pools`, so the `Approved` payment/expense/vendor/
     project pools are never even queried. No `match_row`, so no tier 0, tier 1 or tier 2 candidate
@@ -308,10 +327,10 @@ def _guard_duplicates_only(batch: str, matchable) -> dict:
     that a Cashfree run's stack pass reached before `_load_open_rows_for_keys` was fenced -- has it
     cleared on the next run rather than left pointing at a record this source may never settle.
 
-    ⚠️ IT REUSES `_paid_duplicate_for`, WHICH REUSES `match_by_reference`. One definition of "this
-    transfer is already recorded", shared with the gateway path. Hand-rolling a reference compare
-    here would give a bank statement its own idea of a duplicate, and a FAN-OUT recorded by hand
-    would come back as a shortfall against whichever payment was found first.
+    ⚠️ IT READS `_recorded_group_for`, AND SO DOES `_related_records`. One definition of "this line
+    is already recorded" for both, so a skipped row always links the records its note names. The
+    VERDICT and its sentences are still `status.derive_duplicate_guard_outcome`'s, shared with every
+    other guard.
 
     ⚠️ THE RETURN SHAPE IS THE FULL ONE, WITH THE FOUR PASS COUNTERS AT ZERO. `match_period` sums
     these across batches and the screen reads them; omitting a key would be an absence the caller
@@ -319,14 +338,11 @@ def _guard_duplicates_only(batch: str, matchable) -> dict:
     """
     if matchable:
         # The ONLY pool this path loads, and it is a duplicate guard, never a settle candidate --
-        # PAID payments only (owner ruling Q14). `has_settlement_path=False` is what keeps the #1256
-        # expense half off a bank statement; see `_paid_duplicate_pools`.
-        pools = _paid_duplicate_pools(
-            [r.normalized_reference for r in matchable], has_settlement_path=False
-        )
+        # Paid payments / expenses and every inflow, by direction (#1257).
+        pool = C.load_recorded_by_contains(matchable)
         for row in matchable:
             outcome = derive_duplicate_guard_outcome(
-                row, paid_duplicate=_paid_duplicate_for(row, pools)
+                row, paid_duplicate=_recorded_group_for(row, pool)
             )
             _persist_row_outcome(row, outcome, None, batch)
 
@@ -362,7 +378,7 @@ def _load_pools(rows, batch: str) -> dict:
     # before this statement was uploaded. They are a duplicate guard, never a settle candidate, and
     # merging them into `by_reference` would let the same money be recorded twice. Under Q12 that
     # is the common case, not an edge case.
-    paid_duplicates = _paid_duplicate_pools(references, has_settlement_path=True)
+    paid_duplicates = _paid_duplicate_pools(references)
 
     # Tier 1 + tier 2 pool: APPROVED payments at these amounts, scoped by NOTHING ELSE. The matcher
     # narrows it per tier -- by vendor account at tier 1, by project at tier 2 -- so a pool scoped by
@@ -382,26 +398,35 @@ def _load_pools(rows, batch: str) -> dict:
     }
 
 
-def _paid_duplicate_pools(references, *, has_settlement_path: bool) -> dict:
-    """The already-recorded pools for rows of one kind of source, keyed `paid_payments` / `paid_expenses`.
+def _paid_duplicate_pools(references) -> dict:
+    """A GATEWAY row's already-recorded pools, keyed `paid_payments` / `paid_expenses`.
 
-    ⚠️ ONE DEFINITION FOR EVERY READER. The gateway match run (`_load_pools`), the bank-statement run
-    (`_guard_duplicates_only`) and the row links (`_related_records`) all read it, so a row can never
-    be skipped on a record its link omits, or linked to a record its guard never checked.
+    ⚠️ ONE DEFINITION FOR BOTH READERS. The gateway match run (`_load_pools`) and the gateway rows'
+    links (`_related_records`) read it, so a row can never be skipped on a record its link omits, or
+    linked to a record its guard never checked.
 
-    ⚠️ THE EXPENSE POOL IS GATEWAY-ONLY (#1256). A bank statement's expense check is the ICICI
-    contains-guard (#1252) -- tokens, a date window, one-record-one-row -- not this whole-string one,
-    so `has_settlement_path=False` leaves it empty.
+    ⚠️ GATEWAY-ONLY SINCE #1257. A bank statement no longer reads this at all: its guard is the
+    ICICI contains-guard (`_recorded_group_for`), which reaches payments, both expense ledgers and
+    inflows by direction. The `has_settlement_path` flag that kept the #1256 expense half off a bank
+    statement went with it -- there is no bank-statement caller left to pass `False`.
 
     The two pools stay SEPARATE rather than concatenated: `_paid_duplicate_for` tries the payment
     group before the expense group, which is what keeps the pre-#1256 payment skip unchanged.
     """
     return {
         "paid_payments": C.load_paid_payments_by_reference(references),
-        "paid_expenses": (
-            C.load_paid_expenses_by_reference(references) if has_settlement_path else ()
-        ),
+        "paid_expenses": C.load_paid_expenses_by_reference(references),
     }
+
+
+def _recorded_group_for(row, pool):
+    """The ICICI contains-guard's group for one line: what it duplicates, or what its note names (#1257).
+
+    `pool` is `candidates.load_recorded_by_contains` over the lines being asked about. The rules are
+    all `contains_guard`'s; this is the one place the match run and the row links both call, so the
+    two can never disagree about which records a line refers to.
+    """
+    return pick_recorded_group(row, find_hits(row, pool))
 
 
 def _paid_duplicate_for(row, pools):
@@ -1219,11 +1244,11 @@ def _related_records(rows: list) -> dict[str, list]:
     Only a `Project Payment` entry also carries `order_name` (see `_with_order_names`).
 
     ⚠️ ITS SOURCE MUST STAY THE DUPLICATE GUARD'S SOURCE, PER ROW. A gateway row's guard reaches Paid
-    payments and Paid expenses (#1256); a bank-statement row's reaches
-    Paid payments only (`_guard_duplicates_only`); both read `_paid_duplicate_pools`. So the expense links are handed only to rows whose
-    source has a settlement path -- an expense link on an ICICI row would point at a record its note
-    never names and its guard never checked. A guard widened to another ledger widens THIS loader in
-    the same change, or a skipped row names a record in its note and offers no link to it.
+    payments and Paid expenses on its exact reference (`_paid_duplicate_pools`, #1256). A
+    bank-statement row's guard is the ICICI contains-guard (#1257), so its links are the group
+    `_recorded_group_for` picks -- the records its note names, in any of the four ledgers -- and
+    nothing a whole-string reference lookup would add. A guard widened to another ledger widens THIS
+    loader in the same change, or a skipped row names a record in its note and offers no link to it.
 
     ⚠️ THIS IS WHAT MAKES A SKIPPED ROW CLICKABLE. A row skipped as an already-recorded duplicate --
     and a `Mismatched` row, which comes from the same check -- names its payment ONLY inside
@@ -1246,21 +1271,24 @@ def _related_records(rows: list) -> dict[str, list]:
     the duplicate check runs FIRST and would have skipped it, so the lookup comes back empty on its
     own rather than by being excluded here.
     """
-    by_path: dict[bool, list] = {True: [], False: []}
-    for row in rows:
-        by_path[source_has_settlement_path(row.get("source") or "")].append(row)
+    gateway = [r for r in rows if source_has_settlement_path(r.get("source") or "")]
+    bank = [_StagedRow(r) for r in rows if not source_has_settlement_path(r.get("source") or "")]
 
     related: dict[str, list] = {}
-    for has_path, members in by_path.items():
-        if not members:
-            continue
-        pools = _paid_duplicate_pools(
-            [m.get("normalized_reference") or "" for m in members], has_settlement_path=has_path
-        )
+    if gateway:
+        pools = _paid_duplicate_pools([m.get("normalized_reference") or "" for m in gateway])
         index = _records_by_reference((*pools["paid_payments"], *pools["paid_expenses"]))
-        for member in members:
+        for member in gateway:
             related[member["name"]] = [
                 dict(entry) for entry in index.get(member.get("normalized_reference") or "", [])
+            ]
+    if bank:
+        pool = C.load_recorded_by_contains(bank)
+        for member in bank:
+            group = _recorded_group_for(member, pool)
+            related[member.name] = [
+                {"target_doctype": t.doctype, "target_name": t.name}
+                for t in (group.targets if group else ())
             ]
     return related
 
@@ -3172,7 +3200,9 @@ def _load_rows(batch: str) -> list:
                -- that were not already here. The matcher must never READ the resolved value, but
                -- `_StagedRow` builds it for every row it adapts, and a projection that omitted
                -- these would silently hand the wallet rung a blank.
-               settlement_reference, source
+               settlement_reference, source,
+               -- #1257: the ICICI contains-guard scopes its ledgers by the money's direction.
+               direction
         FROM "tabOutflow Import Row"
         WHERE import_batch = %s
         ORDER BY added_on ASC, name ASC

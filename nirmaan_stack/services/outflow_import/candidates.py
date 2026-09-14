@@ -28,6 +28,10 @@ They look almost identical and they mean opposite things:
 over Paid Project / Non Project Expenses, whole-string exact on `payment_ref`, read by the GATEWAY
 path only (`review._paid_duplicate_pools`).
 
+`load_recorded_by_contains` (#1257) is the THIRD duplicate guard and the only one that is not
+whole-string exact: the ICICI contains-guard's pool, across all four ledgers by direction. Its rules
+live in the pure `contains_guard`; this module only fetches what could hit.
+
 Merging them into one status-agnostic query -- which is exactly what v2 did, deliberately, to
 report money that left before approval completed -- would make an already-Paid payment look like a
 settle candidate and let the same money be recorded twice. v3 removed the finding that justified
@@ -46,6 +50,7 @@ screen can never offer a record the write path would refuse, or the reverse.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Sequence
@@ -54,6 +59,11 @@ import frappe
 from frappe.utils import getdate
 
 from nirmaan_stack.services.outflow_import.amounts import tolerance_bounds
+from nirmaan_stack.services.outflow_import.contains_guard import (
+    MIN_TOKEN_LENGTH,
+    ledgers_for_direction,
+    line_surface,
+)
 from nirmaan_stack.services.outflow_import.duplicates import (
     RowIdentity,
     find_prior_sighting,
@@ -61,6 +71,7 @@ from nirmaan_stack.services.outflow_import.duplicates import (
     row_identity_of,
 )
 from nirmaan_stack.services.outflow_import.ledgers import (
+    INFLOW_DOCTYPE,
     NON_PROJECT_EXPENSE_DOCTYPE,
     PAID,
     PAYMENT_DOCTYPE,
@@ -82,6 +93,9 @@ __all__ = [
     "load_payments_by_reference",
     "load_paid_payments_by_reference",
     "load_paid_expenses_by_reference",
+    "load_recorded_by_contains",
+    "ContainsLedger",
+    "CONTAINS_LEDGERS",
     "load_payments_by_amount",
     "load_expense_targets",
     # ⚠️ RENAMED FROM `find_earlier_batches_for_transfers` AT SLICE D3. It takes ROWS now, because
@@ -342,6 +356,168 @@ def load_paid_expenses_by_reference(references: Sequence[str]) -> tuple[TargetRe
             for r in rows
         )
     return tuple(out)
+
+
+@dataclass(frozen=True)
+class ContainsLedger:
+    """Where one ledger's already-recorded references live, for `load_recorded_by_contains`.
+
+    A value rather than four hand-written SELECTs, so the union is built one way for every ledger
+    and a test can point one ledger at a scratch table (`table`) -- which is how the text-amount
+    shape of `Project Inflows.amount` stays tested after the real column became numeric (#1255).
+    """
+
+    doctype: str
+    table: str
+    reference: str
+    paid_only: bool
+    description: str | None = None
+
+
+CONTAINS_LEDGERS: tuple[ContainsLedger, ...] = (
+    ContainsLedger(PAYMENT_DOCTYPE, "tabProject Payments", "utr", paid_only=True),
+    ContainsLedger(
+        PROJECT_EXPENSE_DOCTYPE, "tabProject Expenses", "payment_ref", paid_only=True,
+        description="description",
+    ),
+    ContainsLedger(
+        NON_PROJECT_EXPENSE_DOCTYPE, "tabNon Project Expenses", "payment_ref", paid_only=True,
+        description="description",
+    ),
+    # Inflows have no status: every one counts (owner ruling on #1252).
+    ContainsLedger(INFLOW_DOCTYPE, "tabProject Inflows", "utr", paid_only=False),
+)
+
+
+def load_recorded_by_contains(
+    rows, ledgers: Sequence[ContainsLedger] = CONTAINS_LEDGERS
+) -> tuple[TargetRef, ...]:
+    """DUPLICATE GUARD, not a candidate pool: records whose stored reference an ICICI line HITS (#1257).
+
+    The pool for `contains_guard.find_hits`, which re-applies the token, direction and date rules
+    in pure code (the `Paid` filter lives here only). This query narrows the ledger to what could
+    possibly hit, and it may never be NARROWER than the guard:
+
+      * HIT -- an eligible token of the stored reference equals a line's transfer id or is contained
+        in its match surface. The tokenising in SQL mirrors `contains_guard.reference_tokens`
+        (whole string without whitespace + pieces split on non-alphanumerics; 6+ characters, a digit,
+        not a `BULD` batch id, no `DUMMY-` reference). `test_review.TestTheContainsQueryMirrorsThe
+        PureTokens` pins the two together. ⚠️ KNOWN LIMIT: for a reference holding NON-ASCII
+        whitespace or digits (a non-breaking space, a Devanagari numeral) PostgreSQL's `\s` / `[0-9]`
+        see less than Python's, so the WHOLE-STRING token can be missed; the ASCII pieces still hit;
+      * LEDGER BY DIRECTION -- `contains_guard.ledgers_for_direction`, so the direction map has one
+        home. A line with no direction contributes nothing;
+      * STATUS -- `Paid` on the three settle ledgers; every Project Inflow.
+
+    ⚠️ NO AMOUNT AND NO DATE PREDICATE, ON PURPOSE. An amount-off hit must still come back so the row
+    lands `Mismatched` naming the record, and the date window is the guard's to apply, in one place.
+
+    ⚠️ `amount::text`, ON EVERY LEDGER. `Project Expenses.amount` is a varchar and `Project
+    Inflows.amount` was one until #1255; casting to text reads a numeric and a text column the same
+    way, and `normalize_amount` parses it -- so the query neither fails on a junk value nor depends
+    on which side of that migration a site is on.
+
+    ⚠️ THE `gram` PRE-FILTER IS AN INDEX, NOT A RULE. A token can only be inside a surface (or equal a
+    transfer id) if its first `MIN_TOKEN_LENGTH` characters appear there, so tokens whose opening
+    characters appear in no line are dropped before the containment test. It removes nothing the
+    guard could hit, and it is what makes the query fast: comparing every token of every Paid
+    record against every line took 37 s on the real 869-line statement.
+
+    ⚠️ `tok` AND `near` ARE `MATERIALIZED`, AND THE KEYWORD IS LOAD-BEARING. Left to inline them,
+    PostgreSQL crossed every record with every line FIRST and re-tokenised each reference inside
+    that loop -- 1.2 million regex splits for a 170-line batch, 8.4 s. Materialised, the ledger is
+    tokenised once per call.
+
+    The lines travel as a `VALUES` list with explicit placeholders (see the module docstring on
+    `= ANY(%s)`), already normalised by `normalize_reference`, so the SQL compares like with like.
+    """
+    lines = []
+    for row in rows:
+        direction = (getattr(row, "direction", "") or "").strip()
+        if not ledgers_for_direction(direction):
+            continue
+        lines.append(
+            (
+                normalize_reference(getattr(row, "transfer_id", "")),
+                line_surface(row),
+                direction,
+            )
+        )
+    by_doctype = {ledger.doctype: ledger for ledger in ledgers}
+    selects, select_params = [], []
+    for direction in sorted({line[2] for line in lines}):
+        for doctype in ledgers_for_direction(direction):
+            ledger = by_doctype.get(doctype)
+            if ledger is None:
+                continue
+            ref = f'"{ledger.reference}"'
+            description = f'"{ledger.description}"' if ledger.description else "NULL"
+            status = ' AND status = %s' if ledger.paid_only else ""
+            selects.append(
+                f"""
+                SELECT %s AS doctype, %s AS direction, name, amount::text AS amount,
+                       {ref} AS reference, payment_date, {description} AS description
+                FROM "{ledger.table}"
+                WHERE {ref} IS NOT NULL AND btrim({ref}) <> ''{status}
+                """
+            )
+            select_params += [doctype, direction] + ([PAID] if ledger.paid_only else [])
+    if not lines or not selects:
+        return ()
+
+    line_values = ", ".join(["(%s, %s, %s)"] * len(lines))
+    found = frappe.db.sql(
+        f"""
+        WITH line (transfer_id, surface, direction) AS (VALUES {line_values}),
+        rec AS ({" UNION ALL ".join(selects)}),
+        tok AS MATERIALIZED (
+            SELECT rec.doctype, rec.name, rec.direction, piece.token
+            FROM rec
+            CROSS JOIN LATERAL (
+                SELECT upper(regexp_replace(rec.reference, '\\s', '', 'g')) AS token
+                UNION
+                SELECT upper(p) FROM regexp_split_to_table(rec.reference, '[^A-Za-z0-9]+') AS p
+            ) AS piece
+            WHERE left(upper(regexp_replace(rec.reference, '\\s', '', 'g')), 6) <> 'DUMMY-'
+              AND length(piece.token) >= {MIN_TOKEN_LENGTH}
+              AND piece.token ~ '[0-9]'
+              AND piece.token !~ '^BULD[0-9]+$'
+        ),
+        gram AS (
+            SELECT line.direction, substr(line.surface, i, {MIN_TOKEN_LENGTH}) AS g
+            FROM line, generate_series(1, length(line.surface) - {MIN_TOKEN_LENGTH} + 1) AS i
+            UNION
+            SELECT line.direction, left(line.transfer_id, {MIN_TOKEN_LENGTH}) FROM line
+        ),
+        near AS MATERIALIZED (
+            SELECT tok.* FROM tok
+            JOIN gram ON gram.direction = tok.direction AND gram.g = left(tok.token, {MIN_TOKEN_LENGTH})
+        ),
+        hit AS (
+            SELECT DISTINCT near.doctype, near.name, near.direction
+            FROM near
+            JOIN line ON line.direction = near.direction
+             AND (line.transfer_id = near.token OR strpos(line.surface, near.token) > 0)
+        )
+        SELECT rec.doctype, rec.name, rec.amount, rec.reference, rec.payment_date, rec.description
+        FROM rec
+        JOIN hit ON hit.doctype = rec.doctype AND hit.name = rec.name AND hit.direction = rec.direction
+        """,
+        (*[value for line in lines for value in line], *select_params),
+        as_dict=True,
+    )
+    return tuple(
+        TargetRef(
+            doctype=r["doctype"],
+            name=r["name"],
+            amount=normalize_amount(r.get("amount")),
+            status=PAID if by_doctype[r["doctype"]].paid_only else "",
+            reference=r.get("reference") or "",
+            txn_date=r.get("payment_date"),
+            description=r.get("description") or "",
+        )
+        for r in found
+    )
 
 
 def load_payments_by_amount(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:

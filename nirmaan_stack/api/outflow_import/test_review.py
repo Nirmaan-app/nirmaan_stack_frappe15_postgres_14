@@ -26,8 +26,8 @@ adds a convenient line:
 
 import json
 import unittest
-from dataclasses import replace
-from datetime import datetime
+from dataclasses import dataclass, replace
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from unittest import mock
 
@@ -56,7 +56,9 @@ from nirmaan_stack.api.outflow_import.test_allocate_row import AllocationFixture
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
 from nirmaan_stack.services.outflow_import import candidates as C
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
+from nirmaan_stack.services.outflow_import.contains_guard import find_hits
 from nirmaan_stack.services.outflow_import.amounts import AMOUNT_TOLERANCE
+from nirmaan_stack.services.outflow_import.ledgers import INFLOW_DOCTYPE
 from nirmaan_stack.services.outflow_import.normalize import normalize_account
 from nirmaan_stack.services.outflow_import.parser import parse_statement
 from nirmaan_stack.services.outflow_import.sources import (
@@ -4556,6 +4558,10 @@ class TestABankStatementIsDuplicateGuardOnly(BankStatementFixture):
             # #1256: the Cashfree whole-string expense guard. A bank statement's expense check is
             # the ICICI contains-guard, never this one.
             "load_paid_expenses_by_reference",
+            # #1257: the whole EXACT guard. A bank statement's guard is the contains-guard now, and
+            # a second, exact idea of a duplicate beside it would let the two disagree.
+            "load_paid_payments_by_reference", "_paid_duplicate_pools", "_paid_duplicate_for",
+            "match_by_reference",
         }
         tree = ast.parse(inspect.getsource(R._guard_duplicates_only).strip())
         called = set()
@@ -4567,19 +4573,11 @@ class TestABankStatementIsDuplicateGuardOnly(BankStatementFixture):
                     called.add(name)
         self.assertEqual(sorted(called & forbidden), [])
         # ...and it DOES call the two things it is for, so the assertion above cannot pass by the
-        # function having been emptied out.
-        self.assertIn("_paid_duplicate_for", called)
-        # INVERTED at #1256, not deleted: the payment pool now comes through the ONE pool builder,
-        # and it must be asked for the BANK shape -- `has_settlement_path=False` is what keeps the
-        # gateway-only expense pool off this path.
-        pool_calls = [
-            node for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and getattr(node.func, "id", None) == "_paid_duplicate_pools"
-        ]
-        self.assertEqual(len(pool_calls), 1)
-        flags = {k.arg: getattr(k.value, "value", None) for k in pool_calls[0].keywords}
-        self.assertIs(flags.get("has_settlement_path"), False)
+        # function having been emptied out. INVERTED at #1257, not deleted: it used to pin the exact
+        # guard (`_paid_duplicate_for` over `_paid_duplicate_pools(has_settlement_path=False)`); the
+        # contains-guard's pool and picker replace both.
+        self.assertIn("load_recorded_by_contains", called)
+        self.assertIn("_recorded_group_for", called)
 
     # --- ruling 2: the paid-duplicate guard is KEPT ----------------------------------------------
 
@@ -4775,7 +4773,10 @@ class TestTheExpenseGuardIsGatewayOnly(BankStatementFixture):
     give that source a second, weaker idea of a duplicate. And the row's LINKS follow the guard: an
     expense link on a row whose note names no expense would point at a record nothing checked.
 
-    ⚠️ INVERT THIS, DO NOT DELETE IT, when the ICICI contains-guard lands and this row starts skipping.
+    ⚠️ STILL TRUE AFTER THE ICICI CONTAINS-GUARD LANDED (#1257), AND FOR A SECOND REASON. That guard
+    does reach Paid expenses, but only for a WITHDRAWAL; this row is a DEPOSIT, which is checked
+    against Project Inflows alone. `TestTheICICIContainsGuard` covers a withdrawal skipping on an
+    expense.
     """
 
     @classmethod
@@ -4814,6 +4815,411 @@ class TestTheExpenseGuardIsGatewayOnly(BankStatementFixture):
             row = next((r for r in rows if r["name"] == name), None)
             self.assertIsNotNone(row, f"{label}: fixture precondition, the row is on the page")
             self.assertEqual(row["related_records"], [], label)
+
+
+# --- #1257: the ICICI contains-guard ------------------------------------------------------------------
+
+_ICICI_HEADER = [
+    "S.N.", "Tran. Id", "Value Date", "Cheque. No./Ref. No.", "Transaction Remarks",
+    "Withdrawal Amt (INR)", "Deposit Amt (INR)", "Balance (INR)",
+]
+
+# A date no live ICICI statement or ledger record sits near, so the live ledger cannot hit these rows.
+_GUARD_DAY = datetime(2031, 3, 10)
+
+
+def _random_reference() -> str:
+    """A 12-digit reference nothing in the live ledger carries (checked by `test_the_precondition_...`)."""
+    return "9" + str(int(frappe.generate_hash(length=10), 16))[-11:].rjust(11, "0")
+
+
+class TestTheICICIContainsGuard(OutflowReviewFixture):
+    """#1257: an ICICI line whose money is already recorded is SKIPPED on the match run.
+
+    A synthetic statement, built here rather than read from `icici_sample.csv`, so every narration,
+    date and reference is under the test's control and every reference is random: the live ledger
+    can neither add a hit nor take one away. Each line is argued on one rule.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.refs = {key: _random_reference() for key in (
+            "pay", "pe", "npe", "inflow", "credit_pay", "off", "junk", "old", "frozen", "stale",
+        )}
+        cls.tid_prefix = f"T1257{frappe.generate_hash(length=6).upper()}"
+        super().setUpClass()
+
+    @classmethod
+    def _line(cls, key, narration, amount, *, credit=False, cheque="", day=_GUARD_DAY):
+        return {
+            "key": key, "tid": f"{cls.tid_prefix}{key.upper()}", "narration": narration,
+            "amount": amount, "credit": credit, "cheque": cheque, "day": day,
+        }
+
+    @classmethod
+    def _lines(cls):
+        r = cls.refs
+        return [
+            cls._line("pay", f"MMT/IMPS/{r['pay']}/TESTPAYEE/SBIN0017034", 12500),
+            cls._line("pe", f"NEFT-{r['pe']}-TEST VENDOR PVT-UTIB0000052", 8000),
+            cls._line("npe", f"INF/INFT/{r['npe']}/WIB Office acco", 3000),
+            cls._line("inflow", f"NEFT-{r['inflow']}-TESTCLIENT SPACES-HDFC0000001", 50000, credit=True),
+            cls._line("credit_pay", f"NEFT-{r['credit_pay']}-TESTCLIENT TWO-HDFC0000001", 7000, credit=True),
+            cls._line("off", f"MMT/IMPS/{r['off']}/TESTPAYEE/SBIN0017034", 20000),
+            cls._line("tid", "742905000271:SGST Coll:01-03-2031 to 10-03-2031", 2250),
+            cls._line("junk", f"INF/INFT/{r['junk']}/ICICI refund", 5000),
+            cls._line("old", f"MMT/IMPS/{r['old']}/TESTPAYEE/SBIN0017034", 9000),
+            cls._line("frozen", f"MMT/IMPS/{r['frozen']}/TESTPAYEE/SBIN0017034", 6000),
+            cls._line("stale", f"MMT/IMPS/{r['stale']}/TESTPAYEE/SBIN0017034", 4000),
+        ]
+
+    @classmethod
+    def _plant_targets(cls):
+        import csv
+        import io
+
+        buffer = io.StringIO()
+        writer = csv.writer(buffer, quoting=csv.QUOTE_ALL)
+        writer.writerow(_ICICI_HEADER)
+        for n, line in enumerate(cls._lines(), start=1):
+            money = f"{line['amount']:.2f}"
+            writer.writerow([
+                n, line["tid"], line["day"].strftime("%d/%b/%Y"), line["cheque"], line["narration"],
+                "" if line["credit"] else money, money if line["credit"] else "", "0.00",
+            ])
+        parsed = parse_statement(buffer.getvalue().encode(), source="ICICI Bank Statement")
+        cls.guard_batch = _stage_batch(
+            parsed, file_url="/private/files/test-1257-icici.csv", filename="test-1257-icici.csv",
+            user="Administrator",
+        )
+        cls.batches.append(cls.guard_batch.name)
+        cls.inflows = []
+
+        day = _GUARD_DAY.date()
+        r = cls.refs
+        cls.rec_pay = cls._insert_payment_row(amount=12500, status="Paid", utr=r["pay"], payment_date=day)
+        # Words around the reference: the tokenised piece is what hits.
+        cls.rec_pe = cls._insert_project_expense(
+            amount=8000, status="Paid", payment_ref=f"{r['pe']} ICICI", payment_date=day + timedelta(days=3),
+        )
+        cls.rec_npe = cls._insert_non_project_expense(
+            amount=3000, status="Paid", payment_ref=r["npe"], payment_date=day - timedelta(days=15),
+        )
+        cls.rec_inflow = cls._insert_inflow(amount=50000, utr=r["inflow"], payment_date=day)
+        # A Paid payment carrying a DEPOSIT's reference, at its amount: direction is never crossed.
+        cls.rec_credit_pay = cls._insert_payment_row(
+            amount=7000, status="Paid", utr=r["credit_pay"], payment_date=day,
+        )
+        cls.rec_off = cls._insert_payment_row(amount=20500, status="Paid", utr=r["off"], payment_date=day)
+        tid = next(l["tid"] for l in cls._lines() if l["key"] == "tid")
+        cls.rec_tid = cls._insert_payment_row(amount=2250, status="Paid", utr=tid.lower(), payment_date=day)
+        # Junk references at the exact amount, inside the window, whose words ARE in the narration.
+        cls.rec_junk = [
+            cls._insert_non_project_expense(amount=5000, status="Paid", payment_ref=junk, payment_date=day)
+            for junk in ("ICICI", "refund", f"DUMMY-{r['junk']}")
+        ]
+        cls.rec_old = cls._insert_payment_row(
+            amount=9000, status="Paid", utr=r["old"], payment_date=day - timedelta(days=16),
+        )
+        cls.rec_frozen = cls._insert_payment_row(amount=6000, status="Paid", utr=r["frozen"], payment_date=day)
+        cls.rec_stale = cls._insert_payment_row(amount=4100, status="Paid", utr=r["stale"], payment_date=day)
+
+        frozen = frappe.db.get_value(
+            ROW_DOCTYPE, {"import_batch": cls.guard_batch.name, "transfer_id": cls._tid("frozen")}, "name",
+        )
+        frappe.db.set_value(
+            ROW_DOCTYPE, frozen, {"row_status": ROW_SKIPPED, "outcome_note": "Skipped by a person."},
+            update_modified=False,
+        )
+        frappe.db.commit()
+        cls.first_run = match_batch(cls.guard_batch.name)
+        cls.after_first = cls._guard_rows()
+
+    @classmethod
+    def _insert_inflow(cls, *, amount, utr, payment_date):
+        """A `Project Inflows` ROW, inserted raw for the reasons `_insert_payment_row` gives.
+
+        ⚠️ BYPASSES `doc_events` ON PURPOSE (root CLAUDE.md, raw-SQL rule): the inflow hooks recompute
+        a real project's financials, and the guard only ever reads this row back with raw SQL."""
+        name = f"TEST-OPI-{frappe.generate_hash(length=12)}"
+        frappe.db.sql(
+            """
+            INSERT INTO "tabProject Inflows"
+                (name, creation, modified, modified_by, owner, docstatus, idx, project, amount, utr, payment_date)
+            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s)
+            """,
+            (name, "Administrator", "Administrator", cls.project, float(amount), utr, payment_date),
+        )
+        cls.inflows.append(name)
+        return name
+
+    @classmethod
+    def tearDownClass(cls):
+        for name in getattr(cls, "inflows", []):
+            frappe.db.delete("Project Inflows", {"name": name})
+        super().tearDownClass()
+
+    @classmethod
+    def _tid(cls, key):
+        return f"{cls.tid_prefix}{key.upper()}"
+
+    @classmethod
+    def _guard_rows(cls):
+        rows = frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": cls.guard_batch.name},
+            fields=["name", "transfer_id", "row_status", "outcome_note", "skip_reason", "suggested_name"],
+        )
+        return {r["transfer_id"][len(cls.tid_prefix):].lower(): r for r in rows}
+
+    def _links(self):
+        page = get_batch_rows(self.guard_batch.name)["rows"]
+        return {
+            r["transfer_id"][len(self.tid_prefix):].lower(): {e["target_name"] for e in r["related_records"]}
+            for r in page
+        }
+
+    # --- preconditions -----------------------------------------------------------------------------
+
+    def test_the_precondition_every_line_reached_the_run(self):
+        self.assertEqual(len(self.after_first), len(self._lines()))
+        for key, row in self.after_first.items():
+            self.assertFalse(row["skip_reason"], key)
+            if key != "frozen":
+                self.assertIn(row["row_status"], (ROW_SKIPPED, ROW_MISMATCHED), key)
+
+    def test_the_precondition_no_live_record_carries_a_random_reference(self):
+        lines = [
+            _StagedRowLike(narration=f"X/{ref}/X", direction=d, added_on=_GUARD_DAY)
+            for ref in self.refs.values() for d in ("Debit", "Credit")
+        ]
+        pool = C.load_recorded_by_contains(lines)
+        hit = {t.name for line in lines for t in find_hits(line, pool)}
+        planted = {self.rec_pay, self.rec_pe, self.rec_npe, self.rec_inflow, self.rec_credit_pay,
+                   self.rec_off, self.rec_old, self.rec_frozen, self.rec_stale, *self.rec_junk}
+        self.assertLessEqual(hit, planted)
+
+    # --- each ledger skips by direction --------------------------------------------------------------
+
+    def test_a_withdrawal_already_on_a_paid_project_payment_is_skipped(self):
+        row = self.after_first["pay"]
+        self.assertEqual(row["row_status"], ROW_SKIPPED)
+        self.assertEqual(row["outcome_note"], f"Already recorded as Paid on Project Payment {self.rec_pay}.")
+
+    def test_a_withdrawal_already_on_a_paid_project_expense_is_skipped_via_its_piece(self):
+        row = self.after_first["pe"]
+        self.assertEqual(row["row_status"], ROW_SKIPPED)
+        self.assertIn(f'Project Expense "{self.EXPENSE_DESCRIPTION}" of 8000.00', row["outcome_note"])
+
+    def test_a_withdrawal_already_on_a_paid_non_project_expense_is_skipped_at_fifteen_days(self):
+        row = self.after_first["npe"]
+        self.assertEqual(row["row_status"], ROW_SKIPPED)
+        self.assertIn(f'Non Project Expense "{self.NON_PROJECT_DESCRIPTION}"', row["outcome_note"])
+
+    def test_a_deposit_already_on_a_project_inflow_is_skipped_as_received(self):
+        row = self.after_first["inflow"]
+        self.assertEqual(row["row_status"], ROW_SKIPPED)
+        self.assertEqual(row["outcome_note"], f"Already recorded as received on Project Inflow {self.rec_inflow}.")
+
+    def test_a_deposit_never_hits_a_payment(self):
+        row = self.after_first["credit_pay"]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertEqual(row["outcome_note"], STAGED_NOTE_NO_SETTLEMENT_PATH)
+
+    # --- the other rules, end to end -------------------------------------------------------------------
+
+    def test_an_amount_off_hit_is_mismatched_naming_the_record(self):
+        row = self.after_first["off"]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertIn(f"Already recorded as Paid on Project Payment {self.rec_off}", row["outcome_note"])
+        self.assertIn("500", row["outcome_note"])
+
+    def test_a_reference_equal_to_the_transfer_id_skips(self):
+        row = self.after_first["tid"]
+        self.assertEqual(row["row_status"], ROW_SKIPPED)
+        self.assertIn(self.rec_tid, row["outcome_note"])
+
+    def test_junk_references_never_skip(self):
+        row = self.after_first["junk"]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertEqual(row["outcome_note"], STAGED_NOTE_NO_SETTLEMENT_PATH)
+
+    def test_a_record_sixteen_days_away_does_not_hit(self):
+        row = self.after_first["old"]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertEqual(row["outcome_note"], STAGED_NOTE_NO_SETTLEMENT_PATH)
+
+    def test_a_frozen_row_is_untouched(self):
+        row = self.after_first["frozen"]
+        self.assertEqual(row["row_status"], ROW_SKIPPED)
+        self.assertEqual(row["outcome_note"], "Skipped by a person.")
+
+    def test_no_line_gets_a_suggestion(self):
+        for key, row in self.after_first.items():
+            self.assertFalse(row["suggested_name"], key)
+
+    # --- links follow the guard ---------------------------------------------------------------------------
+
+    def test_a_skipped_or_mismatched_line_links_the_records_its_note_names(self):
+        links = self._links()
+        self.assertEqual(links["pay"], {self.rec_pay})
+        self.assertEqual(links["pe"], {self.rec_pe})
+        self.assertEqual(links["npe"], {self.rec_npe})
+        self.assertEqual(links["inflow"], {self.rec_inflow})
+        self.assertEqual(links["off"], {self.rec_off})
+
+    def test_a_line_the_guard_did_not_hit_links_nothing(self):
+        links = self._links()
+        for key in ("credit_pay", "junk", "old"):
+            self.assertEqual(links[key], set(), key)
+
+    def test_the_master_table_links_the_same_records(self):
+        by_key = {}
+        for scope in ("all", "skipped"):
+            page = get_outflow_rows(scope=scope, batch=self.guard_batch.name, limit=200)["rows"]
+            for r in page:
+                key = r["transfer_id"][len(self.tid_prefix):].lower()
+                by_key[key] = {e["target_name"] for e in r["related_records"]}
+        # Both tabs together carry a skipped link, a mismatched link and a no-link row.
+        self.assertTrue({"pay", "off", "junk"} <= set(by_key), sorted(by_key))
+        batch_view = self._links()
+        for key, names in by_key.items():
+            self.assertEqual(names, batch_view[key], key)
+
+    # --- re-running -----------------------------------------------------------------------------------------
+
+    def test_a_re_run_is_idempotent_and_clears_a_stale_note(self):
+        self.assertEqual(self.after_first["stale"]["row_status"], ROW_MISMATCHED)
+        self.assertIn(self.rec_stale, self.after_first["stale"]["outcome_note"])
+
+        # The hand-recorded payment's reference is corrected away from this line. ⚠️ `set_value` skips
+        # the payment's `doc_events` deliberately: only `utr` moves, and nothing derives from it.
+        frappe.db.set_value("Project Payments", self.rec_stale, "utr", _random_reference(), update_modified=False)
+        frappe.db.commit()
+        match_batch(self.guard_batch.name)
+        again = self._guard_rows()
+
+        self.assertEqual(again["stale"]["row_status"], ROW_MISMATCHED)
+        self.assertEqual(again["stale"]["outcome_note"], STAGED_NOTE_NO_SETTLEMENT_PATH)
+        for key, row in self.after_first.items():
+            if key != "stale":
+                self.assertEqual(again[key], row, key)
+
+
+@dataclass
+class _StagedRowLike:
+    narration: str
+    direction: str
+    transfer_id: str = ""
+    reference_id: str = ""
+    added_on: datetime | None = None
+
+    @property
+    def remarks(self):
+        return self.narration
+
+
+class TestTheContainsQueryReadsATextOrNumericAmount(unittest.TestCase):
+    """`Project Inflows.amount` was text until #1255; the contains query must read either shape.
+
+    ⚠️ A SCRATCH TABLE, NEVER `tabProject Inflows`, for the reason `test_inflow_amount_patch` records.
+    """
+
+    def _scratch(self, amount_type):
+        table = f"_test_1257_inflow_{frappe.generate_hash(length=8)}"
+        frappe.db.sql(
+            f'CREATE TABLE "{table}" (name varchar(140) PRIMARY KEY, amount {amount_type}, '
+            f"utr text, payment_date date)"
+        )
+        self.addCleanup(lambda: (frappe.db.rollback(), frappe.db.sql(f'DROP TABLE IF EXISTS "{table}"'), frappe.db.commit()))
+        frappe.db.sql(
+            f'INSERT INTO "{table}" VALUES (%s, %s, %s, %s), (%s, %s, %s, %s)',
+            ("INF-HIT", "1500.50", "600219693408 NEFT", date(2031, 3, 10),
+             "INF-JUNK", "not a number", "600219693408", date(2031, 3, 10)) if amount_type == "varchar(140)"
+            else ("INF-HIT", 1500.50, "600219693408 NEFT", date(2031, 3, 10),
+                  "INF-JUNK", 0, "zz", date(2031, 3, 10)),
+        )
+        frappe.db.commit()
+        return [C.ContainsLedger(INFLOW_DOCTYPE, table, "utr", paid_only=False)]
+
+    def _pool(self, ledgers):
+        line = _StagedRowLike(narration="MMT/IMPS/600219693408/CLIENT", direction="Credit")
+        return {t.name: t.amount for t in C.load_recorded_by_contains([line], ledgers=ledgers)}
+
+    def test_a_text_amount_column(self):
+        pool = self._pool(self._scratch("varchar(140)"))
+        self.assertEqual(pool["INF-HIT"], Decimal("1500.50"))
+        # A junk text amount does not fail the query; it reads as zero and simply never agrees.
+        self.assertIn("INF-JUNK", pool)
+
+    def test_a_numeric_amount_column(self):
+        pool = self._pool(self._scratch("numeric(21,9)"))
+        self.assertEqual(pool["INF-HIT"], Decimal("1500.50"))
+        self.assertNotIn("INF-JUNK", pool)
+
+
+class TestTheContainsQueryMirrorsThePureTokens(unittest.TestCase):
+    """The SQL tokeniser in `load_recorded_by_contains` is a MIRROR of `contains_guard.reference_tokens`.
+
+    ⚠️ IT MAY NEVER BE NARROWER. A record the pure guard would hit but the query never returns is a
+    duplicate that silently arrives as work. So every tricky reference goes through BOTH, over one
+    scratch table, and the hit sets must be equal -- not merely the query's a superset, which would
+    also let a query that returns the whole ledger pass.
+    """
+
+    REFERENCES = {
+        "PLAIN": "600219693408",
+        "SPACED": " 6002 19693408 ",
+        # Every piece is under 6 characters: only the whitespace-stripped WHOLE string can hit.
+        "SPLIT": "6002 1969 3408",
+        "TABBED": "abc\t600219693408\tdef",
+        "WORDY": "600219693408 ICICI",
+        "LOWER": "utibr72025010600221243 paid",
+        "CHEQUE": "000734",
+        "SHORT": "00073",
+        "WORD": "ICICI",
+        "REFUND": "refund",
+        "DUMMY": "DUMMY-600219693408",
+        "BATCH": "BULD67453750",
+        "BATCH_NEIGHBOUR": "043572728741/BULD67453750",
+        "TRANSFER_ID": "s1257tid9",
+    }
+
+    def test_the_query_returns_exactly_what_the_pure_guard_hits(self):
+        table = f"_test_1257_tokens_{frappe.generate_hash(length=8)}"
+        frappe.db.sql(
+            f'CREATE TABLE "{table}" (name varchar(140) PRIMARY KEY, amount numeric(21,9), '
+            f"utr text, payment_date date)"
+        )
+        self.addCleanup(lambda: (frappe.db.rollback(), frappe.db.sql(f'DROP TABLE IF EXISTS "{table}"'), frappe.db.commit()))
+        for name, reference in self.REFERENCES.items():
+            frappe.db.sql(
+                f'INSERT INTO "{table}" VALUES (%s, %s, %s, %s)', (name, 100, reference, date(2031, 3, 10))
+            )
+        frappe.db.commit()
+
+        line = _StagedRowLike(
+            narration="NEFT/600219693408/UTIBR72025010600221243/043572728741/000734/BULD67453750 ICICI refund",
+            direction="Credit",
+            transfer_id="S1257TID9",
+            reference_id="000734",
+            added_on=_GUARD_DAY,
+        )
+        pool = C.load_recorded_by_contains(
+            [line], ledgers=[C.ContainsLedger(INFLOW_DOCTYPE, table, "utr", paid_only=False)]
+        )
+        every_record = [
+            replace(next(iter(pool)), name=name, reference=reference)
+            for name, reference in self.REFERENCES.items()
+        ]
+
+        pure = {t.name for t in find_hits(line, every_record)}
+        self.assertEqual({t.name for t in pool}, pure)
+        # ...and the rules really are exercised both ways, so equality is not two empty sets.
+        self.assertEqual(
+            pure,
+            {"PLAIN", "SPACED", "SPLIT", "TABBED", "WORDY", "LOWER", "CHEQUE", "BATCH_NEIGHBOUR", "TRANSFER_ID"},
+        )
 
 
 class TestInflowDoctypeSpelling(unittest.TestCase):

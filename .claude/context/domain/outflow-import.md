@@ -70,7 +70,7 @@ pick one ad-hoc; ask.
 |---|---|---|
 | Row + batch status derivation | `services/outflow_import/status.py` (`derive_row_outcome`, `derive_staged_row_outcome`, `derive_batch_status`, `derive_batch_counters`) — B3 | compute a `row_status` or a batch `status`. The frontend mirror `outflowImportStatus.ts` is a CONVENIENCE pinned by a parity test; this file is the authority |
 | Which record the screen pre-selects | `services/outflow_import/status.py` (`sole_suggestion`) | re-derive "exactly one candidate" anywhere else — the browser did, from a different candidate list than the note counted, and the two disagreed |
-| The two amount windows (settle ±₹5, tier 1 ±₹1) | `services/outflow_import/amounts.py` (`AMOUNT_TOLERANCE`, `TIER1_TOLERANCE`, `amounts_match`) | hold a copy of either, **or add a comparison that is not on the list**. SIX call sites: both SQL pool queries, the matcher, the settle guard, the already-paid duplicate check, and (N1) `similarity._amount_score`. The sixth decides NOTHING — it shapes the order of a browse list — and is listed anyway, because the rule is "every amount comparison in this feature", not "every one that writes". `TIER1_TOLERANCE ≤ AMOUNT_TOLERANCE` always — a tier wider than the settle window offers a record the confirm then refuses. The fifth site was *missing* until 2026-08-07 and flagged 8 of 26 rows in a live statement as discrepancies over sub-rupee rounding |
+| The two amount windows (settle ±₹5, tier 1 ±₹1) | `services/outflow_import/amounts.py` (`AMOUNT_TOLERANCE`, `TIER1_TOLERANCE`, `amounts_match`) | hold a copy of either, **or add a comparison that is not on the list** (the list in `amounts.py` is the authority; #1256 added `status.pick_duplicate_group`, #1257 `contains_guard.pick_recorded_group`). Originally SIX call sites: both SQL pool queries, the matcher, the settle guard, the already-paid duplicate check, and (N1) `similarity._amount_score`. The sixth decides NOTHING — it shapes the order of a browse list — and is listed anyway, because the rule is "every amount comparison in this feature", not "every one that writes". `TIER1_TOLERANCE ≤ AMOUNT_TOLERANCE` always — a tier wider than the settle window offers a record the confirm then refuses. The fifth site was *missing* until 2026-08-07 and flagged 8 of 26 rows in a live statement as discrepancies over sub-rupee rounding |
 | What amount a settle WRITES (X1) | `services/outflow_import/amounts.py` (`rewrite_amount`) | decide it at a write site. It is **not a sixth window site**: the window already gated the pool and the write guard already re-asserted it, so this answers only "do these differ at all". ⚠️ Do not "finish" it by giving it a tolerance — that would put a second, quieter opinion about what may be settled inside a function whose job is to say what the number is |
 | Does a remark name a project? | `services/outflow_import/project_match.py` (`build_project_index`, `ProjectIndex.sole_project`) | re-derive it. Tier 2 auto-suggests on this predicate, so a second copy is a second opinion about where money goes |
 | Which words count when comparing free text to a master name | `services/outflow_import/project_match.comparable_tokens` (public since N1) | grow a private twin. Two readers now — tier 2's project index and the browse ranking — and a second copy would drift: change the length floor in one and the ranked list quietly stops agreeing with the matcher about what a word even is. ⚠️ Sharing the TOKENISER is not sharing a POLICY |
@@ -92,7 +92,8 @@ pick one ad-hoc; ask.
 | **Which database failure means "another reviewer wrote to this transfer first"** (#1246, ADR-0020 B4) | `services/outflow_import/concurrency.py` (`is_concurrent_writer_refusal`) — pure; the ONE reader is `expenses._concurrent_writer_refusal_as_sentence`, the shared boundary `allocate_row` (#1246) and `settle_row` (#1250) both wrap their work-up-to-the-commit in, which turns it into `CONCURRENT_ALLOCATION_MESSAGE` | widen it, or catch database errors broadly anywhere in this feature. Whatever it says yes to is told to a reviewer as a harmless race, on a screen that settles money. It recognises `SerializationFailure` (SQLSTATE 40001) ONLY — `InFailedSqlTransaction` and `DeadlockDetected` are deliberately outside, each pinned by a test. ⚠️ The translation ENDS AT THE COMMIT ("nothing was saved" is false after it). ⚠️ Where both racing payments sit on ONE PO the loser still sees raw `InFailedSqlTransaction` — `update_parent_amount_paid` swallows the 40001 first; measured and recorded in ADR-0020 B4a, deliberately NOT translated. `settle_row_partial` / `create_expense` are not covered |
 | **What makes two staged transfers THE SAME transfer** (D3; widened source-aware at B3) | `services/outflow_import/duplicates.py` (`row_identity`, `row_identity_of`, `WIDE_IDENTITY_SOURCES`, `dates_agree`, `RowIdentity`) — pure | key a duplicate check on anything else. THREE readers: the cross-batch lookup (`candidates.find_earlier_batches_for_rows`), the in-file repeat check in `upload._stage_batch`, and the parser's `_duplicate_transfer_ids`. They used to key on `transfer_id` independently; a key that differed between them would let one call two rows duplicates while another called them distinct, on the same file. ⚠️ It is **NOT** the `Outflow Row Match` unique constraint — that stays `(transfer_id, target_doctype, target_name)` and is the money guarantee; this is about WORK, and may be more discriminating | ⚠️ **THE KEY IS SOURCE-AWARE SINCE B3, and the DEFAULT is the guarantee.** `row_identity(..., source="")` — what every caller passing nothing gets — returns the old `(transfer_id, amount, date)` triple **BYTE-IDENTICALLY**, because Cashfree and Cashbook carry live settled data whose duplicate behaviour is proven in production. A source in `WIDE_IDENTITY_SOURCES` (today: `ICICI Bank Statement`) gets `+ (direction, remarks)`. **Both extra fields are load-bearing and each catches a different failure, measured on the real 1,274-row statement where the triple silently LOSES 5 REAL ROWS:** *remarks* catches four SGST/CGST pairs (same id, date, amount AND direction, differing only in narration), *direction* catches the GL transfer whose two legs carry byte-identical narration. These are bank-narration artefacts that cannot occur in a payout export — which is exactly why the widening is per-source and not global. ⚠️ `row_identity_of(row, source)` is the ADAPTER over the one rule, never a second rule: the widening added two fields that live ON the row, and forgetting `remarks` at a call site degrades ICICI silently back to the four-field key — it still works, it just loses four rows a statement and says nothing. ⚠️ It is a DIFFERENT set from `sources.BANK_STATEMENT_SOURCES` and they must not be merged "because they hold the same string today": this one answers *what makes two lines of this statement the same line?*, that one answers *what can this statement's rows DO?*. Full numbers: ADR-0016 § 4.
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
-| **Which Paid records a row already duplicates** (#1256) | `api/outflow_import/review._paid_duplicate_pools` (over `candidates.load_paid_payments_by_reference` + `load_paid_expenses_by_reference`) builds the pools; `services/outflow_import/status.pick_duplicate_group` (pure) picks the group | compose the already-recorded pools a second time, or concatenate them before the pick. All three readers — gateway run, bank-statement run, `_related_records` — call the one builder, so a row is never skipped on a record its link omits. ⚠️ `has_settlement_path=False` leaves the expense pool EMPTY (a bank statement's expense check is the ICICI contains-guard). ⚠️ The pick order `payments → expenses → both` is what keeps the pre-#1256 payment skip unchanged |
+| **Which Paid records a GATEWAY row already duplicates** (#1256) | `api/outflow_import/review._paid_duplicate_pools` (over `candidates.load_paid_payments_by_reference` + `load_paid_expenses_by_reference`) builds the pools; `services/outflow_import/status.pick_duplicate_group` (pure) picks the group | compose the already-recorded pools a second time, or concatenate them before the pick. Both readers — the gateway run and `_related_records` for gateway rows — call the one builder, so a row is never skipped on a record its link omits. ⚠️ GATEWAY-ONLY since #1257: the `has_settlement_path` flag is gone because no bank-statement caller is left. ⚠️ The pick order `payments → expenses → both` is what keeps the pre-#1256 payment skip unchanged |
+| **Whether an ICICI line's money is already recorded** (#1257, the contains-guard) | `services/outflow_import/contains_guard.py` (pure: `reference_tokens`, `match_surface`, `ledgers_for_direction`, `find_hits`, `pick_recorded_group`, `CONTAINS_GUARD_WINDOW_DAYS`); its ONE query `candidates.load_recorded_by_contains`; both the ICICI run and `_related_records` call `review._recorded_group_for` | tokenise a reference, build a match surface, map a direction to ledgers or apply the 15-day window anywhere else. ⚠️ **`match_surface` is the one function for the searched text AND (from #1259) the text a settle stores** — two builders would write a reference the guard cannot find again. ⚠️ The query's SQL tokenising MIRRORS `reference_tokens` and may never be NARROWER than it; the pure module re-applies every rule. ⚠️ Never port these rules to the Cashfree guards and never widen `matcher.match_by_reference` — the heuristic skip is an owner ruling for ICICI only |
 | **Where a settled/matched record's link GOES** (E3; inflows at #1253) | `frontend/.../outflow-import/outflowTableModel.ts` (`settlementLink`, `orderPaymentsHref`) + `review._payment_order_names` / `_with_order_names` server-side; an inflow's URL is `inflow-payments/config/inflowPaymentsTable.config.ts` (`inflowHref`, over the ONE key builder `buildInflowUrlSyncKey` the inflow page also reads) | build a payments URL at a render site, or render one through a raw `<a href>`. A payment links to its ORDER (`/project-payments/<id>` with `/` escaped as `&=`) because that is what the app's other twelve call sites do; `paymentHref`'s search-param scheme is the FALLBACK only. ⚠️ The router carries a `basename` (`VITE_BASE_NAME`: `""` dev, `'frontend'` prod), so an anchor resolves to the SERVER ROOT and 404s in production while working in dev |
 | **How a duplicate note names the records behind it** (#1253) | `services/outflow_import/status.py` (`_record_sentence`, `_records_phrase`, `SKIP_REASON_ALREADY_PAID` / `_RECEIVED`) — pure; ledger nouns from `ledgers.LEDGER_NOUNS`; the link data is `review._related_records` (`related_records`) | print a bare expense id (a random hash), call an inflow "Paid", or offer the TDS hint on a group with no Project Payment. `_related_records` must read the SAME source as the duplicate guard, or a skipped row names a record it cannot link |
 | **The record's date, and which date it IS** (E2) | `frontend/.../outflow-import/outflowTableModel.ts` (`recordDateParts`, `RECORD_DATE_LABELS`) | render an approval/updated distinction inline. `recordSortDate` merges the two for ORDERING only -- an ordering claims nothing about meaning; a LABEL does |
@@ -218,6 +219,10 @@ v2 → v3: `Reconciled` → `Skipped`/`Matched` · `Amount mismatch` → `Mismat
 2. DUPLICATE  Paid payment with this reference, amounts agree         -> Skipped
               (gateway rows also: Paid Project / Non Project Expense,
                payment_ref whole-string equal -- #1256)
+              ICICI rows instead: the contains-guard (#1257) -- a Paid
+               payment / expense (withdrawal) or any inflow (deposit)
+               whose reference token equals the transfer id or sits
+               inside the narration, paid within 15 days
                                               amounts differ          -> Mismatched
 3. TIER 0     normalised UTR equal                     (finds fan-out; payments)
 4. TIER 1     beneficiary account AND IFSC = a vendor's, amount +-Re 1 (payments)
@@ -410,6 +415,16 @@ for each unfrozen row:  match_row -> derive_row_outcome -> _persist_row_outcome
    _refresh_batch_rollup + commit
 ```
 
+**A bank statement (ICICI) never enters that loop.** `match_batch` forks above it into
+`_guard_duplicates_only`, whose whole run is ONE query and ONE per-row step (#1257):
+
+```
+load_recorded_by_contains(unfrozen rows)                   one query, the pool
+for each unfrozen row:  find_hits -> pick_recorded_group -> derive_duplicate_guard_outcome
+                        -> _persist_row_outcome            (result=None: no suggestion, ever)
+_refresh_batch_rollup + commit
+```
+
 - **All three run AFTER the loop, never inside it.** `_persist_row_outcome` CLEARS every suggestion
   it does not re-find, so anything written mid-loop is wiped by the next row's clear.
 - **Claims before Option B.** The claim pass frees records up; choosing between candidates while
@@ -570,11 +585,11 @@ needs one vocabulary rather than one per writer.
      gateway row skip on a heuristic.
    - **No amount predicate in the query.** An amount-off hit must reach `status` to read `Mismatched`
      naming the expense; the ±₹5 window is applied there (listed in `amounts.py`).
-   - **Gateway only.** `_guard_duplicates_only` (ICICI) still calls `load_paid_payments_by_reference`
-     alone, and `_related_records` hands expense links only to rows whose source has a settlement
-     path — which is why its result is keyed by ROW NAME now, not by reference.
-     `test_review.TestTheExpenseGuardIsGatewayOnly` pins the ICICI side; **invert it, do not delete
-     it, when the contains-guard lands.**
+   - **Gateway only.** `_related_records` hands expense links from THIS guard only to rows whose
+     source has a settlement path — which is why its result is keyed by ROW NAME, not by reference.
+     Since #1257 an ICICI row does not read this guard at all: its guard is the contains-guard, and
+     its links are that guard's group. `test_review.TestTheExpenseGuardIsGatewayOnly` was KEPT, not
+     inverted: its row is a DEPOSIT, which the contains-guard checks against inflows only.
    - **Payments first.** When a reference sits on a Paid payment AND a Paid expense, the pools are
      NOT summed up front: `status.pick_duplicate_group` tries the payment group, then the expense
      group, then both combined, and takes the first whose total agrees (else the payment group, for
@@ -2363,7 +2378,9 @@ re-derive it, and do not "fix" it.** Full numbers in ADR-0016 § 2.
    payment while `SETTLEABLE_STATUSES` is `Approved`-only. Measured: **7,643 of 7,644 `Paid`** carry a
    UTR; **0 of 1 `Approved`, 0 of 131 `CEO Pending`, 0 of 24 `Requested`**. `candidates.py` already
    records the same observation for Cashfree. **It survives as the DUPLICATE GUARD — 41 of 711 real
-   rows (5.8%), every hit an auto-skip — and the owner explicitly KEPT it (Q31a).**
+   rows (5.8%), every hit an auto-skip — and the owner explicitly KEPT it (Q31a).** ⚠️ **Since #1257
+   the ICICI duplicate guard is the CONTAINS-guard, not this exact compare** — 196 skips on the real
+   statement, every one of the exact guard's 40 among them. See the #1257 section.
 3. **Tier 2 fires ZERO times, and the 7 rows that WOULD fire are ALL FALSE POSITIVES.**
    `CLG/MR SAYED ALI/SBI` resolves to a project literally named `SBI` — but in a `CLG/` narration that
    segment is the cheque **drawee bank code**, which `parser._ICICI_DRAWEE_BANK_CODE` documents as
@@ -4035,3 +4052,128 @@ Project Expense, Non Project Expense or Project Inflow without touching the scre
   (no guard produces one), so the in-dialog inflow link is pinned by vitest and the href by hand.
 - `scripts/residence_check.py`: backend rules B1/B2/B3 hold; `f5` 119 / `f2` 224 fail **identically
   with this slice's changes stashed** — pre-existing branch drift, not introduced here.
+
+---
+
+## #1257 (2026-09-14) — the ICICI contains-guard: a line whose money is already recorded is skipped
+
+The second guard slice of #1252. **This is a duplicate guard, not a settle tier: nothing new settles.**
+
+### ⚠️ The owner ruling this rests on
+
+A **fresh owner ruling (2026-09-13/14) allows a HEURISTIC skip, for ICICI only.** It supersedes, for
+this guard alone, the older principle that a duplicate guard never skips on a heuristic — every other
+guard still obeys that (the Cashfree ones stay whole-string exact; `matcher.match_by_reference` is not
+widened). The reason: a passbook carries no clean reference of its own, so the reference a person typed
+onto a payment sits somewhere INSIDE a narration like `MMT/IMPS/600219693408/…`. Said in the module
+docstring of `services/outflow_import/contains_guard.py`.
+
+### The rule (all in the pure `contains_guard.py`)
+
+1. **Ledgers by direction.** Withdrawal (`Debit`) → Paid Project Payments, Paid Project Expenses, Paid
+   Non Project Expenses. Deposit (`Credit`) → every Project Inflow (no status). Never crossed. A line
+   with NO direction reaches nothing (the parser leaves it blank only when it refuses to guess).
+2. **Eligible tokens.** A stored reference is split on non-alphanumerics; the whole string (upper-cased,
+   all whitespace removed) is kept too. A token counts if it is ≥ 6 characters, has a digit and is not
+   a `BULD`+digits batch id; a reference starting `DUMMY-` gives no token at all. So `ICICI`, `refund`,
+   `Cashbook`, `TDS Receivable` and `0003` never hit.
+3. **Hit** = a token EQUALS the line's transfer id, or APPEARS INSIDE its match surface.
+4. **Match surface** (`match_surface`) = the narration; when the narration has no run of 6+ digits and
+   the cheque column is filled, narration + cheque number — so two identical-looking cheque lines stay
+   apart. ⚠️ ONE function; #1259 stores this same text on settle.
+5. **Date window** `CONTAINS_GUARD_WINDOW_DAYS = 15`, inclusive, between the line's date and the
+   record's `payment_date`. A record with no payment date never hits. This guard only.
+6. **Verdict** (`pick_recorded_group`, then the shared `status.derive_duplicate_guard_outcome`). Skip
+   when, in order, ONE hit record (closest amount, then nearest date, then ledger + name), a
+   SAME-REFERENCE group, or ALL hits agrees within ±₹5 (the settle window, listed in `amounts.py`).
+   Otherwise `Mismatched` naming every hit with its ledger.
+
+⚠️ **A line with a BLANK direction is checked against nothing** — narrower than the old exact guard,
+which checked every ICICI row against Paid payments. Deliberate: a blank means the parser saw figures
+in BOTH money columns and refused to guess, and any ledger choice would be the crossing the ruling
+forbids. Live data had 0 such rows when this shipped.
+
+**Not yet:** one record ⇒ one row across all imports is #1258. Until then two lines may skip on the
+same record (the SGST/CGST legs of one transfer id do).
+
+### Where it sits in the run
+
+`match_batch` → `_guard_duplicates_only` (the ICICI fork, above the tier ladder): one call to
+`candidates.load_recorded_by_contains(unfrozen rows)`, then per row `_recorded_group_for` →
+`derive_duplicate_guard_outcome` → `_persist_row_outcome`. Frozen rows (Skipped / Settled / Partially
+Allocated) are never read. The exact `load_paid_payments_by_reference` guard no longer runs on ICICI —
+the replay proved the contains-guard catches every row it did. `_related_records` calls the SAME
+`_recorded_group_for` for bank-statement rows, so a line links exactly the records its note names
+(any of the four ledgers); gateway rows keep `_paid_duplicate_pools`.
+
+### The query (`candidates.load_recorded_by_contains`)
+
+- Filters ONLY on hit + eligibility + status + direction — **no amount, no date** (the pure module
+  owns both, and an amount-off hit must come back to be named).
+- Lines go in as a `VALUES` list with explicit placeholders, pre-normalised by `normalize_reference`.
+- `amount::text` on every ledger, parsed by `normalize_amount`: works whether `Project Inflows.amount`
+  is text or numeric, and a junk text value reads as 0 instead of failing the query.
+- ⚠️ **The `gram` pre-filter is an index, not a rule**: a token can only be inside a surface if its
+  first 6 characters are, so tokens whose opening 6 characters appear in no line are dropped before
+  `strpos`. Without it the real 869-line statement took **37 s**; with it **1.2–1.9 s**, same 247-record
+  pool.
+- ⚠️ **`tok` and `near` are `AS MATERIALIZED`, and the keyword is load-bearing.** Inlined, PostgreSQL
+  crossed every record with every line first and re-tokenised each reference inside that loop — 1.2
+  million regex splits, **8.4 s for the 170-line August batch** (the 869-line statement happened to get
+  a better plan, which is why the replay alone did not catch it). Materialised: 20 lines ~1 s, 170 lines
+  1.8 s.
+- ⚠️ **Page-load cost:** `_related_records` runs this query for the bank-statement rows on a page, so a
+  page carrying ICICI rows pays ~1 s (the ledger is tokenised per call). A full 170-row batch's links
+  took 0.8 s.
+- ⚠️ **Known limit — NON-ASCII in a stored reference.** PostgreSQL's `\s` and `[0-9]` see less than
+  Python's, so a reference holding a non-breaking space or a non-Latin digit can lose its WHOLE-STRING
+  token in SQL (its ASCII pieces still hit). `TestTheContainsQueryMirrorsThePureTokens` pins the two
+  tokenisers equal on the ASCII cases.
+- Ledgers are a `ContainsLedger` table (`CONTAINS_LEDGERS`) so a test can point one at a scratch table.
+
+### Replay of the real statement (read-only, 2026-09-14)
+
+`sites/localhost/private/files/jan 26 to till date icici statement.xlsx`: 1,274 lines, **869 after
+exclusions** (711 debit, 158 credit), parsed and excluded exactly as upload does, nothing written.
+
+| | skips | Mismatched notes |
+|---|---|---|
+| old exact guard | 40 | 4 |
+| contains-guard | **196** | **9** |
+
+- **0 of the old 40 skips lost.**
+- **Date gaps of the 196 skips: 192 same day, 3 at 1 day, 1 at 6 days** — none past 7, matching the
+  measurement behind the 15-day window. 193 single-record skips; the 3 group skips are same-day
+  bulk-upload records sharing one `INF/INFT/…/BULD…` or RTGS reference. No false skip found.
+- ⚠️ **Divergence from "~6 Mismatched": 9.** Three are ONE case the spec already names as out of scope —
+  the ₹4,21,606 Project Inflow `PAYIN-00076-03` whose reference covers three separate `NEDDLE AND THRE`
+  credit lines (cross-row fan-in), each line reading `Mismatched` naming it. The other **6** are the
+  expected noise: a stored `043572728741/BULD…` reference on two payments, a CGTMSE fee, a negative
+  Non Project Expense (-₹10,46,393) whose reference holds an account number, two bulk Non Project
+  Expenses (₹1,97,778 and ₹60,540) listing many IMPS references, and one inflow of ₹1 against a
+  ₹1,17,688 cheque.
+
+### Tests
+
+- Pure `test_contains_guard.py` (**40**): normalisation, tokens, junk refs, `DUMMY-`, `BULD`, a 6-digit
+  cheque, `610415565123 ICICI` via its piece, cheque twins, a line matching its own stored surface,
+  SGST/CGST legs on a transfer id, 15 in / 16 out, direction, grouping order, and a purity fence.
+  **23 rule-breaks run, every one RED**; one redundant sort key found this way and deleted.
+- `test_review.TestTheICICIContainsGuard` (**17**): a synthetic statement with random references dated
+  2031 so live data cannot interfere — each of the four ledgers skips by direction, a deposit never hits
+  a payment, amount off → Mismatched naming the record, transfer-id equality, junk refs, 16 days out,
+  a frozen row untouched, links on both row reads, re-run idempotent and a stale note cleared.
+  **8 wiring/rule breaks run: 7 RED**; the `DUMMY-` break stays green at this level only because the
+  query filters `DUMMY-` too — the pure suite catches it.
+- `test_review.TestTheContainsQueryReadsATextOrNumericAmount` (**2**): the query over a varchar and a
+  numeric scratch `amount` column.
+- `test_review.TestTheContainsQueryMirrorsThePureTokens` (**1**): 14 tricky references through BOTH the
+  SQL tokeniser and `find_hits` over one scratch table; the hit sets must be EQUAL (and equal a named
+  set, so it cannot pass on two empties). **5 SQL rule-breaks run, every one RED** — one first stayed
+  green, which added the `6002 1969 3408` whole-string-only case.
+- `TestABankStatementIsDuplicateGuardOnly.test_the_guard_only_path_names_none_of_the_settlement_machinery`
+  INVERTED: the exact guard's helpers are now forbidden on that path; the contains pool and picker are
+  required.
+- ⚠️ **An IMPS narration ending in `IDFB0020101` is EXCLUDED at upload** (`platform_cashfree`, a wallet
+  top-up). A fixture built on one never reaches the match run; the exclusion note lands in
+  `skip_reason`, not `outcome_note`.
