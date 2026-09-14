@@ -78,6 +78,7 @@ from nirmaan_stack.services.outflow_import.status import (
     RECORDED_DUPLICATE,
     RECORDED_NEEDS_CONFIRMATION,
     derive_duplicate_guard_outcome,
+    derive_guard_verdict,
     derive_recorded_money_verdict,
     derive_row_outcome,
     derive_staged_row_outcome,
@@ -671,6 +672,36 @@ class TestRecordedMoneyVerdict(unittest.TestCase):
                 verdict = derive_recorded_money_verdict(_Row("5000"), group)
                 self.assertEqual(verdict.kind, expected[outcome.status])
                 self.assertEqual(verdict.note, outcome.note)
+
+
+class TestGuardVerdict(unittest.TestCase):
+    """What the read-only production preview reports (#1261): the run's guard decision, and only it.
+
+    A verdict must be the SAME outcome both match-time derivers reach for that row, and `None` must mean
+    the guard said nothing -- or the preview lists rows the run would not touch, or misses ones it would.
+    """
+
+    def test_a_row_the_guard_says_nothing_about_has_no_verdict(self):
+        self.assertIsNone(derive_guard_verdict(_Row("5000"), None))
+        self.assertIsNone(derive_guard_verdict(_Row("5000"), _group([])))
+
+    def test_every_verdict_is_what_both_match_run_derivers_decide(self):
+        shapes = [
+            (_Row("5000"), _group([_payment("PAY-A", "5000", "Paid")])),
+            (_Row("5000"), _group([_payment("PAY-A", "9000", "Paid")])),
+            (_Row("5000"), _group([_inflow(amount="5000")])),
+            (_Row("5000", is_success=False, status_raw="FAILED"), None),
+            (_Row("5000"), RecordedGroup(
+                targets=(_payment("PAY-A", "5000", "Paid"),),
+                used_by=(RecordClaim("Project Payments", "PAY-A", "OIR-OTHER", "OIB-26-000007"),),
+            )),
+        ]
+        for row, group in shapes:
+            with self.subTest(group=group, success=row.is_success):
+                verdict = derive_guard_verdict(row, group)
+                self.assertIsNotNone(verdict)
+                self.assertEqual(verdict, derive_duplicate_guard_outcome(row, paid_duplicate=group))
+                self.assertEqual(verdict, derive_row_outcome(row, None, paid_duplicate=group))
 
 
 # --- Matched and the found-nothing half of Mismatched ------------------------------------------------------------------------

@@ -147,6 +147,7 @@ __all__ = [
     "derive_staged_row_outcome",
     "derive_row_outcome",
     "derive_duplicate_guard_outcome",
+    "derive_guard_verdict",
     "pick_duplicate_group",
     "sole_suggestion",
     "derive_batch_status",
@@ -558,6 +559,16 @@ def derive_duplicate_guard_outcome(row, paid_duplicate=None) -> RowOutcome:
     if decided is not None:
         return decided
     return RowOutcome(ROW_MISMATCHED, STAGED_NOTE_NO_SETTLEMENT_PATH)
+
+
+def derive_guard_verdict(row, paid_duplicate=None) -> RowOutcome | None:
+    """What the match run decides about a row BEFORE any candidate is considered, or `None` (#1261).
+
+    Rules 2 and 3 -- the failed transfer and the already-recorded guard -- exactly as BOTH match-time
+    derivers read them first. `None` means the guard has nothing to say and the rest of the run decides.
+    The read-only production preview (`api/outflow_import/duplicate_preview`) reports this and only this.
+    """
+    return _failed_or_already_paid(row, paid_duplicate)
 
 
 def pick_duplicate_group(row, groups):

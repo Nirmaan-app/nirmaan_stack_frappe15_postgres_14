@@ -4563,14 +4563,21 @@ class TestABankStatementIsDuplicateGuardOnly(BankStatementFixture):
             "load_paid_payments_by_reference", "_paid_duplicate_pools", "_paid_duplicate_for",
             "match_by_reference",
         }
-        tree = ast.parse(inspect.getsource(R._guard_duplicates_only).strip())
-        called = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                func = node.func
-                name = getattr(func, "id", None) or getattr(func, "attr", None)
-                if name:
-                    called.add(name)
+        def _calls(fn):
+            out = set()
+            for node in ast.walk(ast.parse(inspect.getsource(fn).strip())):
+                if isinstance(node, ast.Call):
+                    func = node.func
+                    name = getattr(func, "id", None) or getattr(func, "attr", None)
+                    if name:
+                        out.add(name)
+            return out
+
+        # #1261: the per-row loop moved into `_contains_guard_outcomes` so the read-only production preview
+        # runs the SAME loop. The run must still reach it, and the pin reads BOTH bodies.
+        run_calls = _calls(R._guard_duplicates_only)
+        self.assertIn("_contains_guard_outcomes", run_calls)
+        called = run_calls | _calls(R._contains_guard_outcomes)
         self.assertEqual(sorted(called & forbidden), [])
         # ...and it DOES call the two things it is for, so the assertion above cannot pass by the
         # function having been emptied out. INVERTED at #1257, not deleted: it used to pin the exact

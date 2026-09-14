@@ -342,23 +342,8 @@ def _guard_duplicates_only(batch: str, matchable) -> dict:
     these across batches and the screen reads them; omitting a key would be an absence the caller
     has to special-case, while a zero is the truth -- no pass ran, so no pass did anything.
     """
-    if matchable:
-        # The ONLY pool this path loads, and it is a duplicate guard, never a settle candidate --
-        # Paid payments / expenses and every inflow, by direction (#1257).
-        pool = C.load_recorded_by_contains(matchable)
-        # ⚠️ ONE RECORD JUSTIFIES ONE LINE, ACROSS ALL IMPORTS (#1258). The claims already standing --
-        # every Skipped row's `duplicate_basis`, every Settled match -- plus, as the loop goes, each
-        # skip this run makes. Rows arrive in `_load_rows` order (added_on, name), so which of two
-        # lines keeps a shared record is decided the same way on every run. A frozen row is not in
-        # `matchable`, so a re-run leaves an earlier skip alone and its claim still stands.
-        claims = list(C.load_record_claims(pool))
-        for row in matchable:
-            group = _recorded_group_for(row, pool, claims)
-            outcome = derive_duplicate_guard_outcome(row, paid_duplicate=group)
-            basis = skip_basis(row, group, outcome.status == ROW_SKIPPED)
-            _persist_row_outcome(row, outcome, None, batch, duplicate_basis=basis)
-            if basis:
-                claims.extend(claims_of_skip(row, batch, group))
+    for row, _group, outcome, basis in _contains_guard_outcomes(batch, matchable):
+        _persist_row_outcome(row, outcome, None, batch, duplicate_basis=basis)
 
     statuses = _refresh_batch_rollup(batch)
     frappe.db.commit()
@@ -372,6 +357,37 @@ def _guard_duplicates_only(batch: str, matchable) -> dict:
         "counters": derive_batch_counters(statuses),
         "status": derive_batch_status(statuses),
     }
+
+
+def _contains_guard_outcomes(batch: str, matchable, carried_claims=()):
+    """Yield `(row, group, outcome, basis)` for each unfrozen line of a bank statement, WRITING NOTHING.
+
+    ⚠️ THE ONE LOOP BEHIND THE ICICI RUN AND THE PRODUCTION PREVIEW (#1261). `_guard_duplicates_only`
+    persists each outcome; `duplicate_preview` only reports it. One loop is what makes the preview's
+    verdicts the run's verdicts, rather than a copy that agrees today.
+
+    `carried_claims` are claims a caller made on EARLIER batches it did not persist -- the preview's
+    stand-in for the `duplicate_basis` a real run on those batches would have written. A real run
+    passes none: the database already holds them.
+    """
+    if not matchable:
+        return
+    # The ONLY pool this path loads, and it is a duplicate guard, never a settle candidate --
+    # Paid payments / expenses and every inflow, by direction (#1257).
+    pool = C.load_recorded_by_contains(matchable)
+    # ⚠️ ONE RECORD JUSTIFIES ONE LINE, ACROSS ALL IMPORTS (#1258). The claims already standing --
+    # every Skipped row's `duplicate_basis`, every Settled match -- plus, as the loop goes, each
+    # skip this run makes. Rows arrive in `_load_rows` order (added_on, name), so which of two
+    # lines keeps a shared record is decided the same way on every run. A frozen row is not in
+    # `matchable`, so a re-run leaves an earlier skip alone and its claim still stands.
+    claims = [*C.load_record_claims(pool), *carried_claims]
+    for row in matchable:
+        group = _recorded_group_for(row, pool, claims)
+        outcome = derive_duplicate_guard_outcome(row, paid_duplicate=group)
+        basis = skip_basis(row, group, outcome.status == ROW_SKIPPED)
+        if basis:
+            claims.extend(claims_of_skip(row, batch, group))
+        yield row, group, outcome, basis
 
 
 def _load_pools(rows, batch: str) -> dict:

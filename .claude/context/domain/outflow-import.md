@@ -4235,7 +4235,7 @@ line links the record its note names.
 
 ⚠️ **Known gap: skips made BEFORE #1258 have no basis and claim nothing.** Dev had 0 such ICICI rows
 (88 Cashfree duplicate skips, out of scope). Any older ICICI duplicate skips on production (not measured
-here) would not block a later line — count them in the #1261 preview before the first production run.
+here) would not block a later line — the #1261 preview counts them ("Older ICICI skips with no stored basis") before the first production run.
 
 ### Replay of the real statement (read-only, 2026-09-14)
 
@@ -4430,3 +4430,64 @@ Expense is not found. `inflows._already_booked` is deleted -- the shared guard d
   Create expense showed "Create anyway?" naming the expense and the ₹1,000 gap; Cancel left the row
   Mismatched with no match record; "Create anyway" settled it. Fixture data deleted afterwards.
 
+
+## #1261 (2026-09-14) — read-only production preview of the duplicate skips, run BEFORE the first match run
+
+**The step.** Before the first match run on production (or any site that has not yet run the #1256–#1258
+rules), the owner runs the preview and reads it. A skip cannot be undone from the screen; this is where
+it is seen first.
+
+```bash
+bench --site <site> execute nirmaan_stack.api.outflow_import.duplicate_preview.run > duplicate-preview.txt
+# one import only:
+bench --site <site> execute nirmaan_stack.api.outflow_import.duplicate_preview.run --kwargs "{'batch': 'OFI-26-00001'}"
+```
+
+It prints, per batch (in "Match all" order, oldest uploaded first), every unfrozen row the guards would
+**SKIP** or leave **MISMATCHED naming a record**: row, date, amount, narration (60 chars), the verdict
+sentence the run would write, and the record(s) with their ledger and amount. `(unchanged)` marks a row
+already carrying that verdict. Then a count summary, plus **older ICICI duplicate skips with no stored
+basis** (#1258's known gap — they claim no record, so that record can still justify a second line).
+
+### ⚠️ It writes nothing, and the DATABASE enforces it
+
+`run()` does `frappe.db.rollback()` → `frappe.db.begin(read_only=True)`, checks `SHOW transaction_read_only`
+is `on` (else refuses to run), builds the report, rolls back, then prints. A write anywhere inside raises
+`frappe.InReadOnlyMode`. `bench execute` commits after the call — the rollback leaves it nothing.
+`build_preview()` is the report as data (also read-only by construction, but only `run` holds the fence).
+
+### ⚠️ It asks the run's own questions — no copy
+
+- ICICI: `review._contains_guard_outcomes(batch, matchable, carried_claims)` — the loop was LIFTED out of
+  `_guard_duplicates_only`, which now persists from it. One loop, so the preview cannot drift from the run.
+- Every other source: `review._paid_duplicate_for` over `review._paid_duplicate_pools` (the gateway run's pools).
+- Verdict: new `status.derive_guard_verdict(row, group)` = rules 2 + 3 (`_failed_or_already_paid`), the branch
+  BOTH match-time derivers take first. `None` → not listed.
+- Rows: everything not in `review._FROZEN_ROW_STATUSES` (so Matched and Error rows too — the run takes them),
+  not only Mismatched / Pending as the ticket worded it.
+- **Cross-batch claims are simulated.** A real run persists each ICICI skip's basis and a later batch reads
+  it (#1258); the preview persists nothing, so it carries those claims to later batches itself. Matching
+  batches one at a time in a DIFFERENT order can move which of two lines keeps a shared record.
+- Not simulated: the gateway stack pass can rewrite the note of a guard-Mismatched row. It never touches a
+  skip (a Skipped row is frozen).
+
+### Verification
+
+- API `test_duplicate_preview` (13): whole-table snapshot identical before/after `run()`; a write inside
+  the preview raises `InReadOnlyMode`; every verdict kind present (Cashfree expense skip + amount-off, ICICI
+  skip + amount-off, a later-batch line blocked by an earlier batch's preview skip); frozen + no-hit rows not
+  listed; records named; then a REAL `match_batch` over the suite's batches equals every entry (status and
+  note) and nothing unlisted is skipped; the basis-less ICICI skip is counted; output grouped by batch with
+  the summary; `run` returns `None`; single-batch mode; a mistyped batch is REFUSED (an empty report would read as
+  "nothing will skip" -- both reviewers flagged it). Pure `test_status.TestGuardVerdict` (2).
+- Pin in blast radius: `test_review.test_the_guard_only_path_names_none_of_the_settlement_machinery` now reads
+  `_guard_duplicates_only` AND `_contains_guard_outcomes`, and asserts the run calls the shared loop (RED when
+  the run inlines its own loop again).
+- Gates: pure outflow suite 971, all 15 outflow API suites green in the container. Residence B1-B3 hold; F2/F5
+  fail with the same pre-existing frontend drift (224/207, 119/116) -- no frontend touched.
+- RED probes: read-only transaction removed → "InReadOnlyMode not raised"; claims not carried → 4 fail;
+  frozen filter removed → 2 fail; verdict reduced to rule 3 → the pure failed-transfer shape fails.
+- Localhost real data (2026-09-14): `run()` wrote nothing (snapshot equal); 14 open batches / 152 rows, 0
+  verdicts — the earlier slices' runs already skipped them. So, non-vacuously, inside one ROLLED-BACK
+  transaction with commit blocked: all 107 existing duplicate skips reopened → preview 107 skips → real
+  `match_batch` over the same 16 batches: 259 rows compared, **0 disagreements**; database identical after.
