@@ -430,9 +430,8 @@ def _already_booked(reference: str) -> dict:
     ⚠️ NO STATUS FILTER, because there is no status to filter on -- `Project Inflows` has none, which
     is the fact this whole slice turns on.
 
-    ⚠️ THE AMOUNT COLUMN IS **Data** AND MUST BE CAST, the same asymmetry `Project Expenses` carries.
-    Measured 2026-09-07: 0 of 463 rows would break the cast; the `BTRIM <> ''` guard mirrors
-    `cashbook._already_booked`'s.
+    THE AMOUNT COLUMN IS **Currency** since #1255 (it was Data, cast here with a `BTRIM <> ''` guard).
+    ⚠️ Never `BTRIM` it again: PostgreSQL has no `btrim(numeric)`, so the query errors outright.
 
     A BLANK REFERENCE FAILS OPEN -- `index_prior_sightings` drops blank keys and
     `find_prior_sighting` returns `None` for one, so such a row is never recognised as a repeat.
@@ -444,11 +443,11 @@ def _already_booked(reference: str) -> dict:
     rows = frappe.db.sql(
         f"""
         SELECT BTRIM(utr) AS utr,
-               CAST(NULLIF(BTRIM(amount), '') AS numeric) AS amount,
+               amount,
                payment_date, name
         FROM "tab{INFLOW_DOCTYPE}"
         WHERE BTRIM(COALESCE(utr, '')) = %s
-          AND COALESCE(BTRIM(amount), '') <> ''
+          AND amount IS NOT NULL
         ORDER BY creation ASC
         """,
         (reference,),

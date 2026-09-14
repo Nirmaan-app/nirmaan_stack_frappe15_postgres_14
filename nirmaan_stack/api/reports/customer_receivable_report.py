@@ -1,18 +1,6 @@
 import frappe
 from frappe.utils import flt
 
-# `Project Inflows.amount` is a Data (varchar) column, so it has to be coerced in SQL.
-# This mirrors `frappe.utils.flt`: strip commas + surrounding whitespace, take the value
-# when what remains is numeric, and fall back to 0 for anything else (flt returns 0.0 for
-# junk rather than raising, and a bare ::numeric cast would error the whole query instead).
-_INFLOW_AMOUNT_SQL = r"""
-    CASE
-        WHEN btrim(replace(COALESCE(amount, ''), ',', '')) ~ '^-?([0-9]+\.?[0-9]*|\.[0-9]+)$'
-        THEN btrim(replace(amount, ',', ''))::numeric
-        ELSE 0
-    END
-"""
-
 
 @frappe.whitelist()
 def get_customer_receivables_report():
@@ -31,7 +19,7 @@ def get_customer_receivables_report():
     every row in Python -- ADR-0010 rule B5.
     """
     rows = frappe.db.sql(
-        f"""
+        """
         SELECT
             t.customer                                       AS customer,
             COALESCE(
@@ -48,7 +36,8 @@ def get_customer_receivables_report():
 
             UNION ALL
 
-            SELECT customer, 0 AS invoiced, {_INFLOW_AMOUNT_SQL} AS inflow
+            -- `Project Inflows.amount` is Currency since #1255 (it was text, parsed here by a CASE).
+            SELECT customer, 0 AS invoiced, COALESCE(amount, 0) AS inflow
             FROM "tabProject Inflows"
             WHERE COALESCE(customer, '') <> ''
         ) t

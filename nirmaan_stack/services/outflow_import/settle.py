@@ -382,11 +382,10 @@ def apply_statement_attachment(doc, statement_file_url: str | None) -> bool:
 
 #: The doctypes whose `amount` is a **Data** column holding a bare numeric STRING.
 #:
-#: ⚠️ A SET, NOT AN `==`, SINCE B6 -- and the second member was MEASURED, not assumed. All 463 live
-#: `Project Inflows` hold `'1500000'` / `'2402'`-shaped strings and NONE of them would break a
-#: numeric cast, exactly as `Project Expenses` does. `Non Project Expenses` and `Project Payments`
-#: are real Currency columns and are unchanged by this widening.
-_DATA_AMOUNT_DOCTYPES = frozenset({PROJECT_EXPENSE, INFLOW_DOCTYPE})
+#: ⚠️ STILL A SET, THOUGH IT HOLDS ONE MEMBER AGAIN. B6 added `Project Inflows`; #1255 made that
+#: column Currency (a zero-loss migration) and removed it, so an inflow now gets a number like
+#: `Non Project Expenses` and `Project Payments`. Only `Project Expenses.amount` is still Data.
+_DATA_AMOUNT_DOCTYPES = frozenset({PROJECT_EXPENSE})
 
 
 def format_amount_for(doctype: str, amount: Decimal):
@@ -396,11 +395,7 @@ def format_amount_for(doctype: str, amount: Decimal):
     commas, no symbol. Handing it a float would store `5000.0` where every neighbour holds `5000`,
     and the numeric CAST the candidate query relies on would still work but the column would stop
     being self-consistent. `Non Project Expenses.amount` is a real Currency column and wants a
-    number.
-
-    ⚠️ `Project Inflows.amount` IS THE SAME DATA-COLUMN SHAPE (B6), which is why the test below is
-    membership rather than an equality against one name. Writing a float there would put `44275.0`
-    beside 463 rows that all read `44275`, and every consumer sums that column with no filter.
+    number. `Project Inflows.amount` is Currency too since #1255 (it shared the Data shape from B6).
     """
     if doctype in _DATA_AMOUNT_DOCTYPES:
         normalized = amount.normalize()
@@ -1086,7 +1081,7 @@ def create_inflow_from_row(
             # gateway id or a wallet txn id, and `reference_id` is not unique, so keying a guard on
             # it would refuse an unrelated second transfer.
             "utr": _settlement_reference_of(row) or None,
-            # `Project Inflows.amount` is a Data column -- see `format_amount_for`.
+            # `Project Inflows.amount` is Currency (#1255) -- see `format_amount_for`.
             "amount": format_amount_for(INFLOW_DOCTYPE, amount),
             "payment_date": payment_date or getattr(row, "added_on_date", None),
         }

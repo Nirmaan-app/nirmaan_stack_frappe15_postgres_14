@@ -215,19 +215,21 @@ class TestTheHappyPath(InflowFixture):
         )
         self.assertEqual(inflow.project, self.project)
         self.assertEqual(inflow.customer, self.customer)
-        self.assertEqual(Decimal(inflow.amount), Decimal(str(row["amount"])))
+        self.assertEqual(Decimal(str(inflow.amount)), Decimal(str(row["amount"])))
         self.assertEqual(inflow.payment_date, row["added_on"].date())
         self.assertEqual(inflow.utr, row["bank_reference_no"])
         self.assertIsNone(inflow.invoice)
 
-    def test_the_amount_is_stored_as_a_bare_numeric_string(self):
-        """`Project Inflows.amount` is a **Data** column. A float would store `44275.0` beside 463
-        rows that read `44275`, on a column every financial screen sums unfiltered."""
-        _, summary = self._record()
+    def test_the_amount_is_a_real_number_because_the_column_is_Currency(self):
+        """INVERTED at #1255: `Project Inflows.amount` was a **Data** column holding bare numeric
+        strings, and this test used to pin the string. It is Currency now, so the settle writer
+        hands it a number -- a string here would mean `format_amount_for` still treats the inflow
+        ledger as text."""
+        row, summary = self._record()
         stored = frappe.db.get_value(INFLOW_DOCTYPE, summary["settled"]["name"], "amount")
-        self.assertIsInstance(stored, str)
-        self.assertNotIn(".", stored.rstrip("0").rstrip(".") if "." in stored else stored)
-        self.assertEqual(stored, format_amount_for(INFLOW_DOCTYPE, Decimal(stored)))
+        self.assertIsInstance(stored, float)
+        self.assertEqual(Decimal(str(stored)), Decimal(str(row["amount"])))
+        self.assertEqual(format_amount_for(INFLOW_DOCTYPE, Decimal(str(stored))), stored)
 
     def test_the_row_flips_to_settled_and_gets_a_match_record(self):
         """The four facts of a settlement are one transaction -- a match record without its inflow
@@ -448,6 +450,44 @@ class TestTheContextRead(InflowFixture):
         self.assertIsNone(get_inflow_context("no-such-project")["customer"])
 
 
+class TestTheCustomerReceivableReport(InflowFixture):
+    """#1255: the report summed the inflow amount through a text-parsing CASE, which PostgreSQL
+    refuses outright once the column is numeric. It must run, and count a fractional inflow exactly.
+
+    ⚠️ A DELTA, NOT A TOTAL -- the live site's inflows drift, so this measures the customer's total
+    before and after planting one inflow.
+    """
+
+    def _customer_inflow_total(self):
+        from nirmaan_stack.api.reports.customer_receivable_report import (
+            get_customer_receivables_report,
+        )
+
+        for entry in get_customer_receivables_report():
+            if entry["customer"] == self.customer:
+                return Decimal(str(entry["total_inflow"]))
+        return Decimal(0)
+
+    def test_a_planted_inflow_moves_the_customer_s_total_by_its_exact_amount(self):
+        before = self._customer_inflow_total()
+        planted = frappe.new_doc(INFLOW_DOCTYPE)
+        planted.update(
+            {
+                "project": self.project,
+                "customer": self.customer,
+                "utr": f"TEST-RECV-{frappe.generate_hash(length=10)}",
+                "amount": 1234.56,
+                "payment_date": frappe.utils.today(),
+            }
+        )
+        planted.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.inflows.append(planted.name)
+
+        # The report's payload is floats, so the paise are compared to 2 places.
+        self.assertAlmostEqual(float(self._customer_inflow_total() - before), 1234.56, places=2)
+
+
 class TestTheSharedHelpers(unittest.TestCase):
     """The three pieces of `settle.py` this slice reused rather than re-typed."""
 
@@ -476,14 +516,15 @@ class TestTheSharedHelpers(unittest.TestCase):
         self.assertFalse(apply_statement_attachment(doc, "/private/files/s.csv"))
         self.assertEqual(doc.inflow_attachment, "/private/files/receipt.png")
 
-    def test_the_data_amount_shape_is_shared_with_project_expenses(self):
-        # ⚠️ `2500.50` NORMALISES TO `2500.5`. `format_amount_for` calls `Decimal.normalize()`
-        # first, so a trailing zero is dropped -- which is the shape `Project Expenses` has always
-        # stored and is why this asserts both ledgers give the same answer rather than a literal.
+    def test_only_project_expenses_keeps_the_data_amount_shape(self):
+        # INVERTED at #1255: the inflow ledger used to share `Project Expenses`' bare-string shape.
+        # Its column is Currency now, so it gets a number like the other Currency ledgers, while
+        # `Project Expenses.amount` (still Data) keeps the string.
+        # ⚠️ `2500.50` NORMALISES TO `2500.5` on the Data side -- `Decimal.normalize()` drops the
+        # trailing zero, the shape `Project Expenses` has always stored.
         for amount, expected in ((Decimal("44275"), "44275"), (Decimal("2500.50"), "2500.5")):
-            self.assertEqual(format_amount_for(INFLOW_DOCTYPE, amount), expected)
             self.assertEqual(format_amount_for(PROJECT_EXPENSE, amount), expected)
-        # Unchanged for the Currency ledgers.
+            self.assertEqual(format_amount_for(INFLOW_DOCTYPE, amount), float(amount))
         self.assertEqual(format_amount_for("Non Project Expenses", Decimal("44275")), 44275.0)
 
 
@@ -530,8 +571,9 @@ class TestTheNonProjectReceipt(InflowFixture):
 
     def test_the_amount_is_a_real_number_because_the_column_is_Currency(self):
         """⚠️ THE ASYMMETRY THAT MAKES THIS LEDGER THE RIGHT ONE FOR A SIGNED FIGURE.
-        `Non Project Expenses.amount` is a real **Currency** column, unlike `Project Expenses` and
-        `Project Inflows`, whose `amount` is a **Data** column holding bare numeric strings."""
+        `Non Project Expenses.amount` is a real **Currency** column, unlike `Project Expenses`, whose
+        `amount` is a **Data** column holding bare numeric strings. (`Project Inflows.amount` was
+        Data too, until #1255 made it Currency.)"""
         _, summary = self._receive()
         stored = frappe.db.get_value(NON_PROJECT_EXPENSE, summary["settled"]["name"], "amount")
         self.assertIsInstance(stored, float)

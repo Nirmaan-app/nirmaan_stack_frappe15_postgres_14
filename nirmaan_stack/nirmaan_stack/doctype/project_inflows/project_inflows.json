@@ -57,7 +57,7 @@
   },
   {
    "fieldname": "amount",
-   "fieldtype": "Data",
+   "fieldtype": "Currency",
    "label": "Amount"
   },
   {
