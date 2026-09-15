@@ -553,7 +553,12 @@ export function NewSidebar() {
         {
           key: '/project-payments',
           icon: CircleDollarSign,
-          label: 'Project Payments',
+          // Renamed 2026-09-15: the screen is becoming the unified money-out queue,
+          // carrying project + non-project EXPENSES alongside vendor payments.
+          // ⚠️ The flat-nav Set below matches on this LABEL — both strings move together.
+          // The ROUTE stays `/project-payments`: eight backend notification deep links
+          // point at it, so renaming the key would 404 live and historical sends.
+          label: 'Project Payment & Expense',
         },
       ]
       : []),
@@ -561,17 +566,36 @@ export function NewSidebar() {
     // lives in the Reports hub as the "Payment TDS Deduction" tab (pages/reports), gated there by
     // the same PAYMENT_TDS_ACCESS constant. `/payment-tds-deductions` still resolves; routesConfig
     // redirects it into that tab.
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan HR Executive Profile"].includes(role as string)
-      ? [
-        {
-          // Unified Expense module: Misc Project + Non-Project tabs. Links to the
-          // default (Misc Project) tab; the tab strip handles switching.
-          key: '/expense/project',
-          icon: Landmark,
-          label: 'Expense',
-        },
-      ]
-      : []),
+    // ── "Expense" HIDDEN from the sidebar (owner, 15 Sep 2026) ──────────────────
+    //
+    // Expenses are now raised and worked from "Project Payment & Expense": the unified
+    // queue lists all three money-out ledgers, and the top-bar "Expense Request"
+    // dropdown creates either kind. A second nav entry pointing at the same records
+    // was two doors into one room.
+    //
+    // ⚠️ HIDDEN, NOT DELETED — exactly like PO Wise / All Payments on the payments tab
+    // strip. `/expense/project` and `/expense/non-project` still RESOLVE
+    // (routesConfig.tsx), so existing links, bookmarks and any deep link keep working;
+    // only the nav button is gone. Restoring it is un-commenting this block.
+    //
+    // ⚠️ IF RESTORED, the label must ALSO go back into the flat-nav Set further down
+    // (search: "Credit Payments") — that Set is matched by LABEL, and an entry missing
+    // from it renders as a collapsible group with a chevron that swallows the click.
+    //
+    // ⚠️ ONE ROLE LOSES ACCESS FROM THE NAV: Nirmaan HR Executive Profile was in this
+    // gate but is NOT in the "/project-payments" gate above, so HR has no nav route to
+    // expenses any more. The URL still works. Flagged to the owner.
+    // ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan HR Executive Profile"].includes(role as string)
+    //   ? [
+    //     {
+    //       // Unified Expense module: Misc Project + Non-Project tabs. Links to the
+    //       // default (Misc Project) tab; the tab strip handles switching.
+    //       key: '/expense/project',
+    //       icon: Landmark,
+    //       label: 'Expense',
+    //     },
+    //   ]
+    //   : []),
     ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role as string)
       ? [
         {
@@ -947,7 +971,7 @@ export function NewSidebar() {
                     "TDS Repository",
                     "Procurement Requests",
                     "Purchase Orders",
-                    "Project Payments",
+                    "Project Payment & Expense",
                     "Credit Payments",
                     "Sent Back Requests",
                     "Projects",
@@ -968,7 +992,7 @@ export function NewSidebar() {
                     "Material Plan Tracker",
                     "Cashflow Plan Tracker",
                     "Project Invoices",
-                    "Expense",
+                    // "Expense",  // hidden from the nav — see the commented block above
                     "Users",
                     "Assets",
                     "Vendors",

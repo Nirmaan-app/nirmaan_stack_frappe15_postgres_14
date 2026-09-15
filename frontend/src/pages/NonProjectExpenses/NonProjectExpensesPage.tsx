@@ -1,5 +1,6 @@
 // src/pages/non-project-expenses/NonProjectExpensesPage.tsx
 
+import { statusAfterL1, TIER_L2_ABOVE_EXPENSES } from "@/utils/approvalTiers";
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { DateRange } from "react-day-picker";
@@ -312,12 +313,32 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
   const confirmStatusChange = async () => {
     if (!statusAction) return;
     try {
+      // ⚠️ AN L1 APPROVAL DOES NOT ALWAYS MEAN "Approved".
+      //
+      // Above the L2 threshold, L1's click FORWARDS to the CEO rather than
+      // finishing the approval — so the status written depends on the AMOUNT, and
+      // `statusAfterL1` is the one place that decides it (shared with Python by a
+      // parity test). Writing "Approved" unconditionally, as this did, let a
+      // >Rs 30,000 expense skip the CEO gate entirely.
+      const nextStatus =
+        statusAction.next === "Approved"
+          ? statusAfterL1(statusAction.expense.amount, TIER_L2_ABOVE_EXPENSES)
+          : statusAction.next;
+
       await updateDoc(DOCTYPE, statusAction.expense.name, {
-        status: statusAction.next,
+        status: nextStatus,
+        // Stamp the approval date the way Project Payments does, so an expense
+        // approved by a person is dated and the dashboard's L1 counter (which
+        // reads `approval_date AND NOT auto_approved`) can see it. Stamped on
+        // BOTH outcomes of an L1 click — forwarding to the CEO is still an L1
+        // approval, and payments date it the same way.
+        ...(statusAction.next === "Approved"
+          ? { approval_date: new Date().toISOString().slice(0, 10) }
+          : {}),
       });
       toast({
         title: "Success",
-        description: `Expense marked ${statusAction.next}.`,
+        description: `Expense marked ${nextStatus}.`,
         variant: "success",
       });
       refetch();

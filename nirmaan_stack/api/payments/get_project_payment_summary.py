@@ -46,6 +46,12 @@ def get_payment_dashboard_stats():
         'total_ceo_pending_count': 0,
         'total_ceo_pending_amount': 0.0,
 
+        # Money that has LEFT the bank but the bank has not confirmed it. Reads 0
+        # until the fulfil path starts writing the status — an honest zero, the same
+        # one the tab shows.
+        'total_reconciliation_pending_count': 0,
+        'total_reconciliation_pending_amount': 0.0,
+
         # Approved
         'total_approval_done_today': 0,
         'total_approval_done_today_amount': 0.0,
@@ -81,15 +87,31 @@ def get_payment_dashboard_stats():
 
     try:
         # 1. Fetch ALL necessary documents
-        all_payments = frappe.get_all(
-            doctype,
-            fields=['name', 'status', 'amount', 'approval_date', 'ceo_approval_date', 'payment_date', 'auto_approved'],
-            limit_page_length=None
-        )
-        
+        # ── ALL THREE MONEY-OUT LEDGERS ──────────────────────────────────────
+        #
+        # This used to read `Project Payments` alone, so every figure in the
+        # Pending and Approved & Paid blocks silently excluded expenses — the card
+        # said "Approved But not Paid ₹13,848" while the tab beside it listed 15
+        # rows worth ₹87,408. A summary that contradicts the list under it is worse
+        # than no summary.
+        #
+        # The fields are identical on all three (the expense ledgers gained
+        # `approval_date` / `ceo_approval_date` / `auto_approved` on 15 Sep), so one
+        # loop still serves all of them — only the SOURCE widened, not the rules.
+        LEDGERS = (doctype, 'Project Expenses', 'Non Project Expenses')
+        _row_fields = ['name', 'status', 'amount', 'approval_date',
+                       'ceo_approval_date', 'payment_date', 'auto_approved']
+
+        all_payments = []
+        for _ledger in LEDGERS:
+            for _row in frappe.get_all(_ledger, fields=_row_fields, limit_page_length=None):
+                _row['ledger'] = _ledger
+                all_payments.append(_row)
+
         # 2. Python Aggregation (Manual Calculation)
         for doc in all_payments:
             status = doc.status
+            is_payment = doc.get('ledger') == doctype
             
             # Safely convert amount to float
             try:
@@ -108,6 +130,9 @@ def get_payment_dashboard_stats():
             if status == 'Approved':
                 stats['total_pending_payment_count'] += 1
                 stats['total_pending_payment_amount'] += amount
+            if status == 'Reconciliation Pending':
+                stats['total_reconciliation_pending_count'] += 1
+                stats['total_reconciliation_pending_amount'] += amount
 
             # --- 2b & 2c. APPROVED Check (L1) ---
             # Exclude auto-approved payments — they skipped the L1 gate and are
@@ -166,9 +191,13 @@ def get_payment_dashboard_stats():
                     stats['payment_done_7_days'] += 1
                     stats['payment_done_7_days_amount'] += amount
 
-                # Project outflow — Paid payments (PO + WO) in the last 30 days.
+                # Project outflow — Paid PAYMENTS (PO + WO) in the last 30 days.
                 # payment_date is only stamped on fulfilment, so this is cash actually out.
-                if payment_date >= thirty_days_ago and payment_date <= today_date:
+                #
+                # ⚠️ PAYMENTS ONLY, and the guard is load-bearing: Project Expenses are
+                # added to this same accumulator at 2e2 below and Non-Project at 2g, so
+                # without it the widened loop would count every expense TWICE.
+                if is_payment and payment_date >= thirty_days_ago and payment_date <= today_date:
                     stats['total_project_outflow_30_days_count'] += 1
                     stats['total_project_outflow_30_days_amount'] += amount
 

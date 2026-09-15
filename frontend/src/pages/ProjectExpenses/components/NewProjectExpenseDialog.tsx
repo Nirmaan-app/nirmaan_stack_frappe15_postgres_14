@@ -40,7 +40,6 @@ import { parseNumber } from "@/utils/parseNumber";
 import { getExpenseCreatedToast, getExpenseSubmitLabel } from "@/utils/expenseApproval";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { queryKeys, getProjectExpenseTypeListOptions } from "@/config/queryKeys";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 
 interface NewProjectExpenseDialogProps {
@@ -59,24 +58,19 @@ interface FormState {
     invoice_date: string;
 }
 
-const AMOUNT_LIMIT = 15000;
+// AMOUNT CAP REMOVED (owner, 2026-09-15). This screen used to refuse any expense over
+// ₹15,000 unless its type matched an "accommodation" keyword, so every genuinely large
+// expense had to be renamed into an exempt type to get through. Nothing enforced it
+// server-side, so it was never a control -- only an obstacle.
+//
+// ⚠️ THE ₹10,000 AUTO-APPROVE THRESHOLD IS A DIFFERENT RULE AND IS UNTOUCHED. That one
+// lives in the doctype's own `validate` (`initial_status` / `is_auto_approved`) and
+// decides whether a saved expense is Approved outright or routed to an approver. It has
+// always been a ROUTING rule, never a ceiling -- removing this cap does not let anything
+// skip approval, it just lets a large expense be entered and sent to an approver.
 const OTHERS_VENDOR_VALUE = "OTHERS_EMPTY_SELECTION"; // Unique identifier for "Others" option
 const DOCTYPE = "Project Expenses";
 
-// Expense types whose amount is user-defined with NO cap (the AMOUNT_LIMIT does not
-// apply). Matched as a case-insensitive SUBSTRING of the type's docname / display label,
-// so ANY type that includes one of these words is exempt — e.g. "Accommodation Deposit",
-// "Staff Accommodation Rent", "Labour Accommodation Rent", or a future plain "Accommodation".
-const NO_LIMIT_EXPENSE_TYPE_KEYWORDS = ["accommodation"];
-const isUncappedExpenseType = (
-    typeId: string,
-    options: { value: string; label: string }[]
-) => {
-    const norm = (s?: string) => (s || "").trim().toLowerCase();
-    const label = norm(options.find((o) => o.value === typeId)?.label);
-    const id = norm(typeId);
-    return NO_LIMIT_EXPENSE_TYPE_KEYWORDS.some((kw) => label.includes(kw) || id.includes(kw));
-};
 
 const INITIAL_STATE: FormState = {
     projects: "",
@@ -220,9 +214,6 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
         const amountValue = parseNumber(formState.amount);
         if (!formState.amount.trim() || isNaN(amountValue)) {
             errors.amount = "A valid amount is required.";
-        } else if (!isUncappedExpenseType(formState.type, expenseTypeOptions) && amountValue > AMOUNT_LIMIT) {
-            // No cap for user-defined types (e.g. Accommodation); all others cap at AMOUNT_LIMIT.
-            errors.amount = `Amount cannot exceed ${formatToRoundedIndianRupee(AMOUNT_LIMIT)}.`;
         }
 
         // Invoice details, when recorded, need a date; an attached invoice needs a ref.
@@ -347,11 +338,15 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
     const isLoadingOverall = loading || uploadLoading || vendorsLoading || expenseTypesLoading;
     const isSubmitDisabled = isLoadingOverall || isAutofilling || Object.values(formErrors).some(Boolean);
     const selectedExpenseTypeLabel = expenseTypeOptions.find(option => option.value === formState.type)?.label || "Select an expense type...";
-    // When the selected type is user-defined (e.g. Accommodation), the ₹15k cap is lifted.
-    const isAmountUncapped = isUncappedExpenseType(formState.type, expenseTypeOptions);
-    // The submit label names the path this expense will actually take: a small
-    // positive amount is auto-approved on save ("Raise Expense"), anything else
-    // -- above ₹10,000, a refund, or a blank amount -- goes to an approver.
+    // The submit label names the path this expense will actually take: a positive amount
+    // BELOW ₹15,000 is auto-approved on save ("Raise Expense"), anything else -- at or
+    // above ₹15,000, a refund, or a blank amount -- goes to an approver.
+    //
+    // ⚠️ The threshold comes from the CENTRALIZED rule (`utils/approvalTiers.ts`, itself a
+    // pinned mirror of `services/approval_tiers.py`), which is what both expense doctype
+    // controllers now route on. It used to be a separate ₹10,000 owned by
+    // `expenseApproval.ts`, and that copy drifted: for ₹10,001-₹14,999 the server
+    // auto-approved while this button still read "Send for Approval".
     const submitLabel = getExpenseSubmitLabel(formState.amount);
 
     return (
@@ -402,7 +397,6 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
                         <div className="col-span-3">
                             <Input id="amount" type="number" value={formState.amount} onChange={(e) => handleInputChange('amount', e.target.value)} className={cn(formErrors.amount ? "border-destructive" : "", autofilledFields.has("amount") && "bg-amber-50 border-amber-300 focus-visible:ring-amber-400")} disabled={isLoadingOverall} />
                             {formErrors.amount && <p className="text-xs text-destructive mt-1">{formErrors.amount}</p>}
-                            {isAmountUncapped && <p className="text-xs text-muted-foreground mt-0.5">No amount limit for this expense type.</p>}
                         </div>
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">

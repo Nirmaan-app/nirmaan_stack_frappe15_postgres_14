@@ -887,7 +887,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
     PO ? `Projects-${PO.name}` : null
   );
   const { updateDoc, loading: isUpdatingDoc } = useFrappeUpdateDoc();
-  const { errors, isValid, hasVendorIssues } = usePOValidation(PO);
+  const { errors, isValid, hasVendorIssues, missingVendorBankDetails } = usePOValidation(PO);
   const { role } = useUserData();
   const { isCEOHold, showBlockedToast } = useCEOHoldGuard(PO?.project);
   const { isOnHold: isVendorOnHold, showBlockedToast: showVendorBlockedToast } = useVendorHoldGuard(PO?.vendor);
@@ -977,7 +977,28 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
     [PO.note_points]
   );
 
-  const handleOpenRequestDialog = (term: PaymentTerm) => setTermToRequest(term);
+  // A payment request is the front of the payout pipeline: it ends as a row in the ICICI /
+  // Cashfree bank file, which is keyed on account_number + ifsc. Letting a request in for a
+  // vendor with neither only defers the failure to the accountant, who finds the row
+  // unselectable on the "Payments to be Paid" tab with no way to fix it from there. So it is
+  // stopped at the source, with the reason and the remedy in the same message.
+  const showMissingBankDetailsToast = useCallback(() => {
+    toast({
+      title: "Bank details missing",
+      description: `This vendor does not have their bank details. Please fill the bank details for ${PO?.vendor_name || PO?.vendor} to request the payment.`,
+      variant: "destructive",
+    });
+  }, [PO?.vendor, PO?.vendor_name]);
+
+  const handleOpenRequestDialog = (term: PaymentTerm) => {
+    // Checked here rather than only on confirm, so the dialog never opens on a request that
+    // cannot be made — the user gets the reason on the click that started it.
+    if (missingVendorBankDetails) {
+      showMissingBankDetailsToast();
+      return;
+    }
+    setTermToRequest(term);
+  };
 
   const handleConfirmRequestPayment = async () => {
     if (isCEOHold) {
@@ -986,6 +1007,12 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
     }
     if (isVendorHoldBlocked) {
       showVendorBlockedToast();
+      return;
+    }
+    // Re-checked on submit alongside the hold guards: the vendor doc can finish loading, or
+    // its bank row be cleared elsewhere, between opening this dialog and confirming it.
+    if (missingVendorBankDetails) {
+      showMissingBankDetailsToast();
       return;
     }
     if (!termToRequest) return;

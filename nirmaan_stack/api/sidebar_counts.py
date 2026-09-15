@@ -164,7 +164,7 @@ def sidebar_counts(user: str) -> str:
     # can use plain dot access — e.g. counts.pay.ceopending.
     pay_counts = {
         s.lower().replace(" ", ""): simple("Project Payments", {**pay_filters, "status": s})
-        for s in ("Requested", "CEO Pending", "Approved", "Rejected", "Paid")
+        for s in ("Requested", "CEO Pending", "Approved", "Reconciliation Pending", "Rejected", "Paid")
     }
     pay_counts["all"] = simple("Project Payments", {**pay_filters})
     # Credit counts: PO Payment Terms (child of Procurement Orders) scoped to non-Merged/Inactive POs.

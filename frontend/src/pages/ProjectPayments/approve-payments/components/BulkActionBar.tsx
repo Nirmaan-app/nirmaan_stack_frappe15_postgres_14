@@ -12,18 +12,18 @@ import { useToast } from "@/components/ui/use-toast";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
-import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
+// The unified queue hands this a normalized row that carries every field the bulk
+// path reads (amount, name, document_name, vendor, document_type, tds) under their
+// PAYMENT names, so nothing in here had to change — only the type widened.
+import { ApprovalQueueRow } from "../../config/approvalsTable.config";
 
-import {
-  BulkAction,
-  BulkFailure,
-  BulkMode,
-  useBulkPaymentActions,
-} from "../hooks/useBulkPaymentActions";
+import { BulkAction, BulkFailure, BulkMode } from "../hooks/useBulkPaymentActions";
+import { useBulkApprovalActions } from "../hooks/useBulkApprovalActions";
+import { countLabel, summarizeSelection } from "../../bulkSelectionSummary";
 import { BulkConfirmDialog } from "./BulkConfirmDialog";
 
 interface BulkActionBarProps {
-  table: Table<ProjectPayments>;
+  table: Table<ApprovalQueueRow>;
   mode: BulkMode;
   refetch: () => void;
   projectLabelFor?: (projectId?: string) => string;
@@ -38,7 +38,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
   vendorLabelFor,
 }) => {
   const { toast } = useToast();
-  const { submit, loading } = useBulkPaymentActions(mode);
+  const { submit, loading } = useBulkApprovalActions(mode);
 
   const [dialogAction, setDialogAction] = useState<BulkAction | null>(null);
   const [lastFailures, setLastFailures] = useState<BulkFailure[]>([]);
@@ -50,6 +50,9 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
   );
 
   const count = selectedPayments.length;
+  // Every user-facing string on this path reads its noun from here — the queue holds
+  // three ledgers, so "payment" is only sometimes the right word.
+  const mix = useMemo(() => summarizeSelection(selectedPayments), [selectedPayments]);
 
   const totalReqAmount = useMemo(
     () =>
@@ -68,9 +71,10 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
   const handleConfirm = useCallback(
     async (rejectionReason?: string) => {
       if (!dialogAction || count === 0) return;
-      const ids = selectedPayments.map((p) => p.name);
+      // Whole ROWS, not ids: the hook routes each one by `doctype`, because an
+      // expense and a payment go to different engines.
       try {
-        const result = await submit(ids, dialogAction, rejectionReason);
+        const result = await submit(selectedPayments, dialogAction, rejectionReason);
         setLastFailures(result.failed);
 
         const succeededCount = result.succeeded.length;
@@ -82,13 +86,13 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
             description:
               failedCount > 0
                 ? `${succeededCount} succeeded, ${failedCount} failed. See details.`
-                : `${succeededCount} payment${succeededCount !== 1 ? "s" : ""} ${dialogAction === "approve" ? "approved" : "rejected"}.`,
+                : `${countLabel(mix, succeededCount)} ${dialogAction === "approve" ? "approved" : "rejected"}.`,
             variant: failedCount > 0 ? "default" : "success",
           });
         } else {
           toast({
             title: "No changes",
-            description: `All ${failedCount} payment${failedCount !== 1 ? "s" : ""} failed.`,
+            description: `All ${countLabel(mix, failedCount)} failed.`,
             variant: "destructive",
           });
         }
@@ -105,7 +109,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
         });
       }
     },
-    [dialogAction, count, selectedPayments, submit, toast, refetch, table]
+    [dialogAction, count, selectedPayments, mix, submit, toast, refetch, table]
   );
 
   if (count === 0) {
@@ -118,7 +122,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
     <div className="flex flex-wrap items-center gap-2">
       <div
         className="flex h-8 items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 text-sm"
-        title={`${count} payment${count !== 1 ? "s" : ""} selected · Total Req. Amount ${formatToRoundedIndianRupee(totalReqAmount)}`}
+        title={`${countLabel(mix)} selected · Total Req. Amount ${formatToRoundedIndianRupee(totalReqAmount)}`}
       >
         <span className="text-muted-foreground">Req. Amt :</span>
         <span className="font-bold tabular-nums text-foreground">

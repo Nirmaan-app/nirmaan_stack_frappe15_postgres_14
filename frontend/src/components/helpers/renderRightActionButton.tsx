@@ -14,6 +14,7 @@ import { Badge } from "../ui/badge";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { canManageTendering } from "@/pages/projects/tendering/tenderingAuth";
 import { PROCUREMENT_PROFILES } from "@/constants/roles";
+import { PP_ACCOUNTANT_ROLES } from "@/pages/ProjectPayments/config/ppTabs.constants";
 
 interface RenderActionButtonProps {
   locationPath: string;
@@ -146,6 +147,54 @@ export const RenderRightActionButton = ({
         <CirclePlus className="w-5 h-5 pr-1" />
         Add <span className="hidden md:flex pl-1">New Project Invoice</span>
       </Button>
+    );
+  } else if (locationPath === "/project-payments") {
+    // "Expense Request" — one entry point on the unified money-out queue for raising
+    // either kind of expense, so a payment-facing user does not have to go find the
+    // Expense module.
+    //
+    // ⚠️ THE TOGGLES ONLY FLIP A ZUSTAND FLAG. Both creation dialogs are bare
+    // controlled AlertDialogs that render no trigger of their own, and each is
+    // mounted ONLY on its own list page. `RenderProjectPaymentsComponent` must ALSO
+    // mount them or this button silently does nothing.
+    //
+    // A DROPDOWN, not a modal chooser: it is this file's own idiom for one button with
+    // two creation targets (see "Add New PR" above), and it avoids opening a Radix
+    // modal from inside another Radix modal — both creation dialogs are AlertDialogs.
+    //
+    // ROLE GATE (owner, 15 Sep 2026): procurement + accountant + admin only.
+    //
+    // Deliberately NARROWER than the two expense buttons below, which are ungated. It
+    // is also narrower than the /project-payments audience: Project Lead and PMO can
+    // reach that page but are NOT given expense creation here. That was the live
+    // question -- Project Lead has no Expense sidebar entry today, so including them
+    // would have been a capability grant rather than a shortcut. Excluded on purpose.
+    //
+    // ⚠️ COSMETIC ONLY. Neither dialog contains a role check and neither route has a
+    // guard, so this hides the entry point; the doctype permission is the real boundary.
+    const canRaiseExpense =
+      user_id === "Administrator" ||
+      role === "Nirmaan Admin Profile" ||
+      PP_ACCOUNTANT_ROLES.includes(role as string) ||
+      PROCUREMENT_PROFILES.includes(role as string);
+    if (!canRaiseExpense) return null;
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button className="sm:mr-4 mr-2">
+            <CirclePlus className="w-5 h-5 pr-1" />
+            Expense <span className="hidden md:flex pl-1">Request</span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="mr-16">
+          <DropdownMenuItem onClick={toggleNewProjectExpenseDialog}>
+            Project Expense
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={toggleNewNonProjectExpenseDialog}>
+            Non-Project Expense
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     );
   } else if (locationPath === "/expense/non-project") {
     return (
