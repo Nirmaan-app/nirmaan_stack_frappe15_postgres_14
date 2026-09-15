@@ -1,27 +1,17 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { ColumnDef, Row } from "@tanstack/react-table";
 import {
   FrappeConfig,
   FrappeContext,
-  useFrappeGetCall,
   useFrappeGetDocList,
   useFrappeUpdateDoc,
   useFrappePostCall,
   FrappeDoc,
   GetDocListArgs,
+  useFrappeDocTypeEventListener,
 } from "frappe-react-sdk";
-import { CircleCheck, CircleX, Info } from "lucide-react";
 
 // --- UI Components ---
 import { DataTable } from "@/components/data-table/new-data-table";
-import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Button } from "@/components/ui/button";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
 
@@ -45,17 +35,23 @@ import {
 import PaymentSummaryCards from "../PaymentSummaryCards";
 
 // --- Hooks & Utils ---
+import { Row } from "@tanstack/react-table";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { PP_TABS } from "../config/ppTabs.constants";
+import {
+  APPROVAL_QUEUE_API,
+  APPROVAL_FETCH_FIELDS,
+  APPROVAL_DATE_COLUMNS,
+  APPROVAL_SEARCHABLE_FIELDS,
+  ApprovalQueueRow,
+  TAB_COLUMNS,
+  TAB_DEFAULT_SORT,
+} from "../config/approvalsTable.config";
+import { buildApprovalColumns, ApprovalColumnCtx } from "../config/approvalColumns";
+import { statusAfterL1, TIER_L2_ABOVE_EXPENSES } from "@/utils/approvalTiers";
+import { useApprovalQueueExport, ApprovalExportButton } from "../hooks/useApprovalQueueExport";
+import { useApprovalFacets } from "../config/useApprovalFacets";
 import { useVendorTdsRates, VendorTdsRateContext } from "../hooks/useVendorTdsRates";
-import {
-  FacetDeclaration,
-  FacetOverrides,
-} from "@/components/data-table/facetConfig";
-import {
-  formatToApproxLakhs,
-  formatToLakhsNumber,
-  formatToRoundedIndianRupee,
-} from "@/utils/FormatPrice";
 // import { getPOTotal, getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import {
@@ -68,16 +64,12 @@ import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/use
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import {
-  DEFAULT_PP_FIELDS_TO_FETCH,
-  PP_DATE_COLUMNS,
-  PP_SEARCHABLE_FIELDS,
 } from "../config/projectPaymentsTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
-import { useSWRConfig } from "swr";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 // --- Constants ---
@@ -388,391 +380,93 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   const staticFilters = useMemo(
     () => [
       ["status", "=", isCEOMode ? PAYMENT_STATUS.CEO_PENDING : PAYMENT_STATUS.REQUESTED],
+      // No source filter: this tab now shows ALL THREE money-out ledgers. Vendor
+      // payments, project expenses and non-project expenses land in one queue,
+      // sorted by age rather than by ledger.
     ],
     [isCEOMode]
   );
 
-  // --- Fields to Fetch for the Main DataTable ---
-  const fieldsToFetchPP = useMemo(
-    () => DEFAULT_PP_FIELDS_TO_FETCH.concat(["creation"]),
-    []
-  );
-
-  const ppSearchableFields = useMemo(() => PP_SEARCHABLE_FIELDS, []);
-
   // --- Date Filter Columns ---
-  const dateColumns = useMemo(() => PP_DATE_COLUMNS, []);
+  const dateColumns = useMemo(() => APPROVAL_DATE_COLUMNS, []);
 
   // --- Column Definitions ---
-  const columns = useMemo<ColumnDef<ProjectPayments>[]>(
-    () => [
-      {
-        accessorKey: "document_name",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="#PO / #SR" />
-        ),
-        cell: ({ row }) => {
-          const payment = row.original;
-          const newEventId = isCEOMode ? "payment:approved" : "payment:new";
-          const isNew = notifications.find(
-            (n) =>
-              n.docname === payment.name &&
-              n.seen === "false" &&
-              n.event_id === newEventId
-          );
-          const docLink = payment.document_name?.replace(/\//g, "&=");
-          return (
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={() => handleNewPaymentSeen(isNew)}
-              className="font-medium relative flex items-center gap-1.5 group"
-            >
-              {isNew && (
-                <div
-                  className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse"
-                  title="New Payment Request"
-                />
-              )}
-              <span
-                className="max-w-[150px] truncate"
-                title={payment.document_name}
-              >
-                {payment.document_name}
-              </span>
-              <HoverCard>
-                <HoverCardTrigger asChild>
-                  <Link to={docLink}>
-                    <Info className="w-4 h-4 text-blue-600 cursor-pointer flex-shrink-0 opacity-70 group-hover:opacity-100" />
-                  </Link>
-                </HoverCardTrigger>
-                <HoverCardContent className="text-xs w-auto p-1.5">
-                  View linked{" "}
-                  {payment.document_type === DOC_TYPES.PROCUREMENT_ORDERS
-                    ? "PO"
-                    : "SR"}
-                </HoverCardContent>
-              </HoverCard>
-            </div>
-          );
-        },
-        size: 200,
-        meta: {
-          exportHeaderName: "PO/SR ID",
-          exportValue: (row: ProjectPayments) => row.document_name,
-        },
-      },
-      {
-        accessorKey: "creation",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Req. On" />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium whitespace-nowrap">
-            {formatDate(row.getValue("creation"))}
-          </div>
-        ),
-        size: 100,
-        meta: {
-          exportHeaderName: "Requested On",
-          exportValue: (row: ProjectPayments) => formatDate(row.creation),
-        },
-      },
-      {
-        accessorKey: "vendor",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Vendor" />
-        ),
-        cell: ({ row }) => {
-          const vendor = vendorOptions.find(
-            (v) => v.value === row.original.vendor
-          );
-          return (
-            <div className="font-medium truncate" title={vendor?.label}>
-              {vendor?.label || row.original.vendor}
-            </div>
-          );
-        },
-        enableColumnFilter: true,
-        size: 200,
-        meta: {
-          facet: { field: "vendor", title: "Vendor" } satisfies FacetDeclaration,
-          exportHeaderName: "Vendor",
-          exportValue: (row: ProjectPayments) =>
-            vendorOptions.find((v) => v.value === row.vendor)?.label ||
-            row.vendor,
-        },
-      },
-      {
-        accessorKey: "project",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Project" />
-        ),
-        cell: ({ row }) => {
-          const project = projectOptions.find(
-            (p) => p.value === row.original.project
-          );
-          return (
-            <div className="font-medium truncate" title={project?.label}>
-              {project?.label || row.original.project}
-            </div>
-          );
-        },
-        enableColumnFilter: true,
-        size: 200,
-        meta: {
-          facet: { field: "project", title: "Project" } satisfies FacetDeclaration,
-          exportHeaderName: "Project",
-          exportValue: (row: ProjectPayments) =>
-            projectOptions.find((p) => p.value === row.project)?.label ||
-            row.project,
-        },
-      },
-      ...(isCEOMode
-        ? ([
-            {
-              id: "project_value",
-              header: ({ column }) => (
-                <DataTableColumnHeader column={column} title="Project Value (incl.GST)" />
-              ),
-              cell: ({ row }) => {
-                const value = getProjectValue(row.original.project);
-                return (
-                  <div className="font-medium pr-2 tabular-nums">
-                    {value ? formatToApproxLakhs(value) : "N/A"}
-                  </div>
-                );
-              },
-              size: 100,
-              enableSorting: false,
-              meta: {
-                exportHeaderName: "Project Value (incl.GST)",
-                exportValue: (row: ProjectPayments) =>
-                  formatToLakhsNumber(getProjectValue(row.project)),
-              },
-            },
-            {
-              id: "cashflow_gap",
-              header: ({ column }) => (
-                <DataTableColumnHeader column={column} title="Cashflow Gap" />
-              ),
-              cell: ({ row }) => {
-                const gap = getProjectCashflowGap(row.original.project);
-                return (
-                  <div
-                    className={`font-medium pr-2 tabular-nums ${
-                      gap > 0 ? "text-red-600" : "text-green-600"
-                    }`}
-                  >
-                    {formatToApproxLakhs(gap)}
-                  </div>
-                );
-              },
-              size: 100,
-              enableSorting: false,
-              meta: {
-                exportHeaderName: "Cashflow Gap (in Lakhs)",
-                exportValue: (row: ProjectPayments) =>
-                  formatToLakhsNumber(getProjectCashflowGap(row.project)),
-              },
-            },
-          ] as ColumnDef<ProjectPayments>[])
-        : []),
-      {
-        id: "po_value",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="WO/PO Value" />
-        ),
-        cell: ({ row }) => {
-          const totalValue = getDocumentTotal(
-            row.original.document_name,
-            row.original.document_type
-          );
-          return (
-            <div className="font-medium pr-2">
-              {formatToRoundedIndianRupee(totalValue)}
-            </div>
-          );
-        },
-        size: 100,
-        enableSorting: false,
-        meta: {
-          exportHeaderName: "WO/PO Value",
-          exportValue: (row: ProjectPayments) =>
-            formatToRoundedIndianRupee(
-              getDocumentTotal(row.document_name, row.document_type)
-            ),
-        },
-      },
-      {
-        id: "total_paid_for_doc",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Total Paid" />
-        ),
-        cell: ({ row }) => {
-          const amountPaid = getAmountPaid(row.original.document_name);
-          return (
-            <div className="font-medium pr-2">
-              {formatToRoundedIndianRupee(amountPaid)}
-            </div>
-          );
-        },
-        size: 100,
-        enableSorting: false,
-        meta: {
-          exportHeaderName: "Total Paid",
-          exportValue: (row: ProjectPayments) =>
-            formatToRoundedIndianRupee(getAmountPaid(row.document_name)),
-        },
-      },
-      {
-        id: "payable_against_delivery",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Payable Against Delivery" />
-        ),
-        cell: ({ row }) => {
-          const delivered = getPoAmountDelivered(
-            row.original.document_name,
-            row.original.document_type
-          );
-          return (
-            <div className="font-medium pr-2">
-              {delivered ? formatToRoundedIndianRupee(delivered) : "N/A"}
-            </div>
-          );
-        },
-        size: 100,
-        enableSorting: false,
-        meta: {
-          exportHeaderName: "Payable Against Delivery",
-          exportValue: (row: ProjectPayments) =>
-            getPoAmountDelivered(row.document_name, row.document_type),
-        },
-      },
-      {
-        accessorKey: "amount",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Req. Amt" />
-        ),
-        cell: ({ row }) => {
-          // A carried-forward balance is smaller than the PO term it came from, which reads as
-          // a data error unless the row says where it came from.
-          const splitFrom = row.original.split_from;
-          return (
-            // STACKED, not inline. This column is sized at 100px and the amount already fills it,
-            // so an inline chip overflows the cell and is overlapped by the next column's text
-            // (seen live before this layout). `w-fit` keeps the chip hugging its label.
-            <div className="font-medium pr-2 text-emerald-500 dark:text-emerald-300">
-              <div>{formatToRoundedIndianRupee(parseNumber(row.getValue("amount")))}</div>
-              {splitFrom && (
-                <HoverCard>
-                  <HoverCardTrigger asChild>
-                    <span className="mt-0.5 block w-fit cursor-default rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium leading-tight text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                      Balance
-                    </span>
-                  </HoverCardTrigger>
-                  <HoverCardContent className="w-auto p-1.5 text-xs">
-                    Balance carried forward from <i>{splitFrom}</i> after a partial approval
-                  </HoverCardContent>
-                </HoverCard>
-              )}
-            </div>
-          );
-        },
-        size: 100,
-        meta: {
-          exportHeaderName: "Requested Amount",
-          exportValue: (row: ProjectPayments) =>
-            formatToRoundedIndianRupee(parseNumber(row.amount)),
-        },
-      },
-      {
-        accessorKey: "owner",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Requested By" />
-        ),
-        cell: ({ row }) => {
-          const ownerUser = userList?.find(
-            (user) => user.name === row.original.owner
-          );
-          return (
-            <div className="font-medium truncate">
-              {ownerUser?.full_name || row.original.owner}
-            </div>
-          );
-        },
-        size: 120,
-        meta: {
-          exportHeaderName: "Requested By",
-          exportValue: (row: ProjectPayments) =>
-            userList?.find((user) => user.name === row.owner)?.full_name ||
-            row.owner,
-        },
-      },
-      ...(!readOnly ? [{
-        id: "actions",
-        header: "Actions",
-        cell: ({ row }: { row: Row<ProjectPayments> }) => (
-          <div className="flex items-center gap-1">
-            <HoverCard>
-              <HoverCardTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-green-600 hover:text-green-700"
-                  onClick={() =>
-                    openDialog(row.original, DIALOG_ACTION_TYPES.APPROVE)
-                  }
-                >
-                  <CircleCheck className="h-5 w-5" />
-                </Button>
-              </HoverCardTrigger>
-              <HoverCardContent className="text-xs w-auto p-1.5">
-                {isCEOMode ? "CEO Approve" : "Approve"}
-              </HoverCardContent>
-            </HoverCard>
-            <HoverCard>
-              <HoverCardTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-red-600 hover:text-red-700"
-                  onClick={() =>
-                    openDialog(row.original, DIALOG_ACTION_TYPES.REJECT)
-                  }
-                >
-                  <CircleX className="h-5 w-5" />
-                </Button>
-              </HoverCardTrigger>
-              <HoverCardContent className="text-xs w-auto p-1.5">
-                Reject
-              </HoverCardContent>
-            </HoverCard>
-          </div>
-        ),
-        size: 80,
-        meta: {
-          excludedFromExport: true,
-        },
-      } as ColumnDef<ProjectPayments>] : []),
-    ],
-    [
-      notifications,
-      projectOptions,
-      vendorOptions,
-      userList,
-      handleNewPaymentSeen,
-      openDialog,
+  // --- Column Definitions ---
+  //
+  // The 369-line inline block that used to live here — one `useMemo` threaded with
+  // `...(tab === "X" ? [...] : [])` spreads — is now a REGISTRY + a per-tab id
+  // array (config/approvalColumns.tsx + config/approvalsTable.config.ts).
+  //
+  // The array IS the order, which is what puts `actions` in position 2 so the
+  // approver's hand never travels to the right edge. One definition per column id
+  // means a change to `against` cannot drift between tabs, and a new tab is one
+  // entry in TAB_COLUMNS rather than another 300-line block.
+  const activeTab = isCEOMode ? PP_TABS.CEO_PENDING : PP_TABS.APPROVE_PAYMENTS;
+
+  const userLabelMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const u of userList ?? []) m.set(u.name, u.full_name || u.name);
+    return m;
+  }, [userList]);
+
+  const columnCtx = useMemo<ApprovalColumnCtx>(
+    () => ({
+      tab: activeTab,
+      projectLabels: projectLabelMap,
+      vendorLabels: vendorLabelMap,
+      userLabels: userLabelMap,
       getDocumentTotal,
       getAmountPaid,
       getPoAmountDelivered,
       getProjectValue,
       getProjectCashflowGap,
-      allPaidPayments,
+      isUnseen: (row) =>
+        !!notifications.find(
+          (n) => n.docname === row.name && n.seen === "false" && n.event_id === "payment:requested"
+        ),
+      onSeen: (row) =>
+        handleNewPaymentSeen(
+          notifications.find(
+            (n) => n.docname === row.name && n.seen === "false" && n.event_id === "payment:requested"
+          )
+        ),
+      onApprove: readOnly
+        ? undefined
+        : (row) => openDialog(row as unknown as ProjectPayments, DIALOG_ACTION_TYPES.APPROVE),
+      onReject: readOnly
+        ? undefined
+        : (row) => openDialog(row as unknown as ProjectPayments, DIALOG_ACTION_TYPES.REJECT),
+    }),
+    [
+      activeTab,
+      projectLabelMap,
+      vendorLabelMap,
+      userLabelMap,
+      getDocumentTotal,
+      getAmountPaid,
+      getPoAmountDelivered,
+      getProjectValue,
+      getProjectCashflowGap,
+      notifications,
+      handleNewPaymentSeen,
+      openDialog,
       readOnly,
-      isCEOMode,
     ]
   );
+
+  const columns = useMemo(
+    () => buildApprovalColumns(TAB_COLUMNS[activeTab], columnCtx),
+    [activeTab, columnCtx]
+  );
+
+  const exportFileName = `${isCEOMode ? "CEO_Pending_Payments" : "Approve_Payments"}_${formatDate(new Date())}`;
+
+  // Counted over the same union, under this tab's own filters.
+  const approvalFacets = useApprovalFacets({
+    filters: staticFilters as Array<[string, string, unknown]>,
+    projectLabels: projectLabelMap,
+    vendorLabels: vendorLabelMap,
+  });
 
   // --- useServerDataTable Hook Instantiation (moved up for columnFilters access) ---
   const {
@@ -788,19 +482,49 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     // isRowSelectionActive,
     refetch,
     exportAllRows,
-    isExporting,
-  } = useServerDataTable<ProjectPayments>({
+    // `isExporting` is NOT taken: the built-in export button is off on this screen,
+    // and the replacement tracks its own flag (`isExportingAll`). tsconfig sets
+    // `noUnusedLocals`, so an unused destructure here is a compile error, not lint.
+  } = useServerDataTable<ApprovalQueueRow>({
+    // `doctype` is nominal here: the endpoint below unions three of them. It is
+    // still sent because the hook derives its cache key from it.
     doctype: DOCTYPE,
+    apiEndpoint: APPROVAL_QUEUE_API,
     columns: columns,
-    fetchFields: fieldsToFetchPP,
-    searchableFields: ppSearchableFields,
+    fetchFields: APPROVAL_FETCH_FIELDS,
+    searchableFields: APPROVAL_SEARCHABLE_FIELDS,
     urlSyncKey: isCEOMode ? URL_SYNC_KEY_CEO : URL_SYNC_KEY_LEAD,
-    defaultSort: "creation desc",
+    // Work queues open OLDEST-first. Sorting happens over the UNION, so age order
+    // is correct across ledgers rather than within each one.
+    defaultSort: TAB_DEFAULT_SORT[activeTab],
     enableRowSelection: !readOnly
       ? (row) => !ceoHoldProjectIds.has(row.original.project)
       : false,
     additionalFilters: staticFilters,
   });
+
+  // Full-table CSV, all columns, whole filtered queue. Rendered through
+  // `toolbarActions` rather than the built-in export button — see the note on the
+  // `showExportButton={false}` prop below for why that swap was necessary here.
+  const { exportAll, isExportingAll } = useApprovalQueueExport({
+    exportAllRows,
+    columnCtx,
+    fileName: exportFileName,
+  });
+
+
+    // ⚠️ THE TABLE ONLY SELF-REFRESHES FOR ITS NOMINAL DOCTYPE.
+    //
+    // `useServerDataTable` ends with `useFrappeDocTypeEventListener(doctype, ...)`
+    // (hooks/useServerDataTable.ts:795) and we pass "Project Payments" — so a new or
+    // changed EXPENSE never reaches it, even though expense rows are in this table.
+    // These two listeners close that gap for both expense ledgers.
+    //
+    // (An earlier attempt invalidated by SWR key instead. That was dead code: this
+    // table fetches through `useFrappePostCall`, which registers no SWR entry at all,
+    // and every mutate() in the hook is commented out.)
+    useFrappeDocTypeEventListener("Project Expenses", () => refetch());
+    useFrappeDocTypeEventListener("Non Project Expenses", () => refetch());
 
   // --- Update Logic ---
   const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
@@ -821,10 +545,23 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       let successMessage: string | undefined;
       try {
         if (isCEOMode) {
+          const ceoRow = selectedPayment as unknown as ApprovalQueueRow;
+          const ceoDoctype = ceoRow.doctype || DOCTYPE;
+          const ceoIsPayment = ceoDoctype === "Project Payments";
+
           if (actionType === DIALOG_ACTION_TYPES.REJECT) {
             // CEO rejection: no amount edits — flip status to Rejected.
-            await updateDoc(DOCTYPE, selectedPayment.name, {
+            await updateDoc(ceoDoctype, selectedPayment.name, {
               status: PAYMENT_STATUS.REJECTED,
+            });
+          } else if (!ceoIsPayment) {
+            // ⚠️ `ceo_approve_payment` is PAYMENTS-ONLY -- it loads a Project Payments
+            // doc and runs the split machinery. An expense has no PO/SR parent and
+            // cannot be split, so a CEO approval on one is a plain status write that
+            // stamps the CEO date, mirroring what the endpoint does for a full approve.
+            await updateDoc(ceoDoctype, selectedPayment.name, {
+              status: PAYMENT_STATUS.APPROVED,
+              ceo_approval_date: new Date().toISOString().split("T")[0],
             });
           } else {
             // CEO approval: call the whitelisted API so the backend can enforce
@@ -843,17 +580,40 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             successMessage = response?.message?.message;
           }
         } else {
+          // ⚠️ THIS QUEUE HOLDS THREE LEDGERS, SO NOTHING HERE MAY BE HARD-CODED.
+          //
+          // This wrote `DOCTYPE` ("Project Payments") with `status: CEO_PENDING` for
+          // every row. Once expenses appeared in this tab that meant approving a
+          // Project / Non-Project Expense tried to update a PAYMENT of the same name
+          // and failed outright. Three things vary per row:
+          //
+          //   1. the DOCTYPE            -> `row.doctype`, the only field that says which
+          //   2. the CEO line           -> 50,000 for payments, 30,000 for expenses, so
+          //                                where an L1 approval LANDS differs per ledger
+          //   3. `payment_details`      -> exists only on Project Payments; sending it to
+          //                                an expense doctype is an unknown-field write
+          const row = selectedPayment as unknown as ApprovalQueueRow;
+          const targetDoctype = row.doctype || DOCTYPE;
+          const isPaymentRow = targetDoctype === "Project Payments";
+
+          // L1 either FINISHES the approval or forwards to the CEO, depending on the
+          // amount and on that ledger's own CEO line. Writing CEO_PENDING flat would
+          // send a Rs 20,000 row to the CEO that L1 was entitled to finish.
           const newStatus =
             actionType === DIALOG_ACTION_TYPES.APPROVE
-              ? PAYMENT_STATUS.CEO_PENDING
+              ? statusAfterL1(
+                  amount,
+                  isPaymentRow ? undefined : TIER_L2_ABOVE_EXPENSES
+                )
               : PAYMENT_STATUS.REJECTED;
-          await updateDoc(DOCTYPE, selectedPayment.name, {
+
+          await updateDoc(targetDoctype, selectedPayment.name, {
             status: newStatus,
             amount: amount,
             approval_date: new Date().toISOString().split("T")[0],
-            ...(payment_details && {
-              payment_details: JSON.stringify(payment_details),
-            }),
+            ...(isPaymentRow && payment_details
+              ? { payment_details: JSON.stringify(payment_details) }
+              : {}),
           });
         }
         refetch();
@@ -890,7 +650,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
 
   // --- CEO Hold Row Highlighting ---
   const getRowClassName = useCallback(
-    (row: Row<ProjectPayments>) => {
+    (row: Row<ApprovalQueueRow>) => {
       const projectId = row.original.project;
       if (projectId && ceoHoldProjectIds.has(projectId)) {
         return CEO_HOLD_ROW_CLASSES;
@@ -932,13 +692,13 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       {isPageLoading && !data?.length ? (
         <TableSkeleton />
       ) : (
-        <DataTable<ProjectPayments>
+        <DataTable<ApprovalQueueRow>
           table={table}
           columns={columns}
           isLoading={listIsLoading}
           error={listError}
           totalCount={totalCount}
-          searchFieldOptions={ppSearchableFields}
+          searchFieldOptions={APPROVAL_SEARCHABLE_FIELDS}
           selectedSearchField={selectedSearchField}
           onSelectedSearchFieldChange={setSelectedSearchField}
           searchTerm={searchTerm}
@@ -953,29 +713,33 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           //     label: "Item Search"
           // }}
           summaryCard={<PaymentSummaryCards totalCount={totalCount} />}
-          facetDoctype={DOCTYPE}
-          facetOverrides={{
-            project: { additionalFilters: staticFilters },
-            vendor: { additionalFilters: staticFilters },
-          } satisfies FacetOverrides}
+          facetFilterOptions={approvalFacets}
           dateFilterColumns={dateColumns}
-          showExportButton={true} // Optional
-          onExport={"default"}
-          onExportAll={exportAllRows}
-          isExporting={isExporting}
-          exportFileName={`${isCEOMode ? "CEO_Pending_Payments" : "Approve_Payments"}_${formatDate(new Date())}`}
+          // ⚠️ THE BUILT-IN EXPORT BUTTON IS OFF ON THIS SCREEN, DELIBERATELY.
+          // With `showRowSelection` on, the shared table's default handler exports the
+          // SELECTED rows and disables the button entirely while nothing is ticked —
+          // so the full filtered list could not be exported at all, and `onExportAll`
+          // was dead code beside it. The checkboxes here are for BULK APPROVE, not for
+          // choosing an export scope. The replacement below is always enabled and
+          // always exports the whole filtered queue.
+          showExportButton={false}
           getRowClassName={getRowClassName}
           showRowSelection={!readOnly}
           toolbarActions={
-            !readOnly ? (
-              <BulkActionBar
-                table={table}
-                mode={isCEOMode ? "ceo" : "lead"}
-                refetch={refetch}
-                projectLabelFor={projectLabelFor}
-                vendorLabelFor={vendorLabelFor}
-              />
-            ) : undefined
+            <>
+              {!readOnly && (
+                <BulkActionBar
+                  table={table}
+                  mode={isCEOMode ? "ceo" : "lead"}
+                  refetch={refetch}
+                  projectLabelFor={projectLabelFor}
+                  vendorLabelFor={vendorLabelFor}
+                />
+              )}
+              {/* Outside the readOnly guard on purpose: a CEO-Pending VIEWER cannot
+                  approve anything but must still be able to pull the list. */}
+              <ApprovalExportButton onClick={exportAll} isExporting={isExportingAll} />
+            </>
           }
         />
       )}

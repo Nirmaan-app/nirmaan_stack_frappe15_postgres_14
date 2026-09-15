@@ -1,27 +1,37 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { ColumnDef, Row } from "@tanstack/react-table";
-import { FrappeConfig, FrappeContext, useFrappeGetCall, useFrappeGetDocList, Filter, FrappeDoc } from "frappe-react-sdk";
-import { Download, Info, Edit2 } from "lucide-react";
+import { Row } from "@tanstack/react-table";
+import { FrappeConfig, FrappeContext, useFrappeGetDocList, Filter, FrappeDoc, useFrappeDocTypeEventListener } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
 
 // --- UI Components ---
 import { DataTable } from '@/components/data-table/new-data-table';
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
-import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 
 import { TableSkeleton } from "@/components/ui/skeleton";
-import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
-import { FacetDeclaration } from '@/components/data-table/facetConfig';
+import {
+    APPROVAL_QUEUE_API,
+    APPROVAL_FETCH_FIELDS,
+    APPROVAL_DATE_COLUMNS,
+    APPROVAL_SEARCHABLE_FIELDS,
+    ApprovalQueueRow,
+    ApprovalTab,
+    TAB_COLUMNS,
+    TAB_DEFAULT_SORT,
+} from "./config/approvalsTable.config";
+import { buildApprovalColumns, ApprovalColumnCtx } from "./config/approvalColumns";
+import { useApprovalQueueExport } from "./hooks/useApprovalQueueExport";
+import UpdatePaymentRequestDialog, { ProjectPaymentUpdateFields } from "./update-payment/UpdatePaymentDialog";
+import { UpdatePaymentDetailsDialog as ProjectExpensePayDialog } from "../ProjectExpenses/components/UpdatePaymentDetailsDialog";
+import { UpdatePaymentDetailsDialog as NonProjectExpensePayDialog } from "../NonProjectExpenses/components/UpdatePaymentDetailsDialog";
+import { useFrappeGetDoc } from "frappe-react-sdk";
+import { useApprovalFacets } from "./config/useApprovalFacets";
 import { formatDate } from "@/utils/FormatDate";
-import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
-import SITEURL from "@/constants/siteURL";
 
 // --- Types ---
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
@@ -32,16 +42,13 @@ import { DOC_TYPES } from "./approve-payments/constants";
 import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 
 // --- Helper Components ---
-import { AmountPaidHoverCard } from "./AmountPaidHoverCard";
 import { useVendorsList } from "../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
-import { buildPaymentsUrlSyncKey, DEFAULT_PP_FIELDS_TO_FETCH, getProjectPaymentsStaticFilters, PP_DATE_COLUMNS, PP_SEARCHABLE_FIELDS } from "./config/projectPaymentsTable.config";
+import { buildPaymentsUrlSyncKey, getProjectPaymentsStaticFilters } from "./config/projectPaymentsTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { EditFulfilledPaymentDialog } from "./update-payment/EditFulfilledPaymentDialog"; // Import the new dialog
 import { useUserData } from "@/hooks/useUserData";
 import { useDialogStore } from "@/zustand/useDialogStore";
-import { Button } from "@/components/ui/button";
 
-import { StatusBadge } from "../credits/components/CreditsTableColumns.tsx";
 
 import PaymentSummaryCards from "./PaymentSummaryCards"
 
@@ -90,19 +97,19 @@ const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
 //             fetchFields: fieldsToFetch,
 //             searchableFields: paymentsSearchableFields,
 //             urlSyncKey: URL_SYNC_KEY,
-//             defaultSort: tab === "Payments Done" ? 'payment_date desc' : 'creation desc',
+//             defaultSort: TAB_DEFAULT_SORT[tab as ApprovalTab],
 //             enableRowSelection: false, // No bulk actions currently
 //             additionalFilters: staticFiltersForTab,
 //         });
 
 //         return (
-//             <DataTable<ProjectPayments>
+//             <DataTable<ApprovalQueueRow>
 //                 table={table}
 //                 columns={columns}
 //                 isLoading={listIsLoading}
 //                 error={listError}
 //                 totalCount={totalCount}
-//                 searchFieldOptions={paymentsSearchableFields}
+//                 searchFieldOptions={APPROVAL_SEARCHABLE_FIELDS}
 //                 selectedSearchField={selectedSearchField}
 //                 onSelectedSearchFieldChange={setSelectedSearchField}
 //                 searchTerm={searchTerm}
@@ -127,7 +134,6 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     // --- CEO Hold Highlighting ---
     const { ceoHoldProjectIds } = useCEOHoldProjects();
     const isAdmin = role === "Nirmaan Admin Profile"; // Check for admin role
-    const isAccountant = role === "Nirmaan Accountant Profile" || role === "Nirmaan Accountant Lead Profile"
 
     const { setEditFulfilledPaymentDialog } = useDialogStore(); // Get the setter for the new dialog
     const [paymentToEdit, setPaymentToEdit] = useState<ProjectPayments | null>(null); // State to hold the payment for the dialog
@@ -168,14 +174,12 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 
 
     // --- Memoized Lookups & Calculations ---
-    const projectOptions = useMemo<SelectOption[]>(() => projects?.map(p => ({ label: p.project_name, value: p.name })) || [], [projects]);
     const projectMap = useMemo(() => {
         const map = new Map<string, string>();
         projects?.forEach(p => map.set(p.name, p.project_name));
         return map;
     }, [projects]);
     const vendorOptions = useMemo<SelectOption[]>(() => vendors?.map(v => ({ label: v.vendor_name, value: v.name })) || [], [vendors]);
-    const getVendorName = useCallback(memoize((vendorId?: string) => vendors?.find(v => v.name === vendorId)?.vendor_name || vendorId || "--"), [vendors]);
 
     const getDocumentTotal = useMemo(() => memoize((docName?: string, docType?: string): number => {
         if (!docName || !docType) return 0;
@@ -231,216 +235,109 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 
     // --- Fields to Fetch for the Main DataTable ---
 
-    const fieldsToFetch = useMemo(() => DEFAULT_PP_FIELDS_TO_FETCH.concat(['creation', 'modified', 'payment_date', 'payment_attachment', 'tds', 'utr']), [])
-
-    const paymentsSearchableFields = useMemo(() => {
-        let fields = [...PP_SEARCHABLE_FIELDS];
-
-        const isUTRDefaultTab = ["Payments Done", "All Payments"].includes(tab);
-
-        if (isUTRDefaultTab) {
-            // 1. Remove default from Payment ID (name)
-            fields = fields.map(f => f.value === "name" ? { ...f, default: false } : f);
-            // 2. Add UTR as default
-            fields.push({ value: "utr", label: "Payment (UTR)", placeholder: "Search by UTR...", default: true });
-        }
-
-        if (["Payments Pending", "All Payments"].includes(tab)) {
-            fields.push({ value: "status", label: "Status", placeholder: "Search by Status..." });
-        }
-
-        return fields;
-    }, [tab]);
-
     // --- Date Filter Columns ---
-    const dateColumns = useMemo(() => PP_DATE_COLUMNS, []);
+    const dateColumns = useMemo(() => APPROVAL_DATE_COLUMNS, []);
 
 
     // --- Column Definitions ---
-    const columns = useMemo<ColumnDef<ProjectPayments>[]>(() => [
-        { // Date column varies based on tab
-            accessorKey: tab === "Payments Done" ? "payment_date" : "creation",
-            header: ({ column }) => <DataTableColumnHeader column={column} title={tab === "Payments Done" ? "Paid On" : "Created On"} />,
-            cell: ({ row }) => {
-                const payment = row.original;
-                const dateValue = tab === "Payments Done" ? payment.payment_date : payment.creation;
-                const eventId = tab === "Payments Done" ? "payment:fulfilled" : null;
-                const isNew = notifications.find(n => n.docname === payment.name && n.seen === "false" && n.event_id === eventId);
-                return (
-                    <div role="button" tabIndex={0} onClick={() => handleSeenNotification(isNew)} className="font-medium relative whitespace-nowrap">
-                        {isNew && <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-5 animate-pulse" />}
-                        {formatDate(dateValue || payment.creation)}
-                    </div>
-                );
-            }, size: 150,
-            meta: {
-                exportHeaderName: tab === "Payments Done" ? "payment_date" : "creation",
-                exportValue: (row: ProjectPayments) => {
-                    const payment = row;
-                    const dateValue = tab === "Payments Done" ? payment.payment_date : payment.creation;
-                    return formatDate(dateValue || payment.creation);
-                }
-            }
-        },
-        {
-            accessorKey: "document_name", header: "#PO / #SR",
-            cell: ({ row }) => { /* ... (Doc # link logic as before) ... */
-                const data = row.original;
-                const docLink = data.document_name.replaceAll("/", "&=")
-                return (<div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
-                    <span className="max-w-[150px] truncate" title={data.document_name}>{data.document_name}</span>
-                    <HoverCard><HoverCardTrigger asChild><Link to={`/project-payments/${docLink}`}><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View linked {data.document_type === DOC_TYPES.PROCUREMENT_ORDERS ? "PO" : "SR"}</HoverCardContent></HoverCard>
-                </div>);
-            }, size: 200,
-            meta: {
-                exportHeaderName: "PO/SR",
-                exportValue: (row: ProjectPayments) => {
-                    return row.document_name;
+    // --- Column Definitions ---
+    //
+    // Was a 179-line inline block threaded with `tab === "Payments Done"` ternaries.
+    // Now a registry + a per-tab id array, so a column has ONE definition and the
+    // array is the order. See config/approvalsTable.config.ts (TAB_COLUMNS).
+    const userLabelMap = useMemo(() => {
+        const m = new Map<string, string>();
+        for (const u of userList ?? []) m.set(u.name, (u as any).full_name || u.name);
+        return m;
+    }, [userList]);
 
-                }
-            }
-        },
-        {
-            accessorKey: "vendor", header: "Vendor",
-            cell: ({ row }) => {
-                const vendorName = getVendorName(row.original.vendor);
-                return (<div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
-                    <span className="max-w-[150px] truncate" title={vendorName}>{vendorName}</span>
-                    <HoverCard><HoverCardTrigger asChild><Link to={`/vendors/${row.original.vendor}`}><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View linked vendor</HoverCardContent></HoverCard>
-                </div>);
-            },
-            enableColumnFilter: true, size: 200,
-            meta: {
-                facet: { field: "vendor", title: "Vendor" } satisfies FacetDeclaration,
-                exportHeaderName: "Vendor",
-                exportValue: (row: ProjectPayments) => {
-                    return getVendorName(row.vendor);
-                }
-            }
-        },
-        ...(!projectId ? [{ // Conditionally show Project column
-            accessorKey: "project", header: "Project",
-            cell: ({ row }) => {
-                const projectLabel = projectMap.get(row.original.project);
-                return <div className="font-medium truncate max-w-[150px]" title={projectLabel}>{projectLabel || row.original.project}</div>;
-            },
-            enableColumnFilter: true, size: 180,
-            meta: {
-                facet: { field: "project", title: "Project" } satisfies FacetDeclaration,
-                exportHeaderName: "Project",
-                exportValue: (row: ProjectPayments) => {
-                    return projectMap.get(row.project) || row.project;
-                }
-            }
-        } as ColumnDef<ProjectPayments>] : []),
-        {
-            id: "doc_value_col", header: ({ column }) => <DataTableColumnHeader column={column} title="WO/PO Value" />,
-            cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(getDocumentTotal(row.original.document_name, row.original.document_type))}</div>,
-            size: 100, enableSorting: false,
-            meta: {
-                exportHeaderName: "WO/PO Value",
-                exportValue: (row: ProjectPayments) => {
-                    return formatForReport(getDocumentTotal(row.document_name, row.document_type));
-                }
-            }
-        },
-        { // Requested/Paid Amount
-            accessorKey: "amount",
-            header: ({ column }) => <DataTableColumnHeader column={column} title={tab === "Payments Done" ? "Amt. Paid" : "Amt. To Pay"} />,
-            cell: ({ row }) => {
-                const payment = row.original;
-                const displayAmount = parseNumber(payment.amount);
-                return tab === "Payments Done" ? <AmountPaidHoverCard paymentInfo={payment} /> : <div className="font-medium pr-2">{formatToRoundedIndianRupee(displayAmount)}</div>;
-            },
-            size: 100,
-            meta: {
-                exportHeaderName: tab === "Payments Done" ? "Amt. Paid" : "Amt. To Pay",
-                exportValue: (row: ProjectPayments) => {
-                    const displayAmount = parseNumber(row.amount);
-                    return formatForReport(displayAmount);
-                }
-            }
-        },
-        {
-            id: "payable_against_delivery",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Payable Against Delivery" />,
-            cell: ({ row }) => {
-                const delivered = getPoAmountDelivered(row.original.document_name, row.original.document_type);
-                return <div className="font-medium pr-2">{delivered ? formatToRoundedIndianRupee(delivered) : "N/A"}</div>;
-            },
-            size: 100, enableSorting: false,
-            meta: {
-                exportHeaderName: "Payable Against Delivery",
-                exportValue: (row: ProjectPayments) => formatForReport(getPoAmountDelivered(row.document_name, row.document_type)),
-            }
-        },
-        ...(tab === "Payments Done" ? [ // Columns only for "Payments Done"
-            {
-                accessorKey: "utr", header: "UTR",
-                cell: ({ row }) => (row.original.payment_attachment ? (<a href={SITEURL + row.original.payment_attachment} target="_blank" rel="noreferrer" className="font-medium text-blue-600 underline">{row.original.utr || "View Proof"}</a>) : <div className="font-medium">{row.original.utr || '--'}</div>),
-                size: 130,
-                meta: {
-                    exportHeaderName: "UTR",
-                    exportValue: (row: ProjectPayments) => {
-                        return row.utr || "--";
-                    }
-                }
-            },
-            // {
-            //     accessorKey: "tds", header: ({ column }) => <DataTableColumnHeader column={column} title="TDS" />,
-            //     cell: ({ row }) => <div className="font-medium pr-2">{row.original.tds ? formatToRoundedIndianRupee(parseNumber(row.original.tds)) : "--"}</div>,
-            //     size: 100,
-            // },
-            {
-                id: "actions",
-                header: () => <div className="text-center">Actions</div>,
-                cell: ({ row }) => (
-                    <div className="flex justify-center items-center gap-1">
-                        {row.original.payment_attachment && (
-                            <a href={SITEURL + row.original.payment_attachment} target="_blank" rel="noopener noreferrer" title="Download Proof">
-                                <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-500 hover:text-blue-600">
-                                    <Download className="h-4 w-4" />
-                                </Button>
-                            </a>
-                        )}
-                        {/* Edit button only for Admins */}
-                        {(isAdmin || isAccountant) && (
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-600 hover:text-gray-800" onClick={() => handleOpenEditDialog(row.original)}>
-                                <Edit2 className="h-4 w-4" />
-                            </Button>
-                        )}
-                    </div>
-                ),
-                size: 80,
-                meta: { excludeFromExport: true }
-            }
-        ] as ColumnDef<ProjectPayments>[] : []),
+    const vendorLabelMap = useMemo(() => {
+        const m = new Map<string, string>();
+        for (const o of vendorOptions) m.set(o.value, o.label);
+        return m;
+    }, [vendorOptions]);
 
-        ...(["Payments Pending", "All Payments"].includes(tab) ? [{
-            accessorKey: "status", header: "Status",
-            cell: ({ row }) => {
-                // 2. Get the status from the row
-                const status = row.original.status as string;
+    // ── "Mark Reconciled" → the ACTUAL payment dialog, routed by LEDGER ──────
+    //
+    // Each ledger settles through its own dialog and its own write path; there is
+    // no shared one, and inventing one would mean reimplementing three sets of
+    // validation. So the row's `doctype` picks the dialog:
+    //   Project Payments     → UpdatePaymentRequestDialog (fulfil) → update_payment_request
+    //   Project Expenses     → ProjectExpensePayDialog  (markAsPaid) → updateDoc
+    //   Non Project Expenses → NonProjectExpensePayDialog (markAsPaid) → updateDoc
+    const [payRow, setPayRow] = useState<ApprovalQueueRow | null>(null);
+    const [payPayment, setPayPayment] = useState<ProjectPaymentUpdateFields | null>(null);
+    const { togglePaymentDialog } = useDialogStore();
 
-                // 3. Render the StatusBadge component in a centered div
-                return (
-                    <div className="flex justify-start">
-                        <StatusBadge status={status} />
-                    </div>
-                );
-            },
-            enableColumnFilter: true, size: 100,
-            meta: {
-                facet: { field: "status", title: "Status" } satisfies FacetDeclaration,
-            }
-        } as ColumnDef<ProjectPayments>] : []),
+    // The two expense dialogs want the WHOLE stored document, not the normalized
+    // queue row — they render invoice fields and existing attachments the union
+    // does not carry. Fetched only while one is open.
+    const isExpenseRow = !!payRow && payRow.doctype !== "Project Payments";
+    const { data: payExpenseDoc } = useFrappeGetDoc<any>(
+        payRow?.doctype as string,
+        payRow?.name as string,
+        isExpenseRow && payRow ? undefined : null
+    );
 
-    ], [tab, projectId, notifications, projectOptions, projectMap, vendorOptions, userList, getVendorName, getDocumentTotal, getPoAmountDelivered, handleSeenNotification, isAdmin, handleOpenEditDialog]);
+    const openPayDialog = useCallback((row: ApprovalQueueRow) => {
+        if (row.doctype === "Project Payments") {
+            setPayPayment({
+                name: row.name,
+                project: row.project,
+                project_label: projectMap.get(row.project) || row.project,
+                vendor_label: vendorLabelMap.get(row.vendor) || row.vendor,
+                document_name: row.document_name,
+                document_type: row.document_type,
+                amount: row.amount,
+                status: row.status,
+            });
+            togglePaymentDialog();
+            return;
+        }
+        setPayRow(row);
+    }, [projectMap, vendorLabelMap, togglePaymentDialog]);
+
+    const columnCtx = useMemo<ApprovalColumnCtx>(() => ({
+        tab: tab as ApprovalTab,
+        projectLabels: projectMap,
+        vendorLabels: vendorLabelMap,
+        userLabels: userLabelMap,
+        getDocumentTotal,
+        getPoAmountDelivered,
+        // The settled tab keeps its admin Edit — see the note in TAB_COLUMNS.
+        onEdit: isAdmin
+            ? (row) => handleOpenEditDialog(row as unknown as ProjectPayments)
+            : undefined,
+        onMarkReconciled: openPayDialog,
+        isUnseen: (row) => !!notifications.find(
+            (n) => n.docname === row.name && n.seen === "false"
+                && n.event_id === (tab === "Payments Done" ? "payment:fulfilled" : null)
+        ),
+        onSeen: (row) => handleSeenNotification(
+            notifications.find((n) => n.docname === row.name && n.seen === "false")
+        ),
+    }), [
+        tab, projectMap, vendorLabelMap, userLabelMap, getDocumentTotal,
+        getPoAmountDelivered, isAdmin, handleOpenEditDialog, notifications,
+        handleSeenNotification, openPayDialog,
+    ]);
+
+    const columns = useMemo(
+        () => buildApprovalColumns(TAB_COLUMNS[tab as ApprovalTab], columnCtx),
+        [tab, columnCtx]
+    );
+
+    // Status varies only on the mixed-status tabs, so the facet is offered there.
+    const approvalFacets = useApprovalFacets({
+        filters: staticFilters as Array<[string, string, unknown]>,
+        projectLabels: projectMap,
+        vendorLabels: vendorLabelMap,
+        includeStatus: ["Payments Pending", "All Payments"].includes(tab),
+    });
 
     // --- (Indicator) FIX: Move useServerDataTable hook here, into the parent component ---
     const {
         table,
-        data, // We get data directly from the hook now
         totalCount,
         isLoading: listIsLoading,
         error: listError,
@@ -451,20 +348,46 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         setSearchTerm,
         exportAllRows,
         isExporting,
-    } = useServerDataTable<ProjectPayments>({
+    } = useServerDataTable<ApprovalQueueRow>({
+        // Nominal: the endpoint below unions all three money-out ledgers.
         doctype: DOCTYPE,
+        apiEndpoint: APPROVAL_QUEUE_API,
         columns: columns,
-        fetchFields: fieldsToFetch, // Assuming fieldsToFetch is defined in this scope
-        searchableFields: paymentsSearchableFields, // Assuming paymentsSearchableFields is defined
+        fetchFields: APPROVAL_FETCH_FIELDS,
+        searchableFields: APPROVAL_SEARCHABLE_FIELDS,
         urlSyncKey: urlSyncKey,
-        defaultSort: tab === "Payments Done" ? 'payment_date desc' : 'creation desc',
+        defaultSort: TAB_DEFAULT_SORT[tab as ApprovalTab],
         enableRowSelection: false,
         additionalFilters: staticFilters,
     });
 
+    // Full-table CSV. Replaces the table's built-in `'default'` handler rather than
+    // extending it: the default exports only the RENDER columns, three of which carry
+    // no `exportValue` and so came out blank. See `approvalExportColumns.ts`.
+    const exportFileName = `${tab.replace(/\s+/g, '_')}_${formatDate(new Date())}`;
+    const { exportAll, isExportingAll } = useApprovalQueueExport({
+        exportAllRows,
+        columnCtx,
+        fileName: exportFileName,
+    });
+
     // --- CEO Hold Row Highlighting ---
+
+    // ⚠️ THE TABLE ONLY SELF-REFRESHES FOR ITS NOMINAL DOCTYPE.
+    //
+    // `useServerDataTable` ends with `useFrappeDocTypeEventListener(doctype, ...)`
+    // (hooks/useServerDataTable.ts:795) and we pass "Project Payments" — so a new or
+    // changed EXPENSE never reaches it, even though expense rows are in this table.
+    // These two listeners close that gap for both expense ledgers.
+    //
+    // (An earlier attempt invalidated by SWR key instead. That was dead code: this
+    // table fetches through `useFrappePostCall`, which registers no SWR entry at all,
+    // and every mutate() in the hook is commented out.)
+    useFrappeDocTypeEventListener("Project Expenses", () => refetch());
+    useFrappeDocTypeEventListener("Non Project Expenses", () => refetch());
+
     const getRowClassName = useCallback(
-        (row: Row<ProjectPayments>) => {
+        (row: Row<ApprovalQueueRow>) => {
             const projectId = row.original.project;
             if (projectId && ceoHoldProjectIds.has(projectId)) {
                 return CEO_HOLD_ROW_CLASSES;
@@ -490,29 +413,25 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                 <TableSkeleton />
             ) : (
                 // --- (Indicator) Render DataTable directly, removing the wrapper ---
-                <DataTable<ProjectPayments>
+                <DataTable<ApprovalQueueRow>
                     table={table}
                     columns={columns}
                     isLoading={listIsLoading}
                     error={listError}
                     totalCount={totalCount}
-                    searchFieldOptions={paymentsSearchableFields}
+                    searchFieldOptions={APPROVAL_SEARCHABLE_FIELDS}
                     selectedSearchField={selectedSearchField}
                     onSelectedSearchFieldChange={setSelectedSearchField}
                     searchTerm={searchTerm}
                     onSearchTermChange={setSearchTerm}
-                    facetDoctype={DOCTYPE}
-                    facetOverrides={{
-                        project: { additionalFilters: staticFilters, enabled: !projectId },
-                        vendor: { additionalFilters: staticFilters },
-                        status: { additionalFilters: staticFilters, enabled: ["Payments Pending", "All Payments"].includes(tab) },
-                    }}
+                    facetFilterOptions={approvalFacets}
                     dateFilterColumns={dateColumns}
                     showExportButton={true}
-                    onExport={'default'}
-                    onExportAll={exportAllRows}
-                    isExporting={isExporting}
-                    exportFileName={`${tab.replace(/\s+/g, '_')}_${formatDate(new Date())}`}
+                    // Selection is OFF on these tabs, so the built-in button is never
+                    // disabled — only the HANDLER needed replacing, not the control.
+                    onExport={exportAll}
+                    isExporting={isExporting || isExportingAll}
+                    exportFileName={exportFileName}
                     summaryCard={projectId || customerId ? null : <PaymentSummaryCards totalCount={totalCount} />}
                     getRowClassName={getRowClassName}
 
@@ -525,6 +444,36 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                 // }
                 />
             )}
+            {payPayment && (
+                <UpdatePaymentRequestDialog
+                    mode="fulfil"
+                    payment={payPayment}
+                    onSuccess={() => { setPayPayment(null); refetch(); }}
+                />
+            )}
+
+            {payRow?.doctype === "Project Expenses" && payExpenseDoc && (
+                <ProjectExpensePayDialog
+                    isOpen
+                    setIsOpen={(open) => { if (!open) setPayRow(null); }}
+                    expense={payExpenseDoc}
+                    markAsPaid
+                    onSuccess={() => { setPayRow(null); refetch(); }}
+                    getProjectName={(id) => projectMap.get(id || "") || id || ""}
+                    getVendorName={(id) => vendorLabelMap.get(id || "") || id || ""}
+                />
+            )}
+
+            {payRow?.doctype === "Non Project Expenses" && payExpenseDoc && (
+                <NonProjectExpensePayDialog
+                    isOpen
+                    setIsOpen={(open) => { if (!open) setPayRow(null); }}
+                    expense={payExpenseDoc}
+                    markAsPaid
+                    onSuccess={() => { setPayRow(null); refetch(); }}
+                />
+            )}
+
             {/* --- (Indicator) NEW: Render the EditFulfilledPaymentDialog --- */}
             {paymentToEdit && (
                 <EditFulfilledPaymentDialog

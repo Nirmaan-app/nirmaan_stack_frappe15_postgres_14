@@ -76,6 +76,11 @@ export const getProjectPaymentsStaticFilters = (tab: string): Array<[string, str
         case "CEO Pending": return [...base, ["status", "=", PAYMENT_STATUS.CEO_PENDING]];
         case "New Payments": return [...base, ["status", "=", PAYMENT_STATUS.APPROVED]];
         case "Fulfilled Payments": return [...base, ["status", "=", PAYMENT_STATUS.PAID]];
+        // Tab four. Empty until the fulfil path writes this status -- but it MUST be
+        // filtered from day one: without a case here the switch falls through to
+        // `default: base`, i.e. NO status filter, and the tab would show every payment
+        // in the system while claiming to show unreconciled ones.
+        case "Reconciliation Pending": return [...base, ["status", "=", PAYMENT_STATUS.RECONCILIATION_PENDING]];
         case "Payments Done": return [...base, ["status", "=", PAYMENT_STATUS.PAID]];
         case "Payments Pending": return [...base, ["status", "in", [PAYMENT_STATUS.REQUESTED, PAYMENT_STATUS.CEO_PENDING, PAYMENT_STATUS.APPROVED]]];
         case "All Payments": return [];

@@ -4,14 +4,20 @@ import { useUserData } from "@/hooks/useUserData";
 import { parseNumber } from "@/utils/parseNumber";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
+import { APPROVAL_COUNTS_API, APPROVAL_STATUS } from "./config/approvalsTable.config";
+import { NewProjectExpenseDialog } from "../ProjectExpenses/components/NewProjectExpenseDialog";
+import { NewNonProjectExpense } from "../NonProjectExpenses/components/NewNonProjectExpense";
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useFrappeGetCall } from "frappe-react-sdk";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info } from "lucide-react";
 // --- Tab Configuration ---
 import {
-    PP_TABS, PP_ADMIN_TAB_OPTIONS, PP_CEO_TAB_OPTIONS, PP_NEW_PAYMENTS_TAB_OPTIONS, PP_REM_TAB_OPTIONS, PP_ALL_TAB_OPTIONS, PP_ADMIN_ROLES, PP_ACCOUNTANT_ROLES, PP_PROJECT_ROLES, PPTabOption,
+    PP_TABS, PP_ADMIN_TAB_OPTIONS, PP_CEO_TAB_OPTIONS, PP_NEW_PAYMENTS_TAB_OPTIONS, PP_RECONCILIATION_TAB_OPTIONS, PP_ADMIN_ROLES, PP_ACCOUNTANT_ROLES, PP_PROJECT_ROLES, PPTabOption,
 } from "./config/ppTabs.constants";
+// PP_REM_TAB_OPTIONS (PO Wise) and PP_ALL_TAB_OPTIONS (All Payments) are intentionally
+// NOT imported: their buttons were removed 2026-09-15. Both tabs remain ROUTED via
+// PP_TABS below, so deep links still resolve. Re-import + .map(renderTabButton) to restore.
 import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 
 const ApprovePayments = React.lazy(() => import("./approve-payments/ApprovePayments"));
@@ -25,6 +31,28 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     const { role, user_id } = useUserData();
 
     const { counts } = useDocCountStore()
+
+    // ── Tab badges count ALL THREE money-out ledgers ──────────────────────────
+    //
+    // `useDocCountStore` counts `Project Payments` ONLY, so every badge disagreed
+    // with the table beside it the moment expenses appeared (36 vs 44, 7,566 vs
+    // 10,840). A badge that contradicts its own list is worse than no badge.
+    //
+    // `countValue` wins over `countKey` in renderTabButton, so overriding here
+    // leaves the sidebar store — shared with other screens — completely untouched.
+    const { data: queueCounts, mutate: mutateQueueCounts } = useFrappeGetCall<{
+        message: { counts: Record<string, number>; amounts: Record<string, number> };
+    }>(APPROVAL_COUNTS_API, undefined, "approval-queue-counts");
+
+    const unionCount = useCallback(
+        (status: string, fallback: number | string) => {
+            const c = queueCounts?.message?.counts;
+            // Until the call resolves, fall back to the payments-only number rather
+            // than flashing 0 — an empty badge reads as "nothing to do".
+            return c ? (c[status] ?? 0) : fallback;
+        },
+        [queueCounts]
+    );
 
     const canApprovePayments = user_id === "Administrator" || role === "Nirmaan Admin Profile";
     const isCEO = user_id === CEO_AUTHORIZED_USER;
@@ -80,22 +108,66 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
 
     // --- Filter tabs based on role ---
     // Approve Payments: Admin / Administrator only. Everyone else never sees the tab.
-    const adminTabsFiltered = useMemo(() => (canApprovePayments ? PP_ADMIN_TAB_OPTIONS : []), [canApprovePayments]);
-    const ceoTabsFiltered = useMemo(() => (isCEO ? PP_CEO_TAB_OPTIONS : []), [isCEO]);
-    const newPaymentsTabsFiltered = useMemo(() => (isAdmin || isAccountant) ? PP_NEW_PAYMENTS_TAB_OPTIONS : [], [isAdmin, isAccountant]);
-    const remTabsFiltered = useMemo(() => (isAdmin || isAccountant) ? PP_REM_TAB_OPTIONS : [], [isAdmin, isAccountant]);
+    /** Replace a tab option's payments-only count with the union count. */
+    const withUnionCount = useCallback(
+        (opts: PPTabOption[], status: string) =>
+            opts.map((o) => ({ ...o, countValue: unionCount(status, o.countValue ?? 0) })),
+        [unionCount]
+    );
+
+    const adminTabsFiltered = useMemo(
+        () => (canApprovePayments ? withUnionCount(PP_ADMIN_TAB_OPTIONS, APPROVAL_STATUS.REQUESTED) : []),
+        [canApprovePayments, withUnionCount]
+    );
+    const ceoTabsFiltered = useMemo(
+        () => (isCEO ? withUnionCount(PP_CEO_TAB_OPTIONS, APPROVAL_STATUS.CEO_PENDING) : []),
+        [isCEO, withUnionCount]
+    );
+    const newPaymentsTabsFiltered = useMemo(
+        () => (isAdmin || isAccountant) ? withUnionCount(PP_NEW_PAYMENTS_TAB_OPTIONS, APPROVAL_STATUS.APPROVED) : [],
+        [isAdmin, isAccountant, withUnionCount]
+    );
+    // Tab four. Same audience as "Payment need to paid" -- the accountant owns both
+    // sides of the settlement. Empty until the fulfil path writes the new status.
+    const reconciliationTabsFiltered = useMemo(
+        () => (isAdmin || isAccountant) ? withUnionCount(PP_RECONCILIATION_TAB_OPTIONS, APPROVAL_STATUS.RECONCILIATION_PENDING) : [],
+        [isAdmin, isAccountant, withUnionCount]
+    );
     const paymentTypeTabsFiltered = useMemo(() => [
         {
-            label: "Payments Done",
+            // Tab five. `Paid` now means RECONCILED -- the label says so.
+            label: "Payment Done / Reconciliation Done",
             value: PP_TABS.PAYMENTS_DONE,
-            countValue: counts.pay.paid
+            countValue: unionCount(APPROVAL_STATUS.PAID, counts.pay.paid)
         },
         {
+            // ⚠️ NOT in the owner's five-tab list, and NOT in the hide list either --
+            // left visible deliberately rather than quietly dropped. It is exactly the
+            // sum of tabs one, two and three, so it is a candidate to retire; say the
+            // word and it is this one object.
             label: "Payments Pending",
             value: PP_TABS.PAYMENTS_PENDING,
-            countValue: parseNumber(counts.pay.requested) + parseNumber(counts.pay.ceopending) + parseNumber(counts.pay.approved)
+            countValue:
+                parseNumber(unionCount(APPROVAL_STATUS.REQUESTED, counts.pay.requested))
+                + parseNumber(unionCount(APPROVAL_STATUS.CEO_PENDING, counts.pay.ceopending))
+                + parseNumber(unionCount(APPROVAL_STATUS.APPROVED, counts.pay.approved))
         }
-    ], [counts]);
+    ], [counts, unionCount]);
+
+    /**
+     * Refresh after an expense is created from this page.
+     *
+     * A new expense lands in one of THESE tabs, so leaving the screen stale would show
+     * a queue that does not contain the row the user just created. The badges are ours
+     * to refresh; the ledger tables are owned by the lazy children, so they are
+     * invalidated by SWR key prefix rather than through a lifted handle.
+     */
+    const handleExpenseCreated = useCallback(() => {
+        mutateQueueCounts();
+        // The three queue TABLES refresh themselves: each now listens for realtime
+        // events on both expense doctypes (see the listeners in ApprovePayments /
+        // AllPayments / AccountantTabs). Only the badges are ours.
+    }, [mutateQueueCounts]);
 
     // Render a single tab button
     const renderTabButton = (option: PPTabOption | { label: string, value: string, countValue: number | string }) => {
@@ -157,10 +229,10 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                             <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />
                         </>
                     )}
-                    {/* Rem (PO Wise) Tab */}
-                    {remTabsFiltered.length > 0 && (
+                    {/* Tab four -- Payment Done / Reconciliation Pending */}
+                    {reconciliationTabsFiltered.length > 0 && (
                         <>
-                            {remTabsFiltered.map(renderTabButton)}
+                            {reconciliationTabsFiltered.map(renderTabButton)}
                             <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />
                         </>
                     )}
@@ -168,11 +240,15 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                     {paymentTypeTabsFiltered.length > 0 && (
                         <>
                             {paymentTypeTabsFiltered.map(renderTabButton)}
-                            <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />
                         </>
                     )}
-                    {/* All Payments Tab */}
-                    {PP_ALL_TAB_OPTIONS.map(renderTabButton)}
+                    {/*
+                      PO Wise and All Payments are HIDDEN from the strip (owner 2026-09-15).
+                      Their BUTTONS are gone; their ROUTES below are not. `paymentHref()` sends
+                      every non-paid payment deep link to `?tab=All Payments`, and dropping the
+                      route would turn those links into an empty default view instead of the row
+                      they point at. Restoring either tab = re-adding its `.map(renderTabButton)`.
+                    */}
                 </div>
             </div>
             <Suspense fallback={
@@ -199,7 +275,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                         [PP_TABS.NEW_PAYMENTS].includes(tab as any) ?
                             (
                                 <AccountantTabs />
-                            ) : [PP_TABS.PAYMENTS_PENDING, PP_TABS.PAYMENTS_DONE, PP_TABS.ALL_PAYMENTS].includes(tab as any) ? (
+                            ) : [PP_TABS.PAYMENTS_PENDING, PP_TABS.PAYMENTS_DONE, PP_TABS.ALL_PAYMENTS, PP_TABS.RECONCILIATION_PENDING].includes(tab as any) ? (
                                 <AllPayments tab={tab} />
                             )
                                 : (
@@ -207,6 +283,21 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                                 )
                 }
             </Suspense >
+
+            {/*
+              The "Expense Request" dropdown in the top bar (renderRightActionButton.tsx)
+              only flips these two zustand flags. Both dialogs are bare controlled
+              AlertDialogs that render no trigger of their own and were mounted ONLY on
+              their own list pages -- so without these two lines the button would look
+              wired and do nothing.
+
+              `projectId` is deliberately OMITTED: this page has no project in scope, and
+              with it absent the dialog renders its own ProjectSelect. The two take
+              differently-named callbacks (`onSuccess` vs `refetchList`), so they cannot
+              share one prop even though both point at the same refresh.
+            */}
+            <NewProjectExpenseDialog onSuccess={handleExpenseCreated} />
+            <NewNonProjectExpense refetchList={handleExpenseCreated} />
         </div >
     );
 };
