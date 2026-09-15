@@ -9,18 +9,24 @@ the sentence it asserts is the one that endpoint printed. A reworded sentence mu
 
 import dataclasses
 import unittest
+from datetime import datetime
 
 from nirmaan_stack.services.outflow_import import unreconcile
 from nirmaan_stack.services.outflow_import.unreconcile import (
     CASHBOOK_REFUSAL,
+    CREATED_WINDOW_SECONDS,
     FIX_ON_EXPENSES_SCREEN,
     FIX_ON_PAYMENTS_SCREEN,
+    IMPORT_WRITTEN_FIELDS,
+    VERDICT_DELETE_CREATED,
     VERDICT_REFUSED,
     VERDICT_REVERT_EXPENSE,
     VERDICT_REVERT_PAYMENT,
+    WHAT_HAPPENS_DELETE,
+    WHAT_HAPPENS_DELETE_PROJECT_INFLOW,
     LegFacts,
-    expense_created_by_import,
     first_refusal,
+    leg_created_the_record,
     leg_verdict,
 )
 
@@ -86,11 +92,13 @@ class TestEveryRefusal(unittest.TestCase):
         ),
         (
             # ⚠️ INVERTED AT #1277: this was "Not a payment" for ANY other ledger. Expenses now
-            # revert (see `TestAnExistingExpense`); an inflow is still refused, until `delete_created`.
-            "an inflow leg",
-            {"target_doctype": "Project Inflows"},
+            # revert (see `TestAnExistingExpense`). ⚠️ INVERTED AGAIN AT #1278: an inflow is now
+            # deleted (see `TestACreatedRecord`), so the fall-through is pinned on a doctype no
+            # settle ever writes a leg against.
+            "a leg on a ledger with no undo",
+            {"target_doctype": "Vendor Invoices"},
             "Can't be undone yet",
-            "A Project Inflows record can't be unreconciled here yet.",
+            "A Vendor Invoices record can't be unreconciled here yet.",
             None,
         ),
         (
@@ -184,7 +192,7 @@ class TestTheOrderTheRefusalsAreAskedIn(unittest.TestCase):
         self.assertEqual(verdict.title, "Already reversed")
 
     def test_an_unsupported_leg_is_never_judged_on_payment_facts(self):
-        verdict = leg_verdict(facts(target_doctype="Project Inflows", target_exists=False))
+        verdict = leg_verdict(facts(target_doctype="Vendor Invoices", target_exists=False))
         self.assertEqual(verdict.title, "Can't be undone yet")
 
     def test_tds_is_named_before_a_split(self):
@@ -335,22 +343,6 @@ class TestAnExistingExpense(unittest.TestCase):
             "it, so this allocation cannot be safely reversed.",
             FIX_ON_EXPENSES_SCREEN,
         ),
-        (
-            "not proven to be an expense the import did not create",
-            {"created_by_import": None},
-            "Can't be undone yet",
-            "EXP-1 may have been recorded by this import, and a record the import created can't be "
-            "undone yet.",
-            None,
-        ),
-        (
-            "an expense the import created",
-            {"created_by_import": True},
-            "Can't be undone yet",
-            "EXP-1 may have been recorded by this import, and a record the import created can't be "
-            "undone yet.",
-            None,
-        ),
     ]
 
     def test_each_refusal_reproduces_its_sentence(self):
@@ -365,8 +357,16 @@ class TestAnExistingExpense(unittest.TestCase):
 
     def test_changed_elsewhere_is_named_before_the_created_question(self):
         # What is true of the record NOW is what a person can act on; the created question is ours.
-        verdict = leg_verdict(expense(target_status="Approved", created_by_import=None))
+        verdict = leg_verdict(expense(target_status="Approved", created_by_import=True))
         self.assertIn("not Paid", verdict.reason)
+
+    def test_an_unflagged_expense_reverts_whatever_its_history(self):
+        """⚠️ INVERTED AT #1278. Until the stored flag, an expense with no proof it existed was refused
+        as "can't be undone yet". The flag now decides, and unresolved is "not created" -- the safe
+        revert path (#1270). So an unflagged expense with no history at all reverts."""
+        verdict = leg_verdict(expense(created_by_import=False, versions=()))
+        self.assertEqual(verdict.verdict, VERDICT_REVERT_EXPENSE)
+        self.assertIsNone(verdict.reason)
 
     def test_cashbook_and_already_reversed_still_come_first(self):
         self.assertEqual(leg_verdict(expense(source="Cashbook")).reason, CASHBOOK_REFUSAL)
@@ -376,38 +376,168 @@ class TestAnExistingExpense(unittest.TestCase):
         )
 
 
-class TestProvingTheImportDidNotCreateAnExpense(unittest.TestCase):
-    """Until the created-by-import flag exists, `created_by_import` is False ONLY on proof.
+MATCHED_AT = datetime(2026, 9, 15, 10, 0, 0)
+BEFORE = datetime(2026, 9, 15, 9, 59, 59)
+AFTER = datetime(2026, 9, 16, 11, 30, 0)
 
-    A created expense is inserted already Paid, and an insert leaves no Version row, so its history
-    before the match holds no status that was ever anything but Paid. Either proof below is therefore
-    impossible for a record the import created; anything else stays unknown (`None`) and is refused.
-    """
+# A leg whose settle CREATED its record, untouched since: every refusal below changes one fact of it.
+CREATED_INFLOW = LegFacts(
+    leg="MATCH-20",
+    match_kind="Settled",
+    target_doctype="Project Inflows",
+    target_name="PI-1",
+    leg_amount=900.0,
+    target_exists=True,
+    target_amount=900.0,
+    source="ICICI",
+    matched_at=MATCHED_AT,
+)
 
-    def test_a_record_older_than_the_statement_upload_was_not_created_by_it(self):
-        self.assertIs(
-            expense_created_by_import(created_before_import=True, status_changes_before_match=()),
-            False,
+
+def created(**changes) -> LegFacts:
+    return dataclasses.replace(CREATED_INFLOW, **changes)
+
+
+class TestACreatedRecord(unittest.TestCase):
+    """#1278 (ADR-0022 reverses ADR-0016 AR3): a record the import created is deleted on unreconcile."""
+
+    def test_a_project_inflow_is_deleted_and_says_the_cash_position_moves(self):
+        verdict = leg_verdict(CREATED_INFLOW)
+        self.assertEqual(verdict.verdict, VERDICT_DELETE_CREATED)
+        self.assertIsNone(verdict.reason)
+        self.assertEqual(
+            verdict.what_happens,
+            "Will be deleted. The project's cash position updates straight away.",
+        )
+        self.assertEqual(WHAT_HAPPENS_DELETE_PROJECT_INFLOW, verdict.what_happens)
+
+    def test_an_inflow_is_created_whatever_its_leg_flag_says(self):
+        # Inflow legs are ALWAYS treated as created: the import has no other way to reach one.
+        for doctype in ("Project Inflows", "Non Project Inflows"):
+            with self.subTest(doctype=doctype):
+                verdict = leg_verdict(created(target_doctype=doctype, created_by_import=False))
+                self.assertEqual(verdict.verdict, VERDICT_DELETE_CREATED)
+
+    def test_a_non_project_inflow_just_says_it_will_be_deleted(self):
+        verdict = leg_verdict(created(target_doctype="Non Project Inflows"))
+        self.assertEqual(verdict.what_happens, "Will be deleted.")
+        self.assertEqual(WHAT_HAPPENS_DELETE, verdict.what_happens)
+
+    def test_a_flagged_expense_is_deleted(self):
+        for doctype in ("Project Expenses", "Non Project Expenses"):
+            with self.subTest(doctype=doctype):
+                verdict = leg_verdict(
+                    expense(target_doctype=doctype, created_by_import=True, matched_at=MATCHED_AT)
+                )
+                self.assertEqual(verdict.verdict, VERDICT_DELETE_CREATED)
+                self.assertEqual(verdict.what_happens, "Will be deleted.")
+
+    def test_edits_before_or_at_the_match_and_attachment_only_edits_are_not_edits(self):
+        for label, edits in [
+            ("no history", ()),
+            ("a Version at the match", ((MATCHED_AT, ("amount",)),)),
+            ("a Version before the match", ((BEFORE, ("description",)),)),
+            ("the statement attachment", ((AFTER, ("payment_attachment",)),)),
+            ("the inflow attachment", ((AFTER, ("inflow_attachment",)),)),
+            ("an empty Version", ((AFTER, ()),)),
+        ]:
+            with self.subTest(label):
+                self.assertEqual(
+                    leg_verdict(created(versions=edits)).verdict, VERDICT_DELETE_CREATED
+                )
+
+    def test_a_record_edited_after_the_match_is_refused_naming_the_first_edit(self):
+        edits = (
+            (AFTER, ("inflow_attachment",)),
+            (datetime(2026, 9, 17, 8, 0), ("amount", "inflow_attachment")),
+            (datetime(2026, 9, 18, 8, 0), ("utr",)),
+        )
+        verdict = leg_verdict(created(versions=edits))
+        self.assertEqual(verdict.verdict, VERDICT_REFUSED)
+        self.assertEqual(verdict.title, "Edited since")
+        self.assertEqual(
+            verdict.reason,
+            "Someone edited it on 17-Sep-2026, after the import made it. Delete or fix it on its own "
+            "screen.",
+        )
+        self.assertIsNone(verdict.fix_at)
+        self.assertIsNone(verdict.what_happens)
+
+    def test_a_flagged_expense_edited_since_is_refused_too(self):
+        verdict = leg_verdict(
+            expense(
+                created_by_import=True,
+                matched_at=MATCHED_AT,
+                versions=((AFTER, ("description",)),),
+            )
+        )
+        self.assertEqual(verdict.title, "Edited since")
+
+    def test_an_edit_with_no_known_match_time_counts(self):
+        # A leg with no `matched_at` cannot place an edit before it; guessing "before" would delete.
+        verdict = leg_verdict(created(matched_at=None, versions=((BEFORE, ("amount",)),)))
+        self.assertEqual(verdict.title, "Edited since")
+
+    def test_a_missing_inflow_is_not_found(self):
+        verdict = leg_verdict(created(target_exists=False))
+        self.assertEqual((verdict.title, verdict.reason), ("Not found", "Project Inflows 'PI-1' not found."))
+
+    def test_cashbook_and_already_reversed_still_come_first(self):
+        self.assertEqual(leg_verdict(created(source="Cashbook")).reason, CASHBOOK_REFUSAL)
+        self.assertEqual(
+            leg_verdict(created(match_kind="Reversed", target_exists=False)).title, "Already reversed"
         )
 
-    def test_a_record_that_was_once_not_paid_before_the_match_was_not_created_by_it(self):
-        for changes in ([("Approved", "Paid")], [("Requested", "Approved"), ("Approved", "Paid")]):
-            with self.subTest(changes=changes):
-                self.assertIs(
-                    expense_created_by_import(
-                        created_before_import=False, status_changes_before_match=changes
-                    ),
-                    False,
-                )
+    def test_the_attachment_fields_are_the_ones_the_import_writes(self):
+        self.assertEqual(IMPORT_WRITTEN_FIELDS, frozenset({"payment_attachment", "inflow_attachment"}))
 
-    def test_no_proof_is_unknown_never_a_guess(self):
-        for changes in ((), [("Paid", "Paid ")], [(" Paid", "Approved")]):
-            with self.subTest(changes=changes):
-                self.assertIsNone(
-                    expense_created_by_import(
-                        created_before_import=False, status_changes_before_match=changes
-                    )
-                )
+
+class TestTheBackfillRule(unittest.TestCase):
+    """Which EXISTING expense legs created their record (#1278 back-fill patch).
+
+    Measured on the local database (2026-09-15, 237 expense legs): every import-created leg was
+    written 0-5 s after its expense, by the expense's owner, with no Version before the match; every
+    hand Link was minutes to days older. Any doubt is "not created" -- the safe revert path.
+    """
+
+    CREATED = dict(
+        seconds_from_creation_to_match=2.0,
+        same_user=True,
+        created_before_import=False,
+        status_changes_before_match=(),
+    )
+
+    def test_a_record_minted_in_the_settle_request_by_the_same_user_was_created(self):
+        self.assertIs(leg_created_the_record(**self.CREATED), True)
+        self.assertIs(
+            leg_created_the_record(**{**self.CREATED, "seconds_from_creation_to_match": 0}), True
+        )
+        self.assertIs(
+            leg_created_the_record(
+                **{**self.CREATED, "seconds_from_creation_to_match": CREATED_WINDOW_SECONDS}
+            ),
+            True,
+        )
+
+    def test_every_doubt_is_not_created(self):
+        for label, change in [
+            ("older than the window", {"seconds_from_creation_to_match": CREATED_WINDOW_SECONDS + 1}),
+            ("a record younger than its match", {"seconds_from_creation_to_match": -1}),
+            ("no time at all", {"seconds_from_creation_to_match": None}),
+            ("another user", {"same_user": False}),
+            ("older than the statement upload", {"created_before_import": True}),
+            ("once Approved before the match", {"status_changes_before_match": [("Approved", "Paid")]}),
+        ]:
+            with self.subTest(label):
+                self.assertIs(leg_created_the_record(**{**self.CREATED, **change}), False)
+
+    def test_a_paid_to_paid_version_is_no_proof_of_an_earlier_state(self):
+        self.assertIs(
+            leg_created_the_record(
+                **{**self.CREATED, "status_changes_before_match": [(" Paid", "Paid")]}
+            ),
+            True,
+        )
 
 
 class TestFirstRefusal(unittest.TestCase):

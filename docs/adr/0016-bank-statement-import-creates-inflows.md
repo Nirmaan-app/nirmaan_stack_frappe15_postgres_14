@@ -357,3 +357,6 @@ narrowed later (Q11).
   Frappe's delete-time dynamic-link check (`frappe/model/delete_doc.py`) refuses to delete a record an
   `Outflow Row Match` points at, and `reverse_allocation` handles `Project Payments` legs only. This is
   already true of import-created `Project Inflows`; correction is by editing.
+  **⚠️ REVERSED by [ADR-0022](0022-unreconcile-and-unskip.md) (#1278, 2026-09-15):** Unreconcile deletes an
+  untouched import-created inflow (link check bypassed; the Reversed leg is kept), and refuses one someone
+  edited after the import made it.

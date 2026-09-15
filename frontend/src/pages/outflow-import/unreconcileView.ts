@@ -14,6 +14,8 @@ import { NEVER_MATCHED_SOURCES, ROW_PARTIALLY_ALLOCATED, ROW_SETTLED } from "./o
 /** Mirrors `unreconcile.VERDICT_*`; the test reads the Python. */
 export const VERDICT_REVERT_PAYMENT = "revert_payment";
 export const VERDICT_REVERT_EXPENSE = "revert_expense";
+/** A record the import created is deleted (red in the dialog, #1278). */
+export const VERDICT_DELETE_CREATED = "delete_created";
 export const VERDICT_REFUSED = "refused";
 
 /** The verdicts that put a record back to Approved (blue in the dialog). */
@@ -75,9 +77,9 @@ export interface UnreconcileResult {
     reversed: ReversedLeg[];
 }
 
-/** Blue = back to Approved, grey = refused (mockup scene 3). `other` is a verdict this screen has no
- *  colour for yet; it still shows the server's sentence. */
-export type LegTone = "back" | "refused" | "other";
+/** Blue = back to Approved, red = deleted, grey = refused (mockup scene 3). `other` is a verdict this
+ *  screen has no colour for yet; it still shows the server's sentence. */
+export type LegTone = "back" | "deleted" | "refused" | "other";
 
 export interface LegOutcomeLine {
     tone: LegTone;
@@ -105,7 +107,11 @@ export const legOutcomeLine = (leg: UnreconcilePlanLeg): LegOutcomeLine => {
         return { tone: "refused", lead: "Can't be undone here.", text };
     }
     return {
-        tone: BACK_TO_APPROVED.has(leg.verdict) ? "back" : "other",
+        tone: BACK_TO_APPROVED.has(leg.verdict)
+            ? "back"
+            : leg.verdict === VERDICT_DELETE_CREATED
+              ? "deleted"
+              : "other",
         lead: null,
         text: leg.what_happens ?? "",
     };
@@ -149,10 +155,18 @@ export interface UnreconcileNotice {
  * one `allocation_note` states server-side.
  */
 export const unreconcileNotice = (result: UnreconcileResult): UnreconcileNotice => {
+    const total = result.reversed.length;
     const reverted = result.reversed.filter((leg) => BACK_TO_APPROVED.has(leg.verdict)).length;
-    const head = `${records(result.reversed.length)} came off this transfer${
-        reverted === result.reversed.length ? " and went back to Approved" : ""
-    }.`;
+    const deleted = result.reversed.filter((leg) => leg.verdict === VERDICT_DELETE_CREATED).length;
+    const wasDeleted = (count: number) => (count === 1 ? "was deleted" : "were deleted");
+    const head =
+        reverted === total
+            ? `${records(total)} came off this transfer and went back to Approved.`
+            : deleted === total
+              ? `${records(total)} came off this transfer and ${wasDeleted(total)}.`
+              : reverted + deleted === total
+                ? `${records(total)} came off this transfer: ${reverted} went back to Approved and ${deleted} ${wasDeleted(deleted)}.`
+                : `${records(total)} came off this transfer.`;
     const where =
         result.row_status === ROW_PARTIALLY_ALLOCATED
             ? `${formatToRoundedIndianRupee(result.remaining)} of it is unallocated again.`

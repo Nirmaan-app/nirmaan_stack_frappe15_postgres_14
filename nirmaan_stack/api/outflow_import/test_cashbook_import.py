@@ -181,10 +181,12 @@ class TestTheWorker(CashbookImportCase):
         target = frappe.db.get_value(
             "Outflow Row Match",
             {"import_batch": self.batch, "import_row": row.name},
-            ["target_doctype", "target_name", "match_basis"],
+            ["target_doctype", "target_name", "match_basis", "created_by_import"],
             as_dict=True,
         )
         self.assertEqual(target.match_basis, "cashbook remark")
+        # #1278: the Cashbook writer only creates, so its leg says so.
+        self.assertEqual(target.created_by_import, 1)
         expense = frappe.db.get_value(
             target.target_doctype, target.target_name,
             ["status", "payment_ref", "payment_attachment"], as_dict=True,

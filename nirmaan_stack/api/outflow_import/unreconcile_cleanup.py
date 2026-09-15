@@ -21,6 +21,12 @@ here because the payment's own hooks do not get it right on a `Paid -> Approved`
 AN EXPENSE (#1277) has no parent, no vendor credit and no latest payment date, so only two of these
 apply to it: its statement `File` row, and -- for a `Project Expenses` record -- its project's CEO Hold,
 whose hook (`on_project_expense`) claims the same per-request flag.
+
+A DELETED RECORD (#1278) -- an inflow or expense the import created -- needs only its project's CEO
+Hold. Its statement `File` rows came off BEFORE the delete (`unreconcile_created.delete_created`), and its
+project was read before it too, because nothing can be read about it now. `Project Inflows`' trash
+hook evaluates the gap BEFORE the row is gone, so without this re-sync the deleted inflow would still
+count.
 """
 
 import frappe
@@ -42,18 +48,17 @@ PO_DOCTYPE = "Procurement Orders"
 LEDGER_ENTRY_TYPE = "Payment Unreconciled"
 
 
-def restore_derived_state(reverted, statement_file_url: str | None) -> None:
-    """Put right everything derived from `reverted` -- `(doctype, name)` pairs already back to
-    Approved."""
+def restore_derived_state(carried, statement_file_url: str | None) -> None:
+    """Put right everything derived from `carried` -- `unreconcile.CarriedOut` per leg: records already
+    back to Approved, and records already deleted."""
+    projects = {leg.project for leg in carried if leg.deleted and leg.project}
     by_doctype = {}
-    for doctype, name in reverted:
-        by_doctype.setdefault(doctype, set()).add(name)
-    if not by_doctype:
-        return
+    for leg in carried:
+        if not leg.deleted:
+            by_doctype.setdefault(leg.doctype, set()).add(leg.name)
     for doctype, names in sorted(by_doctype.items()):
-        _delete_statement_file_links(doctype, sorted(names), statement_file_url)
+        delete_statement_file_links(doctype, sorted(names), statement_file_url)
 
-    projects = set()
     payment_names = sorted(by_doctype.get(PAYMENT_DOCTYPE, ()))
     if payment_names:
         payments = frappe.get_all(
@@ -83,7 +88,7 @@ def restore_derived_state(reverted, statement_file_url: str | None) -> None:
         _resync_cashflow_hold(project)
 
 
-def _delete_statement_file_links(doctype: str, names, statement_file_url: str | None) -> None:
+def delete_statement_file_links(doctype: str, names, statement_file_url: str | None) -> None:
     """Delete the `File` row that made the statement openable from each record.
 
     ⚠️ A RAW DELETE, SO NO `File` HOOK FIRES -- AND THAT IS THE POINT. The row is only a permission

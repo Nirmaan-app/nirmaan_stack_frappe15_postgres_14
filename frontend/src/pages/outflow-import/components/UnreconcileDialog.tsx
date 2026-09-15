@@ -4,7 +4,7 @@
 
 import { useState } from "react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
-import { Ban, CornerUpLeft, Loader2 } from "lucide-react";
+import { Ban, CornerUpLeft, Loader2, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -34,6 +34,7 @@ import {
 
 const TONE_CLASS: Record<LegTone, string> = {
     back: "text-sky-800",
+    deleted: "text-red-700",
     refused: "text-muted-foreground",
     other: "text-foreground",
 };
@@ -175,6 +176,8 @@ export const UnreconcilePanel = ({
                             <p className={`flex items-start gap-1.5 text-xs ${TONE_CLASS[line.tone]}`}>
                                 {refused ? (
                                     <Ban className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                ) : line.tone === "deleted" ? (
+                                    <Trash2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                                 ) : (
                                     <CornerUpLeft className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                                 )}

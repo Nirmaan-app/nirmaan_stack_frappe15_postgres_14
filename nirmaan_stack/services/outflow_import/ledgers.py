@@ -52,6 +52,7 @@ __all__ = [
     "settleable_statuses",
     "decided_on_sql",
     "is_expense_doctype",
+    "project_field_of",
 ]
 
 PAYMENT_DOCTYPE = "Project Payments"
@@ -161,6 +162,17 @@ TARGET_SNAPSHOT_FIELDS: dict[str, tuple[str | None, str | None]] = {
     PROJECT_EXPENSE_DOCTYPE: ("projects", "vendor"),
     NON_PROJECT_EXPENSE_DOCTYPE: (None, None),
 }
+
+
+def project_field_of(doctype: str) -> str | None:
+    """The column a record of `doctype` names its project in, or `None` when it has none (#1278).
+
+    The settle ledgers' answer is `TARGET_SNAPSHOT_FIELDS`; an inflow is created, never settled, so it is
+    kept out of that map (see `INFLOW_DOCTYPE`) and answered here. `Non Project Inflows` has no project.
+    """
+    if doctype == INFLOW_DOCTYPE:
+        return "project"
+    return TARGET_SNAPSHOT_FIELDS.get(doctype, (None, None))[0]
 
 
 def settleable_statuses(doctype: str) -> tuple[str, ...]:

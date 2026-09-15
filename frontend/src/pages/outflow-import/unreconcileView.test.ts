@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
     REVERSE_ALL_BLOCKED_ONE,
     UNRECONCILE_CASHBOOK_SENTENCE,
+    VERDICT_DELETE_CREATED,
     VERDICT_REFUSED,
     VERDICT_REVERT_EXPENSE,
     VERDICT_REVERT_PAYMENT,
@@ -78,7 +79,38 @@ describe("parity with the Python decision module", () => {
     it("names the verdicts the way the server does", () => {
         expect(decisionSource).toContain(`VERDICT_REVERT_PAYMENT = "${VERDICT_REVERT_PAYMENT}"`);
         expect(decisionSource).toContain(`VERDICT_REVERT_EXPENSE = "${VERDICT_REVERT_EXPENSE}"`);
+        expect(decisionSource).toContain(`VERDICT_DELETE_CREATED = "${VERDICT_DELETE_CREATED}"`);
         expect(decisionSource).toContain(`VERDICT_REFUSED = "${VERDICT_REFUSED}"`);
+    });
+});
+
+describe("a record the import created (#1278)", () => {
+    const createdLeg = leg({
+        target_doctype: "Project Inflows",
+        target_name: "PI-1",
+        verdict: VERDICT_DELETE_CREATED,
+        what_happens: "Will be deleted. The project's cash position updates straight away.",
+    });
+
+    it("is red and says what the server says", () => {
+        expect(legOutcomeLine(createdLeg)).toEqual({
+            tone: "deleted",
+            lead: null,
+            text: "Will be deleted. The project's cash position updates straight away.",
+        });
+    });
+
+    it("the edited-since refusal is grey and adds no 'Fix it on' -- the sentence says where", () => {
+        const edited = refusedLeg({
+            reason: "Someone edited it on 17-Sep-2026, after the import made it. Delete or fix it on its own screen.",
+            title: "Edited since",
+            fix_at: null,
+        });
+        expect(legOutcomeLine(edited)).toEqual({
+            tone: "refused",
+            lead: "Can't be undone here.",
+            text: "Someone edited it on 17-Sep-2026, after the import made it. Delete or fix it on its own screen.",
+        });
     });
 });
 
@@ -181,10 +213,13 @@ describe("legOutcomeLine -- the coloured 'what happens' line (mockup scene 2)", 
     });
 
     it("a verdict this screen does not know yet still shows the server's sentence, never a blank", () => {
-        expect(legOutcomeLine(leg({ verdict: "delete_created", what_happens: "Will be deleted." }))).toEqual({
+        // ⚠️ `delete_created` was the example until #1278 gave it a colour; a later verdict stands in.
+        expect(
+            legOutcomeLine(leg({ verdict: "unsplit_payment", what_happens: "The split is joined back." })),
+        ).toEqual({
             tone: "other",
             lead: null,
-            text: "Will be deleted.",
+            text: "The split is joined back.",
         });
     });
 });
@@ -279,6 +314,34 @@ describe("unreconcileNotice -- what came off, and a changed amount", () => {
         expect(unreconcileNotice(netted).body).toBe(
             "1 record came off this transfer and went back to Approved. It now needs a record. " +
                 "PAY-1 is now ₹980, not ₹1,000.",
+        );
+    });
+
+    it("a deleted record says it was deleted, never that it went back to Approved", () => {
+        const deleted = {
+            match: "M9",
+            target_doctype: "Non Project Inflows",
+            target_name: "NPI-1",
+            verdict: VERDICT_DELETE_CREATED,
+            reversed_amount: 500,
+            amount_after: null,
+        };
+        expect(unreconcileNotice(result({ reversed: [deleted] })).body).toBe(
+            "1 record came off this transfer and was deleted. It now needs a record.",
+        );
+    });
+
+    it("a mix says how many of each", () => {
+        const deleted = {
+            match: "M9",
+            target_doctype: "Project Expenses",
+            target_name: "EXP-9",
+            verdict: VERDICT_DELETE_CREATED,
+            reversed_amount: 500,
+            amount_after: null,
+        };
+        expect(unreconcileNotice(result({ reversed: [result().reversed[0], deleted] })).body).toBe(
+            "2 records came off this transfer: 1 went back to Approved and 1 was deleted. It now needs a record.",
         );
     });
 

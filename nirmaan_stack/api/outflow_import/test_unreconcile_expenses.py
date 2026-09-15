@@ -8,7 +8,7 @@ Through the whitelisted `get_unreconcile_plan` and `unreconcile_row`, for a hand
 date, reference and (Project Expenses) "paid by" cleared, the leg is Reversed, the line is open, and
 the expense settles against a DIFFERENT line afterwards -- the only proof it is really free.
 
-An expense the import CREATED is refused as "can't be undone yet" until the created-records slice.
+An expense the import CREATED is deleted instead: `test_unreconcile_created.py` (#1278).
 
 ⚠️ RUNS AGAINST THE LIVE SITE DATABASE. Every expense here hangs off the fixture's throwaway project
 (never a real one: a Paid Project Expense moves that project's CEO Hold), and every expense, its
@@ -239,7 +239,8 @@ class TestRefusals(ExpenseUnreconcileFixture):
         frappe.db.commit()
         self._assert_refused_and_untouched(row, NON_PROJECT_EXPENSE, name, "re-pointed")
 
-    def test_an_expense_the_import_created_is_refused_as_not_yet(self):
+    def test_an_expense_the_import_created_is_no_longer_refused_as_not_yet(self):
+        """⚠️ INVERTED AT #1278: a created expense is now DELETED (`test_unreconcile_created.py`)."""
         row = self._staged_row(amount="500")
         result = create_expense(
             row=row,
@@ -250,10 +251,16 @@ class TestRefusals(ExpenseUnreconcileFixture):
         )
         name = result["settled"]["name"]
         self.expenses.append((NON_PROJECT_EXPENSE, name))
-        self._assert_refused_and_untouched(row, NON_PROJECT_EXPENSE, name, "can't be undone yet")
+        [leg] = get_unreconcile_plan(row=row)["legs"]
+        self.assertNotEqual(leg["verdict"], VERDICT_REFUSED)
+        self.assertNotIn("can't be undone yet", leg["reason"] or "")
 
 
-class TestTheProof(ExpenseUnreconcileFixture):
+class TestTheCreatedFlagDecides(ExpenseUnreconcileFixture):
+    """⚠️ INVERTED AT #1278. Until the stored created flag, an expense reverted only on PROOF it existed
+    before the import (older than the upload, or a Version showing it was once not Paid). The leg's flag
+    now decides, and an unflagged leg is "not created" -- the safe revert path."""
+
     def test_an_expense_older_than_the_upload_reverts_even_with_no_version_history(self):
         """The shape of an expense settled before X1 moved the settle onto `doc.save()`."""
         name = self._expense(NON_PROJECT_EXPENSE, "500")
@@ -266,14 +273,13 @@ class TestTheProof(ExpenseUnreconcileFixture):
 
         self._assert_free(NON_PROJECT_EXPENSE, name)
 
-    def test_a_younger_expense_with_no_history_is_refused(self):
+    def test_a_younger_expense_with_no_history_now_reverts(self):
         row = self._staged_row(amount="500")
         name = self._expense(NON_PROJECT_EXPENSE, "500")
         settle_row(row=row, target_doctype=NON_PROJECT_EXPENSE, target_name=name)
         frappe.db.delete("Version", {"ref_doctype": NON_PROJECT_EXPENSE, "docname": name})
         frappe.db.commit()
 
-        with self.assertRaises(frappe.ValidationError) as caught:
-            unreconcile_row(row=row, legs="all", reason="wrong expense")
-        self.assertIn("can't be undone yet", str(caught.exception))
-        self.assertEqual(frappe.db.get_value(NON_PROJECT_EXPENSE, name, "status"), "Paid")
+        unreconcile_row(row=row, legs="all", reason="wrong expense")
+
+        self._assert_free(NON_PROJECT_EXPENSE, name)

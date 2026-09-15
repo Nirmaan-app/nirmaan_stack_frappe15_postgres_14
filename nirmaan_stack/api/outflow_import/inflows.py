@@ -78,6 +78,7 @@ from nirmaan_stack.api.outflow_import.review import (
     ROW_DOCTYPE,
     _refresh_batch_rollup,
 )
+from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.duplicates import (
     find_prior_sighting,
     index_prior_sightings,
@@ -351,6 +352,10 @@ def _already_created_by_import(staged) -> dict:
     The identity is settled by `duplicates.find_prior_sighting`, so the date obeys the missing-date
     fallback rather than SQL's `NULL = NULL`, and the amount is compared as a `Decimal`.
     `ORDER BY creation ASC` names the FIRST inflow, which is the one worth pointing at.
+
+    ⚠️ SETTLED LEGS ONLY (#1278). Unreconciling an import-created inflow DELETES it and keeps its leg,
+    stamped Reversed. That leg names a record that no longer exists; counting it would refuse the
+    very re-record the unreconcile was done to allow, naming an inflow nobody can open.
     """
     if not staged.transfer_id:
         return {}
@@ -360,10 +365,10 @@ def _already_created_by_import(staged) -> dict:
                r.added_on
         FROM "tab{MATCH_DOCTYPE}" m
         LEFT JOIN "tab{ROW_DOCTYPE}" r ON r.name = m.import_row
-        WHERE m.transfer_id = %s AND m.target_doctype IN (%s, %s)
+        WHERE m.transfer_id = %s AND m.target_doctype IN (%s, %s) AND m.match_kind = %s
         ORDER BY m.creation ASC
         """,
-        (staged.transfer_id, INFLOW_DOCTYPE, NON_PROJECT_INFLOW),
+        (staged.transfer_id, INFLOW_DOCTYPE, NON_PROJECT_INFLOW, MATCH_SETTLED),
         as_dict=True,
     )
     return index_prior_sightings(

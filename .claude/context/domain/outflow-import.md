@@ -5027,3 +5027,70 @@ Reverses ADR-0020 B2's "reverse is payments only". Record: **ADR-0022**.
   edit refused, status no longer Paid refused, re-pointed reference refused, an import-created expense refused as not yet; proof by an
   older-than-upload expense with no Version, and a younger one with no Version refused); vitest
   `unreconcileView.test.ts` (+5). `test_unreconcile_row`'s unknown-verdict case now uses `delete_created`.
+
+## #1278 (2026-09-15) — Unreconcile a line whose record the import created
+
+Reverses ADR-0016 AR3 ("an import-created inflow cannot be undone"). Record: **ADR-0022**.
+
+- **Stored flag.** `Outflow Row Match.created_by_import` (Check, default 0, read-only; migrate). Written in the
+  leg's insert by `expenses._record_settlement` (`1 if result.created`, so create expense / create inflow /
+  create non-project inflow set it and every settle of an existing record leaves 0) and by
+  `cashbook._write_one`. The controller's derived freeze covers it with no code change.
+- **Back-fill.** `patches/v3_0/backfill_outflow_match_created_flag.py`, wired in `patches.txt`
+  [post_model_sync]. Expense legs at 0 only; the rule is `unreconcile.leg_created_the_record`
+  (`CREATED_WINDOW_SECONDS = 60` between expense `creation` and leg `matched_at`, expense `owner` ==
+  `matched_by`, not older than the batch, no status in Versions up to the match that was ever not Paid).
+  Raw UPDATE (the controller freezes the field; no `doc_events`). Idempotent; prints
+  `{'created': n, 'not created': m}`. Local database, dry run and real migrate: **created 222, not created 15**
+  — the 222 were all Cashbook creates (0–5 s, same user, no Version), the 15 all Cashfree hand Links (minutes
+  to days older, with a Version). ⚠️ **Not yet read on production** — the migrate prints the same counts there.
+- **Decision (pure).** New verdict **`delete_created`**; `LegFacts` gains `created_by_import: bool`,
+  `matched_at`, `versions` (`(when, fieldnames)` per Version). An inflow leg (`INFLOW_DOCTYPES`) is
+  always created: not found -> edited since -> delete. An expense leg keeps #1277's order (not found, amount,
+  status, reference) and then asks the flag: set -> edited since -> delete; unset -> `revert_expense`.
+  - **Edited since** = the earliest Version dated strictly after `matched_at` touching any field outside
+    `IMPORT_WRITTEN_FIELDS` (`payment_attachment`, `inflow_attachment`); an unknown `matched_at` counts every
+    Version. Title "Edited since", no `fix_at`: "Someone edited it on 17-Sep-2026, after the import made it.
+    Delete or fix it on its own screen."
+  - `WHAT_HAPPENS_DELETE` = "Will be deleted."; `WHAT_HAPPENS_DELETE_PROJECT_INFLOW` adds "The project's cash
+    position updates straight away."
+  - ⚠️ **`expense_created_by_import` (the #1277 proof rule) is GONE.** An unflagged expense reverts with no
+    history at all; its two pins were inverted.
+- **Write (`api/outflow_import/unreconcile.py`).**
+  - `_read_facts` reads inflow legs (existence under `FOR UPDATE`, `edits_of`) and, for a flagged expense,
+    `edits_of` too. `_LEG_FIELDS` carries `created_by_import`.
+  - ⚠️ **Each leg is stamped Reversed BEFORE its verdict is carried out** (all verdicts): the leg's save
+    validates its Dynamic Link, which fails once the target is deleted. Same savepoint either way;
+    `test_unreconcile_row`'s unknown-verdict pin (now `unsplit_payment`) proves the stamp rolls back too.
+  - `_carry_out` returns `CarriedOut(doctype, name, project, deleted)`.
+  - **`api/outflow_import/unreconcile_created.py`** (new, keeps the orchestrator under ~500 lines) holds
+    `edits_of`, `delete_created` and the series helpers. `delete_created`: reads the project
+    (`ledgers.project_field_of`, new — `TARGET_SNAPSHOT_FIELDS` plus `Project Inflows`), **raw-deletes the statement `File` link rows
+    first** (`unreconcile_cleanup.delete_statement_file_links`, now public), then
+    `frappe.delete_doc(force=True, ignore_permissions=True)` under `_outflow_import_write()`.
+    - ⚠️ WHY FIRST: `delete_doc` -> `remove_all` deletes attached `File`s through the document layer, and
+      `frappe_gcp_attachment` / `frappe_s3_attachment` `File.on_trash` deletes the blob by `content_hash`.
+    - ⚠️ **NAMING-SERIES REWIND.** `delete_doc` -> `update_naming_series` winds the series back when the deleted
+      record is the newest, so the next record took the deleted name (found by the re-record test:
+      `NPI-26-00372` came back). `_series_counters_for` / `_restore_series_counters` snapshot every
+      `tabSeries` row whose prefix the name starts with (`LEFT(name, LENGTH(prefix)) = prefix`, never `LIKE`) and
+      put it back with `GREATEST`.
+    - The trash hooks still run: `generate_versions` writes a `Nirmaan Versions` copy; `delete_dynamic_links`
+      removes the record's Versions and Comments.
+- **Clean-up.** `restore_derived_state(carried, statement)` adds a deleted record's project to the CEO Hold
+  re-sync set (a `Project Inflows` trash hook evaluates before the row is gone); a deleted record gets no
+  `File` link step (already done) and no latest-date / vendor-credit step.
+- **Re-record fix.** `inflows._already_created_by_import` filters `m.match_kind = 'Settled'`.
+- **Frontend.** `unreconcileView.ts`: `VERDICT_DELETE_CREATED`, tone `deleted` (red `text-red-700`, bin icon in
+  `UnreconcileDialog`); the notice says "came off this transfer and was/were deleted", or for a mix
+  "N went back to Approved and M was/were deleted".
+- **Tests (key ones shown RED by removing the fix):** `services/.../test_unreconcile.py` (40: created
+  verdicts, edited-since cases, back-fill rule table, inverted pins); `api/.../test_unreconcile_created.py`
+  (12: every create path sets the flag and a hand Link does not; Project Inflow deleted, leg kept Reversed,
+  line open, gap == fresh evaluation with the cashflow source raised — RED without the deleted-project re-sync;
+  the same credit recorded again for both inflow kinds — RED without the Settled filter; the statement file
+  survives with both cloud `delete_from_cloud` hooks patched to fail — RED without the raw link delete first;
+  created expense of each kind deleted; edited-since refused for an inflow and an expense; an
+  attachment-only Version still deletes; attachment fields == `statement_attachment_field` over every
+  ledger); `test_cashbook_import` asserts the Cashbook writer's leg is flagged; `api/.../test_created_flag_backfill.py` (3); `test_unreconcile_expenses` (two pins inverted);
+  vitest `unreconcileView.test.ts` (29).

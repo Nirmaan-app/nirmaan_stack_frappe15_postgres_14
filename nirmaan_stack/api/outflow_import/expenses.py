@@ -1230,6 +1230,9 @@ def _record_settlement(staged, doc, result, actor) -> None:
             # tier and the reviewer still chose otherwise.
             "match_basis": (doc.get("match_basis") or "").strip() or "Manual",
             "settlement_origin": origin,
+            # #1278: whether this settle BROUGHT THE RECORD INTO EXISTENCE. Unreconcile deletes such a
+            # record rather than putting it back to Approved; frozen after insert like the rest.
+            "created_by_import": 1 if result.created else 0,
             "matched_at": frappe.utils.now_datetime(),
             "matched_by": actor,
             # SNAPSHOTS at allocation time -- never recomputed. See the field descriptions.

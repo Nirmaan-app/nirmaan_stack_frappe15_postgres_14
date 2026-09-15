@@ -8,8 +8,8 @@ leg goes in; one verdict comes out. The write path (`api/outflow_import/unreconc
 facts UNDER ITS LOCKS and asks here, so the decision is always made on a picture nobody else can be
 changing -- a plan shown on screen earlier is never trusted.
 
-TODAY IT KNOWS THREE VERDICTS: `revert_payment`, `revert_expense` (#1277) and `refused`. The parent
-spec adds `delete_created` and `unsplit_payment` in later slices; each is a new branch HERE, never a
+TODAY IT KNOWS FOUR VERDICTS: `revert_payment`, `revert_expense` (#1277), `delete_created` (#1278) and
+`refused`. The parent spec adds `unsplit_payment` in a later slice; it is a new branch HERE, never a
 check at a call site. Each carries a `what_happens` sentence (#1275) -- the line the Unreconcile
 dialog shows beside the record -- so the screen never has to know what a verdict does to its target.
 
@@ -25,10 +25,17 @@ AN EXPENSE (#1277, ADR-0022 reverses ADR-0020 B2 "reverse is payments only") is 
 three "changed elsewhere" facts as a payment -- amount, status, reference -- with its own sentences
 (it has no TDS and no split, so those refusals never apply). THEN ONE MORE QUESTION: did this import
 CREATE it? A created expense must be deleted, not put back to Approved -- an Approved record for money
-nobody sanctioned would be worse than the settle it undoes -- and deleting is a later slice. Until a
-stored flag exists, `created_by_import` is `False` only on PROOF (`expense_created_by_import`);
-anything else is refused as "can't be undone yet". The created question is asked LAST: a record that
-has been changed since is something a person can act on, the created question is not.
+nobody sanctioned would be worse than the settle it undoes. The created question is asked LAST: a
+record that has been changed since is something a person can act on, the created question is not.
+
+A CREATED RECORD (#1278, ADR-0022 reverses ADR-0016 AR3 "an import-created inflow cannot be undone")
+is DELETED. `created_by_import` is the leg's STORED flag (`Outflow Row Match.created_by_import`), set by
+every Create path and back-filled for older expense legs (`leg_created_the_record`); unresolved is
+"not created", the safe revert path. ⚠️ AN INFLOW LEG IS ALWAYS CREATED, whatever its flag: the import
+has no way to reach an inflow except by creating it. A created record is refused instead when anyone
+edited it after the match -- a Version dated after `matched_at` that changes any field other than the
+statement attachment the import itself writes (`IMPORT_WRITTEN_FIELDS`). ⚠️ NEVER THE `modified`
+TIMESTAMP: the post-commit statement `File` link and receipt adoption bump it with no human involved.
 
 WHY EACH REFUSAL EXISTS (moved here from `_guard_leg_is_plainly_reversible`, review F5). Reverting a
 payment clears status / `utr` / `payment_date` and NOTHING ELSE, so a leg that carries more than a
@@ -53,9 +60,12 @@ amount so a human can compare it against the payment's Version log.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.ledgers import (
+    INFLOW_DOCTYPE,
+    INFLOW_DOCTYPES,
     PAYMENT_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
     is_expense_doctype,
@@ -65,6 +75,7 @@ from nirmaan_stack.services.outflow_import.sources import source_runs_the_matche
 
 VERDICT_REVERT_PAYMENT = "revert_payment"
 VERDICT_REVERT_EXPENSE = "revert_expense"
+VERDICT_DELETE_CREATED = "delete_created"
 VERDICT_REFUSED = "refused"
 
 # Where a refused leg is repaired. `None` on a refusal means there is nothing to repair.
@@ -86,23 +97,47 @@ WHAT_HAPPENS_REVERT_PROJECT_EXPENSE = (
 WHAT_HAPPENS_REVERT_NON_PROJECT_EXPENSE = (
     "Goes back to Approved. Payment date and reference are cleared."
 )
+# ⚠️ `api/outflow_import/unreconcile_created.delete_created` deletes the record; the dialog renders it red.
+WHAT_HAPPENS_DELETE = "Will be deleted."
+# A Project Inflow counts towards the project's cashflow gap the moment it exists (ADR-0016), so its
+# deletion moves the CEO Hold picture on the same click -- the dialog says so before the click.
+WHAT_HAPPENS_DELETE_PROJECT_INFLOW = (
+    "Will be deleted. The project's cash position updates straight away."
+)
+
+#: The fields a created record's settle writes after it exists -- the statement attachment
+#: (`settle._STATEMENT_ATTACHMENT_FIELDS`, spelled here because this module may not import settle).
+#: A Version touching only these is the import's own, never a person's edit. Pinned against the
+#: resolver by `api/outflow_import/test_unreconcile_created.py`.
+IMPORT_WRITTEN_FIELDS = frozenset({"payment_attachment", "inflow_attachment"})
+
+#: The back-fill's window between a created expense's `creation` and its leg's `matched_at`. Both are
+#: written in ONE request, so on the local database every created leg was 0-5 s apart and every hand
+#: Link minutes to days (2026-09-15, 237 expense legs). A minute leaves room for a slow request and
+#: none for a person to find and settle a record they had just made by hand.
+CREATED_WINDOW_SECONDS = 60
 
 _PAID = "Paid"
 
 __all__ = [
     "CASHBOOK_REFUSAL",
+    "CREATED_WINDOW_SECONDS",
     "FIX_ON_EXPENSES_SCREEN",
     "FIX_ON_PAYMENTS_SCREEN",
+    "IMPORT_WRITTEN_FIELDS",
+    "WHAT_HAPPENS_DELETE",
+    "WHAT_HAPPENS_DELETE_PROJECT_INFLOW",
     "WHAT_HAPPENS_REVERT_NON_PROJECT_EXPENSE",
     "WHAT_HAPPENS_REVERT_PAYMENT",
     "WHAT_HAPPENS_REVERT_PROJECT_EXPENSE",
+    "VERDICT_DELETE_CREATED",
     "VERDICT_REFUSED",
     "VERDICT_REVERT_EXPENSE",
     "VERDICT_REVERT_PAYMENT",
     "LegFacts",
     "LegVerdict",
-    "expense_created_by_import",
     "first_refusal",
+    "leg_created_the_record",
     "leg_verdict",
 ]
 
@@ -133,9 +168,14 @@ class LegFacts:
     settlement_references: tuple = ()
     # The IMPORT's source (`Outflow Import Batch.source`), not the row's denormalised copy.
     source: str | None = None
-    # EXPENSES ONLY: whether this line's settle created the record. `None` is "not proven either
-    # way", which is refused -- see `expense_created_by_import` for what counts as proof.
-    created_by_import: bool | None = None
+    # The leg's stored flag: its settle created the record (#1278). Ignored for an inflow, which is
+    # always created.
+    created_by_import: bool = False
+    # When the leg was written; an edit is only an edit when it is dated after this.
+    matched_at: datetime | None = None
+    # CREATED RECORDS ONLY: `(when, fieldnames)` per Version row of the record, any order. Fieldnames
+    # cover `changed` fields and the table fields of added / removed / changed child rows.
+    versions: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -171,6 +211,10 @@ def leg_verdict(facts: LegFacts) -> LegVerdict:
         )
     if is_expense_doctype(facts.target_doctype):
         return _expense_verdict(facts)
+    if facts.target_doctype in INFLOW_DOCTYPES:
+        if not facts.target_exists:
+            return _refused(facts, "Not found", f"{facts.target_doctype} '{name}' not found.")
+        return _created_verdict(facts)
     if facts.target_doctype != PAYMENT_DOCTYPE:
         return _refused(
             facts,
@@ -277,15 +321,8 @@ def _expense_verdict(facts: LegFacts) -> LegVerdict:
             f"it, so this allocation cannot be safely reversed.",
             FIX_ON_EXPENSES_SCREEN,
         )
-    # `is not False`, never `not ...`: `None` (unproven) must be refused exactly like `True` (which the
-    # stored created flag of a later #1270 slice will set). No `fix_at`: nothing on any screen fixes it.
-    if facts.created_by_import is not False:
-        return _refused(
-            facts,
-            "Can't be undone yet",
-            f"{name} may have been recorded by this import, and a record the import created can't "
-            f"be undone yet.",
-        )
+    if facts.created_by_import:
+        return _created_verdict(facts)
     return LegVerdict(
         leg=facts.leg,
         verdict=VERDICT_REVERT_EXPENSE,
@@ -297,30 +334,67 @@ def _expense_verdict(facts: LegFacts) -> LegVerdict:
     )
 
 
-def expense_created_by_import(
-    *, created_before_import: bool, status_changes_before_match
-) -> bool | None:
-    """`False` when it is PROVEN this import did not create the expense; otherwise `None` (#1277).
+def _created_verdict(facts: LegFacts) -> LegVerdict:
+    """A record this line's settle created: deleted, unless someone edited it after the match (#1278).
 
-    Until `Outflow Row Match` carries a stored created flag (a later slice of #1270), this is the only
-    answer. `create_expense_from_row` INSERTS the record already Paid, and an insert writes no Version
-    row, so two facts are impossible for a record the import created:
-
-      * `created_before_import` -- the record is older than the statement upload (the import batch).
-      * a status that was ever not Paid in `status_changes_before_match` -- the `(old, new)` status
-        changes from the record's Version rows dated no later than the leg's match. A settle of an
-        existing record writes `Approved -> Paid` there; a created one has no row at all.
-
-    ⚠️ NEVER `True`. Nothing here can prove the import DID create it, and a guess in either direction
-    is a wrong write: `None` is refused, which is the safe answer. An existing expense settled before
-    the settle went through `doc.save()` (slice X1) has no Version and, if it is younger than the
-    upload, stays refused -- accepted until the stored flag arrives.
+    No `fix_at`: the sentence already says where -- the record's own screen, whichever it is.
     """
-    if created_before_import:
+    edited_on = _first_edit_after_match(facts)
+    if edited_on is not None:
+        return _refused(
+            facts,
+            "Edited since",
+            f"Someone edited it on {edited_on.strftime('%d-%b-%Y')}, after the import made it. "
+            f"Delete or fix it on its own screen.",
+        )
+    return LegVerdict(
+        leg=facts.leg,
+        verdict=VERDICT_DELETE_CREATED,
+        what_happens=(
+            WHAT_HAPPENS_DELETE_PROJECT_INFLOW
+            if facts.target_doctype == INFLOW_DOCTYPE
+            else WHAT_HAPPENS_DELETE
+        ),
+    )
+
+
+def _first_edit_after_match(facts: LegFacts) -> datetime | None:
+    """When the earliest human edit after the match was made, or `None`.
+
+    ⚠️ AN UNKNOWN MATCH TIME COUNTS EVERY EDIT. Deleting is the one verdict that cannot be put back;
+    placing an edit "before" a time nobody recorded would destroy someone's work on a guess.
+    """
+    edits = sorted(
+        when
+        for when, fields in facts.versions
+        if (facts.matched_at is None or when > facts.matched_at)
+        and any(field not in IMPORT_WRITTEN_FIELDS for field in fields)
+    )
+    return edits[0] if edits else None
+
+
+def leg_created_the_record(
+    *,
+    seconds_from_creation_to_match,
+    same_user: bool,
+    created_before_import: bool,
+    status_changes_before_match,
+) -> bool:
+    """Whether an EXISTING expense leg's settle created its record -- the back-fill rule (#1278).
+
+    `True` only when every fact says so: the expense was written within `CREATED_WINDOW_SECONDS`
+    BEFORE its leg, by the leg's own user, it is not older than the statement upload, and no Version
+    dated no later than the match shows a status that was ever not Paid (a created expense is inserted
+    already Paid, and an insert writes no Version). ⚠️ EVERY DOUBT IS `False`: unresolved is "not
+    created", which reverts to Approved -- a slower mistake to make than a deletion.
+    """
+    if seconds_from_creation_to_match is None:
         return False
-    if any((old or "").strip() != _PAID for old, _new in status_changes_before_match):
+    if not 0 <= seconds_from_creation_to_match <= CREATED_WINDOW_SECONDS:
         return False
-    return None
+    if not same_user or created_before_import:
+        return False
+    return all((old or "").strip() == _PAID for old, _new in status_changes_before_match)
 
 
 def first_refusal(verdicts) -> LegVerdict | None:

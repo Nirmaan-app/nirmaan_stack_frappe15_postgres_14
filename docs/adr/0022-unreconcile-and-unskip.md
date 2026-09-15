@@ -8,11 +8,11 @@ Date: 2026-09-15
 record grows with them. Built so far: the one decision module and write path (#1271), one-line
 matching (#1272), Skip by hand with a skipped-by-hand marker (#1273), Unskip (#1274), **Unreconcile for
 Project Payments (#1275)** and its **post-write clean-up** (#1276: vendor credit, CEO Hold, latest payment
-date, statement file), and **Unreconcile for existing expenses (#1277)**. Still to come: import-created
-records, part-payment un-split, Confirm by hand.
+date, statement file), **Unreconcile for existing expenses (#1277)** and **Unreconcile for records the
+import created (#1278)**. Still to come: part-payment un-split, Confirm by hand.
 
 As-built detail: `.claude/context/domain/outflow-import.md` § *#1271*, *#1272*, *#1273*, *#1274*, *#1275*,
-*#1276*, *#1277*.
+*#1276*, *#1277*, *#1278*.
 Approved mockups: https://claude.ai/artifact/K6vEJXGoALunzfdqTfrVVt
 
 ## Context
@@ -38,7 +38,7 @@ Recorded so later work does not bring "no undo" back by mistake.
 | Ruling | Where | What replaces it |
 |---|---|---|
 | **Q9 — no undo of a settle from inside the import** | Bulk Import Outflow owner rulings; domain doc | **reversed by #1275 for Project Payments, and by #1277 for existing expenses**: Unreconcile, per record or Reverse all, all-or-nothing |
-| **AR3 — an import-created inflow cannot be undone** | [ADR-0016](0016-bank-statement-import-creates-inflows.md) | an untouched import-created record is deleted by Unreconcile |
+| **AR3 — an import-created inflow cannot be undone** | [ADR-0016](0016-bank-statement-import-creates-inflows.md) | **reversed by #1278**: an untouched import-created record (Project Inflow, Non-Project Inflow, or an expense the import created) is deleted by Unreconcile |
 | **R6 — `SHOW_SKIP_ROW` stays off; a line with nothing to link has no manual terminal state** | [ADR-0016](0016-bank-statement-import-creates-inflows.md) | **reversed by #1273**: the "Nothing to link?" Skip box |
 | **The 2026-08-10 hidden-skip ruling** (`DecisionDialog.tsx`, "hidden, not deleted") | owner ruling, 2026-08-10 | **reversed by #1273**: `SHOW_SKIP_ROW` is deleted |
 | **A split payment is refused outright; only payments can be reversed** (B2, "reverse is payments only") | [ADR-0020](0020-one-transfer-many-payments.md) | **the payments-only half is reversed by #1277**: an existing Project Expense or Non-Project Expense reverts to Approved. Still to come: an untouched part payment is un-split |
@@ -116,8 +116,9 @@ only, pinned by `outflowUndoAccessParity.test.ts`.
   for payments, and a Project Expense's project has its cashflow-gap hold re-synced once, after every write.
 - **Refusals** ("Changed elsewhere", fix on the Expenses screen): the amount differs from the leg's, the
   status is no longer Paid, or the payment reference is not one of the line's settlement references.
-- **An expense the import created must be deleted, never put back to Approved**, and deleting is a later
-  slice. Until the stored "created by the import" flag exists, an expense counts as existing ONLY ON PROOF,
+- **An expense the import created must be deleted, never put back to Approved** — built at #1278 (below),
+  which **replaced the proof rule that follows with the stored flag**. As built at #1277: until the stored
+  "created by the import" flag exists, an expense counts as existing ONLY ON PROOF,
   and anything unproven is refused as "can't be undone yet". Proof is either (a) the expense is older than
   the statement upload, or (b) a Version row dated no later than the match shows its status was once not
   Paid. Both are impossible for a created expense: the import inserts it already Paid, and an insert writes
@@ -128,6 +129,42 @@ only, pinned by `outflowUndoAccessParity.test.ts`.
 - The dialog line reads "Goes back to Approved. Payment date, reference and 'paid by' are cleared." on a
   Project Expense, and "Goes back to Approved. Payment date and reference are cleared." on a Non-Project
   Expense, which has no "paid by" to clear.
+
+### Unreconcile a record the import created (Q4, Q6) — built at #1278
+
+- **ADR-0016 AR3 ("an import-created inflow cannot be undone") is reversed.**
+- **Which records are "created":** `Outflow Row Match.created_by_import`, a stored Check written in the
+  leg's insert by every Create path (create expense, create inflow, create non-project inflow) and the
+  Cashbook writer, and frozen with every other field. **An inflow leg is always treated as created**,
+  whatever its flag — the import has no other way to reach an inflow. Older expense legs are back-filled by
+  `patches/v3_0/backfill_outflow_match_created_flag.py`: created only when the expense was written within a
+  minute before its leg, by the leg's own user, is not older than the upload, and no Version up to the match
+  shows it was ever not Paid. **Unresolved stays "not created" — the safe revert path.** On the local
+  database this split 237 legs cleanly: 222 created (0–5 s, same user, no Version), 15 hand Links (minutes to
+  days older, with a Version); the patch prints its counts so production can be read the same way.
+- **The stored flag replaces #1277's proof rule.** An unflagged expense now reverts to Approved even with no
+  history to prove it existed — including the "settled before X1, younger than its upload" case that #1277
+  accepted as refused.
+- New verdict **`delete_created`**: the record is deleted with `frappe.delete_doc(force=True)` — the kept
+  Reversed leg's Dynamic Link would otherwise block it. **The leg is never deleted** (ADR-0020 D3); it is
+  stamped Reversed *before* the delete, since its save checks the link.
+- **Refused when someone edited it after the import made it:** a Version dated after the leg's match that
+  changes any field other than the statement attachment the import writes (`payment_attachment`,
+  `inflow_attachment`). Not the `modified` timestamp — the post-commit statement link and receipt adoption bump
+  it. "Someone edited it on <date>, after the import made it. Delete or fix it on its own screen."
+- **Three things the delete must not disturb:**
+  - **The statement file.** Frappe deletes a record's attached `File` rows through the document layer, and
+    the cloud attachment app's `on_trash` deletes the blob by `content_hash` — the import batch's statement,
+    shared by everything that batch settled. The statement's link rows come off by raw delete *first*.
+  - **The record's name.** Deleting the newest record of a naming series winds the counter back, so the
+    next record would take the deleted one's name and the kept leg would point at a different, live record.
+    The counter is put back after the delete.
+  - **CEO Hold.** A Project Inflow's trash hook evaluates the gap before the row is gone; the project is
+    re-synced once, after every write.
+- **Re-recording a credit:** the "already created by the import" check counts Settled legs only, so a credit
+  whose inflow was unreconciled can be recorded again.
+- The dialog line is red: "Will be deleted." — plus "The project's cash position updates straight away." for
+  a Project Inflow.
 
 ## Consequences
 

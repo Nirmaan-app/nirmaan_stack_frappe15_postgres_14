@@ -292,6 +292,8 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
             "match_kind": "Settled",
             "match_basis": MATCH_BASIS,
             "settlement_origin": "Suggestion accepted",
+            # #1278: the Cashbook writer only ever creates (`create_expense_from_row` above).
+            "created_by_import": 1 if result.created else 0,
             "matched_at": frappe.utils.now_datetime(),
             "matched_by": actor,
         }

@@ -139,8 +139,10 @@ class TestWhatItRefusesBeforeLooking(UnreconcileFixture):
         with patch.object(
             unreconcile_api,
             "leg_verdict",
-            # A verdict still to come (#1270). It was `revert_expense` until #1277 wired that one.
-            side_effect=lambda facts: LegVerdict(leg=facts.leg, verdict="delete_created"),
+            # A verdict still to come (#1270). It was `revert_expense` until #1277 wired that one, and
+            # `delete_created` until #1278 wired that. Since #1278 the leg is stamped BEFORE the write,
+            # so this also proves the stamp rolls back with it.
+            side_effect=lambda facts: LegVerdict(leg=facts.leg, verdict="unsplit_payment"),
         ):
             with self.assertRaises(NotImplementedError):
                 unreconcile_row(row=row, legs="all", reason="wrong PO")
