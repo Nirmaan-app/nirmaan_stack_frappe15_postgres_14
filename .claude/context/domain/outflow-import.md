@@ -4878,6 +4878,14 @@ Reverses the 2026-08-10 hidden-skip ruling and ADR-0016 R6. Record: **ADR-0022**
   `UnskipConfirm` (reason required, server refusal shown inline, closes only on success); the notice
   renders above the table, emerald or amber; the popup's table and the page (`onChanged={refreshAll}`)
   refresh. A plain Accountant sees the popup unchanged.
+  - ⚠️ The notice and any open confirm are cleared when the popup CLOSES (`handleOpenChange`). The
+    dialog stays mounted all session, so without it a reopened popup still showed an old "Unskipped…"
+    notice (found on the #1274 browser walk).
+- **Browser walk (2026-09-15, throwaway walk import, deleted afterwards):** matched notice, skipped-again
+  notice (and that line's button turning grey with "This money is already recorded."), a server refusal
+  shown inline in the confirm then a retry from the same confirm, needs-a-record with the line back in the
+  worklist, and every disabled reason on real rows (Cashbook 52, bank rule 32, already recorded,
+  earlier statement, bank refused). Not walked: a plain Accountant's view (needs that user's login).
 - **Tests:** `services/outflow_import/test_skip_origin.py` +5 (`TestUnskipRefusal`);
   `api/outflow_import/test_unskip_row.py` (10: refused for a plain Accountant / System / Cashbook /
   not Skipped, writing nothing; reason required; Not-Matched + cleared stamps + the import reopens;

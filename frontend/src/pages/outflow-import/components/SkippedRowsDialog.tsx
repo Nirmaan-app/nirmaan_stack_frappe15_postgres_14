@@ -225,8 +225,22 @@ export const SkippedRowsDialog = ({
         [callUnskip, mutateRows, onChanged]
     );
 
+    // ⚠️ THE NOTICE BELONGS TO ONE VISIT. This dialog stays mounted for the whole session, so without
+    // this a closed-and-reopened popup still said "Unskipped…" about a line from minutes ago -- on a
+    // different source, even (found on the #1274 browser walk).
+    const handleOpenChange = useCallback(
+        (next: boolean) => {
+            if (!next) {
+                setNotice(null);
+                setUnskipping(null);
+            }
+            onOpenChange(next);
+        },
+        [onOpenChange]
+    );
+
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
+        <Dialog open={open} onOpenChange={handleOpenChange}>
             {/* ⚠️ WIDER THAN THE OTHER DIALOGS ON PURPOSE. This one renders the SAME table as the
                 page, and that table's columns are sized for a full-width screen — at `max-w-6xl` the
                 Outcome column fell off the right edge, which on this screen is the only column that
