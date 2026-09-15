@@ -148,18 +148,16 @@ def is_over_allocated(row_amount, legs: Iterable[Mapping]) -> bool:
     catch an arithmetic change to `allocation_fits`, a future caller that writes legs without
     consulting it, or a lock that gets weakened or dropped. Do not delete it as dead code -- a
     backstop being unreachable is what a backstop is for. Today's other settle paths (`settle_row`,
-    `settle_row_partial`, the TDS-deduction branch, `create_expense`) each write EXACTLY ONE leg per
-    row -- `_load_settleable_row` refuses a second call once `row_status` reads `Settled` -- and
-    that one leg is chosen to match the transfer within `settle.py`'s own amount window before it
-    ever reaches `_record_settlement`, so none of them can leave a row here either.
+    `settle_row_partial`, `create_expense`) each write EXACTLY ONE leg per row --
+    `_load_settleable_row` refuses a second call once `row_status` reads `Settled` -- and that one
+    leg is chosen to match the transfer within `settle.py`'s own amount window before it ever
+    reaches `_record_settlement`, so none of them can leave a row here either.
 
-    ⚠️ THE TDS-DEDUCTION LEG WAS THE ONE PATH THAT COULD BREAK THIS, AND IT IS FIXED AT THE CALL
-    SITE, NOT HERE. `settle.SettleResult.amount` on that path is the GROSS approved figure -- the
-    payment record is deliberately never rewritten, and `tds_written` carries the withheld part
-    separately -- so `_record_settlement` must write `amount - tds_written` as `target_amount`, not
-    `amount`. Writing the gross would make this function permanently `True` for every TDS-touched
-    row, invisible today only because `is_fully_allocated` is one-sided and would have surfaced the
-    moment Task 4 started gating writes on this instead.
+    ⚠️ A GROSS-vs-NET LEG WOULD BREAK THIS. The old TDS-deduction settle wrote a gross `amount` with
+    the withheld part beside it, which forced a subtraction at `_record_settlement`. That path is
+    REMOVED (ADR-0021: the import records no tax), so every leg's `target_amount` is simply the
+    settled `amount`. Never reintroduce a settle path whose `SettleResult.amount` exceeds what the
+    transfer actually sent -- it would make this function permanently `True` for that row.
     """
     return remaining_of(row_amount, legs) < -AMOUNT_TOLERANCE
 

@@ -132,7 +132,8 @@ class TestLegsThisReversalCannotCorrectlyUndo(AllocationFixture):
     """⚠️ WHOLE-BRANCH REVIEW F5 -- THE TARGET DOCTYPE WAS THE ONLY TARGET GUARD, AND IT IS NOT
     ENOUGH. `_revert_payment` clears status / `utr` / `payment_date` and nothing else, but two of
     the other settle paths also write `Project Payments` legs and each leaves something durable
-    behind: `_settle_as_deduction` writes `tds` onto the record, and `settle_row_partial` SPLITS it.
+    behind: a `tds` figure on the record (the payments screen writes one; the import's old
+    `_settle_as_deduction` path is REMOVED, ADR-0021), and `settle_row_partial` SPLITS it.
     Ruling O documented only the third case (an amount rewritten by `settle_row`), which is the one
     that is genuinely undetectable and is accepted.
 
@@ -144,7 +145,7 @@ class TestLegsThisReversalCannotCorrectlyUndo(AllocationFixture):
     def test_a_payment_carrying_TDS_is_refused_and_writes_nothing(self):
         """The marker is `tds` on the record, whatever path put it there -- a reversal that put this
         payment back to `Approved` would leave a withheld-tax figure on money waiting to be paid
-        again. Planted directly rather than driven through `_settle_as_deduction`: the guard reads
+        again. Planted directly (no import path writes `tds` any more): the guard reads
         the payment's own state, and this pins the guard."""
         row, (a, _, _) = self._allocated()
         leg = frappe.db.get_value(MATCH_DOCTYPE, {"import_row": row, "target_name": a}, "name")
