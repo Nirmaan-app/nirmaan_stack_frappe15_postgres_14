@@ -12,6 +12,9 @@
   "type",
   "details_section",
   "status",
+  "approval_date",
+  "ceo_approval_date",
+  "auto_approved",
   "description",
   "comment",
   "amount",
@@ -55,7 +58,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Requested\nApproved\nPaid"
+   "options": "Requested\nCEO Pending\nApproved\nReconciliation Pending\nPaid\nRejected"
   },
   {
    "fieldname": "description",
@@ -122,12 +125,29 @@
    "fieldname": "invoice_date",
    "fieldtype": "Date",
    "label": "Invoice Date"
+  },
+  {
+   "fieldname": "approval_date",
+   "fieldtype": "Date",
+   "label": "Acc Approval Date"
+  },
+  {
+   "fieldname": "ceo_approval_date",
+   "fieldtype": "Date",
+   "label": "CEO Approval Date"
+  },
+  {
+   "default": "0",
+   "fieldname": "auto_approved",
+   "fieldtype": "Check",
+   "label": "Auto Approved",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-22 17:11:31.124083",
+ "modified": "2026-09-15 15:46:37.343487",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Expenses",
