@@ -16,6 +16,7 @@
   "po_release_date",
   "status",
   "associated_pos",
+  "linked_po_count",
   "revised_date",
   "remarks"
  ],
@@ -68,11 +69,6 @@
    "label": "Status"
   },
   {
-   "fieldname": "associated_pos",
-   "fieldtype": "JSON",
-   "label": "Associated POs"
-  },
-  {
    "fieldname": "revised_date",
    "fieldtype": "Date",
    "label": "Revised Date"
@@ -81,12 +77,24 @@
    "fieldname": "remarks",
    "fieldtype": "Text",
    "label": "Remarks"
+  },
+  {
+   "fieldname": "associated_pos",
+   "fieldtype": "JSON",
+   "label": "Associated POs"
+  },
+  {
+   "default": "0",
+   "fieldname": "linked_po_count",
+   "fieldtype": "Int",
+   "label": "Linked PO Count",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-13 21:00:14.738806",
+ "modified": "2026-09-11 13:13:31.757699",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Critical PO Tasks",
@@ -189,21 +197,21 @@
    "write": 1
   },
   {
-   "role": "Nirmaan HR Executive",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan HR Executive",
    "share": 1
   },
   {
-   "role": "Nirmaan PMO Executive",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan PMO Executive",
    "share": 1
   },
   {
@@ -303,12 +311,12 @@
    "write": 1
   },
   {
-   "role": "Nirmaan HR Lead",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan HR Lead",
    "share": 1
   }
  ],

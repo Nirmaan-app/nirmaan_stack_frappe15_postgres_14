@@ -54,13 +54,13 @@ interface ProjectFinancialsTabProps {
 const SALES_ALLOWED_TABS = ["Project Invoices", "Inflow", "Client PO"];
 
 // PMO Executive does NOT see these financial sub-tabs (owner ruling), leaving
-// All Payments + All PO Invoices.
+// All Payments + All PO Invoices + Client PO.
 //
-// The values coincide with SALES_ALLOWED_TABS today, but the two are opposite
-// in polarity -- one is an allow-list, the other a deny-list -- and they answer
-// different questions. Kept separate on purpose: aliasing them would mean a
-// later change to what Sales may see silently changes what PMO may not.
-const PMO_HIDDEN_TABS = ["Project Invoices", "Inflow", "Client PO"];
+// Deliberately separate from SALES_ALLOWED_TABS: the two are opposite in
+// polarity -- one is an allow-list, the other a deny-list -- and they answer
+// different questions. Aliasing them would mean a later change to what Sales
+// may see silently changes what PMO may not.
+const PMO_HIDDEN_TABS = ["Project Invoices", "Inflow"];
 
 type SummaryItem = {
   label: string;
@@ -362,7 +362,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
     ];
     // Sales users only see Project Invoices, Inflow, and Client PO.
     if (isSales) return allTabs.filter((t) => SALES_ALLOWED_TABS.includes(t.value));
-    // PMO loses those same three, keeping All Payments + All PO Invoices.
+    // PMO loses Project Invoices + Inflow, keeping All Payments + All PO Invoices + Client PO.
     if (isPMO) return allTabs.filter((t) => !PMO_HIDDEN_TABS.includes(t.value));
     return allTabs;
   }, [isSales, isPMO])

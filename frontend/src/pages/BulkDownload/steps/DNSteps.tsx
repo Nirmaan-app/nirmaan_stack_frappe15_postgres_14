@@ -13,14 +13,6 @@ import { POItem, CriticalPOTask } from "../useBulkDownloadWizard";
 import { DateFilterValue } from "@/components/ui/standalone-date-filter";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
-function parseLinkedPOs(raw?: string): string[] {
-    if (!raw) return [];
-    try {
-        const p = typeof raw === "string" ? JSON.parse(raw) : raw;
-        return Array.isArray(p?.pos) ? p.pos : [];
-    } catch { return []; }
-}
-
 interface DNStepsProps {
     items: POItem[];
     isLoading: boolean;
@@ -53,7 +45,7 @@ export const DNSteps = ({
     searchQuery, setSearchQuery,
 }: DNStepsProps) => {
     const tasksWithPOs = useMemo(
-        () => criticalTasks.filter((t) => parseLinkedPOs(t.associated_pos).length > 0),
+        () => criticalTasks.filter((t) => (t.linked_pos ?? []).length > 0),
         [criticalTasks]
     );
 
@@ -220,7 +212,7 @@ export const DNSteps = ({
                                 </Button>
                             </div>
                             {tasksWithPOs.map((task) => {
-                                const linkedPOs = parseLinkedPOs(task.associated_pos);
+                                const linkedPOs = (task.linked_pos ?? []);
                                 const isActive = selectedCriticalTasks.includes(task.name);
                                 return (
                                     <div key={task.name} onClick={() => handleCriticalToggle(task.name)}

@@ -1,3 +1,4 @@
+import { useCallback, useMemo } from "react";
 import {
     useFrappeGetDocList,
     useFrappeGetDoc,
@@ -6,7 +7,12 @@ import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { CriticalPOCategory } from "@/pages/CriticalPOCategories/components/CriticalPOCategoriesMaster";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
-import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import {
+    PRPackageRow,
+    POTaskLinkRow,
+    buildTaskPOMap,
+    attachLinkedPOs,
+} from "@/pages/projects/CriticalPOTasks/utils";
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
 
 // ─── Critical PO Tasks Cache Keys (Standardized) ─────────────
@@ -16,12 +22,90 @@ export const criticalPOKeys = {
     projectDoc: (projectId: string) => ["critical-po", "projectDoc", projectId] as const,
     procurementOrders: (projectId: string, wpCategory?: string) =>
         ["critical-po", "pos", projectId, wpCategory || "all"] as const,
-    procurementRequests: (projectId: string, wpCategory?: string) =>
-        ["critical-po", "prs", projectId, wpCategory || "all"] as const,
+    procurementRequests: (projectId: string) =>
+        ["critical-po", "prs", projectId] as const,
     allTasks: (projectId: string) => ["critical-po", "allTasks", projectId] as const,
+    poLinks: (projectId: string) => ["critical-po", "poLinks", projectId] as const,
+    poLinksAll: () => ["critical-po", "poLinks", "all"] as const,
 };
 
 // ─── Queries ─────────────────────────────────────────────────
+
+// A child-table field is valid for Frappe's list API but sits outside the SDK's
+// keyof-based `fields` type, so it needs the cast.
+const PR_PACKAGE_FIELDS = [
+    "name",
+    "work_package",
+    "`tabPR Tag Child Table`.tag_package as tag_package",
+] as unknown as (keyof PRPackageRow)[];
+
+const PO_TASK_LINK_FIELDS = [
+    "name",
+    "`tabCritical PO Task Child Table`.critical_po_task as critical_po_task",
+] as unknown as (keyof POTaskLinkRow)[];
+
+/**
+ * Task ↔ PO links for a project, read from the `Critical PO Task Child Table` on Procurement
+ * Orders -- the source of truth for which POs a Critical PO Task has. One row per (PO, task);
+ * the child-table filter drops POs that carry no link.
+ */
+export const useProjectPOTaskLinks = (projectId: string, enabled: boolean = true) => {
+    const response = useFrappeGetDocList<POTaskLinkRow>(
+        "Procurement Orders",
+        {
+            fields: PO_TASK_LINK_FIELDS,
+            filters: [
+                ["project", "=", projectId],
+                ["Critical PO Task Child Table", "critical_po_task", "is", "set"],
+            ] as any,
+            limit: 0,
+        },
+        enabled && projectId ? criticalPOKeys.poLinks(projectId) : null
+    );
+
+    useApiErrorLogger(response.error, {
+        hook: "useProjectPOTaskLinks",
+        api: "Critical PO Task Child Table Links",
+        feature: "critical-po",
+        entity_id: projectId,
+    });
+
+    const taskPOMap = useMemo(() => buildTaskPOMap(response.data), [response.data]);
+
+    return {
+        taskPOMap,
+        isLoading: response.isLoading,
+        error: response.error,
+        mutate: response.mutate,
+    };
+};
+
+/**
+ * Task ↔ PO links across EVERY project (reports) -- the same rows as useProjectPOTaskLinks,
+ * without the project filter.
+ */
+export const useAllPOTaskLinks = (enabled: boolean = true) => {
+    const response = useFrappeGetDocList<POTaskLinkRow>(
+        "Procurement Orders",
+        {
+            fields: PO_TASK_LINK_FIELDS,
+            filters: [["Critical PO Task Child Table", "critical_po_task", "is", "set"]] as any,
+            limit: 0,
+        },
+        enabled ? criticalPOKeys.poLinksAll() : null
+    );
+
+    useApiErrorLogger(response.error, {
+        hook: "useAllPOTaskLinks",
+        api: "Critical PO Task Child Table Links",
+        feature: "critical-po",
+    });
+
+    const taskPOMap = useMemo(() => buildTaskPOMap(response.data), [response.data]);
+
+    return { taskPOMap, isLoading: response.isLoading, error: response.error };
+};
+
 
 /**
  * Fetches the Critical PO Tasks for a project (used in CriticalPOTasksTab)
@@ -39,7 +123,7 @@ export const useCriticalPOTasks = (projectId: string) => {
                 "sub_category",
                 "po_release_date",
                 "status",
-                "associated_pos",
+                "linked_po_count",
                 "revised_date",
                 "remarks",
             ],
@@ -57,7 +141,25 @@ export const useCriticalPOTasks = (projectId: string) => {
         entity_id: projectId,
     });
 
-    return response;
+    const links = useProjectPOTaskLinks(projectId);
+    const data = useMemo(
+        () => attachLinkedPOs(response.data, links.taskPOMap),
+        [response.data, links.taskPOMap]
+    );
+    const { mutate: mutateTasks } = response;
+    const { mutate: mutateLinks } = links;
+    const mutate = useCallback(
+        () => Promise.all([mutateTasks(), mutateLinks()]),
+        [mutateTasks, mutateLinks]
+    );
+
+    return {
+        ...response,
+        data,
+        mutate,
+        isLoading: response.isLoading || links.isLoading,
+        error: response.error ?? links.error,
+    };
 };
 
 /**
@@ -116,12 +218,10 @@ export const useCriticalPOProcurementOrders = (
         "Procurement Orders",
         {
             fields: ["name", "status", "total_amount", "procurement_request"],
-            filters: selectedPackage
-                ? [
-                    ["project", "=", projectId],
-                    ["status", "not in", ["Merged", "Inactive"]],
-                ]
-                : undefined,
+            filters: [
+                ["project", "=", projectId],
+                ["status", "not in", ["Merged", "Inactive"]],
+            ],
             limit: 0,
             orderBy: { field: "creation", order: "desc" },
         },
@@ -139,21 +239,28 @@ export const useCriticalPOProcurementOrders = (
 };
 
 /**
- * Fetches Procurement Requests for a particular project (used in LinkPODialog & EditTaskDialog)
+ * Fetches Procurement Requests for a particular project, together with the procurement
+ * package each one is tagged with (used in LinkPODialog & EditTaskDialog).
+ *
+ * NOTE: `Procurement Requests.work_package` is NOT the package anymore. Since the v3.0
+ * `migrate_work_package_to_pr_tags` patch it only carries the PR type ("Normal" /
+ * "Custom"); the real package lives on the PR's `PR Tag Child Table` rows. The child
+ * field is a LEFT JOIN, so a PR with two tags comes back as two rows and a PR with no
+ * tags comes back once with `tag_package: null`.
  */
 export const useCriticalPOProcurementRequests = (
     projectId: string,
     selectedPackage: string | null,
     enabled: boolean = true
 ) => {
-    const response = useFrappeGetDocList<ProcurementRequest>(
+    const response = useFrappeGetDocList<PRPackageRow>(
         "Procurement Requests",
         {
-            fields: ["name", "work_package"],
+            fields: PR_PACKAGE_FIELDS,
             filters: [["project", "=", projectId]],
             limit: 0,
         },
-        (selectedPackage && enabled) ? criticalPOKeys.procurementRequests(projectId, selectedPackage) : null
+        (selectedPackage && enabled) ? criticalPOKeys.procurementRequests(projectId) : null
     );
 
     useApiErrorLogger(response.error, {
@@ -174,7 +281,7 @@ export const useAllCriticalPOTasks = (projectId: string, enabled: boolean = true
     const response = useFrappeGetDocList<CriticalPOTask>(
         "Critical PO Tasks",
         {
-            fields: ["name", "item_name", "critical_po_category", "associated_pos"],
+            fields: ["name", "item_name", "critical_po_category"],
             filters: [["project", "=", projectId]],
             limit: 0,
         },
@@ -188,5 +295,11 @@ export const useAllCriticalPOTasks = (projectId: string, enabled: boolean = true
         entity_id: projectId,
     });
 
-    return response;
+    const links = useProjectPOTaskLinks(projectId, enabled);
+    const data = useMemo(
+        () => attachLinkedPOs(response.data, links.taskPOMap),
+        [response.data, links.taskPOMap]
+    );
+
+    return { ...response, data };
 };

@@ -66,6 +66,8 @@ export const projectRootKeys = {
 export interface ProjectFinancialRollup {
   total_project_invoiced: number;
   po_wo_amount: number;
+  // 18% of Approved WOs raised with GST off — the GST never charged on them.
+  notional_gst: number;
   inflow: number;
   outflow: number;
   liabilities: number;

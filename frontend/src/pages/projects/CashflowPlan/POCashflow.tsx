@@ -25,6 +25,8 @@ import { EditPOCashflowForm } from "./components/EditPOCashflowForm";
 import { useParams } from "react-router-dom";
 import { useCashflowPlans } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
 import { useDeleteCashflowPlan } from "@/pages/projects/data/cashflow-plan/useCashflowPlanMutations";
+import { useUserData } from "@/hooks/useUserData";
+import { canEditCashflowPlan, canDeleteCashflowPlan } from "@/constants/roles";
 
 // Helper to safely parse items
 const cashFlowJsonToArray = (plan: any): any[] => {
@@ -54,6 +56,9 @@ export const POCashflow = ({ dateRange, isOverview }: { dateRange?: { from?: Dat
 }
 
 const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashflowContentProps) => {
+    const { role, user_id } = useUserData();
+    const canEdit = canEditCashflowPlan(role, user_id);
+    const canDelete = canDeleteCashflowPlan(role, user_id);
     // Fetch Plans
     const { data: existingPlans, isLoading: isLoadingPlans, mutate: refreshPlans } = useCashflowPlans(projectId, ["Existing PO", "New PO"], dateRange);
 
@@ -263,7 +268,7 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
                                         </div>
                                         */}
                                         
-                                        {!isOverview && (
+                                        {!isOverview && canEdit && (
                                         <div className="flex items-center gap-1 pl-3 border-l border-gray-100 shrink-0 ml-auto">
 
                                             <button 
@@ -273,6 +278,7 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
                                             >
                                                 <Edit2 className="w-4 h-4" />
                                             </button>
+                                            {canDelete && (
                                             <button 
                                                 onClick={() => setDeleteId(plan.name)} 
                                                 className="p-1.5 text-gray-400 hover:text-red-600 transition-colors hover:bg-red-50 rounded-md"
@@ -280,6 +286,7 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
                                             >
                                                 <Trash2 className="w-4 h-4" />
                                             </button>
+                                            )}
                                         </div>
                                         )}
                                     </div>

@@ -476,7 +476,6 @@ export const ProjectForm = () => {
                             sub_category: item.sub_category || "",
                             po_release_date: poReleaseDate,
                             status: "Not Released",
-                            associated_pos: JSON.stringify({ pos: [] }),
                             revised_date: null,
                             remarks: "",
                         });

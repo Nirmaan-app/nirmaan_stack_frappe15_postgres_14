@@ -1,4 +1,5 @@
 import frappe
+from nirmaan_stack.api.critical_po_tasks.po_links import get_project_task_pos, get_task_pos
 from frappe.utils import create_batch
 
 @frappe.whitelist()
@@ -155,7 +156,7 @@ def get_po_items(po):
 @frappe.whitelist()
 def get_material_plan_data_v2(project=None, task_id=None, search_type="po"):
     """
-    V2 API: Fetch POs or items based on Critical PO Task's associated_pos.
+    V2 API: Fetch POs or items linked to a Critical PO Task (PO child table).
     
     Parameters:
         - project: Project ID
@@ -164,57 +165,38 @@ def get_material_plan_data_v2(project=None, task_id=None, search_type="po"):
     
     Returns:
         If search_type="po":
-            { "has_pos": bool, "pos": [...], "associated_pos": [...] }
+            { "has_pos": bool, "pos": [...], "linked_pos": [...] }
         If search_type="item":
-            { "has_pos": bool, "po_list": [...], "items": [...], "associated_pos": [...] }
+            { "has_pos": bool, "po_list": [...], "items": [...], "linked_pos": [...] }
     """
-    import json
-    
+
     if not project or not task_id:
         if search_type == "po":
-            return {"has_pos": False, "pos": [], "associated_pos": []}
+            return {"has_pos": False, "pos": [], "linked_pos": []}
         else:
-            return {"has_pos": False, "po_list": [], "items": [], "associated_pos": []}
+            return {"has_pos": False, "po_list": [], "items": [], "linked_pos": []}
     
-    try:
-        task = frappe.get_doc("Critical PO Tasks", task_id)
-    except frappe.DoesNotExistError:
+    if not frappe.db.exists("Critical PO Tasks", task_id):
         if search_type == "po":
-            return {"has_pos": False, "pos": [], "associated_pos": []}
+            return {"has_pos": False, "pos": [], "linked_pos": []}
         else:
-            return {"has_pos": False, "po_list": [], "items": [], "associated_pos": []}
+            return {"has_pos": False, "po_list": [], "items": [], "linked_pos": []}
+
+    # The task's POs come from the PO child table (Critical PO Task Child Table).
+    linked_pos = get_task_pos(task_id)
     
-    # Parse associated_pos - Frappe may auto-parse JSON fields
-    # Handle: already dict, string, or None
-    raw_associated = task.associated_pos
-    associated_pos = []
-    
-    if raw_associated:
-        # If still a string, parse it
-        if isinstance(raw_associated, str):
-            try:
-                raw_associated = json.loads(raw_associated)
-            except:
-                raw_associated = []
-        
-        # Now handle dict or list
-        if isinstance(raw_associated, dict):
-            associated_pos = raw_associated.get("pos", [])
-        elif isinstance(raw_associated, list):
-            associated_pos = raw_associated
-    
-    if not associated_pos:
+    if not linked_pos:
         if search_type == "po":
-            return {"has_pos": False, "pos": [], "associated_pos": []}
+            return {"has_pos": False, "pos": [], "linked_pos": []}
         else:
-            return {"has_pos": False, "po_list": [], "items": [], "associated_pos": []}
+            return {"has_pos": False, "po_list": [], "items": [], "linked_pos": []}
     
     # SEARCH TYPE: "item" - Return flat item list
     if search_type == "item":
         all_items = []
         po_list = []
         
-        for po_id in associated_pos:
+        for po_id in linked_pos:
             try:
                 doc = frappe.get_doc("Procurement Orders", po_id)
                 po_list.append({
@@ -238,11 +220,11 @@ def get_material_plan_data_v2(project=None, task_id=None, search_type="po"):
             "has_pos": True,
             "po_list": po_list,
             "items": all_items,
-            "associated_pos": associated_pos
+            "linked_pos": linked_pos
         }
     # SEARCH TYPE: "po" - Return PO list with items
     pos = []
-    for po_id in associated_pos:
+    for po_id in linked_pos:
         try:
             doc = frappe.get_doc("Procurement Orders", po_id)
             pos.append({
@@ -259,7 +241,7 @@ def get_material_plan_data_v2(project=None, task_id=None, search_type="po"):
             frappe.log_error(f"Error fetching PO {po_id}: {str(e)}")
             continue
     
-    return {"has_pos": True, "pos": pos, "associated_pos": associated_pos}
+    return {"has_pos": True, "pos": pos, "linked_pos": linked_pos}
 
 
 @frappe.whitelist()
@@ -314,44 +296,23 @@ def get_all_project_pos(project):
             for pr in prs:
                 pr_package_map[pr.name] = pr.work_package
 
-    import json
-
-    # Fetch global critical POs for the project to flag them
+    # Flag critical POs: which Critical PO Tasks each PO is linked to (PO child table).
     critical_tasks = frappe.get_all("Critical PO Tasks",
         filters={"project": project},
-        fields=["name", "item_name", "critical_po_category", "associated_pos", "sub_category"]
+        fields=["name", "item_name", "critical_po_category", "sub_category"]
     )
-    
-    # Map PO Name (trimmed) -> List of Task Details
+    task_pos = get_project_task_pos(project)
+
+    # Map PO Name -> List of Task Details
     po_critical_map = {}
-    
     for t in critical_tasks:
-        raw = t.associated_pos
-        vals = []
-        if raw:
-            if isinstance(raw, str):
-                try:
-                    raw = json.loads(raw)
-                except:
-                    raw = []
-            
-            if isinstance(raw, dict):
-                vals = raw.get("pos", [])
-            elif isinstance(raw, list):
-                vals = raw
-        
-        for v in vals:
-            if isinstance(v, str):
-                po_id = v.strip()
-                if po_id not in po_critical_map:
-                    po_critical_map[po_id] = []
-                
-                po_critical_map[po_id].append({
-                    "task_name": t.name,
-                    "item_name": t.item_name,
-                    "category": t.critical_po_category,
-                    "sub_category": t.sub_category
-                })
+        for po_id in task_pos.get(t.name, []):
+            po_critical_map.setdefault(po_id, []).append({
+                "task_name": t.name,
+                "item_name": t.item_name,
+                "category": t.critical_po_category,
+                "sub_category": t.sub_category
+            })
 
     pos = []
     for p in po_list:
@@ -401,25 +362,25 @@ def get_categories_and_tasks(project):
                     "name": "task-001",
                     "item_name": "Foundation Materials",
                     "critical_po_category": "Structural",
-                    "associated_pos": ["PO-001", "PO-002"],
-                    "associated_pos_count": 2
+                    "linked_pos": ["PO-001", "PO-002"],
+                    "linked_pos_count": 2
                 },
                 ...
             ]
         }
     """
-    import json
-    
     if not project:
         return {"categories": [], "tasks": []}
     
     # Fetch all tasks for this project
     tasks = frappe.get_all("Critical PO Tasks",
         filters={"project": project},
-        fields=["name", "item_name", "critical_po_category", "associated_pos", "status", "sub_category"]
+        fields=["name", "item_name", "critical_po_category", "status", "sub_category"]
     )
     
-    # Extract unique categories and parse associated_pos
+    task_pos = get_project_task_pos(project)
+
+    # Extract unique categories and linked POs
     categories = set()
     task_list = []
     
@@ -427,31 +388,14 @@ def get_categories_and_tasks(project):
         if task.critical_po_category:
             categories.add(task.critical_po_category)
         
-        # Parse associated_pos - Frappe may auto-parse JSON fields
-        # Handle: already dict, string, or None
-        raw_associated = task.associated_pos
-        associated_pos = []
-        
-        if raw_associated:
-            # If still a string, parse it
-            if isinstance(raw_associated, str):
-                try:
-                    raw_associated = json.loads(raw_associated)
-                except:
-                    raw_associated = []
-            
-            # Now handle dict or list
-            if isinstance(raw_associated, dict):
-                associated_pos = raw_associated.get("pos", [])
-            elif isinstance(raw_associated, list):
-                associated_pos = raw_associated
+        linked_pos = task_pos.get(task.name, [])
         
         task_list.append({
             "name": task.name,
             "item_name": task.item_name,
             "critical_po_category": task.critical_po_category,
-            "associated_pos": associated_pos,
-            "associated_pos_count": len(associated_pos),
+            "linked_pos": linked_pos,
+            "linked_pos_count": len(linked_pos),
             "status": task.status,
             "sub_category": task.sub_category
         })

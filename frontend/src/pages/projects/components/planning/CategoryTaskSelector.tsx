@@ -7,8 +7,8 @@ interface Task {
     name: string;
     item_name: string;
     critical_po_category: string;
-    associated_pos: string[];
-    associated_pos_count: number;
+    linked_pos: string[];
+    linked_pos_count: number;
     status?: string;
     sub_category?: string;
 }
@@ -77,7 +77,7 @@ export const CategoryTaskSelector: React.FC<CategoryTaskSelectorProps> = ({
             label: task.item_name,
             subCategory: task.sub_category,
             category: task.critical_po_category,
-            posCount: task.associated_pos_count
+            posCount: task.linked_pos_count
         }));
     }, [filteredTasks]);
 
@@ -233,8 +233,8 @@ export const CategoryTaskSelector: React.FC<CategoryTaskSelectorProps> = ({
                                     <span>Category: {task.critical_po_category || "None"}</span>
                                     <span>|</span>
                                     <span>
-                                        {task.associated_pos_count > 0
-                                            ? `${task.associated_pos_count} Associated POs`
+                                        {task.linked_pos_count > 0
+                                            ? `${task.linked_pos_count} Associated POs`
                                             : "No Associated POs"}
                                     </span>
                                 </div>

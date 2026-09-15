@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Pencil } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -11,6 +12,12 @@ export interface SnagBatchTabsProps {
   onChange: (value: SnagBatchTabValue) => void;
   /** Counts are still in flight; the tab labels are already correct. */
   isLoading?: boolean;
+  /**
+   * Open the Rename dialog for a batch (its document `name`). PRESENCE IS THE GATE:
+   * withheld for anyone who may not manage batches, and then no pencil renders. Only tabs
+   * marked `renamable` get one — real batches, never "All" or "Added manually".
+   */
+  onRenameClick?: (batch: string) => void;
   /**
    * Rendered at the RIGHT END of the strip, on the tab row itself.
    *
@@ -31,7 +38,8 @@ export interface SnagBatchTabsProps {
  *
  * PRESENTATION ONLY. Which tab is selected, what it filters and what the counts mean
  * all live outside this file (`config/snagBatchTabs.ts` for the rules, `SnagListTab`
- * for the state), so the strip cannot develop an opinion of its own.
+ * for the state, including the Rename dialog), so the strip cannot develop an opinion
+ * of its own.
  *
  * The tab list SCROLLS rather than wraps. A project accumulates a batch per imported
  * sheet over a job, and a wrapping strip would silently push the table down the
@@ -40,12 +48,17 @@ export interface SnagBatchTabsProps {
  * A count is rendered for every tab INCLUDING zero. A batch whose snags have all
  * been deleted still exists and its tab must say so; hiding the 0 would read as
  * "still loading".
+ *
+ * THE PENCIL IS A SIBLING OF THE TAB BUTTON, NOT INSIDE IT: a button inside a button is
+ * invalid HTML. So the underline + colour live on a wrapper, and the pencil and the tab
+ * sit side by side within it.
  */
 export const SnagBatchTabs: React.FC<SnagBatchTabsProps> = ({
   tabs,
   value,
   onChange,
   isLoading = false,
+  onRenameClick,
   trailing,
 }) => {
   // ONE tab is no choice at all, so the tabs hide themselves — but the trailing slot
@@ -65,41 +78,63 @@ export const SnagBatchTabs: React.FC<SnagBatchTabsProps> = ({
         {showTabs &&
           tabs.map((tab) => {
             const active = tab.value === value;
+            const canRename = !!onRenameClick && tab.renamable;
             return (
-              <button
+              <div
                 key={tab.value}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                title={tab.title}
-                onClick={() => onChange(tab.value)}
+                role="presentation"
                 className={cn(
-                  "flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-xs font-medium transition-colors",
+                  "flex shrink-0 items-center border-b-2 transition-colors",
                   active
                     ? "border-primary text-primary"
                     : "border-transparent text-muted-foreground hover:border-gray-300 hover:text-foreground"
                 )}
               >
-                {/* The batch name is the FILE's, so it is routinely far wider than a
-                    tab — an upload is named things like
-                    `VRB_Food Box_Snag_List_04.09.2026be17ff (1)`. Kept SHORT on purpose:
-                    with several imports the strip is a row of near-identical long names
-                    where only the tail differs, and wide tabs push the later ones off
-                    screen entirely. The full text is on the `title` above, and the
-                    count badge stays visible whatever the name does. */}
-                <span className="max-w-[140px] truncate">{tab.label}</span>
-                <span
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  title={tab.title}
+                  onClick={() => onChange(tab.value)}
                   className={cn(
-                    "rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums",
-                    active
-                      ? "bg-primary/10 text-primary"
-                      : "bg-gray-100 text-gray-500",
-                    isLoading && "opacity-50"
+                    "flex items-center gap-1.5 whitespace-nowrap py-2 pl-3 text-xs font-medium",
+                    canRename ? "pr-1.5" : "pr-3"
                   )}
                 >
-                  {tab.count}
-                </span>
-              </button>
+                  {/* The batch name is the FILE's, so it is routinely far wider than a
+                      tab — an upload is named things like
+                      `VRB_Food Box_Snag_List_04.09.2026be17ff (1)`. Kept SHORT on purpose:
+                      with several imports the strip is a row of near-identical long names
+                      where only the tail differs, and wide tabs push the later ones off
+                      screen entirely. The full text is on the `title` above, and the
+                      count badge stays visible whatever the name does. The pencil beside
+                      it is how a user replaces such a name with a short one. */}
+                  <span className="max-w-[140px] truncate">{tab.label}</span>
+                  <span
+                    className={cn(
+                      "rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums",
+                      active
+                        ? "bg-primary/10 text-primary"
+                        : "bg-gray-100 text-gray-500",
+                      isLoading && "opacity-50"
+                    )}
+                  >
+                    {tab.count}
+                  </span>
+                </button>
+                {/* SUFFIX: after the name and count, so the tab still reads name-first. */}
+                {canRename && (
+                  <button
+                    type="button"
+                    title="Rename this batch"
+                    aria-label={`Rename ${tab.label}`}
+                    onClick={() => onRenameClick?.(tab.value)}
+                    className="flex items-center self-stretch pl-0.5 pr-2.5 opacity-60 hover:opacity-100 focus-visible:opacity-100"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
             );
           })}
       </div>

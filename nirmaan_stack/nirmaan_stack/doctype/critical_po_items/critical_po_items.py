@@ -4,7 +4,8 @@
 import frappe
 from frappe.model.document import Document
 from datetime import datetime, timedelta
-import json
+
+from nirmaan_stack.api.critical_po_tasks.po_links import task_label
 
 
 class CriticalPOItems(Document):
@@ -87,7 +88,6 @@ def propagate_new_item_to_projects(item_doc):
 		task.sub_category = item_doc.sub_category or ""
 		task.po_release_date = po_release_date
 		task.status = "Not Applicable"
-		task.associated_pos = json.dumps({"pos": []})
 		task.insert(ignore_permissions=True)
 		created_count += 1
 
@@ -182,6 +182,12 @@ def propagate_item_changes_to_tasks(new_doc, old_doc, item_name_changed, sub_cat
 
 		if updates:
 			frappe.db.set_value("Critical PO Tasks", task.name, updates)
+			if item_name_changed or sub_category_changed:
+				# The task's PO links carry its display name and sub-category (Critical PO Task Child Table).
+				frappe.db.set_value("Critical PO Task Child Table", {"critical_po_task": task.name},
+					{"task_name": task_label(new_doc.item_name, new_doc.sub_category),
+					 "sub_category": new_doc.sub_category or ""},
+					update_modified=False)
 			updated_count += 1
 
 	if updated_count > 0:
@@ -204,7 +210,7 @@ def on_trash(doc, method=None):
 	When a Critical PO Item is deleted from the master, delete all
 	matching Critical PO Tasks from all projects.
 
-	Note: The POs linked to the tasks (via associated_pos) are NOT deleted,
+	Note: The POs linked to the tasks are NOT deleted,
 	only the task tracking them is removed.
 	"""
 	delete_matching_tasks(doc)

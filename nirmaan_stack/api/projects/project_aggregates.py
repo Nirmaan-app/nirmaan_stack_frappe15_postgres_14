@@ -50,11 +50,15 @@ def get_project_sr_summary_aggregates(project_id: str):
         fields=["name", "gst", "total_amount"]
     )
 
-    total_sr_value_inc_gst = total_sr_value_excl_gst = 0.0
+    total_sr_value_inc_gst = total_sr_value_excl_gst = total_notional_gst = 0.0
     for sr in service_requests:
         totals = _calculate_sr_totals(frappe._dict(sr))
         total_sr_value_inc_gst += totals.get("total_incl_gst", 0.0)
         total_sr_value_excl_gst += totals.get("total_excl_gst", 0.0)
+        # Notional GST: 18% of a GST-off WO's total — the GST it never charged
+        # (same rule as `notional_gst` in get_projects_financial_rollup).
+        if sr.get("gst") != "true":
+            total_notional_gst += flt(sr.get("total_amount")) * 0.18
 
     # Fetch "Paid" Project Payments linked to these Service Requests
     # This requires knowing which payments are for SRs and for this project
@@ -84,7 +88,8 @@ def get_project_sr_summary_aggregates(project_id: str):
     result = {
         "total_sr_value_inc_gst": round(total_sr_value_inc_gst, 2),
         "total_sr_value_excl_gst": round(total_sr_value_excl_gst, 2),
-        "total_amount_paid_for_srs": round(total_amount_paid_for_srs, 2)
+        "total_amount_paid_for_srs": round(total_amount_paid_for_srs, 2),
+        "total_notional_gst": round(total_notional_gst, 2),
     }
 
     return result
@@ -583,6 +588,7 @@ def get_purchase_order_with_items(po_name: str):
 _ROLLUP_KEYS = (
     "total_project_invoiced",
     "po_wo_amount",
+    "notional_gst",
     "inflow",
     "outflow",
     "liabilities",
@@ -606,6 +612,7 @@ def get_projects_financial_rollup():
     frontend `parseNumber`, so NULL/blank -> 0 and mixed text/numeric storage is safe):
       - total_project_invoiced = Σ Project Invoices.amount
       - po_wo_amount           = Σ PO.total_amount (status NOT IN Merged,Cancelled,Inactive) + Σ SR.total_amount (status=Approved)
+      - notional_gst           = Σ SR.total_amount × 0.18 (status=Approved AND gst != "true") — the GST never charged on GST-off WOs
       - inflow                 = Σ Project Inflows.amount
       - outflow                = Σ Project Payments.amount (status=Paid) + Σ Project Expenses.amount (status=Paid; link field 'projects')
       - liabilities            = Σ po_amount_delivered − Σ min(amount_paid, po_amount_delivered)   (min is PER-PO, then summed)
@@ -650,16 +657,20 @@ def get_projects_financial_rollup():
         b["liabilities"] += delivered - min(paid, delivered)
         valid_po_project[po.get("name")] = po.get("project")
 
-    # SRs — po_wo_amount (Approved only).
+    # SRs — po_wo_amount (Approved only), plus notional_gst over the same Approved set.
+    # `total_amount` excludes GST exactly when gst != "true" (see `_calculate_sr_totals`),
+    # so 18% of a GST-off WO's total is the GST it never charged.
     for sr in frappe.get_all(
         "Service Requests",
         filters={"status": "Approved"},
-        fields=["project", "total_amount"],
+        fields=["project", "total_amount", "gst"],
         limit_page_length=0,
     ):
         b = bucket(sr.get("project"))
         if b is not None:
             b["po_wo_amount"] += flt(sr.get("total_amount"))
+            if sr.get("gst") != "true":
+                b["notional_gst"] += flt(sr.get("total_amount")) * 0.18
 
     # inflow — Project Inflows, no filter.
     for r in frappe.get_all("Project Inflows", fields=["project", "amount"], limit_page_length=0):

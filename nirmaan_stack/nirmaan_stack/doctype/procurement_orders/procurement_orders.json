@@ -46,7 +46,8 @@
   "dispatch_date",
   "expected_delivery_date",
   "latest_delivery_date",
-  "latest_payment_date"
+  "latest_payment_date",
+  "critical_po_tasks"
  ],
  "fields": [
   {
@@ -309,12 +310,18 @@
    "label": "Amount Due",
    "no_copy": 1,
    "read_only": 1
+  },
+  {
+   "fieldname": "critical_po_tasks",
+   "fieldtype": "Table",
+   "label": "Critical PO Tasks",
+   "options": "Critical PO Task Child Table"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-19 15:00:21.099497",
+ "modified": "2026-09-11 11:26:27.546474",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",

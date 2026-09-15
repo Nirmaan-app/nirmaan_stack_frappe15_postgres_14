@@ -91,6 +91,12 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Admin (Nirmaan)** — the elevated actor these financial-mutation rules gate on: the *Administrator* user or a holder of the *Nirmaan Admin Profile*. Deliberately narrower than the broader "privileged" role sets (e.g. PMO Executive, Accountant Lead) used on read/visibility surfaces.
 
+## Work-order GST
+
+- **GST flag (of a Work Order)** — whether a Work Order (Service Request) was raised with GST *on* or *off*. With GST on, the Work Order's total already includes 18% GST; with GST off, its total is the bare value with no GST in it. The UI labels it "Incl. GST" (Yes / No).
+
+- **Notional GST** — the GST a GST-off Work Order *would* have carried: 18% of its total. It is not owed, paid or invoiced anywhere — a what-if figure showing how much GST was never charged on work ordered without it. A GST-on Work Order has none (its GST is real and already inside its total). Only **Approved** Work Orders count — the same set as the Work Order side of "PO + WO Amount" — so a Work Order under amendment drops out of both until it is approved again. *Avoid*: GST payable, GST liability, missing GST.
+
 ## Module residence
 
 - **Placement vs residence** — *Placement* is which folder a file lives in (already legislated in CLAUDE.md). *Residence* is which single module **owns** a concept — a business calculation, a data shape, a document's state, or write-safety. A concept with no residence scatters across call sites and drifts. The ten residence rules and the residence map live in [ADR-0010](docs/adr/0010-module-residence-rules.md).

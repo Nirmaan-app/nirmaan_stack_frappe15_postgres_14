@@ -28,6 +28,7 @@ from nirmaan_stack.services.action_items.predicates import (
     ACTION_DN_PENDING,
     ASSIGNED_ROLE_PM,
     LIVE_STATUSES,
+    _to_float,
     is_dc_pending,
     is_dn_pending,
 )
@@ -87,10 +88,12 @@ def _compute_desired(project_name):
         filters={"parent": ["in", po_names]},
         fields=[
             "parent",
+            "item_id",
             "category",
             "is_dispatched",
             "quantity",
             "received_quantity",
+            "billing_status",
         ],
         limit_page_length=0,
     )
@@ -98,7 +101,11 @@ def _compute_desired(project_name):
     for row in item_rows:
         items_by_po.setdefault(row["parent"], []).append(row)
 
-    dc_rows = frappe.get_all(
+    # PER-LINE challaned quantity, not mere document existence. `is_dc_pending` needs
+    # to know which ITEMS a challan covers: a PO with one filed challan can still owe
+    # one for every other received line. Two queries because DC Item carries no link
+    # back to the PO — only to its parent PDD.
+    dc_docs = frappe.get_all(
         "PO Delivery Documents",
         filters={
             "parent_doctype": _REFERENCE_DOCTYPE,
@@ -106,10 +113,23 @@ def _compute_desired(project_name):
             "type": "Delivery Challan",
             "is_stub": 0,
         },
-        fields=["parent_docname"],
+        fields=["name", "parent_docname"],
         limit_page_length=0,
     )
-    has_dc = {row["parent_docname"] for row in dc_rows}
+    po_by_dc = {row["name"]: row["parent_docname"] for row in dc_docs}
+    dc_qty = {}
+    if po_by_dc:
+        for row in frappe.get_all(
+            "DC Item",
+            filters={"parent": ["in", list(po_by_dc)]},
+            fields=["parent", "item_id", "category", "quantity"],
+            limit_page_length=0,
+        ):
+            po_name = po_by_dc.get(row["parent"])
+            if not po_name:
+                continue
+            key = (po_name, row.get("category") or "", row["item_id"])
+            dc_qty[key] = dc_qty.get(key, 0.0) + _to_float(row.get("quantity"))
 
     desired = {}
     for po in pos:
@@ -126,7 +146,14 @@ def _compute_desired(project_name):
                 "title": _title_for(ACTION_DN_PENDING, name),
                 "action_url": _action_url_for(project_name, name),
             }
-        if is_dc_pending(status, billing, items, name in has_dc):
+        if is_dc_pending(
+            status,
+            billing,
+            items,
+            lambda category, item_id, _po=name: dc_qty.get(
+                (_po, category or "", item_id), 0.0
+            ),
+        ):
             key = _dedup_key(project_name, name, ACTION_DC_PENDING)
             desired[key] = {
                 "action_type": ACTION_DC_PENDING,
