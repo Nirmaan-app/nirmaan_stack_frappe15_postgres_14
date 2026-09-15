@@ -127,6 +127,67 @@ class TestPaymentTDS(FrappeTestCase):
 			with self.subTest(status=status):
 				self.assertFalse(payment_tds.is_deductible(self._pay(4000, status=status)))
 
+	# -- restating on an amount edit -------------------------------------------------------
+	def test_amount_edit_restates_the_deduction(self):
+		"""The case the hook exists for: a human edits the amount and the tax follows it.
+
+		The stored amount IS the net once a deduction exists, so 4,900 net at the row's own 2%
+		re-derives to a 5,000 gross and 100 of tax.
+		"""
+		doc = self._pay(10000)
+		row = frappe.get_doc(TDS_DOCTYPE, payment_tds.record_deduction(doc))
+		self.assertEqual(row.tds_amount, 200)
+
+		doc = frappe.get_doc(PAYMENT, doc.name)
+		doc.amount = 4900
+		doc.save(ignore_permissions=True)
+
+		row.reload()
+		self.assertEqual(row.gross_amount, 5000)
+		self.assertEqual(row.tds_amount, 100)
+		# ⚠️ AND THE PAYMENT IS NOT RE-NETTED. Subtracting the tax again would shrink it on every
+		# save, compounding silently.
+		self.assertEqual(frappe.db.get_value(PAYMENT, doc.name, "amount"), 4900)
+
+	def test_the_outflow_import_never_restates_the_deduction(self):
+		"""⚠️ A BANK DIFFERENCE IS ROUNDING, NOT A NEW TAX BASE.
+
+		`outflow_import/settle.py` writes the bank's actual figure onto the payment and saves through
+		the doc layer, so the amount-change listener sees it. Restating there invented tax (measured:
+		Rs 1 of bank difference moved a deduction by 2 paise) and contradicts that function's own
+		"NO TDS IS EVER WRITTEN" contract. The flag is the seam; this pins it.
+		"""
+		doc = self._pay(10000)
+		row = frappe.get_doc(TDS_DOCTYPE, payment_tds.record_deduction(doc))
+		before = (row.gross_amount, row.tds_amount)
+
+		doc = frappe.get_doc(PAYMENT, doc.name)
+		doc.amount = 9801  # the bank moved Rs 1 more than the netted 9,800
+		doc.flags.from_outflow_import = True
+		doc.save(ignore_permissions=True)
+
+		row.reload()
+		self.assertEqual((row.gross_amount, row.tds_amount), before)
+
+	def test_a_split_never_restates_the_deduction(self):
+		"""⚠️ A SPLIT CHANGES WHAT IS STILL OWED, NOT WHAT WAS ALREADY WITHHELD (owner 2026-09-15).
+
+		Trimming a payment that already carries tax used to halve the deduction with it -- rewriting
+		money already deducted from the vendor and likely already paid to the department. The first
+		split of a payment is unaffected either way: no deduction exists yet at that point.
+		"""
+		doc = self._pay(10000)
+		row = frappe.get_doc(TDS_DOCTYPE, payment_tds.record_deduction(doc))
+		before = (row.gross_amount, row.tds_amount)
+
+		doc = frappe.get_doc(PAYMENT, doc.name)
+		doc.amount = 4900  # the kept half after a split
+		doc.flags.split_approval = True
+		doc.save(ignore_permissions=True)
+
+		row.reload()
+		self.assertEqual((row.gross_amount, row.tds_amount), before)
+
 	# -- the figures -----------------------------------------------------------------------
 	def test_the_owners_worked_case(self):
 		"""PAY-00103-283: Rs 38,550 at 2% -> Rs 771.00 withheld -> Rs 37,779.00 is the amount."""

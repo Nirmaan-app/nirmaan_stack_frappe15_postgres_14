@@ -77,6 +77,30 @@ PAYMENT_DOCTYPE = "Project Payments"
 SERVICE_REQUEST_DOCTYPE = "Service Requests"
 CHALLAN_DOCTYPE = "TDS Challan Attachment"
 
+# Saves that are NOT a human editing the amount, and must therefore never restate a deduction.
+# `on_update` cannot tell who moved the number, so every machine path flags itself on the way in and
+# is excluded here by name. The edit dialog writes a plain `updateDoc` and carries no flag, which is
+# what makes this seam work at all.
+#
+# ⚠️ `from_outflow_import` -- THE BANK-STATEMENT IMPORT. It writes the bank's ACTUAL figure onto the
+# payment (`services/outflow_import/settle.py`), and any difference there is at most the Rs 5 settle
+# window: ROUNDING, not a change in the amount the tax was computed from. Restating off it INVENTS
+# TAX -- measured 2026-09-15, a Rs 1 bank difference moved a deduction from 875.56 to 875.58, on a
+# row whose tax was already withheld and remitted. That function's own contract is explicit: "NO TDS
+# IS EVER WRITTEN ... the window must never be widened to reach a deduction."
+#
+# ⚠️ `split_approval` -- SPLITTING A PAYMENT THAT ALREADY CARRIES TAX (owner ruling 2026-09-15:
+# KEEP THE TAX AS WITHHELD). A split trims the original and carries the balance forward, and the
+# amount-change listener read that trim as a new tax base -- measured: a half-split took 875.56 to
+# 437.78, rewriting tax that was withheld against the original approval and very likely already paid
+# to the department under a challan. A split changes what is still OWED to the vendor, never what was
+# already SENT to the government. The ordinary first split is unaffected either way: no deduction
+# exists at that moment, so each half is taxed on its own amount when it is approved.
+#
+# `from_adjustment` needs no entry: `controllers/project_payments.on_update` returns on that flag
+# before it ever reaches the restatement.
+NO_RESTATE_FLAGS = ("from_outflow_import", "split_approval")
+
 APPROVED = "Approved"
 PAID = "Paid"
 

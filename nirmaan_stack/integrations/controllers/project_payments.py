@@ -255,7 +255,15 @@ def on_update(doc, method):
     # Once a deduction exists, `amount` IS the net figure, so an edit to it is an edit to the net:
     # the service re-derives gross and tax from it at the deduction's OWN snapshotted rate, and
     # recomputes any challan the tax was paid under. A payment with no deduction is untouched.
-    if old_doc and flt(old_doc.amount) != flt(doc.amount):
+    #
+    # ⚠️ ONLY WHEN A HUMAN EDITED THE AMOUNT. `on_update` cannot tell who moved the number, so the
+    # machine paths -- which flag themselves on the way in -- are excluded by name. The edit dialog
+    # writes a plain `updateDoc` and carries no flag, which is what makes this seam work.
+    if (
+        old_doc
+        and flt(old_doc.amount) != flt(doc.amount)
+        and not any(doc.flags.get(flag) for flag in payment_tds.NO_RESTATE_FLAGS)
+    ):
         payment_tds.restate_deduction_on_amount_change(doc)
 
     if not old_doc or old_doc.status == doc.status:
