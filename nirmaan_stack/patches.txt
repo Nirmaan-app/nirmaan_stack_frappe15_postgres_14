@@ -151,3 +151,4 @@ nirmaan_stack.patches.v3_0.retire_po_number_gate
 nirmaan_stack.patches.v3_0.backfill_snag_source_serial
 nirmaan_stack.patches.v3_0.backfill_sr_payment_tds_deductions
 nirmaan_stack.patches.v3_0.rename_deducted_on_to_payment_approved_on
+nirmaan_stack.patches.v3_0.backfill_payment_tds_deduction_link

@@ -75,6 +75,7 @@ from frappe.utils import flt, nowdate
 TDS_DOCTYPE = "Payment TDS Deduction"
 PAYMENT_DOCTYPE = "Project Payments"
 SERVICE_REQUEST_DOCTYPE = "Service Requests"
+CHALLAN_DOCTYPE = "TDS Challan Attachment"
 
 APPROVED = "Approved"
 PAID = "Paid"
@@ -135,6 +136,49 @@ def vendor_rate(vendor: str):
 	return rate if rate > 0 else None
 
 
+def recompute_challan_reconciled(challan: str | None) -> float | None:
+	"""A challan's `reconciled_amount` IS the sum of the deductions pointing at it. Re-derive it.
+
+	⚠️ THIS EXISTS BECAUSE PAYING IS NOT THE ONLY THING THAT MOVES THE NUMBER. Deleting a payment
+	deletes its deduction (`controllers/project_payments.on_trash`), and that delete is RAW SQL, so
+	no hook fires and nothing would otherwise notice that a challan just stopped being spent. The
+	measured symptom: a challan still reading Rs 150 used, with zero deductions behind it.
+
+	⚠️ ALWAYS RECOMPUTED FROM SOURCE, NEVER ADJUSTED BY A DELTA (the repo's standing rule for a
+	derived field). A `-= tds_amount` on delete would be a second arithmetic path that has to agree
+	with the first forever; re-deriving means any caller, in any order, lands on the same number.
+
+	⚠️ IT MUST NOT RAISE. Every caller is a side-effect of something the user actually asked for --
+	a delete, a payment -- and a bookkeeping total must never be the reason a delete fails. The
+	over-application guard belongs to the PAY path, which checks capacity before it writes.
+
+	Lives here, not in `api/tds_challan/pay_tds.py`, so a CONTROLLER can call it: api may import
+	service, service may not import api, and a controller reaching into `api/` is the wrong
+	direction. `pay_tds` imports this one definition rather than keeping its own.
+
+	Returns the recomputed total, or None when there is nothing to recompute.
+	"""
+	if not challan:
+		return None
+	if not frappe.db.exists(CHALLAN_DOCTYPE, challan):
+		return None
+
+	total = frappe.db.sql(
+		f"""
+		SELECT COALESCE(SUM(tds_amount), 0)
+		FROM "tab{TDS_DOCTYPE}"
+		WHERE tds_challan = %s
+		""",
+		(challan,),
+	)[0][0]
+	total = flt(total, 2)
+
+	# `update_modified=False`: re-deriving a total is not an edit a person made, and stamping it
+	# would push the challan to the top of every list sorted by `modified`.
+	frappe.db.set_value(CHALLAN_DOCTYPE, challan, "reconciled_amount", total, update_modified=False)
+	return total
+
+
 def write_deduction(
 	doc,
 	*,
@@ -158,6 +202,13 @@ def write_deduction(
 	"""
 	existing = existing_deduction(doc.name)
 	if existing:
+		# SELF-HEAL THE MIRROR. `Payment TDS Deduction` is the authority; the payment's
+		# `payment_tds` is a convenience copy, so a blank one -- a row written before the field
+		# existed, or a write that died between the insert and the mirror -- is repaired by any
+		# later save rather than staying wrong forever. This is what keeps the second copy from
+		# drifting. `update_modified=False`: repairing a mirror is not an edit anyone made.
+		if not doc.get("payment_tds"):
+			doc.db_set("payment_tds", existing, update_modified=False)
 		return existing
 
 	gross = flt(doc.get("amount"))
@@ -186,6 +237,18 @@ def write_deduction(
 		}
 	)
 	row.insert(ignore_permissions=True)
+
+	# Mirror the deduction onto the payment (owner request 2026-09-15), so the link can be read
+	# from the payment side without a reverse lookup.
+	#
+	# ⚠️ THE DEDUCTION ROW REMAINS THE AUTHORITY. `project_payment` is UNIQUE and that constraint
+	# is what makes this whole flow idempotent; this column is a copy, and a copy can disagree --
+	# which is why it is READ-ONLY on the form, written only here, and repaired by the early-return
+	# branch above whenever it is found blank.
+	#
+	# `db_set`, not assignment, for the same reason as `amount` below: on the hook path this runs
+	# inside the payment's own save, so a plain assignment would be discarded.
+	doc.db_set("payment_tds", row.name, update_modified=update_modified)
 
 	# The payment now states what will actually leave the bank (owner ruling 2026-09-10).
 	#
