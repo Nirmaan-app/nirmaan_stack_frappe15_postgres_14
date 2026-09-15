@@ -33,10 +33,10 @@ def delete_created(doctype: str, name: str, statement_file_url: str | None) -> s
     field = project_field_of(doctype)
     project = frappe.db.get_value(doctype, name, field) if field else None
     delete_statement_file_links(doctype, [name], statement_file_url)
-    series = _series_counters_for(name)
+    series = series_counters_for(name)
     with _outflow_import_write():
         frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
-    _restore_series_counters(series)
+    restore_series_counters(series)
     return project or None
 
 
@@ -62,7 +62,7 @@ def edits_of(doctype: str, name: str) -> tuple:
     return tuple(edits)
 
 
-def _series_counters_for(name: str) -> list:
+def series_counters_for(name: str) -> list:
     """Every naming-series counter whose prefix this record's name starts with, as it stands now.
 
     `LEFT(...) = name`, never `LIKE name || '%'`: a series name is data, and `_` in it would be a
@@ -76,7 +76,7 @@ def _series_counters_for(name: str) -> list:
     )
 
 
-def _restore_series_counters(series) -> None:
+def restore_series_counters(series) -> None:
     """Undo `frappe.delete_doc`'s naming-series rewind.
 
     ⚠️ DELETING THE NEWEST RECORD OF A SERIES WINDS ITS COUNTER BACK (`update_naming_series` ->

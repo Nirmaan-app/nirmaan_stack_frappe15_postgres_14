@@ -54,6 +54,11 @@ from nirmaan_stack.api.outflow_import.review import (
 )
 from nirmaan_stack.api.outflow_import.unreconcile_cleanup import restore_derived_state
 from nirmaan_stack.api.outflow_import.unreconcile_created import delete_created, edits_of
+from nirmaan_stack.api.outflow_import.unreconcile_split import (
+    join_leftover_back,
+    read_payment_facts,
+    unsplit_fields,
+)
 from nirmaan_stack.services.outflow_import.allocation import (
     MATCH_REVERSED,
     MATCH_SETTLED,
@@ -79,7 +84,9 @@ from nirmaan_stack.services.outflow_import.unreconcile import (
     VERDICT_REFUSED,
     VERDICT_REVERT_EXPENSE,
     VERDICT_REVERT_PAYMENT,
+    VERDICT_UNSPLIT_PAYMENT,
     LegFacts,
+    LegVerdict,
     first_refusal,
     leg_verdict,
 )
@@ -160,6 +167,7 @@ def get_unreconcile_plan(row: str) -> dict:
                 "reason": verdicts[leg.name].reason,
                 "title": verdicts[leg.name].title,
                 "fix_at": verdicts[leg.name].fix_at,
+                **unsplit_fields(verdicts[leg.name]),
             }
             for leg in legs
         ],
@@ -209,7 +217,7 @@ def unreconcile_row(row: str, legs, reason: str) -> dict:
             for leg, verdict in zip(requested, verdicts):
                 # Stamp FIRST -- see the module docstring (a deleted target fails the link check).
                 _stamp_reversed(leg.name, actor, reason)
-                carried.append(_carry_out(verdict.verdict, leg, statement))
+                carried.append(_carry_out(verdict, leg, statement, actor, reason))
             # #1276: vendor credit, CEO Hold, latest payment date and the statement `File` row,
             # once, on the state after EVERY leg -- see `unreconcile_cleanup`.
             restore_derived_state(carried, statement)
@@ -239,6 +247,7 @@ def unreconcile_row(row: str, legs, reason: str) -> dict:
                 # Ruling O: the leg's own figure, for comparison against the target's Version log.
                 "reversed_amount": float(leg.target_amount),
                 "amount_after": _amount_after(leg),
+                **unsplit_fields(verdict),
             }
             for leg, verdict in zip(requested, verdicts)
         ],
@@ -261,24 +270,35 @@ def _comment_on_line(row: str, actor: str, reason: str, legs) -> None:
     )
 
 
-def _carry_out(verdict: str, leg, statement_file_url: str | None) -> CarriedOut:
+def _carry_out(
+    verdict: LegVerdict, leg, statement_file_url: str | None, actor: str, reason: str
+) -> CarriedOut:
     """Perform one verdict on its target. Returns what it did, which is what
     `unreconcile_cleanup.restore_derived_state` puts right around (#1276).
 
-    ⚠️ AN UNKNOWN VERDICT RAISES. The decision module will grow new verdicts (#1270); one that is
-    not wired here would otherwise stamp the leg Reversed while its target stays settled. Raising
-    inside the savepoint rolls every leg back.
+    ⚠️ AN UNKNOWN VERDICT RAISES. The decision module may grow new verdicts; one that is not wired
+    here would otherwise stamp the leg Reversed while its target stays settled. Raising inside the
+    savepoint rolls every leg back.
+
+    ⚠️ AN UN-SPLIT JOINS THE LEFTOVER BACK FIRST, THEN REVERTS (#1279). Reverting an SR payment to
+    Approved may net TDS from its amount (the owner-ruled known limit); doing it after the join nets the
+    whole sanction once, instead of a kept half the join then adds to.
     """
-    if verdict == VERDICT_REVERT_PAYMENT:
+    kind = verdict.verdict
+    if kind == VERDICT_UNSPLIT_PAYMENT:
+        join_leftover_back(leg.target_name, verdict.leftover, actor, reason)
         _revert_payment(leg.target_name, statement_file_url)
         return CarriedOut(leg.target_doctype, leg.target_name)
-    if verdict == VERDICT_REVERT_EXPENSE:
+    if kind == VERDICT_REVERT_PAYMENT:
+        _revert_payment(leg.target_name, statement_file_url)
+        return CarriedOut(leg.target_doctype, leg.target_name)
+    if kind == VERDICT_REVERT_EXPENSE:
         _revert_expense(leg.target_doctype, leg.target_name, statement_file_url)
         return CarriedOut(leg.target_doctype, leg.target_name)
-    if verdict == VERDICT_DELETE_CREATED:
+    if kind == VERDICT_DELETE_CREATED:
         project = delete_created(leg.target_doctype, leg.target_name, statement_file_url)
         return CarriedOut(leg.target_doctype, leg.target_name, project=project, deleted=True)
-    raise NotImplementedError(f"No write for verdict '{verdict}' on match record '{leg.name}'.")
+    raise NotImplementedError(f"No write for verdict '{kind}' on match record '{leg.name}'.")
 
 
 def _lock_row(row: str):
@@ -379,28 +399,7 @@ def _read_facts(legs, references, source: str, *, for_update: bool) -> dict:
                 versions=edits_of(leg.target_doctype, leg.target_name) if exists else (),
             )
             continue
-        payment = frappe.db.get_value(
-            PAYMENT_DOCTYPE,
-            leg.target_name,
-            ["status", "utr", "amount", "tds", "split_from"],
-            as_dict=True,
-            for_update=for_update,
-        )
-        if not payment:
-            facts[leg.name] = LegFacts(**base, target_exists=False)
-            continue
-        facts[leg.name] = LegFacts(
-            **base,
-            target_exists=True,
-            target_status=payment.status,
-            target_amount=payment.amount,
-            target_reference=payment.utr,
-            tds=payment.tds,
-            split_from=payment.split_from,
-            split_balance=frappe.db.get_value(
-                PAYMENT_DOCTYPE, {"split_from": leg.target_name}, "name"
-            ),
-        )
+        facts[leg.name] = read_payment_facts(leg, base, for_update=for_update)
     return facts
 
 
@@ -461,8 +460,9 @@ def _revert_payment(name: str, statement_file_url: str | None) -> None:
 
     ⚠️ IT CLEARS STATUS / `utr` / `payment_date` AND NOTHING ELSE, bar the statement attachment the
     settle wrote (#1276, only while the field still holds it). That is why the decision module
-    refuses a payment carrying TDS or either half of a split: add a field here and check those
-    refusals, the two live and die together. The amount is NOT restored (Ruling O).
+    refuses a payment carrying TDS or a split it cannot undo, and why its `LEFTOVER_WRITTEN_FIELDS`
+    lists exactly these: add a field here and check both, they live and die together. The amount is
+    NOT restored (Ruling O); an un-split restores it before this runs (#1279).
 
     `from_outflow_import` + `_outflow_import_write` suppress the hooks that commit mid-save; a commit
     inside the savepoint would make the all-or-nothing rollback a silent no-op.

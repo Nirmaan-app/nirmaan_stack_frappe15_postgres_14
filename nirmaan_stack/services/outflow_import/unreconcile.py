@@ -8,10 +8,9 @@ leg goes in; one verdict comes out. The write path (`api/outflow_import/unreconc
 facts UNDER ITS LOCKS and asks here, so the decision is always made on a picture nobody else can be
 changing -- a plan shown on screen earlier is never trusted.
 
-TODAY IT KNOWS FOUR VERDICTS: `revert_payment`, `revert_expense` (#1277), `delete_created` (#1278) and
-`refused`. The parent spec adds `unsplit_payment` in a later slice; it is a new branch HERE, never a
-check at a call site. Each carries a `what_happens` sentence (#1275) -- the line the Unreconcile
-dialog shows beside the record -- so the screen never has to know what a verdict does to its target.
+IT KNOWS FIVE VERDICTS: `revert_payment`, `revert_expense` (#1277), `delete_created` (#1278),
+`unsplit_payment` (#1279) and `refused`. A new one is a new branch HERE, never a check at a call
+site. Each carries a `what_happens` sentence (#1275) -- the line the Unreconcile dialog shows beside the record -- so the screen never has to know what a verdict does to its target.
 
 ⚠️ EVERY PAYMENT REFUSAL SENTENCE IS THE ONE `expenses.reverse_allocation` PRINTED BEFORE THIS MODULE
 EXISTED, BYTE FOR BYTE, AND IN THE SAME ORDER. A leg can be wrong in several ways at once and the
@@ -43,15 +42,22 @@ status flip must be refused rather than half-undone:
 
   * A `tds` FIGURE on the payment. Put back to Approved, it would leave withheld tax on money that
     is waiting to be paid again.
-  * EITHER HALF OF A SPLIT. `settle_row_partial` trims the ORIGINAL to the settled part and mints
-    the balance with `split_from` pointing back. The marker on the settled half is therefore a
-    CHILD (`split_balance`), not a field on itself. Reverting one half would turn one sanction into
-    two Approved payments.
+  * EITHER HALF OF A SPLIT THIS IMPORT'S PARTIAL SETTLE DID NOT MAKE (the ones it did: below).
+    `settle_row_partial` trims the ORIGINAL to the settled part and mints the balance with
+    `split_from` pointing back. The marker on the settled half is therefore a CHILD, not a field on
+    itself. Reverting one half would turn one sanction into two Approved payments.
   * AN AMOUNT THAT DIFFERS FROM THE LEG'S -- EXACT, NO TOLERANCE WINDOW (see `amounts.py`'s
     registry). Both figures were written by the same settle, so any difference is a later edit.
   * A STATUS THAT IS NOT PAID, or A REFERENCE that is not one this line's settle may have written
     (`settlement_references_of_row`, #1259). Somebody else has touched the record; refusing leaves
     both halves consistent, guessing does not.
+
+A PART PAYMENT (#1279, ADR-0022 narrows ADR-0020 A3's blanket split refusal) -- a payment whose balance
+this leg's OWN partial settle minted -- is UN-SPLIT while that leftover is untouched: the leftover is
+deleted, the original gets its amount back and the PO's two terms join into one, then the original
+reverts as any payment does. Which split is this settle's, and what "untouched" means, live in the pure
+`unsplit.py` beside this module. ⚠️ THE CARRIED-FORWARD BALANCE of such a settle is no longer refused
+either: "Unreconcile that transfer first" points at it. Every other balance still is.
 
 ⚠️ RULING O, STILL ACCEPTED AND STILL UNDETECTABLE HERE: `settle_row` may have rewritten the
 payment's amount to the bank's figure (slice X1). After the fact `leg_amount == target_amount`
@@ -72,10 +78,20 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.sources import source_runs_the_matcher
+from nirmaan_stack.services.outflow_import.unsplit import (
+    CREATED_WINDOW_SECONDS,
+    LEFTOVER_PAID_TITLE,
+    LEFTOVER_WRITTEN_FIELDS,
+    SplitChild,
+    is_balance_of_a_part_settle,
+    leftover_of_this_settle,
+    leftover_refusal,
+)
 
 VERDICT_REVERT_PAYMENT = "revert_payment"
 VERDICT_REVERT_EXPENSE = "revert_expense"
 VERDICT_DELETE_CREATED = "delete_created"
+VERDICT_UNSPLIT_PAYMENT = "unsplit_payment"
 VERDICT_REFUSED = "refused"
 
 # Where a refused leg is repaired. `None` on a refusal means there is nothing to repair.
@@ -105,17 +121,18 @@ WHAT_HAPPENS_DELETE_PROJECT_INFLOW = (
     "Will be deleted. The project's cash position updates straight away."
 )
 
+# ⚠️ THE LEAD-IN ONLY. The dialog renders it amber and lists the three consequences under it from the
+# verdict's `leftover` / `leftover_amount` / `restored_amount` / `joins_terms` (`unreconcileView.ts`),
+# because they carry figures the screen formats as rupees.
+WHAT_HAPPENS_UNSPLIT = "The split is undone:"
+
 #: The fields a created record's settle writes after it exists -- the statement attachment
 #: (`settle._STATEMENT_ATTACHMENT_FIELDS`, spelled here because this module may not import settle).
 #: A Version touching only these is the import's own, never a person's edit. Pinned against the
 #: resolver by `api/outflow_import/test_unreconcile_created.py`.
 IMPORT_WRITTEN_FIELDS = frozenset({"payment_attachment", "inflow_attachment"})
 
-#: The back-fill's window between a created expense's `creation` and its leg's `matched_at`. Both are
-#: written in ONE request, so on the local database every created leg was 0-5 s apart and every hand
-#: Link minutes to days (2026-09-15, 237 expense legs). A minute leaves room for a slow request and
-#: none for a person to find and settle a record they had just made by hand.
-CREATED_WINDOW_SECONDS = 60
+# `CREATED_WINDOW_SECONDS` (the back-fill's window) lives in `unsplit.py`, shared with the split questions.
 
 _PAID = "Paid"
 
@@ -125,17 +142,22 @@ __all__ = [
     "FIX_ON_EXPENSES_SCREEN",
     "FIX_ON_PAYMENTS_SCREEN",
     "IMPORT_WRITTEN_FIELDS",
+    "LEFTOVER_PAID_TITLE",
+    "LEFTOVER_WRITTEN_FIELDS",
     "WHAT_HAPPENS_DELETE",
     "WHAT_HAPPENS_DELETE_PROJECT_INFLOW",
     "WHAT_HAPPENS_REVERT_NON_PROJECT_EXPENSE",
     "WHAT_HAPPENS_REVERT_PAYMENT",
     "WHAT_HAPPENS_REVERT_PROJECT_EXPENSE",
+    "WHAT_HAPPENS_UNSPLIT",
     "VERDICT_DELETE_CREATED",
     "VERDICT_REFUSED",
     "VERDICT_REVERT_EXPENSE",
     "VERDICT_REVERT_PAYMENT",
+    "VERDICT_UNSPLIT_PAYMENT",
     "LegFacts",
     "LegVerdict",
+    "SplitChild",
     "first_refusal",
     "leg_created_the_record",
     "leg_verdict",
@@ -162,8 +184,13 @@ class LegFacts:
     tds: object = None
     # The payment's OWN `split_from`: set when it is the carried-forward balance of a split.
     split_from: str | None = None
-    # The name of a payment whose `split_from` is THIS one: set when this is the settled half.
-    split_balance: str | None = None
+    # PAYMENTS ONLY (#1279): every payment whose `split_from` is this one (`unsplit.SplitChild`). The
+    # settled half of a split carries its marker on a CHILD, not on itself.
+    split_children: tuple = ()
+    # PAYMENTS ONLY (#1279), for a balance half: when the payment was created, and when each Settled leg
+    # on its `split_from` parent was matched.
+    target_created: datetime | None = None
+    parent_settled_at: tuple = ()
     # Every value a settle of this leg's import line may have written as the reference.
     settlement_references: tuple = ()
     # The IMPORT's source (`Outflow Import Batch.source`), not the row's denormalised copy.
@@ -187,6 +214,12 @@ class LegVerdict:
     fix_at: str | None = None
     # The dialog's one-line "what happens" sentence. `None` on a refusal, which says `reason` instead.
     what_happens: str | None = None
+    # `unsplit_payment` ONLY: the leftover deleted, its amount, the original's amount after, and
+    # whether the PO's two terms join back into one.
+    leftover: str | None = None
+    leftover_amount: object = None
+    restored_amount: object = None
+    joins_terms: bool = False
 
 
 def _refused(facts: LegFacts, title: str, reason: str, fix_at: str | None = None) -> LegVerdict:
@@ -234,7 +267,9 @@ def leg_verdict(facts: LegFacts) -> LegVerdict:
             f"where both the status and the TDS can be corrected together.",
             FIX_ON_PAYMENTS_SCREEN,
         )
-    if (facts.split_from or "").strip():
+    if (facts.split_from or "").strip() and not is_balance_of_a_part_settle(
+        facts.target_created, facts.parent_settled_at
+    ):
         return _refused(
             facts,
             "Part of a split payment",
@@ -243,16 +278,23 @@ def leg_verdict(facts: LegFacts) -> LegVerdict:
             f"screen, where both halves are visible.",
             FIX_ON_PAYMENTS_SCREEN,
         )
-    if facts.split_balance:
-        return _refused(
-            facts,
-            "Split by a partial settlement",
-            f"{name} was settled by a PARTIAL settlement, which split the record and "
-            f"left {facts.split_balance} standing as its Approved balance. Reversing only the "
-            f"settled half would turn one sanction into two. Undo the split on the payments "
-            f"screen instead.",
-            FIX_ON_PAYMENTS_SCREEN,
-        )
+    leftover = leftover_of_this_settle(facts.matched_at, facts.split_children)
+    if leftover is not None:
+        refusal = leftover_refusal(leftover)
+        if refusal is not None:
+            return _refused(facts, *refusal)
+    else:
+        other = next((c.name for c in facts.split_children), None)
+        if other:
+            return _refused(
+                facts,
+                "Split by a partial settlement",
+                f"{name} was settled by a PARTIAL settlement, which split the record and "
+                f"left {other} standing as its Approved balance. Reversing only the "
+                f"settled half would turn one sanction into two. Undo the split on the payments "
+                f"screen instead.",
+                FIX_ON_PAYMENTS_SCREEN,
+            )
     if normalize_amount(facts.leg_amount) != normalize_amount(facts.target_amount):
         return _refused(
             facts,
@@ -279,6 +321,16 @@ def leg_verdict(facts: LegFacts) -> LegVerdict:
             FIX_ON_PAYMENTS_SCREEN,
         )
 
+    if leftover is not None:
+        return LegVerdict(
+            leg=facts.leg,
+            verdict=VERDICT_UNSPLIT_PAYMENT,
+            what_happens=WHAT_HAPPENS_UNSPLIT,
+            leftover=leftover.name,
+            leftover_amount=normalize_amount(leftover.amount),
+            restored_amount=normalize_amount(facts.target_amount) + normalize_amount(leftover.amount),
+            joins_terms=leftover.has_term,
+        )
     return LegVerdict(
         leg=facts.leg,
         verdict=VERDICT_REVERT_PAYMENT,

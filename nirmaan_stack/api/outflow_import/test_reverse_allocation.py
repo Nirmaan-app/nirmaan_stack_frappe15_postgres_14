@@ -170,7 +170,10 @@ class TestLegsThisReversalCannotCorrectlyUndo(AllocationFixture):
 
     def test_the_carried_forward_BALANCE_half_is_refused_too(self):
         """Both directions. A balance half whose sibling is Paid is just as entangled as the half
-        that was settled, and this one DOES carry the marker on itself."""
+        that was settled, and this one DOES carry the marker on itself.
+
+        #1279 lets ONE kind of balance revert -- the leftover of a partial settle of its parent that
+        still stands (`test_unreconcile_part_payment`). This parent has no settle at all."""
         row, (a, _, _) = self._allocated()
         leg = frappe.db.get_value(MATCH_DOCTYPE, {"import_row": row, "target_name": a}, "name")
         origin = self._approved_payment("40")

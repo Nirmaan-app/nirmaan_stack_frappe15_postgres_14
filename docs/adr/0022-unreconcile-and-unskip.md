@@ -8,11 +8,11 @@ Date: 2026-09-15
 record grows with them. Built so far: the one decision module and write path (#1271), one-line
 matching (#1272), Skip by hand with a skipped-by-hand marker (#1273), Unskip (#1274), **Unreconcile for
 Project Payments (#1275)** and its **post-write clean-up** (#1276: vendor credit, CEO Hold, latest payment
-date, statement file), **Unreconcile for existing expenses (#1277)** and **Unreconcile for records the
-import created (#1278)**. Still to come: part-payment un-split, Confirm by hand.
+date, statement file), **Unreconcile for existing expenses (#1277)**, **Unreconcile for records the
+import created (#1278)** and **Unreconcile for a part payment (#1279)**. Still to come: Confirm by hand.
 
 As-built detail: `.claude/context/domain/outflow-import.md` § *#1271*, *#1272*, *#1273*, *#1274*, *#1275*,
-*#1276*, *#1277*, *#1278*.
+*#1276*, *#1277*, *#1278*, *#1279*.
 Approved mockups: https://claude.ai/artifact/K6vEJXGoALunzfdqTfrVVt
 
 ## Context
@@ -41,7 +41,7 @@ Recorded so later work does not bring "no undo" back by mistake.
 | **AR3 — an import-created inflow cannot be undone** | [ADR-0016](0016-bank-statement-import-creates-inflows.md) | **reversed by #1278**: an untouched import-created record (Project Inflow, Non-Project Inflow, or an expense the import created) is deleted by Unreconcile |
 | **R6 — `SHOW_SKIP_ROW` stays off; a line with nothing to link has no manual terminal state** | [ADR-0016](0016-bank-statement-import-creates-inflows.md) | **reversed by #1273**: the "Nothing to link?" Skip box |
 | **The 2026-08-10 hidden-skip ruling** (`DecisionDialog.tsx`, "hidden, not deleted") | owner ruling, 2026-08-10 | **reversed by #1273**: `SHOW_SKIP_ROW` is deleted |
-| **A split payment is refused outright; only payments can be reversed** (B2, "reverse is payments only") | [ADR-0020](0020-one-transfer-many-payments.md) | **the payments-only half is reversed by #1277**: an existing Project Expense or Non-Project Expense reverts to Approved. Still to come: an untouched part payment is un-split |
+| **A split payment is refused outright; only payments can be reversed** (B2, "reverse is payments only") | [ADR-0020](0020-one-transfer-many-payments.md) | **the payments-only half is reversed by #1277**: an existing Project Expense or Non-Project Expense reverts to Approved. **The split refusal is narrowed by #1279** to "untouched leftover only": a part payment is un-split while its leftover is untouched, and a carried-forward balance reverts like any payment |
 | **Skips are final** | domain doc (several places); `expenses.SKIPPED_ROW_REFUSAL` ("correct it in Desk") | **reversed by #1274, for hand skips only**: Unskip from the Skipped popup; a system skip stays final |
 
 ### Access (Q1)
@@ -165,6 +165,34 @@ only, pinned by `outflowUndoAccessParity.test.ts`.
   whose inflow was unreconciled can be recorded again.
 - The dialog line is red: "Will be deleted." — plus "The project's cash position updates straight away." for
   a Project Inflow.
+
+### Unreconcile a part payment (Q4) — built at #1279
+
+- **ADR-0020 A3's blanket split refusal is narrowed to "untouched leftover only".**
+- New verdict **`unsplit_payment`**, for a leg on a payment split by *its own* partial settle. That split is
+  recognised by time: `settle_row_partial` writes the balance and the leg in one request, so the balance is
+  created no more than a minute before the leg's match. A CEO partial approval's balance, or a child made at any
+  other time, keeps the old refusal — nothing says the two halves may be joined.
+- **Untouched** means: no Settled leg on the leftover, no TDS (figure or deduction row), still Approved, no
+  Version after its creation changing anything but status / UTR / payment date / payment attachment — what a
+  settle and its undo write — and its amount still the one it was created with. The amount is judged by value,
+  not by Version, so a leftover paid (even part-paid) by another transfer and then unreconciled is untouched
+  again.
+- Otherwise refused, naming the leftover: "Its leftover <record> was paid by another transfer on <date>.
+  Unreconcile that transfer first." / "… has TDS on it. Fix the tax on the Payments screen first." / "… is
+  '<status>', not Approved. …" / "… was edited on <date>, after the split. …"
+- **That leftover's own transfer can be unreconciled.** The first sentence above sends the reviewer there, so a
+  balance reverts like any payment when a Settled leg on its parent was matched in the request that created it
+  (the partial settle still stands). Every other balance — a CEO partial approval's — keeps "Part of a split
+  payment".
+- **What it does:** a new inverse beside the split, `payment_split.unsplit_payment` — the PO's balance term folds
+  back into the original's term (amounts added, so the terms still sum to the PO total), the original gets
+  kept + leftover, the leftover is deleted — then the original reverts to Approved as any payment. The
+  partial-settle comments stay; a new comment on the original records the undo and the reason.
+- The refused line for a paid leftover leads "Can't be undone yet." (every other refusal: "here").
+- The dialog line is amber: "The split is undone:" and the three consequences (the payment goes back to its full
+  amount, Approved; the leftover is deleted; the PO's two terms join back into one — the last only when the
+  leftover has a PO term).
 
 ## Consequences
 

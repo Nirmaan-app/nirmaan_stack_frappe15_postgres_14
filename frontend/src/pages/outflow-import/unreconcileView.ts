@@ -16,7 +16,16 @@ export const VERDICT_REVERT_PAYMENT = "revert_payment";
 export const VERDICT_REVERT_EXPENSE = "revert_expense";
 /** A record the import created is deleted (red in the dialog, #1278). */
 export const VERDICT_DELETE_CREATED = "delete_created";
+/** A part payment's split is joined back, then the payment reverts (amber in the dialog, #1279). */
+export const VERDICT_UNSPLIT_PAYMENT = "unsplit_payment";
 export const VERDICT_REFUSED = "refused";
+
+/** Mirrors `unreconcile.WHAT_HAPPENS_UNSPLIT`: the amber line's lead-in. */
+export const WHAT_HAPPENS_UNSPLIT = "The split is undone:";
+
+/** Mirrors `unsplit.LEFTOVER_PAID_TITLE`: the one refusal that clears once another transfer is undone,
+ *  so it leads "Can't be undone yet." (mockup scene 3) where every other refusal says "here". */
+export const LEFTOVER_PAID_TITLE = "Leftover paid";
 
 /** The verdicts that put a record back to Approved (blue in the dialog). */
 const BACK_TO_APPROVED = new Set([VERDICT_REVERT_PAYMENT, VERDICT_REVERT_EXPENSE]);
@@ -42,6 +51,12 @@ export interface UnreconcilePlanLeg {
     reason: string | null;
     title: string | null;
     fix_at: string | null;
+    /** `unsplit_payment` only (#1279): the leftover deleted, and what the payment goes back to. */
+    leftover?: string | null;
+    leftover_amount?: number | null;
+    restored_amount?: number | null;
+    /** Whether the PO's two payment terms join back into one (a Service Request payment has none). */
+    joins_terms?: boolean;
 }
 
 export interface UnreconcilePlan {
@@ -65,6 +80,9 @@ export interface ReversedLeg {
     reversed_amount: number;
     /** The record's amount read back after the save; `null` when it no longer exists. */
     amount_after: number | null;
+    /** `unsplit_payment` only (#1279). */
+    leftover?: string | null;
+    restored_amount?: number | null;
 }
 
 /** What `unreconcile.unreconcile_row` returns. */
@@ -77,16 +95,28 @@ export interface UnreconcileResult {
     reversed: ReversedLeg[];
 }
 
-/** Blue = back to Approved, red = deleted, grey = refused (mockup scene 3). `other` is a verdict this
- *  screen has no colour for yet; it still shows the server's sentence. */
-export type LegTone = "back" | "deleted" | "refused" | "other";
+/** Blue = back to Approved, red = deleted, amber = a split joined back, grey = refused (mockup scene
+ *  3). `other` is a verdict this screen has no colour for yet; it still shows the server's sentence. */
+export type LegTone = "back" | "deleted" | "split" | "refused" | "other";
 
 export interface LegOutcomeLine {
     tone: LegTone;
     /** Bold lead-in before the sentence, or `null`. */
     lead: string | null;
     text: string;
+    /** A bullet list under the sentence -- only the amber un-split line has one. */
+    items?: string[];
 }
+
+/**
+ * The three consequences under "The split is undone:" (mockup scene 3), from the figures the server
+ * put on the leg. The PO terms bullet only when there are terms to join.
+ */
+export const unsplitConsequences = (leg: UnreconcilePlanLeg): string[] => [
+    `${leg.target_name} goes back to ${formatToRoundedIndianRupee(leg.restored_amount ?? 0)}, Approved`,
+    `the leftover ${leg.leftover ?? ""} (${formatToRoundedIndianRupee(leg.leftover_amount ?? 0)}) is deleted`,
+    ...(leg.joins_terms ? ["the PO's two payment terms join back into one"] : []),
+];
 
 /**
  * The coloured "what happens" line beside one record.
@@ -104,7 +134,11 @@ export const legOutcomeLine = (leg: UnreconcilePlanLeg): LegOutcomeLine => {
             where && !reason.toLowerCase().includes(where.toLowerCase())
                 ? `${reason} Fix it on ${where}.`.trim()
                 : reason;
-        return { tone: "refused", lead: "Can't be undone here.", text };
+        const lead = leg.title === LEFTOVER_PAID_TITLE ? "Can't be undone yet." : "Can't be undone here.";
+        return { tone: "refused", lead, text };
+    }
+    if (leg.verdict === VERDICT_UNSPLIT_PAYMENT) {
+        return { tone: "split", lead: null, text: leg.what_happens ?? "", items: unsplitConsequences(leg) };
     }
     return {
         tone: BACK_TO_APPROVED.has(leg.verdict)
@@ -116,6 +150,10 @@ export const legOutcomeLine = (leg: UnreconcilePlanLeg): LegOutcomeLine => {
         text: leg.what_happens ?? "",
     };
 };
+
+/** Two rupee figures that round to the same paisa. A restored amount is a sum of two stored figures and
+ *  may carry float noise the server's own comparison never sees. */
+const sameMoney = (a: number, b: number) => Math.round(a * 100) === Math.round(b * 100);
 
 const records = (count: number) => `${count} ${count === 1 ? "record" : "records"}`;
 
@@ -156,7 +194,10 @@ export interface UnreconcileNotice {
  */
 export const unreconcileNotice = (result: UnreconcileResult): UnreconcileNotice => {
     const total = result.reversed.length;
-    const reverted = result.reversed.filter((leg) => BACK_TO_APPROVED.has(leg.verdict)).length;
+    // An un-split payment goes back to Approved too (#1279); its split gets its own sentence below.
+    const reverted = result.reversed.filter(
+        (leg) => BACK_TO_APPROVED.has(leg.verdict) || leg.verdict === VERDICT_UNSPLIT_PAYMENT,
+    ).length;
     const deleted = result.reversed.filter((leg) => leg.verdict === VERDICT_DELETE_CREATED).length;
     const wasDeleted = (count: number) => (count === 1 ? "was deleted" : "were deleted");
     const head =
@@ -173,13 +214,20 @@ export const unreconcileNotice = (result: UnreconcileResult): UnreconcileNotice 
             : result.row_status === ROW_SETTLED
               ? "It is still fully allocated."
               : "It now needs a record.";
+    const unsplit = result.reversed
+        .filter((leg) => leg.verdict === VERDICT_UNSPLIT_PAYMENT)
+        .map((leg) => `The split on ${leg.target_name} was undone and its leftover ${leg.leftover ?? ""} deleted.`);
+    // ⚠️ AN UN-SPLIT PAYMENT IS COMPARED AGAINST THE AMOUNT IT WAS RESTORED TO, not the leg's figure:
+    // growing back to the whole sanction is the point, and only a change on top of that is news.
+    const expected = (leg: ReversedLeg) =>
+        leg.verdict === VERDICT_UNSPLIT_PAYMENT ? (leg.restored_amount ?? leg.reversed_amount) : leg.reversed_amount;
     const changed = result.reversed
-        .filter((leg) => leg.amount_after !== null && leg.amount_after !== leg.reversed_amount)
+        .filter((leg) => leg.amount_after !== null && !sameMoney(leg.amount_after, expected(leg)))
         .map(
             (leg) =>
-                `${leg.target_name} is now ${formatToRoundedIndianRupee(leg.amount_after!)}, not ${formatToRoundedIndianRupee(leg.reversed_amount)}.`,
+                `${leg.target_name} is now ${formatToRoundedIndianRupee(leg.amount_after!)}, not ${formatToRoundedIndianRupee(expected(leg))}.`,
         );
-    return { title: "Unreconciled.", body: [head, where, ...changed].join(" ") };
+    return { title: "Unreconciled.", body: [head, where, ...unsplit, ...changed].join(" ") };
 };
 
 /**

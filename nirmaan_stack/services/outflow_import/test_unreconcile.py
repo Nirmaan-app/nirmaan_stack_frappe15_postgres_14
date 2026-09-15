@@ -9,7 +9,8 @@ the sentence it asserts is the one that endpoint printed. A reworded sentence mu
 
 import dataclasses
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
+from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import import unreconcile
 from nirmaan_stack.services.outflow_import.unreconcile import (
@@ -18,13 +19,18 @@ from nirmaan_stack.services.outflow_import.unreconcile import (
     FIX_ON_EXPENSES_SCREEN,
     FIX_ON_PAYMENTS_SCREEN,
     IMPORT_WRITTEN_FIELDS,
+    LEFTOVER_PAID_TITLE,
+    LEFTOVER_WRITTEN_FIELDS,
     VERDICT_DELETE_CREATED,
     VERDICT_REFUSED,
     VERDICT_REVERT_EXPENSE,
     VERDICT_REVERT_PAYMENT,
+    VERDICT_UNSPLIT_PAYMENT,
     WHAT_HAPPENS_DELETE,
     WHAT_HAPPENS_DELETE_PROJECT_INFLOW,
+    WHAT_HAPPENS_UNSPLIT,
     LegFacts,
+    SplitChild,
     first_refusal,
     leg_created_the_record,
     leg_verdict,
@@ -46,7 +52,6 @@ REVERSIBLE = LegFacts(
     target_reference=REF,
     tds=0,
     split_from="",
-    split_balance=None,
     settlement_references=(REF, "UTR123-OLD"),
 )
 
@@ -72,6 +77,16 @@ class TestTheReversibleLeg(unittest.TestCase):
             ("status with whitespace", {"target_status": " Paid "}),
             ("amounts equal as text and number", {"leg_amount": "60", "target_amount": 60.0}),
             ("a blank split_from", {"split_from": "   "}),
+            # #1279: the balance a partial settle of its parent left -- a Settled leg on the parent was
+            # matched in the request that created it. "Unreconcile that transfer first" points here.
+            (
+                "the balance a partial settle of its parent left",
+                {
+                    "split_from": "PAY-0",
+                    "target_created": datetime(2026, 9, 15, 9, 59, 59),
+                    "parent_settled_at": (datetime(2026, 9, 15, 10, 0, 0),),
+                },
+            ),
             ("tds None", {"tds": None}),
             ("tds blank string", {"tds": ""}),
         ]:
@@ -128,8 +143,23 @@ class TestEveryRefusal(unittest.TestCase):
             FIX_ON_PAYMENTS_SCREEN,
         ),
         (
+            # A CEO partial approval's balance: its parent has a Settled leg, but not one matched in
+            # the request that created the balance.
+            "the balance of a split no partial settle made",
+            {
+                "split_from": "PAY-0",
+                "target_created": datetime(2026, 9, 1, 10, 0, 0),
+                "parent_settled_at": (datetime(2026, 9, 15, 10, 0, 0),),
+            },
+            "Part of a split payment",
+            "PAY-1 is the carried-forward balance of a payment that was split, so reversing it "
+            "here would leave that split half-undone. Correct it on the payments screen, where "
+            "both halves are visible.",
+            FIX_ON_PAYMENTS_SCREEN,
+        ),
+        (
             "the settled half of a split",
-            {"split_balance": "PAY-2"},
+            {"split_children": (SplitChild(name="PAY-2"),)},
             "Split by a partial settlement",
             "PAY-1 was settled by a PARTIAL settlement, which split the record and left PAY-2 "
             "standing as its Approved balance. Reversing only the settled half would turn one "
@@ -202,13 +232,15 @@ class TestTheOrderTheRefusalsAreAskedIn(unittest.TestCase):
 
     def test_the_balance_half_is_named_before_the_settled_half(self):
         self.assertEqual(
-            leg_verdict(facts(split_from="PAY-0", split_balance="PAY-2")).title,
+            leg_verdict(
+                facts(split_from="PAY-0", split_children=(SplitChild(name="PAY-2"),))
+            ).title,
             "Part of a split payment",
         )
 
     def test_a_split_is_named_before_an_amount_change(self):
         self.assertEqual(
-            leg_verdict(facts(split_balance="PAY-2", target_amount=1)).title,
+            leg_verdict(facts(split_children=(SplitChild(name="PAY-2"),), target_amount=1)).title,
             "Split by a partial settlement",
         )
 
@@ -304,7 +336,7 @@ class TestAnExistingExpense(unittest.TestCase):
     def test_payment_only_facts_never_refuse_an_expense(self):
         # An expense has no TDS and no split; stray values must not borrow the payment refusals.
         self.assertEqual(
-            leg_verdict(expense(tds=5, split_from="X", split_balance="Y")).verdict,
+            leg_verdict(expense(tds=5, split_from="X", split_children=(SplitChild(name="Y"),))).verdict,
             VERDICT_REVERT_EXPENSE,
         )
 
@@ -538,6 +570,236 @@ class TestTheBackfillRule(unittest.TestCase):
             ),
             True,
         )
+
+
+MATCHED = datetime(2026, 9, 15, 10, 0, 0)
+
+# The balance `settle_row_partial` minted in the same request as the leg: Approved, untouched.
+LEFTOVER = SplitChild(
+    name="PAY-2",
+    created=MATCHED - timedelta(seconds=1),
+    amount=40.0,
+    status="Approved",
+    tds=0,
+    has_term=True,
+)
+
+# PAY-1 was Rs 100 until a Rs 60 transfer part-settled it, carrying Rs 40 forward as PAY-2.
+PART_PAYMENT = facts(matched_at=MATCHED, split_children=(LEFTOVER,))
+
+
+def part(**changes) -> LegFacts:
+    return dataclasses.replace(PART_PAYMENT, **changes)
+
+
+def with_leftover(**changes) -> LegFacts:
+    return part(split_children=(dataclasses.replace(LEFTOVER, **changes),))
+
+
+class TestAPartPayment(unittest.TestCase):
+    """#1279: a payment split by the partial settle this leg made is un-split while its leftover is
+    untouched, and refused -- naming the leftover -- otherwise."""
+
+    def test_an_untouched_leftover_is_un_split(self):
+        verdict = leg_verdict(PART_PAYMENT)
+        self.assertEqual(verdict.verdict, VERDICT_UNSPLIT_PAYMENT)
+        self.assertEqual(verdict.what_happens, WHAT_HAPPENS_UNSPLIT)
+        self.assertEqual(WHAT_HAPPENS_UNSPLIT, "The split is undone:")
+        self.assertEqual(verdict.leftover, "PAY-2")
+        self.assertEqual(verdict.leftover_amount, Decimal("40.0"))
+        self.assertEqual(verdict.restored_amount, Decimal("100.0"))
+        self.assertTrue(verdict.joins_terms)
+        self.assertIsNone(verdict.reason)
+
+    def test_a_leftover_with_no_po_term_promises_no_terms(self):
+        # A Service Request payment, or a split whose terms never synced.
+        self.assertFalse(leg_verdict(with_leftover(has_term=False)).joins_terms)
+
+    def test_every_shape_of_an_untouched_leftover_is_un_split(self):
+        for label, change in [
+            ("status with whitespace", {"status": " Approved "}),
+            ("tds None", {"tds": None}),
+            ("tds blank", {"tds": ""}),
+            ("minted in the same instant as the leg", {"created": MATCHED}),
+            (
+                "minted at the edge of the window",
+                {"created": MATCHED - timedelta(seconds=CREATED_WINDOW_SECONDS)},
+            ),
+            # Paid by another transfer, then that transfer unreconciled: only settle-written fields.
+            (
+                "paid and unreconciled since",
+                {"versions": (
+                    (MATCHED + timedelta(days=1), ("status", "utr", "payment_date", "payment_attachment")),
+                    (MATCHED + timedelta(days=2), ("status", "utr", "payment_date")),
+                )},
+            ),
+            # Part-settled by another transfer, then un-split by that transfer's unreconcile: the
+            # figure is back, so its `amount` Versions are not an edit.
+            (
+                "part-settled and un-split since",
+                {
+                    "amount": 40.0,
+                    "created_amount": "40",
+                    "versions": (
+                        (MATCHED + timedelta(days=1), ("amount", "status", "utr")),
+                        (MATCHED + timedelta(days=2), ("amount", "status", "utr")),
+                    ),
+                },
+            ),
+        ]:
+            with self.subTest(label):
+                self.assertEqual(
+                    leg_verdict(with_leftover(**change)).verdict, VERDICT_UNSPLIT_PAYMENT
+                )
+
+    TABLE = [
+        (
+            "the leftover was paid by another transfer",
+            {"paid_on": datetime(2026, 9, 14, 18, 30), "status": "Paid"},
+            "Leftover paid",
+            "Its leftover PAY-2 was paid by another transfer on 14-Sep-2026. Unreconcile that "
+            "transfer first.",
+            None,
+        ),
+        (
+            "the leftover carries a TDS figure",
+            {"tds": 4},
+            "Leftover taxed",
+            "Its leftover PAY-2 has TDS on it. Fix the tax on the Payments screen first.",
+            FIX_ON_PAYMENTS_SCREEN,
+        ),
+        (
+            "the leftover has a TDS deduction",
+            {"tds_deducted": True},
+            "Leftover taxed",
+            "Its leftover PAY-2 has TDS on it. Fix the tax on the Payments screen first.",
+            FIX_ON_PAYMENTS_SCREEN,
+        ),
+        (
+            "the leftover is no longer Approved",
+            {"status": "Paid"},
+            "Leftover changed",
+            "Its leftover PAY-2 is 'Paid', not Approved. Fix it on the Payments screen first.",
+            FIX_ON_PAYMENTS_SCREEN,
+        ),
+        (
+            "the leftover was edited after the split",
+            {"versions": (
+                (MATCHED + timedelta(days=2), ("vendor",)),
+                (MATCHED + timedelta(days=1), ("status", "remarks")),
+            )},
+            "Leftover edited",
+            "Its leftover PAY-2 was edited on 16-Sep-2026, after the split. Fix it on the Payments "
+            "screen first.",
+            FIX_ON_PAYMENTS_SCREEN,
+        ),
+        (
+            "the leftover's amount is not the one it was created with",
+            {
+                "amount": 39.0,
+                "created_amount": 40.0,
+                "versions": ((MATCHED + timedelta(days=3), ("amount",)),),
+            },
+            "Leftover edited",
+            "Its leftover PAY-2 was edited on 18-Sep-2026, after the split. Fix it on the Payments "
+            "screen first.",
+            FIX_ON_PAYMENTS_SCREEN,
+        ),
+    ]
+
+    def test_each_refusal_names_the_leftover(self):
+        for label, change, title, sentence, fix_at in self.TABLE:
+            with self.subTest(label):
+                verdict = leg_verdict(with_leftover(**change))
+                self.assertEqual(verdict.verdict, VERDICT_REFUSED)
+                self.assertEqual(verdict.title, title)
+                self.assertEqual(verdict.reason, sentence)
+                self.assertEqual(verdict.fix_at, fix_at)
+                self.assertIsNone(verdict.what_happens)
+                self.assertIsNone(verdict.leftover)
+
+    def test_paid_is_named_before_taxed_before_changed_before_edited(self):
+        everything = {
+            "paid_on": MATCHED + timedelta(days=1),
+            "tds": 4,
+            "status": "Paid",
+            "versions": ((MATCHED + timedelta(days=1), ("remarks",)),),
+        }
+        self.assertEqual(leg_verdict(with_leftover(**everything)).title, "Leftover paid")
+        del everything["paid_on"]
+        self.assertEqual(leg_verdict(with_leftover(**everything)).title, "Leftover taxed")
+        del everything["tds"]
+        self.assertEqual(leg_verdict(with_leftover(**everything)).title, "Leftover changed")
+        del everything["status"]
+        self.assertEqual(leg_verdict(with_leftover(**everything)).title, "Leftover edited")
+
+    def test_the_original_is_still_judged_on_its_own_facts(self):
+        self.assertEqual(leg_verdict(part(tds=2)).title, "Settled with TDS")
+        for change in ({"target_amount": 61.0}, {"target_status": "Approved"}, {"target_reference": "ELSE"}):
+            with self.subTest(change=change):
+                self.assertEqual(leg_verdict(part(**change)).title, "Changed elsewhere")
+
+    def test_tds_on_the_original_is_named_before_the_leftover(self):
+        self.assertEqual(leg_verdict(part(tds=2, split_children=(
+            dataclasses.replace(LEFTOVER, status="Paid"),
+        ))).title, "Settled with TDS")
+
+    def test_a_split_this_settle_did_not_make_keeps_the_old_refusal(self):
+        """A CEO partial approval, or any split minted outside this leg's request, is not undone
+        here: nothing says the two halves were ever one sanction the import may join."""
+        for label, child in [
+            ("minted after the match", dataclasses.replace(LEFTOVER, created=MATCHED + timedelta(seconds=1))),
+            ("minted long before the match", dataclasses.replace(
+                LEFTOVER, created=MATCHED - timedelta(seconds=CREATED_WINDOW_SECONDS + 1)
+            )),
+            ("no creation time", dataclasses.replace(LEFTOVER, created=None)),
+        ]:
+            with self.subTest(label):
+                verdict = leg_verdict(part(split_children=(child,)))
+                self.assertEqual(verdict.title, "Split by a partial settlement")
+                self.assertIn("left PAY-2 standing", verdict.reason)
+        verdict = leg_verdict(part(matched_at=None))
+        self.assertEqual(verdict.title, "Split by a partial settlement")
+
+    def test_an_older_split_beside_this_settles_leftover_does_not_block_the_un_split(self):
+        ceo_half = dataclasses.replace(LEFTOVER, name="PAY-0", created=MATCHED - timedelta(days=30))
+        verdict = leg_verdict(part(split_children=(ceo_half, LEFTOVER)))
+        self.assertEqual(verdict.verdict, VERDICT_UNSPLIT_PAYMENT)
+        self.assertEqual(verdict.leftover, "PAY-2")
+
+    def test_a_leftover_refusal_is_named_before_an_amount_change(self):
+        verdict = leg_verdict(part(
+            target_amount=1, split_children=(dataclasses.replace(LEFTOVER, tds=4),)
+        ))
+        self.assertEqual(verdict.title, "Leftover taxed")
+
+    def test_the_fields_a_settle_and_its_undo_write_are_not_edits(self):
+        self.assertEqual(
+            LEFTOVER_WRITTEN_FIELDS, {"status", "utr", "payment_date", "payment_attachment"}
+        )
+
+    def test_the_paid_refusal_carries_the_title_the_screen_reads_as_not_yet(self):
+        verdict = leg_verdict(with_leftover(paid_on=MATCHED + timedelta(days=1)))
+        self.assertEqual(verdict.title, LEFTOVER_PAID_TITLE)
+        self.assertEqual(LEFTOVER_PAID_TITLE, "Leftover paid")
+
+    def test_the_balance_whose_parent_was_part_settled_in_its_request_reverts(self):
+        balance = facts(
+            split_from="PAY-0",
+            target_created=MATCHED - timedelta(seconds=1),
+            parent_settled_at=(MATCHED - timedelta(days=5), MATCHED),
+        )
+        self.assertEqual(leg_verdict(balance).verdict, VERDICT_REVERT_PAYMENT)
+        for label, change in [
+            ("no creation time", {"target_created": None}),
+            ("no Settled leg on the parent", {"parent_settled_at": ()}),
+            ("parent settled long after", {"parent_settled_at": (MATCHED + timedelta(days=1),)}),
+        ]:
+            with self.subTest(label):
+                self.assertEqual(
+                    leg_verdict(dataclasses.replace(balance, **change)).title,
+                    "Part of a split payment",
+                )
 
 
 class TestFirstRefusal(unittest.TestCase):

@@ -177,6 +177,11 @@ leg holds no unique key and contributes nothing to the sum. `get_batch_rows` gai
 
 ### A3 — Ruling O widened: two of the three reversal cases are now REFUSED
 
+> **Split refusal narrowed (2026-09-15, [ADR-0022](0022-unreconcile-and-unskip.md), #1279):** a payment split by
+> the partial settle its own leg made is now UN-SPLIT while the leftover is untouched, and that leftover reverts
+> like any payment while the partial settle that made it still stands. Every other split (a CEO partial
+> approval's) is still refused, on either half.
+
 Ruling O documented ONE way a `Project Payments` leg can carry more than `reverse_allocation`
 undoes: an amount rewritten by `settle_row` (slice X1). It is undetectable after the fact and stays
 ACCEPTED. The endpoint's only target guard was the doctype, and the other two settle paths write

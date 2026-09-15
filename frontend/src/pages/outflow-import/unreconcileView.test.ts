@@ -13,7 +13,10 @@ import {
     VERDICT_DELETE_CREATED,
     VERDICT_REFUSED,
     VERDICT_REVERT_EXPENSE,
+    LEFTOVER_PAID_TITLE,
     VERDICT_REVERT_PAYMENT,
+    VERDICT_UNSPLIT_PAYMENT,
+    WHAT_HAPPENS_UNSPLIT,
     legOutcomeLine,
     recordsHeading,
     reverseAllBlockedSentence,
@@ -28,6 +31,13 @@ import {
 const decisionSource = readFileSync(
     fileURLToPath(
         new URL("../../../../nirmaan_stack/services/outflow_import/unreconcile.py", import.meta.url),
+    ),
+    "utf8",
+);
+
+const unsplitSource = readFileSync(
+    fileURLToPath(
+        new URL("../../../../nirmaan_stack/services/outflow_import/unsplit.py", import.meta.url),
     ),
     "utf8",
 );
@@ -81,6 +91,108 @@ describe("parity with the Python decision module", () => {
         expect(decisionSource).toContain(`VERDICT_REVERT_EXPENSE = "${VERDICT_REVERT_EXPENSE}"`);
         expect(decisionSource).toContain(`VERDICT_DELETE_CREATED = "${VERDICT_DELETE_CREATED}"`);
         expect(decisionSource).toContain(`VERDICT_REFUSED = "${VERDICT_REFUSED}"`);
+        expect(decisionSource).toContain(`VERDICT_UNSPLIT_PAYMENT = "${VERDICT_UNSPLIT_PAYMENT}"`);
+    });
+
+    it("leads the amber line with the server's sentence", () => {
+        expect(decisionSource).toContain(`WHAT_HAPPENS_UNSPLIT = "${WHAT_HAPPENS_UNSPLIT}"`);
+        expect(WHAT_HAPPENS_UNSPLIT).toBe("The split is undone:");
+    });
+});
+
+describe("a part payment (#1279)", () => {
+    const unsplitLeg = (over: Partial<UnreconcilePlanLeg> = {}) =>
+        leg({
+            target_name: "PAY-01388-011",
+            target_amount: 60000,
+            verdict: VERDICT_UNSPLIT_PAYMENT,
+            what_happens: "The split is undone:",
+            leftover: "PAY-01388-012",
+            leftover_amount: 40000,
+            restored_amount: 100000,
+            joins_terms: true,
+            ...over,
+        });
+
+    it("is amber and lists the three consequences (mockup scene 3)", () => {
+        expect(legOutcomeLine(unsplitLeg())).toEqual({
+            tone: "split",
+            lead: null,
+            text: "The split is undone:",
+            items: [
+                "PAY-01388-011 goes back to ₹1,00,000, Approved",
+                "the leftover PAY-01388-012 (₹40,000) is deleted",
+                "the PO's two payment terms join back into one",
+            ],
+        });
+    });
+
+    it("a payment with no PO terms promises no terms", () => {
+        expect(legOutcomeLine(unsplitLeg({ joins_terms: false })).items).toEqual([
+            "PAY-01388-011 goes back to ₹1,00,000, Approved",
+            "the leftover PAY-01388-012 (₹40,000) is deleted",
+        ]);
+    });
+
+    it("a leftover paid by another transfer is grey, 'not yet', and names no screen", () => {
+        const refused = refusedLeg({
+            reason: "Its leftover PAY-01391-005 was paid by another transfer on 14-Sep-2026. Unreconcile that transfer first.",
+            title: "Leftover paid",
+            fix_at: null,
+        });
+        expect(unsplitSource).toContain(`LEFTOVER_PAID_TITLE = "${LEFTOVER_PAID_TITLE}"`);
+        expect(legOutcomeLine(refused)).toEqual({
+            tone: "refused",
+            lead: "Can't be undone yet.",
+            text: "Its leftover PAY-01391-005 was paid by another transfer on 14-Sep-2026. Unreconcile that transfer first.",
+        });
+    });
+
+    it("a taxed leftover does not repeat the screen its sentence already names", () => {
+        const refused = refusedLeg({
+            reason: "Its leftover PAY-01391-005 has TDS on it. Fix the tax on the Payments screen first.",
+            title: "Leftover taxed",
+        });
+        expect(legOutcomeLine(refused)).toMatchObject({
+            lead: "Can't be undone here.",
+            text: "Its leftover PAY-01391-005 has TDS on it. Fix the tax on the Payments screen first.",
+        });
+    });
+
+    const unsplitResult = (amountAfter: number): UnreconcileResult => ({
+        row: "ROW-1",
+        row_status: "Mismatched",
+        allocated: 0,
+        remaining: 60000,
+        reversed: [
+            {
+                match: "M1",
+                target_doctype: "Project Payments",
+                target_name: "PAY-01388-011",
+                verdict: VERDICT_UNSPLIT_PAYMENT,
+                reversed_amount: 60000,
+                amount_after: amountAfter,
+                leftover: "PAY-01388-012",
+                restored_amount: 100000,
+            },
+        ],
+    });
+
+    it("the notice says the split was undone, and the restored amount is no surprise", () => {
+        expect(unreconcileNotice(unsplitResult(100000)).body).toBe(
+            "1 record came off this transfer and went back to Approved. It now needs a record. " +
+                "The split on PAY-01388-011 was undone and its leftover PAY-01388-012 deleted.",
+        );
+    });
+
+    it("a restored amount off only by float noise is not news", () => {
+        expect(unreconcileNotice(unsplitResult(100000.000000001)).body).not.toContain("is now");
+    });
+
+    it("a restored amount the save then changed is still stated", () => {
+        expect(unreconcileNotice(unsplitResult(98000)).body).toContain(
+            "PAY-01388-011 is now ₹98,000, not ₹1,00,000.",
+        );
     });
 });
 
@@ -213,13 +325,13 @@ describe("legOutcomeLine -- the coloured 'what happens' line (mockup scene 2)", 
     });
 
     it("a verdict this screen does not know yet still shows the server's sentence, never a blank", () => {
-        // ⚠️ `delete_created` was the example until #1278 gave it a colour; a later verdict stands in.
+        // ⚠️ `delete_created` was the example until #1278 gave it a colour, `unsplit_payment` until #1279.
         expect(
-            legOutcomeLine(leg({ verdict: "unsplit_payment", what_happens: "The split is joined back." })),
+            legOutcomeLine(leg({ verdict: "a_later_verdict", what_happens: "Something else happens." })),
         ).toEqual({
             tone: "other",
             lead: null,
-            text: "The split is joined back.",
+            text: "Something else happens.",
         });
     });
 });
