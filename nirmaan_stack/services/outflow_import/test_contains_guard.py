@@ -32,6 +32,7 @@ from nirmaan_stack.services.outflow_import.contains_guard import (
 from nirmaan_stack.services.outflow_import.ledgers import (
     INFLOW_DOCTYPE,
     NON_PROJECT_EXPENSE_DOCTYPE,
+    NON_PROJECT_INFLOW_DOCTYPE,
     PAYMENT_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
 )
@@ -243,6 +244,47 @@ class TestDirection(unittest.TestCase):
         ]
         self.assertEqual({t.doctype for t in find_hits(row, records)}, {INFLOW_DOCTYPE})
 
+    def test_a_deposit_reaches_non_project_inflows_too(self):
+        # #1268: the same money is never recorded twice, whichever inflow ledger holds it.
+        row = Row(amount=Decimal("12500"), remarks=IMPS, direction="Credit")
+        records = [
+            record("610415565123", 12500, doctype=d, name=d)
+            for d in (INFLOW_DOCTYPE, NON_PROJECT_INFLOW_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE)
+        ]
+        self.assertEqual(
+            {t.doctype for t in find_hits(row, records)}, {INFLOW_DOCTYPE, NON_PROJECT_INFLOW_DOCTYPE}
+        )
+
+    def test_a_withdrawal_never_reaches_a_non_project_inflow(self):
+        row = Row(amount=Decimal("12500"), remarks=IMPS, direction="Debit")
+        rec = record("610415565123", 12500, doctype=NON_PROJECT_INFLOW_DOCTYPE, name="NPI-1")
+        self.assertEqual(find_hits(row, [rec]), ())
+
+    def test_a_deposit_on_a_non_project_inflow_reads_received(self):
+        row = Row(amount=Decimal("12500"), remarks=IMPS, direction="Credit")
+        rec = record("610415565123", 12500, doctype=NON_PROJECT_INFLOW_DOCTYPE, name="NPI-26-00001")
+        outcome, _ = verdict(row, [rec])
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertIn("received on Non Project Inflow NPI-26-00001", outcome.note)
+
+    def test_an_amount_off_non_project_inflow_holds_the_line_naming_it(self):
+        row = Row(amount=Decimal("12500"), remarks=IMPS, direction="Credit")
+        rec = record("610415565123", 13000, doctype=NON_PROJECT_INFLOW_DOCTYPE, name="NPI-26-00001")
+        outcome, _ = verdict(row, [rec])
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+        self.assertIn("Non Project Inflow NPI-26-00001", outcome.note)
+        self.assertNotIn("Paid", outcome.note)
+
+    def test_a_receipt_split_across_both_inflow_ledgers_reads_received(self):
+        row = Row(amount=Decimal("1000"), remarks=IMPS, direction="Credit")
+        records = [
+            record("610415565123", 600, doctype=INFLOW_DOCTYPE, name="PI-1"),
+            record("610415565123", 400, doctype=NON_PROJECT_INFLOW_DOCTYPE, name="NPI-1"),
+        ]
+        outcome, _ = verdict(row, records)
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertIn("received on Project Inflow PI-1; Non Project Inflow NPI-1", outcome.note)
+
     def test_a_row_with_no_direction_reaches_nothing(self):
         row = Row(amount=Decimal("12500"), remarks=IMPS, direction="")
         records = [record("610415565123", 12500, doctype=d, name=d) for d in (PAYMENT_DOCTYPE, INFLOW_DOCTYPE)]
@@ -349,6 +391,15 @@ class TestOneRecordJustifiesOneLine(unittest.TestCase):
         self.assertEqual(outcome.status, ROW_MISMATCHED)
         self.assertIn("Project Inflow PI-1", outcome.note)
         self.assertIn("recorded from", outcome.note)
+        self.assertIn("OIB-26-000003", outcome.note)
+        self.assertIn("receipt", outcome.note)
+
+    def test_a_non_project_inflow_an_import_created_cannot_skip_another_line(self):
+        row = Row(amount=Decimal("50000"), remarks=IMPS, direction="Credit")
+        rec = record("610415565123", 50000, doctype=NON_PROJECT_INFLOW_DOCTYPE, name="NPI-1")
+        outcome, _ = verdict(row, [rec], [claim(rec, batch="OIB-26-000003", settled=True)])
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+        self.assertIn("Non Project Inflow NPI-1", outcome.note)
         self.assertIn("OIB-26-000003", outcome.note)
         self.assertIn("receipt", outcome.note)
 

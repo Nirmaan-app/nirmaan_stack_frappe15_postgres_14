@@ -5073,6 +5073,7 @@ class TestTheICICIContainsGuard(OutflowReviewFixture):
     def setUpClass(cls):
         cls.refs = {key: _random_reference() for key in (
             "pay", "pe", "npe", "inflow", "credit_pay", "off", "junk", "old", "frozen", "stale",
+            "npi", "npi_off", "npi_twin",
         )}
         cls.tid_prefix = f"T1257{frappe.generate_hash(length=6).upper()}"
         super().setUpClass()
@@ -5099,6 +5100,11 @@ class TestTheICICIContainsGuard(OutflowReviewFixture):
             cls._line("old", f"MMT/IMPS/{r['old']}/TESTPAYEE/SBIN0017034", 9000),
             cls._line("frozen", f"MMT/IMPS/{r['frozen']}/TESTPAYEE/SBIN0017034", 6000),
             cls._line("stale", f"MMT/IMPS/{r['stale']}/TESTPAYEE/SBIN0017034", 4000),
+            # #1268: a credit's other book, `Non Project Inflows`.
+            cls._line("npi", f"NEFT-{r['npi']}-FD CLOSURE PROCEEDS-ICIC0000001", 40000, credit=True),
+            cls._line("npi_off", f"NEFT-{r['npi_off']}-FD INTEREST-ICIC0000001", 30000, credit=True),
+            cls._line("npi_twin1", f"MMT/IMPS/{r['npi_twin']}/REFUND ONE", 11000, credit=True),
+            cls._line("npi_twin2", f"MMT/IMPS/{r['npi_twin']}/REFUND TWO", 11000, credit=True),
         ]
 
     @classmethod
@@ -5106,6 +5112,7 @@ class TestTheICICIContainsGuard(OutflowReviewFixture):
         cls.guard_batch = _stage_icici_statement(cls._lines(), "test-1257-icici.csv")
         cls.batches.append(cls.guard_batch.name)
         cls.inflows = []
+        cls.non_project_inflows = []
 
         day = _GUARD_DAY.date()
         r = cls.refs
@@ -5135,6 +5142,10 @@ class TestTheICICIContainsGuard(OutflowReviewFixture):
         )
         cls.rec_frozen = cls._insert_payment_row(amount=6000, status="Paid", utr=r["frozen"], payment_date=day)
         cls.rec_stale = cls._insert_payment_row(amount=4100, status="Paid", utr=r["stale"], payment_date=day)
+        cls.rec_npi = cls._insert_non_project_inflow(amount=40000, utr=r["npi"], payment_date=day)
+        cls.rec_npi_off = cls._insert_non_project_inflow(amount=30600, utr=r["npi_off"], payment_date=day)
+        # ONE record under a reference two credit lines carry: only one of them may skip on it.
+        cls.rec_npi_twin = cls._insert_non_project_inflow(amount=11000, utr=r["npi_twin"], payment_date=day)
 
         frozen = frappe.db.get_value(
             ROW_DOCTYPE, {"import_batch": cls.guard_batch.name, "transfer_id": cls._tid("frozen")}, "name",
@@ -5166,9 +5177,27 @@ class TestTheICICIContainsGuard(OutflowReviewFixture):
         return name
 
     @classmethod
+    def _insert_non_project_inflow(cls, *, amount, utr, payment_date):
+        """A `Non Project Inflows` ROW (#1268), inserted raw on the same terms as `_insert_inflow`:
+        the guard only ever reads it back with raw SQL."""
+        name = f"TEST-NPI-{frappe.generate_hash(length=12)}"
+        frappe.db.sql(
+            """
+            INSERT INTO "tabNon Project Inflows"
+                (name, creation, modified, modified_by, owner, docstatus, idx, inflow_type, amount, utr, payment_date)
+            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s)
+            """,
+            (name, "Administrator", "Administrator", "FD Closures", float(amount), utr, payment_date),
+        )
+        cls.non_project_inflows.append(name)
+        return name
+
+    @classmethod
     def tearDownClass(cls):
         for name in getattr(cls, "inflows", []):
             frappe.db.delete("Project Inflows", {"name": name})
+        for name in getattr(cls, "non_project_inflows", []):
+            frappe.db.delete("Non Project Inflows", {"name": name})
         super().tearDownClass()
 
     @classmethod
@@ -5208,7 +5237,8 @@ class TestTheICICIContainsGuard(OutflowReviewFixture):
         pool = C.load_recorded_by_contains(lines)
         hit = {t.name for line in lines for t in find_hits(line, pool)}
         planted = {self.rec_pay, self.rec_pe, self.rec_npe, self.rec_inflow, self.rec_credit_pay,
-                   self.rec_off, self.rec_old, self.rec_frozen, self.rec_stale, *self.rec_junk}
+                   self.rec_off, self.rec_old, self.rec_frozen, self.rec_stale, *self.rec_junk,
+                   self.rec_npi, self.rec_npi_off, self.rec_npi_twin}
         self.assertLessEqual(hit, planted)
 
     # --- each ledger skips by direction --------------------------------------------------------------
@@ -5232,6 +5262,28 @@ class TestTheICICIContainsGuard(OutflowReviewFixture):
         row = self.after_first["inflow"]
         self.assertEqual(row["row_status"], ROW_SKIPPED)
         self.assertEqual(row["outcome_note"], f"Already recorded as received on Project Inflow {self.rec_inflow}.")
+
+    def test_a_deposit_already_on_a_non_project_inflow_is_skipped_as_received(self):
+        """#1268: the credit side reads both inflow books, so the same money is never recorded twice."""
+        row = self.after_first["npi"]
+        self.assertEqual(row["row_status"], ROW_SKIPPED)
+        self.assertEqual(
+            row["outcome_note"], f"Already recorded as received on Non Project Inflow {self.rec_npi}."
+        )
+
+    def test_a_deposit_on_a_non_project_inflow_with_the_amount_off_is_held_naming_it(self):
+        row = self.after_first["npi_off"]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertIn(f"Already recorded as received on Non Project Inflow {self.rec_npi_off}", row["outcome_note"])
+        self.assertIn("600", row["outcome_note"])
+
+    def test_one_non_project_inflow_justifies_only_one_deposit_line(self):
+        rows = [self.after_first["npi_twin1"], self.after_first["npi_twin2"]]
+        self.assertEqual(sorted(r["row_status"] for r in rows), [ROW_MISMATCHED, ROW_SKIPPED])
+        blocked = next(r for r in rows if r["row_status"] == ROW_MISMATCHED)
+        self.assertIn(f"Non Project Inflow {self.rec_npi_twin} already accounts", blocked["outcome_note"])
+        self.assertIn(f"a line skipped in batch {self.guard_batch.name}", blocked["outcome_note"])
+        self.assertIn("receipt", blocked["outcome_note"])
 
     def test_a_deposit_never_hits_a_payment(self):
         row = self.after_first["credit_pay"]
@@ -5279,6 +5331,8 @@ class TestTheICICIContainsGuard(OutflowReviewFixture):
         self.assertEqual(links["npe"], {self.rec_npe})
         self.assertEqual(links["inflow"], {self.rec_inflow})
         self.assertEqual(links["off"], {self.rec_off})
+        self.assertEqual(links["npi"], {self.rec_npi})
+        self.assertEqual(links["npi_off"], {self.rec_npi_off})
 
     def test_a_line_the_guard_did_not_hit_links_nothing(self):
         links = self._links()
@@ -5731,6 +5785,19 @@ class TestInflowDoctypeSpelling(unittest.TestCase):
         from nirmaan_stack.services.outflow_import.ledgers import INFLOW_DOCTYPE
 
         self.assertTrue(frappe.db.exists("DocType", INFLOW_DOCTYPE))
+
+    def test_the_two_modules_spell_the_non_project_inflow_doctype_identically(self):
+        """#1268: the duplicate check reads `ledgers`' spelling and `inflows._already_created_by_import`
+        reads `settle`'s. A rename reaching only one would silently stop catching one book's duplicates."""
+        from nirmaan_stack.services.outflow_import.ledgers import (
+            INFLOW_DOCTYPES,
+            NON_PROJECT_INFLOW_DOCTYPE as FROM_LEDGERS,
+        )
+        from nirmaan_stack.services.outflow_import.settle import NON_PROJECT_INFLOW as FROM_SETTLE
+
+        self.assertEqual(FROM_LEDGERS, FROM_SETTLE)
+        self.assertTrue(frappe.db.exists("DocType", FROM_LEDGERS))
+        self.assertIn(FROM_LEDGERS, INFLOW_DOCTYPES)
 
     def test_the_inflow_ledger_is_not_settleable_and_not_creatable_as_an_expense(self):
         """⚠️ IT IS A DISPLAY ORDER AND NOTHING MORE. Adding it to either tuple would make an

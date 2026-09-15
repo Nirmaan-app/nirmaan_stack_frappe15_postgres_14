@@ -30,8 +30,10 @@ It is NOT a new settle tier — nothing new settles unattended.
   the new module's docstring.
 - **R2 — Amount:** within ±₹5 (`amounts.AMOUNT_TOLERANCE`). A reference hit outside ±₹5 → `Mismatched` + note.
 - **R3 — Status:** only **Paid** ledger records count. Project Inflows has no status → every inflow counts.
-- **R4 — Credit scope:** a Credit row checks **Project Inflows only** (not negative NPE receipts, not negative
-  Paid Project Payments / vendor refunds).
+- **R4 — Credit scope:** a Credit row checks **Project Inflows and Non Project Inflows** (not negative NPE
+  receipts, not negative Paid Project Payments / vendor refunds). *Closed 2026-09-15 by #1268 (ADR-0016
+  Amendment A-D2): the original "Project Inflows only, for now" is superseded — a credit can become either
+  inflow, so the guard reads both books, at match-run and at create time.*
 - **R5 — Bank settle writes the full text:** when an ICICI row is settled or creates a record (by a person or the
   system), the ledger `payment_ref` / `utr` stores the row's **full bank remarks** (see G2 for cheque rows).
 - **R6 — Field types:** `payment_ref` (PE, NPE) and `utr` (PP, PI) → **Text**.
@@ -96,7 +98,9 @@ It is NOT a new settle tier — nothing new settles unattended.
 - **FW4:** cross-row fan-in — one ledger record whose reference lists several statement lines (sum across rows).
 
 - **FW1:** two NEW doctypes will replace the negative Non Project Expense "receipts" booked for bank credits.
-  When they land, the Credit-row guard extends to them (R4 is "for now").
+  When they land, the Credit-row guard extends to them (R4 is "for now"). *Partly done 2026-09-15:
+  `Non Project Inflows` landed (#1266) and the Credit-row guard reads it (#1268). Existing negative Non
+  Project Expense receipts are still not checked (ADR-0016 A-D3).*
 - **FW2:** Cashfree vs an ICICI-written full-text record needs "stored utr CONTAINS bank_reference_no".
   Measured overlap today: 0. Not built.
 

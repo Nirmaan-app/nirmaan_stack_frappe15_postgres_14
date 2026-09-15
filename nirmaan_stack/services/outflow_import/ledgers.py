@@ -37,6 +37,7 @@ __all__ = [
     "NON_PROJECT_EXPENSE_DOCTYPE",
     "INFLOW_DOCTYPE",
     "NON_PROJECT_INFLOW_DOCTYPE",
+    "INFLOW_DOCTYPES",
     "EXPENSE_DOCTYPES",
     "LEDGER_DOCTYPES",
     "RECEIVED_LEDGER_DOCTYPES",
@@ -96,6 +97,15 @@ INFLOW_DOCTYPE = "Project Inflows"
 # Created, never settled -- the same rule as `INFLOW_DOCTYPE`, so it is kept out of the same tuples.
 NON_PROJECT_INFLOW_DOCTYPE = "Non Project Inflows"
 
+# The ledgers that hold ONLY money received -- the two books a bank CREDIT can become, in display
+# order (#1268). The credit side of every duplicate check reads THIS, so a third inflow book is one
+# edit here rather than one per guard.
+#
+# ⚠️ NOT `RECEIVED_LEDGER_DOCTYPES`: that display order also holds `Non Project Expenses`, for the
+# removed B7 negative receipts, and a "received" test over it would call every Paid Non Project
+# Expense a receipt. Kept out of `LEDGER_DOCTYPES` / `SETTLEABLE_STATUSES` for the reason above.
+INFLOW_DOCTYPES = (INFLOW_DOCTYPE, NON_PROJECT_INFLOW_DOCTYPE)
+
 # The DISPLAY ORDER of the RECEIVED half of the settled-money panel (slice B8b).
 #
 # ⚠️ A SECOND ORDER, NOT A WIDENING OF THE FIRST, BECAUSE THE TWO BLOCKS HOLD DIFFERENT BOOKS. A
@@ -112,8 +122,7 @@ NON_PROJECT_INFLOW_DOCTYPE = "Non Project Inflows"
 # implementation of ordering, zero-filling and the `Other` slot, not two. Reordering this tuple
 # reorders the received block. It is NEVER sorted by value.
 RECEIVED_LEDGER_DOCTYPES = (
-    INFLOW_DOCTYPE,
-    NON_PROJECT_INFLOW_DOCTYPE,
+    *INFLOW_DOCTYPES,
     NON_PROJECT_EXPENSE_DOCTYPE,
 )
 

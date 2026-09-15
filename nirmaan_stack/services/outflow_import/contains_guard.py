@@ -21,7 +21,7 @@ THE RULES, IN THE ORDER A LINE MEETS THEM
 
   1. LEDGER BY DIRECTION. A withdrawal (Debit) is checked against Paid Project Payments, Paid
      Project Expenses and Paid Non Project Expenses; a deposit (Credit) against every Project Inflow
-     (inflows have no status). Direction is never crossed. A line with NO direction is checked
+     and every Non Project Inflow (#1268 -- inflows have no status). Direction is never crossed. A line with NO direction is checked
      against nothing -- the parser leaves it blank only when it refuses to guess, and guessing here
      would be the crossing the ruling forbids.
   2. ELIGIBLE TOKENS. A stored reference is split on non-alphanumerics into pieces, and the whole
@@ -61,7 +61,7 @@ from typing import Iterable, Sequence
 
 from nirmaan_stack.services.outflow_import.amounts import amounts_match
 from nirmaan_stack.services.outflow_import.ledgers import (
-    INFLOW_DOCTYPE,
+    INFLOW_DOCTYPES,
     NON_PROJECT_EXPENSE_DOCTYPE,
     PAYMENT_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
@@ -103,12 +103,14 @@ _CREDIT = "Credit"
 
 _LEDGERS_BY_DIRECTION: dict[str, tuple[str, ...]] = {
     _DEBIT: (PAYMENT_DOCTYPE, PROJECT_EXPENSE_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE),
-    _CREDIT: (INFLOW_DOCTYPE,),
+    # ⚠️ BOTH INFLOW LEDGERS (#1268, ADR-0016 A-D2). A credit becomes one or the other, so a check
+    # reading only one would let the same money be recorded again in the book it did not read.
+    _CREDIT: INFLOW_DOCTYPES,
 }
 
 # The order a group's records are listed in: the note's own ledger order, then by name.
 _LEDGER_ORDER = {d: i for i, d in enumerate(
-    (PAYMENT_DOCTYPE, PROJECT_EXPENSE_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE, INFLOW_DOCTYPE)
+    (PAYMENT_DOCTYPE, PROJECT_EXPENSE_DOCTYPE, NON_PROJECT_EXPENSE_DOCTYPE, *INFLOW_DOCTYPES)
 )}
 
 _PIECE_SPLIT = re.compile(r"[^A-Za-z0-9]+")

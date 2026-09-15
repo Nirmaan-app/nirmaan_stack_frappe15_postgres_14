@@ -51,14 +51,14 @@ source, refusing a line the run would skip and asking for confirmation on one it
 Mismatched naming a record. So whether a duplicate is caught never depends on which card the
 reviewer clicked.
 
-⚠️ WHAT A CREDIT IS CHECKED AGAINST IS THE OWNER'S RULING, NOT A GAP: a deposit reads Project Inflows
-only (#1252), so a receipt booked earlier as a NEGATIVE Non Project Expense is not found; #1268 adds
-`Non Project Inflows` to that pool. A re-upload of the same statement line is still caught at upload
-by the cross-batch identity.
+⚠️ WHAT A CREDIT IS CHECKED AGAINST IS THE OWNER'S RULING, NOT A GAP: a deposit reads BOTH inflow
+books -- `Project Inflows` (#1252) and `Non Project Inflows` (#1268, ADR-0016 A-D2) -- and nothing
+else, so a receipt booked earlier as a NEGATIVE Non Project Expense is not found. A re-upload of the
+same statement line is still caught at upload by the cross-batch identity.
 
-`create_inflow` also keeps `_already_created_by_import`, keyed through the ONE identity rule in
-`services/outflow_import/duplicates.py`: an inflow THIS import created for the same transfer id,
-which names the batch it came from.
+Both endpoints also run `_guard_not_already_recorded` first, keyed through the ONE identity rule in
+`services/outflow_import/duplicates.py`: an inflow of EITHER kind THIS import created for the same
+transfer id, which names the batch it came from.
 """
 
 import frappe
@@ -86,6 +86,7 @@ from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.settle import (
     DIRECTION_CREDIT,
     INFLOW_DOCTYPE,
+    NON_PROJECT_INFLOW,
     InflowNotRecordableError,
     create_inflow_from_row,
     create_non_project_inflow_from_row,
@@ -182,9 +183,9 @@ def create_non_project_inflow(
     ⚠️ `inflow_type` DEFAULTS TO None ONLY SO A MISSING ONE REACHES THE SERVICE'S OWN REFUSAL, which
     names the four types, rather than a bare missing-argument error.
 
-    ⚠️ THE SAME PRELUDE AS `create_inflow`, INCLUDING THE RECORDED-MONEY GUARD (#1260), minus only
-    `_already_created_by_import` -- which looks for a `Project Inflow` the import created. #1268
-    teaches the duplicate check about `Non Project Inflows`.
+    ⚠️ THE SAME PRELUDE AS `create_inflow` (#1268): the import's own earlier inflow of EITHER kind,
+    then the recorded-money guard (#1260), which reads both inflow books. So a credit an earlier
+    import -- or a person -- already recorded is refused whichever card the reviewer clicks.
 
     ⚠️ ONE ROW PER CALL, its own savepoint, its own commit -- the isolation `settle_row` documents
     at length. A refusal writes nothing.
@@ -195,6 +196,7 @@ def create_non_project_inflow(
     # `create_inflow` uses. This one reads the STORED column and fails fast with the row in hand;
     # the service re-checks the value it is handed, because it is a service anything may call.
     _guard_is_a_credit(doc)
+    _guard_not_already_recorded(staged, doc)
     _guard_money_not_recorded(staged, doc, confirm_mismatch)
     statement_file_url = _statement_file_url(doc["import_batch"])
 
@@ -300,7 +302,7 @@ def _guard_is_a_credit(doc) -> None:
 
 
 def _guard_not_already_recorded(staged, doc) -> None:
-    """Refuse a credit that THIS IMPORT has already turned into an inflow.
+    """Refuse a credit that THIS IMPORT has already turned into an inflow -- of either kind (#1268).
 
     ⚠️ IT RUNS BEFORE `expenses._guard_money_not_recorded`, AND THE ORDER IS THE MESSAGE, exactly as
     `cashbook.plan_statement` orders its own tests: the import's OWN earlier work first, because that
@@ -324,7 +326,10 @@ def _guard_not_already_recorded(staged, doc) -> None:
 
 
 def _already_created_by_import(staged) -> dict:
-    """Every `Project Inflow` THIS FEATURE has already created for this transfer.
+    """Every inflow THIS FEATURE has already created for this transfer, in either book.
+
+    ⚠️ BOTH `Project Inflows` AND `Non Project Inflows` (#1268). A credit becomes one or the other, and
+    the same money recorded once in each is still recorded twice.
 
     ⚠️ THIS IS THE GUARD THE UNIQUE CONSTRAINT CANNOT BE. `Outflow Row Match`'s key is
     `(transfer_id, target_doctype, target_name)`, and a created record's name is new every time, so
@@ -351,13 +356,14 @@ def _already_created_by_import(staged) -> dict:
         return {}
     rows = frappe.db.sql(
         f"""
-        SELECT m.transfer_id, m.target_amount, m.target_name, m.import_batch, r.added_on
+        SELECT m.transfer_id, m.target_amount, m.target_doctype, m.target_name, m.import_batch,
+               r.added_on
         FROM "tab{MATCH_DOCTYPE}" m
         LEFT JOIN "tab{ROW_DOCTYPE}" r ON r.name = m.import_row
-        WHERE m.transfer_id = %s AND m.target_doctype = %s
+        WHERE m.transfer_id = %s AND m.target_doctype IN (%s, %s)
         ORDER BY m.creation ASC
         """,
-        (staged.transfer_id, INFLOW_DOCTYPE),
+        (staged.transfer_id, INFLOW_DOCTYPE, NON_PROJECT_INFLOW),
         as_dict=True,
     )
     return index_prior_sightings(
@@ -365,7 +371,7 @@ def _already_created_by_import(staged) -> dict:
             r["transfer_id"],
             normalize_amount(r.get("target_amount")),
             _date_of(r.get("added_on")),
-            f"{INFLOW_DOCTYPE} {r['target_name']} (from import {r['import_batch']})",
+            f"{r['target_doctype']} {r['target_name']} (from import {r['import_batch']})",
         )
         for r in rows
     )

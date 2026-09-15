@@ -109,7 +109,7 @@ from nirmaan_stack.services.outflow_import.amounts import amounts_match
 # and `settle.py` writes to -- and the symptom would be a settled-by-ledger panel that silently
 # omits a book the import had just settled into.
 from nirmaan_stack.services.outflow_import.ledgers import (
-    INFLOW_DOCTYPE,
+    INFLOW_DOCTYPES,
     LEDGER_DOCTYPES,
     LEDGER_NOUNS,
     NON_PROJECT_EXPENSE_DOCTYPE,
@@ -272,7 +272,7 @@ SKIP_REASON_DUPLICATE_IN_FILE = "This transfer appears earlier in the same state
 # `{records}` is `_records_phrase(...)`: every record NAMED WITH ITS LEDGER (#1253), never a bare
 # name. See `_record_sentence` for which of these two a group reads.
 #
-# ⚠️ AN INFLOW IS NEVER "PAID". `Project Inflows` has no status field at all -- the money arrived, it
+# ⚠️ AN INFLOW IS NEVER "PAID". Neither inflow ledger has a status field at all -- the money arrived, it
 # was not paid out -- so a receipt reads its own sentence rather than borrowing the payments one.
 SKIP_REASON_ALREADY_PAID = "Already recorded as Paid on {records}."
 SKIP_REASON_ALREADY_RECEIVED = "Already recorded as received on {records}."
@@ -874,8 +874,8 @@ def _already_used_note(group, used_by) -> str:
 
 
 # The order ledgers are named in when one note spans several. The display order the rest of this
-# module already uses (`LEDGER_DOCTYPES`), with the received-only ledger after it.
-_LEDGER_NAMING_ORDER = (*LEDGER_DOCTYPES, INFLOW_DOCTYPE)
+# module already uses (`LEDGER_DOCTYPES`), with the received-only ledgers after it.
+_LEDGER_NAMING_ORDER = (*LEDGER_DOCTYPES, *INFLOW_DOCTYPES)
 
 # ⚠️ THE LEDGERS WHOSE RECORD NAME MEANS NOTHING TO A PERSON. Both expense doctypes autoname with a
 # random hash (`ecuu6rldvp`), and neither expense table can search by it -- so a note that printed it
@@ -895,15 +895,16 @@ def _record_sentence(group) -> str:
     that claims neither, rather than calling an inflow Paid.
 
     ⚠️ RECEIPT-NESS IS READ FROM THE DOCTYPE HERE, NOT FROM `is_received_direction`, AND THAT HOLDS
-    ONLY WHILE A DEPOSIT IS CHECKED AGAINST `Project Inflows` ALONE (owner ruling on #1252: negative
-    Non Project Expense receipts are deliberately not checked). The day a deposit guard reaches a
+    ONLY WHILE A DEPOSIT IS CHECKED AGAINST THE TWO INFLOW LEDGERS ALONE (`Project Inflows`, and
+    `Non Project Inflows` since #1268; owner ruling on #1252: negative Non Project Expense receipts
+    are deliberately not checked). The day a deposit guard reaches a
     negative Non Project Expense, this must key on the ROW's direction instead -- a doctype test would
     call that receipt "Paid".
     """
     records = _records_phrase(group)
     if _is_receipt_group(group):
         return SKIP_REASON_ALREADY_RECEIVED.format(records=records)
-    if any(t.doctype == INFLOW_DOCTYPE for t in _targets_of(group)):
+    if any(t.doctype in INFLOW_DOCTYPES for t in _targets_of(group)):
         return _SKIP_REASON_ALREADY_RECORDED.format(records=records)
     return SKIP_REASON_ALREADY_PAID.format(records=records)
 
@@ -959,7 +960,7 @@ def _targets_of(group) -> tuple:
 
 def _is_receipt_group(group) -> bool:
     targets = _targets_of(group)
-    return bool(targets) and all(t.doctype == INFLOW_DOCTYPE for t in targets)
+    return bool(targets) and all(t.doctype in INFLOW_DOCTYPES for t in targets)
 
 
 def _has_payment(group) -> bool:

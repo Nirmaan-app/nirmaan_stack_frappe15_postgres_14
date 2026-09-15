@@ -77,6 +77,7 @@ from nirmaan_stack.services.outflow_import.duplicates import (
 from nirmaan_stack.services.outflow_import.ledgers import (
     INFLOW_DOCTYPE,
     NON_PROJECT_EXPENSE_DOCTYPE,
+    NON_PROJECT_INFLOW_DOCTYPE,
     PAID,
     PAYMENT_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
@@ -392,6 +393,9 @@ CONTAINS_LEDGERS: tuple[ContainsLedger, ...] = (
     ),
     # Inflows have no status: every one counts (owner ruling on #1252).
     ContainsLedger(INFLOW_DOCTYPE, "tabProject Inflows", "utr", paid_only=False),
+    # #1268 (ADR-0016 A-D2): a credit's other book. Without it a receipt recorded as a Non Project
+    # Inflow -- by hand, or by an earlier import -- is invisible, and the same money is recorded twice.
+    ContainsLedger(NON_PROJECT_INFLOW_DOCTYPE, "tabNon Project Inflows", "utr", paid_only=False),
 )
 
 
@@ -413,7 +417,7 @@ def load_recorded_by_contains(
         see less than Python's, so the WHOLE-STRING token can be missed; the ASCII pieces still hit;
       * LEDGER BY DIRECTION -- `contains_guard.ledgers_for_direction`, so the direction map has one
         home. A line with no direction contributes nothing;
-      * STATUS -- `Paid` on the three settle ledgers; every Project Inflow.
+      * STATUS -- `Paid` on the three settle ledgers; every Project Inflow and Non Project Inflow.
 
     ⚠️ NO AMOUNT AND NO DATE PREDICATE, ON PURPOSE. An amount-off hit must still come back so the row
     lands `Mismatched` naming the record, and the date window is the guard's to apply, in one place.

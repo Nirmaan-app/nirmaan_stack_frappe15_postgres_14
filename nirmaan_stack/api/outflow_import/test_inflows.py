@@ -217,6 +217,25 @@ class InflowFixture(unittest.TestCase):
             frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), row["row_status"]
         )
 
+    def _refusal(self, row, error=MoneyAlreadyRecordedError, create=None):
+        """The refusal message; a create that was NOT refused is tracked for the purge, then fails.
+
+        A bare `assertRaises` leaks the record when the guard is reverted to show a test RED.
+        `create` defaults to `create_inflow`; `_non_project_call` passes the non-project path."""
+        try:
+            if create is None:
+                summary = create_inflow(row=row["name"], project=self.project)
+                bucket = self.inflows
+            else:
+                summary, bucket = create(row), self.non_project_inflows
+        except error as refused:
+            return str(refused)
+        bucket.append(summary["settled"]["name"])
+        self.fail(f"the create was not refused with {error.__name__}")
+
+    def _non_project_call(self, row):
+        return create_non_project_inflow(row=row["name"], inflow_type="Loan Received")
+
 
 class TestTheHappyPath(InflowFixture):
     def test_it_creates_an_inflow_carrying_the_bank_row_s_own_figures(self):
@@ -438,25 +457,6 @@ class TestTheDuplicateGuards(InflowFixture):
         frappe.db.delete(INFLOW_DOCTYPE, {"name": name})
         frappe.db.commit()
 
-    def _refusal(self, row, error=MoneyAlreadyRecordedError, create=None):
-        """The refusal message; a create that was NOT refused is tracked for the purge, then fails.
-
-        A bare `assertRaises` leaks the record when the guard is reverted to show a test RED.
-        `create` defaults to `create_inflow`; `_non_project_call` passes the non-project path."""
-        try:
-            if create is None:
-                summary = create_inflow(row=row["name"], project=self.project)
-                bucket = self.inflows
-            else:
-                summary, bucket = create(row), self.non_project_inflows
-        except error as refused:
-            return str(refused)
-        bucket.append(summary["settled"]["name"])
-        self.fail(f"the create was not refused with {error.__name__}")
-
-    def _non_project_call(self, row):
-        return create_non_project_inflow(row=row["name"], inflow_type="Loan Received")
-
     def test_an_inflow_keyed_in_by_hand_blocks_the_import(self):
         """The measured hole: 330 of 463 live inflows carry a `utr` and NONE came from this import."""
         row = self._next_credit_row()
@@ -535,6 +535,114 @@ class TestTheDuplicateGuards(InflowFixture):
             transfer_id = ""
 
         self.assertEqual(_already_created_by_import(_Bare()), {})
+
+
+class TestTheNonProjectInflowDuplicateGuards(InflowFixture):
+    """#1268 (ADR-0016 A-D2): the duplicate check knows about `Non Project Inflows`.
+
+    Its own class, so its own staged batch: recording CONSUMES a credit row, and the fixture holds
+    few of them."""
+
+    def _plant_non_project_inflow(self, row, utr, *, amount_delta=0):
+        planted = frappe.new_doc(NON_PROJECT_INFLOW)
+        planted.update(
+            {
+                "inflow_type": "FD Closures",
+                "utr": utr,
+                "amount": format_amount_for(
+                    NON_PROJECT_INFLOW, Decimal(str(row["amount"])) + Decimal(amount_delta)
+                ),
+                "payment_date": row["added_on"].date(),
+            }
+        )
+        planted.insert(ignore_permissions=True)
+        frappe.db.commit()
+        # Per test, for the reason `_plant_inflow` gives.
+        self.addCleanup(self._purge_planted_non_project, planted.name)
+        return planted.name
+
+    @staticmethod
+    def _purge_planted_non_project(name):
+        frappe.db.delete("Version", {"ref_doctype": NON_PROJECT_INFLOW, "docname": name})
+        frappe.db.delete(NON_PROJECT_INFLOW, {"name": name})
+        frappe.db.commit()
+
+    def _twin_of(self, row_name, **changes):
+        """A second staged row for the same credit, as an overlapping statement would produce."""
+        twin = frappe.copy_doc(frappe.get_doc(ROW_DOCTYPE, row_name))
+        twin.row_status = "Mismatched"
+        twin.outcome_note = None
+        twin.decided_at = None
+        twin.decided_by = None
+        twin.settlement_origin = None
+        twin.update(changes)
+        twin.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(lambda: frappe.db.delete(ROW_DOCTYPE, {"name": twin.name}))
+        return {"name": twin.name, "row_status": twin.row_status}
+
+    def test_a_non_project_inflow_keyed_in_by_hand_refuses_a_second_one(self):
+        row = self._next_credit_row()
+        planted = self._plant_non_project_inflow(row, row["remarks"])
+        before = frappe.db.count(NON_PROJECT_INFLOW)
+
+        refusal = self._refusal(row, create=self._non_project_call)
+        self.assertIn(f"received on Non Project Inflow {planted}", refusal)
+        self._assert_nothing_written(row, before)
+
+    def test_a_non_project_inflow_keyed_in_by_hand_refuses_a_project_inflow(self):
+        """Whichever card the reviewer clicks, the same money is not recorded in the other book."""
+        row = self._next_credit_row()
+        planted = self._plant_non_project_inflow(row, row["remarks"])
+        before = frappe.db.count(INFLOW_DOCTYPE)
+
+        self.assertIn(planted, self._refusal(row))
+        self.assertEqual(frappe.db.count(INFLOW_DOCTYPE), before)
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)
+
+    def test_a_non_project_inflow_with_the_amount_off_asks_before_recording_another(self):
+        row = self._next_credit_row()
+        planted = self._plant_non_project_inflow(row, row["remarks"], amount_delta=500)
+        before = frappe.db.count(NON_PROJECT_INFLOW)
+
+        refusal = self._refusal(
+            row, error=RecordedMoneyNeedsConfirmationError, create=self._non_project_call
+        )
+        self.assertIn(planted, refusal)
+        self._assert_nothing_written(row, before)
+
+    def test_a_second_import_of_a_credit_recorded_as_a_non_project_inflow_is_refused(self):
+        """An EARLIER IMPORT made the record: the twin line is refused and nothing is written."""
+        row, summary = self._receive()
+        twin = self._twin_of(row["name"])
+        before = frappe.db.count(NON_PROJECT_INFLOW)
+
+        # Through `_refusal`, so a reverted guard fails the test WITHOUT leaking a live record.
+        refusal = self._refusal(
+            twin,
+            error=InflowNotRecordableError,
+            create=lambda r: create_non_project_inflow(row=r["name"], inflow_type="FD Closures"),
+        )
+        self.assertIn(summary["settled"]["name"], refusal)
+        self._assert_nothing_written(twin, before)
+
+        # And the project-inflow card is refused on the same fact.
+        self.assertIn(summary["settled"]["name"], self._refusal(twin, error=InflowNotRecordableError))
+
+    def test_one_non_project_inflow_justifies_only_one_line_across_imports(self):
+        """A DIFFERENT line carrying the same narration (next month's, say) may not skip on a record
+        an import already created: it asks, naming the record and the batch it came from."""
+        row, summary = self._receive()
+        batch = frappe.db.get_value(ROW_DOCTYPE, row["name"], "import_batch")
+        other = self._twin_of(row["name"], transfer_id=f"{frappe.generate_hash(length=10)}-OTHER")
+        before = frappe.db.count(NON_PROJECT_INFLOW)
+
+        refusal = self._refusal(
+            other, error=RecordedMoneyNeedsConfirmationError, create=self._non_project_call
+        )
+        self.assertIn(f"Non Project Inflow {summary['settled']['name']} already accounts", refusal)
+        self.assertIn(f"recorded from batch {batch}", refusal)
+        self._assert_nothing_written(other, before)
 
 
 class TestTheContextRead(InflowFixture):

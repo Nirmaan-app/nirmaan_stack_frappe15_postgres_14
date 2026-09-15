@@ -1334,15 +1334,16 @@ def _related_records(rows: list) -> dict[str, list]:
 
     ⚠️ RECORDS, NOT PAYMENTS, SINCE #1253 -- and the payload key was RENAMED with it
     (`related_payments` -> `related_records`), on the `settled_ledger` -> `settled_ledgers` precedent.
-    Every entry is `{target_doctype, target_name}` and may name ANY of the four ledgers a duplicate
-    can already live in: `Project Payments`, `Project Expenses`, `Non Project Expenses` or
-    `Project Inflows`. The client builds a link for each (`settlementLink`), including an inflow.
+    Every entry is `{target_doctype, target_name}` and may name ANY of the five ledgers a duplicate
+    can already live in: `Project Payments`, `Project Expenses`, `Non Project Expenses`,
+    `Project Inflows` or `Non Project Inflows` (#1268). The client builds a link for each
+    (`settlementLink`), including both inflows.
     Only a `Project Payment` entry also carries `order_name` (see `_with_order_names`).
 
     ⚠️ ITS SOURCE MUST STAY THE DUPLICATE GUARD'S SOURCE, PER ROW. A gateway row's guard reaches Paid
     payments and Paid expenses on its exact reference (`_paid_duplicate_pools`, #1256). A
     bank-statement row's guard is the ICICI contains-guard (#1257), so its links are the group
-    `_recorded_group_for` picks -- the records its note names, in any of the four ledgers -- and
+    `_recorded_group_for` picks -- the records its note names, in any of the five ledgers -- and
     nothing a whole-string reference lookup would add. A guard widened to another ledger widens THIS
     loader in the same change, or a skipped row names a record in its note and offers no link to it.
 

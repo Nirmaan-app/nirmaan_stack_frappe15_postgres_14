@@ -108,7 +108,7 @@ pick one ad-hoc; ask.
 | The screen's aggregate (X2, widened P1) | `services/outflow_import/status.py` (`derive_import_summary`, `StatusTally`) | count or sum the selected transfers anywhere else. The DB does the `GROUP BY`; this assembles. It is batch-agnostic and always was, which is why scoping it to a PERIOD needed no change here at all — only the WHERE clause moved |
 | **The settled money, split by ledger** (2026-08-21; cut in two at B8b 2026-09-07) | `services/outflow_import/status.py` (`derive_settled_ledger_split`, `SettledLedgerEntry`, `SETTLED_LEDGER_OTHER`) | order, total or zero-fill that split anywhere else — in SQL, in an endpoint, or in the client. The order is **fixed** and bound from `ledgers.LEDGER_DOCTYPES`, never sorted by value: a value-sorted list reshuffles between periods and has to be re-read every time. ⚠️ Reordering `LEDGER_DOCTYPES` now reorders a rendered panel. ⚠️ The three figures must reconcile **EXACTLY** to `settled_value`, which is why the endpoint sums the **ROW** amount and not `m.target_amount` (they differ on a partial settle; live partials are currently 0, so the wrong column would have shipped as a latent defect) and why it applies the same failed-transfer exclusion the main query does. ⚠️ **`ledgers` IS A PARAMETER SINCE B8b** (default `LEDGER_DOCTYPES`, so every pre-B8b caller is byte-identical) — the received block walks a DIFFERENT tuple, and a second copy of this function differing only in which tuple it reads is how one of them would come to be missing a book |
 | **Which way the settled money went** (B8b, 2026-09-07) | `services/outflow_import/status.py` (`derive_settled_direction_blocks`, `is_received_direction`, `ROW_DIRECTION_CREDIT`, `SETTLED_BLOCK_RECEIVED`/`_PAID`) + `ledgers.RECEIVED_LEDGER_DOCTYPES` | decide a block's membership, its order, its zero-fill or its total anywhere else — in SQL, in an endpoint, or in the client. **Owner ruling Q14 (a): TWO blocks, each reconciling to its OWN total, NEVER netted.** A single net figure hides both halves; folding receipts into the paid total adds money in to money out; excluding them makes the money this screen ingested invisible on the screen that ingested it. ⚠️ **EACH BLOCK'S TOTAL IS SUMMED FROM THE LINES IT RENDERS**, so the reconciliation is exact BY CONSTRUCTION, not by two numbers agreeing; the two block totals in turn add back to `settled_value` (pinned at the endpoint against a real batch). ⚠️ **MEMBERSHIP FOLLOWS THE ROW'S `direction`, NEVER THE TARGET DOCTYPE** — the removed B7 path stored a non-project receipt as a NEGATIVE `Non Project Expense`, and those rows may still exist, so `Non Project Expenses` legitimately appears in BOTH blocks and the doctype genuinely cannot answer it. The received order is `Project Inflows`, `Non Project Inflows` (#1266), `Non Project Expenses`. ⚠️ **A BLANK OR UNRECOGNISED DIRECTION IS `Paid`**, and it is a consequence rather than a guess: `settle.create_inflow_from_row` refuses anything that is not `Credit` at the write, so such a row is structurally incapable of having become a receipt. The predicate is a single POSITIVE test precisely so the two blocks PARTITION — the failure mode being a settled row that appears in NEITHER total. ⚠️ **PAID ALWAYS RENDERS, ZERO-FILLED; RECEIVED ONLY WHEN IT HOLDS ROWS, AND IT IS APPENDED SO PAID NEVER MOVES.** Cashfree and Cashbook are single-direction sources, so a zero-filled received block would sit on every gateway import forever claiming receipts were possible where none can occur. ⚠️ `settled_by_ledger` IS GONE from the payload, replaced by `settled_by_direction` — two keys totalling the same money are two chances to disagree about it |
-| **The ledger a bank CREDIT can become** (B8b) | `services/outflow_import/ledgers.py` (`INFLOW_DOCTYPE`, `RECEIVED_LEDGER_DOCTYPES`) | add it to `LEDGER_DOCTYPES`, `EXPENSE_DOCTYPES` or `SETTLEABLE_STATUSES`. It is a **DISPLAY ORDER ONLY**: an inflow is CREATED, never SETTLED — there is no approved inflow waiting to be paid. ⚠️ The string is spelled in BOTH `ledgers.py` and `settle.py` because `ledgers` is a pure leaf `status.py` imports under a transitive purity test and `settle.py` imports `frappe`; the two are pinned against each other by `api/outflow_import/test_review.TestInflowDoctypeSpelling`, on the precedent `settle.DIRECTION_CREDIT` already set |
+| **The ledger a bank CREDIT can become** (B8b, #1268) | `services/outflow_import/ledgers.py` (`INFLOW_DOCTYPE`, `NON_PROJECT_INFLOW_DOCTYPE`, `INFLOW_DOCTYPES` — the two receipt-only books every credit-side duplicate check reads, `RECEIVED_LEDGER_DOCTYPES`) | add it to `LEDGER_DOCTYPES`, `EXPENSE_DOCTYPES` or `SETTLEABLE_STATUSES`. It is a **DISPLAY ORDER ONLY**: an inflow is CREATED, never SETTLED — there is no approved inflow waiting to be paid. ⚠️ The string is spelled in BOTH `ledgers.py` and `settle.py` because `ledgers` is a pure leaf `status.py` imports under a transitive purity test and `settle.py` imports `frappe`; the two are pinned against each other by `api/outflow_import/test_review.TestInflowDoctypeSpelling`, on the precedent `settle.DIRECTION_CREDIT` already set |
 | **Which ledger a settled row settled against, in SQL** (2026-08-21) | `services/outflow_import/ledgers.py` (`SETTLED_LEDGER_SQL`) | write a second expression for it, and **never turn it into a `JOIN`**. It is a scalar correlated subquery precisely so it can drop into SELECT / WHERE / GROUP BY with no FROM change — five reads share `review._row_filters` and a JOIN would force a fork of the one shared builder. `LIMIT 1` is exact because a settled row carries at most one `Outflow Row Match` (verified live: 0 orphans, 0 multi-match); a fan-out shape would invalidate that, and the constant's own comment says so |
 | **Exporting the transfers table** (2026-08-21) | `api/outflow_import/review.py` (`export_outflow_rows`, `_MAX_EXPORT`) | page a CSV, or build its filters separately. It reuses `_row_filters` + `_scope_clause` UNCHANGED, so the file and the tab count describe one population. ⚠️ It **REFUSES** over 20,000 naming both numbers — never a silent `LIMIT`, for the `_MAX_CONFIRMABLE` reason: a truncated file outlives the screen that could contradict it, over a set nobody chose. ⚠️ Do NOT raise `_MAX_PAGE_SIZE` (200) to serve an export; that constant guards the SCREEN's paging |
 | **Exporting the approved inbox** (2026-08-21) | `api/outflow_import/approved.py` (`export_approved_records`, `_MAX_EXPORT`) | write a fourth query that knows the three ledgers' asymmetries — it reads through `ledger_read.approved_rows` like the page does. ⚠️ `approved_on` and `updated_on` stay SEPARATE COLUMNS in the CSV (asymmetry #1); a spreadsheet is where presenting a modification timestamp as an approval would be hardest to catch later |
@@ -4450,8 +4450,8 @@ ruling. If it is ever revisited, do not add a per-row lock believing it closes t
 
 `inflows.py`'s header recorded that `create_non_project_receipt` and `create_expense` had no ledger
 duplicate check. Both run the shared guard now; the note is replaced. What remains is the owner's ruling,
-not a gap: a deposit reads Project Inflows only, so a receipt booked earlier as a negative Non Project
-Expense is not found. `inflows._already_booked` is deleted -- the shared guard does its job and more.
+not a gap: a deposit reads Project Inflows (and, since #1268, Non Project Inflows) only, so a receipt
+booked earlier as a negative Non Project Expense is not found. `inflows._already_booked` is deleted -- the shared guard does its job and more.
 `create_inflow` keeps `_already_created_by_import` (it names the batch) and runs it first.
 
 `settle_expense` (the deprecated alias) passes `confirm_mismatch` through to `settle_row`.
@@ -4636,8 +4636,41 @@ description (`InflowNotRecordableError`), an already-settled row (`_load_settlea
   Inflows", …)` lands ON the record via `nonProjectInflowHref` (the page's URL-synced name search).
   `receiptStoredAmount` is deleted.
 - **Settled lines link their record (owner pick A, found on the live walk).** `review.get_outflow_rows` — the screen's ONLY row read — sent `matches: []` on every row, so a line settled by CREATING a record (Project Inflow, Non-Project Inflow, new expense) showed no link. It now sends each page row's live `Settled` legs through `review._settled_matches_by_row`, the one query `get_batch_rows` shares, and `_with_order_names` stamps payment legs as before.
-- **Not here:** the credit-side duplicate pool does not yet read `Non Project Inflows` — that is #1268.
+- **Not here:** the credit-side duplicate pool did not yet read `Non Project Inflows` — closed by #1268 below.
   No back-link field on any doctype; the manual expense dialogs and existing negative expenses are
   untouched (A-D3).
 - Tests: `api/outflow_import/test_inflows.py` (`TestTheNonProjectInflow`, `…Refusals`,
   `TestTheReceiptPathIsGone`, the ported recorded-money cases); `outflowTableModel.test.ts`.
+
+---
+
+## #1268 (2026-09-15) — the duplicate check covers Non-Project Inflows
+
+ADR-0016 Amendment A-D2, closing R4 "Project Inflows only, for now" of `outflow-duplicate-skip-plan.md`.
+A bank credit already recorded as a `Non Project Inflow` is now handled exactly like one recorded as a
+`Project Inflow`.
+
+- **Match run (ICICI contains-guard).** `contains_guard._LEDGERS_BY_DIRECTION[Credit]` is
+  `(Project Inflows, Non Project Inflows)`, and `candidates.CONTAINS_LEDGERS` reads
+  `tabNon Project Inflows.utr` (no status filter — inflows have none). Same token rules, same 15-day
+  window, same ±₹5: amount agrees → `Skipped` "Already recorded as received on Non Project Inflow NPI-…";
+  amount off → `Mismatched` naming the record. One record, one line (#1258) holds unchanged — the
+  claims read every `Outflow Row Match`, whatever the target doctype.
+- **"Received", not "Paid".** `status._is_receipt_group` / `_record_sentence` key on
+  `ledgers.INFLOW_DOCTYPES` (both inflow books; also the contains-guard's Credit ledgers). ⚠️ NOT `ledgers.RECEIVED_LEDGER_DOCTYPES` — that display
+  order also holds `Non Project Expenses` (the removed B7 negative receipts), and a doctype test over it
+  would call every Paid Non Project Expense "received".
+- **Create time.** `create_non_project_inflow` now runs `_guard_not_already_recorded` before the
+  recorded-money guard, like `create_inflow`. `inflows._already_created_by_import` looks for a match
+  record of EITHER inflow doctype for the transfer id, so both endpoints refuse a credit an earlier
+  import already recorded in either book (`InflowNotRecordableError`, naming the record and its batch).
+  A person-entered record is refused by the shared recorded-money guard, which now reads both books.
+- **Links.** `review._related_records` needed no code change — it reads the same guard group — so a
+  skipped line links its Non Project Inflow.
+- Tests: `services/outflow_import/test_contains_guard.py` (`TestDirection`, `TestOneRecordJustifiesOneLine`
+  NPI cases); `api/outflow_import/test_review.py` `TestTheICICIContainsGuard` (`npi`, `npi_off`,
+  `npi_twin1/2` lines; `TestInflowDoctypeSpelling` pins `NON_PROJECT_INFLOW` too);
+  `api/outflow_import/test_inflows.py` `TestTheNonProjectInflowDuplicateGuards`. The one-record rule
+  ACROSS batches is pinned purely and at create time; the bench match-run case is same-batch (the
+  claim reader is doctype-agnostic).
+  Every bench case shown RED with the ledger row and the create-time guard reverted.
