@@ -4635,6 +4635,7 @@ description (`InflowNotRecordableError`), an already-settled row (`_load_settlea
   `pages/non-project-inflows/nonProjectInflowModel.ts`, never restated). `settlementLink("Non Project
   Inflows", …)` lands ON the record via `nonProjectInflowHref` (the page's URL-synced name search).
   `receiptStoredAmount` is deleted.
+- **Settled lines link their record (owner pick A, found on the live walk).** `review.get_outflow_rows` — the screen's ONLY row read — sent `matches: []` on every row, so a line settled by CREATING a record (Project Inflow, Non-Project Inflow, new expense) showed no link. It now sends each page row's live `Settled` legs through `review._settled_matches_by_row`, the one query `get_batch_rows` shares, and `_with_order_names` stamps payment legs as before.
 - **Not here:** the credit-side duplicate pool does not yet read `Non Project Inflows` — that is #1268.
   No back-link field on any doctype; the manual expense dialogs and existing negative expenses are
   untouched (A-D3).

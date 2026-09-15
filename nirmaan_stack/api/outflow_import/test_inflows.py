@@ -40,7 +40,12 @@ from nirmaan_stack.api.outflow_import.inflows import (
     create_non_project_inflow,
     get_inflow_context,
 )
-from nirmaan_stack.api.outflow_import.review import BATCH_DOCTYPE, MATCH_DOCTYPE, ROW_DOCTYPE
+from nirmaan_stack.api.outflow_import.review import (
+    BATCH_DOCTYPE,
+    MATCH_DOCTYPE,
+    ROW_DOCTYPE,
+    get_outflow_rows,
+)
 from nirmaan_stack.api.outflow_import.long_reference_fixture import _give_row_a_long_narration
 from nirmaan_stack.api.outflow_import.upload import _stage_batch
 from nirmaan_stack.services.outflow_import import parser as parser_module
@@ -727,6 +732,21 @@ class TestTheNonProjectInflow(InflowFixture):
         self.assertEqual(summary["settled"]["amount"], float(row["amount"]))
         self.assertIsNone(summary["settled"]["original_amount"])
         self.assertFalse(summary["settled"]["amount_changed"])
+
+    def test_the_screen_s_row_read_carries_the_record_so_the_line_can_link_it(self):
+        """#1266 owner pick A: `get_outflow_rows` -- the ONLY read the screen uses -- sends a settled
+        line's match records, so `rowSettlementLinks` can render the link to the record. It used to
+        send `matches: []` on every row, so a created record was never linked."""
+        row, summary = self._receive()
+        page = get_outflow_rows(scope="all", batch=self.batch.name, limit=200)["rows"]
+        by_name = {r["name"]: r for r in page}
+
+        settled = [(m["target_doctype"], m["target_name"]) for m in by_name[row["name"]]["matches"]]
+        self.assertEqual(settled, [(NON_PROJECT_INFLOW, summary["settled"]["name"])])
+        # An open line carries none.
+        open_rows = [r for r in page if r["row_status"] != ROW_SETTLED]
+        self.assertTrue(open_rows)
+        self.assertTrue(all(r["matches"] == [] for r in open_rows))
 
     def test_others_is_recorded_when_it_carries_a_description(self):
         _, summary = self._receive(inflow_type="Others", description="Vendor refund, PO 0123")

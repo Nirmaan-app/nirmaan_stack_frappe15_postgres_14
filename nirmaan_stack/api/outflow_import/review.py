@@ -1265,26 +1265,7 @@ def get_batch_rows(batch: str):
     _assert_batch(batch)
 
     rows = _load_rows(batch)
-    # ⚠️ `match_kind = 'Settled'` ONLY, MATCHING EVERY OTHER READ IN THIS FEATURE (whole-branch
-    # review, F3). This query predates ADR-0020 and was the one read that never learned about
-    # `Reversed`: it returned every leg, and `rowSettlementLinks` (`outflowTableModel.ts`) maps
-    # each one to a "Payments Done" link -- so after a reversal the payment is back to `Approved`
-    # while the batch screen still shows it as paid by this transfer. Bound, not spelled: the
-    # literal lives in `services/outflow_import/allocation.MATCH_SETTLED`, which this module already
-    # imports (unlike `ledgers.py`, there is no cycle here -- see the import's own note).
-    matches = frappe.db.sql(
-        """
-        SELECT import_row, target_doctype, target_name, target_amount, match_kind, match_basis
-        FROM "tabOutflow Row Match"
-        WHERE import_batch = %s AND match_kind = %s
-        ORDER BY target_name ASC
-        """,
-        (batch, MATCH_SETTLED),
-        as_dict=True,
-    )
-    by_row: dict[str, list] = {}
-    for match in matches:
-        by_row.setdefault(match["import_row"], []).append(match)
+    by_row = _settled_matches_by_row([r["name"] for r in rows])
 
     related = _related_records(rows)
     # Stamps `order_name` onto matches and related records in place, and gives us the map the
@@ -1315,6 +1296,37 @@ def get_batch_rows(batch: str):
             for row in rows
         ],
     }
+
+
+def _settled_matches_by_row(row_names) -> dict[str, list]:
+    """Row name -> its LIVE settlement legs, for the record links a settled row shows.
+
+    ONE query for a page, shared by `get_batch_rows` and `get_outflow_rows` so the two reads can
+    never disagree about which records a row settled.
+
+    ⚠️ `match_kind = 'Settled'` ONLY, MATCHING EVERY OTHER READ IN THIS FEATURE (whole-branch
+    review, F3). A `Reversed` leg is history: `rowSettlementLinks` (`outflowTableModel.ts`) maps
+    each leg to a "Payments Done" link, so returning a reversed one would show a payment as paid by
+    this transfer after it went back to `Approved`. Bound, not spelled: the literal lives in
+    `services/outflow_import/allocation.MATCH_SETTLED`.
+    """
+    names = [n for n in row_names if n]
+    if not names:
+        return {}
+    matches = frappe.db.sql(
+        """
+        SELECT import_row, target_doctype, target_name, target_amount, match_kind, match_basis
+        FROM "tabOutflow Row Match"
+        WHERE import_row IN %s AND match_kind = %s
+        ORDER BY target_name ASC
+        """,
+        (tuple(names), MATCH_SETTLED),
+        as_dict=True,
+    )
+    by_row: dict[str, list] = {}
+    for match in matches:
+        by_row.setdefault(match["import_row"], []).append(match)
+    return by_row
 
 
 def _related_records(rows: list) -> dict[str, list]:
@@ -2467,11 +2479,14 @@ def get_outflow_rows(
     )[0]["n"]
 
     related = _related_records(rows)
+    # #1266 (owner pick A): a settled row's own legs, so the Outcome cell links the record it
+    # settled or CREATED. Until then this read sent `matches: []`, so a created Project Inflow,
+    # Non-Project Inflow or expense was never linked from the screen.
+    by_row = _settled_matches_by_row([r["name"] for r in rows])
     # ⚠️ THE SAME ENRICHMENT AS `get_batch_rows`, AND IT HAS TO BE. This is the MASTER TABLE -- the
     # surface most of the feature's payment links are actually clicked on -- so enriching only the
     # batch view would leave the app's own route working in one place and not the other, which is
-    # harder to diagnose than it not working at all. `matches` is empty here by design, so only the
-    # related payments and the suggestion carry an order.
+    # harder to diagnose than it not working at all.
     suggested_orders = _payment_order_names(
         [
             r.get("suggested_name")
@@ -2479,7 +2494,7 @@ def get_outflow_rows(
             if (r.get("suggested_doctype") or "") == C.PAYMENT_DOCTYPE
         ]
     )
-    _with_order_names(rows, {}, related)
+    _with_order_names(rows, by_row, related)
     tab_counts, status_counts, direction_status_counts = _tab_counts(where, params)
 
     return {
@@ -2499,10 +2514,8 @@ def get_outflow_rows(
                     for part in (row.get("settled_ledgers") or "").split(SETTLED_LEDGER_SEPARATOR)
                     if part
                 ],
-                # Kept for shape-compatibility with `get_batch_rows`, which the decision dialog and
-                # the settlement-link helpers already read. A master-table page never carries match
-                # records: they mean "settled", and the Settled tab reads them per row on demand.
-                "matches": [],
+                # The row's live settlement legs (#1266), the same shape `get_batch_rows` sends.
+                "matches": by_row.get(row["name"], []),
                 "related_records": related.get(row["name"], []),
                 "suggested_order_name": suggested_orders.get(row.get("suggested_name") or "", ""),
             }
