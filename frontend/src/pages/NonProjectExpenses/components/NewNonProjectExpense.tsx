@@ -350,9 +350,15 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
     const isSubmitDisabled = isLoadingOverall || isAutofilling || !formState.type || !formState.description.trim() || !formState.amount || (recordPaymentDetails && (!formState.payment_date || !formState.invoice_date)) || (recordInvoiceDetails && !formState.invoice_date) || (recordInvoiceDetails && !!invoiceAttachmentFile && !formState.invoice_ref.trim());
 
     const selectedExpenseTypeLabel = expenseTypeOptionsForCommand.find(option => option.value === formState.type)?.label || "Select Expense Type...";
-    // The submit label names the path this expense will actually take: a small
-    // positive amount is auto-approved on save ("Raise Expense"), anything else
-    // -- above ₹10,000, a refund, or a blank amount -- goes to an approver.
+    // The submit label names the path this expense will actually take: a positive amount
+    // BELOW ₹15,000 is auto-approved on save ("Raise Expense"), anything else -- at or
+    // above ₹15,000, a refund, or a blank amount -- goes to an approver.
+    //
+    // ⚠️ The threshold comes from the CENTRALIZED rule (`utils/approvalTiers.ts`, itself a
+    // pinned mirror of `services/approval_tiers.py`), which is what both expense doctype
+    // controllers now route on. It used to be a separate ₹10,000 owned by
+    // `expenseApproval.ts`, and that copy drifted: for ₹10,001-₹14,999 the server
+    // auto-approved while this button still read "Send for Approval".
     const submitLabel = getExpenseSubmitLabel(formState.amount);
 
     return (
