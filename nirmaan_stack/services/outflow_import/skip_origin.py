@@ -44,7 +44,7 @@ from nirmaan_stack.services.outflow_import.status import (
     SYSTEM_SKIP_SENTENCES,
 )
 
-__all__ = ["classify_skip_origin", "is_system_skip_sentence", "manual_skip_refusal"]
+__all__ = ["classify_skip_origin", "is_system_skip_sentence", "manual_skip_refusal", "unskip_refusal"]
 
 SKIP_REFUSED_SETTLED = "This transfer has already settled a record, so it cannot be skipped."
 SKIP_REFUSED_PARTIALLY_ALLOCATED = (
@@ -80,6 +80,37 @@ def manual_skip_refusal(*, row_status: str | None, source: str | None) -> str | 
     if not source_runs_the_matcher(source or ""):
         return SKIP_REFUSED_CASHBOOK
     return None
+
+
+UNSKIP_REFUSED_NOT_SKIPPED = "This transfer is not skipped, so there is nothing to unskip."
+UNSKIP_REFUSED_SYSTEM = (
+    "Only a transfer skipped by hand can be unskipped. The system skipped this one, and its reason "
+    "still stands."
+)
+UNSKIP_REFUSED_CASHBOOK = "Cashbook rows can't be unskipped."
+
+
+def unskip_refusal(
+    *, row_status: str | None, skip_origin: str | None, source: str | None
+) -> str | None:
+    """Why this line may NOT be unskipped, as the sentence to show -- or `None` when it may (#1274).
+
+    ⚠️ MANUAL ONLY. A system skip is a duplicate, a transfer the bank refused, an exclusion rule or a
+    repeat of an earlier statement; bringing one back is how the same money gets recorded twice. A
+    blank origin is refused too: every Skipped line was back-filled at #1273, so a blank one is a line
+    nobody can vouch for.
+
+    ⚠️ CASHBOOK IS REFUSED EVEN WHEN MARKED MANUAL (parent #1270 Q16). Its lines carry the plan its own
+    job writes from, and the re-check an unskip runs never reaches them.
+    """
+    if (row_status or "").strip() != ROW_SKIPPED:
+        return UNSKIP_REFUSED_NOT_SKIPPED
+    if not source_runs_the_matcher(source or ""):
+        return UNSKIP_REFUSED_CASHBOOK
+    if (skip_origin or "").strip() != SKIP_ORIGIN_MANUAL:
+        return UNSKIP_REFUSED_SYSTEM
+    return None
+
 
 # The fixed text before each template's first placeholder -- what every filled-in sentence starts with.
 _SYSTEM_SKIP_PREFIXES = tuple(sentence.split("{", 1)[0] for sentence in SYSTEM_SKIP_SENTENCES)

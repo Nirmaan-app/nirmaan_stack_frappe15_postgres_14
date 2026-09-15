@@ -92,6 +92,8 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Skipped by hand (an imported bank line)** — a line an Admin or Accountant Lead set aside because it has nothing to link, with a typed reason; the Skipped list shows who and when. Only a line skipped by hand can later be brought back. Every other skipped line is a **system skip** — money already recorded, a transfer the bank refused, a bank-statement exclusion rule, or a repeat of an earlier statement — and stays skipped, so the same money is never recorded twice. (2026-09-15, [ADR-0022](docs/adr/0022-unreconcile-and-unskip.md).)
   *Avoid*: manual skip for a system skip a person merely confirmed.
 
+- **Unskip (an imported bank line)** — bringing a line **skipped by hand** back, with a typed reason. The line goes back to matching and is checked again straight away: it may come back needing a record, matched to a record, or skipped again because its money has since been recorded — and a line skipped again that way is a system skip and cannot be unskipped. (2026-09-15, [ADR-0022](docs/adr/0022-unreconcile-and-unskip.md).)
+
 ## Vendor invoices & credit notes
 
 - **Vendor Invoice** — a recorded vendor bill entered against a Purchase Order or a Work Order (Service Request). Distinct from a *Project Invoice*, which bills the Customer.

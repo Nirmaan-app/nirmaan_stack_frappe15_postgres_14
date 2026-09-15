@@ -536,7 +536,7 @@ def load_record_claims(records) -> tuple[RecordClaim, ...]:
     The claims `contains_guard.pick_recorded_group` reads, from two places:
 
       * the BASIS OF A DUPLICATE SKIP -- `Outflow Import Row.duplicate_basis` on a row that is still
-        `Skipped` (a row an admin un-skips in Desk therefore releases its records with no edit);
+        `Skipped` (so an unskip, `review.unskip_row` #1274, releases its records by re-opening the line);
       * a SETTLEMENT -- a `Settled` `Outflow Row Match`, which every settle and every create-from-
         import writes. A `Reversed` leg claims nothing: that settlement was undone.
 

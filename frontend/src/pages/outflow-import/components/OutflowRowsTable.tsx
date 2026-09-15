@@ -1,6 +1,6 @@
 // src/pages/outflow-import/components/OutflowRowsTable.tsx
 
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ArrowDown, ArrowUp, ChevronRight, ExternalLink, Filter, List, X } from "lucide-react";
 
@@ -74,6 +74,19 @@ interface Props {
     onToggleRow: (name: string) => void;
     onToggleAll: (names: string[]) => void;
     onOpenDecision: (row: OutflowImportRow) => void;
+    /**
+     * One extra column after the others, for a surface with its own per-row action -- the Skipped
+     * popup's Unskip (#1274). Absent everywhere else, so the page's table is unchanged.
+     *
+     * ⚠️ PASS A STABLE OBJECT (`useMemo`). Every memoized row receives it, so a new object per render
+     * re-renders every row.
+     */
+    actionColumn?: TableActionColumn;
+}
+
+export interface TableActionColumn {
+    title: string;
+    render: (row: OutflowImportRow) => ReactNode;
 }
 
 /**
@@ -103,6 +116,7 @@ export const OutflowRowsTable = ({
     onToggleRow,
     onToggleAll,
     onOpenDecision,
+    actionColumn,
 }: Props) => {
     const columns = useMemo(
         () => OUTFLOW_COLUMNS.filter((c) => !hiddenColumns.has(c.id)),
@@ -153,6 +167,11 @@ export const OutflowRowsTable = ({
                                 onFilter={onFilter}
                             />
                         ))}
+                        {actionColumn && (
+                            <th className="px-2 py-2 text-left text-xs font-medium text-muted-foreground">
+                                {actionColumn.title}
+                            </th>
+                        )}
                     </tr>
                 </thead>
                 <tbody>
@@ -171,6 +190,7 @@ export const OutflowRowsTable = ({
                             origin={originByRow.get(row.name) ?? "none"}
                             onToggleRow={onToggleRow}
                             onOpenDecision={onOpenDecision}
+                            actionColumn={actionColumn}
                         />
                     ))}
                 </tbody>
@@ -448,6 +468,7 @@ interface RowProps {
     origin: DecisionOrigin;
     onToggleRow: (name: string) => void;
     onOpenDecision: (row: OutflowImportRow) => void;
+    actionColumn?: TableActionColumn;
 }
 
 const Row = memo(function Row({
@@ -461,6 +482,7 @@ const Row = memo(function Row({
     origin,
     onToggleRow,
     onOpenDecision,
+    actionColumn,
 }: RowProps) {
     return (
         <tr className={`border-t ${selected ? "bg-primary/5" : "hover:bg-muted/40"}`}>
@@ -495,6 +517,7 @@ const Row = memo(function Row({
                     />
                 </td>
             ))}
+            {actionColumn && <td className="px-2 py-1.5 align-top">{actionColumn.render(row)}</td>}
         </tr>
     );
 });

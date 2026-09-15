@@ -98,7 +98,7 @@ from nirmaan_stack.services.outflow_import.settlement_reference import (
 # records a person chooses from in the Resolve dialog; it must never reach `match_batch` or anything
 # it calls. See the rule at the top of `similarity.py` -- its weights exist to be tuned against
 # reviewer feedback, and a tuning change must not be able to alter what settles unattended.
-from nirmaan_stack.services.outflow_import.skip_origin import manual_skip_refusal
+from nirmaan_stack.services.outflow_import.skip_origin import manual_skip_refusal, unskip_refusal
 from nirmaan_stack.services.outflow_import.similarity import (
     RecordSignals,
     build_row_signals,
@@ -1371,6 +1371,94 @@ def skip_row(row: str, reason: str):
         statuses = _refresh_batch_rollup(current.import_batch)
         frappe.db.commit()
     return {"row": row, "status": ROW_SKIPPED, "batch_status": derive_batch_status(statuses)}
+
+
+UNSKIP_REASON_REQUIRED = "A reason is required to unskip a transfer."
+
+
+@frappe.whitelist(methods=["POST"])
+def unskip_row(row: str, reason: str):
+    """Bring back a line a PERSON skipped, and re-check it straight away (#1274, parent #1270, ADR-0022).
+
+    Returns the line's new `status`, `outcome_note`, `suggested_doctype` and `suggested_name` -- the
+    three notices the Skipped popup shows ("needs a record", "matched X", "skipped again") are read
+    from these -- plus the import's `batch_status`.
+
+    ⚠️ "SKIPS ARE FINAL" IS REVERSED FOR HAND SKIPS ONLY (`skip_origin.unskip_refusal`). A system skip
+    stays skipped: a duplicate, a refused transfer, an exclusion or a repeat of an earlier statement,
+    brought back, is the same money waiting to be recorded twice. So is a Cashbook line (Q16).
+
+    ⚠️ THE RE-OPEN AND THE RE-CHECK ARE ONE TRANSACTION. The line goes back to `Pending match run`
+    through the document layer (a Version row, the doctype tracks changes), then `match_line` runs on
+    it, and only then does this commit. A failing re-check therefore leaves the line skipped, never
+    stranded half-open with no outcome.
+
+    ⚠️ WHAT IS CLEARED, AND WHY EACH ONE:
+      * `skip_origin`, `skip_reason` -- the line is no longer skipped. If the re-check skips it again,
+        `_persist_row_outcome` writes `System`, so it can never be unskipped into a duplicate.
+      * `outcome_note` -- the typed skip reason must not survive as the line's note; the re-check
+        writes the real one.
+      * `decided_at`, `decided_by`, `settlement_origin` -- nobody has decided the line any more.
+      * `duplicate_basis` -- the records the skip claimed. A claim is only read off a SKIPPED line
+        (`candidates.load_record_claims`), so re-opening releases it anyway; clearing the field too
+        keeps a stale basis from ever being read as this line's.
+
+    ⚠️ THE ROLLUP IS REFRESHED BY THE RE-CHECK. `_match_rows` ends with `_refresh_batch_rollup`, so a
+    Completed import with this line back open reopens without a second refresh here.
+    """
+    # A FUNCTION-LOCAL IMPORT: `expenses.py` imports this module, so a top-level import is a cycle.
+    from nirmaan_stack.api.outflow_import.expenses import _concurrent_writer_refusal_as_sentence
+
+    actor = require_outflow_undo_access()
+    reason = (reason or "").strip()
+    if not reason:
+        frappe.throw(UNSKIP_REASON_REQUIRED, title="Missing reason")
+
+    with _concurrent_writer_refusal_as_sentence("unskip_row", row):
+        current = frappe.db.get_value(
+            ROW_DOCTYPE,
+            row,
+            ["name", "import_batch", "row_status", "skip_origin"],
+            as_dict=True,
+            for_update=True,
+        )
+        if not current:
+            frappe.throw(f"Import row '{row}' not found.", title="Not found")
+        refusal = unskip_refusal(
+            row_status=current.row_status,
+            skip_origin=current.skip_origin,
+            source=_batch_source(current.import_batch),
+        )
+        if refusal:
+            frappe.throw(refusal, title="Cannot unskip this transfer")
+
+        doc = frappe.get_doc(ROW_DOCTYPE, row)
+        doc.update(
+            {
+                "row_status": ROW_PENDING_MATCH,
+                "skip_origin": None,
+                "skip_reason": None,
+                "outcome_note": None,
+                "decided_at": None,
+                "decided_by": None,
+                "settlement_origin": None,
+                "duplicate_basis": None,
+            }
+        )
+        # ⚠️ `ignore_version=False` IS EXPLICIT, for the reason `skip_row` gives.
+        doc.save(ignore_permissions=True, ignore_version=False)
+        doc.add_comment("Comment", text=f"Unskipped by {actor}: {reason}")
+
+        line = match_line(row)
+        frappe.db.commit()
+    return {
+        "row": row,
+        "status": line["row_status"],
+        "outcome_note": line["outcome_note"] or "",
+        "suggested_doctype": line["suggested_doctype"] or "",
+        "suggested_name": line["suggested_name"] or "",
+        "batch_status": line["run"]["status"],
+    }
 
 
 @frappe.whitelist()

@@ -389,10 +389,13 @@ class TestRefusals(SettlementFixture):
         # ⚠️ INVERTED AT #1253. The refusal used to say "Re-run the match to reconsider it", and that
         # remedy does not exist: `match_batch` never revisits a Skipped row (it is frozen). The
         # sentence must say the skip is final and name the one real way out.
+        # ⚠️ INVERTED AGAIN AT #1274. That way out was "an admin corrects it in Desk"; a hand skip is
+        # now unskipped from the Skipped list, so Desk must no longer be named and Unskip must be.
         message = str(refused.exception)
         self.assertNotIn("Re-run the match", message)
-        self.assertIn("final", message)
-        self.assertIn("Desk", message)
+        self.assertIn("does not reopen it", message)
+        self.assertNotIn("Desk", message)
+        self.assertIn("unskip it from the Skipped list", message)
 
     def test_a_failed_settlement_leaves_nothing_behind(self):
         # Savepoint isolation: the refusal must not leave a match record claiming a settlement

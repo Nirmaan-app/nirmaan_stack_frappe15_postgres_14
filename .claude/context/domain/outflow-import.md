@@ -128,7 +128,7 @@ pick one ad-hoc; ask.
 | **Which bank-statement lines are NOT work for a human** (B2) | `services/outflow_import/bank_exclusions.py` (`EXCLUSION_RULES`, `should_skip`, the ten `category_id`s) — pure, no `frappe`, no DB | decide that a narration is noise anywhere else, and it **MUST NOT IMPORT THE MATCHER** (`matcher`, `disambiguate`, `status`, `stacks`, `claims`, `candidates` — pinned by a test, the same fence `partial_settle` and `similarity` sit behind). This module decides only whether a line REACHES them; a widening made here because a narration looked like noise must never be able to change what settles unattended. **THREE DESIGN RULES, all load-bearing:** (a) **FAIL OPEN** — an unmatched row is INGESTED, never dropped, because the two failure modes are not symmetric: a wrongly-ingested row is VISIBLE and un-mapped in seconds, a wrongly-dropped one is INVISIBLE and nobody ever learns it existed. `should_skip` has no default-skip branch and must never grow one. (b) **DIRECTION IS PART OF THE TEST, NOT DECORATION** — `Ac xfr from gl 05051 to 60010` appears twice byte-identically, once as a ₹3.19 Cr Debit and once as a ₹3.19 Cr Credit, and only the populated amount column tells the two categories apart; every rule leads with `wd` or `dp` and none is direction-blind. (c) **THE IFSC BEATS THE TYPED LABEL** — three rows read `Cashbook Balanc` while carrying Cashfree's IFSC and one reads `Cashfree Balanc` carrying Cashbook's, so each `platform_*` rule checks the IFSC FIRST and the free-text label is a fallback. ⚠️ **THE ORDER IS PART OF THE POLICY** (first match wins; the three `platform_*` rules come first so rule (c) can resolve), and the rules are DATA — an ordered `(category_id, predicate)` sequence — so a policy change is diffable without reading mechanism; `should_skip` holds no policy at all. ⚠️ **SKIPPING THE PAYOUT WALLETS COSTS ₹11.59 Cr OF REAL DEBITS, and that is still correct** — what left the bank is a wallet TOP-UP, not a payment to anyone, and the real disbursements happen inside Cashfree / Cashbook / Porter and appear in no bank narration. **The consequence is that NOBODY MAY READ THE INGESTED OUTFLOW TOTAL AS "WHAT THE COMPANY SPENT"** — it is what was spent THROUGH THIS ACCOUNT DIRECTLY, and any total-spend figure has to add the platforms back. ⚠️ Exclusions run at STAGE time (Q16): all 1,274 rows are staged and 405 land `Skipped` carrying the rule's own sentence — **EXCLUSION-FIRST precedence**, ahead of already-imported and duplicate-in-file, so a re-upload still names the ten rules rather than reading "already imported in batch X" |
 | Access | `api/outflow_import/permissions.require_outflow_access` | gate an endpoint any other way |
 | **Who may Skip, Unskip, Unreconcile or Reverse** (#1273, ADR-0022) | `api/outflow_import/permissions.require_outflow_undo_access` (`OUTFLOW_UNDO_PROFILES`: Admin + Accountant Lead, plus `Administrator`) — LAYERED on the module check. Frontend mirror `outflowImportStatus.canUndoOutflow`, pinned by `outflowUndoAccessParity.test.ts` | gate an undo action on the module check alone, or spell the profile set a second time. Callers: `review.skip_row`, `expenses.reverse_allocation`, `unreconcile.unreconcile_row` (checked at both the wrapper and the write) |
-| **Who skipped a line, and may a person skip it** (#1273) | `services/outflow_import/status.py` (`SKIP_ORIGIN_*`, `RowOutcome.skip_origin`, `SYSTEM_SKIP_SENTENCES`) + `services/outflow_import/skip_origin.py` (`manual_skip_refusal`, `classify_skip_origin`) — pure | write `skip_origin = Manual` anywhere but `review.skip_row`, decide at a writer that a derived skip is anything but System (read `outcome.skip_origin`), or re-derive "may this be skipped by hand". ⚠️ A new skip SENTENCE joins `SYSTEM_SKIP_SENTENCES` in the same change, or the back-fill can call an old line with it Manual |
+| **Who skipped a line, and may a person skip it** (#1273) | `services/outflow_import/status.py` (`SKIP_ORIGIN_*`, `RowOutcome.skip_origin`, `SYSTEM_SKIP_SENTENCES`) + `services/outflow_import/skip_origin.py` (`manual_skip_refusal`, `unskip_refusal` #1274, `classify_skip_origin`) — pure. Frontend mirror, convenience only: `unskipView.unskipBlockReason` (pinned to `unskip_refusal` and `status.py` by `unskipView.test.ts`) | write `skip_origin = Manual` anywhere but `review.skip_row`, decide at a writer that a derived skip is anything but System (read `outcome.skip_origin`), or re-derive "may this be skipped by hand". ⚠️ A new skip SENTENCE joins `SYSTEM_SKIP_SENTENCES` in the same change, or the back-fill can call an old line with it Manual |
 | **What a Cashbook statement will CREATE** (Cashbook slice 4) | `services/outflow_import/cashbook.py` (`plan_statement`, `pick_expense_type`, `group_plan`) — pure | decide a ledger, a project or an expense type for a wallet row anywhere else. ⚠️ It must not reach `matcher`, `disambiguate`, `claims`, `stacks` or `settle` — pinned by a test, the same fence `similarity` and `partial_settle` sit behind. It decides what to CREATE; those decide what existing approved record a transfer PAYS, under an amount window this has no equivalent of |
 | Which keyword means which expense type | the `Outflow Import Expense Rule` doctype, read by `candidates.load_expense_rules` | hardcode a keyword map. The rules are per-LEDGER because the two expense vocabularies are nearly disjoint, and they arrive LONGEST KEYWORD FIRST — that order is the rule, not presentation |
 | What phrase means which project | the `Outflow Import Project Alias` doctype, read by `candidates.load_project_aliases` | grow a second nickname list. ⚠️ Deliberately NOT wired into `load_project_index`: Cashfree tier 2 settles money and its remarks name projects in full, so widening what it recognises would widen what settles unattended |
@@ -1965,8 +1965,8 @@ idempotent — but a future edit widening the patch's `WHERE` widens this blast 
 skipped. Re-run the match to reconsider it."* — but `match_batch` treats `Skipped` as frozen, so
 re-running the match **never** reconsiders it. The message named a remedy that does not exist. Both
 now raise the one `expenses.SKIPPED_ROW_REFUSAL`: the skip is final, a re-run does not reopen it, and
-an admin corrects a mistaken skip in Desk. Re-opening skipped rows from the screen is still not a
-feature — the parent issue #1252 lists an undo action as future work.
+an admin corrects a mistaken skip in Desk. ⚠️ **Superseded at #1274:** a skip BY HAND is unskipped
+from the Skipped popup (`review.unskip_row`), and the refusal now says so; a system skip stays final.
 
 ---
 
@@ -4089,7 +4089,7 @@ Project Expense, Non Project Expense or Project Inflow without touching the scre
   `related_records`; a stale `related_payments` key renders nothing (pinned).
 - **Skipped-row refusal corrected:** `expenses.SKIPPED_ROW_REFUSAL` (both loaders) says a skip is
   final and an admin fixes a mistaken one in Desk — the old "Re-run the match to reconsider it" named
-  a remedy that does not exist.
+  a remedy that does not exist. (#1274 rewords it again: a hand skip is unskipped from the Skipped list.)
 - **Doc drift fixed:** `_FROZEN_ROW_STATUSES` is `(Skipped, Settled, Partially Allocated)`.
 
 ### Verification
@@ -4828,8 +4828,7 @@ Reverses the 2026-08-10 hidden-skip ruling and ADR-0016 R6. Record: **ADR-0022**
   dd-MMM-yyyy") under the reason — keyed on `skip_origin`, never `decided_by`.
 - **Reverse button:** `AlreadyAllocatedSection` takes `onReverse` only when `canUndoOutflow` -- the
   button is withheld from a plain Accountant rather than offered and refused (found at code review).
-- **Not in this slice:** Unskip and its column (next), so a hand skip still cannot be brought back from
-  the screen; the "skips are final" sentences elsewhere in this doc are corrected by that slice.
+- **Not in this slice:** Unskip and its column — shipped at #1274, below.
 - **Tests:** `services/outflow_import/test_skip_origin.py` (25: every derived skip is System, the
   refusal rule, the back-fill classifier); `api/outflow_import/test_skip_row.py` (18: access on skip and
   reverse, refusals write nothing, Manual + reason + who/when + Version + Comment + rollup, the Skipped
@@ -4838,3 +4837,50 @@ Reverses the 2026-08-10 hidden-skip ruling and ADR-0016 R6. Record: **ADR-0022**
   per writer in `test_upload`, `test_review` (gateway + contains-guard) and `test_cashbook_import`;
   vitest `outflowUndoAccessParity.test.ts` (11) + serverQuery / `skippedByHandLine` cases in
   `outflowTableModel.test.ts`.
+
+## #1274 (2026-09-15) — Unskip a hand-skipped line from the Skipped popup
+
+"Skips are final" is reversed **for hand skips only**. Record: **ADR-0022**. Mockups: scenes 5, 6.
+
+- **`review.unskip_row(row, reason)`** (POST): undo access → reason required (`UNSKIP_REASON_REQUIRED`)
+  → row `FOR UPDATE` → refuse via the pure `skip_origin.unskip_refusal(row_status, skip_origin, source)`
+  (not Skipped / Cashbook by BATCH source / not Manual — a blank origin counts as System) →
+  `doc.save(ignore_version=False)` back to `Pending match run`, clearing `skip_origin`, `skip_reason`,
+  `outcome_note`, `decided_at`, `decided_by`, `settlement_origin`, `duplicate_basis` → a `Comment`
+  ("Unskipped by <user>: <reason>") → **`match_line(row)`** → commit, all inside
+  `_concurrent_writer_refusal_as_sentence`. Returns `{row, status, outcome_note, suggested_doctype,
+  suggested_name, batch_status}`.
+  - ⚠️ **The re-open and the re-check are ONE transaction.** A failing re-check rolls the re-open back
+    with it, so a line is never left open with no outcome.
+  - **Skipped again → System.** `_persist_row_outcome` writes `outcome.skip_origin` on every run, so a
+    line whose money was recorded since lands `Skipped`/`System` and can never be unskipped again.
+  - **The claim is released by the status, not by the field.** `candidates.load_record_claims` reads a
+    basis only while the line is `Skipped`; clearing `duplicate_basis` as well keeps a stale basis from
+    ever being read as this line's. Pinned: the blocked twin skips on its next run.
+  - **No second rollup refresh:** `_match_rows` ends with `_refresh_batch_rollup`, so a Completed import
+    reopens through the re-check. The one-line differences written up under #1272 apply here.
+- **`expenses.SKIPPED_ROW_REFUSAL`** reworded: a hand skip is unskipped from the Skipped list (no more
+  "correct it in Desk").
+- **Frontend:** the pure `unskipView.ts` —
+  - `unskipBlockReason(row)`: `null` for a hand skip; otherwise, in this order, "Cashbook rows can't be
+    unskipped." / "The bank never moved this money." (`status_raw` not SUCCESS, blank counts as refused)
+    / "A bank rule excluded it." / "The same transfer is in an earlier statement." (already imported,
+    or repeated in the file) / "This money is already recorded." (everything else). The causes are told
+    apart by `UNSKIP_SENTENCE_MARKERS`, which `unskipView.test.ts` reads against `status.py` as text.
+    Convenience only: the server refuses every system skip the same way.
+  - `unskipNotice(result)`: "Unskipped. It now needs a record." / "Unskipped. It matched <name>." /
+    "Unskipped, then skipped again. Its money is already recorded as Paid on <records>. It can't be
+    unskipped now." — the last reuses the matcher's "Already recorded …" note, which already names each
+    record with its ledger. A Matched line with no single pick reads "needs a record".
+- **Skipped popup:** for `canUndoOutflow` only, an **Unskip** column (via `OutflowRowsTable`'s new
+  optional, memoized `actionColumn`) — a live outline button for a hand skip, a disabled one with the
+  reason in words beneath for every other line — plus a description sentence. The button opens
+  `UnskipConfirm` (reason required, server refusal shown inline, closes only on success); the notice
+  renders above the table, emerald or amber; the popup's table and the page (`onChanged={refreshAll}`)
+  refresh. A plain Accountant sees the popup unchanged.
+- **Tests:** `services/outflow_import/test_skip_origin.py` +5 (`TestUnskipRefusal`);
+  `api/outflow_import/test_unskip_row.py` (10: refused for a plain Accountant / System / Cashbook /
+  not Skipped, writing nothing; reason required; Not-Matched + cleared stamps + the import reopens;
+  Version + Comment with the reason; Matched with the suggestion; skipped again as System and then
+  refused; the duplicate claim released for the blocked twin); vitest `unskipView.test.ts` (17).
+

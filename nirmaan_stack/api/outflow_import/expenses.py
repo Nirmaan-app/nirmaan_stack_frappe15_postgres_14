@@ -552,11 +552,12 @@ def _parse_targets(targets) -> list:
 
 # ⚠️ ONE SENTENCE FOR BOTH REFUSALS (`_load_allocatable_row`, `_load_settleable_row`), AND IT MUST
 # NOT PROMISE A REMEDY THAT DOES NOT EXIST (#1253). It used to say "Re-run the match to reconsider
-# it" -- but `Skipped` is in `review._FROZEN_ROW_STATUSES`, so a re-run never revisits the row, and
-# there is no unskip action on the screen. The only way back is an admin editing the row in Desk.
+# it" -- but `Skipped` is in `review._FROZEN_ROW_STATUSES`, so a re-run never revisits the row. Since
+# #1274 the way back for a HAND skip is Unskip in the Skipped popup (`review.unskip_row`); a system skip
+# has no way back, by design.
 SKIPPED_ROW_REFUSAL = (
-    "This row was skipped, and a skip is final: re-running the match does not reopen it. "
-    "If it was skipped by mistake, an admin must correct it in Desk."
+    "This row was skipped, and re-running the match does not reopen it. "
+    "If it was skipped by hand, an Admin or Accountant Lead can unskip it from the Skipped list."
 )
 
 

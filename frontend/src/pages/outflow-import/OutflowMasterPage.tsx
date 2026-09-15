@@ -1343,6 +1343,7 @@ export const OutflowMasterPage = () => {
                 skippedByHandRows={summary?.skipped_by_hand_rows}
                 open={showingSkipped}
                 onOpenChange={setShowingSkipped}
+                onChanged={refreshAll}
             />
 
             <DecisionDialog

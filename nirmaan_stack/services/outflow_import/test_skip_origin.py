@@ -28,9 +28,13 @@ from nirmaan_stack.services.outflow_import.skip_origin import (
     SKIP_REFUSED_CASHBOOK,
     SKIP_REFUSED_PARTIALLY_ALLOCATED,
     SKIP_REFUSED_SETTLED,
+    UNSKIP_REFUSED_CASHBOOK,
+    UNSKIP_REFUSED_NOT_SKIPPED,
+    UNSKIP_REFUSED_SYSTEM,
     classify_skip_origin,
     is_system_skip_sentence,
     manual_skip_refusal,
+    unskip_refusal,
 )
 from nirmaan_stack.services.outflow_import.status import (
     ROW_MATCHED,
@@ -266,6 +270,51 @@ class TestManualSkipRefusal(unittest.TestCase):
     def test_an_unknown_status_is_refused_and_named(self):
         refusal = manual_skip_refusal(row_status="Unmatched", source="Cashfree")
         self.assertIn("Unmatched", refusal)
+
+
+class TestUnskipRefusal(unittest.TestCase):
+    """#1274: only a line a PERSON skipped comes back, and never a Cashbook line."""
+
+    def test_a_hand_skip_may_be_unskipped(self):
+        for source in ("Cashfree", "ICICI Bank Statement", ""):
+            with self.subTest(source=source):
+                self.assertIsNone(
+                    unskip_refusal(
+                        row_status=ROW_SKIPPED, skip_origin=SKIP_ORIGIN_MANUAL, source=source
+                    )
+                )
+
+    def test_a_line_that_is_not_skipped_is_refused(self):
+        for status in (ROW_MATCHED, ROW_MISMATCHED, ROW_PENDING_MATCH, "Settled", "", None):
+            with self.subTest(status=status):
+                self.assertEqual(
+                    unskip_refusal(
+                        row_status=status, skip_origin=SKIP_ORIGIN_MANUAL, source="Cashfree"
+                    ),
+                    UNSKIP_REFUSED_NOT_SKIPPED,
+                )
+
+    def test_a_system_skip_is_refused(self):
+        for origin in (SKIP_ORIGIN_SYSTEM, "", None):
+            with self.subTest(origin=origin):
+                self.assertEqual(
+                    unskip_refusal(row_status=ROW_SKIPPED, skip_origin=origin, source="Cashfree"),
+                    UNSKIP_REFUSED_SYSTEM,
+                )
+
+    def test_a_cashbook_line_is_refused_even_when_marked_manual(self):
+        self.assertEqual(
+            unskip_refusal(
+                row_status=ROW_SKIPPED, skip_origin=SKIP_ORIGIN_MANUAL, source=" Cashbook "
+            ),
+            UNSKIP_REFUSED_CASHBOOK,
+        )
+
+    def test_the_status_is_judged_before_the_source(self):
+        self.assertEqual(
+            unskip_refusal(row_status=ROW_MATCHED, skip_origin=None, source="Cashbook"),
+            UNSKIP_REFUSED_NOT_SKIPPED,
+        )
 
 
 if __name__ == "__main__":

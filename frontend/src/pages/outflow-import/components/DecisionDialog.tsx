@@ -1229,7 +1229,7 @@ const SkipTransferBox = ({
                 <div>
                     <p className="text-sm font-medium">Nothing to link?</p>
                     <p className="text-xs text-muted-foreground">
-                        Skip this transfer. It moves to the Skipped list, marked as skipped by hand.
+                        Skip this transfer. It moves to the Skipped list, marked as skipped by hand, and can be unskipped from there.
                     </p>
                 </div>
                 <div className="space-y-1.5">
