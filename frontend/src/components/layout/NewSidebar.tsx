@@ -993,6 +993,9 @@ export function NewSidebar() {
                     "Work Orders",
                     "In-Flow Payments",
                     "Project Inflows",
+                    // Non-Project Inflows (#1265): flat nav button. It was first shipped WITHOUT this
+                    // label, so it rendered as an empty group -- a chevron and a click that went nowhere.
+                    "Non-Project Inflows",
                     "Vendor Invoice Recon",
                     "Reports",
                     "Design Tracker",
