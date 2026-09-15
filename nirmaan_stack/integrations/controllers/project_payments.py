@@ -407,7 +407,26 @@ def on_trash(doc, method):
     # link-existence check AFTER `on_trash`. Left standing, that Link would refuse the delete
     # outright — the payment would simply become undeletable, with the error naming a doctype
     # most people have never opened.
+    #
+    # ⚠️ CAPTURE THE CHALLAN(S) BEFORE THE ROWS GO. A challan's `reconciled_amount` is the SUM of
+    # the deductions pointing at it, and this raw delete fires no hooks -- so without the recompute
+    # below the challan keeps counting tax paid against a row that no longer exists. Measured on
+    # localhost: a challan still reading Rs 150 used with ZERO deductions behind it, and therefore
+    # Rs 150 short of usable balance forever.
+    challans = frappe.db.sql_list(
+        """
+        SELECT DISTINCT tds_challan FROM "tabPayment TDS Deduction"
+        WHERE project_payment = %s AND tds_challan IS NOT NULL
+        """,
+        (doc.name,),
+    )
+
     frappe.db.delete("Payment TDS Deduction", {"project_payment": doc.name})
+
+    for challan in challans:
+        # RE-DERIVED FROM WHAT REMAINS, never decremented by the deleted figure: a `-=` would be a
+        # second arithmetic path that has to agree with the pay path forever.
+        payment_tds.recompute_challan_reconciled(challan)
 
     # Vendor credit recalculation on payment deletion
     if doc.document_type == "Procurement Orders":

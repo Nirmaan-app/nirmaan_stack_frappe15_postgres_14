@@ -46,6 +46,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+from nirmaan_stack.services.payment_tds import recompute_challan_reconciled
+
 DEDUCTION_DOCTYPE = "Payment TDS Deduction"
 CHALLAN_DOCTYPE = "TDS Challan Attachment"
 
@@ -150,31 +152,26 @@ def _load_payable(names: list[str]) -> list[dict]:
 
 
 def _recompute_reconciled(challan: str) -> float:
-    """Re-derive `reconciled_amount` from the links themselves. NEVER `+= amount_just_paid`.
+    """Re-derive `reconciled_amount`, then assert this PAY did not over-apply the challan.
 
-    ⚠️ RAW `set_value`, SO NO DOC EVENTS FIRE — deliberate and safe here: `TDS Challan Attachment`
-    registers no `doc_events` in hooks.py, and the one invariant its own `validate` enforces over
-    this field (0 <= reconciled <= amount) is asserted below before the write.
+    ⚠️ THE RECOMPUTE ITSELF LIVES IN THE SERVICE (`payment_tds.recompute_challan_reconciled`) and is
+    deliberately NOT duplicated here. The DELETE path needs the identical rule -- deleting a payment
+    deletes its deduction, and the challan must stop counting it -- and a CONTROLLER cannot import
+    from `api/`. Two copies of "the total is the sum of its deductions" would be two chances to
+    disagree about a figure that gates whether a challan can be paid from at all.
+
+    THE GUARD BELOW BELONGS TO THIS PATH ONLY. Recomputing must never raise, because a delete must
+    not fail over bookkeeping; but a PAY that somehow landed over the challan's face value should
+    fail loudly rather than quietly write a challan claiming to have paid out more than it holds.
+    Unreachable in practice -- `_apply`'s capacity check runs first.
     """
-    total = frappe.db.sql(
-        """
-        SELECT COALESCE(SUM(tds_amount), 0)
-        FROM "tabPayment TDS Deduction"
-        WHERE tds_challan = %s
-        """,
-        (challan,),
-    )[0][0]
-    total = flt(total, 2)
+    total = flt(recompute_challan_reconciled(challan) or 0, 2)
 
     amount = flt(frappe.db.get_value(CHALLAN_DOCTYPE, challan, "amount"), 2)
     if total > amount + TOLERANCE:
-        # Unreachable through this module (the capacity gate runs first); a loud failure beats
-        # silently writing a challan that claims to have paid out more than it holds.
         frappe.throw(
             _("Challan {0} would be over-applied ({1} against {2}).").format(challan, total, amount)
         )
-
-    frappe.db.set_value(CHALLAN_DOCTYPE, challan, "reconciled_amount", total)
     return total
 
 
