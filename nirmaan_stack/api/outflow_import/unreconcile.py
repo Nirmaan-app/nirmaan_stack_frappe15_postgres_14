@@ -214,14 +214,19 @@ def unreconcile_row(row: str, legs, reason: str) -> dict:
         frappe.db.savepoint(savepoint)
         try:
             carried = []
+            # ONE moment for every leg of this call (#1280): the table reads "which records came off
+            # in the last unreconcile" as the legs sharing the latest `reversed_at`.
+            reversed_at = frappe.utils.now_datetime()
             for leg, verdict in zip(requested, verdicts):
                 # Stamp FIRST -- see the module docstring (a deleted target fails the link check).
-                _stamp_reversed(leg.name, actor, reason)
+                _stamp_reversed(leg.name, actor, reason, reversed_at)
                 carried.append(_carry_out(verdict, leg, statement, actor, reason))
             # #1276: vendor credit, CEO Hold, latest payment date and the statement `File` row,
             # once, on the state after EVERY leg -- see `unreconcile_cleanup`.
             restore_derived_state(carried, statement)
-            new_status = _refresh_row_allocation(line.name, actor)
+            # #1280: the line keeps its old pick, so it is marked Confirm by hand and a bulk confirm
+            # refuses it until a person settles it.
+            new_status = _refresh_row_allocation(line.name, actor, confirm_by_hand=True)
             _comment_on_line(line.name, actor, reason, requested)
         except Exception:
             frappe.db.rollback(save_point=savepoint)
@@ -477,12 +482,12 @@ def _revert_payment(name: str, statement_file_url: str | None) -> None:
         doc.save(ignore_permissions=True, ignore_version=False)
 
 
-def _stamp_reversed(match: str, actor: str, reason: str) -> None:
+def _stamp_reversed(match: str, actor: str, reason: str, reversed_at) -> None:
     """SOFT, NOT A DELETE (ADR-0020 D3): the record is kept, so "this was settled and undone" is
     never lost, and a Reversed leg stops holding the partial unique key."""
     doc = frappe.get_doc(MATCH_DOCTYPE, match)
     doc.match_kind = MATCH_REVERSED
-    doc.reversed_at = frappe.utils.now_datetime()
+    doc.reversed_at = reversed_at
     doc.reversed_by = actor
     doc.reversal_reason = reason
     # ⚠️ `ignore_version=False` IS EXPLICIT (#1275): the doctype tracks changes since this slice, and

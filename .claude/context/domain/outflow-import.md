@@ -5179,3 +5179,65 @@ post-reverse `mutate` still hits the same entry): a re-opened panel shows "Loadi
 until the server's current verdicts arrive. Browser A/B on the same steps: before, an instant screenshot showed the
 stale grey refusal; after, it shows the loading line, then the amber un-split. Reverse from that dialog still works.
 No unit test: it is a React/SWR cache semantic, which the node-only vitest environment cannot see.
+
+## #1280 (2026-09-15) — Confirm by hand: an unreconciled line stays out of "Confirm all matched"
+
+Record: **ADR-0022** § *Confirm by hand*. Closes the #1270 slice list.
+
+- **Schema [MIGRATE].** `Outflow Import Row.confirm_by_hand` (Check, read-only, default 0).
+- **Set / clear — one writer.** `expenses._refresh_row_allocation(..., *, confirm_by_hand=False)` writes it on
+  every call, beside `row_status`. Every settle path ends there (`settle_row`, `settle_row_partial`,
+  `allocate_row`, `create_expense`, `create_inflow`, `create_non_project_inflow`), so the default CLEARS;
+  `unreconcile_row` is the one caller passing `True`. Inside each caller's savepoint, so a rolled-back settle
+  leaves it alone. `review._persist_row_outcome` (the match run) never names it.
+- **Bulk refusal.** `settle_row(..., bulk=False)`; `_settle_and_commit` refuses `sbool(bulk)` on a marked line
+  with `expenses.CONFIRM_BY_HAND_REFUSAL` (title "Confirm by hand"), before the savepoint, writing nothing. No
+  `bulk` = a hand confirm, which succeeds and clears.
+- **Bulk reads.** `get_confirmable_rows` selects `confirm_by_hand`, ships it on every entry, and files a marked
+  line under `needs_you` BEFORE the target lookup (a live pick would otherwise make it `ready`). The summary's
+  grouped query adds `AND COALESCE(r.confirm_by_hand, 0) = 0` to both `with_suggestion` and `suggested_value`,
+  so `confirmable_rows == len(ready) + len(stale)` still holds.
+- **Table read.** `get_outflow_rows` ships `confirm_by_hand`, `unreconciled_at` and `unreconciled_targets` from
+  `review._last_unreconcile_by_row` (one query, marked rows only): the latest `reversed_at` on the row's
+  `Reversed` legs and the targets reversed within one second of it. `unreconcile_row` now stamps every leg
+  of one call with ONE `reversed_at` (`_stamp_reversed` takes it); the second's tolerance is for legs reversed
+  before #1280, which each took their own timestamp microseconds apart.
+  `get_batch_rows` / the export do not carry these keys.
+- **Frontend.**
+  - `unreconcileView.ts`: `CONFIRM_BY_HAND_CHIP`, `CONFIRM_BY_HAND_REFUSAL` (pinned to the Python by test),
+    `confirmByHandNote(row)` — `null` unless marked AND open; lead *"Unreconciled on 15-Sep-2026."* (or
+    *"Unreconciled."* with no date); *"Same pick as before:"* only when `suggested_name` is in
+    `unreconciled_targets`, else *"Now matched:"*, else no pick; `splitNeedsYou(rows)`.
+  - `OutflowRowsTable` Outcome cell: the note (2-line clamp, full text on `title`) replaces the "Matched X" line,
+    then the amber chip, then the usual Review / Confirm button.
+  - `ConfirmMatchedPanel` sends `bulk: 1`; its funnel line and its lists split `needs_you` into "matched more than
+    one record" and *"N to confirm by hand"* / an amber *"N was unreconciled"* box.
+  - `OutflowMasterPage.settleOne` gains a 5th `bulk` argument, sent to `settle_row` only.
+    `handleBulkConfirm` (the table's tick bar) passes it when `decisionOrigin` is `suggested` — a pick changed in
+    the dialog is a hand decision. ⚠️ A refused row there lands in that bar's existing `alert()` failure list.
+- **Tests.** `api/outflow_import/test_confirm_by_hand.py` (14; +every record of a multi-record unreconcile named): unreconcile sets it (whole line and one split leg);
+  bulk refused and writes nothing (int and `"true"`); hand confirm clears; unmarked bulk unchanged; any
+  `allocate_row` by hand clears it (it is a settle, even if the line stays Partially Allocated); `match_batch` keeps it; `needs_you` not `ready` with the funnel still adding up;
+  summary count and value leave it out and equal ready + stale; the table read's three keys. Nine of them shown
+  RED with the three guards reverted. Vitest `unreconcileView.test.ts` (46, +9). Outflow-import backend suites:
+  50 files, 1,988 tests, all OK.
+
+### #1280 browser walk (2026-09-15, local data, then purged)
+
+A ₹61,234 line settled against its suggestion and a ₹41,999 ordinary matched line, in one import:
+
+1. Before: "Confirm 1 matched". Unreconcile (Reverse all, reason typed) -> the line reads Matched with
+   *"Unreconciled on 15-Sept-2026. Same pick as before: TEST-OFI-…"* and the amber **Confirm by hand** chip; the
+   button still says "Confirm 1 matched" over 2 matched.
+2. Confirm all matched: *"2 matched · 1 ready to confirm · 1 to confirm by hand"*, only the ordinary line ticked,
+   the unreconciled one in its amber box. ⚠️ **Seen, then fixed on the walk:** the funnel line first said
+   *"1 matched more than one record"* for the unreconciled line (it counted all of `needs_you`).
+3. Confirm 1 transfer -> "1 settled" (the ordinary line, sent with `bulk: 1`); button "Confirm 0 matched".
+4. Review on the marked line -> the old pick pre-selected -> Confirm → Paid: Settled, chip gone. Database:
+   `confirm_by_hand = 0`, the reversed leg kept with its reason.
+
+Not walked: the tick bar's refusal (it reports through a browser `alert()`, which would block the automation);
+covered by the server test.
+
+⚠️ `scripts/residence_check.py` fails F5 (116 -> 120) and F2 (207 -> 224) — **identically at HEAD before this
+slice**; nothing here adds an `updateDoc` or a `JSON.parse`.

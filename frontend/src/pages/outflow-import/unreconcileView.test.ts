@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+    CONFIRM_BY_HAND_CHIP,
+    CONFIRM_BY_HAND_REFUSAL,
     REVERSE_ALL_BLOCKED_ONE,
     UNRECONCILE_CASHBOOK_SENTENCE,
     VERDICT_DELETE_CREATED,
@@ -17,10 +19,12 @@ import {
     VERDICT_REVERT_PAYMENT,
     VERDICT_UNSPLIT_PAYMENT,
     WHAT_HAPPENS_UNSPLIT,
+    confirmByHandNote,
     legOutcomeLine,
     recordsHeading,
     reverseAllBlockedSentence,
     reverseAllLabel,
+    splitNeedsYou,
     unreconcileAffordance,
     unreconcileNotice,
     type UnreconcilePlan,
@@ -39,6 +43,11 @@ const unsplitSource = readFileSync(
     fileURLToPath(
         new URL("../../../../nirmaan_stack/services/outflow_import/unsplit.py", import.meta.url),
     ),
+    "utf8",
+);
+
+const expensesSource = readFileSync(
+    fileURLToPath(new URL("../../../../nirmaan_stack/api/outflow_import/expenses.py", import.meta.url)),
     "utf8",
 );
 
@@ -483,5 +492,85 @@ describe("unreconcileAffordance -- what a Settled line's Outcome cell offers", (
         for (const status of ["Partially Allocated", "Matched", "Mismatched", "Skipped", "Pending match run"]) {
             expect(unreconcileAffordance(row(status), true)).toBeNull();
         }
+    });
+});
+
+describe("confirmByHandNote -- the Outcome note on an unreconciled open line (#1280)", () => {
+    const marked = (over: Record<string, unknown> = {}) => ({
+        row_status: "Matched",
+        confirm_by_hand: true,
+        unreconciled_at: "2026-09-15 11:42:07.123456",
+        unreconciled_targets: ["PAY-01388-007"],
+        suggested_name: "PAY-01388-007",
+        ...over,
+    });
+
+    it("names the date and the same pick, as the mockup does", () => {
+        expect(confirmByHandNote(marked())).toEqual({
+            lead: "Unreconciled on 15-Sep-2026.",
+            pickLabel: "Same pick as before:",
+            pick: "PAY-01388-007",
+            text: "Unreconciled on 15-Sep-2026. Same pick as before: PAY-01388-007",
+        });
+    });
+
+    it("never calls a pick the same when a re-run changed it", () => {
+        const note = confirmByHandNote(marked({ suggested_name: "PAY-01400-001" }));
+        expect(note?.pickLabel).toBe("Now matched:");
+        expect(note?.pick).toBe("PAY-01400-001");
+        expect(note?.text).not.toContain("Same pick");
+    });
+
+    it("says only the date when the line has no pick left", () => {
+        const note = confirmByHandNote(marked({ row_status: "Mismatched", suggested_name: null }));
+        expect(note).toEqual({
+            lead: "Unreconciled on 15-Sep-2026.",
+            pickLabel: null,
+            pick: null,
+            text: "Unreconciled on 15-Sep-2026.",
+        });
+    });
+
+    it("still says it was unreconciled when the date is missing", () => {
+        expect(confirmByHandNote(marked({ unreconciled_at: null }))?.lead).toBe("Unreconciled.");
+    });
+
+    it("nothing on an unmarked line", () => {
+        expect(confirmByHandNote(marked({ confirm_by_hand: false }))).toBeNull();
+        expect(confirmByHandNote({ row_status: "Matched", suggested_name: "PAY-1" })).toBeNull();
+    });
+
+    it("nothing on a marked line that is not open -- a Partially Allocated line keeps its own note", () => {
+        for (const status of ["Partially Allocated", "Settled", "Skipped"]) {
+            expect(confirmByHandNote(marked({ row_status: status }))).toBeNull();
+        }
+    });
+
+    it("the chip reads Confirm by hand", () => {
+        expect(CONFIRM_BY_HAND_CHIP).toBe("Confirm by hand");
+    });
+});
+
+describe("splitNeedsYou -- the confirm dialog never files an unreconciled line under 'matched more than one' (#1280)", () => {
+    it("separates marked lines from lines with several candidates, keeping order", () => {
+        const rows = [
+            { name: "A", amount: 1, confirm_by_hand: false },
+            { name: "B", amount: 2, confirm_by_hand: true },
+            { name: "C", amount: 3 },
+            { name: "D", amount: 4, confirm_by_hand: true },
+        ];
+        const { several, byHand } = splitNeedsYou(rows);
+        expect(several.map((r) => r.name)).toEqual(["A", "C"]);
+        expect(byHand.map((r) => r.name)).toEqual(["B", "D"]);
+    });
+});
+
+describe("the bulk refusal sentence is the server's", () => {
+    it("matches expenses.CONFIRM_BY_HAND_REFUSAL", () => {
+        const joined = [...expensesSource.matchAll(/CONFIRM_BY_HAND_REFUSAL = \(([\s\S]*?)\)/g)][0][1]
+            .split("\n")
+            .map((line) => line.trim().replace(/^"|"$/g, ""))
+            .join("");
+        expect(joined).toBe(CONFIRM_BY_HAND_REFUSAL);
     });
 });

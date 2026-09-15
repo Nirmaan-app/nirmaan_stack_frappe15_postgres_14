@@ -1607,6 +1607,8 @@ export interface ConfirmableRow {
     match_basis?: string | null;
     /** Whether the machine chose this record. Exactly "there is a suggestion". */
     auto_matched?: boolean;
+    /** Unreconciled, so it arrives in `needs_you` and never in `ready` (#1280). */
+    confirm_by_hand?: boolean;
 }
 
 // --- how a record was pre-selected (mirrors services/outflow_import/disambiguate.RULE_LABELS) ----

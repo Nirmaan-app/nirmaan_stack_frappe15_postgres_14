@@ -562,7 +562,8 @@ export const OutflowMasterPage = () => {
             row: OutflowImportRow,
             decision: RowDecision,
             mode?: SettleMode,
-            confirmMismatch = false
+            confirmMismatch = false,
+            bulk = false
         ) => {
             // ⚠️ SENT ONLY AS THE ANSWER TO "... anyway?" (#1260), so every other call's payload is
             // byte-identical to what it was. The server re-derives the verdict every time; the flag
@@ -632,6 +633,9 @@ export const OutflowMasterPage = () => {
                         target_doctype: only.target,
                         target_name: only.name,
                         ...anyway,
+                        // #1280: only a bulk caller sends it; the server then refuses a line
+                        // marked Confirm by hand.
+                        ...(bulk ? { bulk: 1 } : {}),
                     });
                 } else if (endpoint === "allocate_row") {
                     await callAllocate({
@@ -804,7 +808,17 @@ export const OutflowMasterPage = () => {
                     // and therefore no radio, so every row here takes `settle_row`'s stricter
                     // whole-transfer guard -- exactly as it did before the mode existed. Splitting
                     // a transfer is a judgement call and does not belong in a fifty-row action.
-                    await settleOne(row, decisions.get(row.name)!);
+                    // ⚠️ `bulk` WHEN THE PICK IS STILL THE MACHINE'S OWN (#1280). Ticking an
+                    // unreconciled line here would otherwise put the same wrong pick straight back
+                    // -- the accident Confirm by hand exists to stop. A pick a person changed in the
+                    // dialog is a hand decision, so it is not refused.
+                    await settleOne(
+                        row,
+                        decisions.get(row.name)!,
+                        undefined,
+                        false,
+                        originByRow.get(row.name) === "suggested"
+                    );
                     setSelected((prev) => {
                         const next = new Set(prev);
                         next.delete(row.name);
@@ -826,7 +840,7 @@ export const OutflowMasterPage = () => {
             // Named, not counted: "3 failed" tells nobody which three to go and look at.
             alert(`Some rows could not be settled:\n\n${failures.join("\n")}`);
         }
-    }, [readyToConfirm, decisions, settleOne, refreshAll]);
+    }, [readyToConfirm, decisions, originByRow, settleOne, refreshAll]);
 
     const handleSkip = useCallback(
         async (row: OutflowImportRow, reason: string) => {

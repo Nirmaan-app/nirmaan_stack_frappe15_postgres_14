@@ -145,6 +145,15 @@ export interface OutflowImportRow {
     decided_by?: string | null;
     decided_at?: string | null;
     outcome_note?: string;
+    /**
+     * Unreconciled, so it must be confirmed by hand (#1280): left out of "Confirm all matched", and
+     * `settle_row(bulk=1)` refuses it. `get_outflow_rows` only; cleared by any settle of the line.
+     */
+    confirm_by_hand?: boolean;
+    /** When the line was last unreconciled; `null` unless `confirm_by_hand`. */
+    unreconciled_at?: string | null;
+    /** The records that came off in that last unreconcile -- what "Same pick as before" checks. */
+    unreconciled_targets?: string[];
     matches: OutflowRowMatch[];
     /**
      * Records already carrying the money this row describes — the records behind an

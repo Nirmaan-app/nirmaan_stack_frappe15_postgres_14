@@ -147,6 +147,12 @@ CONCURRENT_ALLOCATION_MESSAGE = (
     "Another user may have already resolved this transfer, so nothing you selected was saved."
 )
 
+# #1280: a line that was unreconciled keeps its old pick, and a bulk confirm must not re-confirm it.
+CONFIRM_BY_HAND_REFUSAL = (
+    "This transfer was unreconciled, so it is left out of Confirm all matched. "
+    "Open it and confirm it by hand."
+)
+
 
 class MoneyAlreadyRecordedError(frappe.ValidationError):
     """This line's money is already recorded, so the match run would SKIP it (#1260). Nothing written."""
@@ -205,10 +211,18 @@ def _concurrent_writer_refusal_as_sentence(endpoint: str, row: str):
 
 
 @frappe.whitelist(methods=["POST"])
-def settle_row(row: str, target_doctype: str, target_name: str, confirm_mismatch=False):
+def settle_row(
+    row: str, target_doctype: str, target_name: str, confirm_mismatch=False, bulk=False
+):
     """Settle a bank row against an approved record in ANY of the three ledgers (slice V2).
 
     URL: /api/method/nirmaan_stack.api.outflow_import.expenses.settle_row
+
+    ⚠️ `bulk` IS SENT BY EVERY BULK CONFIRM, AND IT REFUSES A LINE MARKED `confirm_by_hand` (#1280).
+    Unreconcile marks a line whose pick was confirmed once and undone; the line keeps that pick, so a
+    bulk confirm would put the same wrong record straight back. Hiding the line from the bulk list is
+    the screen's half; this is the half that does not depend on the screen. A hand confirm (no `bulk`)
+    is what the marker asks for, and it succeeds and clears the marker.
 
     ⚠️ ONE ENDPOINT FOR ALL THREE LEDGERS, ON PURPOSE. The access gate, the savepoint, the match
     record and the row flip are identical whatever was settled, and only the ledger-specific write
@@ -235,7 +249,7 @@ def settle_row(row: str, target_doctype: str, target_name: str, confirm_mismatch
     `InFailedSqlTransaction` instead -- `update_parent_amount_paid` swallows the 40001 first.
     """
     with _concurrent_writer_refusal_as_sentence("settle_row", row):
-        done = _settle_and_commit(row, target_doctype, target_name, confirm_mismatch)
+        done = _settle_and_commit(row, target_doctype, target_name, confirm_mismatch, bulk)
     _link_statement_file_to_target(done.statement_file_url, done.result)
     return _summary(row, done.result, done.batch, done.batch_statuses)
 
@@ -250,12 +264,14 @@ class _CommittedSettle(NamedTuple):
 
 
 def _settle_and_commit(
-    row: str, target_doctype: str, target_name: str, confirm_mismatch=False
+    row: str, target_doctype: str, target_name: str, confirm_mismatch=False, bulk=False
 ) -> _CommittedSettle:
     """The settle itself, up to and including the commit. `settle_row` above is its whitelisted
     boundary and the one place a concurrent writer's refusal is turned into a sentence."""
     actor = require_outflow_access()
     staged, doc = _load_settleable_row(row)
+    if frappe.utils.sbool(bulk) and doc.get("confirm_by_hand"):
+        frappe.throw(CONFIRM_BY_HAND_REFUSAL, title="Confirm by hand")
     # ⚠️ BEFORE THE SAVEPOINT, NOT INSIDE IT. Nothing here needs rolling back -- the point is that
     # a credit never reaches a write at all, in any of the three ledgers this endpoint dispatches
     # across. The same guard sits on `create_expense`; every path in this module that moves money
@@ -1257,8 +1273,16 @@ def _target_snapshot(doctype: str, name: str) -> dict:
     }
 
 
-def _refresh_row_allocation(row_name: str, actor: str, result=None) -> str:
+def _refresh_row_allocation(
+    row_name: str, actor: str, result=None, *, confirm_by_hand: bool = False
+) -> str:
     """Recompute a row's allocation from its legs and write the derived status. Returns it.
+
+    ⚠️ `confirm_by_hand` IS WRITTEN ON EVERY CALL, AND ITS DEFAULT CLEARS IT (#1280). Every settle path
+    -- `settle_row`, `settle_row_partial`, `allocate_row`, `create_expense` and both inflow creates --
+    ends here, so "any successful settle clears the marker" holds without each path remembering to.
+    `unreconcile.unreconcile_row` is the one caller that passes `True`. Inside the caller's savepoint
+    either way, so a settle that rolls back leaves the marker as it was.
 
     ⚠️ `result` IS THE JUST-WRITTEN `SettleResult`, AND IT EXISTS ONLY TO FEED THE NOTE (review F2).
     It carries the two facts the sentence cannot derive from a leg -- whether the record was
@@ -1345,6 +1369,8 @@ def _refresh_row_allocation(row_name: str, actor: str, result=None) -> str:
             "decided_by": actor if something_allocated else None,
             # See the docstring: only meaningful -- and only written -- once the row is Settled.
             "settlement_origin": origin if new_status == ROW_SETTLED else None,
+            # See the docstring: set only by unreconcile, cleared by every settle.
+            "confirm_by_hand": 1 if confirm_by_hand else 0,
         },
         update_modified=False,
     )

@@ -9,10 +9,10 @@ record grows with them. Built so far: the one decision module and write path (#1
 matching (#1272), Skip by hand with a skipped-by-hand marker (#1273), Unskip (#1274), **Unreconcile for
 Project Payments (#1275)** and its **post-write clean-up** (#1276: vendor credit, CEO Hold, latest payment
 date, statement file), **Unreconcile for existing expenses (#1277)**, **Unreconcile for records the
-import created (#1278)** and **Unreconcile for a part payment (#1279)**. Still to come: Confirm by hand.
+import created (#1278)**, **Unreconcile for a part payment (#1279)** and **Confirm by hand (#1280)**.
 
 As-built detail: `.claude/context/domain/outflow-import.md` § *#1271*, *#1272*, *#1273*, *#1274*, *#1275*,
-*#1276*, *#1277*, *#1278*, *#1279*.
+*#1276*, *#1277*, *#1278*, *#1279*, *#1280*.
 Approved mockups: https://claude.ai/artifact/K6vEJXGoALunzfdqTfrVVt
 
 ## Context
@@ -193,6 +193,26 @@ only, pinned by `outflowUndoAccessParity.test.ts`.
 - The dialog line is amber: "The split is undone:" and the three consequences (the payment goes back to its full
   amount, Approved; the leftover is deleted; the PO's two terms join back into one — the last only when the
   leftover has a PO term).
+
+### Confirm by hand (Q5, Q12) — built at #1280
+
+- `Outflow Import Row` gains a Check, **`confirm_by_hand`**. Every Unreconcile sets it — also when one leg of a
+  split comes off and the line stays Partially Allocated. Any successful settle of the line clears it (the one
+  row-status writer every settle path shares). The match run never writes it.
+- The line **keeps its previous pick**. That pick was confirmed once and undone, so it must not go back in bulk:
+  - `settle_row` gains `bulk`. **"Confirm all matched" sends it**, and the server refuses a marked line: *"This
+    transfer was unreconciled, so it is left out of Confirm all matched. Open it and confirm it by hand."*
+  - `get_confirmable_rows` files a marked line under `needs_you`, never `ready`, and the summary's
+    `confirmable_rows` / `confirmable_value` leave it out — so the button's number still equals ready + stale.
+  - The table's own tick-and-confirm bar sends `bulk` too, **but only while the pick is still the machine's**.
+    A record a person picked in the dialog is a hand decision and is not refused. (Not in the ticket's text; the
+    same accident by a second route.)
+- The table's Outcome cell on a marked **open** line: *"Unreconciled on <date>. Same pick as before: <record>"* and
+  an amber **Confirm by hand** chip. "Same pick as before" is said only when the pick is one of the records that
+  came off in the last unreconcile; a re-run that picked another record reads *"Now matched: <record>"*. Every leg
+  of one unreconcile now shares one `reversed_at`, which is how "the last unreconcile" is read.
+- The confirm dialog lists marked lines in their own amber box (*"N was unreconciled"*), not under "matched more
+  than one record".
 
 ## Consequences
 

@@ -35,7 +35,12 @@ import {
     type SettlementLink,
     type SortState,
 } from "../outflowTableModel";
-import { UNRECONCILE_CASHBOOK_SENTENCE, unreconcileAffordance } from "../unreconcileView";
+import {
+    CONFIRM_BY_HAND_CHIP,
+    UNRECONCILE_CASHBOOK_SENTENCE,
+    confirmByHandNote,
+    unreconcileAffordance,
+} from "../unreconcileView";
 
 interface Props {
     rows: OutflowImportRow[];
@@ -759,20 +764,40 @@ const OutcomeButton = ({
     // software; naming PAY-00105-038 lets them tick the box without opening anything, which is the
     // entire point of pre-selecting. It moved lines; it did not go.
     const label = decided ? "Review" : origin === "suggested" ? "Confirm" : "Choose";
+    // #1280: an unreconciled line says when, and whether the pick is the old one, under an amber chip.
+    const byHand = confirmByHandNote(row);
 
     return (
         <div className={`${OUTCOME_CELL_WIDTH} space-y-1`}>
-            <p className="truncate text-xs text-muted-foreground" title={note || undefined}>
-                {origin === "suggested" ? (
-                    <>
-                        Matched <span className="font-mono">{row.suggested_name}</span>
-                    </>
-                ) : decided ? (
-                    "Decided"
-                ) : (
-                    note || "Nothing matched yet"
-                )}
-            </p>
+            {byHand && (
+                <>
+                    <p className="line-clamp-2 text-xs text-muted-foreground" title={byHand.text}>
+                        {byHand.lead}
+                        {byHand.pick && (
+                            <>
+                                {" "}
+                                {byHand.pickLabel} <span className="font-mono">{byHand.pick}</span>
+                            </>
+                        )}
+                    </p>
+                    <span className="inline-block rounded border border-amber-300 bg-amber-50 px-1.5 py-px text-[11px] font-medium text-amber-900">
+                        {CONFIRM_BY_HAND_CHIP}
+                    </span>
+                </>
+            )}
+            {!byHand && (
+                <p className="truncate text-xs text-muted-foreground" title={note || undefined}>
+                    {origin === "suggested" ? (
+                        <>
+                            Matched <span className="font-mono">{row.suggested_name}</span>
+                        </>
+                    ) : decided ? (
+                        "Decided"
+                    ) : (
+                        note || "Nothing matched yet"
+                    )}
+                </p>
+            )}
 
             <div className="flex items-center gap-1.5">
                 {/* A filled, bordered control with a verb and a chevron. The previous version was

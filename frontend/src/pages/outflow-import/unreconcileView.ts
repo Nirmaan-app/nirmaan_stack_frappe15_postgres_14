@@ -7,9 +7,15 @@
 // ⚠️ CONVENIENCE ONLY. The server decides every verdict (`services/outflow_import/unreconcile.py`) and
 // recomputes it under its locks on the write; nothing here decides whether money moves.
 
+import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
-import { NEVER_MATCHED_SOURCES, ROW_PARTIALLY_ALLOCATED, ROW_SETTLED } from "./outflowImportStatus";
+import {
+    NEVER_MATCHED_SOURCES,
+    OPEN_ROW_STATUSES,
+    ROW_PARTIALLY_ALLOCATED,
+    ROW_SETTLED,
+} from "./outflowImportStatus";
 
 /** Mirrors `unreconcile.VERDICT_*`; the test reads the Python. */
 export const VERDICT_REVERT_PAYMENT = "revert_payment";
@@ -247,3 +253,63 @@ export const unreconcileAffordance = (
     if (!canUndo || row.row_status !== ROW_SETTLED) return null;
     return NEVER_MATCHED_SOURCES.has((row.source ?? "").trim()) ? "cashbook" : "button";
 };
+
+// --- Confirm by hand (#1280) ----------------------------------------------------------------------
+
+/** The amber chip on an unreconciled open line (mockup scene 1, last row). */
+export const CONFIRM_BY_HAND_CHIP = "Confirm by hand";
+
+/** Mirrors `expenses.CONFIRM_BY_HAND_REFUSAL` -- what `settle_row(bulk=1)` refuses a marked line with. */
+export const CONFIRM_BY_HAND_REFUSAL =
+    "This transfer was unreconciled, so it is left out of Confirm all matched. Open it and confirm it by hand.";
+
+export interface ConfirmByHandNote {
+    /** "Unreconciled on 15-Sep-2026." -- or "Unreconciled." when the date could not be read. */
+    lead: string;
+    /** "Same pick as before:" / "Now matched:" before the record, or `null` when there is no pick. */
+    pickLabel: string | null;
+    pick: string | null;
+    /** The whole sentence, for the cell's `title`. */
+    text: string;
+}
+
+/**
+ * "Unreconciled on <date>. Same pick as before: <record>" for a marked OPEN line, or `null` (#1280).
+ *
+ * ⚠️ "SAME PICK AS BEFORE" ONLY WHEN IT IS. A match re-run keeps the marker but may change the pick, so
+ * the pick is compared with the records that came off in the last unreconcile; a different one reads
+ * "Now matched:" rather than a claim that is false.
+ *
+ * ⚠️ OPEN LINES ONLY. Reversing one leg of a split leaves the line Partially Allocated and marked; its
+ * Outcome cell keeps the allocation note, and the next allocation by hand clears the marker.
+ */
+export const confirmByHandNote = (row: {
+    row_status: string;
+    confirm_by_hand?: boolean | null;
+    unreconciled_at?: string | null;
+    unreconciled_targets?: string[] | null;
+    suggested_name?: string | null;
+}): ConfirmByHandNote | null => {
+    if (!row.confirm_by_hand || !OPEN_ROW_STATUSES.has(row.row_status)) return null;
+    const day = (row.unreconciled_at ?? "").split(/[ T]/)[0];
+    const lead = day ? `Unreconciled on ${formatDate(day)}.` : "Unreconciled.";
+    const pick = (row.suggested_name ?? "").trim() || null;
+    const pickLabel = !pick
+        ? null
+        : (row.unreconciled_targets ?? []).includes(pick)
+          ? "Same pick as before:"
+          : "Now matched:";
+    return { lead, pickLabel, pick, text: pick ? `${lead} ${pickLabel} ${pick}` : lead };
+};
+
+/**
+ * The confirm dialog's `needs_you` list, cut into the lines with several candidates and the lines
+ * marked Confirm by hand (#1280). The server files both under `needs_you` -- neither is confirmable
+ * in bulk -- but "matched more than one record" is false for an unreconciled line.
+ */
+export const splitNeedsYou = <T extends { confirm_by_hand?: boolean | null }>(
+    rows: readonly T[],
+): { several: T[]; byHand: T[] } => ({
+    several: rows.filter((row) => !row.confirm_by_hand),
+    byHand: rows.filter((row) => row.confirm_by_hand),
+});

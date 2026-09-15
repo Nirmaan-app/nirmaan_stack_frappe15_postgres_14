@@ -85,7 +85,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 # which cannot: `allocation.py` imports `status.py`, which imports `ledgers.py`, so `ledgers.py`
 # importing `allocation.py` back would be a real circular import -- verified, see
 # `ledgers._SETTLED_MATCH_KIND`). `review.py` sits above all three, so no cycle here.
-from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
+from nirmaan_stack.services.outflow_import.allocation import MATCH_REVERSED, MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.parser import (
     BANK_SUCCESS_STATUS,
@@ -1532,6 +1532,40 @@ def _settled_matches_by_row(row_names) -> dict[str, list]:
     return by_row
 
 
+def _last_unreconcile_by_row(row_names) -> dict[str, dict]:
+    """Row name -> `{"at", "targets"}` of its LAST unreconcile, for the Confirm-by-hand note (#1280).
+
+    ONE query for a page. `at` is the latest `reversed_at` on the row's `Reversed` legs; `targets` are
+    the records reversed within a second of it. `unreconcile_row` now stamps every leg of one call with
+    ONE timestamp; the second's tolerance covers legs reversed before that, which each took their own
+    `now_datetime()` microseconds apart.
+
+    ⚠️ `targets` IS WHAT LETS THE SCREEN SAY "Same pick as before" HONESTLY. A match re-run keeps the
+    marker but may change the suggestion, and the note must not claim a pick is the old one when it
+    is not.
+    """
+    names = [n for n in row_names if n]
+    if not names:
+        return {}
+    legs = frappe.db.sql(
+        """
+        SELECT import_row, target_name, reversed_at
+        FROM "tabOutflow Row Match"
+        WHERE import_row IN %s AND match_kind = %s AND reversed_at IS NOT NULL
+        ORDER BY reversed_at DESC, target_name ASC
+        """,
+        (tuple(names), MATCH_REVERSED),
+        as_dict=True,
+    )
+    out: dict[str, dict] = {}
+    for leg in legs:
+        entry = out.setdefault(leg["import_row"], {"at": leg["reversed_at"], "targets": []})
+        same_call = (entry["at"] - leg["reversed_at"]).total_seconds() < 1
+        if same_call and leg["target_name"] not in entry["targets"]:
+            entry["targets"].append(leg["target_name"])
+    return out
+
+
 def _related_records(rows: list) -> dict[str, list]:
     """The already-recorded records each row's bank reference points at, keyed by that reference.
 
@@ -2634,6 +2668,8 @@ def get_outflow_rows(
                r.auto_matched, r.row_status, r.skip_reason, r.outcome_note,
                -- Who skipped it, and when (#1273): the Skipped popup's "Skipped by hand" line.
                r.skip_origin, r.decided_by, r.decided_at,
+               -- The Outcome cell's "Confirm by hand" chip (#1280); the date beside it is read below.
+               r.confirm_by_hand,
                -- ⚠️ ADDING A COLUMN TO `_FACET_COLUMNS` DOES NOT SHIP IT TO THE SCREEN. That map
                -- governs FILTERING; this list governs what the row CARRIES, and slice Q1 initially
                -- changed only the first -- so the "Settled via" column rendered an em dash on all
@@ -2691,6 +2727,9 @@ def get_outflow_rows(
     # settled or CREATED. Until then this read sent `matches: []`, so a created Project Inflow,
     # Non-Project Inflow or expense was never linked from the screen.
     by_row = _settled_matches_by_row([r["name"] for r in rows])
+    unreconciled = _last_unreconcile_by_row(
+        [r["name"] for r in rows if r.get("confirm_by_hand")]
+    )
     # ⚠️ THE SAME ENRICHMENT AS `get_batch_rows`, AND IT HAS TO BE. This is the MASTER TABLE -- the
     # surface most of the feature's payment links are actually clicked on -- so enriching only the
     # batch view would leave the app's own route working in one place and not the other, which is
@@ -2726,6 +2765,11 @@ def get_outflow_rows(
                 "matches": by_row.get(row["name"], []),
                 "related_records": related.get(row["name"], []),
                 "suggested_order_name": suggested_orders.get(row.get("suggested_name") or "", ""),
+                "confirm_by_hand": bool(row.get("confirm_by_hand")),
+                # #1280: when the line was last unreconciled and which records came off then, so the
+                # Outcome cell can say "Same pick as before" only when it is.
+                "unreconciled_at": unreconciled.get(row["name"], {}).get("at"),
+                "unreconciled_targets": unreconciled.get(row["name"], {}).get("targets", []),
             }
             for row in rows
         ],
@@ -3244,7 +3288,7 @@ def get_confirmable_rows(
     row is `Matched` when the matcher found one OR MORE approved records. When it found several it
     deliberately stores NO suggestion -- the screen never guesses between two real records -- so
     those rows have nothing to confirm them AGAINST. They come back in `needs_you`: listed, linked,
-    and never auto-confirmable.
+    and never auto-confirmable. So does a line marked `confirm_by_hand` (#1280), whatever it carries.
 
     ⚠️ THE RETURN IS A FUNNEL, IN THREE BUCKETS, AND THE THIRD EXISTS BECAUSE TWO SCREENS DISAGREED.
     The summary panel's button reads `confirmable_rows` from `get_import_summary`, which counts
@@ -3298,7 +3342,7 @@ def get_confirmable_rows(
         f"""
         SELECT r.name, r.transfer_id, r.added_on, r.amount, r.beneficiary_name, r.remarks,
                r.bank_reference_no, r.suggested_doctype, r.suggested_name, r.outcome_note,
-               r.suggestion_rule, r.match_basis, r.auto_matched
+               r.suggestion_rule, r.match_basis, r.auto_matched, r.confirm_by_hand
         FROM "tabOutflow Import Row" r
         {clause}
         ORDER BY r.added_on ASC, r.name ASC
@@ -3339,7 +3383,16 @@ def get_confirmable_rows(
             # How the counterpart was FOUND, as opposed to how one was chosen from what was found.
             "match_basis": row.get("match_basis"),
             "auto_matched": bool(row.get("auto_matched")),
+            "confirm_by_hand": bool(row.get("confirm_by_hand")),
         }
+
+        # ⚠️ AN UNRECONCILED LINE IS `needs_you`, NEVER `ready`, EVEN WITH A LIVE PICK (#1280). Its pick
+        # was confirmed once and undone, so the list must not arrive with it ticked. The summary's
+        # `confirmable_rows` leaves it out in the same change, so `len(ready) + len(stale)` still IS
+        # the button's number, and `settle_row(bulk=1)` refuses it if a stale screen sends it anyway.
+        if base["confirm_by_hand"]:
+            needs_you.append(base)
+            continue
 
         detail = targets.get((doctype, name)) if doctype and name else None
         if not detail:
@@ -3772,9 +3825,13 @@ def get_outflow_summary(
                COALESCE(r.direction, '')                           AS direction,
                COUNT(*)                                            AS count,
                COALESCE(SUM(r.amount), 0)                          AS value,
+               -- ⚠️ A line marked Confirm by hand (#1280) carries a pick but is NOT confirmable in
+               -- bulk, so it is left out of both -- the same rule `get_confirmable_rows` applies.
                COALESCE(SUM(CASE WHEN COALESCE(r.suggested_name, '') <> ''
+                                  AND COALESCE(r.confirm_by_hand, 0) = 0
                                  THEN 1 ELSE 0 END), 0)            AS with_suggestion,
                COALESCE(SUM(CASE WHEN COALESCE(r.suggested_name, '') <> ''
+                                  AND COALESCE(r.confirm_by_hand, 0) = 0
                                  THEN r.amount ELSE 0 END), 0)     AS suggested_value,
                COALESCE(SUM(CASE WHEN COALESCE(r.decided_by, '') = ''
                                  THEN 1 ELSE 0 END), 0)            AS undecided_by_a_person,
