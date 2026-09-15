@@ -6,11 +6,13 @@ Date: 2026-09-15
 
 **Accepted** (owner grilling session 2026-09-15, Q1–Q19; spec #1270). Being built in slices; this
 record grows with them. Built so far: the one decision module and write path (#1271), one-line
-matching (#1272), Skip by hand with a skipped-by-hand marker (#1273), Unskip (#1274), and **Unreconcile for
-Project Payments (#1275)**. Still to come: existing expenses, import-created records, part-payment un-split,
-the post-write recomputes, Confirm by hand.
+matching (#1272), Skip by hand with a skipped-by-hand marker (#1273), Unskip (#1274), **Unreconcile for
+Project Payments (#1275)** and its **post-write clean-up** (#1276: vendor credit, CEO Hold, latest payment
+date, statement file). Still to come: existing expenses, import-created records, part-payment un-split,
+Confirm by hand.
 
-As-built detail: `.claude/context/domain/outflow-import.md` § *#1271*, *#1272*, *#1273*, *#1274*, *#1275*.
+As-built detail: `.claude/context/domain/outflow-import.md` § *#1271*, *#1272*, *#1273*, *#1274*, *#1275*,
+*#1276*.
 Approved mockups: https://claude.ai/artifact/K6vEJXGoALunzfdqTfrVVt
 
 ## Context

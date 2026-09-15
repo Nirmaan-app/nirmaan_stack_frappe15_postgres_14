@@ -37,6 +37,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
     _concurrent_writer_refusal_as_sentence,
     _live_legs,
     _refresh_row_allocation,
+    _statement_file_url,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_undo_access
 from nirmaan_stack.api.outflow_import.review import (
@@ -45,6 +46,7 @@ from nirmaan_stack.api.outflow_import.review import (
     _batch_source,
     _refresh_batch_rollup,
 )
+from nirmaan_stack.api.outflow_import.unreconcile_cleanup import restore_derived_state
 from nirmaan_stack.services.outflow_import.allocation import (
     MATCH_REVERSED,
     MATCH_SETTLED,
@@ -52,7 +54,10 @@ from nirmaan_stack.services.outflow_import.allocation import (
     remaining_of,
 )
 from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE
-from nirmaan_stack.services.outflow_import.settle import _outflow_import_write
+from nirmaan_stack.services.outflow_import.settle import (
+    _outflow_import_write,
+    clear_statement_attachment,
+)
 from nirmaan_stack.services.outflow_import.settlement_reference import (
     settlement_references_of_row,
 )
@@ -174,12 +179,17 @@ def unreconcile_row(row: str, legs, reason: str) -> dict:
         if refused:
             frappe.throw(refused.reason, title=refused.title)
 
+        statement = _statement_file_url(line.import_batch)
         savepoint = f"ofi_unrec_{frappe.generate_hash(length=10)}"
         frappe.db.savepoint(savepoint)
         try:
+            reverted_payments = []
             for leg, verdict in zip(requested, verdicts):
-                _carry_out(verdict.verdict, leg)
+                reverted_payments += _carry_out(verdict.verdict, leg, statement)
                 _stamp_reversed(leg.name, actor, reason)
+            # #1276: vendor credit, CEO Hold, latest payment date and the statement `File` row,
+            # once, on the state after EVERY leg -- see `unreconcile_cleanup`.
+            restore_derived_state(reverted_payments, statement)
             new_status = _refresh_row_allocation(line.name, actor)
             _comment_on_line(line.name, actor, reason, requested)
         except Exception:
@@ -228,16 +238,17 @@ def _comment_on_line(row: str, actor: str, reason: str, legs) -> None:
     )
 
 
-def _carry_out(verdict: str, leg) -> None:
-    """Perform one verdict on its target.
+def _carry_out(verdict: str, leg, statement_file_url: str | None) -> list[str]:
+    """Perform one verdict on its target. Returns the payments it put back to Approved, which is
+    what `unreconcile_cleanup.restore_derived_state` puts right around (#1276).
 
     ⚠️ AN UNKNOWN VERDICT RAISES. The decision module will grow new verdicts (#1270); one that is
     not wired here would otherwise stamp the leg Reversed while its target stays settled. Raising
     inside the savepoint rolls every leg back.
     """
     if verdict == VERDICT_REVERT_PAYMENT:
-        _revert_payment(leg.target_name)
-        return
+        _revert_payment(leg.target_name, statement_file_url)
+        return [leg.target_name]
     raise NotImplementedError(f"No write for verdict '{verdict}' on match record '{leg.name}'.")
 
 
@@ -348,14 +359,15 @@ def _read_facts(legs, references, source: str, *, for_update: bool) -> dict:
     return facts
 
 
-def _revert_payment(name: str) -> None:
+def _revert_payment(name: str, statement_file_url: str | None) -> None:
     """Put a payment back to Approved. The verdict already said it may; this only writes.
 
     ⚠️ `doc.save()`, NOT `db.set_value`. `Paid -> Approved` is exactly the transition
     `update_parent_amount_paid` watches, and it SUMS the Paid payments rather than incrementing, so
     the PO's `amount_paid` self-corrects. A `set_value` would fire no hooks.
 
-    ⚠️ IT CLEARS STATUS / `utr` / `payment_date` AND NOTHING ELSE. That is why the decision module
+    ⚠️ IT CLEARS STATUS / `utr` / `payment_date` AND NOTHING ELSE, bar the statement attachment the
+    settle wrote (#1276, only while the field still holds it). That is why the decision module
     refuses a payment carrying TDS or either half of a split: add a field here and check those
     refusals, the two live and die together. The amount is NOT restored (Ruling O).
 
@@ -366,6 +378,7 @@ def _revert_payment(name: str) -> None:
     doc.status = "Approved"
     doc.utr = None
     doc.payment_date = None
+    clear_statement_attachment(doc, statement_file_url)
     doc.flags.from_outflow_import = True
     with _outflow_import_write():
         doc.save(ignore_permissions=True, ignore_version=False)

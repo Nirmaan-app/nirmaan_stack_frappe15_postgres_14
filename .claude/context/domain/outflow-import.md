@@ -4944,3 +4944,43 @@ Reverses Q9 for Project Payments. Record: **ADR-0022**. Mockups: scenes 1, 2 (an
   Accountant refused on both endpoints, Accountant Lead allowed; whitelisting; Cashbook refused; the TDS pin);
   vitest `unreconcileView.test.ts` (19). `PaymentSettlementFixture.tearDown` now also purges match-record
   Versions and line Comments.
+
+## #1276 (2026-09-15) — Unreconcile clean-up: nothing derived from a reverted payment is left stale
+
+`unreconcile_row` now calls **`api/outflow_import/unreconcile_cleanup.restore_derived_state(payments,
+statement)`** once, inside its savepoint, after every leg is written and before the line's status is
+re-derived. Nothing there commits, and a failure rolls every leg back. Every figure is RECOMPUTED from
+source, never rolled back from memory.
+
+- **Vendor credit.** The payment hook recalculates only on `Approved -> Paid`. The clean-up calls
+  `recalculate_vendor_credit` ONCE PER VENDOR over the reverted payments' Procurement Orders (it sums every
+  PO, so a second call would only add a zero entry). Ledger entry: `entry_type` **"Payment Unreconciled"**,
+  `po_id` = the POs joined with ", ", `project` only when every PO shares one. Service Request payments do
+  not touch vendor credit.
+- **CEO Hold.** `trigger_check`'s per-request `ceo_hold_checked:<project>` flag skips the second payment of
+  one project in a Reverse all, so the hold was judged on a gap that still counted it. The clean-up calls
+  **`sync_cashflow_reason(project)` directly**, once per project, LAST (after amount_paid and vendor credit),
+  under `_outflow_import_write()` so the manual-hold notify branch cannot commit. ⚠️ Unlike `trigger_check`
+  it does NOT swallow a failure: a stale hold is the defect, so the reversal rolls back instead.
+- **Latest payment date.** `services/outflow_import/settle.recompute_latest_payment_date` — beside its
+  advance-only twin — per parent (PO or SR, where the column exists): `MAX(payment_date)` over its remaining
+  **Paid** payments, blank when none, written with `set_value(update_modified=False)`, the same bypass the
+  settle's advance uses; no `doc_events` handler watches this field.
+- **`_carry_out` returns the payments it reverted**, so the next verdict (#1270) reports what it touched in
+  one place rather than a second verdict filter at the call site.
+- **Statement attachment.** `services/outflow_import/settle.clear_statement_attachment(doc, url)` — the
+  inverse of `apply_statement_attachment` — clears the field on the payment's revert save ONLY while it
+  still equals the batch's `source_file`; a proof attached by hand stays. The import's statement **`File`
+  row** on each reverted payment (`file_url` = statement, attached to that payment) is removed.
+  ⚠️ **A RAW `frappe.db.delete`, ON PURPOSE.** `frappe_gcp_attachment`'s `File.on_trash` deletes the blob by
+  `content_hash`. The link rows carry NULL there (all 235 on the local site, 2026-09-15), which throws when
+  cloud deletes are on; a row carrying the key would delete the statement the batch and every other
+  settled record still use. The batch's own `File` row is attached to the batch and is never matched.
+- **Tests:** `api/outflow_import/test_unreconcile_cleanup.py` (7, all shown RED before the change):
+  credit used == a fresh `_compute_credit_used` + one "Payment Unreconciled" entry with the delta; two
+  payments of one project with the flag cleared leave the cashflow reason == a fresh evaluation; latest
+  date when the latest is reverted, when a non-latest is reverted over a stale stored value (recompute,
+  not rollback), and blank after Reverse all; statement cleared + link `File` row gone + batch `File` row
+  kept; a hand-replaced attachment and its `File` row left alone. Unchanged and green: unreconcile
+  payments (14) / row (14), reverse allocation (22), settle payment (62), allocate (23), expenses (50),
+  inflows (55), skip (18), unskip (10).

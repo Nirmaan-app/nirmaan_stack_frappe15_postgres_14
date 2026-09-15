@@ -368,6 +368,24 @@ def apply_statement_attachment(doc, statement_file_url: str | None) -> bool:
     return True
 
 
+def clear_statement_attachment(doc, statement_file_url: str | None) -> bool:
+    """The inverse of `apply_statement_attachment`, for an unreconcile (#1276). Returns whether it
+    wrote. Call BEFORE `doc.save()`, for the same reason.
+
+    ⚠️ IT CLEARS ONLY A FIELD THAT STILL HOLDS THIS STATEMENT. Anything else in it is a proof somebody
+    attached by hand -- before the settle (which then wrote nothing) or after it -- and is theirs.
+    """
+    if not statement_file_url:
+        return False
+    field = statement_attachment_field(doc.doctype)
+    if not doc.meta.has_field(field):
+        return False
+    if (doc.get(field) or "").strip() != statement_file_url.strip():
+        return False
+    doc.set(field, None)
+    return True
+
+
 #: The doctypes whose `amount` is a **Data** column holding a bare numeric STRING.
 #:
 #: ⚠️ STILL A SET, THOUGH IT HOLDS ONE MEMBER AGAIN. B6 added `Project Inflows`; #1255 made that
@@ -825,6 +843,28 @@ def _advance_po_latest_payment_date(doc, payment_date) -> None:
         return
     frappe.db.set_value(
         doc.document_type, doc.document_name, "latest_payment_date", payment_date
+    )
+
+
+def recompute_latest_payment_date(document_type: str, document_name: str) -> None:
+    """The parent's `latest_payment_date` = its latest remaining Paid payment's date, or blank (#1276).
+
+    The UNDO twin of `_advance_po_latest_payment_date`: an unreconcile cannot advance, and it must not
+    roll back from memory either, so it RECOMPUTES from source. Written with `set_value` for the
+    reason given there; no `doc_events` handler watches this field
+    (`project_cashflow_hold_update.on_procurement_order` watches `po_amount_delivered` / `amount_paid`).
+    """
+    if not document_type or not document_name:
+        return
+    if not frappe.db.has_column(document_type, "latest_payment_date"):
+        return
+    [[latest]] = frappe.db.sql(
+        f"""SELECT MAX(payment_date) FROM "tab{PAYMENT_DOCTYPE}"
+           WHERE document_type = %s AND document_name = %s AND status = %s""",
+        (document_type, document_name, _PAID),
+    )
+    frappe.db.set_value(
+        document_type, document_name, "latest_payment_date", latest, update_modified=False
     )
 
 
