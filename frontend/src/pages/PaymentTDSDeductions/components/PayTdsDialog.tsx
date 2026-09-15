@@ -255,18 +255,21 @@ export const PayTdsDialog: React.FC<PayTdsDialogProps> = ({
             const response = await callExtract({ file_url: uploadedUrl });
             const read = response?.message || {};
 
+            // ⚠️ COMPUTED AS PLAIN DATA FIRST, NEVER INSIDE THE `setForm` UPDATER. React runs an
+            // updater LATER, so a `filled` set built in there is still empty on the line after
+            // `setForm` returns -- and the "nothing could be read" check below then fired on every
+            // successful read, while the fields around it sat correctly filled and tinted. The
+            // tint survived only because the same Set object was mutated after the fact.
+            const overlay: Partial<ChallanForm> = {};
             const filled = new Set<string>();
-            setForm((prev) => {
-                const next = { ...prev };
-                (Object.keys(EMPTY_FORM) as (keyof ChallanForm)[]).forEach((key) => {
-                    const value = read[key];
-                    if (value !== undefined && value !== null && String(value) !== "") {
-                        next[key] = String(value);
-                        filled.add(key);
-                    }
-                });
-                return next;
+            (Object.keys(EMPTY_FORM) as (keyof ChallanForm)[]).forEach((key) => {
+                const value = read[key];
+                if (value !== undefined && value !== null && String(value) !== "") {
+                    overlay[key] = String(value);
+                    filled.add(key);
+                }
             });
+            setForm((prev) => ({ ...prev, ...overlay }));
             setAutofilled(filled);
 
             // Deterministic checks, not the model's own confidence.
@@ -600,60 +603,70 @@ export const PayTdsDialog: React.FC<PayTdsDialogProps> = ({
                             </p>
                         )}
 
-                        {readWarnings.map((warning) => (
-                            <p
-                                key={warning}
-                                className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300"
-                            >
-                                {warning}
-                            </p>
-                        ))}
+                        {/* ⚠️ NOTHING BELOW RENDERS WHILE THE READ IS STILL IN FLIGHT. Empty boxes
+                            beside a total computed from a BLANK amount read as a failure: the
+                            footer announced "challan is smaller than the selected TDS" while the
+                            file was still being read, and every required field sat empty and red.
+                            The form appears once there is something to put in it. */}
+                        {!isReading && (
+                            <>
+                                {readWarnings.map((warning) => (
+                                    <p
+                                        key={warning}
+                                        className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300"
+                                    >
+                                        {warning}
+                                    </p>
+                                ))}
 
-                        <div className="grid gap-3 sm:grid-cols-3">
-                            {field("financial_year", "Financial Year")}
-                            {field("amount", "Amount")}
-                            {field("date_of_deposit", "Date of Deposit", "date")}
-                            {field("tender_date", "Tender Date", "date")}
-                            <div className="space-y-1">
-                                <Label className="text-xs">Mode of Payment</Label>
-                                <Select
-                                    value={form.mode_of_payment}
-                                    onValueChange={(value) => setField("mode_of_payment", value)}
-                                    disabled={isBusy}
-                                >
-                                    <SelectTrigger className={cn("h-9", tint("mode_of_payment"))}>
-                                        <SelectValue placeholder="Select…" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {MODE_OPTIONS.map((option) => (
-                                            <SelectItem key={option} value={option}>
-                                                {option}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            {field("bank_name", "Bank Name")}
-                            {field("bank_reference_number", "Bank Reference Number")}
-                            {field("bsr_code", "BSR Code")}
-                            {field("challan_no", "Challan No")}
-                        </div>
+                                <div className="grid gap-3 sm:grid-cols-3">
+                                    {field("financial_year", "Financial Year")}
+                                    {field("amount", "Amount")}
+                                    {field("date_of_deposit", "Date of Deposit", "date")}
+                                    {field("tender_date", "Tender Date", "date")}
+                                    <div className="space-y-1">
+                                        <Label className="text-xs">Mode of Payment</Label>
+                                        <Select
+                                            value={form.mode_of_payment}
+                                            onValueChange={(value) => setField("mode_of_payment", value)}
+                                            disabled={isBusy}
+                                        >
+                                            <SelectTrigger className={cn("h-9", tint("mode_of_payment"))}>
+                                                <SelectValue placeholder="Select…" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {MODE_OPTIONS.map((option) => (
+                                                    <SelectItem key={option} value={option}>
+                                                        {option}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    {field("bank_name", "Bank Name")}
+                                    {field("bank_reference_number", "Bank Reference Number")}
+                                    {field("bsr_code", "BSR Code")}
+                                    {field("challan_no", "Challan No")}
+                                </div>
 
-                        <p className="text-xs text-muted-foreground">
-                            Challan {formatToIndianRupee(newAmount)} · Paying {formatToIndianRupee(totalTds)}
-                            {newAmountCovers ? (
-                                <>
-                                    {" "}· Left on challan{" "}
-                                    <span className="font-semibold">
-                                        {formatToIndianRupee(newAmount - totalTds)}
-                                    </span>
-                                </>
-                            ) : (
-                                <span className="font-semibold text-destructive">
-                                    {" "}· challan is smaller than the selected TDS
-                                </span>
-                            )}
-                        </p>
+                                <p className="text-xs text-muted-foreground">
+                                    Challan {formatToIndianRupee(newAmount)} · Paying{" "}
+                                    {formatToIndianRupee(totalTds)}
+                                    {newAmountCovers ? (
+                                        <>
+                                            {" "}· Left on challan{" "}
+                                            <span className="font-semibold">
+                                                {formatToIndianRupee(newAmount - totalTds)}
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <span className="font-semibold text-destructive">
+                                            {" "}· challan is smaller than the selected TDS
+                                        </span>
+                                    )}
+                                </p>
+                            </>
+                        )}
                     </div>
                 )}
 
