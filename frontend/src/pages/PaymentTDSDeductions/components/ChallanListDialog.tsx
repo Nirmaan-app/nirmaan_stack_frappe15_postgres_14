@@ -91,8 +91,8 @@ export const ChallanListDialog: React.FC<ChallanListDialogProps> = ({ open, onOp
                     <DialogTitle>TDS Challans</DialogTitle>
                     <DialogDescription>
                         {rows.length} challan{rows.length === 1 ? "" : "s"} ·{" "}
-                        {formatToIndianRupee(totals.amount)} deposited ·{" "}
-                        {formatToIndianRupee(totals.remaining)} unused
+                        {formatToIndianRupee(totals.amount)} paid ·{" "}
+                        {formatToIndianRupee(totals.remaining)} unreconciled
                     </DialogDescription>
                 </DialogHeader>
 
@@ -120,9 +120,13 @@ export const ChallanListDialog: React.FC<ChallanListDialogProps> = ({ open, onOp
                                     <th className="p-2 text-left font-medium">FY</th>
                                     <th className="p-2 text-left font-medium">Deposited</th>
                                     <th className="p-2 text-left font-medium">Bank</th>
-                                    <th className="p-2 text-right font-medium">Amount</th>
-                                    <th className="p-2 text-right font-medium">Used</th>
-                                    <th className="p-2 text-right font-medium">Remaining</th>
+                                    {/* Owner wording 2026-09-15. The three are one sentence read
+                                        left to right: what was PAID to the department, how much of
+                                        it has been matched to deductions, and what is still
+                                        unmatched. "Used"/"Remaining" read like stock, not tax. */}
+                                    <th className="p-2 text-right font-medium">Amount Paid</th>
+                                    <th className="p-2 text-right font-medium">Amount Recon</th>
+                                    <th className="p-2 text-right font-medium">Amount Unrecon</th>
                                     <th className="p-2 text-center font-medium">Receipt</th>
                                 </tr>
                             </thead>
