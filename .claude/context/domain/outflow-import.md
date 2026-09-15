@@ -5155,3 +5155,23 @@ Narrows ADR-0020 A3's blanket split refusal to "untouched leftover only". Record
   ₹60,000 acceptance case end to end, comments, re-settle elsewhere, paid / edited / taxed refusals writing
   nothing, the paid refusal's instruction followed through to a successful un-split, a CEO-shaped balance still
   refused); vitest `unreconcileView.test.ts` (37).
+
+### #1279 browser walk (2026-09-15, local data, then purged)
+
+A ₹1,00,000 PO payment part-settled by ₹60,000 (untouched leftover), and a second ₹1,00,000 part-settled by
+₹70,000 whose ₹30,000 leftover was then paid by a third line. All seen on screen and read back from the database:
+
+1. **Paid leftover:** grey, "Can't be undone yet. Its leftover PAY-… was paid by another transfer on 15-Sep-2026.
+   Unreconcile that transfer first.", Reverse and Reverse all off.
+2. **Untouched leftover:** amber "The split is undone:" + the three bullets with the right figures. Reversed -> notice
+   "…went back to Approved. It now needs a record. The split on … was undone and its leftover … deleted."
+3. **Following the instruction:** the balance line showed blue "Goes back to Approved…" and reversed; the refused
+   line then showed amber and un-split.
+4. **Database after:** both payments ₹1,00,000 Approved with no UTR / date, both leftovers gone, the PO back to its
+   two original terms (₹1,00,000 each, sum = PO total), `amount_paid` 0, three legs Reversed with their reasons,
+   partial-settle comments kept plus one "Partial settlement undone by …" each.
+
+⚠️ **Seen, not fixed (pre-dates #1279):** re-opening a line's dialog after undoing a DIFFERENT line first paints
+the plan SWR cached earlier (`unreconcile-plan-<row>`), so the old "paid by another transfer" refusal flashed for
+under a second before the refetch replaced it. Nothing can be written from the stale paint (the write re-checks
+under locks, and the refused row's buttons are off), but it can mislead for a moment.
